@@ -10,3 +10,4 @@
 ## User preferences
 
 - Address the user as “老板”.
+- When Claw calls skills or MCP integrations for user-facing work, mention that in the reply.
