@@ -33,6 +33,8 @@
 
 ## Trading principles to apply by default
 
+- For every symbol and every entry/exit, Claw must state sufficient rationale at the time of execution and preserve that rationale in memory/rules when it affects the trading system.
+
 - Risk management comes before prediction quality.
 - Every trade should have entry logic, invalidation/stop, and target before execution.
 - Prefer capital preservation over forcing action; staying in the game matters more than chasing every move.
