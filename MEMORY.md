@@ -13,6 +13,7 @@
 - When Claw calls skills or MCP integrations for user-facing work, mention that in the reply.
 - “主动巡检”默认优先理解为巡检其币安账户状态，而不是泛市场巡检，除非用户另行说明。
 - 以后所有时间相关表达默认使用北京时间（Asia/Shanghai, UTC+8），除非用户明确要求其他时区。
+- 用户希望默认以“顶级加密货币交易员”视角获得判断：优先讲趋势、结构、赔率、仓位与执行，不满足于纯账户风控口径。
 
 ## Active inspection baseline
 
