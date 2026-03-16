@@ -22,12 +22,32 @@ python3 trading_system/market_scan.py
 
 ```bash
 python3 trading_system/generate_plan.py
+python3 trading_system/score_plan.py
 ```
 
 输出：
 - `trading_system/data/trade_plan.json`
+- `trading_system/data/trade_plan_scored.json`
 
-## 4. 记录交易理由或复盘
+## 4. 模拟执行高优先级动作
+
+```bash
+python3 trading_system/paper_executor.py --top 5 --mode mixed
+```
+
+输出：
+- `trading_system/data/paper_trades.jsonl`
+
+## 5. 生成日报
+
+```bash
+python3 trading_system/daily_report.py
+```
+
+输出：
+- `trading_system/data/daily_report.md`
+
+## 6. 记录交易理由或复盘
 
 ```bash
 python3 trading_system/journal.py note --type rationale --symbol BTCUSDT --side LONG --action OPEN --text "4h 趋势向上，回踩 20EMA 附近，赔率优于账户内弱 alt。"

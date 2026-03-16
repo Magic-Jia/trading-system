@@ -1,0 +1,242 @@
+{
+  "meta": {
+    "style": "top crypto trader",
+    "principle": "cut weak fragmented losers, keep relative strength, no new weak alt longs"
+  },
+  "actions": [
+    {
+      "symbol": "MYXUSDT",
+      "action": "CLOSE_PRIORITY",
+      "side": "LONG",
+      "roi_pct": -62.51,
+      "upl": -10.2033,
+      "notional": 6.1187,
+      "rationale": [
+        "亏损过深且剩余名义价值仍值得回收",
+        "继续持有的机会成本高于留仓价值"
+      ],
+      "priority_score": 100
+    },
+    {
+      "symbol": "TAKEUSDT",
+      "action": "CLOSE_PRIORITY",
+      "side": "LONG",
+      "roi_pct": -58.78,
+      "upl": -2.9546,
+      "notional": 2.072,
+      "rationale": [
+        "亏损过深且剩余名义价值仍值得回收",
+        "继续持有的机会成本高于留仓价值"
+      ],
+      "priority_score": 92
+    },
+    {
+      "symbol": "ZKCUSDT",
+      "action": "CLOSE_PRIORITY",
+      "side": "LONG",
+      "roi_pct": -56.07,
+      "upl": -2.8386,
+      "notional": 2.2239,
+      "rationale": [
+        "亏损过深且剩余名义价值仍值得回收",
+        "继续持有的机会成本高于留仓价值"
+      ],
+      "priority_score": 92
+    },
+    {
+      "symbol": "HUSDT",
+      "action": "CLOSE_PRIORITY",
+      "side": "LONG",
+      "roi_pct": -45.42,
+      "upl": -2.2898,
+      "notional": 2.7511,
+      "rationale": [
+        "亏损过深且剩余名义价值仍值得回收",
+        "继续持有的机会成本高于留仓价值"
+      ],
+      "priority_score": 92
+    },
+    {
+      "symbol": "DENTUSDT",
+      "action": "CLOSE_PRIORITY",
+      "side": "LONG",
+      "roi_pct": -45.69,
+      "upl": -2.285,
+      "notional": 2.7157,
+      "rationale": [
+        "亏损过深且剩余名义价值仍值得回收",
+        "继续持有的机会成本高于留仓价值"
+      ],
+      "priority_score": 92
+    },
+    {
+      "symbol": "DUSKUSDT",
+      "action": "CLOSE_PRIORITY",
+      "side": "LONG",
+      "roi_pct": -45.42,
+      "upl": -2.2749,
+      "notional": 2.7336,
+      "rationale": [
+        "亏损过深且剩余名义价值仍值得回收",
+        "继续持有的机会成本高于留仓价值"
+      ],
+      "priority_score": 92
+    },
+    {
+      "symbol": "BULLAUSDT",
+      "action": "REDUCE_ON_BOUNCE",
+      "side": "LONG",
+      "roi_pct": -92.64,
+      "upl": -4.6607,
+      "notional": 0.3703,
+      "rationale": [
+        "结构偏弱，适合反弹减仓而非继续加码"
+      ],
+      "priority_score": 69
+    },
+    {
+      "symbol": "FHEUSDT",
+      "action": "REDUCE_ON_BOUNCE",
+      "side": "LONG",
+      "roi_pct": -87.14,
+      "upl": -4.42,
+      "notional": 0.6525,
+      "rationale": [
+        "结构偏弱，适合反弹减仓而非继续加码"
+      ],
+      "priority_score": 69
+    },
+    {
+      "symbol": "AXLUSDT",
+      "action": "REDUCE_ON_BOUNCE",
+      "side": "LONG",
+      "roi_pct": -42.57,
+      "upl": -2.1308,
+      "notional": 2.8742,
+      "rationale": [
+        "结构偏弱，适合反弹减仓而非继续加码"
+      ],
+      "priority_score": 67
+    },
+    {
+      "symbol": "BTRUSDT",
+      "action": "REDUCE_ON_BOUNCE",
+      "side": "LONG",
+      "roi_pct": -40.17,
+      "upl": -2.0628,
+      "notional": 3.0718,
+      "rationale": [
+        "结构偏弱，适合反弹减仓而非继续加码"
+      ],
+      "priority_score": 67
+    },
+    {
+      "symbol": "AUCTIONUSDT",
+      "action": "REDUCE_ON_BOUNCE",
+      "side": "LONG",
+      "roi_pct": -32.54,
+      "upl": -1.6405,
+      "notional": 3.4013,
+      "rationale": [
+        "结构偏弱，适合反弹减仓而非继续加码"
+      ],
+      "priority_score": 66
+    },
+    {
+      "symbol": "GPSUSDT",
+      "action": "REDUCE_ON_BOUNCE",
+      "side": "LONG",
+      "roi_pct": -32.36,
+      "upl": -1.6205,
+      "notional": 3.3866,
+      "rationale": [
+        "结构偏弱，适合反弹减仓而非继续加码"
+      ],
+      "priority_score": 66
+    },
+    {
+      "symbol": "ZILUSDT",
+      "action": "REDUCE_ON_BOUNCE",
+      "side": "LONG",
+      "roi_pct": -31.93,
+      "upl": -1.5984,
+      "notional": 3.4069,
+      "rationale": [
+        "结构偏弱，适合反弹减仓而非继续加码"
+      ],
+      "priority_score": 66
+    },
+    {
+      "symbol": "EULUSDT",
+      "action": "REDUCE_ON_BOUNCE",
+      "side": "LONG",
+      "roi_pct": -27.72,
+      "upl": -1.393,
+      "notional": 3.633,
+      "rationale": [
+        "结构偏弱，适合反弹减仓而非继续加码"
+      ],
+      "priority_score": 66
+    },
+    {
+      "symbol": "RIVERUSDT",
+      "action": "KEEP_PROTECT",
+      "side": "LONG",
+      "roi_pct": 2.85,
+      "upl": 0.1791,
+      "notional": 6.4647,
+      "rationale": [
+        "当前盈利仓，优先保护利润，不让盈利翻亏"
+      ],
+      "priority_score": 55
+    },
+    {
+      "symbol": "AKTUSDT",
+      "action": "KEEP_PROTECT",
+      "side": "LONG",
+      "roi_pct": 9.7,
+      "upl": 0.4872,
+      "notional": 5.508,
+      "rationale": [
+        "当前盈利仓，优先保护利润，不让盈利翻亏"
+      ],
+      "priority_score": 55
+    },
+    {
+      "symbol": "HANAUSDT",
+      "action": "KEEP_PROTECT",
+      "side": "LONG",
+      "roi_pct": 12.14,
+      "upl": 0.6188,
+      "notional": 5.7164,
+      "rationale": [
+        "当前盈利仓，优先保护利润，不让盈利翻亏"
+      ],
+      "priority_score": 55
+    },
+    {
+      "symbol": "COWUSDT",
+      "action": "KEEP_WATCH",
+      "side": "LONG",
+      "roi_pct": 0.95,
+      "upl": 0.0484,
+      "notional": 5.1661,
+      "rationale": [
+        "4h 相对强于 20MA，可作为保留观察仓"
+      ],
+      "priority_score": 50
+    },
+    {
+      "symbol": "ONUSDT",
+      "action": "HOLD",
+      "side": "LONG",
+      "roi_pct": -23.34,
+      "upl": -1.1862,
+      "notional": 3.8958,
+      "rationale": [
+        "暂不新增动作，等待更清晰结构"
+      ],
+      "priority_score": 36
+    }
+  ]
+}

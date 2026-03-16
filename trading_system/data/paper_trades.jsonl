@@ -1,0 +1,5 @@
+{"ts_bj": "2026-03-17T02:13:26.696623+08:00", "symbol": "MYXUSDT", "action": "CLOSE_PRIORITY", "side": "LONG", "paper": true, "rationale": ["亏损过深且剩余名义价值仍值得回收", "继续持有的机会成本高于留仓价值"], "priority_score": 100}
+{"ts_bj": "2026-03-17T02:13:26.696894+08:00", "symbol": "TAKEUSDT", "action": "CLOSE_PRIORITY", "side": "LONG", "paper": true, "rationale": ["亏损过深且剩余名义价值仍值得回收", "继续持有的机会成本高于留仓价值"], "priority_score": 92}
+{"ts_bj": "2026-03-17T02:13:26.696985+08:00", "symbol": "ZKCUSDT", "action": "CLOSE_PRIORITY", "side": "LONG", "paper": true, "rationale": ["亏损过深且剩余名义价值仍值得回收", "继续持有的机会成本高于留仓价值"], "priority_score": 92}
+{"ts_bj": "2026-03-17T02:13:26.697051+08:00", "symbol": "HUSDT", "action": "CLOSE_PRIORITY", "side": "LONG", "paper": true, "rationale": ["亏损过深且剩余名义价值仍值得回收", "继续持有的机会成本高于留仓价值"], "priority_score": 92}
+{"ts_bj": "2026-03-17T02:13:26.697110+08:00", "symbol": "DENTUSDT", "action": "CLOSE_PRIORITY", "side": "LONG", "paper": true, "rationale": ["亏损过深且剩余名义价值仍值得回收", "继续持有的机会成本高于留仓价值"], "priority_score": 92}
