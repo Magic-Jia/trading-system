@@ -38,7 +38,18 @@ python3 trading_system/paper_executor.py --top 5 --mode mixed
 输出：
 - `trading_system/data/paper_trades.jsonl`
 
-## 5. 生成日报
+## 5. 扫描候选新开仓标的并生成交易参数
+
+```bash
+python3 trading_system/candidate_scan.py
+python3 trading_system/entry_templates.py
+```
+
+输出：
+- `trading_system/data/candidate_scan.json`
+- `trading_system/data/entry_templates.json`
+
+## 6. 生成日报
 
 ```bash
 python3 trading_system/daily_report.py
@@ -47,7 +58,7 @@ python3 trading_system/daily_report.py
 输出：
 - `trading_system/data/daily_report.md`
 
-## 6. 记录交易理由或复盘
+## 7. 记录交易理由或复盘
 
 ```bash
 python3 trading_system/journal.py note --type rationale --symbol BTCUSDT --side LONG --action OPEN --text "4h 趋势向上，回踩 20EMA 附近，赔率优于账户内弱 alt。"
