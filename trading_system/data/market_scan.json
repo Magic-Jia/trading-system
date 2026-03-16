@@ -1,0 +1,32 @@
+[
+  {
+    "symbol": "BTCUSDT",
+    "last": 74220.8,
+    "ma20_4h": 71872.6875,
+    "bias": "UP"
+  },
+  {
+    "symbol": "ETHUSDT",
+    "last": 2332.72,
+    "ma20_4h": 2144.5765,
+    "bias": "UP"
+  },
+  {
+    "symbol": "SOLUSDT",
+    "last": 94.55,
+    "ma20_4h": 89.6135,
+    "bias": "UP"
+  },
+  {
+    "symbol": "COWUSDT",
+    "last": 0.2467,
+    "ma20_4h": 0.235235,
+    "bias": "UP"
+  },
+  {
+    "symbol": "AUCTIONUSDT",
+    "last": 4.93,
+    "ma20_4h": 4.875500000000001,
+    "bias": "UP"
+  }
+]

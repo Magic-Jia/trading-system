@@ -1,0 +1,243 @@
+{
+  "spot": {
+    "nonzero_balances": []
+  },
+  "futures": {
+    "total_wallet_balance": 63.34204648,
+    "total_unrealized_profit": -42.22466991,
+    "total_margin_balance": 21.11737657,
+    "available_balance": 13.98413829,
+    "total_initial_margin": 7.1238589,
+    "total_maint_margin": 1.4863649,
+    "positions": [
+      {
+        "symbol": "MYXUSDT",
+        "side": "LONG",
+        "amt": 18.0,
+        "entry": 0.9067777777778,
+        "mark": 0.33992568,
+        "upl": -10.20333762,
+        "notional": 6.11866224,
+        "roi_pct": -62.512791079525485,
+        "leverage": 10,
+        "liquidation_price": "0"
+      },
+      {
+        "symbol": "BULLAUSDT",
+        "side": "LONG",
+        "amt": 44.0,
+        "entry": 0.11434,
+        "mark": 0.008416,
+        "upl": -4.660656,
+        "notional": 0.370304,
+        "roi_pct": -92.63949623928633,
+        "leverage": 10,
+        "liquidation_price": "0"
+      },
+      {
+        "symbol": "FHEUSDT",
+        "side": "LONG",
+        "amt": 31.0,
+        "entry": 0.16363,
+        "mark": 0.02105,
+        "upl": -4.41998,
+        "notional": 0.65255,
+        "roi_pct": -87.13561082931001,
+        "leverage": 10,
+        "liquidation_price": "0"
+      },
+      {
+        "symbol": "TAKEUSDT",
+        "side": "LONG",
+        "amt": 93.0,
+        "entry": 0.05405,
+        "mark": 0.02228,
+        "upl": -2.95461,
+        "notional": 2.07204,
+        "roi_pct": -58.77890841813136,
+        "leverage": 10,
+        "liquidation_price": "0"
+      },
+      {
+        "symbol": "ZKCUSDT",
+        "side": "LONG",
+        "amt": 27.0,
+        "entry": 0.1875,
+        "mark": 0.08236609,
+        "upl": -2.83861557,
+        "notional": 2.22388443,
+        "roi_pct": -56.07141866666666,
+        "leverage": 10,
+        "liquidation_price": "0"
+      },
+      {
+        "symbol": "HUSDT",
+        "side": "LONG",
+        "amt": 22.0,
+        "entry": 0.22913,
+        "mark": 0.12504825,
+        "upl": -2.2897985,
+        "notional": 2.7510615,
+        "roi_pct": -45.42475887051019,
+        "leverage": 10,
+        "liquidation_price": "0"
+      },
+      {
+        "symbol": "DENTUSDT",
+        "side": "LONG",
+        "amt": 12317.0,
+        "entry": 0.000406,
+        "mark": 0.00022048,
+        "upl": -2.28504984,
+        "notional": 2.71565216,
+        "roi_pct": -45.69458128078818,
+        "leverage": 10,
+        "liquidation_price": "0"
+      },
+      {
+        "symbol": "DUSKUSDT",
+        "side": "LONG",
+        "amt": 30.0,
+        "entry": 0.16695,
+        "mark": 0.09112,
+        "upl": -2.2749,
+        "notional": 2.7336,
+        "roi_pct": -45.420784666067675,
+        "leverage": 10,
+        "liquidation_price": "0"
+      },
+      {
+        "symbol": "AXLUSDT",
+        "side": "LONG",
+        "amt": 50.2,
+        "entry": 0.0997,
+        "mark": 0.05725452,
+        "upl": -2.13076309,
+        "notional": 2.8741769,
+        "roi_pct": -42.573199598796386,
+        "leverage": 10,
+        "liquidation_price": "0"
+      },
+      {
+        "symbol": "BTRUSDT",
+        "side": "LONG",
+        "amt": 24.0,
+        "entry": 0.21394,
+        "mark": 0.12799,
+        "upl": -2.0628,
+        "notional": 3.07176,
+        "roi_pct": -40.174815368794995,
+        "leverage": 10,
+        "liquidation_price": "0"
+      },
+      {
+        "symbol": "AUCTIONUSDT",
+        "side": "LONG",
+        "amt": 0.69,
+        "entry": 7.307,
+        "mark": 4.9294,
+        "upl": -1.640544,
+        "notional": 3.401286,
+        "roi_pct": -32.538661557410705,
+        "leverage": 10,
+        "liquidation_price": "0"
+      },
+      {
+        "symbol": "GPSUSDT",
+        "side": "LONG",
+        "amt": 391.0,
+        "entry": 0.012806,
+        "mark": 0.00866142,
+        "upl": -1.62053078,
+        "notional": 3.38661522,
+        "roi_pct": -32.36436045603624,
+        "leverage": 10,
+        "liquidation_price": "0"
+      },
+      {
+        "symbol": "ZILUSDT",
+        "side": "LONG",
+        "amt": 787.0,
+        "entry": 0.00636,
+        "mark": 0.00432898,
+        "upl": -1.59841274,
+        "notional": 3.40690726,
+        "roi_pct": -31.93427672955976,
+        "leverage": 10,
+        "liquidation_price": "0"
+      },
+      {
+        "symbol": "EULUSDT",
+        "side": "LONG",
+        "amt": 3.5,
+        "entry": 1.436,
+        "mark": 1.038,
+        "upl": -1.393,
+        "notional": 3.633,
+        "roi_pct": -27.715877437325897,
+        "leverage": 10,
+        "liquidation_price": "0"
+      },
+      {
+        "symbol": "ONUSDT",
+        "side": "LONG",
+        "amt": 44.0,
+        "entry": 0.1155,
+        "mark": 0.08854014,
+        "upl": -1.18623384,
+        "notional": 3.89576616,
+        "roi_pct": -23.34187012987013,
+        "leverage": 10,
+        "liquidation_price": "0"
+      },
+      {
+        "symbol": "COWUSDT",
+        "side": "LONG",
+        "amt": 21.0,
+        "entry": 0.2437,
+        "mark": 0.24600672,
+        "upl": 0.04844112,
+        "notional": 5.16614112,
+        "roi_pct": 0.946540828887982,
+        "leverage": 10,
+        "liquidation_price": "0"
+      },
+      {
+        "symbol": "RIVERUSDT",
+        "side": "LONG",
+        "amt": 0.3,
+        "entry": 20.952,
+        "mark": 21.549,
+        "upl": 0.1791,
+        "notional": 6.4647,
+        "roi_pct": 2.8493699885452353,
+        "leverage": 10,
+        "liquidation_price": "0"
+      },
+      {
+        "symbol": "AKTUSDT",
+        "side": "LONG",
+        "amt": 12.0,
+        "entry": 0.4184,
+        "mark": 0.459,
+        "upl": 0.4872,
+        "notional": 5.508,
+        "roi_pct": 9.703632887189299,
+        "leverage": 10,
+        "liquidation_price": "0"
+      },
+      {
+        "symbol": "HANAUSDT",
+        "side": "LONG",
+        "amt": 124.0,
+        "entry": 0.04111,
+        "mark": 0.0461,
+        "upl": 0.61876,
+        "notional": 5.7164,
+        "roi_pct": 12.13816589637558,
+        "leverage": 10,
+        "liquidation_price": "0"
+      }
+    ]
+  }
+}
