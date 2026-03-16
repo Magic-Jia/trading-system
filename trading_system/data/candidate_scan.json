@@ -1,0 +1,82 @@
+[
+  {
+    "symbol": "ETHUSDT",
+    "last": 2332.62,
+    "ma20_4h": 2144.5715,
+    "ma50_4h": 2078.862,
+    "momentum_10bars_pct": 10.77962044793983,
+    "atr_pct": 1.7582926372184786,
+    "trend_score": 3,
+    "bias": "LONG_CANDIDATE"
+  },
+  {
+    "symbol": "XRPUSDT",
+    "last": 1.5297,
+    "ma20_4h": 1.42715,
+    "ma50_4h": 1.397896,
+    "momentum_10bars_pct": 8.674339300937772,
+    "atr_pct": 1.596951783262825,
+    "trend_score": 3,
+    "bias": "LONG_CANDIDATE"
+  },
+  {
+    "symbol": "SOLUSDT",
+    "last": 94.55,
+    "ma20_4h": 89.6135,
+    "ma50_4h": 87.30059999999999,
+    "momentum_10bars_pct": 7.17524370890954,
+    "atr_pct": 1.744352950064212,
+    "trend_score": 3,
+    "bias": "LONG_CANDIDATE"
+  },
+  {
+    "symbol": "LINKUSDT",
+    "last": 9.88,
+    "ma20_4h": 9.2995,
+    "ma50_4h": 9.088799999999999,
+    "momentum_10bars_pct": 7.158351409978314,
+    "atr_pct": 1.8074031231925956,
+    "trend_score": 3,
+    "bias": "LONG_CANDIDATE"
+  },
+  {
+    "symbol": "COWUSDT",
+    "last": 0.2471,
+    "ma20_4h": 0.235255,
+    "ma50_4h": 0.234426,
+    "momentum_10bars_pct": 6.923409779316314,
+    "atr_pct": 1.7864369543851548,
+    "trend_score": 3,
+    "bias": "LONG_CANDIDATE"
+  },
+  {
+    "symbol": "BTCUSDT",
+    "last": 74191.21,
+    "ma20_4h": 71871.208,
+    "ma50_4h": 70484.1994,
+    "momentum_10bars_pct": 3.831326039741345,
+    "atr_pct": 1.2319884563914512,
+    "trend_score": 3,
+    "bias": "LONG_CANDIDATE"
+  },
+  {
+    "symbol": "BNBUSDT",
+    "last": 679.29,
+    "ma20_4h": 663.1925,
+    "ma50_4h": 650.2366000000001,
+    "momentum_10bars_pct": 2.9196084967122227,
+    "atr_pct": 1.191580284456667,
+    "trend_score": 3,
+    "bias": "LONG_CANDIDATE"
+  },
+  {
+    "symbol": "AUCTIONUSDT",
+    "last": 4.95,
+    "ma20_4h": 4.8765,
+    "ma50_4h": 4.7783999999999995,
+    "momentum_10bars_pct": 0.0,
+    "atr_pct": 1.9191919191919167,
+    "trend_score": 2,
+    "bias": "LONG_CANDIDATE"
+  }
+]
