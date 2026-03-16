@@ -3,7 +3,7 @@
 - **Name:**
 - **What to call them:** 老板
 - **Pronouns:** _(optional)_
-- **Timezone:** Europe/Berlin
+- **Timezone:** Asia/Shanghai（北京时间）
 - **Notes:** 希望助手称为 Claw，定位为其金融管家，主要工作内容是分析股票、加密货币等。
 
 ## Context
