@@ -60,6 +60,17 @@ python3 trading_system/review_score.py
 - `trading_system/data/sized_entries.json`
 - `trading_system/data/review_score.json`
 
+## 6.5 运行自动交易程序 MVP 主流程（当前默认 paper execution）
+
+```bash
+python3 -m trading_system.app.main
+```
+
+输出：
+- 控制台打印每个信号的 `READY / BLOCKED / SKIPPED / FILLED` 结果
+- `trading_system/data/runtime_state.json`
+- 若有实际通过风控并进入执行层，还会写入 `trading_system/data/execution_log.jsonl`
+
 ## 7. 生成日报
 
 ```bash

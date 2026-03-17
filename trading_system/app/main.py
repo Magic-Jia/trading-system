@@ -4,7 +4,8 @@ import json
 from pathlib import Path
 
 from .config import DEFAULT_CONFIG
-from .execution.idempotency import already_processed, bind_active_order, intent_id, mark_processed
+from .execution.executor import OrderExecutor
+from .execution.idempotency import already_processed, intent_id, mark_processed
 from .risk.validator import validate_signal
 from .storage.state_store import build_state_store
 from .types import AccountSnapshot, OrderIntent, PositionSnapshot, TradeSignal
@@ -72,6 +73,7 @@ def main() -> None:
     state = store.load()
     account = load_account_snapshot()
     signals = load_signals()
+    executor = OrderExecutor(config, mode="paper")
 
     report: list[dict] = []
     for signal in signals:
@@ -112,18 +114,19 @@ def main() -> None:
                 "planned_notional_usdt": sizing.planned_notional_usdt,
             },
         )
-        bind_active_order(state, order)
+        execution = executor.execute(order, state)
         mark_processed(state, signal)
         store.record_signal(state, signal.symbol, state.last_signal_ids[signal.symbol], config.risk.cooldown_minutes)
         report.append(
             {
                 "symbol": signal.symbol,
-                "status": "READY",
+                "status": order.status,
                 "intent_id": order.intent_id,
                 "qty": order.qty,
                 "reasons": validation.reasons,
                 "metrics": validation.metrics,
                 "order_meta": order.meta,
+                "execution": execution,
             }
         )
 
