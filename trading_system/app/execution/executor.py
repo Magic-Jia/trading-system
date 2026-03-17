@@ -5,6 +5,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
+from ..connectors.binance import query_open_protective_orders
 from ..config import AppConfig
 from ..types import ManagementActionIntent, OrderIntent, RuntimeState
 from .idempotency import bind_active_order
@@ -48,14 +49,23 @@ class OrderExecutor:
         self.append_log(order, result)
         return result
 
-    def preview_management_action(self, intent: ManagementActionIntent) -> dict[str, Any]:
+    def preview_management_action(
+        self,
+        intent: ManagementActionIntent,
+        open_orders: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
         if self.mode == "live":
             raise ExecutionError("management action 仅支持 paper / dry-run 预览，不执行 live 写入")
-        preview = build_management_preview(intent)
+        open_protective_orders = query_open_protective_orders(intent.symbol, open_orders or [])
+        preview = build_management_preview(intent, open_protective_orders)
         return preview_result(intent, preview, self.mode)
 
-    def preview_management_actions(self, intents: list[ManagementActionIntent]) -> list[dict[str, Any]]:
-        return [self.preview_management_action(intent) for intent in intents]
+    def preview_management_actions(
+        self,
+        intents: list[ManagementActionIntent],
+        open_orders: list[dict[str, Any]] | None = None,
+    ) -> list[dict[str, Any]]:
+        return [self.preview_management_action(intent, open_orders) for intent in intents]
 
     def append_log(self, order: OrderIntent, result: dict[str, Any]) -> None:
         payload = {

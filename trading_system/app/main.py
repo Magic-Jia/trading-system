@@ -32,6 +32,9 @@ def _float(row: dict, *keys: str) -> float:
 def load_account_snapshot() -> AccountSnapshot:
     raw = json.loads(ACCOUNT_SNAPSHOT.read_text())
     futures = raw["futures"]
+    open_orders = futures.get("open_orders", futures.get("openOrders", raw.get("open_orders", raw.get("openOrders", []))))
+    if not isinstance(open_orders, list):
+        open_orders = []
     positions = [
         PositionSnapshot(
             symbol=row["symbol"],
@@ -51,6 +54,7 @@ def load_account_snapshot() -> AccountSnapshot:
         available_balance=float(futures.get("available_balance", futures["total_wallet_balance"])),
         futures_wallet_balance=float(futures["total_wallet_balance"]),
         open_positions=positions,
+        open_orders=open_orders,
         meta={"source": "account_snapshot.json"},
     )
 
@@ -149,7 +153,7 @@ def main() -> None:
 
     management = evaluate_portfolio(state)
     management_intents = build_management_action_intents(state, management)
-    management_previews = executor.preview_management_actions(management_intents)
+    management_previews = executor.preview_management_actions(management_intents, account.open_orders)
     store.replace_management_suggestions(state, management)
     store.replace_management_action_previews(state, management_previews)
     store.save(state)
@@ -161,6 +165,7 @@ def main() -> None:
                     "tracked_positions": len(state.positions),
                     "management_suggestions": management,
                     "management_action_previews": management_previews,
+                    "account_open_orders": len(account.open_orders),
                 },
             },
             ensure_ascii=False,

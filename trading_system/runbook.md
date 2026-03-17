@@ -68,6 +68,7 @@ python3 -m trading_system.app.main
 
 输出：
 - 控制台打印信号执行结果，以及当前持仓的管理建议与 action previews（ADD_PROTECTIVE_STOP 补保护止损预览、BREAK_EVEN 止损上调、PARTIAL_TAKE_PROFIT 减仓预览、EXIT 平仓预览）
+- management preview 中会附带按 symbol 过滤后的 `open_protective_orders`，以及 connector-ready payload：`upsert_protective_stop` / `reduce_only_close`
 - `trading_system/data/runtime_state.json`
 - 若有实际通过风控并进入执行层，还会写入 `trading_system/data/execution_log.jsonl`
 
