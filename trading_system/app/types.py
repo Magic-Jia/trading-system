@@ -1,0 +1,103 @@
+from __future__ import annotations
+
+from dataclasses import asdict, dataclass, field
+from datetime import datetime, timedelta, timezone
+from typing import Any, Literal
+
+BJ = timezone(timedelta(hours=8))
+
+Side = Literal["LONG", "SHORT"]
+SignalSource = Literal["manual", "scanner", "strategy", "imported"]
+
+
+@dataclass(slots=True)
+class TradeSignal:
+    signal_id: str
+    symbol: str
+    side: Side
+    entry_price: float
+    stop_loss: float
+    take_profit: float | None = None
+    confidence: float | None = None
+    source: SignalSource = "strategy"
+    timeframe: str = "4h"
+    tags: list[str] = field(default_factory=list)
+    meta: dict[str, Any] = field(default_factory=dict)
+
+    def risk_per_unit(self) -> float:
+        return abs(self.entry_price - self.stop_loss)
+
+
+@dataclass(slots=True)
+class PositionSnapshot:
+    symbol: str
+    side: Side
+    qty: float
+    entry_price: float
+    mark_price: float | None = None
+    unrealized_pnl: float = 0.0
+    notional: float = 0.0
+    leverage: float | None = None
+    strategy_tag: str | None = None
+
+
+@dataclass(slots=True)
+class AccountSnapshot:
+    equity: float
+    available_balance: float
+    futures_wallet_balance: float
+    open_positions: list[PositionSnapshot] = field(default_factory=list)
+    open_orders: list[dict[str, Any]] = field(default_factory=list)
+    meta: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class SizingResult:
+    allowed: bool
+    qty: float
+    risk_budget_usdt: float
+    planned_loss_usdt: float
+    planned_notional_usdt: float
+    stop_distance: float
+    risk_pct_of_equity: float
+    max_notional_cap_usdt: float
+    notes: list[str] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class ValidationResult:
+    allowed: bool
+    severity: Literal["INFO", "WARN", "BLOCK"]
+    reasons: list[str] = field(default_factory=list)
+    metrics: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class OrderIntent:
+    intent_id: str
+    signal_id: str
+    symbol: str
+    side: Side
+    qty: float
+    entry_price: float
+    stop_loss: float
+    take_profit: float | None = None
+    status: Literal["PENDING", "SKIPPED", "SENT", "FILLED", "FAILED"] = "PENDING"
+    meta: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class RuntimeState:
+    updated_at_bj: str
+    last_signal_ids: dict[str, str] = field(default_factory=dict)
+    cooldowns: dict[str, str] = field(default_factory=dict)
+    active_orders: dict[str, dict[str, Any]] = field(default_factory=dict)
+    circuit_breaker_until: str | None = None
+    positions: dict[str, dict[str, Any]] = field(default_factory=dict)
+
+    @classmethod
+    def empty(cls) -> "RuntimeState":
+        return cls(updated_at_bj=datetime.now(BJ).isoformat())
+
+    def as_dict(self) -> dict[str, Any]:
+        return asdict(self)
