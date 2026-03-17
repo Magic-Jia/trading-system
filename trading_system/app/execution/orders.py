@@ -4,6 +4,10 @@ from dataclasses import asdict
 from datetime import datetime
 from typing import Any, Literal
 
+from ..connectors.binance import (
+    prepare_reduce_only_close_request,
+    prepare_stop_loss_update_request,
+)
 from ..types import BJ, ManagementActionIntent, ManagementActionPreview, OrderIntent
 
 OrderMode = Literal["paper", "dry-run", "live"]
@@ -77,42 +81,25 @@ def dry_run_fill(order: OrderIntent) -> dict[str, Any]:
     }
 
 
-def build_management_stop_preview_payload(intent: ManagementActionIntent) -> dict[str, Any]:
-    return {
-        "symbol": intent.symbol,
-        "side": close_side_to_binance(intent.side),
-        "type": "STOP_MARKET",
-        "stopPrice": intent.stop_loss,
-        "closePosition": "true",
-        "workingType": "MARK_PRICE",
-        "newClientOrderId": f"{intent.intent_id}-sl-update",
-    }
-
-
-def build_management_close_preview_payload(intent: ManagementActionIntent) -> dict[str, Any]:
-    return {
-        "symbol": intent.symbol,
-        "side": close_side_to_binance(intent.side),
-        "type": "MARKET",
-        "quantity": intent.qty,
-        "reduceOnly": "true",
-        "newClientOrderId": f"{intent.intent_id}-close",
-    }
-
-
-def build_management_preview(intent: ManagementActionIntent) -> ManagementActionPreview:
+def build_management_preview(
+    intent: ManagementActionIntent,
+    open_protective_orders: list[dict[str, Any]] | None = None,
+) -> ManagementActionPreview:
+    protective_orders = open_protective_orders or []
     if intent.action in {"BREAK_EVEN", "ADD_PROTECTIVE_STOP"}:
         if intent.stop_loss is None:
             return ManagementActionPreview(
                 intent=intent,
                 preview_kind="UNSUPPORTED",
+                open_protective_orders=protective_orders,
                 supported=False,
                 reason="missing_stop_loss",
             )
         return ManagementActionPreview(
             intent=intent,
             preview_kind="PROTECTIVE_STOP_ADD" if intent.action == "ADD_PROTECTIVE_STOP" else "STOP_LOSS_UPDATE",
-            payload=build_management_stop_preview_payload(intent),
+            payload=prepare_stop_loss_update_request(intent, protective_orders),
+            open_protective_orders=protective_orders,
         )
 
     if intent.action == "PARTIAL_TAKE_PROFIT":
@@ -120,13 +107,15 @@ def build_management_preview(intent: ManagementActionIntent) -> ManagementAction
             return ManagementActionPreview(
                 intent=intent,
                 preview_kind="UNSUPPORTED",
+                open_protective_orders=protective_orders,
                 supported=False,
                 reason="missing_reduce_qty",
             )
         return ManagementActionPreview(
             intent=intent,
             preview_kind="REDUCE_ONLY_TP_CLOSE",
-            payload=build_management_close_preview_payload(intent),
+            payload=prepare_reduce_only_close_request(intent),
+            open_protective_orders=protective_orders,
         )
 
     if intent.action == "EXIT":
@@ -134,18 +123,21 @@ def build_management_preview(intent: ManagementActionIntent) -> ManagementAction
             return ManagementActionPreview(
                 intent=intent,
                 preview_kind="UNSUPPORTED",
+                open_protective_orders=protective_orders,
                 supported=False,
                 reason="missing_close_qty",
             )
         return ManagementActionPreview(
             intent=intent,
             preview_kind="CLOSE_POSITION",
-            payload=build_management_close_preview_payload(intent),
+            payload=prepare_reduce_only_close_request(intent),
+            open_protective_orders=protective_orders,
         )
 
     return ManagementActionPreview(
         intent=intent,
         preview_kind="UNSUPPORTED",
+        open_protective_orders=protective_orders,
         supported=False,
         reason="action_not_previewable_in_mvp",
     )

@@ -127,6 +127,7 @@ class ManagementActionPreview:
     intent: ManagementActionIntent
     preview_kind: ManagementPreviewKind
     payload: dict[str, Any] | None = None
+    open_protective_orders: list[dict[str, Any]] = field(default_factory=list)
     supported: bool = True
     reason: str | None = None
 

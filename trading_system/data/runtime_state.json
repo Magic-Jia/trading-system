@@ -1,5 +1,5 @@
 {
-  "updated_at_bj": "2026-03-18T00:49:38.533721+08:00",
+  "updated_at_bj": "2026-03-18T01:54:49.622922+08:00",
   "last_signal_ids": {},
   "cooldowns": {},
   "active_orders": {},
@@ -23,7 +23,7 @@
       "tracked_from_snapshot": true,
       "tracked_from_intent": false,
       "opened_at_bj": "2026-03-17T22:43:27.377741+08:00",
-      "updated_at_bj": "2026-03-18T00:49:38.526478+08:00",
+      "updated_at_bj": "2026-03-18T01:54:49.619775+08:00",
       "last_synced_from": "account_snapshot"
     },
     "BULLAUSDT": {
@@ -44,7 +44,7 @@
       "tracked_from_snapshot": true,
       "tracked_from_intent": false,
       "opened_at_bj": "2026-03-17T22:43:27.377741+08:00",
-      "updated_at_bj": "2026-03-18T00:49:38.526478+08:00",
+      "updated_at_bj": "2026-03-18T01:54:49.619775+08:00",
       "last_synced_from": "account_snapshot"
     },
     "FHEUSDT": {
@@ -65,7 +65,7 @@
       "tracked_from_snapshot": true,
       "tracked_from_intent": false,
       "opened_at_bj": "2026-03-17T22:43:27.377741+08:00",
-      "updated_at_bj": "2026-03-18T00:49:38.526478+08:00",
+      "updated_at_bj": "2026-03-18T01:54:49.619775+08:00",
       "last_synced_from": "account_snapshot"
     },
     "TAKEUSDT": {
@@ -86,7 +86,7 @@
       "tracked_from_snapshot": true,
       "tracked_from_intent": false,
       "opened_at_bj": "2026-03-17T22:43:27.377741+08:00",
-      "updated_at_bj": "2026-03-18T00:49:38.526478+08:00",
+      "updated_at_bj": "2026-03-18T01:54:49.619775+08:00",
       "last_synced_from": "account_snapshot"
     },
     "ZKCUSDT": {
@@ -107,7 +107,7 @@
       "tracked_from_snapshot": true,
       "tracked_from_intent": false,
       "opened_at_bj": "2026-03-17T22:43:27.377741+08:00",
-      "updated_at_bj": "2026-03-18T00:49:38.526478+08:00",
+      "updated_at_bj": "2026-03-18T01:54:49.619775+08:00",
       "last_synced_from": "account_snapshot"
     },
     "HUSDT": {
@@ -128,7 +128,7 @@
       "tracked_from_snapshot": true,
       "tracked_from_intent": false,
       "opened_at_bj": "2026-03-17T22:43:27.377741+08:00",
-      "updated_at_bj": "2026-03-18T00:49:38.526478+08:00",
+      "updated_at_bj": "2026-03-18T01:54:49.619775+08:00",
       "last_synced_from": "account_snapshot"
     },
     "DENTUSDT": {
@@ -149,7 +149,7 @@
       "tracked_from_snapshot": true,
       "tracked_from_intent": false,
       "opened_at_bj": "2026-03-17T22:43:27.377741+08:00",
-      "updated_at_bj": "2026-03-18T00:49:38.526478+08:00",
+      "updated_at_bj": "2026-03-18T01:54:49.619775+08:00",
       "last_synced_from": "account_snapshot"
     },
     "DUSKUSDT": {
@@ -170,7 +170,7 @@
       "tracked_from_snapshot": true,
       "tracked_from_intent": false,
       "opened_at_bj": "2026-03-17T22:43:27.377741+08:00",
-      "updated_at_bj": "2026-03-18T00:49:38.526478+08:00",
+      "updated_at_bj": "2026-03-18T01:54:49.619775+08:00",
       "last_synced_from": "account_snapshot"
     },
     "AXLUSDT": {
@@ -191,7 +191,7 @@
       "tracked_from_snapshot": true,
       "tracked_from_intent": false,
       "opened_at_bj": "2026-03-17T22:43:27.377741+08:00",
-      "updated_at_bj": "2026-03-18T00:49:38.526478+08:00",
+      "updated_at_bj": "2026-03-18T01:54:49.619775+08:00",
       "last_synced_from": "account_snapshot"
     },
     "BTRUSDT": {
@@ -212,7 +212,7 @@
       "tracked_from_snapshot": true,
       "tracked_from_intent": false,
       "opened_at_bj": "2026-03-17T22:43:27.377741+08:00",
-      "updated_at_bj": "2026-03-18T00:49:38.526478+08:00",
+      "updated_at_bj": "2026-03-18T01:54:49.619775+08:00",
       "last_synced_from": "account_snapshot"
     },
     "AUCTIONUSDT": {
@@ -233,7 +233,7 @@
       "tracked_from_snapshot": true,
       "tracked_from_intent": false,
       "opened_at_bj": "2026-03-17T22:43:27.377741+08:00",
-      "updated_at_bj": "2026-03-18T00:49:38.526478+08:00",
+      "updated_at_bj": "2026-03-18T01:54:49.619775+08:00",
       "last_synced_from": "account_snapshot"
     },
     "GPSUSDT": {
@@ -254,7 +254,7 @@
       "tracked_from_snapshot": true,
       "tracked_from_intent": false,
       "opened_at_bj": "2026-03-17T22:43:27.377741+08:00",
-      "updated_at_bj": "2026-03-18T00:49:38.526478+08:00",
+      "updated_at_bj": "2026-03-18T01:54:49.619775+08:00",
       "last_synced_from": "account_snapshot"
     },
     "ZILUSDT": {
@@ -275,7 +275,7 @@
       "tracked_from_snapshot": true,
       "tracked_from_intent": false,
       "opened_at_bj": "2026-03-17T22:43:27.377741+08:00",
-      "updated_at_bj": "2026-03-18T00:49:38.526478+08:00",
+      "updated_at_bj": "2026-03-18T01:54:49.619775+08:00",
       "last_synced_from": "account_snapshot"
     },
     "EULUSDT": {
@@ -296,7 +296,7 @@
       "tracked_from_snapshot": true,
       "tracked_from_intent": false,
       "opened_at_bj": "2026-03-17T22:43:27.377741+08:00",
-      "updated_at_bj": "2026-03-18T00:49:38.526478+08:00",
+      "updated_at_bj": "2026-03-18T01:54:49.619775+08:00",
       "last_synced_from": "account_snapshot"
     },
     "ONUSDT": {
@@ -317,7 +317,7 @@
       "tracked_from_snapshot": true,
       "tracked_from_intent": false,
       "opened_at_bj": "2026-03-17T22:43:27.377741+08:00",
-      "updated_at_bj": "2026-03-18T00:49:38.526478+08:00",
+      "updated_at_bj": "2026-03-18T01:54:49.619775+08:00",
       "last_synced_from": "account_snapshot"
     },
     "COWUSDT": {
@@ -338,7 +338,7 @@
       "tracked_from_snapshot": true,
       "tracked_from_intent": false,
       "opened_at_bj": "2026-03-17T22:43:27.377741+08:00",
-      "updated_at_bj": "2026-03-18T00:49:38.526478+08:00",
+      "updated_at_bj": "2026-03-18T01:54:49.619775+08:00",
       "last_synced_from": "account_snapshot"
     },
     "RIVERUSDT": {
@@ -359,7 +359,7 @@
       "tracked_from_snapshot": true,
       "tracked_from_intent": false,
       "opened_at_bj": "2026-03-17T22:43:27.377741+08:00",
-      "updated_at_bj": "2026-03-18T00:49:38.526478+08:00",
+      "updated_at_bj": "2026-03-18T01:54:49.619775+08:00",
       "last_synced_from": "account_snapshot"
     },
     "AKTUSDT": {
@@ -380,7 +380,7 @@
       "tracked_from_snapshot": true,
       "tracked_from_intent": false,
       "opened_at_bj": "2026-03-17T22:43:27.377741+08:00",
-      "updated_at_bj": "2026-03-18T00:49:38.526478+08:00",
+      "updated_at_bj": "2026-03-18T01:54:49.619775+08:00",
       "last_synced_from": "account_snapshot"
     },
     "HANAUSDT": {
@@ -401,7 +401,7 @@
       "tracked_from_snapshot": true,
       "tracked_from_intent": false,
       "opened_at_bj": "2026-03-17T22:43:27.377741+08:00",
-      "updated_at_bj": "2026-03-18T00:49:38.526478+08:00",
+      "updated_at_bj": "2026-03-18T01:54:49.619775+08:00",
       "last_synced_from": "account_snapshot"
     }
   },
@@ -714,7 +714,7 @@
   "management_action_previews": [
     {
       "mode": "paper",
-      "ts_bj": "2026-03-18T00:49:38.527810+08:00",
+      "ts_bj": "2026-03-18T01:54:49.621639+08:00",
       "intent": {
         "intent_id": "mgmt-myxusdt-add-protective-stop",
         "symbol": "MYXUSDT",
@@ -764,14 +764,22 @@
         },
         "preview_kind": "PROTECTIVE_STOP_ADD",
         "payload": {
+          "op": "upsert_protective_stop",
+          "preview_only": true,
           "symbol": "MYXUSDT",
-          "side": "SELL",
-          "type": "STOP_MARKET",
-          "stopPrice": 0.33822605,
-          "closePosition": "true",
-          "workingType": "MARK_PRICE",
-          "newClientOrderId": "mgmt-myxusdt-add-protective-stop-sl-update"
+          "action": "ADD_PROTECTIVE_STOP",
+          "cancel_existing_stop_orders": [],
+          "create_order": {
+            "symbol": "MYXUSDT",
+            "side": "SELL",
+            "type": "STOP_MARKET",
+            "stopPrice": 0.33822605,
+            "closePosition": "true",
+            "workingType": "MARK_PRICE",
+            "newClientOrderId": "mgmt-myxusdt-add-protective-stop-sl-update"
+          }
         },
+        "open_protective_orders": [],
         "supported": true,
         "reason": null
       },
@@ -779,7 +787,7 @@
     },
     {
       "mode": "paper",
-      "ts_bj": "2026-03-18T00:49:38.527862+08:00",
+      "ts_bj": "2026-03-18T01:54:49.621725+08:00",
       "intent": {
         "intent_id": "mgmt-bullausdt-add-protective-stop",
         "symbol": "BULLAUSDT",
@@ -829,14 +837,22 @@
         },
         "preview_kind": "PROTECTIVE_STOP_ADD",
         "payload": {
+          "op": "upsert_protective_stop",
+          "preview_only": true,
           "symbol": "BULLAUSDT",
-          "side": "SELL",
-          "type": "STOP_MARKET",
-          "stopPrice": 0.00837392,
-          "closePosition": "true",
-          "workingType": "MARK_PRICE",
-          "newClientOrderId": "mgmt-bullausdt-add-protective-stop-sl-update"
+          "action": "ADD_PROTECTIVE_STOP",
+          "cancel_existing_stop_orders": [],
+          "create_order": {
+            "symbol": "BULLAUSDT",
+            "side": "SELL",
+            "type": "STOP_MARKET",
+            "stopPrice": 0.00837392,
+            "closePosition": "true",
+            "workingType": "MARK_PRICE",
+            "newClientOrderId": "mgmt-bullausdt-add-protective-stop-sl-update"
+          }
         },
+        "open_protective_orders": [],
         "supported": true,
         "reason": null
       },
@@ -844,7 +860,7 @@
     },
     {
       "mode": "paper",
-      "ts_bj": "2026-03-18T00:49:38.527898+08:00",
+      "ts_bj": "2026-03-18T01:54:49.621780+08:00",
       "intent": {
         "intent_id": "mgmt-fheusdt-add-protective-stop",
         "symbol": "FHEUSDT",
@@ -894,14 +910,22 @@
         },
         "preview_kind": "PROTECTIVE_STOP_ADD",
         "payload": {
+          "op": "upsert_protective_stop",
+          "preview_only": true,
           "symbol": "FHEUSDT",
-          "side": "SELL",
-          "type": "STOP_MARKET",
-          "stopPrice": 0.02094475,
-          "closePosition": "true",
-          "workingType": "MARK_PRICE",
-          "newClientOrderId": "mgmt-fheusdt-add-protective-stop-sl-update"
+          "action": "ADD_PROTECTIVE_STOP",
+          "cancel_existing_stop_orders": [],
+          "create_order": {
+            "symbol": "FHEUSDT",
+            "side": "SELL",
+            "type": "STOP_MARKET",
+            "stopPrice": 0.02094475,
+            "closePosition": "true",
+            "workingType": "MARK_PRICE",
+            "newClientOrderId": "mgmt-fheusdt-add-protective-stop-sl-update"
+          }
         },
+        "open_protective_orders": [],
         "supported": true,
         "reason": null
       },
@@ -909,7 +933,7 @@
     },
     {
       "mode": "paper",
-      "ts_bj": "2026-03-18T00:49:38.527933+08:00",
+      "ts_bj": "2026-03-18T01:54:49.621832+08:00",
       "intent": {
         "intent_id": "mgmt-takeusdt-add-protective-stop",
         "symbol": "TAKEUSDT",
@@ -959,14 +983,22 @@
         },
         "preview_kind": "PROTECTIVE_STOP_ADD",
         "payload": {
+          "op": "upsert_protective_stop",
+          "preview_only": true,
           "symbol": "TAKEUSDT",
-          "side": "SELL",
-          "type": "STOP_MARKET",
-          "stopPrice": 0.0221686,
-          "closePosition": "true",
-          "workingType": "MARK_PRICE",
-          "newClientOrderId": "mgmt-takeusdt-add-protective-stop-sl-update"
+          "action": "ADD_PROTECTIVE_STOP",
+          "cancel_existing_stop_orders": [],
+          "create_order": {
+            "symbol": "TAKEUSDT",
+            "side": "SELL",
+            "type": "STOP_MARKET",
+            "stopPrice": 0.0221686,
+            "closePosition": "true",
+            "workingType": "MARK_PRICE",
+            "newClientOrderId": "mgmt-takeusdt-add-protective-stop-sl-update"
+          }
         },
+        "open_protective_orders": [],
         "supported": true,
         "reason": null
       },
@@ -974,7 +1006,7 @@
     },
     {
       "mode": "paper",
-      "ts_bj": "2026-03-18T00:49:38.527984+08:00",
+      "ts_bj": "2026-03-18T01:54:49.621911+08:00",
       "intent": {
         "intent_id": "mgmt-zkcusdt-add-protective-stop",
         "symbol": "ZKCUSDT",
@@ -1024,14 +1056,22 @@
         },
         "preview_kind": "PROTECTIVE_STOP_ADD",
         "payload": {
+          "op": "upsert_protective_stop",
+          "preview_only": true,
           "symbol": "ZKCUSDT",
-          "side": "SELL",
-          "type": "STOP_MARKET",
-          "stopPrice": 0.08195426,
-          "closePosition": "true",
-          "workingType": "MARK_PRICE",
-          "newClientOrderId": "mgmt-zkcusdt-add-protective-stop-sl-update"
+          "action": "ADD_PROTECTIVE_STOP",
+          "cancel_existing_stop_orders": [],
+          "create_order": {
+            "symbol": "ZKCUSDT",
+            "side": "SELL",
+            "type": "STOP_MARKET",
+            "stopPrice": 0.08195426,
+            "closePosition": "true",
+            "workingType": "MARK_PRICE",
+            "newClientOrderId": "mgmt-zkcusdt-add-protective-stop-sl-update"
+          }
         },
+        "open_protective_orders": [],
         "supported": true,
         "reason": null
       },
@@ -1039,7 +1079,7 @@
     },
     {
       "mode": "paper",
-      "ts_bj": "2026-03-18T00:49:38.528018+08:00",
+      "ts_bj": "2026-03-18T01:54:49.621962+08:00",
       "intent": {
         "intent_id": "mgmt-husdt-add-protective-stop",
         "symbol": "HUSDT",
@@ -1089,14 +1129,22 @@
         },
         "preview_kind": "PROTECTIVE_STOP_ADD",
         "payload": {
+          "op": "upsert_protective_stop",
+          "preview_only": true,
           "symbol": "HUSDT",
-          "side": "SELL",
-          "type": "STOP_MARKET",
-          "stopPrice": 0.12442301,
-          "closePosition": "true",
-          "workingType": "MARK_PRICE",
-          "newClientOrderId": "mgmt-husdt-add-protective-stop-sl-update"
+          "action": "ADD_PROTECTIVE_STOP",
+          "cancel_existing_stop_orders": [],
+          "create_order": {
+            "symbol": "HUSDT",
+            "side": "SELL",
+            "type": "STOP_MARKET",
+            "stopPrice": 0.12442301,
+            "closePosition": "true",
+            "workingType": "MARK_PRICE",
+            "newClientOrderId": "mgmt-husdt-add-protective-stop-sl-update"
+          }
         },
+        "open_protective_orders": [],
         "supported": true,
         "reason": null
       },
@@ -1104,7 +1152,7 @@
     },
     {
       "mode": "paper",
-      "ts_bj": "2026-03-18T00:49:38.529796+08:00",
+      "ts_bj": "2026-03-18T01:54:49.622011+08:00",
       "intent": {
         "intent_id": "mgmt-dentusdt-add-protective-stop",
         "symbol": "DENTUSDT",
@@ -1154,14 +1202,22 @@
         },
         "preview_kind": "PROTECTIVE_STOP_ADD",
         "payload": {
+          "op": "upsert_protective_stop",
+          "preview_only": true,
           "symbol": "DENTUSDT",
-          "side": "SELL",
-          "type": "STOP_MARKET",
-          "stopPrice": 0.00021938,
-          "closePosition": "true",
-          "workingType": "MARK_PRICE",
-          "newClientOrderId": "mgmt-dentusdt-add-protective-stop-sl-update"
+          "action": "ADD_PROTECTIVE_STOP",
+          "cancel_existing_stop_orders": [],
+          "create_order": {
+            "symbol": "DENTUSDT",
+            "side": "SELL",
+            "type": "STOP_MARKET",
+            "stopPrice": 0.00021938,
+            "closePosition": "true",
+            "workingType": "MARK_PRICE",
+            "newClientOrderId": "mgmt-dentusdt-add-protective-stop-sl-update"
+          }
         },
+        "open_protective_orders": [],
         "supported": true,
         "reason": null
       },
@@ -1169,7 +1225,7 @@
     },
     {
       "mode": "paper",
-      "ts_bj": "2026-03-18T00:49:38.529875+08:00",
+      "ts_bj": "2026-03-18T01:54:49.622153+08:00",
       "intent": {
         "intent_id": "mgmt-duskusdt-add-protective-stop",
         "symbol": "DUSKUSDT",
@@ -1219,14 +1275,22 @@
         },
         "preview_kind": "PROTECTIVE_STOP_ADD",
         "payload": {
+          "op": "upsert_protective_stop",
+          "preview_only": true,
           "symbol": "DUSKUSDT",
-          "side": "SELL",
-          "type": "STOP_MARKET",
-          "stopPrice": 0.0906644,
-          "closePosition": "true",
-          "workingType": "MARK_PRICE",
-          "newClientOrderId": "mgmt-duskusdt-add-protective-stop-sl-update"
+          "action": "ADD_PROTECTIVE_STOP",
+          "cancel_existing_stop_orders": [],
+          "create_order": {
+            "symbol": "DUSKUSDT",
+            "side": "SELL",
+            "type": "STOP_MARKET",
+            "stopPrice": 0.0906644,
+            "closePosition": "true",
+            "workingType": "MARK_PRICE",
+            "newClientOrderId": "mgmt-duskusdt-add-protective-stop-sl-update"
+          }
         },
+        "open_protective_orders": [],
         "supported": true,
         "reason": null
       },
@@ -1234,7 +1298,7 @@
     },
     {
       "mode": "paper",
-      "ts_bj": "2026-03-18T00:49:38.529911+08:00",
+      "ts_bj": "2026-03-18T01:54:49.622231+08:00",
       "intent": {
         "intent_id": "mgmt-axlusdt-add-protective-stop",
         "symbol": "AXLUSDT",
@@ -1284,14 +1348,22 @@
         },
         "preview_kind": "PROTECTIVE_STOP_ADD",
         "payload": {
+          "op": "upsert_protective_stop",
+          "preview_only": true,
           "symbol": "AXLUSDT",
-          "side": "SELL",
-          "type": "STOP_MARKET",
-          "stopPrice": 0.05696825,
-          "closePosition": "true",
-          "workingType": "MARK_PRICE",
-          "newClientOrderId": "mgmt-axlusdt-add-protective-stop-sl-update"
+          "action": "ADD_PROTECTIVE_STOP",
+          "cancel_existing_stop_orders": [],
+          "create_order": {
+            "symbol": "AXLUSDT",
+            "side": "SELL",
+            "type": "STOP_MARKET",
+            "stopPrice": 0.05696825,
+            "closePosition": "true",
+            "workingType": "MARK_PRICE",
+            "newClientOrderId": "mgmt-axlusdt-add-protective-stop-sl-update"
+          }
         },
+        "open_protective_orders": [],
         "supported": true,
         "reason": null
       },
@@ -1299,7 +1371,7 @@
     },
     {
       "mode": "paper",
-      "ts_bj": "2026-03-18T00:49:38.529952+08:00",
+      "ts_bj": "2026-03-18T01:54:49.622301+08:00",
       "intent": {
         "intent_id": "mgmt-btrusdt-add-protective-stop",
         "symbol": "BTRUSDT",
@@ -1349,14 +1421,22 @@
         },
         "preview_kind": "PROTECTIVE_STOP_ADD",
         "payload": {
+          "op": "upsert_protective_stop",
+          "preview_only": true,
           "symbol": "BTRUSDT",
-          "side": "SELL",
-          "type": "STOP_MARKET",
-          "stopPrice": 0.12735005,
-          "closePosition": "true",
-          "workingType": "MARK_PRICE",
-          "newClientOrderId": "mgmt-btrusdt-add-protective-stop-sl-update"
+          "action": "ADD_PROTECTIVE_STOP",
+          "cancel_existing_stop_orders": [],
+          "create_order": {
+            "symbol": "BTRUSDT",
+            "side": "SELL",
+            "type": "STOP_MARKET",
+            "stopPrice": 0.12735005,
+            "closePosition": "true",
+            "workingType": "MARK_PRICE",
+            "newClientOrderId": "mgmt-btrusdt-add-protective-stop-sl-update"
+          }
         },
+        "open_protective_orders": [],
         "supported": true,
         "reason": null
       },
@@ -1364,7 +1444,7 @@
     },
     {
       "mode": "paper",
-      "ts_bj": "2026-03-18T00:49:38.529987+08:00",
+      "ts_bj": "2026-03-18T01:54:49.622345+08:00",
       "intent": {
         "intent_id": "mgmt-auctionusdt-add-protective-stop",
         "symbol": "AUCTIONUSDT",
@@ -1414,14 +1494,22 @@
         },
         "preview_kind": "PROTECTIVE_STOP_ADD",
         "payload": {
+          "op": "upsert_protective_stop",
+          "preview_only": true,
           "symbol": "AUCTIONUSDT",
-          "side": "SELL",
-          "type": "STOP_MARKET",
-          "stopPrice": 4.904753,
-          "closePosition": "true",
-          "workingType": "MARK_PRICE",
-          "newClientOrderId": "mgmt-auctionusdt-add-protective-stop-sl-update"
+          "action": "ADD_PROTECTIVE_STOP",
+          "cancel_existing_stop_orders": [],
+          "create_order": {
+            "symbol": "AUCTIONUSDT",
+            "side": "SELL",
+            "type": "STOP_MARKET",
+            "stopPrice": 4.904753,
+            "closePosition": "true",
+            "workingType": "MARK_PRICE",
+            "newClientOrderId": "mgmt-auctionusdt-add-protective-stop-sl-update"
+          }
         },
+        "open_protective_orders": [],
         "supported": true,
         "reason": null
       },
@@ -1429,7 +1517,7 @@
     },
     {
       "mode": "paper",
-      "ts_bj": "2026-03-18T00:49:38.530021+08:00",
+      "ts_bj": "2026-03-18T01:54:49.622386+08:00",
       "intent": {
         "intent_id": "mgmt-gpsusdt-add-protective-stop",
         "symbol": "GPSUSDT",
@@ -1479,14 +1567,22 @@
         },
         "preview_kind": "PROTECTIVE_STOP_ADD",
         "payload": {
+          "op": "upsert_protective_stop",
+          "preview_only": true,
           "symbol": "GPSUSDT",
-          "side": "SELL",
-          "type": "STOP_MARKET",
-          "stopPrice": 0.00861811,
-          "closePosition": "true",
-          "workingType": "MARK_PRICE",
-          "newClientOrderId": "mgmt-gpsusdt-add-protective-stop-sl-update"
+          "action": "ADD_PROTECTIVE_STOP",
+          "cancel_existing_stop_orders": [],
+          "create_order": {
+            "symbol": "GPSUSDT",
+            "side": "SELL",
+            "type": "STOP_MARKET",
+            "stopPrice": 0.00861811,
+            "closePosition": "true",
+            "workingType": "MARK_PRICE",
+            "newClientOrderId": "mgmt-gpsusdt-add-protective-stop-sl-update"
+          }
         },
+        "open_protective_orders": [],
         "supported": true,
         "reason": null
       },
@@ -1494,7 +1590,7 @@
     },
     {
       "mode": "paper",
-      "ts_bj": "2026-03-18T00:49:38.530062+08:00",
+      "ts_bj": "2026-03-18T01:54:49.622468+08:00",
       "intent": {
         "intent_id": "mgmt-zilusdt-add-protective-stop",
         "symbol": "ZILUSDT",
@@ -1544,14 +1640,22 @@
         },
         "preview_kind": "PROTECTIVE_STOP_ADD",
         "payload": {
+          "op": "upsert_protective_stop",
+          "preview_only": true,
           "symbol": "ZILUSDT",
-          "side": "SELL",
-          "type": "STOP_MARKET",
-          "stopPrice": 0.00430734,
-          "closePosition": "true",
-          "workingType": "MARK_PRICE",
-          "newClientOrderId": "mgmt-zilusdt-add-protective-stop-sl-update"
+          "action": "ADD_PROTECTIVE_STOP",
+          "cancel_existing_stop_orders": [],
+          "create_order": {
+            "symbol": "ZILUSDT",
+            "side": "SELL",
+            "type": "STOP_MARKET",
+            "stopPrice": 0.00430734,
+            "closePosition": "true",
+            "workingType": "MARK_PRICE",
+            "newClientOrderId": "mgmt-zilusdt-add-protective-stop-sl-update"
+          }
         },
+        "open_protective_orders": [],
         "supported": true,
         "reason": null
       },
@@ -1559,7 +1663,7 @@
     },
     {
       "mode": "paper",
-      "ts_bj": "2026-03-18T00:49:38.530101+08:00",
+      "ts_bj": "2026-03-18T01:54:49.622513+08:00",
       "intent": {
         "intent_id": "mgmt-eulusdt-add-protective-stop",
         "symbol": "EULUSDT",
@@ -1609,14 +1713,22 @@
         },
         "preview_kind": "PROTECTIVE_STOP_ADD",
         "payload": {
+          "op": "upsert_protective_stop",
+          "preview_only": true,
           "symbol": "EULUSDT",
-          "side": "SELL",
-          "type": "STOP_MARKET",
-          "stopPrice": 1.03281,
-          "closePosition": "true",
-          "workingType": "MARK_PRICE",
-          "newClientOrderId": "mgmt-eulusdt-add-protective-stop-sl-update"
+          "action": "ADD_PROTECTIVE_STOP",
+          "cancel_existing_stop_orders": [],
+          "create_order": {
+            "symbol": "EULUSDT",
+            "side": "SELL",
+            "type": "STOP_MARKET",
+            "stopPrice": 1.03281,
+            "closePosition": "true",
+            "workingType": "MARK_PRICE",
+            "newClientOrderId": "mgmt-eulusdt-add-protective-stop-sl-update"
+          }
         },
+        "open_protective_orders": [],
         "supported": true,
         "reason": null
       },
@@ -1624,7 +1736,7 @@
     },
     {
       "mode": "paper",
-      "ts_bj": "2026-03-18T00:49:38.530141+08:00",
+      "ts_bj": "2026-03-18T01:54:49.622581+08:00",
       "intent": {
         "intent_id": "mgmt-onusdt-add-protective-stop",
         "symbol": "ONUSDT",
@@ -1674,14 +1786,22 @@
         },
         "preview_kind": "PROTECTIVE_STOP_ADD",
         "payload": {
+          "op": "upsert_protective_stop",
+          "preview_only": true,
           "symbol": "ONUSDT",
-          "side": "SELL",
-          "type": "STOP_MARKET",
-          "stopPrice": 0.08809744,
-          "closePosition": "true",
-          "workingType": "MARK_PRICE",
-          "newClientOrderId": "mgmt-onusdt-add-protective-stop-sl-update"
+          "action": "ADD_PROTECTIVE_STOP",
+          "cancel_existing_stop_orders": [],
+          "create_order": {
+            "symbol": "ONUSDT",
+            "side": "SELL",
+            "type": "STOP_MARKET",
+            "stopPrice": 0.08809744,
+            "closePosition": "true",
+            "workingType": "MARK_PRICE",
+            "newClientOrderId": "mgmt-onusdt-add-protective-stop-sl-update"
+          }
         },
+        "open_protective_orders": [],
         "supported": true,
         "reason": null
       },
@@ -1689,7 +1809,7 @@
     },
     {
       "mode": "paper",
-      "ts_bj": "2026-03-18T00:49:38.533415+08:00",
+      "ts_bj": "2026-03-18T01:54:49.622623+08:00",
       "intent": {
         "intent_id": "mgmt-cowusdt-add-protective-stop",
         "symbol": "COWUSDT",
@@ -1739,14 +1859,22 @@
         },
         "preview_kind": "PROTECTIVE_STOP_ADD",
         "payload": {
+          "op": "upsert_protective_stop",
+          "preview_only": true,
           "symbol": "COWUSDT",
-          "side": "SELL",
-          "type": "STOP_MARKET",
-          "stopPrice": 0.238826,
-          "closePosition": "true",
-          "workingType": "MARK_PRICE",
-          "newClientOrderId": "mgmt-cowusdt-add-protective-stop-sl-update"
+          "action": "ADD_PROTECTIVE_STOP",
+          "cancel_existing_stop_orders": [],
+          "create_order": {
+            "symbol": "COWUSDT",
+            "side": "SELL",
+            "type": "STOP_MARKET",
+            "stopPrice": 0.238826,
+            "closePosition": "true",
+            "workingType": "MARK_PRICE",
+            "newClientOrderId": "mgmt-cowusdt-add-protective-stop-sl-update"
+          }
         },
+        "open_protective_orders": [],
         "supported": true,
         "reason": null
       },
@@ -1754,7 +1882,7 @@
     },
     {
       "mode": "paper",
-      "ts_bj": "2026-03-18T00:49:38.533522+08:00",
+      "ts_bj": "2026-03-18T01:54:49.622676+08:00",
       "intent": {
         "intent_id": "mgmt-riverusdt-add-protective-stop",
         "symbol": "RIVERUSDT",
@@ -1804,14 +1932,22 @@
         },
         "preview_kind": "PROTECTIVE_STOP_ADD",
         "payload": {
+          "op": "upsert_protective_stop",
+          "preview_only": true,
           "symbol": "RIVERUSDT",
-          "side": "SELL",
-          "type": "STOP_MARKET",
-          "stopPrice": 20.53296,
-          "closePosition": "true",
-          "workingType": "MARK_PRICE",
-          "newClientOrderId": "mgmt-riverusdt-add-protective-stop-sl-update"
+          "action": "ADD_PROTECTIVE_STOP",
+          "cancel_existing_stop_orders": [],
+          "create_order": {
+            "symbol": "RIVERUSDT",
+            "side": "SELL",
+            "type": "STOP_MARKET",
+            "stopPrice": 20.53296,
+            "closePosition": "true",
+            "workingType": "MARK_PRICE",
+            "newClientOrderId": "mgmt-riverusdt-add-protective-stop-sl-update"
+          }
         },
+        "open_protective_orders": [],
         "supported": true,
         "reason": null
       },
@@ -1819,7 +1955,7 @@
     },
     {
       "mode": "paper",
-      "ts_bj": "2026-03-18T00:49:38.533558+08:00",
+      "ts_bj": "2026-03-18T01:54:49.622717+08:00",
       "intent": {
         "intent_id": "mgmt-aktusdt-add-protective-stop",
         "symbol": "AKTUSDT",
@@ -1869,14 +2005,22 @@
         },
         "preview_kind": "PROTECTIVE_STOP_ADD",
         "payload": {
+          "op": "upsert_protective_stop",
+          "preview_only": true,
           "symbol": "AKTUSDT",
-          "side": "SELL",
-          "type": "STOP_MARKET",
-          "stopPrice": 0.410032,
-          "closePosition": "true",
-          "workingType": "MARK_PRICE",
-          "newClientOrderId": "mgmt-aktusdt-add-protective-stop-sl-update"
+          "action": "ADD_PROTECTIVE_STOP",
+          "cancel_existing_stop_orders": [],
+          "create_order": {
+            "symbol": "AKTUSDT",
+            "side": "SELL",
+            "type": "STOP_MARKET",
+            "stopPrice": 0.410032,
+            "closePosition": "true",
+            "workingType": "MARK_PRICE",
+            "newClientOrderId": "mgmt-aktusdt-add-protective-stop-sl-update"
+          }
         },
+        "open_protective_orders": [],
         "supported": true,
         "reason": null
       },
@@ -1884,7 +2028,7 @@
     },
     {
       "mode": "paper",
-      "ts_bj": "2026-03-18T00:49:38.533595+08:00",
+      "ts_bj": "2026-03-18T01:54:49.622784+08:00",
       "intent": {
         "intent_id": "mgmt-hanausdt-add-protective-stop",
         "symbol": "HANAUSDT",
@@ -1934,14 +2078,22 @@
         },
         "preview_kind": "PROTECTIVE_STOP_ADD",
         "payload": {
+          "op": "upsert_protective_stop",
+          "preview_only": true,
           "symbol": "HANAUSDT",
-          "side": "SELL",
-          "type": "STOP_MARKET",
-          "stopPrice": 0.0402878,
-          "closePosition": "true",
-          "workingType": "MARK_PRICE",
-          "newClientOrderId": "mgmt-hanausdt-add-protective-stop-sl-update"
+          "action": "ADD_PROTECTIVE_STOP",
+          "cancel_existing_stop_orders": [],
+          "create_order": {
+            "symbol": "HANAUSDT",
+            "side": "SELL",
+            "type": "STOP_MARKET",
+            "stopPrice": 0.0402878,
+            "closePosition": "true",
+            "workingType": "MARK_PRICE",
+            "newClientOrderId": "mgmt-hanausdt-add-protective-stop-sl-update"
+          }
         },
+        "open_protective_orders": [],
         "supported": true,
         "reason": null
       },
