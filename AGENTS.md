@@ -123,6 +123,7 @@ Skills provide your tools. When you need one, check its `SKILL.md`. Keep local n
 - Keep that notice brief and concrete; say what was used when it matters.
 - Do not silently use skills or MCP integrations for user-facing work unless higher-priority instructions require otherwise.
 - All coding tasks, regardless of size, should be delegated to Codex by default rather than hand-coded directly.
+- Default Codex workflow is option 2: run Codex in an isolated directory or git worktree first, then review and merge changes back into the main project.
 - If Codex is used for user-facing coding/system work, explicitly say so in the reply and include the model used plus the thinking depth/level.
 
 **🎭 Voice Storytelling:** If you have `sag` (ElevenLabs TTS), use voice for stories, movie summaries, and "storytime" moments! Way more engaging than walls of text. Surprise people with funny voices.
