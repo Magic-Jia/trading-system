@@ -49,7 +49,18 @@ python3 trading_system/entry_templates.py
 - `trading_system/data/candidate_scan.json`
 - `trading_system/data/entry_templates.json`
 
-## 6. 生成日报
+## 6. 生成仓位 sizing 与复盘评分
+
+```bash
+python3 trading_system/position_sizing.py
+python3 trading_system/review_score.py
+```
+
+输出：
+- `trading_system/data/sized_entries.json`
+- `trading_system/data/review_score.json`
+
+## 7. 生成日报
 
 ```bash
 python3 trading_system/daily_report.py
@@ -58,7 +69,7 @@ python3 trading_system/daily_report.py
 输出：
 - `trading_system/data/daily_report.md`
 
-## 7. 记录交易理由或复盘
+## 8. 记录交易理由或复盘
 
 ```bash
 python3 trading_system/journal.py note --type rationale --symbol BTCUSDT --side LONG --action OPEN --text "4h 趋势向上，回踩 20EMA 附近，赔率优于账户内弱 alt。"
