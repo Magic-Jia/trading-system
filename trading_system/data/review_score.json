@@ -1,0 +1,29 @@
+{
+  "plan_action_count": {
+    "CLOSE_PRIORITY": 6,
+    "REDUCE_ON_BOUNCE": 8,
+    "KEEP_PROTECT": 3,
+    "KEEP_WATCH": 1,
+    "HOLD": 1
+  },
+  "paper_action_count": {
+    "CLOSE_PRIORITY": 5
+  },
+  "top_plan_symbols": [
+    "MYXUSDT",
+    "TAKEUSDT",
+    "ZKCUSDT",
+    "HUSDT",
+    "DENTUSDT",
+    "DUSKUSDT",
+    "BULLAUSDT",
+    "FHEUSDT",
+    "AXLUSDT",
+    "BTRUSDT"
+  ],
+  "notes": [
+    "当前评分器仍是规则驱动，不是统计学习模型。",
+    "后续可接入真实结果字段，统计每类信号的胜率、盈亏比与回撤。",
+    "当前 review_score 更像系统状态摘要，用于给下一版优化提供方向。"
+  ]
+}
