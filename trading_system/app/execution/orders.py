@@ -101,7 +101,7 @@ def build_management_close_preview_payload(intent: ManagementActionIntent) -> di
 
 
 def build_management_preview(intent: ManagementActionIntent) -> ManagementActionPreview:
-    if intent.action == "BREAK_EVEN":
+    if intent.action in {"BREAK_EVEN", "ADD_PROTECTIVE_STOP"}:
         if intent.stop_loss is None:
             return ManagementActionPreview(
                 intent=intent,
@@ -111,7 +111,7 @@ def build_management_preview(intent: ManagementActionIntent) -> ManagementAction
             )
         return ManagementActionPreview(
             intent=intent,
-            preview_kind="STOP_LOSS_UPDATE",
+            preview_kind="PROTECTIVE_STOP_ADD" if intent.action == "ADD_PROTECTIVE_STOP" else "STOP_LOSS_UPDATE",
             payload=build_management_stop_preview_payload(intent),
         )
 

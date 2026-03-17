@@ -9,7 +9,13 @@ BJ = timezone(timedelta(hours=8))
 Side = Literal["LONG", "SHORT"]
 SignalSource = Literal["manual", "scanner", "strategy", "imported"]
 ManagementAction = Literal["BREAK_EVEN", "PARTIAL_TAKE_PROFIT", "EXIT", "ADD_PROTECTIVE_STOP"]
-ManagementPreviewKind = Literal["STOP_LOSS_UPDATE", "REDUCE_ONLY_TP_CLOSE", "CLOSE_POSITION", "UNSUPPORTED"]
+ManagementPreviewKind = Literal[
+    "STOP_LOSS_UPDATE",
+    "PROTECTIVE_STOP_ADD",
+    "REDUCE_ONLY_TP_CLOSE",
+    "CLOSE_POSITION",
+    "UNSUPPORTED",
+]
 
 
 @dataclass(slots=True)

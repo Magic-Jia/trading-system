@@ -1,5 +1,5 @@
 {
-  "updated_at_bj": "2026-03-17T22:54:22.138606+08:00",
+  "updated_at_bj": "2026-03-18T00:49:38.533721+08:00",
   "last_signal_ids": {},
   "cooldowns": {},
   "active_orders": {},
@@ -23,7 +23,7 @@
       "tracked_from_snapshot": true,
       "tracked_from_intent": false,
       "opened_at_bj": "2026-03-17T22:43:27.377741+08:00",
-      "updated_at_bj": "2026-03-17T22:54:22.136903+08:00",
+      "updated_at_bj": "2026-03-18T00:49:38.526478+08:00",
       "last_synced_from": "account_snapshot"
     },
     "BULLAUSDT": {
@@ -44,7 +44,7 @@
       "tracked_from_snapshot": true,
       "tracked_from_intent": false,
       "opened_at_bj": "2026-03-17T22:43:27.377741+08:00",
-      "updated_at_bj": "2026-03-17T22:54:22.136903+08:00",
+      "updated_at_bj": "2026-03-18T00:49:38.526478+08:00",
       "last_synced_from": "account_snapshot"
     },
     "FHEUSDT": {
@@ -65,7 +65,7 @@
       "tracked_from_snapshot": true,
       "tracked_from_intent": false,
       "opened_at_bj": "2026-03-17T22:43:27.377741+08:00",
-      "updated_at_bj": "2026-03-17T22:54:22.136903+08:00",
+      "updated_at_bj": "2026-03-18T00:49:38.526478+08:00",
       "last_synced_from": "account_snapshot"
     },
     "TAKEUSDT": {
@@ -86,7 +86,7 @@
       "tracked_from_snapshot": true,
       "tracked_from_intent": false,
       "opened_at_bj": "2026-03-17T22:43:27.377741+08:00",
-      "updated_at_bj": "2026-03-17T22:54:22.136903+08:00",
+      "updated_at_bj": "2026-03-18T00:49:38.526478+08:00",
       "last_synced_from": "account_snapshot"
     },
     "ZKCUSDT": {
@@ -107,7 +107,7 @@
       "tracked_from_snapshot": true,
       "tracked_from_intent": false,
       "opened_at_bj": "2026-03-17T22:43:27.377741+08:00",
-      "updated_at_bj": "2026-03-17T22:54:22.136903+08:00",
+      "updated_at_bj": "2026-03-18T00:49:38.526478+08:00",
       "last_synced_from": "account_snapshot"
     },
     "HUSDT": {
@@ -128,7 +128,7 @@
       "tracked_from_snapshot": true,
       "tracked_from_intent": false,
       "opened_at_bj": "2026-03-17T22:43:27.377741+08:00",
-      "updated_at_bj": "2026-03-17T22:54:22.136903+08:00",
+      "updated_at_bj": "2026-03-18T00:49:38.526478+08:00",
       "last_synced_from": "account_snapshot"
     },
     "DENTUSDT": {
@@ -149,7 +149,7 @@
       "tracked_from_snapshot": true,
       "tracked_from_intent": false,
       "opened_at_bj": "2026-03-17T22:43:27.377741+08:00",
-      "updated_at_bj": "2026-03-17T22:54:22.136903+08:00",
+      "updated_at_bj": "2026-03-18T00:49:38.526478+08:00",
       "last_synced_from": "account_snapshot"
     },
     "DUSKUSDT": {
@@ -170,7 +170,7 @@
       "tracked_from_snapshot": true,
       "tracked_from_intent": false,
       "opened_at_bj": "2026-03-17T22:43:27.377741+08:00",
-      "updated_at_bj": "2026-03-17T22:54:22.136903+08:00",
+      "updated_at_bj": "2026-03-18T00:49:38.526478+08:00",
       "last_synced_from": "account_snapshot"
     },
     "AXLUSDT": {
@@ -191,7 +191,7 @@
       "tracked_from_snapshot": true,
       "tracked_from_intent": false,
       "opened_at_bj": "2026-03-17T22:43:27.377741+08:00",
-      "updated_at_bj": "2026-03-17T22:54:22.136903+08:00",
+      "updated_at_bj": "2026-03-18T00:49:38.526478+08:00",
       "last_synced_from": "account_snapshot"
     },
     "BTRUSDT": {
@@ -212,7 +212,7 @@
       "tracked_from_snapshot": true,
       "tracked_from_intent": false,
       "opened_at_bj": "2026-03-17T22:43:27.377741+08:00",
-      "updated_at_bj": "2026-03-17T22:54:22.136903+08:00",
+      "updated_at_bj": "2026-03-18T00:49:38.526478+08:00",
       "last_synced_from": "account_snapshot"
     },
     "AUCTIONUSDT": {
@@ -233,7 +233,7 @@
       "tracked_from_snapshot": true,
       "tracked_from_intent": false,
       "opened_at_bj": "2026-03-17T22:43:27.377741+08:00",
-      "updated_at_bj": "2026-03-17T22:54:22.136903+08:00",
+      "updated_at_bj": "2026-03-18T00:49:38.526478+08:00",
       "last_synced_from": "account_snapshot"
     },
     "GPSUSDT": {
@@ -254,7 +254,7 @@
       "tracked_from_snapshot": true,
       "tracked_from_intent": false,
       "opened_at_bj": "2026-03-17T22:43:27.377741+08:00",
-      "updated_at_bj": "2026-03-17T22:54:22.136903+08:00",
+      "updated_at_bj": "2026-03-18T00:49:38.526478+08:00",
       "last_synced_from": "account_snapshot"
     },
     "ZILUSDT": {
@@ -275,7 +275,7 @@
       "tracked_from_snapshot": true,
       "tracked_from_intent": false,
       "opened_at_bj": "2026-03-17T22:43:27.377741+08:00",
-      "updated_at_bj": "2026-03-17T22:54:22.136903+08:00",
+      "updated_at_bj": "2026-03-18T00:49:38.526478+08:00",
       "last_synced_from": "account_snapshot"
     },
     "EULUSDT": {
@@ -296,7 +296,7 @@
       "tracked_from_snapshot": true,
       "tracked_from_intent": false,
       "opened_at_bj": "2026-03-17T22:43:27.377741+08:00",
-      "updated_at_bj": "2026-03-17T22:54:22.136903+08:00",
+      "updated_at_bj": "2026-03-18T00:49:38.526478+08:00",
       "last_synced_from": "account_snapshot"
     },
     "ONUSDT": {
@@ -317,7 +317,7 @@
       "tracked_from_snapshot": true,
       "tracked_from_intent": false,
       "opened_at_bj": "2026-03-17T22:43:27.377741+08:00",
-      "updated_at_bj": "2026-03-17T22:54:22.136903+08:00",
+      "updated_at_bj": "2026-03-18T00:49:38.526478+08:00",
       "last_synced_from": "account_snapshot"
     },
     "COWUSDT": {
@@ -338,7 +338,7 @@
       "tracked_from_snapshot": true,
       "tracked_from_intent": false,
       "opened_at_bj": "2026-03-17T22:43:27.377741+08:00",
-      "updated_at_bj": "2026-03-17T22:54:22.136903+08:00",
+      "updated_at_bj": "2026-03-18T00:49:38.526478+08:00",
       "last_synced_from": "account_snapshot"
     },
     "RIVERUSDT": {
@@ -359,7 +359,7 @@
       "tracked_from_snapshot": true,
       "tracked_from_intent": false,
       "opened_at_bj": "2026-03-17T22:43:27.377741+08:00",
-      "updated_at_bj": "2026-03-17T22:54:22.136903+08:00",
+      "updated_at_bj": "2026-03-18T00:49:38.526478+08:00",
       "last_synced_from": "account_snapshot"
     },
     "AKTUSDT": {
@@ -380,7 +380,7 @@
       "tracked_from_snapshot": true,
       "tracked_from_intent": false,
       "opened_at_bj": "2026-03-17T22:43:27.377741+08:00",
-      "updated_at_bj": "2026-03-17T22:54:22.136903+08:00",
+      "updated_at_bj": "2026-03-18T00:49:38.526478+08:00",
       "last_synced_from": "account_snapshot"
     },
     "HANAUSDT": {
@@ -401,7 +401,7 @@
       "tracked_from_snapshot": true,
       "tracked_from_intent": false,
       "opened_at_bj": "2026-03-17T22:43:27.377741+08:00",
-      "updated_at_bj": "2026-03-17T22:54:22.136903+08:00",
+      "updated_at_bj": "2026-03-18T00:49:38.526478+08:00",
       "last_synced_from": "account_snapshot"
     }
   },
@@ -413,10 +413,13 @@
       "reason": "当前持仓缺少有效止损，建议先补保护性止损后再谈加仓或死扛。",
       "priority": "MEDIUM",
       "qty_fraction": null,
-      "suggested_stop_loss": null,
+      "suggested_stop_loss": 0.33822605,
       "reference_price": 0.33992568,
       "meta": {
-        "position_source": "account_snapshot"
+        "position_source": "account_snapshot",
+        "heuristic": "entry_2pct_or_mark_0.5pct_buffer",
+        "entry_price": 0.90677778,
+        "mark_price": 0.33992568
       }
     },
     {
@@ -426,10 +429,13 @@
       "reason": "当前持仓缺少有效止损，建议先补保护性止损后再谈加仓或死扛。",
       "priority": "MEDIUM",
       "qty_fraction": null,
-      "suggested_stop_loss": null,
+      "suggested_stop_loss": 0.00837392,
       "reference_price": 0.008416,
       "meta": {
-        "position_source": "account_snapshot"
+        "position_source": "account_snapshot",
+        "heuristic": "entry_2pct_or_mark_0.5pct_buffer",
+        "entry_price": 0.11434,
+        "mark_price": 0.008416
       }
     },
     {
@@ -439,10 +445,13 @@
       "reason": "当前持仓缺少有效止损，建议先补保护性止损后再谈加仓或死扛。",
       "priority": "MEDIUM",
       "qty_fraction": null,
-      "suggested_stop_loss": null,
+      "suggested_stop_loss": 0.02094475,
       "reference_price": 0.02105,
       "meta": {
-        "position_source": "account_snapshot"
+        "position_source": "account_snapshot",
+        "heuristic": "entry_2pct_or_mark_0.5pct_buffer",
+        "entry_price": 0.16363,
+        "mark_price": 0.02105
       }
     },
     {
@@ -452,10 +461,13 @@
       "reason": "当前持仓缺少有效止损，建议先补保护性止损后再谈加仓或死扛。",
       "priority": "MEDIUM",
       "qty_fraction": null,
-      "suggested_stop_loss": null,
+      "suggested_stop_loss": 0.0221686,
       "reference_price": 0.02228,
       "meta": {
-        "position_source": "account_snapshot"
+        "position_source": "account_snapshot",
+        "heuristic": "entry_2pct_or_mark_0.5pct_buffer",
+        "entry_price": 0.05405,
+        "mark_price": 0.02228
       }
     },
     {
@@ -465,10 +477,13 @@
       "reason": "当前持仓缺少有效止损，建议先补保护性止损后再谈加仓或死扛。",
       "priority": "MEDIUM",
       "qty_fraction": null,
-      "suggested_stop_loss": null,
+      "suggested_stop_loss": 0.08195426,
       "reference_price": 0.08236609,
       "meta": {
-        "position_source": "account_snapshot"
+        "position_source": "account_snapshot",
+        "heuristic": "entry_2pct_or_mark_0.5pct_buffer",
+        "entry_price": 0.1875,
+        "mark_price": 0.08236609
       }
     },
     {
@@ -478,10 +493,13 @@
       "reason": "当前持仓缺少有效止损，建议先补保护性止损后再谈加仓或死扛。",
       "priority": "MEDIUM",
       "qty_fraction": null,
-      "suggested_stop_loss": null,
+      "suggested_stop_loss": 0.12442301,
       "reference_price": 0.12504825,
       "meta": {
-        "position_source": "account_snapshot"
+        "position_source": "account_snapshot",
+        "heuristic": "entry_2pct_or_mark_0.5pct_buffer",
+        "entry_price": 0.22913,
+        "mark_price": 0.12504825
       }
     },
     {
@@ -491,10 +509,13 @@
       "reason": "当前持仓缺少有效止损，建议先补保护性止损后再谈加仓或死扛。",
       "priority": "MEDIUM",
       "qty_fraction": null,
-      "suggested_stop_loss": null,
+      "suggested_stop_loss": 0.00021938,
       "reference_price": 0.00022048,
       "meta": {
-        "position_source": "account_snapshot"
+        "position_source": "account_snapshot",
+        "heuristic": "entry_2pct_or_mark_0.5pct_buffer",
+        "entry_price": 0.000406,
+        "mark_price": 0.00022048
       }
     },
     {
@@ -504,10 +525,13 @@
       "reason": "当前持仓缺少有效止损，建议先补保护性止损后再谈加仓或死扛。",
       "priority": "MEDIUM",
       "qty_fraction": null,
-      "suggested_stop_loss": null,
+      "suggested_stop_loss": 0.0906644,
       "reference_price": 0.09112,
       "meta": {
-        "position_source": "account_snapshot"
+        "position_source": "account_snapshot",
+        "heuristic": "entry_2pct_or_mark_0.5pct_buffer",
+        "entry_price": 0.16695,
+        "mark_price": 0.09112
       }
     },
     {
@@ -517,10 +541,13 @@
       "reason": "当前持仓缺少有效止损，建议先补保护性止损后再谈加仓或死扛。",
       "priority": "MEDIUM",
       "qty_fraction": null,
-      "suggested_stop_loss": null,
+      "suggested_stop_loss": 0.05696825,
       "reference_price": 0.05725452,
       "meta": {
-        "position_source": "account_snapshot"
+        "position_source": "account_snapshot",
+        "heuristic": "entry_2pct_or_mark_0.5pct_buffer",
+        "entry_price": 0.0997,
+        "mark_price": 0.05725452
       }
     },
     {
@@ -530,10 +557,13 @@
       "reason": "当前持仓缺少有效止损，建议先补保护性止损后再谈加仓或死扛。",
       "priority": "MEDIUM",
       "qty_fraction": null,
-      "suggested_stop_loss": null,
+      "suggested_stop_loss": 0.12735005,
       "reference_price": 0.12799,
       "meta": {
-        "position_source": "account_snapshot"
+        "position_source": "account_snapshot",
+        "heuristic": "entry_2pct_or_mark_0.5pct_buffer",
+        "entry_price": 0.21394,
+        "mark_price": 0.12799
       }
     },
     {
@@ -543,10 +573,13 @@
       "reason": "当前持仓缺少有效止损，建议先补保护性止损后再谈加仓或死扛。",
       "priority": "MEDIUM",
       "qty_fraction": null,
-      "suggested_stop_loss": null,
+      "suggested_stop_loss": 4.904753,
       "reference_price": 4.9294,
       "meta": {
-        "position_source": "account_snapshot"
+        "position_source": "account_snapshot",
+        "heuristic": "entry_2pct_or_mark_0.5pct_buffer",
+        "entry_price": 7.307,
+        "mark_price": 4.9294
       }
     },
     {
@@ -556,10 +589,13 @@
       "reason": "当前持仓缺少有效止损，建议先补保护性止损后再谈加仓或死扛。",
       "priority": "MEDIUM",
       "qty_fraction": null,
-      "suggested_stop_loss": null,
+      "suggested_stop_loss": 0.00861811,
       "reference_price": 0.00866142,
       "meta": {
-        "position_source": "account_snapshot"
+        "position_source": "account_snapshot",
+        "heuristic": "entry_2pct_or_mark_0.5pct_buffer",
+        "entry_price": 0.012806,
+        "mark_price": 0.00866142
       }
     },
     {
@@ -569,10 +605,13 @@
       "reason": "当前持仓缺少有效止损，建议先补保护性止损后再谈加仓或死扛。",
       "priority": "MEDIUM",
       "qty_fraction": null,
-      "suggested_stop_loss": null,
+      "suggested_stop_loss": 0.00430734,
       "reference_price": 0.00432898,
       "meta": {
-        "position_source": "account_snapshot"
+        "position_source": "account_snapshot",
+        "heuristic": "entry_2pct_or_mark_0.5pct_buffer",
+        "entry_price": 0.00636,
+        "mark_price": 0.00432898
       }
     },
     {
@@ -582,10 +621,13 @@
       "reason": "当前持仓缺少有效止损，建议先补保护性止损后再谈加仓或死扛。",
       "priority": "MEDIUM",
       "qty_fraction": null,
-      "suggested_stop_loss": null,
+      "suggested_stop_loss": 1.03281,
       "reference_price": 1.038,
       "meta": {
-        "position_source": "account_snapshot"
+        "position_source": "account_snapshot",
+        "heuristic": "entry_2pct_or_mark_0.5pct_buffer",
+        "entry_price": 1.436,
+        "mark_price": 1.038
       }
     },
     {
@@ -595,10 +637,13 @@
       "reason": "当前持仓缺少有效止损，建议先补保护性止损后再谈加仓或死扛。",
       "priority": "MEDIUM",
       "qty_fraction": null,
-      "suggested_stop_loss": null,
+      "suggested_stop_loss": 0.08809744,
       "reference_price": 0.08854014,
       "meta": {
-        "position_source": "account_snapshot"
+        "position_source": "account_snapshot",
+        "heuristic": "entry_2pct_or_mark_0.5pct_buffer",
+        "entry_price": 0.1155,
+        "mark_price": 0.08854014
       }
     },
     {
@@ -608,10 +653,13 @@
       "reason": "当前持仓缺少有效止损，建议先补保护性止损后再谈加仓或死扛。",
       "priority": "MEDIUM",
       "qty_fraction": null,
-      "suggested_stop_loss": null,
+      "suggested_stop_loss": 0.238826,
       "reference_price": 0.24600672,
       "meta": {
-        "position_source": "account_snapshot"
+        "position_source": "account_snapshot",
+        "heuristic": "entry_2pct_or_mark_0.5pct_buffer",
+        "entry_price": 0.2437,
+        "mark_price": 0.24600672
       }
     },
     {
@@ -621,10 +669,13 @@
       "reason": "当前持仓缺少有效止损，建议先补保护性止损后再谈加仓或死扛。",
       "priority": "MEDIUM",
       "qty_fraction": null,
-      "suggested_stop_loss": null,
+      "suggested_stop_loss": 20.53296,
       "reference_price": 21.549,
       "meta": {
-        "position_source": "account_snapshot"
+        "position_source": "account_snapshot",
+        "heuristic": "entry_2pct_or_mark_0.5pct_buffer",
+        "entry_price": 20.952,
+        "mark_price": 21.549
       }
     },
     {
@@ -634,10 +685,13 @@
       "reason": "当前持仓缺少有效止损，建议先补保护性止损后再谈加仓或死扛。",
       "priority": "MEDIUM",
       "qty_fraction": null,
-      "suggested_stop_loss": null,
+      "suggested_stop_loss": 0.410032,
       "reference_price": 0.459,
       "meta": {
-        "position_source": "account_snapshot"
+        "position_source": "account_snapshot",
+        "heuristic": "entry_2pct_or_mark_0.5pct_buffer",
+        "entry_price": 0.4184,
+        "mark_price": 0.459
       }
     },
     {
@@ -647,17 +701,20 @@
       "reason": "当前持仓缺少有效止损，建议先补保护性止损后再谈加仓或死扛。",
       "priority": "MEDIUM",
       "qty_fraction": null,
-      "suggested_stop_loss": null,
+      "suggested_stop_loss": 0.0402878,
       "reference_price": 0.0461,
       "meta": {
-        "position_source": "account_snapshot"
+        "position_source": "account_snapshot",
+        "heuristic": "entry_2pct_or_mark_0.5pct_buffer",
+        "entry_price": 0.04111,
+        "mark_price": 0.0461
       }
     }
   ],
   "management_action_previews": [
     {
       "mode": "paper",
-      "ts_bj": "2026-03-17T22:54:22.137964+08:00",
+      "ts_bj": "2026-03-18T00:49:38.527810+08:00",
       "intent": {
         "intent_id": "mgmt-myxusdt-add-protective-stop",
         "symbol": "MYXUSDT",
@@ -665,7 +722,7 @@
         "side": "LONG",
         "position_qty": 18.0,
         "qty": null,
-        "stop_loss": null,
+        "stop_loss": 0.33822605,
         "reference_price": 0.33992568,
         "reduce_only": true,
         "status": "PREVIEW",
@@ -675,7 +732,10 @@
           "qty_fraction": null,
           "position_stop_loss": null,
           "position_take_profit": null,
-          "position_source": "account_snapshot"
+          "position_source": "account_snapshot",
+          "heuristic": "entry_2pct_or_mark_0.5pct_buffer",
+          "entry_price": 0.90677778,
+          "mark_price": 0.33992568
         }
       },
       "preview": {
@@ -686,7 +746,7 @@
           "side": "LONG",
           "position_qty": 18.0,
           "qty": null,
-          "stop_loss": null,
+          "stop_loss": 0.33822605,
           "reference_price": 0.33992568,
           "reduce_only": true,
           "status": "PREVIEW",
@@ -696,19 +756,30 @@
             "qty_fraction": null,
             "position_stop_loss": null,
             "position_take_profit": null,
-            "position_source": "account_snapshot"
+            "position_source": "account_snapshot",
+            "heuristic": "entry_2pct_or_mark_0.5pct_buffer",
+            "entry_price": 0.90677778,
+            "mark_price": 0.33992568
           }
         },
-        "preview_kind": "UNSUPPORTED",
-        "payload": null,
-        "supported": false,
-        "reason": "action_not_previewable_in_mvp"
+        "preview_kind": "PROTECTIVE_STOP_ADD",
+        "payload": {
+          "symbol": "MYXUSDT",
+          "side": "SELL",
+          "type": "STOP_MARKET",
+          "stopPrice": 0.33822605,
+          "closePosition": "true",
+          "workingType": "MARK_PRICE",
+          "newClientOrderId": "mgmt-myxusdt-add-protective-stop-sl-update"
+        },
+        "supported": true,
+        "reason": null
       },
       "result": "PREVIEW_ONLY"
     },
     {
       "mode": "paper",
-      "ts_bj": "2026-03-17T22:54:22.138031+08:00",
+      "ts_bj": "2026-03-18T00:49:38.527862+08:00",
       "intent": {
         "intent_id": "mgmt-bullausdt-add-protective-stop",
         "symbol": "BULLAUSDT",
@@ -716,7 +787,7 @@
         "side": "LONG",
         "position_qty": 44.0,
         "qty": null,
-        "stop_loss": null,
+        "stop_loss": 0.00837392,
         "reference_price": 0.008416,
         "reduce_only": true,
         "status": "PREVIEW",
@@ -726,7 +797,10 @@
           "qty_fraction": null,
           "position_stop_loss": null,
           "position_take_profit": null,
-          "position_source": "account_snapshot"
+          "position_source": "account_snapshot",
+          "heuristic": "entry_2pct_or_mark_0.5pct_buffer",
+          "entry_price": 0.11434,
+          "mark_price": 0.008416
         }
       },
       "preview": {
@@ -737,7 +811,7 @@
           "side": "LONG",
           "position_qty": 44.0,
           "qty": null,
-          "stop_loss": null,
+          "stop_loss": 0.00837392,
           "reference_price": 0.008416,
           "reduce_only": true,
           "status": "PREVIEW",
@@ -747,19 +821,30 @@
             "qty_fraction": null,
             "position_stop_loss": null,
             "position_take_profit": null,
-            "position_source": "account_snapshot"
+            "position_source": "account_snapshot",
+            "heuristic": "entry_2pct_or_mark_0.5pct_buffer",
+            "entry_price": 0.11434,
+            "mark_price": 0.008416
           }
         },
-        "preview_kind": "UNSUPPORTED",
-        "payload": null,
-        "supported": false,
-        "reason": "action_not_previewable_in_mvp"
+        "preview_kind": "PROTECTIVE_STOP_ADD",
+        "payload": {
+          "symbol": "BULLAUSDT",
+          "side": "SELL",
+          "type": "STOP_MARKET",
+          "stopPrice": 0.00837392,
+          "closePosition": "true",
+          "workingType": "MARK_PRICE",
+          "newClientOrderId": "mgmt-bullausdt-add-protective-stop-sl-update"
+        },
+        "supported": true,
+        "reason": null
       },
       "result": "PREVIEW_ONLY"
     },
     {
       "mode": "paper",
-      "ts_bj": "2026-03-17T22:54:22.138062+08:00",
+      "ts_bj": "2026-03-18T00:49:38.527898+08:00",
       "intent": {
         "intent_id": "mgmt-fheusdt-add-protective-stop",
         "symbol": "FHEUSDT",
@@ -767,7 +852,7 @@
         "side": "LONG",
         "position_qty": 31.0,
         "qty": null,
-        "stop_loss": null,
+        "stop_loss": 0.02094475,
         "reference_price": 0.02105,
         "reduce_only": true,
         "status": "PREVIEW",
@@ -777,7 +862,10 @@
           "qty_fraction": null,
           "position_stop_loss": null,
           "position_take_profit": null,
-          "position_source": "account_snapshot"
+          "position_source": "account_snapshot",
+          "heuristic": "entry_2pct_or_mark_0.5pct_buffer",
+          "entry_price": 0.16363,
+          "mark_price": 0.02105
         }
       },
       "preview": {
@@ -788,7 +876,7 @@
           "side": "LONG",
           "position_qty": 31.0,
           "qty": null,
-          "stop_loss": null,
+          "stop_loss": 0.02094475,
           "reference_price": 0.02105,
           "reduce_only": true,
           "status": "PREVIEW",
@@ -798,19 +886,30 @@
             "qty_fraction": null,
             "position_stop_loss": null,
             "position_take_profit": null,
-            "position_source": "account_snapshot"
+            "position_source": "account_snapshot",
+            "heuristic": "entry_2pct_or_mark_0.5pct_buffer",
+            "entry_price": 0.16363,
+            "mark_price": 0.02105
           }
         },
-        "preview_kind": "UNSUPPORTED",
-        "payload": null,
-        "supported": false,
-        "reason": "action_not_previewable_in_mvp"
+        "preview_kind": "PROTECTIVE_STOP_ADD",
+        "payload": {
+          "symbol": "FHEUSDT",
+          "side": "SELL",
+          "type": "STOP_MARKET",
+          "stopPrice": 0.02094475,
+          "closePosition": "true",
+          "workingType": "MARK_PRICE",
+          "newClientOrderId": "mgmt-fheusdt-add-protective-stop-sl-update"
+        },
+        "supported": true,
+        "reason": null
       },
       "result": "PREVIEW_ONLY"
     },
     {
       "mode": "paper",
-      "ts_bj": "2026-03-17T22:54:22.138094+08:00",
+      "ts_bj": "2026-03-18T00:49:38.527933+08:00",
       "intent": {
         "intent_id": "mgmt-takeusdt-add-protective-stop",
         "symbol": "TAKEUSDT",
@@ -818,7 +917,7 @@
         "side": "LONG",
         "position_qty": 93.0,
         "qty": null,
-        "stop_loss": null,
+        "stop_loss": 0.0221686,
         "reference_price": 0.02228,
         "reduce_only": true,
         "status": "PREVIEW",
@@ -828,7 +927,10 @@
           "qty_fraction": null,
           "position_stop_loss": null,
           "position_take_profit": null,
-          "position_source": "account_snapshot"
+          "position_source": "account_snapshot",
+          "heuristic": "entry_2pct_or_mark_0.5pct_buffer",
+          "entry_price": 0.05405,
+          "mark_price": 0.02228
         }
       },
       "preview": {
@@ -839,7 +941,7 @@
           "side": "LONG",
           "position_qty": 93.0,
           "qty": null,
-          "stop_loss": null,
+          "stop_loss": 0.0221686,
           "reference_price": 0.02228,
           "reduce_only": true,
           "status": "PREVIEW",
@@ -849,19 +951,30 @@
             "qty_fraction": null,
             "position_stop_loss": null,
             "position_take_profit": null,
-            "position_source": "account_snapshot"
+            "position_source": "account_snapshot",
+            "heuristic": "entry_2pct_or_mark_0.5pct_buffer",
+            "entry_price": 0.05405,
+            "mark_price": 0.02228
           }
         },
-        "preview_kind": "UNSUPPORTED",
-        "payload": null,
-        "supported": false,
-        "reason": "action_not_previewable_in_mvp"
+        "preview_kind": "PROTECTIVE_STOP_ADD",
+        "payload": {
+          "symbol": "TAKEUSDT",
+          "side": "SELL",
+          "type": "STOP_MARKET",
+          "stopPrice": 0.0221686,
+          "closePosition": "true",
+          "workingType": "MARK_PRICE",
+          "newClientOrderId": "mgmt-takeusdt-add-protective-stop-sl-update"
+        },
+        "supported": true,
+        "reason": null
       },
       "result": "PREVIEW_ONLY"
     },
     {
       "mode": "paper",
-      "ts_bj": "2026-03-17T22:54:22.138120+08:00",
+      "ts_bj": "2026-03-18T00:49:38.527984+08:00",
       "intent": {
         "intent_id": "mgmt-zkcusdt-add-protective-stop",
         "symbol": "ZKCUSDT",
@@ -869,7 +982,7 @@
         "side": "LONG",
         "position_qty": 27.0,
         "qty": null,
-        "stop_loss": null,
+        "stop_loss": 0.08195426,
         "reference_price": 0.08236609,
         "reduce_only": true,
         "status": "PREVIEW",
@@ -879,7 +992,10 @@
           "qty_fraction": null,
           "position_stop_loss": null,
           "position_take_profit": null,
-          "position_source": "account_snapshot"
+          "position_source": "account_snapshot",
+          "heuristic": "entry_2pct_or_mark_0.5pct_buffer",
+          "entry_price": 0.1875,
+          "mark_price": 0.08236609
         }
       },
       "preview": {
@@ -890,7 +1006,7 @@
           "side": "LONG",
           "position_qty": 27.0,
           "qty": null,
-          "stop_loss": null,
+          "stop_loss": 0.08195426,
           "reference_price": 0.08236609,
           "reduce_only": true,
           "status": "PREVIEW",
@@ -900,19 +1016,30 @@
             "qty_fraction": null,
             "position_stop_loss": null,
             "position_take_profit": null,
-            "position_source": "account_snapshot"
+            "position_source": "account_snapshot",
+            "heuristic": "entry_2pct_or_mark_0.5pct_buffer",
+            "entry_price": 0.1875,
+            "mark_price": 0.08236609
           }
         },
-        "preview_kind": "UNSUPPORTED",
-        "payload": null,
-        "supported": false,
-        "reason": "action_not_previewable_in_mvp"
+        "preview_kind": "PROTECTIVE_STOP_ADD",
+        "payload": {
+          "symbol": "ZKCUSDT",
+          "side": "SELL",
+          "type": "STOP_MARKET",
+          "stopPrice": 0.08195426,
+          "closePosition": "true",
+          "workingType": "MARK_PRICE",
+          "newClientOrderId": "mgmt-zkcusdt-add-protective-stop-sl-update"
+        },
+        "supported": true,
+        "reason": null
       },
       "result": "PREVIEW_ONLY"
     },
     {
       "mode": "paper",
-      "ts_bj": "2026-03-17T22:54:22.138146+08:00",
+      "ts_bj": "2026-03-18T00:49:38.528018+08:00",
       "intent": {
         "intent_id": "mgmt-husdt-add-protective-stop",
         "symbol": "HUSDT",
@@ -920,7 +1047,7 @@
         "side": "LONG",
         "position_qty": 22.0,
         "qty": null,
-        "stop_loss": null,
+        "stop_loss": 0.12442301,
         "reference_price": 0.12504825,
         "reduce_only": true,
         "status": "PREVIEW",
@@ -930,7 +1057,10 @@
           "qty_fraction": null,
           "position_stop_loss": null,
           "position_take_profit": null,
-          "position_source": "account_snapshot"
+          "position_source": "account_snapshot",
+          "heuristic": "entry_2pct_or_mark_0.5pct_buffer",
+          "entry_price": 0.22913,
+          "mark_price": 0.12504825
         }
       },
       "preview": {
@@ -941,7 +1071,7 @@
           "side": "LONG",
           "position_qty": 22.0,
           "qty": null,
-          "stop_loss": null,
+          "stop_loss": 0.12442301,
           "reference_price": 0.12504825,
           "reduce_only": true,
           "status": "PREVIEW",
@@ -951,19 +1081,30 @@
             "qty_fraction": null,
             "position_stop_loss": null,
             "position_take_profit": null,
-            "position_source": "account_snapshot"
+            "position_source": "account_snapshot",
+            "heuristic": "entry_2pct_or_mark_0.5pct_buffer",
+            "entry_price": 0.22913,
+            "mark_price": 0.12504825
           }
         },
-        "preview_kind": "UNSUPPORTED",
-        "payload": null,
-        "supported": false,
-        "reason": "action_not_previewable_in_mvp"
+        "preview_kind": "PROTECTIVE_STOP_ADD",
+        "payload": {
+          "symbol": "HUSDT",
+          "side": "SELL",
+          "type": "STOP_MARKET",
+          "stopPrice": 0.12442301,
+          "closePosition": "true",
+          "workingType": "MARK_PRICE",
+          "newClientOrderId": "mgmt-husdt-add-protective-stop-sl-update"
+        },
+        "supported": true,
+        "reason": null
       },
       "result": "PREVIEW_ONLY"
     },
     {
       "mode": "paper",
-      "ts_bj": "2026-03-17T22:54:22.138173+08:00",
+      "ts_bj": "2026-03-18T00:49:38.529796+08:00",
       "intent": {
         "intent_id": "mgmt-dentusdt-add-protective-stop",
         "symbol": "DENTUSDT",
@@ -971,7 +1112,7 @@
         "side": "LONG",
         "position_qty": 12317.0,
         "qty": null,
-        "stop_loss": null,
+        "stop_loss": 0.00021938,
         "reference_price": 0.00022048,
         "reduce_only": true,
         "status": "PREVIEW",
@@ -981,7 +1122,10 @@
           "qty_fraction": null,
           "position_stop_loss": null,
           "position_take_profit": null,
-          "position_source": "account_snapshot"
+          "position_source": "account_snapshot",
+          "heuristic": "entry_2pct_or_mark_0.5pct_buffer",
+          "entry_price": 0.000406,
+          "mark_price": 0.00022048
         }
       },
       "preview": {
@@ -992,7 +1136,7 @@
           "side": "LONG",
           "position_qty": 12317.0,
           "qty": null,
-          "stop_loss": null,
+          "stop_loss": 0.00021938,
           "reference_price": 0.00022048,
           "reduce_only": true,
           "status": "PREVIEW",
@@ -1002,19 +1146,30 @@
             "qty_fraction": null,
             "position_stop_loss": null,
             "position_take_profit": null,
-            "position_source": "account_snapshot"
+            "position_source": "account_snapshot",
+            "heuristic": "entry_2pct_or_mark_0.5pct_buffer",
+            "entry_price": 0.000406,
+            "mark_price": 0.00022048
           }
         },
-        "preview_kind": "UNSUPPORTED",
-        "payload": null,
-        "supported": false,
-        "reason": "action_not_previewable_in_mvp"
+        "preview_kind": "PROTECTIVE_STOP_ADD",
+        "payload": {
+          "symbol": "DENTUSDT",
+          "side": "SELL",
+          "type": "STOP_MARKET",
+          "stopPrice": 0.00021938,
+          "closePosition": "true",
+          "workingType": "MARK_PRICE",
+          "newClientOrderId": "mgmt-dentusdt-add-protective-stop-sl-update"
+        },
+        "supported": true,
+        "reason": null
       },
       "result": "PREVIEW_ONLY"
     },
     {
       "mode": "paper",
-      "ts_bj": "2026-03-17T22:54:22.138199+08:00",
+      "ts_bj": "2026-03-18T00:49:38.529875+08:00",
       "intent": {
         "intent_id": "mgmt-duskusdt-add-protective-stop",
         "symbol": "DUSKUSDT",
@@ -1022,7 +1177,7 @@
         "side": "LONG",
         "position_qty": 30.0,
         "qty": null,
-        "stop_loss": null,
+        "stop_loss": 0.0906644,
         "reference_price": 0.09112,
         "reduce_only": true,
         "status": "PREVIEW",
@@ -1032,7 +1187,10 @@
           "qty_fraction": null,
           "position_stop_loss": null,
           "position_take_profit": null,
-          "position_source": "account_snapshot"
+          "position_source": "account_snapshot",
+          "heuristic": "entry_2pct_or_mark_0.5pct_buffer",
+          "entry_price": 0.16695,
+          "mark_price": 0.09112
         }
       },
       "preview": {
@@ -1043,7 +1201,7 @@
           "side": "LONG",
           "position_qty": 30.0,
           "qty": null,
-          "stop_loss": null,
+          "stop_loss": 0.0906644,
           "reference_price": 0.09112,
           "reduce_only": true,
           "status": "PREVIEW",
@@ -1053,19 +1211,30 @@
             "qty_fraction": null,
             "position_stop_loss": null,
             "position_take_profit": null,
-            "position_source": "account_snapshot"
+            "position_source": "account_snapshot",
+            "heuristic": "entry_2pct_or_mark_0.5pct_buffer",
+            "entry_price": 0.16695,
+            "mark_price": 0.09112
           }
         },
-        "preview_kind": "UNSUPPORTED",
-        "payload": null,
-        "supported": false,
-        "reason": "action_not_previewable_in_mvp"
+        "preview_kind": "PROTECTIVE_STOP_ADD",
+        "payload": {
+          "symbol": "DUSKUSDT",
+          "side": "SELL",
+          "type": "STOP_MARKET",
+          "stopPrice": 0.0906644,
+          "closePosition": "true",
+          "workingType": "MARK_PRICE",
+          "newClientOrderId": "mgmt-duskusdt-add-protective-stop-sl-update"
+        },
+        "supported": true,
+        "reason": null
       },
       "result": "PREVIEW_ONLY"
     },
     {
       "mode": "paper",
-      "ts_bj": "2026-03-17T22:54:22.138232+08:00",
+      "ts_bj": "2026-03-18T00:49:38.529911+08:00",
       "intent": {
         "intent_id": "mgmt-axlusdt-add-protective-stop",
         "symbol": "AXLUSDT",
@@ -1073,7 +1242,7 @@
         "side": "LONG",
         "position_qty": 50.2,
         "qty": null,
-        "stop_loss": null,
+        "stop_loss": 0.05696825,
         "reference_price": 0.05725452,
         "reduce_only": true,
         "status": "PREVIEW",
@@ -1083,7 +1252,10 @@
           "qty_fraction": null,
           "position_stop_loss": null,
           "position_take_profit": null,
-          "position_source": "account_snapshot"
+          "position_source": "account_snapshot",
+          "heuristic": "entry_2pct_or_mark_0.5pct_buffer",
+          "entry_price": 0.0997,
+          "mark_price": 0.05725452
         }
       },
       "preview": {
@@ -1094,7 +1266,7 @@
           "side": "LONG",
           "position_qty": 50.2,
           "qty": null,
-          "stop_loss": null,
+          "stop_loss": 0.05696825,
           "reference_price": 0.05725452,
           "reduce_only": true,
           "status": "PREVIEW",
@@ -1104,19 +1276,30 @@
             "qty_fraction": null,
             "position_stop_loss": null,
             "position_take_profit": null,
-            "position_source": "account_snapshot"
+            "position_source": "account_snapshot",
+            "heuristic": "entry_2pct_or_mark_0.5pct_buffer",
+            "entry_price": 0.0997,
+            "mark_price": 0.05725452
           }
         },
-        "preview_kind": "UNSUPPORTED",
-        "payload": null,
-        "supported": false,
-        "reason": "action_not_previewable_in_mvp"
+        "preview_kind": "PROTECTIVE_STOP_ADD",
+        "payload": {
+          "symbol": "AXLUSDT",
+          "side": "SELL",
+          "type": "STOP_MARKET",
+          "stopPrice": 0.05696825,
+          "closePosition": "true",
+          "workingType": "MARK_PRICE",
+          "newClientOrderId": "mgmt-axlusdt-add-protective-stop-sl-update"
+        },
+        "supported": true,
+        "reason": null
       },
       "result": "PREVIEW_ONLY"
     },
     {
       "mode": "paper",
-      "ts_bj": "2026-03-17T22:54:22.138259+08:00",
+      "ts_bj": "2026-03-18T00:49:38.529952+08:00",
       "intent": {
         "intent_id": "mgmt-btrusdt-add-protective-stop",
         "symbol": "BTRUSDT",
@@ -1124,7 +1307,7 @@
         "side": "LONG",
         "position_qty": 24.0,
         "qty": null,
-        "stop_loss": null,
+        "stop_loss": 0.12735005,
         "reference_price": 0.12799,
         "reduce_only": true,
         "status": "PREVIEW",
@@ -1134,7 +1317,10 @@
           "qty_fraction": null,
           "position_stop_loss": null,
           "position_take_profit": null,
-          "position_source": "account_snapshot"
+          "position_source": "account_snapshot",
+          "heuristic": "entry_2pct_or_mark_0.5pct_buffer",
+          "entry_price": 0.21394,
+          "mark_price": 0.12799
         }
       },
       "preview": {
@@ -1145,7 +1331,7 @@
           "side": "LONG",
           "position_qty": 24.0,
           "qty": null,
-          "stop_loss": null,
+          "stop_loss": 0.12735005,
           "reference_price": 0.12799,
           "reduce_only": true,
           "status": "PREVIEW",
@@ -1155,19 +1341,30 @@
             "qty_fraction": null,
             "position_stop_loss": null,
             "position_take_profit": null,
-            "position_source": "account_snapshot"
+            "position_source": "account_snapshot",
+            "heuristic": "entry_2pct_or_mark_0.5pct_buffer",
+            "entry_price": 0.21394,
+            "mark_price": 0.12799
           }
         },
-        "preview_kind": "UNSUPPORTED",
-        "payload": null,
-        "supported": false,
-        "reason": "action_not_previewable_in_mvp"
+        "preview_kind": "PROTECTIVE_STOP_ADD",
+        "payload": {
+          "symbol": "BTRUSDT",
+          "side": "SELL",
+          "type": "STOP_MARKET",
+          "stopPrice": 0.12735005,
+          "closePosition": "true",
+          "workingType": "MARK_PRICE",
+          "newClientOrderId": "mgmt-btrusdt-add-protective-stop-sl-update"
+        },
+        "supported": true,
+        "reason": null
       },
       "result": "PREVIEW_ONLY"
     },
     {
       "mode": "paper",
-      "ts_bj": "2026-03-17T22:54:22.138286+08:00",
+      "ts_bj": "2026-03-18T00:49:38.529987+08:00",
       "intent": {
         "intent_id": "mgmt-auctionusdt-add-protective-stop",
         "symbol": "AUCTIONUSDT",
@@ -1175,7 +1372,7 @@
         "side": "LONG",
         "position_qty": 0.69,
         "qty": null,
-        "stop_loss": null,
+        "stop_loss": 4.904753,
         "reference_price": 4.9294,
         "reduce_only": true,
         "status": "PREVIEW",
@@ -1185,7 +1382,10 @@
           "qty_fraction": null,
           "position_stop_loss": null,
           "position_take_profit": null,
-          "position_source": "account_snapshot"
+          "position_source": "account_snapshot",
+          "heuristic": "entry_2pct_or_mark_0.5pct_buffer",
+          "entry_price": 7.307,
+          "mark_price": 4.9294
         }
       },
       "preview": {
@@ -1196,7 +1396,7 @@
           "side": "LONG",
           "position_qty": 0.69,
           "qty": null,
-          "stop_loss": null,
+          "stop_loss": 4.904753,
           "reference_price": 4.9294,
           "reduce_only": true,
           "status": "PREVIEW",
@@ -1206,19 +1406,30 @@
             "qty_fraction": null,
             "position_stop_loss": null,
             "position_take_profit": null,
-            "position_source": "account_snapshot"
+            "position_source": "account_snapshot",
+            "heuristic": "entry_2pct_or_mark_0.5pct_buffer",
+            "entry_price": 7.307,
+            "mark_price": 4.9294
           }
         },
-        "preview_kind": "UNSUPPORTED",
-        "payload": null,
-        "supported": false,
-        "reason": "action_not_previewable_in_mvp"
+        "preview_kind": "PROTECTIVE_STOP_ADD",
+        "payload": {
+          "symbol": "AUCTIONUSDT",
+          "side": "SELL",
+          "type": "STOP_MARKET",
+          "stopPrice": 4.904753,
+          "closePosition": "true",
+          "workingType": "MARK_PRICE",
+          "newClientOrderId": "mgmt-auctionusdt-add-protective-stop-sl-update"
+        },
+        "supported": true,
+        "reason": null
       },
       "result": "PREVIEW_ONLY"
     },
     {
       "mode": "paper",
-      "ts_bj": "2026-03-17T22:54:22.138318+08:00",
+      "ts_bj": "2026-03-18T00:49:38.530021+08:00",
       "intent": {
         "intent_id": "mgmt-gpsusdt-add-protective-stop",
         "symbol": "GPSUSDT",
@@ -1226,7 +1437,7 @@
         "side": "LONG",
         "position_qty": 391.0,
         "qty": null,
-        "stop_loss": null,
+        "stop_loss": 0.00861811,
         "reference_price": 0.00866142,
         "reduce_only": true,
         "status": "PREVIEW",
@@ -1236,7 +1447,10 @@
           "qty_fraction": null,
           "position_stop_loss": null,
           "position_take_profit": null,
-          "position_source": "account_snapshot"
+          "position_source": "account_snapshot",
+          "heuristic": "entry_2pct_or_mark_0.5pct_buffer",
+          "entry_price": 0.012806,
+          "mark_price": 0.00866142
         }
       },
       "preview": {
@@ -1247,7 +1461,7 @@
           "side": "LONG",
           "position_qty": 391.0,
           "qty": null,
-          "stop_loss": null,
+          "stop_loss": 0.00861811,
           "reference_price": 0.00866142,
           "reduce_only": true,
           "status": "PREVIEW",
@@ -1257,19 +1471,30 @@
             "qty_fraction": null,
             "position_stop_loss": null,
             "position_take_profit": null,
-            "position_source": "account_snapshot"
+            "position_source": "account_snapshot",
+            "heuristic": "entry_2pct_or_mark_0.5pct_buffer",
+            "entry_price": 0.012806,
+            "mark_price": 0.00866142
           }
         },
-        "preview_kind": "UNSUPPORTED",
-        "payload": null,
-        "supported": false,
-        "reason": "action_not_previewable_in_mvp"
+        "preview_kind": "PROTECTIVE_STOP_ADD",
+        "payload": {
+          "symbol": "GPSUSDT",
+          "side": "SELL",
+          "type": "STOP_MARKET",
+          "stopPrice": 0.00861811,
+          "closePosition": "true",
+          "workingType": "MARK_PRICE",
+          "newClientOrderId": "mgmt-gpsusdt-add-protective-stop-sl-update"
+        },
+        "supported": true,
+        "reason": null
       },
       "result": "PREVIEW_ONLY"
     },
     {
       "mode": "paper",
-      "ts_bj": "2026-03-17T22:54:22.138344+08:00",
+      "ts_bj": "2026-03-18T00:49:38.530062+08:00",
       "intent": {
         "intent_id": "mgmt-zilusdt-add-protective-stop",
         "symbol": "ZILUSDT",
@@ -1277,7 +1502,7 @@
         "side": "LONG",
         "position_qty": 787.0,
         "qty": null,
-        "stop_loss": null,
+        "stop_loss": 0.00430734,
         "reference_price": 0.00432898,
         "reduce_only": true,
         "status": "PREVIEW",
@@ -1287,7 +1512,10 @@
           "qty_fraction": null,
           "position_stop_loss": null,
           "position_take_profit": null,
-          "position_source": "account_snapshot"
+          "position_source": "account_snapshot",
+          "heuristic": "entry_2pct_or_mark_0.5pct_buffer",
+          "entry_price": 0.00636,
+          "mark_price": 0.00432898
         }
       },
       "preview": {
@@ -1298,7 +1526,7 @@
           "side": "LONG",
           "position_qty": 787.0,
           "qty": null,
-          "stop_loss": null,
+          "stop_loss": 0.00430734,
           "reference_price": 0.00432898,
           "reduce_only": true,
           "status": "PREVIEW",
@@ -1308,19 +1536,30 @@
             "qty_fraction": null,
             "position_stop_loss": null,
             "position_take_profit": null,
-            "position_source": "account_snapshot"
+            "position_source": "account_snapshot",
+            "heuristic": "entry_2pct_or_mark_0.5pct_buffer",
+            "entry_price": 0.00636,
+            "mark_price": 0.00432898
           }
         },
-        "preview_kind": "UNSUPPORTED",
-        "payload": null,
-        "supported": false,
-        "reason": "action_not_previewable_in_mvp"
+        "preview_kind": "PROTECTIVE_STOP_ADD",
+        "payload": {
+          "symbol": "ZILUSDT",
+          "side": "SELL",
+          "type": "STOP_MARKET",
+          "stopPrice": 0.00430734,
+          "closePosition": "true",
+          "workingType": "MARK_PRICE",
+          "newClientOrderId": "mgmt-zilusdt-add-protective-stop-sl-update"
+        },
+        "supported": true,
+        "reason": null
       },
       "result": "PREVIEW_ONLY"
     },
     {
       "mode": "paper",
-      "ts_bj": "2026-03-17T22:54:22.138375+08:00",
+      "ts_bj": "2026-03-18T00:49:38.530101+08:00",
       "intent": {
         "intent_id": "mgmt-eulusdt-add-protective-stop",
         "symbol": "EULUSDT",
@@ -1328,7 +1567,7 @@
         "side": "LONG",
         "position_qty": 3.5,
         "qty": null,
-        "stop_loss": null,
+        "stop_loss": 1.03281,
         "reference_price": 1.038,
         "reduce_only": true,
         "status": "PREVIEW",
@@ -1338,7 +1577,10 @@
           "qty_fraction": null,
           "position_stop_loss": null,
           "position_take_profit": null,
-          "position_source": "account_snapshot"
+          "position_source": "account_snapshot",
+          "heuristic": "entry_2pct_or_mark_0.5pct_buffer",
+          "entry_price": 1.436,
+          "mark_price": 1.038
         }
       },
       "preview": {
@@ -1349,7 +1591,7 @@
           "side": "LONG",
           "position_qty": 3.5,
           "qty": null,
-          "stop_loss": null,
+          "stop_loss": 1.03281,
           "reference_price": 1.038,
           "reduce_only": true,
           "status": "PREVIEW",
@@ -1359,19 +1601,30 @@
             "qty_fraction": null,
             "position_stop_loss": null,
             "position_take_profit": null,
-            "position_source": "account_snapshot"
+            "position_source": "account_snapshot",
+            "heuristic": "entry_2pct_or_mark_0.5pct_buffer",
+            "entry_price": 1.436,
+            "mark_price": 1.038
           }
         },
-        "preview_kind": "UNSUPPORTED",
-        "payload": null,
-        "supported": false,
-        "reason": "action_not_previewable_in_mvp"
+        "preview_kind": "PROTECTIVE_STOP_ADD",
+        "payload": {
+          "symbol": "EULUSDT",
+          "side": "SELL",
+          "type": "STOP_MARKET",
+          "stopPrice": 1.03281,
+          "closePosition": "true",
+          "workingType": "MARK_PRICE",
+          "newClientOrderId": "mgmt-eulusdt-add-protective-stop-sl-update"
+        },
+        "supported": true,
+        "reason": null
       },
       "result": "PREVIEW_ONLY"
     },
     {
       "mode": "paper",
-      "ts_bj": "2026-03-17T22:54:22.138401+08:00",
+      "ts_bj": "2026-03-18T00:49:38.530141+08:00",
       "intent": {
         "intent_id": "mgmt-onusdt-add-protective-stop",
         "symbol": "ONUSDT",
@@ -1379,7 +1632,7 @@
         "side": "LONG",
         "position_qty": 44.0,
         "qty": null,
-        "stop_loss": null,
+        "stop_loss": 0.08809744,
         "reference_price": 0.08854014,
         "reduce_only": true,
         "status": "PREVIEW",
@@ -1389,7 +1642,10 @@
           "qty_fraction": null,
           "position_stop_loss": null,
           "position_take_profit": null,
-          "position_source": "account_snapshot"
+          "position_source": "account_snapshot",
+          "heuristic": "entry_2pct_or_mark_0.5pct_buffer",
+          "entry_price": 0.1155,
+          "mark_price": 0.08854014
         }
       },
       "preview": {
@@ -1400,7 +1656,7 @@
           "side": "LONG",
           "position_qty": 44.0,
           "qty": null,
-          "stop_loss": null,
+          "stop_loss": 0.08809744,
           "reference_price": 0.08854014,
           "reduce_only": true,
           "status": "PREVIEW",
@@ -1410,19 +1666,30 @@
             "qty_fraction": null,
             "position_stop_loss": null,
             "position_take_profit": null,
-            "position_source": "account_snapshot"
+            "position_source": "account_snapshot",
+            "heuristic": "entry_2pct_or_mark_0.5pct_buffer",
+            "entry_price": 0.1155,
+            "mark_price": 0.08854014
           }
         },
-        "preview_kind": "UNSUPPORTED",
-        "payload": null,
-        "supported": false,
-        "reason": "action_not_previewable_in_mvp"
+        "preview_kind": "PROTECTIVE_STOP_ADD",
+        "payload": {
+          "symbol": "ONUSDT",
+          "side": "SELL",
+          "type": "STOP_MARKET",
+          "stopPrice": 0.08809744,
+          "closePosition": "true",
+          "workingType": "MARK_PRICE",
+          "newClientOrderId": "mgmt-onusdt-add-protective-stop-sl-update"
+        },
+        "supported": true,
+        "reason": null
       },
       "result": "PREVIEW_ONLY"
     },
     {
       "mode": "paper",
-      "ts_bj": "2026-03-17T22:54:22.138470+08:00",
+      "ts_bj": "2026-03-18T00:49:38.533415+08:00",
       "intent": {
         "intent_id": "mgmt-cowusdt-add-protective-stop",
         "symbol": "COWUSDT",
@@ -1430,7 +1697,7 @@
         "side": "LONG",
         "position_qty": 21.0,
         "qty": null,
-        "stop_loss": null,
+        "stop_loss": 0.238826,
         "reference_price": 0.24600672,
         "reduce_only": true,
         "status": "PREVIEW",
@@ -1440,7 +1707,10 @@
           "qty_fraction": null,
           "position_stop_loss": null,
           "position_take_profit": null,
-          "position_source": "account_snapshot"
+          "position_source": "account_snapshot",
+          "heuristic": "entry_2pct_or_mark_0.5pct_buffer",
+          "entry_price": 0.2437,
+          "mark_price": 0.24600672
         }
       },
       "preview": {
@@ -1451,7 +1721,7 @@
           "side": "LONG",
           "position_qty": 21.0,
           "qty": null,
-          "stop_loss": null,
+          "stop_loss": 0.238826,
           "reference_price": 0.24600672,
           "reduce_only": true,
           "status": "PREVIEW",
@@ -1461,19 +1731,30 @@
             "qty_fraction": null,
             "position_stop_loss": null,
             "position_take_profit": null,
-            "position_source": "account_snapshot"
+            "position_source": "account_snapshot",
+            "heuristic": "entry_2pct_or_mark_0.5pct_buffer",
+            "entry_price": 0.2437,
+            "mark_price": 0.24600672
           }
         },
-        "preview_kind": "UNSUPPORTED",
-        "payload": null,
-        "supported": false,
-        "reason": "action_not_previewable_in_mvp"
+        "preview_kind": "PROTECTIVE_STOP_ADD",
+        "payload": {
+          "symbol": "COWUSDT",
+          "side": "SELL",
+          "type": "STOP_MARKET",
+          "stopPrice": 0.238826,
+          "closePosition": "true",
+          "workingType": "MARK_PRICE",
+          "newClientOrderId": "mgmt-cowusdt-add-protective-stop-sl-update"
+        },
+        "supported": true,
+        "reason": null
       },
       "result": "PREVIEW_ONLY"
     },
     {
       "mode": "paper",
-      "ts_bj": "2026-03-17T22:54:22.138498+08:00",
+      "ts_bj": "2026-03-18T00:49:38.533522+08:00",
       "intent": {
         "intent_id": "mgmt-riverusdt-add-protective-stop",
         "symbol": "RIVERUSDT",
@@ -1481,7 +1762,7 @@
         "side": "LONG",
         "position_qty": 0.3,
         "qty": null,
-        "stop_loss": null,
+        "stop_loss": 20.53296,
         "reference_price": 21.549,
         "reduce_only": true,
         "status": "PREVIEW",
@@ -1491,7 +1772,10 @@
           "qty_fraction": null,
           "position_stop_loss": null,
           "position_take_profit": null,
-          "position_source": "account_snapshot"
+          "position_source": "account_snapshot",
+          "heuristic": "entry_2pct_or_mark_0.5pct_buffer",
+          "entry_price": 20.952,
+          "mark_price": 21.549
         }
       },
       "preview": {
@@ -1502,7 +1786,7 @@
           "side": "LONG",
           "position_qty": 0.3,
           "qty": null,
-          "stop_loss": null,
+          "stop_loss": 20.53296,
           "reference_price": 21.549,
           "reduce_only": true,
           "status": "PREVIEW",
@@ -1512,19 +1796,30 @@
             "qty_fraction": null,
             "position_stop_loss": null,
             "position_take_profit": null,
-            "position_source": "account_snapshot"
+            "position_source": "account_snapshot",
+            "heuristic": "entry_2pct_or_mark_0.5pct_buffer",
+            "entry_price": 20.952,
+            "mark_price": 21.549
           }
         },
-        "preview_kind": "UNSUPPORTED",
-        "payload": null,
-        "supported": false,
-        "reason": "action_not_previewable_in_mvp"
+        "preview_kind": "PROTECTIVE_STOP_ADD",
+        "payload": {
+          "symbol": "RIVERUSDT",
+          "side": "SELL",
+          "type": "STOP_MARKET",
+          "stopPrice": 20.53296,
+          "closePosition": "true",
+          "workingType": "MARK_PRICE",
+          "newClientOrderId": "mgmt-riverusdt-add-protective-stop-sl-update"
+        },
+        "supported": true,
+        "reason": null
       },
       "result": "PREVIEW_ONLY"
     },
     {
       "mode": "paper",
-      "ts_bj": "2026-03-17T22:54:22.138525+08:00",
+      "ts_bj": "2026-03-18T00:49:38.533558+08:00",
       "intent": {
         "intent_id": "mgmt-aktusdt-add-protective-stop",
         "symbol": "AKTUSDT",
@@ -1532,7 +1827,7 @@
         "side": "LONG",
         "position_qty": 12.0,
         "qty": null,
-        "stop_loss": null,
+        "stop_loss": 0.410032,
         "reference_price": 0.459,
         "reduce_only": true,
         "status": "PREVIEW",
@@ -1542,7 +1837,10 @@
           "qty_fraction": null,
           "position_stop_loss": null,
           "position_take_profit": null,
-          "position_source": "account_snapshot"
+          "position_source": "account_snapshot",
+          "heuristic": "entry_2pct_or_mark_0.5pct_buffer",
+          "entry_price": 0.4184,
+          "mark_price": 0.459
         }
       },
       "preview": {
@@ -1553,7 +1851,7 @@
           "side": "LONG",
           "position_qty": 12.0,
           "qty": null,
-          "stop_loss": null,
+          "stop_loss": 0.410032,
           "reference_price": 0.459,
           "reduce_only": true,
           "status": "PREVIEW",
@@ -1563,19 +1861,30 @@
             "qty_fraction": null,
             "position_stop_loss": null,
             "position_take_profit": null,
-            "position_source": "account_snapshot"
+            "position_source": "account_snapshot",
+            "heuristic": "entry_2pct_or_mark_0.5pct_buffer",
+            "entry_price": 0.4184,
+            "mark_price": 0.459
           }
         },
-        "preview_kind": "UNSUPPORTED",
-        "payload": null,
-        "supported": false,
-        "reason": "action_not_previewable_in_mvp"
+        "preview_kind": "PROTECTIVE_STOP_ADD",
+        "payload": {
+          "symbol": "AKTUSDT",
+          "side": "SELL",
+          "type": "STOP_MARKET",
+          "stopPrice": 0.410032,
+          "closePosition": "true",
+          "workingType": "MARK_PRICE",
+          "newClientOrderId": "mgmt-aktusdt-add-protective-stop-sl-update"
+        },
+        "supported": true,
+        "reason": null
       },
       "result": "PREVIEW_ONLY"
     },
     {
       "mode": "paper",
-      "ts_bj": "2026-03-17T22:54:22.138558+08:00",
+      "ts_bj": "2026-03-18T00:49:38.533595+08:00",
       "intent": {
         "intent_id": "mgmt-hanausdt-add-protective-stop",
         "symbol": "HANAUSDT",
@@ -1583,7 +1892,7 @@
         "side": "LONG",
         "position_qty": 124.0,
         "qty": null,
-        "stop_loss": null,
+        "stop_loss": 0.0402878,
         "reference_price": 0.0461,
         "reduce_only": true,
         "status": "PREVIEW",
@@ -1593,7 +1902,10 @@
           "qty_fraction": null,
           "position_stop_loss": null,
           "position_take_profit": null,
-          "position_source": "account_snapshot"
+          "position_source": "account_snapshot",
+          "heuristic": "entry_2pct_or_mark_0.5pct_buffer",
+          "entry_price": 0.04111,
+          "mark_price": 0.0461
         }
       },
       "preview": {
@@ -1604,7 +1916,7 @@
           "side": "LONG",
           "position_qty": 124.0,
           "qty": null,
-          "stop_loss": null,
+          "stop_loss": 0.0402878,
           "reference_price": 0.0461,
           "reduce_only": true,
           "status": "PREVIEW",
@@ -1614,13 +1926,24 @@
             "qty_fraction": null,
             "position_stop_loss": null,
             "position_take_profit": null,
-            "position_source": "account_snapshot"
+            "position_source": "account_snapshot",
+            "heuristic": "entry_2pct_or_mark_0.5pct_buffer",
+            "entry_price": 0.04111,
+            "mark_price": 0.0461
           }
         },
-        "preview_kind": "UNSUPPORTED",
-        "payload": null,
-        "supported": false,
-        "reason": "action_not_previewable_in_mvp"
+        "preview_kind": "PROTECTIVE_STOP_ADD",
+        "payload": {
+          "symbol": "HANAUSDT",
+          "side": "SELL",
+          "type": "STOP_MARKET",
+          "stopPrice": 0.0402878,
+          "closePosition": "true",
+          "workingType": "MARK_PRICE",
+          "newClientOrderId": "mgmt-hanausdt-add-protective-stop-sl-update"
+        },
+        "supported": true,
+        "reason": null
       },
       "result": "PREVIEW_ONLY"
     }
