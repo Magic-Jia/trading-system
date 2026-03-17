@@ -6,7 +6,7 @@ from pathlib import Path
 from .config import DEFAULT_CONFIG
 from .execution.executor import OrderExecutor
 from .execution.idempotency import already_processed, intent_id, mark_processed
-from .portfolio.lifecycle import evaluate_portfolio
+from .portfolio.lifecycle import build_management_action_intents, evaluate_portfolio
 from .portfolio.positions import apply_executed_intent, sync_positions_from_account
 from .risk.validator import validate_signal
 from .storage.state_store import build_state_store
@@ -148,7 +148,10 @@ def main() -> None:
         )
 
     management = evaluate_portfolio(state)
+    management_intents = build_management_action_intents(state, management)
+    management_previews = executor.preview_management_actions(management_intents)
     store.replace_management_suggestions(state, management)
+    store.replace_management_action_previews(state, management_previews)
     store.save(state)
     print(
         json.dumps(
@@ -157,6 +160,7 @@ def main() -> None:
                 "portfolio": {
                     "tracked_positions": len(state.positions),
                     "management_suggestions": management,
+                    "management_action_previews": management_previews,
                 },
             },
             ensure_ascii=False,
