@@ -13,6 +13,8 @@
 
 ## 目录
 
+### 现有脚本层
+
 - `binance_client.py`：Binance 读取客户端（兼容本机变量名）
 - `market_scan.py`：市场快扫
 - `account_snapshot.py`：账户快照与持仓摘要
@@ -20,6 +22,18 @@
 - `journal.py`：交易理由/复盘记录
 - `data/`：本地状态、快照、计划输出
 - `runbook.md`：运行说明
+
+### 新的程序骨架层
+
+- `docs/MVP_ARCHITECTURE.md`：自动交易程序 MVP 架构、模块清单、开发顺序
+- `app/`：模块化自动交易程序骨架
+  - `connectors/`：交易所接口
+  - `signals/`：信号与策略
+  - `risk/`：风险校验与仓位管理
+  - `execution/`：订单执行与幂等保护
+  - `portfolio/`：持仓生命周期管理
+  - `storage/`：状态与日志落库
+  - `reporting/`：日报与异常输出
 
 ## 环境变量
 
