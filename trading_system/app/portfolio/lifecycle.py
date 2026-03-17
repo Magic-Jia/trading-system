@@ -30,6 +30,22 @@ def _valid_stop(side: str, entry_price: float, stop_loss: float | None) -> bool:
     return stop_loss > entry_price
 
 
+def _suggest_protective_stop(side: str, entry_price: float, mark_price: float | None) -> float:
+    # MVP fallback: anchor the stop 2% beyond entry, but if price is already through
+    # that level, place it 0.5% beyond the current mark instead to avoid previewing an
+    # already-breached stop. This stays deterministic and keeps the stop on the loss side.
+    if side == "LONG":
+        fallback = entry_price * 0.98
+        if mark_price is None or mark_price <= 0:
+            return round(fallback, 8)
+        return round(min(fallback, mark_price * 0.995), 8)
+
+    fallback = entry_price * 1.02
+    if mark_price is None or mark_price <= 0:
+        return round(fallback, 8)
+    return round(max(fallback, mark_price * 1.005), 8)
+
+
 def evaluate_position(position: dict[str, Any]) -> list[dict[str, Any]]:
     if not _is_open(position):
         return []
@@ -46,6 +62,8 @@ def evaluate_position(position: dict[str, Any]) -> list[dict[str, Any]]:
 
     suggestions: list[ManagementSuggestion] = []
     if not _valid_stop(side, entry_price, stop_loss):
+        reference_price = float(mark_price) if mark_price is not None else entry_price
+        suggested_stop_loss = _suggest_protective_stop(side, entry_price, mark_price)
         suggestions.append(
             ManagementSuggestion(
                 symbol=symbol,
@@ -53,8 +71,14 @@ def evaluate_position(position: dict[str, Any]) -> list[dict[str, Any]]:
                 side=side,
                 priority="MEDIUM",
                 reason="当前持仓缺少有效止损，建议先补保护性止损后再谈加仓或死扛。",
-                reference_price=float(mark_price) if mark_price is not None else entry_price,
-                meta={"position_source": position.get("source")},
+                suggested_stop_loss=suggested_stop_loss,
+                reference_price=reference_price,
+                meta={
+                    "position_source": position.get("source"),
+                    "heuristic": "entry_2pct_or_mark_0.5pct_buffer",
+                    "entry_price": round(entry_price, 8),
+                    "mark_price": round(reference_price, 8),
+                },
             )
         )
         return [asdict(item) for item in suggestions]
@@ -147,7 +171,7 @@ def build_management_action_intents(
         qty = None
         stop_loss = None
 
-        if action == "BREAK_EVEN":
+        if action in {"BREAK_EVEN", "ADD_PROTECTIVE_STOP"}:
             stop_loss = row.get("suggested_stop_loss")
         elif action == "PARTIAL_TAKE_PROFIT":
             qty = round(position_qty * qty_fraction, 8)

@@ -67,12 +67,13 @@ python3 -m trading_system.app.main
 ```
 
 输出：
-- 控制台打印信号执行结果，以及当前持仓的管理建议与 action previews（BREAK_EVEN 止损上调、PARTIAL_TAKE_PROFIT 减仓预览、EXIT 平仓预览）
+- 控制台打印信号执行结果，以及当前持仓的管理建议与 action previews（ADD_PROTECTIVE_STOP 补保护止损预览、BREAK_EVEN 止损上调、PARTIAL_TAKE_PROFIT 减仓预览、EXIT 平仓预览）
 - `trading_system/data/runtime_state.json`
 - 若有实际通过风控并进入执行层，还会写入 `trading_system/data/execution_log.jsonl`
 
 说明：
 - 管理动作当前仅生成 preview payload，不会触发 live 写入
+- `ADD_PROTECTIVE_STOP` 仅在 preview 中给出建议止损位：默认取开仓价外侧 2%，若当前价格已越过该水平，则改为在当前价格外侧保留 0.5% 缓冲，避免生成已触发的止损
 - 执行层仍仅支持 `paper` / `dry-run`，`live` 会被拒绝
 
 ## 7. 生成日报
