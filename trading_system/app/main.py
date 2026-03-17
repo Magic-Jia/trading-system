@@ -6,6 +6,8 @@ from pathlib import Path
 from .config import DEFAULT_CONFIG
 from .execution.executor import OrderExecutor
 from .execution.idempotency import already_processed, intent_id, mark_processed
+from .portfolio.lifecycle import evaluate_portfolio
+from .portfolio.positions import apply_executed_intent, sync_positions_from_account
 from .risk.validator import validate_signal
 from .storage.state_store import build_state_store
 from .types import AccountSnapshot, OrderIntent, PositionSnapshot, TradeSignal
@@ -15,21 +17,34 @@ ENTRY_TEMPLATES = BASE / "data" / "entry_templates.json"
 ACCOUNT_SNAPSHOT = BASE / "data" / "account_snapshot.json"
 
 
+def _float(row: dict, *keys: str) -> float:
+    for key in keys:
+        value = row.get(key)
+        if value is None:
+            continue
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            continue
+    return 0.0
+
+
 def load_account_snapshot() -> AccountSnapshot:
     raw = json.loads(ACCOUNT_SNAPSHOT.read_text())
     futures = raw["futures"]
     positions = [
         PositionSnapshot(
             symbol=row["symbol"],
-            side=row["side"],
-            qty=abs(float(row.get("position_amt", 0.0))),
-            entry_price=float(row.get("entry_price", 0.0)),
-            mark_price=float(row.get("mark_price", 0.0)),
-            unrealized_pnl=float(row.get("upl", 0.0)),
-            notional=float(row.get("notional", 0.0)),
-            leverage=float(row.get("leverage", 0.0)) if row.get("leverage") is not None else None,
+            side=row.get("side", row.get("positionSide", "LONG")),
+            qty=abs(_float(row, "position_amt", "positionAmt", "amt")),
+            entry_price=_float(row, "entry_price", "entryPrice", "entry"),
+            mark_price=_float(row, "mark_price", "markPrice", "mark"),
+            unrealized_pnl=_float(row, "upl", "unRealizedProfit"),
+            notional=_float(row, "notional"),
+            leverage=_float(row, "leverage") if row.get("leverage") is not None else None,
         )
         for row in futures.get("positions", [])
+        if abs(_float(row, "position_amt", "positionAmt", "amt")) > 0
     ]
     return AccountSnapshot(
         equity=float(futures["total_wallet_balance"]),
@@ -74,6 +89,7 @@ def main() -> None:
     account = load_account_snapshot()
     signals = load_signals()
     executor = OrderExecutor(config, mode="paper")
+    sync_positions_from_account(state, account)
 
     report: list[dict] = []
     for signal in signals:
@@ -115,6 +131,7 @@ def main() -> None:
             },
         )
         execution = executor.execute(order, state)
+        apply_executed_intent(state, order)
         mark_processed(state, signal)
         store.record_signal(state, signal.symbol, state.last_signal_ids[signal.symbol], config.risk.cooldown_minutes)
         report.append(
@@ -130,8 +147,22 @@ def main() -> None:
             }
         )
 
+    management = evaluate_portfolio(state)
+    store.replace_management_suggestions(state, management)
     store.save(state)
-    print(json.dumps(report, ensure_ascii=False, indent=2))
+    print(
+        json.dumps(
+            {
+                "signals": report,
+                "portfolio": {
+                    "tracked_positions": len(state.positions),
+                    "management_suggestions": management,
+                },
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
 
 
 if __name__ == "__main__":
