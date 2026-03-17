@@ -24,6 +24,9 @@ class StateStore:
         state.updated_at_bj = datetime.now(BJ).isoformat()
         self.path.write_text(json.dumps(state.as_dict(), ensure_ascii=False, indent=2))
 
+    def replace_management_suggestions(self, state: RuntimeState, suggestions: list[dict[str, Any]]) -> None:
+        state.management_suggestions = suggestions
+
     def record_signal(self, state: RuntimeState, symbol: str, signal_id: str, cooldown_minutes: int) -> None:
         state.last_signal_ids[symbol] = signal_id
         until = datetime.now(BJ) + timedelta(minutes=cooldown_minutes)

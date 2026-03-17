@@ -8,6 +8,7 @@ BJ = timezone(timedelta(hours=8))
 
 Side = Literal["LONG", "SHORT"]
 SignalSource = Literal["manual", "scanner", "strategy", "imported"]
+ManagementAction = Literal["BREAK_EVEN", "PARTIAL_TAKE_PROFIT", "EXIT", "ADD_PROTECTIVE_STOP"]
 
 
 @dataclass(slots=True)
@@ -87,6 +88,19 @@ class OrderIntent:
 
 
 @dataclass(slots=True)
+class ManagementSuggestion:
+    symbol: str
+    action: ManagementAction
+    side: Side
+    reason: str
+    priority: Literal["HIGH", "MEDIUM", "LOW"] = "MEDIUM"
+    qty_fraction: float | None = None
+    suggested_stop_loss: float | None = None
+    reference_price: float | None = None
+    meta: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
 class RuntimeState:
     updated_at_bj: str
     last_signal_ids: dict[str, str] = field(default_factory=dict)
@@ -94,6 +108,7 @@ class RuntimeState:
     active_orders: dict[str, dict[str, Any]] = field(default_factory=dict)
     circuit_breaker_until: str | None = None
     positions: dict[str, dict[str, Any]] = field(default_factory=dict)
+    management_suggestions: list[dict[str, Any]] = field(default_factory=list)
 
     @classmethod
     def empty(cls) -> "RuntimeState":
