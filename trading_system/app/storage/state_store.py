@@ -27,6 +27,9 @@ class StateStore:
     def replace_management_suggestions(self, state: RuntimeState, suggestions: list[dict[str, Any]]) -> None:
         state.management_suggestions = suggestions
 
+    def replace_management_action_previews(self, state: RuntimeState, previews: list[dict[str, Any]]) -> None:
+        state.management_action_previews = previews
+
     def record_signal(self, state: RuntimeState, symbol: str, signal_id: str, cooldown_minutes: int) -> None:
         state.last_signal_ids[symbol] = signal_id
         until = datetime.now(BJ) + timedelta(minutes=cooldown_minutes)

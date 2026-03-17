@@ -67,9 +67,13 @@ python3 -m trading_system.app.main
 ```
 
 输出：
-- 控制台打印信号执行结果，以及当前持仓的管理建议（如保本、分批止盈、止损退出、补保护止损）
+- 控制台打印信号执行结果，以及当前持仓的管理建议与 action previews（BREAK_EVEN 止损上调、PARTIAL_TAKE_PROFIT 减仓预览、EXIT 平仓预览）
 - `trading_system/data/runtime_state.json`
 - 若有实际通过风控并进入执行层，还会写入 `trading_system/data/execution_log.jsonl`
+
+说明：
+- 管理动作当前仅生成 preview payload，不会触发 live 写入
+- 执行层仍仅支持 `paper` / `dry-run`，`live` 会被拒绝
 
 ## 7. 生成日报
 

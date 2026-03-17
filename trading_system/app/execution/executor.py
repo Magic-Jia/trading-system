@@ -6,9 +6,9 @@ from pathlib import Path
 from typing import Any
 
 from ..config import AppConfig
-from ..types import OrderIntent, RuntimeState
+from ..types import ManagementActionIntent, OrderIntent, RuntimeState
 from .idempotency import bind_active_order
-from .orders import OrderMode, dry_run_fill, paper_fill
+from .orders import OrderMode, build_management_preview, dry_run_fill, paper_fill, preview_result
 
 BASE = Path(__file__).resolve().parents[2]
 EXEC_LOG = BASE / "data" / "execution_log.jsonl"
@@ -47,6 +47,15 @@ class OrderExecutor:
         }
         self.append_log(order, result)
         return result
+
+    def preview_management_action(self, intent: ManagementActionIntent) -> dict[str, Any]:
+        if self.mode == "live":
+            raise ExecutionError("management action 仅支持 paper / dry-run 预览，不执行 live 写入")
+        preview = build_management_preview(intent)
+        return preview_result(intent, preview, self.mode)
+
+    def preview_management_actions(self, intents: list[ManagementActionIntent]) -> list[dict[str, Any]]:
+        return [self.preview_management_action(intent) for intent in intents]
 
     def append_log(self, order: OrderIntent, result: dict[str, Any]) -> None:
         payload = {

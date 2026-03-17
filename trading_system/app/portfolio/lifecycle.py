@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict
 from typing import Any
 
-from ..types import ManagementSuggestion, RuntimeState
+from ..types import ManagementActionIntent, ManagementSuggestion, RuntimeState
 
 
 def _is_open(position: dict[str, Any]) -> bool:
@@ -119,3 +119,59 @@ def evaluate_portfolio(state: RuntimeState) -> list[dict[str, Any]]:
     for position in state.positions.values():
         suggestions.extend(evaluate_position(position))
     return suggestions
+
+
+def _intent_id(symbol: str, action: str) -> str:
+    return f"mgmt-{symbol.lower()}-{action.lower()}".replace("_", "-")
+
+
+def _position_qty(position: dict[str, Any]) -> float:
+    return round(float(position.get("qty", 0.0) or 0.0), 8)
+
+
+def build_management_action_intents(
+    state: RuntimeState,
+    suggestions: list[dict[str, Any]] | None = None,
+) -> list[ManagementActionIntent]:
+    rows = suggestions if suggestions is not None else evaluate_portfolio(state)
+    intents: list[ManagementActionIntent] = []
+    for row in rows:
+        symbol = str(row.get("symbol", ""))
+        action = str(row.get("action", ""))
+        position = state.positions.get(symbol)
+        if not symbol or position is None:
+            continue
+
+        position_qty = _position_qty(position)
+        qty_fraction = float(row.get("qty_fraction") or 0.0)
+        qty = None
+        stop_loss = None
+
+        if action == "BREAK_EVEN":
+            stop_loss = row.get("suggested_stop_loss")
+        elif action == "PARTIAL_TAKE_PROFIT":
+            qty = round(position_qty * qty_fraction, 8)
+        elif action == "EXIT":
+            qty = position_qty
+
+        intents.append(
+            ManagementActionIntent(
+                intent_id=_intent_id(symbol, action),
+                symbol=symbol,
+                action=action,
+                side=str(row.get("side", position.get("side", "LONG"))),
+                position_qty=position_qty,
+                qty=qty,
+                stop_loss=stop_loss,
+                reference_price=row.get("reference_price"),
+                meta={
+                    "reason": row.get("reason"),
+                    "priority": row.get("priority"),
+                    "qty_fraction": row.get("qty_fraction"),
+                    "position_stop_loss": position.get("stop_loss"),
+                    "position_take_profit": position.get("take_profit"),
+                    **dict(row.get("meta") or {}),
+                },
+            )
+        )
+    return intents

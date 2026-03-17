@@ -9,6 +9,7 @@ BJ = timezone(timedelta(hours=8))
 Side = Literal["LONG", "SHORT"]
 SignalSource = Literal["manual", "scanner", "strategy", "imported"]
 ManagementAction = Literal["BREAK_EVEN", "PARTIAL_TAKE_PROFIT", "EXIT", "ADD_PROTECTIVE_STOP"]
+ManagementPreviewKind = Literal["STOP_LOSS_UPDATE", "REDUCE_ONLY_TP_CLOSE", "CLOSE_POSITION", "UNSUPPORTED"]
 
 
 @dataclass(slots=True)
@@ -101,6 +102,30 @@ class ManagementSuggestion:
 
 
 @dataclass(slots=True)
+class ManagementActionIntent:
+    intent_id: str
+    symbol: str
+    action: ManagementAction
+    side: Side
+    position_qty: float
+    qty: float | None = None
+    stop_loss: float | None = None
+    reference_price: float | None = None
+    reduce_only: bool = True
+    status: Literal["PREVIEW", "UNSUPPORTED"] = "PREVIEW"
+    meta: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class ManagementActionPreview:
+    intent: ManagementActionIntent
+    preview_kind: ManagementPreviewKind
+    payload: dict[str, Any] | None = None
+    supported: bool = True
+    reason: str | None = None
+
+
+@dataclass(slots=True)
 class RuntimeState:
     updated_at_bj: str
     last_signal_ids: dict[str, str] = field(default_factory=dict)
@@ -109,6 +134,7 @@ class RuntimeState:
     circuit_breaker_until: str | None = None
     positions: dict[str, dict[str, Any]] = field(default_factory=dict)
     management_suggestions: list[dict[str, Any]] = field(default_factory=list)
+    management_action_previews: list[dict[str, Any]] = field(default_factory=list)
 
     @classmethod
     def empty(cls) -> "RuntimeState":
