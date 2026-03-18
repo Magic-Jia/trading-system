@@ -1,4 +1,4 @@
-# Trading System v1 / v2 P0
+# Trading System v1 / v2 P1 Rotation
 
 面向 Claw 的加密交易工作流骨架。
 
@@ -11,22 +11,24 @@
 - 记录复盘与系统改进
 - 支持模拟执行（paper trading）
 
-## v2 P0（partial v2）范围
+## v2 P1（rotation phase on top of P0）范围
 
-当前仓库已接入 v2 P0 主链路，但仍是 **partial v2** 覆盖：
+当前仓库已在 v2 P0 主链路基础上接入 rotation engine，但仍是 **partial v2** 覆盖：
 
 1. `regime`：市场状态识别（risk-on / risk-off / neutral）
 2. `universe`：动态候选池构建
-3. `trend engine`：趋势候选生成（当前唯一已实现的信号引擎）
-4. `validator`：候选风控校验
-5. `allocator`：组合风险预算分配
-6. `execution`：paper 执行 + 幂等防重
-7. `lifecycle/reporting`：仓位生命周期建议与运行摘要输出
+3. `trend engine`：趋势候选生成
+4. `rotation engine`：强势轮动候选生成与评分
+5. `validator`：候选风控校验
+6. `allocator`：组合风险预算分配
+7. `execution`：paper 执行 + 幂等防重
+8. `lifecycle/reporting`：仓位生命周期建议与运行摘要输出
 
-P0 明确约束：
-- `rotation` 与 `short` 引擎尚未实现，当前运行时保持显式空输出（`rotation_candidates=[]`、`short_candidates=[]`）。
-- `runtime_state.json` 中 `partial_v2_coverage=true` 用于标记当前是 partial v2，而非完整 v2。
-- 保持 paper execution 行为，不扩展到 P1 引擎。
+当前阶段明确约束：
+- `short` 引擎尚未实现，当前运行时保持显式空输出（`short_candidates=[]`）。
+- `rotation_candidates` 已接入 runtime state，用于暴露 rotation engine 输出。
+- `runtime_state.json` 中 `partial_v2_coverage=true` 仍用于标记当前不是完整 v2，剩余缺口主要是 short engine。
+- 保持 paper execution 行为，不扩展到 short 执行链路。
 
 ## 目录
 
