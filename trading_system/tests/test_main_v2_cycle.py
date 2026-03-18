@@ -1,4 +1,6 @@
-from trading_system.app.config import DEFAULT_CONFIG
+import pytest
+
+from trading_system.app.config import AppConfig, DEFAULT_CONFIG
 from trading_system.app.types import RegimeSnapshot, EngineCandidate, AllocationDecision, LifecycleState
 
 
@@ -34,3 +36,31 @@ def test_v2_allocation_decision_supports_uppercase_status_and_allocator_task_fie
     assert decision.engine == "trend"
     assert decision.reasons == ["score_ok", "risk_ok"]
     assert decision.meta == {"source": "test"}
+
+
+def test_v2_app_config_reads_env_overrides_at_instantiation(monkeypatch):
+    monkeypatch.setenv("TRADING_DEFAULT_RISK_PCT", "0.02")
+    monkeypatch.setenv("TRADING_MAX_OPEN_POSITIONS", "11")
+
+    config = AppConfig()
+
+    assert config.risk.default_risk_pct == 0.02
+    assert config.risk.max_open_positions == 11
+
+
+def test_v2_default_config_keeps_import_time_values_even_if_env_changes(monkeypatch):
+    baseline_default_risk_pct = DEFAULT_CONFIG.risk.default_risk_pct
+
+    monkeypatch.setenv("TRADING_DEFAULT_RISK_PCT", "0.07")
+
+    assert DEFAULT_CONFIG.risk.default_risk_pct == baseline_default_risk_pct
+
+
+def test_v2_allocation_decision_normalizes_status_to_uppercase():
+    decision = AllocationDecision(status="accepted")
+    assert decision.status == "ACCEPTED"
+
+
+def test_v2_allocation_decision_rejects_unknown_status():
+    with pytest.raises(ValueError, match="status"):
+        AllocationDecision(status="PENDING")

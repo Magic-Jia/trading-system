@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
 from enum import Enum
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 BJ = timezone(timedelta(hours=8))
 
@@ -18,7 +18,8 @@ ManagementPreviewKind = Literal[
     "UNSUPPORTED",
 ]
 
-AllocationStatus = Literal["ACCEPTED", "DOWNSIZED", "REJECTED", "accepted", "downsized", "rejected"]
+AllocationStatus = Literal["ACCEPTED", "DOWNSIZED", "REJECTED"]
+_ALLOCATION_STATUS_SET = {"ACCEPTED", "DOWNSIZED", "REJECTED"}
 
 
 @dataclass(slots=True)
@@ -164,6 +165,14 @@ class AllocationDecision:
     meta: dict[str, Any] = field(default_factory=dict)
     final_risk_budget: float = 0.0
     rank: int = 0
+
+    def __post_init__(self) -> None:
+        status = str(self.status).upper()
+        if status not in _ALLOCATION_STATUS_SET:
+            raise ValueError(
+                f"status must be one of {sorted(_ALLOCATION_STATUS_SET)}; got {self.status!r}"
+            )
+        self.status = cast(AllocationStatus, status)
 
     @property
     def reason_codes(self) -> list[str]:

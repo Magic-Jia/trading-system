@@ -7,20 +7,20 @@ from typing import Any
 
 import pytest
 
-FIXTURE_DIR = Path(__file__).parent / "fixtures"
+FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures"
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 
-def load_fixture(name: str) -> dict[str, Any]:
+def _load_fixture(name: str) -> dict[str, Any]:
     return json.loads((FIXTURE_DIR / name).read_text(encoding="utf-8"))
 
 
-@pytest.fixture(name="load_fixture")
-def load_fixture_fixture():
-    return load_fixture
+@pytest.fixture
+def load_fixture():
+    return _load_fixture
 
 
 @pytest.fixture
