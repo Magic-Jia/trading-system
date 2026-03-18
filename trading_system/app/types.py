@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
+from enum import Enum
 from typing import Any, Literal
 
 BJ = timezone(timedelta(hours=8))
@@ -16,6 +17,8 @@ ManagementPreviewKind = Literal[
     "CLOSE_POSITION",
     "UNSUPPORTED",
 ]
+
+AllocationStatus = Literal["accepted", "downsized", "rejected"]
 
 
 @dataclass(slots=True)
@@ -130,6 +133,43 @@ class ManagementActionPreview:
     open_protective_orders: list[dict[str, Any]] = field(default_factory=list)
     supported: bool = True
     reason: str | None = None
+
+
+@dataclass(slots=True)
+class RegimeSnapshot:
+    label: str
+    confidence: float
+    risk_multiplier: float
+    bucket_targets: dict[str, float] = field(default_factory=dict)
+    suppression_rules: list[str] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class EngineCandidate:
+    engine: str
+    setup_type: str
+    symbol: str
+    side: Side
+    score: float
+    timeframe_meta: dict[str, Any] = field(default_factory=dict)
+    sector: str | None = None
+    liquidity_meta: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class AllocationDecision:
+    status: AllocationStatus
+    reason_codes: list[str] = field(default_factory=list)
+    final_risk_budget: float = 0.0
+    rank: int = 0
+
+
+class LifecycleState(str, Enum):
+    INIT = "INIT"
+    CONFIRM = "CONFIRM"
+    PAYLOAD = "PAYLOAD"
+    PROTECT = "PROTECT"
+    EXIT = "EXIT"
 
 
 @dataclass(slots=True)
