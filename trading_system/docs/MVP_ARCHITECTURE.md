@@ -1,4 +1,4 @@
-# 自动交易程序 MVP 架构（v0.1）
+# 自动交易程序 MVP 架构（v0.2）
 
 面向老板当前这套 Binance 交易系统，下一步不是继续堆扫描脚本，而是把它整理成一个可自动执行的程序骨架：
 
@@ -14,6 +14,44 @@
 - 同一信号只能执行一次
 - 程序重启后不能失忆
 - 任何自动动作都必须可追溯
+
+---
+
+## v2 P0 当前实现状态（partial v2）
+
+当前版本是 **partial v2**，已落地 v2 主链路中的关键骨架：
+
+1. `regime`：市场状态识别
+2. `universe`：动态候选池
+3. `trend engine`：趋势候选
+4. `validator`：风险校验
+5. `allocator`：组合预算与候选接受/降配决策
+6. `execution`：paper 执行 + 幂等标记
+7. `lifecycle/reporting`：持仓建议与摘要输出
+
+当前引擎覆盖说明：
+- 已实现：trend engine
+- 未实现（保留到后续阶段）：rotation engine、short engine
+- 运行时要求：`rotation_candidates` 与 `short_candidates` 显式为空列表，并通过 `partial_v2_coverage=true` 标识当前覆盖范围。
+
+v2 P0 的运行顺序（main cycle）：
+
+```text
+load account/market/derivatives
+  -> classify regime
+  -> build universe
+  -> generate trend candidates
+  -> validate candidates
+  -> allocate risk (allocator)
+  -> execute accepted intents (paper + idempotency)
+  -> evaluate lifecycle + persist runtime state
+  -> print regime/portfolio summary
+```
+
+测试与运行预期：
+- `pytest trading_system/tests -v` 全量通过。
+- 手动执行 `python -m trading_system.app.main`（配套 runtime 输入）应输出 `regime` + `portfolio` 摘要，且无 traceback。
+- `runtime_state.json` 保留旧字段并新增/刷新 `latest_regime`、`latest_allocations` 等 v2 字段。
 
 ---
 

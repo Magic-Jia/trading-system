@@ -1,4 +1,4 @@
-# Trading System v1
+# Trading System v1 / v2 P0
 
 面向 Claw 的加密交易工作流骨架。
 
@@ -10,6 +10,23 @@
 - 对每一笔计划中的开仓/平仓给出充分依据
 - 记录复盘与系统改进
 - 支持模拟执行（paper trading）
+
+## v2 P0（partial v2）范围
+
+当前仓库已接入 v2 P0 主链路，但仍是 **partial v2** 覆盖：
+
+1. `regime`：市场状态识别（risk-on / risk-off / neutral）
+2. `universe`：动态候选池构建
+3. `trend engine`：趋势候选生成（当前唯一已实现的信号引擎）
+4. `validator`：候选风控校验
+5. `allocator`：组合风险预算分配
+6. `execution`：paper 执行 + 幂等防重
+7. `lifecycle/reporting`：仓位生命周期建议与运行摘要输出
+
+P0 明确约束：
+- `rotation` 与 `short` 引擎尚未实现，当前运行时保持显式空输出（`rotation_candidates=[]`、`short_candidates=[]`）。
+- `runtime_state.json` 中 `partial_v2_coverage=true` 用于标记当前是 partial v2，而非完整 v2。
+- 保持 paper execution 行为，不扩展到 P1 引擎。
 
 ## 目录
 
@@ -51,3 +68,15 @@
 - 当前版本不自动在真实账户下单。
 - 当前版本可用于：读账户、做计划、做模拟执行、记录复盘。
 - 如后续接入模拟盘执行器，可在 `paper_trades.jsonl` 中持续跟踪。
+
+## 测试与运行（v2 P0）
+
+- 单测：`pytest trading_system/tests/test_main_v2_cycle.py -v`
+- 全量测试：`pytest trading_system/tests -v`
+- 手动跑一次 paper cycle：
+  `TRADING_ACCOUNT_SNAPSHOT_FILE=trading_system/data/account_snapshot.json TRADING_MARKET_CONTEXT_FILE=trading_system/data/market_context.json TRADING_DERIVATIVES_SNAPSHOT_FILE=trading_system/data/derivatives_snapshot.json python -m trading_system.app.main`
+
+运行期预期：
+- 标准输出包含 `regime` 与 `portfolio` 两段摘要。
+- `trading_system/data/runtime_state.json` 至少包含：
+  `positions`、`management_suggestions`、`latest_regime`、`latest_allocations`。
