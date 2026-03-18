@@ -127,6 +127,17 @@ def test_market_and_derivatives_loaders_support_env_override(
     assert {row["symbol"] for row in derivatives_rows}.issuperset({"BTCUSDT", "ETHUSDT"})
 
 
+def test_market_and_derivatives_loaders_use_default_runtime_files(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.delenv("TRADING_MARKET_CONTEXT_FILE", raising=False)
+    monkeypatch.delenv("TRADING_DERIVATIVES_SNAPSHOT_FILE", raising=False)
+
+    market_rows = load_market_context()
+    derivatives_rows = load_derivatives_snapshot()
+
+    assert {row["symbol"] for row in market_rows}.issuperset({"BTCUSDT", "ETHUSDT"})
+    assert {row["symbol"] for row in derivatives_rows} == {"BTCUSDT", "ETHUSDT"}
+
+
 def test_loaders_fail_fast_on_missing_required_keys(tmp_path: Path):
     bad_market = tmp_path / "bad_market_context.json"
     bad_derivatives = tmp_path / "bad_derivatives_snapshot.json"

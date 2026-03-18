@@ -1,0 +1,99 @@
+{
+  "as_of": "2026-03-15T00:00:00Z",
+  "schema_version": "v2",
+  "symbols": {
+    "BTCUSDT": {
+      "sector": "majors",
+      "liquidity_tier": "top",
+      "daily": {
+        "close": 64120.0,
+        "ema_20": 62280.0,
+        "ema_50": 60310.0,
+        "rsi": 62.4,
+        "atr_pct": 0.028,
+        "return_pct_7d": 0.061,
+        "volume_usdt_24h": 19800000000
+      },
+      "4h": {
+        "close": 64120.0,
+        "ema_20": 63620.0,
+        "ema_50": 62830.0,
+        "rsi": 58.1,
+        "atr_pct": 0.011,
+        "return_pct_3d": 0.028,
+        "volume_usdt_24h": 19800000000
+      },
+      "1h": {
+        "close": 64120.0,
+        "ema_20": 63940.0,
+        "ema_50": 63630.0,
+        "rsi": 55.7,
+        "atr_pct": 0.004,
+        "return_pct_24h": 0.009,
+        "volume_usdt_24h": 19800000000
+      }
+    },
+    "ETHUSDT": {
+      "sector": "majors",
+      "liquidity_tier": "top",
+      "daily": {
+        "close": 3295.0,
+        "ema_20": 3180.0,
+        "ema_50": 3025.0,
+        "rsi": 60.1,
+        "atr_pct": 0.031,
+        "return_pct_7d": 0.052,
+        "volume_usdt_24h": 12200000000
+      },
+      "4h": {
+        "close": 3295.0,
+        "ema_20": 3254.0,
+        "ema_50": 3182.0,
+        "rsi": 56.6,
+        "atr_pct": 0.013,
+        "return_pct_3d": 0.022,
+        "volume_usdt_24h": 12200000000
+      },
+      "1h": {
+        "close": 3295.0,
+        "ema_20": 3281.0,
+        "ema_50": 3252.0,
+        "rsi": 54.8,
+        "atr_pct": 0.006,
+        "return_pct_24h": 0.008,
+        "volume_usdt_24h": 12200000000
+      }
+    },
+    "SOLUSDT": {
+      "sector": "alt_l1",
+      "liquidity_tier": "high",
+      "daily": {
+        "close": 151.5,
+        "ema_20": 146.1,
+        "ema_50": 136.7,
+        "rsi": 61.0,
+        "atr_pct": 0.054,
+        "return_pct_7d": 0.074,
+        "volume_usdt_24h": 3900000000
+      },
+      "4h": {
+        "close": 151.5,
+        "ema_20": 149.2,
+        "ema_50": 145.9,
+        "rsi": 57.3,
+        "atr_pct": 0.019,
+        "return_pct_3d": 0.031,
+        "volume_usdt_24h": 3900000000
+      },
+      "1h": {
+        "close": 151.5,
+        "ema_20": 150.7,
+        "ema_50": 149.4,
+        "rsi": 53.9,
+        "atr_pct": 0.009,
+        "return_pct_24h": 0.01,
+        "volume_usdt_24h": 3900000000
+      }
+    }
+  }
+}
