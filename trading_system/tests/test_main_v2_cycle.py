@@ -1,4 +1,6 @@
+import json
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 
@@ -115,3 +117,28 @@ def test_state_store_persists_regime_candidates_and_allocations(tmp_path):
     assert reloaded.latest_candidates[0]["symbol"] == "BTCUSDT"
     assert reloaded.latest_allocations[0]["symbol"] == "BTCUSDT"
     assert reloaded.latest_lifecycle["BTCUSDT"]["state"] == "PROTECT"
+
+
+def test_main_v2_cycle_writes_regime_and_allocation_sections(monkeypatch, tmp_path, load_fixture):
+    output_path = tmp_path / "runtime_state.json"
+    account_path = tmp_path / "account_snapshot.json"
+    market_path = tmp_path / "market_context.json"
+    deriv_path = tmp_path / "derivatives_snapshot.json"
+    account_path.write_text(json.dumps(load_fixture("account_snapshot_v2.json")))
+    market_path.write_text(json.dumps(load_fixture("market_context_v2.json")))
+    deriv_path.write_text(json.dumps(load_fixture("derivatives_snapshot_v2.json")))
+    monkeypatch.setenv("TRADING_STATE_FILE", str(output_path))
+    monkeypatch.setenv("TRADING_ACCOUNT_SNAPSHOT_FILE", str(account_path))
+    monkeypatch.setenv("TRADING_MARKET_CONTEXT_FILE", str(market_path))
+    monkeypatch.setenv("TRADING_DERIVATIVES_SNAPSHOT_FILE", str(deriv_path))
+
+    main_module.main()
+
+    state = json.loads(Path(output_path).read_text())
+    assert state["latest_regime"]["label"]
+    assert "latest_universes" in state
+    assert "latest_candidates" in state
+    assert "latest_allocations" in state
+    assert state.get("partial_v2_coverage") is True
+    assert state.get("rotation_candidates", []) == []
+    assert state.get("short_candidates", []) == []
