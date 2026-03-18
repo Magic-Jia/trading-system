@@ -41,6 +41,11 @@
 - `BINANCE_API_KEY` / `BINANCE_API_SECRET`
 - `BINANCE_APIKEY` / `BINANCE_SECRET`
 
+测试网约定：
+- 默认优先从 `/home/cn/.local/secrets/binance-testnet.env` 读取测试网凭证。
+- 建议在该文件中维护 `BINANCE_TESTNET_API_KEY` / `BINANCE_TESTNET_API_SECRET`。
+- 若测试网文件不可用，再回退到旧的环境变量来源。
+
 ## 当前边界
 
 - 当前版本不自动在真实账户下单。
