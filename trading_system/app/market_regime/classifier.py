@@ -140,13 +140,24 @@ def classify_regime(
 
     confidence += (breadth["pct_above_4h_ema20"] - 0.5) * 0.2
     confidence += (trend_strength - 0.5) * 0.15
-    confidence += float(derivatives_summary.get("crowding_score", 0.0)) * 0.02
+    crowding_score = float(derivatives_summary.get("crowding_score", 0.0))
+    confidence -= max(crowding_score, 0.0) * 0.02
     confidence = max(0.05, min(confidence, 0.98))
 
     if force_low_confidence:
         confidence = min(confidence, 0.35)
 
     aggression = _aggression_scale(confidence)
+    crowding_bias = str(derivatives_summary.get("crowding_bias", "balanced"))
+    if crowding_bias == "crowded_long":
+        aggression = max(0.3, aggression * 0.8)
+
+    execution_policy = "normal"
+    if aggression <= 0.5:
+        execution_policy = "suppress"
+    elif aggression < 0.95:
+        execution_policy = "downsize"
+
     profile = _REGIME_PROFILES[label]
     base_bucket_targets = profile["bucket_targets"]
     bucket_targets = {
@@ -162,6 +173,7 @@ def classify_regime(
         label=label,
         confidence=round(confidence, 6),
         risk_multiplier=risk_multiplier,
+        execution_policy=execution_policy,
         bucket_targets=bucket_targets,
         suppression_rules=suppression_rules,
     )

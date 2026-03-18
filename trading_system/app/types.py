@@ -20,6 +20,7 @@ ManagementPreviewKind = Literal[
 
 AllocationStatus = Literal["ACCEPTED", "DOWNSIZED", "REJECTED"]
 _ALLOCATION_STATUS_SET = {"ACCEPTED", "DOWNSIZED", "REJECTED"}
+ExecutionPolicy = Literal["normal", "downsize", "suppress"]
 
 
 @dataclass(slots=True)
@@ -141,6 +142,7 @@ class RegimeSnapshot:
     label: str
     confidence: float
     risk_multiplier: float
+    execution_policy: ExecutionPolicy = "normal"
     bucket_targets: dict[str, float] = field(default_factory=dict)
     suppression_rules: list[str] = field(default_factory=list)
 
