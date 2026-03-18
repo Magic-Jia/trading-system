@@ -35,6 +35,22 @@ def mark_processed(state: RuntimeState, signal: TradeSignal) -> str:
     return fp
 
 
+def replay_processed_execution(state: RuntimeState, signal: TradeSignal) -> dict[str, str] | None:
+    existing_intent_id = intent_id(signal)
+    active = state.active_orders.get(existing_intent_id)
+    if isinstance(active, dict):
+        status = str(active.get("status", "")).upper()
+        if status:
+            return {"status": status, "intent_id": existing_intent_id}
+
+    position = state.positions.get(signal.symbol)
+    if isinstance(position, dict) and position.get("intent_id") == existing_intent_id:
+        status = str(position.get("status", "FILLED")).upper()
+        return {"status": status, "intent_id": existing_intent_id}
+
+    return None
+
+
 def bind_active_order(state: RuntimeState, order: OrderIntent) -> None:
     state.active_orders[order.intent_id] = {
         "signal_id": order.signal_id,

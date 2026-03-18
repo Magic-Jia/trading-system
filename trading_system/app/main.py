@@ -9,7 +9,7 @@ from typing import Any, Mapping
 from .config import build_config
 from .data_sources import load_derivatives_snapshot, load_market_context
 from .execution.executor import OrderExecutor
-from .execution.idempotency import already_processed, intent_id, mark_processed
+from .execution.idempotency import already_processed, intent_id, mark_processed, replay_processed_execution
 from .market_regime import classify_regime
 from .portfolio.allocator import allocate_candidates
 from .portfolio.lifecycle import advance_lifecycle_positions, build_management_action_intents, evaluate_portfolio
@@ -257,11 +257,14 @@ def main() -> None:
         if store.circuit_breaker_active(state):
             allocation["execution"] = {"status": "BLOCKED", "reason": "circuit_breaker_active"}
             continue
+        if already_processed(state, signal):
+            allocation["execution"] = replay_processed_execution(state, signal) or {
+                "status": "SKIPPED",
+                "reason": "already_processed",
+            }
+            continue
         if store.in_cooldown(state, signal.symbol):
             allocation["execution"] = {"status": "SKIPPED", "reason": "cooldown_active"}
-            continue
-        if already_processed(state, signal):
-            allocation["execution"] = {"status": "SKIPPED", "reason": "already_processed"}
             continue
 
         qty = _order_qty(account, signal, allocation)

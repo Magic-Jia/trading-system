@@ -142,3 +142,24 @@ def test_main_v2_cycle_writes_regime_and_allocation_sections(monkeypatch, tmp_pa
     assert state.get("partial_v2_coverage") is True
     assert state.get("rotation_candidates", []) == []
     assert state.get("short_candidates", []) == []
+
+
+def test_main_v2_cycle_is_idempotent_for_same_inputs(monkeypatch, tmp_path, load_fixture):
+    output_path = tmp_path / "runtime_state.json"
+    account_path = tmp_path / "account_snapshot.json"
+    market_path = tmp_path / "market_context.json"
+    deriv_path = tmp_path / "derivatives_snapshot.json"
+    account_path.write_text(json.dumps(load_fixture("account_snapshot_v2.json")))
+    market_path.write_text(json.dumps(load_fixture("market_context_v2.json")))
+    deriv_path.write_text(json.dumps(load_fixture("derivatives_snapshot_v2.json")))
+    monkeypatch.setenv("TRADING_STATE_FILE", str(output_path))
+    monkeypatch.setenv("TRADING_ACCOUNT_SNAPSHOT_FILE", str(account_path))
+    monkeypatch.setenv("TRADING_MARKET_CONTEXT_FILE", str(market_path))
+    monkeypatch.setenv("TRADING_DERIVATIVES_SNAPSHOT_FILE", str(deriv_path))
+
+    main_module.main()
+    first = json.loads(Path(output_path).read_text())
+    main_module.main()
+    second = json.loads(Path(output_path).read_text())
+    assert first.get("last_signal_ids") == second.get("last_signal_ids")
+    assert first.get("latest_allocations") == second.get("latest_allocations")
