@@ -44,6 +44,7 @@ class AllocatorConfig:
     sector_cap_pct: float = float(os.environ.get("TRADING_ALLOCATOR_SECTOR_CAP_PCT", "0.35"))
     trend_bucket_weight: float = float(os.environ.get("TRADING_ALLOCATOR_TREND_BUCKET_WEIGHT", "0.70"))
     rotation_bucket_weight: float = float(os.environ.get("TRADING_ALLOCATOR_ROTATION_BUCKET_WEIGHT", "0.30"))
+    short_bucket_weight: float = float(os.environ.get("TRADING_ALLOCATOR_SHORT_BUCKET_WEIGHT", "0.00"))
 
 
 @dataclass(frozen=True, slots=True)
