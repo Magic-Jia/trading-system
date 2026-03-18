@@ -21,8 +21,9 @@ All fixtures in this directory are deterministic and offline-safe.
 ## `derivatives_snapshot_v2.json`
 
 - Source: fully synthetic derivatives metrics.
-- Purpose: deterministic majors-focused funding/open-interest context.
+- Purpose: deterministic majors-focused funding/open-interest context with price-aware OI interaction inputs.
 - Preserved schema shape:
   - top-level `as_of`, `schema_version`, `rows`
   - row fields include `symbol`, `funding_rate`, `open_interest_usdt`,
-    `open_interest_change_24h_pct`, `taker_buy_sell_ratio`, `basis_bps`
+    `open_interest_change_24h_pct`, `mark_price_change_24h_pct`,
+    `taker_buy_sell_ratio`, `basis_bps`

@@ -36,14 +36,14 @@ def _classify_funding_heat(avg_funding: float) -> str:
     return "cool"
 
 
-def _classify_price_oi_interaction(avg_oi_change: float, avg_taker_ratio: float) -> str:
-    if avg_oi_change > 0 and avg_taker_ratio > 1.0:
+def _classify_price_oi_interaction(avg_price_change: float, avg_oi_change: float) -> str:
+    if avg_price_change > 0 and avg_oi_change > 0:
         return "long_build"
-    if avg_oi_change > 0 and avg_taker_ratio < 1.0:
+    if avg_price_change < 0 and avg_oi_change > 0:
         return "short_build"
-    if avg_oi_change < 0 and avg_taker_ratio > 1.0:
+    if avg_price_change > 0 and avg_oi_change < 0:
         return "short_covering"
-    if avg_oi_change < 0 and avg_taker_ratio < 1.0:
+    if avg_price_change < 0 and avg_oi_change < 0:
         return "long_unwind"
     return "flat"
 
@@ -55,6 +55,7 @@ def summarize_derivatives_risk(derivatives: dict[str, Any] | list[dict[str, Any]
             "majors_count": 0,
             "avg_funding_rate": 0.0,
             "avg_open_interest_change_24h_pct": 0.0,
+            "avg_mark_price_change_24h_pct": 0.0,
             "avg_taker_buy_sell_ratio": 1.0,
             "avg_basis_bps": 0.0,
             "funding_heat": "cool",
@@ -66,11 +67,13 @@ def summarize_derivatives_risk(derivatives: dict[str, Any] | list[dict[str, Any]
 
     funding_values = [float(row["funding_rate"]) for row in rows]
     oi_change_values = [float(row["open_interest_change_24h_pct"]) for row in rows]
+    price_change_values = [float(row["mark_price_change_24h_pct"]) for row in rows]
     taker_values = [float(row["taker_buy_sell_ratio"]) for row in rows]
     basis_values = [float(row["basis_bps"]) for row in rows]
 
     avg_funding = _avg(funding_values)
     avg_oi_change = _avg(oi_change_values)
+    avg_price_change = _avg(price_change_values)
     avg_taker = _avg(taker_values)
     avg_basis = _avg(basis_values)
 
@@ -98,11 +101,12 @@ def summarize_derivatives_risk(derivatives: dict[str, Any] | list[dict[str, Any]
         "majors_count": len(rows),
         "avg_funding_rate": avg_funding,
         "avg_open_interest_change_24h_pct": avg_oi_change,
+        "avg_mark_price_change_24h_pct": avg_price_change,
         "avg_taker_buy_sell_ratio": avg_taker,
         "avg_basis_bps": avg_basis,
         "funding_heat": _classify_funding_heat(avg_funding),
         "oi_trend": oi_trend,
-        "price_oi_interaction": _classify_price_oi_interaction(avg_oi_change, avg_taker),
+        "price_oi_interaction": _classify_price_oi_interaction(avg_price_change, avg_oi_change),
         "crowding_bias": crowding_bias,
         "crowding_score": crowding_score,
     }

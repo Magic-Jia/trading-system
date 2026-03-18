@@ -7,6 +7,7 @@
       "funding_rate": 0.0001,
       "open_interest_usdt": 23100000000,
       "open_interest_change_24h_pct": 0.042,
+      "mark_price_change_24h_pct": 0.017,
       "taker_buy_sell_ratio": 1.08,
       "basis_bps": 22
     },
@@ -15,6 +16,7 @@
       "funding_rate": 0.00012,
       "open_interest_usdt": 11800000000,
       "open_interest_change_24h_pct": 0.036,
+      "mark_price_change_24h_pct": 0.013,
       "taker_buy_sell_ratio": 1.04,
       "basis_bps": 19
     },
@@ -23,6 +25,7 @@
       "funding_rate": 0.00024,
       "open_interest_usdt": 2900000000,
       "open_interest_change_24h_pct": 0.059,
+      "mark_price_change_24h_pct": 0.026,
       "taker_buy_sell_ratio": 1.11,
       "basis_bps": 31
     },
@@ -31,6 +34,7 @@
       "funding_rate": 0.00008,
       "open_interest_usdt": 1700000000,
       "open_interest_change_24h_pct": 0.018,
+      "mark_price_change_24h_pct": 0.009,
       "taker_buy_sell_ratio": 1.01,
       "basis_bps": 14
     }

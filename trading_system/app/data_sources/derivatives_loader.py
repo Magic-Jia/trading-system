@@ -15,6 +15,7 @@ _REQUIRED_ROW_KEYS = (
     "funding_rate",
     "open_interest_usdt",
     "open_interest_change_24h_pct",
+    "mark_price_change_24h_pct",
     "taker_buy_sell_ratio",
     "basis_bps",
 )
