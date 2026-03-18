@@ -1,0 +1,11 @@
+{
+  "v2": {
+    "accepted_count": 0,
+    "total_allocated_risk": 0,
+    "partial_v2_coverage": true
+  },
+  "baseline": {
+    "candidate_count": 0,
+    "equal_weight_risk_proxy": 0
+  }
+}
