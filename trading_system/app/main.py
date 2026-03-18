@@ -15,6 +15,7 @@ from .portfolio.allocator import allocate_candidates
 from .portfolio.lifecycle import advance_lifecycle_positions, build_management_action_intents, evaluate_portfolio
 from .portfolio.positions import apply_executed_intent, sync_positions_from_account
 from .reporting.regime_report import build_regime_summary
+from .signals.rotation_engine import generate_rotation_candidates
 from .risk.validator import validate_candidate_for_allocation
 from .signals.trend_engine import generate_trend_candidates
 from .storage.state_store import build_state_store
@@ -230,10 +231,15 @@ def main() -> None:
     regime = classify_regime(market_rows, derivatives)
     universes = build_universes(market)
 
-    trend_candidates = generate_trend_candidates(market)
+    trend_candidates = generate_trend_candidates(market, include_high_liquidity_strong_names=False)
+    rotation_candidates = generate_rotation_candidates(
+        market,
+        rotation_universe=universes.rotation_universe,
+        regime=regime,
+    )
     candidate_rows: list[dict[str, Any]] = []
     validated_rows: list[dict[str, Any]] = []
-    for candidate in trend_candidates:
+    for candidate in [*trend_candidates, *rotation_candidates]:
         row = _candidate_row(candidate)
         validation = validate_candidate_for_allocation(row, account)
         row["validation"] = {"allowed": validation.allowed, "reasons": list(validation.reasons), "metrics": validation.metrics}
@@ -313,7 +319,7 @@ def main() -> None:
     state.latest_candidates = candidate_rows
     state.latest_allocations = allocation_rows
     state.latest_lifecycle = lifecycle_updates
-    state.rotation_candidates = []
+    state.rotation_candidates = [row for row in candidate_rows if str(row.get("engine", "")).lower() == "rotation"]
     state.short_candidates = []
     state.partial_v2_coverage = True
     store.replace_management_suggestions(state, management)

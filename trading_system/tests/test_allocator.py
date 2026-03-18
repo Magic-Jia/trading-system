@@ -24,6 +24,16 @@ def test_allocator_rejects_candidates_from_suppressed_bucket(load_fixture, sampl
     assert all("suppressed" in " ".join(d.reasons).lower() for d in decisions)
 
 
+def test_allocator_accepts_rotation_candidates_when_bucket_enabled(load_fixture, sample_rotation_candidates):
+    account = load_fixture("account_snapshot_v2.json")
+    regime = {"bucket_targets": {"trend": 0.4, "rotation": 0.6, "short": 0.0}, "suppressed_engines": []}
+    decisions = allocate_candidates(account=account, candidates=sample_rotation_candidates, regime=regime)
+    accepted = [decision for decision in decisions if decision.status in {"ACCEPTED", "DOWNSIZED"}]
+    assert accepted
+    assert all(decision.engine == "rotation" for decision in accepted)
+    assert all(decision.final_risk_budget > 0 for decision in accepted)
+
+
 def test_allocator_downweights_duplicate_trend_breakouts(load_fixture, sample_trend_candidates):
     account = load_fixture("account_snapshot_v2.json")
     regime = {"bucket_targets": {"trend": 0.6, "rotation": 0.2, "short": 0.2}, "suppressed_engines": []}

@@ -140,7 +140,8 @@ def test_main_v2_cycle_writes_regime_and_allocation_sections(monkeypatch, tmp_pa
     assert "latest_candidates" in state
     assert "latest_allocations" in state
     assert state.get("partial_v2_coverage") is True
-    assert state.get("rotation_candidates", []) == []
+    assert state.get("rotation_candidates")
+    assert {row["engine"] for row in state["rotation_candidates"]} == {"rotation"}
     assert state.get("short_candidates", []) == []
 
 
