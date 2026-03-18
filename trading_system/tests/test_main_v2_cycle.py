@@ -1,8 +1,11 @@
+from dataclasses import replace
+
 import pytest
 
 from trading_system.app.config import AppConfig, DEFAULT_CONFIG
 from trading_system.app import config as config_module
 from trading_system.app import main as main_module
+from trading_system.app.storage.state_store import build_state_store
 from trading_system.app.types import RegimeSnapshot, EngineCandidate, AllocationDecision, LifecycleState
 
 
@@ -94,3 +97,21 @@ def test_v2_allocation_decision_normalizes_status_to_uppercase():
 def test_v2_allocation_decision_rejects_unknown_status():
     with pytest.raises(ValueError, match="status"):
         AllocationDecision(status="PENDING")
+
+
+def test_state_store_persists_regime_candidates_and_allocations(tmp_path):
+    config = replace(DEFAULT_CONFIG, state_file=tmp_path / "runtime_state.json")
+    store = build_state_store(config)
+    state = store.load()
+    state.latest_regime = {"label": "RISK_ON_TREND", "confidence": 0.8}
+    state.latest_universes = {"major_count": 4, "rotation_count": 6, "short_count": 2}
+    state.latest_candidates = [{"symbol": "BTCUSDT", "engine": "trend", "score": 0.91}]
+    state.latest_allocations = [{"symbol": "BTCUSDT", "status": "ACCEPTED"}]
+    state.latest_lifecycle = {"BTCUSDT": {"state": "PROTECT", "reason_codes": ["payload_to_protect_trend_mature"]}}
+    store.save(state)
+    reloaded = store.load()
+    assert reloaded.latest_regime["label"] == "RISK_ON_TREND"
+    assert reloaded.latest_universes["rotation_count"] == 6
+    assert reloaded.latest_candidates[0]["symbol"] == "BTCUSDT"
+    assert reloaded.latest_allocations[0]["symbol"] == "BTCUSDT"
+    assert reloaded.latest_lifecycle["BTCUSDT"]["state"] == "PROTECT"
