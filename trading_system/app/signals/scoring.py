@@ -9,6 +9,14 @@ TREND_SCORE_WEIGHTS: dict[str, float] = {
     "volume_quality": 0.15,
 }
 
+ROTATION_SCORE_WEIGHTS: dict[str, float] = {
+    "relative_strength_rank": 0.35,
+    "persistence": 0.25,
+    "pullback_quality": 0.20,
+    "liquidity_quality": 0.10,
+    "volatility_quality": 0.10,
+}
+
 
 def _normalized_flag(value: Any, positive_values: set[str]) -> float:
     return 1.0 if str(value).lower() in positive_values else 0.0
@@ -41,6 +49,22 @@ def score_trend_candidate(features: Mapping[str, Any]) -> dict[str, Any]:
         "h4_structure": h4_structure_raw * TREND_SCORE_WEIGHTS["h4_structure"],
         "h1_trigger": h1_trigger_raw * TREND_SCORE_WEIGHTS["h1_trigger"],
         "volume_quality": volume_quality_raw * TREND_SCORE_WEIGHTS["volume_quality"],
+    }
+    total = sum(components.values())
+    return {"total": total, "components": components}
+
+
+def score_rotation_candidate(features: Mapping[str, Any]) -> dict[str, Any]:
+    components = {
+        "relative_strength_rank": _bounded_float(features.get("relative_strength_rank"))
+        * ROTATION_SCORE_WEIGHTS["relative_strength_rank"],
+        "persistence": _bounded_float(features.get("persistence")) * ROTATION_SCORE_WEIGHTS["persistence"],
+        "pullback_quality": _bounded_float(features.get("pullback_quality"))
+        * ROTATION_SCORE_WEIGHTS["pullback_quality"],
+        "liquidity_quality": _bounded_float(features.get("liquidity_quality"))
+        * ROTATION_SCORE_WEIGHTS["liquidity_quality"],
+        "volatility_quality": _bounded_float(features.get("volatility_quality"))
+        * ROTATION_SCORE_WEIGHTS["volatility_quality"],
     }
     total = sum(components.values())
     return {"total": total, "components": components}
