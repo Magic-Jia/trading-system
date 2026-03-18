@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 
 def load_fixture(name: str) -> dict[str, Any]:

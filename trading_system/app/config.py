@@ -24,10 +24,44 @@ class RiskConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class RegimeConfig:
+    risk_on_confidence_threshold: float = float(
+        os.environ.get("TRADING_REGIME_RISK_ON_CONFIDENCE_THRESHOLD", "0.65")
+    )
+    risk_off_confidence_threshold: float = float(
+        os.environ.get("TRADING_REGIME_RISK_OFF_CONFIDENCE_THRESHOLD", "0.70")
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class UniverseConfig:
+    min_liquidity_usdt_24h: float = float(os.environ.get("TRADING_UNIVERSE_MIN_LIQUIDITY_USDT_24H", "500000000"))
+    max_symbols: int = int(os.environ.get("TRADING_UNIVERSE_MAX_SYMBOLS", "20"))
+
+
+@dataclass(frozen=True, slots=True)
+class AllocatorConfig:
+    sector_cap_pct: float = float(os.environ.get("TRADING_ALLOCATOR_SECTOR_CAP_PCT", "0.35"))
+    trend_bucket_weight: float = float(os.environ.get("TRADING_ALLOCATOR_TREND_BUCKET_WEIGHT", "0.70"))
+    rotation_bucket_weight: float = float(os.environ.get("TRADING_ALLOCATOR_ROTATION_BUCKET_WEIGHT", "0.30"))
+
+
+@dataclass(frozen=True, slots=True)
+class LifecycleConfig:
+    confirm_r_multiple: float = float(os.environ.get("TRADING_LIFECYCLE_CONFIRM_R_MULTIPLE", "0.80"))
+    protect_r_multiple: float = float(os.environ.get("TRADING_LIFECYCLE_PROTECT_R_MULTIPLE", "1.20"))
+    exit_r_multiple: float = float(os.environ.get("TRADING_LIFECYCLE_EXIT_R_MULTIPLE", "2.00"))
+
+
+@dataclass(frozen=True, slots=True)
 class AppConfig:
     data_dir: Path = DATA_DIR
     state_file: Path = STATE_FILE
     risk: RiskConfig = RiskConfig()
+    regime: RegimeConfig = RegimeConfig()
+    universe: UniverseConfig = UniverseConfig()
+    allocator: AllocatorConfig = AllocatorConfig()
+    lifecycle: LifecycleConfig = LifecycleConfig()
 
 
 DEFAULT_CONFIG = AppConfig()
