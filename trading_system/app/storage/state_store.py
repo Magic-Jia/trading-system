@@ -17,6 +17,9 @@ class RuntimeStateV2(RuntimeState):
     latest_candidates: list[dict[str, Any]] = field(default_factory=list)
     latest_allocations: list[dict[str, Any]] = field(default_factory=list)
     latest_lifecycle: dict[str, dict[str, Any]] = field(default_factory=dict)
+    rotation_candidates: list[dict[str, Any]] = field(default_factory=list)
+    short_candidates: list[dict[str, Any]] = field(default_factory=list)
+    partial_v2_coverage: bool = False
 
 
 _RUNTIME_STATE_V2_FIELDS = {item.name for item in fields(RuntimeStateV2)}

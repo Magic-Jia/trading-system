@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict
 from typing import Any
 
+from .lifecycle_v2 import advance_lifecycle_transition
 from ..types import ManagementActionIntent, ManagementSuggestion, RuntimeState
 
 
@@ -143,6 +144,73 @@ def evaluate_portfolio(state: RuntimeState) -> list[dict[str, Any]]:
     for position in state.positions.values():
         suggestions.extend(evaluate_position(position))
     return suggestions
+
+
+def _float(value: Any) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _r_multiple(position: dict[str, Any]) -> float:
+    side = str(position.get("side", "LONG"))
+    entry = _float(position.get("entry_price"))
+    mark = _float(position.get("mark_price"))
+    stop = position.get("stop_loss")
+    stop_loss = _float(stop) if stop is not None else 0.0
+    if entry <= 0 or mark <= 0 or not _valid_stop(side, entry, stop_loss):
+        return 0.0
+
+    risk_unit = abs(entry - stop_loss)
+    if risk_unit <= 0:
+        return 0.0
+    if side == "LONG":
+        return (mark - entry) / risk_unit
+    return (entry - mark) / risk_unit
+
+
+def advance_lifecycle_positions(state: RuntimeState, lifecycle_config: Any) -> dict[str, dict[str, Any]]:
+    latest = dict(getattr(state, "latest_lifecycle", {}) or {})
+    updates: dict[str, dict[str, Any]] = {}
+    protect_trigger = _float(getattr(lifecycle_config, "protect_r_multiple", 1.2)) or 1.2
+
+    for symbol, position in state.positions.items():
+        side = str(position.get("side", "LONG"))
+        mark = _float(position.get("mark_price"))
+        stop = position.get("stop_loss")
+        stop_loss = _float(stop) if stop is not None else 0.0
+        take_profit = position.get("take_profit")
+        r_multiple = _r_multiple(position)
+        current_state = str((latest.get(symbol) or {}).get("state", "INIT"))
+
+        stop_hit = False
+        if mark > 0 and stop is not None and _valid_stop(side, _float(position.get("entry_price")), stop_loss):
+            stop_hit = _stop_breached(side, mark, stop_loss)
+
+        target_hit = False
+        if mark > 0 and take_profit is not None:
+            target_hit = _in_favor(side, mark, _float(take_profit))
+
+        next_state, reason_codes = advance_lifecycle_transition(
+            current_state,
+            {
+                "r_multiple": r_multiple,
+                "confirmed": position.get("status") in {"OPEN", "FILLED", "SENT"},
+                "payload_ready": _float(position.get("qty")) > 0,
+                "trend_mature": r_multiple >= protect_trigger,
+                "stop_hit": stop_hit,
+                "target_hit": target_hit,
+            },
+            config=lifecycle_config,
+        )
+        updates[symbol] = {
+            "state": next_state.value,
+            "reason_codes": reason_codes,
+            "r_multiple": round(r_multiple, 6),
+        }
+
+    return updates
 
 
 def _intent_id(symbol: str, action: str) -> str:
