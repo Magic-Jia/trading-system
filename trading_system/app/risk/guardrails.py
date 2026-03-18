@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from ..config import RiskConfig
-from ..types import AccountSnapshot, PositionSnapshot, TradeSignal
+from ..types import AccountSnapshot, PositionSnapshot, Side, TradeSignal
 
 
 MAJOR_COIN_PREFIXES = ("BTC", "ETH", "BNB", "SOL")
@@ -73,5 +73,54 @@ def evaluate_guardrails(
     metrics["correlated_positions"] = len(peers)
     if len(peers) >= 3:
         reasons.append(f"高度相关仓位过多：已发现 {len(peers)} 个相关仓位")
+
+    return len(reasons) == 0, reasons, metrics
+
+
+def evaluate_allocation_guardrails(
+    *,
+    candidate_symbol: str,
+    candidate_sector: str,
+    candidate_side: Side,
+    candidate_risk_budget: float,
+    symbol_risk_before_pct: float,
+    sector_risk_before_pct: float,
+    net_exposure_before_pct: float,
+    symbol_cap_pct: float,
+    sector_cap_pct: float,
+    net_exposure_cap_pct: float,
+) -> tuple[bool, list[str], dict[str, float | bool]]:
+    reasons: list[str] = []
+
+    symbol_risk_after = symbol_risk_before_pct + candidate_risk_budget
+    sector_risk_after = sector_risk_before_pct + candidate_risk_budget
+    directional_risk = candidate_risk_budget if candidate_side == "LONG" else -candidate_risk_budget
+    net_exposure_after = net_exposure_before_pct + directional_risk
+
+    metrics: dict[str, float | bool] = {
+        "symbol_cap_checked": True,
+        "sector_cap_checked": True,
+        "symbol_cap_hit": False,
+        "sector_cap_hit": False,
+        "symbol_risk_before": round(symbol_risk_before_pct, 6),
+        "symbol_risk_after": round(symbol_risk_after, 6),
+        "sector_risk_before": round(sector_risk_before_pct, 6),
+        "sector_risk_after": round(sector_risk_after, 6),
+        "net_exposure_before": round(net_exposure_before_pct, 6),
+        "net_exposure_after": round(net_exposure_after, 6),
+        "net_exposure_cap": round(net_exposure_cap_pct, 6),
+        "candidate_risk_budget": round(candidate_risk_budget, 6),
+    }
+
+    if symbol_risk_after > symbol_cap_pct:
+        reasons.append(f"{candidate_symbol} symbol risk {symbol_risk_after:.2%} exceeds cap {symbol_cap_pct:.2%}")
+        metrics["symbol_cap_hit"] = True
+
+    if sector_risk_after > sector_cap_pct:
+        reasons.append(f"{candidate_sector} sector risk {sector_risk_after:.2%} exceeds cap {sector_cap_pct:.2%}")
+        metrics["sector_cap_hit"] = True
+
+    if abs(net_exposure_after) > net_exposure_cap_pct:
+        reasons.append(f"net exposure {net_exposure_after:.2%} exceeds cap {net_exposure_cap_pct:.2%}")
 
     return len(reasons) == 0, reasons, metrics

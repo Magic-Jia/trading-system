@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
+from typing import Any
+
 from ..config import RiskConfig
 from ..types import AccountSnapshot, TradeSignal, ValidationResult
 from .guardrails import evaluate_guardrails
@@ -58,3 +61,57 @@ def validate_signal(
         reasons.append("该笔风险接近单笔默认预算上限")
 
     return ValidationResult(allowed, severity, reasons=reasons, metrics=metrics), {"sizing": sizing}
+
+
+def _get_account_value(account: AccountSnapshot | Mapping[str, Any], key: str, default: Any = None) -> Any:
+    if isinstance(account, Mapping):
+        return account.get(key, default)
+    return getattr(account, key, default)
+
+
+def _position_symbol(position: Any) -> str:
+    if isinstance(position, Mapping):
+        return str(position.get("symbol", "")).upper()
+    return str(getattr(position, "symbol", "")).upper()
+
+
+def validate_candidate_for_allocation(
+    candidate: Mapping[str, Any],
+    account: AccountSnapshot | Mapping[str, Any],
+) -> ValidationResult:
+    reasons: list[str] = []
+    metrics: dict[str, Any] = {"conflict_checked": True}
+
+    engine = str(candidate.get("engine", "")).strip().lower()
+    symbol = str(candidate.get("symbol", "")).strip().upper()
+    side = str(candidate.get("side", "")).strip().upper()
+    score = float(candidate.get("score", 0.0) or 0.0)
+
+    if not engine:
+        reasons.append("candidate engine 缺失")
+    if not symbol.endswith("USDT"):
+        reasons.append("candidate symbol 必须为 USDT 计价")
+    if side not in {"LONG", "SHORT"}:
+        reasons.append("candidate side 必须是 LONG 或 SHORT")
+    if score <= 0:
+        reasons.append("candidate score 必须大于 0")
+
+    equity = float(_get_account_value(account, "equity", 0.0) or 0.0)
+    if equity <= 0:
+        reasons.append("账户权益无效，无法进行 allocator 风控")
+
+    positions = _get_account_value(account, "open_positions", [])
+    if not isinstance(positions, list):
+        positions = []
+    has_existing_symbol_exposure = any(_position_symbol(position) == symbol for position in positions)
+    metrics["has_existing_symbol_exposure"] = has_existing_symbol_exposure
+
+    if reasons:
+        return ValidationResult(False, "BLOCK", reasons=reasons, metrics=metrics)
+
+    severity = "INFO"
+    if has_existing_symbol_exposure:
+        severity = "WARN"
+        reasons.append("existing exposure detected on symbol")
+
+    return ValidationResult(True, severity, reasons=reasons, metrics=metrics)
