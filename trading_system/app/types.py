@@ -18,7 +18,7 @@ ManagementPreviewKind = Literal[
     "UNSUPPORTED",
 ]
 
-AllocationStatus = Literal["accepted", "downsized", "rejected"]
+AllocationStatus = Literal["ACCEPTED", "DOWNSIZED", "REJECTED", "accepted", "downsized", "rejected"]
 
 
 @dataclass(slots=True)
@@ -159,9 +159,15 @@ class EngineCandidate:
 @dataclass(slots=True)
 class AllocationDecision:
     status: AllocationStatus
-    reason_codes: list[str] = field(default_factory=list)
+    engine: str = ""
+    reasons: list[str] = field(default_factory=list)
+    meta: dict[str, Any] = field(default_factory=dict)
     final_risk_budget: float = 0.0
     rank: int = 0
+
+    @property
+    def reason_codes(self) -> list[str]:
+        return self.reasons
 
 
 class LifecycleState(str, Enum):
