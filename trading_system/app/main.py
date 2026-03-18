@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from .config import DEFAULT_CONFIG
+from .config import build_config
 from .execution.executor import OrderExecutor
 from .execution.idempotency import already_processed, intent_id, mark_processed
 from .portfolio.lifecycle import build_management_action_intents, evaluate_portfolio
@@ -86,8 +86,12 @@ def load_signals() -> list[TradeSignal]:
     return signals
 
 
+def load_config():
+    return build_config()
+
+
 def main() -> None:
-    config = DEFAULT_CONFIG
+    config = load_config()
     store = build_state_store(config)
     state = store.load()
     account = load_account_snapshot()

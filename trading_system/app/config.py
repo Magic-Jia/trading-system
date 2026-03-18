@@ -77,4 +77,8 @@ class AppConfig:
     lifecycle: LifecycleConfig = field(default_factory=LifecycleConfig)
 
 
-DEFAULT_CONFIG = AppConfig()
+def build_config() -> AppConfig:
+    return AppConfig()
+
+
+DEFAULT_CONFIG = build_config()
