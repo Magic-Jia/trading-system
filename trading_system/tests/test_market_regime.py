@@ -6,6 +6,7 @@ import pytest
 from trading_system.app.data_sources.derivatives_loader import load_derivatives_snapshot
 from trading_system.app.data_sources.market_loader import load_market_context
 from trading_system.app.market_regime.breadth import compute_breadth_metrics
+from trading_system.app.market_regime.derivatives import summarize_derivatives_risk
 
 
 def test_v2_fixture_loader_is_cwd_safe(load_fixture, monkeypatch, tmp_path: Path):
@@ -94,3 +95,12 @@ def test_compute_breadth_metrics_counts_positive_participation(load_fixture):
     assert metrics["pct_above_4h_ema20"] == 1.0
     assert metrics["pct_4h_ema20_above_ema50"] == 1.0
     assert metrics["positive_momentum_share"] == 1.0
+
+
+def test_summarize_derivatives_risk_detects_crowding(load_fixture):
+    derivatives = load_fixture("derivatives_snapshot_v2.json")
+
+    summary = summarize_derivatives_risk(derivatives)
+
+    assert summary["crowding_bias"] == "crowded_long"
+    assert summary["funding_heat"] in {"cool", "warm", "hot"}
