@@ -1,0 +1,61 @@
+{
+  "as_of": "2026-03-15T00:00:00Z",
+  "equity": 125000.0,
+  "available_balance": 96000.0,
+  "futures_wallet_balance": 118500.0,
+  "open_positions": [
+    {
+      "symbol": "BTCUSDT",
+      "side": "LONG",
+      "qty": 0.62,
+      "entry_price": 62850.0,
+      "mark_price": 64120.0,
+      "unrealized_pnl": 787.4,
+      "notional": 39754.4,
+      "leverage": 2.0,
+      "strategy_tag": "trend_v2"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "side": "LONG",
+      "qty": 7.5,
+      "entry_price": 3210.0,
+      "mark_price": 3295.0,
+      "unrealized_pnl": 637.5,
+      "notional": 24712.5,
+      "leverage": 2.0,
+      "strategy_tag": "trend_v2"
+    },
+    {
+      "symbol": "SOLUSDT",
+      "side": "LONG",
+      "qty": 130.0,
+      "entry_price": 146.0,
+      "mark_price": 151.5,
+      "unrealized_pnl": 715.0,
+      "notional": 19695.0,
+      "leverage": 2.5,
+      "strategy_tag": "rotation_v2"
+    }
+  ],
+  "open_orders": [
+    {
+      "symbol": "BTCUSDT",
+      "type": "STOP_MARKET",
+      "side": "SELL",
+      "reduce_only": true,
+      "stop_price": 61200.0
+    },
+    {
+      "symbol": "ETHUSDT",
+      "type": "TAKE_PROFIT_MARKET",
+      "side": "SELL",
+      "reduce_only": true,
+      "stop_price": 3460.0
+    }
+  ],
+  "meta": {
+    "account_type": "paper",
+    "risk_mode": "cross"
+  }
+}

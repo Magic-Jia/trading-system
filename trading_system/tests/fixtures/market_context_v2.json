@@ -1,0 +1,228 @@
+{
+  "as_of": "2026-03-15T00:00:00Z",
+  "schema_version": "v2",
+  "symbols": {
+    "BTCUSDT": {
+      "sector": "majors",
+      "liquidity_tier": "top",
+      "daily": {
+        "close": 64120.0,
+        "ema_20": 62280.0,
+        "ema_50": 60310.0,
+        "rsi": 62.4,
+        "atr_pct": 0.028,
+        "return_pct_7d": 0.061,
+        "volume_usdt_24h": 19800000000
+      },
+      "4h": {
+        "close": 64120.0,
+        "ema_20": 63620.0,
+        "ema_50": 62830.0,
+        "rsi": 58.1,
+        "atr_pct": 0.011,
+        "return_pct_3d": 0.028,
+        "volume_usdt_24h": 19800000000
+      },
+      "1h": {
+        "close": 64120.0,
+        "ema_20": 63940.0,
+        "ema_50": 63630.0,
+        "rsi": 55.7,
+        "atr_pct": 0.004,
+        "return_pct_24h": 0.009,
+        "volume_usdt_24h": 19800000000
+      }
+    },
+    "ETHUSDT": {
+      "sector": "majors",
+      "liquidity_tier": "top",
+      "daily": {
+        "close": 3295.0,
+        "ema_20": 3180.0,
+        "ema_50": 3025.0,
+        "rsi": 60.1,
+        "atr_pct": 0.031,
+        "return_pct_7d": 0.052,
+        "volume_usdt_24h": 12200000000
+      },
+      "4h": {
+        "close": 3295.0,
+        "ema_20": 3254.0,
+        "ema_50": 3182.0,
+        "rsi": 56.6,
+        "atr_pct": 0.013,
+        "return_pct_3d": 0.022,
+        "volume_usdt_24h": 12200000000
+      },
+      "1h": {
+        "close": 3295.0,
+        "ema_20": 3281.0,
+        "ema_50": 3252.0,
+        "rsi": 54.8,
+        "atr_pct": 0.006,
+        "return_pct_24h": 0.008,
+        "volume_usdt_24h": 12200000000
+      }
+    },
+    "SOLUSDT": {
+      "sector": "alt_l1",
+      "liquidity_tier": "high",
+      "daily": {
+        "close": 151.5,
+        "ema_20": 146.1,
+        "ema_50": 136.7,
+        "rsi": 61.0,
+        "atr_pct": 0.054,
+        "return_pct_7d": 0.074,
+        "volume_usdt_24h": 3900000000
+      },
+      "4h": {
+        "close": 151.5,
+        "ema_20": 149.2,
+        "ema_50": 145.9,
+        "rsi": 57.3,
+        "atr_pct": 0.019,
+        "return_pct_3d": 0.031,
+        "volume_usdt_24h": 3900000000
+      },
+      "1h": {
+        "close": 151.5,
+        "ema_20": 150.7,
+        "ema_50": 149.4,
+        "rsi": 53.9,
+        "atr_pct": 0.009,
+        "return_pct_24h": 0.01,
+        "volume_usdt_24h": 3900000000
+      }
+    },
+    "ADAUSDT": {
+      "sector": "alt_l1",
+      "liquidity_tier": "high",
+      "daily": {
+        "close": 0.79,
+        "ema_20": 0.76,
+        "ema_50": 0.72,
+        "rsi": 57.5,
+        "atr_pct": 0.049,
+        "return_pct_7d": 0.047,
+        "volume_usdt_24h": 920000000
+      },
+      "4h": {
+        "close": 0.79,
+        "ema_20": 0.78,
+        "ema_50": 0.76,
+        "rsi": 54.2,
+        "atr_pct": 0.018,
+        "return_pct_3d": 0.019,
+        "volume_usdt_24h": 920000000
+      },
+      "1h": {
+        "close": 0.79,
+        "ema_20": 0.785,
+        "ema_50": 0.779,
+        "rsi": 51.8,
+        "atr_pct": 0.007,
+        "return_pct_24h": 0.006,
+        "volume_usdt_24h": 920000000
+      }
+    },
+    "XRPUSDT": {
+      "sector": "payments",
+      "liquidity_tier": "high",
+      "daily": {
+        "close": 1.12,
+        "ema_20": 1.09,
+        "ema_50": 1.04,
+        "rsi": 55.8,
+        "atr_pct": 0.043,
+        "return_pct_7d": 0.038,
+        "volume_usdt_24h": 1050000000
+      },
+      "4h": {
+        "close": 1.12,
+        "ema_20": 1.11,
+        "ema_50": 1.09,
+        "rsi": 53.1,
+        "atr_pct": 0.016,
+        "return_pct_3d": 0.014,
+        "volume_usdt_24h": 1050000000
+      },
+      "1h": {
+        "close": 1.12,
+        "ema_20": 1.117,
+        "ema_50": 1.111,
+        "rsi": 50.9,
+        "atr_pct": 0.006,
+        "return_pct_24h": 0.004,
+        "volume_usdt_24h": 1050000000
+      }
+    },
+    "LINKUSDT": {
+      "sector": "oracle",
+      "liquidity_tier": "high",
+      "daily": {
+        "close": 24.7,
+        "ema_20": 23.8,
+        "ema_50": 22.1,
+        "rsi": 58.6,
+        "atr_pct": 0.057,
+        "return_pct_7d": 0.062,
+        "volume_usdt_24h": 1010000000
+      },
+      "4h": {
+        "close": 24.7,
+        "ema_20": 24.3,
+        "ema_50": 23.7,
+        "rsi": 55.0,
+        "atr_pct": 0.021,
+        "return_pct_3d": 0.024,
+        "volume_usdt_24h": 1010000000
+      },
+      "1h": {
+        "close": 24.7,
+        "ema_20": 24.56,
+        "ema_50": 24.29,
+        "rsi": 53.5,
+        "atr_pct": 0.009,
+        "return_pct_24h": 0.007,
+        "volume_usdt_24h": 1010000000
+      }
+    },
+    "DOGEUSDT": {
+      "sector": "memes",
+      "liquidity_tier": "medium",
+      "daily": {
+        "close": 0.19,
+        "ema_20": 0.18,
+        "ema_50": 0.17,
+        "rsi": 52.2,
+        "atr_pct": 0.071,
+        "return_pct_7d": 0.028,
+        "volume_usdt_24h": 830000000
+      },
+      "4h": {
+        "close": 0.19,
+        "ema_20": 0.188,
+        "ema_50": 0.184,
+        "rsi": 50.6,
+        "atr_pct": 0.029,
+        "return_pct_3d": 0.009,
+        "volume_usdt_24h": 830000000
+      },
+      "1h": {
+        "close": 0.19,
+        "ema_20": 0.189,
+        "ema_50": 0.188,
+        "rsi": 49.7,
+        "atr_pct": 0.012,
+        "return_pct_24h": 0.002,
+        "volume_usdt_24h": 830000000
+      }
+    }
+  },
+  "meta": {
+    "market_phase_hint": "risk_on_trend",
+    "btc_dominance": 0.514,
+    "alt_strength_ratio": 1.08
+  }
+}
