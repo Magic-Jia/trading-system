@@ -2,18 +2,36 @@ from __future__ import annotations
 
 from ..config import RiskConfig
 from ..types import AccountSnapshot, SizingResult, TradeSignal
+from .regime_risk import scaled_risk_budget
 
 
-def _effective_risk_pct(config: RiskConfig, volatility_pct: float | None) -> tuple[float, list[str]]:
+def _effective_risk_pct(
+    config: RiskConfig,
+    volatility_pct: float | None,
+    *,
+    regime_multiplier: float | None,
+    confidence: float | None,
+    engine_tier_multiplier: float,
+) -> tuple[float, list[str]]:
     notes: list[str] = []
-    risk_pct = config.default_risk_pct
+    base_risk_pct = config.default_risk_pct
     if volatility_pct is not None and volatility_pct >= config.high_volatility_threshold_pct:
-        risk_pct *= config.high_vol_risk_multiplier
+        base_risk_pct *= config.high_vol_risk_multiplier
         notes.append(
-            f"波动率 {volatility_pct:.2%} 高于阈值 {config.high_volatility_threshold_pct:.2%}，单笔风险预算降至 {risk_pct:.2%}"
+            f"波动率 {volatility_pct:.2%} 高于阈值 {config.high_volatility_threshold_pct:.2%}，单笔风险预算降至 {base_risk_pct:.2%}"
         )
     else:
-        notes.append(f"单笔默认风险预算 {risk_pct:.2%}")
+        notes.append(f"单笔默认风险预算 {base_risk_pct:.2%}")
+
+    risk_pct = scaled_risk_budget(
+        base_risk_pct=base_risk_pct,
+        regime_multiplier=1.0 if regime_multiplier is None else regime_multiplier,
+        confidence=1.0 if confidence is None else confidence,
+        engine_tier_multiplier=engine_tier_multiplier,
+    )
+    if risk_pct != base_risk_pct:
+        notes.append(f"按 regime/confidence 调整后风险预算 {risk_pct:.2%}")
+
     return risk_pct, notes
 
 
@@ -22,6 +40,9 @@ def size_signal(
     account: AccountSnapshot,
     config: RiskConfig,
     volatility_pct: float | None = None,
+    regime_multiplier: float | None = None,
+    confidence: float | None = None,
+    engine_tier_multiplier: float = 1.0,
 ) -> SizingResult:
     stop_distance = signal.risk_per_unit()
     if stop_distance <= 0:
@@ -37,7 +58,13 @@ def size_signal(
             notes=["止损距离无效，拒绝 sizing"],
         )
 
-    risk_pct, notes = _effective_risk_pct(config, volatility_pct)
+    risk_pct, notes = _effective_risk_pct(
+        config,
+        volatility_pct,
+        regime_multiplier=regime_multiplier,
+        confidence=confidence,
+        engine_tier_multiplier=engine_tier_multiplier,
+    )
     equity = max(account.equity, 0.0)
     risk_budget = equity * risk_pct
     max_notional_cap = equity * config.max_notional_pct
