@@ -265,10 +265,21 @@ def main() -> None:
             allocation["execution"] = {"status": "BLOCKED", "reason": "circuit_breaker_active"}
             continue
         if already_processed(state, signal):
-            allocation["execution"] = replay_processed_execution(state, signal) or {
+            replayed_execution = replay_processed_execution(state, signal)
+            allocation["execution"] = replayed_execution or {
                 "status": "SKIPPED",
                 "reason": "already_processed",
             }
+            if replayed_execution:
+                execution_rows.append(
+                    {
+                        "symbol": signal.symbol,
+                        "status": replayed_execution.get("status"),
+                        "intent_id": replayed_execution.get("intent_id"),
+                        "qty": 0.0,
+                        "execution": {"replayed": True},
+                    }
+                )
             continue
         if store.in_cooldown(state, signal.symbol):
             allocation["execution"] = {"status": "SKIPPED", "reason": "cooldown_active"}

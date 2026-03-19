@@ -213,7 +213,7 @@ def test_main_v2_stdout_surfaces_rotation_reporting(monkeypatch, tmp_path, load_
     assert [row["symbol"] for row in payload["regime"]["rotation"]["leaders"]] == ["SOLUSDT", "LINKUSDT", "ADAUSDT"]
 
 
-def test_main_v2_cycle_is_idempotent_for_same_inputs(monkeypatch, tmp_path, load_fixture):
+def test_main_v2_cycle_is_idempotent_for_same_inputs(monkeypatch, tmp_path, load_fixture, capsys):
     output_path = tmp_path / "runtime_state.json"
     account_path = tmp_path / "account_snapshot.json"
     market_path = tmp_path / "market_context.json"
@@ -228,7 +228,11 @@ def test_main_v2_cycle_is_idempotent_for_same_inputs(monkeypatch, tmp_path, load
 
     main_module.main()
     first = json.loads(Path(output_path).read_text())
+    first_output = json.loads(capsys.readouterr().out)
     main_module.main()
     second = json.loads(Path(output_path).read_text())
+    second_output = json.loads(capsys.readouterr().out)
     assert first.get("last_signal_ids") == second.get("last_signal_ids")
     assert first.get("latest_allocations") == second.get("latest_allocations")
+    assert first.get("rotation_summary") == second.get("rotation_summary")
+    assert first_output["regime"]["rotation"] == second_output["regime"]["rotation"]
