@@ -110,6 +110,15 @@ def test_state_store_persists_regime_candidates_and_allocations(tmp_path):
     state.latest_candidates = [{"symbol": "BTCUSDT", "engine": "trend", "score": 0.91}]
     state.latest_allocations = [{"symbol": "BTCUSDT", "status": "ACCEPTED"}]
     state.latest_lifecycle = {"BTCUSDT": {"state": "PROTECT", "reason_codes": ["payload_to_protect_trend_mature"]}}
+    state.lifecycle_summary = {
+        "tracked_count": 1,
+        "state_counts": {"INIT": 0, "CONFIRM": 0, "PAYLOAD": 0, "PROTECT": 1, "EXIT": 0},
+        "pending_confirmation_symbols": [],
+        "protected_symbols": ["BTCUSDT"],
+        "exit_symbols": [],
+        "attention_symbols": [],
+        "leaders": [{"symbol": "BTCUSDT", "state": "PROTECT", "r_multiple": 1.7, "reason_codes": ["payload_to_protect_trend_mature"]}],
+    }
     state.rotation_summary = {
         "universe_count": 5,
         "candidate_count": 2,
@@ -124,6 +133,7 @@ def test_state_store_persists_regime_candidates_and_allocations(tmp_path):
     assert reloaded.latest_candidates[0]["symbol"] == "BTCUSDT"
     assert reloaded.latest_allocations[0]["symbol"] == "BTCUSDT"
     assert reloaded.latest_lifecycle["BTCUSDT"]["state"] == "PROTECT"
+    assert reloaded.lifecycle_summary["protected_symbols"] == ["BTCUSDT"]
     assert reloaded.rotation_summary["candidate_count"] == 2
     assert reloaded.rotation_summary["leaders"][0]["symbol"] == "SOLUSDT"
 
@@ -151,6 +161,40 @@ def test_main_v2_cycle_writes_regime_and_allocation_sections(monkeypatch, tmp_pa
     assert state.get("partial_v2_coverage") is True
     assert state.get("rotation_candidates")
     assert {row["engine"] for row in state["rotation_candidates"]} == {"rotation"}
+    assert state.get("lifecycle_summary") == {
+        "tracked_count": 4,
+        "state_counts": {
+            "INIT": 4,
+            "CONFIRM": 0,
+            "PAYLOAD": 0,
+            "PROTECT": 0,
+            "EXIT": 0,
+        },
+        "pending_confirmation_symbols": ["BTCUSDT", "ETHUSDT", "LINKUSDT", "SOLUSDT"],
+        "protected_symbols": [],
+        "exit_symbols": [],
+        "attention_symbols": ["ETHUSDT"],
+        "leaders": [
+            {
+                "symbol": "ETHUSDT",
+                "state": "INIT",
+                "r_multiple": pytest.approx(0.02648, abs=1e-6),
+                "reason_codes": ["init_waiting_confirmation"],
+            },
+            {
+                "symbol": "BTCUSDT",
+                "state": "INIT",
+                "r_multiple": 0.0,
+                "reason_codes": ["init_waiting_confirmation"],
+            },
+            {
+                "symbol": "LINKUSDT",
+                "state": "INIT",
+                "r_multiple": 0.0,
+                "reason_codes": ["init_waiting_confirmation"],
+            },
+        ],
+    }
     assert state.get("rotation_summary") == {
         "universe_count": 5,
         "candidate_count": 3,
@@ -211,6 +255,40 @@ def test_main_v2_stdout_surfaces_rotation_reporting(monkeypatch, tmp_path, load_
     assert payload["regime"]["rotation"]["accepted_symbols"] == ["LINKUSDT", "SOLUSDT"]
     assert payload["regime"]["rotation"]["executed_symbols"] == ["LINKUSDT", "SOLUSDT"]
     assert [row["symbol"] for row in payload["regime"]["rotation"]["leaders"]] == ["SOLUSDT", "LINKUSDT", "ADAUSDT"]
+    assert payload["portfolio"]["lifecycle_summary"] == {
+        "tracked_count": 4,
+        "state_counts": {
+            "INIT": 4,
+            "CONFIRM": 0,
+            "PAYLOAD": 0,
+            "PROTECT": 0,
+            "EXIT": 0,
+        },
+        "pending_confirmation_symbols": ["BTCUSDT", "ETHUSDT", "LINKUSDT", "SOLUSDT"],
+        "protected_symbols": [],
+        "exit_symbols": [],
+        "attention_symbols": ["ETHUSDT"],
+        "leaders": [
+            {
+                "symbol": "ETHUSDT",
+                "state": "INIT",
+                "r_multiple": pytest.approx(0.02648, abs=1e-6),
+                "reason_codes": ["init_waiting_confirmation"],
+            },
+            {
+                "symbol": "BTCUSDT",
+                "state": "INIT",
+                "r_multiple": 0.0,
+                "reason_codes": ["init_waiting_confirmation"],
+            },
+            {
+                "symbol": "LINKUSDT",
+                "state": "INIT",
+                "r_multiple": 0.0,
+                "reason_codes": ["init_waiting_confirmation"],
+            },
+        ],
+    }
 
 
 def test_main_v2_cycle_is_idempotent_for_same_inputs(monkeypatch, tmp_path, load_fixture, capsys):
@@ -234,5 +312,7 @@ def test_main_v2_cycle_is_idempotent_for_same_inputs(monkeypatch, tmp_path, load
     second_output = json.loads(capsys.readouterr().out)
     assert first.get("last_signal_ids") == second.get("last_signal_ids")
     assert first.get("latest_allocations") == second.get("latest_allocations")
+    assert first.get("lifecycle_summary") == second.get("lifecycle_summary")
     assert first.get("rotation_summary") == second.get("rotation_summary")
+    assert first_output["portfolio"]["lifecycle_summary"] == second_output["portfolio"]["lifecycle_summary"]
     assert first_output["regime"]["rotation"] == second_output["regime"]["rotation"]

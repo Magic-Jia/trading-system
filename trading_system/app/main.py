@@ -14,7 +14,7 @@ from .market_regime import classify_regime
 from .portfolio.allocator import allocate_candidates
 from .portfolio.lifecycle import advance_lifecycle_positions, build_management_action_intents, evaluate_portfolio
 from .portfolio.positions import apply_executed_intent, sync_positions_from_account
-from .reporting.daily_report import build_rotation_report
+from .reporting.daily_report import build_lifecycle_report, build_rotation_report
 from .reporting.regime_report import build_regime_summary
 from .signals.rotation_engine import generate_rotation_candidates
 from .risk.validator import validate_candidate_for_allocation
@@ -325,12 +325,17 @@ def main() -> None:
     management_intents = build_management_action_intents(state, management)
     management_previews = executor.preview_management_actions(management_intents, account.open_orders)
     lifecycle_updates = advance_lifecycle_positions(state, config.lifecycle)
+    lifecycle_summary = build_lifecycle_report(
+        lifecycle_updates=lifecycle_updates,
+        management_suggestions=management,
+    )
 
     state.latest_regime = asdict(regime)
     state.latest_universes = _universes_payload(universes)
     state.latest_candidates = candidate_rows
     state.latest_allocations = allocation_rows
     state.latest_lifecycle = lifecycle_updates
+    state.lifecycle_summary = lifecycle_summary
     state.rotation_candidates = [row for row in candidate_rows if str(row.get("engine", "")).lower() == "rotation"]
     state.rotation_summary = build_rotation_report(
         rotation_candidates=state.rotation_candidates,
@@ -357,12 +362,13 @@ def main() -> None:
             {
                 "regime": regime_summary,
                 "portfolio": {
-                    "tracked_positions": len(state.positions),
-                    "management_suggestions": management,
-                    "management_action_previews": management_previews,
-                    "lifecycle_updates": lifecycle_updates,
-                    "account_open_orders": len(account.open_orders),
-                },
+                "tracked_positions": len(state.positions),
+                "management_suggestions": management,
+                "management_action_previews": management_previews,
+                "lifecycle_updates": lifecycle_updates,
+                "lifecycle_summary": lifecycle_summary,
+                "account_open_orders": len(account.open_orders),
+            },
             },
             ensure_ascii=False,
             indent=2,

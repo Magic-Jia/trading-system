@@ -1,4 +1,4 @@
-from trading_system.app.reporting.daily_report import build_rotation_report
+from trading_system.app.reporting.daily_report import build_lifecycle_report, build_rotation_report
 from trading_system.app.reporting.regime_report import build_regime_summary
 
 
@@ -85,3 +85,64 @@ def test_build_regime_summary_includes_rotation_report_when_provided():
     assert "rotation" in summary
     assert summary["rotation"]["candidate_count"] == 1
     assert summary["rotation"]["accepted_symbols"] == ["SOLUSDT"]
+
+
+def test_build_lifecycle_report_returns_compact_deterministic_state_surface():
+    summary = build_lifecycle_report(
+        lifecycle_updates={
+            "ETHUSDT": {
+                "state": "PROTECT",
+                "reason_codes": ["payload_to_protect_trend_mature"],
+                "r_multiple": 1.42,
+            },
+            "BTCUSDT": {
+                "state": "INIT",
+                "reason_codes": ["init_waiting_confirmation"],
+                "r_multiple": 0.35,
+            },
+            "SOLUSDT": {
+                "state": "EXIT",
+                "reason_codes": ["protect_to_exit_risk_trigger"],
+                "r_multiple": 2.15,
+            },
+        },
+        management_suggestions=[
+            {"symbol": "SOLUSDT", "action": "EXIT"},
+            {"symbol": "BTCUSDT", "action": "ADD_PROTECTIVE_STOP"},
+        ],
+    )
+
+    assert summary == {
+        "tracked_count": 3,
+        "state_counts": {
+            "INIT": 1,
+            "CONFIRM": 0,
+            "PAYLOAD": 0,
+            "PROTECT": 1,
+            "EXIT": 1,
+        },
+        "pending_confirmation_symbols": ["BTCUSDT"],
+        "protected_symbols": ["ETHUSDT"],
+        "exit_symbols": ["SOLUSDT"],
+        "attention_symbols": ["BTCUSDT", "SOLUSDT"],
+        "leaders": [
+            {
+                "symbol": "SOLUSDT",
+                "state": "EXIT",
+                "r_multiple": 2.15,
+                "reason_codes": ["protect_to_exit_risk_trigger"],
+            },
+            {
+                "symbol": "ETHUSDT",
+                "state": "PROTECT",
+                "r_multiple": 1.42,
+                "reason_codes": ["payload_to_protect_trend_mature"],
+            },
+            {
+                "symbol": "BTCUSDT",
+                "state": "INIT",
+                "r_multiple": 0.35,
+                "reason_codes": ["init_waiting_confirmation"],
+            },
+        ],
+    }
