@@ -150,27 +150,24 @@ def send_commit_notification(repo_root: Path, env: Mapping[str, str] | None = No
     )
     log_path = _resolve_log_path(repo_root)
 
+    stderr_handle = log_path.open("a", encoding="utf-8")
     try:
-        completed = subprocess.run(
+        subprocess.Popen(
             command,
             cwd=repo_root,
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=max(60, timeout_ms / 1000 + 15),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=stderr_handle,
+            start_new_session=True,
         )
     except FileNotFoundError:
         _append_log(log_path, "openclaw command not found; skipping post-commit notification")
         return 0
-    except subprocess.TimeoutExpired:
-        _append_log(log_path, "openclaw notification timed out; skipping post-commit notification")
+    except OSError as error:
+        _append_log(log_path, f"openclaw notification launch failed: {error}")
         return 0
-
-    if completed.returncode != 0:
-        stderr = completed.stderr.strip()
-        stdout = completed.stdout.strip()
-        details = stderr or stdout or f"exit code {completed.returncode}"
-        _append_log(log_path, f"openclaw notification failed: {details}")
+    finally:
+        stderr_handle.close()
     return 0
 
 
