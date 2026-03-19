@@ -80,5 +80,6 @@
 
 运行期预期：
 - 标准输出包含 `regime` 与 `portfolio` 两段摘要，其中 `regime.rotation` 会给出 rotation 的紧凑报告（候选/接受/执行符号与 leader 元数据）。
+- `portfolio.lifecycle_summary` 会给出 lifecycle 的紧凑视图：状态计数、待确认符号、需关注符号，以及按 `r_multiple` 排序的前 3 个仓位。
 - `trading_system/data/runtime_state.json` 至少包含：
-  `positions`、`management_suggestions`、`latest_regime`、`latest_allocations`、`rotation_summary`。
+  `positions`、`management_suggestions`、`management_action_previews`、`latest_regime`、`latest_allocations`、`latest_lifecycle`、`lifecycle_summary`、`rotation_summary`。
