@@ -14,6 +14,7 @@ from .market_regime import classify_regime
 from .portfolio.allocator import allocate_candidates
 from .portfolio.lifecycle import advance_lifecycle_positions, build_management_action_intents, evaluate_portfolio
 from .portfolio.positions import apply_executed_intent, sync_positions_from_account
+from .reporting.daily_report import build_rotation_report
 from .reporting.regime_report import build_regime_summary
 from .signals.rotation_engine import generate_rotation_candidates
 from .risk.validator import validate_candidate_for_allocation
@@ -320,6 +321,12 @@ def main() -> None:
     state.latest_allocations = allocation_rows
     state.latest_lifecycle = lifecycle_updates
     state.rotation_candidates = [row for row in candidate_rows if str(row.get("engine", "")).lower() == "rotation"]
+    state.rotation_summary = build_rotation_report(
+        rotation_candidates=state.rotation_candidates,
+        allocations=state.latest_allocations,
+        executions=execution_rows,
+        rotation_universe=list(state.latest_universes.get("rotation_universe", [])),
+    )
     state.short_candidates = []
     state.partial_v2_coverage = True
     store.replace_management_suggestions(state, management)
@@ -332,6 +339,7 @@ def main() -> None:
         candidates=state.latest_candidates,
         allocations=state.latest_allocations,
         executions=execution_rows,
+        rotation_report=state.rotation_summary,
     )
     print(
         json.dumps(
