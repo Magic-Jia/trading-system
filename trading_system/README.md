@@ -79,6 +79,6 @@
   `TRADING_ACCOUNT_SNAPSHOT_FILE=trading_system/data/account_snapshot.json TRADING_MARKET_CONTEXT_FILE=trading_system/data/market_context.json TRADING_DERIVATIVES_SNAPSHOT_FILE=trading_system/data/derivatives_snapshot.json python -m trading_system.app.main`
 
 运行期预期：
-- 标准输出包含 `regime` 与 `portfolio` 两段摘要。
+- 标准输出包含 `regime` 与 `portfolio` 两段摘要，其中 `regime.rotation` 会给出 rotation 的紧凑报告（候选/接受/执行符号与 leader 元数据）。
 - `trading_system/data/runtime_state.json` 至少包含：
-  `positions`、`management_suggestions`、`latest_regime`、`latest_allocations`。
+  `positions`、`management_suggestions`、`latest_regime`、`latest_allocations`、`rotation_summary`。
