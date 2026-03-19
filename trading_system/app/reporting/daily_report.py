@@ -3,6 +3,9 @@ from __future__ import annotations
 from typing import Any, Mapping, Sequence
 
 
+_LIFECYCLE_STATES = ("INIT", "CONFIRM", "PAYLOAD", "PROTECT", "EXIT")
+
+
 def _float(value: Any) -> float:
     try:
         return float(value)
@@ -22,6 +25,59 @@ def _rotation_leader_row(candidate: Mapping[str, Any]) -> dict[str, Any]:
         "h1_spread": round(_float(relative_strength.get("h1_spread")), 6),
         "volume_usdt_24h": _float(liquidity_meta.get("volume_usdt_24h")),
         "slippage_bps": _float(liquidity_meta.get("slippage_bps")),
+    }
+
+
+def _lifecycle_leader_row(symbol: str, payload: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "symbol": symbol,
+        "state": str(payload.get("state", "INIT")).upper(),
+        "r_multiple": round(_float(payload.get("r_multiple")), 6),
+        "reason_codes": [str(code) for code in payload.get("reason_codes", [])],
+    }
+
+
+def build_lifecycle_report(
+    *,
+    lifecycle_updates: Mapping[str, Mapping[str, Any]],
+    management_suggestions: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    state_counts = {state: 0 for state in _LIFECYCLE_STATES}
+    leaders: list[dict[str, Any]] = []
+    pending_confirmation_symbols: list[str] = []
+    protected_symbols: list[str] = []
+    exit_symbols: list[str] = []
+
+    for symbol, payload in sorted(lifecycle_updates.items()):
+        state = str(payload.get("state", "INIT")).upper()
+        if state in state_counts:
+            state_counts[state] += 1
+        leader = _lifecycle_leader_row(symbol, payload)
+        leaders.append(leader)
+        if state == "INIT":
+            pending_confirmation_symbols.append(symbol)
+        elif state == "PROTECT":
+            protected_symbols.append(symbol)
+        elif state == "EXIT":
+            exit_symbols.append(symbol)
+
+    leaders.sort(key=lambda row: (-_float(row.get("r_multiple")), str(row.get("symbol", ""))))
+    attention_symbols = sorted(
+        {
+            str(row.get("symbol", ""))
+            for row in management_suggestions
+            if str(row.get("symbol", ""))
+        }
+        | set(exit_symbols)
+    )
+    return {
+        "tracked_count": len(lifecycle_updates),
+        "state_counts": state_counts,
+        "pending_confirmation_symbols": pending_confirmation_symbols,
+        "protected_symbols": protected_symbols,
+        "exit_symbols": exit_symbols,
+        "attention_symbols": attention_symbols,
+        "leaders": leaders[:3],
     }
 
 

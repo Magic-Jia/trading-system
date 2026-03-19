@@ -23,6 +23,14 @@ def _position_notional(snapshot: PositionSnapshot) -> float:
     return round(abs(float(snapshot.qty)) * reference_price, 4)
 
 
+def _unrealized_pnl(side: str, qty: float, entry_price: float, mark_price: float | None, fallback: float) -> float:
+    if qty <= 0 or entry_price <= 0 or mark_price is None or mark_price <= 0:
+        return round(float(fallback), 4)
+    if side == "LONG":
+        return round((mark_price - entry_price) * qty, 4)
+    return round((entry_price - mark_price) * qty, 4)
+
+
 def _source(existing: dict[str, Any], from_snapshot: bool, from_intent: bool) -> str:
     if from_snapshot and from_intent:
         return "hybrid"
@@ -43,14 +51,37 @@ def sync_positions_from_account(state: RuntimeState, account: AccountSnapshot) -
         tracked_from_intent = bool(existing.get("tracked_from_intent"))
         seen_symbols.add(snapshot.symbol)
 
+        preserve_paper_position = (
+            tracked_from_intent
+            and existing.get("side") == snapshot.side
+            and float(existing.get("qty", 0.0) or 0.0) > 0.0
+            and float(existing.get("entry_price", 0.0) or 0.0) > 0.0
+        )
+        qty = round(abs(float(existing.get("qty", snapshot.qty) or snapshot.qty)), 6) if preserve_paper_position else round(
+            abs(float(snapshot.qty)), 6
+        )
+        entry_price = (
+            _round_price(float(existing.get("entry_price", snapshot.entry_price) or snapshot.entry_price)) or 0.0
+            if preserve_paper_position
+            else (_round_price(snapshot.entry_price) or 0.0)
+        )
+        mark_price = _round_price(snapshot.mark_price)
+        reference_price = mark_price or entry_price
+        notional = round(qty * reference_price, 4) if preserve_paper_position else _position_notional(snapshot)
+        unrealized_pnl = (
+            _unrealized_pnl(snapshot.side, qty, entry_price, mark_price, snapshot.unrealized_pnl)
+            if preserve_paper_position
+            else round(float(snapshot.unrealized_pnl), 4)
+        )
+
         state.positions[snapshot.symbol] = {
             "symbol": snapshot.symbol,
             "side": snapshot.side,
-            "qty": round(abs(float(snapshot.qty)), 6),
-            "entry_price": _round_price(snapshot.entry_price) or 0.0,
-            "mark_price": _round_price(snapshot.mark_price),
-            "unrealized_pnl": round(float(snapshot.unrealized_pnl), 4),
-            "notional": _position_notional(snapshot),
+            "qty": qty,
+            "entry_price": entry_price,
+            "mark_price": mark_price,
+            "unrealized_pnl": unrealized_pnl,
+            "notional": notional,
             "leverage": snapshot.leverage,
             "stop_loss": existing.get("stop_loss"),
             "take_profit": existing.get("take_profit"),
