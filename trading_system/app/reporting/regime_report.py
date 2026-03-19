@@ -21,6 +21,7 @@ def build_regime_summary(
     candidates: Sequence[Mapping[str, Any]],
     allocations: Sequence[Mapping[str, Any]],
     executions: Sequence[Mapping[str, Any]],
+    rotation_report: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     regime_row = _as_dict(regime)
     accepted = [row for row in allocations if row.get("status") in {"ACCEPTED", "DOWNSIZED"}]
@@ -56,4 +57,5 @@ def build_regime_summary(
             "count": len(executions),
             "symbols": sorted({str(row.get("symbol")) for row in executions if row.get("symbol")}),
         },
+        "rotation": dict(rotation_report or {}),
     }

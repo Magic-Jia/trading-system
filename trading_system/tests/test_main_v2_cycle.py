@@ -110,6 +110,13 @@ def test_state_store_persists_regime_candidates_and_allocations(tmp_path):
     state.latest_candidates = [{"symbol": "BTCUSDT", "engine": "trend", "score": 0.91}]
     state.latest_allocations = [{"symbol": "BTCUSDT", "status": "ACCEPTED"}]
     state.latest_lifecycle = {"BTCUSDT": {"state": "PROTECT", "reason_codes": ["payload_to_protect_trend_mature"]}}
+    state.rotation_summary = {
+        "universe_count": 5,
+        "candidate_count": 2,
+        "accepted_symbols": ["SOLUSDT"],
+        "executed_symbols": ["SOLUSDT"],
+        "leaders": [{"symbol": "SOLUSDT", "score": 0.81}],
+    }
     store.save(state)
     reloaded = store.load()
     assert reloaded.latest_regime["label"] == "RISK_ON_TREND"
@@ -117,6 +124,8 @@ def test_state_store_persists_regime_candidates_and_allocations(tmp_path):
     assert reloaded.latest_candidates[0]["symbol"] == "BTCUSDT"
     assert reloaded.latest_allocations[0]["symbol"] == "BTCUSDT"
     assert reloaded.latest_lifecycle["BTCUSDT"]["state"] == "PROTECT"
+    assert reloaded.rotation_summary["candidate_count"] == 2
+    assert reloaded.rotation_summary["leaders"][0]["symbol"] == "SOLUSDT"
 
 
 def test_main_v2_cycle_writes_regime_and_allocation_sections(monkeypatch, tmp_path, load_fixture):
@@ -142,7 +151,66 @@ def test_main_v2_cycle_writes_regime_and_allocation_sections(monkeypatch, tmp_pa
     assert state.get("partial_v2_coverage") is True
     assert state.get("rotation_candidates")
     assert {row["engine"] for row in state["rotation_candidates"]} == {"rotation"}
+    assert state.get("rotation_summary") == {
+        "universe_count": 5,
+        "candidate_count": 3,
+        "accepted_symbols": ["LINKUSDT", "SOLUSDT"],
+        "executed_symbols": ["LINKUSDT", "SOLUSDT"],
+        "leaders": [
+            {
+                "symbol": "SOLUSDT",
+                "score": pytest.approx(0.829508, abs=1e-6),
+                "daily_spread": pytest.approx(0.0175, abs=1e-6),
+                "h4_spread": pytest.approx(0.006, abs=1e-6),
+                "h1_spread": pytest.approx(0.0015, abs=1e-6),
+                "volume_usdt_24h": 3900000000.0,
+                "slippage_bps": 8.0,
+            },
+            {
+                "symbol": "LINKUSDT",
+                "score": pytest.approx(0.76898, abs=1e-6),
+                "daily_spread": pytest.approx(0.0055, abs=1e-6),
+                "h4_spread": pytest.approx(-0.001, abs=1e-6),
+                "h1_spread": pytest.approx(-0.0015, abs=1e-6),
+                "volume_usdt_24h": 1010000000.0,
+                "slippage_bps": 8.0,
+            },
+            {
+                "symbol": "ADAUSDT",
+                "score": pytest.approx(0.707739, abs=1e-6),
+                "daily_spread": pytest.approx(-0.0095, abs=1e-6),
+                "h4_spread": pytest.approx(-0.006, abs=1e-6),
+                "h1_spread": pytest.approx(-0.0025, abs=1e-6),
+                "volume_usdt_24h": 920000000.0,
+                "slippage_bps": 8.0,
+            },
+        ],
+    }
     assert state.get("short_candidates", []) == []
+
+
+def test_main_v2_stdout_surfaces_rotation_reporting(monkeypatch, tmp_path, load_fixture, capsys):
+    output_path = tmp_path / "runtime_state.json"
+    account_path = tmp_path / "account_snapshot.json"
+    market_path = tmp_path / "market_context.json"
+    deriv_path = tmp_path / "derivatives_snapshot.json"
+    account_path.write_text(json.dumps(load_fixture("account_snapshot_v2.json")))
+    market_path.write_text(json.dumps(load_fixture("market_context_v2.json")))
+    deriv_path.write_text(json.dumps(load_fixture("derivatives_snapshot_v2.json")))
+    monkeypatch.setenv("TRADING_STATE_FILE", str(output_path))
+    monkeypatch.setenv("TRADING_ACCOUNT_SNAPSHOT_FILE", str(account_path))
+    monkeypatch.setenv("TRADING_MARKET_CONTEXT_FILE", str(market_path))
+    monkeypatch.setenv("TRADING_DERIVATIVES_SNAPSHOT_FILE", str(deriv_path))
+
+    main_module.main()
+    printed = capsys.readouterr().out
+    payload = json.loads(printed)
+
+    assert payload["regime"]["rotation"]["universe_count"] == 5
+    assert payload["regime"]["rotation"]["candidate_count"] == 3
+    assert payload["regime"]["rotation"]["accepted_symbols"] == ["LINKUSDT", "SOLUSDT"]
+    assert payload["regime"]["rotation"]["executed_symbols"] == ["LINKUSDT", "SOLUSDT"]
+    assert [row["symbol"] for row in payload["regime"]["rotation"]["leaders"]] == ["SOLUSDT", "LINKUSDT", "ADAUSDT"]
 
 
 def test_main_v2_cycle_is_idempotent_for_same_inputs(monkeypatch, tmp_path, load_fixture):
