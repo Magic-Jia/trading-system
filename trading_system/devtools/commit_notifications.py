@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping, Sequence
 
-DEFAULT_TIMEOUT_MS = 1500
+DEFAULT_TIMEOUT_MS = 30000
 DEFAULT_MAX_SUBJECT_LENGTH = 120
 VALID_NOTIFICATION_MODES = {"now", "next-heartbeat"}
 SENSITIVE_ASSIGNMENT_PATTERN = re.compile(
@@ -157,7 +157,7 @@ def send_commit_notification(repo_root: Path, env: Mapping[str, str] | None = No
             check=False,
             capture_output=True,
             text=True,
-            timeout=max(3, timeout_ms / 1000 + 2),
+            timeout=max(60, timeout_ms / 1000 + 15),
         )
     except FileNotFoundError:
         _append_log(log_path, "openclaw command not found; skipping post-commit notification")
