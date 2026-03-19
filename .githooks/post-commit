@@ -1,0 +1,16 @@
+#!/bin/sh
+
+set -eu
+
+repo_root=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+
+if command -v python3 >/dev/null 2>&1; then
+  python3 -m trading_system.devtools.commit_notifications --repo-root "$repo_root" || true
+  exit 0
+fi
+
+if command -v python >/dev/null 2>&1; then
+  python -m trading_system.devtools.commit_notifications --repo-root "$repo_root" || true
+fi
+
+exit 0

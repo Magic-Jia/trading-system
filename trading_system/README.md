@@ -78,6 +78,12 @@
 - 手动跑一次 paper cycle：
   `TRADING_ACCOUNT_SNAPSHOT_FILE=trading_system/data/account_snapshot.json TRADING_MARKET_CONTEXT_FILE=trading_system/data/market_context.json TRADING_DERIVATIVES_SNAPSHOT_FILE=trading_system/data/derivatives_snapshot.json python -m trading_system.app.main`
 
+## 开发期进度通知
+
+- 本工作区支持基于 git `post-commit` 的 OpenClaw 自动进度通知。
+- 安装命令：`python3 -m trading_system.devtools.install_commit_hook`
+- 详细说明见：`../docs/openclaw-commit-notifications.md`
+
 运行期预期：
 - 标准输出包含 `regime` 与 `portfolio` 两段摘要，其中 `regime.rotation` 会给出 rotation 的紧凑报告（候选/接受/执行符号与 leader 元数据）。
 - `portfolio.lifecycle_summary` 会给出 lifecycle 的紧凑视图：状态计数、待确认符号、需关注符号，以及按 `r_multiple` 排序的前 3 个仓位。
