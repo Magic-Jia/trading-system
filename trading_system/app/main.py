@@ -17,6 +17,7 @@ from .portfolio.positions import apply_executed_intent, sync_positions_from_acco
 from .reporting.daily_report import build_lifecycle_report, build_rotation_report
 from .reporting.regime_report import build_regime_summary
 from .signals.rotation_engine import generate_rotation_candidates
+from .signals.short_engine import generate_short_candidates
 from .risk.validator import validate_candidate_for_allocation
 from .signals.trend_engine import generate_trend_candidates
 from .storage.state_store import build_state_store
@@ -238,9 +239,14 @@ def main() -> None:
         rotation_universe=universes.rotation_universe,
         regime=regime,
     )
+    short_candidates = generate_short_candidates(
+        market,
+        short_universe=universes.short_universe,
+        regime=regime,
+    )
     candidate_rows: list[dict[str, Any]] = []
     validated_rows: list[dict[str, Any]] = []
-    for candidate in [*trend_candidates, *rotation_candidates]:
+    for candidate in [*trend_candidates, *rotation_candidates, *short_candidates]:
         row = _candidate_row(candidate)
         validation = validate_candidate_for_allocation(row, account)
         row["validation"] = {"allowed": validation.allowed, "reasons": list(validation.reasons), "metrics": validation.metrics}
@@ -259,6 +265,9 @@ def main() -> None:
     execution_rows: list[dict[str, Any]] = []
     for allocation in allocation_rows:
         if allocation.get("status") not in {"ACCEPTED", "DOWNSIZED"}:
+            continue
+        if str(allocation.get("engine", "")).lower() == "short":
+            allocation["execution"] = {"status": "SKIPPED", "reason": "short_execution_not_enabled"}
             continue
         signal = _candidate_signal(allocation, market)
         if store.circuit_breaker_active(state):
@@ -343,7 +352,7 @@ def main() -> None:
         executions=execution_rows,
         rotation_universe=list(state.latest_universes.get("rotation_universe", [])),
     )
-    state.short_candidates = []
+    state.short_candidates = [row for row in candidate_rows if str(row.get("engine", "")).lower() == "short"]
     state.partial_v2_coverage = True
     store.replace_management_suggestions(state, management)
     store.replace_management_action_previews(state, management_previews)

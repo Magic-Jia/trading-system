@@ -17,6 +17,14 @@ ROTATION_SCORE_WEIGHTS: dict[str, float] = {
     "volatility_quality": 0.10,
 }
 
+SHORT_SCORE_WEIGHTS: dict[str, float] = {
+    "timeframe_alignment": 0.40,
+    "h4_structure": 0.20,
+    "h1_trigger": 0.15,
+    "momentum_quality": 0.15,
+    "liquidity_quality": 0.10,
+}
+
 
 def _normalized_flag(value: Any, positive_values: set[str]) -> float:
     return 1.0 if str(value).lower() in positive_values else 0.0
@@ -65,6 +73,28 @@ def score_rotation_candidate(features: Mapping[str, Any]) -> dict[str, Any]:
         * ROTATION_SCORE_WEIGHTS["liquidity_quality"],
         "volatility_quality": _bounded_float(features.get("volatility_quality"))
         * ROTATION_SCORE_WEIGHTS["volatility_quality"],
+    }
+    total = sum(components.values())
+    return {"total": total, "components": components}
+
+
+def score_short_candidate(features: Mapping[str, Any]) -> dict[str, Any]:
+    alignment_raw = (
+        _normalized_flag(features.get("daily_bias"), {"down"})
+        * _normalized_flag(features.get("h4_structure"), {"breakdown"})
+        * _normalized_flag(features.get("h1_trigger"), {"confirmed"})
+    )
+    h4_structure_raw = _normalized_flag(features.get("h4_structure"), {"breakdown"})
+    h1_trigger_raw = _normalized_flag(features.get("h1_trigger"), {"confirmed"})
+    momentum_quality_raw = _bounded_float(features.get("momentum_quality"))
+    liquidity_quality_raw = _bounded_float(features.get("liquidity_quality"))
+
+    components = {
+        "timeframe_alignment": alignment_raw * SHORT_SCORE_WEIGHTS["timeframe_alignment"],
+        "h4_structure": h4_structure_raw * SHORT_SCORE_WEIGHTS["h4_structure"],
+        "h1_trigger": h1_trigger_raw * SHORT_SCORE_WEIGHTS["h1_trigger"],
+        "momentum_quality": momentum_quality_raw * SHORT_SCORE_WEIGHTS["momentum_quality"],
+        "liquidity_quality": liquidity_quality_raw * SHORT_SCORE_WEIGHTS["liquidity_quality"],
     }
     total = sum(components.values())
     return {"total": total, "components": components}
