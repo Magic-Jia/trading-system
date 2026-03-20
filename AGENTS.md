@@ -140,7 +140,8 @@ Skills provide your tools. When you need one, check its `SKILL.md`. Keep local n
 - Before handing a real coding task to Codex, run a short launch preflight in the intended isolated directory/worktree: confirm the path, `git status`, and a minimal Codex startup all work. If preflight fails, do not present the task as actively running.
 - Avoid repeating known-bad launch combinations. If a given runtime/path/mode combination already failed with a sandbox/bootstrap error, do not reuse it as the default path for the same task.
 - When a background Codex task exits for any reason (normal completion, failure, crash, or lost session), send a status update immediately instead of waiting for the next user message, commit-trigger, or heartbeat.
-- The exit update must explicitly state whether Codex is running, whether there is a new commit, the latest verified command/result, why execution stopped, and the next action.
+- Exit-order hard rule (A): after a background Codex task exits, only two actions may happen before the user update is sent: (1) check whether there is a new commit, and (2) prepare the status message. Do not analyze diffs, plan retries, or start another task first.
+- Exit-template hard rule (C): every exit update must use a fixed structure containing: `Codex: running / not running`, `status type: started / start_failed / stopped`, `latest commit`, `latest verification`, `stop reason`, and `pending next step`.
 - For every active coding worktree, keep a visible status note in `memory/dev-status.md` with: branch/worktree, current objective, last verified command + result, last commit, next action, and last user update time.
 - Before continuing any long-running coding task after a user message, update `memory/dev-status.md` first; this forces an explicit progress snapshot and reduces silent drift.
 
