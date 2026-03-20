@@ -24,6 +24,8 @@
 - 以后所有开发状态汇报都必须明确写出：`Codex：运行中 / 未运行`；若未运行，还要说明是正常结束、启动失败、崩溃，还是当前没有 active executor。
 - 对 Codex 隔离开发，先做最小启动预检：目标路径、`git status`、最小 Codex 启动。预检失败时，不得把任务表述成“已在持续开发”。
 - 已知失败的启动组合（例如已确认会触发 sandbox/bootstrap 错误的 runtime/path/mode 组合）不得在同一任务中反复作为默认路径重试。
+- 只要后台 Codex 任务退出（无论正常结束、失败、崩溃还是会话丢失），Claw 必须立即主动汇报，不能等老板来问，也不能只等 commit-trigger 或 heartbeat。
+- 该退出汇报必须明确包含：`Codex：运行中 / 未运行`、是否有新 commit、最新验证结果、停止原因、以及下一步动作。
 
 ## Active inspection baseline
 

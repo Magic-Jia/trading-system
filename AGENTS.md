@@ -136,6 +136,8 @@ Skills provide your tools. When you need one, check its `SKILL.md`. Keep local n
 - For sustained development work, keep at least one active execution path: if Codex startup fails, immediately do one of: (1) retry with a different viable launch path, (2) switch to a prepared fallback path, or (3) explicitly report that no active executor is running and why.
 - Before handing a real coding task to Codex, run a short launch preflight in the intended isolated directory/worktree: confirm the path, `git status`, and a minimal Codex startup all work. If preflight fails, do not present the task as actively running.
 - Avoid repeating known-bad launch combinations. If a given runtime/path/mode combination already failed with a sandbox/bootstrap error, do not reuse it as the default path for the same task.
+- When a background Codex task exits for any reason (normal completion, failure, crash, or lost session), send a status update immediately instead of waiting for the next user message, commit-trigger, or heartbeat.
+- The exit update must explicitly state whether Codex is running, whether there is a new commit, the latest verified command/result, why execution stopped, and the next action.
 - For every active coding worktree, keep a visible status note in `memory/dev-status.md` with: branch/worktree, current objective, last verified command + result, last commit, next action, and last user update time.
 - Before continuing any long-running coding task after a user message, update `memory/dev-status.md` first; this forces an explicit progress snapshot and reduces silent drift.
 
