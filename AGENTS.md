@@ -125,6 +125,18 @@ Skills provide your tools. When you need one, check its `SKILL.md`. Keep local n
 - All coding tasks, regardless of size, should be delegated to Codex by default rather than hand-coded directly.
 - Default Codex workflow is option 2: run Codex in an isolated directory or git worktree first, then review and merge changes back into the main project.
 - If Codex is used for user-facing coding/system work, explicitly say so in the reply and include the model used plus the thinking depth/level.
+- For long-running coding/delegated work, send progress updates proactively instead of waiting to be asked again.
+- Minimum cadence for long-running coding work: update when work starts, when a meaningful milestone lands (first green tests / first commits / chunk complete), when blocked, and at least once every 45–60 minutes if work is still in flight.
+- If there is no new commit or milestone, still send a heartbeat update stating exactly that: no new commit yet, latest verified test status, and next action.
+- Never let a background coding task go quiet overnight without a status message, even if progress is partial.
+- If the human has to ask for status after >45 minutes of ongoing coding work, treat that as a process failure and immediately correct the reporting cadence.
+- If a coding agent fails to start, crashes immediately, or hits an environment/runtime blocker, report that immediately instead of waiting for a commit-trigger or heartbeat.
+- Saying "I’m continuing development" means the task has actually re-entered active execution, not merely that one attempt was made.
+- For sustained development work, keep at least one active execution path: if Codex startup fails, immediately do one of: (1) retry with a different viable launch path, (2) switch to a prepared fallback path, or (3) explicitly report that no active executor is running and why.
+- Before handing a real coding task to Codex, run a short launch preflight in the intended isolated directory/worktree: confirm the path, `git status`, and a minimal Codex startup all work. If preflight fails, do not present the task as actively running.
+- Avoid repeating known-bad launch combinations. If a given runtime/path/mode combination already failed with a sandbox/bootstrap error, do not reuse it as the default path for the same task.
+- For every active coding worktree, keep a visible status note in `memory/dev-status.md` with: branch/worktree, current objective, last verified command + result, last commit, next action, and last user update time.
+- Before continuing any long-running coding task after a user message, update `memory/dev-status.md` first; this forces an explicit progress snapshot and reduces silent drift.
 
 **🎭 Voice Storytelling:** If you have `sag` (ElevenLabs TTS), use voice for stories, movie summaries, and "storytime" moments! Way more engaging than walls of text. Surprise people with funny voices.
 
