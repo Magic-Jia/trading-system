@@ -127,6 +127,7 @@ Skills provide your tools. When you need one, check its `SKILL.md`. Keep local n
 - If Codex is used for user-facing coding/system work, explicitly say so in the reply and include the model used plus the thinking depth/level.
 - For long-running coding/delegated work, send progress updates proactively instead of waiting to be asked again.
 - Minimum cadence for long-running coding work: update when work starts, when a meaningful milestone lands (first green tests / first commits / chunk complete), when blocked, and at least once every 45–60 minutes if work is still in flight.
+- Every coding status update must explicitly state whether Codex is currently running (`running`) or not (`not running`). If not running, say whether it exited normally, failed to start, crashed, or there is currently no active executor.
 - If there is no new commit or milestone, still send a heartbeat update stating exactly that: no new commit yet, latest verified test status, and next action.
 - Never let a background coding task go quiet overnight without a status message, even if progress is partial.
 - If the human has to ask for status after >45 minutes of ongoing coding work, treat that as a process failure and immediately correct the reporting cadence.
