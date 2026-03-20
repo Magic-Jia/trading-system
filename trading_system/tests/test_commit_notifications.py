@@ -1,11 +1,17 @@
 from pathlib import Path
 
+import pytest
+
 from trading_system.devtools.commit_notifications import (
     CommitNotification,
     build_notification_text,
     build_openclaw_command,
 )
-from trading_system.devtools.install_commit_hook import build_install_commands
+from trading_system.devtools.install_commit_hook import (
+    build_install_commands,
+    resolve_hooks_dir,
+    verify_installed_hook,
+)
 
 
 def test_build_notification_text_redacts_sensitive_fragments_and_truncates_subject():
@@ -70,16 +76,7 @@ def test_build_install_commands_uses_worktree_hooks_for_multi_worktree_repos():
         worktree_config_enabled=False,
     )
 
-    assert commands == [
-        ["git", "config", "--local", "extensions.worktreeConfig", "true"],
-        [
-            "git",
-            "config",
-            "--worktree",
-            "core.hooksPath",
-            "/tmp/trading-system-commit-trigger/.githooks",
-        ],
-    ]
+    assert commands == [["git", "config", "--local", "core.hooksPath", ".githooks"]]
 
 
 def test_build_install_commands_uses_local_config_for_single_worktree_repos():
@@ -95,6 +92,34 @@ def test_build_install_commands_uses_local_config_for_single_worktree_repos():
             "config",
             "--local",
             "core.hooksPath",
-            "/tmp/trading-system-commit-trigger/.githooks",
+            ".githooks",
         ]
     ]
+
+
+def test_resolve_hooks_dir_interprets_relative_paths_from_repo_root():
+    repo_root = Path("/tmp/trading-system-commit-trigger")
+
+    assert resolve_hooks_dir(repo_root, ".githooks") == repo_root / ".githooks"
+
+
+def test_verify_installed_hook_rejects_missing_hooks_path(tmp_path: Path):
+    hook_dir = tmp_path / ".githooks"
+    hook_dir.mkdir()
+    hook_path = hook_dir / "post-commit"
+    hook_path.write_text("#!/bin/sh\n", encoding="utf-8")
+    hook_path.chmod(0o755)
+
+    with pytest.raises(RuntimeError, match=r"core\.hooksPath is not configured"):
+        verify_installed_hook(tmp_path, configured_hooks_path=None)
+
+
+def test_verify_installed_hook_rejects_unexpected_hooks_path(tmp_path: Path):
+    hook_dir = tmp_path / ".githooks"
+    hook_dir.mkdir()
+    hook_path = hook_dir / "post-commit"
+    hook_path.write_text("#!/bin/sh\n", encoding="utf-8")
+    hook_path.chmod(0o755)
+
+    with pytest.raises(RuntimeError, match="does not point to"):
+        verify_installed_hook(tmp_path, configured_hooks_path="/tmp/elsewhere/.githooks")

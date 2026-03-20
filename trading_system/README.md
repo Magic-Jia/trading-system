@@ -82,6 +82,7 @@
 
 - 本工作区支持基于 git `post-commit` 的 OpenClaw 自动进度通知。
 - 安装命令：`python3 -m trading_system.devtools.install_commit_hook`
+- 校验命令：`python3 -m trading_system.devtools.install_commit_hook --check`
 - 详细说明见：`../docs/openclaw-commit-notifications.md`
 
 运行期预期：

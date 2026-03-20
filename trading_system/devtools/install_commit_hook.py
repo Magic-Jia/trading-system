@@ -18,14 +18,9 @@ def build_install_commands(
     has_multiple_worktrees: bool,
     worktree_config_enabled: bool,
 ) -> list[list[str]]:
-    hooks_path = str(repo_root / HOOKS_DIR_NAME)
-    if has_multiple_worktrees:
-        commands: list[list[str]] = []
-        if not worktree_config_enabled:
-            commands.append(["git", "config", "--local", "extensions.worktreeConfig", "true"])
-        commands.append(["git", "config", "--worktree", "core.hooksPath", hooks_path])
-        return commands
-    return [["git", "config", "--local", "core.hooksPath", hooks_path]]
+    del repo_root, has_multiple_worktrees, worktree_config_enabled
+    # A tracked relative hooks path is inherited by fresh linked worktrees.
+    return [["git", "config", "--local", "core.hooksPath", HOOKS_DIR_NAME]]
 
 
 def _run_git(repo_root: Path, args: Sequence[str], *, check: bool = True) -> subprocess.CompletedProcess[str]:
@@ -54,6 +49,44 @@ def _ensure_hook_is_executable(hook_path: Path) -> None:
     hook_path.chmod(mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
 
+def resolve_hooks_dir(repo_root: Path, configured_hooks_path: str) -> Path:
+    hooks_dir = Path(configured_hooks_path)
+    if hooks_dir.is_absolute():
+        return hooks_dir.resolve()
+    return (repo_root / hooks_dir).resolve()
+
+
+def _read_configured_hooks_path(repo_root: Path) -> str | None:
+    completed = _run_git(repo_root, ["config", "--get", "core.hooksPath"], check=False)
+    if completed.returncode != 0:
+        return None
+    value = completed.stdout.strip()
+    return value or None
+
+
+def verify_installed_hook(repo_root: Path, *, configured_hooks_path: str | None = None) -> Path:
+    hook_path = repo_root / HOOKS_DIR_NAME / POST_COMMIT_HOOK
+    if not hook_path.exists():
+        raise FileNotFoundError(f"Missing hook script: {hook_path}")
+    if not hook_path.is_file():
+        raise RuntimeError(f"Hook path is not a file: {hook_path}")
+    if not os.access(hook_path, os.X_OK):
+        raise PermissionError(f"Hook is not executable: {hook_path}")
+
+    configured_value = configured_hooks_path or _read_configured_hooks_path(repo_root)
+    if not configured_value:
+        raise RuntimeError("core.hooksPath is not configured for this repo/worktree")
+
+    resolved_hooks_dir = resolve_hooks_dir(repo_root, configured_value)
+    expected_hooks_dir = (repo_root / HOOKS_DIR_NAME).resolve()
+    if resolved_hooks_dir != expected_hooks_dir:
+        raise RuntimeError(
+            f"Configured core.hooksPath={configured_value!r} resolves to {resolved_hooks_dir}, "
+            f"which does not point to {expected_hooks_dir}"
+        )
+    return resolved_hooks_dir
+
+
 def install_commit_hook(repo_root: Path) -> list[list[str]]:
     hook_path = repo_root / HOOKS_DIR_NAME / POST_COMMIT_HOOK
     if not hook_path.exists():
@@ -68,6 +101,7 @@ def install_commit_hook(repo_root: Path) -> list[list[str]]:
     )
     for command in commands:
         subprocess.run(command, cwd=repo_root, check=True, capture_output=True, text=True)
+    verify_installed_hook(repo_root)
     return commands
 
 
@@ -78,15 +112,25 @@ def _parse_args(argv: Sequence[str]) -> argparse.Namespace:
         default=".",
         help="Path to the repository root. Defaults to the current working directory.",
     )
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Verify the installed hook without mutating git config.",
+    )
     return parser.parse_args(argv)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parse_args(argv or sys.argv[1:])
     repo_root = Path(args.repo_root).resolve()
+    if args.check:
+        print(verify_installed_hook(repo_root))
+        return 0
+
     commands = install_commit_hook(repo_root)
     for command in commands:
         print(" ".join(command))
+    print(verify_installed_hook(repo_root))
     return 0
 
 
