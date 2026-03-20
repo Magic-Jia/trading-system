@@ -28,16 +28,22 @@ python3 -m trading_system.devtools.install_commit_hook
 What the installer does:
 
 - Ensures `.githooks/post-commit` is executable
-- Prefers a worktree-local hooks path when the repo uses multiple worktrees
-- If needed, enables git's `extensions.worktreeConfig=true` once so `core.hooksPath` can be set with `git config --worktree`
-- Falls back to `git config --local core.hooksPath` for single-worktree repos
+- Sets shared git config `core.hooksPath=.githooks`
+- Verifies that the effective hooks path in the current worktree resolves back to `repo_root/.githooks`
+
+Why the shared relative path matters:
+
+- `.githooks/post-commit` is tracked in git, so each linked worktree has the same hook entrypoint
+- Fresh worktrees inherit the shared `core.hooksPath=.githooks` setting automatically
+- This avoids the old failure mode where a newly created worktree had no `core.hooksPath` set and silently skipped notifications
 
 ## Verify
 
 Check the configured hooks path:
 
 ```bash
-git config --worktree --get core.hooksPath || git config --local --get core.hooksPath
+git config --get core.hooksPath
+python3 -m trading_system.devtools.install_commit_hook --check
 ```
 
 Trigger a test notification with an empty commit:
