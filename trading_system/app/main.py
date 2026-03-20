@@ -14,7 +14,7 @@ from .market_regime import classify_regime
 from .portfolio.allocator import allocate_candidates
 from .portfolio.lifecycle import advance_lifecycle_positions, build_management_action_intents, evaluate_portfolio
 from .portfolio.positions import apply_executed_intent, sync_positions_from_account
-from .reporting.daily_report import build_lifecycle_report, build_rotation_report
+from .reporting.daily_report import build_lifecycle_report, build_rotation_report, build_short_report
 from .reporting.regime_report import build_regime_summary
 from .signals.rotation_engine import generate_rotation_candidates
 from .signals.short_engine import generate_short_candidates
@@ -353,6 +353,11 @@ def main() -> None:
         rotation_universe=list(state.latest_universes.get("rotation_universe", [])),
     )
     state.short_candidates = [row for row in candidate_rows if str(row.get("engine", "")).lower() == "short"]
+    state.short_summary = build_short_report(
+        short_candidates=state.short_candidates,
+        allocations=state.latest_allocations,
+        short_universe=list(state.latest_universes.get("short_universe", [])),
+    )
     state.partial_v2_coverage = True
     store.replace_management_suggestions(state, management)
     store.replace_management_action_previews(state, management_previews)
@@ -365,6 +370,7 @@ def main() -> None:
         allocations=state.latest_allocations,
         executions=execution_rows,
         rotation_report=state.rotation_summary,
+        short_report=state.short_summary,
     )
     print(
         json.dumps(

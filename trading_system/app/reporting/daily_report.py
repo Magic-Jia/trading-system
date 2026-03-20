@@ -28,6 +28,21 @@ def _rotation_leader_row(candidate: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def _short_leader_row(candidate: Mapping[str, Any]) -> dict[str, Any]:
+    timeframe_meta = dict(candidate.get("timeframe_meta") or {})
+    liquidity_meta = dict(candidate.get("liquidity_meta") or {})
+    return {
+        "symbol": str(candidate.get("symbol", "")),
+        "setup_type": str(candidate.get("setup_type", "")),
+        "score": round(_float(candidate.get("score")), 6),
+        "daily_bias": str(timeframe_meta.get("daily_bias", "")),
+        "h4_structure": str(timeframe_meta.get("h4_structure", "")),
+        "h1_trigger": str(timeframe_meta.get("h1_trigger", "")),
+        "volume_usdt_24h": _float(liquidity_meta.get("volume_usdt_24h")),
+        "liquidity_tier": str(liquidity_meta.get("liquidity_tier", "")),
+    }
+
+
 def _lifecycle_leader_row(symbol: str, payload: Mapping[str, Any]) -> dict[str, Any]:
     return {
         "symbol": symbol,
@@ -113,5 +128,40 @@ def build_rotation_report(
         "candidate_count": len(ranked),
         "accepted_symbols": accepted_symbols,
         "executed_symbols": executed_symbols,
+        "leaders": leaders,
+    }
+
+
+def build_short_report(
+    *,
+    short_candidates: Sequence[Mapping[str, Any]],
+    allocations: Sequence[Mapping[str, Any]],
+    short_universe: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    ranked = sorted(
+        [dict(row) for row in short_candidates if str(row.get("symbol", ""))],
+        key=lambda row: (-_float(row.get("score")), str(row.get("symbol", ""))),
+    )
+    accepted_symbols = sorted(
+        {
+            str(row.get("symbol", ""))
+            for row in allocations
+            if str(row.get("engine", "")).lower() == "short" and row.get("status") in {"ACCEPTED", "DOWNSIZED"}
+        }
+    )
+    deferred_execution_symbols = sorted(
+        {
+            str(row.get("symbol", ""))
+            for row in allocations
+            if str(row.get("engine", "")).lower() == "short"
+            and dict(row.get("execution") or {}).get("reason") == "short_execution_not_enabled"
+        }
+    )
+    leaders = [_short_leader_row(row) for row in ranked[:3]]
+    return {
+        "universe_count": len(short_universe),
+        "candidate_count": len(ranked),
+        "accepted_symbols": accepted_symbols,
+        "deferred_execution_symbols": deferred_execution_symbols,
         "leaders": leaders,
     }
