@@ -27,7 +27,7 @@
 当前阶段明确约束：
 - `short` 引擎第一版已实现：仅在防御型 regime 下为 majors 生成 short 候选，并写入 `short_candidates`。
 - `rotation_candidates` 已接入 runtime state，用于暴露 rotation engine 输出。
-- `runtime_state.json` 中 `partial_v2_coverage=true` 仍用于标记当前不是完整 v2，剩余缺口主要是 short 执行链路与更完整的 short reporting。
+- `runtime_state.json` 中 `partial_v2_coverage=true` 仍用于标记当前不是完整 v2，剩余缺口主要是 short 执行链路。
 - 保持 paper execution 行为，当前 short allocation 会显式标记 `short_execution_not_enabled`，不会进入 short paper fill。
 
 ## 目录
@@ -87,6 +87,7 @@
 
 运行期预期：
 - 标准输出包含 `regime` 与 `portfolio` 两段摘要，其中 `regime.rotation` 会给出 rotation 的紧凑报告（候选/接受/执行符号与 leader 元数据）。
+- 当存在 short 候选时，`regime.short` 会给出 short 的紧凑报告（候选/接受/延后执行符号与 leader 元数据）。
 - `portfolio.lifecycle_summary` 会给出 lifecycle 的紧凑视图：状态计数、待确认符号、需关注符号，以及按 `r_multiple` 排序的前 3 个仓位。
 - `trading_system/data/runtime_state.json` 至少包含：
-  `positions`、`management_suggestions`、`management_action_previews`、`latest_regime`、`latest_allocations`、`latest_lifecycle`、`lifecycle_summary`、`rotation_summary`、`short_candidates`。
+  `positions`、`management_suggestions`、`management_action_previews`、`latest_regime`、`latest_allocations`、`latest_lifecycle`、`lifecycle_summary`、`rotation_summary`、`short_candidates`、`short_summary`。

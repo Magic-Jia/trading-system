@@ -1,4 +1,4 @@
-from trading_system.app.reporting.daily_report import build_lifecycle_report, build_rotation_report
+from trading_system.app.reporting.daily_report import build_lifecycle_report, build_rotation_report, build_short_report
 from trading_system.app.reporting.regime_report import build_regime_summary
 
 
@@ -85,6 +85,83 @@ def test_build_regime_summary_includes_rotation_report_when_provided():
     assert "rotation" in summary
     assert summary["rotation"]["candidate_count"] == 1
     assert summary["rotation"]["accepted_symbols"] == ["SOLUSDT"]
+
+
+def test_build_short_report_returns_compact_deterministic_short_surface():
+    short_candidates = [
+        {
+            "engine": "short",
+            "symbol": "BTCUSDT",
+            "setup_type": "BREAKDOWN_SHORT",
+            "score": 0.81,
+            "timeframe_meta": {
+                "daily_bias": "down",
+                "h4_structure": "breakdown",
+                "h1_trigger": "confirmed",
+            },
+            "liquidity_meta": {"volume_usdt_24h": 12500000000.0, "liquidity_tier": "top"},
+        }
+    ]
+    allocations = [
+        {
+            "engine": "short",
+            "symbol": "BTCUSDT",
+            "status": "ACCEPTED",
+            "execution": {"status": "SKIPPED", "reason": "short_execution_not_enabled"},
+        },
+        {"engine": "trend", "symbol": "ETHUSDT", "status": "ACCEPTED"},
+    ]
+    short_universe = [{"symbol": "BTCUSDT"}, {"symbol": "ETHUSDT"}]
+
+    summary = build_short_report(
+        short_candidates=short_candidates,
+        allocations=allocations,
+        short_universe=short_universe,
+    )
+
+    assert summary == {
+        "universe_count": 2,
+        "candidate_count": 1,
+        "accepted_symbols": ["BTCUSDT"],
+        "deferred_execution_symbols": ["BTCUSDT"],
+        "leaders": [
+            {
+                "symbol": "BTCUSDT",
+                "setup_type": "BREAKDOWN_SHORT",
+                "score": 0.81,
+                "daily_bias": "down",
+                "h4_structure": "breakdown",
+                "h1_trigger": "confirmed",
+                "volume_usdt_24h": 12500000000.0,
+                "liquidity_tier": "top",
+            }
+        ],
+    }
+
+
+def test_build_regime_summary_includes_short_report_when_provided():
+    summary = build_regime_summary(
+        regime={"label": "HIGH_VOL_DEFENSIVE", "confidence": 0.82, "risk_multiplier": 0.7, "execution_policy": "downsize"},
+        universes={
+            "major_universe": [{"symbol": "BTCUSDT"}],
+            "rotation_universe": [],
+            "short_universe": [{"symbol": "BTCUSDT"}],
+        },
+        candidates=[{"engine": "short", "symbol": "BTCUSDT"}],
+        allocations=[{"engine": "short", "symbol": "BTCUSDT", "status": "ACCEPTED", "final_risk_budget": 0.004}],
+        executions=[],
+        short_report={
+            "universe_count": 1,
+            "candidate_count": 1,
+            "accepted_symbols": ["BTCUSDT"],
+            "deferred_execution_symbols": ["BTCUSDT"],
+            "leaders": [{"symbol": "BTCUSDT", "score": 0.81}],
+        },
+    )
+
+    assert "short" in summary
+    assert summary["short"]["candidate_count"] == 1
+    assert summary["short"]["deferred_execution_symbols"] == ["BTCUSDT"]
 
 
 def test_build_lifecycle_report_returns_compact_deterministic_state_surface():

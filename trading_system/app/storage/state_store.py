@@ -21,6 +21,7 @@ class RuntimeStateV2(RuntimeState):
     rotation_candidates: list[dict[str, Any]] = field(default_factory=list)
     rotation_summary: dict[str, Any] = field(default_factory=dict)
     short_candidates: list[dict[str, Any]] = field(default_factory=list)
+    short_summary: dict[str, Any] = field(default_factory=dict)
     partial_v2_coverage: bool = False
 
 

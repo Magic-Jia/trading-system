@@ -126,6 +126,13 @@ def test_state_store_persists_regime_candidates_and_allocations(tmp_path):
         "executed_symbols": ["SOLUSDT"],
         "leaders": [{"symbol": "SOLUSDT", "score": 0.81}],
     }
+    state.short_summary = {
+        "universe_count": 2,
+        "candidate_count": 1,
+        "accepted_symbols": ["BTCUSDT"],
+        "deferred_execution_symbols": ["BTCUSDT"],
+        "leaders": [{"symbol": "BTCUSDT", "score": 0.79}],
+    }
     store.save(state)
     reloaded = store.load()
     assert reloaded.latest_regime["label"] == "RISK_ON_TREND"
@@ -136,6 +143,8 @@ def test_state_store_persists_regime_candidates_and_allocations(tmp_path):
     assert reloaded.lifecycle_summary["protected_symbols"] == ["BTCUSDT"]
     assert reloaded.rotation_summary["candidate_count"] == 2
     assert reloaded.rotation_summary["leaders"][0]["symbol"] == "SOLUSDT"
+    assert reloaded.short_summary["candidate_count"] == 1
+    assert reloaded.short_summary["deferred_execution_symbols"] == ["BTCUSDT"]
 
 
 def test_main_v2_cycle_writes_regime_and_allocation_sections(monkeypatch, tmp_path, load_fixture):
@@ -326,10 +335,80 @@ def test_main_v2_cycle_persists_short_candidates_without_enabling_short_executio
     assert len(state["short_candidates"]) == 1
     assert state["short_candidates"][0]["engine"] == "short"
     assert state["short_candidates"][0]["symbol"] == "BTCUSDT"
+    assert state["short_summary"] == {
+        "universe_count": 2,
+        "candidate_count": 1,
+        "accepted_symbols": ["BTCUSDT"],
+        "deferred_execution_symbols": ["BTCUSDT"],
+        "leaders": [
+            {
+                "symbol": "BTCUSDT",
+                "setup_type": "BREAKDOWN_SHORT",
+                "score": 0.81,
+                "daily_bias": "down",
+                "h4_structure": "breakdown",
+                "h1_trigger": "confirmed",
+                "volume_usdt_24h": 12500000000.0,
+                "liquidity_tier": "",
+            }
+        ],
+    }
 
     short_allocations = [row for row in state["latest_allocations"] if row["engine"] == "short"]
     assert len(short_allocations) == 1
     assert short_allocations[0]["execution"] == {"status": "SKIPPED", "reason": "short_execution_not_enabled"}
+
+
+def test_main_v2_stdout_surfaces_short_reporting(monkeypatch, tmp_path, load_fixture, capsys):
+    output_path = tmp_path / "runtime_state.json"
+    account_path = tmp_path / "account_snapshot.json"
+    market_path = tmp_path / "market_context.json"
+    deriv_path = tmp_path / "derivatives_snapshot.json"
+    account_path.write_text(json.dumps(load_fixture("account_snapshot_v2.json")))
+    market_path.write_text(json.dumps(load_fixture("market_context_v2.json")))
+    deriv_path.write_text(json.dumps(load_fixture("derivatives_snapshot_v2.json")))
+    monkeypatch.setenv("TRADING_STATE_FILE", str(output_path))
+    monkeypatch.setenv("TRADING_ACCOUNT_SNAPSHOT_FILE", str(account_path))
+    monkeypatch.setenv("TRADING_MARKET_CONTEXT_FILE", str(market_path))
+    monkeypatch.setenv("TRADING_DERIVATIVES_SNAPSHOT_FILE", str(deriv_path))
+    monkeypatch.setattr(
+        main_module,
+        "generate_short_candidates",
+        lambda *args, **kwargs: [
+            EngineCandidate(
+                engine="short",
+                setup_type="BREAKDOWN_SHORT",
+                symbol="BTCUSDT",
+                side="SHORT",
+                score=0.81,
+                timeframe_meta={"daily_bias": "down", "h4_structure": "breakdown", "h1_trigger": "confirmed"},
+                sector="majors",
+                liquidity_meta={"volume_usdt_24h": 12_500_000_000.0},
+            )
+        ],
+    )
+
+    main_module.main()
+    payload = json.loads(capsys.readouterr().out)
+
+    assert payload["regime"]["short"] == {
+        "universe_count": 2,
+        "candidate_count": 1,
+        "accepted_symbols": ["BTCUSDT"],
+        "deferred_execution_symbols": ["BTCUSDT"],
+        "leaders": [
+            {
+                "symbol": "BTCUSDT",
+                "setup_type": "BREAKDOWN_SHORT",
+                "score": 0.81,
+                "daily_bias": "down",
+                "h4_structure": "breakdown",
+                "h1_trigger": "confirmed",
+                "volume_usdt_24h": 12500000000.0,
+                "liquidity_tier": "",
+            }
+        ],
+    }
 
 
 def test_main_v2_cycle_is_idempotent_for_same_inputs(monkeypatch, tmp_path, load_fixture, capsys):
