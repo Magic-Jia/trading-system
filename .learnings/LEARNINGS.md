@@ -19,9 +19,15 @@ Preserve an explicit rule in long-term memory: `Exec completed`, commit-trigger 
 - Related Files: MEMORY.md, memory/2026-03-21.md, memory/dev-status.md
 - Tags: codex, status-reporting, background-tasks, proactive-updates
 - Pattern-Key: reporting.runtime-events-do-not-replace-user-updates
-- Recurrence-Count: 1
+- Recurrence-Count: 2
 - First-Seen: 2026-03-21
 - Last-Seen: 2026-03-21
 - Promoted: MEMORY.md
+- See Also: repeated failure to convert runtime exit events into user-facing status updates on the same day
+
+### Resolution
+- **Resolved**: 2026-03-21T09:50:00+01:00
+- **Commit/PR**: pending
+- **Notes**: Escalated from single correction to an explicit anti-assumption rule: no automatic event path counts as final user notification; Claw must always send the formal status update itself.
 
 ---

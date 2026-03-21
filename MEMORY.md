@@ -34,6 +34,7 @@
   - C：退出汇报必须使用固定模板，明确包含：`Codex：运行中 / 未运行`、`状态类型：已启动 / 启动失败 / 已结束`、若有则写明`子会话状态`、`最新 commit`、`最新验证`、`停止原因`、`待执行下一步`。
 - 以后只要使用了 worker/subagent/独立子会话，状态汇报里必须额外写明子会话状态（例如：运行中、已结束、启动失败、无活动子会话）。
 - OpenClaw / 系统自动出现的 `Exec completed`、event、commit-trigger 或其他运行时提示，不算 Claw 已经向老板完成主动汇报；只要后台 Codex 任务退出，Claw 仍必须立即亲自发出一条正式的人话状态消息，不能把系统提示当成交付。
+- 不得再假设 ACP completion push、exec 运行时事件、system event 或任何自动唤醒链路会替 Claw 完成最后一步汇报；默认假设“不会自动替我通知老板”，因此所有后台开发退出都必须由 Claw 主动完成用户可读的固定模板状态消息。
 
 ## Active inspection baseline
 
