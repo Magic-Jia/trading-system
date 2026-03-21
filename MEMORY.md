@@ -38,6 +38,7 @@
 - 不得再假设 ACP completion push、exec 运行时事件、system event 或任何自动唤醒链路会替 Claw 完成最后一步汇报；默认假设“不会自动替我通知老板”，因此所有后台开发退出都必须由 Claw 主动完成用户可读的固定模板状态消息。
 - 面向老板的持续开发任务，不再默认使用 `exec background` 作为主执行/回报链路；默认优先改用 OpenClaw `sessions_spawn` 的子会话 / ACP 会话来承载执行，再由主会话负责正式状态汇报。
 - 仅仅切到 ACP / 子会话还不够；凡是子会话完成，Claw 仍必须在主会话里立即补一条正式的固定模板收口消息。系统流式输出、completion event、子会话原文结果都不算最终对老板的正式汇报；必须加“completion → 主会话正式收口”这一层。
+- 上述 completion summarizer 不是软规则，而是强制执行步骤：只要子会话完成，Claw 的下一条对老板消息必须优先是固定模板收口；如果老板先来追问，说明 summarizer 失效，按流程失败处理。
 
 ## Active inspection baseline
 

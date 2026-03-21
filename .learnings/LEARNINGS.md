@@ -19,11 +19,11 @@ Preserve an explicit rule in long-term memory: `Exec completed`, commit-trigger 
 - Related Files: MEMORY.md, memory/2026-03-21.md, memory/dev-status.md
 - Tags: codex, status-reporting, background-tasks, proactive-updates
 - Pattern-Key: reporting.runtime-events-do-not-replace-user-updates
-- Recurrence-Count: 4
+- Recurrence-Count: 5
 - First-Seen: 2026-03-21
 - Last-Seen: 2026-03-21
 - Promoted: MEMORY.md
-- See Also: repeated failure to convert runtime exit events into user-facing status updates on the same day; changing orchestration from exec background to sessions_spawn/ACP alone was insufficient without an explicit main-session completion summarizer
+- See Also: repeated failure to convert runtime exit events into user-facing status updates on the same day; changing orchestration from exec background to sessions_spawn/ACP alone was insufficient without an explicit main-session completion summarizer; summarizer itself must be treated as a mandatory failure-sensitive step
 
 ### Resolution
 - **Resolved**: 2026-03-21T09:50:00+01:00
