@@ -48,7 +48,8 @@ class OrderExecutor:
             result = dry_run_fill(order)
             order.status = "SENT"
 
-        self.append_log(order, result)
+        if self.mode != "dry-run":
+            self.append_log(order, result)
         return result
 
     def preview_management_action(
