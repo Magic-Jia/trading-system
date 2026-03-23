@@ -30,3 +30,29 @@ def test_validate_candidate_for_allocation_blocks_existing_symbol_exposure():
     assert result.severity == "BLOCK"
     assert "existing exposure detected on symbol" in result.reasons
     assert result.metrics["has_existing_symbol_exposure"] is True
+
+
+def test_validate_candidate_for_allocation_blocks_excess_major_coin_correlation():
+    candidate = {
+        "engine": "trend",
+        "symbol": "BTCUSDT",
+        "side": "LONG",
+        "score": 0.76,
+    }
+    account = AccountSnapshot(
+        equity=100000.0,
+        available_balance=50000.0,
+        futures_wallet_balance=100000.0,
+        open_positions=[
+            PositionSnapshot(symbol="ETHUSDT", side="LONG", qty=10.0, entry_price=3200.0, notional=32000.0),
+            PositionSnapshot(symbol="BNBUSDT", side="LONG", qty=20.0, entry_price=500.0, notional=10000.0),
+            PositionSnapshot(symbol="SOLUSDT", side="LONG", qty=100.0, entry_price=150.0, notional=15000.0),
+        ],
+    )
+
+    result = validate_candidate_for_allocation(candidate, account)
+
+    assert result.allowed is False
+    assert result.severity == "BLOCK"
+    assert any("correlated" in reason.lower() for reason in result.reasons)
+    assert result.metrics["correlated_positions"] == 3
