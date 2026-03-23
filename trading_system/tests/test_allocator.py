@@ -133,3 +133,23 @@ def test_allocator_blocks_when_open_position_limit_already_reached(load_fixture)
     assert decisions
     assert all(d.status == "REJECTED" for d in decisions)
     assert all("持仓数" in " ".join(d.reasons) or d.meta.get("open_positions_limit_hit") for d in decisions)
+
+
+def test_allocator_blocks_when_account_total_risk_is_already_over_cap(load_fixture):
+    account = load_fixture("account_snapshot_v2.json")
+    candidates = [
+        {
+            "engine": "trend",
+            "setup_type": "BREAKOUT",
+            "symbol": "XRPUSDT",
+            "side": "LONG",
+            "score": 0.91,
+            "sector": "payments",
+        }
+    ]
+
+    decisions = allocate_candidates(account=account, candidates=candidates)
+
+    assert decisions
+    assert all(d.status == "REJECTED" for d in decisions)
+    assert all("总风险暴露" in " ".join(d.reasons) or d.meta.get("account_total_risk_limit_hit") for d in decisions)
