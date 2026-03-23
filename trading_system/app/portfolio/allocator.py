@@ -133,6 +133,7 @@ def allocate_candidates(
     max_open_positions = int(app_config.risk.max_open_positions)
 
     exposure = exposure_snapshot(account)
+    current_active_risk_pct = _to_float(exposure.get("active_risk_pct", 0.0))
     net_exposure_pct = _to_float(exposure.get("net_exposure_pct", 0.0))
     major_risk = _to_float(exposure.get("sector_risk", {}).get("majors", 0.0))
     alt_risk = sum(
@@ -164,6 +165,7 @@ def allocate_candidates(
             "rank_score": candidate["score"],
             "portfolio_total_risk_cap": round(total_risk_cap, 6),
             "portfolio_risk_used_before": round(portfolio_risk_used, 6),
+            "account_active_risk_pct": round(current_active_risk_pct, 6),
             "bucket_targets": dict(bucket_targets),
             "bucket_cap": round(bucket_caps.get(engine, 0.0), 6),
             "bucket_risk_used_before": round(bucket_risk_used.get(engine, 0.0), 6),
@@ -173,25 +175,18 @@ def allocate_candidates(
             "max_open_positions": max_open_positions,
         }
 
+        if current_active_risk_pct >= total_risk_cap:
+            reasons.append(f"总风险暴露已达上限：{current_active_risk_pct:.2%} >= {total_risk_cap:.2%}")
+            meta["account_total_risk_limit_hit"] = True
+
         if len(open_positions) >= max_open_positions:
             reasons.append(f"持仓数已达上限：{len(open_positions)} / {max_open_positions}")
             meta["open_positions_limit_hit"] = True
-            decisions.append(
-                AllocationDecision(
-                    status="REJECTED",
-                    engine=engine,
-                    reasons=reasons,
-                    meta=meta,
-                    final_risk_budget=0.0,
-                    rank=rank,
-                )
-            )
-            continue
 
         validation = validate_candidate_for_allocation(candidate, account)
         reasons.extend(validation.reasons)
         meta.update(validation.metrics)
-        if not validation.allowed:
+        if reasons or not validation.allowed:
             decisions.append(
                 AllocationDecision(
                     status="REJECTED",
