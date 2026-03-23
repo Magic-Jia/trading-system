@@ -486,3 +486,28 @@ def test_main_v2_dry_run_does_not_leave_execution_traces(monkeypatch, tmp_path, 
     accepted_allocations = [row for row in state.get("latest_allocations", []) if row.get("status") in {"ACCEPTED", "DOWNSIZED"}]
     assert accepted_allocations
     assert all(row.get("execution", {}).get("status") == "SENT" for row in accepted_allocations if row.get("engine") != "short")
+
+
+def test_main_v2_live_not_yet_enabled_leaves_no_partial_state(monkeypatch, tmp_path, load_fixture):
+    output_path = tmp_path / "runtime_state.json"
+    account_path = tmp_path / "account_snapshot.json"
+    market_path = tmp_path / "market_context.json"
+    deriv_path = tmp_path / "derivatives_snapshot.json"
+    exec_log_path = Path(main_module.__file__).resolve().parents[1] / "data" / "execution_log.jsonl"
+    original_exec_log = exec_log_path.read_text(encoding="utf-8") if exec_log_path.exists() else None
+    account_path.write_text(json.dumps(load_fixture("account_snapshot_v2.json")))
+    market_path.write_text(json.dumps(load_fixture("market_context_v2.json")))
+    deriv_path.write_text(json.dumps(load_fixture("derivatives_snapshot_v2.json")))
+    monkeypatch.setenv("TRADING_STATE_FILE", str(output_path))
+    monkeypatch.setenv("TRADING_ACCOUNT_SNAPSHOT_FILE", str(account_path))
+    monkeypatch.setenv("TRADING_MARKET_CONTEXT_FILE", str(market_path))
+    monkeypatch.setenv("TRADING_DERIVATIVES_SNAPSHOT_FILE", str(deriv_path))
+    monkeypatch.setenv("TRADING_EXECUTION_MODE", "live")
+    monkeypatch.setenv("TRADING_ALLOW_LIVE_EXECUTION", "1")
+
+    with pytest.raises(Exception, match="live 模式尚未启用"):
+        main_module.main()
+
+    assert not output_path.exists()
+    current_exec_log = exec_log_path.read_text(encoding="utf-8") if exec_log_path.exists() else None
+    assert current_exec_log == original_exec_log
