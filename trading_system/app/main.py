@@ -318,9 +318,10 @@ def main() -> None:
             },
         )
         execution = executor.execute(order, state)
-        apply_executed_intent(state, order)
-        fingerprint = mark_processed(state, signal)
-        store.record_signal(state, signal.symbol, fingerprint, config.risk.cooldown_minutes)
+        if config.execution.mode != "dry-run":
+            apply_executed_intent(state, order)
+            fingerprint = mark_processed(state, signal)
+            store.record_signal(state, signal.symbol, fingerprint, config.risk.cooldown_minutes)
         allocation["execution"] = {"status": order.status, "intent_id": order.intent_id}
         execution_rows.append(
             {

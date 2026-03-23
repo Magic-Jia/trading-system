@@ -460,3 +460,29 @@ def test_main_v2_cycle_is_idempotent_for_same_inputs(monkeypatch, tmp_path, load
     assert first.get("rotation_summary") == second.get("rotation_summary")
     assert first_output["portfolio"]["lifecycle_summary"] == second_output["portfolio"]["lifecycle_summary"]
     assert first_output["regime"]["rotation"] == second_output["regime"]["rotation"]
+
+
+def test_main_v2_dry_run_does_not_leave_execution_traces(monkeypatch, tmp_path, load_fixture):
+    output_path = tmp_path / "runtime_state.json"
+    account_path = tmp_path / "account_snapshot.json"
+    market_path = tmp_path / "market_context.json"
+    deriv_path = tmp_path / "derivatives_snapshot.json"
+    account_path.write_text(json.dumps(load_fixture("account_snapshot_v2.json")))
+    market_path.write_text(json.dumps(load_fixture("market_context_v2.json")))
+    deriv_path.write_text(json.dumps(load_fixture("derivatives_snapshot_v2.json")))
+    monkeypatch.setenv("TRADING_STATE_FILE", str(output_path))
+    monkeypatch.setenv("TRADING_ACCOUNT_SNAPSHOT_FILE", str(account_path))
+    monkeypatch.setenv("TRADING_MARKET_CONTEXT_FILE", str(market_path))
+    monkeypatch.setenv("TRADING_DERIVATIVES_SNAPSHOT_FILE", str(deriv_path))
+    monkeypatch.setenv("TRADING_EXECUTION_MODE", "dry-run")
+
+    main_module.main()
+
+    state = json.loads(Path(output_path).read_text())
+    assert state.get("last_signal_ids") == {}
+    assert state.get("cooldowns") == {}
+    assert state.get("active_orders") == {}
+    assert all(not position.get("tracked_from_intent") for position in state.get("positions", {}).values())
+    accepted_allocations = [row for row in state.get("latest_allocations", []) if row.get("status") in {"ACCEPTED", "DOWNSIZED"}]
+    assert accepted_allocations
+    assert all(row.get("execution", {}).get("status") == "SENT" for row in accepted_allocations if row.get("engine") != "short")
