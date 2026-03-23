@@ -127,6 +127,10 @@ def allocate_candidates(
     bucket_caps = {engine: total_risk_cap * max(weight, 0.0) for engine, weight in bucket_targets.items()}
     bucket_risk_used: dict[str, float] = defaultdict(float)
     portfolio_risk_used = 0.0
+    open_positions = account.get("open_positions", []) if isinstance(account, Mapping) else getattr(account, "open_positions", [])
+    if not isinstance(open_positions, list):
+        open_positions = []
+    max_open_positions = int(app_config.risk.max_open_positions)
 
     exposure = exposure_snapshot(account)
     net_exposure_pct = _to_float(exposure.get("net_exposure_pct", 0.0))
@@ -165,7 +169,24 @@ def allocate_candidates(
             "bucket_risk_used_before": round(bucket_risk_used.get(engine, 0.0), 6),
             "conflict_checked": False,
             "major_alt_balance_ok": True,
+            "open_positions_count": len(open_positions),
+            "max_open_positions": max_open_positions,
         }
+
+        if len(open_positions) >= max_open_positions:
+            reasons.append(f"持仓数已达上限：{len(open_positions)} / {max_open_positions}")
+            meta["open_positions_limit_hit"] = True
+            decisions.append(
+                AllocationDecision(
+                    status="REJECTED",
+                    engine=engine,
+                    reasons=reasons,
+                    meta=meta,
+                    final_risk_budget=0.0,
+                    rank=rank,
+                )
+            )
+            continue
 
         validation = validate_candidate_for_allocation(candidate, account)
         reasons.extend(validation.reasons)
