@@ -20,9 +20,11 @@ class ExecutionError(RuntimeError):
 
 
 class OrderExecutor:
-    def __init__(self, config: AppConfig, mode: OrderMode = "paper"):
+    def __init__(self, config: AppConfig, mode: OrderMode | None = None):
         self.config = config
-        self.mode = mode
+        self.mode = mode or config.execution.mode
+        if self.mode == "live" and not config.execution.allow_live_execution:
+            raise ExecutionError("live execution is disabled unless TRADING_ALLOW_LIVE_EXECUTION is explicitly enabled")
         EXEC_LOG.parent.mkdir(parents=True, exist_ok=True)
 
     def execute(self, order: OrderIntent, state: RuntimeState) -> dict[str, Any]:

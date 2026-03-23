@@ -1,5 +1,7 @@
 from dataclasses import replace
 
+import pytest
+
 from trading_system.app.config import DEFAULT_CONFIG
 from trading_system.app.execution.executor import OrderExecutor
 from trading_system.app.storage.state_store import RuntimeStateV2
@@ -17,6 +19,29 @@ def _sample_order() -> OrderIntent:
         stop_loss=58000.0,
         take_profit=64000.0,
     )
+
+
+def test_executor_defaults_to_configured_execution_mode(tmp_path):
+    config = replace(
+        DEFAULT_CONFIG,
+        data_dir=tmp_path,
+        execution=replace(DEFAULT_CONFIG.execution, mode="dry-run"),
+    )
+
+    executor = OrderExecutor(config)
+
+    assert executor.mode == "dry-run"
+
+
+def test_executor_rejects_live_mode_without_explicit_allow(tmp_path):
+    config = replace(
+        DEFAULT_CONFIG,
+        data_dir=tmp_path,
+        execution=replace(DEFAULT_CONFIG.execution, mode="live", allow_live_execution=False),
+    )
+
+    with pytest.raises(Exception, match="live execution is disabled"):
+        OrderExecutor(config)
 
 
 def test_dry_run_execute_does_not_mutate_runtime_positions_or_active_orders(tmp_path):
