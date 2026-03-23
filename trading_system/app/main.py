@@ -224,6 +224,8 @@ def _universes_payload(universes: UniverseBuildResult) -> dict[str, Any]:
 
 def main() -> None:
     config = _with_state_file_override(load_config())
+    if config.execution.mode == "live" and not config.execution.allow_live_execution:
+        raise RuntimeError("live execution is disabled unless TRADING_ALLOW_LIVE_EXECUTION is explicitly enabled")
     store = build_state_store(config)
     state = store.load()
     account = load_account_snapshot()
@@ -259,7 +261,7 @@ def main() -> None:
     decisions = allocate_candidates(account=account, candidates=validated_rows, regime=regime, config=config)
     allocation_rows = [_allocation_summary(decision, candidate) for decision, candidate in zip(decisions, ranked_candidates)]
 
-    executor = OrderExecutor(config, mode="paper")
+    executor = OrderExecutor(config, mode=config.execution.mode)
     sync_positions_from_account(state, account)
 
     execution_rows: list[dict[str, Any]] = []

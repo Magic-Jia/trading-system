@@ -25,6 +25,12 @@ def test_v2_allocator_config_exposes_short_bucket_placeholder():
     assert hasattr(allocator, "short_bucket_weight")
 
 
+def test_v2_config_exposes_execution_mode_controls():
+    assert hasattr(DEFAULT_CONFIG, "execution")
+    assert DEFAULT_CONFIG.execution.mode in {"paper", "dry-run", "live"}
+    assert hasattr(DEFAULT_CONFIG.execution, "allow_live_execution")
+
+
 def test_v2_types_are_importable():
     assert RegimeSnapshot
     assert EngineCandidate
@@ -73,8 +79,18 @@ def test_v2_build_config_reads_env_overrides_at_call_time(monkeypatch):
     assert config.risk.max_open_positions == 13
 
 
+def test_v2_build_config_reads_execution_mode_overrides(monkeypatch):
+    monkeypatch.setenv("TRADING_EXECUTION_MODE", "dry-run")
+    monkeypatch.setenv("TRADING_ALLOW_LIVE_EXECUTION", "1")
+
+    config = config_module.build_config()
+
+    assert config.execution.mode == "dry-run"
+    assert config.execution.allow_live_execution is True
+
+
 def test_v2_main_uses_runtime_config_loader(monkeypatch):
-    sentinel_config = object()
+    sentinel_config = replace(DEFAULT_CONFIG, execution=replace(DEFAULT_CONFIG.execution, mode="paper"))
     seen: dict[str, object] = {}
 
     monkeypatch.setattr(main_module, "load_config", lambda: sentinel_config, raising=False)
@@ -89,6 +105,14 @@ def test_v2_main_uses_runtime_config_loader(monkeypatch):
         main_module.main()
 
     assert seen["config"] is sentinel_config
+
+
+def test_v2_main_rejects_live_execution_without_explicit_allow(monkeypatch):
+    config = replace(DEFAULT_CONFIG, execution=replace(DEFAULT_CONFIG.execution, mode="live", allow_live_execution=False))
+    monkeypatch.setattr(main_module, "load_config", lambda: config, raising=False)
+
+    with pytest.raises(RuntimeError, match="live execution is disabled"):
+        main_module.main()
 
 
 def test_v2_allocation_decision_normalizes_status_to_uppercase():

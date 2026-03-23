@@ -3,10 +3,13 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Literal
 
 BASE = Path(__file__).resolve().parents[1]
 DATA_DIR = BASE / "data"
 STATE_FILE = DATA_DIR / "runtime_state.json"
+
+ExecutionMode = Literal["paper", "dry-run", "live"]
 
 
 def _env_float(name: str, default: str) -> float:
@@ -15,6 +18,20 @@ def _env_float(name: str, default: str) -> float:
 
 def _env_int(name: str, default: str) -> int:
     return int(os.environ.get(name, default))
+
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env_execution_mode(name: str, default: ExecutionMode = "paper") -> ExecutionMode:
+    value = os.environ.get(name, default).strip().lower()
+    if value not in {"paper", "dry-run", "live"}:
+        raise ValueError(f"{name} must be one of paper, dry-run, live")
+    return value  # type: ignore[return-value]
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,6 +84,12 @@ class LifecycleConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class ExecutionConfig:
+    mode: ExecutionMode = field(default_factory=lambda: _env_execution_mode("TRADING_EXECUTION_MODE", "paper"))
+    allow_live_execution: bool = field(default_factory=lambda: _env_bool("TRADING_ALLOW_LIVE_EXECUTION", False))
+
+
+@dataclass(frozen=True, slots=True)
 class AppConfig:
     data_dir: Path = DATA_DIR
     state_file: Path = STATE_FILE
@@ -75,6 +98,7 @@ class AppConfig:
     universe: UniverseConfig = field(default_factory=UniverseConfig)
     allocator: AllocatorConfig = field(default_factory=AllocatorConfig)
     lifecycle: LifecycleConfig = field(default_factory=LifecycleConfig)
+    execution: ExecutionConfig = field(default_factory=ExecutionConfig)
 
 
 def build_config() -> AppConfig:
