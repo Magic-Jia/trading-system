@@ -72,3 +72,64 @@ def test_allocator_checks_conflict_against_existing_exposure(load_fixture, sampl
     account = load_fixture("account_snapshot_v2.json")
     decisions = allocate_candidates(account=account, candidates=sample_trend_candidates)
     assert any("existing exposure" in " ".join(d.reasons).lower() or d.meta.get("conflict_checked") for d in decisions)
+
+
+def test_allocator_blocks_when_open_position_limit_already_reached(load_fixture):
+    account = load_fixture("account_snapshot_v2.json")
+    account["open_positions"] = list(account["open_positions"]) + [
+        {
+            "symbol": "ADAUSDT",
+            "side": "LONG",
+            "qty": 1000,
+            "entry_price": 0.8,
+            "mark_price": 0.82,
+            "notional": 820.0,
+        },
+        {
+            "symbol": "LINKUSDT",
+            "side": "LONG",
+            "qty": 200,
+            "entry_price": 15.0,
+            "mark_price": 15.5,
+            "notional": 3100.0,
+        },
+        {
+            "symbol": "XLMUSDT",
+            "side": "LONG",
+            "qty": 4000,
+            "entry_price": 0.12,
+            "mark_price": 0.125,
+            "notional": 500.0,
+        },
+        {
+            "symbol": "ATOMUSDT",
+            "side": "LONG",
+            "qty": 150,
+            "entry_price": 10.0,
+            "mark_price": 10.4,
+            "notional": 1560.0,
+        },
+        {
+            "symbol": "DOGEUSDT",
+            "side": "LONG",
+            "qty": 10000,
+            "entry_price": 0.18,
+            "mark_price": 0.185,
+            "notional": 1850.0,
+        },
+    ]
+    candidates = [
+        {
+            "engine": "trend",
+            "setup_type": "BREAKOUT",
+            "symbol": "XRPUSDT",
+            "side": "LONG",
+            "score": 0.91,
+            "sector": "payments",
+        }
+    ]
+    decisions = allocate_candidates(account=account, candidates=candidates)
+
+    assert decisions
+    assert all(d.status == "REJECTED" for d in decisions)
+    assert all("持仓数" in " ".join(d.reasons) or d.meta.get("open_positions_limit_hit") for d in decisions)
