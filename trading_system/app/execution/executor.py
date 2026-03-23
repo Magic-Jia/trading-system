@@ -32,20 +32,20 @@ class OrderExecutor:
         if self.mode == "paper":
             result = paper_fill(order)
             order.status = "FILLED"
+            bind_active_order(state, order)
+            state.positions[order.symbol] = {
+                "side": order.side,
+                "qty": order.qty,
+                "entry_price": order.entry_price,
+                "stop_loss": order.stop_loss,
+                "take_profit": order.take_profit,
+                "status": order.status,
+                "intent_id": order.intent_id,
+            }
         else:
             result = dry_run_fill(order)
             order.status = "SENT"
 
-        bind_active_order(state, order)
-        state.positions[order.symbol] = {
-            "side": order.side,
-            "qty": order.qty,
-            "entry_price": order.entry_price,
-            "stop_loss": order.stop_loss,
-            "take_profit": order.take_profit,
-            "status": order.status,
-            "intent_id": order.intent_id,
-        }
         self.append_log(order, result)
         return result
 
