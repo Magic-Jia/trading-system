@@ -9,28 +9,40 @@
 ## Current active coding task
 
 - Branch/worktree: `codex/continue-dev` / `/tmp/openclaw-worktrees/trading-system-continue-dev`
-- Objective: continue automatic trading program development from the isolated worktree, now switching long-running execution orchestration to ACP/session-based delivery so main-session reporting is no longer coupled to `exec background`
+- Objective: start roadmap item P0.1 and make execution mode boundaries explicit so the system cannot drift from paper-first behavior into ambiguous execution semantics
 - Latest commits in active worktree:
-  - `6263d37` — `fix: bound active-order replay window`
-  - `f86264c` — `fix: tighten stale fingerprint replay gating`
-  - `5f16b43` — `fix: expire stale idempotency fingerprints`
-  - `35b327f` — `fix: scope allocator replay bypass to matching signal fingerprint`
-  - `1f190d3` — `fix: reject unmanaged runtime symbol conflicts in allocator`
-- Latest verified commands:
-  - `git -C /tmp/openclaw-worktrees/trading-system-continue-dev log --oneline --decorate -n 3 && git -C /tmp/openclaw-worktrees/trading-system-continue-dev status --short --branch`
-  - Result: latest worktree commit is `6263d37`; branch clean except untracked runtime artifact `trading_system/data/execution_log.jsonl`
+  - `e3121ae` — `Preflight short-management workspace hazards`
+  - `337ed81` — `Tighten generated short-management artifact errors`
+  - `f44ad64` — `Handle unreadable generated short-management fixtures`
+  - `3c0d677` — `Handle unreadable generated short-management baseline`
+  - `b15863f` — `Handle unreadable generated verification state`
+- Latest verified commands/results:
+  - roadmap doc written to `docs/superpowers/plans/2026-03-23-trading-system-p0-p1-p2-roadmap.md`
+  - README pointer added to that roadmap
+  - latest landed commit: `7ca38e1` (`docs: add trading system P0 P1 P2 roadmap`)
+  - roadmap now defines what is done, what is not done, and recommends starting with P0.1 real execution boundary / mode separation
+  - OpenClaw Feishu completion-handoff investigation is parked for later follow-up
 - Last known full-suite baseline on main:
   - `uv run --with pytest pytest -q`
   - Result: `61 passed`
 - Current execution mode:
-  - Main session reports status; Claw decides the bounded implementation slice; execution is migrating to an ACP/session-based Codex path rather than `exec background`
+  - Main session reports status; Claw decides the bounded implementation slice; Codex develops in the isolated worktree `/tmp/openclaw-worktrees/trading-system-continue-dev` via ACP runtime
+  - Current executor state before restart: previous Codex rerun completed normally and committed the short-management-workspace-preflight slice; no new active executor verified yet in this turn
+  - Preflight note for next step: inspect and avoid unrelated dirty files before committing any new slice
 - Current blocker history:
-  - Prior `codex exec --full-auto` attempts in isolated `/tmp` worktrees hit sandbox/bootstrap failures (`bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted`)
-  - `exec background` repeatedly failed the user-facing exit-reporting expectation even when coding itself succeeded
-  - Local host lacks `rg`; use `grep` / Python fallbacks for repo inspection
+  - The next product gap is auditability rather than execution correctness: runtime state still relies on stdout / side logs for execution details
+  - OpenClaw Feishu completion-handoff debugging is intentionally parked and should not block trading_system feature work
 - Next action:
-  1. persist the orchestration-rule change to workspace memory
-  2. spawn an ACP Codex session for the next explicit bounded slice chosen by Claw
-  3. continue hardening idempotency / order-state cleanup edge cases without letting Codex choose scope
-  4. report immediate status from the main session
-- Last user update time: 2026-03-21 10:58 Europe/Berlin
+  1. stop using ad-hoc micro-guardrail slices as the sole driver and write a P0 / P1 / P2 remaining-work roadmap into repo docs
+  2. use that roadmap to choose the next justified implementation slice
+  3. commit the roadmap separately from any follow-on implementation
+- Last user update time: 2026-03-23 16:10 Europe/Berlin
+ext product gap is auditability rather than execution correctness: runtime state still relies on stdout / side logs for execution details
+  - OpenClaw Feishu completion-handoff debugging is intentionally parked and should not block trading_system feature work
+- Next action:
+  1. stop using ad-hoc micro-guardrail slices as the sole driver and write a P0 / P1 / P2 remaining-work roadmap into repo docs
+  2. use that roadmap to choose the next justified implementation slice
+  3. commit the roadmap separately from any follow-on implementation
+- Last user update time: 2026-03-23 16:10 Europe/Berlin
+: 2026-03-23 16:10 Europe/Berlin
+: 2026-03-23 16:10 Europe/Berlin
