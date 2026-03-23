@@ -5,7 +5,7 @@ from typing import Any
 
 from ..config import RiskConfig
 from ..types import AccountSnapshot, TradeSignal, ValidationResult
-from .guardrails import evaluate_guardrails
+from .guardrails import MAJOR_COIN_PREFIXES, evaluate_guardrails
 from .position_sizer import size_signal
 
 
@@ -75,6 +75,23 @@ def _position_symbol(position: Any) -> str:
     return str(getattr(position, "symbol", "")).upper()
 
 
+def _allocator_correlated_positions(
+    symbol: str,
+    positions: list[Any],
+) -> list[Any]:
+    prefix = symbol.replace("USDT", "")
+    peers: list[Any] = []
+    for position in positions:
+        pos_symbol = _position_symbol(position)
+        if pos_symbol == symbol:
+            peers.append(position)
+            continue
+        pos_prefix = pos_symbol.replace("USDT", "")
+        if prefix.startswith(MAJOR_COIN_PREFIXES) and pos_prefix.startswith(MAJOR_COIN_PREFIXES):
+            peers.append(position)
+    return peers
+
+
 def validate_candidate_for_allocation(
     candidate: Mapping[str, Any],
     account: AccountSnapshot | Mapping[str, Any],
@@ -104,7 +121,9 @@ def validate_candidate_for_allocation(
     if not isinstance(positions, list):
         positions = []
     has_existing_symbol_exposure = any(_position_symbol(position) == symbol for position in positions)
+    correlated_positions = _allocator_correlated_positions(symbol, positions)
     metrics["has_existing_symbol_exposure"] = has_existing_symbol_exposure
+    metrics["correlated_positions"] = len(correlated_positions)
 
     if reasons:
         return ValidationResult(False, "BLOCK", reasons=reasons, metrics=metrics)
@@ -115,5 +134,9 @@ def validate_candidate_for_allocation(
         severity = "BLOCK"
         allowed = False
         reasons.append("existing exposure detected on symbol")
+    elif len(correlated_positions) >= 3:
+        severity = "BLOCK"
+        allowed = False
+        reasons.append(f"correlated exposure too high: {len(correlated_positions)} major-coin peers already open")
 
     return ValidationResult(allowed, severity, reasons=reasons, metrics=metrics)
