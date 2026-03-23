@@ -45,6 +45,7 @@
 ### 新的程序骨架层
 
 - `docs/MVP_ARCHITECTURE.md`：自动交易程序 MVP 架构、模块清单、开发顺序
+- `../docs/superpowers/plans/2026-03-23-trading-system-p0-p1-p2-roadmap.md`：当前未完成项路线图（P0 / P1 / P2）与推荐开发顺序
 - `app/`：模块化自动交易程序骨架
   - `connectors/`：交易所接口
   - `signals/`：信号与策略
