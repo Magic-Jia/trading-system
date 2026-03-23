@@ -110,8 +110,10 @@ def validate_candidate_for_allocation(
         return ValidationResult(False, "BLOCK", reasons=reasons, metrics=metrics)
 
     severity = "INFO"
+    allowed = True
     if has_existing_symbol_exposure:
-        severity = "WARN"
+        severity = "BLOCK"
+        allowed = False
         reasons.append("existing exposure detected on symbol")
 
-    return ValidationResult(True, severity, reasons=reasons, metrics=metrics)
+    return ValidationResult(allowed, severity, reasons=reasons, metrics=metrics)
