@@ -154,6 +154,8 @@ class EngineCandidate:
     symbol: str
     side: Side
     score: float
+    stop_loss: float = 0.0
+    invalidation_source: str = ""
     timeframe_meta: dict[str, Any] = field(default_factory=dict)
     sector: str | None = None
     liquidity_meta: dict[str, Any] = field(default_factory=dict)

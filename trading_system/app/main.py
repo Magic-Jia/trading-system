@@ -144,6 +144,8 @@ def _candidate_row(candidate: Any) -> dict[str, Any]:
         "symbol": str(getattr(candidate, "symbol", "")),
         "side": str(getattr(candidate, "side", "LONG")),
         "score": _float({"score": getattr(candidate, "score", 0.0)}, "score"),
+        "stop_loss": _float({"stop_loss": getattr(candidate, "stop_loss", 0.0)}, "stop_loss"),
+        "invalidation_source": str(getattr(candidate, "invalidation_source", "") or ""),
         "sector": getattr(candidate, "sector", None),
         "timeframe_meta": dict(getattr(candidate, "timeframe_meta", {}) or {}),
         "liquidity_meta": dict(getattr(candidate, "liquidity_meta", {}) or {}),

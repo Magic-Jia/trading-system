@@ -493,11 +493,23 @@ def test_main_v2_dry_run_does_not_leave_execution_traces(monkeypatch, tmp_path, 
     assert state.get("cooldowns") == {}
     assert state.get("active_orders") == {}
     assert all(not position.get("tracked_from_intent") for position in state.get("positions", {}).values())
+    trend_candidates = [row for row in state.get("latest_candidates", []) if row.get("engine") == "trend"]
+    assert trend_candidates
+    assert all(float(row.get("stop_loss", 0.0) or 0.0) > 0 for row in trend_candidates)
+    assert all(row.get("invalidation_source") == "trend_structure_loss_below_4h_ema50" for row in trend_candidates)
     accepted_allocations = [row for row in state.get("latest_allocations", []) if row.get("status") in {"ACCEPTED", "DOWNSIZED"}]
     assert accepted_allocations
-    assert all(row.get("execution", {}).get("status") == "BLOCKED" for row in accepted_allocations if row.get("engine") != "short")
-    assert all("显式止损" in row.get("execution", {}).get("reason", "") for row in accepted_allocations if row.get("engine") != "short")
-    assert all("invalidation_source" in row.get("execution", {}).get("reason", "") for row in accepted_allocations if row.get("engine") != "short")
+    trend_allocations = [row for row in accepted_allocations if row.get("engine") == "trend"]
+    assert trend_allocations
+    assert all(float(row.get("stop_loss", 0.0) or 0.0) > 0 for row in trend_allocations)
+    assert all(row.get("invalidation_source") == "trend_structure_loss_below_4h_ema50" for row in trend_allocations)
+    assert all(row.get("execution", {}).get("status") == "BLOCKED" for row in trend_allocations)
+    assert all("显式止损" not in row.get("execution", {}).get("reason", "") for row in trend_allocations)
+    assert all("invalidation_source" not in row.get("execution", {}).get("reason", "") for row in trend_allocations)
+    blocked_non_trend = [row for row in accepted_allocations if row.get("engine") not in {"trend", "short"}]
+    assert all(row.get("execution", {}).get("status") == "BLOCKED" for row in blocked_non_trend)
+    assert all("显式止损" in row.get("execution", {}).get("reason", "") for row in blocked_non_trend)
+    assert all("invalidation_source" in row.get("execution", {}).get("reason", "") for row in blocked_non_trend)
 
 
 def test_main_v2_live_not_yet_enabled_leaves_no_partial_state(monkeypatch, tmp_path, load_fixture):

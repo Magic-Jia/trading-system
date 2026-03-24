@@ -60,6 +60,16 @@ def _setup_type(payload: Mapping[str, Any]) -> str:
     return "PULLBACK_CONTINUATION"
 
 
+def _trend_stop_loss(payload: Mapping[str, Any]) -> float:
+    h4 = _tf_row(payload, "4h")
+    daily = _tf_row(payload, "daily")
+    entry_reference = _to_float(daily.get("close")) or _to_float(h4.get("close"))
+    stop_loss = _to_float(h4.get("ema_50"))
+    if entry_reference <= 0 or stop_loss <= 0 or stop_loss >= entry_reference:
+        return 0.0
+    return stop_loss
+
+
 def generate_trend_candidates(
     market_context: Mapping[str, Any], *, include_high_liquidity_strong_names: bool = True
 ) -> list[EngineCandidate]:
@@ -97,6 +107,10 @@ def generate_trend_candidates(
         if total_score <= 0.0:
             continue
 
+        stop_loss = _trend_stop_loss(payload)
+        if stop_loss <= 0.0:
+            continue
+
         candidates.append(
             EngineCandidate(
                 engine="trend",
@@ -104,6 +118,8 @@ def generate_trend_candidates(
                 symbol=str(symbol),
                 side="LONG",
                 score=total_score,
+                stop_loss=stop_loss,
+                invalidation_source="trend_structure_loss_below_4h_ema50",
                 timeframe_meta={
                     "daily_bias": "up",
                     "h4_structure": "intact",
