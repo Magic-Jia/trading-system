@@ -1,288 +1,235 @@
-# Trading System P0 / P1 / P2 Roadmap Implementation Plan
+# Trading System Roadmap — Execution-Safety Track + Strategy-Development Track
 
-> **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking.
+> Goal: rewrite the roadmap so future work does not confuse “safe automation plumbing” with “actual strategy edge.”
 
-**Goal:** Turn the current partial-v2 paper-trading system into a production-safe trading program by finishing the real execution, risk, state-recovery, short-execution, and reporting/audit gaps in a sequenced P0 / P1 / P2 roadmap.
+## 1. Current system snapshot
 
-**Architecture:** Keep the current modular `trading_system/app/*` structure and treat the recent `paper_verification` hardening work as support infrastructure rather than the main delivery thread. Finish the system in layers: first make the execution/risk/state bottom layer real and restart-safe (P0), then complete short/lifecycle/reporting loops (P1), then add strategy/risk sophistication and evaluation tooling (P2).
+当前系统已经形成一条完整但仍是 **partial v2** 的纸面主链路：
 
-**Tech Stack:** Python, pytest, uv, Binance connector layer, JSON state/log artifacts, paper execution runtime, OpenClaw commit notifications.
+1. `regime`
+2. `universe`
+3. `trend engine`
+4. `rotation engine`
+5. `short engine`
+6. `validator / allocator / risk gate`
+7. `paper execution`
+8. `lifecycle / reporting / runtime state`
 
----
+当前真实边界：
 
-## Current State Snapshot
+- live execution 仍未启用；系统本质上仍是 paper-first
+- short 候选已经生成、评分、分配并写入 runtime state，但 short 执行仍未打通
+- allocator / guardrails / lifecycle 已有骨架，但策略成熟度并未跟上模块数量
+- `partial_v2_coverage=true` 依然是正确标签：结构比过去完整，但还不能假装它已经是成熟策略系统
 
-### Already done
+## 2. Current strategy defects
 
-- [x] v2 main paper cycle exists: regime → universe → trend candidates → validation → allocation → paper execution → lifecycle/reporting.
-- [x] `rotation engine` is partially integrated into runtime state and summaries.
-- [x] `short engine` first version exists for defensive regimes, but execution coverage is still partial.
-- [x] `runtime_state.json` persistence and runtime stdout summaries exist.
-- [x] `paper_verification` has strong guardrails around malformed inputs, unreadable generated artifacts, path hazards, permission failures, and stderr/stdout contracts.
-- [x] `execution_log.jsonl` has been classified as runtime output and ignored.
-- [x] Short-management verification and generated artifact handling are now heavily hardened.
+### 2.1 The system is still too price-structure-heavy
 
-### Still not done
+当前大多数判断仍然来自：
 
-- [ ] Real order execution is not production-complete; current system is still fundamentally paper-first.
-- [ ] Risk engine is not yet complete enough for real auto-execution (aggregate risk, correlation, kill-switch, hard reject rules, restart-safe exposure checks).
-- [ ] State recovery / restart consistency is not yet finished to real-trading level.
-- [ ] Short execution chain is not fully enabled end-to-end.
-- [ ] Journal / audit / reporting is still weaker than the trading loop itself.
-- [ ] Backtest / attribution / evaluation tooling is not yet in place.
-- [ ] There is no clean documented “done” line yet for moving from safe simulation to small-scale real execution.
+- EMA 堆叠关系
+- 近 24h / 3d / 7d 涨跌幅
+- breakout / pullback / breakdown 这些价格结构形态
+- 以 EMA 为主的默认止损锚点
 
----
+这些规则在任何趋势市场都能工作一点，但它们还不够 **crypto-specific**。
 
-## File Map for Remaining Work
+### 2.2 What is still missing from a crypto-native system
 
-### Core execution/risk/state files
-- `trading_system/app/main.py` — orchestrates the end-to-end cycle; must become stricter about execution and recovery boundaries.
-- `trading_system/app/execution/executor.py` — current execution layer; likely starting point for real-vs-paper execution split hardening.
-- `trading_system/app/execution/orders.py` — real order placement/cancel/replace behavior, currently not yet promoted to production-safe completeness.
-- `trading_system/app/execution/idempotency.py` — must become a hard gate against duplicate live actions.
-- `trading_system/app/risk/validator.py` — candidate-level validation exists; needs stricter account-level reject logic.
-- `trading_system/app/risk/guardrails.py` — likely home for account/global risk, exposure, and kill-switch rules.
-- `trading_system/app/risk/position_sizer.py` (or allocator-adjacent sizing logic) — needs production-safe size hard caps and loss budgeting.
-- `trading_system/app/storage/state_store.py` — state persistence; must be restart-safe and adequate for recovery.
-- `trading_system/app/storage/journal_store.py` — trade/audit log store; likely underbuilt relative to operational needs.
+- 衍生品特征主要还停留在 majors 聚合级别的 regime 摘要，而不是 candidate-level 决策输入
+- crowding / positioning 没有真正进入 trend、rotation、short 的过滤逻辑
+- longs 缺少单独的 **absolute strength** 门槛，rotation 也还没有同时要求“相对强 + 绝对强”
+- 缺少明确的 **overheat filters**，无法系统性回避晚段扩张、情绪挤兑、追高拥挤
+- 止损体系仍偏单一，exit 体系仍偏通用，缺少 setup-aware taxonomy
+- short engine 目前只是“防守型占位”，不是成熟的 crypto downside engine
+- regime 层没有单独建模 crash / cascade / squeeze 这类会要求立刻压缩风险的极端环境
 
-### Portfolio / short / reporting files
-- `trading_system/app/portfolio/positions.py`
-- `trading_system/app/portfolio/lifecycle.py`
-- `trading_system/app/reporting/daily_report.py`
-- `trading_system/devtools/paper_verification.py`
-- `trading_system/tests/test_main_v2_cycle.py`
-- `trading_system/tests/test_paper_verification.py`
+## 3. Two separate roadmaps
 
-### Docs that should stay aligned
-- `trading_system/README.md`
-- `trading_system/docs/MVP_ARCHITECTURE.md`
-- `trading_system/runbook.md`
+后续实现必须分成两条主线：
+
+1. **Execution-safety track**：解决“系统能否安全自动运行”
+2. **Strategy-development track**：解决“系统到底该交易什么、凭什么有边际优势”
+
+这两条主线不能再混在一起排序。
 
 ---
 
-## P0 — Must finish before calling this a real automated trading program
+## 4. Track A — Execution-safety roadmap
 
-**Definition:** Without these, the system may still be useful for simulation and verification, but it is not ready to control real money safely.
+这条线决定系统是否能安全接近真实资金环境。
+它不是策略 edge，但它是任何真实执行前的前置条件。
 
-### P0.1 Real execution boundary and mode separation
+### A1. Real execution boundary and mode separation
 
-**Files:**
-- Modify: `trading_system/app/main.py`
-- Modify: `trading_system/app/execution/executor.py`
-- Modify: `trading_system/app/execution/orders.py`
-- Test: `trading_system/tests/test_main_v2_cycle.py`
-- Test: `trading_system/tests/test_executor.py` (create if missing)
+- 明确 paper / dry-run / live 的隔离边界
+- 禁止任何“隐式 live”路径
+- 把执行权限升级成显式配置与显式测试对象
 
-- [ ] **Step 1: Write failing tests for real-vs-paper execution boundaries**
-- [ ] **Step 2: Verify current behavior fails or is missing**
-- [ ] **Step 3: Implement explicit execution mode boundary so live execution cannot happen implicitly**
-- [ ] **Step 4: Verify focused execution tests pass**
-- [ ] **Step 5: Commit**
+### A2. Hard risk gate before execution
 
-**Why:** Right now the system is still paper-first. A production-safe system needs an explicit and testable boundary between simulation and live execution.
+- 在 execution 前加入账户级 reject 逻辑
+- 补足 aggregate risk、directional exposure、kill-switch、restart-safe exposure checks
+- 让 allocator 之后仍有最后一道 execution risk veto
 
----
+### A3. Restart-safe state recovery and idempotent replay
 
-### P0.2 Hard risk gate before execution
+- 补齐 crash window、重启恢复、重复执行防护
+- 让真实 side effect 与 durable state 的恢复路径一致
+- 明确哪些动作在重启后必须 replay、哪些必须 hard stop
 
-**Files:**
-- Modify: `trading_system/app/risk/validator.py`
-- Modify: `trading_system/app/risk/guardrails.py`
-- Modify: `trading_system/app/main.py`
-- Test: `trading_system/tests/test_validator.py`
-- Test: `trading_system/tests/test_main_v2_cycle.py`
+### A4. Journal / audit minimum viable truth trail
 
-- [ ] **Step 1: Write failing tests for account-level reject rules**
-- [ ] **Step 2: Add total-risk / exposure / correlation / no-stop reject rules**
-- [ ] **Step 3: Run narrow risk tests**
-- [ ] **Step 4: Run cycle tests proving rejected intents do not execute**
-- [ ] **Step 5: Commit**
+- 让 entry / stop / target / invalidation / execution result 都有可追溯落盘
+- 保证出问题时可以重建“为什么做、做了什么、结果怎样”
 
-**Why:** Candidate-level validation is not enough. Real automation needs account-level refusal rules that override conviction.
+### A5. Short execution chain end-to-end
 
----
+- 这一步属于 execution-safety 线，而不是策略线
+- 前提不是“已经有 short candidates”，而是“short 执行、保护单、恢复路径、日志都完整可控”
 
-### P0.3 Restart-safe state recovery and idempotent execution replay
+### A6. Lifecycle and operator reporting completion
 
-**Files:**
-- Modify: `trading_system/app/storage/state_store.py`
-- Modify: `trading_system/app/execution/idempotency.py`
-- Modify: `trading_system/app/main.py`
-- Test: `trading_system/tests/test_state_store.py`
-- Test: `trading_system/tests/test_main_v2_cycle.py`
+- 完成 protective order、management preview、operator summary、incident response 文档
+- 目标是让系统不仅能跑，还能被安全接管和排障
 
-- [ ] **Step 1: Write failing restart/replay tests**
-- [ ] **Step 2: Persist enough execution identity and recovery state**
-- [ ] **Step 3: Prove duplicate execution is blocked across restart/replay**
-- [ ] **Step 4: Run focused restart/idempotency tests**
-- [ ] **Step 5: Commit**
+**Execution-safety order:**
 
-**Why:** “同一信号不能执行两次” and “程序重启后不能失忆” are core architecture rules, not nice-to-haves.
+1. `A1` real execution boundary
+2. `A2` hard risk gate
+3. `A3` restart-safe recovery
+4. `A4` audit trail
+5. `A5` short execution chain
+6. `A6` lifecycle / operator reporting
 
 ---
 
-### P0.4 Journal / audit minimum viable truth trail
+## 5. Track B — Strategy-development roadmap
 
-**Files:**
-- Modify: `trading_system/app/storage/journal_store.py`
-- Modify: `trading_system/app/main.py`
-- Modify: `trading_system/README.md`
-- Test: `trading_system/tests/test_journal_store.py` (create if missing)
-- Test: `trading_system/tests/test_main_v2_cycle.py`
+这条线决定系统下一步的真实策略方向。
+它必须与 execution-safety 线分开评审、分开排期。
 
-- [ ] **Step 1: Write failing tests for mandatory execution rationale and action logging**
-- [ ] **Step 2: Persist rationale, invalidation, targets, execution outcome, and linkage to signal/execution ids**
-- [ ] **Step 3: Verify audit records survive one complete cycle**
-- [ ] **Step 4: Document audit expectations**
-- [ ] **Step 5: Commit**
+### B1. Crypto derivatives and crowding as first-class features
 
-**Why:** Without an audit trail, the system is not safe to operate or improve.
+**Objective:** 先解决“为什么它还不像一个 crypto system”。
 
----
+**Required upgrades:**
 
-## P1 — Complete the strategy/execution loop already implied by the current architecture
+- 把 funding / OI change / basis / taker imbalance 从 regime 摘要推进到 candidate-level
+- 先覆盖 majors，再覆盖 rotation，再覆盖 short
+- 为 trend / rotation / short 分别定义 crowded-long、crowded-short、healthy participation、squeeze-risk 等状态
+- 在 runtime summary 中暴露被这些过滤器拦下的原因
 
-### P1.1 Short execution chain end-to-end
+**Why first:**
 
-**Files:**
-- Modify: `trading_system/app/main.py`
-- Modify: `trading_system/app/execution/executor.py`
-- Modify: `trading_system/app/portfolio/lifecycle.py`
-- Test: `trading_system/tests/test_main_v2_cycle.py`
-- Test: `trading_system/tests/test_short_execution.py` (create if missing)
+- 这是当前系统与 crypto-native edge 之间最大的结构性缺口
+- 不先做这层，后面的 stop / exit / short 仍会建立在过于泛化的价格结构上
 
-- [ ] **Step 1: Write failing tests proving accepted short intents actually execute in paper/live-safe mode**
-- [ ] **Step 2: Remove the current “short_execution_not_enabled” dead-end where appropriate**
-- [ ] **Step 3: Verify short entries/exits/management work end-to-end**
-- [ ] **Step 4: Commit**
+### B2. Absolute strength and overheat filters
 
-**Why:** Short analysis exists, but the system is still partial until short execution is real.
+**Objective:** long 不能只看 relative strength，也不能只看“长得像趋势”。
 
----
+**Required upgrades:**
 
-### P1.2 Lifecycle and protective order management completion
+- 给 trend / rotation longs 增加独立的 absolute strength floor
+- rotation 需要同时满足 relative strength leadership 与 absolute trend health
+- 增加 overheat / late-stage extension 过滤：价格扩张过快、funding / basis 过热、单日冲高过猛、追高赔率变差时拒绝新开仓
 
-**Files:**
-- Modify: `trading_system/app/portfolio/lifecycle.py`
-- Modify: `trading_system/app/portfolio/positions.py`
-- Modify: `trading_system/app/execution/orders.py`
-- Test: `trading_system/tests/test_lifecycle.py`
-- Test: `trading_system/tests/test_main_v2_cycle.py`
+**Why second:**
 
-- [ ] **Step 1: Write failing tests for stop movement / partial take-profit / invalidation-driven exits**
-- [ ] **Step 2: Implement minimal production-safe lifecycle actions**
-- [ ] **Step 3: Verify lifecycle action previews match executable behavior**
-- [ ] **Step 4: Commit**
+- 这一步直接解决“强，但已经太热”和“相对强，但绝对并不健康”的问题
 
-**Why:** Entry logic without disciplined exit mechanics is only half a trading system.
+### B3. Richer stop taxonomy
 
----
+**Objective:** 不同 setup 必须有不同的无效化定义，而不是继续共用单一 EMA 风格止损。
 
-### P1.3 Operator reporting and daily summary
+**Required upgrades:**
 
-**Files:**
-- Modify: `trading_system/app/reporting/daily_report.py`
-- Modify: `trading_system/app/main.py`
-- Modify: `trading_system/runbook.md`
-- Test: `trading_system/tests/test_reporting.py` (create if missing)
+- breakout、pullback、rotation、short 分别定义 stop families
+- 区分 structure stop、volatility stop、squeeze stop、time stop、failure stop
+- 让候选与 runtime state 明确记录 stop taxonomy 与 invalidation reason
 
-- [ ] **Step 1: Write failing tests for daily/operator summary outputs**
-- [ ] **Step 2: Implement concise operator report with actions, exposure, recent execution, and top risks**
-- [ ] **Step 3: Verify human-facing report consistency with runtime state/journal**
-- [ ] **Step 4: Commit**
+**Why third:**
 
-**Why:** Once the core loop is safe, the next bottleneck is operator visibility.
+- strategy edge 不是只有 entry；真正决定赔率的是 entry 与 invalidation 的匹配方式
 
----
+### B4. Exit system
 
-## P2 — Expand system capability after the core is trustworthy
+**Objective:** 用 setup-aware exits 替代当前过于通用的 lifecycle 阈值驱动。
 
-### P2.1 Backtest / replay / attribution foundation
+**Required upgrades:**
 
-**Files:**
-- Create: `trading_system/app/reporting/attribution.py`
-- Create: `trading_system/tests/test_attribution.py`
-- Modify: `trading_system/docs/MVP_ARCHITECTURE.md`
+- partial take profit、trail、break-even、time-stop、trend fatigue exit、crowding unwind exit
+- exit 逻辑按 engine / setup type 区分，而不是只有统一的 lifecycle 状态机
+- regime deterioration 进入 exit 决策，而不是只影响新仓 aggressiveness
 
-- [ ] **Step 1: Define the minimal attribution schema**
-- [ ] **Step 2: Add replayable performance summaries**
-- [ ] **Step 3: Verify per-trade and per-module attribution outputs**
-- [ ] **Step 4: Commit**
+**Why fourth:**
 
-**Why:** Without structured attribution, the system can run but cannot learn well.
+- 当前系统的退出还不足以承载真正的 crypto trend / rotation / short 行为差异
 
----
+### B5. Short maturity
 
-### P2.2 Broader strategy coverage
+**Objective:** 让 short 从“防御型补位”升级成成熟的下跌参与子系统。
 
-**Files:**
-- Modify: `trading_system/app/signals/strategy_trend.py`
-- Modify: `trading_system/app/main.py`
-- Test: `trading_system/tests/test_strategy_trend.py`
+**Required upgrades:**
 
-- [ ] **Step 1: Add multi-timeframe filters or one carefully chosen strategy extension**
-- [ ] **Step 2: Verify it improves selection quality without destabilizing execution**
-- [ ] **Step 3: Commit**
+- 区分 breakdown short 与 failed-bounce short
+- 加入 squeeze-risk / short-crowding 过滤
+- 用 derivatives + overheat + absolute weakness 来确认空头赔率
+- 先把 short thesis 做成熟，再谈放开 short execution
 
-**Why:** Strategy expansion should happen only after the execution/risk machine is trusted.
+**Why fifth:**
+
+- short 在 crypto 中最容易被 squeeze；没有足够成熟度，执行链越完整反而越危险
+
+### B6. Regime crash protection
+
+**Objective:** 让 regime 层能识别真正需要“急速压风险”的环境，而不只是普通 risk-off。
+
+**Required upgrades:**
+
+- 增加 explicit crash / cascade / squeeze regime
+- 引入暴跌、去杠杆、异常波动、资金费率极端化时的 exposure compression
+- 对新仓、加仓、移动止损、被动持有给出不同级别的强制限制
+
+**Why sixth:**
+
+- 这是系统从“普通策略框架”走向“能理解 crypto 极端环境”的关键一步
+
+### B7. Replay / attribution after the strategy stack is clearer
+
+**Objective:** 等前 6 步明确后，再补 replay / attribution 才不会评估一套方向仍不稳定的系统。
 
 ---
 
-### P2.3 Production operations polish
+## 6. Recommended development order
 
-**Files:**
-- Modify: `trading_system/runbook.md`
-- Modify: `trading_system/README.md`
-- Modify: `trading_system/docs/MVP_ARCHITECTURE.md`
+### Execution-safety order
 
-- [ ] **Step 1: Document deploy, restart, rollback, and incident-response paths**
-- [ ] **Step 2: Add verification commands for operator checklists**
-- [ ] **Step 3: Commit**
+1. `A1` real execution boundary
+2. `A2` hard risk gate
+3. `A3` restart-safe recovery
+4. `A4` audit trail
+5. `A5` short execution chain
+6. `A6` lifecycle / operator reporting
 
-**Why:** A system that can trade but cannot be operated safely is still unfinished.
+### Strategy-development order
 
----
+1. `B1` crypto derivatives + crowding
+2. `B2` absolute strength + overheat filters
+3. `B3` richer stop taxonomy
+4. `B4` exit system
+5. `B5` short maturity
+6. `B6` regime crash protection
+7. `B7` replay / attribution
 
-## Recommended sequencing
+## 7. Review focus for the next user checkpoint
 
-### Immediate next recommendation
-1. **P0.1 Real execution boundary and mode separation**
-2. **P0.2 Hard risk gate before execution**
-3. **P0.3 Restart-safe state recovery and idempotent replay**
-4. **P0.4 Journal / audit minimum viable truth trail**
-5. Then move into **P1 short execution chain** and **lifecycle completion**
+Step 2 review 应重点确认：
 
-### Why this order
-- Recent work has heavily hardened verification surfaces.
-- The biggest remaining value gap is no longer “better error text”; it is whether the system can safely control real execution and recover from real-world failures.
-- That makes execution/risk/state the true bottleneck.
-
----
-
-## First slice to start from this roadmap
-
-**Recommended first implementation slice:** P0.1 real execution boundary and mode separation.
-
-**Reason:**
-- The current repo is still clearly paper-first.
-- Without an explicit, test-proven mode boundary, later work on risk and recovery can still sit on top of an ambiguous execution model.
-- This is the cleanest way to shift from “partial v2 simulator with good guardrails” toward “production-safe automated trading program.”
-
----
-
-## Verification standards for future work
-
-For every task chosen from this roadmap:
-- Start with a failing focused test or equivalent narrow repro.
-- Make the smallest change that turns the target scenario green.
-- Run one narrow adjacent verification set.
-- Commit in small slices.
-- Keep docs aligned when user-facing behavior changes.
-
----
-
-## Chunk 1: Roadmap complete
-
-This document is the working source of truth for unfinished trading_system work until superseded by a newer dated roadmap.
+- 这套系统是否真的要从“price-structure-first”转向“crypto-derivatives-aware”
+- `B1 -> B6` 的顺序是否符合老板对 edge 来源的判断
+- short 是否应该继续排在 stop / exit 之后，而不是提前变成主线
+- regime crash protection 是否应该在 short maturity 前置，或保持当前顺序
+- execution-safety 与 strategy-development 这两条线是否已经切分清楚

@@ -1,34 +1,69 @@
-# Trading System v1 / v2 P1 Rotation
+# Trading System v2 / Partial Strategy Stack
 
 面向 Claw 的加密交易工作流骨架。
 
 ## 目标
 
 - 读取 Binance 账户（当前默认只读）
-- 扫描市场与当前持仓
-- 生成交易计划
-- 对每一笔计划中的开仓/平仓给出充分依据
+- 扫描市场、衍生品状态与当前持仓
+- 生成结构化交易候选与组合分配决策
+- 对每一笔计划中的开仓 / 平仓给出充分依据
 - 记录复盘与系统改进
 - 支持模拟执行（paper trading）
 
-## v2 P1（rotation phase on top of P0）范围
+## 当前策略结构
 
-当前仓库已在 v2 P0 主链路基础上接入 rotation engine，但仍是 **partial v2** 覆盖：
+当前运行中的主链路已经不是只有单一 trend 脚本，而是一个 **partial v2 strategy stack**：
 
-1. `regime`：市场状态识别（risk-on / risk-off / neutral）
-2. `universe`：动态候选池构建
-3. `trend engine`：趋势候选生成
-4. `rotation engine`：强势轮动候选生成与评分
-5. `validator`：候选风控校验
-6. `allocator`：组合风险预算分配
-7. `execution`：paper 执行 + 幂等防重
-8. `lifecycle/reporting`：仓位生命周期建议与运行摘要输出
+1. `regime`：市场状态识别，输出 risk multiplier、bucket targets、suppression rules
+2. `universe`：拆分 majors / rotation / short universe
+3. `trend engine`：majors 为主的顺势延续候选
+4. `rotation engine`：强势轮动候选与评分
+5. `short engine`：防御型 regime 下的 majors short 候选
+6. `validator` + `allocator` + `risk gate`：候选校验、预算分配、组合约束
+7. `execution`：paper execution + 幂等防重
+8. `lifecycle/reporting`：仓位管理建议、运行摘要、runtime state 输出
 
-当前阶段明确约束：
-- `short` 引擎第一版已实现：仅在防御型 regime 下为 majors 生成 short 候选，并写入 `short_candidates`。
-- `rotation_candidates` 已接入 runtime state，用于暴露 rotation engine 输出。
-- `runtime_state.json` 中 `partial_v2_coverage=true` 仍用于标记当前不是完整 v2，剩余缺口主要是 short 执行链路。
-- 保持 paper execution 行为，当前 short allocation 会显式标记 `short_execution_not_enabled`，不会进入 short paper fill。
+当前阶段的明确边界：
+
+- 系统仍然是 **paper-first**，live execution 仍未启用。
+- short 候选已经进入 allocator 与 runtime state，但当前执行阶段仍会显式跳过，原因是 `short_execution_not_enabled`。
+- `runtime_state.json` 中 `partial_v2_coverage=true` 仍然代表：整体结构已成型，但执行安全与策略成熟度都还没有到“真实资金自动运行”的完成线。
+
+## 当前策略缺口
+
+当前系统已经具备 trend / rotation / short / regime / allocator 的骨架，但策略本身仍有明显限制：
+
+- **仍然过于 price-structure-heavy**：大多数入场逻辑仍以 EMA 结构、阶段涨跌幅、pullback / breakout 形态为主。
+- **还不够 crypto-native**：衍生品数据目前主要用于 majors 级别的 regime 摘要，尚未成为每个候选的核心过滤器。
+- **absolute strength 不够明确**：rotation 已经有 relative strength，但 longs 仍缺少独立的绝对强弱门槛。
+- **overheat / crowding 过滤不够**：还没有把 funding、OI、basis、taker imbalance、扩张速度真正做成晚段过热过滤器。
+- **止损与退出体系偏单薄**：多个引擎仍主要依赖单一 EMA 锚定止损，exit 也还是通用 lifecycle 阈值，缺少 setup-specific taxonomy。
+- **short 还不成熟**：当前 short engine 偏“防守占位”，还不是一个成熟的 crypto short model。
+- **regime crash protection 不够明确**：还没有单独处理 crash / cascade / squeeze 这类真正会改变仓位压缩速度的极端环境。
+
+## 新的策略方向
+
+下一阶段不应继续把重点放在“再多一点价格结构规则”，而应把系统往 **crypto-derivatives-aware strategy** 推进。
+
+最重要的策略升级顺序：
+
+1. **Crypto derivatives + crowding layer**：把 funding / OI / basis / taker flow 从 regime 摘要推进到 candidate 过滤
+2. **Absolute strength + overheat filters**：同时要求“真强”与“没热到不值得追”
+3. **Richer stop taxonomy**：按 breakout / pullback / rotation / short 区分止损模板
+4. **Exit system**：加入 partials、trail、time-stop、failure exit、crowding unwind
+5. **Short maturity**：让 short 从“防御性占位”变成成熟的可执行子系统
+6. **Regime crash protection**：增加 crash / cascade / squeeze regime 与硬性降风险逻辑
+
+这条策略升级顺序 **要与 execution-safety work 分开看**。
+execution-safety 的优先级仍然是 live boundary、hard risk gate、restart-safe state、audit trail；那是“能不能安全运行”的问题。
+上面的策略顺序才是“跑什么策略、为什么这样跑”的问题。
+
+## 关键文档
+
+- `docs/superpowers/plans/2026-03-23-trading-system-p0-p1-p2-roadmap.md`：最新双主线 roadmap（execution-safety vs strategy-development）
+- `trading_system/docs/STRATEGY_GAPS_AND_UPGRADES.md`：当前策略缺口、为什么仍然太 price-structure-heavy、以及明确的升级顺序
+- `trading_system/docs/MVP_ARCHITECTURE.md`：程序骨架与当前模块职责
 
 ## 目录
 
@@ -38,30 +73,31 @@
 - `market_scan.py`：市场快扫
 - `account_snapshot.py`：账户快照与持仓摘要
 - `generate_plan.py`：生成交易计划 JSON
-- `journal.py`：交易理由/复盘记录
+- `journal.py`：交易理由 / 复盘记录
 - `data/`：本地状态、快照、计划输出
 - `runbook.md`：运行说明
 
-### 新的程序骨架层
+### 模块化程序骨架
 
-- `docs/MVP_ARCHITECTURE.md`：自动交易程序 MVP 架构、模块清单、开发顺序
-- `../docs/superpowers/plans/2026-03-23-trading-system-p0-p1-p2-roadmap.md`：当前未完成项路线图（P0 / P1 / P2）与推荐开发顺序
-- `app/`：模块化自动交易程序骨架
-  - `connectors/`：交易所接口
-  - `signals/`：信号与策略
-  - `risk/`：风险校验与仓位管理
-  - `execution/`：订单执行与幂等保护
-  - `portfolio/`：持仓生命周期管理
-  - `storage/`：状态与日志落库
-  - `reporting/`：日报与异常输出
+- `app/main.py`：一次完整 cycle 的主编排
+- `app/market_regime/`：breadth + derivatives 摘要 + regime classifier
+- `app/universe/`：majors / rotation / short universe 构建
+- `app/signals/`：trend / rotation / short 引擎与评分逻辑
+- `app/risk/`：validator、guardrails、position sizing、regime-aware risk
+- `app/portfolio/`：allocator、exposure、lifecycle、positions
+- `app/execution/`：paper execution、idempotency、management previews
+- `app/storage/`：runtime state / journal persistence
+- `app/reporting/`：regime、rotation、short、lifecycle 摘要输出
 
 ## 环境变量
 
 兼容以下任一组：
+
 - `BINANCE_API_KEY` / `BINANCE_API_SECRET`
 - `BINANCE_APIKEY` / `BINANCE_SECRET`
 
 测试网约定：
+
 - 默认优先从 `/home/cn/.local/secrets/binance-testnet.env` 读取测试网凭证。
 - 建议在该文件中维护 `BINANCE_TESTNET_API_KEY` / `BINANCE_TESTNET_API_SECRET`。
 - 若测试网文件不可用，再回退到旧的环境变量来源。
@@ -72,23 +108,16 @@
 - 当前版本可用于：读账户、做计划、做模拟执行、记录复盘。
 - 如后续接入模拟盘执行器，可在 `paper_trades.jsonl` 中持续跟踪。
 
-## 测试与运行（v2 P0）
+## 测试与运行
 
 - 单测：`uv run --with pytest python -m pytest trading_system/tests/test_main_v2_cycle.py -v`
 - 全量测试：`uv run --with pytest python -m pytest trading_system/tests -v`
 - 手动跑一次 paper cycle：
   `TRADING_ACCOUNT_SNAPSHOT_FILE=trading_system/data/account_snapshot.json TRADING_MARKET_CONTEXT_FILE=trading_system/data/market_context.json TRADING_DERIVATIVES_SNAPSHOT_FILE=trading_system/data/derivatives_snapshot.json python -m trading_system.app.main`
 
-## 开发期进度通知
-
-- 本工作区支持基于 git `post-commit` 的 OpenClaw 自动进度通知。
-- 安装命令：`python3 -m trading_system.devtools.install_commit_hook`
-- 校验命令：`python3 -m trading_system.devtools.install_commit_hook --check`
-- 详细说明见：`../docs/openclaw-commit-notifications.md`
-
 运行期预期：
-- 标准输出包含 `regime` 与 `portfolio` 两段摘要，其中 `regime.rotation` 会给出 rotation 的紧凑报告（候选/接受/执行符号与 leader 元数据）。
-- 当存在 short 候选时，`regime.short` 会给出 short 的紧凑报告（候选/接受/延后执行符号与 leader 元数据）。
-- `portfolio.lifecycle_summary` 会给出 lifecycle 的紧凑视图：状态计数、待确认符号、需关注符号，以及按 `r_multiple` 排序的前 3 个仓位。
-- `trading_system/data/runtime_state.json` 至少包含：
-  `positions`、`management_suggestions`、`management_action_previews`、`latest_regime`、`latest_allocations`、`latest_lifecycle`、`lifecycle_summary`、`rotation_summary`、`short_candidates`、`short_summary`。
+
+- 标准输出包含 `regime` 与 `portfolio` 两段摘要，其中 `regime.rotation` 会给出 rotation 的紧凑报告。
+- 当存在 short 候选时，`regime.short` 会给出 short 的紧凑报告，但当前 short execution 仍默认跳过。
+- `portfolio.lifecycle_summary` 会给出 lifecycle 的紧凑视图。
+- `trading_system/data/runtime_state.json` 会持续保留最新的 regime / candidates / allocations / lifecycle / rotation / short 摘要。
