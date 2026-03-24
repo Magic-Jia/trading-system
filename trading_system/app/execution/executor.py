@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from ..connectors.binance import query_open_protective_orders
 from ..config import AppConfig
@@ -20,12 +20,19 @@ class ExecutionError(RuntimeError):
 
 
 class OrderExecutor:
-    def __init__(self, config: AppConfig, mode: OrderMode | None = None):
+    def __init__(
+        self,
+        config: AppConfig,
+        mode: OrderMode | None = None,
+        persist_state: Callable[[RuntimeState], None] | None = None,
+    ):
         self.config = config
         self.mode = mode or config.execution.mode
+        self.persist_state = persist_state
+        self.execution_log_path = EXEC_LOG
         if self.mode == "live" and not config.execution.allow_live_execution:
             raise ExecutionError("live execution is disabled unless TRADING_ALLOW_LIVE_EXECUTION is explicitly enabled")
-        EXEC_LOG.parent.mkdir(parents=True, exist_ok=True)
+        self.execution_log_path.parent.mkdir(parents=True, exist_ok=True)
 
     def execute(self, order: OrderIntent, state: RuntimeState) -> dict[str, Any]:
         if self.mode == "live":
@@ -44,6 +51,12 @@ class OrderExecutor:
                 "status": order.status,
                 "intent_id": order.intent_id,
             }
+            if self.persist_state is not None:
+                try:
+                    self.persist_state(state)
+                except Exception:
+                    self.append_log(order, result)
+                    raise
         else:
             result = dry_run_fill(order)
             order.status = "SENT"
@@ -75,5 +88,5 @@ class OrderExecutor:
             "order": asdict(order),
             "result": result,
         }
-        with EXEC_LOG.open("a", encoding="utf-8") as f:
+        with self.execution_log_path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(payload, ensure_ascii=False) + "\n")

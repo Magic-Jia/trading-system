@@ -8,26 +8,28 @@
 
 ## Current active coding task
 
-- Branch/worktree: `codex/p0-3-replay` / `/home/cn/.openclaw/agents/trade/workspace/.worktrees/codex-p0-3-replay`
-- Objective: land one P0.3 slice so execution identity survives a post-fill crash and blocks duplicate replay on restart
+- Branch/worktree: `master` / `/home/cn/.openclaw/agents/trade/workspace`
+- Objective: continue roadmap item P0.3: restart-safe state recovery and idempotent execution replay; latest landed slice recovers replay when `persist_state()` fails after execution-side effects have already started, and the next target is the remaining window where durable breadcrumb writing itself can fail before recovery state is safe
 - Latest commits in active worktree:
+  - `64b5bf6` — `Recover from persist-state crash via exec log` (pending cherry-pick continue into master)
+  - `2ebb18a` — `Checkpoint execution state for restart replay`
   - `cee332e` — `Emit short stop metadata upstream`
   - `f75be4a` — `Emit rotation stop metadata upstream`
   - `5777f77` — `Emit trend stop metadata upstream`
 - Latest verified commands/results:
-  - `uv run --with pytest python -m pytest trading_system/tests/test_restart_replay.py -q` → `1 passed`
-  - `uv run --with pytest python -m pytest trading_system/tests/test_restart_replay.py trading_system/tests/test_main_v2_cycle.py::test_main_v2_cycle_is_idempotent_for_same_inputs trading_system/tests/test_main_v2_cycle.py::test_main_v2_dry_run_does_not_leave_execution_traces trading_system/tests/test_executor.py -q` → `9 passed`
+  - P0.3 exec-crash worktree full suite before merge: `uv run --with pytest pytest -q` -> `102 passed in 0.59s`
+  - current main-branch post-merge verification will rerun after resolving the in-flight cherry-pick conflicts
 - Last known full-suite baseline on main:
-  - `uv run --with pytest pytest -q`
-  - Result: `61 passed`
+  - `uv run --with pytest python -m pytest -q trading_system/tests`
+  - Result: `100 passed in 0.51s` (before `64b5bf6`); needs refresh after current merge
 - Current execution mode:
-  - This worktree session is the active executor for the slice
-  - Next immediate step is commit the restart-safe checkpoint slice and report the remaining P0.3 gap
+  - Main session reports status; no active Codex executor at this instant while merge/verification completes
+  - Next implementation step should run in a fresh isolated Codex worktree after merge verification and next-slice selection
 - Current blocker history:
-  - `SOUL.md` is missing in this workspace; startup context fell back to the available workspace files
-  - Root cause isolated: `main()` only persisted `last_signal_ids`, `active_orders`, and executed paper positions at the final shutdown save, so a post-fill crash reopened the duplicate-execution window on restart
+  - The next product gap is execution/risk/state completeness rather than more paper_verification guardrails
+  - OpenClaw Feishu completion-handoff debugging is intentionally parked and should not block trading_system feature work
 - Next action:
-  1. commit the checkpoint + regression slice
-  2. report verification and root cause
-  3. hand off the next remaining P0.3 gap: recovery for crashes that happen inside execution before the checkpoint write lands
-- Last user update time: 2026-03-24 11:50 GMT+1
+  1. finish resolving the `64b5bf6` cherry-pick and verify `master`
+  2. clean up the temporary worktree/branch for `codex/p0-3-exec-crash`
+  3. continue the next P0.3 crash-recovery slice in a fresh isolated worktree
+- Last user update time: 2026-03-24 13:18 Europe/Berlin
