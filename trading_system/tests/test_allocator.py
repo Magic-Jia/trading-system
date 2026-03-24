@@ -1,3 +1,4 @@
+from trading_system.app.config import DEFAULT_CONFIG
 from trading_system.app.risk.regime_risk import scaled_risk_budget
 from trading_system.app.portfolio.exposure import exposure_snapshot
 from trading_system.app.portfolio.allocator import allocate_candidates
@@ -187,3 +188,36 @@ def test_allocator_blocks_when_existing_sector_risk_already_exceeds_cap():
     assert decisions
     assert all(d.status == "REJECTED" for d in decisions)
     assert all("sector risk" in " ".join(d.reasons).lower() or d.meta.get("sector_cap_hit") for d in decisions)
+
+
+def test_allocator_uses_remaining_account_risk_headroom(load_fixture):
+    account = load_fixture("account_snapshot_v2.json")
+    account["open_positions"] = [
+        {
+            "symbol": "BTCUSDT",
+            "side": "LONG",
+            "qty": 0.04328358,
+            "entry_price": 67000.0,
+            "mark_price": 67000.0,
+            "notional": 2900.0,
+        }
+    ]
+    candidates = [
+        {
+            "engine": "trend",
+            "setup_type": "BREAKOUT",
+            "symbol": "DOGEUSDT",
+            "side": "LONG",
+            "score": 0.91,
+            "sector": "payments",
+        }
+    ]
+
+    decisions = allocate_candidates(account=account, candidates=candidates)
+
+    assert decisions
+    accepted = [d for d in decisions if d.status in {"ACCEPTED", "DOWNSIZED"}]
+    assert accepted
+    current_active_risk = exposure_snapshot(account)["active_risk_pct"]
+    expected_remaining = max(DEFAULT_CONFIG.risk.max_total_risk_pct - current_active_risk, 0.0)
+    assert accepted[0].final_risk_budget <= expected_remaining + 1e-9

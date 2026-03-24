@@ -236,7 +236,7 @@ def allocate_candidates(
 
         bucket_cap = max(bucket_caps.get(engine, 0.0), 0.0)
         bucket_remaining = max(bucket_cap - bucket_risk_used.get(engine, 0.0), 0.0)
-        portfolio_remaining = max(total_risk_cap - portfolio_risk_used, 0.0)
+        portfolio_remaining = max(total_risk_cap - current_active_risk_pct - portfolio_risk_used, 0.0)
         allowed_budget = min(bucket_remaining, portfolio_remaining)
         if allowed_budget <= _MIN_RISK_BUDGET:
             reasons.append("bucket or portfolio risk budget exhausted")
