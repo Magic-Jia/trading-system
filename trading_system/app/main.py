@@ -18,7 +18,7 @@ from .reporting.daily_report import build_lifecycle_report, build_rotation_repor
 from .reporting.regime_report import build_regime_summary
 from .signals.rotation_engine import generate_rotation_candidates
 from .signals.short_engine import generate_short_candidates
-from .risk.validator import validate_candidate_for_allocation, validate_signal
+from .risk.validator import validate_candidate_for_allocation, validate_candidate_for_execution, validate_signal
 from .signals.trend_engine import generate_trend_candidates
 from .storage.state_store import build_state_store
 from .universe.builder import UniverseBuildResult, build_universes
@@ -155,15 +155,31 @@ def _candidate_sort_key(row: Mapping[str, Any]) -> tuple[float, str, str]:
 
 
 def _candidate_signal(candidate: Mapping[str, Any], market: Mapping[str, Any]) -> TradeSignal:
+    execution_validation = validate_candidate_for_execution(candidate)
+    if not execution_validation.allowed:
+        raise ValueError("; ".join(execution_validation.reasons) or "candidate execution validation failed")
+
     symbol = str(candidate.get("symbol", "")).upper()
     side = str(candidate.get("side", "LONG")).upper()
+    candidate_meta = candidate.get("meta") if isinstance(candidate.get("meta"), Mapping) else {}
     payload = dict(market.get("symbols", {}).get(symbol, {}))
     daily = dict(payload.get("daily", {}))
-    entry_price = _float(daily, "close")
+    entry_price = _float(candidate, "entry_price")
+    if entry_price <= 0:
+        entry_price = _float(candidate_meta, "entry_price")
+    if entry_price <= 0:
+        entry_price = _float(daily, "close")
     if entry_price <= 0:
         entry_price = 1.0
-    stop_loss = entry_price * (0.98 if side == "LONG" else 1.02)
-    take_profit = entry_price * (1.04 if side == "LONG" else 0.96)
+    stop_loss = _float(candidate, "stop_loss")
+    if stop_loss <= 0:
+        stop_loss = _float(candidate_meta, "stop_loss")
+    take_profit = _float(candidate, "take_profit")
+    if take_profit <= 0:
+        take_profit = _float(candidate_meta, "take_profit")
+    if take_profit <= 0:
+        take_profit = entry_price * (1.04 if side == "LONG" else 0.96)
+    invalidation_source = str(candidate.get("invalidation_source") or candidate_meta.get("invalidation_source") or "").strip()
     setup_type = str(candidate.get("setup_type", "trend")).lower()
     signal_id = f"v2-{candidate.get('engine', 'trend')}-{setup_type}-{symbol}".lower()
     return TradeSignal(
@@ -176,7 +192,11 @@ def _candidate_signal(candidate: Mapping[str, Any], market: Mapping[str, Any]) -
         source="strategy",
         timeframe="4h",
         tags=["v2", str(candidate.get("engine", "trend"))],
-        meta={"setup_type": candidate.get("setup_type"), "score": candidate.get("score")},
+        meta={
+            "setup_type": candidate.get("setup_type"),
+            "score": candidate.get("score"),
+            "invalidation_source": invalidation_source,
+        },
     )
 
 
@@ -208,6 +228,13 @@ def _allocation_summary(decision: Any, candidate: Mapping[str, Any]) -> dict[str
     payload["side"] = str(candidate.get("side", "LONG"))
     payload["setup_type"] = str(candidate.get("setup_type", ""))
     payload["score"] = float(candidate.get("score", 0.0) or 0.0)
+    candidate_meta = candidate.get("meta") if isinstance(candidate.get("meta"), Mapping) else {}
+    for key in ("entry_price", "stop_loss", "take_profit", "invalidation_source"):
+        value = candidate.get(key)
+        if value is None:
+            value = candidate_meta.get(key)
+        if value is not None:
+            payload[key] = value
     return payload
 
 
@@ -273,7 +300,11 @@ def main() -> None:
         if str(allocation.get("engine", "")).lower() == "short":
             allocation["execution"] = {"status": "SKIPPED", "reason": "short_execution_not_enabled"}
             continue
-        signal = _candidate_signal(allocation, market)
+        try:
+            signal = _candidate_signal(allocation, market)
+        except ValueError as exc:
+            allocation["execution"] = {"status": "BLOCKED", "reason": str(exc)}
+            continue
         signal_validation, _signal_context = validate_signal(signal, account, config.risk)
         if not signal_validation.allowed:
             allocation["execution"] = {

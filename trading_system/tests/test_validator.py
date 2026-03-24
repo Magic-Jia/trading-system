@@ -1,7 +1,11 @@
 import pytest
 
 from trading_system.app.config import RiskConfig
-from trading_system.app.risk.validator import validate_candidate_for_allocation, validate_signal
+from trading_system.app.risk.validator import (
+    validate_candidate_for_allocation,
+    validate_candidate_for_execution,
+    validate_signal,
+)
 from trading_system.app.types import AccountSnapshot, PositionSnapshot, TradeSignal
 
 
@@ -59,6 +63,24 @@ def test_validate_candidate_for_allocation_blocks_excess_major_coin_correlation(
     assert result.severity == "BLOCK"
     assert any("correlated" in reason.lower() for reason in result.reasons)
     assert result.metrics["correlated_positions"] == 3
+
+
+def test_validate_candidate_for_execution_blocks_missing_explicit_stop_and_invalidation_source():
+    candidate = {
+        "engine": "trend",
+        "symbol": "BTCUSDT",
+        "side": "LONG",
+        "score": 0.82,
+    }
+
+    result = validate_candidate_for_execution(candidate)
+
+    assert result.allowed is False
+    assert result.severity == "BLOCK"
+    assert any("显式止损" in reason for reason in result.reasons)
+    assert any("invalidation_source" in reason for reason in result.reasons)
+    assert result.metrics["has_explicit_stop_loss"] is False
+    assert result.metrics["has_invalidation_source"] is False
 
 
 def test_validate_signal_blocks_when_planned_notional_pushes_net_exposure_over_cap():
