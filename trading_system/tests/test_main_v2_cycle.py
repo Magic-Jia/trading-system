@@ -624,3 +624,76 @@ def test_main_v2_blocks_too_wide_stop_before_execution(monkeypatch, tmp_path, lo
     assert all("止损太宽" in row.get("execution", {}).get("reason", "") for row in blocked)
     assert state.get("active_orders") == {}
     assert all(not position.get("tracked_from_intent") for position in state.get("positions", {}).values())
+
+
+def test_main_v2_blocks_when_execution_would_breach_net_exposure_cap(monkeypatch, tmp_path, load_fixture):
+    output_path = tmp_path / "runtime_state.json"
+    account_path = tmp_path / "account_snapshot.json"
+    market_path = tmp_path / "market_context.json"
+    deriv_path = tmp_path / "derivatives_snapshot.json"
+    account_path.write_text(
+        json.dumps(
+            {
+                "equity": 1000.0,
+                "available_balance": 500.0,
+                "futures_wallet_balance": 1000.0,
+                "open_positions": [
+                    {
+                        "symbol": "ADAUSDT",
+                        "side": "LONG",
+                        "qty": 8.0,
+                        "entry_price": 100.0,
+                        "mark_price": 100.0,
+                        "notional": 800.0,
+                    }
+                ],
+                "open_orders": [],
+            }
+        )
+    )
+    market_path.write_text(json.dumps(load_fixture("market_context_v2.json")))
+    deriv_path.write_text(json.dumps(load_fixture("derivatives_snapshot_v2.json")))
+    monkeypatch.setenv("TRADING_STATE_FILE", str(output_path))
+    monkeypatch.setenv("TRADING_ACCOUNT_SNAPSHOT_FILE", str(account_path))
+    monkeypatch.setenv("TRADING_MARKET_CONTEXT_FILE", str(market_path))
+    monkeypatch.setenv("TRADING_DERIVATIVES_SNAPSHOT_FILE", str(deriv_path))
+    monkeypatch.setenv("TRADING_MAX_TOTAL_RISK_PCT", "1.0")
+    monkeypatch.setenv("TRADING_MAX_SYMBOL_RISK_PCT", "1.0")
+    monkeypatch.setenv("TRADING_MAX_NET_EXPOSURE_PCT", "0.85")
+    monkeypatch.setattr(
+        main_module,
+        "validate_candidate_for_allocation",
+        lambda candidate, account: ValidationResult(True, "INFO", reasons=[], metrics={}),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "allocate_candidates",
+        lambda **kwargs: [AllocationDecision(status="ACCEPTED", engine="trend", final_risk_budget=0.01, rank=1)],
+    )
+
+    def net_exposure_signal(*args, **kwargs):
+        return main_module.TradeSignal(
+            signal_id="net-exposure-block",
+            symbol="XRPUSDT",
+            side="LONG",
+            entry_price=100.0,
+            stop_loss=98.0,
+            take_profit=104.0,
+            source="strategy",
+            timeframe="4h",
+            tags=["v2", "trend"],
+            meta={"setup_type": "BREAKOUT", "score": 0.9},
+        )
+
+    monkeypatch.setattr(main_module, "_candidate_signal", net_exposure_signal)
+
+    main_module.main()
+
+    state = json.loads(Path(output_path).read_text())
+    accepted_allocations = [row for row in state.get("latest_allocations", []) if row.get("status") in {"ACCEPTED", "DOWNSIZED"}]
+    assert accepted_allocations
+    blocked = [row for row in accepted_allocations if row.get("execution", {}).get("status") == "BLOCKED"]
+    assert blocked
+    assert all("净敞口" in row.get("execution", {}).get("reason", "") for row in blocked)
+    assert state.get("active_orders") == {}
+    assert all(not position.get("tracked_from_intent") for position in state.get("positions", {}).values())

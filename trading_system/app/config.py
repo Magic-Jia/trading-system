@@ -40,6 +40,7 @@ class RiskConfig:
     max_notional_pct: float = field(default_factory=lambda: _env_float("TRADING_MAX_NOTIONAL_PCT", "0.12"))
     max_total_risk_pct: float = field(default_factory=lambda: _env_float("TRADING_MAX_TOTAL_RISK_PCT", "0.03"))
     max_symbol_risk_pct: float = field(default_factory=lambda: _env_float("TRADING_MAX_SYMBOL_RISK_PCT", "0.015"))
+    max_net_exposure_pct: float = field(default_factory=lambda: _env_float("TRADING_MAX_NET_EXPOSURE_PCT", "0.85"))
     max_open_positions: int = field(default_factory=lambda: _env_int("TRADING_MAX_OPEN_POSITIONS", "8"))
     min_stop_distance_pct: float = field(default_factory=lambda: _env_float("TRADING_MIN_STOP_DISTANCE_PCT", "0.003"))
     max_stop_distance_pct: float = field(default_factory=lambda: _env_float("TRADING_MAX_STOP_DISTANCE_PCT", "0.08"))

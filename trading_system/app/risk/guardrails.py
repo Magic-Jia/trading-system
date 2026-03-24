@@ -23,6 +23,20 @@ def current_open_risk_pct(account: AccountSnapshot) -> float:
     return total_notional / equity
 
 
+def current_net_exposure_pct(account: AccountSnapshot) -> float:
+    equity = max(account.equity, 0.0)
+    if equity <= 0:
+        return 0.0
+    net_notional = 0.0
+    for pos in account.open_positions:
+        notional = abs(pos.notional)
+        if pos.side == "SHORT":
+            net_notional -= notional
+        else:
+            net_notional += notional
+    return net_notional / equity
+
+
 def correlated_positions(account: AccountSnapshot, signal: TradeSignal) -> list[PositionSnapshot]:
     prefix = signal.symbol.replace("USDT", "")
     peers: list[PositionSnapshot] = []
@@ -48,6 +62,7 @@ def evaluate_guardrails(
     stop_distance_pct = signal.risk_per_unit() / signal.entry_price if signal.entry_price else 0.0
     metrics["stop_distance_pct"] = round(stop_distance_pct, 6)
     metrics["current_open_risk_pct"] = round(current_open_risk_pct(account), 6)
+    metrics["current_net_exposure_pct"] = round(current_net_exposure_pct(account), 6)
     metrics["open_positions"] = len(account.open_positions)
 
     if len(account.open_positions) >= config.max_open_positions:
@@ -63,6 +78,12 @@ def evaluate_guardrails(
     metrics["total_risk_after_pct"] = round(total_risk_after, 6)
     if total_risk_after > config.max_total_risk_pct:
         reasons.append(f"总风险暴露将升至 {total_risk_after:.2%}，超过上限 {config.max_total_risk_pct:.2%}")
+
+    directional_notional = planned_notional if signal.side == "LONG" else -planned_notional
+    net_exposure_after = current_net_exposure_pct(account) + (directional_notional / account.equity if account.equity else 0.0)
+    metrics["net_exposure_after_pct"] = round(net_exposure_after, 6)
+    if abs(net_exposure_after) > config.max_net_exposure_pct:
+        reasons.append(f"净敞口将升至 {net_exposure_after:.2%}，超过上限 {config.max_net_exposure_pct:.2%}")
 
     symbol_risk_after = (existing_symbol_risk(account, signal.symbol) + planned_notional) / account.equity if account.equity else 0.0
     metrics["symbol_risk_after_pct"] = round(symbol_risk_after, 6)
