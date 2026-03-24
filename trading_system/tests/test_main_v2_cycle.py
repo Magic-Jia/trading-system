@@ -571,5 +571,56 @@ def test_main_v2_blocks_invalid_signal_before_execution(monkeypatch, tmp_path, l
     blocked = [row for row in accepted_allocations if row.get("execution", {}).get("status") == "BLOCKED"]
     assert blocked
     assert all("止损" in row.get("execution", {}).get("reason", "") for row in blocked)
-    assert state.get("positions") == {}
     assert state.get("active_orders") == {}
+    assert all(not position.get("tracked_from_intent") for position in state.get("positions", {}).values())
+
+
+def test_main_v2_blocks_too_wide_stop_before_execution(monkeypatch, tmp_path, load_fixture):
+    output_path = tmp_path / "runtime_state.json"
+    account_path = tmp_path / "account_snapshot.json"
+    market_path = tmp_path / "market_context.json"
+    deriv_path = tmp_path / "derivatives_snapshot.json"
+    account_path.write_text(json.dumps(load_fixture("account_snapshot_v2.json")))
+    market_path.write_text(json.dumps(load_fixture("market_context_v2.json")))
+    deriv_path.write_text(json.dumps(load_fixture("derivatives_snapshot_v2.json")))
+    monkeypatch.setenv("TRADING_STATE_FILE", str(output_path))
+    monkeypatch.setenv("TRADING_ACCOUNT_SNAPSHOT_FILE", str(account_path))
+    monkeypatch.setenv("TRADING_MARKET_CONTEXT_FILE", str(market_path))
+    monkeypatch.setenv("TRADING_DERIVATIVES_SNAPSHOT_FILE", str(deriv_path))
+    monkeypatch.setattr(
+        main_module,
+        "validate_candidate_for_allocation",
+        lambda candidate, account: ValidationResult(True, "INFO", reasons=[], metrics={}),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "allocate_candidates",
+        lambda **kwargs: [AllocationDecision(status="ACCEPTED", engine="trend", final_risk_budget=0.01, rank=1)],
+    )
+
+    def wide_stop_signal(*args, **kwargs):
+        return main_module.TradeSignal(
+            signal_id="wide-stop",
+            symbol="BTCUSDT",
+            side="LONG",
+            entry_price=100.0,
+            stop_loss=80.0,
+            take_profit=130.0,
+            source="strategy",
+            timeframe="4h",
+            tags=["v2", "trend"],
+            meta={"setup_type": "BREAKOUT", "score": 0.9},
+        )
+
+    monkeypatch.setattr(main_module, "_candidate_signal", wide_stop_signal)
+
+    main_module.main()
+
+    state = json.loads(Path(output_path).read_text())
+    accepted_allocations = [row for row in state.get("latest_allocations", []) if row.get("status") in {"ACCEPTED", "DOWNSIZED"}]
+    assert accepted_allocations
+    blocked = [row for row in accepted_allocations if row.get("execution", {}).get("status") == "BLOCKED"]
+    assert blocked
+    assert all("止损太宽" in row.get("execution", {}).get("reason", "") for row in blocked)
+    assert state.get("active_orders") == {}
+    assert all(not position.get("tracked_from_intent") for position in state.get("positions", {}).values())
