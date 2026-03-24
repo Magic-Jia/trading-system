@@ -59,8 +59,12 @@ load account / market / derivatives
 - live execution 未启用
 - short execution 未启用，当前只生成候选与分配结果
 - strategy layer 仍然太依赖价格结构，crypto-specific 特征还不够深入
-- stop taxonomy 与 exit system 仍然偏薄
+- allocator / sizing 还不够 edge-aware，尚未把 setup 质量、crowding、流动性、赔率差异真正翻译成 aggressiveness
+- execution friction（fee / spread / slippage / funding drag）还没有明确进入策略层
+- rotation 仍缺 turnover / signal stability 约束
+- stop taxonomy 与 exit system 仍然偏薄，且当前 entry 体系强于 exit 体系
 - crash / cascade / squeeze 的 regime protection 仍未单独建模
+- 还缺少针对新特征的 ablation / attribution 纪律
 
 ---
 

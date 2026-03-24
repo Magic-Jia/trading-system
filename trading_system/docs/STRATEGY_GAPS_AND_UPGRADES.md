@@ -35,14 +35,17 @@
 - `rotation` 已经引入 relative strength，但仍偏向价格延续判断
 - `short` 目前更像防御型补位，而不是成熟的 crypto short playbook
 - `regime` 已经读取 majors derivatives 摘要，但作用还偏粗粒度
-- `allocator` 和 `risk gate` 已经有组合框架，但不会自动弥补策略 edge 不足
+- `allocator` 和 `risk gate` 已经有组合框架，但还不够 **edge-aware**：更像风险预算器，而不是把 setup 质量、crowding、流动性、赔率差异翻译成 aggressiveness 的分配器
+- 系统还没有明确把 **execution friction**（fee / spread / slippage / funding drag）写进策略层；现在更多是执行约束，而不是 candidate 质量的一部分
+- `rotation` 还缺 **turnover / signal stability** 约束，容易在“相对强但不稳定”的候选之间高频切换
+- 文档里还没有明确的 **alpha validation discipline**：新特征如何做 ablation、怎么判断它真的提升策略而不是只让规则更复杂，目前没有被提到主线里
 - `paper execution` 使主链路可验证，但并不会让策略自动变得更 crypto-native
 
 ### 2.2 Operational limitations that still matter
 
 - live execution 仍未打开
 - short execution 仍未打通
-- stop taxonomy / exit system 仍偏薄
+- stop taxonomy / exit system 仍偏薄，而且当前 entry 体系明显比 exit 体系更成熟
 - crash-protection regime 仍未单独建模
 
 ## 3. Why the current system is still too price-structure-heavy
@@ -120,7 +123,28 @@
 - rotation 同时要求“relative strength + absolute strength”
 - 新开仓前明确过滤过热、过度扩张、赔率变差的候选
 
-### Phase 3 — Richer stop taxonomy
+### Phase 3 — Regime crash protection
+
+目标：
+
+- 新增 explicit crash / cascade / squeeze regime
+- 在极端环境下强制收缩风险与执行权限
+- 让系统能区分“普通 risk-off”与“需要立刻压缩仓位的市场故障态”
+
+原因：
+
+- 在 crypto 里，crowding / derivatives 与 crash / cascade / squeeze 是连在一起的
+- 如果这层放得太后，前面的 crowding 判断很难真正转化成风险压缩动作
+
+### Phase 4 — Edge-aware sizing, execution friction, and turnover control
+
+目标：
+
+- 把 candidate quality、crowding、流动性、赔率差异翻译成 aggressiveness
+- 明确把 fee / spread / slippage / funding drag 纳入策略层，而不只当执行噪音
+- 给 rotation / short 建立 turnover 与 signal stability 控制，避免高换手吞掉 edge
+
+### Phase 5 — Richer stop taxonomy
 
 目标：
 
@@ -128,7 +152,7 @@
 - 明确记录结构止损、波动止损、挤压止损、时间止损、失败止损
 - 让 invalidation 不再只是“跌破某条 EMA”
 
-### Phase 4 — Exit system
+### Phase 6 — Exit system
 
 目标：
 
@@ -140,7 +164,7 @@
 - crowding unwind exit
 - regime deterioration exit
 
-### Phase 5 — Short maturity
+### Phase 7 — Short maturity
 
 目标：
 
@@ -148,13 +172,13 @@
 - 引入 squeeze / crowding 过滤
 - 让 short 真正具备独立策略逻辑，而不是防守补位
 
-### Phase 6 — Regime crash protection
+### Phase 8 — Strategy evaluation / ablation / attribution
 
 目标：
 
-- 新增 explicit crash / cascade / squeeze regime
-- 在极端环境下强制收缩风险与执行权限
-- 让系统能区分“普通 risk-off”与“需要立刻压缩仓位的市场故障态”
+- 为新增特征建立 ablation discipline，避免规则只增不减
+- 区分“提升了 signal quality”与“只是让系统更复杂”
+- 让 attribution 聚焦策略 edge，而不是只记录执行流水
 
 ## 6. What should stay separate from this strategy order
 
@@ -176,7 +200,8 @@
 Step 2 review 应重点确认：
 
 - 这套系统的 edge 是否应该明确转向 crypto derivatives / crowding
-- 绝对强弱与过热过滤是否应该排在 stop / exit 之前
-- short maturity 是否应该继续排在 exit system 之后
-- crash protection 是否应该更早前置
+- regime crash protection 是否应该前置到 derivatives / overheat 之后
+- edge-aware sizing / execution friction / turnover control 是否应该被明确写成一整段主线，而不是散在 allocator 里
+- short maturity 是否继续排在 exit system 之后，还是与 exit system 并行推进
+- strategy evaluation / ablation / attribution 是否应该在文档里被单列成最后一个策略阶段
 - 这套顺序是否足够清楚，能直接指导 step 3 implementation
