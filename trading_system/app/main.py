@@ -364,6 +364,7 @@ def main() -> None:
             apply_executed_intent(state, order)
             fingerprint = mark_processed(state, signal)
             store.record_signal(state, signal.symbol, fingerprint, config.risk.cooldown_minutes)
+            store.save(state)
         allocation["execution"] = {"status": order.status, "intent_id": order.intent_id}
         execution_rows.append(
             {
