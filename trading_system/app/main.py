@@ -226,6 +226,8 @@ def main() -> None:
     config = _with_state_file_override(load_config())
     if config.execution.mode == "live" and not config.execution.allow_live_execution:
         raise RuntimeError("live execution is disabled unless TRADING_ALLOW_LIVE_EXECUTION is explicitly enabled")
+    if config.execution.mode == "live":
+        raise RuntimeError("live 模式尚未启用；当前 MVP 仅支持 paper / dry-run")
     store = build_state_store(config)
     state = store.load()
     account = load_account_snapshot()
