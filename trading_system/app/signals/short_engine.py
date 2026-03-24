@@ -98,6 +98,16 @@ def _setup_type(payload: Mapping[str, Any]) -> str:
     return "FAILED_BOUNCE_SHORT"
 
 
+def _short_stop_loss(payload: Mapping[str, Any]) -> float:
+    h4 = _tf_row(payload, "4h")
+    daily = _tf_row(payload, "daily")
+    entry_reference = _to_float(daily.get("close")) or _to_float(h4.get("close"))
+    stop_loss = _to_float(h4.get("ema_50"))
+    if entry_reference <= 0 or stop_loss <= 0 or stop_loss <= entry_reference:
+        return 0.0
+    return stop_loss
+
+
 def generate_short_candidates(
     market_context: Mapping[str, Any],
     *,
@@ -139,6 +149,10 @@ def generate_short_candidates(
         if total_score < _SHORT_SCORE_FLOOR:
             continue
 
+        stop_loss = _short_stop_loss(payload)
+        if stop_loss <= 0.0:
+            continue
+
         daily = _tf_row(payload, "daily")
         liquidity_meta = dict(universe_row.get("liquidity_meta", {})) if isinstance(universe_row, Mapping) else {}
         liquidity_meta.setdefault("liquidity_tier", payload.get("liquidity_tier"))
@@ -151,6 +165,8 @@ def generate_short_candidates(
                 symbol=symbol,
                 side="SHORT",
                 score=total_score,
+                stop_loss=stop_loss,
+                invalidation_source="short_structure_reclaim_above_4h_ema50",
                 timeframe_meta={
                     "daily_bias": "down",
                     "h4_structure": "breakdown",
