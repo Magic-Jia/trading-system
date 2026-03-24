@@ -8,41 +8,27 @@
 
 ## Current active coding task
 
-- Branch/worktree: `codex/continue-dev` / `/tmp/openclaw-worktrees/trading-system-continue-dev`
-- Objective: start roadmap item P0.1 and make execution mode boundaries explicit so the system cannot drift from paper-first behavior into ambiguous execution semantics
+- Branch/worktree: `codex/p0-2-next` / `/home/cn/.openclaw/agents/trade/workspace/.worktrees/codex-p0-2-next`
+- Objective: land the next P0.2 hard risk gate slice without weakening the existing stricter baseline
 - Latest commits in active worktree:
-  - `e3121ae` — `Preflight short-management workspace hazards`
-  - `337ed81` — `Tighten generated short-management artifact errors`
-  - `f44ad64` — `Handle unreadable generated short-management fixtures`
-  - `3c0d677` — `Handle unreadable generated short-management baseline`
-  - `b15863f` — `Handle unreadable generated verification state`
+  - `bf868ff` — `Refresh tests for stricter risk baseline`
+  - `1133ed9` — `Fail fast on unsupported live mode`
+  - `1e6d77a` — `test: cover invalid stop guardrails in main cycle`
 - Latest verified commands/results:
-  - roadmap doc written to `docs/superpowers/plans/2026-03-23-trading-system-p0-p1-p2-roadmap.md`
-  - README pointer added to that roadmap
-  - latest landed commit: `7ca38e1` (`docs: add trading system P0 P1 P2 roadmap`)
-  - roadmap now defines what is done, what is not done, and recommends starting with P0.1 real execution boundary / mode separation
-  - OpenClaw Feishu completion-handoff investigation is parked for later follow-up
+  - baseline reference from user: main is green after `1133ed9` and `bf868ff`
+  - code reading completed across `validator.py`, `guardrails.py`, `allocator.py`, `main.py`, and the current P0.2 tests
+  - identified likely gap: execution-time `validate_signal` does not hard-block net exposure using real planned notional after sizing; allocator only checks a risk-budget proxy
 - Last known full-suite baseline on main:
   - `uv run --with pytest pytest -q`
   - Result: `61 passed`
 - Current execution mode:
-  - Main session reports status; Claw decides the bounded implementation slice; Codex develops in the isolated worktree `/tmp/openclaw-worktrees/trading-system-continue-dev` via ACP runtime
-  - Current executor state before restart: previous Codex rerun completed normally and committed the short-management-workspace-preflight slice; no new active executor verified yet in this turn
-  - Preflight note for next step: inspect and avoid unrelated dirty files before committing any new slice
+  - This worktree session is the active executor for the slice
+  - Next immediate step is TDD red on validator/main-cycle coverage for execution-time net exposure hard blocking
 - Current blocker history:
-  - The next product gap is auditability rather than execution correctness: runtime state still relies on stdout / side logs for execution details
-  - OpenClaw Feishu completion-handoff debugging is intentionally parked and should not block trading_system feature work
+  - `SOUL.md` is missing in this workspace; startup context fell back to the available workspace files
+  - No repo-local blocker found yet for the targeted P0.2 slice
 - Next action:
-  1. stop using ad-hoc micro-guardrail slices as the sole driver and write a P0 / P1 / P2 remaining-work roadmap into repo docs
-  2. use that roadmap to choose the next justified implementation slice
-  3. commit the roadmap separately from any follow-on implementation
-- Last user update time: 2026-03-23 16:10 Europe/Berlin
-ext product gap is auditability rather than execution correctness: runtime state still relies on stdout / side logs for execution details
-  - OpenClaw Feishu completion-handoff debugging is intentionally parked and should not block trading_system feature work
-- Next action:
-  1. stop using ad-hoc micro-guardrail slices as the sole driver and write a P0 / P1 / P2 remaining-work roadmap into repo docs
-  2. use that roadmap to choose the next justified implementation slice
-  3. commit the roadmap separately from any follow-on implementation
-- Last user update time: 2026-03-23 16:10 Europe/Berlin
-: 2026-03-23 16:10 Europe/Berlin
-: 2026-03-23 16:10 Europe/Berlin
+  1. add failing focused tests for net-exposure rejection and non-execution
+  2. implement the minimal guardrail/config change to make those tests pass
+  3. run narrow then broader verification and commit the slice if clean
+- Last user update time: 2026-03-24 07:57 Europe/Berlin
