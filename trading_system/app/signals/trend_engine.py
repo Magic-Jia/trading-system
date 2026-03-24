@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
+from trading_system.app.market_regime.derivatives import symbol_derivatives_features
 from trading_system.app.signals.scoring import score_trend_candidate
 from trading_system.app.types import EngineCandidate
 
 _MAJOR_SECTOR = "majors"
 _HIGH_LIQUIDITY_TIERS = {"high", "top"}
+_CROWDED_LONG_BASIS_BPS = 20.0
 
 
 def _to_float(value: Any) -> float:
@@ -70,8 +72,18 @@ def _trend_stop_loss(payload: Mapping[str, Any]) -> float:
     return stop_loss
 
 
+def _reject_crowded_long(features: Mapping[str, Any]) -> bool:
+    return (
+        str(features.get("crowding_bias", "balanced")) == "crowded_long"
+        and _to_float(features.get("basis_bps")) >= _CROWDED_LONG_BASIS_BPS
+    )
+
+
 def generate_trend_candidates(
-    market_context: Mapping[str, Any], *, include_high_liquidity_strong_names: bool = True
+    market_context: Mapping[str, Any],
+    *,
+    derivatives: Mapping[str, Any] | list[dict[str, Any]] | None = None,
+    include_high_liquidity_strong_names: bool = True,
 ) -> list[EngineCandidate]:
     symbols = market_context.get("symbols")
     if not isinstance(symbols, Mapping):
@@ -93,6 +105,10 @@ def generate_trend_candidates(
         h4 = _tf_row(payload, "4h")
         h1 = _tf_row(payload, "1h")
         if not _is_uptrend(daily, h4, h1):
+            continue
+
+        derivatives_features = symbol_derivatives_features(derivatives, str(symbol))
+        if _reject_crowded_long(derivatives_features):
             continue
 
         scored = score_trend_candidate(
