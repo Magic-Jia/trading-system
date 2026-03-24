@@ -8,27 +8,26 @@
 
 ## Current active coding task
 
-- Branch/worktree: `codex/p0-2-upstream-stop` / `/home/cn/.openclaw/agents/trade/workspace/.worktrees/codex-p0-2-upstream-stop`
-- Objective: land the next P0.2 upstream producer slice so rotation candidates emit real `stop_loss` and `invalidation_source`
+- Branch/worktree: `codex/p0-3-replay` / `/home/cn/.openclaw/agents/trade/workspace/.worktrees/codex-p0-3-replay`
+- Objective: land one P0.3 slice so execution identity survives a post-fill crash and blocks duplicate replay on restart
 - Latest commits in active worktree:
-  - `5c91489` — `Emit trend stop metadata upstream`
-  - `927f8ef` — `Refuse no-stop candidates before execution`
-  - `191af92` — `Add execution net exposure hard block`
+  - `cee332e` — `Emit short stop metadata upstream`
+  - `f75be4a` — `Emit rotation stop metadata upstream`
+  - `5777f77` — `Emit trend stop metadata upstream`
 - Latest verified commands/results:
-  - `uv run --with pytest pytest -q trading_system/tests/test_rotation_engine.py::test_generate_rotation_candidates_emit_explicit_stop_loss_and_invalidation_source trading_system/tests/test_main_v2_cycle.py::test_main_v2_rotation_allocations_propagate_explicit_stop_and_invalidation_source` → `2 passed`
-  - `uv run --with pytest pytest -q trading_system/tests/test_rotation_engine.py trading_system/tests/test_trend_engine.py trading_system/tests/test_validator.py trading_system/tests/test_main_v2_cycle.py` → `38 passed`
-  - `python3 ...` focused repro of `latest_allocations` → `rotation metadata propagates; any remaining block is downstream signal guardrails, not missing stop metadata`
+  - `uv run --with pytest python -m pytest trading_system/tests/test_restart_replay.py -q` → `1 passed`
+  - `uv run --with pytest python -m pytest trading_system/tests/test_restart_replay.py trading_system/tests/test_main_v2_cycle.py::test_main_v2_cycle_is_idempotent_for_same_inputs trading_system/tests/test_main_v2_cycle.py::test_main_v2_dry_run_does_not_leave_execution_traces trading_system/tests/test_executor.py -q` → `9 passed`
 - Last known full-suite baseline on main:
   - `uv run --with pytest pytest -q`
   - Result: `61 passed`
 - Current execution mode:
   - This worktree session is the active executor for the slice
-  - Next immediate step is commit the finished rotation upstream-stop slice and hand off the remaining short-engine gap
+  - Next immediate step is commit the restart-safe checkpoint slice and report the remaining P0.3 gap
 - Current blocker history:
-  - `SOUL.md` is missing in this workspace; startup context fell back to `IDENTITY.md` plus the available workspace files
-  - Root cause isolated: `rotation_engine` emits scored long candidates without explicit risk metadata, so execution blocks accepted rotation allocations before order intent creation
+  - `SOUL.md` is missing in this workspace; startup context fell back to the available workspace files
+  - Root cause isolated: `main()` only persisted `last_signal_ids`, `active_orders`, and executed paper positions at the final shutdown save, so a post-fill crash reopened the duplicate-execution window on restart
 - Next action:
-  1. commit the rotation upstream-stop slice
+  1. commit the checkpoint + regression slice
   2. report verification and root cause
-  3. hand off the next remaining P0.2 gap: short-engine upstream stop/invalidation emission
-- Last user update time: 2026-03-24 10:52 Europe/Berlin
+  3. hand off the next remaining P0.3 gap: recovery for crashes that happen inside execution before the checkpoint write lands
+- Last user update time: 2026-03-24 11:50 GMT+1
