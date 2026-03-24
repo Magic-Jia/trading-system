@@ -144,6 +144,16 @@ def _setup_type(payload: Mapping[str, Any]) -> str:
     return "RS_PULLBACK"
 
 
+def _rotation_stop_loss(payload: Mapping[str, Any]) -> float:
+    h1 = _tf_row(payload, "1h")
+    daily = _tf_row(payload, "daily")
+    entry_reference = _to_float(h1.get("close")) or _to_float(daily.get("close"))
+    stop_loss = _to_float(h1.get("ema_50"))
+    if entry_reference <= 0 or stop_loss <= 0 or stop_loss >= entry_reference:
+        return 0.0
+    return stop_loss
+
+
 def generate_rotation_candidates(
     market_context: Mapping[str, Any],
     *,
@@ -190,6 +200,10 @@ def generate_rotation_candidates(
         if total_score < _ROTATION_SCORE_FLOOR:
             continue
 
+        stop_loss = _rotation_stop_loss(payload)
+        if stop_loss <= 0.0:
+            continue
+
         daily = _tf_row(payload, "daily")
         liquidity_meta = dict(universe_row.get("liquidity_meta", {})) if isinstance(universe_row, Mapping) else {}
         liquidity_meta.setdefault("liquidity_tier", payload.get("liquidity_tier"))
@@ -202,6 +216,8 @@ def generate_rotation_candidates(
                 symbol=symbol,
                 side="LONG",
                 score=total_score,
+                stop_loss=stop_loss,
+                invalidation_source="rotation_pullback_failure_below_1h_ema50",
                 timeframe_meta={
                     "daily_bias": "relative_strength_leader",
                     "h4_structure": "leader_persistence",

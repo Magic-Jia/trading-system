@@ -644,6 +644,68 @@ def test_main_v2_blocks_candidate_missing_explicit_stop_or_invalidation_before_e
     assert all(not position.get("tracked_from_intent") for position in state.get("positions", {}).values())
 
 
+def test_main_v2_rotation_allocations_propagate_explicit_stop_and_invalidation_source(monkeypatch, tmp_path, load_fixture):
+    output_path = tmp_path / "runtime_state.json"
+    account_path = tmp_path / "account_snapshot.json"
+    market_path = tmp_path / "market_context.json"
+    deriv_path = tmp_path / "derivatives_snapshot.json"
+    account_path.write_text(
+        json.dumps(
+            {
+                "equity": 125000.0,
+                "available_balance": 96000.0,
+                "futures_wallet_balance": 118500.0,
+                "open_positions": [],
+                "open_orders": [],
+            }
+        )
+    )
+    market_path.write_text(json.dumps(load_fixture("market_context_v2.json")))
+    deriv_path.write_text(json.dumps(load_fixture("derivatives_snapshot_v2.json")))
+    monkeypatch.setenv("TRADING_STATE_FILE", str(output_path))
+    monkeypatch.setenv("TRADING_ACCOUNT_SNAPSHOT_FILE", str(account_path))
+    monkeypatch.setenv("TRADING_MARKET_CONTEXT_FILE", str(market_path))
+    monkeypatch.setenv("TRADING_DERIVATIVES_SNAPSHOT_FILE", str(deriv_path))
+    monkeypatch.setenv("TRADING_EXECUTION_MODE", "dry-run")
+    monkeypatch.setattr(
+        main_module,
+        "validate_candidate_for_allocation",
+        lambda candidate, account: ValidationResult(True, "INFO", reasons=[], metrics={}),
+    )
+    monkeypatch.setattr(main_module, "generate_trend_candidates", lambda *args, **kwargs: [])
+    monkeypatch.setattr(main_module, "generate_short_candidates", lambda *args, **kwargs: [])
+    monkeypatch.setattr(
+        main_module,
+        "validate_signal",
+        lambda signal, account, config: (ValidationResult(True, "INFO", reasons=[], metrics={}), {"sizing": None}),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "allocate_candidates",
+        lambda **kwargs: [AllocationDecision(status="ACCEPTED", engine="rotation", final_risk_budget=0.005, rank=1)],
+    )
+
+    main_module.main()
+
+    state = json.loads(Path(output_path).read_text())
+    rotation_candidates = [row for row in state.get("latest_candidates", []) if row.get("engine") == "rotation"]
+    assert rotation_candidates
+    assert all(float(row.get("stop_loss", 0.0) or 0.0) > 0 for row in rotation_candidates)
+    assert all(row.get("invalidation_source") == "rotation_pullback_failure_below_1h_ema50" for row in rotation_candidates)
+
+    accepted_rotation = [
+        row
+        for row in state.get("latest_allocations", [])
+        if row.get("engine") == "rotation" and row.get("status") in {"ACCEPTED", "DOWNSIZED"}
+    ]
+    assert accepted_rotation
+    assert all(float(row.get("stop_loss", 0.0) or 0.0) > 0 for row in accepted_rotation)
+    assert all(row.get("invalidation_source") == "rotation_pullback_failure_below_1h_ema50" for row in accepted_rotation)
+    assert all(row.get("execution", {}).get("status") == "SENT" for row in accepted_rotation)
+    assert all("显式止损" not in row.get("execution", {}).get("reason", "") for row in accepted_rotation)
+    assert all("invalidation_source" not in row.get("execution", {}).get("reason", "") for row in accepted_rotation)
+
+
 def test_main_v2_blocks_too_wide_stop_before_execution(monkeypatch, tmp_path, load_fixture):
     output_path = tmp_path / "runtime_state.json"
     account_path = tmp_path / "account_snapshot.json"

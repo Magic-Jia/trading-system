@@ -34,6 +34,23 @@ def test_generate_rotation_candidates_uses_rotation_universe_and_emits_relative_
     assert all(candidate.sector != "majors" for candidate in candidates)
 
 
+def test_generate_rotation_candidates_emit_explicit_stop_loss_and_invalidation_source(load_fixture):
+    market = load_fixture("market_context_v2.json")
+    rotation_universe = [
+        {"symbol": "SOLUSDT", "sector": "alt_l1", "liquidity_tier": "high"},
+        {"symbol": "LINKUSDT", "sector": "oracle", "liquidity_tier": "high"},
+        {"symbol": "ADAUSDT", "sector": "alt_l1", "liquidity_tier": "high"},
+    ]
+
+    candidates = generate_rotation_candidates(market, rotation_universe=rotation_universe)
+
+    assert candidates
+    for candidate in candidates:
+        assert candidate.stop_loss > 0
+        assert candidate.stop_loss < market["symbols"][candidate.symbol]["daily"]["close"]
+        assert candidate.invalidation_source == "rotation_pullback_failure_below_1h_ema50"
+
+
 def test_generate_rotation_candidates_respects_regime_suppression(load_fixture):
     market = load_fixture("market_context_v2.json")
     candidates = generate_rotation_candidates(
