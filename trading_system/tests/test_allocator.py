@@ -153,3 +153,37 @@ def test_allocator_blocks_when_account_total_risk_is_already_over_cap(load_fixtu
     assert decisions
     assert all(d.status == "REJECTED" for d in decisions)
     assert all("总风险暴露" in " ".join(d.reasons) or d.meta.get("account_total_risk_limit_hit") for d in decisions)
+
+
+def test_allocator_blocks_when_existing_sector_risk_already_exceeds_cap():
+    account = {
+        "equity": 100000.0,
+        "available_balance": 60000.0,
+        "futures_wallet_balance": 100000.0,
+        "open_positions": [
+            {
+                "symbol": "BTCUSDT",
+                "side": "LONG",
+                "qty": 0.03,
+                "entry_price": 65000.0,
+                "mark_price": 67000.0,
+                "notional": 2010.0,
+            }
+        ],
+    }
+    candidates = [
+        {
+            "engine": "trend",
+            "setup_type": "BREAKOUT",
+            "symbol": "ETHUSDT",
+            "side": "LONG",
+            "score": 0.85,
+            "sector": "majors",
+        }
+    ]
+
+    decisions = allocate_candidates(account=account, candidates=candidates)
+
+    assert decisions
+    assert all(d.status == "REJECTED" for d in decisions)
+    assert all("sector risk" in " ".join(d.reasons).lower() or d.meta.get("sector_cap_hit") for d in decisions)

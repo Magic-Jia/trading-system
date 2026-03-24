@@ -142,8 +142,12 @@ def allocate_candidates(
         if str(sector).lower() != "majors"
     )
 
-    cycle_symbol_risk: dict[str, float] = defaultdict(float)
-    cycle_sector_risk: dict[str, float] = defaultdict(float)
+    cycle_symbol_risk: dict[str, float] = defaultdict(float, {
+        str(symbol): _to_float(risk) for symbol, risk in dict(exposure.get("symbol_risk", {})).items()
+    })
+    cycle_sector_risk: dict[str, float] = defaultdict(float, {
+        str(sector): _to_float(risk) for sector, risk in dict(exposure.get("sector_risk", {})).items()
+    })
     duplicate_counts: dict[tuple[str, str, str], int] = defaultdict(int)
 
     symbol_cap_pct = max(float(app_config.risk.max_symbol_risk_pct), 0.0)
