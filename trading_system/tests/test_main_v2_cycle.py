@@ -196,19 +196,25 @@ def test_main_v2_cycle_writes_regime_and_allocation_sections(monkeypatch, tmp_pa
     assert state.get("rotation_candidates")
     assert {row["engine"] for row in state["rotation_candidates"]} == {"rotation"}
     assert state.get("lifecycle_summary") == {
-        "tracked_count": 4,
+        "tracked_count": 3,
         "state_counts": {
-            "INIT": 4,
+            "INIT": 3,
             "CONFIRM": 0,
             "PAYLOAD": 0,
             "PROTECT": 0,
             "EXIT": 0,
         },
-        "pending_confirmation_symbols": ["BTCUSDT", "ETHUSDT", "LINKUSDT", "SOLUSDT"],
+        "pending_confirmation_symbols": ["BTCUSDT", "ETHUSDT", "SOLUSDT"],
         "protected_symbols": [],
         "exit_symbols": [],
-        "attention_symbols": ["ETHUSDT"],
+        "attention_symbols": ["BTCUSDT", "ETHUSDT", "SOLUSDT"],
         "leaders": [
+            {
+                "symbol": "SOLUSDT",
+                "state": "INIT",
+                "r_multiple": pytest.approx(0.037671, abs=1e-6),
+                "reason_codes": ["init_waiting_confirmation"],
+            },
             {
                 "symbol": "ETHUSDT",
                 "state": "INIT",
@@ -218,13 +224,7 @@ def test_main_v2_cycle_writes_regime_and_allocation_sections(monkeypatch, tmp_pa
             {
                 "symbol": "BTCUSDT",
                 "state": "INIT",
-                "r_multiple": 0.0,
-                "reason_codes": ["init_waiting_confirmation"],
-            },
-            {
-                "symbol": "LINKUSDT",
-                "state": "INIT",
-                "r_multiple": 0.0,
+                "r_multiple": pytest.approx(0.020207, abs=1e-6),
                 "reason_codes": ["init_waiting_confirmation"],
             },
         ],
@@ -232,8 +232,8 @@ def test_main_v2_cycle_writes_regime_and_allocation_sections(monkeypatch, tmp_pa
     assert state.get("rotation_summary") == {
         "universe_count": 5,
         "candidate_count": 3,
-        "accepted_symbols": ["LINKUSDT", "SOLUSDT"],
-        "executed_symbols": ["LINKUSDT", "SOLUSDT"],
+        "accepted_symbols": [],
+        "executed_symbols": [],
         "leaders": [
             {
                 "symbol": "SOLUSDT",
@@ -286,23 +286,29 @@ def test_main_v2_stdout_surfaces_rotation_reporting(monkeypatch, tmp_path, load_
 
     assert payload["regime"]["rotation"]["universe_count"] == 5
     assert payload["regime"]["rotation"]["candidate_count"] == 3
-    assert payload["regime"]["rotation"]["accepted_symbols"] == ["LINKUSDT", "SOLUSDT"]
-    assert payload["regime"]["rotation"]["executed_symbols"] == ["LINKUSDT", "SOLUSDT"]
+    assert payload["regime"]["rotation"]["accepted_symbols"] == []
+    assert payload["regime"]["rotation"]["executed_symbols"] == []
     assert [row["symbol"] for row in payload["regime"]["rotation"]["leaders"]] == ["SOLUSDT", "LINKUSDT", "ADAUSDT"]
     assert payload["portfolio"]["lifecycle_summary"] == {
-        "tracked_count": 4,
+        "tracked_count": 3,
         "state_counts": {
-            "INIT": 4,
+            "INIT": 3,
             "CONFIRM": 0,
             "PAYLOAD": 0,
             "PROTECT": 0,
             "EXIT": 0,
         },
-        "pending_confirmation_symbols": ["BTCUSDT", "ETHUSDT", "LINKUSDT", "SOLUSDT"],
+        "pending_confirmation_symbols": ["BTCUSDT", "ETHUSDT", "SOLUSDT"],
         "protected_symbols": [],
         "exit_symbols": [],
-        "attention_symbols": ["ETHUSDT"],
+        "attention_symbols": ["BTCUSDT", "ETHUSDT", "SOLUSDT"],
         "leaders": [
+            {
+                "symbol": "SOLUSDT",
+                "state": "INIT",
+                "r_multiple": pytest.approx(0.037671, abs=1e-6),
+                "reason_codes": ["init_waiting_confirmation"],
+            },
             {
                 "symbol": "ETHUSDT",
                 "state": "INIT",
@@ -312,13 +318,7 @@ def test_main_v2_stdout_surfaces_rotation_reporting(monkeypatch, tmp_path, load_
             {
                 "symbol": "BTCUSDT",
                 "state": "INIT",
-                "r_multiple": 0.0,
-                "reason_codes": ["init_waiting_confirmation"],
-            },
-            {
-                "symbol": "LINKUSDT",
-                "state": "INIT",
-                "r_multiple": 0.0,
+                "r_multiple": pytest.approx(0.020207, abs=1e-6),
                 "reason_codes": ["init_waiting_confirmation"],
             },
         ],
@@ -363,8 +363,8 @@ def test_main_v2_cycle_persists_short_candidates_without_enabling_short_executio
     assert state["short_summary"] == {
         "universe_count": 2,
         "candidate_count": 1,
-        "accepted_symbols": ["BTCUSDT"],
-        "deferred_execution_symbols": ["BTCUSDT"],
+        "accepted_symbols": [],
+        "deferred_execution_symbols": [],
         "leaders": [
             {
                 "symbol": "BTCUSDT",
@@ -380,8 +380,7 @@ def test_main_v2_cycle_persists_short_candidates_without_enabling_short_executio
     }
 
     short_allocations = [row for row in state["latest_allocations"] if row["engine"] == "short"]
-    assert len(short_allocations) == 1
-    assert short_allocations[0]["execution"] == {"status": "SKIPPED", "reason": "short_execution_not_enabled"}
+    assert short_allocations == []
 
 
 def test_main_v2_stdout_surfaces_short_reporting(monkeypatch, tmp_path, load_fixture, capsys):
@@ -419,8 +418,8 @@ def test_main_v2_stdout_surfaces_short_reporting(monkeypatch, tmp_path, load_fix
     assert payload["regime"]["short"] == {
         "universe_count": 2,
         "candidate_count": 1,
-        "accepted_symbols": ["BTCUSDT"],
-        "deferred_execution_symbols": ["BTCUSDT"],
+        "accepted_symbols": [],
+        "deferred_execution_symbols": [],
         "leaders": [
             {
                 "symbol": "BTCUSDT",
@@ -496,7 +495,8 @@ def test_main_v2_dry_run_does_not_leave_execution_traces(monkeypatch, tmp_path, 
     assert all(not position.get("tracked_from_intent") for position in state.get("positions", {}).values())
     accepted_allocations = [row for row in state.get("latest_allocations", []) if row.get("status") in {"ACCEPTED", "DOWNSIZED"}]
     assert accepted_allocations
-    assert all(row.get("execution", {}).get("status") == "SENT" for row in accepted_allocations if row.get("engine") != "short")
+    assert all(row.get("execution", {}).get("status") == "BLOCKED" for row in accepted_allocations if row.get("engine") != "short")
+    assert all("总风险暴露" in row.get("execution", {}).get("reason", "") for row in accepted_allocations if row.get("engine") != "short")
 
 
 def test_main_v2_live_not_yet_enabled_leaves_no_partial_state(monkeypatch, tmp_path, load_fixture):

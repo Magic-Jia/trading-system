@@ -4,6 +4,28 @@ from trading_system.app.portfolio.exposure import exposure_snapshot
 from trading_system.app.portfolio.allocator import allocate_candidates
 
 
+def _flat_account(load_fixture):
+    account = load_fixture("account_snapshot_v2.json")
+    account["open_positions"] = []
+    account["open_orders"] = []
+    return account
+
+
+def _seeded_major_account(load_fixture, *, notional: float = 1000.0):
+    account = _flat_account(load_fixture)
+    account["open_positions"] = [
+        {
+            "symbol": "BTCUSDT",
+            "side": "LONG",
+            "qty": round(notional / 64000.0, 8),
+            "entry_price": 64000.0,
+            "mark_price": 64000.0,
+            "notional": notional,
+        }
+    ]
+    return account
+
+
 def test_scaled_risk_budget_respects_engine_tier_and_regime_confidence():
     budget = scaled_risk_budget(base_risk_pct=0.008, regime_multiplier=0.5, confidence=0.4)
     assert budget < 0.008
@@ -17,7 +39,7 @@ def test_exposure_snapshot_summarizes_sector_and_direction(load_fixture):
 
 
 def test_allocator_rejects_candidates_from_suppressed_bucket(load_fixture, sample_rotation_candidates):
-    account = load_fixture("account_snapshot_v2.json")
+    account = _flat_account(load_fixture)
     regime = {"suppressed_engines": ["rotation"], "bucket_targets": {"trend": 1.0, "rotation": 0.0, "short": 0.0}}
     decisions = allocate_candidates(account=account, candidates=sample_rotation_candidates, regime=regime)
     assert decisions
@@ -26,7 +48,7 @@ def test_allocator_rejects_candidates_from_suppressed_bucket(load_fixture, sampl
 
 
 def test_allocator_accepts_rotation_candidates_when_bucket_enabled(load_fixture, sample_rotation_candidates):
-    account = load_fixture("account_snapshot_v2.json")
+    account = _seeded_major_account(load_fixture)
     regime = {"bucket_targets": {"trend": 0.4, "rotation": 0.6, "short": 0.0}, "suppressed_engines": []}
     decisions = allocate_candidates(account=account, candidates=sample_rotation_candidates, regime=regime)
     accepted = [decision for decision in decisions if decision.status in {"ACCEPTED", "DOWNSIZED"}]
@@ -36,7 +58,7 @@ def test_allocator_accepts_rotation_candidates_when_bucket_enabled(load_fixture,
 
 
 def test_allocator_downweights_duplicate_trend_breakouts(load_fixture, sample_trend_candidates):
-    account = load_fixture("account_snapshot_v2.json")
+    account = _flat_account(load_fixture)
     regime = {"bucket_targets": {"trend": 0.6, "rotation": 0.2, "short": 0.2}, "suppressed_engines": []}
     decisions = allocate_candidates(account=account, candidates=sample_trend_candidates, regime=regime)
     assert any(d.status in {"ACCEPTED", "DOWNSIZED"} for d in decisions)
@@ -62,7 +84,7 @@ def test_allocator_respects_net_exposure_and_major_alt_balance(load_fixture, sam
 
 
 def test_allocator_enforces_symbol_and_sector_caps(load_fixture, sample_trend_candidates):
-    account = load_fixture("account_snapshot_v2.json")
+    account = _seeded_major_account(load_fixture)
     decisions = allocate_candidates(account=account, candidates=sample_trend_candidates)
     assert any(d.meta.get("symbol_cap_checked") for d in decisions)
     assert any(d.meta.get("sector_cap_checked") for d in decisions)
