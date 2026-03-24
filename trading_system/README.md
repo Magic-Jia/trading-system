@@ -38,9 +38,13 @@
 - **还不够 crypto-native**：衍生品数据目前主要用于 majors 级别的 regime 摘要，尚未成为每个候选的核心过滤器。
 - **absolute strength 不够明确**：rotation 已经有 relative strength，但 longs 仍缺少独立的绝对强弱门槛。
 - **overheat / crowding 过滤不够**：还没有把 funding、OI、basis、taker imbalance、扩张速度真正做成晚段过热过滤器。
-- **止损与退出体系偏单薄**：多个引擎仍主要依赖单一 EMA 锚定止损，exit 也还是通用 lifecycle 阈值，缺少 setup-specific taxonomy。
+- **止损与退出体系偏单薄**：多个引擎仍主要依赖单一 EMA 锚定止损，exit 也还是通用 lifecycle 阈值，缺少 setup-specific taxonomy，而且当前 entry 明显强于 exit。
+- **仓位与分配还不够 edge-aware**：allocator 更像风险预算器，还没有把 setup 质量、crowding、流动性、赔率差异翻译成 aggressiveness。
+- **execution friction 还没进入策略层**：fee、spread、slippage、funding drag 还没有被明确写进 candidate 质量与仓位决策。
+- **rotation 还缺 turnover / signal stability 控制**：否则容易在噪音 leader 之间高频切换。
 - **short 还不成熟**：当前 short engine 偏“防守占位”，还不是一个成熟的 crypto short model。
 - **regime crash protection 不够明确**：还没有单独处理 crash / cascade / squeeze 这类真正会改变仓位压缩速度的极端环境。
+- **缺少 alpha validation discipline**：还没有明确要求对新增特征做 ablation / attribution，防止规则越来越多但 edge 并未变强。
 
 ## 新的策略方向
 
@@ -50,10 +54,12 @@
 
 1. **Crypto derivatives + crowding layer**：把 funding / OI / basis / taker flow 从 regime 摘要推进到 candidate 过滤
 2. **Absolute strength + overheat filters**：同时要求“真强”与“没热到不值得追”
-3. **Richer stop taxonomy**：按 breakout / pullback / rotation / short 区分止损模板
-4. **Exit system**：加入 partials、trail、time-stop、failure exit、crowding unwind
-5. **Short maturity**：让 short 从“防御性占位”变成成熟的可执行子系统
-6. **Regime crash protection**：增加 crash / cascade / squeeze regime 与硬性降风险逻辑
+3. **Regime crash protection**：先把 crash / cascade / squeeze 这类极端环境单独建模
+4. **Edge-aware sizing + execution friction + turnover control**：把 setup 质量、流动性、fee/slippage/funding drag、signal stability 写进 aggressiveness
+5. **Richer stop taxonomy**：按 breakout / pullback / rotation / short 区分止损模板
+6. **Exit system**：加入 partials、trail、time-stop、failure exit、crowding unwind
+7. **Short maturity**：让 short 从“防御性占位”变成成熟的可执行子系统
+8. **Strategy evaluation / ablation / attribution**：避免规则只增不减，明确每个新增特征是否真的提升 edge
 
 这条策略升级顺序 **要与 execution-safety work 分开看**。
 execution-safety 的优先级仍然是 live boundary、hard risk gate、restart-safe state、audit trail；那是“能不能安全运行”的问题。

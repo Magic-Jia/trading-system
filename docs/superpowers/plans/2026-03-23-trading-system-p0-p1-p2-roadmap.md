@@ -41,9 +41,13 @@
 - crowding / positioning 没有真正进入 trend、rotation、short 的过滤逻辑
 - longs 缺少单独的 **absolute strength** 门槛，rotation 也还没有同时要求“相对强 + 绝对强”
 - 缺少明确的 **overheat filters**，无法系统性回避晚段扩张、情绪挤兑、追高拥挤
-- 止损体系仍偏单一，exit 体系仍偏通用，缺少 setup-aware taxonomy
+- allocator / sizing 还不够 **edge-aware**：风险预算在，但没有把 setup 质量、crowding、流动性、赔率差异真正翻译成 aggressiveness
+- 还没有把 **execution friction**（fee / spread / slippage / funding drag）明确纳入策略层
+- rotation 缺少 **turnover / signal stability** 约束，容易在噪音 leader 之间切换
+- 止损体系仍偏单一，exit 体系仍偏通用，缺少 setup-aware taxonomy；当前 entry 成熟度明显高于 exit 成熟度
 - short engine 目前只是“防守型占位”，不是成熟的 crypto downside engine
 - regime 层没有单独建模 crash / cascade / squeeze 这类会要求立刻压缩风险的极端环境
+- 文档还需要单列 **alpha validation discipline**，防止后续只堆特征、不做 ablation
 
 ## 3. Two separate roadmaps
 
@@ -140,7 +144,31 @@
 
 - 这一步直接解决“强，但已经太热”和“相对强，但绝对并不健康”的问题
 
-### B3. Richer stop taxonomy
+### B3. Regime crash protection
+
+**Objective:** 让 regime 层能识别真正需要“急速压风险”的环境，而不只是普通 risk-off。
+
+**Required upgrades:**
+
+- 增加 explicit crash / cascade / squeeze regime
+- 引入暴跌、去杠杆、异常波动、资金费率极端化时的 exposure compression
+- 对新仓、加仓、移动止损、被动持有给出不同级别的强制限制
+
+**Why third:**
+
+- 在 crypto 里，crowding / derivatives 与 crash / cascade / squeeze 是一条连续风险链，不应排到太后面
+
+### B4. Edge-aware sizing, execution friction, and turnover control
+
+**Objective:** 不只决定“做不做”，还要决定“做多大、值不值得做、换手是否过高”。
+
+**Required upgrades:**
+
+- 把 setup 质量、crowding、流动性、赔率差异翻译成仓位 aggressiveness
+- 把 fee / spread / slippage / funding drag 纳入 candidate 质量评估
+- 给 rotation / short 建立 turnover 与 signal stability 约束，避免噪音 leader 高频切换
+
+### B5. Richer stop taxonomy
 
 **Objective:** 不同 setup 必须有不同的无效化定义，而不是继续共用单一 EMA 风格止损。
 
@@ -150,11 +178,7 @@
 - 区分 structure stop、volatility stop、squeeze stop、time stop、failure stop
 - 让候选与 runtime state 明确记录 stop taxonomy 与 invalidation reason
 
-**Why third:**
-
-- strategy edge 不是只有 entry；真正决定赔率的是 entry 与 invalidation 的匹配方式
-
-### B4. Exit system
+### B6. Exit system
 
 **Objective:** 用 setup-aware exits 替代当前过于通用的 lifecycle 阈值驱动。
 
@@ -164,11 +188,7 @@
 - exit 逻辑按 engine / setup type 区分，而不是只有统一的 lifecycle 状态机
 - regime deterioration 进入 exit 决策，而不是只影响新仓 aggressiveness
 
-**Why fourth:**
-
-- 当前系统的退出还不足以承载真正的 crypto trend / rotation / short 行为差异
-
-### B5. Short maturity
+### B7. Short maturity
 
 **Objective:** 让 short 从“防御型补位”升级成成熟的下跌参与子系统。
 
@@ -179,27 +199,15 @@
 - 用 derivatives + overheat + absolute weakness 来确认空头赔率
 - 先把 short thesis 做成熟，再谈放开 short execution
 
-**Why fifth:**
+### B8. Strategy evaluation / ablation / attribution
 
-- short 在 crypto 中最容易被 squeeze；没有足够成熟度，执行链越完整反而越危险
-
-### B6. Regime crash protection
-
-**Objective:** 让 regime 层能识别真正需要“急速压风险”的环境，而不只是普通 risk-off。
+**Objective:** 给策略升级建立最小验证纪律，避免后续只加特征、不减复杂度。
 
 **Required upgrades:**
 
-- 增加 explicit crash / cascade / squeeze regime
-- 引入暴跌、去杠杆、异常波动、资金费率极端化时的 exposure compression
-- 对新仓、加仓、移动止损、被动持有给出不同级别的强制限制
-
-**Why sixth:**
-
-- 这是系统从“普通策略框架”走向“能理解 crypto 极端环境”的关键一步
-
-### B7. Replay / attribution after the strategy stack is clearer
-
-**Objective:** 等前 6 步明确后，再补 replay / attribution 才不会评估一套方向仍不稳定的系统。
+- 对新增特征做 ablation，判断是否真的改善 signal quality 或 payoff asymmetry
+- 区分“提升了策略 edge”与“只是让系统更复杂”
+- attribution 重点放在 edge 来源、filter 贡献、exit 贡献，而不是只记录执行流水
 
 ---
 
@@ -218,18 +226,20 @@
 
 1. `B1` crypto derivatives + crowding
 2. `B2` absolute strength + overheat filters
-3. `B3` richer stop taxonomy
-4. `B4` exit system
-5. `B5` short maturity
-6. `B6` regime crash protection
-7. `B7` replay / attribution
+3. `B3` regime crash protection
+4. `B4` edge-aware sizing / execution friction / turnover control
+5. `B5` richer stop taxonomy
+6. `B6` exit system
+7. `B7` short maturity
+8. `B8` strategy evaluation / ablation / attribution
 
 ## 7. Review focus for the next user checkpoint
 
 Step 2 review 应重点确认：
 
 - 这套系统是否真的要从“price-structure-first”转向“crypto-derivatives-aware”
-- `B1 -> B6` 的顺序是否符合老板对 edge 来源的判断
-- short 是否应该继续排在 stop / exit 之后，而不是提前变成主线
-- regime crash protection 是否应该在 short maturity 前置，或保持当前顺序
+- `B1 -> B8` 的顺序是否符合老板对 edge 来源的判断
+- regime crash protection 是否应该保持前置
+- edge-aware sizing / execution friction / turnover control 是否应该单列成一段主线，而不是散在 allocator 里
+- short 是否继续排在 stop / exit 之后，而不是提前变成主线
 - execution-safety 与 strategy-development 这两条线是否已经切分清楚
