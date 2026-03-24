@@ -140,3 +140,36 @@ def validate_candidate_for_allocation(
         reasons.append(f"correlated exposure too high: {len(correlated_positions)} major-coin peers already open")
 
     return ValidationResult(allowed, severity, reasons=reasons, metrics=metrics)
+
+
+def validate_candidate_for_execution(candidate: Mapping[str, Any]) -> ValidationResult:
+    reasons: list[str] = []
+    metrics: dict[str, Any] = {}
+
+    meta = candidate.get("meta")
+    candidate_meta = meta if isinstance(meta, Mapping) else {}
+
+    stop_loss_raw = candidate.get("stop_loss", candidate_meta.get("stop_loss"))
+    invalidation_source_raw = candidate.get("invalidation_source", candidate_meta.get("invalidation_source"))
+
+    try:
+        stop_loss = float(stop_loss_raw) if stop_loss_raw is not None else 0.0
+    except (TypeError, ValueError):
+        stop_loss = 0.0
+
+    invalidation_source = str(invalidation_source_raw or "").strip()
+
+    metrics["has_explicit_stop_loss"] = stop_loss > 0
+    metrics["has_invalidation_source"] = bool(invalidation_source)
+
+    if stop_loss <= 0:
+        reasons.append("候选缺少显式止损 stop_loss，拒绝执行")
+    if not invalidation_source:
+        reasons.append("候选缺少 invalidation_source，拒绝执行")
+
+    return ValidationResult(
+        allowed=not reasons,
+        severity="BLOCK" if reasons else "INFO",
+        reasons=reasons,
+        metrics=metrics,
+    )
