@@ -9,6 +9,7 @@ from trading_system.app import config as config_module
 from trading_system.app import main as main_module
 from trading_system.app.storage.state_store import build_state_store
 from trading_system.app.types import RegimeSnapshot, EngineCandidate, AllocationDecision, LifecycleState
+from trading_system.app.risk.validator import ValidationResult
 
 
 def test_v2_config_exposes_regime_universe_allocator_sections():
@@ -475,6 +476,16 @@ def test_main_v2_dry_run_does_not_leave_execution_traces(monkeypatch, tmp_path, 
     monkeypatch.setenv("TRADING_MARKET_CONTEXT_FILE", str(market_path))
     monkeypatch.setenv("TRADING_DERIVATIVES_SNAPSHOT_FILE", str(deriv_path))
     monkeypatch.setenv("TRADING_EXECUTION_MODE", "dry-run")
+    monkeypatch.setattr(
+        main_module,
+        "validate_candidate_for_allocation",
+        lambda candidate, account: ValidationResult(True, "INFO", reasons=[], metrics={}),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "allocate_candidates",
+        lambda **kwargs: [AllocationDecision(status="ACCEPTED", engine="trend", final_risk_budget=0.01, rank=1)],
+    )
 
     main_module.main()
 
@@ -511,3 +522,54 @@ def test_main_v2_live_not_yet_enabled_leaves_no_partial_state(monkeypatch, tmp_p
     assert not output_path.exists()
     current_exec_log = exec_log_path.read_text(encoding="utf-8") if exec_log_path.exists() else None
     assert current_exec_log == original_exec_log
+
+
+def test_main_v2_blocks_invalid_signal_before_execution(monkeypatch, tmp_path, load_fixture):
+    output_path = tmp_path / "runtime_state.json"
+    account_path = tmp_path / "account_snapshot.json"
+    market_path = tmp_path / "market_context.json"
+    deriv_path = tmp_path / "derivatives_snapshot.json"
+    account_path.write_text(json.dumps(load_fixture("account_snapshot_v2.json")))
+    market_path.write_text(json.dumps(load_fixture("market_context_v2.json")))
+    deriv_path.write_text(json.dumps(load_fixture("derivatives_snapshot_v2.json")))
+    monkeypatch.setenv("TRADING_STATE_FILE", str(output_path))
+    monkeypatch.setenv("TRADING_ACCOUNT_SNAPSHOT_FILE", str(account_path))
+    monkeypatch.setenv("TRADING_MARKET_CONTEXT_FILE", str(market_path))
+    monkeypatch.setenv("TRADING_DERIVATIVES_SNAPSHOT_FILE", str(deriv_path))
+    monkeypatch.setattr(
+        main_module,
+        "validate_candidate_for_allocation",
+        lambda candidate, account: ValidationResult(True, "INFO", reasons=[], metrics={}),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "allocate_candidates",
+        lambda **kwargs: [AllocationDecision(status="ACCEPTED", engine="trend", final_risk_budget=0.01, rank=1)],
+    )
+
+    def bad_signal(*args, **kwargs):
+        return main_module.TradeSignal(
+            signal_id="bad-stop",
+            symbol="BTCUSDT",
+            side="LONG",
+            entry_price=100.0,
+            stop_loss=99.9,
+            take_profit=104.0,
+            source="strategy",
+            timeframe="4h",
+            tags=["v2", "trend"],
+            meta={"setup_type": "BREAKOUT", "score": 0.9},
+        )
+
+    monkeypatch.setattr(main_module, "_candidate_signal", bad_signal)
+
+    main_module.main()
+
+    state = json.loads(Path(output_path).read_text())
+    accepted_allocations = [row for row in state.get("latest_allocations", []) if row.get("status") in {"ACCEPTED", "DOWNSIZED"}]
+    assert accepted_allocations
+    blocked = [row for row in accepted_allocations if row.get("execution", {}).get("status") == "BLOCKED"]
+    assert blocked
+    assert all("止损" in row.get("execution", {}).get("reason", "") for row in blocked)
+    assert state.get("positions") == {}
+    assert state.get("active_orders") == {}

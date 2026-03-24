@@ -18,7 +18,7 @@ from .reporting.daily_report import build_lifecycle_report, build_rotation_repor
 from .reporting.regime_report import build_regime_summary
 from .signals.rotation_engine import generate_rotation_candidates
 from .signals.short_engine import generate_short_candidates
-from .risk.validator import validate_candidate_for_allocation
+from .risk.validator import validate_candidate_for_allocation, validate_signal
 from .signals.trend_engine import generate_trend_candidates
 from .storage.state_store import build_state_store
 from .universe.builder import UniverseBuildResult, build_universes
@@ -272,6 +272,13 @@ def main() -> None:
             allocation["execution"] = {"status": "SKIPPED", "reason": "short_execution_not_enabled"}
             continue
         signal = _candidate_signal(allocation, market)
+        signal_validation, _signal_context = validate_signal(signal, account, config.risk)
+        if not signal_validation.allowed:
+            allocation["execution"] = {
+                "status": "BLOCKED",
+                "reason": "; ".join(signal_validation.reasons) or "signal validation failed",
+            }
+            continue
         if store.circuit_breaker_active(state):
             allocation["execution"] = {"status": "BLOCKED", "reason": "circuit_breaker_active"}
             continue
