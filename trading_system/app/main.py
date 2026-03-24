@@ -292,7 +292,11 @@ def main() -> None:
     decisions = allocate_candidates(account=account, candidates=validated_rows, regime=regime, config=config)
     allocation_rows = [_allocation_summary(decision, candidate) for decision, candidate in zip(decisions, ranked_candidates)]
 
-    executor = OrderExecutor(config, mode=config.execution.mode)
+    executor = OrderExecutor(
+        config,
+        mode=config.execution.mode,
+        persist_state=store.save if config.execution.mode != "dry-run" else None,
+    )
     sync_positions_from_account(state, account)
 
     execution_rows: list[dict[str, Any]] = []
@@ -314,25 +318,31 @@ def main() -> None:
                 "reason": "; ".join(signal_validation.reasons) or "signal validation failed",
             }
             continue
+        replayed_execution = replay_processed_execution(state, signal, executor.execution_log_path)
+        if replayed_execution:
+            if config.execution.mode != "dry-run" and not already_processed(state, signal):
+                fingerprint = mark_processed(state, signal)
+                store.record_signal(state, signal.symbol, fingerprint, config.risk.cooldown_minutes)
+                store.save(state)
+            allocation["execution"] = replayed_execution
+            execution_rows.append(
+                {
+                    "symbol": signal.symbol,
+                    "status": replayed_execution.get("status"),
+                    "intent_id": replayed_execution.get("intent_id"),
+                    "qty": 0.0,
+                    "execution": {"replayed": True},
+                }
+            )
+            continue
         if store.circuit_breaker_active(state):
             allocation["execution"] = {"status": "BLOCKED", "reason": "circuit_breaker_active"}
             continue
         if already_processed(state, signal):
-            replayed_execution = replay_processed_execution(state, signal)
-            allocation["execution"] = replayed_execution or {
+            allocation["execution"] = {
                 "status": "SKIPPED",
                 "reason": "already_processed",
             }
-            if replayed_execution:
-                execution_rows.append(
-                    {
-                        "symbol": signal.symbol,
-                        "status": replayed_execution.get("status"),
-                        "intent_id": replayed_execution.get("intent_id"),
-                        "qty": 0.0,
-                        "execution": {"replayed": True},
-                    }
-                )
             continue
         if store.in_cooldown(state, signal.symbol):
             allocation["execution"] = {"status": "SKIPPED", "reason": "cooldown_active"}
