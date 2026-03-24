@@ -10,6 +10,7 @@ from trading_system.app import main as main_module
 from trading_system.app.storage.state_store import build_state_store
 from trading_system.app.types import RegimeSnapshot, EngineCandidate, AllocationDecision, LifecycleState
 from trading_system.app.risk.validator import ValidationResult
+from trading_system.app.signals.short_engine import generate_short_candidates as generate_real_short_candidates
 
 
 def test_v2_config_exposes_regime_universe_allocator_sections():
@@ -323,6 +324,133 @@ def test_main_v2_stdout_surfaces_rotation_reporting(monkeypatch, tmp_path, load_
             },
         ],
     }
+
+
+def _defensive_short_market() -> dict:
+    return {
+        "symbols": {
+            "BTCUSDT": {
+                "sector": "majors",
+                "liquidity_tier": "top",
+                "daily": {
+                    "close": 96000.0,
+                    "ema_20": 97500.0,
+                    "ema_50": 99000.0,
+                    "return_pct_7d": -0.052,
+                    "volume_usdt_24h": 12_500_000_000.0,
+                },
+                "4h": {
+                    "close": 95800.0,
+                    "ema_20": 97000.0,
+                    "ema_50": 98500.0,
+                    "return_pct_3d": -0.031,
+                },
+                "1h": {
+                    "close": 95750.0,
+                    "ema_20": 96500.0,
+                    "ema_50": 97200.0,
+                    "return_pct_24h": -0.011,
+                },
+            },
+            "ETHUSDT": {
+                "sector": "majors",
+                "liquidity_tier": "top",
+                "daily": {
+                    "close": 4920.0,
+                    "ema_20": 5000.0,
+                    "ema_50": 5100.0,
+                    "return_pct_7d": -0.038,
+                    "volume_usdt_24h": 6_800_000_000.0,
+                },
+                "4h": {
+                    "close": 4905.0,
+                    "ema_20": 4975.0,
+                    "ema_50": 5060.0,
+                    "return_pct_3d": -0.026,
+                },
+                "1h": {
+                    "close": 4898.0,
+                    "ema_20": 4940.0,
+                    "ema_50": 4988.0,
+                    "return_pct_24h": -0.008,
+                },
+            },
+        }
+    }
+
+
+def test_main_v2_short_allocations_propagate_explicit_stop_and_invalidation_source(monkeypatch, tmp_path, load_fixture):
+    output_path = tmp_path / "runtime_state.json"
+    account_path = tmp_path / "account_snapshot.json"
+    market_path = tmp_path / "market_context.json"
+    deriv_path = tmp_path / "derivatives_snapshot.json"
+    account_path.write_text(
+        json.dumps(
+            {
+                "equity": 125000.0,
+                "available_balance": 96000.0,
+                "futures_wallet_balance": 118500.0,
+                "open_positions": [],
+                "open_orders": [],
+            }
+        )
+    )
+    market_path.write_text(json.dumps(load_fixture("market_context_v2.json")))
+    deriv_path.write_text(json.dumps(load_fixture("derivatives_snapshot_v2.json")))
+    monkeypatch.setenv("TRADING_STATE_FILE", str(output_path))
+    monkeypatch.setenv("TRADING_ACCOUNT_SNAPSHOT_FILE", str(account_path))
+    monkeypatch.setenv("TRADING_MARKET_CONTEXT_FILE", str(market_path))
+    monkeypatch.setenv("TRADING_DERIVATIVES_SNAPSHOT_FILE", str(deriv_path))
+    monkeypatch.setenv("TRADING_EXECUTION_MODE", "dry-run")
+    monkeypatch.setattr(
+        main_module,
+        "validate_candidate_for_allocation",
+        lambda candidate, account: ValidationResult(True, "INFO", reasons=[], metrics={}),
+    )
+    monkeypatch.setattr(main_module, "generate_trend_candidates", lambda *args, **kwargs: [])
+    monkeypatch.setattr(main_module, "generate_rotation_candidates", lambda *args, **kwargs: [])
+    monkeypatch.setattr(
+        main_module,
+        "validate_signal",
+        lambda signal, account, config: (ValidationResult(True, "INFO", reasons=[], metrics={}), {"sizing": None}),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "allocate_candidates",
+        lambda **kwargs: [AllocationDecision(status="ACCEPTED", engine="short", final_risk_budget=0.004, rank=1)],
+    )
+
+    short_market = _defensive_short_market()
+    short_candidates = generate_real_short_candidates(
+        short_market,
+        short_universe=[
+            {"symbol": "BTCUSDT", "sector": "majors", "liquidity_meta": {"rolling_notional": 12_500_000_000.0}},
+            {"symbol": "ETHUSDT", "sector": "majors", "liquidity_meta": {"rolling_notional": 6_800_000_000.0}},
+        ],
+        regime={"label": "HIGH_VOL_DEFENSIVE", "bucket_targets": {"trend": 0.2, "rotation": 0.0, "short": 0.8}},
+    )
+    assert short_candidates
+    monkeypatch.setattr(main_module, "generate_short_candidates", lambda *args, **kwargs: short_candidates)
+
+    main_module.main()
+
+    state = json.loads(Path(output_path).read_text())
+    short_candidate_rows = [row for row in state.get("latest_candidates", []) if row.get("engine") == "short"]
+    assert short_candidate_rows
+    assert all(float(row.get("stop_loss", 0.0) or 0.0) > 0 for row in short_candidate_rows)
+    assert all(float(row.get("stop_loss", 0.0) or 0.0) > float(short_market["symbols"][row["symbol"]]["daily"]["close"]) for row in short_candidate_rows)
+    assert all(row.get("invalidation_source") == "short_structure_reclaim_above_4h_ema50" for row in short_candidate_rows)
+
+    accepted_short = [
+        row
+        for row in state.get("latest_allocations", [])
+        if row.get("engine") == "short" and row.get("status") in {"ACCEPTED", "DOWNSIZED"}
+    ]
+    assert accepted_short
+    assert all(float(row.get("stop_loss", 0.0) or 0.0) > 0 for row in accepted_short)
+    assert all(row.get("invalidation_source") == "short_structure_reclaim_above_4h_ema50" for row in accepted_short)
+    assert all(row.get("execution", {}).get("status") == "SKIPPED" for row in accepted_short)
+    assert all(row.get("execution", {}).get("reason") == "short_execution_not_enabled" for row in accepted_short)
 
 
 def test_main_v2_cycle_persists_short_candidates_without_enabling_short_execution(monkeypatch, tmp_path, load_fixture):

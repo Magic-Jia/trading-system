@@ -94,6 +94,25 @@ def test_score_short_candidate_rewards_downtrend_alignment_and_liquidity():
     assert score["components"]["momentum_quality"] > 0
 
 
+def test_generate_short_candidates_emit_explicit_stop_loss_and_invalidation_source():
+    market = _defensive_market()
+    candidates = generate_short_candidates(
+        market,
+        short_universe=[
+            {"symbol": "BTCUSDT", "sector": "majors", "liquidity_meta": {"rolling_notional": 12_500_000_000.0}},
+            {"symbol": "ETHUSDT", "sector": "majors", "liquidity_meta": {"rolling_notional": 6_800_000_000.0}},
+        ],
+        regime={"label": "HIGH_VOL_DEFENSIVE", "bucket_targets": {"trend": 0.2, "rotation": 0.0, "short": 0.8}},
+    )
+
+    assert candidates
+    for candidate in candidates:
+        reference = market["symbols"][candidate.symbol]["daily"]["close"]
+        assert candidate.stop_loss > 0
+        assert candidate.stop_loss > reference
+        assert candidate.invalidation_source == "short_structure_reclaim_above_4h_ema50"
+
+
 def test_generate_short_candidates_emits_major_short_setups_in_defensive_regime():
     candidates = generate_short_candidates(
         _defensive_market(),
