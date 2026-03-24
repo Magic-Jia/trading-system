@@ -25,3 +25,15 @@ def test_trend_engine_only_emits_breakout_or_pullback_setup_types(load_fixture):
     market = load_fixture("market_context_v2.json")
     setup_types = {candidate.setup_type for candidate in generate_trend_candidates(market)}
     assert setup_types <= {"BREAKOUT_CONTINUATION", "PULLBACK_CONTINUATION"}
+
+
+def test_generate_trend_candidates_emit_explicit_stop_loss_and_invalidation_source(load_fixture):
+    market = load_fixture("market_context_v2.json")
+
+    candidates = generate_trend_candidates(market)
+
+    assert candidates
+    for candidate in candidates:
+        assert candidate.stop_loss > 0
+        assert candidate.stop_loss < market["symbols"][candidate.symbol]["daily"]["close"]
+        assert candidate.invalidation_source == "trend_structure_loss_below_4h_ema50"
