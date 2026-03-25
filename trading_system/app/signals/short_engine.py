@@ -3,10 +3,12 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from trading_system.app.market_regime.derivatives import symbol_derivatives_features
 from trading_system.app.signals.scoring import score_short_candidate
 from trading_system.app.types import EngineCandidate, RegimeSnapshot
 
 _SHORT_SCORE_FLOOR = 0.58
+_CROWDED_SHORT_BASIS_BPS = -20.0
 _DEFENSIVE_REGIMES = {"RISK_OFF", "HIGH_VOL_DEFENSIVE"}
 
 
@@ -108,10 +110,18 @@ def _short_stop_loss(payload: Mapping[str, Any]) -> float:
     return stop_loss
 
 
+def _reject_crowded_short_squeeze_risk(features: Mapping[str, Any]) -> bool:
+    return (
+        str(features.get("crowding_bias", "balanced")) == "crowded_short"
+        and _to_float(features.get("basis_bps")) <= _CROWDED_SHORT_BASIS_BPS
+    )
+
+
 def generate_short_candidates(
     market_context: Mapping[str, Any],
     *,
     short_universe: Sequence[Mapping[str, Any]] | None = None,
+    derivatives: Mapping[str, Any] | list[dict[str, Any]] | None = None,
     regime: RegimeSnapshot | Mapping[str, Any] | None = None,
 ) -> list[EngineCandidate]:
     if _short_suppressed(regime) or not _short_enabled(regime):
@@ -134,6 +144,10 @@ def generate_short_candidates(
         if str(payload.get("sector", "")).lower() != "majors":
             continue
         if not _trend_broken(payload):
+            continue
+
+        derivatives_features = symbol_derivatives_features(derivatives, str(symbol))
+        if _reject_crowded_short_squeeze_risk(derivatives_features):
             continue
 
         scored = score_short_candidate(
