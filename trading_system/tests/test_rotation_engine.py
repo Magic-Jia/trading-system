@@ -51,6 +51,54 @@ def test_generate_rotation_candidates_emit_explicit_stop_loss_and_invalidation_s
         assert candidate.invalidation_source == "rotation_pullback_failure_below_1h_ema50"
 
 
+def test_generate_rotation_candidates_rejects_overheated_crowded_leader(load_fixture):
+    market = load_fixture("market_context_v2.json")
+    rotation_universe = [
+        {"symbol": "SOLUSDT", "sector": "alt_l1", "liquidity_tier": "high"},
+        {"symbol": "LINKUSDT", "sector": "oracle", "liquidity_tier": "high"},
+        {"symbol": "ADAUSDT", "sector": "alt_l1", "liquidity_tier": "high"},
+    ]
+    derivatives = {
+        "rows": [
+            {
+                "symbol": "SOLUSDT",
+                "funding_rate": 0.00024,
+                "open_interest_usdt": 2900000000,
+                "open_interest_change_24h_pct": 0.059,
+                "mark_price_change_24h_pct": 0.026,
+                "taker_buy_sell_ratio": 1.11,
+                "basis_bps": 31,
+            },
+            {
+                "symbol": "LINKUSDT",
+                "funding_rate": 0.00004,
+                "open_interest_usdt": 1750000000,
+                "open_interest_change_24h_pct": 0.01,
+                "mark_price_change_24h_pct": 0.012,
+                "taker_buy_sell_ratio": 1.01,
+                "basis_bps": 12,
+            },
+            {
+                "symbol": "ADAUSDT",
+                "funding_rate": 0.00021,
+                "open_interest_usdt": 1250000000,
+                "open_interest_change_24h_pct": 0.041,
+                "mark_price_change_24h_pct": 0.018,
+                "taker_buy_sell_ratio": 1.04,
+                "basis_bps": 24,
+            },
+        ]
+    }
+
+    candidates = generate_rotation_candidates(
+        market,
+        rotation_universe=rotation_universe,
+        derivatives=derivatives,
+    )
+
+    assert {candidate.symbol for candidate in candidates} == {"LINKUSDT"}
+
+
 def test_generate_rotation_candidates_respects_regime_suppression(load_fixture):
     market = load_fixture("market_context_v2.json")
     candidates = generate_rotation_candidates(

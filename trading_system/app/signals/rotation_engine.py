@@ -4,10 +4,12 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from trading_system.app.config import DEFAULT_CONFIG
+from trading_system.app.market_regime.derivatives import symbol_derivatives_features
 from trading_system.app.signals.scoring import score_rotation_candidate
 from trading_system.app.types import EngineCandidate, RegimeSnapshot
 
 _ROTATION_SCORE_FLOOR = 0.60
+_CROWDED_LONG_BASIS_BPS = 20.0
 
 
 def _to_float(value: Any) -> float:
@@ -136,6 +138,13 @@ def _volatility_quality(payload: Mapping[str, Any]) -> float:
     return max(0.0, min(1.0 - (abs(atr_pct - 0.055) / 0.04), 1.0))
 
 
+def _reject_overheated_crowded_leader(features: Mapping[str, Any]) -> bool:
+    return (
+        str(features.get("crowding_bias", "balanced")) == "crowded_long"
+        and _to_float(features.get("basis_bps")) >= _CROWDED_LONG_BASIS_BPS
+    )
+
+
 def _setup_type(payload: Mapping[str, Any]) -> str:
     h4 = _tf_row(payload, "4h")
     h1 = _tf_row(payload, "1h")
@@ -158,6 +167,7 @@ def generate_rotation_candidates(
     market_context: Mapping[str, Any],
     *,
     rotation_universe: Sequence[Mapping[str, Any]] | None = None,
+    derivatives: Mapping[str, Any] | list[dict[str, Any]] | None = None,
     regime: RegimeSnapshot | Mapping[str, Any] | None = None,
 ) -> list[EngineCandidate]:
     if _rotation_suppressed(regime):
@@ -181,6 +191,10 @@ def generate_rotation_candidates(
         if str(payload.get("sector", "")).lower() == "majors":
             continue
         if not _trend_intact(payload):
+            continue
+
+        derivatives_features = symbol_derivatives_features(derivatives, str(symbol))
+        if _reject_overheated_crowded_leader(derivatives_features):
             continue
 
         rs_features = _relative_strength_features(payload, proxy)
