@@ -737,57 +737,94 @@ def test_main_v2_short_derivatives_meta_survives_allocator_runtime_and_report_se
     assert state["short_summary"]["leaders"][0]["derivatives"] == {"crowding_bias": "balanced", "basis_bps": -8.0}
 
 
-def test_main_v2_stdout_surfaces_short_reporting(monkeypatch, tmp_path, load_fixture, capsys):
+def test_main_v2_stdout_surfaces_surviving_short_derivatives_reporting(monkeypatch, tmp_path, load_fixture, capsys):
     output_path = tmp_path / "runtime_state.json"
     account_path = tmp_path / "account_snapshot.json"
     market_path = tmp_path / "market_context.json"
     deriv_path = tmp_path / "derivatives_snapshot.json"
     account_path.write_text(json.dumps(load_fixture("account_snapshot_v2.json")))
-    market_path.write_text(json.dumps(load_fixture("market_context_v2.json")))
-    deriv_path.write_text(json.dumps(load_fixture("derivatives_snapshot_v2.json")))
+    market_path.write_text(
+        json.dumps(
+            {
+                "as_of": "2026-03-25T00:00:00Z",
+                "schema_version": "v2",
+                **_defensive_short_market(),
+            }
+        )
+    )
+    deriv_path.write_text(
+        json.dumps(
+            {
+                "as_of": "2026-03-25T00:00:00Z",
+                "schema_version": "v2",
+                "rows": [
+                    {
+                        "symbol": "BTCUSDT",
+                        "funding_rate": -0.00021,
+                        "open_interest_usdt": 23_100_000_000,
+                        "open_interest_change_24h_pct": -0.043,
+                        "mark_price_change_24h_pct": -0.019,
+                        "taker_buy_sell_ratio": 0.94,
+                        "basis_bps": -31,
+                    },
+                    {
+                        "symbol": "ETHUSDT",
+                        "funding_rate": -0.00002,
+                        "open_interest_usdt": 11_800_000_000,
+                        "open_interest_change_24h_pct": 0.011,
+                        "mark_price_change_24h_pct": -0.012,
+                        "taker_buy_sell_ratio": 0.99,
+                        "basis_bps": -8,
+                    },
+                ],
+            }
+        )
+    )
     monkeypatch.setenv("TRADING_STATE_FILE", str(output_path))
     monkeypatch.setenv("TRADING_ACCOUNT_SNAPSHOT_FILE", str(account_path))
     monkeypatch.setenv("TRADING_MARKET_CONTEXT_FILE", str(market_path))
     monkeypatch.setenv("TRADING_DERIVATIVES_SNAPSHOT_FILE", str(deriv_path))
+    monkeypatch.setattr(main_module, "generate_trend_candidates", lambda *args, **kwargs: [])
+    monkeypatch.setattr(main_module, "generate_rotation_candidates", lambda *args, **kwargs: [])
     monkeypatch.setattr(
         main_module,
-        "generate_short_candidates",
-        lambda *args, **kwargs: [
-            EngineCandidate(
-                engine="short",
-                setup_type="BREAKDOWN_SHORT",
-                symbol="BTCUSDT",
-                side="SHORT",
-                score=0.81,
-                timeframe_meta={"daily_bias": "down", "h4_structure": "breakdown", "h1_trigger": "confirmed"},
-                sector="majors",
-                liquidity_meta={"volume_usdt_24h": 12_500_000_000.0},
-            )
-        ],
+        "classify_regime",
+        lambda *args, **kwargs: RegimeSnapshot(
+            label="HIGH_VOL_DEFENSIVE",
+            confidence=0.74,
+            risk_multiplier=0.55,
+            bucket_targets={"trend": 0.2, "rotation": 0.0, "short": 0.8},
+            suppression_rules=["rotation"],
+        ),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "validate_candidate_for_allocation",
+        lambda candidate, account: ValidationResult(True, "INFO", reasons=[], metrics={}),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "allocate_candidates",
+        lambda **kwargs: [AllocationDecision(status="ACCEPTED", engine="short", final_risk_budget=0.004, rank=1)],
     )
 
     main_module.main()
     payload = json.loads(capsys.readouterr().out)
 
-    assert payload["regime"]["short"] == {
-        "universe_count": 2,
-        "candidate_count": 1,
-        "accepted_symbols": [],
-        "deferred_execution_symbols": [],
-        "leaders": [
-            {
-                "symbol": "BTCUSDT",
-                "setup_type": "BREAKDOWN_SHORT",
-                "score": 0.81,
-                "daily_bias": "down",
-                "h4_structure": "breakdown",
-                "h1_trigger": "confirmed",
-                "derivatives": {},
-                "volume_usdt_24h": 12500000000.0,
-                "liquidity_tier": "",
-            }
-        ],
-    }
+    assert payload["regime"]["short"]["universe_count"] == 2
+    assert payload["regime"]["short"]["candidate_count"] == 1
+    assert payload["regime"]["short"]["accepted_symbols"] == ["ETHUSDT"]
+    assert payload["regime"]["short"]["deferred_execution_symbols"] == ["ETHUSDT"]
+    assert len(payload["regime"]["short"]["leaders"]) == 1
+    leader = payload["regime"]["short"]["leaders"][0]
+    assert leader["symbol"] == "ETHUSDT"
+    assert leader["setup_type"] == "BREAKDOWN_SHORT"
+    assert leader["daily_bias"] == "down"
+    assert leader["h4_structure"] == "breakdown"
+    assert leader["h1_trigger"] == "confirmed"
+    assert leader["derivatives"] == {"crowding_bias": "balanced", "basis_bps": -8.0}
+    assert leader["volume_usdt_24h"] == 6800000000.0
+    assert leader["liquidity_tier"] == "top"
 
 
 def test_main_v2_cycle_is_idempotent_for_same_inputs(monkeypatch, tmp_path, load_fixture, capsys):
