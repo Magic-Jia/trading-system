@@ -336,6 +336,8 @@ def _defensive_short_market() -> dict:
                     "close": 96000.0,
                     "ema_20": 97500.0,
                     "ema_50": 99000.0,
+                    "rsi": 38.0,
+                    "atr_pct": 0.041,
                     "return_pct_7d": -0.052,
                     "volume_usdt_24h": 12_500_000_000.0,
                 },
@@ -343,12 +345,18 @@ def _defensive_short_market() -> dict:
                     "close": 95800.0,
                     "ema_20": 97000.0,
                     "ema_50": 98500.0,
+                    "rsi": 36.0,
+                    "atr_pct": 0.028,
+                    "volume_usdt_24h": 12_500_000_000.0,
                     "return_pct_3d": -0.031,
                 },
                 "1h": {
                     "close": 95750.0,
                     "ema_20": 96500.0,
                     "ema_50": 97200.0,
+                    "rsi": 34.0,
+                    "atr_pct": 0.019,
+                    "volume_usdt_24h": 12_500_000_000.0,
                     "return_pct_24h": -0.011,
                 },
             },
@@ -359,6 +367,8 @@ def _defensive_short_market() -> dict:
                     "close": 4920.0,
                     "ema_20": 5000.0,
                     "ema_50": 5100.0,
+                    "rsi": 40.0,
+                    "atr_pct": 0.039,
                     "return_pct_7d": -0.038,
                     "volume_usdt_24h": 6_800_000_000.0,
                 },
@@ -366,12 +376,18 @@ def _defensive_short_market() -> dict:
                     "close": 4905.0,
                     "ema_20": 4975.0,
                     "ema_50": 5060.0,
+                    "rsi": 37.0,
+                    "atr_pct": 0.024,
+                    "volume_usdt_24h": 6_800_000_000.0,
                     "return_pct_3d": -0.026,
                 },
                 "1h": {
                     "close": 4898.0,
                     "ema_20": 4940.0,
                     "ema_50": 4988.0,
+                    "rsi": 35.0,
+                    "atr_pct": 0.018,
+                    "volume_usdt_24h": 6_800_000_000.0,
                     "return_pct_24h": -0.008,
                 },
             },
@@ -518,14 +534,60 @@ def test_main_v2_short_derivatives_meta_survives_allocator_runtime_and_report_se
     market_path = tmp_path / "market_context.json"
     deriv_path = tmp_path / "derivatives_snapshot.json"
     account_path.write_text(json.dumps(load_fixture("account_snapshot_v2.json")))
-    market_path.write_text(json.dumps(load_fixture("market_context_v2.json")))
-    deriv_path.write_text(json.dumps(load_fixture("derivatives_snapshot_v2.json")))
+    market_path.write_text(
+        json.dumps(
+            {
+                "as_of": "2026-03-25T00:00:00Z",
+                "schema_version": "v2",
+                **_defensive_short_market(),
+            }
+        )
+    )
+    deriv_path.write_text(
+        json.dumps(
+            {
+                "as_of": "2026-03-25T00:00:00Z",
+                "schema_version": "v2",
+                "rows": [
+                    {
+                        "symbol": "BTCUSDT",
+                        "funding_rate": -0.00021,
+                        "open_interest_usdt": 23_100_000_000,
+                        "open_interest_change_24h_pct": -0.043,
+                        "mark_price_change_24h_pct": -0.019,
+                        "taker_buy_sell_ratio": 0.94,
+                        "basis_bps": -31,
+                    },
+                    {
+                        "symbol": "ETHUSDT",
+                        "funding_rate": -0.00002,
+                        "open_interest_usdt": 11_800_000_000,
+                        "open_interest_change_24h_pct": 0.011,
+                        "mark_price_change_24h_pct": -0.012,
+                        "taker_buy_sell_ratio": 0.99,
+                        "basis_bps": -8,
+                    },
+                ],
+            }
+        )
+    )
     monkeypatch.setenv("TRADING_STATE_FILE", str(output_path))
     monkeypatch.setenv("TRADING_ACCOUNT_SNAPSHOT_FILE", str(account_path))
     monkeypatch.setenv("TRADING_MARKET_CONTEXT_FILE", str(market_path))
     monkeypatch.setenv("TRADING_DERIVATIVES_SNAPSHOT_FILE", str(deriv_path))
     monkeypatch.setattr(main_module, "generate_trend_candidates", lambda *args, **kwargs: [])
     monkeypatch.setattr(main_module, "generate_rotation_candidates", lambda *args, **kwargs: [])
+    monkeypatch.setattr(
+        main_module,
+        "classify_regime",
+        lambda *args, **kwargs: RegimeSnapshot(
+            label="HIGH_VOL_DEFENSIVE",
+            confidence=0.74,
+            risk_multiplier=0.55,
+            bucket_targets={"trend": 0.2, "rotation": 0.0, "short": 0.8},
+            suppression_rules=["rotation"],
+        ),
+    )
     monkeypatch.setattr(
         main_module,
         "validate_candidate_for_allocation",
@@ -536,34 +598,15 @@ def test_main_v2_short_derivatives_meta_survives_allocator_runtime_and_report_se
         "allocate_candidates",
         lambda **kwargs: [AllocationDecision(status="ACCEPTED", engine="short", final_risk_budget=0.004, rank=1)],
     )
-    monkeypatch.setattr(
-        main_module,
-        "generate_short_candidates",
-        lambda *args, **kwargs: [
-            EngineCandidate(
-                engine="short",
-                setup_type="BREAKDOWN_SHORT",
-                symbol="BTCUSDT",
-                side="SHORT",
-                score=0.81,
-                timeframe_meta={
-                    "daily_bias": "down",
-                    "h4_structure": "breakdown",
-                    "h1_trigger": "confirmed",
-                    "derivatives": {"crowding_bias": "balanced", "basis_bps": -8.0},
-                },
-                sector="majors",
-                liquidity_meta={"volume_usdt_24h": 12_500_000_000.0, "liquidity_tier": "top"},
-            )
-        ],
-    )
-
     main_module.main()
 
     state = json.loads(Path(output_path).read_text())
     short_allocations = [row for row in state["latest_allocations"] if row["engine"] == "short"]
+    assert [row["symbol"] for row in state["short_candidates"]] == ["ETHUSDT"]
+    assert short_allocations[0]["symbol"] == "ETHUSDT"
     assert short_allocations[0]["timeframe_meta"]["derivatives"] == {"crowding_bias": "balanced", "basis_bps": -8.0}
     assert short_allocations[0]["execution"] == {"status": "SKIPPED", "reason": "short_execution_not_enabled"}
+    assert state["short_summary"]["candidate_count"] == 1
     assert state["short_summary"]["leaders"][0]["derivatives"] == {"crowding_bias": "balanced", "basis_bps": -8.0}
 
 

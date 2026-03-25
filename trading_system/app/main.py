@@ -267,15 +267,21 @@ def main() -> None:
     regime = classify_regime(market_rows, derivatives)
     universes = build_universes(market)
 
-    trend_candidates = generate_trend_candidates(market, include_high_liquidity_strong_names=False)
+    trend_candidates = generate_trend_candidates(
+        market,
+        derivatives=derivatives,
+        include_high_liquidity_strong_names=False,
+    )
     rotation_candidates = generate_rotation_candidates(
         market,
         rotation_universe=universes.rotation_universe,
+        derivatives=derivatives,
         regime=regime,
     )
     short_candidates = generate_short_candidates(
         market,
         short_universe=universes.short_universe,
+        derivatives=derivatives,
         regime=regime,
     )
     candidate_rows: list[dict[str, Any]] = []
