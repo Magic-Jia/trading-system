@@ -1082,6 +1082,149 @@ def test_main_v2_stdout_clears_previous_short_reporting_when_later_all_short_can
     }
 
 
+def test_main_v2_direct_state_store_reload_path_clears_stale_short_latest_allocations_when_later_all_short_candidates_are_rejected(
+    monkeypatch,
+    tmp_path,
+    load_fixture,
+    capsys,
+):
+    output_path = tmp_path / "runtime_state.json"
+    account_path = tmp_path / "account_snapshot.json"
+    market_path = tmp_path / "market_context.json"
+    deriv_path = tmp_path / "derivatives_snapshot.json"
+    account_path.write_text(json.dumps(load_fixture("account_snapshot_v2.json")))
+    market_path.write_text(
+        json.dumps(
+            {
+                "as_of": "2026-03-25T00:00:00Z",
+                "schema_version": "v2",
+                **_defensive_short_market(),
+            }
+        )
+    )
+
+    def write_derivatives_snapshot(*, eth_basis_bps: float, eth_taker_ratio: float, eth_oi_change_24h_pct: float) -> None:
+        deriv_path.write_text(
+            json.dumps(
+                {
+                    "as_of": "2026-03-25T00:00:00Z",
+                    "schema_version": "v2",
+                    "rows": [
+                        {
+                            "symbol": "BTCUSDT",
+                            "funding_rate": -0.00021,
+                            "open_interest_usdt": 23_100_000_000,
+                            "open_interest_change_24h_pct": -0.043,
+                            "mark_price_change_24h_pct": -0.019,
+                            "taker_buy_sell_ratio": 0.94,
+                            "basis_bps": -31,
+                        },
+                        {
+                            "symbol": "ETHUSDT",
+                            "funding_rate": -0.00024,
+                            "open_interest_usdt": 11_800_000_000,
+                            "open_interest_change_24h_pct": eth_oi_change_24h_pct,
+                            "mark_price_change_24h_pct": -0.014,
+                            "taker_buy_sell_ratio": eth_taker_ratio,
+                            "basis_bps": eth_basis_bps,
+                        },
+                    ],
+                }
+            )
+        )
+
+    def configure_short_cycle(module) -> None:
+        monkeypatch.setattr(module, "generate_trend_candidates", lambda *args, **kwargs: [])
+        monkeypatch.setattr(module, "generate_rotation_candidates", lambda *args, **kwargs: [])
+        monkeypatch.setattr(
+            module,
+            "classify_regime",
+            lambda *args, **kwargs: RegimeSnapshot(
+                label="HIGH_VOL_DEFENSIVE",
+                confidence=0.74,
+                risk_multiplier=0.55,
+                bucket_targets={"trend": 0.2, "rotation": 0.0, "short": 0.8},
+                suppression_rules=["rotation"],
+            ),
+        )
+        monkeypatch.setattr(
+            module,
+            "validate_candidate_for_allocation",
+            lambda candidate, account: ValidationResult(True, "INFO", reasons=[], metrics={}),
+        )
+        monkeypatch.setattr(
+            module,
+            "allocate_candidates",
+            lambda **kwargs: [AllocationDecision(status="ACCEPTED", engine="short", final_risk_budget=0.004, rank=1)],
+        )
+
+    write_derivatives_snapshot(eth_basis_bps=-8, eth_taker_ratio=0.99, eth_oi_change_24h_pct=0.011)
+    monkeypatch.setenv("TRADING_STATE_FILE", str(output_path))
+    monkeypatch.setenv("TRADING_ACCOUNT_SNAPSHOT_FILE", str(account_path))
+    monkeypatch.setenv("TRADING_MARKET_CONTEXT_FILE", str(market_path))
+    monkeypatch.setenv("TRADING_DERIVATIVES_SNAPSHOT_FILE", str(deriv_path))
+    configure_short_cycle(main_module)
+
+    main_module.main()
+    initial_payload = json.loads(capsys.readouterr().out)
+
+    persisted_store = build_state_store(replace(DEFAULT_CONFIG, state_file=output_path))
+    preloaded_state = persisted_store.load()
+
+    assert initial_payload["regime"]["short"]["accepted_symbols"] == ["ETHUSDT"]
+    assert initial_payload["regime"]["short"]["deferred_execution_symbols"] == ["ETHUSDT"]
+    short_allocations = [row for row in preloaded_state.latest_allocations if row.get("engine") == "short"]
+    assert len(short_allocations) == 1
+    assert short_allocations[0]["symbol"] == "ETHUSDT"
+    assert short_allocations[0]["status"] == "ACCEPTED"
+    assert short_allocations[0]["execution"] == {"status": "SKIPPED", "reason": "short_execution_not_enabled"}
+    assert preloaded_state.short_summary["accepted_symbols"] == ["ETHUSDT"]
+    assert preloaded_state.short_summary["deferred_execution_symbols"] == ["ETHUSDT"]
+
+    class PreloadedStore:
+        def __init__(self, state, backing_store):
+            self._state = state
+            self._backing_store = backing_store
+            self.load_calls = 0
+
+        def load(self):
+            self.load_calls += 1
+            return self._state
+
+        def save(self, state):
+            self._state = state
+            self._backing_store.save(state)
+
+        def __getattr__(self, name):
+            return getattr(self._backing_store, name)
+
+    preloaded_store = PreloadedStore(preloaded_state, persisted_store)
+    monkeypatch.setattr(main_module, "build_state_store", lambda config: preloaded_store)
+
+    write_derivatives_snapshot(eth_basis_bps=-29, eth_taker_ratio=0.95, eth_oi_change_24h_pct=-0.036)
+    main_module.main()
+    payload = json.loads(capsys.readouterr().out)
+    state = json.loads(Path(output_path).read_text())
+
+    assert preloaded_store.load_calls == 1
+    assert state["latest_allocations"] == []
+    assert state["short_candidates"] == []
+    assert state["short_summary"] == {
+        "universe_count": 2,
+        "candidate_count": 0,
+        "accepted_symbols": [],
+        "deferred_execution_symbols": [],
+        "leaders": [],
+    }
+    assert payload["regime"]["short"] == {
+        "universe_count": 2,
+        "candidate_count": 0,
+        "accepted_symbols": [],
+        "deferred_execution_symbols": [],
+        "leaders": [],
+    }
+
+
 def test_main_v2_direct_state_store_reload_path_clears_persisted_and_emitted_short_outputs_when_later_all_short_candidates_are_rejected(
     monkeypatch,
     tmp_path,
