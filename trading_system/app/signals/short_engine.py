@@ -168,6 +168,18 @@ def generate_short_candidates(
             continue
 
         daily = _tf_row(payload, "daily")
+        timeframe_meta = {
+            "daily_bias": "down",
+            "h4_structure": "breakdown",
+            "h1_trigger": "confirmed",
+            "score_components": scored.get("components", {}),
+        }
+        if derivatives is not None:
+            timeframe_meta["derivatives"] = {
+                "crowding_bias": str(derivatives_features.get("crowding_bias", "balanced")),
+                "basis_bps": _to_float(derivatives_features.get("basis_bps")),
+            }
+
         liquidity_meta = dict(universe_row.get("liquidity_meta", {})) if isinstance(universe_row, Mapping) else {}
         liquidity_meta.setdefault("liquidity_tier", payload.get("liquidity_tier"))
         liquidity_meta["volume_usdt_24h"] = _to_float(daily.get("volume_usdt_24h"))
@@ -181,12 +193,7 @@ def generate_short_candidates(
                 score=total_score,
                 stop_loss=stop_loss,
                 invalidation_source="short_structure_reclaim_above_4h_ema50",
-                timeframe_meta={
-                    "daily_bias": "down",
-                    "h4_structure": "breakdown",
-                    "h1_trigger": "confirmed",
-                    "score_components": scored.get("components", {}),
-                },
+                timeframe_meta=timeframe_meta,
                 sector=str(payload.get("sector") or universe_row.get("sector") or ""),
                 liquidity_meta=liquidity_meta,
             )
