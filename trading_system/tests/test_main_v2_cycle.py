@@ -992,6 +992,85 @@ def test_main_v2_stdout_reports_empty_short_lists_when_all_short_candidates_are_
     }
 
 
+def test_main_v2_persisted_state_keeps_short_summary_empty_when_all_short_candidates_are_rejected(
+    monkeypatch,
+    tmp_path,
+    load_fixture,
+):
+    output_path = tmp_path / "runtime_state.json"
+    account_path = tmp_path / "account_snapshot.json"
+    market_path = tmp_path / "market_context.json"
+    deriv_path = tmp_path / "derivatives_snapshot.json"
+    account_path.write_text(json.dumps(load_fixture("account_snapshot_v2.json")))
+    market_path.write_text(
+        json.dumps(
+            {
+                "as_of": "2026-03-25T00:00:00Z",
+                "schema_version": "v2",
+                **_defensive_short_market(),
+            }
+        )
+    )
+    deriv_path.write_text(
+        json.dumps(
+            {
+                "as_of": "2026-03-25T00:00:00Z",
+                "schema_version": "v2",
+                "rows": [
+                    {
+                        "symbol": "BTCUSDT",
+                        "funding_rate": -0.00021,
+                        "open_interest_usdt": 23_100_000_000,
+                        "open_interest_change_24h_pct": -0.043,
+                        "mark_price_change_24h_pct": -0.019,
+                        "taker_buy_sell_ratio": 0.94,
+                        "basis_bps": -31,
+                    },
+                    {
+                        "symbol": "ETHUSDT",
+                        "funding_rate": -0.00024,
+                        "open_interest_usdt": 11_800_000_000,
+                        "open_interest_change_24h_pct": -0.036,
+                        "mark_price_change_24h_pct": -0.014,
+                        "taker_buy_sell_ratio": 0.95,
+                        "basis_bps": -29,
+                    },
+                ],
+            }
+        )
+    )
+    monkeypatch.setenv("TRADING_STATE_FILE", str(output_path))
+    monkeypatch.setenv("TRADING_ACCOUNT_SNAPSHOT_FILE", str(account_path))
+    monkeypatch.setenv("TRADING_MARKET_CONTEXT_FILE", str(market_path))
+    monkeypatch.setenv("TRADING_DERIVATIVES_SNAPSHOT_FILE", str(deriv_path))
+    monkeypatch.setattr(main_module, "generate_trend_candidates", lambda *args, **kwargs: [])
+    monkeypatch.setattr(main_module, "generate_rotation_candidates", lambda *args, **kwargs: [])
+    monkeypatch.setattr(
+        main_module,
+        "classify_regime",
+        lambda *args, **kwargs: RegimeSnapshot(
+            label="HIGH_VOL_DEFENSIVE",
+            confidence=0.74,
+            risk_multiplier=0.55,
+            bucket_targets={"trend": 0.2, "rotation": 0.0, "short": 0.8},
+            suppression_rules=["rotation"],
+        ),
+    )
+
+    main_module.main()
+
+    state = json.loads(Path(output_path).read_text())
+
+    assert state["short_candidates"] == []
+    assert state["short_summary"] == {
+        "universe_count": 2,
+        "candidate_count": 0,
+        "accepted_symbols": [],
+        "deferred_execution_symbols": [],
+        "leaders": [],
+    }
+
+
 def test_main_v2_cycle_is_idempotent_for_same_inputs(monkeypatch, tmp_path, load_fixture, capsys):
     output_path = tmp_path / "runtime_state.json"
     account_path = tmp_path / "account_snapshot.json"
