@@ -98,6 +98,7 @@ def test_build_short_report_returns_compact_deterministic_short_surface():
                 "daily_bias": "down",
                 "h4_structure": "breakdown",
                 "h1_trigger": "confirmed",
+                "derivatives": {"crowding_bias": "balanced", "basis_bps": -8.0},
             },
             "liquidity_meta": {"volume_usdt_24h": 12500000000.0, "liquidity_tier": "top"},
         }
@@ -132,6 +133,7 @@ def test_build_short_report_returns_compact_deterministic_short_surface():
                 "daily_bias": "down",
                 "h4_structure": "breakdown",
                 "h1_trigger": "confirmed",
+                "derivatives": {"crowding_bias": "balanced", "basis_bps": -8.0},
                 "volume_usdt_24h": 12500000000.0,
                 "liquidity_tier": "top",
             }

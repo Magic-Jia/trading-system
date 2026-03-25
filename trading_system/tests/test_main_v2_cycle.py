@@ -501,6 +501,7 @@ def test_main_v2_cycle_persists_short_candidates_without_enabling_short_executio
                 "daily_bias": "down",
                 "h4_structure": "breakdown",
                 "h1_trigger": "confirmed",
+                "derivatives": {},
                 "volume_usdt_24h": 12500000000.0,
                 "liquidity_tier": "",
             }
@@ -509,6 +510,61 @@ def test_main_v2_cycle_persists_short_candidates_without_enabling_short_executio
 
     short_allocations = [row for row in state["latest_allocations"] if row["engine"] == "short"]
     assert short_allocations == []
+
+
+def test_main_v2_short_derivatives_meta_survives_allocator_runtime_and_report_serialization(monkeypatch, tmp_path, load_fixture):
+    output_path = tmp_path / "runtime_state.json"
+    account_path = tmp_path / "account_snapshot.json"
+    market_path = tmp_path / "market_context.json"
+    deriv_path = tmp_path / "derivatives_snapshot.json"
+    account_path.write_text(json.dumps(load_fixture("account_snapshot_v2.json")))
+    market_path.write_text(json.dumps(load_fixture("market_context_v2.json")))
+    deriv_path.write_text(json.dumps(load_fixture("derivatives_snapshot_v2.json")))
+    monkeypatch.setenv("TRADING_STATE_FILE", str(output_path))
+    monkeypatch.setenv("TRADING_ACCOUNT_SNAPSHOT_FILE", str(account_path))
+    monkeypatch.setenv("TRADING_MARKET_CONTEXT_FILE", str(market_path))
+    monkeypatch.setenv("TRADING_DERIVATIVES_SNAPSHOT_FILE", str(deriv_path))
+    monkeypatch.setattr(main_module, "generate_trend_candidates", lambda *args, **kwargs: [])
+    monkeypatch.setattr(main_module, "generate_rotation_candidates", lambda *args, **kwargs: [])
+    monkeypatch.setattr(
+        main_module,
+        "validate_candidate_for_allocation",
+        lambda candidate, account: ValidationResult(True, "INFO", reasons=[], metrics={}),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "allocate_candidates",
+        lambda **kwargs: [AllocationDecision(status="ACCEPTED", engine="short", final_risk_budget=0.004, rank=1)],
+    )
+    monkeypatch.setattr(
+        main_module,
+        "generate_short_candidates",
+        lambda *args, **kwargs: [
+            EngineCandidate(
+                engine="short",
+                setup_type="BREAKDOWN_SHORT",
+                symbol="BTCUSDT",
+                side="SHORT",
+                score=0.81,
+                timeframe_meta={
+                    "daily_bias": "down",
+                    "h4_structure": "breakdown",
+                    "h1_trigger": "confirmed",
+                    "derivatives": {"crowding_bias": "balanced", "basis_bps": -8.0},
+                },
+                sector="majors",
+                liquidity_meta={"volume_usdt_24h": 12_500_000_000.0, "liquidity_tier": "top"},
+            )
+        ],
+    )
+
+    main_module.main()
+
+    state = json.loads(Path(output_path).read_text())
+    short_allocations = [row for row in state["latest_allocations"] if row["engine"] == "short"]
+    assert short_allocations[0]["timeframe_meta"]["derivatives"] == {"crowding_bias": "balanced", "basis_bps": -8.0}
+    assert short_allocations[0]["execution"] == {"status": "SKIPPED", "reason": "short_execution_not_enabled"}
+    assert state["short_summary"]["leaders"][0]["derivatives"] == {"crowding_bias": "balanced", "basis_bps": -8.0}
 
 
 def test_main_v2_stdout_surfaces_short_reporting(monkeypatch, tmp_path, load_fixture, capsys):
@@ -556,6 +612,7 @@ def test_main_v2_stdout_surfaces_short_reporting(monkeypatch, tmp_path, load_fix
                 "daily_bias": "down",
                 "h4_structure": "breakdown",
                 "h1_trigger": "confirmed",
+                "derivatives": {},
                 "volume_usdt_24h": 12500000000.0,
                 "liquidity_tier": "",
             }
