@@ -827,6 +827,93 @@ def test_main_v2_stdout_surfaces_surviving_short_derivatives_reporting(monkeypat
     assert leader["liquidity_tier"] == "top"
 
 
+def test_main_v2_stdout_omits_crowded_short_rejections_from_short_reporting(monkeypatch, tmp_path, load_fixture, capsys):
+    output_path = tmp_path / "runtime_state.json"
+    account_path = tmp_path / "account_snapshot.json"
+    market_path = tmp_path / "market_context.json"
+    deriv_path = tmp_path / "derivatives_snapshot.json"
+    account_path.write_text(json.dumps(load_fixture("account_snapshot_v2.json")))
+    market_path.write_text(
+        json.dumps(
+            {
+                "as_of": "2026-03-25T00:00:00Z",
+                "schema_version": "v2",
+                **_defensive_short_market(),
+            }
+        )
+    )
+    deriv_path.write_text(
+        json.dumps(
+            {
+                "as_of": "2026-03-25T00:00:00Z",
+                "schema_version": "v2",
+                "rows": [
+                    {
+                        "symbol": "BTCUSDT",
+                        "funding_rate": -0.00021,
+                        "open_interest_usdt": 23_100_000_000,
+                        "open_interest_change_24h_pct": -0.043,
+                        "mark_price_change_24h_pct": -0.019,
+                        "taker_buy_sell_ratio": 0.94,
+                        "basis_bps": -31,
+                    },
+                    {
+                        "symbol": "ETHUSDT",
+                        "funding_rate": -0.00002,
+                        "open_interest_usdt": 11_800_000_000,
+                        "open_interest_change_24h_pct": 0.011,
+                        "mark_price_change_24h_pct": -0.012,
+                        "taker_buy_sell_ratio": 0.99,
+                        "basis_bps": -8,
+                    },
+                ],
+            }
+        )
+    )
+    monkeypatch.setenv("TRADING_STATE_FILE", str(output_path))
+    monkeypatch.setenv("TRADING_ACCOUNT_SNAPSHOT_FILE", str(account_path))
+    monkeypatch.setenv("TRADING_MARKET_CONTEXT_FILE", str(market_path))
+    monkeypatch.setenv("TRADING_DERIVATIVES_SNAPSHOT_FILE", str(deriv_path))
+    monkeypatch.setattr(main_module, "generate_trend_candidates", lambda *args, **kwargs: [])
+    monkeypatch.setattr(main_module, "generate_rotation_candidates", lambda *args, **kwargs: [])
+    monkeypatch.setattr(
+        main_module,
+        "classify_regime",
+        lambda *args, **kwargs: RegimeSnapshot(
+            label="HIGH_VOL_DEFENSIVE",
+            confidence=0.74,
+            risk_multiplier=0.55,
+            bucket_targets={"trend": 0.2, "rotation": 0.0, "short": 0.8},
+            suppression_rules=["rotation"],
+        ),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "validate_candidate_for_allocation",
+        lambda candidate, account: ValidationResult(True, "INFO", reasons=[], metrics={}),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "allocate_candidates",
+        lambda **kwargs: [AllocationDecision(status="ACCEPTED", engine="short", final_risk_budget=0.004, rank=1)],
+    )
+
+    main_module.main()
+    payload = json.loads(capsys.readouterr().out)
+
+    short_report = payload["regime"]["short"]
+    leader_symbols = [row["symbol"] for row in short_report["leaders"]]
+
+    assert short_report["universe_count"] == 2
+    assert short_report["candidate_count"] == 1
+    assert short_report["accepted_symbols"] == ["ETHUSDT"]
+    assert short_report["deferred_execution_symbols"] == ["ETHUSDT"]
+    assert leader_symbols == ["ETHUSDT"]
+    assert "BTCUSDT" not in short_report["accepted_symbols"]
+    assert "BTCUSDT" not in short_report["deferred_execution_symbols"]
+    assert "BTCUSDT" not in leader_symbols
+
+
 def test_main_v2_cycle_is_idempotent_for_same_inputs(monkeypatch, tmp_path, load_fixture, capsys):
     output_path = tmp_path / "runtime_state.json"
     account_path = tmp_path / "account_snapshot.json"
