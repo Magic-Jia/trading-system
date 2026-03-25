@@ -99,14 +99,13 @@ def test_load_market_context_reads_single_runtime_contract(tmp_path: Path, load_
     assert all("symbol" in row for row in rows)
 
 
-def test_load_derivatives_snapshot_reads_majors_only_snapshot(tmp_path: Path, load_fixture):
+def test_load_derivatives_snapshot_preserves_symbol_rows_for_runtime_engines(tmp_path: Path, load_fixture):
     derivatives_path = tmp_path / "derivatives_snapshot.json"
     derivatives_path.write_text(json.dumps(load_fixture("derivatives_snapshot_v2.json")), encoding="utf-8")
 
     rows = load_derivatives_snapshot(derivatives_path)
 
-    assert rows
-    assert all("symbol" in row for row in rows)
+    assert [row["symbol"] for row in rows] == ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT"]
 
 
 def test_market_and_derivatives_loaders_support_env_override(
@@ -124,7 +123,7 @@ def test_market_and_derivatives_loaders_support_env_override(
     derivatives_rows = load_derivatives_snapshot()
 
     assert {row["symbol"] for row in market_rows}.issuperset({"BTCUSDT", "ETHUSDT"})
-    assert {row["symbol"] for row in derivatives_rows}.issuperset({"BTCUSDT", "ETHUSDT"})
+    assert {row["symbol"] for row in derivatives_rows}.issuperset({"BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT"})
 
 
 def test_market_and_derivatives_loaders_use_default_runtime_files(monkeypatch: pytest.MonkeyPatch):
