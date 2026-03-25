@@ -7,7 +7,6 @@ from typing import Any
 
 DEFAULT_DERIVATIVES_SNAPSHOT_FILE = Path(__file__).resolve().parents[2] / "data" / "derivatives_snapshot.json"
 DERIVATIVES_SNAPSHOT_FILE_ENV = "TRADING_DERIVATIVES_SNAPSHOT_FILE"
-MAJOR_SYMBOLS = {"BTCUSDT", "ETHUSDT"}
 
 _REQUIRED_ROOT_KEYS = ("as_of", "schema_version", "rows")
 _REQUIRED_ROW_KEYS = (
@@ -52,8 +51,6 @@ def load_derivatives_snapshot(path: str | Path | None = None) -> list[dict[str, 
         if not isinstance(row, dict):
             raise ValueError(f"derivatives snapshot rows[{idx}] must be an object")
         _require_keys(row, _REQUIRED_ROW_KEYS, f"derivatives snapshot rows[{idx}]")
-        if row["symbol"] not in MAJOR_SYMBOLS:
-            continue
         normalized.append(row)
 
     return normalized

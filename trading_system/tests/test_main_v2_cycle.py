@@ -294,6 +294,32 @@ def test_main_v2_cycle_filters_crowded_long_trend_candidates_from_runtime_state(
     assert all(row["symbol"] != "BTCUSDT" for row in trend_candidates)
 
 
+def test_main_v2_cycle_filters_crowded_long_rotation_candidates_from_runtime_state(monkeypatch, tmp_path, load_fixture):
+    output_path = tmp_path / "runtime_state.json"
+    account_path = tmp_path / "account_snapshot.json"
+    market_path = tmp_path / "market_context.json"
+    deriv_path = tmp_path / "derivatives_snapshot.json"
+    account_path.write_text(json.dumps(load_fixture("account_snapshot_v2.json")))
+    market_path.write_text(json.dumps(load_fixture("market_context_v2.json")))
+    deriv_path.write_text(json.dumps(load_fixture("derivatives_snapshot_v2.json")))
+    monkeypatch.setenv("TRADING_STATE_FILE", str(output_path))
+    monkeypatch.setenv("TRADING_ACCOUNT_SNAPSHOT_FILE", str(account_path))
+    monkeypatch.setenv("TRADING_MARKET_CONTEXT_FILE", str(market_path))
+    monkeypatch.setenv("TRADING_DERIVATIVES_SNAPSHOT_FILE", str(deriv_path))
+
+    main_module.main()
+
+    state = json.loads(Path(output_path).read_text())
+    rotation_universe = [row["symbol"] for row in state["latest_universes"]["rotation_universe"]]
+    rotation_candidates = [row for row in state["latest_candidates"] if row.get("engine") == "rotation"]
+
+    assert "SOLUSDT" in rotation_universe
+    assert [row["symbol"] for row in rotation_candidates] == ["LINKUSDT", "ADAUSDT"]
+    assert state["rotation_summary"]["candidate_count"] == 2
+    assert [row["symbol"] for row in state["rotation_summary"]["leaders"]] == ["LINKUSDT", "ADAUSDT"]
+    assert all(row["symbol"] != "SOLUSDT" for row in rotation_candidates)
+
+
 def test_main_v2_stdout_surfaces_rotation_reporting(monkeypatch, tmp_path, load_fixture, capsys):
     output_path = tmp_path / "runtime_state.json"
     account_path = tmp_path / "account_snapshot.json"
@@ -312,10 +338,10 @@ def test_main_v2_stdout_surfaces_rotation_reporting(monkeypatch, tmp_path, load_
     payload = json.loads(printed)
 
     assert payload["regime"]["rotation"]["universe_count"] == 5
-    assert payload["regime"]["rotation"]["candidate_count"] == 3
+    assert payload["regime"]["rotation"]["candidate_count"] == 2
     assert payload["regime"]["rotation"]["accepted_symbols"] == []
     assert payload["regime"]["rotation"]["executed_symbols"] == []
-    assert [row["symbol"] for row in payload["regime"]["rotation"]["leaders"]] == ["SOLUSDT", "LINKUSDT", "ADAUSDT"]
+    assert [row["symbol"] for row in payload["regime"]["rotation"]["leaders"]] == ["LINKUSDT", "ADAUSDT"]
     assert payload["portfolio"]["lifecycle_summary"] == {
         "tracked_count": 3,
         "state_counts": {
