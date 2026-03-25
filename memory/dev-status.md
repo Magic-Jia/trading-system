@@ -1,16 +1,8 @@
 # Dev Status
 
-## Current active coding task
-
-- Branch/worktree: `codex/strategy-docs` / `/home/cn/.openclaw/agents/trade/workspace/.worktrees/codex-strategy-docs`
-- Objective: rewrite the strategy design / roadmap docs so they match the current stack, state the real strategy gaps, and define the next strategy upgrade order separately from execution-safety work
-- Latest verified commands/results:
-  - `git status --short --branch` -> clean branch `codex/strategy-docs`
-  - doc + code audit -> `trading_system/README.md`, `docs/superpowers/plans/2026-03-23-trading-system-p0-p1-p2-roadmap.md`, `trading_system/docs/MVP_ARCHITECTURE.md`, and current `trading_system/app/*` structure reviewed
-- Latest commit:
-  - none yet on this worktree branch for the docs rewrite slice
-- Next action:
-  1. patch README / roadmap / architecture docs
-  2. add one focused strategy-gap document
-  3. verify wording consistency and commit the doc slice
-- Last user update time: 2026-03-24 15:23 Europe/Berlin
+- branch/worktree: `codex/b1-derivatives` @ `/home/cn/.openclaw/agents/trade/workspace/.worktrees/codex-b1-derivatives`
+- current objective: prove short `timeframe_meta["derivatives"]` survives narrow downstream allocator/reporting/runtime serialization after `4e5f55d`
+- last verified command + result: `uv run --with pytest python -m pytest -q trading_system/tests/test_main_v2_cycle.py -k 'short_derivatives_meta_survives_allocator_runtime_and_report_serialization or persists_short_candidates_without_enabling_short_execution or stdout_surfaces_short_reporting' && uv run --with pytest python -m pytest -q trading_system/tests/test_reporting.py -k short_report` -> passed (`3 passed, 25 deselected`; `2 passed, 3 deselected`)
+- last commit: `9012a7d` feat: preserve short derivatives downstream metadata
+- next action: pass derivatives snapshots into live `main.py` candidate generation calls so this downstream proof also covers the unpatched end-to-end fixture path
+- last user update time: 2026-03-25 05:30 GMT+1

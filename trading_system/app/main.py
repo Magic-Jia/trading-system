@@ -230,6 +230,7 @@ def _allocation_summary(decision: Any, candidate: Mapping[str, Any]) -> dict[str
     payload["side"] = str(candidate.get("side", "LONG"))
     payload["setup_type"] = str(candidate.get("setup_type", ""))
     payload["score"] = float(candidate.get("score", 0.0) or 0.0)
+    payload["timeframe_meta"] = dict(candidate.get("timeframe_meta") or {})
     candidate_meta = candidate.get("meta") if isinstance(candidate.get("meta"), Mapping) else {}
     for key in ("entry_price", "stop_loss", "take_profit", "invalidation_source"):
         value = candidate.get(key)

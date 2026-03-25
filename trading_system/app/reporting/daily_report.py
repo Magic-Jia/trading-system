@@ -38,6 +38,7 @@ def _short_leader_row(candidate: Mapping[str, Any]) -> dict[str, Any]:
         "daily_bias": str(timeframe_meta.get("daily_bias", "")),
         "h4_structure": str(timeframe_meta.get("h4_structure", "")),
         "h1_trigger": str(timeframe_meta.get("h1_trigger", "")),
+        "derivatives": dict(timeframe_meta.get("derivatives") or {}),
         "volume_usdt_24h": _float(liquidity_meta.get("volume_usdt_24h")),
         "liquidity_tier": str(liquidity_meta.get("liquidity_tier", "")),
     }
