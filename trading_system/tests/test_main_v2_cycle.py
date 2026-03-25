@@ -268,6 +268,32 @@ def test_main_v2_cycle_writes_regime_and_allocation_sections(monkeypatch, tmp_pa
     assert state.get("short_candidates", []) == []
 
 
+def test_main_v2_cycle_filters_crowded_long_trend_candidates_from_runtime_state(monkeypatch, tmp_path, load_fixture):
+    output_path = tmp_path / "runtime_state.json"
+    account_path = tmp_path / "account_snapshot.json"
+    market_path = tmp_path / "market_context.json"
+    deriv_path = tmp_path / "derivatives_snapshot.json"
+    account_path.write_text(json.dumps(load_fixture("account_snapshot_v2.json")))
+    market_path.write_text(json.dumps(load_fixture("market_context_v2.json")))
+    deriv_path.write_text(json.dumps(load_fixture("derivatives_snapshot_v2.json")))
+    monkeypatch.setenv("TRADING_STATE_FILE", str(output_path))
+    monkeypatch.setenv("TRADING_ACCOUNT_SNAPSHOT_FILE", str(account_path))
+    monkeypatch.setenv("TRADING_MARKET_CONTEXT_FILE", str(market_path))
+    monkeypatch.setenv("TRADING_DERIVATIVES_SNAPSHOT_FILE", str(deriv_path))
+
+    main_module.main()
+
+    state = json.loads(Path(output_path).read_text())
+    trend_candidates = [row for row in state["latest_candidates"] if row.get("engine") == "trend"]
+
+    assert [row["symbol"] for row in trend_candidates] == ["ETHUSDT"]
+    assert trend_candidates[0]["timeframe_meta"]["derivatives"] == {
+        "crowding_bias": "crowded_long",
+        "basis_bps": 19.0,
+    }
+    assert all(row["symbol"] != "BTCUSDT" for row in trend_candidates)
+
+
 def test_main_v2_stdout_surfaces_rotation_reporting(monkeypatch, tmp_path, load_fixture, capsys):
     output_path = tmp_path / "runtime_state.json"
     account_path = tmp_path / "account_snapshot.json"
