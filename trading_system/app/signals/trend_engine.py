@@ -127,6 +127,17 @@ def generate_trend_candidates(
         if stop_loss <= 0.0:
             continue
 
+        timeframe_meta = {
+            "daily_bias": "up",
+            "h4_structure": "intact",
+            "h1_trigger": "confirmed",
+        }
+        if derivatives is not None:
+            timeframe_meta["derivatives"] = {
+                "crowding_bias": str(derivatives_features.get("crowding_bias", "balanced")),
+                "basis_bps": _to_float(derivatives_features.get("basis_bps")),
+            }
+
         candidates.append(
             EngineCandidate(
                 engine="trend",
@@ -136,11 +147,7 @@ def generate_trend_candidates(
                 score=total_score,
                 stop_loss=stop_loss,
                 invalidation_source="trend_structure_loss_below_4h_ema50",
-                timeframe_meta={
-                    "daily_bias": "up",
-                    "h4_structure": "intact",
-                    "h1_trigger": "confirmed",
-                },
+                timeframe_meta=timeframe_meta,
                 sector=sector or None,
                 liquidity_meta={
                     "liquidity_tier": payload.get("liquidity_tier"),

@@ -71,3 +71,30 @@ def test_generate_trend_candidates_filters_crowded_longs_from_symbol_level_deriv
     )
 
     assert {candidate.symbol for candidate in candidates} == {"BTCUSDT"}
+
+
+def test_generate_trend_candidates_attach_derivatives_meta(load_fixture):
+    market = load_fixture("market_context_v2.json")
+    derivatives = {
+        "rows": [
+            {
+                "symbol": "BTCUSDT",
+                "funding_rate": 0.00004,
+                "open_interest_usdt": 23100000000,
+                "open_interest_change_24h_pct": 0.01,
+                "mark_price_change_24h_pct": 0.017,
+                "taker_buy_sell_ratio": 1.01,
+                "basis_bps": 12,
+            }
+        ]
+    }
+
+    candidates = generate_trend_candidates(
+        market,
+        derivatives=derivatives,
+        include_high_liquidity_strong_names=False,
+    )
+
+    candidate = next(item for item in candidates if item.symbol == "BTCUSDT")
+
+    assert candidate.timeframe_meta["derivatives"]["crowding_bias"] == "balanced"
