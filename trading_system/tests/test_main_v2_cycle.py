@@ -992,7 +992,7 @@ def test_main_v2_stdout_reports_empty_short_lists_when_all_short_candidates_are_
     }
 
 
-def test_main_v2_persisted_state_keeps_short_summary_empty_when_all_short_candidates_are_rejected(
+def test_main_v2_persisted_state_clears_previous_short_summary_when_later_all_short_candidates_are_rejected(
     monkeypatch,
     tmp_path,
     load_fixture,
@@ -1011,34 +1011,38 @@ def test_main_v2_persisted_state_keeps_short_summary_empty_when_all_short_candid
             }
         )
     )
-    deriv_path.write_text(
-        json.dumps(
-            {
-                "as_of": "2026-03-25T00:00:00Z",
-                "schema_version": "v2",
-                "rows": [
-                    {
-                        "symbol": "BTCUSDT",
-                        "funding_rate": -0.00021,
-                        "open_interest_usdt": 23_100_000_000,
-                        "open_interest_change_24h_pct": -0.043,
-                        "mark_price_change_24h_pct": -0.019,
-                        "taker_buy_sell_ratio": 0.94,
-                        "basis_bps": -31,
-                    },
-                    {
-                        "symbol": "ETHUSDT",
-                        "funding_rate": -0.00024,
-                        "open_interest_usdt": 11_800_000_000,
-                        "open_interest_change_24h_pct": -0.036,
-                        "mark_price_change_24h_pct": -0.014,
-                        "taker_buy_sell_ratio": 0.95,
-                        "basis_bps": -29,
-                    },
-                ],
-            }
+
+    def write_derivatives_snapshot(*, eth_basis_bps: float, eth_taker_ratio: float, eth_oi_change_24h_pct: float) -> None:
+        deriv_path.write_text(
+            json.dumps(
+                {
+                    "as_of": "2026-03-25T00:00:00Z",
+                    "schema_version": "v2",
+                    "rows": [
+                        {
+                            "symbol": "BTCUSDT",
+                            "funding_rate": -0.00021,
+                            "open_interest_usdt": 23_100_000_000,
+                            "open_interest_change_24h_pct": -0.043,
+                            "mark_price_change_24h_pct": -0.019,
+                            "taker_buy_sell_ratio": 0.94,
+                            "basis_bps": -31,
+                        },
+                        {
+                            "symbol": "ETHUSDT",
+                            "funding_rate": -0.00024,
+                            "open_interest_usdt": 11_800_000_000,
+                            "open_interest_change_24h_pct": eth_oi_change_24h_pct,
+                            "mark_price_change_24h_pct": -0.014,
+                            "taker_buy_sell_ratio": eth_taker_ratio,
+                            "basis_bps": eth_basis_bps,
+                        },
+                    ],
+                }
+            )
         )
-    )
+
+    write_derivatives_snapshot(eth_basis_bps=-8, eth_taker_ratio=0.99, eth_oi_change_24h_pct=0.011)
     monkeypatch.setenv("TRADING_STATE_FILE", str(output_path))
     monkeypatch.setenv("TRADING_ACCOUNT_SNAPSHOT_FILE", str(account_path))
     monkeypatch.setenv("TRADING_MARKET_CONTEXT_FILE", str(market_path))
@@ -1057,6 +1061,15 @@ def test_main_v2_persisted_state_keeps_short_summary_empty_when_all_short_candid
         ),
     )
 
+    main_module.main()
+
+    initial_state = json.loads(Path(output_path).read_text())
+
+    assert [row["symbol"] for row in initial_state["short_candidates"]] == ["ETHUSDT"]
+    assert initial_state["short_summary"]["candidate_count"] == 1
+    assert [row["symbol"] for row in initial_state["short_summary"]["leaders"]] == ["ETHUSDT"]
+
+    write_derivatives_snapshot(eth_basis_bps=-29, eth_taker_ratio=0.95, eth_oi_change_24h_pct=-0.036)
     main_module.main()
 
     state = json.loads(Path(output_path).read_text())
