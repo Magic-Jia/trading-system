@@ -192,6 +192,34 @@ def _execution_friction_multiplier(candidate: Mapping[str, Any]) -> float:
     return _clamp(multiplier, 0.55, 1.0)
 
 
+def _regime_hazard_multiplier(regime: RegimeSnapshot | Mapping[str, Any] | None) -> float:
+    execution_hazard = str(_regime_value(regime, "execution_hazard", "none")).lower()
+    execution_policy = str(_regime_value(regime, "execution_policy", "normal")).lower()
+
+    multiplier = 1.0
+    if execution_hazard == "compress_risk":
+        multiplier *= 0.84
+    if execution_policy == "downsize":
+        multiplier *= 0.95
+    elif execution_policy == "suppress":
+        multiplier *= 0.9
+
+    return _clamp(multiplier, 0.6, 1.0)
+
+
+def _late_stage_heat_multiplier(
+    regime: RegimeSnapshot | Mapping[str, Any] | None,
+    *,
+    side: str,
+) -> float:
+    late_stage_heat = str(_regime_value(regime, "late_stage_heat", "none")).lower()
+    if late_stage_heat == "none":
+        return 1.0
+    if side.upper() != "LONG":
+        return 1.0
+    return 0.8
+
+
 def allocate_candidates(
     *,
     account: Mapping[str, Any] | Any,
@@ -313,13 +341,23 @@ def allocate_candidates(
         quality_multiplier = _quality_multiplier(candidate["score"])
         crowding_multiplier = _crowding_multiplier(candidate)
         execution_friction_multiplier = _execution_friction_multiplier(candidate)
-        aggressiveness_multiplier = quality_multiplier * crowding_multiplier * execution_friction_multiplier
+        regime_hazard_multiplier = _regime_hazard_multiplier(regime)
+        late_stage_heat_multiplier = _late_stage_heat_multiplier(regime, side=side)
+        aggressiveness_multiplier = (
+            quality_multiplier
+            * crowding_multiplier
+            * execution_friction_multiplier
+            * regime_hazard_multiplier
+            * late_stage_heat_multiplier
+        )
         meta.update(
             {
                 "initial_risk_budget": round(initial_budget, 6),
                 "quality_multiplier": round(quality_multiplier, 6),
                 "crowding_multiplier": round(crowding_multiplier, 6),
                 "execution_friction_multiplier": round(execution_friction_multiplier, 6),
+                "regime_hazard_multiplier": round(regime_hazard_multiplier, 6),
+                "late_stage_heat_multiplier": round(late_stage_heat_multiplier, 6),
                 "aggressiveness_multiplier": round(aggressiveness_multiplier, 6),
             }
         )
@@ -331,6 +369,12 @@ def allocate_candidates(
             downsized = True
         if execution_friction_multiplier < 0.999999:
             reasons.append("execution friction reduced aggressiveness")
+            downsized = True
+        if regime_hazard_multiplier < 0.999999:
+            reasons.append("defensive regime hazard reduced aggressiveness")
+            downsized = True
+        if late_stage_heat_multiplier < 0.999999:
+            reasons.append("late-stage heat reduced long aggressiveness")
             downsized = True
 
         duplicate_key = (engine, side, _setup_family(candidate["setup_type"]))
