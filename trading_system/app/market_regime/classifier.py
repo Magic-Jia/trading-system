@@ -35,6 +35,11 @@ _REGIME_PROFILES: dict[str, dict[str, Any]] = {
         "bucket_targets": {"trend": 0.2, "rotation": 0.0, "short": 0.8},
         "suppression_rules": ["rotation"],
     },
+    "CRASH_DEFENSIVE": {
+        "risk_multiplier": 0.45,
+        "bucket_targets": {"trend": 0.0, "rotation": 0.0, "short": 0.65},
+        "suppression_rules": ["trend", "rotation"],
+    },
 }
 
 
@@ -89,7 +94,10 @@ def _classify_label(
     high_volatility = avg_daily_atr_pct >= 0.06
     crowding_bias = str(derivatives.get("crowding_bias", "balanced"))
     oi_trend = str(derivatives.get("oi_trend", "flat"))
+    late_stage_heat = str(derivatives.get("late_stage_heat", "none"))
 
+    if late_stage_heat != "none":
+        return "CRASH_DEFENSIVE"
     if high_volatility:
         return "HIGH_VOL_DEFENSIVE"
     if breadth_strong and trend_strength >= 0.7 and crowding_bias != "crowded_short":
@@ -110,6 +118,8 @@ def _base_confidence(label: str) -> float:
         return 0.78
     if label == "HIGH_VOL_DEFENSIVE":
         return 0.74
+    if label == "CRASH_DEFENSIVE":
+        return 0.3
     return 0.58
 
 
@@ -149,8 +159,11 @@ def classify_regime(
 
     aggression = _aggression_scale(confidence)
     crowding_bias = str(derivatives_summary.get("crowding_bias", "balanced"))
+    late_stage_heat = str(derivatives_summary.get("late_stage_heat", "none"))
     if crowding_bias == "crowded_long":
         aggression = max(0.3, aggression * 0.8)
+    if late_stage_heat != "none":
+        aggression = min(aggression, 0.45)
 
     execution_policy = "normal"
     if aggression <= 0.5:
