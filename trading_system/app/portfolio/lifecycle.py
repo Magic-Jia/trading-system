@@ -89,9 +89,11 @@ def evaluate_position(position: dict[str, Any]) -> list[dict[str, Any]]:
         return []
 
     suggestions: list[ManagementSuggestion] = []
+    taxonomy_meta = _position_taxonomy_meta(position)
+    invalidation_source = str(position.get("invalidation_source") or "").strip()
+    invalidation_reason = str(position.get("invalidation_reason") or "").strip()
     if not _valid_stop(side, entry_price, stop_loss):
         reference_price = float(mark_price) if mark_price is not None else entry_price
-        taxonomy_meta = _position_taxonomy_meta(position)
         taxonomy_stop_loss = _taxonomy_stop(side, entry_price, position)
         if taxonomy_stop_loss is not None:
             suggested_stop_loss = taxonomy_stop_loss
@@ -137,20 +139,30 @@ def evaluate_position(position: dict[str, Any]) -> list[dict[str, Any]]:
 
     break_even_trigger = entry_price + risk_unit if side == "LONG" else entry_price - risk_unit
     if _in_favor(side, mark_price, break_even_trigger) and stop_loss != entry_price:
+        reason = "价格已至少走出 1R，允许把止损上提到保本位。"
+        if invalidation_reason and invalidation_source:
+            reason = f"{invalidation_reason}（{invalidation_source}）仍是当前失效条件，价格已至少走出 1R，允许把止损上提到保本位。"
+        elif invalidation_reason:
+            reason = f"{invalidation_reason} 仍是当前失效条件，价格已至少走出 1R，允许把止损上提到保本位。"
         suggestions.append(
             ManagementSuggestion(
                 symbol=symbol,
                 action="BREAK_EVEN",
                 side=side,
                 priority="MEDIUM",
-                reason="价格已至少走出 1R，允许把止损上提到保本位。",
+                reason=reason,
                 suggested_stop_loss=round(entry_price, 8),
                 reference_price=round(mark_price, 8),
-                meta={"trigger_price": round(break_even_trigger, 8), "risk_unit": round(risk_unit, 8)},
+                meta={"trigger_price": round(break_even_trigger, 8), "risk_unit": round(risk_unit, 8), **taxonomy_meta},
             )
         )
 
     if take_profit is not None and _in_favor(side, mark_price, float(take_profit)):
+        reason = "已触及第一目标位，建议先兑现 50% 仓位并保留剩余仓位观察延伸。"
+        if invalidation_reason and invalidation_source:
+            reason = f"{invalidation_reason}（{invalidation_source}）仍是当前失效条件，已触及第一目标位，建议先兑现 50% 仓位并保留剩余仓位观察延伸。"
+        elif invalidation_reason:
+            reason = f"{invalidation_reason} 仍是当前失效条件，已触及第一目标位，建议先兑现 50% 仓位并保留剩余仓位观察延伸。"
         suggestions.append(
             ManagementSuggestion(
                 symbol=symbol,
@@ -158,17 +170,17 @@ def evaluate_position(position: dict[str, Any]) -> list[dict[str, Any]]:
                 side=side,
                 priority="MEDIUM",
                 qty_fraction=0.5,
-                reason="已触及第一目标位，建议先兑现 50% 仓位并保留剩余仓位观察延伸。",
+                reason=reason,
                 reference_price=round(mark_price, 8),
-                meta={"target_price": round(float(take_profit), 8)},
+                meta={"target_price": round(float(take_profit), 8), **taxonomy_meta},
             )
         )
 
     if _stop_breached(side, mark_price, stop_loss):
-        taxonomy_meta = _position_taxonomy_meta(position)
-        invalidation_reason = str(position.get("invalidation_reason") or "").strip()
         reason = "当前价格已跌破（或升破）止损位，建议按计划退出。"
-        if invalidation_reason:
+        if invalidation_reason and invalidation_source:
+            reason = f"{invalidation_reason}（{invalidation_source}），当前价格已触发止损，建议按计划退出。"
+        elif invalidation_reason:
             reason = f"{invalidation_reason}，当前价格已触发止损，建议按计划退出。"
         suggestions.append(
             ManagementSuggestion(
