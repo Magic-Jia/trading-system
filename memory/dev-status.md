@@ -1,8 +1,8 @@
 # Dev Status
 
 - branch/worktree: `codex/b1-derivatives` @ `/home/cn/.openclaw/agents/trade/workspace/.worktrees/codex-b1-derivatives`
-- current objective: finalize the short-side crash/cascade asymmetry proof as a proof-only regression if allocator/runtime decisions stay unchanged
-- last verified command + result: `uv run --with pytest python -m pytest -q trading_system/tests/test_allocator.py trading_system/tests/test_main_v2_cycle.py` -> passed (`60 passed`)
-- last commit: `d0bf839` reporting: explain aggressiveness compression
-- next action: commit the proof-only regression showing short cascade pressure reduces risk budget but does not change allocator acceptance or runtime short-execution behavior
-- last user update time: 2026-03-26 13:14 Europe/Berlin
+- current objective: Package 3 Task 1 — add exit policy primitives for partial take-profit, fail-fast invalidation exits, and defensive-regime de-risking
+- last verified command + result: not run yet for this slice (about to add failing `trading_system/tests/test_exit_policy.py` coverage and execute focused exit-policy tests)
+- last commit: `3194231` feat: surface lifecycle exit taxonomy in reports
+- next action: write focused failing exit-policy tests, prove the gap, implement the minimum `trading_system/app/portfolio/exit_policy.py`, rerun focused tests, then commit if green
+- last user update time: 2026-03-26 16:43 Europe/Berlin
