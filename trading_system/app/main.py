@@ -16,6 +16,7 @@ from .portfolio.lifecycle import advance_lifecycle_positions, build_management_a
 from .portfolio.positions import apply_executed_intent, sync_positions_from_account
 from .reporting.daily_report import build_lifecycle_report, build_rotation_report, build_short_report
 from .reporting.regime_report import build_regime_summary
+from .risk.stop_policy import build_stop_policy
 from .signals.rotation_engine import generate_rotation_candidates
 from .signals.short_engine import generate_short_candidates
 from .risk.validator import validate_candidate_for_allocation, validate_candidate_for_execution, validate_signal
@@ -156,34 +157,97 @@ def _candidate_sort_key(row: Mapping[str, Any]) -> tuple[float, str, str]:
     return (-float(row.get("score", 0.0) or 0.0), str(row.get("symbol", "")), str(row.get("engine", "")))
 
 
-def _candidate_signal(candidate: Mapping[str, Any], market: Mapping[str, Any]) -> TradeSignal:
-    execution_validation = validate_candidate_for_execution(candidate)
+def _regime_payload(regime: Any) -> Mapping[str, Any] | None:
+    if isinstance(regime, Mapping):
+        return regime
+    if is_dataclass(regime):
+        return asdict(regime)
+    return None
+
+
+def _candidate_with_stop_taxonomy(candidate: Any, market: Mapping[str, Any], regime: Any | None = None) -> dict[str, Any]:
+    row = _candidate_row(candidate)
+    symbol = str(row.get("symbol", "")).upper()
+    payload = market.get("symbols", {}).get(symbol, {})
+    if not isinstance(payload, Mapping):
+        return row
+
+    policy = build_stop_policy(
+        payload,
+        engine=str(row.get("engine", "")),
+        setup_type=str(row.get("setup_type", "")),
+        side=str(row.get("side", "LONG")),
+        regime=_regime_payload(regime),
+    )
+    if policy is None:
+        return row
+
+    candidate_meta = dict(row.get("meta") or {}) if isinstance(row.get("meta"), Mapping) else {}
+    candidate_meta.update(
+        {
+            "stop_policy_source": "shared_taxonomy",
+            "stop_family": policy.stop_family,
+            "stop_reference": policy.stop_reference,
+            "invalidation_source": policy.invalidation_source,
+            "invalidation_reason": policy.invalidation_reason,
+        }
+    )
+    row["meta"] = candidate_meta
+    row["stop_loss"] = round(policy.stop_loss, 8)
+    row["invalidation_source"] = policy.invalidation_source
+    row["stop_family"] = policy.stop_family
+    row["stop_reference"] = policy.stop_reference
+    row["invalidation_reason"] = policy.invalidation_reason
+    row["stop_policy_source"] = "shared_taxonomy"
+    return row
+
+
+def _candidate_signal(candidate: Mapping[str, Any], market: Mapping[str, Any], regime: Any | None = None) -> TradeSignal:
+    candidate_row = _candidate_with_stop_taxonomy(candidate, market, regime)
+    execution_validation = validate_candidate_for_execution(candidate_row)
     if not execution_validation.allowed:
         raise ValueError("; ".join(execution_validation.reasons) or "candidate execution validation failed")
 
-    symbol = str(candidate.get("symbol", "")).upper()
-    side = str(candidate.get("side", "LONG")).upper()
-    candidate_meta = candidate.get("meta") if isinstance(candidate.get("meta"), Mapping) else {}
+    symbol = str(candidate_row.get("symbol", "")).upper()
+    side = str(candidate_row.get("side", "LONG")).upper()
+    candidate_meta = candidate_row.get("meta") if isinstance(candidate_row.get("meta"), Mapping) else {}
     payload = dict(market.get("symbols", {}).get(symbol, {}))
     daily = dict(payload.get("daily", {}))
-    entry_price = _float(candidate, "entry_price")
+    entry_price = _float(candidate_row, "entry_price")
     if entry_price <= 0:
         entry_price = _float(candidate_meta, "entry_price")
     if entry_price <= 0:
         entry_price = _float(daily, "close")
     if entry_price <= 0:
         entry_price = 1.0
-    stop_loss = _float(candidate, "stop_loss")
+    stop_loss = _float(candidate_row, "stop_loss")
     if stop_loss <= 0:
         stop_loss = _float(candidate_meta, "stop_loss")
-    take_profit = _float(candidate, "take_profit")
+    take_profit = _float(candidate_row, "take_profit")
     if take_profit <= 0:
         take_profit = _float(candidate_meta, "take_profit")
     if take_profit <= 0:
         take_profit = entry_price * (1.04 if side == "LONG" else 0.96)
-    invalidation_source = str(candidate.get("invalidation_source") or candidate_meta.get("invalidation_source") or "").strip()
-    setup_type = str(candidate.get("setup_type", "trend")).lower()
-    signal_id = f"v2-{candidate.get('engine', 'trend')}-{setup_type}-{symbol}".lower()
+    invalidation_source = str(candidate_row.get("invalidation_source") or candidate_meta.get("invalidation_source") or "").strip()
+    invalidation_reason = str(candidate_row.get("invalidation_reason") or candidate_meta.get("invalidation_reason") or "").strip()
+    stop_family = str(candidate_row.get("stop_family") or candidate_meta.get("stop_family") or "").strip()
+    stop_reference = str(candidate_row.get("stop_reference") or candidate_meta.get("stop_reference") or "").strip()
+    stop_policy_source = str(candidate_row.get("stop_policy_source") or candidate_meta.get("stop_policy_source") or "").strip()
+    setup_type = str(candidate_row.get("setup_type", "trend")).lower()
+    signal_id = f"v2-{candidate_row.get('engine', 'trend')}-{setup_type}-{symbol}".lower()
+    signal_meta = {
+        "setup_type": candidate_row.get("setup_type"),
+        "score": candidate_row.get("score"),
+        "invalidation_source": invalidation_source,
+    }
+    for key, value in (
+        ("invalidation_reason", invalidation_reason),
+        ("stop_family", stop_family),
+        ("stop_reference", stop_reference),
+        ("stop_policy_source", stop_policy_source),
+    ):
+        if value:
+            signal_meta[key] = value
     return TradeSignal(
         signal_id=signal_id,
         symbol=symbol,
@@ -193,12 +257,8 @@ def _candidate_signal(candidate: Mapping[str, Any], market: Mapping[str, Any]) -
         take_profit=round(take_profit, 8),
         source="strategy",
         timeframe="4h",
-        tags=["v2", str(candidate.get("engine", "trend"))],
-        meta={
-            "setup_type": candidate.get("setup_type"),
-            "score": candidate.get("score"),
-            "invalidation_source": invalidation_source,
-        },
+        tags=["v2", str(candidate_row.get("engine", "trend"))],
+        meta=signal_meta,
     )
 
 
@@ -251,7 +311,16 @@ def _allocation_summary(decision: Any, candidate: Mapping[str, Any]) -> dict[str
     if compression_reasons:
         payload["compression_reasons"] = compression_reasons
     candidate_meta = candidate.get("meta") if isinstance(candidate.get("meta"), Mapping) else {}
-    for key in ("entry_price", "stop_loss", "take_profit", "invalidation_source"):
+    for key in (
+        "entry_price",
+        "stop_loss",
+        "take_profit",
+        "invalidation_source",
+        "invalidation_reason",
+        "stop_family",
+        "stop_reference",
+        "stop_policy_source",
+    ):
         value = candidate.get(key)
         if value is None:
             value = candidate_meta.get(key)
@@ -307,7 +376,7 @@ def main() -> None:
     candidate_rows: list[dict[str, Any]] = []
     validated_rows: list[dict[str, Any]] = []
     for candidate in [*trend_candidates, *rotation_candidates, *short_candidates]:
-        row = _candidate_row(candidate)
+        row = _candidate_with_stop_taxonomy(candidate, market, regime)
         validation = validate_candidate_for_allocation(row, account)
         row["validation"] = {"allowed": validation.allowed, "reasons": list(validation.reasons), "metrics": validation.metrics}
         row["baseline_risk_proxy"] = round(max(float(row.get("score", 0.0) or 0.0) * 0.001, 0.0), 6)
@@ -334,7 +403,7 @@ def main() -> None:
             allocation["execution"] = {"status": "SKIPPED", "reason": "short_execution_not_enabled"}
             continue
         try:
-            signal = _candidate_signal(allocation, market)
+            signal = _candidate_signal(allocation, market, regime=regime)
         except ValueError as exc:
             allocation["execution"] = {"status": "BLOCKED", "reason": str(exc)}
             continue
@@ -394,6 +463,11 @@ def main() -> None:
                 "engine": allocation.get("engine"),
                 "setup_type": allocation.get("setup_type"),
                 "final_risk_budget": allocation.get("final_risk_budget", 0.0),
+                "invalidation_source": signal.meta.get("invalidation_source"),
+                "invalidation_reason": signal.meta.get("invalidation_reason"),
+                "stop_family": signal.meta.get("stop_family"),
+                "stop_reference": signal.meta.get("stop_reference"),
+                "stop_policy_source": signal.meta.get("stop_policy_source"),
             },
         )
         execution = executor.execute(order, state)
