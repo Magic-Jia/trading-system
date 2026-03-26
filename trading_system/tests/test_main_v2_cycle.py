@@ -321,6 +321,74 @@ def test_main_v2_cycle_filters_crowded_long_rotation_candidates_from_runtime_sta
     assert all(row["symbol"] != "SOLUSDT" for row in rotation_candidates)
 
 
+def test_main_v2_cycle_surfaces_crash_protection_and_compresses_execution(
+    monkeypatch, tmp_path, load_fixture, capsys
+):
+    output_path = tmp_path / "runtime_state.json"
+    account_path = tmp_path / "account_snapshot.json"
+    market_path = tmp_path / "market_context.json"
+    deriv_path = tmp_path / "derivatives_snapshot.json"
+    account_path.write_text(json.dumps(load_fixture("account_snapshot_v2.json")))
+    market_path.write_text(
+        json.dumps(
+            {
+                "as_of": "2026-03-25T00:00:00Z",
+                "schema_version": "v2",
+                **_defensive_short_market(),
+            }
+        )
+    )
+    deriv_path.write_text(
+        json.dumps(
+            {
+                "as_of": "2026-03-25T00:00:00Z",
+                "schema_version": "v2",
+                "rows": [
+                    {
+                        "symbol": "BTCUSDT",
+                        "funding_rate": -0.00005,
+                        "open_interest_usdt": 23_100_000_000,
+                        "open_interest_change_24h_pct": -0.12,
+                        "mark_price_change_24h_pct": -0.08,
+                        "taker_buy_sell_ratio": 0.84,
+                        "basis_bps": -18,
+                    },
+                    {
+                        "symbol": "ETHUSDT",
+                        "funding_rate": -0.00005,
+                        "open_interest_usdt": 11_800_000_000,
+                        "open_interest_change_24h_pct": -0.12,
+                        "mark_price_change_24h_pct": -0.08,
+                        "taker_buy_sell_ratio": 0.84,
+                        "basis_bps": -18,
+                    },
+                ],
+            }
+        )
+    )
+    monkeypatch.setenv("TRADING_STATE_FILE", str(output_path))
+    monkeypatch.setenv("TRADING_ACCOUNT_SNAPSHOT_FILE", str(account_path))
+    monkeypatch.setenv("TRADING_MARKET_CONTEXT_FILE", str(market_path))
+    monkeypatch.setenv("TRADING_DERIVATIVES_SNAPSHOT_FILE", str(deriv_path))
+
+    main_module.main()
+
+    payload = json.loads(capsys.readouterr().out)
+    state = json.loads(Path(output_path).read_text())
+    accepted = [row for row in state["latest_allocations"] if row.get("status") in {"ACCEPTED", "DOWNSIZED"}]
+
+    assert state["latest_regime"]["label"] == "CRASH_DEFENSIVE"
+    assert state["latest_regime"]["execution_policy"] == "suppress"
+    assert state["latest_regime"]["late_stage_heat"] == "cascade"
+    assert state["latest_regime"]["execution_hazard"] == "compress_risk"
+    assert payload["regime"]["regime"]["label"] == "CRASH_DEFENSIVE"
+    assert payload["regime"]["regime"]["execution_policy"] == "suppress"
+    assert payload["regime"]["regime"]["late_stage_heat"] == "cascade"
+    assert payload["regime"]["regime"]["execution_hazard"] == "compress_risk"
+    assert payload["regime"]["executions"]["count"] == 0
+    assert all(row["engine"] == "short" for row in accepted)
+
+
 def test_main_v2_stdout_surfaces_rotation_reporting(monkeypatch, tmp_path, load_fixture, capsys):
     output_path = tmp_path / "runtime_state.json"
     account_path = tmp_path / "account_snapshot.json"

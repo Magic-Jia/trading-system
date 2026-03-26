@@ -36,6 +36,8 @@ def build_regime_summary(
             "risk_multiplier": regime_row.get("risk_multiplier"),
             "execution_policy": regime_row.get("execution_policy"),
             "suppression_rules": regime_row.get("suppression_rules", []),
+            "late_stage_heat": regime_row.get("late_stage_heat", "none"),
+            "execution_hazard": regime_row.get("execution_hazard", "none"),
         },
         "universes": {
             "major_count": len(list(universes.get("major_universe", []))),
