@@ -111,6 +111,44 @@ def test_generate_trend_candidates_require_absolute_strength_before_surviving(lo
     assert {candidate.symbol for candidate in candidates} == {"ETHUSDT"}
 
 
+def test_generate_trend_candidates_reject_overextended_longs_even_when_absolute_strength_is_high(load_fixture):
+    market = load_fixture("market_context_v2.json")
+    derivatives = {
+        "rows": [
+            {
+                "symbol": "BTCUSDT",
+                "funding_rate": 0.00004,
+                "open_interest_usdt": 23100000000,
+                "open_interest_change_24h_pct": 0.01,
+                "mark_price_change_24h_pct": 0.018,
+                "taker_buy_sell_ratio": 1.01,
+                "basis_bps": 12,
+            },
+            {
+                "symbol": "ETHUSDT",
+                "funding_rate": 0.00003,
+                "open_interest_usdt": 11800000000,
+                "open_interest_change_24h_pct": 0.009,
+                "mark_price_change_24h_pct": 0.008,
+                "taker_buy_sell_ratio": 1.0,
+                "basis_bps": 10,
+            },
+        ]
+    }
+
+    market["symbols"]["BTCUSDT"]["daily"]["close"] = 66400.0
+    market["symbols"]["BTCUSDT"]["4h"]["close"] = 66400.0
+    market["symbols"]["BTCUSDT"]["1h"]["close"] = 65150.0
+
+    candidates = generate_trend_candidates(
+        market,
+        derivatives=derivatives,
+        include_high_liquidity_strong_names=False,
+    )
+
+    assert {candidate.symbol for candidate in candidates} == {"ETHUSDT"}
+
+
 def test_generate_trend_candidates_attach_derivatives_meta(load_fixture):
     market = load_fixture("market_context_v2.json")
     derivatives = {
