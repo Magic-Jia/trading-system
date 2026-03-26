@@ -10,6 +10,9 @@ from trading_system.app.types import EngineCandidate, RegimeSnapshot
 
 _ROTATION_SCORE_FLOOR = 0.60
 _CROWDED_LONG_BASIS_BPS = 20.0
+_ROTATION_ABSOLUTE_STRENGTH_DAILY_FLOOR = 0.03
+_ROTATION_ABSOLUTE_STRENGTH_H4_FLOOR = 0.01
+_ROTATION_ABSOLUTE_STRENGTH_H1_FLOOR = 0.003
 
 
 def _to_float(value: Any) -> float:
@@ -138,6 +141,17 @@ def _volatility_quality(payload: Mapping[str, Any]) -> float:
     return max(0.0, min(1.0 - (abs(atr_pct - 0.055) / 0.04), 1.0))
 
 
+def _passes_absolute_strength_gate(payload: Mapping[str, Any]) -> bool:
+    daily = _tf_row(payload, "daily")
+    h4 = _tf_row(payload, "4h")
+    h1 = _tf_row(payload, "1h")
+    return (
+        _to_float(daily.get("return_pct_7d")) >= _ROTATION_ABSOLUTE_STRENGTH_DAILY_FLOOR
+        and _to_float(h4.get("return_pct_3d")) >= _ROTATION_ABSOLUTE_STRENGTH_H4_FLOOR
+        and _to_float(h1.get("return_pct_24h")) >= _ROTATION_ABSOLUTE_STRENGTH_H1_FLOOR
+    )
+
+
 def _reject_overheated_crowded_leader(features: Mapping[str, Any]) -> bool:
     return (
         str(features.get("crowding_bias", "balanced")) == "crowded_long"
@@ -191,6 +205,8 @@ def generate_rotation_candidates(
         if str(payload.get("sector", "")).lower() == "majors":
             continue
         if not _trend_intact(payload):
+            continue
+        if not _passes_absolute_strength_gate(payload):
             continue
 
         derivatives_features = symbol_derivatives_features(derivatives, str(symbol))
