@@ -226,11 +226,21 @@ def _allocation_summary(decision: Any, candidate: Mapping[str, Any]) -> dict[str
         payload = asdict(decision)
     else:
         payload = dict(decision)
+    decision_meta = payload.get("meta") if isinstance(payload.get("meta"), Mapping) else {}
     payload["symbol"] = str(candidate.get("symbol", ""))
     payload["side"] = str(candidate.get("side", "LONG"))
     payload["setup_type"] = str(candidate.get("setup_type", ""))
     payload["score"] = float(candidate.get("score", 0.0) or 0.0)
     payload["timeframe_meta"] = dict(candidate.get("timeframe_meta") or {})
+    for key in (
+        "aggressiveness_multiplier",
+        "quality_multiplier",
+        "crowding_multiplier",
+        "execution_friction_multiplier",
+    ):
+        value = decision_meta.get(key)
+        if value is not None:
+            payload[key] = value
     candidate_meta = candidate.get("meta") if isinstance(candidate.get("meta"), Mapping) else {}
     for key in ("entry_price", "stop_loss", "take_profit", "invalidation_source"):
         value = candidate.get(key)

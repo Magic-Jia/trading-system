@@ -166,6 +166,34 @@ def test_build_regime_summary_includes_short_report_when_provided():
     assert summary["short"]["deferred_execution_symbols"] == ["BTCUSDT"]
 
 
+def test_build_regime_summary_surfaces_allocation_aggressiveness_stats():
+    summary = build_regime_summary(
+        regime={"label": "RISK_ON_TREND", "confidence": 0.88, "risk_multiplier": 0.95, "execution_policy": "normal"},
+        universes={"major_universe": [], "rotation_universe": [{"symbol": "SOLUSDT"}], "short_universe": []},
+        candidates=[{"engine": "rotation", "symbol": "SOLUSDT"}, {"engine": "rotation", "symbol": "LINKUSDT"}],
+        allocations=[
+            {
+                "engine": "rotation",
+                "symbol": "SOLUSDT",
+                "status": "ACCEPTED",
+                "final_risk_budget": 0.006,
+                "aggressiveness_multiplier": 1.08,
+            },
+            {
+                "engine": "rotation",
+                "symbol": "LINKUSDT",
+                "status": "DOWNSIZED",
+                "final_risk_budget": 0.004,
+                "aggressiveness_multiplier": 0.82,
+            },
+        ],
+        executions=[],
+    )
+
+    assert summary["allocations"]["avg_aggressiveness"] == 0.95
+    assert summary["allocations"]["compressed_count"] == 1
+
+
 def test_build_lifecycle_report_returns_compact_deterministic_state_surface():
     summary = build_lifecycle_report(
         lifecycle_updates={
