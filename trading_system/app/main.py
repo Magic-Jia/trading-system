@@ -488,7 +488,12 @@ def main() -> None:
             }
         )
 
-    management = evaluate_portfolio(state)
+    regime_payload = {
+        **asdict(regime),
+        "late_stage_heat": derivatives_summary.get("late_stage_heat", "none"),
+        "execution_hazard": derivatives_summary.get("execution_hazard", "none"),
+    }
+    management = evaluate_portfolio(state, regime=regime_payload)
     management_intents = build_management_action_intents(state, management)
     management_previews = executor.preview_management_actions(management_intents, account.open_orders)
     lifecycle_updates = advance_lifecycle_positions(state, config.lifecycle)
@@ -497,11 +502,6 @@ def main() -> None:
         management_suggestions=management,
     )
 
-    regime_payload = {
-        **asdict(regime),
-        "late_stage_heat": derivatives_summary.get("late_stage_heat", "none"),
-        "execution_hazard": derivatives_summary.get("execution_hazard", "none"),
-    }
     state.latest_regime = regime_payload
     state.latest_universes = _universes_payload(universes)
     state.latest_candidates = candidate_rows
