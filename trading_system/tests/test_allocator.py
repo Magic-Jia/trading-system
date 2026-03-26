@@ -417,3 +417,46 @@ def test_allocator_compresses_long_risk_budget_under_late_stage_heat(load_fixtur
     assert heated.meta["aggressiveness_multiplier"] < base.meta["aggressiveness_multiplier"]
     assert heated.meta["late_stage_heat_multiplier"] < 1.0
     assert any("late-stage" in reason.lower() or "heat" in reason.lower() for reason in heated.reasons)
+
+
+def test_short_cascade_pressure_keeps_candidate_in_executable_allocator_set(load_fixture):
+    account = _flat_account(load_fixture)
+    candidates = [
+        {
+            "engine": "short",
+            "setup_type": "BREAKDOWN_SHORT",
+            "symbol": "BTCUSDT",
+            "side": "SHORT",
+            "score": 0.81,
+            "sector": "majors",
+            "timeframe_meta": {"derivatives": {"crowding_bias": "balanced", "basis_bps": -12.0, "funding_rate": -0.00004}},
+            "liquidity_meta": {"spread_bps": 1.1, "slippage_bps": 4.0, "volume_usdt_24h": 12_500_000_000.0},
+        }
+    ]
+    base_regime = {
+        "bucket_targets": {"trend": 0.0, "rotation": 0.0, "short": 1.0},
+        "suppressed_engines": [],
+        "confidence": 0.74,
+        "risk_multiplier": 0.55,
+        "late_stage_heat": "none",
+        "execution_hazard": "none",
+        "execution_policy": "normal",
+    }
+    cascade_regime = {
+        **base_regime,
+        "late_stage_heat": "cascade",
+        "execution_hazard": "compress_risk",
+        "execution_policy": "downsize",
+    }
+
+    base = allocate_candidates(account=account, candidates=candidates, regime=base_regime)[0]
+    cascade = allocate_candidates(account=account, candidates=candidates, regime=cascade_regime)[0]
+
+    assert base.status == "DOWNSIZED"
+    assert cascade.status == "DOWNSIZED"
+    assert base.final_risk_budget > 0
+    assert cascade.final_risk_budget > 0
+    assert cascade.final_risk_budget < base.final_risk_budget
+    assert base.meta["regime_hazard_multiplier"] == pytest.approx(1.0)
+    assert cascade.meta["late_stage_heat_multiplier"] == pytest.approx(1.0)
+    assert cascade.meta["regime_hazard_multiplier"] < 1.0
