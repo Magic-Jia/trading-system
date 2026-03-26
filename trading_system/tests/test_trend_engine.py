@@ -73,6 +73,42 @@ def test_generate_trend_candidates_filters_crowded_longs_from_symbol_level_deriv
     assert {candidate.symbol for candidate in candidates} == {"BTCUSDT"}
 
 
+def test_generate_trend_candidates_reject_funding_basis_blowoff_even_when_structure_strength_and_extension_pass(
+    load_fixture,
+):
+    market = load_fixture("market_context_v2.json")
+    derivatives = {
+        "rows": [
+            {
+                "symbol": "BTCUSDT",
+                "funding_rate": 0.00022,
+                "open_interest_usdt": 23100000000,
+                "open_interest_change_24h_pct": 0.01,
+                "mark_price_change_24h_pct": 0.012,
+                "taker_buy_sell_ratio": 1.0,
+                "basis_bps": 26,
+            },
+            {
+                "symbol": "ETHUSDT",
+                "funding_rate": 0.00003,
+                "open_interest_usdt": 11800000000,
+                "open_interest_change_24h_pct": 0.009,
+                "mark_price_change_24h_pct": 0.008,
+                "taker_buy_sell_ratio": 1.0,
+                "basis_bps": 10,
+            },
+        ]
+    }
+
+    candidates = generate_trend_candidates(
+        market,
+        derivatives=derivatives,
+        include_high_liquidity_strong_names=False,
+    )
+
+    assert {candidate.symbol for candidate in candidates} == {"ETHUSDT"}
+
+
 def test_generate_trend_candidates_require_absolute_strength_before_surviving(load_fixture):
     market = load_fixture("market_context_v2.json")
     derivatives = {

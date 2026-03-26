@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 MAJOR_SYMBOLS = {"BTCUSDT", "ETHUSDT"}
+_LATE_STAGE_LONG_BLOWOFF_FUNDING_RATE = 0.0002
+_LATE_STAGE_LONG_BLOWOFF_BASIS_BPS = 25.0
 
 
 def _coerce_all_rows(derivatives: dict[str, Any] | list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -114,6 +117,13 @@ def symbol_derivatives_features(
         "crowding_bias": _crowding_bias(crowding_score),
         "crowding_score": crowding_score,
     }
+
+
+def is_late_stage_long_blowoff(features: Mapping[str, Any]) -> bool:
+    return (
+        float(features.get("funding_rate", 0.0) or 0.0) >= _LATE_STAGE_LONG_BLOWOFF_FUNDING_RATE
+        and float(features.get("basis_bps", 0.0) or 0.0) >= _LATE_STAGE_LONG_BLOWOFF_BASIS_BPS
+    )
 
 
 def summarize_derivatives_risk(derivatives: dict[str, Any] | list[dict[str, Any]]) -> dict[str, Any]:
