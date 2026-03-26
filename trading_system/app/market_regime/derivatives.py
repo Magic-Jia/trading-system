@@ -83,6 +83,42 @@ def _crowding_bias(crowding_score: float) -> str:
     return "balanced"
 
 
+def _classify_late_stage_heat(
+    avg_funding: float,
+    avg_oi_change: float,
+    avg_price_change: float,
+    avg_taker: float,
+    avg_basis: float,
+) -> str:
+    cascade = (
+        avg_price_change <= -0.05
+        and avg_oi_change <= -0.08
+        and avg_taker <= 0.9
+        and avg_basis <= -15.0
+        and avg_funding <= -0.00005
+    )
+    if cascade:
+        return "cascade"
+
+    squeeze = (
+        avg_price_change >= 0.05
+        and avg_oi_change <= -0.05
+        and avg_taker >= 1.1
+        and avg_basis <= -15.0
+        and avg_funding <= -0.00008
+    )
+    if squeeze:
+        return "squeeze"
+
+    return "none"
+
+
+def _execution_hazard(late_stage_heat: str) -> str:
+    if late_stage_heat in {"cascade", "squeeze"}:
+        return "compress_risk"
+    return "none"
+
+
 def symbol_derivatives_features(
     derivatives: dict[str, Any] | list[dict[str, Any]] | None,
     symbol: str,
@@ -157,6 +193,8 @@ def summarize_derivatives_risk(derivatives: dict[str, Any] | list[dict[str, Any]
             "price_oi_interaction": "flat",
             "crowding_bias": "balanced",
             "crowding_score": 0.0,
+            "late_stage_heat": "none",
+            "execution_hazard": "none",
         }
 
     funding_values = [float(row["funding_rate"]) for row in rows]
@@ -173,6 +211,7 @@ def summarize_derivatives_risk(derivatives: dict[str, Any] | list[dict[str, Any]
 
     crowding_score = _crowding_score(avg_funding, avg_oi_change, avg_taker, avg_basis)
     crowding_bias = _crowding_bias(crowding_score)
+    late_stage_heat = _classify_late_stage_heat(avg_funding, avg_oi_change, avg_price_change, avg_taker, avg_basis)
 
     if avg_oi_change >= 0.03:
         oi_trend = "expanding"
@@ -193,4 +232,6 @@ def summarize_derivatives_risk(derivatives: dict[str, Any] | list[dict[str, Any]
         "price_oi_interaction": _classify_price_oi_interaction(avg_price_change, avg_oi_change),
         "crowding_bias": crowding_bias,
         "crowding_score": crowding_score,
+        "late_stage_heat": late_stage_heat,
+        "execution_hazard": _execution_hazard(late_stage_heat),
     }

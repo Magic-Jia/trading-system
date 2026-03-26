@@ -205,6 +205,38 @@ def test_summarize_derivatives_risk_price_oi_interaction_uses_price_change():
     assert summary["price_oi_interaction"] == "short_build"
 
 
+def test_summarize_derivatives_risk_flags_crash_cascade_stress():
+    derivatives = _majors_derivatives_snapshot(
+        funding_rate=-0.00005,
+        open_interest_change_24h_pct=-0.12,
+        taker_buy_sell_ratio=0.84,
+        basis_bps=-18.0,
+        mark_price_change_24h_pct=-0.08,
+    )
+
+    summary = summarize_derivatives_risk(derivatives)
+
+    assert summary["crowding_bias"] == "crowded_short"
+    assert summary["late_stage_heat"] == "cascade"
+    assert summary["execution_hazard"] == "compress_risk"
+
+
+def test_summarize_derivatives_risk_flags_short_squeeze_stress():
+    derivatives = _majors_derivatives_snapshot(
+        funding_rate=-0.00012,
+        open_interest_change_24h_pct=-0.08,
+        taker_buy_sell_ratio=1.14,
+        basis_bps=-18.0,
+        mark_price_change_24h_pct=0.06,
+    )
+
+    summary = summarize_derivatives_risk(derivatives)
+
+    assert summary["crowding_bias"] == "balanced"
+    assert summary["late_stage_heat"] == "squeeze"
+    assert summary["execution_hazard"] == "compress_risk"
+
+
 def test_classify_regime_returns_bucket_targets(load_fixture):
     market = load_fixture("market_context_v2.json")
     derivatives = load_fixture("derivatives_snapshot_v2.json")
