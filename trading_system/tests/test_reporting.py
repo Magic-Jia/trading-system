@@ -240,6 +240,8 @@ def test_build_lifecycle_report_returns_compact_deterministic_state_surface():
         "protected_symbols": ["ETHUSDT"],
         "exit_symbols": ["SOLUSDT"],
         "attention_symbols": ["BTCUSDT", "SOLUSDT"],
+        "management_action_counts": {"ADD_PROTECTIVE_STOP": 1, "EXIT": 1},
+        "review_actions": [],
         "leaders": [
             {
                 "symbol": "SOLUSDT",
@@ -261,3 +263,79 @@ def test_build_lifecycle_report_returns_compact_deterministic_state_surface():
             },
         ],
     }
+
+
+def test_build_lifecycle_report_surfaces_review_ready_taxonomy_semantics():
+    summary = build_lifecycle_report(
+        lifecycle_updates={
+            "BTCUSDT": {
+                "state": "PROTECT",
+                "reason_codes": ["payload_to_protect_trend_mature"],
+                "r_multiple": 2.0,
+                "stop_family": "structure_stop",
+                "stop_reference": "4h_ema20",
+                "invalidation_source": "trend_breakout_failure_below_4h_ema20",
+                "invalidation_reason": "breakout continuation lost 4h breakout support",
+            }
+        },
+        management_suggestions=[
+            {
+                "symbol": "BTCUSDT",
+                "action": "BREAK_EVEN",
+                "priority": "MEDIUM",
+                "suggested_stop_loss": 100.0,
+                "reason": "breakout continuation lost 4h breakout support（trend_breakout_failure_below_4h_ema20）仍是当前失效条件，价格已至少走出 1R，允许把止损上提到保本位。",
+                "meta": {
+                    "stop_family": "structure_stop",
+                    "stop_reference": "4h_ema20",
+                    "invalidation_source": "trend_breakout_failure_below_4h_ema20",
+                    "invalidation_reason": "breakout continuation lost 4h breakout support",
+                    "stop_policy_source": "shared_taxonomy",
+                },
+            },
+            {
+                "symbol": "BTCUSDT",
+                "action": "PARTIAL_TAKE_PROFIT",
+                "priority": "MEDIUM",
+                "qty_fraction": 0.5,
+                "reason": "breakout continuation lost 4h breakout support（trend_breakout_failure_below_4h_ema20）仍是当前失效条件，已触及第一目标位，建议先兑现 50% 仓位并保留剩余仓位观察延伸。",
+                "meta": {
+                    "target_price": 110.0,
+                    "stop_family": "structure_stop",
+                    "stop_reference": "4h_ema20",
+                    "invalidation_source": "trend_breakout_failure_below_4h_ema20",
+                    "invalidation_reason": "breakout continuation lost 4h breakout support",
+                    "stop_policy_source": "shared_taxonomy",
+                },
+            },
+        ],
+    )
+
+    assert summary["management_action_counts"] == {"BREAK_EVEN": 1, "PARTIAL_TAKE_PROFIT": 1}
+    assert summary["review_actions"] == [
+        {
+            "symbol": "BTCUSDT",
+            "action": "BREAK_EVEN",
+            "priority": "MEDIUM",
+            "stop_family": "structure_stop",
+            "stop_reference": "4h_ema20",
+            "invalidation_source": "trend_breakout_failure_below_4h_ema20",
+            "invalidation_reason": "breakout continuation lost 4h breakout support",
+            "stop_policy_source": "shared_taxonomy",
+            "suggested_stop_loss": 100.0,
+        },
+        {
+            "symbol": "BTCUSDT",
+            "action": "PARTIAL_TAKE_PROFIT",
+            "priority": "MEDIUM",
+            "stop_family": "structure_stop",
+            "stop_reference": "4h_ema20",
+            "invalidation_source": "trend_breakout_failure_below_4h_ema20",
+            "invalidation_reason": "breakout continuation lost 4h breakout support",
+            "stop_policy_source": "shared_taxonomy",
+            "qty_fraction": 0.5,
+            "target_price": 110.0,
+        },
+    ]
+    assert summary["leaders"][0]["stop_family"] == "structure_stop"
+    assert summary["leaders"][0]["invalidation_source"] == "trend_breakout_failure_below_4h_ema20"
