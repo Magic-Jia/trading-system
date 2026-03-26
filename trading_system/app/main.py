@@ -237,10 +237,19 @@ def _allocation_summary(decision: Any, candidate: Mapping[str, Any]) -> dict[str
         "quality_multiplier",
         "crowding_multiplier",
         "execution_friction_multiplier",
+        "regime_hazard_multiplier",
+        "late_stage_heat_multiplier",
     ):
         value = decision_meta.get(key)
         if value is not None:
             payload[key] = value
+    compression_reasons: list[str] = []
+    if float(decision_meta.get("regime_hazard_multiplier", 1.0) or 1.0) < 1.0:
+        compression_reasons.append("regime_hazard")
+    if float(decision_meta.get("late_stage_heat_multiplier", 1.0) or 1.0) < 1.0:
+        compression_reasons.append("late_stage_heat")
+    if compression_reasons:
+        payload["compression_reasons"] = compression_reasons
     candidate_meta = candidate.get("meta") if isinstance(candidate.get("meta"), Mapping) else {}
     for key in ("entry_price", "stop_loss", "take_profit", "invalidation_source"):
         value = candidate.get(key)

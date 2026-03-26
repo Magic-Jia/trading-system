@@ -178,6 +178,8 @@ def test_build_regime_summary_surfaces_allocation_aggressiveness_stats():
                 "status": "ACCEPTED",
                 "final_risk_budget": 0.006,
                 "aggressiveness_multiplier": 1.08,
+                "regime_hazard_multiplier": 1.0,
+                "late_stage_heat_multiplier": 1.0,
             },
             {
                 "engine": "rotation",
@@ -185,6 +187,9 @@ def test_build_regime_summary_surfaces_allocation_aggressiveness_stats():
                 "status": "DOWNSIZED",
                 "final_risk_budget": 0.004,
                 "aggressiveness_multiplier": 0.82,
+                "regime_hazard_multiplier": 0.84,
+                "late_stage_heat_multiplier": 0.8,
+                "compression_reasons": ["regime_hazard", "late_stage_heat"],
             },
         ],
         executions=[],
@@ -192,6 +197,9 @@ def test_build_regime_summary_surfaces_allocation_aggressiveness_stats():
 
     assert summary["allocations"]["avg_aggressiveness"] == 0.95
     assert summary["allocations"]["compressed_count"] == 1
+    assert summary["allocations"]["compression_reason_counts"] == {"regime_hazard": 1, "late_stage_heat": 1}
+    assert summary["allocations"]["regime_hazard_compressed_count"] == 1
+    assert summary["allocations"]["late_stage_heat_compressed_count"] == 1
 
 
 def test_build_lifecycle_report_returns_compact_deterministic_state_surface():

@@ -2054,6 +2054,8 @@ def test_allocation_summary_surfaces_aggressiveness_metrics():
             "quality_multiplier": 1.08,
             "crowding_multiplier": 0.91,
             "execution_friction_multiplier": 0.85,
+            "regime_hazard_multiplier": 0.8,
+            "late_stage_heat_multiplier": 0.78,
         },
     )
     candidate = {
@@ -2072,6 +2074,9 @@ def test_allocation_summary_surfaces_aggressiveness_metrics():
     assert summary["quality_multiplier"] == pytest.approx(1.08)
     assert summary["crowding_multiplier"] == pytest.approx(0.91)
     assert summary["execution_friction_multiplier"] == pytest.approx(0.85)
+    assert summary["regime_hazard_multiplier"] == pytest.approx(0.8)
+    assert summary["late_stage_heat_multiplier"] == pytest.approx(0.78)
+    assert summary["compression_reasons"] == ["regime_hazard", "late_stage_heat"]
 
 
 def test_main_v2_blocks_too_wide_stop_before_execution(monkeypatch, tmp_path, load_fixture):

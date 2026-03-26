@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import asdict, is_dataclass
 from typing import Any, Mapping, Sequence
 
@@ -35,6 +36,16 @@ def build_regime_summary(
     ]
     avg_aggressiveness = round(sum(aggressiveness_values) / len(aggressiveness_values), 6) if aggressiveness_values else 0.0
     compressed_count = len([value for value in aggressiveness_values if value < 1.0])
+    compression_reason_counts: Counter[str] = Counter()
+    for row in accepted:
+        reasons = row.get("compression_reasons")
+        if isinstance(reasons, Sequence) and not isinstance(reasons, (str, bytes)):
+            compression_reason_counts.update(str(reason) for reason in reasons if str(reason))
+            continue
+        if float(row.get("regime_hazard_multiplier", 1.0) or 1.0) < 1.0:
+            compression_reason_counts["regime_hazard"] += 1
+        if float(row.get("late_stage_heat_multiplier", 1.0) or 1.0) < 1.0:
+            compression_reason_counts["late_stage_heat"] += 1
 
     return {
         "regime": {
@@ -64,6 +75,9 @@ def build_regime_summary(
             "total_allocated_risk": total_allocated_risk,
             "avg_aggressiveness": avg_aggressiveness,
             "compressed_count": compressed_count,
+            "compression_reason_counts": dict(compression_reason_counts),
+            "regime_hazard_compressed_count": int(compression_reason_counts.get("regime_hazard", 0)),
+            "late_stage_heat_compressed_count": int(compression_reason_counts.get("late_stage_heat", 0)),
         },
         "executions": {
             "count": len(executions),
