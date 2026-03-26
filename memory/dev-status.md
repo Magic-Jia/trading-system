@@ -1,8 +1,8 @@
 # Dev Status
 
 - branch/worktree: `codex/b1-derivatives` @ `/home/cn/.openclaw/agents/trade/workspace/.worktrees/codex-b1-derivatives`
-- current objective: completed the matching persisted-state short-summary proof so `state["short_summary"]` stays empty/clean when every short candidate is rejected
-- last verified command + result: `PYTHONDONTWRITEBYTECODE=1 UV_CACHE_DIR=/tmp/codex-uv-cache uv run --with pytest python -m pytest -q -p no:cacheprovider trading_system/tests/test_main_v2_cycle.py -k 'persisted_state_keeps_short_summary_empty_when_all_short_candidates_are_rejected or stdout_reports_empty_short_lists_when_all_short_candidates_are_rejected'` -> passed (`2 passed, 32 deselected`)
-- last commit: `1ebd19e` test: prove empty persisted short summary when rejected
-- next action: commit this persisted-state proof, then the next recommended narrow slice is proving a previously populated `short_summary` gets cleaned on a later all-rejected cycle
-- last user update time: 2026-03-25 11:24 GMT+01:00
+- current objective: completed Package B / Chunk 1 crash-protection implementation and verification; crash/cascade/squeeze stress now flows from derivatives summary into regime/runtime reporting
+- last verified command + result: `PYTHONDONTWRITEBYTECODE=1 UV_CACHE_DIR=/tmp/codex-uv-cache uv run --with pytest python -m pytest -q -p no:cacheprovider trading_system/tests/test_market_regime.py trading_system/tests/test_main_v2_cycle.py` -> passed (`58 passed`)
+- last commit: `213b8a6` fix: restore regime runtime plumbing (stack: `fb93718`, `fb81713`, `5331320`, `213b8a6`)
+- next action: hand off verified Package B and start Package C — edge-aware sizing + execution friction when ready
+- last user update time: 2026-03-26 06:20 Europe/Berlin
