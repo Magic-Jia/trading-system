@@ -468,6 +468,7 @@ def main() -> None:
                 "stop_family": signal.meta.get("stop_family"),
                 "stop_reference": signal.meta.get("stop_reference"),
                 "stop_policy_source": signal.meta.get("stop_policy_source"),
+                "taxonomy_stop_loss": signal.stop_loss,
             },
         )
         execution = executor.execute(order, state)

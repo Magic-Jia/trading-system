@@ -2406,3 +2406,175 @@ def test_main_v2_blocks_when_execution_would_breach_net_exposure_cap(monkeypatch
     assert all("净敞口" in row.get("execution", {}).get("reason", "") for row in blocked)
     assert state.get("active_orders") == {}
     assert all(not position.get("tracked_from_intent") for position in state.get("positions", {}).values())
+
+
+def test_main_v2_paper_execution_persists_stop_taxonomy_into_tracked_state(monkeypatch, tmp_path, load_fixture):
+    output_path = tmp_path / "runtime_state.json"
+    account_path = tmp_path / "account_snapshot.json"
+    market_path = tmp_path / "market_context.json"
+    deriv_path = tmp_path / "derivatives_snapshot.json"
+    account_path.write_text(
+        json.dumps(
+            {
+                "equity": 125000.0,
+                "available_balance": 96000.0,
+                "futures_wallet_balance": 118500.0,
+                "open_positions": [],
+                "open_orders": [],
+            }
+        )
+    )
+    market_path.write_text(json.dumps(load_fixture("market_context_v2.json")))
+    deriv_path.write_text(json.dumps(load_fixture("derivatives_snapshot_v2.json")))
+    monkeypatch.setenv("TRADING_STATE_FILE", str(output_path))
+    monkeypatch.setenv("TRADING_ACCOUNT_SNAPSHOT_FILE", str(account_path))
+    monkeypatch.setenv("TRADING_MARKET_CONTEXT_FILE", str(market_path))
+    monkeypatch.setenv("TRADING_DERIVATIVES_SNAPSHOT_FILE", str(deriv_path))
+    monkeypatch.setenv("TRADING_EXECUTION_MODE", "paper")
+    monkeypatch.setattr(main_module.OrderExecutor, "append_log", lambda self, order, result: None)
+    monkeypatch.setattr(
+        main_module,
+        "validate_candidate_for_allocation",
+        lambda candidate, account: ValidationResult(True, "INFO", reasons=[], metrics={}),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "validate_signal",
+        lambda signal, account, config: (ValidationResult(True, "INFO", reasons=[], metrics={}), {"sizing": None}),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "generate_trend_candidates",
+        lambda *args, **kwargs: [
+            {
+                "engine": "trend",
+                "setup_type": "BREAKOUT_CONTINUATION",
+                "symbol": "BTCUSDT",
+                "side": "LONG",
+                "score": 0.91,
+                "stop_loss": 62830.0,
+                "invalidation_source": "trend_structure_loss_below_4h_ema50",
+            }
+        ],
+    )
+    monkeypatch.setattr(main_module, "generate_rotation_candidates", lambda *args, **kwargs: [])
+    monkeypatch.setattr(main_module, "generate_short_candidates", lambda *args, **kwargs: [])
+    monkeypatch.setattr(
+        main_module,
+        "allocate_candidates",
+        lambda **kwargs: [AllocationDecision(status="ACCEPTED", engine="trend", final_risk_budget=0.01, rank=1)],
+    )
+
+    main_module.main()
+
+    state = json.loads(Path(output_path).read_text())
+    position = state.get("positions", {}).get("BTCUSDT")
+    assert position
+    assert position.get("tracked_from_intent") is True
+    assert position.get("stop_loss") == pytest.approx(63620.0)
+    assert position.get("taxonomy_stop_loss") == pytest.approx(63620.0)
+    assert position.get("invalidation_source") == "trend_breakout_failure_below_4h_ema20"
+    assert position.get("invalidation_reason") == "breakout continuation lost 4h breakout support"
+    assert position.get("stop_family") == "structure_stop"
+    assert position.get("stop_reference") == "4h_ema20"
+    assert position.get("stop_policy_source") == "shared_taxonomy"
+
+
+
+def test_main_v2_tracked_position_restores_missing_stop_from_taxonomy(monkeypatch, tmp_path, load_fixture):
+    output_path = tmp_path / "runtime_state.json"
+    account_path = tmp_path / "account_snapshot.json"
+    market_path = tmp_path / "market_context.json"
+    deriv_path = tmp_path / "derivatives_snapshot.json"
+    output_path.write_text(
+        json.dumps(
+            {
+                "updated_at_bj": "2026-03-26T22:00:00+08:00",
+                "last_signal_ids": {},
+                "cooldowns": {},
+                "active_orders": {},
+                "positions": {
+                    "BTCUSDT": {
+                        "symbol": "BTCUSDT",
+                        "side": "LONG",
+                        "qty": 0.2,
+                        "entry_price": 64120.0,
+                        "mark_price": 64400.0,
+                        "unrealized_pnl": 56.0,
+                        "notional": 12824.0,
+                        "stop_loss": None,
+                        "taxonomy_stop_loss": 63620.0,
+                        "take_profit": 66684.8,
+                        "status": "OPEN",
+                        "intent_id": "v2-trend-breakout-continuation-btcusdt",
+                        "signal_id": "v2-trend-breakout-continuation-btcusdt",
+                        "source": "paper_execution",
+                        "tracked_from_snapshot": False,
+                        "tracked_from_intent": True,
+                        "opened_at_bj": "2026-03-26T21:00:00+08:00",
+                        "updated_at_bj": "2026-03-26T21:00:00+08:00",
+                        "last_synced_from": "executed_intent",
+                        "invalidation_source": "trend_breakout_failure_below_4h_ema20",
+                        "invalidation_reason": "breakout continuation lost 4h breakout support",
+                        "stop_family": "structure_stop",
+                        "stop_reference": "4h_ema20",
+                        "stop_policy_source": "shared_taxonomy"
+                    }
+                },
+                "management_suggestions": [],
+                "management_action_previews": []
+            }
+        )
+    )
+    account_path.write_text(
+        json.dumps(
+            {
+                "equity": 125000.0,
+                "available_balance": 96000.0,
+                "futures_wallet_balance": 118500.0,
+                "open_positions": [
+                    {
+                        "symbol": "BTCUSDT",
+                        "side": "LONG",
+                        "qty": 0.2,
+                        "entry_price": 64120.0,
+                        "mark_price": 64400.0,
+                        "unrealized_pnl": 56.0,
+                        "notional": 12880.0,
+                        "leverage": 2.0
+                    }
+                ],
+                "open_orders": []
+            }
+        )
+    )
+    market_path.write_text(json.dumps(load_fixture("market_context_v2.json")))
+    deriv_path.write_text(json.dumps({"as_of": "2026-03-15T00:00:00Z", "schema_version": "v2", "rows": []}))
+    monkeypatch.setenv("TRADING_STATE_FILE", str(output_path))
+    monkeypatch.setenv("TRADING_ACCOUNT_SNAPSHOT_FILE", str(account_path))
+    monkeypatch.setenv("TRADING_MARKET_CONTEXT_FILE", str(market_path))
+    monkeypatch.setenv("TRADING_DERIVATIVES_SNAPSHOT_FILE", str(deriv_path))
+    monkeypatch.setenv("TRADING_EXECUTION_MODE", "dry-run")
+    monkeypatch.setattr(main_module, "generate_trend_candidates", lambda *args, **kwargs: [])
+    monkeypatch.setattr(main_module, "generate_rotation_candidates", lambda *args, **kwargs: [])
+    monkeypatch.setattr(main_module, "generate_short_candidates", lambda *args, **kwargs: [])
+    monkeypatch.setattr(main_module, "allocate_candidates", lambda **kwargs: [])
+
+    main_module.main()
+
+    state = json.loads(Path(output_path).read_text())
+    position = state.get("positions", {}).get("BTCUSDT")
+    assert position
+    assert position.get("taxonomy_stop_loss") == pytest.approx(63620.0)
+    assert position.get("invalidation_source") == "trend_breakout_failure_below_4h_ema20"
+    assert position.get("stop_family") == "structure_stop"
+    management = [row for row in state.get("management_suggestions", []) if row.get("symbol") == "BTCUSDT"]
+    assert management
+    protective = [row for row in management if row.get("action") == "ADD_PROTECTIVE_STOP"]
+    assert protective
+    assert protective[0]["suggested_stop_loss"] == pytest.approx(63620.0)
+    assert protective[0]["meta"]["heuristic"] == "shared_stop_taxonomy"
+    assert protective[0]["meta"]["stop_family"] == "structure_stop"
+    assert protective[0]["meta"]["stop_reference"] == "4h_ema20"
+    assert protective[0]["meta"]["invalidation_source"] == "trend_breakout_failure_below_4h_ema20"
+    assert protective[0]["meta"]["invalidation_reason"] == "breakout continuation lost 4h breakout support"
