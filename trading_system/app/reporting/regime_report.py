@@ -28,6 +28,13 @@ def build_regime_summary(
     accepted = [row for row in allocations if row.get("status") in {"ACCEPTED", "DOWNSIZED"}]
     rejected = [row for row in allocations if row.get("status") == "REJECTED"]
     total_allocated_risk = round(sum(float(row.get("final_risk_budget", 0.0) or 0.0) for row in accepted), 6)
+    aggressiveness_values = [
+        float(row.get("aggressiveness_multiplier", 0.0) or 0.0)
+        for row in accepted
+        if row.get("aggressiveness_multiplier") is not None
+    ]
+    avg_aggressiveness = round(sum(aggressiveness_values) / len(aggressiveness_values), 6) if aggressiveness_values else 0.0
+    compressed_count = len([value for value in aggressiveness_values if value < 1.0])
 
     return {
         "regime": {
@@ -55,6 +62,8 @@ def build_regime_summary(
             "accepted": len(accepted),
             "rejected": len(rejected),
             "total_allocated_risk": total_allocated_risk,
+            "avg_aggressiveness": avg_aggressiveness,
+            "compressed_count": compressed_count,
         },
         "executions": {
             "count": len(executions),

@@ -2043,6 +2043,37 @@ def test_main_v2_rotation_allocations_propagate_explicit_stop_and_invalidation_s
     assert all("invalidation_source" not in row.get("execution", {}).get("reason", "") for row in accepted_rotation)
 
 
+def test_allocation_summary_surfaces_aggressiveness_metrics():
+    decision = AllocationDecision(
+        status="DOWNSIZED",
+        engine="rotation",
+        final_risk_budget=0.0042,
+        rank=1,
+        meta={
+            "aggressiveness_multiplier": 0.84,
+            "quality_multiplier": 1.08,
+            "crowding_multiplier": 0.91,
+            "execution_friction_multiplier": 0.85,
+        },
+    )
+    candidate = {
+        "engine": "rotation",
+        "setup_type": "RS_REACCELERATION",
+        "symbol": "SOLUSDT",
+        "side": "LONG",
+        "score": 0.84,
+        "stop_loss": 152.0,
+        "invalidation_source": "rotation_pullback_failure_below_1h_ema50",
+    }
+
+    summary = main_module._allocation_summary(decision, candidate)
+
+    assert summary["aggressiveness_multiplier"] == pytest.approx(0.84)
+    assert summary["quality_multiplier"] == pytest.approx(1.08)
+    assert summary["crowding_multiplier"] == pytest.approx(0.91)
+    assert summary["execution_friction_multiplier"] == pytest.approx(0.85)
+
+
 def test_main_v2_blocks_too_wide_stop_before_execution(monkeypatch, tmp_path, load_fixture):
     output_path = tmp_path / "runtime_state.json"
     account_path = tmp_path / "account_snapshot.json"

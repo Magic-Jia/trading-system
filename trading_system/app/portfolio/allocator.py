@@ -25,6 +25,10 @@ def _to_float(value: Any, fallback: float = 0.0) -> float:
         return fallback
 
 
+def _clamp(value: float, minimum: float, maximum: float) -> float:
+    return max(minimum, min(value, maximum))
+
+
 def _candidate_value(candidate: EngineCandidate | Mapping[str, Any], key: str, default: Any = None) -> Any:
     if isinstance(candidate, Mapping):
         return candidate.get(key, default)
@@ -33,6 +37,8 @@ def _candidate_value(candidate: EngineCandidate | Mapping[str, Any], key: str, d
 
 def _normalize_candidate(candidate: EngineCandidate | Mapping[str, Any]) -> dict[str, Any]:
     symbol = str(_candidate_value(candidate, "symbol", "")).upper().strip()
+    timeframe_meta = _candidate_value(candidate, "timeframe_meta", {})
+    liquidity_meta = _candidate_value(candidate, "liquidity_meta", {})
     return {
         "engine": str(_candidate_value(candidate, "engine", "")).lower().strip(),
         "setup_type": str(_candidate_value(candidate, "setup_type", "")).upper().strip(),
@@ -40,6 +46,8 @@ def _normalize_candidate(candidate: EngineCandidate | Mapping[str, Any]) -> dict
         "side": str(_candidate_value(candidate, "side", "LONG")).upper().strip(),
         "score": _to_float(_candidate_value(candidate, "score", 0.0)),
         "sector": str(_candidate_value(candidate, "sector", "")).strip() or sector_for_symbol(symbol),
+        "timeframe_meta": dict(timeframe_meta) if isinstance(timeframe_meta, Mapping) else {},
+        "liquidity_meta": dict(liquidity_meta) if isinstance(liquidity_meta, Mapping) else {},
     }
 
 
@@ -104,6 +112,84 @@ def _major_alt_balance_ok(major_risk: float, alt_risk: float, major_target: floa
     major_share = (major_risk / total) if total > 0 else 1.0
     threshold = max(0.35, min(major_target, 0.85))
     return major_share >= threshold, major_share, threshold
+
+
+def _quality_multiplier(score: float) -> float:
+    return _clamp(0.8 + (0.4 * _clamp(score, 0.0, 1.0)), 0.8, 1.2)
+
+
+def _crowding_multiplier(candidate: Mapping[str, Any]) -> float:
+    timeframe_meta = dict(candidate.get("timeframe_meta") or {})
+    derivatives = dict(timeframe_meta.get("derivatives") or {})
+    side = str(candidate.get("side", "LONG")).upper()
+    crowding_bias = str(derivatives.get("crowding_bias", "balanced")).lower()
+    crowding_score = abs(_to_float(derivatives.get("crowding_score"), 0.0))
+    basis_bps = _to_float(derivatives.get("basis_bps"), 0.0)
+    funding_rate = _to_float(derivatives.get("funding_rate"), 0.0)
+
+    multiplier = 1.0
+    same_side_crowding = (side == "LONG" and crowding_bias == "crowded_long") or (
+        side == "SHORT" and crowding_bias == "crowded_short"
+    )
+    if same_side_crowding:
+        multiplier *= 0.82
+    elif crowding_bias.startswith("crowded_"):
+        multiplier *= 0.92
+
+    if crowding_score >= 3.0:
+        multiplier *= 0.86
+    elif crowding_score >= 2.0:
+        multiplier *= 0.92
+
+    if side == "LONG":
+        if basis_bps >= 15.0:
+            multiplier *= 0.92
+        elif basis_bps >= 10.0:
+            multiplier *= 0.96
+        if funding_rate >= 0.0001:
+            multiplier *= 0.94
+        elif funding_rate >= 0.00005:
+            multiplier *= 0.98
+    else:
+        if basis_bps <= -15.0:
+            multiplier *= 0.92
+        elif basis_bps <= -10.0:
+            multiplier *= 0.96
+        if funding_rate <= -0.0001:
+            multiplier *= 0.94
+        elif funding_rate <= -0.00005:
+            multiplier *= 0.98
+
+    return _clamp(multiplier, 0.5, 1.0)
+
+
+def _execution_friction_multiplier(candidate: Mapping[str, Any]) -> float:
+    liquidity_meta = dict(candidate.get("liquidity_meta") or {})
+    spread_bps = _to_float(liquidity_meta.get("spread_bps"), 0.0)
+    slippage_bps = _to_float(liquidity_meta.get("slippage_bps"), 0.0)
+    volume_usdt_24h = _to_float(liquidity_meta.get("volume_usdt_24h"), 0.0)
+
+    multiplier = 1.0
+    if spread_bps > 5.0:
+        multiplier *= 0.9
+    elif spread_bps > 3.0:
+        multiplier *= 0.95
+    elif spread_bps > 1.5:
+        multiplier *= 0.98
+
+    if slippage_bps > 15.0:
+        multiplier *= 0.86
+    elif slippage_bps > 10.0:
+        multiplier *= 0.93
+    elif slippage_bps > 5.0:
+        multiplier *= 0.97
+
+    if 0.0 < volume_usdt_24h < 750_000_000.0:
+        multiplier *= 0.95
+    elif 0.0 < volume_usdt_24h < 1_000_000_000.0:
+        multiplier *= 0.98
+
+    return _clamp(multiplier, 0.55, 1.0)
 
 
 def allocate_candidates(
@@ -224,8 +310,28 @@ def allocate_candidates(
             confidence=confidence,
             engine_tier_multiplier=_engine_tier_multiplier(engine, sector),
         )
-        final_budget = initial_budget
+        quality_multiplier = _quality_multiplier(candidate["score"])
+        crowding_multiplier = _crowding_multiplier(candidate)
+        execution_friction_multiplier = _execution_friction_multiplier(candidate)
+        aggressiveness_multiplier = quality_multiplier * crowding_multiplier * execution_friction_multiplier
+        meta.update(
+            {
+                "initial_risk_budget": round(initial_budget, 6),
+                "quality_multiplier": round(quality_multiplier, 6),
+                "crowding_multiplier": round(crowding_multiplier, 6),
+                "execution_friction_multiplier": round(execution_friction_multiplier, 6),
+                "aggressiveness_multiplier": round(aggressiveness_multiplier, 6),
+            }
+        )
+        final_budget = initial_budget * aggressiveness_multiplier
         downsized = False
+
+        if crowding_multiplier < 0.999999:
+            reasons.append("crowding reduced aggressiveness")
+            downsized = True
+        if execution_friction_multiplier < 0.999999:
+            reasons.append("execution friction reduced aggressiveness")
+            downsized = True
 
         duplicate_key = (engine, side, _setup_family(candidate["setup_type"]))
         accepted_count = duplicate_counts[duplicate_key]
