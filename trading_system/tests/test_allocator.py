@@ -340,3 +340,80 @@ def test_allocator_crowding_and_execution_friction_can_compress_aggressiveness_w
     assert accepted["AVAXUSDT"].meta["execution_friction_multiplier"] < accepted["SOLUSDT"].meta["execution_friction_multiplier"]
     assert accepted["AVAXUSDT"].meta["aggressiveness_multiplier"] < 1.0
     assert any("crowding" in reason.lower() or "friction" in reason.lower() for reason in accepted["AVAXUSDT"].reasons)
+
+
+def test_allocator_compresses_risk_budget_under_defensive_execution_hazard(load_fixture):
+    account = _seeded_major_account(load_fixture)
+    candidates = [
+        {
+            "engine": "rotation",
+            "setup_type": "RS_REACCELERATION",
+            "symbol": "LINKUSDT",
+            "side": "LONG",
+            "score": 0.9,
+            "sector": "oracle",
+            "timeframe_meta": {"derivatives": {"crowding_bias": "balanced", "basis_bps": 6.0, "funding_rate": 0.00002}},
+            "liquidity_meta": {"spread_bps": 1.2, "slippage_bps": 5.0, "volume_usdt_24h": 1_250_000_000.0},
+        }
+    ]
+    base_regime = {
+        "bucket_targets": {"trend": 0.35, "rotation": 0.65, "short": 0.0},
+        "suppressed_engines": [],
+        "confidence": 0.78,
+        "risk_multiplier": 0.8,
+        "execution_hazard": "none",
+        "late_stage_heat": "none",
+    }
+    defensive_regime = {
+        **base_regime,
+        "execution_hazard": "compress_risk",
+        "execution_policy": "downsize",
+    }
+
+    base = allocate_candidates(account=account, candidates=candidates, regime=base_regime)[0]
+    defensive = allocate_candidates(account=account, candidates=candidates, regime=defensive_regime)[0]
+
+    assert base.status in {"ACCEPTED", "DOWNSIZED"}
+    assert defensive.status in {"ACCEPTED", "DOWNSIZED"}
+    assert defensive.final_risk_budget < base.final_risk_budget
+    assert defensive.meta["aggressiveness_multiplier"] < base.meta["aggressiveness_multiplier"]
+    assert defensive.meta["regime_hazard_multiplier"] < 1.0
+    assert any("hazard" in reason.lower() or "defensive" in reason.lower() for reason in defensive.reasons)
+
+
+def test_allocator_compresses_long_risk_budget_under_late_stage_heat(load_fixture):
+    account = _seeded_major_account(load_fixture)
+    candidates = [
+        {
+            "engine": "rotation",
+            "setup_type": "RS_REACCELERATION",
+            "symbol": "SOLUSDT",
+            "side": "LONG",
+            "score": 0.88,
+            "sector": "alt_l1",
+            "timeframe_meta": {"derivatives": {"crowding_bias": "balanced", "basis_bps": 7.0, "funding_rate": 0.00003}},
+            "liquidity_meta": {"spread_bps": 1.3, "slippage_bps": 5.0, "volume_usdt_24h": 1_500_000_000.0},
+        }
+    ]
+    base_regime = {
+        "bucket_targets": {"trend": 0.35, "rotation": 0.65, "short": 0.0},
+        "suppressed_engines": [],
+        "confidence": 0.82,
+        "risk_multiplier": 0.78,
+        "late_stage_heat": "none",
+        "execution_hazard": "none",
+    }
+    heated_regime = {
+        **base_regime,
+        "late_stage_heat": "squeeze",
+    }
+
+    base = allocate_candidates(account=account, candidates=candidates, regime=base_regime)[0]
+    heated = allocate_candidates(account=account, candidates=candidates, regime=heated_regime)[0]
+
+    assert base.status in {"ACCEPTED", "DOWNSIZED"}
+    assert heated.status in {"ACCEPTED", "DOWNSIZED"}
+    assert heated.final_risk_budget < base.final_risk_budget
+    assert heated.meta["aggressiveness_multiplier"] < base.meta["aggressiveness_multiplier"]
+    assert heated.meta["late_stage_heat_multiplier"] < 1.0
+    assert any("late-stage" in reason.lower() or "heat" in reason.lower() for reason in heated.reasons)
