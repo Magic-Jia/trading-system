@@ -277,13 +277,13 @@ def main() -> None:
         market,
         rotation_universe=universes.rotation_universe,
         derivatives=derivatives,
-        regime=state.latest_regime,
+        regime=regime,
     )
     short_candidates = generate_short_candidates(
         market,
         short_universe=universes.short_universe,
         derivatives=derivatives,
-        regime=state.latest_regime,
+        regime=regime,
     )
     candidate_rows: list[dict[str, Any]] = []
     validated_rows: list[dict[str, Any]] = []

@@ -233,19 +233,10 @@ def test_main_v2_cycle_writes_regime_and_allocation_sections(monkeypatch, tmp_pa
     }
     assert state.get("rotation_summary") == {
         "universe_count": 5,
-        "candidate_count": 3,
+        "candidate_count": 2,
         "accepted_symbols": [],
         "executed_symbols": [],
         "leaders": [
-            {
-                "symbol": "SOLUSDT",
-                "score": pytest.approx(0.829508, abs=1e-6),
-                "daily_spread": pytest.approx(0.0175, abs=1e-6),
-                "h4_spread": pytest.approx(0.006, abs=1e-6),
-                "h1_spread": pytest.approx(0.0015, abs=1e-6),
-                "volume_usdt_24h": 3900000000.0,
-                "slippage_bps": 8.0,
-            },
             {
                 "symbol": "LINKUSDT",
                 "score": pytest.approx(0.76898, abs=1e-6),
