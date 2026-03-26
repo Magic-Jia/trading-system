@@ -2882,3 +2882,120 @@ def test_main_v2_emits_review_ready_lifecycle_summary_for_taxonomy_aware_exits(m
     assert summary["review_actions"][1]["action"] == "PARTIAL_TAKE_PROFIT"
     assert summary["review_actions"][1]["target_price"] == pytest.approx(110.0)
     assert summary["leaders"][0]["invalidation_reason"] == "breakout continuation lost 4h breakout support"
+
+
+def test_main_v2_surfaces_defensive_regime_de_risk_action_path(monkeypatch, tmp_path, load_fixture):
+    output_path = tmp_path / "runtime_state.json"
+    account_path = tmp_path / "account_snapshot.json"
+    market_path = tmp_path / "market_context.json"
+    deriv_path = tmp_path / "derivatives_snapshot.json"
+    output_path.write_text(
+        json.dumps(
+            {
+                "updated_at_bj": "2026-03-26T22:00:00+08:00",
+                "last_signal_ids": {},
+                "cooldowns": {},
+                "active_orders": {},
+                "positions": {
+                    "BTCUSDT": {
+                        "symbol": "BTCUSDT",
+                        "side": "LONG",
+                        "qty": 0.2,
+                        "entry_price": 100.0,
+                        "mark_price": 104.0,
+                        "unrealized_pnl": 0.8,
+                        "notional": 20.8,
+                        "stop_loss": 95.0,
+                        "taxonomy_stop_loss": 95.0,
+                        "take_profit": None,
+                        "status": "OPEN",
+                        "intent_id": "v2-trend-breakout-btcusdt",
+                        "signal_id": "v2-trend-breakout-btcusdt",
+                        "source": "paper_execution",
+                        "tracked_from_snapshot": False,
+                        "tracked_from_intent": True,
+                        "opened_at_bj": "2026-03-26T21:00:00+08:00",
+                        "updated_at_bj": "2026-03-26T21:00:00+08:00",
+                        "last_synced_from": "executed_intent",
+                        "invalidation_source": "trend_breakout_failure_below_4h_ema20",
+                        "invalidation_reason": "breakout continuation lost 4h breakout support",
+                        "stop_family": "structure_stop",
+                        "stop_reference": "4h_ema20",
+                        "stop_policy_source": "shared_taxonomy"
+                    }
+                },
+                "management_suggestions": [],
+                "management_action_previews": []
+            }
+        )
+    )
+    account_path.write_text(json.dumps({
+        "equity": 125000.0,
+        "available_balance": 96000.0,
+        "futures_wallet_balance": 118500.0,
+        "open_positions": [{
+            "symbol": "BTCUSDT",
+            "side": "LONG",
+            "qty": 0.2,
+            "entry_price": 100.0,
+            "mark_price": 104.0,
+            "unrealized_pnl": 0.8,
+            "notional": 20.8,
+            "leverage": 2.0
+        }],
+        "open_orders": []
+    }))
+    market_path.write_text(json.dumps(load_fixture("market_context_v2.json")))
+    deriv_path.write_text(json.dumps(load_fixture("derivatives_snapshot_v2.json")))
+    monkeypatch.setenv("TRADING_STATE_FILE", str(output_path))
+    monkeypatch.setenv("TRADING_ACCOUNT_SNAPSHOT_FILE", str(account_path))
+    monkeypatch.setenv("TRADING_MARKET_CONTEXT_FILE", str(market_path))
+    monkeypatch.setenv("TRADING_DERIVATIVES_SNAPSHOT_FILE", str(deriv_path))
+    monkeypatch.setenv("TRADING_EXECUTION_MODE", "dry-run")
+    monkeypatch.setattr(main_module, "generate_trend_candidates", lambda *args, **kwargs: [])
+    monkeypatch.setattr(main_module, "generate_rotation_candidates", lambda *args, **kwargs: [])
+    monkeypatch.setattr(main_module, "generate_short_candidates", lambda *args, **kwargs: [])
+    monkeypatch.setattr(main_module, "allocate_candidates", lambda **kwargs: [])
+    monkeypatch.setattr(
+        main_module,
+        "classify_regime",
+        lambda *args, **kwargs: RegimeSnapshot(
+            label="CRASH_DEFENSIVE",
+            confidence=0.93,
+            risk_multiplier=0.35,
+            execution_policy="downsize",
+        ),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "summarize_derivatives_risk",
+        lambda *args, **kwargs: {"late_stage_heat": "cascade", "execution_hazard": "compress_risk"},
+    )
+
+    main_module.main()
+
+    state = json.loads(Path(output_path).read_text())
+    de_risk_rows = [
+        row for row in state.get("management_suggestions", [])
+        if row.get("symbol") == "BTCUSDT" and row.get("action") == "DE_RISK"
+    ]
+    assert de_risk_rows
+    de_risk = de_risk_rows[0]
+    assert de_risk["qty_fraction"] == pytest.approx(0.25)
+    assert de_risk["meta"]["regime_label"] == "CRASH_DEFENSIVE"
+    assert de_risk["meta"]["execution_policy"] == "downsize"
+    assert de_risk["meta"]["stop_family"] == "structure_stop"
+    assert de_risk["meta"]["invalidation_source"] == "trend_breakout_failure_below_4h_ema20"
+
+    previews = [
+        row for row in state.get("management_action_previews", [])
+        if row.get("intent", {}).get("symbol") == "BTCUSDT" and row.get("intent", {}).get("action") == "DE_RISK"
+    ]
+    assert previews
+    assert previews[0]["preview"]["preview_kind"] == "REDUCE_ONLY_DE_RISK_CLOSE"
+    assert previews[0]["preview"]["payload"]["create_order"]["quantity"] == pytest.approx(0.05)
+
+    summary = state["lifecycle_summary"]
+    assert summary["management_action_counts"]["DE_RISK"] == 1
+    assert summary["review_actions"][0]["action"] == "DE_RISK"
+    assert summary["review_actions"][0]["qty_fraction"] == pytest.approx(0.25)

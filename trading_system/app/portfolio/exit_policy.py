@@ -62,10 +62,11 @@ def _defensive_regime(regime: Mapping[str, Any] | None) -> bool:
     if not regime:
         return False
     label = str(regime.get("label") or "").upper()
-    execution_policy = str(regime.get("execution_policy") or "").lower()
+    execution_hazard = str(regime.get("execution_hazard") or "").lower()
+    risk_multiplier = _float(regime.get("risk_multiplier"))
     if "DEFENSIVE" in label:
         return True
-    return execution_policy in {"downsize", "suppress"}
+    return execution_hazard == "compress_risk" and (risk_multiplier is not None and risk_multiplier <= 0.5)
 
 
 def evaluate_exit_policy(
