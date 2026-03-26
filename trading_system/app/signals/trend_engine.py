@@ -12,6 +12,8 @@ _CROWDED_LONG_BASIS_BPS = 20.0
 _TREND_ABSOLUTE_STRENGTH_DAILY_FLOOR = 0.03
 _TREND_ABSOLUTE_STRENGTH_H4_FLOOR = 0.01
 _TREND_ABSOLUTE_STRENGTH_H1_FLOOR = 0.003
+_TREND_H4_EXTENSION_OVERHEAT_PCT = 0.03
+_TREND_H1_EXTENSION_OVERHEAT_PCT = 0.01
 
 
 def _to_float(value: Any) -> float:
@@ -86,6 +88,23 @@ def _passes_absolute_strength_gate(payload: Mapping[str, Any]) -> bool:
     )
 
 
+def _extension_pct(row: Mapping[str, Any]) -> float:
+    close = _to_float(row.get("close"))
+    ema20 = _to_float(row.get("ema_20"))
+    if close <= 0.0 or ema20 <= 0.0:
+        return 0.0
+    return max((close / ema20) - 1.0, 0.0)
+
+
+def _reject_price_extension_overheat(payload: Mapping[str, Any]) -> bool:
+    h4 = _tf_row(payload, "4h")
+    h1 = _tf_row(payload, "1h")
+    return (
+        _extension_pct(h4) >= _TREND_H4_EXTENSION_OVERHEAT_PCT
+        and _extension_pct(h1) >= _TREND_H1_EXTENSION_OVERHEAT_PCT
+    )
+
+
 def _reject_crowded_long(features: Mapping[str, Any]) -> bool:
     return (
         str(features.get("crowding_bias", "balanced")) == "crowded_long"
@@ -121,6 +140,8 @@ def generate_trend_candidates(
         if not _is_uptrend(daily, h4, h1):
             continue
         if not _passes_absolute_strength_gate(payload):
+            continue
+        if _reject_price_extension_overheat(payload):
             continue
 
         derivatives_features = symbol_derivatives_features(derivatives, str(symbol))
