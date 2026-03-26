@@ -10,7 +10,7 @@ from .config import build_config
 from .data_sources import load_derivatives_snapshot, load_market_context
 from .execution.executor import OrderExecutor
 from .execution.idempotency import already_processed, intent_id, mark_processed, replay_processed_execution
-from .market_regime import classify_regime
+from .market_regime import classify_regime, summarize_derivatives_risk
 from .portfolio.allocator import allocate_candidates
 from .portfolio.lifecycle import advance_lifecycle_positions, build_management_action_intents, evaluate_portfolio
 from .portfolio.positions import apply_executed_intent, sync_positions_from_account
@@ -264,6 +264,7 @@ def main() -> None:
     market_rows = load_market_context()
     market = _market_payload(market_rows)
     derivatives = load_derivatives_snapshot()
+    derivatives_summary = summarize_derivatives_risk(derivatives)
     regime = classify_regime(market_rows, derivatives)
     universes = build_universes(market)
 
@@ -276,13 +277,13 @@ def main() -> None:
         market,
         rotation_universe=universes.rotation_universe,
         derivatives=derivatives,
-        regime=regime,
+        regime=state.latest_regime,
     )
     short_candidates = generate_short_candidates(
         market,
         short_universe=universes.short_universe,
         derivatives=derivatives,
-        regime=regime,
+        regime=state.latest_regime,
     )
     candidate_rows: list[dict[str, Any]] = []
     validated_rows: list[dict[str, Any]] = []
@@ -402,7 +403,12 @@ def main() -> None:
         management_suggestions=management,
     )
 
-    state.latest_regime = asdict(regime)
+    regime_payload = {
+        **asdict(regime),
+        "late_stage_heat": derivatives_summary.get("late_stage_heat", "none"),
+        "execution_hazard": derivatives_summary.get("execution_hazard", "none"),
+    }
+    state.latest_regime = regime_payload
     state.latest_universes = _universes_payload(universes)
     state.latest_candidates = candidate_rows
     state.latest_allocations = allocation_rows
@@ -427,7 +433,7 @@ def main() -> None:
     store.save(state)
 
     regime_summary = build_regime_summary(
-        regime=regime,
+        regime=state.latest_regime,
         universes=state.latest_universes,
         candidates=state.latest_candidates,
         allocations=state.latest_allocations,
