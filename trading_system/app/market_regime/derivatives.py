@@ -6,6 +6,10 @@ from typing import Any
 MAJOR_SYMBOLS = {"BTCUSDT", "ETHUSDT"}
 _LATE_STAGE_LONG_BLOWOFF_FUNDING_RATE = 0.0002
 _LATE_STAGE_LONG_BLOWOFF_BASIS_BPS = 25.0
+_LATE_STAGE_LONG_ACCELERATION_H4_EXTENSION_PCT = 0.025
+_LATE_STAGE_LONG_ACCELERATION_H1_EXTENSION_PCT = 0.008
+_LATE_STAGE_LONG_ACCELERATION_OI_CHANGE_PCT = 0.04
+_LATE_STAGE_LONG_ACCELERATION_MARK_PRICE_CHANGE_PCT = 0.02
 
 
 def _coerce_all_rows(derivatives: dict[str, Any] | list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -119,11 +123,23 @@ def symbol_derivatives_features(
     }
 
 
-def is_late_stage_long_blowoff(features: Mapping[str, Any]) -> bool:
-    return (
+def is_late_stage_long_blowoff(
+    features: Mapping[str, Any],
+    *,
+    h4_extension_pct: float = 0.0,
+    h1_extension_pct: float = 0.0,
+) -> bool:
+    funding_basis_blowoff = (
         float(features.get("funding_rate", 0.0) or 0.0) >= _LATE_STAGE_LONG_BLOWOFF_FUNDING_RATE
         and float(features.get("basis_bps", 0.0) or 0.0) >= _LATE_STAGE_LONG_BLOWOFF_BASIS_BPS
     )
+    price_oi_acceleration_blowoff = (
+        h4_extension_pct >= _LATE_STAGE_LONG_ACCELERATION_H4_EXTENSION_PCT
+        and h1_extension_pct >= _LATE_STAGE_LONG_ACCELERATION_H1_EXTENSION_PCT
+        and float(features.get("open_interest_change_24h_pct", 0.0) or 0.0) >= _LATE_STAGE_LONG_ACCELERATION_OI_CHANGE_PCT
+        and float(features.get("mark_price_change_24h_pct", 0.0) or 0.0) >= _LATE_STAGE_LONG_ACCELERATION_MARK_PRICE_CHANGE_PCT
+    )
+    return funding_basis_blowoff or price_oi_acceleration_blowoff
 
 
 def summarize_derivatives_risk(derivatives: dict[str, Any] | list[dict[str, Any]]) -> dict[str, Any]:
