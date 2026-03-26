@@ -109,6 +109,45 @@ def test_generate_trend_candidates_reject_funding_basis_blowoff_even_when_struct
     assert {candidate.symbol for candidate in candidates} == {"ETHUSDT"}
 
 
+def test_generate_trend_candidates_reject_price_and_open_interest_acceleration_blowoff_before_funding_basis_extremes(
+    load_fixture,
+):
+    market = load_fixture("market_context_v2.json")
+    derivatives = {
+        "rows": [
+            {
+                "symbol": "BTCUSDT",
+                "funding_rate": 0.00005,
+                "open_interest_usdt": 23100000000,
+                "open_interest_change_24h_pct": 0.045,
+                "mark_price_change_24h_pct": 0.024,
+                "taker_buy_sell_ratio": 1.01,
+                "basis_bps": 14,
+            },
+            {
+                "symbol": "ETHUSDT",
+                "funding_rate": 0.00003,
+                "open_interest_usdt": 11800000000,
+                "open_interest_change_24h_pct": 0.009,
+                "mark_price_change_24h_pct": 0.008,
+                "taker_buy_sell_ratio": 1.0,
+                "basis_bps": 10,
+            },
+        ]
+    }
+
+    market["symbols"]["BTCUSDT"]["4h"]["close"] = 65330.0
+    market["symbols"]["BTCUSDT"]["1h"]["close"] = 64510.0
+
+    candidates = generate_trend_candidates(
+        market,
+        derivatives=derivatives,
+        include_high_liquidity_strong_names=False,
+    )
+
+    assert {candidate.symbol for candidate in candidates} == {"ETHUSDT"}
+
+
 def test_generate_trend_candidates_require_absolute_strength_before_surviving(load_fixture):
     market = load_fixture("market_context_v2.json")
     derivatives = {

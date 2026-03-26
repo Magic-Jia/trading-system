@@ -105,9 +105,15 @@ def _reject_price_extension_overheat(payload: Mapping[str, Any]) -> bool:
     )
 
 
-def _reject_crowded_long(features: Mapping[str, Any]) -> bool:
+def _reject_crowded_long(features: Mapping[str, Any], payload: Mapping[str, Any]) -> bool:
+    h4 = _tf_row(payload, "4h")
+    h1 = _tf_row(payload, "1h")
     return (
-        is_late_stage_long_blowoff(features)
+        is_late_stage_long_blowoff(
+            features,
+            h4_extension_pct=_extension_pct(h4),
+            h1_extension_pct=_extension_pct(h1),
+        )
         or (
             str(features.get("crowding_bias", "balanced")) == "crowded_long"
             and _to_float(features.get("basis_bps")) >= _CROWDED_LONG_BASIS_BPS
@@ -148,7 +154,7 @@ def generate_trend_candidates(
             continue
 
         derivatives_features = symbol_derivatives_features(derivatives, str(symbol))
-        if _reject_crowded_long(derivatives_features):
+        if _reject_crowded_long(derivatives_features, payload):
             continue
 
         scored = score_trend_candidate(
