@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
-from trading_system.app.market_regime.derivatives import symbol_derivatives_features
+from trading_system.app.market_regime.derivatives import is_late_stage_long_blowoff, symbol_derivatives_features
 from trading_system.app.signals.scoring import score_trend_candidate
 from trading_system.app.types import EngineCandidate
 
@@ -107,8 +107,11 @@ def _reject_price_extension_overheat(payload: Mapping[str, Any]) -> bool:
 
 def _reject_crowded_long(features: Mapping[str, Any]) -> bool:
     return (
-        str(features.get("crowding_bias", "balanced")) == "crowded_long"
-        and _to_float(features.get("basis_bps")) >= _CROWDED_LONG_BASIS_BPS
+        is_late_stage_long_blowoff(features)
+        or (
+            str(features.get("crowding_bias", "balanced")) == "crowded_long"
+            and _to_float(features.get("basis_bps")) >= _CROWDED_LONG_BASIS_BPS
+        )
     )
 
 
