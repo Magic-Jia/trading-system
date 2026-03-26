@@ -271,6 +271,24 @@ def test_low_confidence_regime_reduces_aggression(load_fixture):
     assert low_conf.execution_policy == "suppress"
 
 
+def test_classify_regime_crash_stress_compresses_risk_and_execution():
+    market = _high_vol_mixed_market_context()
+    stressed = _majors_derivatives_snapshot(
+        funding_rate=-0.00005,
+        open_interest_change_24h_pct=-0.12,
+        taker_buy_sell_ratio=0.84,
+        basis_bps=-18.0,
+        mark_price_change_24h_pct=-0.08,
+    )
+
+    regime = classify_regime(market, stressed)
+
+    assert regime.label == "CRASH_DEFENSIVE"
+    assert regime.risk_multiplier < 0.55
+    assert regime.execution_policy == "suppress"
+    assert set(regime.suppression_rules) >= {"trend", "rotation"}
+
+
 def test_classify_regime_crowded_long_dampens_confidence_and_aggression():
     market = _high_vol_mixed_market_context()
     balanced = _majors_derivatives_snapshot(
