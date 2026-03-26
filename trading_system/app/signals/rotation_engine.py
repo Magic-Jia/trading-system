@@ -13,6 +13,8 @@ _CROWDED_LONG_BASIS_BPS = 20.0
 _ROTATION_ABSOLUTE_STRENGTH_DAILY_FLOOR = 0.03
 _ROTATION_ABSOLUTE_STRENGTH_H4_FLOOR = 0.01
 _ROTATION_ABSOLUTE_STRENGTH_H1_FLOOR = 0.003
+_ROTATION_H4_EXTENSION_OVERHEAT_PCT = 0.03
+_ROTATION_H1_EXTENSION_OVERHEAT_PCT = 0.01
 
 
 def _to_float(value: Any) -> float:
@@ -141,6 +143,14 @@ def _volatility_quality(payload: Mapping[str, Any]) -> float:
     return max(0.0, min(1.0 - (abs(atr_pct - 0.055) / 0.04), 1.0))
 
 
+def _extension_pct(row: Mapping[str, Any]) -> float:
+    close = _to_float(row.get("close"))
+    ema20 = _to_float(row.get("ema_20"))
+    if close <= 0.0 or ema20 <= 0.0:
+        return 0.0
+    return max((close / ema20) - 1.0, 0.0)
+
+
 def _passes_absolute_strength_gate(payload: Mapping[str, Any]) -> bool:
     daily = _tf_row(payload, "daily")
     h4 = _tf_row(payload, "4h")
@@ -149,6 +159,15 @@ def _passes_absolute_strength_gate(payload: Mapping[str, Any]) -> bool:
         _to_float(daily.get("return_pct_7d")) >= _ROTATION_ABSOLUTE_STRENGTH_DAILY_FLOOR
         and _to_float(h4.get("return_pct_3d")) >= _ROTATION_ABSOLUTE_STRENGTH_H4_FLOOR
         and _to_float(h1.get("return_pct_24h")) >= _ROTATION_ABSOLUTE_STRENGTH_H1_FLOOR
+    )
+
+
+def _reject_price_extension_overheat(payload: Mapping[str, Any]) -> bool:
+    h4 = _tf_row(payload, "4h")
+    h1 = _tf_row(payload, "1h")
+    return (
+        _extension_pct(h4) >= _ROTATION_H4_EXTENSION_OVERHEAT_PCT
+        and _extension_pct(h1) >= _ROTATION_H1_EXTENSION_OVERHEAT_PCT
     )
 
 
@@ -207,6 +226,8 @@ def generate_rotation_candidates(
         if not _trend_intact(payload):
             continue
         if not _passes_absolute_strength_gate(payload):
+            continue
+        if _reject_price_extension_overheat(payload):
             continue
 
         derivatives_features = symbol_derivatives_features(derivatives, str(symbol))
