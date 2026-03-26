@@ -31,7 +31,7 @@ class OrderExecutor:
         self.mode = mode or config.execution.mode
         self.persist_state = persist_state
         self.execution_log_path = EXEC_LOG
-        self.paper_ledger_path = config.data_dir / "paper_ledger.jsonl"
+        self.paper_ledger_path = config.state_file.parent / "paper_ledger.jsonl"
         self.paper_executor = PaperExecutor(PaperLedger(self.paper_ledger_path))
         if self.mode == "live" and not config.execution.allow_live_execution:
             raise ExecutionError("live execution is disabled unless TRADING_ALLOW_LIVE_EXECUTION is explicitly enabled")
