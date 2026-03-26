@@ -2041,6 +2041,151 @@ def test_main_v2_blocks_candidate_missing_explicit_stop_or_invalidation_before_e
     assert all(not position.get("tracked_from_intent") for position in state.get("positions", {}).values())
 
 
+def test_main_v2_rewrites_trend_breakout_stop_fields_from_shared_taxonomy(monkeypatch, tmp_path, load_fixture):
+    output_path = tmp_path / "runtime_state.json"
+    account_path = tmp_path / "account_snapshot.json"
+    market_path = tmp_path / "market_context.json"
+    deriv_path = tmp_path / "derivatives_snapshot.json"
+    account_path.write_text(json.dumps(load_fixture("account_snapshot_v2.json")))
+    market_path.write_text(json.dumps(load_fixture("market_context_v2.json")))
+    deriv_path.write_text(json.dumps(load_fixture("derivatives_snapshot_v2.json")))
+    monkeypatch.setenv("TRADING_STATE_FILE", str(output_path))
+    monkeypatch.setenv("TRADING_ACCOUNT_SNAPSHOT_FILE", str(account_path))
+    monkeypatch.setenv("TRADING_MARKET_CONTEXT_FILE", str(market_path))
+    monkeypatch.setenv("TRADING_DERIVATIVES_SNAPSHOT_FILE", str(deriv_path))
+    monkeypatch.setenv("TRADING_EXECUTION_MODE", "dry-run")
+    monkeypatch.setattr(
+        main_module,
+        "validate_candidate_for_allocation",
+        lambda candidate, account: ValidationResult(True, "INFO", reasons=[], metrics={}),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "generate_trend_candidates",
+        lambda *args, **kwargs: [
+            {
+                "engine": "trend",
+                "setup_type": "BREAKOUT_CONTINUATION",
+                "symbol": "BTCUSDT",
+                "side": "LONG",
+                "score": 0.91,
+                "stop_loss": 62830.0,
+                "invalidation_source": "trend_structure_loss_below_4h_ema50",
+            }
+        ],
+    )
+    monkeypatch.setattr(main_module, "generate_rotation_candidates", lambda *args, **kwargs: [])
+    monkeypatch.setattr(main_module, "generate_short_candidates", lambda *args, **kwargs: [])
+    monkeypatch.setattr(
+        main_module,
+        "validate_signal",
+        lambda signal, account, config: (ValidationResult(True, "INFO", reasons=[], metrics={}), {"sizing": None}),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "allocate_candidates",
+        lambda **kwargs: [AllocationDecision(status="ACCEPTED", engine="trend", final_risk_budget=0.01, rank=1)],
+    )
+
+    main_module.main()
+
+    state = json.loads(Path(output_path).read_text())
+    trend_candidates = [row for row in state.get("latest_candidates", []) if row.get("engine") == "trend"]
+    assert trend_candidates
+    assert trend_candidates[0]["stop_loss"] == pytest.approx(63620.0)
+    assert trend_candidates[0]["invalidation_source"] == "trend_breakout_failure_below_4h_ema20"
+    assert trend_candidates[0]["stop_family"] == "structure_stop"
+    assert trend_candidates[0]["stop_reference"] == "4h_ema20"
+
+    trend_allocations = [
+        row for row in state.get("latest_allocations", []) if row.get("engine") == "trend" and row.get("status") == "ACCEPTED"
+    ]
+    assert trend_allocations
+    assert trend_allocations[0]["stop_loss"] == pytest.approx(63620.0)
+    assert trend_allocations[0]["invalidation_source"] == "trend_breakout_failure_below_4h_ema20"
+    assert trend_allocations[0]["stop_family"] == "structure_stop"
+    assert trend_allocations[0]["stop_reference"] == "4h_ema20"
+    assert trend_allocations[0].get("execution", {}).get("status") == "SENT"
+
+
+def test_main_v2_applies_crash_defensive_stop_taxonomy_to_trend_entry(monkeypatch, tmp_path, load_fixture):
+    output_path = tmp_path / "runtime_state.json"
+    account_path = tmp_path / "account_snapshot.json"
+    market_path = tmp_path / "market_context.json"
+    deriv_path = tmp_path / "derivatives_snapshot.json"
+    account_path.write_text(json.dumps(load_fixture("account_snapshot_v2.json")))
+    market_path.write_text(json.dumps(load_fixture("market_context_v2.json")))
+    deriv_path.write_text(json.dumps(load_fixture("derivatives_snapshot_v2.json")))
+    monkeypatch.setenv("TRADING_STATE_FILE", str(output_path))
+    monkeypatch.setenv("TRADING_ACCOUNT_SNAPSHOT_FILE", str(account_path))
+    monkeypatch.setenv("TRADING_MARKET_CONTEXT_FILE", str(market_path))
+    monkeypatch.setenv("TRADING_DERIVATIVES_SNAPSHOT_FILE", str(deriv_path))
+    monkeypatch.setenv("TRADING_EXECUTION_MODE", "dry-run")
+    monkeypatch.setattr(
+        main_module,
+        "validate_candidate_for_allocation",
+        lambda candidate, account: ValidationResult(True, "INFO", reasons=[], metrics={}),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "generate_trend_candidates",
+        lambda *args, **kwargs: [
+            {
+                "engine": "trend",
+                "setup_type": "BREAKOUT_CONTINUATION",
+                "symbol": "BTCUSDT",
+                "side": "LONG",
+                "score": 0.91,
+                "stop_loss": 62830.0,
+                "invalidation_source": "trend_structure_loss_below_4h_ema50",
+            }
+        ],
+    )
+    monkeypatch.setattr(main_module, "generate_rotation_candidates", lambda *args, **kwargs: [])
+    monkeypatch.setattr(main_module, "generate_short_candidates", lambda *args, **kwargs: [])
+    monkeypatch.setattr(
+        main_module,
+        "validate_signal",
+        lambda signal, account, config: (ValidationResult(True, "INFO", reasons=[], metrics={}), {"sizing": None}),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "allocate_candidates",
+        lambda **kwargs: [AllocationDecision(status="ACCEPTED", engine="trend", final_risk_budget=0.01, rank=1)],
+    )
+    monkeypatch.setattr(
+        main_module,
+        "classify_regime",
+        lambda market, derivatives: RegimeSnapshot(
+            label="CRASH_DEFENSIVE",
+            confidence=0.3,
+            risk_multiplier=0.45,
+            execution_policy="suppress",
+            bucket_targets={"trend": 1.0, "rotation": 0.0, "short": 0.0},
+            suppression_rules=["rotation"],
+        ),
+    )
+
+    main_module.main()
+
+    state = json.loads(Path(output_path).read_text())
+    trend_candidates = [row for row in state.get("latest_candidates", []) if row.get("engine") == "trend"]
+    assert trend_candidates
+    assert trend_candidates[0]["stop_loss"] == pytest.approx(63940.0)
+    assert trend_candidates[0]["invalidation_source"] == "crash_defensive_squeeze_loss_below_1h_ema20_or_1d_atr_band"
+    assert trend_candidates[0]["stop_family"] == "squeeze_stop"
+    assert trend_candidates[0]["stop_reference"] == "1h_ema20_or_1d_atr_band"
+
+    trend_allocations = [
+        row for row in state.get("latest_allocations", []) if row.get("engine") == "trend" and row.get("status") == "ACCEPTED"
+    ]
+    assert trend_allocations
+    assert trend_allocations[0]["stop_loss"] == pytest.approx(63940.0)
+    assert trend_allocations[0]["invalidation_source"] == "crash_defensive_squeeze_loss_below_1h_ema20_or_1d_atr_band"
+    assert trend_allocations[0]["stop_family"] == "squeeze_stop"
+    assert trend_allocations[0]["stop_reference"] == "1h_ema20_or_1d_atr_band"
+
+
 def test_main_v2_rotation_allocations_propagate_explicit_stop_and_invalidation_source(monkeypatch, tmp_path, load_fixture):
     output_path = tmp_path / "runtime_state.json"
     account_path = tmp_path / "account_snapshot.json"
