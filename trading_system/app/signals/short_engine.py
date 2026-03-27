@@ -92,12 +92,18 @@ def _liquidity_quality(payload: Mapping[str, Any], universe_row: Mapping[str, An
     return min(max(volume, rolling_notional) / 10_000_000_000.0, 1.0)
 
 
-def _setup_type(payload: Mapping[str, Any]) -> str:
+def _setup_type(payload: Mapping[str, Any]) -> str | None:
+    daily = _tf_row(payload, "daily")
     h4 = _tf_row(payload, "4h")
     h1 = _tf_row(payload, "1h")
-    if _to_float(h4.get("return_pct_3d")) <= -0.02 and _to_float(h1.get("return_pct_24h")) <= -0.008:
+    daily_weakness = max(-_to_float(daily.get("return_pct_7d")), 0.0)
+    h4_weakness = max(-_to_float(h4.get("return_pct_3d")), 0.0)
+    h1_weakness = max(-_to_float(h1.get("return_pct_24h")), 0.0)
+    if daily_weakness >= 0.03 and h4_weakness >= 0.02 and h1_weakness >= 0.008:
         return "BREAKDOWN_SHORT"
-    return "FAILED_BOUNCE_SHORT"
+    if daily_weakness >= 0.025 and h4_weakness >= 0.012 and h1_weakness >= 0.003:
+        return "FAILED_BOUNCE_SHORT"
+    return None
 
 
 def _short_stop_loss(payload: Mapping[str, Any]) -> float:
@@ -146,6 +152,10 @@ def generate_short_candidates(
         if not _trend_broken(payload):
             continue
 
+        setup_type = _setup_type(payload)
+        if setup_type is None:
+            continue
+
         derivatives_features = symbol_derivatives_features(derivatives, str(symbol))
         if _reject_crowded_short_squeeze_risk(derivatives_features):
             continue
@@ -187,7 +197,7 @@ def generate_short_candidates(
         candidates.append(
             EngineCandidate(
                 engine="short",
-                setup_type=_setup_type(payload),
+                setup_type=setup_type,
                 symbol=symbol,
                 side="SHORT",
                 score=total_score,

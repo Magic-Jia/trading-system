@@ -144,6 +144,25 @@ def build_stop_policy(
 
     if engine_key == "short" and side_key == "SHORT":
         h4 = _tf_row(payload, "4h")
+        h1 = _tf_row(payload, "1h")
+        if setup_key == "BREAKDOWN_SHORT":
+            return _short_policy(
+                payload,
+                anchor=_to_float(h4.get("ema_20")),
+                stop_family="structure_stop",
+                stop_reference="4h_ema20",
+                invalidation_source="short_breakdown_failure_above_4h_ema20",
+                invalidation_reason="breakdown continuation lost 4h breakdown resistance",
+            )
+        if setup_key == "FAILED_BOUNCE_SHORT":
+            return _short_policy(
+                payload,
+                anchor=_to_float(h1.get("ema_50")),
+                stop_family="failure_stop",
+                stop_reference="1h_ema50",
+                invalidation_source="short_failed_bounce_reclaim_above_1h_ema50",
+                invalidation_reason="failed-bounce short reclaimed the 1h rejection structure",
+            )
         return _short_policy(
             payload,
             anchor=_to_float(h4.get("ema_50")),

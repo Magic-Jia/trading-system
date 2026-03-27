@@ -30,6 +30,14 @@
 - short 候选已经进入 allocator 与 runtime state，但当前执行阶段仍会显式跳过，原因是 `short_execution_not_enabled`。
 - `runtime_state.json` 中 `partial_v2_coverage=true` 仍然代表：整体结构已成型，但执行安全与策略成熟度都还没有到“真实资金自动运行”的完成线。
 
+## Short-maturity package status (2026-03-27)
+
+- 当前系统里，“short maturity”已经明确指向：`short engine` 能区分 `BREAKDOWN_SHORT` 与 `FAILED_BOUNCE_SHORT`，会过滤 crowded-short squeeze risk，并把 setup-specific 的止损 / invalidation 语义写进 runtime state 与日报摘要。
+- 这次包内已落地的 short 语义包括：`stop_family`、`stop_reference`、`invalidation_source`、`invalidation_reason`，因此 short 不再只是“给一个 generic defensive short 候选”。
+- 这次包内**明确不做**：live short execution plumbing、交易所下单链路、额外 short execution-safety 机制；当前 short 仍然只进入分配与报告层，执行层继续用 `short_execution_not_enabled` 显式跳过。
+- 最新包验证结果：`PYTHONDONTWRITEBYTECODE=1 UV_CACHE_DIR=/tmp/codex-uv-cache-short-maturity uv run --with pytest python -m pytest -q -p no:cacheprovider trading_system/tests/test_short_engine.py trading_system/tests/test_stop_policy.py trading_system/tests/test_main_v2_cycle.py trading_system/tests/test_reporting.py` -> `74 passed`。
+- 下一包建议优先回到 `Exit system`：先把 time-stop / failure exit / crowding unwind / regime deterioration exit 做厚，再决定 short 是否继续往更完整的独立子系统推进。
+
 ## 当前策略缺口
 
 当前系统已经具备 trend / rotation / short / regime / allocator 的骨架，但策略本身仍有明显限制：
