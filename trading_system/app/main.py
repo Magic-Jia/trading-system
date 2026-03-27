@@ -340,6 +340,47 @@ def _universes_payload(universes: UniverseBuildResult) -> dict[str, Any]:
     }
 
 
+def _jsonl_row_count(path: Path | None) -> int:
+    if path is None or not path.exists():
+        return 0
+
+    with path.open(encoding="utf-8") as handle:
+        return sum(1 for line in handle if line.strip())
+
+
+def _paper_trading_summary(mode: str, ledger_path: Path | None, execution_rows: list[dict[str, Any]]) -> dict[str, Any]:
+    if mode != "paper":
+        return {}
+
+    intents: list[dict[str, Any]] = []
+    emitted_count = 0
+    replayed_count = 0
+    for row in execution_rows:
+        execution = row.get("execution") if isinstance(row.get("execution"), Mapping) else {}
+        intent = {
+            "symbol": row.get("symbol"),
+            "status": row.get("status"),
+            "intent_id": row.get("intent_id"),
+        }
+        if execution.get("replayed"):
+            replayed_count += 1
+            replay_source = execution.get("replay_source")
+            if replay_source is not None:
+                intent["replay_source"] = replay_source
+        elif execution.get("mode") == "paper":
+            emitted_count += 1
+        intents.append(intent)
+
+    return {
+        "mode": "paper",
+        "ledger_path": str(ledger_path) if ledger_path is not None else None,
+        "ledger_event_count": _jsonl_row_count(ledger_path),
+        "emitted_count": emitted_count,
+        "replayed_count": replayed_count,
+        "intents": intents,
+    }
+
+
 def main() -> None:
     config = _with_state_file_override(load_config())
     if config.execution.mode == "live" and not config.execution.allow_live_execution:
@@ -414,20 +455,31 @@ def main() -> None:
                 "reason": "; ".join(signal_validation.reasons) or "signal validation failed",
             }
             continue
-        replayed_execution = replay_processed_execution(state, signal, executor.execution_log_path)
+        replayed_execution = replay_processed_execution(
+            state,
+            signal,
+            executor.execution_log_path,
+            executor.paper_ledger_path if config.execution.mode == "paper" else None,
+        )
         if replayed_execution:
             if config.execution.mode != "dry-run" and not already_processed(state, signal):
                 fingerprint = mark_processed(state, signal)
                 store.record_signal(state, signal.symbol, fingerprint, config.risk.cooldown_minutes)
                 store.save(state)
-            allocation["execution"] = replayed_execution
+            allocation["execution"] = {
+                "status": replayed_execution.get("status"),
+                "intent_id": replayed_execution.get("intent_id"),
+            }
             execution_rows.append(
                 {
                     "symbol": signal.symbol,
                     "status": replayed_execution.get("status"),
                     "intent_id": replayed_execution.get("intent_id"),
                     "qty": 0.0,
-                    "execution": {"replayed": True},
+                    "execution": {
+                        "replayed": True,
+                        "replay_source": replayed_execution.get("replay_source"),
+                    },
                 }
             )
             continue
@@ -473,7 +525,8 @@ def main() -> None:
         )
         execution = executor.execute(order, state)
         if config.execution.mode != "dry-run":
-            apply_executed_intent(state, order)
+            if config.execution.mode != "paper":
+                apply_executed_intent(state, order)
             fingerprint = mark_processed(state, signal)
             store.record_signal(state, signal.symbol, fingerprint, config.risk.cooldown_minutes)
             store.save(state)
@@ -506,6 +559,11 @@ def main() -> None:
     state.latest_universes = _universes_payload(universes)
     state.latest_candidates = candidate_rows
     state.latest_allocations = allocation_rows
+    state.paper_trading = _paper_trading_summary(
+        config.execution.mode,
+        executor.paper_ledger_path if config.execution.mode == "paper" else None,
+        execution_rows,
+    )
     state.latest_lifecycle = lifecycle_updates
     state.lifecycle_summary = lifecycle_summary
     state.rotation_candidates = [row for row in candidate_rows if str(row.get("engine", "")).lower() == "rotation"]
@@ -545,6 +603,7 @@ def main() -> None:
                 "management_action_previews": management_previews,
                 "lifecycle_updates": lifecycle_updates,
                 "lifecycle_summary": lifecycle_summary,
+                "paper_trading": state.paper_trading,
                 "account_open_orders": len(account.open_orders),
             },
             },

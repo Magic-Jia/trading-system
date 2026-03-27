@@ -2485,6 +2485,177 @@ def test_main_v2_paper_execution_persists_stop_taxonomy_into_tracked_state(monke
 
 
 
+def test_main_v2_paper_cycle_emits_paper_trading_summary_and_records_ledger(
+    monkeypatch, tmp_path, load_fixture, capsys
+):
+    output_path = tmp_path / "runtime_state.json"
+    account_path = tmp_path / "account_snapshot.json"
+    market_path = tmp_path / "market_context.json"
+    deriv_path = tmp_path / "derivatives_snapshot.json"
+    ledger_path = tmp_path / "paper_ledger.jsonl"
+    account_path.write_text(
+        json.dumps(
+            {
+                "equity": 125000.0,
+                "available_balance": 96000.0,
+                "futures_wallet_balance": 118500.0,
+                "open_positions": [],
+                "open_orders": [],
+            }
+        )
+    )
+    market_path.write_text(json.dumps(load_fixture("market_context_v2.json")))
+    deriv_path.write_text(json.dumps(load_fixture("derivatives_snapshot_v2.json")))
+    monkeypatch.setenv("TRADING_STATE_FILE", str(output_path))
+    monkeypatch.setenv("TRADING_ACCOUNT_SNAPSHOT_FILE", str(account_path))
+    monkeypatch.setenv("TRADING_MARKET_CONTEXT_FILE", str(market_path))
+    monkeypatch.setenv("TRADING_DERIVATIVES_SNAPSHOT_FILE", str(deriv_path))
+    monkeypatch.setenv("TRADING_EXECUTION_MODE", "paper")
+    monkeypatch.setattr(main_module.OrderExecutor, "append_log", lambda self, order, result: None)
+    monkeypatch.setattr(
+        main_module,
+        "validate_candidate_for_allocation",
+        lambda candidate, account: ValidationResult(True, "INFO", reasons=[], metrics={}),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "validate_signal",
+        lambda signal, account, config: (ValidationResult(True, "INFO", reasons=[], metrics={}), {"sizing": None}),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "generate_trend_candidates",
+        lambda *args, **kwargs: [
+            {
+                "engine": "trend",
+                "setup_type": "BREAKOUT_CONTINUATION",
+                "symbol": "BTCUSDT",
+                "side": "LONG",
+                "score": 0.91,
+                "stop_loss": 62830.0,
+                "invalidation_source": "trend_structure_loss_below_4h_ema50",
+            }
+        ],
+    )
+    monkeypatch.setattr(main_module, "generate_rotation_candidates", lambda *args, **kwargs: [])
+    monkeypatch.setattr(main_module, "generate_short_candidates", lambda *args, **kwargs: [])
+    monkeypatch.setattr(
+        main_module,
+        "allocate_candidates",
+        lambda **kwargs: [AllocationDecision(status="ACCEPTED", engine="trend", final_risk_budget=0.01, rank=1)],
+    )
+
+    main_module.main()
+
+    payload = json.loads(capsys.readouterr().out)
+    state = json.loads(Path(output_path).read_text())
+    ledger_lines = [json.loads(line) for line in ledger_path.read_text().splitlines() if line.strip()]
+    assert len(ledger_lines) == 1
+    ledger_event = ledger_lines[0]
+    paper_trading = payload["portfolio"]["paper_trading"]
+    position = state["positions"]["BTCUSDT"]
+    expected_qty = 125000.0 * 0.01 / abs(float(position["entry_price"]) - float(position["stop_loss"]))
+
+    assert paper_trading["mode"] == "paper"
+    assert paper_trading["ledger_path"] == str(ledger_path)
+    assert paper_trading["ledger_event_count"] == 1
+    assert paper_trading["emitted_count"] == 1
+    assert paper_trading["replayed_count"] == 0
+    assert paper_trading["intents"][0]["intent_id"] == ledger_event["intent_id"]
+    assert paper_trading["intents"][0]["status"] == "FILLED"
+    assert state["latest_allocations"][0]["execution"] == {"status": "FILLED", "intent_id": ledger_event["intent_id"]}
+    assert ledger_event["replay_result"] == {"status": "FILLED", "intent_id": ledger_event["intent_id"]}
+    assert ledger_event["position_update"]["intent_id"] == ledger_event["intent_id"]
+    assert position["qty"] == pytest.approx(expected_qty)
+
+
+def test_main_v2_paper_cycle_replays_from_ledger_when_state_is_missing(
+    monkeypatch, tmp_path, load_fixture, capsys
+):
+    output_path = tmp_path / "runtime_state.json"
+    account_path = tmp_path / "account_snapshot.json"
+    market_path = tmp_path / "market_context.json"
+    deriv_path = tmp_path / "derivatives_snapshot.json"
+    ledger_path = tmp_path / "paper_ledger.jsonl"
+    account_path.write_text(
+        json.dumps(
+            {
+                "equity": 125000.0,
+                "available_balance": 96000.0,
+                "futures_wallet_balance": 118500.0,
+                "open_positions": [],
+                "open_orders": [],
+            }
+        )
+    )
+    market_path.write_text(json.dumps(load_fixture("market_context_v2.json")))
+    deriv_path.write_text(json.dumps(load_fixture("derivatives_snapshot_v2.json")))
+    monkeypatch.setenv("TRADING_STATE_FILE", str(output_path))
+    monkeypatch.setenv("TRADING_ACCOUNT_SNAPSHOT_FILE", str(account_path))
+    monkeypatch.setenv("TRADING_MARKET_CONTEXT_FILE", str(market_path))
+    monkeypatch.setenv("TRADING_DERIVATIVES_SNAPSHOT_FILE", str(deriv_path))
+    monkeypatch.setenv("TRADING_EXECUTION_MODE", "paper")
+    monkeypatch.setattr(main_module.OrderExecutor, "append_log", lambda self, order, result: None)
+    monkeypatch.setattr(
+        main_module,
+        "validate_candidate_for_allocation",
+        lambda candidate, account: ValidationResult(True, "INFO", reasons=[], metrics={}),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "validate_signal",
+        lambda signal, account, config: (ValidationResult(True, "INFO", reasons=[], metrics={}), {"sizing": None}),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "generate_trend_candidates",
+        lambda *args, **kwargs: [
+            {
+                "engine": "trend",
+                "setup_type": "BREAKOUT_CONTINUATION",
+                "symbol": "BTCUSDT",
+                "side": "LONG",
+                "score": 0.91,
+                "stop_loss": 62830.0,
+                "invalidation_source": "trend_structure_loss_below_4h_ema50",
+            }
+        ],
+    )
+    monkeypatch.setattr(main_module, "generate_rotation_candidates", lambda *args, **kwargs: [])
+    monkeypatch.setattr(main_module, "generate_short_candidates", lambda *args, **kwargs: [])
+    monkeypatch.setattr(
+        main_module,
+        "allocate_candidates",
+        lambda **kwargs: [AllocationDecision(status="ACCEPTED", engine="trend", final_risk_budget=0.01, rank=1)],
+    )
+
+    main_module.main()
+    capsys.readouterr()
+    ledger_event = json.loads(ledger_path.read_text().splitlines()[-1])
+    output_path.unlink()
+
+    def fail_execute(self, order, state):
+        raise AssertionError("expected paper ledger replay before execute")
+
+    monkeypatch.setattr(main_module.OrderExecutor, "execute", fail_execute)
+
+    main_module.main()
+
+    payload = json.loads(capsys.readouterr().out)
+    state = json.loads(Path(output_path).read_text())
+    paper_trading = payload["portfolio"]["paper_trading"]
+
+    assert paper_trading["mode"] == "paper"
+    assert paper_trading["ledger_path"] == str(ledger_path)
+    assert paper_trading["ledger_event_count"] == 1
+    assert paper_trading["emitted_count"] == 0
+    assert paper_trading["replayed_count"] == 1
+    assert paper_trading["intents"][0]["intent_id"] == ledger_event["intent_id"]
+    assert paper_trading["intents"][0]["replay_source"] == "paper_ledger"
+    assert state["positions"]["BTCUSDT"]["intent_id"] == ledger_event["intent_id"]
+    assert state["latest_allocations"][0]["execution"] == {"status": "FILLED", "intent_id": ledger_event["intent_id"]}
+
+
 def test_main_v2_tracked_position_restores_missing_stop_from_taxonomy(monkeypatch, tmp_path, load_fixture):
     output_path = tmp_path / "runtime_state.json"
     account_path = tmp_path / "account_snapshot.json"

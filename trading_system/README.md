@@ -70,6 +70,7 @@ execution-safety 的优先级仍然是 live boundary、hard risk gate、restart-
 - `docs/superpowers/plans/2026-03-23-trading-system-p0-p1-p2-roadmap.md`：最新双主线 roadmap（execution-safety vs strategy-development）
 - `trading_system/docs/STRATEGY_GAPS_AND_UPGRADES.md`：当前策略缺口、为什么仍然太 price-structure-heavy、以及明确的升级顺序
 - `trading_system/docs/MVP_ARCHITECTURE.md`：程序骨架与当前模块职责
+- `trading_system/docs/PAPER_TRADING_RUNBOOK.md`：paper cycle、ledger、restart-safe replay 的操作说明
 
 ## 目录
 
@@ -112,7 +113,7 @@ execution-safety 的优先级仍然是 live boundary、hard risk gate、restart-
 
 - 当前版本不自动在真实账户下单。
 - 当前版本可用于：读账户、做计划、做模拟执行、记录复盘。
-- 如后续接入模拟盘执行器，可在 `paper_trades.jsonl` 中持续跟踪。
+- paper mode 会在 `TRADING_STATE_FILE` 同目录维护 `paper_ledger.jsonl`，用于记录模拟成交并在 runtime state 丢失后恢复已执行 intent。
 
 ## 测试与运行
 
@@ -126,4 +127,5 @@ execution-safety 的优先级仍然是 live boundary、hard risk gate、restart-
 - 标准输出包含 `regime` 与 `portfolio` 两段摘要，其中 `regime.rotation` 会给出 rotation 的紧凑报告。
 - 当存在 short 候选时，`regime.short` 会给出 short 的紧凑报告，但当前 short execution 仍默认跳过。
 - `portfolio.lifecycle_summary` 会给出 lifecycle 的紧凑视图。
-- `trading_system/data/runtime_state.json` 会持续保留最新的 regime / candidates / allocations / lifecycle / rotation / short 摘要。
+- `portfolio.paper_trading` 会给出当前 paper cycle 的 ledger 路径、ledger event 总数、当次 emitted/replayed 统计与 intent 摘要。
+- `trading_system/data/runtime_state.json` 会持续保留最新的 regime / candidates / allocations / paper_trading / lifecycle / rotation / short 摘要。
