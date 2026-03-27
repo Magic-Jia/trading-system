@@ -98,6 +98,7 @@ def test_build_short_report_returns_compact_deterministic_short_surface():
                 "daily_bias": "down",
                 "h4_structure": "breakdown",
                 "h1_trigger": "confirmed",
+                "derivatives": {"crowding_bias": "balanced", "basis_bps": -8.0},
             },
             "liquidity_meta": {"volume_usdt_24h": 12500000000.0, "liquidity_tier": "top"},
         }
@@ -132,6 +133,7 @@ def test_build_short_report_returns_compact_deterministic_short_surface():
                 "daily_bias": "down",
                 "h4_structure": "breakdown",
                 "h1_trigger": "confirmed",
+                "derivatives": {"crowding_bias": "balanced", "basis_bps": -8.0},
                 "volume_usdt_24h": 12500000000.0,
                 "liquidity_tier": "top",
             }
@@ -162,6 +164,42 @@ def test_build_regime_summary_includes_short_report_when_provided():
     assert "short" in summary
     assert summary["short"]["candidate_count"] == 1
     assert summary["short"]["deferred_execution_symbols"] == ["BTCUSDT"]
+
+
+def test_build_regime_summary_surfaces_allocation_aggressiveness_stats():
+    summary = build_regime_summary(
+        regime={"label": "RISK_ON_TREND", "confidence": 0.88, "risk_multiplier": 0.95, "execution_policy": "normal"},
+        universes={"major_universe": [], "rotation_universe": [{"symbol": "SOLUSDT"}], "short_universe": []},
+        candidates=[{"engine": "rotation", "symbol": "SOLUSDT"}, {"engine": "rotation", "symbol": "LINKUSDT"}],
+        allocations=[
+            {
+                "engine": "rotation",
+                "symbol": "SOLUSDT",
+                "status": "ACCEPTED",
+                "final_risk_budget": 0.006,
+                "aggressiveness_multiplier": 1.08,
+                "regime_hazard_multiplier": 1.0,
+                "late_stage_heat_multiplier": 1.0,
+            },
+            {
+                "engine": "rotation",
+                "symbol": "LINKUSDT",
+                "status": "DOWNSIZED",
+                "final_risk_budget": 0.004,
+                "aggressiveness_multiplier": 0.82,
+                "regime_hazard_multiplier": 0.84,
+                "late_stage_heat_multiplier": 0.8,
+                "compression_reasons": ["regime_hazard", "late_stage_heat"],
+            },
+        ],
+        executions=[],
+    )
+
+    assert summary["allocations"]["avg_aggressiveness"] == 0.95
+    assert summary["allocations"]["compressed_count"] == 1
+    assert summary["allocations"]["compression_reason_counts"] == {"regime_hazard": 1, "late_stage_heat": 1}
+    assert summary["allocations"]["regime_hazard_compressed_count"] == 1
+    assert summary["allocations"]["late_stage_heat_compressed_count"] == 1
 
 
 def test_build_lifecycle_report_returns_compact_deterministic_state_surface():
@@ -202,6 +240,8 @@ def test_build_lifecycle_report_returns_compact_deterministic_state_surface():
         "protected_symbols": ["ETHUSDT"],
         "exit_symbols": ["SOLUSDT"],
         "attention_symbols": ["BTCUSDT", "SOLUSDT"],
+        "management_action_counts": {"ADD_PROTECTIVE_STOP": 1, "EXIT": 1},
+        "review_actions": [],
         "leaders": [
             {
                 "symbol": "SOLUSDT",
@@ -223,3 +263,79 @@ def test_build_lifecycle_report_returns_compact_deterministic_state_surface():
             },
         ],
     }
+
+
+def test_build_lifecycle_report_surfaces_review_ready_taxonomy_semantics():
+    summary = build_lifecycle_report(
+        lifecycle_updates={
+            "BTCUSDT": {
+                "state": "PROTECT",
+                "reason_codes": ["payload_to_protect_trend_mature"],
+                "r_multiple": 2.0,
+                "stop_family": "structure_stop",
+                "stop_reference": "4h_ema20",
+                "invalidation_source": "trend_breakout_failure_below_4h_ema20",
+                "invalidation_reason": "breakout continuation lost 4h breakout support",
+            }
+        },
+        management_suggestions=[
+            {
+                "symbol": "BTCUSDT",
+                "action": "BREAK_EVEN",
+                "priority": "MEDIUM",
+                "suggested_stop_loss": 100.0,
+                "reason": "breakout continuation lost 4h breakout support（trend_breakout_failure_below_4h_ema20）仍是当前失效条件，价格已至少走出 1R，允许把止损上提到保本位。",
+                "meta": {
+                    "stop_family": "structure_stop",
+                    "stop_reference": "4h_ema20",
+                    "invalidation_source": "trend_breakout_failure_below_4h_ema20",
+                    "invalidation_reason": "breakout continuation lost 4h breakout support",
+                    "stop_policy_source": "shared_taxonomy",
+                },
+            },
+            {
+                "symbol": "BTCUSDT",
+                "action": "PARTIAL_TAKE_PROFIT",
+                "priority": "MEDIUM",
+                "qty_fraction": 0.5,
+                "reason": "breakout continuation lost 4h breakout support（trend_breakout_failure_below_4h_ema20）仍是当前失效条件，已触及第一目标位，建议先兑现 50% 仓位并保留剩余仓位观察延伸。",
+                "meta": {
+                    "target_price": 110.0,
+                    "stop_family": "structure_stop",
+                    "stop_reference": "4h_ema20",
+                    "invalidation_source": "trend_breakout_failure_below_4h_ema20",
+                    "invalidation_reason": "breakout continuation lost 4h breakout support",
+                    "stop_policy_source": "shared_taxonomy",
+                },
+            },
+        ],
+    )
+
+    assert summary["management_action_counts"] == {"BREAK_EVEN": 1, "PARTIAL_TAKE_PROFIT": 1}
+    assert summary["review_actions"] == [
+        {
+            "symbol": "BTCUSDT",
+            "action": "BREAK_EVEN",
+            "priority": "MEDIUM",
+            "stop_family": "structure_stop",
+            "stop_reference": "4h_ema20",
+            "invalidation_source": "trend_breakout_failure_below_4h_ema20",
+            "invalidation_reason": "breakout continuation lost 4h breakout support",
+            "stop_policy_source": "shared_taxonomy",
+            "suggested_stop_loss": 100.0,
+        },
+        {
+            "symbol": "BTCUSDT",
+            "action": "PARTIAL_TAKE_PROFIT",
+            "priority": "MEDIUM",
+            "stop_family": "structure_stop",
+            "stop_reference": "4h_ema20",
+            "invalidation_source": "trend_breakout_failure_below_4h_ema20",
+            "invalidation_reason": "breakout continuation lost 4h breakout support",
+            "stop_policy_source": "shared_taxonomy",
+            "qty_fraction": 0.5,
+            "target_price": 110.0,
+        },
+    ]
+    assert summary["leaders"][0]["stop_family"] == "structure_stop"
+    assert summary["leaders"][0]["invalidation_source"] == "trend_breakout_failure_below_4h_ema20"

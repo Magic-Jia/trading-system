@@ -99,14 +99,13 @@ def test_load_market_context_reads_single_runtime_contract(tmp_path: Path, load_
     assert all("symbol" in row for row in rows)
 
 
-def test_load_derivatives_snapshot_reads_majors_only_snapshot(tmp_path: Path, load_fixture):
+def test_load_derivatives_snapshot_preserves_symbol_rows_for_runtime_engines(tmp_path: Path, load_fixture):
     derivatives_path = tmp_path / "derivatives_snapshot.json"
     derivatives_path.write_text(json.dumps(load_fixture("derivatives_snapshot_v2.json")), encoding="utf-8")
 
     rows = load_derivatives_snapshot(derivatives_path)
 
-    assert rows
-    assert all("symbol" in row for row in rows)
+    assert [row["symbol"] for row in rows] == ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT"]
 
 
 def test_market_and_derivatives_loaders_support_env_override(
@@ -124,7 +123,7 @@ def test_market_and_derivatives_loaders_support_env_override(
     derivatives_rows = load_derivatives_snapshot()
 
     assert {row["symbol"] for row in market_rows}.issuperset({"BTCUSDT", "ETHUSDT"})
-    assert {row["symbol"] for row in derivatives_rows}.issuperset({"BTCUSDT", "ETHUSDT"})
+    assert {row["symbol"] for row in derivatives_rows}.issuperset({"BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT"})
 
 
 def test_market_and_derivatives_loaders_use_default_runtime_files(monkeypatch: pytest.MonkeyPatch):
@@ -206,6 +205,38 @@ def test_summarize_derivatives_risk_price_oi_interaction_uses_price_change():
     assert summary["price_oi_interaction"] == "short_build"
 
 
+def test_summarize_derivatives_risk_flags_crash_cascade_stress():
+    derivatives = _majors_derivatives_snapshot(
+        funding_rate=-0.00005,
+        open_interest_change_24h_pct=-0.12,
+        taker_buy_sell_ratio=0.84,
+        basis_bps=-18.0,
+        mark_price_change_24h_pct=-0.08,
+    )
+
+    summary = summarize_derivatives_risk(derivatives)
+
+    assert summary["crowding_bias"] == "crowded_short"
+    assert summary["late_stage_heat"] == "cascade"
+    assert summary["execution_hazard"] == "compress_risk"
+
+
+def test_summarize_derivatives_risk_flags_short_squeeze_stress():
+    derivatives = _majors_derivatives_snapshot(
+        funding_rate=-0.00012,
+        open_interest_change_24h_pct=-0.08,
+        taker_buy_sell_ratio=1.14,
+        basis_bps=-18.0,
+        mark_price_change_24h_pct=0.06,
+    )
+
+    summary = summarize_derivatives_risk(derivatives)
+
+    assert summary["crowding_bias"] == "balanced"
+    assert summary["late_stage_heat"] == "squeeze"
+    assert summary["execution_hazard"] == "compress_risk"
+
+
 def test_classify_regime_returns_bucket_targets(load_fixture):
     market = load_fixture("market_context_v2.json")
     derivatives = load_fixture("derivatives_snapshot_v2.json")
@@ -238,6 +269,24 @@ def test_low_confidence_regime_reduces_aggression(load_fixture):
     assert low_conf.risk_multiplier < base.risk_multiplier
     assert sum(low_conf.bucket_targets.values()) < sum(base.bucket_targets.values())
     assert low_conf.execution_policy == "suppress"
+
+
+def test_classify_regime_crash_stress_compresses_risk_and_execution():
+    market = _high_vol_mixed_market_context()
+    stressed = _majors_derivatives_snapshot(
+        funding_rate=-0.00005,
+        open_interest_change_24h_pct=-0.12,
+        taker_buy_sell_ratio=0.84,
+        basis_bps=-18.0,
+        mark_price_change_24h_pct=-0.08,
+    )
+
+    regime = classify_regime(market, stressed)
+
+    assert regime.label == "CRASH_DEFENSIVE"
+    assert regime.risk_multiplier < 0.55
+    assert regime.execution_policy == "suppress"
+    assert set(regime.suppression_rules) >= {"trend", "rotation"}
 
 
 def test_classify_regime_crowded_long_dampens_confidence_and_aggression():

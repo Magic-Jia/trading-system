@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict
 from typing import Any
 
+from .exit_policy import ExitDecision, evaluate_exit_policy
 from .lifecycle_v2 import advance_lifecycle_transition
 from ..types import ManagementActionIntent, ManagementSuggestion, RuntimeState
 
@@ -47,7 +48,47 @@ def _suggest_protective_stop(side: str, entry_price: float, mark_price: float | 
     return round(max(fallback, mark_price * 1.005), 8)
 
 
-def evaluate_position(position: dict[str, Any]) -> list[dict[str, Any]]:
+def _position_taxonomy_meta(position: dict[str, Any]) -> dict[str, Any]:
+    payload: dict[str, Any] = {}
+    for key in (
+        "taxonomy_stop_loss",
+        "invalidation_source",
+        "invalidation_reason",
+        "stop_family",
+        "stop_reference",
+        "stop_policy_source",
+    ):
+        value = position.get(key)
+        if value is not None:
+            payload[key] = value
+    return payload
+
+
+def _exit_decision_to_suggestion(position: dict[str, Any], decision: ExitDecision) -> ManagementSuggestion:
+    return ManagementSuggestion(
+        symbol=str(position.get("symbol", "")),
+        action=decision.action,
+        side=str(position.get("side", "LONG")),
+        priority=decision.priority,
+        qty_fraction=decision.qty_fraction,
+        reason=decision.reason,
+        reference_price=decision.reference_price,
+        meta={**_position_taxonomy_meta(position), **dict(decision.meta or {})},
+    )
+
+
+def _taxonomy_stop(side: str, entry_price: float, position: dict[str, Any]) -> float | None:
+    stop = position.get("taxonomy_stop_loss")
+    try:
+        candidate = float(stop)
+    except (TypeError, ValueError):
+        return None
+    if not _valid_stop(side, entry_price, candidate):
+        return None
+    return round(candidate, 8)
+
+
+def evaluate_position(position: dict[str, Any], *, regime: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     if not _is_open(position):
         return []
 
@@ -62,24 +103,41 @@ def evaluate_position(position: dict[str, Any]) -> list[dict[str, Any]]:
         return []
 
     suggestions: list[ManagementSuggestion] = []
+    taxonomy_meta = _position_taxonomy_meta(position)
+    invalidation_source = str(position.get("invalidation_source") or "").strip()
+    invalidation_reason = str(position.get("invalidation_reason") or "").strip()
     if not _valid_stop(side, entry_price, stop_loss):
         reference_price = float(mark_price) if mark_price is not None else entry_price
-        suggested_stop_loss = _suggest_protective_stop(side, entry_price, mark_price)
+        taxonomy_stop_loss = _taxonomy_stop(side, entry_price, position)
+        if taxonomy_stop_loss is not None:
+            suggested_stop_loss = taxonomy_stop_loss
+            reason = "当前持仓缺少有效止损，建议先按共享 stop taxonomy 恢复保护止损。"
+            meta = {
+                "position_source": position.get("source"),
+                "heuristic": "shared_stop_taxonomy",
+                "entry_price": round(entry_price, 8),
+                "mark_price": round(reference_price, 8),
+                **taxonomy_meta,
+            }
+        else:
+            suggested_stop_loss = _suggest_protective_stop(side, entry_price, mark_price)
+            reason = "当前持仓缺少有效止损，建议先补保护性止损后再谈加仓或死扛。"
+            meta = {
+                "position_source": position.get("source"),
+                "heuristic": "entry_2pct_or_mark_0.5pct_buffer",
+                "entry_price": round(entry_price, 8),
+                "mark_price": round(reference_price, 8),
+            }
         suggestions.append(
             ManagementSuggestion(
                 symbol=symbol,
                 action="ADD_PROTECTIVE_STOP",
                 side=side,
                 priority="MEDIUM",
-                reason="当前持仓缺少有效止损，建议先补保护性止损后再谈加仓或死扛。",
+                reason=reason,
                 suggested_stop_loss=suggested_stop_loss,
                 reference_price=reference_price,
-                meta={
-                    "position_source": position.get("source"),
-                    "heuristic": "entry_2pct_or_mark_0.5pct_buffer",
-                    "entry_price": round(entry_price, 8),
-                    "mark_price": round(reference_price, 8),
-                },
+                meta=meta,
             )
         )
         return [asdict(item) for item in suggestions]
@@ -95,34 +153,33 @@ def evaluate_position(position: dict[str, Any]) -> list[dict[str, Any]]:
 
     break_even_trigger = entry_price + risk_unit if side == "LONG" else entry_price - risk_unit
     if _in_favor(side, mark_price, break_even_trigger) and stop_loss != entry_price:
+        reason = "价格已至少走出 1R，允许把止损上提到保本位。"
+        if invalidation_reason and invalidation_source:
+            reason = f"{invalidation_reason}（{invalidation_source}）仍是当前失效条件，价格已至少走出 1R，允许把止损上提到保本位。"
+        elif invalidation_reason:
+            reason = f"{invalidation_reason} 仍是当前失效条件，价格已至少走出 1R，允许把止损上提到保本位。"
         suggestions.append(
             ManagementSuggestion(
                 symbol=symbol,
                 action="BREAK_EVEN",
                 side=side,
                 priority="MEDIUM",
-                reason="价格已至少走出 1R，允许把止损上提到保本位。",
+                reason=reason,
                 suggested_stop_loss=round(entry_price, 8),
                 reference_price=round(mark_price, 8),
-                meta={"trigger_price": round(break_even_trigger, 8), "risk_unit": round(risk_unit, 8)},
+                meta={"trigger_price": round(break_even_trigger, 8), "risk_unit": round(risk_unit, 8), **taxonomy_meta},
             )
         )
 
-    if take_profit is not None and _in_favor(side, mark_price, float(take_profit)):
-        suggestions.append(
-            ManagementSuggestion(
-                symbol=symbol,
-                action="PARTIAL_TAKE_PROFIT",
-                side=side,
-                priority="MEDIUM",
-                qty_fraction=0.5,
-                reason="已触及第一目标位，建议先兑现 50% 仓位并保留剩余仓位观察延伸。",
-                reference_price=round(mark_price, 8),
-                meta={"target_price": round(float(take_profit), 8)},
-            )
-        )
+    for decision in evaluate_exit_policy(position, regime=regime):
+        suggestions.append(_exit_decision_to_suggestion(position, decision))
 
-    if _stop_breached(side, mark_price, stop_loss):
+    if _stop_breached(side, mark_price, stop_loss) and not any(item.action == "EXIT" for item in suggestions):
+        reason = "当前价格已跌破（或升破）止损位，建议按计划退出。"
+        if invalidation_reason and invalidation_source:
+            reason = f"{invalidation_reason}（{invalidation_source}），当前价格已触发止损，建议按计划退出。"
+        elif invalidation_reason:
+            reason = f"{invalidation_reason}，当前价格已触发止损，建议按计划退出。"
         suggestions.append(
             ManagementSuggestion(
                 symbol=symbol,
@@ -130,19 +187,20 @@ def evaluate_position(position: dict[str, Any]) -> list[dict[str, Any]]:
                 side=side,
                 priority="HIGH",
                 qty_fraction=1.0,
-                reason="当前价格已跌破（或升破）止损位，建议按计划退出。",
+                reason=reason,
                 reference_price=round(mark_price, 8),
-                meta={"stop_loss": round(stop_loss, 8)},
+                meta={"stop_loss": round(stop_loss, 8), **taxonomy_meta},
             )
         )
 
     return [asdict(item) for item in suggestions]
 
 
-def evaluate_portfolio(state: RuntimeState) -> list[dict[str, Any]]:
+def evaluate_portfolio(state: RuntimeState, *, regime: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     suggestions: list[dict[str, Any]] = []
+    effective_regime = regime if regime is not None else dict(getattr(state, "latest_regime", {}) or {})
     for position in state.positions.values():
-        suggestions.extend(evaluate_position(position))
+        suggestions.extend(evaluate_position(position, regime=effective_regime))
     return suggestions
 
 
@@ -208,6 +266,7 @@ def advance_lifecycle_positions(state: RuntimeState, lifecycle_config: Any) -> d
             "state": next_state.value,
             "reason_codes": reason_codes,
             "r_multiple": round(r_multiple, 6),
+            **_position_taxonomy_meta(position),
         }
 
     return updates
@@ -241,7 +300,7 @@ def build_management_action_intents(
 
         if action in {"BREAK_EVEN", "ADD_PROTECTIVE_STOP"}:
             stop_loss = row.get("suggested_stop_loss")
-        elif action == "PARTIAL_TAKE_PROFIT":
+        elif action in {"PARTIAL_TAKE_PROFIT", "DE_RISK"}:
             qty = round(position_qty * qty_fraction, 8)
         elif action == "EXIT":
             qty = position_qty

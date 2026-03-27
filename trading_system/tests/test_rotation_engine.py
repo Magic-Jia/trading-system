@@ -51,6 +51,182 @@ def test_generate_rotation_candidates_emit_explicit_stop_loss_and_invalidation_s
         assert candidate.invalidation_source == "rotation_pullback_failure_below_1h_ema50"
 
 
+def test_generate_rotation_candidates_rejects_overheated_crowded_leader(load_fixture):
+    market = load_fixture("market_context_v2.json")
+    rotation_universe = [
+        {"symbol": "SOLUSDT", "sector": "alt_l1", "liquidity_tier": "high"},
+        {"symbol": "LINKUSDT", "sector": "oracle", "liquidity_tier": "high"},
+        {"symbol": "ADAUSDT", "sector": "alt_l1", "liquidity_tier": "high"},
+    ]
+    derivatives = {
+        "rows": [
+            {
+                "symbol": "SOLUSDT",
+                "funding_rate": 0.00024,
+                "open_interest_usdt": 2900000000,
+                "open_interest_change_24h_pct": 0.059,
+                "mark_price_change_24h_pct": 0.026,
+                "taker_buy_sell_ratio": 1.11,
+                "basis_bps": 31,
+            },
+            {
+                "symbol": "LINKUSDT",
+                "funding_rate": 0.00004,
+                "open_interest_usdt": 1750000000,
+                "open_interest_change_24h_pct": 0.01,
+                "mark_price_change_24h_pct": 0.012,
+                "taker_buy_sell_ratio": 1.01,
+                "basis_bps": 12,
+            },
+            {
+                "symbol": "ADAUSDT",
+                "funding_rate": 0.00021,
+                "open_interest_usdt": 1250000000,
+                "open_interest_change_24h_pct": 0.041,
+                "mark_price_change_24h_pct": 0.018,
+                "taker_buy_sell_ratio": 1.04,
+                "basis_bps": 24,
+            },
+        ]
+    }
+
+    candidates = generate_rotation_candidates(
+        market,
+        rotation_universe=rotation_universe,
+        derivatives=derivatives,
+    )
+
+    assert {candidate.symbol for candidate in candidates} == {"LINKUSDT"}
+
+
+def test_generate_rotation_candidates_reject_funding_basis_blowoff_even_when_strength_extension_and_relative_strength_pass(load_fixture):
+    market = load_fixture("market_context_v2.json")
+    rotation_universe = [
+        {"symbol": "SOLUSDT", "sector": "alt_l1", "liquidity_tier": "high"},
+        {"symbol": "LINKUSDT", "sector": "oracle", "liquidity_tier": "high"},
+    ]
+    derivatives = {
+        "rows": [
+            {
+                "symbol": "SOLUSDT",
+                "funding_rate": 0.00022,
+                "open_interest_usdt": 2900000000,
+                "open_interest_change_24h_pct": 0.01,
+                "mark_price_change_24h_pct": 0.012,
+                "taker_buy_sell_ratio": 1.0,
+                "basis_bps": 26,
+            },
+            {
+                "symbol": "LINKUSDT",
+                "funding_rate": 0.00003,
+                "open_interest_usdt": 1750000000,
+                "open_interest_change_24h_pct": 0.009,
+                "mark_price_change_24h_pct": 0.008,
+                "taker_buy_sell_ratio": 1.0,
+                "basis_bps": 10,
+            },
+        ]
+    }
+
+    candidates = generate_rotation_candidates(
+        market,
+        rotation_universe=rotation_universe,
+        derivatives=derivatives,
+    )
+
+    assert {candidate.symbol for candidate in candidates} == {"LINKUSDT"}
+
+
+def test_generate_rotation_candidates_require_absolute_strength_alongside_relative_strength(load_fixture):
+    market = load_fixture("market_context_v2.json")
+    rotation_universe = [
+        {"symbol": "LINKUSDT", "sector": "oracle", "liquidity_tier": "high"},
+        {"symbol": "ADAUSDT", "sector": "alt_l1", "liquidity_tier": "high"},
+    ]
+    derivatives = {
+        "rows": [
+            {
+                "symbol": "LINKUSDT",
+                "funding_rate": 0.00004,
+                "open_interest_usdt": 1750000000,
+                "open_interest_change_24h_pct": 0.01,
+                "mark_price_change_24h_pct": 0.012,
+                "taker_buy_sell_ratio": 1.01,
+                "basis_bps": 12,
+            },
+            {
+                "symbol": "ADAUSDT",
+                "funding_rate": 0.00003,
+                "open_interest_usdt": 1250000000,
+                "open_interest_change_24h_pct": 0.009,
+                "mark_price_change_24h_pct": 0.006,
+                "taker_buy_sell_ratio": 1.0,
+                "basis_bps": 10,
+            },
+        ]
+    }
+
+    market["symbols"]["BTCUSDT"]["daily"]["return_pct_7d"] = 0.008
+    market["symbols"]["BTCUSDT"]["4h"]["return_pct_3d"] = 0.004
+    market["symbols"]["BTCUSDT"]["1h"]["return_pct_24h"] = 0.001
+    market["symbols"]["ETHUSDT"]["daily"]["return_pct_7d"] = 0.007
+    market["symbols"]["ETHUSDT"]["4h"]["return_pct_3d"] = 0.003
+    market["symbols"]["ETHUSDT"]["1h"]["return_pct_24h"] = 0.001
+
+    market["symbols"]["ADAUSDT"]["daily"]["return_pct_7d"] = 0.012
+    market["symbols"]["ADAUSDT"]["4h"]["return_pct_3d"] = 0.004
+    market["symbols"]["ADAUSDT"]["1h"]["return_pct_24h"] = 0.0015
+
+    candidates = generate_rotation_candidates(
+        market,
+        rotation_universe=rotation_universe,
+        derivatives=derivatives,
+    )
+
+    assert {candidate.symbol for candidate in candidates} == {"LINKUSDT"}
+
+
+def test_generate_rotation_candidates_reject_overextended_longs_even_when_absolute_strength_is_high(load_fixture):
+    market = load_fixture("market_context_v2.json")
+    rotation_universe = [
+        {"symbol": "SOLUSDT", "sector": "alt_l1", "liquidity_tier": "high"},
+        {"symbol": "LINKUSDT", "sector": "oracle", "liquidity_tier": "high"},
+    ]
+    derivatives = {
+        "rows": [
+            {
+                "symbol": "SOLUSDT",
+                "funding_rate": 0.00004,
+                "open_interest_usdt": 2900000000,
+                "open_interest_change_24h_pct": 0.01,
+                "mark_price_change_24h_pct": 0.018,
+                "taker_buy_sell_ratio": 1.01,
+                "basis_bps": 12,
+            },
+            {
+                "symbol": "LINKUSDT",
+                "funding_rate": 0.00003,
+                "open_interest_usdt": 1750000000,
+                "open_interest_change_24h_pct": 0.009,
+                "mark_price_change_24h_pct": 0.008,
+                "taker_buy_sell_ratio": 1.0,
+                "basis_bps": 10,
+            },
+        ]
+    }
+
+    market["symbols"]["SOLUSDT"]["4h"]["close"] = 155.0
+    market["symbols"]["SOLUSDT"]["1h"]["close"] = 153.0
+
+    candidates = generate_rotation_candidates(
+        market,
+        rotation_universe=rotation_universe,
+        derivatives=derivatives,
+    )
+
+    assert {candidate.symbol for candidate in candidates} == {"LINKUSDT"}
+
+
 def test_generate_rotation_candidates_respects_regime_suppression(load_fixture):
     market = load_fixture("market_context_v2.json")
     candidates = generate_rotation_candidates(

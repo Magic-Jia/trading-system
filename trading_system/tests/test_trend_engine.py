@@ -37,3 +37,215 @@ def test_generate_trend_candidates_emit_explicit_stop_loss_and_invalidation_sour
         assert candidate.stop_loss > 0
         assert candidate.stop_loss < market["symbols"][candidate.symbol]["daily"]["close"]
         assert candidate.invalidation_source == "trend_structure_loss_below_4h_ema50"
+
+
+def test_generate_trend_candidates_filters_crowded_longs_from_symbol_level_derivatives(load_fixture):
+    market = load_fixture("market_context_v2.json")
+    derivatives = {
+        "rows": [
+            {
+                "symbol": "BTCUSDT",
+                "funding_rate": 0.00004,
+                "open_interest_usdt": 23100000000,
+                "open_interest_change_24h_pct": 0.01,
+                "mark_price_change_24h_pct": 0.017,
+                "taker_buy_sell_ratio": 1.01,
+                "basis_bps": 12,
+            },
+            {
+                "symbol": "ETHUSDT",
+                "funding_rate": 0.00024,
+                "open_interest_usdt": 11800000000,
+                "open_interest_change_24h_pct": 0.052,
+                "mark_price_change_24h_pct": 0.013,
+                "taker_buy_sell_ratio": 1.08,
+                "basis_bps": 28,
+            },
+        ]
+    }
+
+    candidates = generate_trend_candidates(
+        market,
+        derivatives=derivatives,
+        include_high_liquidity_strong_names=False,
+    )
+
+    assert {candidate.symbol for candidate in candidates} == {"BTCUSDT"}
+
+
+def test_generate_trend_candidates_reject_funding_basis_blowoff_even_when_structure_strength_and_extension_pass(
+    load_fixture,
+):
+    market = load_fixture("market_context_v2.json")
+    derivatives = {
+        "rows": [
+            {
+                "symbol": "BTCUSDT",
+                "funding_rate": 0.00022,
+                "open_interest_usdt": 23100000000,
+                "open_interest_change_24h_pct": 0.01,
+                "mark_price_change_24h_pct": 0.012,
+                "taker_buy_sell_ratio": 1.0,
+                "basis_bps": 26,
+            },
+            {
+                "symbol": "ETHUSDT",
+                "funding_rate": 0.00003,
+                "open_interest_usdt": 11800000000,
+                "open_interest_change_24h_pct": 0.009,
+                "mark_price_change_24h_pct": 0.008,
+                "taker_buy_sell_ratio": 1.0,
+                "basis_bps": 10,
+            },
+        ]
+    }
+
+    candidates = generate_trend_candidates(
+        market,
+        derivatives=derivatives,
+        include_high_liquidity_strong_names=False,
+    )
+
+    assert {candidate.symbol for candidate in candidates} == {"ETHUSDT"}
+
+
+def test_generate_trend_candidates_reject_price_and_open_interest_acceleration_blowoff_before_funding_basis_extremes(
+    load_fixture,
+):
+    market = load_fixture("market_context_v2.json")
+    derivatives = {
+        "rows": [
+            {
+                "symbol": "BTCUSDT",
+                "funding_rate": 0.00005,
+                "open_interest_usdt": 23100000000,
+                "open_interest_change_24h_pct": 0.045,
+                "mark_price_change_24h_pct": 0.024,
+                "taker_buy_sell_ratio": 1.01,
+                "basis_bps": 14,
+            },
+            {
+                "symbol": "ETHUSDT",
+                "funding_rate": 0.00003,
+                "open_interest_usdt": 11800000000,
+                "open_interest_change_24h_pct": 0.009,
+                "mark_price_change_24h_pct": 0.008,
+                "taker_buy_sell_ratio": 1.0,
+                "basis_bps": 10,
+            },
+        ]
+    }
+
+    market["symbols"]["BTCUSDT"]["4h"]["close"] = 65330.0
+    market["symbols"]["BTCUSDT"]["1h"]["close"] = 64510.0
+
+    candidates = generate_trend_candidates(
+        market,
+        derivatives=derivatives,
+        include_high_liquidity_strong_names=False,
+    )
+
+    assert {candidate.symbol for candidate in candidates} == {"ETHUSDT"}
+
+
+def test_generate_trend_candidates_require_absolute_strength_before_surviving(load_fixture):
+    market = load_fixture("market_context_v2.json")
+    derivatives = {
+        "rows": [
+            {
+                "symbol": "BTCUSDT",
+                "funding_rate": 0.00004,
+                "open_interest_usdt": 23100000000,
+                "open_interest_change_24h_pct": 0.01,
+                "mark_price_change_24h_pct": 0.012,
+                "taker_buy_sell_ratio": 1.01,
+                "basis_bps": 12,
+            },
+            {
+                "symbol": "ETHUSDT",
+                "funding_rate": 0.00003,
+                "open_interest_usdt": 11800000000,
+                "open_interest_change_24h_pct": 0.009,
+                "mark_price_change_24h_pct": 0.008,
+                "taker_buy_sell_ratio": 1.0,
+                "basis_bps": 10,
+            },
+        ]
+    }
+
+    market["symbols"]["BTCUSDT"]["daily"]["return_pct_7d"] = 0.02
+    market["symbols"]["BTCUSDT"]["4h"]["return_pct_3d"] = 0.008
+    market["symbols"]["BTCUSDT"]["1h"]["return_pct_24h"] = 0.002
+
+    candidates = generate_trend_candidates(
+        market,
+        derivatives=derivatives,
+        include_high_liquidity_strong_names=False,
+    )
+
+    assert {candidate.symbol for candidate in candidates} == {"ETHUSDT"}
+
+
+def test_generate_trend_candidates_reject_overextended_longs_even_when_absolute_strength_is_high(load_fixture):
+    market = load_fixture("market_context_v2.json")
+    derivatives = {
+        "rows": [
+            {
+                "symbol": "BTCUSDT",
+                "funding_rate": 0.00004,
+                "open_interest_usdt": 23100000000,
+                "open_interest_change_24h_pct": 0.01,
+                "mark_price_change_24h_pct": 0.018,
+                "taker_buy_sell_ratio": 1.01,
+                "basis_bps": 12,
+            },
+            {
+                "symbol": "ETHUSDT",
+                "funding_rate": 0.00003,
+                "open_interest_usdt": 11800000000,
+                "open_interest_change_24h_pct": 0.009,
+                "mark_price_change_24h_pct": 0.008,
+                "taker_buy_sell_ratio": 1.0,
+                "basis_bps": 10,
+            },
+        ]
+    }
+
+    market["symbols"]["BTCUSDT"]["daily"]["close"] = 66400.0
+    market["symbols"]["BTCUSDT"]["4h"]["close"] = 66400.0
+    market["symbols"]["BTCUSDT"]["1h"]["close"] = 65150.0
+
+    candidates = generate_trend_candidates(
+        market,
+        derivatives=derivatives,
+        include_high_liquidity_strong_names=False,
+    )
+
+    assert {candidate.symbol for candidate in candidates} == {"ETHUSDT"}
+
+
+def test_generate_trend_candidates_attach_derivatives_meta(load_fixture):
+    market = load_fixture("market_context_v2.json")
+    derivatives = {
+        "rows": [
+            {
+                "symbol": "BTCUSDT",
+                "funding_rate": 0.00004,
+                "open_interest_usdt": 23100000000,
+                "open_interest_change_24h_pct": 0.01,
+                "mark_price_change_24h_pct": 0.017,
+                "taker_buy_sell_ratio": 1.01,
+                "basis_bps": 12,
+            }
+        ]
+    }
+
+    candidates = generate_trend_candidates(
+        market,
+        derivatives=derivatives,
+        include_high_liquidity_strong_names=False,
+    )
+
+    candidate = next(item for item in candidates if item.symbol == "BTCUSDT")
+
+    assert candidate.timeframe_meta["derivatives"]["crowding_bias"] == "balanced"

@@ -3,10 +3,12 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from trading_system.app.market_regime.derivatives import symbol_derivatives_features
 from trading_system.app.signals.scoring import score_short_candidate
 from trading_system.app.types import EngineCandidate, RegimeSnapshot
 
 _SHORT_SCORE_FLOOR = 0.58
+_CROWDED_SHORT_BASIS_BPS = -20.0
 _DEFENSIVE_REGIMES = {"RISK_OFF", "HIGH_VOL_DEFENSIVE"}
 
 
@@ -108,10 +110,18 @@ def _short_stop_loss(payload: Mapping[str, Any]) -> float:
     return stop_loss
 
 
+def _reject_crowded_short_squeeze_risk(features: Mapping[str, Any]) -> bool:
+    return (
+        str(features.get("crowding_bias", "balanced")) == "crowded_short"
+        and _to_float(features.get("basis_bps")) <= _CROWDED_SHORT_BASIS_BPS
+    )
+
+
 def generate_short_candidates(
     market_context: Mapping[str, Any],
     *,
     short_universe: Sequence[Mapping[str, Any]] | None = None,
+    derivatives: Mapping[str, Any] | list[dict[str, Any]] | None = None,
     regime: RegimeSnapshot | Mapping[str, Any] | None = None,
 ) -> list[EngineCandidate]:
     if _short_suppressed(regime) or not _short_enabled(regime):
@@ -136,6 +146,10 @@ def generate_short_candidates(
         if not _trend_broken(payload):
             continue
 
+        derivatives_features = symbol_derivatives_features(derivatives, str(symbol))
+        if _reject_crowded_short_squeeze_risk(derivatives_features):
+            continue
+
         scored = score_short_candidate(
             {
                 "daily_bias": "down",
@@ -154,6 +168,18 @@ def generate_short_candidates(
             continue
 
         daily = _tf_row(payload, "daily")
+        timeframe_meta = {
+            "daily_bias": "down",
+            "h4_structure": "breakdown",
+            "h1_trigger": "confirmed",
+            "score_components": scored.get("components", {}),
+        }
+        if derivatives is not None:
+            timeframe_meta["derivatives"] = {
+                "crowding_bias": str(derivatives_features.get("crowding_bias", "balanced")),
+                "basis_bps": _to_float(derivatives_features.get("basis_bps")),
+            }
+
         liquidity_meta = dict(universe_row.get("liquidity_meta", {})) if isinstance(universe_row, Mapping) else {}
         liquidity_meta.setdefault("liquidity_tier", payload.get("liquidity_tier"))
         liquidity_meta["volume_usdt_24h"] = _to_float(daily.get("volume_usdt_24h"))
@@ -167,12 +193,7 @@ def generate_short_candidates(
                 score=total_score,
                 stop_loss=stop_loss,
                 invalidation_source="short_structure_reclaim_above_4h_ema50",
-                timeframe_meta={
-                    "daily_bias": "down",
-                    "h4_structure": "breakdown",
-                    "h1_trigger": "confirmed",
-                    "score_components": scored.get("components", {}),
-                },
+                timeframe_meta=timeframe_meta,
                 sector=str(payload.get("sector") or universe_row.get("sector") or ""),
                 liquidity_meta=liquidity_meta,
             )

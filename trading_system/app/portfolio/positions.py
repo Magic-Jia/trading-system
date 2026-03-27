@@ -6,6 +6,16 @@ from typing import Any
 from ..types import AccountSnapshot, BJ, OrderIntent, PositionSnapshot, RuntimeState
 
 
+_POSITION_TAXONOMY_KEYS = (
+    "taxonomy_stop_loss",
+    "invalidation_source",
+    "invalidation_reason",
+    "stop_family",
+    "stop_reference",
+    "stop_policy_source",
+)
+
+
 def _now_bj() -> str:
     return datetime.now(BJ).isoformat()
 
@@ -37,6 +47,32 @@ def _source(existing: dict[str, Any], from_snapshot: bool, from_intent: bool) ->
     if from_intent:
         return "paper_execution"
     return existing.get("source", "account_snapshot")
+
+
+def _taxonomy_fields(existing: dict[str, Any]) -> dict[str, Any]:
+    payload: dict[str, Any] = {}
+    for key in _POSITION_TAXONOMY_KEYS:
+        value = existing.get(key)
+        if value is not None:
+            payload[key] = value
+    return payload
+
+
+def _order_taxonomy_fields(order: OrderIntent, existing: dict[str, Any]) -> dict[str, Any]:
+    meta = dict(order.meta or {})
+    payload = _taxonomy_fields(existing)
+    taxonomy_stop_loss = meta.get("taxonomy_stop_loss")
+    if taxonomy_stop_loss is None:
+        taxonomy_stop_loss = order.stop_loss
+    try:
+        payload["taxonomy_stop_loss"] = round(float(taxonomy_stop_loss), 8)
+    except (TypeError, ValueError):
+        pass
+    for key in _POSITION_TAXONOMY_KEYS[1:]:
+        value = meta.get(key)
+        if value is not None:
+            payload[key] = value
+    return payload
 
 
 def sync_positions_from_account(state: RuntimeState, account: AccountSnapshot) -> list[dict[str, Any]]:
@@ -88,6 +124,7 @@ def sync_positions_from_account(state: RuntimeState, account: AccountSnapshot) -
             "status": "OPEN",
             "intent_id": existing.get("intent_id"),
             "signal_id": existing.get("signal_id"),
+            **_taxonomy_fields(existing),
             "source": _source(existing, from_snapshot=True, from_intent=tracked_from_intent),
             "tracked_from_snapshot": True,
             "tracked_from_intent": tracked_from_intent,
@@ -144,6 +181,7 @@ def apply_executed_intent(state: RuntimeState, order: OrderIntent) -> dict[str, 
         "status": "OPEN" if order.status in {"FILLED", "SENT"} else order.status,
         "intent_id": order.intent_id,
         "signal_id": order.signal_id,
+        **_order_taxonomy_fields(order, existing),
         "source": _source(existing, from_snapshot=tracked_from_snapshot, from_intent=True),
         "tracked_from_snapshot": tracked_from_snapshot,
         "tracked_from_intent": True,

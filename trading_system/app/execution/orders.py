@@ -102,7 +102,7 @@ def build_management_preview(
             open_protective_orders=protective_orders,
         )
 
-    if intent.action == "PARTIAL_TAKE_PROFIT":
+    if intent.action in {"PARTIAL_TAKE_PROFIT", "DE_RISK"}:
         if not intent.qty or intent.qty <= 0:
             return ManagementActionPreview(
                 intent=intent,
@@ -113,7 +113,7 @@ def build_management_preview(
             )
         return ManagementActionPreview(
             intent=intent,
-            preview_kind="REDUCE_ONLY_TP_CLOSE",
+            preview_kind="REDUCE_ONLY_TP_CLOSE" if intent.action == "PARTIAL_TAKE_PROFIT" else "REDUCE_ONLY_DE_RISK_CLOSE",
             payload=prepare_reduce_only_close_request(intent),
             open_protective_orders=protective_orders,
         )

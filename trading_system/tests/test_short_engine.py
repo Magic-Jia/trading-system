@@ -130,6 +130,77 @@ def test_generate_short_candidates_emits_major_short_setups_in_defensive_regime(
     assert {candidate.side for candidate in candidates} == {"SHORT"}
 
 
+def test_generate_short_candidates_rejects_crowded_short_squeeze_risk():
+    market = _defensive_market()
+    short_universe = [
+        {"symbol": "BTCUSDT", "sector": "majors", "liquidity_meta": {"rolling_notional": 12_500_000_000.0}},
+        {"symbol": "ETHUSDT", "sector": "majors", "liquidity_meta": {"rolling_notional": 6_800_000_000.0}},
+    ]
+    derivatives = {
+        "rows": [
+            {
+                "symbol": "BTCUSDT",
+                "funding_rate": -0.00023,
+                "open_interest_usdt": 31_500_000_000,
+                "open_interest_change_24h_pct": -0.046,
+                "mark_price_change_24h_pct": -0.022,
+                "taker_buy_sell_ratio": 0.94,
+                "basis_bps": -28,
+            },
+            {
+                "symbol": "ETHUSDT",
+                "funding_rate": -0.00003,
+                "open_interest_usdt": 17_200_000_000,
+                "open_interest_change_24h_pct": -0.008,
+                "mark_price_change_24h_pct": -0.014,
+                "taker_buy_sell_ratio": 0.99,
+                "basis_bps": -8,
+            },
+        ]
+    }
+
+    candidates = generate_short_candidates(
+        market,
+        short_universe=short_universe,
+        derivatives=derivatives,
+        regime={"label": "HIGH_VOL_DEFENSIVE", "bucket_targets": {"trend": 0.2, "rotation": 0.0, "short": 0.8}},
+    )
+
+    assert {candidate.symbol for candidate in candidates} == {"ETHUSDT"}
+
+
+def test_generate_short_candidates_attach_derivatives_meta():
+    market = _defensive_market()
+    short_universe = [
+        {"symbol": "BTCUSDT", "sector": "majors", "liquidity_meta": {"rolling_notional": 12_500_000_000.0}},
+    ]
+    derivatives = {
+        "rows": [
+            {
+                "symbol": "BTCUSDT",
+                "funding_rate": -0.00003,
+                "open_interest_usdt": 31_500_000_000,
+                "open_interest_change_24h_pct": -0.008,
+                "mark_price_change_24h_pct": -0.014,
+                "taker_buy_sell_ratio": 0.99,
+                "basis_bps": -8,
+            }
+        ]
+    }
+
+    candidates = generate_short_candidates(
+        market,
+        short_universe=short_universe,
+        derivatives=derivatives,
+        regime={"label": "HIGH_VOL_DEFENSIVE", "bucket_targets": {"trend": 0.2, "rotation": 0.0, "short": 0.8}},
+    )
+
+    candidate = next(item for item in candidates if item.symbol == "BTCUSDT")
+
+    assert candidate.timeframe_meta["derivatives"]["crowding_bias"] == "balanced"
+    assert candidate.timeframe_meta["derivatives"]["basis_bps"] == -8.0
+
+
 def test_generate_short_candidates_respects_regime_gate_and_suppression():
     market = _defensive_market()
     short_universe = [{"symbol": "BTCUSDT", "sector": "majors", "liquidity_meta": {"rolling_notional": 12_500_000_000.0}}]

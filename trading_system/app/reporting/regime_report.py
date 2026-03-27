@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import asdict, is_dataclass
 from typing import Any, Mapping, Sequence
 
@@ -28,6 +29,23 @@ def build_regime_summary(
     accepted = [row for row in allocations if row.get("status") in {"ACCEPTED", "DOWNSIZED"}]
     rejected = [row for row in allocations if row.get("status") == "REJECTED"]
     total_allocated_risk = round(sum(float(row.get("final_risk_budget", 0.0) or 0.0) for row in accepted), 6)
+    aggressiveness_values = [
+        float(row.get("aggressiveness_multiplier", 0.0) or 0.0)
+        for row in accepted
+        if row.get("aggressiveness_multiplier") is not None
+    ]
+    avg_aggressiveness = round(sum(aggressiveness_values) / len(aggressiveness_values), 6) if aggressiveness_values else 0.0
+    compressed_count = len([value for value in aggressiveness_values if value < 1.0])
+    compression_reason_counts: Counter[str] = Counter()
+    for row in accepted:
+        reasons = row.get("compression_reasons")
+        if isinstance(reasons, Sequence) and not isinstance(reasons, (str, bytes)):
+            compression_reason_counts.update(str(reason) for reason in reasons if str(reason))
+            continue
+        if float(row.get("regime_hazard_multiplier", 1.0) or 1.0) < 1.0:
+            compression_reason_counts["regime_hazard"] += 1
+        if float(row.get("late_stage_heat_multiplier", 1.0) or 1.0) < 1.0:
+            compression_reason_counts["late_stage_heat"] += 1
 
     return {
         "regime": {
@@ -36,6 +54,8 @@ def build_regime_summary(
             "risk_multiplier": regime_row.get("risk_multiplier"),
             "execution_policy": regime_row.get("execution_policy"),
             "suppression_rules": regime_row.get("suppression_rules", []),
+            "late_stage_heat": regime_row.get("late_stage_heat", "none"),
+            "execution_hazard": regime_row.get("execution_hazard", "none"),
         },
         "universes": {
             "major_count": len(list(universes.get("major_universe", []))),
@@ -53,6 +73,11 @@ def build_regime_summary(
             "accepted": len(accepted),
             "rejected": len(rejected),
             "total_allocated_risk": total_allocated_risk,
+            "avg_aggressiveness": avg_aggressiveness,
+            "compressed_count": compressed_count,
+            "compression_reason_counts": dict(compression_reason_counts),
+            "regime_hazard_compressed_count": int(compression_reason_counts.get("regime_hazard", 0)),
+            "late_stage_heat_compressed_count": int(compression_reason_counts.get("late_stage_heat", 0)),
         },
         "executions": {
             "count": len(executions),

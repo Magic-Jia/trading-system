@@ -2,11 +2,18 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
+from trading_system.app.market_regime.derivatives import is_late_stage_long_blowoff, symbol_derivatives_features
 from trading_system.app.signals.scoring import score_trend_candidate
 from trading_system.app.types import EngineCandidate
 
 _MAJOR_SECTOR = "majors"
 _HIGH_LIQUIDITY_TIERS = {"high", "top"}
+_CROWDED_LONG_BASIS_BPS = 20.0
+_TREND_ABSOLUTE_STRENGTH_DAILY_FLOOR = 0.03
+_TREND_ABSOLUTE_STRENGTH_H4_FLOOR = 0.01
+_TREND_ABSOLUTE_STRENGTH_H1_FLOOR = 0.003
+_TREND_H4_EXTENSION_OVERHEAT_PCT = 0.03
+_TREND_H1_EXTENSION_OVERHEAT_PCT = 0.01
 
 
 def _to_float(value: Any) -> float:
@@ -70,8 +77,55 @@ def _trend_stop_loss(payload: Mapping[str, Any]) -> float:
     return stop_loss
 
 
+def _passes_absolute_strength_gate(payload: Mapping[str, Any]) -> bool:
+    daily = _tf_row(payload, "daily")
+    h4 = _tf_row(payload, "4h")
+    h1 = _tf_row(payload, "1h")
+    return (
+        _to_float(daily.get("return_pct_7d")) >= _TREND_ABSOLUTE_STRENGTH_DAILY_FLOOR
+        and _to_float(h4.get("return_pct_3d")) >= _TREND_ABSOLUTE_STRENGTH_H4_FLOOR
+        and _to_float(h1.get("return_pct_24h")) >= _TREND_ABSOLUTE_STRENGTH_H1_FLOOR
+    )
+
+
+def _extension_pct(row: Mapping[str, Any]) -> float:
+    close = _to_float(row.get("close"))
+    ema20 = _to_float(row.get("ema_20"))
+    if close <= 0.0 or ema20 <= 0.0:
+        return 0.0
+    return max((close / ema20) - 1.0, 0.0)
+
+
+def _reject_price_extension_overheat(payload: Mapping[str, Any]) -> bool:
+    h4 = _tf_row(payload, "4h")
+    h1 = _tf_row(payload, "1h")
+    return (
+        _extension_pct(h4) >= _TREND_H4_EXTENSION_OVERHEAT_PCT
+        and _extension_pct(h1) >= _TREND_H1_EXTENSION_OVERHEAT_PCT
+    )
+
+
+def _reject_crowded_long(features: Mapping[str, Any], payload: Mapping[str, Any]) -> bool:
+    h4 = _tf_row(payload, "4h")
+    h1 = _tf_row(payload, "1h")
+    return (
+        is_late_stage_long_blowoff(
+            features,
+            h4_extension_pct=_extension_pct(h4),
+            h1_extension_pct=_extension_pct(h1),
+        )
+        or (
+            str(features.get("crowding_bias", "balanced")) == "crowded_long"
+            and _to_float(features.get("basis_bps")) >= _CROWDED_LONG_BASIS_BPS
+        )
+    )
+
+
 def generate_trend_candidates(
-    market_context: Mapping[str, Any], *, include_high_liquidity_strong_names: bool = True
+    market_context: Mapping[str, Any],
+    *,
+    derivatives: Mapping[str, Any] | list[dict[str, Any]] | None = None,
+    include_high_liquidity_strong_names: bool = True,
 ) -> list[EngineCandidate]:
     symbols = market_context.get("symbols")
     if not isinstance(symbols, Mapping):
@@ -94,6 +148,14 @@ def generate_trend_candidates(
         h1 = _tf_row(payload, "1h")
         if not _is_uptrend(daily, h4, h1):
             continue
+        if not _passes_absolute_strength_gate(payload):
+            continue
+        if _reject_price_extension_overheat(payload):
+            continue
+
+        derivatives_features = symbol_derivatives_features(derivatives, str(symbol))
+        if _reject_crowded_long(derivatives_features, payload):
+            continue
 
         scored = score_trend_candidate(
             {
@@ -111,6 +173,17 @@ def generate_trend_candidates(
         if stop_loss <= 0.0:
             continue
 
+        timeframe_meta = {
+            "daily_bias": "up",
+            "h4_structure": "intact",
+            "h1_trigger": "confirmed",
+        }
+        if derivatives is not None:
+            timeframe_meta["derivatives"] = {
+                "crowding_bias": str(derivatives_features.get("crowding_bias", "balanced")),
+                "basis_bps": _to_float(derivatives_features.get("basis_bps")),
+            }
+
         candidates.append(
             EngineCandidate(
                 engine="trend",
@@ -120,11 +193,7 @@ def generate_trend_candidates(
                 score=total_score,
                 stop_loss=stop_loss,
                 invalidation_source="trend_structure_loss_below_4h_ema50",
-                timeframe_meta={
-                    "daily_bias": "up",
-                    "h4_structure": "intact",
-                    "h1_trigger": "confirmed",
-                },
+                timeframe_meta=timeframe_meta,
                 sector=sector or None,
                 liquidity_meta={
                     "liquidity_tier": payload.get("liquidity_tier"),

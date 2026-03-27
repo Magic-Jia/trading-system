@@ -38,18 +38,55 @@ def _short_leader_row(candidate: Mapping[str, Any]) -> dict[str, Any]:
         "daily_bias": str(timeframe_meta.get("daily_bias", "")),
         "h4_structure": str(timeframe_meta.get("h4_structure", "")),
         "h1_trigger": str(timeframe_meta.get("h1_trigger", "")),
+        "derivatives": dict(timeframe_meta.get("derivatives") or {}),
         "volume_usdt_24h": _float(liquidity_meta.get("volume_usdt_24h")),
         "liquidity_tier": str(liquidity_meta.get("liquidity_tier", "")),
     }
 
 
 def _lifecycle_leader_row(symbol: str, payload: Mapping[str, Any]) -> dict[str, Any]:
-    return {
+    row = {
         "symbol": symbol,
         "state": str(payload.get("state", "INIT")).upper(),
         "r_multiple": round(_float(payload.get("r_multiple")), 6),
         "reason_codes": [str(code) for code in payload.get("reason_codes", [])],
     }
+    for key in ("stop_family", "stop_reference", "invalidation_source", "invalidation_reason", "stop_policy_source"):
+        value = payload.get(key)
+        if value:
+            row[key] = str(value)
+    return row
+
+
+def _review_action_row(row: Mapping[str, Any]) -> dict[str, Any] | None:
+    meta = dict(row.get("meta") or {})
+    semantics_present = any(
+        meta.get(key)
+        for key in ("stop_family", "stop_reference", "invalidation_source", "invalidation_reason", "stop_policy_source")
+    )
+    if not semantics_present:
+        return None
+
+    payload = {
+        "symbol": str(row.get("symbol", "")),
+        "action": str(row.get("action", "")),
+        "priority": str(row.get("priority", "MEDIUM")),
+        "stop_family": str(meta.get("stop_family", "")),
+        "stop_reference": str(meta.get("stop_reference", "")),
+        "invalidation_source": str(meta.get("invalidation_source", "")),
+        "invalidation_reason": str(meta.get("invalidation_reason", "")),
+        "stop_policy_source": str(meta.get("stop_policy_source", "")),
+    }
+    suggested_stop_loss = row.get("suggested_stop_loss")
+    if suggested_stop_loss is not None:
+        payload["suggested_stop_loss"] = round(_float(suggested_stop_loss), 8)
+    qty_fraction = row.get("qty_fraction")
+    if qty_fraction is not None:
+        payload["qty_fraction"] = _float(qty_fraction)
+    target_price = meta.get("target_price", row.get("target_price"))
+    if target_price is not None:
+        payload["target_price"] = round(_float(target_price), 8)
+    return payload
 
 
 def build_lifecycle_report(
@@ -85,6 +122,15 @@ def build_lifecycle_report(
         }
         | set(exit_symbols)
     )
+    management_action_counts: dict[str, int] = {}
+    review_actions: list[dict[str, Any]] = []
+    for row in management_suggestions:
+        action = str(row.get("action", "")).upper()
+        if action:
+            management_action_counts[action] = management_action_counts.get(action, 0) + 1
+        review_row = _review_action_row(row)
+        if review_row is not None:
+            review_actions.append(review_row)
     return {
         "tracked_count": len(lifecycle_updates),
         "state_counts": state_counts,
@@ -92,6 +138,8 @@ def build_lifecycle_report(
         "protected_symbols": protected_symbols,
         "exit_symbols": exit_symbols,
         "attention_symbols": attention_symbols,
+        "management_action_counts": management_action_counts,
+        "review_actions": review_actions[:5],
         "leaders": leaders[:3],
     }
 

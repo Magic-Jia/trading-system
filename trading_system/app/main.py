@@ -10,12 +10,13 @@ from .config import build_config
 from .data_sources import load_derivatives_snapshot, load_market_context
 from .execution.executor import OrderExecutor
 from .execution.idempotency import already_processed, intent_id, mark_processed, replay_processed_execution
-from .market_regime import classify_regime
+from .market_regime import classify_regime, summarize_derivatives_risk
 from .portfolio.allocator import allocate_candidates
 from .portfolio.lifecycle import advance_lifecycle_positions, build_management_action_intents, evaluate_portfolio
 from .portfolio.positions import apply_executed_intent, sync_positions_from_account
 from .reporting.daily_report import build_lifecycle_report, build_rotation_report, build_short_report
 from .reporting.regime_report import build_regime_summary
+from .risk.stop_policy import build_stop_policy
 from .signals.rotation_engine import generate_rotation_candidates
 from .signals.short_engine import generate_short_candidates
 from .risk.validator import validate_candidate_for_allocation, validate_candidate_for_execution, validate_signal
@@ -156,34 +157,97 @@ def _candidate_sort_key(row: Mapping[str, Any]) -> tuple[float, str, str]:
     return (-float(row.get("score", 0.0) or 0.0), str(row.get("symbol", "")), str(row.get("engine", "")))
 
 
-def _candidate_signal(candidate: Mapping[str, Any], market: Mapping[str, Any]) -> TradeSignal:
-    execution_validation = validate_candidate_for_execution(candidate)
+def _regime_payload(regime: Any) -> Mapping[str, Any] | None:
+    if isinstance(regime, Mapping):
+        return regime
+    if is_dataclass(regime):
+        return asdict(regime)
+    return None
+
+
+def _candidate_with_stop_taxonomy(candidate: Any, market: Mapping[str, Any], regime: Any | None = None) -> dict[str, Any]:
+    row = _candidate_row(candidate)
+    symbol = str(row.get("symbol", "")).upper()
+    payload = market.get("symbols", {}).get(symbol, {})
+    if not isinstance(payload, Mapping):
+        return row
+
+    policy = build_stop_policy(
+        payload,
+        engine=str(row.get("engine", "")),
+        setup_type=str(row.get("setup_type", "")),
+        side=str(row.get("side", "LONG")),
+        regime=_regime_payload(regime),
+    )
+    if policy is None:
+        return row
+
+    candidate_meta = dict(row.get("meta") or {}) if isinstance(row.get("meta"), Mapping) else {}
+    candidate_meta.update(
+        {
+            "stop_policy_source": "shared_taxonomy",
+            "stop_family": policy.stop_family,
+            "stop_reference": policy.stop_reference,
+            "invalidation_source": policy.invalidation_source,
+            "invalidation_reason": policy.invalidation_reason,
+        }
+    )
+    row["meta"] = candidate_meta
+    row["stop_loss"] = round(policy.stop_loss, 8)
+    row["invalidation_source"] = policy.invalidation_source
+    row["stop_family"] = policy.stop_family
+    row["stop_reference"] = policy.stop_reference
+    row["invalidation_reason"] = policy.invalidation_reason
+    row["stop_policy_source"] = "shared_taxonomy"
+    return row
+
+
+def _candidate_signal(candidate: Mapping[str, Any], market: Mapping[str, Any], regime: Any | None = None) -> TradeSignal:
+    candidate_row = _candidate_with_stop_taxonomy(candidate, market, regime)
+    execution_validation = validate_candidate_for_execution(candidate_row)
     if not execution_validation.allowed:
         raise ValueError("; ".join(execution_validation.reasons) or "candidate execution validation failed")
 
-    symbol = str(candidate.get("symbol", "")).upper()
-    side = str(candidate.get("side", "LONG")).upper()
-    candidate_meta = candidate.get("meta") if isinstance(candidate.get("meta"), Mapping) else {}
+    symbol = str(candidate_row.get("symbol", "")).upper()
+    side = str(candidate_row.get("side", "LONG")).upper()
+    candidate_meta = candidate_row.get("meta") if isinstance(candidate_row.get("meta"), Mapping) else {}
     payload = dict(market.get("symbols", {}).get(symbol, {}))
     daily = dict(payload.get("daily", {}))
-    entry_price = _float(candidate, "entry_price")
+    entry_price = _float(candidate_row, "entry_price")
     if entry_price <= 0:
         entry_price = _float(candidate_meta, "entry_price")
     if entry_price <= 0:
         entry_price = _float(daily, "close")
     if entry_price <= 0:
         entry_price = 1.0
-    stop_loss = _float(candidate, "stop_loss")
+    stop_loss = _float(candidate_row, "stop_loss")
     if stop_loss <= 0:
         stop_loss = _float(candidate_meta, "stop_loss")
-    take_profit = _float(candidate, "take_profit")
+    take_profit = _float(candidate_row, "take_profit")
     if take_profit <= 0:
         take_profit = _float(candidate_meta, "take_profit")
     if take_profit <= 0:
         take_profit = entry_price * (1.04 if side == "LONG" else 0.96)
-    invalidation_source = str(candidate.get("invalidation_source") or candidate_meta.get("invalidation_source") or "").strip()
-    setup_type = str(candidate.get("setup_type", "trend")).lower()
-    signal_id = f"v2-{candidate.get('engine', 'trend')}-{setup_type}-{symbol}".lower()
+    invalidation_source = str(candidate_row.get("invalidation_source") or candidate_meta.get("invalidation_source") or "").strip()
+    invalidation_reason = str(candidate_row.get("invalidation_reason") or candidate_meta.get("invalidation_reason") or "").strip()
+    stop_family = str(candidate_row.get("stop_family") or candidate_meta.get("stop_family") or "").strip()
+    stop_reference = str(candidate_row.get("stop_reference") or candidate_meta.get("stop_reference") or "").strip()
+    stop_policy_source = str(candidate_row.get("stop_policy_source") or candidate_meta.get("stop_policy_source") or "").strip()
+    setup_type = str(candidate_row.get("setup_type", "trend")).lower()
+    signal_id = f"v2-{candidate_row.get('engine', 'trend')}-{setup_type}-{symbol}".lower()
+    signal_meta = {
+        "setup_type": candidate_row.get("setup_type"),
+        "score": candidate_row.get("score"),
+        "invalidation_source": invalidation_source,
+    }
+    for key, value in (
+        ("invalidation_reason", invalidation_reason),
+        ("stop_family", stop_family),
+        ("stop_reference", stop_reference),
+        ("stop_policy_source", stop_policy_source),
+    ):
+        if value:
+            signal_meta[key] = value
     return TradeSignal(
         signal_id=signal_id,
         symbol=symbol,
@@ -193,12 +257,8 @@ def _candidate_signal(candidate: Mapping[str, Any], market: Mapping[str, Any]) -
         take_profit=round(take_profit, 8),
         source="strategy",
         timeframe="4h",
-        tags=["v2", str(candidate.get("engine", "trend"))],
-        meta={
-            "setup_type": candidate.get("setup_type"),
-            "score": candidate.get("score"),
-            "invalidation_source": invalidation_source,
-        },
+        tags=["v2", str(candidate_row.get("engine", "trend"))],
+        meta=signal_meta,
     )
 
 
@@ -226,12 +286,41 @@ def _allocation_summary(decision: Any, candidate: Mapping[str, Any]) -> dict[str
         payload = asdict(decision)
     else:
         payload = dict(decision)
+    decision_meta = payload.get("meta") if isinstance(payload.get("meta"), Mapping) else {}
     payload["symbol"] = str(candidate.get("symbol", ""))
     payload["side"] = str(candidate.get("side", "LONG"))
     payload["setup_type"] = str(candidate.get("setup_type", ""))
     payload["score"] = float(candidate.get("score", 0.0) or 0.0)
+    payload["timeframe_meta"] = dict(candidate.get("timeframe_meta") or {})
+    for key in (
+        "aggressiveness_multiplier",
+        "quality_multiplier",
+        "crowding_multiplier",
+        "execution_friction_multiplier",
+        "regime_hazard_multiplier",
+        "late_stage_heat_multiplier",
+    ):
+        value = decision_meta.get(key)
+        if value is not None:
+            payload[key] = value
+    compression_reasons: list[str] = []
+    if float(decision_meta.get("regime_hazard_multiplier", 1.0) or 1.0) < 1.0:
+        compression_reasons.append("regime_hazard")
+    if float(decision_meta.get("late_stage_heat_multiplier", 1.0) or 1.0) < 1.0:
+        compression_reasons.append("late_stage_heat")
+    if compression_reasons:
+        payload["compression_reasons"] = compression_reasons
     candidate_meta = candidate.get("meta") if isinstance(candidate.get("meta"), Mapping) else {}
-    for key in ("entry_price", "stop_loss", "take_profit", "invalidation_source"):
+    for key in (
+        "entry_price",
+        "stop_loss",
+        "take_profit",
+        "invalidation_source",
+        "invalidation_reason",
+        "stop_family",
+        "stop_reference",
+        "stop_policy_source",
+    ):
         value = candidate.get(key)
         if value is None:
             value = candidate_meta.get(key)
@@ -251,6 +340,47 @@ def _universes_payload(universes: UniverseBuildResult) -> dict[str, Any]:
     }
 
 
+def _jsonl_row_count(path: Path | None) -> int:
+    if path is None or not path.exists():
+        return 0
+
+    with path.open(encoding="utf-8") as handle:
+        return sum(1 for line in handle if line.strip())
+
+
+def _paper_trading_summary(mode: str, ledger_path: Path | None, execution_rows: list[dict[str, Any]]) -> dict[str, Any]:
+    if mode != "paper":
+        return {}
+
+    intents: list[dict[str, Any]] = []
+    emitted_count = 0
+    replayed_count = 0
+    for row in execution_rows:
+        execution = row.get("execution") if isinstance(row.get("execution"), Mapping) else {}
+        intent = {
+            "symbol": row.get("symbol"),
+            "status": row.get("status"),
+            "intent_id": row.get("intent_id"),
+        }
+        if execution.get("replayed"):
+            replayed_count += 1
+            replay_source = execution.get("replay_source")
+            if replay_source is not None:
+                intent["replay_source"] = replay_source
+        elif execution.get("mode") == "paper":
+            emitted_count += 1
+        intents.append(intent)
+
+    return {
+        "mode": "paper",
+        "ledger_path": str(ledger_path) if ledger_path is not None else None,
+        "ledger_event_count": _jsonl_row_count(ledger_path),
+        "emitted_count": emitted_count,
+        "replayed_count": replayed_count,
+        "intents": intents,
+    }
+
+
 def main() -> None:
     config = _with_state_file_override(load_config())
     if config.execution.mode == "live" and not config.execution.allow_live_execution:
@@ -263,24 +393,31 @@ def main() -> None:
     market_rows = load_market_context()
     market = _market_payload(market_rows)
     derivatives = load_derivatives_snapshot()
+    derivatives_summary = summarize_derivatives_risk(derivatives)
     regime = classify_regime(market_rows, derivatives)
     universes = build_universes(market)
 
-    trend_candidates = generate_trend_candidates(market, include_high_liquidity_strong_names=False)
+    trend_candidates = generate_trend_candidates(
+        market,
+        derivatives=derivatives,
+        include_high_liquidity_strong_names=False,
+    )
     rotation_candidates = generate_rotation_candidates(
         market,
         rotation_universe=universes.rotation_universe,
+        derivatives=derivatives,
         regime=regime,
     )
     short_candidates = generate_short_candidates(
         market,
         short_universe=universes.short_universe,
+        derivatives=derivatives,
         regime=regime,
     )
     candidate_rows: list[dict[str, Any]] = []
     validated_rows: list[dict[str, Any]] = []
     for candidate in [*trend_candidates, *rotation_candidates, *short_candidates]:
-        row = _candidate_row(candidate)
+        row = _candidate_with_stop_taxonomy(candidate, market, regime)
         validation = validate_candidate_for_allocation(row, account)
         row["validation"] = {"allowed": validation.allowed, "reasons": list(validation.reasons), "metrics": validation.metrics}
         row["baseline_risk_proxy"] = round(max(float(row.get("score", 0.0) or 0.0) * 0.001, 0.0), 6)
@@ -307,7 +444,7 @@ def main() -> None:
             allocation["execution"] = {"status": "SKIPPED", "reason": "short_execution_not_enabled"}
             continue
         try:
-            signal = _candidate_signal(allocation, market)
+            signal = _candidate_signal(allocation, market, regime=regime)
         except ValueError as exc:
             allocation["execution"] = {"status": "BLOCKED", "reason": str(exc)}
             continue
@@ -318,20 +455,31 @@ def main() -> None:
                 "reason": "; ".join(signal_validation.reasons) or "signal validation failed",
             }
             continue
-        replayed_execution = replay_processed_execution(state, signal, executor.execution_log_path)
+        replayed_execution = replay_processed_execution(
+            state,
+            signal,
+            executor.execution_log_path,
+            executor.paper_ledger_path if config.execution.mode == "paper" else None,
+        )
         if replayed_execution:
             if config.execution.mode != "dry-run" and not already_processed(state, signal):
                 fingerprint = mark_processed(state, signal)
                 store.record_signal(state, signal.symbol, fingerprint, config.risk.cooldown_minutes)
                 store.save(state)
-            allocation["execution"] = replayed_execution
+            allocation["execution"] = {
+                "status": replayed_execution.get("status"),
+                "intent_id": replayed_execution.get("intent_id"),
+            }
             execution_rows.append(
                 {
                     "symbol": signal.symbol,
                     "status": replayed_execution.get("status"),
                     "intent_id": replayed_execution.get("intent_id"),
                     "qty": 0.0,
-                    "execution": {"replayed": True},
+                    "execution": {
+                        "replayed": True,
+                        "replay_source": replayed_execution.get("replay_source"),
+                    },
                 }
             )
             continue
@@ -367,11 +515,18 @@ def main() -> None:
                 "engine": allocation.get("engine"),
                 "setup_type": allocation.get("setup_type"),
                 "final_risk_budget": allocation.get("final_risk_budget", 0.0),
+                "invalidation_source": signal.meta.get("invalidation_source"),
+                "invalidation_reason": signal.meta.get("invalidation_reason"),
+                "stop_family": signal.meta.get("stop_family"),
+                "stop_reference": signal.meta.get("stop_reference"),
+                "stop_policy_source": signal.meta.get("stop_policy_source"),
+                "taxonomy_stop_loss": signal.stop_loss,
             },
         )
         execution = executor.execute(order, state)
         if config.execution.mode != "dry-run":
-            apply_executed_intent(state, order)
+            if config.execution.mode != "paper":
+                apply_executed_intent(state, order)
             fingerprint = mark_processed(state, signal)
             store.record_signal(state, signal.symbol, fingerprint, config.risk.cooldown_minutes)
             store.save(state)
@@ -386,7 +541,12 @@ def main() -> None:
             }
         )
 
-    management = evaluate_portfolio(state)
+    regime_payload = {
+        **asdict(regime),
+        "late_stage_heat": derivatives_summary.get("late_stage_heat", "none"),
+        "execution_hazard": derivatives_summary.get("execution_hazard", "none"),
+    }
+    management = evaluate_portfolio(state, regime=regime_payload)
     management_intents = build_management_action_intents(state, management)
     management_previews = executor.preview_management_actions(management_intents, account.open_orders)
     lifecycle_updates = advance_lifecycle_positions(state, config.lifecycle)
@@ -395,10 +555,15 @@ def main() -> None:
         management_suggestions=management,
     )
 
-    state.latest_regime = asdict(regime)
+    state.latest_regime = regime_payload
     state.latest_universes = _universes_payload(universes)
     state.latest_candidates = candidate_rows
     state.latest_allocations = allocation_rows
+    state.paper_trading = _paper_trading_summary(
+        config.execution.mode,
+        executor.paper_ledger_path if config.execution.mode == "paper" else None,
+        execution_rows,
+    )
     state.latest_lifecycle = lifecycle_updates
     state.lifecycle_summary = lifecycle_summary
     state.rotation_candidates = [row for row in candidate_rows if str(row.get("engine", "")).lower() == "rotation"]
@@ -420,7 +585,7 @@ def main() -> None:
     store.save(state)
 
     regime_summary = build_regime_summary(
-        regime=regime,
+        regime=state.latest_regime,
         universes=state.latest_universes,
         candidates=state.latest_candidates,
         allocations=state.latest_allocations,
@@ -438,6 +603,7 @@ def main() -> None:
                 "management_action_previews": management_previews,
                 "lifecycle_updates": lifecycle_updates,
                 "lifecycle_summary": lifecycle_summary,
+                "paper_trading": state.paper_trading,
                 "account_open_orders": len(account.open_orders),
             },
             },

@@ -8,8 +8,9 @@ from typing import Any, Callable
 from ..connectors.binance import query_open_protective_orders
 from ..config import AppConfig
 from ..types import ManagementActionIntent, OrderIntent, RuntimeState
-from .idempotency import bind_active_order
-from .orders import OrderMode, build_management_preview, dry_run_fill, paper_fill, preview_result
+from .paper_executor import PaperExecutor
+from .paper_ledger import PaperLedger
+from .orders import OrderMode, build_management_preview, dry_run_fill, preview_result
 
 BASE = Path(__file__).resolve().parents[2]
 EXEC_LOG = BASE / "data" / "execution_log.jsonl"
@@ -30,6 +31,8 @@ class OrderExecutor:
         self.mode = mode or config.execution.mode
         self.persist_state = persist_state
         self.execution_log_path = EXEC_LOG
+        self.paper_ledger_path = config.state_file.parent / "paper_ledger.jsonl"
+        self.paper_executor = PaperExecutor(PaperLedger(self.paper_ledger_path))
         if self.mode == "live" and not config.execution.allow_live_execution:
             raise ExecutionError("live execution is disabled unless TRADING_ALLOW_LIVE_EXECUTION is explicitly enabled")
         self.execution_log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -39,18 +42,7 @@ class OrderExecutor:
             raise ExecutionError("live 模式尚未启用；当前 MVP 仅支持 paper / dry-run")
 
         if self.mode == "paper":
-            result = paper_fill(order)
-            order.status = "FILLED"
-            bind_active_order(state, order)
-            state.positions[order.symbol] = {
-                "side": order.side,
-                "qty": order.qty,
-                "entry_price": order.entry_price,
-                "stop_loss": order.stop_loss,
-                "take_profit": order.take_profit,
-                "status": order.status,
-                "intent_id": order.intent_id,
-            }
+            result = self.paper_executor.execute(order, state)
             if self.persist_state is not None:
                 try:
                     self.persist_state(state)
