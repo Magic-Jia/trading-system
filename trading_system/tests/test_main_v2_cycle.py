@@ -787,6 +787,11 @@ def test_main_v2_cycle_persists_short_candidates_without_enabling_short_executio
                 "derivatives": {},
                 "volume_usdt_24h": 12500000000.0,
                 "liquidity_tier": "",
+                "stop_family": "structure_stop",
+                "stop_reference": "4h_ema20",
+                "invalidation_source": "short_breakdown_failure_above_4h_ema20",
+                "invalidation_reason": "breakdown continuation lost 4h breakdown resistance",
+                "stop_policy_source": "shared_taxonomy",
             }
         ],
     }
@@ -1100,9 +1105,14 @@ def test_main_v2_stdout_surfaces_surviving_short_derivatives_reporting(monkeypat
     assert leader["derivatives"] == {"crowding_bias": "balanced", "basis_bps": -8.0}
     assert leader["volume_usdt_24h"] == 6800000000.0
     assert leader["liquidity_tier"] == "top"
+    assert leader["stop_family"] == "structure_stop"
+    assert leader["stop_reference"] == "4h_ema20"
+    assert leader["invalidation_source"] == "short_breakdown_failure_above_4h_ema20"
+    assert leader["invalidation_reason"] == "breakdown continuation lost 4h breakdown resistance"
+    assert leader["stop_policy_source"] == "shared_taxonomy"
 
 
-def test_main_v2_stdout_omits_crowded_short_rejections_from_short_reporting(monkeypatch, tmp_path, load_fixture, capsys):
+def test_main_v2_stdout_surfaces_crowded_short_suppression_in_short_reporting(monkeypatch, tmp_path, load_fixture, capsys):
     output_path = tmp_path / "runtime_state.json"
     account_path = tmp_path / "account_snapshot.json"
     market_path = tmp_path / "market_context.json"
@@ -1187,6 +1197,15 @@ def test_main_v2_stdout_omits_crowded_short_rejections_from_short_reporting(monk
     assert "BTCUSDT" not in short_report["accepted_symbols"]
     assert "BTCUSDT" not in short_report["deferred_execution_symbols"]
     assert "BTCUSDT" not in leader_symbols
+    assert len(short_report["review_notes"]) == 1
+    note = short_report["review_notes"][0]
+    assert note["symbol"] == "BTCUSDT"
+    assert note["setup_type"] == "BREAKDOWN_SHORT"
+    assert note["reason"] == "crowded_short_squeeze_risk"
+    assert note["crowding_bias"] == "crowded_short"
+    assert note["basis_bps"] == -31.0
+    assert "suppressed" in note["message"]
+    assert "crowded-short squeeze risk" in note["message"]
 
 
 def test_main_v2_stdout_reports_empty_short_lists_when_all_short_candidates_are_rejected(
@@ -1258,13 +1277,13 @@ def test_main_v2_stdout_reports_empty_short_lists_when_all_short_candidates_are_
     main_module.main()
     payload = json.loads(capsys.readouterr().out)
 
-    assert payload["regime"]["short"] == {
-        "universe_count": 2,
-        "candidate_count": 0,
-        "accepted_symbols": [],
-        "deferred_execution_symbols": [],
-        "leaders": [],
-    }
+    short_report = payload["regime"]["short"]
+    assert short_report["universe_count"] == 2
+    assert short_report["candidate_count"] == 0
+    assert short_report["accepted_symbols"] == []
+    assert short_report["deferred_execution_symbols"] == []
+    assert short_report["leaders"] == []
+    assert [note["symbol"] for note in short_report["review_notes"]] == ["BTCUSDT", "ETHUSDT"]
 
 
 def test_main_v2_stdout_clears_previous_short_reporting_when_later_all_short_candidates_are_rejected(
@@ -1347,13 +1366,13 @@ def test_main_v2_stdout_clears_previous_short_reporting_when_later_all_short_can
     main_module.main()
     payload = json.loads(capsys.readouterr().out)
 
-    assert payload["regime"]["short"] == {
-        "universe_count": 2,
-        "candidate_count": 0,
-        "accepted_symbols": [],
-        "deferred_execution_symbols": [],
-        "leaders": [],
-    }
+    short_report = payload["regime"]["short"]
+    assert short_report["universe_count"] == 2
+    assert short_report["candidate_count"] == 0
+    assert short_report["accepted_symbols"] == []
+    assert short_report["deferred_execution_symbols"] == []
+    assert short_report["leaders"] == []
+    assert [note["symbol"] for note in short_report["review_notes"]] == ["BTCUSDT", "ETHUSDT"]
 
 
 def test_main_v2_direct_state_store_reload_path_clears_stale_short_candidate_rows_when_later_all_short_candidates_are_rejected(
@@ -1486,13 +1505,13 @@ def test_main_v2_direct_state_store_reload_path_clears_stale_short_candidate_row
         "deferred_execution_symbols": [],
         "leaders": [],
     }
-    assert payload["regime"]["short"] == {
-        "universe_count": 2,
-        "candidate_count": 0,
-        "accepted_symbols": [],
-        "deferred_execution_symbols": [],
-        "leaders": [],
-    }
+    short_report = payload["regime"]["short"]
+    assert short_report["universe_count"] == 2
+    assert short_report["candidate_count"] == 0
+    assert short_report["accepted_symbols"] == []
+    assert short_report["deferred_execution_symbols"] == []
+    assert short_report["leaders"] == []
+    assert [note["symbol"] for note in short_report["review_notes"]] == ["BTCUSDT", "ETHUSDT"]
 
 
 def test_main_v2_direct_state_store_reload_path_clears_stale_short_latest_allocations_when_later_all_short_candidates_are_rejected(
@@ -1629,13 +1648,13 @@ def test_main_v2_direct_state_store_reload_path_clears_stale_short_latest_alloca
         "deferred_execution_symbols": [],
         "leaders": [],
     }
-    assert payload["regime"]["short"] == {
-        "universe_count": 2,
-        "candidate_count": 0,
-        "accepted_symbols": [],
-        "deferred_execution_symbols": [],
-        "leaders": [],
-    }
+    short_report = payload["regime"]["short"]
+    assert short_report["universe_count"] == 2
+    assert short_report["candidate_count"] == 0
+    assert short_report["accepted_symbols"] == []
+    assert short_report["deferred_execution_symbols"] == []
+    assert short_report["leaders"] == []
+    assert [note["symbol"] for note in short_report["review_notes"]] == ["BTCUSDT", "ETHUSDT"]
 
 
 def test_main_v2_direct_state_store_reload_path_clears_persisted_and_emitted_short_outputs_when_later_all_short_candidates_are_rejected(
@@ -1767,13 +1786,13 @@ def test_main_v2_direct_state_store_reload_path_clears_persisted_and_emitted_sho
         "deferred_execution_symbols": [],
         "leaders": [],
     }
-    assert payload["regime"]["short"] == {
-        "universe_count": 2,
-        "candidate_count": 0,
-        "accepted_symbols": [],
-        "deferred_execution_symbols": [],
-        "leaders": [],
-    }
+    short_report = payload["regime"]["short"]
+    assert short_report["universe_count"] == 2
+    assert short_report["candidate_count"] == 0
+    assert short_report["accepted_symbols"] == []
+    assert short_report["deferred_execution_symbols"] == []
+    assert short_report["leaders"] == []
+    assert [note["symbol"] for note in short_report["review_notes"]] == ["BTCUSDT", "ETHUSDT"]
 
 
 def test_main_v2_reload_boundary_clears_persisted_and_emitted_short_outputs_when_later_all_short_candidates_are_rejected(
@@ -1886,13 +1905,13 @@ def test_main_v2_reload_boundary_clears_persisted_and_emitted_short_outputs_when
         "deferred_execution_symbols": [],
         "leaders": [],
     }
-    assert payload["regime"]["short"] == {
-        "universe_count": 2,
-        "candidate_count": 0,
-        "accepted_symbols": [],
-        "deferred_execution_symbols": [],
-        "leaders": [],
-    }
+    short_report = payload["regime"]["short"]
+    assert short_report["universe_count"] == 2
+    assert short_report["candidate_count"] == 0
+    assert short_report["accepted_symbols"] == []
+    assert short_report["deferred_execution_symbols"] == []
+    assert short_report["leaders"] == []
+    assert [note["symbol"] for note in short_report["review_notes"]] == ["BTCUSDT", "ETHUSDT"]
 
 
 def test_main_v2_persisted_state_clears_previous_short_summary_when_later_all_short_candidates_are_rejected(

@@ -11,6 +11,7 @@ from .data_sources import load_derivatives_snapshot, load_market_context
 from .execution.executor import OrderExecutor
 from .execution.idempotency import already_processed, intent_id, mark_processed, replay_processed_execution
 from .market_regime import classify_regime, summarize_derivatives_risk
+from .market_regime.derivatives import symbol_derivatives_features
 from .portfolio.allocator import allocate_candidates
 from .portfolio.lifecycle import advance_lifecycle_positions, build_management_action_intents, evaluate_portfolio
 from .portfolio.positions import apply_executed_intent, sync_positions_from_account
@@ -18,7 +19,12 @@ from .reporting.daily_report import build_lifecycle_report, build_rotation_repor
 from .reporting.regime_report import build_regime_summary
 from .risk.stop_policy import build_stop_policy
 from .signals.rotation_engine import generate_rotation_candidates
-from .signals.short_engine import generate_short_candidates
+from .signals.short_engine import (
+    _reject_crowded_short_squeeze_risk,
+    _setup_type as _short_setup_type,
+    _trend_broken,
+    generate_short_candidates,
+)
 from .risk.validator import validate_candidate_for_allocation, validate_candidate_for_execution, validate_signal
 from .signals.trend_engine import generate_trend_candidates
 from .storage.state_store import build_state_store
@@ -155,6 +161,61 @@ def _candidate_row(candidate: Any) -> dict[str, Any]:
 
 def _candidate_sort_key(row: Mapping[str, Any]) -> tuple[float, str, str]:
     return (-float(row.get("score", 0.0) or 0.0), str(row.get("symbol", "")), str(row.get("engine", "")))
+
+
+def _short_candidate_symbol(candidate: Any) -> str:
+    if isinstance(candidate, Mapping):
+        return str(candidate.get("symbol", "")).upper().strip()
+    return str(getattr(candidate, "symbol", "")).upper().strip()
+
+
+def _short_review_notes(
+    *,
+    market: Mapping[str, Any],
+    short_universe: list[Mapping[str, Any]],
+    short_candidates: list[Any],
+    derivatives: Mapping[str, Any] | list[dict[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    candidate_symbols = {_short_candidate_symbol(candidate) for candidate in short_candidates}
+    market_symbols = market.get("symbols", {})
+    if not isinstance(market_symbols, Mapping):
+        return []
+
+    notes: list[dict[str, Any]] = []
+    for universe_row in short_universe:
+        symbol = str(universe_row.get("symbol", "")).upper().strip()
+        if not symbol or symbol in candidate_symbols:
+            continue
+        payload = market_symbols.get(symbol)
+        if not isinstance(payload, Mapping):
+            continue
+        if not _trend_broken(payload):
+            continue
+        setup_type = _short_setup_type(payload)
+        if not setup_type:
+            continue
+
+        derivatives_features = symbol_derivatives_features(derivatives, symbol)
+        if not _reject_crowded_short_squeeze_risk(derivatives_features):
+            continue
+
+        crowding_bias = str(derivatives_features.get("crowding_bias", "balanced") or "balanced")
+        basis_bps = round(_float({"basis_bps": derivatives_features.get("basis_bps")}, "basis_bps"), 6)
+        notes.append(
+            {
+                "symbol": symbol,
+                "setup_type": setup_type,
+                "reason": "crowded_short_squeeze_risk",
+                "crowding_bias": crowding_bias,
+                "basis_bps": basis_bps,
+                "message": (
+                    f"{symbol} {setup_type} suppressed: crowded-short squeeze risk remained elevated "
+                    f"(crowding bias {crowding_bias}, basis {basis_bps:.1f} bps)."
+                ),
+            }
+        )
+
+    return sorted(notes, key=lambda row: (str(row.get("symbol", "")), str(row.get("setup_type", ""))))
 
 
 def _regime_payload(regime: Any) -> Mapping[str, Any] | None:
@@ -574,6 +635,12 @@ def main() -> None:
         rotation_universe=list(state.latest_universes.get("rotation_universe", [])),
     )
     state.short_candidates = [row for row in candidate_rows if str(row.get("engine", "")).lower() == "short"]
+    short_review_notes = _short_review_notes(
+        market=market,
+        short_universe=list(state.latest_universes.get("short_universe", [])),
+        short_candidates=short_candidates,
+        derivatives=derivatives,
+    )
     state.short_summary = build_short_report(
         short_candidates=state.short_candidates,
         allocations=state.latest_allocations,
@@ -591,7 +658,7 @@ def main() -> None:
         allocations=state.latest_allocations,
         executions=execution_rows,
         rotation_report=state.rotation_summary,
-        short_report=state.short_summary,
+        short_report={**state.short_summary, "review_notes": short_review_notes} if short_review_notes else state.short_summary,
     )
     print(
         json.dumps(
