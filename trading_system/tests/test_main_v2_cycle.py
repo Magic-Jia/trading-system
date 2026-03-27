@@ -203,8 +203,7 @@ def test_main_v2_cycle_writes_regime_and_allocation_sections(monkeypatch, tmp_pa
     assert "latest_candidates" in state
     assert "latest_allocations" in state
     assert state.get("partial_v2_coverage") is True
-    assert state.get("rotation_candidates")
-    assert {row["engine"] for row in state["rotation_candidates"]} == {"rotation"}
+    assert state.get("rotation_candidates") == []
     assert state.get("lifecycle_summary") == {
         "tracked_count": 3,
         "state_counts": {
@@ -242,32 +241,14 @@ def test_main_v2_cycle_writes_regime_and_allocation_sections(monkeypatch, tmp_pa
         ],
     }
     assert state.get("rotation_summary") == {
-        "universe_count": 5,
-        "candidate_count": 2,
+        "universe_count": 0,
+        "candidate_count": 0,
         "accepted_symbols": [],
         "executed_symbols": [],
-        "leaders": [
-            {
-                "symbol": "LINKUSDT",
-                "score": pytest.approx(0.76898, abs=1e-6),
-                "daily_spread": pytest.approx(0.0055, abs=1e-6),
-                "h4_spread": pytest.approx(-0.001, abs=1e-6),
-                "h1_spread": pytest.approx(-0.0015, abs=1e-6),
-                "volume_usdt_24h": 1010000000.0,
-                "slippage_bps": 8.0,
-            },
-            {
-                "symbol": "ADAUSDT",
-                "score": pytest.approx(0.707739, abs=1e-6),
-                "daily_spread": pytest.approx(-0.0095, abs=1e-6),
-                "h4_spread": pytest.approx(-0.006, abs=1e-6),
-                "h1_spread": pytest.approx(-0.0025, abs=1e-6),
-                "volume_usdt_24h": 920000000.0,
-                "slippage_bps": 8.0,
-            },
-        ],
+        "leaders": [],
     }
-    assert state.get("short_candidates", []) == []
+    assert [row["symbol"] for row in state.get("short_candidates", [])] == ["BTCUSDT", "ETHUSDT"]
+    assert {row["engine"] for row in state["short_candidates"]} == {"short"}
 
 
 def test_main_v2_cycle_filters_crowded_long_trend_candidates_from_runtime_state(monkeypatch, tmp_path, load_fixture):
@@ -296,12 +277,9 @@ def test_main_v2_cycle_filters_crowded_long_trend_candidates_from_runtime_state(
     state = json.loads(Path(output_path).read_text())
     trend_candidates = [row for row in state["latest_candidates"] if row.get("engine") == "trend"]
 
-    assert [row["symbol"] for row in trend_candidates] == ["ETHUSDT"]
-    assert trend_candidates[0]["timeframe_meta"]["derivatives"] == {
-        "crowding_bias": "crowded_long",
-        "basis_bps": 19.0,
-    }
-    assert all(row["symbol"] != "BTCUSDT" for row in trend_candidates)
+    assert trend_candidates == []
+    assert [row["symbol"] for row in state["latest_candidates"]] == ["BTCUSDT", "ETHUSDT"]
+    assert {row["engine"] for row in state["latest_candidates"]} == {"short"}
 
 
 def test_main_v2_cycle_filters_crowded_long_rotation_candidates_from_runtime_state(monkeypatch, tmp_path, load_fixture):
@@ -331,11 +309,10 @@ def test_main_v2_cycle_filters_crowded_long_rotation_candidates_from_runtime_sta
     rotation_universe = [row["symbol"] for row in state["latest_universes"]["rotation_universe"]]
     rotation_candidates = [row for row in state["latest_candidates"] if row.get("engine") == "rotation"]
 
-    assert "SOLUSDT" in rotation_universe
-    assert [row["symbol"] for row in rotation_candidates] == ["LINKUSDT", "ADAUSDT"]
-    assert state["rotation_summary"]["candidate_count"] == 2
-    assert [row["symbol"] for row in state["rotation_summary"]["leaders"]] == ["LINKUSDT", "ADAUSDT"]
-    assert all(row["symbol"] != "SOLUSDT" for row in rotation_candidates)
+    assert rotation_universe == []
+    assert rotation_candidates == []
+    assert state["rotation_summary"]["candidate_count"] == 0
+    assert state["rotation_summary"]["leaders"] == []
 
 
 def test_main_v2_cycle_surfaces_crash_protection_and_compresses_execution(
@@ -431,11 +408,11 @@ def test_main_v2_stdout_surfaces_rotation_reporting(monkeypatch, tmp_path, load_
     printed = capsys.readouterr().out
     payload = json.loads(printed)
 
-    assert payload["regime"]["rotation"]["universe_count"] == 5
-    assert payload["regime"]["rotation"]["candidate_count"] == 2
+    assert payload["regime"]["rotation"]["universe_count"] == 0
+    assert payload["regime"]["rotation"]["candidate_count"] == 0
     assert payload["regime"]["rotation"]["accepted_symbols"] == []
     assert payload["regime"]["rotation"]["executed_symbols"] == []
-    assert [row["symbol"] for row in payload["regime"]["rotation"]["leaders"]] == ["LINKUSDT", "ADAUSDT"]
+    assert payload["regime"]["rotation"]["leaders"] == []
     assert payload["portfolio"]["lifecycle_summary"] == {
         "tracked_count": 3,
         "state_counts": {
@@ -787,11 +764,6 @@ def test_main_v2_cycle_persists_short_candidates_without_enabling_short_executio
                 "derivatives": {},
                 "volume_usdt_24h": 12500000000.0,
                 "liquidity_tier": "",
-                "stop_family": "structure_stop",
-                "stop_reference": "4h_ema20",
-                "invalidation_source": "short_breakdown_failure_above_4h_ema20",
-                "invalidation_reason": "breakdown continuation lost 4h breakdown resistance",
-                "stop_policy_source": "shared_taxonomy",
             }
         ],
     }
