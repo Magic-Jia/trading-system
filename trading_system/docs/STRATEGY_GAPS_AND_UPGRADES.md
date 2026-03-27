@@ -172,6 +172,13 @@
 - 引入 squeeze / crowding 过滤
 - 让 short 真正具备独立策略逻辑，而不是防守补位
 
+当前状态（2026-03-27）：
+
+- 这个阶段已经先以 **bounded package** 形式落地一包：`short engine` 已区分 `BREAKDOWN_SHORT` / `FAILED_BOUNCE_SHORT`，并加入 crowded-short squeeze risk 过滤。
+- short 的 setup-specific stop / invalidation 语义已经进入共享 stop taxonomy，并能在 runtime state / reporting 里直接看到，不再只是 entry-only 变化。
+- 这次落地仍然**不包含** live short execution plumbing、交易所 short 下单链路、以及更完整的 execution-safety 配套；这些继续属于 execution-safety track。
+- 因为 short entry / stop 语义已经先成熟了一步，而 exit 体系仍偏薄，所以下一包策略建议仍优先回到 **Phase 6 — Exit system**。
+
 ### Phase 8 — Strategy evaluation / ablation / attribution
 
 目标：
@@ -202,6 +209,6 @@ Step 2 review 应重点确认：
 - 这套系统的 edge 是否应该明确转向 crypto derivatives / crowding
 - regime crash protection 是否应该前置到 derivatives / overheat 之后
 - edge-aware sizing / execution friction / turnover control 是否应该被明确写成一整段主线，而不是散在 allocator 里
-- short maturity 是否继续排在 exit system 之后，还是与 exit system 并行推进
+- short maturity 已经完成一包受控落地后，下一包是否明确回到 exit system（推荐）
 - strategy evaluation / ablation / attribution 是否应该在文档里被单列成最后一个策略阶段
 - 这套顺序是否足够清楚，能直接指导 step 3 implementation
