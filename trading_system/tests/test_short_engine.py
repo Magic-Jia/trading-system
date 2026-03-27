@@ -130,6 +130,62 @@ def test_generate_short_candidates_emits_major_short_setups_in_defensive_regime(
     assert {candidate.side for candidate in candidates} == {"SHORT"}
 
 
+
+def test_generate_short_candidates_labels_true_breakdown_short_setup():
+    candidates = generate_short_candidates(
+        _defensive_market(),
+        short_universe=[
+            {"symbol": "BTCUSDT", "sector": "majors", "liquidity_meta": {"rolling_notional": 12_500_000_000.0}},
+        ],
+        regime={"label": "HIGH_VOL_DEFENSIVE", "bucket_targets": {"trend": 0.2, "rotation": 0.0, "short": 0.8}},
+    )
+
+    candidate = next(item for item in candidates if item.symbol == "BTCUSDT")
+
+    assert candidate.setup_type == "BREAKDOWN_SHORT"
+
+
+
+def test_generate_short_candidates_labels_true_failed_bounce_short_setup():
+    market = _defensive_market()
+    market["symbols"]["ETHUSDT"]["4h"]["close"] = 4960.0
+    market["symbols"]["ETHUSDT"]["4h"]["return_pct_3d"] = -0.015
+    market["symbols"]["ETHUSDT"]["1h"]["close"] = 4925.0
+    market["symbols"]["ETHUSDT"]["1h"]["return_pct_24h"] = -0.004
+
+    candidates = generate_short_candidates(
+        market,
+        short_universe=[
+            {"symbol": "ETHUSDT", "sector": "majors", "liquidity_meta": {"rolling_notional": 6_800_000_000.0}},
+        ],
+        regime={"label": "HIGH_VOL_DEFENSIVE", "bucket_targets": {"trend": 0.2, "rotation": 0.0, "short": 0.8}},
+    )
+
+    candidate = next(item for item in candidates if item.symbol == "ETHUSDT")
+
+    assert candidate.setup_type == "FAILED_BOUNCE_SHORT"
+
+
+
+def test_generate_short_candidates_rejects_weak_ambiguous_downside():
+    market = _defensive_market()
+    market["symbols"]["BTCUSDT"]["daily"]["return_pct_7d"] = -0.014
+    market["symbols"]["BTCUSDT"]["4h"]["close"] = 96950.0
+    market["symbols"]["BTCUSDT"]["4h"]["return_pct_3d"] = -0.006
+    market["symbols"]["BTCUSDT"]["1h"]["close"] = 96480.0
+    market["symbols"]["BTCUSDT"]["1h"]["return_pct_24h"] = -0.0015
+
+    candidates = generate_short_candidates(
+        market,
+        short_universe=[
+            {"symbol": "BTCUSDT", "sector": "majors", "liquidity_meta": {"rolling_notional": 12_500_000_000.0}},
+        ],
+        regime={"label": "HIGH_VOL_DEFENSIVE", "bucket_targets": {"trend": 0.2, "rotation": 0.0, "short": 0.8}},
+    )
+
+    assert candidates == []
+
+
 def test_generate_short_candidates_rejects_crowded_short_squeeze_risk():
     market = _defensive_market()
     short_universe = [
