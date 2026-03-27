@@ -6,6 +6,7 @@ from pathlib import Path
 
 from ..portfolio.positions import apply_executed_intent
 from ..types import OrderIntent, RuntimeState, TradeSignal
+from .paper_ledger import PaperLedger
 
 
 def signal_fingerprint(signal: TradeSignal) -> str:
@@ -63,22 +64,49 @@ def _load_logged_order(intent_id: str, execution_log_path: Path) -> OrderIntent 
     return matched_order
 
 
+def _load_paper_ledger_order(intent_id: str, paper_ledger_path: Path) -> OrderIntent | None:
+    event = PaperLedger(paper_ledger_path).load_event(intent_id)
+    if event is None:
+        return None
+
+    order = event.get("order")
+    if not isinstance(order, dict):
+        return None
+
+    try:
+        return OrderIntent(**order)
+    except TypeError:
+        return None
+
+
 def replay_processed_execution(
     state: RuntimeState,
     signal: TradeSignal,
     execution_log_path: Path | None = None,
+    paper_ledger_path: Path | None = None,
 ) -> dict[str, str] | None:
     existing_intent_id = intent_id(signal)
     active = state.active_orders.get(existing_intent_id)
     if isinstance(active, dict):
         status = str(active.get("status", "")).upper()
         if status:
-            return {"status": status, "intent_id": existing_intent_id}
+            return {"status": status, "intent_id": existing_intent_id, "replay_source": "runtime_state"}
 
     position = state.positions.get(signal.symbol)
     if isinstance(position, dict) and position.get("intent_id") == existing_intent_id:
         status = str(position.get("status", "FILLED")).upper()
-        return {"status": status, "intent_id": existing_intent_id}
+        return {"status": status, "intent_id": existing_intent_id, "replay_source": "runtime_state"}
+
+    if paper_ledger_path is not None:
+        paper_order = _load_paper_ledger_order(existing_intent_id, paper_ledger_path)
+        if paper_order is not None:
+            bind_active_order(state, paper_order)
+            apply_executed_intent(state, paper_order)
+            return {
+                "status": paper_order.status.upper(),
+                "intent_id": existing_intent_id,
+                "replay_source": "paper_ledger",
+            }
 
     if execution_log_path is None:
         return None
@@ -89,7 +117,11 @@ def replay_processed_execution(
 
     bind_active_order(state, logged_order)
     apply_executed_intent(state, logged_order)
-    return {"status": logged_order.status.upper(), "intent_id": existing_intent_id}
+    return {
+        "status": logged_order.status.upper(),
+        "intent_id": existing_intent_id,
+        "replay_source": "execution_log",
+    }
 
 
 def bind_active_order(state: RuntimeState, order: OrderIntent) -> None:
