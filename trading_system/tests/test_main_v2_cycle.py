@@ -1897,13 +1897,13 @@ def test_main_v2_dry_run_does_not_leave_execution_traces(monkeypatch, tmp_path, 
     trend_candidates = [row for row in state.get("latest_candidates", []) if row.get("engine") == "trend"]
     assert trend_candidates
     assert all(float(row.get("stop_loss", 0.0) or 0.0) > 0 for row in trend_candidates)
-    assert all(row.get("invalidation_source") == "trend_structure_loss_below_4h_ema50" for row in trend_candidates)
+    assert all(row.get("invalidation_source") == "trend_breakout_failure_below_4h_ema20" for row in trend_candidates)
     accepted_allocations = [row for row in state.get("latest_allocations", []) if row.get("status") in {"ACCEPTED", "DOWNSIZED"}]
     assert accepted_allocations
     trend_allocations = [row for row in accepted_allocations if row.get("engine") == "trend"]
     assert trend_allocations
     assert all(float(row.get("stop_loss", 0.0) or 0.0) > 0 for row in trend_allocations)
-    assert all(row.get("invalidation_source") == "trend_structure_loss_below_4h_ema50" for row in trend_allocations)
+    assert all(row.get("invalidation_source") == "trend_breakout_failure_below_4h_ema20" for row in trend_allocations)
     assert all(row.get("execution", {}).get("status") == "BLOCKED" for row in trend_allocations)
     assert all("显式止损" not in row.get("execution", {}).get("reason", "") for row in trend_allocations)
     assert all("invalidation_source" not in row.get("execution", {}).get("reason", "") for row in trend_allocations)
@@ -1989,7 +1989,7 @@ def test_main_v2_blocks_invalid_signal_before_execution(monkeypatch, tmp_path, l
     assert all(not position.get("tracked_from_intent") for position in state.get("positions", {}).values())
 
 
-def test_main_v2_blocks_candidate_missing_explicit_stop_or_invalidation_before_execution(monkeypatch, tmp_path, load_fixture):
+def test_main_v2_backfills_candidate_stop_and_invalidation_from_shared_taxonomy_before_execution(monkeypatch, tmp_path, load_fixture):
     output_path = tmp_path / "runtime_state.json"
     account_path = tmp_path / "account_snapshot.json"
     market_path = tmp_path / "market_context.json"
@@ -2027,20 +2027,22 @@ def test_main_v2_blocks_candidate_missing_explicit_stop_or_invalidation_before_e
         lambda **kwargs: [AllocationDecision(status="ACCEPTED", engine="trend", final_risk_budget=0.01, rank=1)],
     )
 
-    def should_not_execute(self, order, state):
-        raise AssertionError("executor should not run for rejected no-stop candidates")
-
-    monkeypatch.setattr(main_module.OrderExecutor, "execute", should_not_execute)
-
     main_module.main()
 
     state = json.loads(Path(output_path).read_text())
+    trend_candidates = [row for row in state.get("latest_candidates", []) if row.get("engine") == "trend"]
+    assert trend_candidates
+    assert all(float(row.get("stop_loss", 0.0) or 0.0) > 0 for row in trend_candidates)
+    assert all(row.get("invalidation_source") == "trend_structure_loss_below_4h_ema50" for row in trend_candidates)
+    assert all(row.get("stop_policy_source") == "shared_taxonomy" for row in trend_candidates)
     accepted_allocations = [row for row in state.get("latest_allocations", []) if row.get("status") in {"ACCEPTED", "DOWNSIZED"}]
     assert accepted_allocations
-    blocked = [row for row in accepted_allocations if row.get("execution", {}).get("status") == "BLOCKED"]
-    assert blocked
-    assert all("显式止损" in row.get("execution", {}).get("reason", "") for row in blocked)
-    assert all("invalidation_source" in row.get("execution", {}).get("reason", "") for row in blocked)
+    assert all(float(row.get("stop_loss", 0.0) or 0.0) > 0 for row in accepted_allocations)
+    assert all(row.get("invalidation_source") == "trend_structure_loss_below_4h_ema50" for row in accepted_allocations)
+    assert all(row.get("stop_policy_source") == "shared_taxonomy" for row in accepted_allocations)
+    assert all(row.get("execution", {}).get("status") == "BLOCKED" for row in accepted_allocations)
+    assert all("显式止损" not in row.get("execution", {}).get("reason", "") for row in accepted_allocations)
+    assert all("invalidation_source" not in row.get("execution", {}).get("reason", "") for row in accepted_allocations)
     assert state.get("active_orders") == {}
     assert all(not position.get("tracked_from_intent") for position in state.get("positions", {}).values())
 
