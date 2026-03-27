@@ -180,7 +180,15 @@ def test_main_v2_cycle_writes_regime_and_allocation_sections(monkeypatch, tmp_pa
     market_path = tmp_path / "market_context.json"
     deriv_path = tmp_path / "derivatives_snapshot.json"
     account_path.write_text(json.dumps(load_fixture("account_snapshot_v2.json")))
-    market_path.write_text(json.dumps(load_fixture("market_context_v2.json")))
+    market_path.write_text(
+        json.dumps(
+            {
+                "as_of": "2026-03-25T00:00:00Z",
+                "schema_version": "v2",
+                **_defensive_short_market(),
+            }
+        )
+    )
     deriv_path.write_text(json.dumps(load_fixture("derivatives_snapshot_v2.json")))
     monkeypatch.setenv("TRADING_STATE_FILE", str(output_path))
     monkeypatch.setenv("TRADING_ACCOUNT_SNAPSHOT_FILE", str(account_path))
@@ -195,8 +203,7 @@ def test_main_v2_cycle_writes_regime_and_allocation_sections(monkeypatch, tmp_pa
     assert "latest_candidates" in state
     assert "latest_allocations" in state
     assert state.get("partial_v2_coverage") is True
-    assert state.get("rotation_candidates")
-    assert {row["engine"] for row in state["rotation_candidates"]} == {"rotation"}
+    assert state.get("rotation_candidates") == []
     assert state.get("lifecycle_summary") == {
         "tracked_count": 3,
         "state_counts": {
@@ -234,32 +241,14 @@ def test_main_v2_cycle_writes_regime_and_allocation_sections(monkeypatch, tmp_pa
         ],
     }
     assert state.get("rotation_summary") == {
-        "universe_count": 5,
-        "candidate_count": 2,
+        "universe_count": 0,
+        "candidate_count": 0,
         "accepted_symbols": [],
         "executed_symbols": [],
-        "leaders": [
-            {
-                "symbol": "LINKUSDT",
-                "score": pytest.approx(0.76898, abs=1e-6),
-                "daily_spread": pytest.approx(0.0055, abs=1e-6),
-                "h4_spread": pytest.approx(-0.001, abs=1e-6),
-                "h1_spread": pytest.approx(-0.0015, abs=1e-6),
-                "volume_usdt_24h": 1010000000.0,
-                "slippage_bps": 8.0,
-            },
-            {
-                "symbol": "ADAUSDT",
-                "score": pytest.approx(0.707739, abs=1e-6),
-                "daily_spread": pytest.approx(-0.0095, abs=1e-6),
-                "h4_spread": pytest.approx(-0.006, abs=1e-6),
-                "h1_spread": pytest.approx(-0.0025, abs=1e-6),
-                "volume_usdt_24h": 920000000.0,
-                "slippage_bps": 8.0,
-            },
-        ],
+        "leaders": [],
     }
-    assert state.get("short_candidates", []) == []
+    assert [row["symbol"] for row in state.get("short_candidates", [])] == ["BTCUSDT", "ETHUSDT"]
+    assert {row["engine"] for row in state["short_candidates"]} == {"short"}
 
 
 def test_main_v2_cycle_filters_crowded_long_trend_candidates_from_runtime_state(monkeypatch, tmp_path, load_fixture):
@@ -268,7 +257,15 @@ def test_main_v2_cycle_filters_crowded_long_trend_candidates_from_runtime_state(
     market_path = tmp_path / "market_context.json"
     deriv_path = tmp_path / "derivatives_snapshot.json"
     account_path.write_text(json.dumps(load_fixture("account_snapshot_v2.json")))
-    market_path.write_text(json.dumps(load_fixture("market_context_v2.json")))
+    market_path.write_text(
+        json.dumps(
+            {
+                "as_of": "2026-03-25T00:00:00Z",
+                "schema_version": "v2",
+                **_defensive_short_market(),
+            }
+        )
+    )
     deriv_path.write_text(json.dumps(load_fixture("derivatives_snapshot_v2.json")))
     monkeypatch.setenv("TRADING_STATE_FILE", str(output_path))
     monkeypatch.setenv("TRADING_ACCOUNT_SNAPSHOT_FILE", str(account_path))
@@ -280,12 +277,9 @@ def test_main_v2_cycle_filters_crowded_long_trend_candidates_from_runtime_state(
     state = json.loads(Path(output_path).read_text())
     trend_candidates = [row for row in state["latest_candidates"] if row.get("engine") == "trend"]
 
-    assert [row["symbol"] for row in trend_candidates] == ["ETHUSDT"]
-    assert trend_candidates[0]["timeframe_meta"]["derivatives"] == {
-        "crowding_bias": "crowded_long",
-        "basis_bps": 19.0,
-    }
-    assert all(row["symbol"] != "BTCUSDT" for row in trend_candidates)
+    assert trend_candidates == []
+    assert [row["symbol"] for row in state["latest_candidates"]] == ["BTCUSDT", "ETHUSDT"]
+    assert {row["engine"] for row in state["latest_candidates"]} == {"short"}
 
 
 def test_main_v2_cycle_filters_crowded_long_rotation_candidates_from_runtime_state(monkeypatch, tmp_path, load_fixture):
@@ -294,7 +288,15 @@ def test_main_v2_cycle_filters_crowded_long_rotation_candidates_from_runtime_sta
     market_path = tmp_path / "market_context.json"
     deriv_path = tmp_path / "derivatives_snapshot.json"
     account_path.write_text(json.dumps(load_fixture("account_snapshot_v2.json")))
-    market_path.write_text(json.dumps(load_fixture("market_context_v2.json")))
+    market_path.write_text(
+        json.dumps(
+            {
+                "as_of": "2026-03-25T00:00:00Z",
+                "schema_version": "v2",
+                **_defensive_short_market(),
+            }
+        )
+    )
     deriv_path.write_text(json.dumps(load_fixture("derivatives_snapshot_v2.json")))
     monkeypatch.setenv("TRADING_STATE_FILE", str(output_path))
     monkeypatch.setenv("TRADING_ACCOUNT_SNAPSHOT_FILE", str(account_path))
@@ -307,11 +309,10 @@ def test_main_v2_cycle_filters_crowded_long_rotation_candidates_from_runtime_sta
     rotation_universe = [row["symbol"] for row in state["latest_universes"]["rotation_universe"]]
     rotation_candidates = [row for row in state["latest_candidates"] if row.get("engine") == "rotation"]
 
-    assert "SOLUSDT" in rotation_universe
-    assert [row["symbol"] for row in rotation_candidates] == ["LINKUSDT", "ADAUSDT"]
-    assert state["rotation_summary"]["candidate_count"] == 2
-    assert [row["symbol"] for row in state["rotation_summary"]["leaders"]] == ["LINKUSDT", "ADAUSDT"]
-    assert all(row["symbol"] != "SOLUSDT" for row in rotation_candidates)
+    assert rotation_universe == []
+    assert rotation_candidates == []
+    assert state["rotation_summary"]["candidate_count"] == 0
+    assert state["rotation_summary"]["leaders"] == []
 
 
 def test_main_v2_cycle_surfaces_crash_protection_and_compresses_execution(
@@ -388,7 +389,15 @@ def test_main_v2_stdout_surfaces_rotation_reporting(monkeypatch, tmp_path, load_
     market_path = tmp_path / "market_context.json"
     deriv_path = tmp_path / "derivatives_snapshot.json"
     account_path.write_text(json.dumps(load_fixture("account_snapshot_v2.json")))
-    market_path.write_text(json.dumps(load_fixture("market_context_v2.json")))
+    market_path.write_text(
+        json.dumps(
+            {
+                "as_of": "2026-03-25T00:00:00Z",
+                "schema_version": "v2",
+                **_defensive_short_market(),
+            }
+        )
+    )
     deriv_path.write_text(json.dumps(load_fixture("derivatives_snapshot_v2.json")))
     monkeypatch.setenv("TRADING_STATE_FILE", str(output_path))
     monkeypatch.setenv("TRADING_ACCOUNT_SNAPSHOT_FILE", str(account_path))
@@ -399,11 +408,11 @@ def test_main_v2_stdout_surfaces_rotation_reporting(monkeypatch, tmp_path, load_
     printed = capsys.readouterr().out
     payload = json.loads(printed)
 
-    assert payload["regime"]["rotation"]["universe_count"] == 5
-    assert payload["regime"]["rotation"]["candidate_count"] == 2
+    assert payload["regime"]["rotation"]["universe_count"] == 0
+    assert payload["regime"]["rotation"]["candidate_count"] == 0
     assert payload["regime"]["rotation"]["accepted_symbols"] == []
     assert payload["regime"]["rotation"]["executed_symbols"] == []
-    assert [row["symbol"] for row in payload["regime"]["rotation"]["leaders"]] == ["LINKUSDT", "ADAUSDT"]
+    assert payload["regime"]["rotation"]["leaders"] == []
     assert payload["portfolio"]["lifecycle_summary"] == {
         "tracked_count": 3,
         "state_counts": {
@@ -527,7 +536,15 @@ def test_main_v2_short_allocations_propagate_explicit_stop_and_invalidation_sour
             }
         )
     )
-    market_path.write_text(json.dumps(load_fixture("market_context_v2.json")))
+    market_path.write_text(
+        json.dumps(
+            {
+                "as_of": "2026-03-25T00:00:00Z",
+                "schema_version": "v2",
+                **_defensive_short_market(),
+            }
+        )
+    )
     deriv_path.write_text(json.dumps(load_fixture("derivatives_snapshot_v2.json")))
     monkeypatch.setenv("TRADING_STATE_FILE", str(output_path))
     monkeypatch.setenv("TRADING_ACCOUNT_SNAPSHOT_FILE", str(account_path))
@@ -571,7 +588,9 @@ def test_main_v2_short_allocations_propagate_explicit_stop_and_invalidation_sour
     assert short_candidate_rows
     assert all(float(row.get("stop_loss", 0.0) or 0.0) > 0 for row in short_candidate_rows)
     assert all(float(row.get("stop_loss", 0.0) or 0.0) > float(short_market["symbols"][row["symbol"]]["daily"]["close"]) for row in short_candidate_rows)
-    assert all(row.get("invalidation_source") == "short_structure_reclaim_above_4h_ema50" for row in short_candidate_rows)
+    assert all(row.get("invalidation_source") == "short_breakdown_failure_above_4h_ema20" for row in short_candidate_rows)
+    assert all(row.get("stop_family") == "structure_stop" for row in short_candidate_rows)
+    assert all(row.get("stop_reference") == "4h_ema20" for row in short_candidate_rows)
 
     accepted_short = [
         row
@@ -580,9 +599,118 @@ def test_main_v2_short_allocations_propagate_explicit_stop_and_invalidation_sour
     ]
     assert accepted_short
     assert all(float(row.get("stop_loss", 0.0) or 0.0) > 0 for row in accepted_short)
-    assert all(row.get("invalidation_source") == "short_structure_reclaim_above_4h_ema50" for row in accepted_short)
+    assert all(row.get("invalidation_source") == "short_breakdown_failure_above_4h_ema20" for row in accepted_short)
+    assert all(row.get("stop_family") == "structure_stop" for row in accepted_short)
+    assert all(row.get("stop_reference") == "4h_ema20" for row in accepted_short)
     assert all(row.get("execution", {}).get("status") == "SKIPPED" for row in accepted_short)
     assert all(row.get("execution", {}).get("reason") == "short_execution_not_enabled" for row in accepted_short)
+
+
+def test_main_v2_short_runtime_surfaces_setup_specific_stop_and_invalidation_semantics(monkeypatch, tmp_path, load_fixture):
+    output_path = tmp_path / "runtime_state.json"
+    account_path = tmp_path / "account_snapshot.json"
+    market_path = tmp_path / "market_context.json"
+    deriv_path = tmp_path / "derivatives_snapshot.json"
+    account_path.write_text(
+        json.dumps(
+            {
+                "equity": 125000.0,
+                "available_balance": 96000.0,
+                "futures_wallet_balance": 118500.0,
+                "open_positions": [],
+                "open_orders": [],
+            }
+        )
+    )
+    market_path.write_text(
+        json.dumps(
+            {
+                "as_of": "2026-03-25T00:00:00Z",
+                "schema_version": "v2",
+                **_defensive_short_market(),
+            }
+        )
+    )
+    deriv_path.write_text(json.dumps(load_fixture("derivatives_snapshot_v2.json")))
+    monkeypatch.setenv("TRADING_STATE_FILE", str(output_path))
+    monkeypatch.setenv("TRADING_ACCOUNT_SNAPSHOT_FILE", str(account_path))
+    monkeypatch.setenv("TRADING_MARKET_CONTEXT_FILE", str(market_path))
+    monkeypatch.setenv("TRADING_DERIVATIVES_SNAPSHOT_FILE", str(deriv_path))
+    monkeypatch.setenv("TRADING_EXECUTION_MODE", "dry-run")
+    monkeypatch.setattr(
+        main_module,
+        "validate_candidate_for_allocation",
+        lambda candidate, account: ValidationResult(True, "INFO", reasons=[], metrics={}),
+    )
+    monkeypatch.setattr(main_module, "generate_trend_candidates", lambda *args, **kwargs: [])
+    monkeypatch.setattr(main_module, "generate_rotation_candidates", lambda *args, **kwargs: [])
+    monkeypatch.setattr(
+        main_module,
+        "validate_signal",
+        lambda signal, account, config: (ValidationResult(True, "INFO", reasons=[], metrics={}), {"sizing": None}),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "allocate_candidates",
+        lambda **kwargs: [
+            AllocationDecision(status="ACCEPTED", engine="short", final_risk_budget=0.004, rank=1),
+            AllocationDecision(status="ACCEPTED", engine="short", final_risk_budget=0.003, rank=2),
+        ],
+    )
+    monkeypatch.setattr(
+        main_module,
+        "generate_short_candidates",
+        lambda *args, **kwargs: [
+            EngineCandidate(
+                engine="short",
+                setup_type="BREAKDOWN_SHORT",
+                symbol="BTCUSDT",
+                side="SHORT",
+                score=0.91,
+                timeframe_meta={"daily_bias": "down", "h4_structure": "breakdown", "h1_trigger": "confirmed"},
+                sector="majors",
+                liquidity_meta={"volume_usdt_24h": 12_500_000_000.0},
+            ),
+            EngineCandidate(
+                engine="short",
+                setup_type="FAILED_BOUNCE_SHORT",
+                symbol="ETHUSDT",
+                side="SHORT",
+                score=0.83,
+                timeframe_meta={"daily_bias": "down", "h4_structure": "failed_bounce", "h1_trigger": "confirmed"},
+                sector="majors",
+                liquidity_meta={"volume_usdt_24h": 6_800_000_000.0},
+            ),
+        ],
+    )
+
+    main_module.main()
+
+    state = json.loads(Path(output_path).read_text())
+    short_candidate_rows = {
+        row["setup_type"]: row for row in state.get("latest_candidates", []) if row.get("engine") == "short"
+    }
+    assert short_candidate_rows["BREAKDOWN_SHORT"]["stop_loss"] == pytest.approx(97000.0)
+    assert short_candidate_rows["BREAKDOWN_SHORT"]["stop_family"] == "structure_stop"
+    assert short_candidate_rows["BREAKDOWN_SHORT"]["stop_reference"] == "4h_ema20"
+    assert short_candidate_rows["BREAKDOWN_SHORT"]["invalidation_source"] == "short_breakdown_failure_above_4h_ema20"
+    assert short_candidate_rows["BREAKDOWN_SHORT"]["invalidation_reason"] == "breakdown continuation lost 4h breakdown resistance"
+    assert short_candidate_rows["FAILED_BOUNCE_SHORT"]["stop_loss"] == pytest.approx(4988.0)
+    assert short_candidate_rows["FAILED_BOUNCE_SHORT"]["stop_family"] == "failure_stop"
+    assert short_candidate_rows["FAILED_BOUNCE_SHORT"]["stop_reference"] == "1h_ema50"
+    assert short_candidate_rows["FAILED_BOUNCE_SHORT"]["invalidation_source"] == "short_failed_bounce_reclaim_above_1h_ema50"
+    assert short_candidate_rows["FAILED_BOUNCE_SHORT"]["invalidation_reason"] == "failed-bounce short reclaimed the 1h rejection structure"
+
+    accepted_short = {
+        row["setup_type"]: row
+        for row in state.get("latest_allocations", [])
+        if row.get("engine") == "short" and row.get("status") in {"ACCEPTED", "DOWNSIZED"}
+    }
+    assert accepted_short["BREAKDOWN_SHORT"]["stop_reference"] == "4h_ema20"
+    assert accepted_short["BREAKDOWN_SHORT"]["invalidation_source"] == "short_breakdown_failure_above_4h_ema20"
+    assert accepted_short["FAILED_BOUNCE_SHORT"]["stop_reference"] == "1h_ema50"
+    assert accepted_short["FAILED_BOUNCE_SHORT"]["invalidation_source"] == "short_failed_bounce_reclaim_above_1h_ema50"
+    assert all(row.get("execution", {}).get("reason") == "short_execution_not_enabled" for row in accepted_short.values())
 
 
 def test_main_v2_cycle_persists_short_candidates_without_enabling_short_execution(monkeypatch, tmp_path, load_fixture):
@@ -949,9 +1077,14 @@ def test_main_v2_stdout_surfaces_surviving_short_derivatives_reporting(monkeypat
     assert leader["derivatives"] == {"crowding_bias": "balanced", "basis_bps": -8.0}
     assert leader["volume_usdt_24h"] == 6800000000.0
     assert leader["liquidity_tier"] == "top"
+    assert leader["stop_family"] == "structure_stop"
+    assert leader["stop_reference"] == "4h_ema20"
+    assert leader["invalidation_source"] == "short_breakdown_failure_above_4h_ema20"
+    assert leader["invalidation_reason"] == "breakdown continuation lost 4h breakdown resistance"
+    assert leader["stop_policy_source"] == "shared_taxonomy"
 
 
-def test_main_v2_stdout_omits_crowded_short_rejections_from_short_reporting(monkeypatch, tmp_path, load_fixture, capsys):
+def test_main_v2_stdout_surfaces_crowded_short_suppression_in_short_reporting(monkeypatch, tmp_path, load_fixture, capsys):
     output_path = tmp_path / "runtime_state.json"
     account_path = tmp_path / "account_snapshot.json"
     market_path = tmp_path / "market_context.json"
@@ -1036,6 +1169,15 @@ def test_main_v2_stdout_omits_crowded_short_rejections_from_short_reporting(monk
     assert "BTCUSDT" not in short_report["accepted_symbols"]
     assert "BTCUSDT" not in short_report["deferred_execution_symbols"]
     assert "BTCUSDT" not in leader_symbols
+    assert len(short_report["review_notes"]) == 1
+    note = short_report["review_notes"][0]
+    assert note["symbol"] == "BTCUSDT"
+    assert note["setup_type"] == "BREAKDOWN_SHORT"
+    assert note["reason"] == "crowded_short_squeeze_risk"
+    assert note["crowding_bias"] == "crowded_short"
+    assert note["basis_bps"] == -31.0
+    assert "suppressed" in note["message"]
+    assert "crowded-short squeeze risk" in note["message"]
 
 
 def test_main_v2_stdout_reports_empty_short_lists_when_all_short_candidates_are_rejected(
@@ -1107,13 +1249,13 @@ def test_main_v2_stdout_reports_empty_short_lists_when_all_short_candidates_are_
     main_module.main()
     payload = json.loads(capsys.readouterr().out)
 
-    assert payload["regime"]["short"] == {
-        "universe_count": 2,
-        "candidate_count": 0,
-        "accepted_symbols": [],
-        "deferred_execution_symbols": [],
-        "leaders": [],
-    }
+    short_report = payload["regime"]["short"]
+    assert short_report["universe_count"] == 2
+    assert short_report["candidate_count"] == 0
+    assert short_report["accepted_symbols"] == []
+    assert short_report["deferred_execution_symbols"] == []
+    assert short_report["leaders"] == []
+    assert [note["symbol"] for note in short_report["review_notes"]] == ["BTCUSDT", "ETHUSDT"]
 
 
 def test_main_v2_stdout_clears_previous_short_reporting_when_later_all_short_candidates_are_rejected(
@@ -1196,13 +1338,13 @@ def test_main_v2_stdout_clears_previous_short_reporting_when_later_all_short_can
     main_module.main()
     payload = json.loads(capsys.readouterr().out)
 
-    assert payload["regime"]["short"] == {
-        "universe_count": 2,
-        "candidate_count": 0,
-        "accepted_symbols": [],
-        "deferred_execution_symbols": [],
-        "leaders": [],
-    }
+    short_report = payload["regime"]["short"]
+    assert short_report["universe_count"] == 2
+    assert short_report["candidate_count"] == 0
+    assert short_report["accepted_symbols"] == []
+    assert short_report["deferred_execution_symbols"] == []
+    assert short_report["leaders"] == []
+    assert [note["symbol"] for note in short_report["review_notes"]] == ["BTCUSDT", "ETHUSDT"]
 
 
 def test_main_v2_direct_state_store_reload_path_clears_stale_short_candidate_rows_when_later_all_short_candidates_are_rejected(
@@ -1335,13 +1477,13 @@ def test_main_v2_direct_state_store_reload_path_clears_stale_short_candidate_row
         "deferred_execution_symbols": [],
         "leaders": [],
     }
-    assert payload["regime"]["short"] == {
-        "universe_count": 2,
-        "candidate_count": 0,
-        "accepted_symbols": [],
-        "deferred_execution_symbols": [],
-        "leaders": [],
-    }
+    short_report = payload["regime"]["short"]
+    assert short_report["universe_count"] == 2
+    assert short_report["candidate_count"] == 0
+    assert short_report["accepted_symbols"] == []
+    assert short_report["deferred_execution_symbols"] == []
+    assert short_report["leaders"] == []
+    assert [note["symbol"] for note in short_report["review_notes"]] == ["BTCUSDT", "ETHUSDT"]
 
 
 def test_main_v2_direct_state_store_reload_path_clears_stale_short_latest_allocations_when_later_all_short_candidates_are_rejected(
@@ -1478,13 +1620,13 @@ def test_main_v2_direct_state_store_reload_path_clears_stale_short_latest_alloca
         "deferred_execution_symbols": [],
         "leaders": [],
     }
-    assert payload["regime"]["short"] == {
-        "universe_count": 2,
-        "candidate_count": 0,
-        "accepted_symbols": [],
-        "deferred_execution_symbols": [],
-        "leaders": [],
-    }
+    short_report = payload["regime"]["short"]
+    assert short_report["universe_count"] == 2
+    assert short_report["candidate_count"] == 0
+    assert short_report["accepted_symbols"] == []
+    assert short_report["deferred_execution_symbols"] == []
+    assert short_report["leaders"] == []
+    assert [note["symbol"] for note in short_report["review_notes"]] == ["BTCUSDT", "ETHUSDT"]
 
 
 def test_main_v2_direct_state_store_reload_path_clears_persisted_and_emitted_short_outputs_when_later_all_short_candidates_are_rejected(
@@ -1616,13 +1758,13 @@ def test_main_v2_direct_state_store_reload_path_clears_persisted_and_emitted_sho
         "deferred_execution_symbols": [],
         "leaders": [],
     }
-    assert payload["regime"]["short"] == {
-        "universe_count": 2,
-        "candidate_count": 0,
-        "accepted_symbols": [],
-        "deferred_execution_symbols": [],
-        "leaders": [],
-    }
+    short_report = payload["regime"]["short"]
+    assert short_report["universe_count"] == 2
+    assert short_report["candidate_count"] == 0
+    assert short_report["accepted_symbols"] == []
+    assert short_report["deferred_execution_symbols"] == []
+    assert short_report["leaders"] == []
+    assert [note["symbol"] for note in short_report["review_notes"]] == ["BTCUSDT", "ETHUSDT"]
 
 
 def test_main_v2_reload_boundary_clears_persisted_and_emitted_short_outputs_when_later_all_short_candidates_are_rejected(
@@ -1735,13 +1877,13 @@ def test_main_v2_reload_boundary_clears_persisted_and_emitted_short_outputs_when
         "deferred_execution_symbols": [],
         "leaders": [],
     }
-    assert payload["regime"]["short"] == {
-        "universe_count": 2,
-        "candidate_count": 0,
-        "accepted_symbols": [],
-        "deferred_execution_symbols": [],
-        "leaders": [],
-    }
+    short_report = payload["regime"]["short"]
+    assert short_report["universe_count"] == 2
+    assert short_report["candidate_count"] == 0
+    assert short_report["accepted_symbols"] == []
+    assert short_report["deferred_execution_symbols"] == []
+    assert short_report["leaders"] == []
+    assert [note["symbol"] for note in short_report["review_notes"]] == ["BTCUSDT", "ETHUSDT"]
 
 
 def test_main_v2_persisted_state_clears_previous_short_summary_when_later_all_short_candidates_are_rejected(

@@ -94,6 +94,11 @@ def test_build_short_report_returns_compact_deterministic_short_surface():
             "symbol": "BTCUSDT",
             "setup_type": "BREAKDOWN_SHORT",
             "score": 0.81,
+            "stop_family": "structure_stop",
+            "stop_reference": "4h_ema20",
+            "invalidation_source": "short_breakdown_failure_above_4h_ema20",
+            "invalidation_reason": "breakdown continuation lost 4h breakdown resistance",
+            "stop_policy_source": "shared_taxonomy",
             "timeframe_meta": {
                 "daily_bias": "down",
                 "h4_structure": "breakdown",
@@ -136,6 +141,11 @@ def test_build_short_report_returns_compact_deterministic_short_surface():
                 "derivatives": {"crowding_bias": "balanced", "basis_bps": -8.0},
                 "volume_usdt_24h": 12500000000.0,
                 "liquidity_tier": "top",
+                "stop_family": "structure_stop",
+                "stop_reference": "4h_ema20",
+                "invalidation_source": "short_breakdown_failure_above_4h_ema20",
+                "invalidation_reason": "breakdown continuation lost 4h breakdown resistance",
+                "stop_policy_source": "shared_taxonomy",
             }
         ],
     }
@@ -164,6 +174,32 @@ def test_build_regime_summary_includes_short_report_when_provided():
     assert "short" in summary
     assert summary["short"]["candidate_count"] == 1
     assert summary["short"]["deferred_execution_symbols"] == ["BTCUSDT"]
+    summary = build_regime_summary(
+        regime={"label": "HIGH_VOL_DEFENSIVE", "confidence": 0.82, "risk_multiplier": 0.7, "execution_policy": "downsize"},
+        universes={
+            "major_universe": [{"symbol": "BTCUSDT"}],
+            "rotation_universe": [],
+            "short_universe": [{"symbol": "BTCUSDT"}],
+        },
+        candidates=[{"engine": "short", "symbol": "BTCUSDT"}],
+        allocations=[{"engine": "short", "symbol": "BTCUSDT", "status": "ACCEPTED", "final_risk_budget": 0.004}],
+        executions=[],
+        short_report={
+            "universe_count": 1,
+            "candidate_count": 1,
+            "accepted_symbols": ["BTCUSDT"],
+            "deferred_execution_symbols": ["BTCUSDT"],
+            "leaders": [{"symbol": "BTCUSDT", "score": 0.81}],
+            "review_notes": [
+                {
+                    "symbol": "BTCUSDT",
+                    "reason": "crowded_short_squeeze_risk",
+                    "message": "BTCUSDT BREAKDOWN_SHORT suppressed: crowded-short squeeze risk remained elevated (crowding bias crowded_short, basis -31.0 bps).",
+                }
+            ],
+        },
+    )
+    assert summary["short"]["review_notes"][0]["reason"] == "crowded_short_squeeze_risk"
 
 
 def test_build_regime_summary_surfaces_allocation_aggressiveness_stats():

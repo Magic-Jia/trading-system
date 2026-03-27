@@ -31,7 +31,7 @@ def _rotation_leader_row(candidate: Mapping[str, Any]) -> dict[str, Any]:
 def _short_leader_row(candidate: Mapping[str, Any]) -> dict[str, Any]:
     timeframe_meta = dict(candidate.get("timeframe_meta") or {})
     liquidity_meta = dict(candidate.get("liquidity_meta") or {})
-    return {
+    row = {
         "symbol": str(candidate.get("symbol", "")),
         "setup_type": str(candidate.get("setup_type", "")),
         "score": round(_float(candidate.get("score")), 6),
@@ -42,6 +42,11 @@ def _short_leader_row(candidate: Mapping[str, Any]) -> dict[str, Any]:
         "volume_usdt_24h": _float(liquidity_meta.get("volume_usdt_24h")),
         "liquidity_tier": str(liquidity_meta.get("liquidity_tier", "")),
     }
+    for key in ("stop_family", "stop_reference", "invalidation_source", "invalidation_reason", "stop_policy_source"):
+        value = candidate.get(key)
+        if value:
+            row[key] = str(value)
+    return row
 
 
 def _lifecycle_leader_row(symbol: str, payload: Mapping[str, Any]) -> dict[str, Any]:
