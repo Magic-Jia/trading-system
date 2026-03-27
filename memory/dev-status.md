@@ -1,8 +1,27 @@
 # Dev Status
 
-- branch/worktree: `codex/b1-derivatives` @ `/home/cn/.openclaw/agents/trade/workspace/.worktrees/codex-b1-derivatives`
-- current objective: Package 3 Task 2 — wire the new exit policy primitives into runtime/reporting so at least one real exit/de-risk action surfaces in runtime output
-- last verified command + result: `PYTHONDONTWRITEBYTECODE=1 UV_CACHE_DIR=/tmp/codex-uv-cache uv run --with pytest python -m pytest -q -p no:cacheprovider trading_system/tests/test_exit_policy.py` -> passed (`3 passed`)
-- last commit: `c3b2a13` feat: add exit policy primitives
-- next action: add focused failing runtime/reporting tests for one real exit-policy action path, prove the gap, implement minimal plumbing, rerun focused tests, then commit if green
-- last user update time: 2026-03-26 17:02 Europe/Berlin
+- Primary development progress signal: repo-local post-commit OpenClaw notifications
+- Hook entrypoint: `.githooks/post-commit`
+- Installer: `python3 -m trading_system.devtools.install_commit_hook`
+- Fallback for long no-commit periods: `HEARTBEAT.md`
+- Setup and behavior notes: `docs/openclaw-commit-notifications.md`
+
+## Current active coding task
+
+- Branch/worktree: `master` / `/home/cn/.openclaw/agents/trade/workspace`
+- Objective: Main workspace cleaned after merging `codex/b1-derivatives` back to `master`; local workspace context preserved and branch-finish work complete
+- Latest commits in active worktree:
+  - `bdac7d7` — `Merge branch 'codex/b1-derivatives' into master`
+  - `fec6791` — `test: align stale paper-cycle regression expectations`
+  - `79a9624` — `feat: wire paper cycle ledger replay reporting`
+  - `b901784` — `fix: align paper ledger path with state overrides`
+  - `5454e5d` — `feat: add paper execution ledger foundation`
+- Latest verified commands/results:
+  - merged-result verification: `PYTHONDONTWRITEBYTECODE=1 UV_CACHE_DIR=/tmp/codex-uv-cache uv run --with pytest python -m pytest -q trading_system/tests` -> passed (`158 passed`)
+- Current execution mode:
+  - No active executor; branch merge is complete and the main worktree is being normalized/cleaned
+- Current blocker history:
+  - No current product blocker
+- Next action:
+  1. keep master clean for the next task
+- Last user update time: 2026-03-27 05:32 Europe/Berlin

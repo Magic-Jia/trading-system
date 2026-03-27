@@ -2,6 +2,15 @@
 
 This folder is home. Treat it that way.
 
+## OpenClaw gateway 运维基线（system service only）
+
+- 这台机器上的 OpenClaw gateway 只保留 **systemd system service**：`openclaw-gateway.service`。
+- **禁止**再启用或依赖 `systemctl --user` 管理的 `openclaw-gateway.service`；user service 仅视为历史残留，不作为运行入口。
+- 后续对 OpenClaw gateway 的启动、停止、重启、查状态、查日志，统一使用 `sudo systemctl ... openclaw-gateway.service` 与 `sudo journalctl -u openclaw-gateway.service ...`。
+- 不要再把 `openclaw gateway start/stop/restart` 或 `systemctl --user ...` 当作这台机器上的主控制入口，除非明确是在做隔离测试并提前说明。
+- 正确基线：system service = enabled + active；user service = disabled + inactive；`127.0.0.1:18789` 由 system service 持有；`openclaw-gateway` 主进程应只有 1 个。
+- 只要再次看到两个 OpenClaw 实例，优先检查：system service 状态、user service 是否被重新启用、`18789` 端口归属，而不是直接重启整个系统或随手重跑 CLI。
+
 ## First Run
 
 If `BOOTSTRAP.md` exists, that's your birth certificate. Follow it, figure out who you are, then delete it. You won't need it again.
