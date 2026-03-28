@@ -18,7 +18,8 @@
    - 必须完成 **exchange-rule validation（交易所规则预校验）**；
    - 必须完成 **订单 payload（报文）构造与字段映射检查**；
    - **默认不要求真实提交订单创建请求**，除非老板显式要求把 `TRADING_TESTNET_ORDER_SUBMISSION_ENABLED=1` 打开。
-2. **Phase 2：持续运行 + 真实 testnet 下单（本轮尽量完成，但优先级低于 Phase 1）**
+2. **Phase 2：持续运行 + 真实 testnet 下单（后续阶段，不属于本轮交付完成线）**
+   - 只有在 Phase 1 单次跑通已经验证通过后，才允许进入；
    - 在 testnet 模式下按固定间隔持续运行；
    - 在满足全部风险门槛与交易所规则校验后，允许把真实订单发到 testnet；
    - 保留状态、日志、错误恢复与对账。
@@ -137,6 +138,7 @@ Phase 2 的 v1 最小订单集合固定为：
 - 当 `TRADING_EXECUTION_MODE=testnet` 时，若 endpoint（接口地址）不是 testnet 域名，直接拒绝启动；
 - 若 key（密钥）缺失或只配了一半，也直接拒绝启动；
 - 若 `TRADING_TESTNET_ORDER_SUBMISSION_ENABLED` 未显式打开，则只允许做连接 / 账户 / 信号 / 下单预校验，不允许真实 testnet 发单；
+- 即使显式打开了发单开关，也必须先通过 permissions preflight（权限预检）：确认该 key 在 Binance Futures testnet 上具备账户读取与下单所需权限，且账户状态可用于下单；
 - 若 symbol（交易对）不在 allowlist（允许名单）内，直接拒绝；
 - 若单笔 notional（名义价值）、单 symbol 最大数量、最大持仓数、最大杠杆上限、最小可用保证金缓冲不满足约束，直接拒绝；
 - runtime state（运行状态）与日志中必须明确写 `mode=testnet`。
@@ -158,6 +160,8 @@ Phase 2 的 v1 最小订单集合固定为：
 处理规则：
 
 - 启动或首轮运行时必须检查账户模式；
+- 账户模式 / 保证金模式的真相源以 Binance Futures API 返回为准；
+- 若 API 响应缺字段、语义不清、或无法明确验证 one-way + cross，则直接视为 unsupported（不支持）并 fail-fast（快速失败）；
 - 若发现不是支持的组合，直接 fail-fast（快速失败），不给出模糊“继续尝试”；
 - v1 不负责自动替用户改账户模式。
 
@@ -231,8 +235,10 @@ testnet 模式必须定义明确的 intent（意图）生命周期：
 
 - 同一 strategy intent（策略意图）重复出现时，先查本地状态和 testnet open orders / recent orders，不得直接重复发单；
 - API 或网络超时后，先按 `client_order_id` 查询是否已存在订单，再判定该轮失败；
+- reconciliation（对账）流程必须有界：立即查询一次；若仍未确认，则在一个短时间窗口内有限重试；若仍无法确认，标记为 `reconciliation_unresolved`（对账未决），并阻止该 intent 的后续重复提交；
 - 若 entry 已成交或部分成交，但 protective orders 没有全部挂上，系统必须把该状态标记为 **critical_unprotected_position（关键未保护持仓）**；
 - 对 `critical_unprotected_position`，v1 默认策略是：停止继续开新仓、记录高优先级错误，并在同轮做一次有限的 protection retry（保护单重试）；若仍失败，则保留持仓风险告警，等待人工处理，不静默继续；
+- v1 对保护单失败后的选择明确为：**不自动强平，不继续补开新仓，不静默保留为正常状态**；若已有部分保护单创建成功，需先按查询结果记录现状，不做盲目全撤；
 - `runtime_state` 不是唯一真相源，testnet reconciliation 结果优先于本地“未知”状态。
 
 执行结果要在 runtime state / logs（日志）中明确包含：
@@ -277,6 +283,7 @@ testnet 模式必须定义明确的 intent（意图）生命周期：
 - order submission（订单提交）同一轮内禁止快速重复提交；
 - 若交易所返回限频信息或可识别的重试提示，必须优先遵守；
 - 认证 / 配置错误与瞬时网络错误要分开处理，前者优先 fail-fast，后者才进入冷却 / 重试；
+- v1 采用简单确定规则：**按轮次级别冷却**，单轮一旦触发提交相关错误，本轮不再重复提交，等待下一轮；
 - 日志里要区分“正常空仓 / 无信号”和“接口 / 权限异常”，避免刷屏误判。
 
 本轮不强制绑定 systemd service（系统服务）；先保留为 CLI / 脚本入口，验证稳定后再决定是否提升为服务。
@@ -296,6 +303,16 @@ Phase 1 的一次 testnet 运行满足以下条件即视为成功：
 7. 若本轮存在信号，也允许只完成“安全校验 + 下单路径预检”而不真实发单。
 
 也就是说，**单次跑通成功 ≠ 当轮必须真实成交**；只要连接、账户、策略循环、风控与下单路径预校验都通过，就算主目标达成。
+
+为了让“下单通道验证”更可验证，Phase 1 的摘要 / 日志里必须产出一份结构化 `validated_order_preview`（已验证订单预览），至少包含：
+
+- symbol（交易对）
+- side（方向）
+- qty（数量）
+- 计划使用的订单类型集合
+- 本地规则校验结果（通过 / 拒绝）
+- 若拒绝，明确拒绝原因
+- 是否满足真实提交前置条件
 
 ### 持续运行的成功标准
 
