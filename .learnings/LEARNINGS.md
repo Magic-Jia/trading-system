@@ -355,3 +355,58 @@ For future long-running coding tasks, treat "active process but no milestone for
 - Last-Seen: 2026-03-27
 
 ---
+
+## [LRN-20260327-002] correction
+
+**Logged**: 2026-03-27T07:48:00+01:00
+**Priority**: high
+**Status**: pending
+**Area**: workflow
+
+### Summary
+When the user says "按计划继续" / "按顺序继续开发", treat it as immediate authorization to launch the next planned slice, not as a cue to send another completion summary.
+
+### Details
+After finishing a short-maturity slice, the user explicitly said to continue according to plan. The correct behavior was to update status files if needed and immediately launch the next planned chunk. Instead, the flow slipped back into completion-reporting mode and effectively answered the prior status question again. This was not a product blocker; it was an execution/intent-handling mistake caused by anchoring on the just-finished status template instead of the user's current instruction.
+
+### Suggested Action
+For ongoing planned development, once the user says continue/按计划继续/按顺序继续开发, the next assistant turn should either (1) launch the next planned slice and report it as started, or (2) report a concrete blocker. Do not send another retrospective completion summary unless the user explicitly asked for status.
+
+### Metadata
+- Source: user_feedback
+- Related Files: MEMORY.md, memory/dev-status.md, .learnings/LEARNINGS.md
+- Tags: workflow, intent-resolution, continue-command, reporting
+- Pattern-Key: workflow.continue-means-launch-next-slice
+- Recurrence-Count: 1
+- First-Seen: 2026-03-27
+- Last-Seen: 2026-03-27
+
+---
+
+## [LRN-20260327-003] correction
+
+**Logged**: 2026-03-27T08:20:00+01:00
+**Priority**: high
+**Status**: pending
+**Area**: workflow
+
+### Summary
+After already reporting a failed verification/no-completion state, a later user message like "继续下一步" means start the next debugging/execution step immediately, not repeat that the task is still unfinished.
+
+### Details
+In the short-maturity package handoff, the package verification had already been reported as failed. When the user then said "继续下一步", the correct action was to launch the debugging slice immediately. Instead, the flow answered the subsequent status question with another "还没跑完" summary, even though the unfinished state had already been communicated. This repeated status added no value and delayed execution.
+
+### Suggested Action
+If unfinished/failed status was already explicitly reported, treat the next user instruction to continue as authorization to start the next concrete recovery/debugging step immediately. Only restate unfinished status if the user explicitly asks for status again.
+
+### Metadata
+- Source: user_feedback
+- Related Files: MEMORY.md, .learnings/LEARNINGS.md
+- Tags: workflow, continue-command, status-reporting, debugging
+- See Also: LRN-20260327-002
+- Pattern-Key: workflow.continue-after-failed-status-means-start-debug-step
+- Recurrence-Count: 1
+- First-Seen: 2026-03-27
+- Last-Seen: 2026-03-27
+
+---
