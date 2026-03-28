@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
 
 from ..connectors.binance import query_open_protective_orders
 from ..config import AppConfig
 from ..portfolio.positions import _has_explicit_target_management_state, apply_management_action_fill
-from ..types import ManagementActionIntent, OrderIntent, RuntimeState
+from ..types import BJ, ManagementActionIntent, OrderIntent, RuntimeState
 from .paper_executor import PaperExecutor
 from .paper_ledger import PaperLedger
 from .orders import OrderMode, build_management_preview, dry_run_fill, preview_result
@@ -41,6 +42,26 @@ class OrderExecutor:
     def execute(self, order: OrderIntent, state: RuntimeState) -> dict[str, Any]:
         if self.mode == "live":
             raise ExecutionError("live 模式尚未启用；当前 MVP 仅支持 paper / dry-run")
+
+        if self.mode == "testnet":
+            preview = order.meta.get("validated_order_preview")
+            if not isinstance(preview, dict):
+                preview = {}
+
+            submission_enabled = bool(self.config.execution.testnet_order_submission_enabled)
+            submission_prerequisites_passed = bool(preview.get("submission_prerequisites_passed", False))
+            result = {
+                "mode": "testnet",
+                "ts_bj": datetime.now(BJ).isoformat(),
+                "intent": asdict(order),
+                "validated_order_preview": preview,
+                "submission_enabled": submission_enabled,
+                "would_submit": submission_enabled and submission_prerequisites_passed,
+                "submission_prerequisites_passed": submission_prerequisites_passed,
+                "result": "PREVIEW_ONLY",
+            }
+            self.append_log(order, result)
+            return result
 
         if self.mode == "paper":
             result = self.paper_executor.execute(order, state)

@@ -92,8 +92,6 @@ def build_validated_order_preview(
     submission_enabled: bool,
     preview_source: str,
 ) -> dict[str, Any]:
-    del preview_source
-
     payloads = {
         "entry": build_entry_order_payload(intent),
         "stop": build_stop_order_payload(intent),
@@ -143,12 +141,18 @@ def build_validated_order_preview(
 
     _validate_payload_mapping(reasons=reasons, payloads=payloads)
 
+    submission_prerequisites_passed = not reasons
+
     return {
         "symbol": intent.symbol,
         "side": intent.side,
         "qty": intent.qty,
         "order_types": order_types,
         "payloads": payloads,
-        "local_validation_passed": not reasons,
+        "local_validation_passed": submission_prerequisites_passed,
+        "submission_enabled": submission_enabled,
+        "would_submit": submission_enabled and submission_prerequisites_passed,
+        "submission_prerequisites_passed": submission_prerequisites_passed,
+        "preview_source": preview_source,
         "reasons": reasons,
     }

@@ -2,7 +2,7 @@ from dataclasses import replace
 
 import pytest
 
-from trading_system.app.config import DEFAULT_CONFIG
+from trading_system.app.config import DEFAULT_CONFIG, build_config
 from trading_system.app.execution.executor import OrderExecutor
 from trading_system.app.storage.state_store import RuntimeStateV2
 from trading_system.app.types import ManagementActionIntent, OrderIntent
@@ -18,6 +18,24 @@ def _sample_order() -> OrderIntent:
         entry_price=60000.0,
         stop_loss=58000.0,
         take_profit=64000.0,
+    )
+
+
+def build_testnet_config(tmp_path, monkeypatch):
+    monkeypatch.setenv("TRADING_EXECUTION_MODE", "testnet")
+    monkeypatch.setenv("BINANCE_USE_TESTNET", "1")
+    monkeypatch.setenv("BINANCE_FAPI_URL", "https://testnet.binancefuture.com")
+    monkeypatch.setenv("TRADING_TESTNET_ALLOWED_SYMBOLS", "BTCUSDT")
+    monkeypatch.setenv("TRADING_TESTNET_MAX_ORDER_NOTIONAL_USDT", "1000")
+    monkeypatch.setenv("TRADING_TESTNET_MAX_OPEN_POSITIONS", "2")
+    monkeypatch.setenv("TRADING_TESTNET_ORDER_SUBMISSION_ENABLED", "0")
+    monkeypatch.setenv("BINANCE_TESTNET_API_KEY", "key")
+    monkeypatch.setenv("BINANCE_TESTNET_API_SECRET", "secret")
+
+    return replace(
+        build_config(),
+        data_dir=tmp_path,
+        state_file=tmp_path / "runtime_state.json",
     )
 
 
@@ -105,3 +123,18 @@ def test_dry_run_execute_does_not_append_execution_log(monkeypatch, tmp_path):
     executor.execute(_sample_order(), state)
 
     assert not exec_log.exists()
+
+
+def test_order_executor_testnet_mode_returns_preview_without_submission(monkeypatch, tmp_path):
+    from trading_system.app.execution import executor as executor_module
+
+    exec_log = tmp_path / "execution_log.jsonl"
+    monkeypatch.setattr(executor_module, "EXEC_LOG", exec_log)
+    config = build_testnet_config(tmp_path, monkeypatch)
+    executor = OrderExecutor(config)
+
+    result = executor.execute(_sample_order(), RuntimeStateV2.empty())
+
+    assert result["mode"] == "testnet"
+    assert result["would_submit"] is False
+    assert result["submission_enabled"] is False
