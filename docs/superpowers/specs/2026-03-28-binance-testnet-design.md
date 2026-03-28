@@ -12,6 +12,12 @@
    - 完成一轮 strategy cycle（策略循环）；
    - 完成安全校验与下单通道验证；
    - 即使当轮没有合格信号，也要输出完整摘要，证明主链路跑通。
+
+   这里的“下单通道验证”在 Phase 1 中有明确定义：
+   - 必须至少完成 **signed authenticated API connectivity（签名鉴权接口联通）**；
+   - 必须完成 **exchange-rule validation（交易所规则预校验）**；
+   - 必须完成 **订单 payload（报文）构造与字段映射检查**；
+   - **默认不要求真实提交订单创建请求**，除非老板显式要求把 `TRADING_TESTNET_ORDER_SUBMISSION_ENABLED=1` 打开。
 2. **Phase 2：持续运行 + 真实 testnet 下单（本轮尽量完成，但优先级低于 Phase 1）**
    - 在 testnet 模式下按固定间隔持续运行；
    - 在满足全部风险门槛与交易所规则校验后，允许把真实订单发到 testnet；
@@ -132,8 +138,28 @@ Phase 2 的 v1 最小订单集合固定为：
 - 若 key（密钥）缺失或只配了一半，也直接拒绝启动；
 - 若 `TRADING_TESTNET_ORDER_SUBMISSION_ENABLED` 未显式打开，则只允许做连接 / 账户 / 信号 / 下单预校验，不允许真实 testnet 发单；
 - 若 symbol（交易对）不在 allowlist（允许名单）内，直接拒绝；
-- 若单笔 notional（名义价值）或最大持仓数超过 testnet guardrail（护栏）限制，直接拒绝；
+- 若单笔 notional（名义价值）、单 symbol 最大数量、最大持仓数、最大杠杆上限、最小可用保证金缓冲不满足约束，直接拒绝；
 - runtime state（运行状态）与日志中必须明确写 `mode=testnet`。
+
+### 账户模式前提
+
+为了把 v1 范围收紧到可安全实现，本轮明确只支持一种账户模式组合：
+
+- **one-way mode（单向持仓模式）**
+- **cross margin（全仓）**
+- 使用系统既有的保守 sizing（仓位计算）结果，不额外做动态杠杆切换
+
+不支持的情况：
+
+- hedge / dual-side mode（双向持仓模式）
+- isolated margin（逐仓）
+- 运行时自动切换杠杆或保证金模式
+
+处理规则：
+
+- 启动或首轮运行时必须检查账户模式；
+- 若发现不是支持的组合，直接 fail-fast（快速失败），不给出模糊“继续尝试”；
+- v1 不负责自动替用户改账户模式。
 
 ### 2. 数据层
 
@@ -160,6 +186,15 @@ testnet execution（测试网执行）v1 固定支持：
 - `MARKET` 开仓
 - `STOP_MARKET` 止损
 - `TAKE_PROFIT_MARKET` 止盈
+
+Futures 保护单字段映射在 v1 中必须固定，不允许实现时自由发挥：
+
+- entry（开仓）：`MARKET`
+- stop（止损）：`STOP_MARKET`
+- take profit（止盈）：`TAKE_PROFIT_MARKET`
+- protective orders（保护单）默认使用 `closePosition=true`
+- `workingType` 固定为实现中统一支持的一种（默认优先 `MARK_PRICE`），并在 runbook 中写明
+- 若 Binance testnet 对某些字段组合不接受，必须在策略输出中明确标出“字段映射不兼容”，而不是静默删字段继续下单
 
 若 testnet 某些订单能力、字段或 close-position（平仓）语义与当前内部意图不完全一致，必须显式降级并记录，不得假装完全等价。
 
@@ -189,12 +224,15 @@ testnet 模式必须定义明确的 intent（意图）生命周期：
 
 - 提交后、持久化前进程崩溃；
 - API 超时，但交易所可能已接单；
-- 同一 signal（信号）在连续轮次重复出现。
+- 同一 signal（信号）在连续轮次重复出现；
+- entry（开仓）已成交或部分成交，但 protective orders（保护单）挂单失败。
 
 处理规则：
 
 - 同一 strategy intent（策略意图）重复出现时，先查本地状态和 testnet open orders / recent orders，不得直接重复发单；
 - API 或网络超时后，先按 `client_order_id` 查询是否已存在订单，再判定该轮失败；
+- 若 entry 已成交或部分成交，但 protective orders 没有全部挂上，系统必须把该状态标记为 **critical_unprotected_position（关键未保护持仓）**；
+- 对 `critical_unprotected_position`，v1 默认策略是：停止继续开新仓、记录高优先级错误，并在同轮做一次有限的 protection retry（保护单重试）；若仍失败，则保留持仓风险告警，等待人工处理，不静默继续；
 - `runtime_state` 不是唯一真相源，testnet reconciliation 结果优先于本地“未知”状态。
 
 执行结果要在 runtime state / logs（日志）中明确包含：
@@ -203,7 +241,9 @@ testnet 模式必须定义明确的 intent（意图）生命周期：
 - 是否真正发到 testnet；
 - 返回的 order id / client id；
 - 成功 / 失败原因；
-- 是否由 reconciliation（对账）恢复出的最终状态。
+- 是否由 reconciliation（对账）恢复出的最终状态；
+- entry 的成交状态、成交数量、均价；
+- protective orders 是否全部成功挂出。
 
 ### 4. 运行层
 
@@ -234,6 +274,9 @@ testnet 模式必须定义明确的 intent（意图）生命周期：
 
 - 连续网络 / 认证 / 限频错误时，不做紧密重试；
 - 至少进入下一轮冷却，或执行一个有上限的 backoff（退避）；
+- order submission（订单提交）同一轮内禁止快速重复提交；
+- 若交易所返回限频信息或可识别的重试提示，必须优先遵守；
+- 认证 / 配置错误与瞬时网络错误要分开处理，前者优先 fail-fast，后者才进入冷却 / 重试；
 - 日志里要区分“正常空仓 / 无信号”和“接口 / 权限异常”，避免刷屏误判。
 
 本轮不强制绑定 systemd service（系统服务）；先保留为 CLI / 脚本入口，验证稳定后再决定是否提升为服务。
@@ -287,7 +330,8 @@ Phase 1 的一次 testnet 运行满足以下条件即视为成功：
 - 本轮先标记为 `submission_unknown`（提交结果未知）或明确失败；
 - 立即进入 reconciliation（对账）：按 `client_order_id` 查询 open orders / recent orders；
 - 确认无单后，才允许下一轮重新评估是否补发；
-- 持续运行模式进入下一轮或按 backoff（退避）规则冷却。
+- 持续运行模式进入下一轮或按 backoff（退避）规则冷却；
+- 若错误属于 timestamp skew / recvWindow（时间偏移 / 请求窗口）问题，必须先做 server-time recheck（服务器时间复检）后再继续。
 
 ### 数据不足
 
@@ -325,9 +369,11 @@ runbook（运行手册）里必须明确列出以下检查项：
 - 生效的 futures testnet endpoint
 - 账户标识 / 权限检查结果
 - server time（服务器时间）检查
+- timestamp skew / recvWindow 检查结果
+- 账户模式检查结果（one-way / cross）
 - “production endpoint assertion passed”（生产环境断言已通过）
 - 是否开启真实 testnet 发单
-- 当前 allowlist、单笔 notional 上限、最大持仓数
+- 当前 allowlist、单笔 notional 上限、最大持仓数、最大杠杆上限
 
 ## 实施边界
 
