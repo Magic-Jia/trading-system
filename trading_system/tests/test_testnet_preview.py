@@ -1,0 +1,71 @@
+from trading_system.app.execution.testnet_preview import build_validated_order_preview
+from trading_system.app.types import OrderIntent
+
+
+def test_validated_order_preview_checks_step_size_and_precision():
+    intent = OrderIntent(
+        intent_id="intent-btc",
+        signal_id="signal-btc",
+        symbol="BTCUSDT",
+        side="LONG",
+        qty=0.00015,
+        entry_price=65000.123,
+        stop_loss=64000.456,
+        take_profit=67000.789,
+    )
+    metadata = {
+        "BTCUSDT": {
+            "quantity_step_size": 0.001,
+            "price_tick_size": 0.1,
+            "min_notional": 100,
+            "allowed_order_types": ["MARKET", "STOP_MARKET", "TAKE_PROFIT_MARKET"],
+        }
+    }
+
+    preview = build_validated_order_preview(
+        intent,
+        exchange_metadata=metadata,
+        allowlist=["BTCUSDT"],
+        max_order_notional_usdt=1000,
+        submission_enabled=False,
+        preview_source="accepted_signal",
+    )
+
+    assert preview["local_validation_passed"] is False
+    assert any("step" in reason.lower() or "precision" in reason.lower() for reason in preview["reasons"])
+
+
+def test_validated_order_preview_exposes_fixed_futures_payload_mapping():
+    intent = OrderIntent(
+        intent_id="intent-btc",
+        signal_id="signal-btc",
+        symbol="BTCUSDT",
+        side="LONG",
+        qty=0.01,
+        entry_price=65000,
+        stop_loss=64000,
+        take_profit=67000,
+    )
+    metadata = {
+        "BTCUSDT": {
+            "quantity_step_size": 0.001,
+            "price_tick_size": 0.1,
+            "min_notional": 100,
+            "allowed_order_types": ["MARKET", "STOP_MARKET", "TAKE_PROFIT_MARKET"],
+        }
+    }
+
+    preview = build_validated_order_preview(
+        intent,
+        exchange_metadata=metadata,
+        allowlist=["BTCUSDT"],
+        max_order_notional_usdt=1000,
+        submission_enabled=False,
+        preview_source="accepted_signal",
+    )
+
+    assert preview["payloads"]["entry"]["type"] == "MARKET"
+    assert preview["payloads"]["stop"]["type"] == "STOP_MARKET"
+    assert preview["payloads"]["take_profit"]["type"] == "TAKE_PROFIT_MARKET"
+    assert preview["payloads"]["stop"]["closePosition"] == "true"
+    assert preview["payloads"]["take_profit"]["workingType"] == "MARK_PRICE"
