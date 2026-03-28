@@ -114,9 +114,37 @@ execution-safety 的优先级仍然是 live boundary、hard risk gate、restart-
 
 测试网约定：
 
-- 默认优先从 `/home/cn/.local/secrets/binance-testnet.env` 读取测试网凭证。
-- 建议在该文件中维护 `BINANCE_TESTNET_API_KEY` / `BINANCE_TESTNET_API_SECRET`。
-- 若测试网文件不可用，再回退到旧的环境变量来源。
+- 建议在 `/home/cn/.local/secrets/binance-testnet.env` 中维护 `BINANCE_TESTNET_API_KEY` / `BINANCE_TESTNET_API_SECRET`。
+- 对于 `TRADING_EXECUTION_MODE=testnet` 的 Phase 1 one-shot 运行，先把 `binance-testnet.env` source（加载）进当前 shell，再启动进程；这样配置校验和签名请求会看到同一组凭证。
+- 测试网客户端本身仍保留从该文件读取凭证的回退逻辑，但启动阶段的 testnet 配置校验要求当前环境里已经存在完整凭证。
+
+## Phase 1 Binance Testnet
+
+- 批准后的最小交付范围只有 one-shot（单次运行）流程；continuous-running（持续运行）入口/路径明确延后到 Phase 2。
+- 默认仍然是 preview-only（仅预览）：`TRADING_EXECUTION_MODE=testnet` 搭配 `TRADING_TESTNET_ORDER_SUBMISSION_ENABLED=0`。
+- 启动前必须满足 testnet 配置护栏：测试网 endpoint（端点）、完整测试网凭证、allowlist（允许交易符号列表）、max order notional USDT（单笔名义金额上限）、max open positions（最大持仓数配置）。
+- 一次运行的关键输出写入 `TRADING_STATE_FILE`：重点看 `testnet_preflight` 与 `validated_order_preview`。
+- `testnet_preflight` 会覆盖 `server-time`、timestamp skew（时间偏差）/ `recvWindow`、账户模式预检，以及启动时的 `production-endpoint assertion` 通过结果。
+- `validated_order_preview` 会显示 allowlist、本地 payload（报文）映射、metadata（交易所元数据）校验、最大名义金额校验，以及最终 `would_submit` 判定。
+- 详细操作说明见 `trading_system/docs/TESTNET_PHASE1_RUNBOOK.md`。
+
+示例 one-shot 命令：
+
+```bash
+set -a
+. /home/cn/.local/secrets/binance-testnet.env
+set +a
+
+TRADING_EXECUTION_MODE=testnet \
+BINANCE_USE_TESTNET=1 \
+BINANCE_FAPI_URL=https://testnet.binancefuture.com \
+TRADING_TESTNET_ALLOWED_SYMBOLS=BTCUSDT \
+TRADING_TESTNET_MAX_ORDER_NOTIONAL_USDT=500 \
+TRADING_TESTNET_MAX_OPEN_POSITIONS=1 \
+TRADING_TESTNET_ORDER_SUBMISSION_ENABLED=0 \
+TRADING_STATE_FILE=trading_system/data/runtime_state.testnet.json \
+python -m trading_system.app.main
+```
 
 ## 当前边界
 
