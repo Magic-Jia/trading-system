@@ -2895,6 +2895,98 @@ def test_main_v2_paper_cycle_replays_from_ledger_when_state_is_missing(
     assert state["latest_allocations"][0]["execution"] == {"status": "FILLED", "intent_id": ledger_event["intent_id"]}
 
 
+def test_main_v2_runtime_bucket_replays_from_bucket_ledger_when_state_is_missing(
+    monkeypatch, tmp_path, load_fixture, capsys
+):
+    bucket_dir = tmp_path / "data" / "runtime" / "paper" / "testnet"
+    output_path = bucket_dir / "runtime_state.json"
+    account_path = bucket_dir / "account_snapshot.json"
+    market_path = bucket_dir / "market_context.json"
+    deriv_path = bucket_dir / "derivatives_snapshot.json"
+    ledger_path = bucket_dir / "paper_ledger.jsonl"
+    bucket_dir.mkdir(parents=True)
+    account_path.write_text(
+        json.dumps(
+            {
+                "equity": 125000.0,
+                "available_balance": 96000.0,
+                "futures_wallet_balance": 118500.0,
+                "open_positions": [],
+                "open_orders": [],
+            }
+        )
+    )
+    market_path.write_text(json.dumps(load_fixture("market_context_v2.json")))
+    deriv_path.write_text(json.dumps(load_fixture("derivatives_snapshot_v2.json")))
+    monkeypatch.setenv("TRADING_BASE_DIR", str(tmp_path))
+    monkeypatch.setenv("TRADING_RUNTIME_ENV", "testnet")
+    monkeypatch.setenv("TRADING_EXECUTION_MODE", "paper")
+    monkeypatch.delenv("TRADING_STATE_FILE", raising=False)
+    monkeypatch.delenv("TRADING_ACCOUNT_SNAPSHOT_FILE", raising=False)
+    monkeypatch.delenv("TRADING_MARKET_CONTEXT_FILE", raising=False)
+    monkeypatch.delenv("TRADING_DERIVATIVES_SNAPSHOT_FILE", raising=False)
+    monkeypatch.setattr(main_module.OrderExecutor, "append_log", lambda self, order, result: None)
+    monkeypatch.setattr(
+        main_module,
+        "validate_candidate_for_allocation",
+        lambda candidate, account: ValidationResult(True, "INFO", reasons=[], metrics={}),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "validate_signal",
+        lambda signal, account, config: (ValidationResult(True, "INFO", reasons=[], metrics={}), {"sizing": None}),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "generate_trend_candidates",
+        lambda *args, **kwargs: [
+            {
+                "engine": "trend",
+                "setup_type": "BREAKOUT_CONTINUATION",
+                "symbol": "BTCUSDT",
+                "side": "LONG",
+                "score": 0.91,
+                "stop_loss": 62830.0,
+                "invalidation_source": "trend_structure_loss_below_4h_ema50",
+            }
+        ],
+    )
+    monkeypatch.setattr(main_module, "generate_rotation_candidates", lambda *args, **kwargs: [])
+    monkeypatch.setattr(main_module, "generate_short_candidates", lambda *args, **kwargs: [])
+    monkeypatch.setattr(
+        main_module,
+        "allocate_candidates",
+        lambda **kwargs: [AllocationDecision(status="ACCEPTED", engine="trend", final_risk_budget=0.01, rank=1)],
+    )
+
+    main_module.main()
+    capsys.readouterr()
+    ledger_event = json.loads(ledger_path.read_text().splitlines()[-1])
+    output_path.unlink()
+
+    def fail_execute(self, order, state):
+        raise AssertionError("expected bucket paper ledger replay before execute")
+
+    monkeypatch.setattr(main_module.OrderExecutor, "execute", fail_execute)
+
+    main_module.main()
+
+    payload = json.loads(capsys.readouterr().out)
+    state = json.loads(output_path.read_text())
+    paper_trading = payload["portfolio"]["paper_trading"]
+
+    assert ledger_path.exists()
+    assert paper_trading["mode"] == "paper"
+    assert paper_trading["ledger_path"] == str(ledger_path)
+    assert paper_trading["ledger_event_count"] == 1
+    assert paper_trading["emitted_count"] == 0
+    assert paper_trading["replayed_count"] == 1
+    assert paper_trading["intents"][0]["intent_id"] == ledger_event["intent_id"]
+    assert paper_trading["intents"][0]["replay_source"] == "paper_ledger"
+    assert state["positions"]["BTCUSDT"]["intent_id"] == ledger_event["intent_id"]
+    assert state["latest_allocations"][0]["execution"] == {"status": "FILLED", "intent_id": ledger_event["intent_id"]}
+
+
 def test_main_v2_tracked_position_restores_missing_stop_from_taxonomy(monkeypatch, tmp_path, load_fixture):
     output_path = tmp_path / "runtime_state.json"
     account_path = tmp_path / "account_snapshot.json"
