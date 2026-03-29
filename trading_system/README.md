@@ -79,6 +79,7 @@ execution-safety 的优先级仍然是 live boundary、hard risk gate、restart-
 - `trading_system/docs/STRATEGY_GAPS_AND_UPGRADES.md`：当前策略缺口、为什么仍然太 price-structure-heavy、以及明确的升级顺序
 - `trading_system/docs/MVP_ARCHITECTURE.md`：程序骨架与当前模块职责
 - `trading_system/docs/PAPER_TRADING_RUNBOOK.md`：paper cycle、ledger、restart-safe replay 的操作说明
+- `trading_system/docs/BATCH_RUNTIME_RUNBOOK.md`：paper 定时跑批的最小 systemd 模板与上线检查项
 
 ## 目录
 
@@ -122,13 +123,15 @@ execution-safety 的优先级仍然是 live boundary、hard risk gate、restart-
 - 当前版本不自动在真实账户下单。
 - 当前版本可用于：读账户、做计划、做模拟执行、记录复盘。
 - paper mode 会在 `TRADING_STATE_FILE` 同目录维护 `paper_ledger.jsonl`，用于记录模拟成交并在 runtime state 丢失后恢复已执行 intent。
+- 仓库现在提供 `deploy/systemd/trading-system-paper.service` 与 `deploy/systemd/trading-system-paper.timer` 作为最小可用的 paper 定时跑批模板，但默认仍假设上游输入快照由外部链路准备。
 
 ## 测试与运行
 
 - 单测：`uv run --with pytest python -m pytest trading_system/tests/test_main_v2_cycle.py -v`
 - 全量测试：`uv run --with pytest python -m pytest trading_system/tests -v`
 - 手动跑一次 paper cycle：
-  `TRADING_ACCOUNT_SNAPSHOT_FILE=trading_system/data/account_snapshot.json TRADING_MARKET_CONTEXT_FILE=trading_system/data/market_context.json TRADING_DERIVATIVES_SNAPSHOT_FILE=trading_system/data/derivatives_snapshot.json python -m trading_system.app.main`
+  `TRADING_EXECUTION_MODE=paper TRADING_ACCOUNT_SNAPSHOT_FILE=trading_system/data/account_snapshot.json TRADING_MARKET_CONTEXT_FILE=trading_system/data/market_context.json TRADING_DERIVATIVES_SNAPSHOT_FILE=trading_system/data/derivatives_snapshot.json python -m trading_system.app.main`
+- 若要按固定频率执行 paper cycle，可参考 `deploy/systemd/trading-system-paper.service`、`deploy/systemd/trading-system-paper.timer` 与 `trading_system/docs/BATCH_RUNTIME_RUNBOOK.md`。
 
 运行期预期：
 

@@ -22,6 +22,14 @@ TRADING_DERIVATIVES_SNAPSHOT_FILE=trading_system/data/derivatives_snapshot.json 
 python -m trading_system.app.main
 ```
 
+## 定时跑批约定
+
+- 若要把 `paper` cycle 接到 `systemd timer`，优先直接复用 `deploy/systemd/trading-system-paper.service` 与 `deploy/systemd/trading-system-paper.timer`。
+- 详细安装和巡检步骤见 `trading_system/docs/BATCH_RUNTIME_RUNBOOK.md`。
+- timer 模式下建议把 `TRADING_ACCOUNT_SNAPSHOT_FILE`、`TRADING_MARKET_CONTEXT_FILE`、`TRADING_DERIVATIVES_SNAPSHOT_FILE`、`TRADING_STATE_FILE` 全部配置为绝对路径。
+- `paper_ledger.jsonl` 会跟随 `TRADING_STATE_FILE` 落在同级目录，所以不要把 state file 指到临时目录，除非你接受 ledger 丢失。
+- 当前 batch 模板只负责“定时执行一轮”；输入快照的刷新仍由外部链路负责。
+
 ## 运行期检查点
 
 - 标准输出 `portfolio.paper_trading.mode` 应为 `paper`。
@@ -40,3 +48,4 @@ python -m trading_system.app.main
 
 - `PYTHONDONTWRITEBYTECODE=1 UV_CACHE_DIR=/tmp/codex-uv-cache uv run --with pytest python -m pytest -q -p no:cacheprovider trading_system/tests/test_paper_executor.py`
 - `PYTHONDONTWRITEBYTECODE=1 UV_CACHE_DIR=/tmp/codex-uv-cache uv run --with pytest python -m pytest -q -p no:cacheprovider trading_system/tests/test_main_v2_cycle.py -k 'paper_cycle_emits_paper_trading_summary_and_records_ledger or paper_cycle_replays_from_ledger_when_state_is_missing'`
+- `systemd-analyze verify deploy/systemd/trading-system-paper.service deploy/systemd/trading-system-paper.timer`
