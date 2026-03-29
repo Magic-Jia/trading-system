@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator, Mapping
 
+from trading_system.app.config import BASE_DIR_ENV
 from trading_system.app.main import STATE_FILE_ENV, main as run_main
 from trading_system.app.runtime_paths import RUNTIME_ENV_ENV, RuntimePaths, build_runtime_paths
 
@@ -74,8 +75,19 @@ def _state_summary(paths: RuntimePaths) -> dict[str, Any]:
     }
 
 
+def _resolve_runtime_root(runtime_root: Path | str | None) -> Path | str | None:
+    if runtime_root is not None:
+        return runtime_root
+
+    base_dir = os.environ.get(BASE_DIR_ENV)
+    if base_dir:
+        return Path(base_dir) / "data" / "runtime"
+
+    return None
+
+
 def run_cycle(mode: str, *, runtime_root: Path | str | None = None, runtime_env: str | None = None) -> dict[str, Any]:
-    paths = build_runtime_paths(mode, runtime_root=runtime_root, runtime_env=runtime_env)
+    paths = build_runtime_paths(mode, runtime_root=_resolve_runtime_root(runtime_root), runtime_env=runtime_env)
     paths.bucket_dir.mkdir(parents=True, exist_ok=True)
 
     env_overrides = {

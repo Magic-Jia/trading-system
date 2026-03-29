@@ -60,6 +60,90 @@ def test_run_cycle_prepares_runtime_bucket_calls_main_and_writes_latest_summary(
     assert "finished_at" in latest
 
 
+def test_run_cycle_smoke_run_falls_back_to_default_snapshot_data_when_base_dir_is_empty(
+    monkeypatch, tmp_path, load_fixture
+):
+    base_dir = tmp_path / "smoke"
+    bucket_dir = base_dir / "data" / "runtime" / "paper" / "paper"
+    state_file = bucket_dir / "runtime_state.json"
+    fallback_dir = tmp_path / "fallback"
+    account_path = fallback_dir / "account_snapshot.json"
+    market_path = fallback_dir / "market_context.json"
+    deriv_path = fallback_dir / "derivatives_snapshot.json"
+    fallback_dir.mkdir(parents=True)
+    account_path.write_text(
+        json.dumps(
+            {
+                "equity": 125000.0,
+                "available_balance": 96000.0,
+                "futures_wallet_balance": 118500.0,
+                "open_positions": [],
+                "open_orders": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    market_path.write_text(json.dumps(load_fixture("market_context_v2.json")), encoding="utf-8")
+    deriv_path.write_text(json.dumps(load_fixture("derivatives_snapshot_v2.json")), encoding="utf-8")
+
+    base_dir.mkdir()
+    assert list(base_dir.iterdir()) == []
+
+    monkeypatch.setattr(main_module, "ACCOUNT_SNAPSHOT", account_path)
+    monkeypatch.setattr(main_module, "MARKET_CONTEXT", market_path)
+    monkeypatch.setattr(main_module, "DERIVATIVES_SNAPSHOT", deriv_path)
+    monkeypatch.setenv("TRADING_BASE_DIR", str(base_dir))
+    monkeypatch.setenv("TRADING_RUNTIME_ENV", "paper")
+    monkeypatch.delenv("TRADING_ACCOUNT_SNAPSHOT_FILE", raising=False)
+    monkeypatch.delenv("TRADING_MARKET_CONTEXT_FILE", raising=False)
+    monkeypatch.delenv("TRADING_DERIVATIVES_SNAPSHOT_FILE", raising=False)
+    monkeypatch.setattr(main_module.OrderExecutor, "append_log", lambda self, order, result: None)
+    monkeypatch.setattr(
+        main_module,
+        "validate_candidate_for_allocation",
+        lambda candidate, account: ValidationResult(True, "INFO", reasons=[], metrics={}),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "validate_signal",
+        lambda signal, account, config: (ValidationResult(True, "INFO", reasons=[], metrics={}), {"sizing": None}),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "generate_trend_candidates",
+        lambda *args, **kwargs: [
+            {
+                "engine": "trend",
+                "setup_type": "BREAKOUT_CONTINUATION",
+                "symbol": "BTCUSDT",
+                "side": "LONG",
+                "score": 0.91,
+                "stop_loss": 62830.0,
+                "invalidation_source": "trend_structure_loss_below_4h_ema50",
+            }
+        ],
+    )
+    monkeypatch.setattr(main_module, "generate_rotation_candidates", lambda *args, **kwargs: [])
+    monkeypatch.setattr(main_module, "generate_short_candidates", lambda *args, **kwargs: [])
+    monkeypatch.setattr(
+        main_module,
+        "allocate_candidates",
+        lambda **kwargs: [AllocationDecision(status="ACCEPTED", engine="trend", final_risk_budget=0.01, rank=1)],
+    )
+
+    summary = run_cycle_module.run_cycle("paper")
+    latest = json.loads((bucket_dir / "latest.json").read_text(encoding="utf-8"))
+
+    assert summary == latest
+    assert summary["status"] == "ok"
+    assert summary["bucket_dir"] == str(bucket_dir)
+    assert summary["state_file"] == str(state_file)
+    assert summary["state_written"] is True
+    assert not (bucket_dir / "account_snapshot.json").exists()
+    assert not (bucket_dir / "market_context.json").exists()
+    assert not (bucket_dir / "derivatives_snapshot.json").exists()
+
+
 def test_run_cycle_writes_error_summary_and_latest_on_failure(monkeypatch, tmp_path):
     runtime_root = tmp_path / "runtime"
     expected_bucket = runtime_root / "paper" / "prod"
