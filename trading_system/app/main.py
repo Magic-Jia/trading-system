@@ -55,7 +55,9 @@ def _float(row: dict, *keys: str) -> float:
 
 def _resolve_default_data_file(config: Any, filename: str, legacy_path: Path) -> Path:
     if runtime_path_defaults_enabled() and hasattr(config, "state_file"):
-        return Path(config.state_file).parent / filename
+        runtime_default = Path(config.state_file).parent / filename
+        if runtime_default.exists():
+            return runtime_default
     return legacy_path
 
 
