@@ -1,0 +1,12 @@
+[Unit]
+Description=Run Trading System paper batch cycle every 15 minutes
+
+[Timer]
+OnCalendar=*:0/15
+Persistent=true
+AccuracySec=1min
+RandomizedDelaySec=30s
+Unit=trading-system-paper.service
+
+[Install]
+WantedBy=timers.target
