@@ -5,9 +5,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
+from .runtime_paths import RUNTIME_ENV_ENV, build_runtime_paths
+
 BASE = Path(__file__).resolve().parents[1]
 DATA_DIR = BASE / "data"
 STATE_FILE = DATA_DIR / "runtime_state.json"
+BASE_DIR_ENV = "TRADING_BASE_DIR"
 
 ExecutionMode = Literal["paper", "dry-run", "live"]
 
@@ -32,6 +35,31 @@ def _env_execution_mode(name: str, default: ExecutionMode = "paper") -> Executio
     if value not in {"paper", "dry-run", "live"}:
         raise ValueError(f"{name} must be one of paper, dry-run, live")
     return value  # type: ignore[return-value]
+
+
+def _resolve_base_dir() -> Path:
+    env_value = os.environ.get(BASE_DIR_ENV)
+    if env_value:
+        return Path(env_value)
+    return BASE
+
+
+def _resolve_data_dir() -> Path:
+    return _resolve_base_dir() / "data"
+
+
+def runtime_path_defaults_enabled() -> bool:
+    return bool(os.environ.get(BASE_DIR_ENV) or os.environ.get(RUNTIME_ENV_ENV))
+
+
+def _resolve_state_file() -> Path:
+    if not runtime_path_defaults_enabled():
+        return STATE_FILE
+    runtime_paths = build_runtime_paths(
+        _env_execution_mode("TRADING_EXECUTION_MODE", "paper"),
+        runtime_root=_resolve_data_dir() / "runtime",
+    )
+    return runtime_paths.state_file
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,8 +120,8 @@ class ExecutionConfig:
 
 @dataclass(frozen=True, slots=True)
 class AppConfig:
-    data_dir: Path = DATA_DIR
-    state_file: Path = STATE_FILE
+    data_dir: Path = field(default_factory=_resolve_data_dir)
+    state_file: Path = field(default_factory=_resolve_state_file)
     risk: RiskConfig = field(default_factory=RiskConfig)
     regime: RegimeConfig = field(default_factory=RegimeConfig)
     universe: UniverseConfig = field(default_factory=UniverseConfig)
