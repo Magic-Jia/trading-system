@@ -92,6 +92,16 @@ def test_v2_build_config_reads_execution_mode_overrides(monkeypatch):
     assert config.execution.allow_live_execution is True
 
 
+def test_v2_build_config_routes_default_state_file_to_runtime_bucket(monkeypatch, tmp_path):
+    monkeypatch.setenv("TRADING_BASE_DIR", str(tmp_path))
+    monkeypatch.setenv("TRADING_RUNTIME_ENV", "testnet")
+
+    config = config_module.build_config()
+
+    assert config.data_dir == tmp_path / "data"
+    assert config.state_file == tmp_path / "data" / "runtime" / "paper" / "testnet" / "runtime_state.json"
+
+
 def test_v2_main_uses_runtime_config_loader(monkeypatch):
     sentinel_config = replace(DEFAULT_CONFIG, execution=replace(DEFAULT_CONFIG.execution, mode="paper"))
     seen: dict[str, object] = {}
@@ -108,6 +118,91 @@ def test_v2_main_uses_runtime_config_loader(monkeypatch):
         main_module.main()
 
     assert seen["config"] is sentinel_config
+
+
+def test_v2_main_defaults_runtime_paths_to_env_bucket(monkeypatch, tmp_path, load_fixture):
+    bucket_dir = tmp_path / "data" / "runtime" / "paper" / "testnet"
+    output_path = bucket_dir / "runtime_state.json"
+    account_path = bucket_dir / "account_snapshot.json"
+    market_path = bucket_dir / "market_context.json"
+    deriv_path = bucket_dir / "derivatives_snapshot.json"
+    bucket_dir.mkdir(parents=True)
+    account_path.write_text(json.dumps(load_fixture("account_snapshot_v2.json")))
+    market_path.write_text(json.dumps(load_fixture("market_context_v2.json")))
+    deriv_path.write_text(json.dumps(load_fixture("derivatives_snapshot_v2.json")))
+
+    seen: dict[str, Path | None] = {}
+    real_market_loader = main_module.load_market_context
+    real_derivatives_loader = main_module.load_derivatives_snapshot
+
+    def traced_market_loader(path=None):
+        seen["market_path"] = Path(path) if path is not None else None
+        return real_market_loader(path)
+
+    def traced_derivatives_loader(path=None):
+        seen["derivatives_path"] = Path(path) if path is not None else None
+        return real_derivatives_loader(path)
+
+    monkeypatch.setattr(main_module, "load_market_context", traced_market_loader)
+    monkeypatch.setattr(main_module, "load_derivatives_snapshot", traced_derivatives_loader)
+    monkeypatch.setattr(main_module, "ACCOUNT_SNAPSHOT", tmp_path / "should-not-be-used" / "account_snapshot.json")
+    monkeypatch.setattr(main_module, "allocate_candidates", lambda **kwargs: [])
+    monkeypatch.setenv("TRADING_BASE_DIR", str(tmp_path))
+    monkeypatch.setenv("TRADING_RUNTIME_ENV", "testnet")
+    monkeypatch.delenv("TRADING_STATE_FILE", raising=False)
+    monkeypatch.delenv("TRADING_ACCOUNT_SNAPSHOT_FILE", raising=False)
+    monkeypatch.delenv("TRADING_MARKET_CONTEXT_FILE", raising=False)
+    monkeypatch.delenv("TRADING_DERIVATIVES_SNAPSHOT_FILE", raising=False)
+
+    main_module.main()
+
+    assert output_path.exists()
+    assert seen["market_path"] == market_path
+    assert seen["derivatives_path"] == deriv_path
+
+
+def test_v2_main_explicit_file_envs_override_runtime_bucket_defaults(monkeypatch, tmp_path, load_fixture):
+    bucket_dir = tmp_path / "data" / "runtime" / "paper" / "testnet"
+    override_dir = tmp_path / "override"
+    output_path = override_dir / "runtime_state.json"
+    account_path = override_dir / "account_snapshot.json"
+    market_path = override_dir / "market_context.json"
+    deriv_path = override_dir / "derivatives_snapshot.json"
+    bucket_dir.mkdir(parents=True)
+    override_dir.mkdir(parents=True)
+    account_path.write_text(json.dumps(load_fixture("account_snapshot_v2.json")))
+    market_path.write_text(json.dumps(load_fixture("market_context_v2.json")))
+    deriv_path.write_text(json.dumps(load_fixture("derivatives_snapshot_v2.json")))
+
+    seen: dict[str, Path | None] = {}
+    real_market_loader = main_module.load_market_context
+    real_derivatives_loader = main_module.load_derivatives_snapshot
+
+    def traced_market_loader(path=None):
+        seen["market_path"] = Path(path) if path is not None else None
+        return real_market_loader(path)
+
+    def traced_derivatives_loader(path=None):
+        seen["derivatives_path"] = Path(path) if path is not None else None
+        return real_derivatives_loader(path)
+
+    monkeypatch.setattr(main_module, "load_market_context", traced_market_loader)
+    monkeypatch.setattr(main_module, "load_derivatives_snapshot", traced_derivatives_loader)
+    monkeypatch.setattr(main_module, "ACCOUNT_SNAPSHOT", tmp_path / "should-not-be-used" / "account_snapshot.json")
+    monkeypatch.setattr(main_module, "allocate_candidates", lambda **kwargs: [])
+    monkeypatch.setenv("TRADING_BASE_DIR", str(tmp_path))
+    monkeypatch.setenv("TRADING_RUNTIME_ENV", "testnet")
+    monkeypatch.setenv("TRADING_STATE_FILE", str(output_path))
+    monkeypatch.setenv("TRADING_ACCOUNT_SNAPSHOT_FILE", str(account_path))
+    monkeypatch.setenv("TRADING_MARKET_CONTEXT_FILE", str(market_path))
+    monkeypatch.setenv("TRADING_DERIVATIVES_SNAPSHOT_FILE", str(deriv_path))
+
+    main_module.main()
+
+    assert output_path.exists()
+    assert seen["market_path"] == market_path
+    assert seen["derivatives_path"] == deriv_path
+    assert not (bucket_dir / "runtime_state.json").exists()
 
 
 def test_v2_main_rejects_live_execution_without_explicit_allow(monkeypatch):
