@@ -58,14 +58,19 @@ def _state_summary(paths: RuntimePaths) -> dict[str, Any]:
             "execution_mode": None,
             "candidate_count": 0,
             "allocation_count": 0,
+            "paper_trading": {},
         }
 
     state = json.loads(paths.state_file.read_text(encoding="utf-8"))
+    paper_trading = state.get("paper_trading")
+    if not isinstance(paper_trading, dict):
+        paper_trading = {}
     return {
         "state_written": True,
         "execution_mode": state.get("execution_mode"),
         "candidate_count": len(state.get("latest_candidates") or []),
         "allocation_count": len(state.get("latest_allocations") or []),
+        "paper_trading": paper_trading,
     }
 
 
