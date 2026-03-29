@@ -1,0 +1,259 @@
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+
+import pytest
+
+from trading_system import run_cycle as run_cycle_module
+from trading_system.app import main as main_module
+from trading_system.app.risk.validator import ValidationResult
+from trading_system.app.types import AllocationDecision
+
+
+def test_run_cycle_prepares_runtime_bucket_calls_main_and_writes_latest_summary(monkeypatch, tmp_path):
+    runtime_root = tmp_path / "runtime"
+    expected_bucket = runtime_root / "paper" / "testnet"
+    expected_state_file = expected_bucket / "runtime_state.json"
+    captured: dict[str, Path | str] = {}
+
+    def fake_main() -> None:
+        captured["mode"] = os.environ["TRADING_EXECUTION_MODE"]
+        captured["runtime_env"] = os.environ["TRADING_RUNTIME_ENV"]
+        captured["state_file"] = Path(os.environ["TRADING_STATE_FILE"])
+        captured["state_file"].write_text(
+            json.dumps(
+                {
+                    "execution_mode": "paper",
+                    "latest_candidates": [{"symbol": "BTCUSDT"}],
+                    "latest_allocations": [{"symbol": "BTCUSDT", "status": "ACCEPTED"}],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    monkeypatch.setattr(run_cycle_module, "run_main", fake_main)
+
+    summary = run_cycle_module.run_cycle("paper", runtime_root=runtime_root, runtime_env="testnet")
+
+    latest_path = expected_bucket / "latest.json"
+    latest = json.loads(latest_path.read_text(encoding="utf-8"))
+
+    assert expected_bucket.is_dir()
+    assert latest_path.exists()
+    assert not (expected_bucket / "error.json").exists()
+    assert captured == {
+        "mode": "paper",
+        "runtime_env": "testnet",
+        "state_file": expected_state_file,
+    }
+    assert summary == latest
+    assert latest["status"] == "ok"
+    assert latest["mode"] == "paper"
+    assert latest["runtime_env"] == "testnet"
+    assert latest["bucket_dir"] == str(expected_bucket)
+    assert latest["state_file"] == str(expected_state_file)
+    assert latest["execution_mode"] == "paper"
+    assert latest["candidate_count"] == 1
+    assert latest["allocation_count"] == 1
+    assert "finished_at" in latest
+
+
+def test_run_cycle_smoke_run_falls_back_to_default_snapshot_data_when_base_dir_is_empty(
+    monkeypatch, tmp_path, load_fixture
+):
+    base_dir = tmp_path / "smoke"
+    bucket_dir = base_dir / "data" / "runtime" / "paper" / "paper"
+    state_file = bucket_dir / "runtime_state.json"
+    fallback_dir = tmp_path / "fallback"
+    account_path = fallback_dir / "account_snapshot.json"
+    market_path = fallback_dir / "market_context.json"
+    deriv_path = fallback_dir / "derivatives_snapshot.json"
+    fallback_dir.mkdir(parents=True)
+    account_path.write_text(
+        json.dumps(
+            {
+                "equity": 125000.0,
+                "available_balance": 96000.0,
+                "futures_wallet_balance": 118500.0,
+                "open_positions": [],
+                "open_orders": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    market_path.write_text(json.dumps(load_fixture("market_context_v2.json")), encoding="utf-8")
+    deriv_path.write_text(json.dumps(load_fixture("derivatives_snapshot_v2.json")), encoding="utf-8")
+
+    base_dir.mkdir()
+    assert list(base_dir.iterdir()) == []
+
+    monkeypatch.setattr(main_module, "ACCOUNT_SNAPSHOT", account_path)
+    monkeypatch.setattr(main_module, "MARKET_CONTEXT", market_path)
+    monkeypatch.setattr(main_module, "DERIVATIVES_SNAPSHOT", deriv_path)
+    monkeypatch.setenv("TRADING_BASE_DIR", str(base_dir))
+    monkeypatch.setenv("TRADING_RUNTIME_ENV", "paper")
+    monkeypatch.delenv("TRADING_ACCOUNT_SNAPSHOT_FILE", raising=False)
+    monkeypatch.delenv("TRADING_MARKET_CONTEXT_FILE", raising=False)
+    monkeypatch.delenv("TRADING_DERIVATIVES_SNAPSHOT_FILE", raising=False)
+    monkeypatch.setattr(main_module.OrderExecutor, "append_log", lambda self, order, result: None)
+    monkeypatch.setattr(
+        main_module,
+        "validate_candidate_for_allocation",
+        lambda candidate, account: ValidationResult(True, "INFO", reasons=[], metrics={}),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "validate_signal",
+        lambda signal, account, config: (ValidationResult(True, "INFO", reasons=[], metrics={}), {"sizing": None}),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "generate_trend_candidates",
+        lambda *args, **kwargs: [
+            {
+                "engine": "trend",
+                "setup_type": "BREAKOUT_CONTINUATION",
+                "symbol": "BTCUSDT",
+                "side": "LONG",
+                "score": 0.91,
+                "stop_loss": 62830.0,
+                "invalidation_source": "trend_structure_loss_below_4h_ema50",
+            }
+        ],
+    )
+    monkeypatch.setattr(main_module, "generate_rotation_candidates", lambda *args, **kwargs: [])
+    monkeypatch.setattr(main_module, "generate_short_candidates", lambda *args, **kwargs: [])
+    monkeypatch.setattr(
+        main_module,
+        "allocate_candidates",
+        lambda **kwargs: [AllocationDecision(status="ACCEPTED", engine="trend", final_risk_budget=0.01, rank=1)],
+    )
+
+    summary = run_cycle_module.run_cycle("paper")
+    latest = json.loads((bucket_dir / "latest.json").read_text(encoding="utf-8"))
+
+    assert summary == latest
+    assert summary["status"] == "ok"
+    assert summary["bucket_dir"] == str(bucket_dir)
+    assert summary["state_file"] == str(state_file)
+    assert summary["state_written"] is True
+    assert not (bucket_dir / "account_snapshot.json").exists()
+    assert not (bucket_dir / "market_context.json").exists()
+    assert not (bucket_dir / "derivatives_snapshot.json").exists()
+
+
+def test_run_cycle_writes_error_summary_and_latest_on_failure(monkeypatch, tmp_path):
+    runtime_root = tmp_path / "runtime"
+    expected_bucket = runtime_root / "paper" / "prod"
+    expected_state_file = expected_bucket / "runtime_state.json"
+
+    def fake_main() -> None:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(run_cycle_module, "run_main", fake_main)
+
+    with pytest.raises(RuntimeError, match="boom"):
+        run_cycle_module.run_cycle("paper", runtime_root=runtime_root, runtime_env="prod")
+
+    error_path = expected_bucket / "error.json"
+    latest_path = expected_bucket / "latest.json"
+    error_summary = json.loads(error_path.read_text(encoding="utf-8"))
+    latest_summary = json.loads(latest_path.read_text(encoding="utf-8"))
+
+    assert expected_bucket.is_dir()
+    assert error_summary == latest_summary
+    assert error_summary["status"] == "error"
+    assert error_summary["mode"] == "paper"
+    assert error_summary["runtime_env"] == "prod"
+    assert error_summary["state_file"] == str(expected_state_file)
+    assert error_summary["error_type"] == "RuntimeError"
+    assert error_summary["error_message"] == "boom"
+    assert "finished_at" in error_summary
+
+
+def test_run_cycle_preserves_paper_ledger_and_reports_replay_summary_when_state_is_missing(
+    monkeypatch, tmp_path, load_fixture
+):
+    runtime_root = tmp_path / "runtime"
+    bucket_dir = runtime_root / "paper" / "testnet"
+    state_file = bucket_dir / "runtime_state.json"
+    ledger_path = bucket_dir / "paper_ledger.jsonl"
+    account_path = bucket_dir / "account_snapshot.json"
+    market_path = bucket_dir / "market_context.json"
+    deriv_path = bucket_dir / "derivatives_snapshot.json"
+    bucket_dir.mkdir(parents=True)
+    account_path.write_text(
+        json.dumps(
+            {
+                "equity": 125000.0,
+                "available_balance": 96000.0,
+                "futures_wallet_balance": 118500.0,
+                "open_positions": [],
+                "open_orders": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    market_path.write_text(json.dumps(load_fixture("market_context_v2.json")), encoding="utf-8")
+    deriv_path.write_text(json.dumps(load_fixture("derivatives_snapshot_v2.json")), encoding="utf-8")
+
+    monkeypatch.setattr(main_module.OrderExecutor, "append_log", lambda self, order, result: None)
+    monkeypatch.setattr(
+        main_module,
+        "validate_candidate_for_allocation",
+        lambda candidate, account: ValidationResult(True, "INFO", reasons=[], metrics={}),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "validate_signal",
+        lambda signal, account, config: (ValidationResult(True, "INFO", reasons=[], metrics={}), {"sizing": None}),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "generate_trend_candidates",
+        lambda *args, **kwargs: [
+            {
+                "engine": "trend",
+                "setup_type": "BREAKOUT_CONTINUATION",
+                "symbol": "BTCUSDT",
+                "side": "LONG",
+                "score": 0.91,
+                "stop_loss": 62830.0,
+                "invalidation_source": "trend_structure_loss_below_4h_ema50",
+            }
+        ],
+    )
+    monkeypatch.setattr(main_module, "generate_rotation_candidates", lambda *args, **kwargs: [])
+    monkeypatch.setattr(main_module, "generate_short_candidates", lambda *args, **kwargs: [])
+    monkeypatch.setattr(
+        main_module,
+        "allocate_candidates",
+        lambda **kwargs: [AllocationDecision(status="ACCEPTED", engine="trend", final_risk_budget=0.01, rank=1)],
+    )
+
+    run_cycle_module.run_cycle("paper", runtime_root=runtime_root, runtime_env="testnet")
+
+    ledger_lines = [json.loads(line) for line in ledger_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    ledger_event = ledger_lines[0]
+    state_file.unlink()
+
+    def fail_execute(self, order, state):
+        raise AssertionError("expected paper ledger replay before execute")
+
+    monkeypatch.setattr(main_module.OrderExecutor, "execute", fail_execute)
+
+    summary = run_cycle_module.run_cycle("paper", runtime_root=runtime_root, runtime_env="testnet")
+    latest = json.loads((bucket_dir / "latest.json").read_text(encoding="utf-8"))
+
+    assert summary == latest
+    assert ledger_path.exists()
+    assert [json.loads(line) for line in ledger_path.read_text(encoding="utf-8").splitlines() if line.strip()] == ledger_lines
+    assert summary["paper_trading"]["mode"] == "paper"
+    assert summary["paper_trading"]["ledger_path"] == str(ledger_path)
+    assert summary["paper_trading"]["ledger_event_count"] == 1
+    assert summary["paper_trading"]["emitted_count"] == 0
+    assert summary["paper_trading"]["replayed_count"] == 1
+    assert summary["paper_trading"]["intents"][0]["intent_id"] == ledger_event["intent_id"]
+    assert summary["paper_trading"]["intents"][0]["replay_source"] == "paper_ledger"

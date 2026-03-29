@@ -92,6 +92,16 @@ def test_v2_build_config_reads_execution_mode_overrides(monkeypatch):
     assert config.execution.allow_live_execution is True
 
 
+def test_v2_build_config_routes_default_state_file_to_runtime_bucket(monkeypatch, tmp_path):
+    monkeypatch.setenv("TRADING_BASE_DIR", str(tmp_path))
+    monkeypatch.setenv("TRADING_RUNTIME_ENV", "testnet")
+
+    config = config_module.build_config()
+
+    assert config.data_dir == tmp_path / "data"
+    assert config.state_file == tmp_path / "data" / "runtime" / "paper" / "testnet" / "runtime_state.json"
+
+
 def test_v2_main_uses_runtime_config_loader(monkeypatch):
     sentinel_config = replace(DEFAULT_CONFIG, execution=replace(DEFAULT_CONFIG.execution, mode="paper"))
     seen: dict[str, object] = {}
@@ -108,6 +118,91 @@ def test_v2_main_uses_runtime_config_loader(monkeypatch):
         main_module.main()
 
     assert seen["config"] is sentinel_config
+
+
+def test_v2_main_defaults_runtime_paths_to_env_bucket(monkeypatch, tmp_path, load_fixture):
+    bucket_dir = tmp_path / "data" / "runtime" / "paper" / "testnet"
+    output_path = bucket_dir / "runtime_state.json"
+    account_path = bucket_dir / "account_snapshot.json"
+    market_path = bucket_dir / "market_context.json"
+    deriv_path = bucket_dir / "derivatives_snapshot.json"
+    bucket_dir.mkdir(parents=True)
+    account_path.write_text(json.dumps(load_fixture("account_snapshot_v2.json")))
+    market_path.write_text(json.dumps(load_fixture("market_context_v2.json")))
+    deriv_path.write_text(json.dumps(load_fixture("derivatives_snapshot_v2.json")))
+
+    seen: dict[str, Path | None] = {}
+    real_market_loader = main_module.load_market_context
+    real_derivatives_loader = main_module.load_derivatives_snapshot
+
+    def traced_market_loader(path=None):
+        seen["market_path"] = Path(path) if path is not None else None
+        return real_market_loader(path)
+
+    def traced_derivatives_loader(path=None):
+        seen["derivatives_path"] = Path(path) if path is not None else None
+        return real_derivatives_loader(path)
+
+    monkeypatch.setattr(main_module, "load_market_context", traced_market_loader)
+    monkeypatch.setattr(main_module, "load_derivatives_snapshot", traced_derivatives_loader)
+    monkeypatch.setattr(main_module, "ACCOUNT_SNAPSHOT", tmp_path / "should-not-be-used" / "account_snapshot.json")
+    monkeypatch.setattr(main_module, "allocate_candidates", lambda **kwargs: [])
+    monkeypatch.setenv("TRADING_BASE_DIR", str(tmp_path))
+    monkeypatch.setenv("TRADING_RUNTIME_ENV", "testnet")
+    monkeypatch.delenv("TRADING_STATE_FILE", raising=False)
+    monkeypatch.delenv("TRADING_ACCOUNT_SNAPSHOT_FILE", raising=False)
+    monkeypatch.delenv("TRADING_MARKET_CONTEXT_FILE", raising=False)
+    monkeypatch.delenv("TRADING_DERIVATIVES_SNAPSHOT_FILE", raising=False)
+
+    main_module.main()
+
+    assert output_path.exists()
+    assert seen["market_path"] == market_path
+    assert seen["derivatives_path"] == deriv_path
+
+
+def test_v2_main_explicit_file_envs_override_runtime_bucket_defaults(monkeypatch, tmp_path, load_fixture):
+    bucket_dir = tmp_path / "data" / "runtime" / "paper" / "testnet"
+    override_dir = tmp_path / "override"
+    output_path = override_dir / "runtime_state.json"
+    account_path = override_dir / "account_snapshot.json"
+    market_path = override_dir / "market_context.json"
+    deriv_path = override_dir / "derivatives_snapshot.json"
+    bucket_dir.mkdir(parents=True)
+    override_dir.mkdir(parents=True)
+    account_path.write_text(json.dumps(load_fixture("account_snapshot_v2.json")))
+    market_path.write_text(json.dumps(load_fixture("market_context_v2.json")))
+    deriv_path.write_text(json.dumps(load_fixture("derivatives_snapshot_v2.json")))
+
+    seen: dict[str, Path | None] = {}
+    real_market_loader = main_module.load_market_context
+    real_derivatives_loader = main_module.load_derivatives_snapshot
+
+    def traced_market_loader(path=None):
+        seen["market_path"] = Path(path) if path is not None else None
+        return real_market_loader(path)
+
+    def traced_derivatives_loader(path=None):
+        seen["derivatives_path"] = Path(path) if path is not None else None
+        return real_derivatives_loader(path)
+
+    monkeypatch.setattr(main_module, "load_market_context", traced_market_loader)
+    monkeypatch.setattr(main_module, "load_derivatives_snapshot", traced_derivatives_loader)
+    monkeypatch.setattr(main_module, "ACCOUNT_SNAPSHOT", tmp_path / "should-not-be-used" / "account_snapshot.json")
+    monkeypatch.setattr(main_module, "allocate_candidates", lambda **kwargs: [])
+    monkeypatch.setenv("TRADING_BASE_DIR", str(tmp_path))
+    monkeypatch.setenv("TRADING_RUNTIME_ENV", "testnet")
+    monkeypatch.setenv("TRADING_STATE_FILE", str(output_path))
+    monkeypatch.setenv("TRADING_ACCOUNT_SNAPSHOT_FILE", str(account_path))
+    monkeypatch.setenv("TRADING_MARKET_CONTEXT_FILE", str(market_path))
+    monkeypatch.setenv("TRADING_DERIVATIVES_SNAPSHOT_FILE", str(deriv_path))
+
+    main_module.main()
+
+    assert output_path.exists()
+    assert seen["market_path"] == market_path
+    assert seen["derivatives_path"] == deriv_path
+    assert not (bucket_dir / "runtime_state.json").exists()
 
 
 def test_v2_main_rejects_live_execution_without_explicit_allow(monkeypatch):
@@ -2789,6 +2884,98 @@ def test_main_v2_paper_cycle_replays_from_ledger_when_state_is_missing(
     state = json.loads(Path(output_path).read_text())
     paper_trading = payload["portfolio"]["paper_trading"]
 
+    assert paper_trading["mode"] == "paper"
+    assert paper_trading["ledger_path"] == str(ledger_path)
+    assert paper_trading["ledger_event_count"] == 1
+    assert paper_trading["emitted_count"] == 0
+    assert paper_trading["replayed_count"] == 1
+    assert paper_trading["intents"][0]["intent_id"] == ledger_event["intent_id"]
+    assert paper_trading["intents"][0]["replay_source"] == "paper_ledger"
+    assert state["positions"]["BTCUSDT"]["intent_id"] == ledger_event["intent_id"]
+    assert state["latest_allocations"][0]["execution"] == {"status": "FILLED", "intent_id": ledger_event["intent_id"]}
+
+
+def test_main_v2_runtime_bucket_replays_from_bucket_ledger_when_state_is_missing(
+    monkeypatch, tmp_path, load_fixture, capsys
+):
+    bucket_dir = tmp_path / "data" / "runtime" / "paper" / "testnet"
+    output_path = bucket_dir / "runtime_state.json"
+    account_path = bucket_dir / "account_snapshot.json"
+    market_path = bucket_dir / "market_context.json"
+    deriv_path = bucket_dir / "derivatives_snapshot.json"
+    ledger_path = bucket_dir / "paper_ledger.jsonl"
+    bucket_dir.mkdir(parents=True)
+    account_path.write_text(
+        json.dumps(
+            {
+                "equity": 125000.0,
+                "available_balance": 96000.0,
+                "futures_wallet_balance": 118500.0,
+                "open_positions": [],
+                "open_orders": [],
+            }
+        )
+    )
+    market_path.write_text(json.dumps(load_fixture("market_context_v2.json")))
+    deriv_path.write_text(json.dumps(load_fixture("derivatives_snapshot_v2.json")))
+    monkeypatch.setenv("TRADING_BASE_DIR", str(tmp_path))
+    monkeypatch.setenv("TRADING_RUNTIME_ENV", "testnet")
+    monkeypatch.setenv("TRADING_EXECUTION_MODE", "paper")
+    monkeypatch.delenv("TRADING_STATE_FILE", raising=False)
+    monkeypatch.delenv("TRADING_ACCOUNT_SNAPSHOT_FILE", raising=False)
+    monkeypatch.delenv("TRADING_MARKET_CONTEXT_FILE", raising=False)
+    monkeypatch.delenv("TRADING_DERIVATIVES_SNAPSHOT_FILE", raising=False)
+    monkeypatch.setattr(main_module.OrderExecutor, "append_log", lambda self, order, result: None)
+    monkeypatch.setattr(
+        main_module,
+        "validate_candidate_for_allocation",
+        lambda candidate, account: ValidationResult(True, "INFO", reasons=[], metrics={}),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "validate_signal",
+        lambda signal, account, config: (ValidationResult(True, "INFO", reasons=[], metrics={}), {"sizing": None}),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "generate_trend_candidates",
+        lambda *args, **kwargs: [
+            {
+                "engine": "trend",
+                "setup_type": "BREAKOUT_CONTINUATION",
+                "symbol": "BTCUSDT",
+                "side": "LONG",
+                "score": 0.91,
+                "stop_loss": 62830.0,
+                "invalidation_source": "trend_structure_loss_below_4h_ema50",
+            }
+        ],
+    )
+    monkeypatch.setattr(main_module, "generate_rotation_candidates", lambda *args, **kwargs: [])
+    monkeypatch.setattr(main_module, "generate_short_candidates", lambda *args, **kwargs: [])
+    monkeypatch.setattr(
+        main_module,
+        "allocate_candidates",
+        lambda **kwargs: [AllocationDecision(status="ACCEPTED", engine="trend", final_risk_budget=0.01, rank=1)],
+    )
+
+    main_module.main()
+    capsys.readouterr()
+    ledger_event = json.loads(ledger_path.read_text().splitlines()[-1])
+    output_path.unlink()
+
+    def fail_execute(self, order, state):
+        raise AssertionError("expected bucket paper ledger replay before execute")
+
+    monkeypatch.setattr(main_module.OrderExecutor, "execute", fail_execute)
+
+    main_module.main()
+
+    payload = json.loads(capsys.readouterr().out)
+    state = json.loads(output_path.read_text())
+    paper_trading = payload["portfolio"]["paper_trading"]
+
+    assert ledger_path.exists()
     assert paper_trading["mode"] == "paper"
     assert paper_trading["ledger_path"] == str(ledger_path)
     assert paper_trading["ledger_event_count"] == 1

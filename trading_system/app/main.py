@@ -6,7 +6,7 @@ from dataclasses import asdict, is_dataclass, replace
 from pathlib import Path
 from typing import Any, Mapping
 
-from .config import build_config
+from .config import build_config, runtime_path_defaults_enabled
 from .data_sources import load_derivatives_snapshot, load_market_context
 from .execution.executor import OrderExecutor
 from .execution.idempotency import already_processed, intent_id, mark_processed, replay_processed_execution
@@ -33,7 +33,11 @@ from .types import AccountSnapshot, OrderIntent, PositionSnapshot, TradeSignal
 
 BASE = Path(__file__).resolve().parents[1]
 ACCOUNT_SNAPSHOT = BASE / "data" / "account_snapshot.json"
+MARKET_CONTEXT = BASE / "data" / "market_context.json"
+DERIVATIVES_SNAPSHOT = BASE / "data" / "derivatives_snapshot.json"
 ACCOUNT_SNAPSHOT_FILE_ENV = "TRADING_ACCOUNT_SNAPSHOT_FILE"
+MARKET_CONTEXT_FILE_ENV = "TRADING_MARKET_CONTEXT_FILE"
+DERIVATIVES_SNAPSHOT_FILE_ENV = "TRADING_DERIVATIVES_SNAPSHOT_FILE"
 STATE_FILE_ENV = "TRADING_STATE_FILE"
 
 
@@ -49,13 +53,41 @@ def _float(row: dict, *keys: str) -> float:
     return 0.0
 
 
-def _resolve_account_snapshot_path(path: str | Path | None = None) -> Path:
+def _resolve_default_data_file(config: Any, filename: str, legacy_path: Path) -> Path:
+    if runtime_path_defaults_enabled() and hasattr(config, "state_file"):
+        runtime_default = Path(config.state_file).parent / filename
+        if runtime_default.exists():
+            return runtime_default
+    return legacy_path
+
+
+def _resolve_account_snapshot_path(path: str | Path | None = None, *, config: Any | None = None) -> Path:
     if path is not None:
         return Path(path)
     env_value = os.environ.get(ACCOUNT_SNAPSHOT_FILE_ENV)
     if env_value:
         return Path(env_value)
+    if config is not None:
+        return _resolve_default_data_file(config, "account_snapshot.json", ACCOUNT_SNAPSHOT)
     return ACCOUNT_SNAPSHOT
+
+
+def _resolve_market_context_path(*, config: Any | None = None) -> Path:
+    env_value = os.environ.get(MARKET_CONTEXT_FILE_ENV)
+    if env_value:
+        return Path(env_value)
+    if config is not None:
+        return _resolve_default_data_file(config, "market_context.json", MARKET_CONTEXT)
+    return MARKET_CONTEXT
+
+
+def _resolve_derivatives_snapshot_path(*, config: Any | None = None) -> Path:
+    env_value = os.environ.get(DERIVATIVES_SNAPSHOT_FILE_ENV)
+    if env_value:
+        return Path(env_value)
+    if config is not None:
+        return _resolve_default_data_file(config, "derivatives_snapshot.json", DERIVATIVES_SNAPSHOT)
+    return DERIVATIVES_SNAPSHOT
 
 
 def _positions_from_rows(rows: list[dict[str, Any]]) -> list[PositionSnapshot]:
@@ -118,8 +150,8 @@ def _load_v2_account_snapshot(raw: dict[str, Any]) -> AccountSnapshot:
     )
 
 
-def load_account_snapshot(path: str | Path | None = None) -> AccountSnapshot:
-    raw = json.loads(_resolve_account_snapshot_path(path).read_text())
+def load_account_snapshot(path: str | Path | None = None, *, config: Any | None = None) -> AccountSnapshot:
+    raw = json.loads(_resolve_account_snapshot_path(path, config=config).read_text())
     if "futures" in raw:
         return _load_v1_account_snapshot(raw)
     return _load_v2_account_snapshot(raw)
@@ -450,10 +482,10 @@ def main() -> None:
         raise RuntimeError("live 模式尚未启用；当前 MVP 仅支持 paper / dry-run")
     store = build_state_store(config)
     state = store.load()
-    account = load_account_snapshot()
-    market_rows = load_market_context()
+    account = load_account_snapshot(config=config)
+    market_rows = load_market_context(_resolve_market_context_path(config=config))
     market = _market_payload(market_rows)
-    derivatives = load_derivatives_snapshot()
+    derivatives = load_derivatives_snapshot(_resolve_derivatives_snapshot_path(config=config))
     derivatives_summary = summarize_derivatives_risk(derivatives)
     regime = classify_regime(market_rows, derivatives)
     universes = build_universes(market)
@@ -495,6 +527,8 @@ def main() -> None:
         mode=config.execution.mode,
         persist_state=store.save if config.execution.mode != "dry-run" else None,
     )
+    executor.execution_log_path = config.state_file.parent / "execution_log.jsonl"
+    executor.execution_log_path.parent.mkdir(parents=True, exist_ok=True)
     sync_positions_from_account(state, account)
 
     execution_rows: list[dict[str, Any]] = []
