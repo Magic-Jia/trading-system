@@ -8,9 +8,9 @@ Type=oneshot
 User=trading
 Group=trading
 WorkingDirectory=/opt/trading-system
-EnvironmentFile=/etc/default/trading-system-paper
+EnvironmentFile=-/etc/default/trading-system-paper
 Environment=PYTHONDONTWRITEBYTECODE=1
-ExecStart=/usr/bin/env bash -lc '. .venv/bin/activate && exec python -m trading_system.app.main'
+ExecStart=/usr/bin/env bash -lc '. .venv/bin/activate && exec python -m trading_system.run_cycle --mode paper'
 SyslogIdentifier=trading-system-paper
 UMask=0077
 NoNewPrivileges=true

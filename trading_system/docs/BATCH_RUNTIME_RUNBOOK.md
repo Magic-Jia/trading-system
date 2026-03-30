@@ -3,15 +3,15 @@
 ## 目的
 
 - 给 `paper` 模式提供一个最小可用的 `systemd` 定时跑批模板。
-- 只负责“按固定频率执行一轮 `python -m trading_system.app.main`”。
+- 只负责“按固定频率执行一轮 `python -m trading_system.run_cycle --mode paper`”。
 - 不改动业务逻辑，不额外引入常驻 daemon。
 
 ## 适用范围与边界
 
 - 本模板默认使用 **system service**：`sudo systemctl ...`，不使用 `systemctl --user`。
-- 当前模板只调度 strategy cycle；`account_snapshot.json`、`market_context.json`、`derivatives_snapshot.json` 需要在定时触发前已经准备好。
+- 当前模板只调度 strategy cycle；paper bucket 里的 `account_snapshot.json`、`market_context.json`、`derivatives_snapshot.json` 需要在定时触发前已经准备好。
 - 若上游快照生成链路尚未接入，timer 仍会按时执行，但只能消费当时文件里已有的数据。
-- `paper_ledger.jsonl` 会跟随 `TRADING_STATE_FILE` 写到同级目录，因此 state 路径必须放在可持久化目录下。
+- `paper_ledger.jsonl` 会跟随 `runtime_state.json` 写到同级目录，因此 runtime bucket 必须放在可持久化目录下。
 
 ## 模板文件
 
@@ -29,7 +29,8 @@
 模板里预设的部署路径是：
 
 - 仓库根目录：`/opt/trading-system`
-- env 文件：`/etc/default/trading-system-paper`
+- paper runtime bucket：`/opt/trading-system/trading_system/data/runtime/paper/paper/`
+- 可选 env 文件：`/etc/default/trading-system-paper`
 
 若你的实际部署目录不同，请同步修改 `trading-system-paper.service` 里的：
 
@@ -39,22 +40,36 @@
 - `ExecStart`
 - `EnvironmentFile`
 
-## 最小 env 文件示例
+## paper bucket 约定
 
-在 `/etc/default/trading-system-paper` 中至少提供：
+默认 paper 入口会读取：
+
+- `/opt/trading-system/trading_system/data/runtime/paper/paper/account_snapshot.json`
+- `/opt/trading-system/trading_system/data/runtime/paper/paper/market_context.json`
+- `/opt/trading-system/trading_system/data/runtime/paper/paper/derivatives_snapshot.json`
+
+并在同目录写出：
+
+- `/opt/trading-system/trading_system/data/runtime/paper/paper/runtime_state.json`
+- `/opt/trading-system/trading_system/data/runtime/paper/paper/paper_ledger.jsonl`
+- `/opt/trading-system/trading_system/data/runtime/paper/paper/latest.json`
+- `/opt/trading-system/trading_system/data/runtime/paper/paper/error.json`
+
+## 可选 env 文件示例
+
+如果需要额外风险参数、切换隔离环境或覆盖默认值，可在 `/etc/default/trading-system-paper` 中提供：
 
 ```bash
-TRADING_EXECUTION_MODE=paper
-TRADING_ACCOUNT_SNAPSHOT_FILE=/opt/trading-system/trading_system/data/account_snapshot.json
-TRADING_MARKET_CONTEXT_FILE=/opt/trading-system/trading_system/data/market_context.json
-TRADING_DERIVATIVES_SNAPSHOT_FILE=/opt/trading-system/trading_system/data/derivatives_snapshot.json
-TRADING_STATE_FILE=/opt/trading-system/trading_system/data/runtime_state.json
+TRADING_RUNTIME_ENV=paper
+TRADING_MAX_OPEN_POSITIONS=8
+TRADING_MAX_TOTAL_RISK_PCT=0.03
 ```
 
 建议：
 
-- 所有路径都写成绝对路径，避免 `systemd` 环境和交互式 shell 行为不一致。
-- `TRADING_STATE_FILE` 放在持久化目录中，这样 `runtime_state.json` 与 `paper_ledger.jsonl` 都能跨重启保留。
+- 除非你明确要切到别的 runtime env，否则可以不写任何路径变量；默认入口已经固定到 paper bucket。
+- 若要切到别的隔离环境，可把 `TRADING_RUNTIME_ENV` 改成例如 `testnet`，对应 bucket 就会变成 `/opt/trading-system/trading_system/data/runtime/paper/testnet/`。
+- runtime bucket 本身要放在持久化目录中，这样 `runtime_state.json` 与 `paper_ledger.jsonl` 都能跨重启保留。
 - 若需要额外风险参数（如 `TRADING_MAX_OPEN_POSITIONS`），也统一放进这个 env 文件。
 
 ## 安装步骤
@@ -66,7 +81,7 @@ TRADING_STATE_FILE=/opt/trading-system/trading_system/data/runtime_state.json
    sudo install -D -m 0644 deploy/systemd/trading-system-paper.timer /etc/systemd/system/trading-system-paper.timer
    ```
 
-2. 写好 `/etc/default/trading-system-paper`。
+2. 准备 paper bucket 里的三份输入快照；如有需要，再写 `/etc/default/trading-system-paper`。
 
 3. 重新加载并启用 timer：
 
@@ -113,8 +128,8 @@ TRADING_STATE_FILE=/opt/trading-system/trading_system/data/runtime_state.json
 
 1. `sudo systemctl start trading-system-paper.service` 成功退出。
 2. `journalctl` 中能看到本轮 `regime` / `portfolio` 摘要，而不是 import 或 env 错误。
-3. `TRADING_STATE_FILE` 指向的 `runtime_state.json` 已更新。
-4. `TRADING_STATE_FILE` 同级目录已出现或持续维护 `paper_ledger.jsonl`。
+3. `/opt/trading-system/trading_system/data/runtime/paper/paper/runtime_state.json` 已更新。
+4. 同目录已出现或持续维护 `paper_ledger.jsonl`。
 5. `portfolio.paper_trading.mode` 为 `paper`。
 6. timer 已显示下一次触发时间。
 
@@ -125,12 +140,12 @@ TRADING_STATE_FILE=/opt/trading-system/trading_system/data/runtime_state.json
 优先检查：
 
 - 上游快照文件是否在 timer 触发前更新；
-- env 文件里的三个输入路径是否写对；
+- 上游是不是把文件写到了 `/opt/trading-system/trading_system/data/runtime/paper/paper/`；
 - 本轮是否只是“重复消费旧快照”。
 
 ### runtime state 有了，但 ledger 不在预期目录
 
-`paper_ledger.jsonl` 不单独配置路径，它跟随 `TRADING_STATE_FILE` 同级目录生成。先检查 `TRADING_STATE_FILE`。
+`paper_ledger.jsonl` 不单独配置路径，它跟随当前 runtime bucket 里的 `runtime_state.json` 同级生成。先检查 bucket 是否跑到了预期 env。
 
 ### timer 已启用，但错过停机期间的计划执行
 

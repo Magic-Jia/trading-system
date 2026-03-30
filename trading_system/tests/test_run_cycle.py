@@ -60,6 +60,41 @@ def test_run_cycle_prepares_runtime_bucket_calls_main_and_writes_latest_summary(
     assert "finished_at" in latest
 
 
+def test_run_cycle_defaults_paper_mode_to_paper_runtime_bucket(monkeypatch, tmp_path):
+    runtime_root = tmp_path / "runtime"
+    expected_bucket = runtime_root / "paper" / "paper"
+    expected_state_file = expected_bucket / "runtime_state.json"
+    captured: dict[str, Path | str] = {}
+
+    def fake_main() -> None:
+        captured["mode"] = os.environ["TRADING_EXECUTION_MODE"]
+        captured["runtime_env"] = os.environ["TRADING_RUNTIME_ENV"]
+        captured["state_file"] = Path(os.environ["TRADING_STATE_FILE"])
+        captured["state_file"].write_text(
+            json.dumps(
+                {
+                    "execution_mode": "paper",
+                    "latest_candidates": [],
+                    "latest_allocations": [],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    monkeypatch.setattr(run_cycle_module, "run_main", fake_main)
+    monkeypatch.delenv("TRADING_RUNTIME_ENV", raising=False)
+
+    summary = run_cycle_module.run_cycle("paper", runtime_root=runtime_root)
+
+    assert captured == {
+        "mode": "paper",
+        "runtime_env": "paper",
+        "state_file": expected_state_file,
+    }
+    assert summary["bucket_dir"] == str(expected_bucket)
+    assert summary["state_file"] == str(expected_state_file)
+
+
 def test_run_cycle_rejects_missing_paper_account_snapshot_when_runtime_bucket_is_empty(
     monkeypatch, tmp_path
 ):

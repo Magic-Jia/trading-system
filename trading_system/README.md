@@ -129,8 +129,7 @@ execution-safety 的优先级仍然是 live boundary、hard risk gate、restart-
 
 - 单测：`uv run --with pytest python -m pytest trading_system/tests/test_main_v2_cycle.py -v`
 - 全量测试：`uv run --with pytest python -m pytest trading_system/tests -v`
-- 手动跑一次 paper cycle：
-  `TRADING_EXECUTION_MODE=paper TRADING_ACCOUNT_SNAPSHOT_FILE=trading_system/data/account_snapshot.json TRADING_MARKET_CONTEXT_FILE=trading_system/data/market_context.json TRADING_DERIVATIVES_SNAPSHOT_FILE=trading_system/data/derivatives_snapshot.json python -m trading_system.app.main`
+- 手动跑一次 paper cycle：先把输入快照放到 `trading_system/data/runtime/paper/paper/`，再运行 `python -m trading_system.run_cycle --mode paper`
 - 若要按固定频率执行 paper cycle，可参考 `deploy/systemd/trading-system-paper.service`、`deploy/systemd/trading-system-paper.timer` 与 `trading_system/docs/BATCH_RUNTIME_RUNBOOK.md`。
 
 运行期预期：
@@ -139,4 +138,4 @@ execution-safety 的优先级仍然是 live boundary、hard risk gate、restart-
 - 当存在 short 候选时，`regime.short` 会给出 short 的紧凑报告，但当前 short execution 仍默认跳过。
 - `portfolio.lifecycle_summary` 会给出 lifecycle 的紧凑视图。
 - `portfolio.paper_trading` 会给出当前 paper cycle 的 ledger 路径、ledger event 总数、当次 emitted/replayed 统计与 intent 摘要。
-- `trading_system/data/runtime_state.json` 会持续保留最新的 regime / candidates / allocations / paper_trading / lifecycle / rotation / short 摘要。
+- `trading_system/data/runtime/paper/paper/runtime_state.json` 会持续保留最新的 regime / candidates / allocations / paper_trading / lifecycle / rotation / short 摘要。
