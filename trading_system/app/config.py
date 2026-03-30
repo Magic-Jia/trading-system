@@ -90,7 +90,7 @@ class RegimeConfig:
 @dataclass(frozen=True, slots=True)
 class UniverseConfig:
     min_liquidity_usdt_24h: float = field(
-        default_factory=lambda: _env_float("TRADING_UNIVERSE_MIN_LIQUIDITY_USDT_24H", "500000000")
+        default_factory=lambda: _env_float("TRADING_UNIVERSE_MIN_LIQUIDITY_USDT_24H", "400000000")
     )
     max_symbols: int = field(default_factory=lambda: _env_int("TRADING_UNIVERSE_MAX_SYMBOLS", "20"))
 
