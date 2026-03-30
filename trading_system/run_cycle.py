@@ -15,6 +15,7 @@ from trading_system.app.runtime_paths import RUNTIME_ENV_ENV, RuntimePaths, buil
 EXECUTION_MODE_ENV = "TRADING_EXECUTION_MODE"
 LATEST_SUMMARY_NAME = "latest.json"
 ERROR_SUMMARY_NAME = "error.json"
+PAPER_RUNTIME_ENV = "paper"
 
 
 def _timestamp() -> str:
@@ -86,8 +87,26 @@ def _resolve_runtime_root(runtime_root: Path | str | None) -> Path | str | None:
     return None
 
 
+def _resolve_runtime_env(mode: str, runtime_env: str | None) -> str | None:
+    if runtime_env is not None:
+        return runtime_env
+
+    env_value = os.environ.get(RUNTIME_ENV_ENV)
+    if env_value:
+        return env_value
+
+    if mode.strip().lower() == "paper":
+        return PAPER_RUNTIME_ENV
+
+    return None
+
+
 def run_cycle(mode: str, *, runtime_root: Path | str | None = None, runtime_env: str | None = None) -> dict[str, Any]:
-    paths = build_runtime_paths(mode, runtime_root=_resolve_runtime_root(runtime_root), runtime_env=runtime_env)
+    paths = build_runtime_paths(
+        mode,
+        runtime_root=_resolve_runtime_root(runtime_root),
+        runtime_env=_resolve_runtime_env(mode, runtime_env),
+    )
     paths.bucket_dir.mkdir(parents=True, exist_ok=True)
 
     env_overrides = {
