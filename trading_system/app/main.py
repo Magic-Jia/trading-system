@@ -554,7 +554,7 @@ def main() -> None:
     derivatives = load_derivatives_snapshot(_resolve_derivatives_snapshot_path(config=config))
     derivatives_summary = summarize_derivatives_risk(derivatives)
     regime = classify_regime(market_rows, derivatives)
-    universes = build_universes(market)
+    universes = build_universes(market, derivatives=derivatives)
 
     trend_candidates = generate_trend_candidates(
         market,
