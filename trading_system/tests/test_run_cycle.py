@@ -335,6 +335,157 @@ def test_run_cycle_smoke_auto_prepares_paper_bucket_inputs_with_builtin_generato
     assert not (tmp_path / "should-not-be-used").exists()
 
 
+def test_run_cycle_refreshes_paper_snapshots_before_each_run(monkeypatch, tmp_path):
+    runtime_root = tmp_path / "runtime"
+    bucket_dir = runtime_root / "paper" / "paper"
+    captured_runs: list[dict[str, object]] = []
+    phase = {"value": 1}
+
+    def _kline_rows(limit: int, *, start_close: float, step: float, quote_volume: float = 1000000.0):
+        rows = []
+        for index in range(limit):
+            close = start_close + (index * step)
+            rows.append(
+                [
+                    1710000000000 + (index * 3600000),
+                    f"{close - 2.0:.8f}",
+                    f"{close + 3.0:.8f}",
+                    f"{close - 3.0:.8f}",
+                    f"{close:.8f}",
+                    "100.0",
+                    1710003600000 + (index * 3600000),
+                    f"{quote_volume:.8f}",
+                    1000,
+                    "50.0",
+                    f"{quote_volume * 0.56:.8f}",
+                    "0.0",
+                ]
+            )
+        return rows
+
+    def fake_public_get(base: str, path: str, params: dict[str, object] | None = None):
+        params = params or {}
+        symbol = str(params.get("symbol", "BTCUSDT"))
+        payloads = {
+            1: {
+                "spot_quote_volume": "987654321.0",
+                "spot_start_close": 60000.0,
+                "mark_price": "64120.0",
+                "index_price": "64080.0",
+                "price_change_pct": "1.7",
+                "open_interest": "1000.0",
+                "open_interest_history": [
+                    {"sumOpenInterestValue": "1000000.0"},
+                    {"sumOpenInterestValue": "1025000.0"},
+                ],
+                "futures_quote_volume": 2000000.0,
+            },
+            2: {
+                "spot_quote_volume": "123456789.0",
+                "spot_start_close": 70000.0,
+                "mark_price": "65120.0",
+                "index_price": "65080.0",
+                "price_change_pct": "2.4",
+                "open_interest": "2000.0",
+                "open_interest_history": [
+                    {"sumOpenInterestValue": "2000000.0"},
+                    {"sumOpenInterestValue": "2100000.0"},
+                ],
+                "futures_quote_volume": 3000000.0,
+            },
+        }[phase["value"]]
+        if base == paper_snapshots_module.SPOT_BASE and path == "/api/v3/ticker/24hr":
+            return {"symbol": symbol, "quoteVolume": payloads["spot_quote_volume"]}
+        if base == paper_snapshots_module.SPOT_BASE and path == "/api/v3/klines":
+            interval = str(params["interval"])
+            if interval == "1d":
+                return _kline_rows(int(params["limit"]), start_close=float(payloads["spot_start_close"]), step=120.0)
+            if interval == "4h":
+                return _kline_rows(int(params["limit"]), start_close=float(payloads["spot_start_close"]) + 2000.0, step=25.0)
+            if interval == "1h":
+                return _kline_rows(int(params["limit"]), start_close=float(payloads["spot_start_close"]) + 3500.0, step=5.0)
+        if base == paper_snapshots_module.FUTURES_BASE and path == "/fapi/v1/premiumIndex":
+            return {
+                "symbol": symbol,
+                "markPrice": payloads["mark_price"],
+                "indexPrice": payloads["index_price"],
+                "lastFundingRate": "0.0001",
+            }
+        if base == paper_snapshots_module.FUTURES_BASE and path == "/fapi/v1/ticker/24hr":
+            return {"symbol": symbol, "priceChangePercent": payloads["price_change_pct"]}
+        if base == paper_snapshots_module.FUTURES_BASE and path == "/fapi/v1/openInterest":
+            return {"symbol": symbol, "openInterest": payloads["open_interest"]}
+        if base == paper_snapshots_module.FUTURES_BASE and path == "/futures/data/openInterestHist":
+            return payloads["open_interest_history"]
+        if base == paper_snapshots_module.FUTURES_BASE and path == "/fapi/v1/klines":
+            return _kline_rows(
+                int(params["limit"]),
+                start_close=float(payloads["spot_start_close"]) + 4000.0,
+                step=8.0,
+                quote_volume=float(payloads["futures_quote_volume"]),
+            )
+        raise AssertionError(f"unexpected public_get call: base={base} path={path} params={params}")
+
+    def fake_main() -> None:
+        account_path = Path(os.environ["TRADING_ACCOUNT_SNAPSHOT_FILE"])
+        market_path = Path(os.environ["TRADING_MARKET_CONTEXT_FILE"])
+        derivatives_path = Path(os.environ["TRADING_DERIVATIVES_SNAPSHOT_FILE"])
+        account = json.loads(account_path.read_text(encoding="utf-8"))
+        market = json.loads(market_path.read_text(encoding="utf-8"))
+        derivatives = json.loads(derivatives_path.read_text(encoding="utf-8"))
+        captured_runs.append(
+            {
+                "account_path": account_path,
+                "market_path": market_path,
+                "derivatives_path": derivatives_path,
+                "equity": account["equity"],
+                "account_type": account["meta"]["account_type"],
+                "snapshot_source": account["meta"]["snapshot_source"],
+                "daily_volume": market["symbols"]["BTCUSDT"]["daily"]["volume_usdt_24h"],
+                "open_interest_usdt": derivatives["rows"][0]["open_interest_usdt"],
+            }
+        )
+        Path(os.environ["TRADING_STATE_FILE"]).write_text(
+            json.dumps(
+                {
+                    "execution_mode": "paper",
+                    "latest_candidates": [],
+                    "latest_allocations": [],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    monkeypatch.setattr(paper_snapshots_module, "public_get", fake_public_get)
+    monkeypatch.setattr(run_cycle_module, "run_main", fake_main)
+    monkeypatch.setenv("TRADING_PAPER_SNAPSHOT_SYMBOLS", "BTCUSDT")
+    monkeypatch.setattr(main_module, "ACCOUNT_SNAPSHOT", tmp_path / "should-not-be-used" / "account_snapshot.json")
+
+    monkeypatch.setenv("TRADING_PAPER_ACCOUNT_EQUITY", "25000")
+    run_cycle_module.run_cycle("paper", runtime_root=runtime_root, runtime_env="paper")
+
+    phase["value"] = 2
+    monkeypatch.setenv("TRADING_PAPER_ACCOUNT_EQUITY", "31000")
+    run_cycle_module.run_cycle("paper", runtime_root=runtime_root, runtime_env="paper")
+
+    assert len(captured_runs) == 2
+    first_run, second_run = captured_runs
+
+    assert first_run["account_path"] == bucket_dir / "account_snapshot.json"
+    assert first_run["market_path"] == bucket_dir / "market_context.json"
+    assert first_run["derivatives_path"] == bucket_dir / "derivatives_snapshot.json"
+    assert first_run["equity"] == 25000.0
+    assert second_run["equity"] == 31000.0
+    assert first_run["account_type"] == "paper"
+    assert second_run["account_type"] == "paper"
+    assert first_run["snapshot_source"] == "paper_snapshot_bootstrap"
+    assert second_run["snapshot_source"] == "paper_snapshot_bootstrap"
+    assert first_run["daily_volume"] == 987654321.0
+    assert second_run["daily_volume"] == 123456789.0
+    assert first_run["open_interest_usdt"] == 64120000.0
+    assert second_run["open_interest_usdt"] == 130240000.0
+
+
 def test_run_cycle_fail_fast_when_paper_snapshot_generation_is_blocked(monkeypatch, tmp_path):
     runtime_root = tmp_path / "runtime"
     bucket_dir = runtime_root / "paper" / "paper"
@@ -608,21 +759,25 @@ def test_run_cycle_preserves_paper_ledger_and_reports_replay_summary_when_state_
     account_path = bucket_dir / "account_snapshot.json"
     market_path = bucket_dir / "market_context.json"
     deriv_path = bucket_dir / "derivatives_snapshot.json"
+    account_payload = {
+        "equity": 125000.0,
+        "available_balance": 96000.0,
+        "futures_wallet_balance": 118500.0,
+        "open_positions": [],
+        "open_orders": [],
+    }
+    market_payload = load_fixture("market_context_v2.json")
+    deriv_payload = load_fixture("derivatives_snapshot_v2.json")
     bucket_dir.mkdir(parents=True)
-    account_path.write_text(
-        json.dumps(
-            {
-                "equity": 125000.0,
-                "available_balance": 96000.0,
-                "futures_wallet_balance": 118500.0,
-                "open_positions": [],
-                "open_orders": [],
-            }
-        ),
-        encoding="utf-8",
-    )
-    market_path.write_text(json.dumps(load_fixture("market_context_v2.json")), encoding="utf-8")
-    deriv_path.write_text(json.dumps(load_fixture("derivatives_snapshot_v2.json")), encoding="utf-8")
+    account_path.write_text(json.dumps(account_payload), encoding="utf-8")
+    market_path.write_text(json.dumps(market_payload), encoding="utf-8")
+    deriv_path.write_text(json.dumps(deriv_payload), encoding="utf-8")
+
+    def fake_prepare(paths) -> None:
+        paths.bucket_dir.mkdir(parents=True, exist_ok=True)
+        (paths.bucket_dir / "account_snapshot.json").write_text(json.dumps(account_payload), encoding="utf-8")
+        (paths.bucket_dir / "market_context.json").write_text(json.dumps(market_payload), encoding="utf-8")
+        (paths.bucket_dir / "derivatives_snapshot.json").write_text(json.dumps(deriv_payload), encoding="utf-8")
 
     monkeypatch.setattr(main_module.OrderExecutor, "append_log", lambda self, order, result: None)
     monkeypatch.setattr(
@@ -657,6 +812,7 @@ def test_run_cycle_preserves_paper_ledger_and_reports_replay_summary_when_state_
         "allocate_candidates",
         lambda **kwargs: [AllocationDecision(status="ACCEPTED", engine="trend", final_risk_budget=0.01, rank=1)],
     )
+    monkeypatch.setattr(run_cycle_module, "prepare_paper_runtime_inputs", fake_prepare)
 
     run_cycle_module.run_cycle("paper", runtime_root=runtime_root, runtime_env="testnet")
 

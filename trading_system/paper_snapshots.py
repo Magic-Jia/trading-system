@@ -272,9 +272,7 @@ def _paper_account_snapshot_payload() -> dict[str, Any]:
     }
 
 
-def _ensure_snapshot_file(path: Path, *, label: str, builder: Callable[[], dict[str, Any]]) -> None:
-    if path.exists():
-        return
+def _refresh_snapshot_file(path: Path, *, label: str, builder: Callable[[], dict[str, Any]]) -> None:
     try:
         payload = builder()
     except Exception as exc:
@@ -284,17 +282,17 @@ def _ensure_snapshot_file(path: Path, *, label: str, builder: Callable[[], dict[
 
 def prepare_paper_runtime_inputs(paths: RuntimePaths) -> None:
     symbols = _paper_symbols()
-    _ensure_snapshot_file(
+    _refresh_snapshot_file(
         paths.bucket_dir / PAPER_ACCOUNT_SNAPSHOT_NAME,
         label=PAPER_ACCOUNT_SNAPSHOT_NAME,
         builder=_paper_account_snapshot_payload,
     )
-    _ensure_snapshot_file(
+    _refresh_snapshot_file(
         paths.bucket_dir / PAPER_MARKET_CONTEXT_NAME,
         label=PAPER_MARKET_CONTEXT_NAME,
         builder=lambda: _market_context_payload(symbols),
     )
-    _ensure_snapshot_file(
+    _refresh_snapshot_file(
         paths.bucket_dir / PAPER_DERIVATIVES_SNAPSHOT_NAME,
         label=PAPER_DERIVATIVES_SNAPSHOT_NAME,
         builder=lambda: _derivatives_snapshot_payload(symbols),
