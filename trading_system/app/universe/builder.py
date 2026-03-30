@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 from trading_system.app.config import DEFAULT_CONFIG
 
@@ -70,9 +70,21 @@ def _volume_usdt_24h(payload: Mapping[str, Any]) -> float:
     return 0.0
 
 
-def _liquidity_inputs(payload: Mapping[str, Any]) -> dict[str, Any]:
+def _derivatives_by_symbol(derivatives: Sequence[Mapping[str, Any]] | None) -> dict[str, Mapping[str, Any]]:
+    if not derivatives:
+        return {}
+
+    rows: dict[str, Mapping[str, Any]] = {}
+    for row in derivatives:
+        symbol = row.get("symbol")
+        if isinstance(symbol, str):
+            rows[symbol] = row
+    return rows
+
+
+def _liquidity_inputs(payload: Mapping[str, Any], *, rolling_notional: float | None = None) -> dict[str, Any]:
     tier = str(payload.get("liquidity_tier", "")).lower()
-    rolling_notional = _volume_usdt_24h(payload)
+    resolved_rolling_notional = _volume_usdt_24h(payload) if rolling_notional is None else rolling_notional
     depth_multiplier = _TIER_TO_DEPTH_MULTIPLIER.get(tier, 0.05)
     slippage_bps = _TIER_TO_SLIPPAGE_BPS.get(tier, 25.0)
     listing_age_days = _TIER_TO_LISTING_AGE_DAYS.get(tier, 90.0)
@@ -81,8 +93,8 @@ def _liquidity_inputs(payload: Mapping[str, Any]) -> dict[str, Any]:
     atr_pct = _to_float(daily.get("atr_pct")) if isinstance(daily, Mapping) else 0.0
 
     return {
-        "rolling_notional": rolling_notional,
-        "depth_proxy_notional": rolling_notional * depth_multiplier,
+        "rolling_notional": resolved_rolling_notional,
+        "depth_proxy_notional": resolved_rolling_notional * depth_multiplier,
         "slippage_bps": slippage_bps,
         "listing_age_days": listing_age_days,
         "wick_risk_flag": atr_pct >= 0.12,
@@ -93,14 +105,31 @@ def _sort_universe(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return sorted(rows, key=lambda row: (-_to_float(row["liquidity_meta"]["rolling_notional"]), row["symbol"]))
 
 
-def build_universes(market: Mapping[str, Any]) -> UniverseBuildResult:
+def build_universes(
+    market: Mapping[str, Any],
+    derivatives: Sequence[Mapping[str, Any]] | None = None,
+) -> UniverseBuildResult:
     majors: list[dict[str, Any]] = []
     rotation: list[dict[str, Any]] = []
     shortable_majors: list[dict[str, Any]] = []
+    derivatives_rows = _derivatives_by_symbol(derivatives)
 
     for symbol, payload in _extract_rows(market):
         sector = str(payload.get("sector") or sector_for_symbol(symbol))
-        liquidity = evaluate_liquidity(_liquidity_inputs(payload))
+        spot_volume = _volume_usdt_24h(payload)
+        derivatives_row = derivatives_rows.get(symbol)
+        open_interest_usdt = _to_float(derivatives_row.get("open_interest_usdt")) if derivatives_row else 0.0
+        rotation_notional = max(spot_volume, open_interest_usdt)
+        liquidity_inputs = _liquidity_inputs(
+            payload,
+            rolling_notional=rotation_notional if sector != "majors" else None,
+        )
+        liquidity = dict(evaluate_liquidity(liquidity_inputs))
+        liquidity["spot_volume_usdt_24h"] = spot_volume
+        liquidity["open_interest_usdt"] = open_interest_usdt
+        liquidity["liquidity_source"] = (
+            "open_interest_usdt" if sector != "majors" and open_interest_usdt > spot_volume else "volume_usdt_24h"
+        )
 
         row: dict[str, Any] = {
             "symbol": symbol,

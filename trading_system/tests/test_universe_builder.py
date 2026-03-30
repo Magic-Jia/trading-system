@@ -103,3 +103,33 @@ def test_default_paper_snapshot_defaults_support_a_real_rotation_universe(monkey
 
     assert expected_rotation_symbols.issubset(default_symbols)
     assert expected_rotation_symbols.issubset(rotation_symbols)
+
+
+def test_rotation_universe_can_use_derivatives_liquidity_not_just_spot_volume():
+    market = {
+        "symbols": {
+            "BTCUSDT": _market_symbol(sector="majors", liquidity_tier="top", volume_usdt_24h=19_800_000_000),
+            "SEIUSDT": _market_symbol(sector="alt_l1", liquidity_tier="high", volume_usdt_24h=350_000_000),
+        }
+    }
+    derivatives = [
+        {
+            "symbol": "SEIUSDT",
+            "funding_rate": 0.00011,
+            "open_interest_usdt": 900_000_000,
+            "open_interest_change_24h_pct": 0.07,
+            "mark_price_change_24h_pct": 0.04,
+            "taker_buy_sell_ratio": 1.06,
+            "basis_bps": 18,
+        }
+    ]
+
+    current_universes = build_universes(market)
+    assert {row["symbol"] for row in current_universes.rotation_universe} == set()
+
+    universes = build_universes(market, derivatives=derivatives)
+
+    assert {row["symbol"] for row in universes.rotation_universe} == {"SEIUSDT"}
+    assert universes.rotation_universe[0]["liquidity_meta"]["spot_volume_usdt_24h"] == 350_000_000
+    assert universes.rotation_universe[0]["liquidity_meta"]["open_interest_usdt"] == 900_000_000
+    assert universes.rotation_universe[0]["liquidity_meta"]["rolling_notional"] == 900_000_000
