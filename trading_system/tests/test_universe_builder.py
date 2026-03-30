@@ -105,11 +105,27 @@ def test_default_paper_snapshot_defaults_support_a_real_rotation_universe(monkey
     assert expected_rotation_symbols.issubset(rotation_symbols)
 
 
+def test_default_rotation_universe_includes_symbols_above_200m_spot_volume(monkeypatch):
+    monkeypatch.delenv("TRADING_UNIVERSE_MIN_LIQUIDITY_USDT_24H", raising=False)
+    monkeypatch.setattr(builder_module, "DEFAULT_CONFIG", AppConfig())
+
+    market = {
+        "symbols": {
+            "BTCUSDT": _market_symbol(sector="majors", liquidity_tier="top", volume_usdt_24h=19_800_000_000),
+            "AVAXUSDT": _market_symbol(sector="alt_l1", liquidity_tier="high", volume_usdt_24h=250_000_000),
+        }
+    }
+
+    universes = build_universes(market)
+
+    assert {row["symbol"] for row in universes.rotation_universe} == {"AVAXUSDT"}
+
+
 def test_rotation_universe_can_use_derivatives_liquidity_not_just_spot_volume():
     market = {
         "symbols": {
             "BTCUSDT": _market_symbol(sector="majors", liquidity_tier="top", volume_usdt_24h=19_800_000_000),
-            "SEIUSDT": _market_symbol(sector="alt_l1", liquidity_tier="high", volume_usdt_24h=350_000_000),
+            "SEIUSDT": _market_symbol(sector="alt_l1", liquidity_tier="high", volume_usdt_24h=150_000_000),
         }
     }
     derivatives = [
@@ -130,6 +146,6 @@ def test_rotation_universe_can_use_derivatives_liquidity_not_just_spot_volume():
     universes = build_universes(market, derivatives=derivatives)
 
     assert {row["symbol"] for row in universes.rotation_universe} == {"SEIUSDT"}
-    assert universes.rotation_universe[0]["liquidity_meta"]["spot_volume_usdt_24h"] == 350_000_000
+    assert universes.rotation_universe[0]["liquidity_meta"]["spot_volume_usdt_24h"] == 150_000_000
     assert universes.rotation_universe[0]["liquidity_meta"]["open_interest_usdt"] == 900_000_000
     assert universes.rotation_universe[0]["liquidity_meta"]["rolling_notional"] == 900_000_000
