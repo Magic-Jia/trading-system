@@ -18,11 +18,24 @@
 - `deploy/systemd/trading-system-paper.service`
 - `deploy/systemd/trading-system-paper.timer`
 
+临时替代脚本：
+
+- `deploy/cron/trading-system-paper-cron.sh`
+- `deploy/cron/install-trading-system-paper-crontab.sh`
+
 默认设计：
 
 - `service` 使用 `Type=oneshot`，每次只跑一轮。
 - `timer` 用 `OnCalendar=*:0/15`，即每 15 分钟触发一次。
 - `Persistent=true` 打开后，主机在离线期间错过的定时会在 timer 恢复后补跑一次。
+
+## 临时 cron 替代（过渡方案）
+
+- 正式部署仍以 `systemd service + timer` 为准；`deploy/cron/` 里的脚本只是给尚未切过去的机器临时顶住。
+- `trading-system-paper-cron.sh` 默认固定 `TRADING_EXECUTION_MODE=paper`、`TRADING_RUNTIME_ENV=paper`，因此默认 runtime bucket 也是 `.../data/runtime/paper/paper/`。
+- 如果没有显式覆盖，wrapper 会把 `TRADING_ACCOUNT_SNAPSHOT_FILE`、`TRADING_MARKET_CONTEXT_FILE`、`TRADING_DERIVATIVES_SNAPSHOT_FILE` 都指向同一个 paper bucket，不会回退到旧的根目录 `data/*.json` 快照路径。
+- `install-trading-system-paper-crontab.sh` 会把一段受管 block 写进当前用户 crontab，默认表达式是 `*/15 * * * *`，可用 `TRADING_PAPER_CRON_EXPR` 覆盖。
+- 同一个安装脚本可重复执行；它会先移除旧的 `# >>> trading-system-paper cron >>>` block，再写入最新配置。
 
 ## 目录与路径约定
 
@@ -94,6 +107,28 @@ TRADING_MAX_TOTAL_RISK_PCT=0.03
 
    ```bash
    sudo systemctl start trading-system-paper.service
+   ```
+
+## 临时 cron 安装步骤
+
+1. 确认 paper bucket 里的三份输入快照已经放到 `/opt/trading-system/trading_system/data/runtime/paper/paper/`（或你实际 `TRADING_BASE_DIR` 对应的同名目录）。
+
+2. 直接安装当前用户 crontab：
+
+   ```bash
+   bash deploy/cron/install-trading-system-paper-crontab.sh
+   ```
+
+3. 如需改频率，可在安装前覆盖 cron 表达式：
+
+   ```bash
+   TRADING_PAPER_CRON_EXPR="*/5 * * * *" bash deploy/cron/install-trading-system-paper-crontab.sh
+   ```
+
+4. 安装后可用下面命令确认 block 已写入：
+
+   ```bash
+   crontab -l
    ```
 
 ## 日常操作
