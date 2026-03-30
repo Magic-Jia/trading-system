@@ -9,8 +9,20 @@ from pathlib import Path
 from typing import Any, Iterator, Mapping
 
 from trading_system.app.config import BASE_DIR_ENV
-from trading_system.app.main import STATE_FILE_ENV, main as run_main
+from trading_system.app.main import (
+    ACCOUNT_SNAPSHOT_FILE_ENV,
+    DERIVATIVES_SNAPSHOT_FILE_ENV,
+    MARKET_CONTEXT_FILE_ENV,
+    STATE_FILE_ENV,
+    main as run_main,
+)
 from trading_system.app.runtime_paths import RUNTIME_ENV_ENV, RuntimePaths, build_runtime_paths
+from trading_system.paper_snapshots import (
+    PAPER_ACCOUNT_SNAPSHOT_NAME,
+    PAPER_DERIVATIVES_SNAPSHOT_NAME,
+    PAPER_MARKET_CONTEXT_NAME,
+    prepare_paper_runtime_inputs,
+)
 
 EXECUTION_MODE_ENV = "TRADING_EXECUTION_MODE"
 LATEST_SUMMARY_NAME = "latest.json"
@@ -116,6 +128,15 @@ def run_cycle(mode: str, *, runtime_root: Path | str | None = None, runtime_env:
     }
 
     try:
+        if paths.mode == "paper":
+            prepare_paper_runtime_inputs(paths)
+            env_overrides.update(
+                {
+                    ACCOUNT_SNAPSHOT_FILE_ENV: str(paths.bucket_dir / PAPER_ACCOUNT_SNAPSHOT_NAME),
+                    MARKET_CONTEXT_FILE_ENV: str(paths.bucket_dir / PAPER_MARKET_CONTEXT_NAME),
+                    DERIVATIVES_SNAPSHOT_FILE_ENV: str(paths.bucket_dir / PAPER_DERIVATIVES_SNAPSHOT_NAME),
+                }
+            )
         with _temporary_env(env_overrides):
             run_main()
     except Exception as exc:

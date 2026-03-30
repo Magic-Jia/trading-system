@@ -26,7 +26,13 @@
 python -m trading_system.run_cycle --mode paper
 ```
 
-运行前先确保上游链路已经把三份输入快照刷新到 `trading_system/data/runtime/paper/paper/`。
+若当前 bucket 缺少三份输入快照，入口会先在 `trading_system/data/runtime/paper/paper/` 内自动补齐：
+
+- `account_snapshot.json`：生成安全的 paper 账户快照（默认空持仓、空挂单，不读取根目录 live 快照）
+- `market_context.json`：按当前 symbol 列表从公开行情接口拉取并写入 paper bucket
+- `derivatives_snapshot.json`：按当前 symbol 列表从公开合约接口拉取并写入 paper bucket
+
+如果公开行情/API 拉取失败，当前轮次会 fail-fast，并把错误写入同目录 `error.json` / `latest.json`。
 
 ## 定时跑批约定
 
@@ -34,7 +40,7 @@ python -m trading_system.run_cycle --mode paper
 - 详细安装和巡检步骤见 `trading_system/docs/BATCH_RUNTIME_RUNBOOK.md`。
 - timer 模式默认也走同一个 paper bucket；部署到 `/opt/trading-system` 后，对应绝对路径是 `/opt/trading-system/trading_system/data/runtime/paper/paper/`。
 - `paper_ledger.jsonl` 会跟随 `runtime_state.json` 落在同级目录，所以不要把整个 runtime bucket 放到临时目录，除非你接受 ledger 丢失。
-- 当前 batch 模板只负责“定时执行一轮”；输入快照的刷新仍由外部链路负责。
+- 当前 batch 模板只负责“定时执行一轮”；若 bucket 内缺少输入快照，paper 入口会先在本 bucket 内自动补齐，补不出来就直接报错退出。
 
 ## 运行期检查点
 
