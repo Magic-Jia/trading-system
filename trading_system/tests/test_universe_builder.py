@@ -1,6 +1,28 @@
+from trading_system.app.config import AppConfig
+import trading_system.app.universe.builder as builder_module
 from trading_system.app.universe.sector_map import sector_for_symbol
 from trading_system.app.universe.liquidity_filter import passes_liquidity_filter
 from trading_system.app.universe.builder import build_universes
+from trading_system.paper_snapshots import _paper_symbols
+
+
+def _market_symbol(*, sector: str, liquidity_tier: str, volume_usdt_24h: float) -> dict[str, object]:
+    return {
+        "sector": sector,
+        "liquidity_tier": liquidity_tier,
+        "daily": {
+            "atr_pct": 0.03,
+            "volume_usdt_24h": volume_usdt_24h,
+        },
+        "4h": {
+            "atr_pct": 0.02,
+            "volume_usdt_24h": volume_usdt_24h,
+        },
+        "1h": {
+            "atr_pct": 0.01,
+            "volume_usdt_24h": volume_usdt_24h,
+        },
+    }
 
 
 def test_sector_for_symbol_uses_fallback_taxonomy():
@@ -54,3 +76,30 @@ def test_rotation_universe_only_contains_liquid_mature_names(load_fixture):
             "wick_risk_flag": True,
         }
     )
+
+
+def test_default_paper_snapshot_defaults_support_a_real_rotation_universe(monkeypatch):
+    monkeypatch.delenv("TRADING_PAPER_SNAPSHOT_SYMBOLS", raising=False)
+    monkeypatch.delenv("TRADING_UNIVERSE_MIN_LIQUIDITY_USDT_24H", raising=False)
+    monkeypatch.setattr(builder_module, "DEFAULT_CONFIG", AppConfig())
+
+    full_market = {
+        "symbols": {
+            "BTCUSDT": _market_symbol(sector="majors", liquidity_tier="top", volume_usdt_24h=19_800_000_000),
+            "ETHUSDT": _market_symbol(sector="majors", liquidity_tier="top", volume_usdt_24h=12_200_000_000),
+            "SOLUSDT": _market_symbol(sector="alt_l1", liquidity_tier="high", volume_usdt_24h=430_000_000),
+            "BNBUSDT": _market_symbol(sector="exchange", liquidity_tier="high", volume_usdt_24h=410_000_000),
+            "XRPUSDT": _market_symbol(sector="payments", liquidity_tier="high", volume_usdt_24h=1_050_000_000),
+            "ADAUSDT": _market_symbol(sector="alt_l1", liquidity_tier="high", volume_usdt_24h=920_000_000),
+            "LINKUSDT": _market_symbol(sector="oracle", liquidity_tier="high", volume_usdt_24h=1_010_000_000),
+        }
+    }
+    default_symbols = set(_paper_symbols())
+    expected_rotation_symbols = {"SOLUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT", "LINKUSDT"}
+    default_market = {"symbols": {symbol: full_market["symbols"][symbol] for symbol in default_symbols}}
+
+    universes = build_universes(default_market)
+    rotation_symbols = {row["symbol"] for row in universes.rotation_universe}
+
+    assert expected_rotation_symbols.issubset(default_symbols)
+    assert expected_rotation_symbols.issubset(rotation_symbols)

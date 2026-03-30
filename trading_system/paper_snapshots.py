@@ -15,12 +15,15 @@ PAPER_DERIVATIVES_SNAPSHOT_NAME = "derivatives_snapshot.json"
 PAPER_SYMBOLS_ENV = "TRADING_PAPER_SNAPSHOT_SYMBOLS"
 PAPER_ACCOUNT_EQUITY_ENV = "TRADING_PAPER_ACCOUNT_EQUITY"
 
-_DEFAULT_PAPER_SYMBOLS = ("BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT")
+_DEFAULT_PAPER_SYMBOLS = ("BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT", "LINKUSDT")
 _SYMBOL_METADATA: dict[str, dict[str, str]] = {
     "BTCUSDT": {"sector": "majors", "liquidity_tier": "top"},
     "ETHUSDT": {"sector": "majors", "liquidity_tier": "top"},
     "SOLUSDT": {"sector": "alt_l1", "liquidity_tier": "high"},
     "BNBUSDT": {"sector": "exchange", "liquidity_tier": "high"},
+    "XRPUSDT": {"sector": "payments", "liquidity_tier": "high"},
+    "ADAUSDT": {"sector": "alt_l1", "liquidity_tier": "high"},
+    "LINKUSDT": {"sector": "oracle", "liquidity_tier": "high"},
 }
 
 
