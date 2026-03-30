@@ -60,11 +60,84 @@ def test_run_cycle_prepares_runtime_bucket_calls_main_and_writes_latest_summary(
     assert "finished_at" in latest
 
 
-def test_run_cycle_smoke_run_falls_back_to_default_snapshot_data_when_base_dir_is_empty(
-    monkeypatch, tmp_path, load_fixture
+def test_run_cycle_rejects_missing_paper_account_snapshot_when_runtime_bucket_is_empty(
+    monkeypatch, tmp_path
 ):
     base_dir = tmp_path / "smoke"
     bucket_dir = base_dir / "data" / "runtime" / "paper" / "paper"
+    state_file = bucket_dir / "runtime_state.json"
+    fallback_dir = tmp_path / "fallback"
+    account_path = fallback_dir / "account_snapshot.json"
+    fallback_dir.mkdir(parents=True)
+    account_path.write_text(
+        json.dumps(
+            {
+                "equity": 125000.0,
+                "available_balance": 96000.0,
+                "futures_wallet_balance": 118500.0,
+                "open_positions": [],
+                "open_orders": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    base_dir.mkdir()
+    assert list(base_dir.iterdir()) == []
+
+    monkeypatch.setattr(main_module, "ACCOUNT_SNAPSHOT", account_path)
+    monkeypatch.setenv("TRADING_BASE_DIR", str(base_dir))
+    monkeypatch.setenv("TRADING_RUNTIME_ENV", "paper")
+    monkeypatch.delenv("TRADING_ACCOUNT_SNAPSHOT_FILE", raising=False)
+    monkeypatch.delenv("TRADING_MARKET_CONTEXT_FILE", raising=False)
+    monkeypatch.delenv("TRADING_DERIVATIVES_SNAPSHOT_FILE", raising=False)
+
+    with pytest.raises(RuntimeError, match="paper.+account snapshot"):
+        run_cycle_module.run_cycle("paper")
+
+    latest = json.loads((bucket_dir / "latest.json").read_text(encoding="utf-8"))
+
+    assert latest["status"] == "error"
+    assert latest["bucket_dir"] == str(bucket_dir)
+    assert latest["state_file"] == str(state_file)
+    assert latest["error_type"] == "RuntimeError"
+    assert not (bucket_dir / "account_snapshot.json").exists()
+
+
+def test_run_cycle_rejects_explicit_live_account_snapshot_in_paper_mode(monkeypatch, tmp_path):
+    runtime_root = tmp_path / "runtime"
+    bucket_dir = runtime_root / "paper" / "testnet"
+    live_account_path = tmp_path / "live_account_snapshot.json"
+    live_account_path.write_text(
+        json.dumps(
+            {
+                "equity": 125000.0,
+                "available_balance": 96000.0,
+                "futures_wallet_balance": 118500.0,
+                "open_positions": [],
+                "open_orders": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv("TRADING_ACCOUNT_SNAPSHOT_FILE", str(live_account_path))
+
+    with pytest.raises(RuntimeError, match="paper.+live"):
+        run_cycle_module.run_cycle("paper", runtime_root=runtime_root, runtime_env="testnet")
+
+    latest = json.loads((bucket_dir / "latest.json").read_text(encoding="utf-8"))
+
+    assert latest["status"] == "error"
+    assert latest["error_type"] == "RuntimeError"
+    assert latest["error_message"]
+
+
+def test_run_cycle_dry_run_still_falls_back_to_default_snapshot_data_when_runtime_bucket_is_empty(
+    monkeypatch, tmp_path, load_fixture
+):
+    base_dir = tmp_path / "smoke"
+    bucket_dir = base_dir / "data" / "runtime" / "dry-run" / "paper"
     state_file = bucket_dir / "runtime_state.json"
     fallback_dir = tmp_path / "fallback"
     account_path = fallback_dir / "account_snapshot.json"
@@ -131,11 +204,12 @@ def test_run_cycle_smoke_run_falls_back_to_default_snapshot_data_when_base_dir_i
         lambda **kwargs: [AllocationDecision(status="ACCEPTED", engine="trend", final_risk_budget=0.01, rank=1)],
     )
 
-    summary = run_cycle_module.run_cycle("paper")
+    summary = run_cycle_module.run_cycle("dry-run")
     latest = json.loads((bucket_dir / "latest.json").read_text(encoding="utf-8"))
 
     assert summary == latest
     assert summary["status"] == "ok"
+    assert summary["mode"] == "dry-run"
     assert summary["bucket_dir"] == str(bucket_dir)
     assert summary["state_file"] == str(state_file)
     assert summary["state_written"] is True

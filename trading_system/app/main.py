@@ -39,6 +39,7 @@ ACCOUNT_SNAPSHOT_FILE_ENV = "TRADING_ACCOUNT_SNAPSHOT_FILE"
 MARKET_CONTEXT_FILE_ENV = "TRADING_MARKET_CONTEXT_FILE"
 DERIVATIVES_SNAPSHOT_FILE_ENV = "TRADING_DERIVATIVES_SNAPSHOT_FILE"
 STATE_FILE_ENV = "TRADING_STATE_FILE"
+_PAPER_SAFE_ACCOUNT_TYPES = {"paper", "testnet"}
 
 
 def _float(row: dict, *keys: str) -> float:
@@ -61,15 +62,34 @@ def _resolve_default_data_file(config: Any, filename: str, legacy_path: Path) ->
     return legacy_path
 
 
-def _resolve_account_snapshot_path(path: str | Path | None = None, *, config: Any | None = None) -> Path:
+def _runtime_bucket_account_snapshot_path(config: Any | None) -> Path | None:
+    if config is None or not runtime_path_defaults_enabled() or not hasattr(config, "state_file"):
+        return None
+    return Path(config.state_file).parent / "account_snapshot.json"
+
+
+def _resolve_account_snapshot_input(path: str | Path | None = None, *, config: Any | None = None) -> tuple[Path, str]:
     if path is not None:
-        return Path(path)
+        return Path(path), "argument"
     env_value = os.environ.get(ACCOUNT_SNAPSHOT_FILE_ENV)
     if env_value:
-        return Path(env_value)
-    if config is not None:
-        return _resolve_default_data_file(config, "account_snapshot.json", ACCOUNT_SNAPSHOT)
-    return ACCOUNT_SNAPSHOT
+        return Path(env_value), "environment"
+    runtime_default = _runtime_bucket_account_snapshot_path(config)
+    if runtime_default is not None and runtime_default.exists():
+        return runtime_default, "runtime_bucket"
+    return ACCOUNT_SNAPSHOT, "legacy_default"
+
+
+def _resolve_account_snapshot_path(path: str | Path | None = None, *, config: Any | None = None) -> Path:
+    resolved_path, _ = _resolve_account_snapshot_input(path, config=config)
+    return resolved_path
+
+
+def _same_path(left: Path, right: Path) -> bool:
+    try:
+        return left.resolve() == right.resolve()
+    except OSError:
+        return left == right
 
 
 def _resolve_market_context_path(*, config: Any | None = None) -> Path:
@@ -150,11 +170,57 @@ def _load_v2_account_snapshot(raw: dict[str, Any]) -> AccountSnapshot:
     )
 
 
-def load_account_snapshot(path: str | Path | None = None, *, config: Any | None = None) -> AccountSnapshot:
-    raw = json.loads(_resolve_account_snapshot_path(path, config=config).read_text())
+def _load_account_snapshot_payload(raw: dict[str, Any]) -> AccountSnapshot:
     if "futures" in raw:
         return _load_v1_account_snapshot(raw)
     return _load_v2_account_snapshot(raw)
+
+
+def _explicit_live_snapshot_path(path: Path) -> bool:
+    if _same_path(path, ACCOUNT_SNAPSHOT):
+        return True
+    stem = path.stem.lower()
+    return "live" in stem and "snapshot" in stem
+
+
+def _ensure_paper_runtime_account_snapshot_present(path: Path, *, config: Any | None = None, source: str) -> None:
+    if source != "legacy_default":
+        return
+    runtime_default = _runtime_bucket_account_snapshot_path(config)
+    if runtime_default is None or runtime_default.exists() or not _same_path(path, ACCOUNT_SNAPSHOT):
+        return
+    raise RuntimeError(
+        f"paper 模式缺少独立的 paper account snapshot：{runtime_default}；禁止回退到默认 live account_snapshot.json"
+    )
+
+
+def _ensure_paper_safe_account_snapshot(path: Path, raw: dict[str, Any], *, source: str) -> None:
+    if source == "legacy_default":
+        raise RuntimeError("paper 模式禁止默认回退到 live account_snapshot.json；请显式提供独立的 paper account snapshot")
+    if _explicit_live_snapshot_path(path):
+        raise RuntimeError(f"paper 模式拒绝读取疑似 live account snapshot：{path}")
+
+    meta = raw.get("meta")
+    if not isinstance(meta, Mapping):
+        return
+
+    account_type = str(meta.get("account_type", "")).strip().lower()
+    if account_type and account_type not in _PAPER_SAFE_ACCOUNT_TYPES:
+        raise RuntimeError(f"paper 模式拒绝读取 {account_type} account snapshot：{path}")
+
+    source_hint = str(meta.get("source", "") or meta.get("snapshot_source", "")).strip().lower()
+    if source_hint and any(token in source_hint for token in ("live", "production", "real")):
+        raise RuntimeError(f"paper 模式拒绝读取 live account snapshot source：{source_hint}")
+
+
+def load_account_snapshot(path: str | Path | None = None, *, config: Any | None = None) -> AccountSnapshot:
+    resolved_path, source = _resolve_account_snapshot_input(path, config=config)
+    if getattr(getattr(config, "execution", None), "mode", None) == "paper":
+        _ensure_paper_runtime_account_snapshot_present(resolved_path, config=config, source=source)
+    raw = json.loads(resolved_path.read_text())
+    if getattr(getattr(config, "execution", None), "mode", None) == "paper":
+        _ensure_paper_safe_account_snapshot(resolved_path, raw, source=source)
+    return _load_account_snapshot_payload(raw)
 
 
 def load_config():
