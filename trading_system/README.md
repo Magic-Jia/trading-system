@@ -124,12 +124,14 @@ execution-safety 的优先级仍然是 live boundary、hard risk gate、restart-
 - 当前版本可用于：读账户、做计划、做模拟执行、记录复盘。
 - paper mode 会在 `TRADING_STATE_FILE` 同目录维护 `paper_ledger.jsonl`，用于记录模拟成交并在 runtime state 丢失后恢复已执行 intent。
 - 仓库现在提供 `deploy/systemd/trading-system-paper.service` 与 `deploy/systemd/trading-system-paper.timer` 作为最小可用的 paper 定时跑批模板，但默认仍假设上游输入快照由外部链路准备。
+- 若当前机器只是临时过渡到 cron，也可使用 `deploy/cron/trading-system-paper-cron.sh` 与 `deploy/cron/install-trading-system-paper-crontab.sh`；这组脚本默认固定读取/写入 `trading_system/data/runtime/paper/paper/`，不会回退到旧的根目录快照路径。
 
 ## 测试与运行
 
 - 单测：`uv run --with pytest python -m pytest trading_system/tests/test_main_v2_cycle.py -v`
 - 全量测试：`uv run --with pytest python -m pytest trading_system/tests -v`
 - 手动跑一次 paper cycle：先把输入快照放到 `trading_system/data/runtime/paper/paper/`，再运行 `python -m trading_system.run_cycle --mode paper`
+- 临时 cron 替代：`deploy/cron/trading-system-paper-cron.sh` 默认跑 `paper/paper` bucket；`deploy/cron/install-trading-system-paper-crontab.sh` 会把它安装到当前用户 crontab，默认每 15 分钟跑一次。
 - 若要按固定频率执行 paper cycle，可参考 `deploy/systemd/trading-system-paper.service`、`deploy/systemd/trading-system-paper.timer` 与 `trading_system/docs/BATCH_RUNTIME_RUNBOOK.md`。
 
 运行期预期：
