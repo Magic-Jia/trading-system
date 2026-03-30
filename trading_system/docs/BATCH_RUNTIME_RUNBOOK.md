@@ -9,8 +9,8 @@
 ## 适用范围与边界
 
 - 本模板默认使用 **system service**：`sudo systemctl ...`，不使用 `systemctl --user`。
-- 当前模板只调度 strategy cycle；paper bucket 里的 `account_snapshot.json`、`market_context.json`、`derivatives_snapshot.json` 需要在定时触发前已经准备好。
-- 若上游快照生成链路尚未接入，timer 仍会按时执行，但只能消费当时文件里已有的数据。
+- 当前模板只调度 strategy cycle；当 paper bucket 缺少 `account_snapshot.json`、`market_context.json`、`derivatives_snapshot.json` 时，`run_cycle --mode paper` 会先在 bucket 内自动生成最小可用输入，再进入主循环。
+- 若自动快照生成链路遇到真实网络/API 阻塞，service 会 fail-fast，并在同目录 `error.json` / `latest.json` 写出清楚错误，而不是静默回退到旧的根目录快照路径。
 - `paper_ledger.jsonl` 会跟随 `runtime_state.json` 写到同级目录，因此 runtime bucket 必须放在可持久化目录下。
 
 ## 模板文件
@@ -94,7 +94,7 @@ TRADING_MAX_TOTAL_RISK_PCT=0.03
    sudo install -D -m 0644 deploy/systemd/trading-system-paper.timer /etc/systemd/system/trading-system-paper.timer
    ```
 
-2. 准备 paper bucket 里的三份输入快照；如有需要，再写 `/etc/default/trading-system-paper`。
+2. 如有需要，写 `/etc/default/trading-system-paper`；默认情况下不用再手工预铺三份输入快照，首轮 `run_cycle --mode paper` 会在当前 bucket 内自动补齐缺失文件。
 
 3. 重新加载并启用 timer：
 
@@ -111,7 +111,7 @@ TRADING_MAX_TOTAL_RISK_PCT=0.03
 
 ## 临时 cron 安装步骤
 
-1. 确认 paper bucket 里的三份输入快照已经放到 `/opt/trading-system/trading_system/data/runtime/paper/paper/`（或你实际 `TRADING_BASE_DIR` 对应的同名目录）。
+1. 确认 paper runtime bucket 目录可写；首次运行时，脚本会把缺失的三份输入快照直接生成到 `/opt/trading-system/trading_system/data/runtime/paper/paper/`（或你实际 `TRADING_BASE_DIR` 对应的同名目录）。
 
 2. 直接安装当前用户 crontab：
 
