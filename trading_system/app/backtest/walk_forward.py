@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Iterable, Sequence
+from statistics import pstdev
+from typing import Any, Iterable, Mapping, Sequence
 
 from .metrics import calmar_ratio, expectancy, max_drawdown, payoff_ratio, sharpe_ratio, sortino_ratio, total_return, win_rate
 from .types import DatasetSnapshotRow
@@ -122,4 +123,131 @@ def summarize_walk_forward_window(
             window.out_of_sample,
             evaluation_window=evaluation_window,
         ),
+    }
+
+
+def _scorecard_metric(
+    window_summary: Mapping[str, Any],
+    *,
+    split: str,
+    metric: str,
+) -> float:
+    segment = dict(window_summary.get(split, {}))
+    scorecard = dict(segment.get("scorecard", {}))
+    return float(scorecard.get(metric, 0.0))
+
+
+def _value_band(values: Sequence[float]) -> dict[str, float]:
+    numeric_values = sorted(float(value) for value in values)
+    if not numeric_values:
+        return {"min": 0.0, "median": 0.0, "max": 0.0}
+
+    midpoint = len(numeric_values) // 2
+    median = (
+        numeric_values[midpoint]
+        if len(numeric_values) % 2 == 1
+        else (numeric_values[midpoint - 1] + numeric_values[midpoint]) / 2.0
+    )
+    return {
+        "min": round(numeric_values[0], 6),
+        "median": round(median, 6),
+        "max": round(numeric_values[-1], 6),
+    }
+
+
+def _bounded_ratio(value: float) -> float:
+    return max(0.0, min(float(value), 1.0))
+
+
+def summarize_walk_forward_robustness(
+    window_summaries: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    if not window_summaries:
+        return {
+            "in_sample_scorecard": summarize_return_scorecard(()),
+            "out_of_sample_scorecard": summarize_return_scorecard(()),
+            "performance_dispersion": {
+                "window_count": 0,
+                "positive_window_ratio": 0.0,
+                "average_out_of_sample_return": 0.0,
+                "return_std_dev": 0.0,
+                "best_window_total_return": 0.0,
+                "worst_window_total_return": 0.0,
+            },
+            "worst_window": None,
+        }
+
+    in_sample_returns = [_scorecard_metric(window, split="in_sample", metric="total_return") for window in window_summaries]
+    out_of_sample_returns = [_scorecard_metric(window, split="out_of_sample", metric="total_return") for window in window_summaries]
+    positive_window_ratio = sum(1 for value in out_of_sample_returns if value > 0.0) / len(out_of_sample_returns)
+    worst_window_summary = min(
+        window_summaries,
+        key=lambda window: _scorecard_metric(window, split="out_of_sample", metric="total_return"),
+    )
+    worst_out_of_sample = dict(worst_window_summary.get("out_of_sample", {}))
+
+    return {
+        "in_sample_scorecard": summarize_return_scorecard(in_sample_returns),
+        "out_of_sample_scorecard": summarize_return_scorecard(out_of_sample_returns),
+        "performance_dispersion": {
+            "window_count": len(window_summaries),
+            "positive_window_ratio": round(positive_window_ratio, 6),
+            "average_out_of_sample_return": round(expectancy(out_of_sample_returns), 6),
+            "return_std_dev": round(pstdev(out_of_sample_returns), 6) if len(out_of_sample_returns) > 1 else 0.0,
+            "best_window_total_return": round(max(out_of_sample_returns), 6),
+            "worst_window_total_return": round(min(out_of_sample_returns), 6),
+        },
+        "worst_window": {
+            "window_index": int(worst_window_summary.get("window_index", 0)),
+            "start_timestamp": worst_out_of_sample.get("start_timestamp"),
+            "end_timestamp": worst_out_of_sample.get("end_timestamp"),
+            "scorecard": dict(worst_out_of_sample.get("scorecard", {})),
+        },
+    }
+
+
+def summarize_parameter_stability(
+    window_summaries: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    if not window_summaries:
+        zero_band = _value_band(())
+        return {
+            "edge_retention_ratio": 0.0,
+            "worst_window_retention_ratio": 0.0,
+            "positive_window_ratio": 0.0,
+            "parameter_stability_score": 0.0,
+            "sensitivity_bands": {
+                "out_of_sample_total_return": zero_band,
+                "out_of_sample_sharpe": zero_band,
+                "out_of_sample_calmar": zero_band,
+            },
+        }
+
+    in_sample_returns = [_scorecard_metric(window, split="in_sample", metric="total_return") for window in window_summaries]
+    out_of_sample_returns = [_scorecard_metric(window, split="out_of_sample", metric="total_return") for window in window_summaries]
+    out_of_sample_sharpes = [_scorecard_metric(window, split="out_of_sample", metric="sharpe") for window in window_summaries]
+    out_of_sample_calmars = [_scorecard_metric(window, split="out_of_sample", metric="calmar") for window in window_summaries]
+
+    mean_in_sample_return = expectancy(in_sample_returns)
+    mean_out_of_sample_return = expectancy(out_of_sample_returns)
+    worst_window_return = min(out_of_sample_returns)
+    positive_window_ratio = sum(1 for value in out_of_sample_returns if value > 0.0) / len(out_of_sample_returns)
+    edge_retention_ratio = mean_out_of_sample_return / mean_in_sample_return if mean_in_sample_return > 0.0 else 0.0
+    worst_window_retention_ratio = worst_window_return / mean_in_sample_return if mean_in_sample_return > 0.0 else 0.0
+    parameter_stability_score = (
+        _bounded_ratio(edge_retention_ratio)
+        + _bounded_ratio(worst_window_retention_ratio)
+        + positive_window_ratio
+    ) / 3.0
+
+    return {
+        "edge_retention_ratio": round(edge_retention_ratio, 6),
+        "worst_window_retention_ratio": round(worst_window_retention_ratio, 6),
+        "positive_window_ratio": round(positive_window_ratio, 6),
+        "parameter_stability_score": round(parameter_stability_score, 6),
+        "sensitivity_bands": {
+            "out_of_sample_total_return": _value_band(out_of_sample_returns),
+            "out_of_sample_sharpe": _value_band(out_of_sample_sharpes),
+            "out_of_sample_calmar": _value_band(out_of_sample_calmars),
+        },
     }
