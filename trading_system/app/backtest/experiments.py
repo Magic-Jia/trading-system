@@ -16,7 +16,13 @@ from trading_system.app.universe.builder import build_universes
 from .engine import _allocation_rows, _rank_key, _validated_candidates
 from .metrics import expectancy, payoff_ratio, win_rate
 from .types import BacktestCosts, DatasetSnapshotRow
-from .walk_forward import build_walk_forward_windows, effective_walk_forward_step_size, summarize_walk_forward_window
+from .walk_forward import (
+    build_walk_forward_windows,
+    effective_walk_forward_step_size,
+    summarize_parameter_stability,
+    summarize_walk_forward_robustness,
+    summarize_walk_forward_window,
+)
 
 _REGIME_BASE_RISK_MULTIPLIERS = {
     "RISK_ON_TREND": 1.15,
@@ -935,6 +941,13 @@ def run_walk_forward_validation_experiment(
         out_of_sample_size=out_of_sample_size,
         step_size=effective_step_size,
     )
+    window_summaries = [
+        summarize_walk_forward_window(
+            window,
+            evaluation_window=evaluation_window,
+        )
+        for window in windows
+    ]
 
     return {
         "metadata": {
@@ -945,11 +958,7 @@ def run_walk_forward_validation_experiment(
             "out_of_sample_size": out_of_sample_size,
             "step_size": effective_step_size,
         },
-        "windows": [
-            summarize_walk_forward_window(
-                window,
-                evaluation_window=evaluation_window,
-            )
-            for window in windows
-        ],
+        "windows": window_summaries,
+        "robustness_summary": summarize_walk_forward_robustness(window_summaries),
+        "parameter_stability": summarize_parameter_stability(window_summaries),
     }

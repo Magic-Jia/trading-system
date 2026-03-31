@@ -317,6 +317,19 @@ def _walk_forward_rows() -> list[DatasetSnapshotRow]:
     ]
 
 
+def _walk_forward_robustness_rows() -> list[DatasetSnapshotRow]:
+    returns = [0.06, 0.05, 0.04, -0.01, 0.03, 0.02, -0.02, 0.01]
+    return [
+        _suppressed_rotation_row(
+            index,
+            link_return=0.04,
+            ada_return=-0.01,
+            forward_return_3d=forward_return,
+        )
+        for index, forward_return in enumerate(returns)
+    ]
+
+
 def test_walk_forward_splits_and_outputs() -> None:
     rows = _walk_forward_rows()
 
@@ -391,3 +404,56 @@ def test_walk_forward_splits_and_outputs() -> None:
         assert set(window["in_sample"]["scorecard"]) == scorecard_keys
         assert window["out_of_sample"]["scorecard"]["total_return"] > 0
         assert set(window["out_of_sample"]["scorecard"]) == scorecard_keys
+
+
+def test_walk_forward_outputs_robustness_summary_and_parameter_stability() -> None:
+    rows = _walk_forward_robustness_rows()
+
+    result = backtest_experiments.run_walk_forward_validation_experiment(
+        rows,
+        evaluation_window="3d",
+        in_sample_size=2,
+        out_of_sample_size=2,
+        step_size=2,
+    )
+
+    assert result["metadata"]["window_count"] == 3
+
+    robustness = result["robustness_summary"]
+    assert robustness["in_sample_scorecard"]["total_return"] == pytest.approx(0.20393)
+    assert robustness["out_of_sample_scorecard"]["total_return"] == pytest.approx(0.070664)
+    assert robustness["out_of_sample_scorecard"]["trade_count"] == 3
+    assert robustness["performance_dispersion"]["window_count"] == 3
+    assert robustness["performance_dispersion"]["positive_window_ratio"] == pytest.approx(2 / 3)
+    assert robustness["performance_dispersion"]["average_out_of_sample_return"] == pytest.approx(0.023333)
+    assert robustness["performance_dispersion"]["return_std_dev"] == pytest.approx(0.025214, abs=1e-6)
+    assert robustness["performance_dispersion"]["best_window_total_return"] == pytest.approx(0.0506)
+    assert robustness["performance_dispersion"]["worst_window_total_return"] == pytest.approx(-0.0102)
+    assert robustness["worst_window"] == {
+        "window_index": 3,
+        "start_timestamp": "2026-03-16T00:00:00+00:00",
+        "end_timestamp": "2026-03-17T00:00:00+00:00",
+        "scorecard": result["windows"][2]["out_of_sample"]["scorecard"],
+    }
+
+    parameter_stability = result["parameter_stability"]
+    assert parameter_stability["edge_retention_ratio"] == pytest.approx(0.362319, abs=1e-6)
+    assert parameter_stability["worst_window_retention_ratio"] == pytest.approx(-0.158385, abs=1e-6)
+    assert parameter_stability["positive_window_ratio"] == pytest.approx(2 / 3)
+    assert parameter_stability["parameter_stability_score"] == pytest.approx(0.342995, abs=1e-6)
+    assert set(parameter_stability["sensitivity_bands"]) == {
+        "out_of_sample_total_return",
+        "out_of_sample_sharpe",
+        "out_of_sample_calmar",
+    }
+    total_return_band = parameter_stability["sensitivity_bands"]["out_of_sample_total_return"]
+    assert total_return_band["min"] == pytest.approx(-0.0102)
+    assert total_return_band["median"] == pytest.approx(0.0296)
+    assert total_return_band["max"] == pytest.approx(0.0506)
+    sharpe_band = parameter_stability["sensitivity_bands"]["out_of_sample_sharpe"]
+    assert sharpe_band["min"] < 0.0
+    assert sharpe_band["median"] > 0.0
+    assert sharpe_band["max"] > sharpe_band["median"]
+    calmar_band = parameter_stability["sensitivity_bands"]["out_of_sample_calmar"]
+    assert calmar_band["min"] < 0.0
+    assert calmar_band["max"] >= 0.0
