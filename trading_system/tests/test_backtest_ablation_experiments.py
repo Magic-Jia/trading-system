@@ -3,7 +3,10 @@ from __future__ import annotations
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 
+import pytest
+
 from trading_system.app.backtest.experiments import (
+    run_allocator_friction_experiment,
     run_engine_filter_ablation_experiment,
     run_rotation_suppression_experiment,
 )
@@ -253,3 +256,43 @@ def test_engine_ablation_outputs_funnel_metrics() -> None:
         result["variants"]["rotation_without_overheat_filter"]["funnel"]["accepted_allocations"]
         >= result["variants"]["rotation_only"]["funnel"]["accepted_allocations"]
     )
+
+
+def test_allocator_and_friction_comparisons() -> None:
+    rows = [_bullish_ablation_row(), _bearish_short_row()]
+
+    result = run_allocator_friction_experiment(rows, evaluation_window="3d")
+
+    assert set(result["variants"]) == {
+        "current_allocator",
+        "equal_weight_baseline",
+        "fixed_risk_baseline",
+    }
+    assert result["metadata"]["snapshot_count"] == 2
+    assert result["metadata"]["evaluation_window"] == "3d"
+
+    current = result["variants"]["current_allocator"]
+    equal_weight = result["variants"]["equal_weight_baseline"]
+    fixed_risk = result["variants"]["fixed_risk_baseline"]
+
+    assert current["allocation_summary"]["accepted_allocations"] < equal_weight["allocation_summary"]["accepted_allocations"]
+    assert current["allocation_summary"]["total_risk_budget"] < fixed_risk["allocation_summary"]["total_risk_budget"]
+    assert fixed_risk["allocation_summary"]["total_risk_budget"] < equal_weight["allocation_summary"]["total_risk_budget"]
+
+    for variant in (current, equal_weight, fixed_risk):
+        low = variant["frictions"]["low"]
+        base = variant["frictions"]["base"]
+        stressed = variant["frictions"]["stressed"]
+
+        assert low["cost_drag"] < base["cost_drag"] < stressed["cost_drag"]
+        assert low["net_bucket_pnl"] > stressed["net_bucket_pnl"]
+        assert base["trade_count"] == variant["allocation_summary"]["accepted_allocations"]
+        assert pytest.approx(
+            base["cost_attribution"]["fee_drag"]
+            + base["cost_attribution"]["slippage_drag"]
+            + base["cost_attribution"]["funding_drag"],
+            rel=0,
+            abs=1e-9,
+        ) == base["cost_drag"]
+
+    assert result["comparison_rows"]
