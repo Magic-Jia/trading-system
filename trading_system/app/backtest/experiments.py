@@ -5,6 +5,7 @@ from dataclasses import asdict
 from statistics import mean
 from typing import Any, Iterable, Mapping
 
+from trading_system.app.config import DEFAULT_CONFIG
 from trading_system.app.market_regime.classifier import classify_regime
 from trading_system.app.signals import rotation_engine as rotation_signals
 from trading_system.app.signals.rotation_engine import generate_rotation_candidates
@@ -12,9 +13,9 @@ from trading_system.app.signals.short_engine import generate_short_candidates
 from trading_system.app.signals.trend_engine import generate_trend_candidates
 from trading_system.app.universe.builder import build_universes
 
-from .engine import _allocation_rows, _validated_candidates
+from .engine import _allocation_rows, _rank_key, _validated_candidates
 from .metrics import expectancy, payoff_ratio, win_rate
-from .types import DatasetSnapshotRow
+from .types import BacktestCosts, DatasetSnapshotRow
 
 _REGIME_BASE_RISK_MULTIPLIERS = {
     "RISK_ON_TREND": 1.15,
@@ -48,6 +49,12 @@ _ROTATION_FILTER_KEYS = (
     "stop_loss_filtered",
     "selected",
 )
+
+_FRICTION_SCENARIOS: dict[str, BacktestCosts] = {
+    "low": BacktestCosts(fee_bps=2.0, slippage_bps=1.0, funding_bps_per_day=0.5),
+    "base": BacktestCosts(fee_bps=4.0, slippage_bps=2.0, funding_bps_per_day=1.0),
+    "stressed": BacktestCosts(fee_bps=8.0, slippage_bps=4.0, funding_bps_per_day=2.0),
+}
 
 
 def _regime_for_row(row: DatasetSnapshotRow) -> dict[str, Any]:
@@ -352,6 +359,240 @@ def _run_candidate_pipeline(
     }
 
 
+def _accepted_allocations(allocations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        allocation
+        for allocation in allocations
+        if str(allocation.get("status", "")).upper() != "REJECTED"
+        and float(allocation.get("final_risk_budget", 0.0) or 0.0) > 0.0
+    ]
+
+
+def _baseline_allocation_row(
+    candidate: Mapping[str, Any],
+    *,
+    rank: int,
+    status: str,
+    final_risk_budget: float,
+    reasons: list[str] | None = None,
+    baseline_name: str,
+) -> dict[str, Any]:
+    return {
+        "symbol": candidate.get("symbol"),
+        "engine": candidate.get("engine"),
+        "setup_type": candidate.get("setup_type"),
+        "score": candidate.get("score"),
+        "status": status,
+        "rank": rank,
+        "reasons": list(reasons or []),
+        "final_risk_budget": round(float(final_risk_budget), 6),
+        "meta": {
+            "baseline_name": baseline_name,
+            "rank_score": float(candidate.get("score", 0.0) or 0.0),
+        },
+    }
+
+
+def _equal_weight_allocations(validated_candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    ranked = sorted(validated_candidates, key=_rank_key)
+    if not ranked:
+        return []
+
+    max_positions = max(int(DEFAULT_CONFIG.risk.max_open_positions), 0)
+    selected_count = min(len(ranked), max_positions)
+    if selected_count == 0:
+        return [
+            _baseline_allocation_row(
+                candidate,
+                rank=index,
+                status="REJECTED",
+                final_risk_budget=0.0,
+                reasons=["equal-weight baseline has no available slots"],
+                baseline_name="equal_weight_baseline",
+            )
+            for index, candidate in enumerate(ranked, start=1)
+        ]
+
+    equal_budget = float(DEFAULT_CONFIG.risk.max_total_risk_pct) / selected_count
+    allocations: list[dict[str, Any]] = []
+    for index, candidate in enumerate(ranked, start=1):
+        if index > selected_count:
+            allocations.append(
+                _baseline_allocation_row(
+                    candidate,
+                    rank=index,
+                    status="REJECTED",
+                    final_risk_budget=0.0,
+                    reasons=["equal-weight baseline max positions reached"],
+                    baseline_name="equal_weight_baseline",
+                )
+            )
+            continue
+
+        allocations.append(
+            _baseline_allocation_row(
+                candidate,
+                rank=index,
+                status="ACCEPTED",
+                final_risk_budget=equal_budget,
+                baseline_name="equal_weight_baseline",
+            )
+        )
+
+    return allocations
+
+
+def _fixed_risk_allocations(validated_candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    ranked = sorted(validated_candidates, key=_rank_key)
+    if not ranked:
+        return []
+
+    max_positions = max(int(DEFAULT_CONFIG.risk.max_open_positions), 0)
+    remaining_budget = float(DEFAULT_CONFIG.risk.max_total_risk_pct)
+    per_trade_budget = max(float(DEFAULT_CONFIG.risk.default_risk_pct), 0.0)
+    allocations: list[dict[str, Any]] = []
+    for index, candidate in enumerate(ranked, start=1):
+        if index > max_positions:
+            allocations.append(
+                _baseline_allocation_row(
+                    candidate,
+                    rank=index,
+                    status="REJECTED",
+                    final_risk_budget=0.0,
+                    reasons=["fixed-risk baseline max positions reached"],
+                    baseline_name="fixed_risk_baseline",
+                )
+            )
+            continue
+
+        if remaining_budget <= 0.0:
+            allocations.append(
+                _baseline_allocation_row(
+                    candidate,
+                    rank=index,
+                    status="REJECTED",
+                    final_risk_budget=0.0,
+                    reasons=["fixed-risk baseline portfolio budget exhausted"],
+                    baseline_name="fixed_risk_baseline",
+                )
+            )
+            continue
+
+        final_budget = min(per_trade_budget, remaining_budget)
+        remaining_budget -= final_budget
+        status = "DOWNSIZED" if final_budget < per_trade_budget else "ACCEPTED"
+        reasons = ["fixed-risk baseline downsized to fit portfolio cap"] if status == "DOWNSIZED" else []
+        allocations.append(
+            _baseline_allocation_row(
+                candidate,
+                rank=index,
+                status=status,
+                final_risk_budget=final_budget,
+                reasons=reasons,
+                baseline_name="fixed_risk_baseline",
+            )
+        )
+
+    return allocations
+
+
+def _window_holding_days(evaluation_window: str) -> float:
+    normalized = evaluation_window.strip().lower()
+    if len(normalized) < 2:
+        return 0.0
+    unit = normalized[-1]
+    raw_value = normalized[:-1]
+    try:
+        value = float(raw_value)
+    except ValueError:
+        return 0.0
+    if unit == "d":
+        return max(value, 0.0)
+    if unit == "h":
+        return max(value / 24.0, 0.0)
+    return 0.0
+
+
+def _allocation_performance_rows(
+    row: DatasetSnapshotRow,
+    allocations: list[dict[str, Any]],
+    *,
+    evaluation_window: str,
+    costs: BacktestCosts,
+) -> list[dict[str, Any]]:
+    holding_days = _window_holding_days(evaluation_window)
+    performance_rows: list[dict[str, Any]] = []
+    for allocation in _accepted_allocations(allocations):
+        risk_budget = float(allocation.get("final_risk_budget", 0.0) or 0.0)
+        gross_return = _candidate_forward_return(
+            row,
+            engine=str(allocation.get("engine", "")),
+            symbol=str(allocation.get("symbol", "")),
+            evaluation_window=evaluation_window,
+        )
+        gross_pnl = risk_budget * gross_return
+        fee_drag = risk_budget * ((2.0 * costs.fee_bps) / 10_000.0)
+        slippage_drag = risk_budget * ((2.0 * costs.slippage_bps) / 10_000.0)
+        funding_drag = risk_budget * ((holding_days * costs.funding_bps_per_day) / 10_000.0)
+        total_drag = fee_drag + slippage_drag + funding_drag
+        performance_rows.append(
+            {
+                "symbol": allocation.get("symbol"),
+                "engine": allocation.get("engine"),
+                "status": allocation.get("status"),
+                "risk_budget": risk_budget,
+                "gross_pnl": gross_pnl,
+                "net_pnl": gross_pnl - total_drag,
+                "fee_drag": fee_drag,
+                "slippage_drag": slippage_drag,
+                "funding_drag": funding_drag,
+            }
+        )
+    return performance_rows
+
+
+def _allocation_summary(allocations: list[dict[str, Any]]) -> dict[str, Any]:
+    accepted = _accepted_allocations(allocations)
+    budgets = [float(allocation.get("final_risk_budget", 0.0) or 0.0) for allocation in accepted]
+    status_breakdown = {
+        "accepted": sum(1 for allocation in allocations if str(allocation.get("status", "")).upper() == "ACCEPTED"),
+        "downsized": sum(1 for allocation in allocations if str(allocation.get("status", "")).upper() == "DOWNSIZED"),
+        "rejected": sum(1 for allocation in allocations if str(allocation.get("status", "")).upper() == "REJECTED"),
+    }
+    return {
+        "accepted_allocations": len(accepted),
+        "total_risk_budget": round(sum(budgets), 6),
+        "avg_risk_budget": round(mean(budgets), 6) if budgets else 0.0,
+        "max_risk_budget": round(max(budgets), 6) if budgets else 0.0,
+        "status_breakdown": status_breakdown,
+    }
+
+
+def _friction_summary(
+    performance_rows: list[dict[str, Any]],
+) -> dict[str, Any]:
+    gross_pnls = [float(row["gross_pnl"]) for row in performance_rows]
+    net_pnls = [float(row["net_pnl"]) for row in performance_rows]
+    fee_drag = sum(float(row["fee_drag"]) for row in performance_rows)
+    slippage_drag = sum(float(row["slippage_drag"]) for row in performance_rows)
+    funding_drag = sum(float(row["funding_drag"]) for row in performance_rows)
+    cost_drag = fee_drag + slippage_drag + funding_drag
+    return {
+        "gross_bucket_pnl": round(sum(gross_pnls), 6),
+        "net_bucket_pnl": round(sum(net_pnls), 6),
+        "trade_count": len(performance_rows),
+        "hit_rate": round(win_rate(net_pnls), 6),
+        "payoff_ratio": round(payoff_ratio(net_pnls), 6),
+        "expectancy": round(expectancy(net_pnls), 6),
+        "cost_drag": round(cost_drag, 6),
+        "cost_attribution": {
+            "fee_drag": round(fee_drag, 6),
+            "slippage_drag": round(slippage_drag, 6),
+            "funding_drag": round(funding_drag, 6),
+        },
+    }
+
+
 def _rotation_candidates_with_trace(
     row: DatasetSnapshotRow,
     *,
@@ -505,6 +746,111 @@ def _engine_only_candidates(row: DatasetSnapshotRow, *, engine: str) -> dict[str
             "filter_counts": {},
         }
     raise ValueError(f"unsupported engine variant: {engine}")
+
+
+def _all_engine_candidates(row: DatasetSnapshotRow) -> dict[str, Any]:
+    regime = _regime_for_row(row)
+    input_universe = 0
+    candidates: list[dict[str, Any]] = []
+    for engine in ("trend", "rotation", "short"):
+        engine_only = _engine_only_candidates(row, engine=engine)
+        input_universe += int(engine_only["input_universe"])
+        candidates.extend(list(engine_only["candidates"]))
+    return {
+        "regime": regime,
+        "input_universe": input_universe,
+        "candidates": candidates,
+    }
+
+
+def run_allocator_friction_experiment(
+    rows: Iterable[DatasetSnapshotRow],
+    *,
+    evaluation_window: str = "3d",
+) -> dict[str, Any]:
+    ordered_rows = sorted(rows, key=lambda row: (row.timestamp, row.run_id))
+    variant_builders = {
+        "current_allocator": lambda account, validated, regime: _allocation_rows(
+            account,
+            validated,
+            regime,
+            app_config=DEFAULT_CONFIG,
+        ),
+        "equal_weight_baseline": lambda _account, validated, _regime: _equal_weight_allocations(validated),
+        "fixed_risk_baseline": lambda _account, validated, _regime: _fixed_risk_allocations(validated),
+    }
+    variant_allocations: dict[str, list[dict[str, Any]]] = {name: [] for name in variant_builders}
+    comparison_rows: list[dict[str, Any]] = []
+
+    for row in ordered_rows:
+        candidate_bundle = _all_engine_candidates(row)
+        regime = dict(candidate_bundle["regime"])
+        account = _account_context(row)
+        validated_candidates = _validated_candidates(list(candidate_bundle["candidates"]), account)
+
+        for variant_name, builder in variant_builders.items():
+            allocations = builder(account, validated_candidates, regime)
+            variant_allocations[variant_name].extend(allocations)
+            for friction_name, costs in _FRICTION_SCENARIOS.items():
+                performance_rows = _allocation_performance_rows(
+                    row,
+                    allocations,
+                    evaluation_window=evaluation_window,
+                    costs=costs,
+                )
+                summary = _friction_summary(performance_rows)
+                comparison_rows.append(
+                    {
+                        "run_id": row.run_id,
+                        "timestamp": row.timestamp.isoformat(),
+                        "allocator_variant": variant_name,
+                        "friction_scenario": friction_name,
+                        "accepted_allocations": len(performance_rows),
+                        "total_risk_budget": round(
+                            sum(float(item["risk_budget"]) for item in performance_rows),
+                            6,
+                        ),
+                        "gross_bucket_pnl": summary["gross_bucket_pnl"],
+                        "net_bucket_pnl": summary["net_bucket_pnl"],
+                        "cost_drag": summary["cost_drag"],
+                    }
+                )
+
+    variants: dict[str, dict[str, Any]] = {}
+    for variant_name, allocations in variant_allocations.items():
+        frictions: dict[str, Any] = {}
+        for friction_name, costs in _FRICTION_SCENARIOS.items():
+            all_performance_rows: list[dict[str, Any]] = []
+            for row in ordered_rows:
+                candidate_bundle = _all_engine_candidates(row)
+                regime = dict(candidate_bundle["regime"])
+                account = _account_context(row)
+                validated_candidates = _validated_candidates(list(candidate_bundle["candidates"]), account)
+                allocations_for_row = variant_builders[variant_name](account, validated_candidates, regime)
+                all_performance_rows.extend(
+                    _allocation_performance_rows(
+                        row,
+                        allocations_for_row,
+                        evaluation_window=evaluation_window,
+                        costs=costs,
+                    )
+                )
+            frictions[friction_name] = _friction_summary(all_performance_rows)
+
+        variants[variant_name] = {
+            "allocation_summary": _allocation_summary(allocations),
+            "frictions": frictions,
+        }
+
+    return {
+        "metadata": {
+            "snapshot_count": len(ordered_rows),
+            "variant_count": len(variants),
+            "evaluation_window": evaluation_window,
+        },
+        "variants": variants,
+        "comparison_rows": comparison_rows,
+    }
 
 
 def run_engine_filter_ablation_experiment(
