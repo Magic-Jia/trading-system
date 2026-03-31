@@ -16,6 +16,7 @@ from trading_system.app.universe.builder import build_universes
 from .engine import _allocation_rows, _rank_key, _validated_candidates
 from .metrics import expectancy, payoff_ratio, win_rate
 from .types import BacktestCosts, DatasetSnapshotRow
+from .walk_forward import build_walk_forward_windows, effective_walk_forward_step_size, summarize_walk_forward_window
 
 _REGIME_BASE_RISK_MULTIPLIERS = {
     "RISK_ON_TREND": 1.15,
@@ -912,4 +913,43 @@ def run_engine_filter_ablation_experiment(
             "evaluation_window": evaluation_window,
         },
         "variants": results,
+    }
+
+
+def run_walk_forward_validation_experiment(
+    rows: Iterable[DatasetSnapshotRow],
+    *,
+    evaluation_window: str = "3d",
+    in_sample_size: int,
+    out_of_sample_size: int,
+    step_size: int | None = None,
+) -> dict[str, Any]:
+    ordered_rows = sorted(rows, key=lambda row: (row.timestamp, row.run_id))
+    effective_step_size = effective_walk_forward_step_size(
+        out_of_sample_size=out_of_sample_size,
+        step_size=step_size,
+    )
+    windows = build_walk_forward_windows(
+        ordered_rows,
+        in_sample_size=in_sample_size,
+        out_of_sample_size=out_of_sample_size,
+        step_size=effective_step_size,
+    )
+
+    return {
+        "metadata": {
+            "snapshot_count": len(ordered_rows),
+            "window_count": len(windows),
+            "evaluation_window": evaluation_window,
+            "in_sample_size": in_sample_size,
+            "out_of_sample_size": out_of_sample_size,
+            "step_size": effective_step_size,
+        },
+        "windows": [
+            summarize_walk_forward_window(
+                window,
+                evaluation_window=evaluation_window,
+            )
+            for window in windows
+        ],
     }

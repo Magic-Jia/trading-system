@@ -5,12 +5,14 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from trading_system.app.backtest import experiments as backtest_experiments
 from trading_system.app.backtest.experiments import (
     run_allocator_friction_experiment,
     run_engine_filter_ablation_experiment,
     run_rotation_suppression_experiment,
 )
 from trading_system.app.backtest.types import DatasetSnapshotRow
+from trading_system.app.backtest.walk_forward import build_walk_forward_windows
 
 
 def _rotation_market() -> dict[str, object]:
@@ -48,7 +50,13 @@ def _rotation_market() -> dict[str, object]:
     }
 
 
-def _suppressed_rotation_row(index: int, *, link_return: float, ada_return: float) -> DatasetSnapshotRow:
+def _suppressed_rotation_row(
+    index: int,
+    *,
+    link_return: float,
+    ada_return: float,
+    forward_return_3d: float = 0.01,
+) -> DatasetSnapshotRow:
     return DatasetSnapshotRow(
         timestamp=datetime(2026, 3, 10, tzinfo=UTC) + timedelta(days=index),
         run_id=f"rotation-{index}",
@@ -65,7 +73,7 @@ def _suppressed_rotation_row(index: int, *, link_return: float, ada_return: floa
             }
         ],
         account={"equity": 100_000.0, "available_balance": 100_000.0, "futures_wallet_balance": 100_000.0},
-        forward_returns={"3d": 0.01},
+        forward_returns={"3d": forward_return_3d},
         meta={
             "candidate_forward_returns": {
                 "rotation": {
@@ -296,3 +304,90 @@ def test_allocator_and_friction_comparisons() -> None:
         ) == base["cost_drag"]
 
     assert result["comparison_rows"]
+
+
+def _walk_forward_rows() -> list[DatasetSnapshotRow]:
+    return [
+        _suppressed_rotation_row(2, link_return=0.04, ada_return=-0.01, forward_return_3d=0.04),
+        _suppressed_rotation_row(0, link_return=0.06, ada_return=-0.03, forward_return_3d=0.06),
+        _suppressed_rotation_row(1, link_return=0.05, ada_return=-0.02, forward_return_3d=0.05),
+        _suppressed_rotation_row(5, link_return=0.02, ada_return=-0.01, forward_return_3d=0.02),
+        _suppressed_rotation_row(3, link_return=0.03, ada_return=-0.005, forward_return_3d=0.03),
+        _suppressed_rotation_row(4, link_return=0.05, ada_return=-0.015, forward_return_3d=0.05),
+    ]
+
+
+def test_walk_forward_splits_and_outputs() -> None:
+    rows = _walk_forward_rows()
+
+    windows = build_walk_forward_windows(
+        rows,
+        in_sample_size=2,
+        out_of_sample_size=1,
+        step_size=1,
+    )
+
+    assert len(windows) == 4
+    assert [window.window_index for window in windows] == [1, 2, 3, 4]
+    assert [row.run_id for row in windows[0].in_sample] == ["rotation-0", "rotation-1"]
+    assert [row.run_id for row in windows[0].out_of_sample] == ["rotation-2"]
+    assert [row.run_id for row in windows[-1].in_sample] == ["rotation-3", "rotation-4"]
+    assert [row.run_id for row in windows[-1].out_of_sample] == ["rotation-5"]
+
+    for window in windows:
+        in_sample_ids = {row.run_id for row in window.in_sample}
+        out_of_sample_ids = {row.run_id for row in window.out_of_sample}
+        assert not (in_sample_ids & out_of_sample_ids)
+        assert max(row.timestamp for row in window.in_sample) < min(row.timestamp for row in window.out_of_sample)
+
+    result = backtest_experiments.run_walk_forward_validation_experiment(
+        rows,
+        evaluation_window="3d",
+        in_sample_size=2,
+        out_of_sample_size=1,
+        step_size=1,
+    )
+
+    assert result["metadata"] == {
+        "snapshot_count": 6,
+        "window_count": 4,
+        "evaluation_window": "3d",
+        "in_sample_size": 2,
+        "out_of_sample_size": 1,
+        "step_size": 1,
+    }
+    assert len(result["windows"]) == 4
+
+    scorecard_keys = {
+        "total_return",
+        "max_drawdown",
+        "sharpe",
+        "sortino",
+        "calmar",
+        "win_rate",
+        "payoff_ratio",
+        "expectancy",
+        "trade_count",
+    }
+
+    first_window = result["windows"][0]
+    assert first_window["window_index"] == 1
+    assert first_window["in_sample"]["run_ids"] == ["rotation-0", "rotation-1"]
+    assert first_window["in_sample"]["snapshot_count"] == 2
+    assert first_window["in_sample"]["start_timestamp"] == "2026-03-10T00:00:00+00:00"
+    assert first_window["in_sample"]["end_timestamp"] == "2026-03-11T00:00:00+00:00"
+    assert first_window["in_sample"]["scorecard"]["total_return"] == pytest.approx(0.113)
+    assert first_window["in_sample"]["scorecard"]["trade_count"] == 2
+    assert first_window["out_of_sample"]["run_ids"] == ["rotation-2"]
+    assert first_window["out_of_sample"]["snapshot_count"] == 1
+    assert first_window["out_of_sample"]["start_timestamp"] == "2026-03-12T00:00:00+00:00"
+    assert first_window["out_of_sample"]["end_timestamp"] == "2026-03-12T00:00:00+00:00"
+    assert first_window["out_of_sample"]["scorecard"]["total_return"] == pytest.approx(0.04)
+    assert first_window["out_of_sample"]["scorecard"]["trade_count"] == 1
+
+    for window in result["windows"]:
+        assert set(window["in_sample"]["run_ids"]).isdisjoint(window["out_of_sample"]["run_ids"])
+        assert window["in_sample"]["end_timestamp"] < window["out_of_sample"]["start_timestamp"]
+        assert set(window["in_sample"]["scorecard"]) == scorecard_keys
+        assert window["out_of_sample"]["scorecard"]["total_return"] > 0
+        assert set(window["out_of_sample"]["scorecard"]) == scorecard_keys
