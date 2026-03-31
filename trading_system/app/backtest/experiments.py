@@ -6,9 +6,13 @@ from statistics import mean
 from typing import Any, Iterable, Mapping
 
 from trading_system.app.market_regime.classifier import classify_regime
+from trading_system.app.signals import rotation_engine as rotation_signals
 from trading_system.app.signals.rotation_engine import generate_rotation_candidates
+from trading_system.app.signals.short_engine import generate_short_candidates
+from trading_system.app.signals.trend_engine import generate_trend_candidates
 from trading_system.app.universe.builder import build_universes
 
+from .engine import _allocation_rows, _validated_candidates
 from .metrics import expectancy, payoff_ratio, win_rate
 from .types import DatasetSnapshotRow
 
@@ -20,6 +24,30 @@ _REGIME_BASE_RISK_MULTIPLIERS = {
     "HIGH_VOL_DEFENSIVE": 0.55,
     "CRASH_DEFENSIVE": 0.45,
 }
+
+_FUNNEL_KEYS = (
+    "input_universe",
+    "raw_candidates",
+    "validated_candidates",
+    "allocation_decisions",
+    "accepted_allocations",
+)
+
+_ROTATION_FILTER_KEYS = (
+    "rotation_suppressed",
+    "missing_payload",
+    "major_filtered",
+    "trend_filtered",
+    "absolute_strength_filtered",
+    "overheat_filtered",
+    "overheat_bypassed",
+    "crowding_filtered",
+    "relative_strength_filtered",
+    "score_floor_filtered",
+    "score_floor_bypassed",
+    "stop_loss_filtered",
+    "selected",
+)
 
 
 def _regime_for_row(row: DatasetSnapshotRow) -> dict[str, Any]:
@@ -241,4 +269,301 @@ def run_rotation_suppression_experiment(
         "opportunity_kill_rate": (positive_suppressed / suppressed_total) if suppressed_total else 0.0,
         "avoid_loss_rate": (non_positive_suppressed / suppressed_total) if suppressed_total else 0.0,
         "rotation_comparison_rows": comparison_rows,
+    }
+
+
+def _candidate_forward_return(
+    row: DatasetSnapshotRow,
+    *,
+    engine: str,
+    symbol: str,
+    evaluation_window: str,
+) -> float:
+    candidate_returns = row.meta.get("candidate_forward_returns")
+    if isinstance(candidate_returns, Mapping):
+        engine_returns = candidate_returns.get(engine)
+        if isinstance(engine_returns, Mapping) and symbol in engine_returns:
+            return float(engine_returns[symbol])
+    return float(row.forward_returns.get(evaluation_window, 0.0))
+
+
+def _account_context(row: DatasetSnapshotRow) -> dict[str, Any]:
+    default_account = {
+        "equity": 0.0,
+        "available_balance": 0.0,
+        "futures_wallet_balance": 0.0,
+        "open_positions": [],
+    }
+    if not row.account:
+        return default_account
+    account = dict(row.account)
+    account.setdefault("open_positions", [])
+    return account
+
+
+def _accepted_allocation_returns(
+    row: DatasetSnapshotRow,
+    allocations: list[dict[str, Any]],
+    *,
+    evaluation_window: str,
+) -> list[float]:
+    return [
+        _candidate_forward_return(
+            row,
+            engine=str(allocation.get("engine", "")),
+            symbol=str(allocation.get("symbol", "")),
+            evaluation_window=evaluation_window,
+        )
+        for allocation in allocations
+        if str(allocation.get("status", "")).upper() != "REJECTED"
+    ]
+
+
+def _merge_counts(target: dict[str, int], source: Mapping[str, int]) -> None:
+    for key, value in source.items():
+        target[key] = target.get(key, 0) + int(value)
+
+
+def _with_zero_defaults(counts: Mapping[str, int], keys: tuple[str, ...]) -> dict[str, int]:
+    return {key: int(counts.get(key, 0)) for key in keys}
+
+
+def _run_candidate_pipeline(
+    row: DatasetSnapshotRow,
+    *,
+    regime: Mapping[str, Any],
+    input_universe: int,
+    candidates: list[dict[str, Any]],
+    evaluation_window: str,
+) -> dict[str, Any]:
+    account = _account_context(row)
+    validated_candidates = _validated_candidates(candidates, account)
+    allocations = _allocation_rows(account, validated_candidates, regime, app_config=None)
+    return {
+        "funnel": {
+            "input_universe": input_universe,
+            "raw_candidates": len(candidates),
+            "validated_candidates": len(validated_candidates),
+            "allocation_decisions": len(allocations),
+            "accepted_allocations": sum(1 for row in allocations if str(row.get("status", "")).upper() != "REJECTED"),
+        },
+        "allocation_rows": allocations,
+        "returns": _accepted_allocation_returns(row, allocations, evaluation_window=evaluation_window),
+    }
+
+
+def _rotation_candidates_with_trace(
+    row: DatasetSnapshotRow,
+    *,
+    disabled_filters: frozenset[str],
+) -> dict[str, Any]:
+    regime = _regime_for_row(row)
+    if rotation_signals._rotation_suppressed(regime):
+        return {"input_universe": 0, "candidates": [], "filter_counts": {"rotation_suppressed": 1}}
+
+    universes = build_universes(row.market, derivatives=row.derivatives)
+    eligible = rotation_signals._rotation_symbols(universes.rotation_universe)
+    symbols = row.market.get("symbols")
+    if not isinstance(symbols, Mapping):
+        return {"input_universe": 0, "candidates": [], "filter_counts": {}}
+
+    proxy = rotation_signals._major_proxy_returns(row.market)
+    filter_counts: dict[str, int] = defaultdict(int)
+    candidates: list[dict[str, Any]] = []
+    for symbol, universe_row in eligible.items():
+        payload_value = symbols.get(symbol)
+        if not isinstance(payload_value, Mapping):
+            filter_counts["missing_payload"] += 1
+            continue
+
+        payload = payload_value
+        if str(payload.get("sector", "")).lower() == "majors":
+            filter_counts["major_filtered"] += 1
+            continue
+        if not rotation_signals._trend_intact(payload):
+            filter_counts["trend_filtered"] += 1
+            continue
+        if not rotation_signals._passes_absolute_strength_gate(payload):
+            filter_counts["absolute_strength_filtered"] += 1
+            continue
+
+        overheat_rejected = rotation_signals._reject_price_extension_overheat(payload)
+        if overheat_rejected and "overheat" not in disabled_filters:
+            filter_counts["overheat_filtered"] += 1
+            continue
+        if overheat_rejected and "overheat" in disabled_filters:
+            filter_counts["overheat_bypassed"] += 1
+
+        derivatives_features = rotation_signals.symbol_derivatives_features(row.derivatives, str(symbol))
+        if rotation_signals._reject_overheated_crowded_leader(derivatives_features, payload):
+            filter_counts["crowding_filtered"] += 1
+            continue
+
+        rs_features = rotation_signals._relative_strength_features(payload, proxy)
+        if rs_features["relative_strength_rank"] < 0.38 or rs_features["persistence"] < (2.0 / 3.0):
+            filter_counts["relative_strength_filtered"] += 1
+            continue
+
+        scored = rotation_signals.score_rotation_candidate(
+            {
+                "relative_strength_rank": rs_features["relative_strength_rank"],
+                "persistence": rs_features["persistence"],
+                "pullback_quality": rotation_signals._pullback_quality(payload),
+                "liquidity_quality": rotation_signals._liquidity_quality(payload, universe_row),
+                "volatility_quality": rotation_signals._volatility_quality(payload),
+            }
+        )
+        total_score = rotation_signals._to_float(scored.get("total"))
+        if total_score < rotation_signals._ROTATION_SCORE_FLOOR and "score_floor" not in disabled_filters:
+            filter_counts["score_floor_filtered"] += 1
+            continue
+        if total_score < rotation_signals._ROTATION_SCORE_FLOOR and "score_floor" in disabled_filters:
+            filter_counts["score_floor_bypassed"] += 1
+
+        stop_loss = rotation_signals._rotation_stop_loss(payload)
+        if stop_loss <= 0.0:
+            filter_counts["stop_loss_filtered"] += 1
+            continue
+
+        daily = rotation_signals._tf_row(payload, "daily")
+        liquidity_meta = dict(universe_row.get("liquidity_meta", {})) if isinstance(universe_row, Mapping) else {}
+        liquidity_meta.setdefault("liquidity_tier", payload.get("liquidity_tier"))
+        liquidity_meta["volume_usdt_24h"] = rotation_signals._to_float(daily.get("volume_usdt_24h"))
+
+        candidates.append(
+            {
+                "engine": "rotation",
+                "setup_type": rotation_signals._setup_type(payload),
+                "symbol": symbol,
+                "side": "LONG",
+                "score": total_score,
+                "stop_loss": stop_loss,
+                "invalidation_source": "rotation_pullback_failure_below_1h_ema50",
+                "timeframe_meta": {
+                    "daily_bias": "relative_strength_leader",
+                    "h4_structure": "leader_persistence",
+                    "h1_trigger": "pullback_hold_or_reacceleration",
+                    "relative_strength": {
+                        "daily_spread": round(rs_features["daily_spread"], 6),
+                        "h4_spread": round(rs_features["h4_spread"], 6),
+                        "h1_spread": round(rs_features["h1_spread"], 6),
+                    },
+                    "score_components": scored.get("components", {}),
+                },
+                "sector": str(payload.get("sector") or universe_row.get("sector") or ""),
+                "liquidity_meta": liquidity_meta,
+            }
+        )
+        filter_counts["selected"] += 1
+
+    return {
+        "input_universe": len(eligible),
+        "candidates": sorted(
+            candidates,
+            key=lambda row: (-float(row.get("score", 0.0) or 0.0), str(row.get("symbol", ""))),
+        ),
+        "filter_counts": dict(filter_counts),
+    }
+
+
+def _engine_only_candidates(row: DatasetSnapshotRow, *, engine: str) -> dict[str, Any]:
+    regime = _regime_for_row(row)
+    universes = build_universes(row.market, derivatives=row.derivatives)
+    if engine == "trend":
+        symbols = row.market.get("symbols")
+        input_universe = len(symbols) if isinstance(symbols, Mapping) else 0
+        candidates = [
+            asdict(candidate)
+            for candidate in generate_trend_candidates(
+                row.market,
+                derivatives=row.derivatives,
+            )
+        ]
+        return {"regime": regime, "input_universe": input_universe, "candidates": candidates, "filter_counts": {}}
+    if engine == "rotation":
+        traced = _rotation_candidates_with_trace(row, disabled_filters=frozenset())
+        return {
+            "regime": regime,
+            "input_universe": traced["input_universe"],
+            "candidates": traced["candidates"],
+            "filter_counts": traced["filter_counts"],
+        }
+    if engine == "short":
+        candidates = [
+            asdict(candidate)
+            for candidate in generate_short_candidates(
+                row.market,
+                short_universe=universes.short_universe,
+                derivatives=row.derivatives,
+                regime=regime,
+            )
+        ]
+        return {
+            "regime": regime,
+            "input_universe": len(universes.short_universe),
+            "candidates": candidates,
+            "filter_counts": {},
+        }
+    raise ValueError(f"unsupported engine variant: {engine}")
+
+
+def run_engine_filter_ablation_experiment(
+    rows: Iterable[DatasetSnapshotRow],
+    *,
+    evaluation_window: str = "3d",
+) -> dict[str, Any]:
+    ordered_rows = sorted(rows, key=lambda row: (row.timestamp, row.run_id))
+    variants: dict[str, dict[str, Any]] = {
+        "trend_only": {"engine": "trend"},
+        "rotation_only": {"engine": "rotation"},
+        "short_only": {"engine": "short"},
+        "rotation_without_overheat_filter": {"engine": "rotation", "disabled_filters": frozenset({"overheat"})},
+    }
+    results: dict[str, dict[str, Any]] = {}
+
+    for variant_name, variant in variants.items():
+        funnel_counts: dict[str, int] = {}
+        filter_counts: dict[str, int] = {}
+        accepted_returns: list[float] = []
+
+        for row in ordered_rows:
+            regime = _regime_for_row(row)
+            if variant_name == "rotation_without_overheat_filter":
+                traced = _rotation_candidates_with_trace(
+                    row,
+                    disabled_filters=frozenset(variant.get("disabled_filters", frozenset())),
+                )
+                candidate_rows = traced["candidates"]
+                input_universe = int(traced["input_universe"])
+                _merge_counts(filter_counts, traced["filter_counts"])
+            else:
+                engine_only = _engine_only_candidates(row, engine=str(variant["engine"]))
+                regime = engine_only["regime"]
+                candidate_rows = list(engine_only["candidates"])
+                input_universe = int(engine_only["input_universe"])
+                _merge_counts(filter_counts, engine_only["filter_counts"])
+
+            pipeline = _run_candidate_pipeline(
+                row,
+                regime=regime,
+                input_universe=input_universe,
+                candidates=candidate_rows,
+                evaluation_window=evaluation_window,
+            )
+            _merge_counts(funnel_counts, pipeline["funnel"])
+            accepted_returns.extend(pipeline["returns"])
+
+        results[variant_name] = {
+            "funnel": _with_zero_defaults(funnel_counts, _FUNNEL_KEYS),
+            "filter_counts": _with_zero_defaults(filter_counts, _ROTATION_FILTER_KEYS),
+            "performance": _policy_summary(accepted_returns),
+        }
+
+    return {
+        "metadata": {
+            "snapshot_count": len(ordered_rows),
+            "variant_count": len(results),
+            "evaluation_window": evaluation_window,
+        },
+        "variants": results,
     }

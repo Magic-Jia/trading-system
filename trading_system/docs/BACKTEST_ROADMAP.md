@@ -537,6 +537,8 @@
 
 定义什么时候一项规则可以从研究结论进入正式主系统。
 
+执行细则见 `trading_system/docs/BACKTEST_PROMOTION_GATE.md`。
+
 ### Promotion requirements
 
 一项新规则或新参数，至少要满足：
@@ -596,6 +598,8 @@
 
 ### Step 7
 **达到 promotion gate 后，才允许把结论写回策略主线**
+
+实际提交流程、证据包和回滚要求统一按 `trading_system/docs/BACKTEST_PROMOTION_GATE.md` 执行。
 
 ---
 
@@ -739,3 +743,4 @@
 - regime 回测实施计划
 - suppression / engine ablation 实施计划
 - robustness / walk-forward 实施计划
+- promotion gate 执行清单
