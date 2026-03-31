@@ -1,0 +1,31 @@
+{
+  "rows": [
+    {
+      "symbol": "BTCUSDT",
+      "funding_rate": 0.0001,
+      "open_interest_usdt": 23000000000,
+      "open_interest_change_24h_pct": 0.04,
+      "mark_price_change_24h_pct": 0.02,
+      "taker_buy_sell_ratio": 1.08,
+      "basis_bps": 22
+    },
+    {
+      "symbol": "ETHUSDT",
+      "funding_rate": 0.0001,
+      "open_interest_usdt": 11800000000,
+      "open_interest_change_24h_pct": 0.035,
+      "mark_price_change_24h_pct": 0.018,
+      "taker_buy_sell_ratio": 1.04,
+      "basis_bps": 20
+    },
+    {
+      "symbol": "LINKUSDT",
+      "funding_rate": 0.00018,
+      "open_interest_usdt": 1200000000,
+      "open_interest_change_24h_pct": 0.05,
+      "mark_price_change_24h_pct": 0.023,
+      "taker_buy_sell_ratio": 1.09,
+      "basis_bps": 26
+    }
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "dataset_root": "sample_dataset",
+  "experiment_kind": "regime_research",
+  "sample_windows": [
+    {
+      "name": "train",
+      "start": "2026-03-10T00:00:00Z",
+      "end": "2026-03-11T00:00:00Z",
+      "split": "in_sample"
+    },
+    {
+      "name": "validation",
+      "start": "2026-03-12T00:00:00Z",
+      "end": "2026-03-12T00:00:00Z",
+      "split": "out_of_sample"
+    }
+  ],
+  "forward_return_windows": [
+    {
+      "name": "1d",
+      "hours": 24
+    },
+    {
+      "name": "3d",
+      "hours": 72
+    }
+  ],
+  "costs": {
+    "fee_bps": 4.0,
+    "slippage_bps": 6.0,
+    "funding_bps_per_day": 1.5
+  },
+  "baseline_name": "current_policy",
+  "variant_name": "no_rotation_suppression"
+}

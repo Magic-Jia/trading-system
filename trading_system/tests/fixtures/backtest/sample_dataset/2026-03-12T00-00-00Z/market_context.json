@@ -1,0 +1,82 @@
+{
+  "symbols": {
+    "BTCUSDT": {
+      "sector": "majors",
+      "liquidity_tier": "top",
+      "daily": {
+        "close": 96.0,
+        "ema_20": 98.0,
+        "ema_50": 100.0,
+        "atr_pct": 0.041,
+        "return_pct_7d": -0.04,
+        "volume_usdt_24h": 19800000000
+      },
+      "4h": {
+        "close": 96.0,
+        "ema_20": 97.0,
+        "ema_50": 99.0,
+        "return_pct_3d": -0.018,
+        "volume_usdt_24h": 19800000000
+      },
+      "1h": {
+        "close": 96.0,
+        "ema_20": 96.5,
+        "ema_50": 97.0,
+        "return_pct_24h": -0.006,
+        "volume_usdt_24h": 19800000000
+      }
+    },
+    "ETHUSDT": {
+      "sector": "majors",
+      "liquidity_tier": "top",
+      "daily": {
+        "close": 95.0,
+        "ema_20": 97.0,
+        "ema_50": 99.0,
+        "atr_pct": 0.042,
+        "return_pct_7d": -0.043,
+        "volume_usdt_24h": 11900000000
+      },
+      "4h": {
+        "close": 95.0,
+        "ema_20": 96.1,
+        "ema_50": 98.0,
+        "return_pct_3d": -0.017,
+        "volume_usdt_24h": 11900000000
+      },
+      "1h": {
+        "close": 95.0,
+        "ema_20": 95.7,
+        "ema_50": 96.3,
+        "return_pct_24h": -0.005,
+        "volume_usdt_24h": 11900000000
+      }
+    },
+    "LINKUSDT": {
+      "sector": "oracle",
+      "liquidity_tier": "high",
+      "daily": {
+        "close": 21.2,
+        "ema_20": 22.1,
+        "ema_50": 22.9,
+        "atr_pct": 0.052,
+        "return_pct_7d": -0.038,
+        "volume_usdt_24h": 930000000
+      },
+      "4h": {
+        "close": 21.2,
+        "ema_20": 21.7,
+        "ema_50": 22.3,
+        "return_pct_3d": -0.014,
+        "volume_usdt_24h": 930000000
+      },
+      "1h": {
+        "close": 21.2,
+        "ema_20": 21.35,
+        "ema_50": 21.6,
+        "return_pct_24h": -0.004,
+        "volume_usdt_24h": 930000000
+      }
+    }
+  }
+}
