@@ -1,0 +1,12 @@
+{
+  "timestamp": "2026-03-12T00:00:00Z",
+  "run_id": "sample-003",
+  "forward_returns": {
+    "1d": -0.011,
+    "3d": -0.022
+  },
+  "forward_drawdowns": {
+    "1d": -0.015,
+    "3d": -0.031
+  }
+}

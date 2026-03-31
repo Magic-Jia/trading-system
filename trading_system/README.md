@@ -130,6 +130,7 @@ execution-safety 的优先级仍然是 live boundary、hard risk gate、restart-
 
 - 单测：`uv run --with pytest python -m pytest trading_system/tests/test_main_v2_cycle.py -v`
 - 全量测试：`uv run --with pytest python -m pytest trading_system/tests -v`
+- Backtest research CLI：`python -m trading_system.app.backtest.cli run --config trading_system/tests/fixtures/backtest/minimal_config.json --output-dir /tmp/backtest-research`
 - 手动跑一次 paper cycle：直接运行 `python -m trading_system.run_cycle --mode paper`；若当前 paper bucket 缺少三份输入快照，入口会先在 `trading_system/data/runtime/paper/paper/` 内自动补齐再执行。
 - 临时 cron 替代：`deploy/cron/trading-system-paper-cron.sh` 默认跑 `paper/paper` bucket；`deploy/cron/install-trading-system-paper-crontab.sh` 会把它安装到当前用户 crontab，默认每 15 分钟跑一次。
 - 若要按固定频率执行 paper cycle，可参考 `deploy/systemd/trading-system-paper.service`、`deploy/systemd/trading-system-paper.timer` 与 `trading_system/docs/BATCH_RUNTIME_RUNBOOK.md`。
