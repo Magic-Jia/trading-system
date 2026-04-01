@@ -3,6 +3,7 @@ from .importer import (
     Phase1DatasetBundleMaterial,
     build_phase1_dataset_bundle_materials,
     import_phase1_archive_dataset_root,
+    validate_phase1_imported_dataset_root,
     write_phase1_dataset_bundle,
 )
 from .runtime_bundle import (
@@ -45,5 +46,6 @@ __all__ = [
     "raw_market_series_key",
     "raw_market_storage_dir",
     "runtime_bundle_archive_enabled",
+    "validate_phase1_imported_dataset_root",
     "write_phase1_dataset_bundle",
 ]

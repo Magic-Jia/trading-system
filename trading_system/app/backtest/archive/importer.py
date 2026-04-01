@@ -468,6 +468,44 @@ def write_phase1_dataset_bundle(material: Phase1DatasetBundleMaterial, dataset_r
     return bundle_dir
 
 
+def validate_phase1_imported_dataset_root(
+    dataset_root: str | Path,
+    *,
+    expected_bundle_dirs: Sequence[Path],
+    expected_timestamps: Sequence[datetime],
+) -> list[Any]:
+    dataset_path = Path(dataset_root)
+    if not dataset_path.exists():
+        raise FileNotFoundError(f"dataset root does not exist: {dataset_path}")
+    if not dataset_path.is_dir():
+        raise NotADirectoryError(f"dataset root is not a directory: {dataset_path}")
+
+    rows = load_historical_dataset(dataset_path)
+    if len(rows) != len(expected_bundle_dirs):
+        raise ValueError(
+            "materialized dataset root failed validation: "
+            f"expected {len(expected_bundle_dirs)} rows, loaded {len(rows)}"
+        )
+
+    loaded_bundle_dirs = tuple(row.source_path for row in rows)
+    expected_bundle_tuple = tuple(Path(bundle_dir) for bundle_dir in expected_bundle_dirs)
+    if loaded_bundle_dirs != expected_bundle_tuple:
+        raise ValueError(
+            "materialized dataset root bundle directories did not round-trip: "
+            f"expected {expected_bundle_tuple}, loaded {loaded_bundle_dirs}"
+        )
+
+    loaded_timestamps = tuple(row.timestamp for row in rows)
+    expected_timestamp_tuple = tuple(expected_timestamps)
+    if loaded_timestamps != expected_timestamp_tuple:
+        raise ValueError(
+            "materialized dataset root timestamps did not round-trip: "
+            f"expected {expected_timestamp_tuple}, loaded {loaded_timestamps}"
+        )
+
+    return rows
+
+
 def import_phase1_archive_dataset_root(
     archive_root: str | Path,
     dataset_root: str | Path,
@@ -492,12 +530,11 @@ def import_phase1_archive_dataset_root(
         dataset_path.mkdir(parents=True, exist_ok=True)
 
     bundle_dirs = tuple(write_phase1_dataset_bundle(material, dataset_path) for material in materials)
-    rows = load_historical_dataset(dataset_path)
-    if len(rows) != len(bundle_dirs):
-        raise ValueError(
-            "materialized dataset root failed validation: "
-            f"expected {len(bundle_dirs)} rows, loaded {len(rows)}"
-        )
+    rows = validate_phase1_imported_dataset_root(
+        dataset_path,
+        expected_bundle_dirs=bundle_dirs,
+        expected_timestamps=tuple(material.timestamp for material in materials),
+    )
 
     return ImportedPhase1DatasetRoot(
         archive_root=archive_path,
@@ -515,5 +552,6 @@ __all__ = [
     "Phase1DatasetBundleMaterial",
     "build_phase1_dataset_bundle_materials",
     "import_phase1_archive_dataset_root",
+    "validate_phase1_imported_dataset_root",
     "write_phase1_dataset_bundle",
 ]
