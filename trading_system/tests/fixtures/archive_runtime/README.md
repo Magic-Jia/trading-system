@@ -9,6 +9,8 @@ Layout:
   by `trading_system.app.runtime_paths.build_runtime_paths`
 - `archive_dataset/<bundle>/` mirrors the existing historical dataset contract
   consumed by `trading_system.app.backtest.dataset.load_historical_dataset`
+- `assembly_expectations.json` pins the minimal phase-1 mapping from importer
+  raw-market inputs into the assembled archive dataset bundle values
 - `raw_market/importer_manifest.json` captures the approved phase-1 importer
   policy for Binance-first, futures-first archive coverage
 - `raw_market/archive/binance/futures/...` stores canonical raw-market archive

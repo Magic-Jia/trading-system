@@ -46,3 +46,40 @@ def test_raw_market_importer_manifest_maps_fixture_files_to_canonical_archive_pa
         assert "runtime" not in parts
         assert "paper" not in parts
         assert archive_file.exists()
+
+
+def test_raw_market_importer_phase1_assembly_expectations_match_dataset_bundle(fixture_dir: Path) -> None:
+    archive_runtime_root = fixture_dir / "archive_runtime"
+    raw_market_root = archive_runtime_root / "raw_market"
+    manifest = _load_json(raw_market_root / "importer_manifest.json")
+    expectations = _load_json(archive_runtime_root / "assembly_expectations.json")
+    coverage = manifest["coverage"]
+
+    bundle_dir = archive_runtime_root / "archive_dataset" / expectations["bundle"]
+    metadata = _load_json(bundle_dir / "metadata.json")
+    market_context = _load_json(bundle_dir / "market_context.json")
+    derivatives_rows = {
+        row["symbol"]: row for row in _load_json(bundle_dir / "derivatives_snapshot.json")["rows"]
+    }
+
+    imports_by_key = {
+        (item["dataset"], item["symbol"]): _load_json(raw_market_root / "archive" / item["archive_path"])
+        for item in manifest["imports"]
+    }
+
+    assert metadata["timestamp"] == expectations["timestamp"]
+    assert sorted(expectations["symbols"]) == coverage["required_symbols"]
+
+    for symbol, expected in expectations["symbols"].items():
+        ohlcv_payload = imports_by_key[("ohlcv", symbol)]
+        funding_payload = imports_by_key[("funding", symbol)]
+        open_interest_payload = imports_by_key[("open_interest", symbol)]
+        market_daily = market_context["symbols"][symbol]["daily"]
+        derivatives_row = derivatives_rows[symbol]
+
+        assert ohlcv_payload["rows"][-1]["close"] == expected["market_close"]
+        assert market_daily["close"] == expected["market_close"]
+        assert funding_payload["rows"][-1]["funding_rate"] == expected["funding_rate"]
+        assert derivatives_row["funding_rate"] == expected["funding_rate"]
+        assert open_interest_payload["rows"][-1]["open_interest_usdt"] == expected["open_interest_usdt"]
+        assert derivatives_row["open_interest_usdt"] == expected["open_interest_usdt"]
