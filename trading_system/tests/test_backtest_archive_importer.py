@@ -2,11 +2,16 @@ from __future__ import annotations
 
 import hashlib
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 
-from trading_system.app.backtest.archive.raw_market import archive_raw_market_payload
+from trading_system.app.backtest.archive.raw_market import (
+    archive_raw_market_payload,
+    load_phase1_raw_market_imports,
+    load_phase1_raw_market_series,
+)
 
 
 def test_archive_raw_market_payload_writes_manifest_and_canonical_futures_ohlcv_path(tmp_path: Path) -> None:
@@ -199,3 +204,153 @@ def test_archive_raw_market_payload_rejects_duplicate_coverage_window_even_with_
 
     with pytest.raises(FileExistsError, match="coverage window already archived"):
         archive_raw_market_payload(fetched_at="2026-04-01T01:05:00Z", **kwargs)
+
+
+def test_load_phase1_raw_market_series_reads_manifest_backed_files_into_importer_structures(
+    tmp_path: Path,
+) -> None:
+    archive_root = tmp_path / "archive"
+    archive_raw_market_payload(
+        archive_root=archive_root,
+        exchange="binance",
+        market="futures",
+        dataset="ohlcv",
+        symbol="BTCUSDT",
+        timeframe="1h",
+        coverage_start="2024-04-01T00:00:00Z",
+        coverage_end="2024-04-01T02:00:00Z",
+        fetched_at="2026-04-01T01:02:03Z",
+        endpoint="/fapi/v1/klines",
+        payload={
+            "symbol": "BTCUSDT",
+            "interval": "1h",
+            "rows": [
+                {"open_time": 1711929600000, "close": "70000.0"},
+                {"open_time": 1711933200000, "close": "70100.0"},
+            ],
+        },
+    )
+    archive_raw_market_payload(
+        archive_root=archive_root,
+        exchange="binance",
+        market="futures",
+        dataset="ohlcv",
+        symbol="BTCUSDT",
+        timeframe="1h",
+        coverage_start="2024-04-01T02:00:00Z",
+        coverage_end="2024-04-01T04:00:00Z",
+        fetched_at="2026-04-01T01:05:03Z",
+        endpoint="/fapi/v1/klines",
+        payload={
+            "symbol": "BTCUSDT",
+            "interval": "1h",
+            "rows": [
+                {"open_time": 1711936800000, "close": "70200.0"},
+                {"open_time": 1711940400000, "close": "70300.0"},
+            ],
+        },
+    )
+
+    imported = load_phase1_raw_market_series(
+        archive_root,
+        exchange="binance",
+        market="futures",
+        dataset="ohlcv",
+        symbol="BTCUSDT",
+        timeframe="1h",
+    )
+
+    assert imported.series_key == "binance:futures:ohlcv:BTCUSDT:1h"
+    assert imported.dataset == "ohlcv"
+    assert imported.symbol == "BTCUSDT"
+    assert imported.timeframe == "1h"
+    assert len(imported.files) == 2
+    assert [file.coverage_start for file in imported.files] == [
+        datetime(2024, 4, 1, 0, 0, tzinfo=UTC),
+        datetime(2024, 4, 1, 2, 0, tzinfo=UTC),
+    ]
+    assert [record.observed_at for record in imported.records] == [
+        datetime(2024, 4, 1, 0, 0, tzinfo=UTC),
+        datetime(2024, 4, 1, 1, 0, tzinfo=UTC),
+        datetime(2024, 4, 1, 2, 0, tzinfo=UTC),
+        datetime(2024, 4, 1, 3, 0, tzinfo=UTC),
+    ]
+    assert [record.payload["close"] for record in imported.records] == ["70000.0", "70100.0", "70200.0", "70300.0"]
+
+
+def test_load_phase1_raw_market_imports_groups_supported_binance_futures_series(tmp_path: Path) -> None:
+    archive_root = tmp_path / "archive"
+    archive_raw_market_payload(
+        archive_root=archive_root,
+        exchange="binance",
+        market="futures",
+        dataset="funding",
+        symbol="BTCUSDT",
+        coverage_start="2024-04-01T00:00:00Z",
+        coverage_end="2024-04-01T16:00:00Z",
+        fetched_at="2026-04-01T01:02:03Z",
+        endpoint="/fapi/v1/fundingRate",
+        payload=[{"fundingTime": 1711929600000, "fundingRate": "0.0001"}],
+    )
+    archive_raw_market_payload(
+        archive_root=archive_root,
+        exchange="binance",
+        market="futures",
+        dataset="open_interest",
+        symbol="BTCUSDT",
+        coverage_start="2024-04-01T00:00:00Z",
+        coverage_end="2024-04-01T01:00:00Z",
+        fetched_at="2026-04-01T01:03:03Z",
+        endpoint="/futures/data/openInterestHist",
+        payload=[{"timestamp": 1711929600000, "sumOpenInterest": "12345.6"}],
+    )
+    archive_raw_market_payload(
+        archive_root=archive_root,
+        exchange="binance",
+        market="futures",
+        dataset="ohlcv",
+        symbol="BTCUSDT",
+        timeframe="1h",
+        coverage_start="2024-04-01T00:00:00Z",
+        coverage_end="2024-04-01T01:00:00Z",
+        fetched_at="2026-04-01T01:04:03Z",
+        endpoint="/fapi/v1/klines",
+        payload={"rows": [{"open_time": 1711929600000, "close": "70000.0"}]},
+    )
+
+    imported = load_phase1_raw_market_imports(archive_root)
+
+    assert [series.series_key for series in imported] == [
+        "binance:futures:funding:BTCUSDT",
+        "binance:futures:ohlcv:BTCUSDT:1h",
+        "binance:futures:open-interest:BTCUSDT",
+    ]
+    assert imported[0].records[0].payload["fundingRate"] == "0.0001"
+    assert imported[1].records[0].payload["close"] == "70000.0"
+    assert imported[2].records[0].payload["sumOpenInterest"] == "12345.6"
+
+
+def test_load_phase1_raw_market_series_rejects_manifest_file_hash_mismatch(tmp_path: Path) -> None:
+    archive_root = tmp_path / "archive"
+    archived = archive_raw_market_payload(
+        archive_root=archive_root,
+        exchange="binance",
+        market="futures",
+        dataset="funding",
+        symbol="BTCUSDT",
+        coverage_start="2024-04-01T00:00:00Z",
+        coverage_end="2024-04-01T16:00:00Z",
+        fetched_at="2026-04-01T01:02:03Z",
+        endpoint="/fapi/v1/fundingRate",
+        payload=[{"fundingTime": 1711929600000, "fundingRate": "0.0001"}],
+    )
+    archived.data_path.write_text('[{"fundingTime":1711929600000,"fundingRate":"0.0002"}]', encoding="utf-8")
+
+    with pytest.raises(ValueError, match="raw-market file sha256 mismatch"):
+        load_phase1_raw_market_series(
+            archive_root,
+            exchange="binance",
+            market="futures",
+            dataset="funding",
+            symbol="BTCUSDT",
+        )
