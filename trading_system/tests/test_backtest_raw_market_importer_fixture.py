@@ -6,6 +6,7 @@ from pathlib import Path
 from trading_system.app.backtest.config import load_backtest_config
 from trading_system.app.backtest.dataset import load_historical_dataset, split_rows_by_windows
 from trading_system.app.backtest.engine import replay_snapshot
+from trading_system.app.backtest.experiments import run_regime_predictive_power_experiment
 
 
 def _load_json(path: Path) -> dict:
@@ -123,3 +124,20 @@ def test_raw_market_importer_phase1_bundle_is_replayable_by_core_without_downloa
     assert result["raw_candidates"] == {"trend": [], "rotation": [], "short": []}
     assert result["validated_candidates"] == []
     assert result["allocations"] == []
+
+
+def test_raw_market_importer_phase1_bundle_exposes_forward_return_contract_for_experiments(
+    fixture_dir: Path,
+) -> None:
+    config_path = fixture_dir / "archive_runtime" / "imported_dataset_backtest_config.json"
+
+    config = load_backtest_config(config_path)
+    rows = load_historical_dataset(config.dataset_root)
+    result = run_regime_predictive_power_experiment(rows)
+
+    assert [window.name for window in config.forward_return_windows] == ["1d", "3d"]
+    assert rows[0].forward_returns == {"1d": 0.018, "3d": 0.031}
+    assert rows[0].forward_drawdowns == {"1d": -0.009, "3d": -0.014}
+    assert result["metadata"] == {"snapshot_count": 1, "regime_count": 1}
+    assert result["by_regime"]["RISK_OFF"]["forward_return_by_window"] == {"1d": 0.018, "3d": 0.031}
+    assert result["by_regime"]["RISK_OFF"]["forward_drawdown_by_window"] == {"1d": -0.009, "3d": -0.014}

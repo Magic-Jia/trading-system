@@ -12,7 +12,7 @@ Layout:
 - `assembly_expectations.json` pins the minimal phase-1 mapping from importer
   raw-market inputs into the assembled archive dataset bundle values
 - `imported_dataset_backtest_config.json` resolves `archive_dataset/` as a
-  loader-valid dataset root and pins its phase-1 validation-window semantics
+  loader-valid dataset root and pins its phase-1 validation/forward-window semantics
 - `raw_market/importer_manifest.json` captures the approved phase-1 importer
   policy for Binance-first, futures-first archive coverage
 - `raw_market/archive/binance/futures/...` stores canonical raw-market archive

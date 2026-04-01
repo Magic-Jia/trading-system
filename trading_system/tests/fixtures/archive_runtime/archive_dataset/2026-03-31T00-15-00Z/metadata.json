@@ -4,9 +4,11 @@
   "source_mode": "paper",
   "source_runtime_env": "research",
   "forward_returns": {
-    "1d": 0.018
+    "1d": 0.018,
+    "3d": 0.031
   },
   "forward_drawdowns": {
-    "1d": -0.009
+    "1d": -0.009,
+    "3d": -0.014
   }
 }
