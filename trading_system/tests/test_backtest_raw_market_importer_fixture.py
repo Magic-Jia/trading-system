@@ -5,6 +5,7 @@ from pathlib import Path
 
 from trading_system.app.backtest.config import load_backtest_config
 from trading_system.app.backtest.dataset import load_historical_dataset, split_rows_by_windows
+from trading_system.app.backtest.engine import replay_snapshot
 
 
 def _load_json(path: Path) -> dict:
@@ -100,3 +101,25 @@ def test_raw_market_importer_phase1_materializes_loader_valid_dataset_root_for_v
     assert rows[0].source_path == config.dataset_root / "2026-03-31T00-15-00Z"
     assert split["train"] == []
     assert [row.run_id for row in split["validation"]] == ["paper-research-2026-03-31t00-15-00z"]
+
+
+def test_raw_market_importer_phase1_bundle_is_replayable_by_core_without_download_enrichment(
+    fixture_dir: Path,
+) -> None:
+    config_path = fixture_dir / "archive_runtime" / "imported_dataset_backtest_config.json"
+
+    config = load_backtest_config(config_path)
+    rows = load_historical_dataset(config.dataset_root)
+
+    result = replay_snapshot(rows[0])
+
+    assert result["regime"]["label"] == "RISK_OFF"
+    assert result["suppression"]["rotation_suppressed"] is True
+    assert result["universes"]["major_count"] == 2
+    assert result["universes"]["rotation_count"] == 0
+    assert result["universes"]["short_count"] == 2
+    assert [row["symbol"] for row in result["universes"]["major_universe"]] == ["BTCUSDT", "ETHUSDT"]
+    assert [row["symbol"] for row in result["universes"]["short_universe"]] == ["BTCUSDT", "ETHUSDT"]
+    assert result["raw_candidates"] == {"trend": [], "rotation": [], "short": []}
+    assert result["validated_candidates"] == []
+    assert result["allocations"] == []
