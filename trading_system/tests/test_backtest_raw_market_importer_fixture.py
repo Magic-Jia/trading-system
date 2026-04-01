@@ -3,6 +3,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from trading_system.app.backtest.config import load_backtest_config
+from trading_system.app.backtest.dataset import load_historical_dataset, split_rows_by_windows
+
 
 def _load_json(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
@@ -83,3 +86,17 @@ def test_raw_market_importer_phase1_assembly_expectations_match_dataset_bundle(f
         assert derivatives_row["funding_rate"] == expected["funding_rate"]
         assert open_interest_payload["rows"][-1]["open_interest_usdt"] == expected["open_interest_usdt"]
         assert derivatives_row["open_interest_usdt"] == expected["open_interest_usdt"]
+
+
+def test_raw_market_importer_phase1_materializes_loader_valid_dataset_root_for_validation(fixture_dir: Path) -> None:
+    config_path = fixture_dir / "archive_runtime" / "imported_dataset_backtest_config.json"
+
+    config = load_backtest_config(config_path)
+    rows = load_historical_dataset(config.dataset_root)
+    split = split_rows_by_windows(rows, config.sample_windows)
+
+    assert config.dataset_root == fixture_dir / "archive_runtime" / "archive_dataset"
+    assert [row.run_id for row in rows] == ["paper-research-2026-03-31t00-15-00z"]
+    assert rows[0].source_path == config.dataset_root / "2026-03-31T00-15-00Z"
+    assert split["train"] == []
+    assert [row.run_id for row in split["validation"]] == ["paper-research-2026-03-31t00-15-00z"]
