@@ -30,6 +30,18 @@ Each bundle must be self-describing and deterministic:
 
 这也意味着：当前 repo 的 Phase 1 operator 可以**手工装配 / 人工校对** dataset root，但不能把 future importer / downloader 说成当前仓库已经提供的现成功能
 
+### Phase 1 materialization checklist
+
+在真正把研究输入整理成 dataset root 前，先锁定这五个问题：
+
+- 本次 materialization 对应的是哪个 research window，而不是泛泛地“把 archive 导进来”
+- 每个 bundle 的 `timestamp` / `run_id` 准备从哪份已存在的 runtime/archive 记录写入
+- `market_context.json`、`derivatives_snapshot.json`、账户快照分别来自哪一份已确认输入
+- 账户上下文到底采用 bundle 自带 `account_snapshot.json`，还是 root 级 `baseline_account_snapshot.json`
+- provenance / handoff note 准备记录在哪里；答案必须是 dataset root 外部
+
+如果上述任一项仍依赖“等 importer/downloader 以后自动补”，就说明当前 Phase 1 materialization 还没准备好。
+
 ## Loader behavior
 
 `trading_system.app.backtest.dataset.load_historical_dataset`:
@@ -39,6 +51,13 @@ Each bundle must be self-describing and deterministic:
 - falls back to `baseline_account_snapshot.json` when bundle account data is absent
 - treats every first-level directory under dataset root as a bundle candidate
 - does not rely on bundle directory names for ordering; directory names are operator-facing labels only
+
+补充几条直接来自当前 loader 实现的 validation 现实：
+
+- `metadata.json` 缺少 `timestamp` 或 `run_id` 时，加载会直接失败，而不是自动补默认值
+- `timestamp` 需要能被当前 `datetime.fromisoformat(...replace("Z", "+00:00"))` 解析
+- `derivatives_snapshot.json` 既可以是数组，也可以是带 `rows` 数组的对象；其他结构会失败
+- root 级普通文件目前除 `baseline_account_snapshot.json` 外通常不会被 loader 读取，但 Phase 1 仍应避免混入，以免 handoff 语义变脏
 
 ## Phase 1 boundary
 
@@ -86,6 +105,31 @@ operator 在 Phase 1 应按这条链路理解数据流：
 
 - dataset root 下若出现 `archive/`、`notes/`、`tmp/`、备份目录等一级目录，loader 会把它们当成 bundle 并在缺文件时报错
 - 除 `baseline_account_snapshot.json` 外，Phase 1 不应在 dataset root 一级混入 handoff note、manifest、checksum 或下载日志，即使这些文件未必会被 loader 直接消费
+
+### Root validation checklist
+
+Phase 1 operator 在交付 dataset root 前，至少逐条复核：
+
+- dataset root 是否与 `trading_system/data/archive/raw-market/...`、runtime bundle 路径、研究输出目录彻底分离
+- 一级目录是否全部都是真正 bundle，而不是 archive 镜像目录、`notes/`、`tmp/`、备份目录
+- 每个 bundle 是否都具备 `metadata.json`、`market_context.json`、`derivatives_snapshot.json`
+- 每个 bundle 的 `metadata.json` 是否都有合法 `timestamp` / `run_id`
+- 若 bundle 缺 `account_snapshot.json`，root 级是否真的存在 `baseline_account_snapshot.json`
+- 当前文档/交接表述是否仍停留在“手工整理 / 人工校对”，没有冒进宣称已存在自动 importer / downloader
+
+### External readback record
+
+dataset root 通过 root validation，不代表 handoff 已经完整；Phase 1 还应在 dataset root 外保留一份最小 operator 记录。
+
+这份记录至少应写清：
+
+- dataset root 路径，以及它对应的 research window / bundle 集合
+- 每个 bundle 的 `timestamp` / `run_id` 来源记录
+- `market_context.json`、`derivatives_snapshot.json`、账户快照各自来自哪份已确认输入
+- 本次账户上下文到底使用 root 级 `baseline_account_snapshot.json`，还是 bundle 级 `account_snapshot.json`
+- 最近一次 lightweight readback 的时间、执行人、结果
+
+如果这些信息还只能靠口头补充，或者只能靠“看目录名猜”，就说明当前 Phase 1 materialization 仍不够可交接。
 
 ## Related docs
 
