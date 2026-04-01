@@ -19,6 +19,17 @@ Each bundle must be self-describing and deterministic:
 - repeated loads must preserve timestamp ordering
 - forward returns / drawdowns belong in `metadata.json`
 
+## Imported dataset assembly contract
+
+这份 spec 约束的是 **最终交给 loader 的 imported dataset root**，因此 assembly 阶段必须保持最小、确定性、可读回：
+
+- dataset root 一级只允许 bundle 目录和可选的 `baseline_account_snapshot.json`
+- bundle 内只允许当前 loader contract 需要的 snapshot / metadata 文件
+- provenance、handoff note、archive manifest、人工说明、备份目录应保留在 dataset root 外
+- 如果目录仍保留 `<exchange>/<market>/<dataset>/<symbol>/<timeframe?>` 结构，它就还是 archive 层，不属于本 spec
+
+这也意味着：当前 repo 的 Phase 1 operator 可以**手工装配 / 人工校对** dataset root，但不能把 future importer / downloader 说成当前仓库已经提供的现成功能
+
 ## Loader behavior
 
 `trading_system.app.backtest.dataset.load_historical_dataset`:
@@ -63,6 +74,11 @@ operator 在 Phase 1 应按这条链路理解数据流：
 - dataset root 与 `trading_system/data/archive/raw-market/...` 完全分离
 - provenance / handoff 说明保留在 dataset root 之外
 - 当前表述没有暗示仓库已经存在通用 importer / archive CLI
+
+再补两条当前 loader 视角下的 assembly 复核：
+
+- `metadata.json` 是否真的提供了 `timestamp` 与 `run_id`
+- 当 bundle 缺少 `account_snapshot.json` 时，dataset root 是否真的存在 `baseline_account_snapshot.json`
 
 ## Related docs
 

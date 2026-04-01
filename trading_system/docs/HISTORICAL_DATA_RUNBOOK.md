@@ -154,6 +154,32 @@ find trading_system/data/archive/raw-market -maxdepth 6 -type d | sort
 - provenance / handoff note 是否保存在 operator 记录、研究记录或 ticket 中，而不是塞进 dataset root 目录
 - 是否明确把这一步表述为“手工整理 / 当前文档约束下的导入准备”，而不是声称仓库已有自动 importer / downloader
 
+## Step 2C: assemble the imported dataset root
+
+当 handoff 已经清楚后，下一步才是把研究输入装配成当前 loader 能读的 dataset root。
+
+这一步在当前 repo reality 下是 **手工 assembly / 人工校对**，不是自动 downloader / importer 流程。
+
+最小装配顺序：
+
+1. 先选定一个与 archive 根分离的 dataset root 目录
+2. 如需全局账户基线，先准备 `baseline_account_snapshot.json`
+3. 为每个研究时间点建立一个一级 bundle 目录
+4. 在每个 bundle 中写入 `metadata.json`、`market_context.json`、`derivatives_snapshot.json`
+5. 如该 bundle 需要覆盖默认账户上下文，再补 `account_snapshot.json`
+6. provenance / handoff note 仍写在 dataset root 外部，不要混入一级目录
+
+### Imported dataset assembly checklist
+
+- dataset root 是否与 `trading_system/data/archive/raw-market/...` 完全分离
+- 一级子目录是否只保留 bundle 目录，而不是 `<exchange>/<market>/<dataset>` archive 结构
+- 是否只放 loader 当前认识的文件：`baseline_account_snapshot.json` 与 bundle 内四类 snapshot/metadata 文件
+- `metadata.json` 是否至少包含 `timestamp` 与 `run_id`
+- `derivatives_snapshot.json` 是否为数组，或是带 `rows` 数组的对象
+- 缺 bundle 级 `account_snapshot.json` 时，是否已提供 root 级 baseline
+- 是否避免把 notes、handoff、checksum、临时下载结果直接塞进 dataset root
+- 是否没有把“未来会有自动 importer / downloader”写成当前可执行步骤
+
 ## Step 3: validate imported dataset roots
 
 当前真正被 backtest loader 消费的，仍然是 imported dataset root，而不是 raw-market archive 本身。
@@ -173,6 +199,31 @@ find trading_system/data/archive/raw-market -maxdepth 6 -type d | sort
 - `metadata.json` 里有 `timestamp` 与 `run_id`
 - `derivatives_snapshot.json` 结构合法
 - 如需保留 provenance / handoff 说明，应放在 dataset root 外的 operator/readback 记录中
+
+### Step 3A: do a lightweight imported-dataset readback
+
+在当前 repo 里，最有价值的轻量 readback 不是“联网跑一遍下载器”，而是确认 dataset root 真能满足 loader contract。
+
+建议至少读回三件事：
+
+1. dataset root 一级目录是否干净
+2. bundle 必需文件是否齐全
+3. 文档表述有没有把 archive / importer / downloader 说过头
+
+最小人工 readback 可以用：
+
+```bash
+find trading_system/tests/fixtures/backtest/sample_dataset -maxdepth 2 -type f | sort
+```
+
+如果要对真实 dataset root 做同类检查，只替换根目录，不要改读回标准。
+
+读回时重点问：
+
+- 有没有把 archive 目录结构误放进 dataset root
+- 有没有 bundle 缺 `metadata.json` 或 `derivatives_snapshot.json`
+- 有没有把 provenance note 错放到 loader 会扫描的一级目录
+- 有没有任何说明让 operator 误以为当前仓库已经存在自动 importer / downloader
 
 ## Step 4: smoke-test current repo reality
 
@@ -320,6 +371,10 @@ grep -nE 'Binance-first|futures-first|coverage-driven|raw-market|archive|handoff
   trading_system/docs/HISTORICAL_DATA_RUNBOOK.md \
   trading_system/docs/HISTORICAL_DATA_RETENTION.md \
   trading_system/docs/BACKTEST_DATA_SPEC.md
+```
+
+```bash
+find trading_system/tests/fixtures/backtest/sample_dataset -maxdepth 2 -type f | sort
 ```
 
 ## Escalate when

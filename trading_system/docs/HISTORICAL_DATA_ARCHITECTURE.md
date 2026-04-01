@@ -157,6 +157,25 @@ sample_dataset/
 
 **不要**把 raw-market archive 子目录、人工笔记目录、备份目录直接塞进 dataset root；当前 loader 会把一级子目录都当成 bundle 尝试读取。
 
+### Imported dataset assembly boundary
+
+Phase 1 里要特别明确：**imported dataset root 不是 raw-market archive 的镜像目录，也不是 downloader 的落盘目录**。
+
+它只是一个被当前 `load_historical_dataset` 消费的、最小且确定性的 research input 目录。对 operator 来说，装配时应遵守这几条：
+
+1. raw-market archive 继续保留 `<exchange>/<market>/<dataset>/<symbol>/<timeframe?>` 语义
+2. imported dataset root 只保留 loader 当前认识的文件集合
+3. provenance / handoff note 放在 dataset root 外部
+4. 任何需要网络抓取、分页回补、自动映射 archive 的能力，都仍属于 future importer / downloader scope，不属于当前 repo 已实现能力
+
+因此，当前 Phase 1 的“importer assembly”本质上是：
+
+- 先从 archive / runtime 记录中确认研究窗口
+- 再人工整理成 loader contract
+- 最后交给已有 backtest CLI
+
+而不是“运行一个现成 importer / downloader，然后自动得到 dataset root”。
+
 ### Phase 1 operator handoff into imported datasets
 
 按已批准的 Phase 1 policy，raw-market archive 喂给 backtest 的链路应理解为：
@@ -179,6 +198,18 @@ sample_dataset/
 - handoff note 负责说明“哪个 archive window 生成了哪个 dataset root”
 
 这个 handoff note 应保存在 operator 日志、研究记录或 ticket 中，而不是塞进 dataset root 内部破坏 loader 目录假设。
+
+推荐 handoff note 至少写清：
+
+- source archive path
+- exchange / market / dataset / symbol set / timeframe
+- `coverage_start` / `coverage_end`
+- 目标 dataset root 路径
+- bundle timestamp 列表或研究窗口
+- 是否使用 `baseline_account_snapshot.json`
+- 任何手工裁剪、聚合、补齐说明
+
+只要这些信息还停留在 operator 脑子里，就说明 handoff 还没有真正完成。
 
 ## Repository reality
 
@@ -219,6 +250,13 @@ sample_dataset/
 - 读取顺序稳定按 `timestamp`、`run_id` 排序
 
 这些约束决定了 archive importer 的职责：**先把 archive 资料整理成 loader 能消费的 deterministic dataset root，再交给研究 CLI**。
+
+换句话说，当前 importer assembly 至少要满足：
+
+- bundle 目录名可以是任意一级目录名，但 bundle 内 `metadata.json` 必须给出合法 `timestamp` / `run_id`
+- `derivatives_snapshot.json` 必须直接是数组，或提供 `rows` 数组
+- 如果 bundle 不带 `account_snapshot.json`，就必须准备 dataset root 级 baseline
+- dataset root 一级目录中不要混入 archive 层级、handoff note、备份目录、临时下载目录
 
 ## Operator guidance
 
