@@ -15,7 +15,7 @@ backtest stack:
 
 Run the narrow research CLI against the deterministic fixture config:
 
-`python -m trading_system.app.backtest.cli run --config trading_system/tests/fixtures/backtest/minimal_config.json --output-dir /tmp/backtest-research`
+`python3 -m trading_system.app.backtest.cli run --config trading_system/tests/fixtures/backtest/minimal_config.json --output-dir /tmp/backtest-research`
 
 Expected bundle path:
 
@@ -43,3 +43,10 @@ The initial gate is intentionally conservative:
 
 Failing the gate does not kill research; it means the rule stays in research mode
 until more sample evidence exists.
+
+## Related docs
+
+- `trading_system/docs/BACKTEST_DATA_SPEC.md`
+- `trading_system/docs/HISTORICAL_DATA_ARCHITECTURE.md`
+- `trading_system/docs/HISTORICAL_DATA_RUNBOOK.md`
+- `trading_system/docs/HISTORICAL_DATA_RETENTION.md`

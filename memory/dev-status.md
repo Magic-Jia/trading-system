@@ -1,7 +1,7 @@
 # Dev Status
-branch/worktree: codex/backtest-foundation @ /home/cn/.openclaw/agents/trade/workspace/.worktrees/backtest-foundation
-current objective: land the smallest remaining backtest gap: fixture-backed backtest CLI
-last verified command + result: PYTHONDONTWRITEBYTECODE=1 UV_CACHE_DIR=/tmp/codex-uv-cache-backtest uv run --with pytest python -m pytest -q -p no:cacheprovider trading_system/tests/test_backtest_engine.py -> 3 passed; python3 -m trading_system.app.backtest.cli run --config trading_system/tests/fixtures/backtest/minimal_config.json --output-dir /tmp/backtest-cli-smoke.XXXXXX -> wrote manifest/summary/scorecard
-last commit: c788560
-next action: commit is blocked by sandbox because git worktree metadata lives outside writable roots; hand off status to user
-last user update time: 2026-03-31 16:44 GMT+2
+branch/worktree: codex/historical-archive-docs @ /home/cn/.openclaw/agents/trade/workspace/.worktrees/historical-archive-docs
+current objective: historical-data docs lane updated to the approved Binance-first / futures-first raw-market policy; commit attempts are blocked by sandbox write denial on worktree git metadata
+last verified command + result: `UV_CACHE_DIR=/tmp/uv-cache-historical-archive-docs uv run --with pytest python3 -m pytest -q -p no:cacheprovider trading_system/tests/test_backtest_dataset.py trading_system/tests/test_backtest_engine.py` passed (`9 passed`); docs readback grep also confirmed Binance-first / futures-first / coverage-driven wording
+last commit: `ae0a4ad` merge baseline before docs-lane commits; no new docs commit created because `.git/worktrees/historical-archive-docs/index.lock` cannot be written in this sandbox
+next action: hand off the verified working tree diff for a real commit in an environment that can write repo metadata, or resume once sandbox permits git index/refs writes
+last user update time: 2026-04-01 06:59 GMT+2

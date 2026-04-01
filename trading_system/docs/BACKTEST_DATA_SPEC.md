@@ -26,3 +26,9 @@ Each bundle must be self-describing and deterministic:
 - sorts bundles by `timestamp`, then `run_id`
 - fails loudly if any required snapshot file is missing
 - falls back to `baseline_account_snapshot.json` when bundle account data is absent
+
+## Related docs
+
+- `trading_system/docs/HISTORICAL_DATA_ARCHITECTURE.md`
+- `trading_system/docs/HISTORICAL_DATA_RUNBOOK.md`
+- `trading_system/docs/HISTORICAL_DATA_RETENTION.md`

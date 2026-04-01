@@ -1,0 +1,196 @@
+# Historical Data Architecture
+
+## Scope
+
+这份文档描述 **historical-data lane 已批准的 Phase 1 架构目标**，同时明确它与当前仓库里已存在的 backtest dataset / research CLI 现实边界。
+
+要点只有四个：
+
+1. raw-market 层采用 **Binance-first**
+2. market scope 采用 **futures-first**
+3. 抓取与补数采用 **coverage-driven**，按覆盖区间管理而不是按“每次抓多少行”管理
+4. archive root、imported dataset root、research output 必须分层，不能混放
+
+当前仓库已经有可运行的 backtest dataset loader / CLI；raw-market archive 与 runtime archive 还主要处于**已批准、待实现**阶段。因此本文件既说明目标数据模型，也说明当前代码已经稳定依赖的 dataset contract。
+
+## Architecture at a glance
+
+historical-data 采用双轨 + 导入层模型：
+
+1. **Track A: raw-market archive**
+   - 保存原始交易所历史
+   - 目标是可追溯、可重算、可持续补数
+2. **Track B: strategy runtime bundles**
+   - 保存策略在单次运行周期里真正看到的输入
+   - 目标是 exact-decision replay
+3. **Imported backtest dataset roots**
+   - 从 archive 层导入为当前 `load_historical_dataset` 可消费的 dataset root
+4. **Research artifacts**
+   - 由 `trading_system.app.backtest.cli` 输出的研究结果
+
+最小逻辑链路：
+
+`raw-market archive / runtime bundle archive -> imported dataset root -> load_backtest_config -> load_historical_dataset -> backtest CLI -> result bundle`
+
+## Approved Phase 1 policy
+
+### Raw-market policy
+
+Phase 1 的原始市场数据层明确采用：
+
+- **Binance-first**：第一实现只把 Binance historical APIs 作为 raw-market 主来源
+- **futures-first**：期货是第一阶段 source-of-truth；spot 明确延后
+- **coverage-driven**：抓取以目标覆盖窗口为准，持续使用交易所允许的最大分页直到填满 coverage window
+- **append-first**：优先通过 manifest 记录 `coverage_start` / `coverage_end` / fetch metadata，而不是维护“latest-only”可变文件
+
+这意味着 operator 管理历史数据时，先问“覆盖到哪里了”，而不是先问“抓了多少页、多少行”。
+
+### Required Phase 1 raw datasets
+
+Phase 1 需要优先支持的 raw-market datasets：
+
+- OHLCV（首批 timeframe：`1h`、`4h`、`1d`）
+- funding history
+- open interest history
+
+以下仅作为后续扩展候选，不属于第一阶段硬范围：
+
+- basis / premium
+- long-short ratio
+- taker flow
+- liquidation history
+
+## Canonical archive layout
+
+### Raw-market archive root
+
+批准方案里最明确的 archive contract 是 raw-market 路径：
+
+- archive root：`trading_system/data/archive/raw-market`
+- canonical path：`trading_system/data/archive/raw-market/<exchange>/<market>/<dataset>/<symbol>/<timeframe?>/`
+
+Phase 1 的主路径应优先长这样：
+
+```text
+trading_system/data/archive/raw-market/
+└── binance/
+    └── futures/
+        ├── klines/
+        │   └── BTCUSDT/
+        │       └── 1h/
+        ├── funding-history/
+        │   └── BTCUSDT/
+        └── open-interest-history/
+            └── BTCUSDT/
+```
+
+每个叶子目录都应有可审计的 fetch manifest，至少记录：
+
+- source / endpoint
+- exchange / market / dataset
+- symbol set
+- fetch timestamp
+- `coverage_start`
+- `coverage_end`
+
+### Runtime bundle archive contract
+
+runtime bundle 是“策略真实看到什么”的归档层，文件集合应至少包括：
+
+- `metadata.json`
+- `market_context.json`
+- `derivatives_snapshot.json`
+- `account_snapshot.json`
+- `runtime_state.json`
+
+重点不是把它伪装成 raw-market 数据，而是保留一次实际决策周期的完整上下文。
+
+### Imported dataset root contract
+
+导入层负责把 archive 数据转换成当前 backtest loader 认可的 dataset root。这个 contract 仍以当前实现为准：
+
+- `baseline_account_snapshot.json`
+- `<bundle>/metadata.json`
+- `<bundle>/market_context.json`
+- `<bundle>/derivatives_snapshot.json`
+- `<bundle>/account_snapshot.json`
+
+示意：
+
+```text
+sample_dataset/
+├── baseline_account_snapshot.json
+├── 2026-03-10T00-00-00Z/
+│   ├── metadata.json
+│   ├── market_context.json
+│   ├── derivatives_snapshot.json
+│   └── account_snapshot.json
+└── 2026-03-11T00-00-00Z/
+    ├── metadata.json
+    ├── market_context.json
+    └── derivatives_snapshot.json
+```
+
+**不要**把 raw-market archive 子目录、人工笔记目录、备份目录直接塞进 dataset root；当前 loader 会把一级子目录都当成 bundle 尝试读取。
+
+## Repository reality
+
+当前仓库里已经存在并能验证的实现：
+
+- 配置解析：`trading_system/app/backtest/config.py`
+- 数据加载：`trading_system/app/backtest/dataset.py`
+- 研究 CLI：`trading_system/app/backtest/cli.py`
+- 数据规范：`trading_system/docs/BACKTEST_DATA_SPEC.md`
+- 运行说明：`trading_system/docs/BACKTEST_RUNBOOK.md`
+- 样本测试：`trading_system/tests/test_backtest_dataset.py`
+- CLI 输出测试：`trading_system/tests/test_backtest_engine.py`
+
+当前仓库里**尚未落地**、但已在批准计划中定义的实现方向：
+
+- `trading_system/app/backtest/archive/paths.py`
+- `trading_system/app/backtest/archive/raw_market.py`
+- `trading_system/app/backtest/archive/runtime_bundle.py`
+- `trading_system/app/backtest/archive/importer.py`
+- `trading_system/app/backtest/archive/cli.py`
+
+因此，现阶段应把这份文档视为：
+
+- 对 Phase 1 archive contract 的明确约束
+- 对当前 backtest dataset reality 的兼容说明
+- 后续 archive / importer / CLI 实现的文档基线
+
+## Loader and ordering constraints
+
+当前 `trading_system.app.backtest.dataset.load_historical_dataset` 仍有这些硬约束：
+
+- bundle 必须是 dataset root 下的一级目录
+- `metadata.json` 必须提供 `timestamp` 和 `run_id`
+- `derivatives_snapshot.json` 必须是数组，或是带 `rows` 数组的对象
+- 缺少 bundle 级 `account_snapshot.json` 时，需要 dataset root 级 `baseline_account_snapshot.json`
+- 读取顺序稳定按 `timestamp`、`run_id` 排序
+
+这些约束决定了 archive importer 的职责：**先把 archive 资料整理成 loader 能消费的 deterministic dataset root，再交给研究 CLI**。
+
+## Operator guidance
+
+实践中请把四类东西分清：
+
+- raw-market archive：原始交易所真相层
+- runtime bundles：策略实际输入层
+- imported datasets：研究输入层
+- research outputs：研究结果层
+
+只要这四层被混放，后续就会同时破坏：
+
+- provenance
+- reproducibility
+- retention
+- troubleshooting
+
+## Related docs
+
+- 运行手册：`trading_system/docs/HISTORICAL_DATA_RUNBOOK.md`
+- 保留策略：`trading_system/docs/HISTORICAL_DATA_RETENTION.md`
+- 当前 dataset 规范：`trading_system/docs/BACKTEST_DATA_SPEC.md`
+- 当前 research runbook：`trading_system/docs/BACKTEST_RUNBOOK.md`
+- 已批准计划：`docs/superpowers/plans/2026-03-31-historical-data-and-backtest-dataset-plan.md`
