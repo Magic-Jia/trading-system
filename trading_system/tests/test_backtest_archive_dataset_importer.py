@@ -96,6 +96,7 @@ def test_build_phase1_dataset_bundle_materials_returns_dataset_ready_bundle_and_
 ) -> None:
     archive_root = tmp_path / "archive"
     dataset_root = tmp_path / "dataset"
+    total_hours = 60 * 24
     _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT")
 
     imported = load_phase1_raw_market_imports(archive_root)
@@ -124,13 +125,21 @@ def test_build_phase1_dataset_bundle_materials_returns_dataset_ready_bundle_and_
 
     assert latest.derivatives_snapshot["as_of"] == latest.metadata["timestamp"]
     assert latest.derivatives_snapshot["schema_version"] == "imported_derivatives_snapshot.v1"
+    latest_close = 50_000.0 + ((total_hours - 1) * 10.0)
+    close_24h_ago = 50_000.0 + ((total_hours - 25) * 10.0)
+    latest_open_interest = 10_000.0 + ((total_hours - 1) * 10.0)
+    open_interest_24h_ago = 10_000.0 + ((total_hours - 25) * 10.0)
+    latest_funding = 0.0001 + (((total_hours - 1) // 8) * 0.000001)
     assert latest.derivatives_snapshot["rows"] == [
         {
             "symbol": "BTCUSDT",
-            "funding_rate": pytest.approx(0.000279),
-            "open_interest_usdt": pytest.approx(24_954_710_000.0),
-            "open_interest_change_24h_pct": pytest.approx(0.019215, rel=1e-6),
-            "mark_price_change_24h_pct": pytest.approx(0.0037412315, rel=1e-6),
+            "funding_rate": pytest.approx(latest_funding),
+            "open_interest_usdt": pytest.approx(latest_open_interest * latest_close),
+            "open_interest_change_24h_pct": pytest.approx(
+                (latest_open_interest / open_interest_24h_ago) - 1.0,
+                rel=1e-6,
+            ),
+            "mark_price_change_24h_pct": pytest.approx((latest_close / close_24h_ago) - 1.0, rel=1e-6),
             "taker_buy_sell_ratio": 1.0,
             "basis_bps": 0.0,
         }
@@ -143,7 +152,7 @@ def test_build_phase1_dataset_bundle_materials_returns_dataset_ready_bundle_and_
     assert len(rows) == 1
     assert rows[0].timestamp == latest.timestamp
     assert rows[0].market["symbols"]["BTCUSDT"]["1h"]["close"] == pytest.approx(64_390.0)
-    assert rows[0].derivatives[0]["open_interest_usdt"] == pytest.approx(24_954_710_000.0)
+    assert rows[0].derivatives[0]["open_interest_usdt"] == pytest.approx(latest_open_interest * latest_close)
 
 
 def test_build_phase1_dataset_bundle_materials_requires_complete_phase1_symbol_set(tmp_path: Path) -> None:
