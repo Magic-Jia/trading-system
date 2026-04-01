@@ -37,6 +37,8 @@ Each bundle must be self-describing and deterministic:
 - sorts bundles by `timestamp`, then `run_id`
 - fails loudly if any required snapshot file is missing
 - falls back to `baseline_account_snapshot.json` when bundle account data is absent
+- treats every first-level directory under dataset root as a bundle candidate
+- does not rely on bundle directory names for ordering; directory names are operator-facing labels only
 
 ## Phase 1 boundary
 
@@ -79,6 +81,11 @@ operator 在 Phase 1 应按这条链路理解数据流：
 
 - `metadata.json` 是否真的提供了 `timestamp` 与 `run_id`
 - 当 bundle 缺少 `account_snapshot.json` 时，dataset root 是否真的存在 `baseline_account_snapshot.json`
+
+再补两条 root validation 现实：
+
+- dataset root 下若出现 `archive/`、`notes/`、`tmp/`、备份目录等一级目录，loader 会把它们当成 bundle 并在缺文件时报错
+- 除 `baseline_account_snapshot.json` 外，Phase 1 不应在 dataset root 一级混入 handoff note、manifest、checksum 或下载日志，即使这些文件未必会被 loader 直接消费
 
 ## Related docs
 
