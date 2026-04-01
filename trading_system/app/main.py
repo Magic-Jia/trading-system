@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import asdict, is_dataclass, replace
+from dataclasses import asdict, dataclass, is_dataclass, replace
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -40,6 +40,14 @@ MARKET_CONTEXT_FILE_ENV = "TRADING_MARKET_CONTEXT_FILE"
 DERIVATIVES_SNAPSHOT_FILE_ENV = "TRADING_DERIVATIVES_SNAPSHOT_FILE"
 STATE_FILE_ENV = "TRADING_STATE_FILE"
 _PAPER_SAFE_ACCOUNT_TYPES = {"paper", "testnet"}
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeInputPaths:
+    account_snapshot: Path
+    market_context: Path
+    derivatives_snapshot: Path
+    state_file: Path
 
 
 def _float(row: dict, *keys: str) -> float:
@@ -438,6 +446,16 @@ def _with_state_file_override(config: Any) -> Any:
     if hasattr(config, "state_file"):
         return replace(config, state_file=Path(env_state_file))
     return config
+
+
+def resolve_runtime_input_paths(config: Any | None = None) -> RuntimeInputPaths:
+    resolved_config = _with_state_file_override(config if config is not None else load_config())
+    return RuntimeInputPaths(
+        account_snapshot=_resolve_account_snapshot_path(config=resolved_config),
+        market_context=_resolve_market_context_path(config=resolved_config),
+        derivatives_snapshot=_resolve_derivatives_snapshot_path(config=resolved_config),
+        state_file=Path(resolved_config.state_file),
+    )
 
 
 def _allocation_summary(decision: Any, candidate: Mapping[str, Any]) -> dict[str, Any]:
