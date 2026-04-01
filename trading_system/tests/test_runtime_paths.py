@@ -11,6 +11,11 @@ def test_build_runtime_paths_buckets_paper_outputs_under_env_directory(tmp_path)
     assert paths.state_file == tmp_path / "paper" / "prod" / "runtime_state.json"
     assert paths.paper_ledger_file == tmp_path / "paper" / "prod" / "paper_ledger.jsonl"
     assert paths.execution_log_file == tmp_path / "paper" / "prod" / "execution_log.jsonl"
+    assert paths.account_snapshot_file == tmp_path / "paper" / "prod" / "account_snapshot.json"
+    assert paths.market_context_file == tmp_path / "paper" / "prod" / "market_context.json"
+    assert paths.derivatives_snapshot_file == tmp_path / "paper" / "prod" / "derivatives_snapshot.json"
+    assert paths.latest_summary_file == tmp_path / "paper" / "prod" / "latest.json"
+    assert paths.error_summary_file == tmp_path / "paper" / "prod" / "error.json"
 
 
 def test_build_runtime_paths_isolates_paper_outputs_across_runtime_envs(monkeypatch, tmp_path):
@@ -26,3 +31,8 @@ def test_build_runtime_paths_isolates_paper_outputs_across_runtime_envs(monkeypa
     assert prod_paths.state_file != testnet_paths.state_file
     assert prod_paths.paper_ledger_file != testnet_paths.paper_ledger_file
     assert prod_paths.execution_log_file != testnet_paths.execution_log_file
+    assert prod_paths.account_snapshot_file != testnet_paths.account_snapshot_file
+    assert prod_paths.market_context_file != testnet_paths.market_context_file
+    assert prod_paths.derivatives_snapshot_file != testnet_paths.derivatives_snapshot_file
+    assert prod_paths.latest_summary_file != testnet_paths.latest_summary_file
+    assert prod_paths.error_summary_file != testnet_paths.error_summary_file

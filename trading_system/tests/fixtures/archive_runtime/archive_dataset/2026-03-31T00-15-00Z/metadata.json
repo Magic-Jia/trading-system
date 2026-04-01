@@ -1,0 +1,12 @@
+{
+  "timestamp": "2026-03-31T00:15:00Z",
+  "run_id": "paper-research-2026-03-31t00-15-00z",
+  "source_mode": "paper",
+  "source_runtime_env": "research",
+  "forward_returns": {
+    "1d": 0.018
+  },
+  "forward_drawdowns": {
+    "1d": -0.009
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "as_of": "2026-03-31T00:15:00Z",
+  "schema_version": "v2",
+  "symbols": {
+    "BTCUSDT": {
+      "sector": "majors",
+      "liquidity_tier": "top",
+      "daily": {
+        "close": 70120.0,
+        "ema_20": 68880.0,
+        "ema_50": 67210.0,
+        "rsi": 63.7,
+        "atr_pct": 0.029,
+        "return_pct_7d": 0.052,
+        "volume_usdt_24h": 22500000000
+      }
+    },
+    "ETHUSDT": {
+      "sector": "majors",
+      "liquidity_tier": "top",
+      "daily": {
+        "close": 3550.0,
+        "ema_20": 3472.0,
+        "ema_50": 3341.0,
+        "rsi": 59.4,
+        "atr_pct": 0.033,
+        "return_pct_7d": 0.041,
+        "volume_usdt_24h": 13200000000
+      }
+    }
+  }
+}
