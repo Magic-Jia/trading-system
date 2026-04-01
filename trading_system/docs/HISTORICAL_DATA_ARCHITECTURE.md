@@ -157,6 +157,29 @@ sample_dataset/
 
 **不要**把 raw-market archive 子目录、人工笔记目录、备份目录直接塞进 dataset root；当前 loader 会把一级子目录都当成 bundle 尝试读取。
 
+### Phase 1 operator handoff into imported datasets
+
+按已批准的 Phase 1 policy，raw-market archive 喂给 backtest 的链路应理解为：
+
+1. 先在 `trading_system/data/archive/raw-market/binance/futures/...` 证明 coverage 已满足研究窗口
+2. 再选出本次研究真正要消费的 archive path / symbol set / timeframe / coverage window
+3. 然后把这些输入整理成当前 loader 可读的 dataset root
+4. 最后才交给 `load_historical_dataset` 与 backtest CLI
+
+这里要特别区分“批准的目标模型”和“当前仓库现实”：
+
+- 批准的目标模型里会有通用 importer / archive CLI
+- 当前仓库里还没有 `trading_system/app/backtest/archive/importer.py`
+- 当前仓库里也还没有可以把 raw-market archive 自动转成 dataset root 的统一入口
+
+因此，现阶段的 importer-facing operator 工作更接近**手工 handoff / 手工整理**：
+
+- archive 层负责 coverage 与 provenance
+- dataset root 层负责满足 loader contract
+- handoff note 负责说明“哪个 archive window 生成了哪个 dataset root”
+
+这个 handoff note 应保存在 operator 日志、研究记录或 ticket 中，而不是塞进 dataset root 内部破坏 loader 目录假设。
+
 ## Repository reality
 
 当前仓库里已经存在并能验证的实现：
