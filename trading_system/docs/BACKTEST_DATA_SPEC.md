@@ -39,6 +39,14 @@ Each bundle must be self-describing and deterministic:
 
 当前仓库现实也要讲清楚：已经落地并可验证的是 dataset loader / backtest CLI；通用 archive importer 还在批准计划内，尚未成为当前 repo 的现成入口。
 
+换句话说，Phase 1 当前可执行的 operator 路径是：
+
+- 先在 raw-market archive 层确认 coverage 与 provenance
+- 再按 loader contract 手工整理或人工校对 dataset root
+- 最后把 dataset root 交给 `load_historical_dataset`
+
+不要把这段话读成“仓库已经有自动 downloader / importer 会直接产出 dataset root”。
+
 ## Operator handoff
 
 operator 在 Phase 1 应按这条链路理解数据流：
@@ -48,6 +56,13 @@ operator 在 Phase 1 应按这条链路理解数据流：
 3. 最后才交给 `load_historical_dataset` 和 backtest CLI
 
 如果某个目录仍保留 `<exchange>/<market>/<dataset>/<symbol>/<timeframe?>` 结构，它就还是 archive 层，不是本 spec 里的 dataset root。
+
+交接时至少再复核这四件事：
+
+- archive coverage 已经先被证明，而不是边缺数据边假装导入完成
+- dataset root 与 `trading_system/data/archive/raw-market/...` 完全分离
+- provenance / handoff 说明保留在 dataset root 之外
+- 当前表述没有暗示仓库已经存在通用 importer / archive CLI
 
 ## Related docs
 

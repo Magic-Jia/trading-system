@@ -130,6 +130,30 @@ find trading_system/data/archive/raw-market -maxdepth 6 -type d | sort
 - 是否避免把 refresh 结果直接当成 loader dataset root
 - 是否记录新的 readback / smoke verification 结果
 
+## Step 2B: prepare the importer-facing handoff
+
+已批准的 Phase 1 数据流仍然是：
+
+`raw-market archive -> imported dataset root -> load_historical_dataset -> backtest CLI`
+
+但要明确当前 repo reality：
+
+- `trading_system/app/backtest/archive/importer.py` 还没落地
+- `trading_system/app/backtest/archive/cli.py` 也还没落地
+- 当前没有“通用 downloader 一跑完就自动生成 dataset root”的现成入口
+
+所以 operator 在 Phase 1 要做的是：**先证明 archive coverage 正确，再准备一份 importer-facing handoff，再把研究需要的数据整理成 loader 可读的 dataset root**。
+
+### Importer-facing handoff checklist
+
+- 是否已经明确列出要使用的 raw-market canonical path
+- 每个 source path 是否都能说明 `coverage_start` / `coverage_end`
+- 是否写清这次研究实际采用的 symbol set、dataset、timeframe、coverage window
+- 目标 dataset root 是否与 `trading_system/data/archive/raw-market/...` 分离
+- 是否已说明账户快照策略：bundle 自带 `account_snapshot.json`，还是依赖 dataset root 级 `baseline_account_snapshot.json`
+- provenance / handoff note 是否保存在 operator 记录、研究记录或 ticket 中，而不是塞进 dataset root 目录
+- 是否明确把这一步表述为“手工整理 / 当前文档约束下的导入准备”，而不是声称仓库已有自动 importer / downloader
+
 ## Step 3: validate imported dataset roots
 
 当前真正被 backtest loader 消费的，仍然是 imported dataset root，而不是 raw-market archive 本身。
@@ -148,6 +172,7 @@ find trading_system/data/archive/raw-market -maxdepth 6 -type d | sort
 - 不要把 `archive/`、`notes/`、人工说明目录塞进去
 - `metadata.json` 里有 `timestamp` 与 `run_id`
 - `derivatives_snapshot.json` 结构合法
+- 如需保留 provenance / handoff 说明，应放在 dataset root 外的 operator/readback 记录中
 
 ## Step 4: smoke-test current repo reality
 
@@ -224,6 +249,18 @@ uv run --with pytest python3 -m pytest -q -p no:cacheprovider \
 - 是否遗漏 importer / dataset build 这一步
 - dataset root 里是否出现 `<exchange>/<market>/<dataset>` 结构
 
+### 3A. 把“future importer”当成当前已实现入口
+
+症状：
+
+- operator 说“downloader 会自动出 dataset root”
+- 文档让人误以为当前仓库已经有 archive import CLI
+
+先查：
+
+- `trading_system/app/backtest/archive/importer.py` 是否实际上存在
+- runbook / spec 是否明确写出“当前仍是 handoff + 手工整理，不是自动化入口”
+
 ### 4. 把 dataset root 当成归档层
 
 症状：
@@ -278,10 +315,11 @@ uv run --with pytest python3 -m pytest -q -p no:cacheprovider \
 ### 文档 readback
 
 ```bash
-grep -nE 'Binance-first|futures-first|coverage-driven|raw-market|archive' \
+grep -nE 'Binance-first|futures-first|coverage-driven|raw-market|archive|handoff|importer|dataset root' \
   trading_system/docs/HISTORICAL_DATA_ARCHITECTURE.md \
   trading_system/docs/HISTORICAL_DATA_RUNBOOK.md \
-  trading_system/docs/HISTORICAL_DATA_RETENTION.md
+  trading_system/docs/HISTORICAL_DATA_RETENTION.md \
+  trading_system/docs/BACKTEST_DATA_SPEC.md
 ```
 
 ## Escalate when
