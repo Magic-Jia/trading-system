@@ -24,6 +24,8 @@ class RuntimePaths:
     runtime_env: str
     runtime_root: Path
     bucket_dir: Path
+    archive_root: Path
+    archive_runtime_bundles_dir: Path
     state_file: Path
     paper_ledger_file: Path
     execution_log_file: Path
@@ -37,11 +39,14 @@ def build_runtime_paths(mode: str, runtime_root: Path | str | None = None, runti
     )
     resolved_runtime_root = Path(runtime_root) if runtime_root is not None else DEFAULT_RUNTIME_ROOT
     bucket_dir = resolved_runtime_root / normalized_mode / normalized_runtime_env
+    archive_root = resolved_runtime_root.parent / "archive"
     return RuntimePaths(
         mode=normalized_mode,
         runtime_env=normalized_runtime_env,
         runtime_root=resolved_runtime_root,
         bucket_dir=bucket_dir,
+        archive_root=archive_root,
+        archive_runtime_bundles_dir=archive_root / "runtime-bundles" / normalized_mode / normalized_runtime_env,
         state_file=bucket_dir / "runtime_state.json",
         paper_ledger_file=bucket_dir / "paper_ledger.jsonl",
         execution_log_file=bucket_dir / "execution_log.jsonl",

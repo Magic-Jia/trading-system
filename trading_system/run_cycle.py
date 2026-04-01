@@ -9,6 +9,10 @@ from pathlib import Path
 from typing import Any, Iterator, Mapping
 
 from trading_system.app.config import BASE_DIR_ENV
+from trading_system.app.backtest.archive import (
+    archive_runtime_bundle_from_environment,
+    runtime_bundle_archive_enabled,
+)
 from trading_system.app.main import (
     ACCOUNT_SNAPSHOT_FILE_ENV,
     DERIVATIVES_SNAPSHOT_FILE_ENV,
@@ -120,6 +124,8 @@ def run_cycle(mode: str, *, runtime_root: Path | str | None = None, runtime_env:
         runtime_env=_resolve_runtime_env(mode, runtime_env),
     )
     paths.bucket_dir.mkdir(parents=True, exist_ok=True)
+    archived_bundle_dir: str | None = None
+    finished_at: str | None = None
 
     env_overrides = {
         EXECUTION_MODE_ENV: paths.mode,
@@ -139,9 +145,13 @@ def run_cycle(mode: str, *, runtime_root: Path | str | None = None, runtime_env:
             )
         with _temporary_env(env_overrides):
             run_main()
+            finished_at = _timestamp()
+            if runtime_bundle_archive_enabled():
+                archived_bundle = archive_runtime_bundle_from_environment(paths, archived_at=finished_at)
+                archived_bundle_dir = str(archived_bundle.bundle_dir)
     except Exception as exc:
         summary = {
-            **_base_summary(paths, status="error", finished_at=_timestamp()),
+            **_base_summary(paths, status="error", finished_at=finished_at or _timestamp()),
             "error_type": type(exc).__name__,
             "error_message": str(exc),
         }
@@ -150,9 +160,11 @@ def run_cycle(mode: str, *, runtime_root: Path | str | None = None, runtime_env:
         raise
 
     summary = {
-        **_base_summary(paths, status="ok", finished_at=_timestamp()),
+        **_base_summary(paths, status="ok", finished_at=finished_at or _timestamp()),
         **_state_summary(paths),
     }
+    if archived_bundle_dir is not None:
+        summary["archive_bundle_dir"] = archived_bundle_dir
     _write_json(paths.bucket_dir / LATEST_SUMMARY_NAME, summary)
     error_path = paths.bucket_dir / ERROR_SUMMARY_NAME
     if error_path.exists():

@@ -1,7 +1,6 @@
-# Dev Status
-branch/worktree: codex/backtest-foundation @ /home/cn/.openclaw/agents/trade/workspace/.worktrees/backtest-foundation
-current objective: land the smallest remaining backtest gap: fixture-backed backtest CLI
-last verified command + result: PYTHONDONTWRITEBYTECODE=1 UV_CACHE_DIR=/tmp/codex-uv-cache-backtest uv run --with pytest python -m pytest -q -p no:cacheprovider trading_system/tests/test_backtest_engine.py -> 3 passed; python3 -m trading_system.app.backtest.cli run --config trading_system/tests/fixtures/backtest/minimal_config.json --output-dir /tmp/backtest-cli-smoke.XXXXXX -> wrote manifest/summary/scorecard
-last commit: c788560
-next action: commit is blocked by sandbox because git worktree metadata lives outside writable roots; hand off status to user
-last user update time: 2026-03-31 16:44 GMT+2
+branch/worktree: codex/historical-archive-core @ /home/cn/.openclaw/agents/trade/workspace/.worktrees/historical-archive-core
+current objective: Core historical archive lane implemented and verified; raw-market manifest/storage slice added and verified; repo commits still blocked by git metadata sandbox
+last verified command + result: `UV_CACHE_DIR=/tmp/uv-cache uv run --with pytest pytest -q trading_system/tests/test_backtest_archive_runtime_bundle.py trading_system/tests/test_runtime_paths.py trading_system/tests/test_run_cycle.py trading_system/tests/test_backtest_archive_importer.py` => 17 passed
+last commit: ae0a4ad
+next action: once git metadata writes are available, commit (1) core lane and (2) raw-market slice as two narrow commits
+last user update time: 2026-04-01 07:00 GMT+2
