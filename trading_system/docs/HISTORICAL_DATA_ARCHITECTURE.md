@@ -60,6 +60,30 @@ Phase 1 需要优先支持的 raw-market datasets：
 - taker flow
 - liquidation history
 
+## Phase 1 operator path
+
+operator 在 Phase 1 不应把 historical-data 理解成“随便抓一点市场数据”。正确路径是：
+
+1. 先定义任务：`exchange=binance`、`market=futures`、dataset、symbol set、timeframe、目标 coverage window
+2. 再判断操作类型：这是第一次补齐历史（backfill），还是沿现有 coverage 往前补（incremental refresh）
+3. 只在 raw-market archive 层处理原始交易所历史，不要把它直接交给 loader
+4. 需要研究/回放时，再把 archive 资料整理成 imported dataset root
+5. 最后只用当前仓库已经存在的 loader / backtest CLI contract 做轻量验证
+
+如果某一步做不到，应该停在该层排障，而不是跳层硬跑。
+
+### Backfill vs incremental refresh
+
+- **Backfill**：目标是首次补齐某个 coverage window，或者修复明显缺失的历史区间；完成标准是 `coverage_start` / `coverage_end` 达到目标窗口
+- **Incremental refresh**：目标是在既有 coverage 边界上继续向前扩展；完成标准是 manifest 把新的 `coverage_end` 推进到最新目标点
+
+Phase 1 的判断优先级很简单：
+
+- 如果还没有 `binance/futures/...` canonical archive path，先做 backfill
+- 如果路径已存在但 coverage window 不完整，仍按 backfill / gap-repair 处理
+- 如果路径与 coverage 都已存在，只需要把末端往前补，则做 incremental refresh
+- 不要把“这次抓了多少页”当作 backfill 或 refresh 的完成定义
+
 ## Canonical archive layout
 
 ### Raw-market archive root
@@ -158,6 +182,8 @@ sample_dataset/
 - 对 Phase 1 archive contract 的明确约束
 - 对当前 backtest dataset reality 的兼容说明
 - 后续 archive / importer / CLI 实现的文档基线
+
+也就是说，**当前仓库现实并不是“archive 流程已经自动化”**。当前已落地的是 dataset loader / backtest CLI；raw-market archive operator path 目前仍以文档约束、目录边界、readback 检查为主。
 
 ## Loader and ordering constraints
 

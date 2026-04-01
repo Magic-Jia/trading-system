@@ -55,6 +55,40 @@ Phase 1 正常情况下，应优先看到：
 
 如果这些问题答不上来，就不要再谈“补数完成”。
 
+## Step 1A: classify the operation before touching files
+
+先明确这次到底是哪一类操作：
+
+### A. Raw-market backfill
+
+适用场景：
+
+- `binance/futures/<dataset>/<symbol>/<timeframe?>/` 路径还不存在
+- 路径存在，但目标 coverage window 里有明显历史缺口
+- 需要把 coverage 从零或从更早起点补齐到某个研究窗口
+
+执行重点：
+
+- 先写清目标 `coverage_start` / `coverage_end`
+- 以 canonical path 为准落 archive，不要先造 dataset root
+- 完成标准是 manifest 能证明目标 coverage window 已补齐
+
+### B. Incremental refresh
+
+适用场景：
+
+- canonical archive path 已存在
+- 旧的 coverage 已经可用，只是要把尾部继续向前推进
+- 目标是让现有 archive 保持接近最新，而不是回补整段历史
+
+执行重点：
+
+- 先读现有 manifest，确认当前 `coverage_end`
+- 只扩展已有 coverage 的边界，不要顺手改写旧历史窗口语义
+- 完成标准是 manifest 把 `coverage_end` 推进到新的目标点
+
+如果既没有已有 path，也说不清 coverage gap，就先按 backfill 思维澄清窗口；不要模糊地说“顺手 refresh 一下”。
+
 ## Step 2: inspect the raw-market archive root
 
 raw-market 根目录重点看三件事：
@@ -75,6 +109,26 @@ find trading_system/data/archive/raw-market -maxdepth 6 -type d | sort
 - dataset 名没有清楚区分 `klines` / `funding-history` / `open-interest-history`
 - 同一 symbol/timeframe 下只有“latest”文件，没有 coverage manifest
 - archive root 下混入 `.bak`、`notes/`、临时导出目录
+
+## Step 2A: use the matching checklist
+
+### Raw-market backfill checklist
+
+- 目标路径是否明确落在 `trading_system/data/archive/raw-market/binance/futures/...`
+- dataset 是否仍在 Phase 1 范围：`klines`、`funding-history`、`open-interest-history`
+- `klines` 是否只使用当前批准的 `1h` / `4h` / `1d`
+- manifest 是否准备记录 `coverage_start`、`coverage_end`、fetch timestamp、source/endpoint
+- 完成判断是否基于 coverage window，而不是“抓了几页”
+- archive 与 imported dataset root 是否仍然分开
+
+### Incremental refresh checklist
+
+- 现有 canonical path 是否已经存在并可识别
+- 现有 manifest 是否能读出旧的 `coverage_end`
+- 这次 refresh 是否只是在原 coverage 边界上向前追加
+- refresh 后是否仍保持 Binance-first / futures-first，不混入 spot
+- 是否避免把 refresh 结果直接当成 loader dataset root
+- 是否记录新的 readback / smoke verification 结果
 
 ## Step 3: validate imported dataset roots
 
@@ -125,6 +179,13 @@ uv run --with pytest python3 -m pytest -q -p no:cacheprovider \
 - `BACKTEST_DATA_SPEC.md`：定义当前 importer 最终要落到什么 dataset contract
 
 如果某条说明会让 operator 误以为“raw-market archive 可以直接拿给 loader 读”，那就是文档错误，应立即修正。
+
+额外回读一遍操作类型边界：
+
+- backfill 解决的是 coverage 缺口
+- incremental refresh 解决的是 coverage 末端推进
+- 二者都只发生在 raw-market archive 层
+- 当前 repo reality 里，真正可执行并已验证的消费入口仍是 imported dataset root + backtest loader
 
 ## Failure modes and first checks
 
@@ -190,6 +251,7 @@ uv run --with pytest python3 -m pytest -q -p no:cacheprovider \
 建议：
 
 - 先确认 coverage window，再开始抓取或补数
+- 先判定是 backfill 还是 incremental refresh，再碰路径和 manifest
 - 把 raw-market archive 与 imported dataset root 分开管理
 - futures-first 任务先检查 `binance/futures/...` 是否完整
 - 每次 readback 时都检查 docs 有没有误导 operator 绕过 importer
@@ -197,6 +259,7 @@ uv run --with pytest python3 -m pytest -q -p no:cacheprovider \
 不要：
 
 - 用“抓了多少页”替代“覆盖到哪里”
+- 把 backfill 和 incremental refresh 混成一句“补数据”
 - 把 spot 数据混进当前 futures-first phase
 - 把 raw-market archive 直接当 dataset root 给 loader 读
 - 把长期研究资产只放在 `/tmp`
