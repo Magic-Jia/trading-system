@@ -8,6 +8,7 @@ import pytest
 from trading_system.app.backtest.archive.importer import (
     build_phase1_dataset_bundle_materials,
     import_phase1_archive_dataset_root,
+    validate_phase1_imported_dataset_root,
     write_phase1_dataset_bundle,
 )
 from trading_system.app.backtest.archive.raw_market import archive_raw_market_payload, load_phase1_raw_market_imports
@@ -208,3 +209,49 @@ def test_import_phase1_archive_dataset_root_materializes_loadable_dataset_root(t
     assert imported_root.bundle_dirs[-1] == rows[-1].source_path
     assert imported_root.start_timestamp == rows[0].timestamp
     assert imported_root.end_timestamp == rows[-1].timestamp
+
+
+def test_validate_phase1_imported_dataset_root_rejects_timestamp_drift(tmp_path: Path) -> None:
+    archive_root = tmp_path / "archive"
+    dataset_root = tmp_path / "dataset"
+    _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT")
+
+    imported = load_phase1_raw_market_imports(archive_root)
+    material = build_phase1_dataset_bundle_materials(imported)[-1]
+    bundle_dir = write_phase1_dataset_bundle(material, dataset_root)
+
+    metadata_path = bundle_dir / "metadata.json"
+    metadata = metadata_path.read_text(encoding="utf-8")
+    metadata_path.write_text(
+        metadata.replace(
+            '"timestamp": "2024-02-29T23:00:00Z"',
+            '"timestamp": "2024-03-01T00:00:00Z"',
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="timestamps did not round-trip"):
+        validate_phase1_imported_dataset_root(
+            dataset_root,
+            expected_bundle_dirs=(bundle_dir,),
+            expected_timestamps=(material.timestamp,),
+        )
+
+
+def test_validate_phase1_imported_dataset_root_rejects_bundle_dir_mismatch(tmp_path: Path) -> None:
+    archive_root = tmp_path / "archive"
+    dataset_root = tmp_path / "dataset"
+    _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT")
+
+    imported = load_phase1_raw_market_imports(archive_root)
+    material = build_phase1_dataset_bundle_materials(imported)[-1]
+    bundle_dir = write_phase1_dataset_bundle(material, dataset_root)
+    renamed_bundle_dir = bundle_dir.with_name(f"{bundle_dir.name}__renamed")
+    bundle_dir.rename(renamed_bundle_dir)
+
+    with pytest.raises(ValueError, match="bundle directories did not round-trip"):
+        validate_phase1_imported_dataset_root(
+            dataset_root,
+            expected_bundle_dirs=(bundle_dir,),
+            expected_timestamps=(material.timestamp,),
+        )
