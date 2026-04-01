@@ -162,6 +162,16 @@ find trading_system/data/archive/raw-market -maxdepth 6 -type d | sort
 
 这一步在当前 repo reality 下是 **手工 assembly / 人工校对**，不是自动 downloader / importer 流程。
 
+先锁定 materialization 决策，再开始复制/整理文件：
+
+- 本次 dataset root 服务的是哪一个明确的 research window / bundle 集合
+- 每个 bundle 的 `timestamp` / `run_id` 打算写什么，来源记录是哪份
+- `market_context.json` 与 `derivatives_snapshot.json` 准备从哪些已确认输入整理而来
+- 账户上下文采用 root 级 `baseline_account_snapshot.json`，还是 bundle 各自携带 `account_snapshot.json`
+- provenance / handoff note 放在哪个 dataset root 外部位置
+
+如果这些问题里仍有任何一项需要靠“未来 importer/downloader 会替我补齐”来回答，就不要继续 materialization。
+
 最小装配顺序：
 
 1. 先选定一个与 archive 根分离的 dataset root 目录
@@ -189,10 +199,13 @@ find trading_system/data/archive/raw-market -maxdepth 6 -type d | sort
 - dataset root 是否与 `trading_system/data/archive/raw-market/...` 完全分离
 - 一级子目录是否只保留 bundle 目录，而不是 `<exchange>/<market>/<dataset>` archive 结构
 - 是否只放 loader 当前认识的文件：`baseline_account_snapshot.json` 与 bundle 内四类 snapshot/metadata 文件
+- 是否已经为每个 bundle 写清“这个目录代表哪个研究时间点/窗口”，而不是仅靠目录名脑补
 - `metadata.json` 是否至少包含 `timestamp` 与 `run_id`
+- `timestamp` 是否是当前 loader 可解析的 ISO-8601 UTC 字符串
 - bundle 目录名是否只作为人工可读标签，而不是被误当成排序/契约来源
 - `derivatives_snapshot.json` 是否为数组，或是带 `rows` 数组的对象
 - 缺 bundle 级 `account_snapshot.json` 时，是否已提供 root 级 baseline
+- root 级普通文件是否除 `baseline_account_snapshot.json` 外一律不混入，避免 handoff / manifest / checksum 污染
 - 是否确认任何一级附加目录都会被 loader 当成 bundle，因而会直接破坏 readback
 - 是否避免把 notes、handoff、checksum、临时下载结果直接塞进 dataset root
 - 是否没有把“未来会有自动 importer / downloader”写成当前可执行步骤
@@ -227,7 +240,7 @@ find trading_system/data/archive/raw-market -maxdepth 6 -type d | sort
 
 在当前 repo 里，最有价值的轻量 readback 不是“联网跑一遍下载器”，而是确认 dataset root 真能满足 loader contract。
 
-建议至少读回三件事：
+建议至少读回四件事：
 
 1. dataset root 一级目录是否干净
 2. bundle 必需文件是否齐全
@@ -241,10 +254,20 @@ DATASET_ROOT=trading_system/tests/fixtures/backtest/sample_dataset
 
 find "$DATASET_ROOT" -maxdepth 2 -type f | sort
 
+find "$DATASET_ROOT" -mindepth 1 -maxdepth 1 -type d | sort | while read -r entry; do
+  case "$(basename "$entry")" in
+    archive|notes|tmp|backup|backups)
+      echo "unexpected top-level directory: $entry"
+      ;;
+  esac
+done
+
 find "$DATASET_ROOT" -mindepth 1 -maxdepth 1 -type d | sort | while read -r bundle; do
   test -f "$bundle/metadata.json" || echo "missing metadata.json: $bundle"
   test -f "$bundle/market_context.json" || echo "missing market_context.json: $bundle"
   test -f "$bundle/derivatives_snapshot.json" || echo "missing derivatives_snapshot.json: $bundle"
+  test -f "$bundle/account_snapshot.json" || test -f "$DATASET_ROOT/baseline_account_snapshot.json" || \
+    echo "missing account snapshot and no baseline: $bundle"
 done
 
 grep -RInE '"timestamp"|"run_id"' "$DATASET_ROOT"/*/metadata.json
@@ -262,6 +285,46 @@ grep -RInE '"timestamp"|"run_id"' "$DATASET_ROOT"/*/metadata.json
 - 有没有把 bundle 目录名误当成排序或时间戳合同
 - 有没有把 provenance note 错放到 loader 会扫描的一级目录
 - 有没有任何说明让 operator 误以为当前仓库已经存在自动 importer / downloader
+
+### Step 3B: materialization readback loop
+
+对真实 dataset root，建议把装配与读回视为一个短回路，而不是“全部复制完再祈祷”：
+
+1. 先建立空 root 并做一级目录污染检查
+2. 先放入 `baseline_account_snapshot.json`（若本次需要）
+3. 逐个 bundle 写入三份必需文件，再决定是否补 `account_snapshot.json`
+4. 每写完一批 bundle，就跑一次上面的 lightweight readback
+5. 只有 readback 仍然干净时，才继续下一批或交给 backtest CLI
+
+这样做的目标不是模拟 future importer，而是在当前 Phase 1 repo reality 下，用最小本地读回把 materialization 失误尽早暴露出来。
+
+### Step 3C: keep an external materialization note
+
+当 Step 3A / 3B 的读回已经干净后，再补一份 dataset root 外部的 operator 记录；它可以放在 ticket、研究记录或 handoff note 中，但不要放进 dataset root。
+
+最小模板可以直接照着写：
+
+```text
+dataset_root:
+research_window_or_bundle_set:
+bundle_timestamps_and_run_ids:
+market_context_source:
+derivatives_snapshot_source:
+account_snapshot_mode: baseline | per-bundle
+baseline_account_snapshot_source:
+last_lightweight_readback:
+readback_result:
+open_questions:
+```
+
+写这份记录时，重点不是“把故事写漂亮”，而是把 Phase 1 materialization 的几个关键决定固定下来：
+
+- dataset root 到底服务哪个研究窗口，而不是模糊地“给 backtest 用”
+- `timestamp` / `run_id` 是从哪份现有记录写入，而不是现场脑补
+- snapshot 来源是否已经能被下一位 operator 复核
+- 最近一次 lightweight readback 是否真的通过
+
+只要这些字段还空着，就不要把 dataset root 当成已完成 handoff。
 
 ## Step 4: smoke-test current repo reality
 
