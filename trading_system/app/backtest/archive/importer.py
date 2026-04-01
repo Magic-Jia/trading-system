@@ -9,7 +9,8 @@ from typing import Any, Iterable, Mapping, Sequence
 
 from trading_system.app.universe.sector_map import sector_for_symbol
 
-from .raw_market import ImportedRawMarketRecord, ImportedRawMarketSeries
+from ..dataset import load_historical_dataset
+from .raw_market import ImportedRawMarketRecord, ImportedRawMarketSeries, load_phase1_raw_market_imports
 
 PHASE1_IMPORTER_SCOPE = "phase1_binance_futures"
 PHASE1_IMPORTER_MARKET_CONTEXT_SCHEMA = "imported_market_context.v1"
@@ -27,6 +28,17 @@ class Phase1DatasetBundleMaterial:
     market_context: dict[str, Any]
     derivatives_snapshot: dict[str, Any]
     account_snapshot: dict[str, Any]
+
+
+@dataclass(frozen=True, slots=True)
+class ImportedPhase1DatasetRoot:
+    archive_root: Path
+    dataset_root: Path
+    bundle_dirs: tuple[Path, ...]
+    snapshot_count: int
+    symbols: tuple[str, ...]
+    start_timestamp: datetime
+    end_timestamp: datetime
 
 
 @dataclass(frozen=True, slots=True)
@@ -456,8 +468,52 @@ def write_phase1_dataset_bundle(material: Phase1DatasetBundleMaterial, dataset_r
     return bundle_dir
 
 
+def import_phase1_archive_dataset_root(
+    archive_root: str | Path,
+    dataset_root: str | Path,
+) -> ImportedPhase1DatasetRoot:
+    archive_path = Path(archive_root)
+    dataset_path = Path(dataset_root)
+    imported_series = load_phase1_raw_market_imports(archive_path)
+    if not imported_series:
+        raise FileNotFoundError(f"no phase1 raw-market imports found under: {archive_path}")
+
+    symbols = tuple(sorted(item.symbol for item in _phase1_symbol_series(imported_series)))
+    materials = build_phase1_dataset_bundle_materials(imported_series)
+    if not materials:
+        raise ValueError("phase1 raw-market imports did not yield any eligible dataset bundles")
+
+    if dataset_path.exists():
+        if not dataset_path.is_dir():
+            raise NotADirectoryError(f"dataset root is not a directory: {dataset_path}")
+        if any(dataset_path.iterdir()):
+            raise FileExistsError(f"dataset root must be empty before materialization: {dataset_path}")
+    else:
+        dataset_path.mkdir(parents=True, exist_ok=True)
+
+    bundle_dirs = tuple(write_phase1_dataset_bundle(material, dataset_path) for material in materials)
+    rows = load_historical_dataset(dataset_path)
+    if len(rows) != len(bundle_dirs):
+        raise ValueError(
+            "materialized dataset root failed validation: "
+            f"expected {len(bundle_dirs)} rows, loaded {len(rows)}"
+        )
+
+    return ImportedPhase1DatasetRoot(
+        archive_root=archive_path,
+        dataset_root=dataset_path,
+        bundle_dirs=bundle_dirs,
+        snapshot_count=len(rows),
+        symbols=symbols,
+        start_timestamp=rows[0].timestamp,
+        end_timestamp=rows[-1].timestamp,
+    )
+
+
 __all__ = [
+    "ImportedPhase1DatasetRoot",
     "Phase1DatasetBundleMaterial",
     "build_phase1_dataset_bundle_materials",
+    "import_phase1_archive_dataset_root",
     "write_phase1_dataset_bundle",
 ]

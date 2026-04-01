@@ -7,6 +7,7 @@ import pytest
 
 from trading_system.app.backtest.archive.importer import (
     build_phase1_dataset_bundle_materials,
+    import_phase1_archive_dataset_root,
     write_phase1_dataset_bundle,
 )
 from trading_system.app.backtest.archive.raw_market import archive_raw_market_payload, load_phase1_raw_market_imports
@@ -188,3 +189,22 @@ def test_build_phase1_dataset_bundle_materials_requires_complete_phase1_symbol_s
 
     with pytest.raises(ValueError, match="missing required phase1 raw-market series for symbol BTCUSDT: open-interest"):
         build_phase1_dataset_bundle_materials(imported)
+
+
+def test_import_phase1_archive_dataset_root_materializes_loadable_dataset_root(tmp_path: Path) -> None:
+    archive_root = tmp_path / "archive"
+    dataset_root = tmp_path / "dataset"
+    _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT")
+
+    imported_root = import_phase1_archive_dataset_root(archive_root, dataset_root)
+    rows = load_historical_dataset(dataset_root)
+
+    assert imported_root.archive_root == archive_root
+    assert imported_root.dataset_root == dataset_root
+    assert imported_root.snapshot_count == len(rows)
+    assert imported_root.snapshot_count > 0
+    assert imported_root.symbols == ("BTCUSDT",)
+    assert imported_root.bundle_dirs[0] == rows[0].source_path
+    assert imported_root.bundle_dirs[-1] == rows[-1].source_path
+    assert imported_root.start_timestamp == rows[0].timestamp
+    assert imported_root.end_timestamp == rows[-1].timestamp

@@ -1,6 +1,8 @@
 from .importer import (
+    ImportedPhase1DatasetRoot,
     Phase1DatasetBundleMaterial,
     build_phase1_dataset_bundle_materials,
+    import_phase1_archive_dataset_root,
     write_phase1_dataset_bundle,
 )
 from .runtime_bundle import (
@@ -30,12 +32,14 @@ __all__ = [
     "ImportedRawMarketFile",
     "ImportedRawMarketRecord",
     "ImportedRawMarketSeries",
+    "ImportedPhase1DatasetRoot",
     "Phase1DatasetBundleMaterial",
     "RuntimeBundleSourcePaths",
     "archive_raw_market_payload",
     "archive_runtime_bundle",
     "archive_runtime_bundle_from_environment",
     "build_phase1_dataset_bundle_materials",
+    "import_phase1_archive_dataset_root",
     "load_phase1_raw_market_imports",
     "load_phase1_raw_market_series",
     "raw_market_series_key",
