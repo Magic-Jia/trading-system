@@ -19,6 +19,10 @@
     {
       "name": "1d",
       "hours": 24
+    },
+    {
+      "name": "3d",
+      "hours": 72
     }
   ],
   "costs": {
