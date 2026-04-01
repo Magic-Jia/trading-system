@@ -1,0 +1,24 @@
+{
+  "execution_mode": "paper",
+  "latest_candidates": [
+    {
+      "engine": "trend",
+      "symbol": "BTCUSDT",
+      "score": 0.91
+    }
+  ],
+  "latest_allocations": [
+    {
+      "engine": "trend",
+      "status": "ACCEPTED",
+      "final_risk_budget": 0.01,
+      "rank": 1
+    }
+  ],
+  "paper_trading": {
+    "mode": "paper",
+    "ledger_event_count": 1,
+    "emitted_count": 1,
+    "replayed_count": 0
+  }
+}

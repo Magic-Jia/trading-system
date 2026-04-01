@@ -27,6 +27,11 @@ class RuntimePaths:
     state_file: Path
     paper_ledger_file: Path
     execution_log_file: Path
+    account_snapshot_file: Path
+    market_context_file: Path
+    derivatives_snapshot_file: Path
+    latest_summary_file: Path
+    error_summary_file: Path
 
 
 def build_runtime_paths(mode: str, runtime_root: Path | str | None = None, runtime_env: str | None = None) -> RuntimePaths:
@@ -45,6 +50,11 @@ def build_runtime_paths(mode: str, runtime_root: Path | str | None = None, runti
         state_file=bucket_dir / "runtime_state.json",
         paper_ledger_file=bucket_dir / "paper_ledger.jsonl",
         execution_log_file=bucket_dir / "execution_log.jsonl",
+        account_snapshot_file=bucket_dir / "account_snapshot.json",
+        market_context_file=bucket_dir / "market_context.json",
+        derivatives_snapshot_file=bucket_dir / "derivatives_snapshot.json",
+        latest_summary_file=bucket_dir / "latest.json",
+        error_summary_file=bucket_dir / "error.json",
     )
 
 

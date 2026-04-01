@@ -1,7 +1,7 @@
 # Dev Status
-branch/worktree: codex/backtest-foundation @ /home/cn/.openclaw/agents/trade/workspace/.worktrees/backtest-foundation
-current objective: land the smallest remaining backtest gap: fixture-backed backtest CLI
-last verified command + result: PYTHONDONTWRITEBYTECODE=1 UV_CACHE_DIR=/tmp/codex-uv-cache-backtest uv run --with pytest python -m pytest -q -p no:cacheprovider trading_system/tests/test_backtest_engine.py -> 3 passed; python3 -m trading_system.app.backtest.cli run --config trading_system/tests/fixtures/backtest/minimal_config.json --output-dir /tmp/backtest-cli-smoke.XXXXXX -> wrote manifest/summary/scorecard
-last commit: c788560
-next action: commit is blocked by sandbox because git worktree metadata lives outside writable roots; hand off status to user
-last user update time: 2026-03-31 16:44 GMT+2
+branch/worktree: codex/historical-archive-fixtures @ /home/cn/.openclaw/agents/trade/workspace/.worktrees/historical-archive-fixtures
+current objective: finish Chunk 1 archive fixture/test lane, verify targeted tests, and commit scoped files only
+last verified command + result: UV_CACHE_DIR=/tmp/codex-uv-cache-historical uv run --with pytest python -m pytest -q -p no:cacheprovider trading_system/tests/test_backtest_archive_runtime_bundle.py trading_system/tests/test_runtime_paths.py -> 4 passed in 0.17s
+last commit: none
+next action: stage runtime_paths + archive fixture/tests files, try scoped git commit, leave memory/docs notes out unless needed
+last user update time: 2026-04-01 04:45 GMT+2

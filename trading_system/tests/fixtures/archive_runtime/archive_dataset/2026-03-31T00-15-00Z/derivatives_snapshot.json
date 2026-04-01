@@ -1,0 +1,24 @@
+{
+  "as_of": "2026-03-31T00:15:00Z",
+  "schema_version": "v2",
+  "rows": [
+    {
+      "symbol": "BTCUSDT",
+      "funding_rate": 0.00011,
+      "open_interest_usdt": 24500000000,
+      "open_interest_change_24h_pct": 0.038,
+      "mark_price_change_24h_pct": 0.015,
+      "taker_buy_sell_ratio": 1.06,
+      "basis_bps": 21
+    },
+    {
+      "symbol": "ETHUSDT",
+      "funding_rate": 0.00013,
+      "open_interest_usdt": 12400000000,
+      "open_interest_change_24h_pct": 0.029,
+      "mark_price_change_24h_pct": 0.011,
+      "taker_buy_sell_ratio": 1.03,
+      "basis_bps": 17
+    }
+  ]
+}
