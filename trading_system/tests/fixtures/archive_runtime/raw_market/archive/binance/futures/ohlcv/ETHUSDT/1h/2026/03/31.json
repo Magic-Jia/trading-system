@@ -1,0 +1,17 @@
+{
+  "source": "binance",
+  "market": "futures",
+  "dataset": "ohlcv",
+  "symbol": "ETHUSDT",
+  "interval": "1h",
+  "rows": [
+    {
+      "open_time": "2026-03-31T00:00:00Z",
+      "open": 3518.0,
+      "high": 3562.0,
+      "low": 3501.0,
+      "close": 3550.0,
+      "volume": 14220.7
+    }
+  ]
+}
