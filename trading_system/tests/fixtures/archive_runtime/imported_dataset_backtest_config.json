@@ -31,5 +31,14 @@
     "funding_bps_per_day": 1.5
   },
   "baseline_name": "importer_phase1_fixture",
-  "variant_name": "assembled_archive_dataset"
+  "variant_name": "assembled_archive_dataset",
+  "metadata": {
+    "phase": "importer_phase1",
+    "source_bundle": "2026-03-31T00-15-00Z",
+    "source_timestamp": "2026-03-31T00:15:00Z",
+    "source_run_id": "paper-research-2026-03-31t00-15-00z",
+    "source_mode": "paper",
+    "source_runtime_env": "research",
+    "source_finished_at": "2026-03-31T00:15:00Z"
+  }
 }
