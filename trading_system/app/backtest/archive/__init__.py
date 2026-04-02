@@ -5,6 +5,7 @@ from .importer import (
     import_phase1_archive_dataset_root,
     validate_phase1_imported_dataset_root,
     write_phase1_dataset_bundle,
+    write_phase1_dataset_root_manifest,
 )
 from .runtime_bundle import (
     ARCHIVE_RUNTIME_BUNDLE_ENV,
@@ -48,4 +49,5 @@ __all__ = [
     "runtime_bundle_archive_enabled",
     "validate_phase1_imported_dataset_root",
     "write_phase1_dataset_bundle",
+    "write_phase1_dataset_root_manifest",
 ]

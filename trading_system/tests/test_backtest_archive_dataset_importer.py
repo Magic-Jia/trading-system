@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -199,6 +200,7 @@ def test_import_phase1_archive_dataset_root_materializes_loadable_dataset_root(t
 
     imported_root = import_phase1_archive_dataset_root(archive_root, dataset_root)
     rows = load_historical_dataset(dataset_root)
+    manifest = json.loads((dataset_root / "import_manifest.json").read_text(encoding="utf-8"))
 
     assert imported_root.archive_root == archive_root
     assert imported_root.dataset_root == dataset_root
@@ -209,6 +211,34 @@ def test_import_phase1_archive_dataset_root_materializes_loadable_dataset_root(t
     assert imported_root.bundle_dirs[-1] == rows[-1].source_path
     assert imported_root.start_timestamp == rows[0].timestamp
     assert imported_root.end_timestamp == rows[-1].timestamp
+    assert manifest["schema_version"] == "phase1_imported_dataset_root.v1"
+    assert manifest["archive_root"] == str(archive_root)
+    assert manifest["dataset_root"] == str(dataset_root)
+    assert manifest["snapshot_count"] == imported_root.snapshot_count
+    assert manifest["symbols"] == ["BTCUSDT"]
+    assert manifest["start_timestamp"] == rows[0].timestamp.isoformat().replace("+00:00", "Z")
+    assert manifest["end_timestamp"] == rows[-1].timestamp.isoformat().replace("+00:00", "Z")
+    assert manifest["bundle_dirs"][0] == str(rows[0].source_path)
+    assert manifest["bundle_dirs"][-1] == str(rows[-1].source_path)
+    assert manifest["source"]["scope"] == "phase1_binance_futures"
+    assert len(manifest["source"]["manifest_paths"]) == 3
+    validated_rows = validate_phase1_imported_dataset_root(dataset_root)
+    assert [row.timestamp for row in validated_rows] == [row.timestamp for row in rows]
+
+
+def test_validate_phase1_imported_dataset_root_rejects_manifest_snapshot_count_drift(tmp_path: Path) -> None:
+    archive_root = tmp_path / "archive"
+    dataset_root = tmp_path / "dataset"
+    _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT")
+
+    import_phase1_archive_dataset_root(archive_root, dataset_root)
+    manifest_path = dataset_root / "import_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["snapshot_count"] += 1
+    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="root manifest snapshot_count did not round-trip"):
+        validate_phase1_imported_dataset_root(dataset_root)
 
 
 def test_validate_phase1_imported_dataset_root_rejects_timestamp_drift(tmp_path: Path) -> None:

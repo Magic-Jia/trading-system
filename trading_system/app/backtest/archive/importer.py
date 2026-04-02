@@ -17,7 +17,9 @@ PHASE1_IMPORTER_MARKET_CONTEXT_SCHEMA = "imported_market_context.v1"
 PHASE1_IMPORTER_DERIVATIVES_SCHEMA = "imported_derivatives_snapshot.v1"
 PHASE1_IMPORTER_ACCOUNT_SCHEMA = "imported_account_snapshot.v1"
 PHASE1_IMPORTER_BUNDLE_SCHEMA = "phase1_import_bundle.v1"
+PHASE1_IMPORTER_ROOT_SCHEMA = "phase1_imported_dataset_root.v1"
 PHASE1_IMPORTER_OHLCV_TIMEFRAME = "1h"
+PHASE1_IMPORTER_ROOT_MANIFEST = "import_manifest.json"
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,6 +64,13 @@ class _Phase1SymbolSeries:
 
 def _utc_timestamp(value: datetime) -> str:
     return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _utc_datetime(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 def _bundle_fragment(value: datetime) -> str:
@@ -457,6 +466,63 @@ def _write_json(path: Path, payload: Mapping[str, Any]) -> None:
     path.write_text(json.dumps(dict(payload), ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def _read_json_object(path: Path) -> dict[str, Any]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError(f"phase1 importer JSON file must contain an object: {path}")
+    return payload
+
+
+def _phase1_dataset_root_manifest_path(dataset_root: str | Path) -> Path:
+    return Path(dataset_root) / PHASE1_IMPORTER_ROOT_MANIFEST
+
+
+def _phase1_dataset_root_manifest(
+    *,
+    archive_root: Path,
+    dataset_root: Path,
+    symbols: Sequence[str],
+    materials: Sequence[Phase1DatasetBundleMaterial],
+    bundle_dirs: Sequence[Path],
+) -> dict[str, Any]:
+    bundle_timestamps = [_utc_timestamp(material.timestamp) for material in materials]
+    return {
+        "schema_version": PHASE1_IMPORTER_ROOT_SCHEMA,
+        "scope": PHASE1_IMPORTER_SCOPE,
+        "archive_root": str(archive_root),
+        "dataset_root": str(dataset_root),
+        "snapshot_count": len(bundle_dirs),
+        "symbols": list(symbols),
+        "start_timestamp": bundle_timestamps[0],
+        "end_timestamp": bundle_timestamps[-1],
+        "bundle_dirs": [str(bundle_dir) for bundle_dir in bundle_dirs],
+        "bundle_timestamps": bundle_timestamps,
+        "source": dict(materials[-1].metadata.get("source") or {}),
+    }
+
+
+def write_phase1_dataset_root_manifest(
+    archive_root: str | Path,
+    dataset_root: str | Path,
+    *,
+    symbols: Sequence[str],
+    materials: Sequence[Phase1DatasetBundleMaterial],
+    bundle_dirs: Sequence[Path],
+) -> Path:
+    manifest_path = _phase1_dataset_root_manifest_path(dataset_root)
+    _write_json(
+        manifest_path,
+        _phase1_dataset_root_manifest(
+            archive_root=Path(archive_root),
+            dataset_root=Path(dataset_root),
+            symbols=symbols,
+            materials=materials,
+            bundle_dirs=bundle_dirs,
+        ),
+    )
+    return manifest_path
+
+
 def write_phase1_dataset_bundle(material: Phase1DatasetBundleMaterial, dataset_root: str | Path) -> Path:
     root = Path(dataset_root)
     bundle_dir = root / f"{_bundle_fragment(material.timestamp)}__{material.run_id}"
@@ -471,14 +537,34 @@ def write_phase1_dataset_bundle(material: Phase1DatasetBundleMaterial, dataset_r
 def validate_phase1_imported_dataset_root(
     dataset_root: str | Path,
     *,
-    expected_bundle_dirs: Sequence[Path],
-    expected_timestamps: Sequence[datetime],
+    expected_bundle_dirs: Sequence[Path] | None = None,
+    expected_timestamps: Sequence[datetime] | None = None,
 ) -> list[Any]:
     dataset_path = Path(dataset_root)
     if not dataset_path.exists():
         raise FileNotFoundError(f"dataset root does not exist: {dataset_path}")
     if not dataset_path.is_dir():
         raise NotADirectoryError(f"dataset root is not a directory: {dataset_path}")
+
+    manifest_path = _phase1_dataset_root_manifest_path(dataset_path)
+    root_manifest = _read_json_object(manifest_path) if manifest_path.exists() else None
+    if root_manifest is not None:
+        schema_version = str(root_manifest.get("schema_version") or "")
+        if schema_version != PHASE1_IMPORTER_ROOT_SCHEMA:
+            raise ValueError(f"unsupported phase1 dataset root manifest schema: {manifest_path}")
+        manifest_dataset_root = Path(str(root_manifest.get("dataset_root") or ""))
+        if manifest_dataset_root != dataset_path:
+            raise ValueError(
+                "materialized dataset root manifest dataset_root mismatch: "
+                f"expected {dataset_path}, loaded {manifest_dataset_root}"
+            )
+        if expected_bundle_dirs is None:
+            expected_bundle_dirs = tuple(Path(value) for value in root_manifest.get("bundle_dirs") or ())
+        if expected_timestamps is None:
+            expected_timestamps = tuple(_utc_datetime(str(value)) for value in root_manifest.get("bundle_timestamps") or ())
+
+    if expected_bundle_dirs is None or expected_timestamps is None:
+        raise ValueError("expected bundle directories/timestamps or root manifest are required for validation")
 
     rows = load_historical_dataset(dataset_path)
     if len(rows) != len(expected_bundle_dirs):
@@ -502,6 +588,36 @@ def validate_phase1_imported_dataset_root(
             "materialized dataset root timestamps did not round-trip: "
             f"expected {expected_timestamp_tuple}, loaded {loaded_timestamps}"
         )
+
+    if root_manifest is not None:
+        manifest_snapshot_count = root_manifest.get("snapshot_count")
+        if manifest_snapshot_count != len(rows):
+            raise ValueError(
+                "materialized dataset root manifest snapshot_count did not round-trip: "
+                f"expected {manifest_snapshot_count}, loaded {len(rows)}"
+            )
+        manifest_bundle_dirs = tuple(Path(str(value)) for value in root_manifest.get("bundle_dirs") or ())
+        if loaded_bundle_dirs != manifest_bundle_dirs:
+            raise ValueError(
+                "materialized dataset root manifest bundle_dirs did not round-trip: "
+                f"expected {manifest_bundle_dirs}, loaded {loaded_bundle_dirs}"
+            )
+        manifest_timestamps = tuple(_utc_datetime(str(value)) for value in root_manifest.get("bundle_timestamps") or ())
+        if loaded_timestamps != manifest_timestamps:
+            raise ValueError(
+                "materialized dataset root manifest bundle_timestamps did not round-trip: "
+                f"expected {manifest_timestamps}, loaded {loaded_timestamps}"
+            )
+        if root_manifest.get("start_timestamp") != _utc_timestamp(rows[0].timestamp):
+            raise ValueError(
+                "materialized dataset root manifest start_timestamp did not round-trip: "
+                f"expected {_utc_timestamp(rows[0].timestamp)}, loaded {root_manifest.get('start_timestamp')}"
+            )
+        if root_manifest.get("end_timestamp") != _utc_timestamp(rows[-1].timestamp):
+            raise ValueError(
+                "materialized dataset root manifest end_timestamp did not round-trip: "
+                f"expected {_utc_timestamp(rows[-1].timestamp)}, loaded {root_manifest.get('end_timestamp')}"
+            )
 
     return rows
 
@@ -530,6 +646,13 @@ def import_phase1_archive_dataset_root(
         dataset_path.mkdir(parents=True, exist_ok=True)
 
     bundle_dirs = tuple(write_phase1_dataset_bundle(material, dataset_path) for material in materials)
+    write_phase1_dataset_root_manifest(
+        archive_path,
+        dataset_path,
+        symbols=symbols,
+        materials=materials,
+        bundle_dirs=bundle_dirs,
+    )
     rows = validate_phase1_imported_dataset_root(
         dataset_path,
         expected_bundle_dirs=bundle_dirs,
@@ -554,4 +677,5 @@ __all__ = [
     "import_phase1_archive_dataset_root",
     "validate_phase1_imported_dataset_root",
     "write_phase1_dataset_bundle",
+    "write_phase1_dataset_root_manifest",
 ]
