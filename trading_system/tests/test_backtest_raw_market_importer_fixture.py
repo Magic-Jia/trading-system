@@ -162,3 +162,23 @@ def test_raw_market_importer_phase1_config_pins_archive_bundle_provenance_metada
         "source_runtime_env": bundle_metadata["source_runtime_env"],
         "source_finished_at": latest_summary["finished_at"],
     }
+
+
+def test_raw_market_importer_phase1_bundle_preserves_provenance_metadata_for_dataset_rows(
+    fixture_dir: Path,
+) -> None:
+    archive_runtime_root = fixture_dir / "archive_runtime"
+    config_path = archive_runtime_root / "imported_dataset_backtest_config.json"
+
+    config = load_backtest_config(config_path)
+    rows = load_historical_dataset(config.dataset_root)
+    row = rows[0]
+    bundle_metadata = _load_json(row.source_path / "metadata.json")
+    latest_summary = _load_json(archive_runtime_root / "runtime" / "paper" / "research" / "latest.json")
+
+    assert bundle_metadata["source_bundle"] == row.source_path.name
+    assert bundle_metadata["source_finished_at"] == latest_summary["finished_at"]
+    assert row.meta["source_bundle"] == row.source_path.name
+    assert row.meta["source_finished_at"] == latest_summary["finished_at"]
+    assert row.meta["source_mode"] == bundle_metadata["source_mode"]
+    assert row.meta["source_runtime_env"] == bundle_metadata["source_runtime_env"]
