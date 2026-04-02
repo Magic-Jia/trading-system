@@ -141,3 +141,24 @@ def test_raw_market_importer_phase1_bundle_exposes_forward_return_contract_for_e
     assert result["metadata"] == {"snapshot_count": 1, "regime_count": 1}
     assert result["by_regime"]["RISK_OFF"]["forward_return_by_window"] == {"1d": 0.018, "3d": 0.031}
     assert result["by_regime"]["RISK_OFF"]["forward_drawdown_by_window"] == {"1d": -0.009, "3d": -0.014}
+
+
+def test_raw_market_importer_phase1_config_pins_archive_bundle_provenance_metadata(
+    fixture_dir: Path,
+) -> None:
+    archive_runtime_root = fixture_dir / "archive_runtime"
+    config_path = archive_runtime_root / "imported_dataset_backtest_config.json"
+
+    config = load_backtest_config(config_path)
+    bundle_metadata = _load_json(archive_runtime_root / "archive_dataset" / "2026-03-31T00-15-00Z" / "metadata.json")
+    latest_summary = _load_json(archive_runtime_root / "runtime" / "paper" / "research" / "latest.json")
+
+    assert config.metadata == {
+        "phase": "importer_phase1",
+        "source_bundle": "2026-03-31T00-15-00Z",
+        "source_timestamp": bundle_metadata["timestamp"],
+        "source_run_id": bundle_metadata["run_id"],
+        "source_mode": bundle_metadata["source_mode"],
+        "source_runtime_env": bundle_metadata["source_runtime_env"],
+        "source_finished_at": latest_summary["finished_at"],
+    }
