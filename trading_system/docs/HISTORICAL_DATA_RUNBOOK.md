@@ -239,6 +239,7 @@ find trading_system/data/archive/raw-market -maxdepth 6 -type d | sort
 - `derivatives_snapshot.json` 结构合法
 - 如需保留 provenance / handoff 说明，应放在 dataset root 外的 operator/readback 记录中
 - 若 `import_manifest.json` 存在，确认 `source.manifest_paths` 都在同一个 `raw-market` 树下，且反推出的 `archive_root` 没漂移
+- 继续打开这些 `source.manifest_paths` 指向的 raw-market manifest，确认文件没有丢失，且 payload 仍明确是 `exchange=binance`、`market=futures`
 
 ### Step 3A: do a lightweight imported-dataset readback
 
@@ -300,15 +301,19 @@ test ! -f "$DATASET_ROOT/import_manifest.json" || \
 - runtime `latest.json` 至少要暴露 `source_bundle`、`source_run_id`、`source_timestamp`
 - config `metadata`、bundle `metadata.json`、dataset row `meta` 之间要共享 `source_bundle`、`source_mode`、`source_runtime_env`、`source_finished_at`
 - `source_run_id` 应与 bundle `run_id` 对齐，`source_timestamp` 应与 bundle `timestamp` 对齐
+- runtime `runtime_state.json` 至少要保留 `latest_allocations[*].execution` 与 `paper_trading`
+- runtime `latest.json.paper_trading` 只做 summary；若要对表 `intent_id` / ledger 路径，要回到 `runtime_state.json`
 
 最小 readback 可以追加：
 
 ```bash
 CONFIG_JSON=trading_system/tests/fixtures/archive_runtime/imported_dataset_backtest_config.json
 LATEST_JSON=trading_system/tests/fixtures/archive_runtime/runtime/paper/research/latest.json
+STATE_JSON=trading_system/tests/fixtures/archive_runtime/runtime/paper/research/runtime_state.json
 
 grep -nE '"source_bundle"|"source_run_id"|"source_timestamp"|"source_mode"|"source_runtime_env"|"source_finished_at"' "$CONFIG_JSON"
 grep -nE '"mode"|"runtime_env"|"finished_at"|"source_bundle"|"source_run_id"|"source_timestamp"' "$LATEST_JSON"
+grep -nE '"latest_allocations"|"execution"|"paper_trading"|"ledger_path"|"intent_id"|"ledger_event_count"|"emitted_count"|"replayed_count"' "$STATE_JSON"
 grep -RInE '"run_id"|"timestamp"|"source_bundle"|"source_mode"|"source_runtime_env"|"source_finished_at"' "$DATASET_ROOT"/*/metadata.json
 ```
 
@@ -319,6 +324,8 @@ grep -RInE '"run_id"|"timestamp"|"source_bundle"|"source_mode"|"source_runtime_e
 - 有没有 bundle 缺 `account_snapshot.json` 且 root 级又没有 `baseline_account_snapshot.json`
 - 有没有把 bundle 目录名误当成排序或时间戳合同
 - 有没有把 provenance note 错放到 loader 会扫描的一级目录
+- 有没有 `source.manifest_paths` 指向不存在、或已经漂成 spot / 非 futures 的 raw-market manifest
+- 有没有把 `latest.json` 当成完整 execution 账本；真正的 paper execution continuity 仍要回看 `runtime_state.json` 与 ledger
 - 有没有任何说明让 operator 误以为当前仓库已经存在自动 importer / downloader
 
 ### Step 3B: materialization readback loop

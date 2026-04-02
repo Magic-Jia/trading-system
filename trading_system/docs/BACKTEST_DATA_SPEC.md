@@ -69,6 +69,8 @@ Each bundle must be self-describing and deterministic:
 - `start_timestamp` / `end_timestamp` 必须与实际首尾 bundle 时间戳一致
 - `source` 必须与 bundle `metadata.json` / dataset row `meta` 中读回的 source 对象一致
 - 若 `source.manifest_paths` 存在，它们必须都位于同一个 `raw-market` 树下，并能反推出同一个 `archive_root`
+- `source.manifest_paths` 指向的 raw-market manifest 必须真实存在；“路径看起来像对的”但文件已丢失，不算通过
+- 每个被引用的 raw-market manifest 仍必须声明 Phase 1 允许的来源身份：至少保持 `exchange=binance`、`market=futures`；若 manifest 漂成 spot 或其他 market，这个 imported dataset root 就已超出当前 scope
 
 ## Loader behavior
 
@@ -147,6 +149,7 @@ Phase 1 operator 在交付 dataset root 前，至少逐条复核：
 - 若 root 内存在 `import_manifest.json`，它的 `schema_version` / `scope` / `dataset_root` 是否与当前 materialization 语义一致
 - 若 root 内存在 `import_manifest.json`，它的 `snapshot_count`、`symbols`、`bundle_dirs`、`bundle_timestamps`、`start_timestamp`、`end_timestamp` 是否都能从实际加载结果读回
 - 若 root 内存在 `import_manifest.json`，它的 `source.manifest_paths` 是否都落在同一个 `raw-market` 树下，并且反推出的 `archive_root` 与 manifest 自身一致
+- 若 root 内存在 `import_manifest.json`，它引用的每个 raw-market manifest 是否都还存在，并且 payload 仍明确落在 `binance/futures` Phase 1 scope 内
 - 当前文档/交接表述是否仍停留在“手工整理 / 人工校对”，没有冒进宣称已存在自动 importer / downloader
 
 ### External readback record
