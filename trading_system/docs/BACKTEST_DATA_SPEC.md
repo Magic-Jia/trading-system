@@ -5,6 +5,7 @@
 Historical datasets live under a single root directory.
 
 - `baseline_account_snapshot.json` — optional fallback account context
+- `import_manifest.json` — optional Phase 1 importer-owned root manifest for machine readback
 - `<bundle>/metadata.json` — required, contains `timestamp` and `run_id`
 - `<bundle>/market_context.json` — required market snapshot
 - `<bundle>/derivatives_snapshot.json` — required derivatives snapshot
@@ -23,9 +24,9 @@ Each bundle must be self-describing and deterministic:
 
 这份 spec 约束的是 **最终交给 loader 的 imported dataset root**，因此 assembly 阶段必须保持最小、确定性、可读回：
 
-- dataset root 一级只允许 bundle 目录和可选的 `baseline_account_snapshot.json`
+- dataset root 一级只允许 bundle 目录、可选的 `baseline_account_snapshot.json`，以及可选的 importer-owned `import_manifest.json`
 - bundle 内只允许当前 loader contract 需要的 snapshot / metadata 文件
-- provenance、handoff note、archive manifest、人工说明、备份目录应保留在 dataset root 外
+- operator 的 provenance note、handoff note、人工说明、备份目录应保留在 dataset root 外；`import_manifest.json` 是唯一允许留在 root 内的 machine-owned manifest
 - 如果目录仍保留 `<exchange>/<market>/<dataset>/<symbol>/<timeframe?>` 结构，它就还是 archive 层，不属于本 spec
 
 这也意味着：当前 repo 的 Phase 1 operator 可以**手工装配 / 人工校对** dataset root，但不能把 future importer / downloader 说成当前仓库已经提供的现成功能
@@ -42,6 +43,33 @@ Each bundle must be self-describing and deterministic:
 
 如果上述任一项仍依赖“等 importer/downloader 以后自动补”，就说明当前 Phase 1 materialization 还没准备好。
 
+### Phase 1 root manifest contract
+
+如果 dataset root 是由 Phase 1 importer materialize 出来的，root 内可以额外存在一个 `import_manifest.json`。
+
+这个文件不是给人手写的 handoff note，而是 importer 自己留下的 machine-readable readback contract。至少应锁定：
+
+- `schema_version`
+- `scope`
+- `archive_root`
+- `dataset_root`
+- `snapshot_count`
+- `symbols`
+- `bundle_dirs`
+- `bundle_timestamps`
+- `start_timestamp`
+- `end_timestamp`
+- `source`
+
+如果 `import_manifest.json` 存在，validation 期待它与实际读回结果严格 round-trip：
+
+- `dataset_root` 必须与当前 root 路径完全一致
+- `scope` 必须仍在 Phase 1 importer scope 内
+- `snapshot_count`、`symbols`、`bundle_dirs`、`bundle_timestamps` 必须与实际加载出的 bundle 集合一致
+- `start_timestamp` / `end_timestamp` 必须与实际首尾 bundle 时间戳一致
+- `source` 必须与 bundle `metadata.json` / dataset row `meta` 中读回的 source 对象一致
+- 若 `source.manifest_paths` 存在，它们必须都位于同一个 `raw-market` 树下，并能反推出同一个 `archive_root`
+
 ## Loader behavior
 
 `trading_system.app.backtest.dataset.load_historical_dataset`:
@@ -57,7 +85,8 @@ Each bundle must be self-describing and deterministic:
 - `metadata.json` 缺少 `timestamp` 或 `run_id` 时，加载会直接失败，而不是自动补默认值
 - `timestamp` 需要能被当前 `datetime.fromisoformat(...replace("Z", "+00:00"))` 解析
 - `derivatives_snapshot.json` 既可以是数组，也可以是带 `rows` 数组的对象；其他结构会失败
-- root 级普通文件目前除 `baseline_account_snapshot.json` 外通常不会被 loader 读取，但 Phase 1 仍应避免混入，以免 handoff 语义变脏
+- `import_manifest.json` 属于 importer readback contract，而不是 loader 排序 contract；loader 不靠它排序，但 importer validation 会校验它
+- root 级普通文件目前除 `baseline_account_snapshot.json` 与可选的 `import_manifest.json` 外，不应再混入其他文件，以免 handoff 语义变脏
 
 ## Phase 1 boundary
 
@@ -104,7 +133,7 @@ operator 在 Phase 1 应按这条链路理解数据流：
 再补两条 root validation 现实：
 
 - dataset root 下若出现 `archive/`、`notes/`、`tmp/`、备份目录等一级目录，loader 会把它们当成 bundle 并在缺文件时报错
-- 除 `baseline_account_snapshot.json` 外，Phase 1 不应在 dataset root 一级混入 handoff note、manifest、checksum 或下载日志，即使这些文件未必会被 loader 直接消费
+- 除 `baseline_account_snapshot.json` 与 importer-owned `import_manifest.json` 外，Phase 1 不应在 dataset root 一级混入 handoff note、checksum 或下载日志，即使这些文件未必会被 loader 直接消费
 
 ### Root validation checklist
 
@@ -115,11 +144,16 @@ Phase 1 operator 在交付 dataset root 前，至少逐条复核：
 - 每个 bundle 是否都具备 `metadata.json`、`market_context.json`、`derivatives_snapshot.json`
 - 每个 bundle 的 `metadata.json` 是否都有合法 `timestamp` / `run_id`
 - 若 bundle 缺 `account_snapshot.json`，root 级是否真的存在 `baseline_account_snapshot.json`
+- 若 root 内存在 `import_manifest.json`，它的 `schema_version` / `scope` / `dataset_root` 是否与当前 materialization 语义一致
+- 若 root 内存在 `import_manifest.json`，它的 `snapshot_count`、`symbols`、`bundle_dirs`、`bundle_timestamps`、`start_timestamp`、`end_timestamp` 是否都能从实际加载结果读回
+- 若 root 内存在 `import_manifest.json`，它的 `source.manifest_paths` 是否都落在同一个 `raw-market` 树下，并且反推出的 `archive_root` 与 manifest 自身一致
 - 当前文档/交接表述是否仍停留在“手工整理 / 人工校对”，没有冒进宣称已存在自动 importer / downloader
 
 ### External readback record
 
 dataset root 通过 root validation，不代表 handoff 已经完整；Phase 1 还应在 dataset root 外保留一份最小 operator 记录。
+
+这点在 `import_manifest.json` 存在时也一样：root manifest 解决的是 machine readback，不替代 operator handoff note。
 
 这份记录至少应写清：
 

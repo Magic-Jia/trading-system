@@ -187,9 +187,9 @@ find trading_system/data/archive/raw-market -maxdepth 6 -type d | sort
 在真正复制/整理 snapshot 之前，先过一遍 root 级闸门：
 
 - dataset root 是否与 raw-market archive、runtime bundle、research output 目录彻底分离
-- root 下除可选的 `baseline_account_snapshot.json` 外，是否只准备放一级 bundle 目录
+- root 下除可选的 `baseline_account_snapshot.json` 与 importer-owned `import_manifest.json` 外，是否只准备放一级 bundle 目录
 - 是否不存在 `archive/`、`notes/`、`tmp/`、`backup/` 之类会被误当成 bundle 的一级目录
-- 是否没有把 provenance note、checksum、下载日志、manifest 直接塞到 dataset root
+- 是否没有把 provenance note、checksum、下载日志或 free-form manifest 直接塞到 dataset root
 
 要特别记住当前 loader reality：`load_historical_dataset` 会把 dataset root 下的**每一个一级目录**都当成 bundle 尝试读取。
 所以 Phase 1 的 root validation 重点不是“目录长得像不像”，而是**一级目录里有没有任何非 bundle 目录**。
@@ -198,14 +198,15 @@ find trading_system/data/archive/raw-market -maxdepth 6 -type d | sort
 
 - dataset root 是否与 `trading_system/data/archive/raw-market/...` 完全分离
 - 一级子目录是否只保留 bundle 目录，而不是 `<exchange>/<market>/<dataset>` archive 结构
-- 是否只放 loader 当前认识的文件：`baseline_account_snapshot.json` 与 bundle 内四类 snapshot/metadata 文件
+- 是否只放当前 contract 允许的 root 文件：`baseline_account_snapshot.json`、可选的 `import_manifest.json`，以及 bundle 内四类 snapshot/metadata 文件
 - 是否已经为每个 bundle 写清“这个目录代表哪个研究时间点/窗口”，而不是仅靠目录名脑补
 - `metadata.json` 是否至少包含 `timestamp` 与 `run_id`
 - `timestamp` 是否是当前 loader 可解析的 ISO-8601 UTC 字符串
 - bundle 目录名是否只作为人工可读标签，而不是被误当成排序/契约来源
 - `derivatives_snapshot.json` 是否为数组，或是带 `rows` 数组的对象
 - 缺 bundle 级 `account_snapshot.json` 时，是否已提供 root 级 baseline
-- root 级普通文件是否除 `baseline_account_snapshot.json` 外一律不混入，避免 handoff / manifest / checksum 污染
+- 若有 `import_manifest.json`，它是否明确是 importer-owned machine manifest，而不是人工 handoff note
+- root 级普通文件是否除 `baseline_account_snapshot.json` 与可选的 `import_manifest.json` 外一律不混入，避免 handoff / checksum 污染
 - 是否确认任何一级附加目录都会被 loader 当成 bundle，因而会直接破坏 readback
 - 是否避免把 notes、handoff、checksum、临时下载结果直接塞进 dataset root
 - 是否没有把“未来会有自动 importer / downloader”写成当前可执行步骤
@@ -217,24 +218,27 @@ find trading_system/data/archive/raw-market -maxdepth 6 -type d | sort
 最低 contract：
 
 - `baseline_account_snapshot.json`（可选）
+- `import_manifest.json`（可选；仅限 Phase 1 importer-owned root manifest）
 - `<bundle>/metadata.json`
 - `<bundle>/market_context.json`
 - `<bundle>/derivatives_snapshot.json`
 - `<bundle>/account_snapshot.json`（可选，但若缺失则需 baseline）
 
-当前 loader 还有三个容易被忽略的现实约束：
+当前 loader / importer validation 还有几条容易被忽略的现实约束：
 
 - dataset root 下的每个一级目录都会被当成 bundle 读取；多余目录不会被自动忽略
 - bundle 排序依据是 `metadata.json` 里的 `timestamp`，再按 `run_id` 排序，不看目录名
-- root 级普通文件里，当前只有 `baseline_account_snapshot.json` 会被 loader 读取；其他文件虽然通常不会被消费，Phase 1 仍应避免混入以减少误读
+- root 级普通文件里，当前只有 `baseline_account_snapshot.json` 会被 loader 读取；`import_manifest.json` 不参与 loader 排序，但若存在，会进入 importer readback validation
+- 若 `import_manifest.json` 存在，至少要能读回 `dataset_root`、`scope`、`snapshot_count`、`symbols`、`archive_root`、`source`、`bundle_dirs`、`bundle_timestamps`、`start_timestamp`、`end_timestamp`
 
 重点检查：
 
-- dataset root 下只放 bundle 目录和允许的 baseline 文件
+- dataset root 下只放 bundle 目录和允许的 root 文件（baseline、可选 importer manifest）
 - 不要把 `archive/`、`notes/`、人工说明目录塞进去
 - `metadata.json` 里有 `timestamp` 与 `run_id`
 - `derivatives_snapshot.json` 结构合法
 - 如需保留 provenance / handoff 说明，应放在 dataset root 外的 operator/readback 记录中
+- 若 `import_manifest.json` 存在，确认 `source.manifest_paths` 都在同一个 `raw-market` 树下，且反推出的 `archive_root` 没漂移
 
 ### Step 3A: do a lightweight imported-dataset readback
 
@@ -244,7 +248,7 @@ find trading_system/data/archive/raw-market -maxdepth 6 -type d | sort
 
 1. dataset root 一级目录是否干净
 2. bundle 必需文件是否齐全
-3. `metadata.json` / baseline 逻辑是否与当前 loader 约束一致
+3. `metadata.json` / baseline / `import_manifest.json` 逻辑是否与当前 loader / importer 约束一致
 4. 文档表述有没有把 archive / importer / downloader 说过头
 
 最小人工 readback 可以用：
@@ -253,6 +257,16 @@ find trading_system/data/archive/raw-market -maxdepth 6 -type d | sort
 DATASET_ROOT=trading_system/tests/fixtures/backtest/sample_dataset
 
 find "$DATASET_ROOT" -maxdepth 2 -type f | sort
+
+find "$DATASET_ROOT" -mindepth 1 -maxdepth 1 -type f | sort | while read -r entry; do
+  case "$(basename "$entry")" in
+    baseline_account_snapshot.json|import_manifest.json)
+      ;;
+    *)
+      echo "unexpected top-level file: $entry"
+      ;;
+  esac
+done
 
 find "$DATASET_ROOT" -mindepth 1 -maxdepth 1 -type d | sort | while read -r entry; do
   case "$(basename "$entry")" in
@@ -271,11 +285,32 @@ find "$DATASET_ROOT" -mindepth 1 -maxdepth 1 -type d | sort | while read -r bund
 done
 
 grep -RInE '"timestamp"|"run_id"' "$DATASET_ROOT"/*/metadata.json
+
+test ! -f "$DATASET_ROOT/import_manifest.json" || \
+  grep -nE '"schema_version"|"scope"|"archive_root"|"dataset_root"|"snapshot_count"|"symbols"|"bundle_dirs"|"bundle_timestamps"|"start_timestamp"|"end_timestamp"|"source"' \
+    "$DATASET_ROOT/import_manifest.json"
 ```
 
 如果要对真实 dataset root 做同类检查，只替换根目录，不要改读回标准。
 
 这组 readback 是本地文件系统检查，不依赖 downloader、网络连通性或任何尚未落地的 archive importer。
+
+如果读的是由 runtime bundle 派生出的 imported dataset，还要额外确认 provenance 指针没有断：
+
+- runtime `latest.json` 至少要暴露 `source_bundle`、`source_run_id`、`source_timestamp`
+- config `metadata`、bundle `metadata.json`、dataset row `meta` 之间要共享 `source_bundle`、`source_mode`、`source_runtime_env`、`source_finished_at`
+- `source_run_id` 应与 bundle `run_id` 对齐，`source_timestamp` 应与 bundle `timestamp` 对齐
+
+最小 readback 可以追加：
+
+```bash
+CONFIG_JSON=trading_system/tests/fixtures/archive_runtime/imported_dataset_backtest_config.json
+LATEST_JSON=trading_system/tests/fixtures/archive_runtime/runtime/paper/research/latest.json
+
+grep -nE '"source_bundle"|"source_run_id"|"source_timestamp"|"source_mode"|"source_runtime_env"|"source_finished_at"' "$CONFIG_JSON"
+grep -nE '"mode"|"runtime_env"|"finished_at"|"source_bundle"|"source_run_id"|"source_timestamp"' "$LATEST_JSON"
+grep -RInE '"run_id"|"timestamp"|"source_bundle"|"source_mode"|"source_runtime_env"|"source_finished_at"' "$DATASET_ROOT"/*/metadata.json
+```
 
 读回时重点问：
 
