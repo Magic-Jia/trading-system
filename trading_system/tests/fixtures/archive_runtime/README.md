@@ -9,7 +9,8 @@ Layout:
   by `trading_system.app.runtime_paths.build_runtime_paths`
   and now pins the persisted phase-1 `runtime_state.json` regime/universe payload
   plus the minimal paper execution summary handoff (`latest_allocations.execution`
-  and `paper_trading`)
+  and `paper_trading`) together with replay-consistent `execution_log.jsonl` /
+  `paper_ledger.jsonl` records for the same phase-1 paper intent
 - `archive_dataset/<bundle>/` mirrors the existing historical dataset contract
   consumed by `trading_system.app.backtest.dataset.load_historical_dataset`
   and keeps bundle-level provenance fields available in `metadata.json` for
