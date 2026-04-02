@@ -182,3 +182,29 @@ def test_raw_market_importer_phase1_bundle_preserves_provenance_metadata_for_dat
     assert row.meta["source_finished_at"] == latest_summary["finished_at"]
     assert row.meta["source_mode"] == bundle_metadata["source_mode"]
     assert row.meta["source_runtime_env"] == bundle_metadata["source_runtime_env"]
+
+
+def test_raw_market_importer_phase1_provenance_identity_stays_aligned_across_config_bundle_and_runtime(
+    fixture_dir: Path,
+) -> None:
+    archive_runtime_root = fixture_dir / "archive_runtime"
+    config_path = archive_runtime_root / "imported_dataset_backtest_config.json"
+
+    config = load_backtest_config(config_path)
+    rows = load_historical_dataset(config.dataset_root)
+    row = rows[0]
+    bundle_metadata = _load_json(row.source_path / "metadata.json")
+    latest_summary = _load_json(archive_runtime_root / "runtime" / "paper" / "research" / "latest.json")
+
+    expected_shared = {
+        "source_bundle": row.source_path.name,
+        "source_mode": latest_summary["mode"],
+        "source_runtime_env": latest_summary["runtime_env"],
+        "source_finished_at": latest_summary["finished_at"],
+    }
+
+    assert {key: bundle_metadata[key] for key in expected_shared} == expected_shared
+    assert {key: row.meta[key] for key in expected_shared} == expected_shared
+    assert {key: config.metadata[key] for key in expected_shared} == expected_shared
+    assert config.metadata["source_run_id"] == row.run_id == bundle_metadata["run_id"]
+    assert config.metadata["source_timestamp"] == bundle_metadata["timestamp"]
