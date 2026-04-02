@@ -501,6 +501,56 @@ def _phase1_dataset_root_manifest(
     }
 
 
+def _json_object_field(value: Any, *, context: str) -> dict[str, Any]:
+    if not isinstance(value, Mapping):
+        raise ValueError(f"{context} must contain a JSON object")
+    return dict(value)
+
+
+def _materialized_dataset_row_source(rows: Sequence[Any]) -> dict[str, Any]:
+    loaded_source: dict[str, Any] | None = None
+    for row in rows:
+        row_source = _json_object_field(row.meta.get("source") or {}, context="materialized dataset bundle metadata source")
+        if loaded_source is None:
+            loaded_source = row_source
+            continue
+        if row_source != loaded_source:
+            raise ValueError(
+                "materialized dataset bundle metadata source did not round-trip: "
+                f"expected {loaded_source}, loaded {row_source}"
+            )
+    return loaded_source or {}
+
+
+def _archive_root_from_manifest_paths(manifest_paths: Sequence[str]) -> Path | None:
+    if not manifest_paths:
+        return None
+
+    archive_root: Path | None = None
+    for value in manifest_paths:
+        manifest_path = Path(str(value))
+        raw_market_root = manifest_path.parent
+        while raw_market_root.name != "raw-market" and raw_market_root != raw_market_root.parent:
+            raw_market_root = raw_market_root.parent
+        if raw_market_root.name != "raw-market":
+            raise ValueError(
+                "materialized dataset root source manifest_paths must stay under raw-market: "
+                f"{manifest_path}"
+            )
+
+        current_archive_root = raw_market_root.parent
+        if archive_root is None:
+            archive_root = current_archive_root
+            continue
+        if current_archive_root != archive_root:
+            raise ValueError(
+                "materialized dataset root source manifest_paths did not share one archive_root: "
+                f"expected {archive_root}, loaded {current_archive_root}"
+            )
+
+    return archive_root
+
+
 def write_phase1_dataset_root_manifest(
     archive_root: str | Path,
     dataset_root: str | Path,
@@ -590,6 +640,7 @@ def validate_phase1_imported_dataset_root(
         )
 
     if root_manifest is not None:
+        loaded_source = _materialized_dataset_row_source(rows)
         manifest_scope = str(root_manifest.get("scope") or "")
         if manifest_scope != PHASE1_IMPORTER_SCOPE:
             raise ValueError(
@@ -616,6 +667,19 @@ def validate_phase1_imported_dataset_root(
             raise ValueError(
                 "materialized dataset root manifest symbols did not round-trip: "
                 f"expected {manifest_symbols}, loaded {loaded_symbols}"
+            )
+        manifest_archive_root = Path(str(root_manifest.get("archive_root") or ""))
+        loaded_archive_root = _archive_root_from_manifest_paths(loaded_source.get("manifest_paths") or ())
+        if loaded_archive_root is not None and manifest_archive_root != loaded_archive_root:
+            raise ValueError(
+                "materialized dataset root manifest archive_root did not round-trip: "
+                f"expected {manifest_archive_root}, loaded {loaded_archive_root}"
+            )
+        manifest_source = _json_object_field(root_manifest.get("source") or {}, context="materialized dataset root manifest source")
+        if manifest_source != loaded_source:
+            raise ValueError(
+                "materialized dataset root manifest source did not round-trip: "
+                f"expected {manifest_source}, loaded {loaded_source}"
             )
         manifest_bundle_dirs = tuple(Path(str(value)) for value in root_manifest.get("bundle_dirs") or ())
         if loaded_bundle_dirs != manifest_bundle_dirs:
