@@ -65,3 +65,46 @@ def test_archive_runtime_fixture_runtime_state_tracks_replayed_regime_and_univer
     assert runtime_state["execution_mode"] == "paper"
     assert {key: runtime_state["latest_regime"][key] for key in expected_regime} == expected_regime
     assert runtime_state["latest_universes"] == replayed["universes"]
+
+
+def test_archive_runtime_fixture_runtime_state_tracks_phase1_paper_execution_summary(
+    fixture_dir: Path,
+) -> None:
+    runtime_root = fixture_dir / "archive_runtime" / "runtime"
+    paths = build_runtime_paths("paper", runtime_root=runtime_root, runtime_env="research")
+
+    runtime_state = _load_json(paths.state_file)
+    latest_summary = _load_json(paths.latest_summary_file)
+
+    assert runtime_state["latest_allocations"] == [
+        {
+            "engine": "trend",
+            "status": "ACCEPTED",
+            "final_risk_budget": 0.01,
+            "rank": 1,
+            "execution": {"status": "FILLED", "intent_id": "paper-intent-001"},
+        }
+    ]
+    assert runtime_state["paper_trading"] == {
+        "mode": "paper",
+        "ledger_path": "trading_system/tests/fixtures/archive_runtime/runtime/paper/research/paper_ledger.jsonl",
+        "ledger_event_count": 1,
+        "emitted_count": 1,
+        "replayed_count": 0,
+        "intents": [
+            {
+                "symbol": "BTCUSDT",
+                "status": "FILLED",
+                "intent_id": "paper-intent-001",
+            }
+        ],
+    }
+    assert Path(runtime_state["paper_trading"]["ledger_path"]).as_posix().endswith(
+        "archive_runtime/runtime/paper/research/paper_ledger.jsonl"
+    )
+    assert latest_summary["paper_trading"] == {
+        "mode": "paper",
+        "ledger_event_count": 1,
+        "emitted_count": 1,
+        "replayed_count": 0,
+    }

@@ -124,13 +124,25 @@
       "engine": "trend",
       "status": "ACCEPTED",
       "final_risk_budget": 0.01,
-      "rank": 1
+      "rank": 1,
+      "execution": {
+        "status": "FILLED",
+        "intent_id": "paper-intent-001"
+      }
     }
   ],
   "paper_trading": {
     "mode": "paper",
+    "ledger_path": "trading_system/tests/fixtures/archive_runtime/runtime/paper/research/paper_ledger.jsonl",
     "ledger_event_count": 1,
     "emitted_count": 1,
-    "replayed_count": 0
+    "replayed_count": 0,
+    "intents": [
+      {
+        "symbol": "BTCUSDT",
+        "status": "FILLED",
+        "intent_id": "paper-intent-001"
+      }
+    ]
   }
 }
