@@ -12,6 +12,10 @@ def _load_json(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _load_jsonl(path: Path) -> list[dict]:
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
 def test_archive_runtime_fixture_matches_runtime_paths_contract(fixture_dir: Path) -> None:
     runtime_root = fixture_dir / "archive_runtime" / "runtime"
     paths = build_runtime_paths("paper", runtime_root=runtime_root, runtime_env="research")
@@ -107,4 +111,39 @@ def test_archive_runtime_fixture_runtime_state_tracks_phase1_paper_execution_sum
         "ledger_event_count": 1,
         "emitted_count": 1,
         "replayed_count": 0,
+    }
+
+
+def test_archive_runtime_fixture_paper_execution_artifacts_share_phase1_intent_contract(
+    fixture_dir: Path,
+) -> None:
+    runtime_root = fixture_dir / "archive_runtime" / "runtime"
+    paths = build_runtime_paths("paper", runtime_root=runtime_root, runtime_env="research")
+
+    runtime_state = _load_json(paths.state_file)
+    latest_summary = _load_json(paths.latest_summary_file)
+    execution_events = _load_jsonl(paths.execution_log_file)
+    ledger_events = _load_jsonl(paths.paper_ledger_file)
+    allocation_execution = runtime_state["latest_allocations"][0]["execution"]
+    paper_intent = runtime_state["paper_trading"]["intents"][0]
+    execution_event = execution_events[0]
+    ledger_event = ledger_events[0]
+
+    assert len(execution_events) == 1
+    assert len(ledger_events) == runtime_state["paper_trading"]["ledger_event_count"]
+    assert len(ledger_events) == latest_summary["paper_trading"]["ledger_event_count"]
+    assert execution_event["order"]["intent_id"] == allocation_execution["intent_id"]
+    assert execution_event["order"]["intent_id"] == paper_intent["intent_id"]
+    assert execution_event["result"]["ledger_event"] == {
+        "event_type": "paper_fill",
+        "intent_id": paper_intent["intent_id"],
+        "recorded_at_bj": ledger_event["recorded_at_bj"],
+    }
+    assert execution_event["result"]["result"] == paper_intent["status"]
+    assert ledger_event["event_type"] == "paper_fill"
+    assert ledger_event["intent_id"] == paper_intent["intent_id"]
+    assert ledger_event["symbol"] == paper_intent["symbol"] == execution_event["order"]["symbol"]
+    assert ledger_event["replay_result"] == {
+        "status": paper_intent["status"],
+        "intent_id": paper_intent["intent_id"],
     }
