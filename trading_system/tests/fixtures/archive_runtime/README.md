@@ -7,6 +7,7 @@ Layout:
 
 - `runtime/paper/research/` mirrors the current runtime bucket contract exposed
   by `trading_system.app.runtime_paths.build_runtime_paths`
+  and now pins the persisted phase-1 `runtime_state.json` regime/universe payload
 - `archive_dataset/<bundle>/` mirrors the existing historical dataset contract
   consumed by `trading_system.app.backtest.dataset.load_historical_dataset`
   and keeps bundle-level provenance fields available in `metadata.json` for

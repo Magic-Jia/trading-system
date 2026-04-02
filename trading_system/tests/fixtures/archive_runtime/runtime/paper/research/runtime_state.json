@@ -1,5 +1,117 @@
 {
   "execution_mode": "paper",
+  "latest_regime": {
+    "label": "RISK_OFF",
+    "confidence": 0.675,
+    "risk_multiplier": 0.476,
+    "execution_policy": "downsize",
+    "bucket_targets": {
+      "trend": 0.17,
+      "rotation": 0.034,
+      "short": 0.476
+    },
+    "suppression_rules": [
+      "rotation"
+    ]
+  },
+  "latest_universes": {
+    "major_universe": [
+      {
+        "symbol": "BTCUSDT",
+        "sector": "majors",
+        "liquidity_tier": "top",
+        "passes_liquidity": true,
+        "listing_age_ok": true,
+        "liquidity_meta": {
+          "passes_liquidity": true,
+          "rolling_notional": 22500000000.0,
+          "depth_proxy_notional": 4500000000.0,
+          "slippage_bps": 2.0,
+          "listing_age_days": 3650.0,
+          "rolling_notional_ok": true,
+          "depth_proxy_ok": true,
+          "slippage_ok": true,
+          "listing_age_ok": true,
+          "wick_risk_ok": true,
+          "spot_volume_usdt_24h": 22500000000.0,
+          "open_interest_usdt": 24500000000.0,
+          "liquidity_source": "volume_usdt_24h"
+        }
+      },
+      {
+        "symbol": "ETHUSDT",
+        "sector": "majors",
+        "liquidity_tier": "top",
+        "passes_liquidity": true,
+        "listing_age_ok": true,
+        "liquidity_meta": {
+          "passes_liquidity": true,
+          "rolling_notional": 13200000000.0,
+          "depth_proxy_notional": 2640000000.0,
+          "slippage_bps": 2.0,
+          "listing_age_days": 3650.0,
+          "rolling_notional_ok": true,
+          "depth_proxy_ok": true,
+          "slippage_ok": true,
+          "listing_age_ok": true,
+          "wick_risk_ok": true,
+          "spot_volume_usdt_24h": 13200000000.0,
+          "open_interest_usdt": 12400000000.0,
+          "liquidity_source": "volume_usdt_24h"
+        }
+      }
+    ],
+    "rotation_universe": [],
+    "short_universe": [
+      {
+        "symbol": "BTCUSDT",
+        "sector": "majors",
+        "liquidity_tier": "top",
+        "passes_liquidity": true,
+        "listing_age_ok": true,
+        "liquidity_meta": {
+          "passes_liquidity": true,
+          "rolling_notional": 22500000000.0,
+          "depth_proxy_notional": 4500000000.0,
+          "slippage_bps": 2.0,
+          "listing_age_days": 3650.0,
+          "rolling_notional_ok": true,
+          "depth_proxy_ok": true,
+          "slippage_ok": true,
+          "listing_age_ok": true,
+          "wick_risk_ok": true,
+          "spot_volume_usdt_24h": 22500000000.0,
+          "open_interest_usdt": 24500000000.0,
+          "liquidity_source": "volume_usdt_24h"
+        }
+      },
+      {
+        "symbol": "ETHUSDT",
+        "sector": "majors",
+        "liquidity_tier": "top",
+        "passes_liquidity": true,
+        "listing_age_ok": true,
+        "liquidity_meta": {
+          "passes_liquidity": true,
+          "rolling_notional": 13200000000.0,
+          "depth_proxy_notional": 2640000000.0,
+          "slippage_bps": 2.0,
+          "listing_age_days": 3650.0,
+          "rolling_notional_ok": true,
+          "depth_proxy_ok": true,
+          "slippage_ok": true,
+          "listing_age_ok": true,
+          "wick_risk_ok": true,
+          "spot_volume_usdt_24h": 13200000000.0,
+          "open_interest_usdt": 12400000000.0,
+          "liquidity_source": "volume_usdt_24h"
+        }
+      }
+    ],
+    "major_count": 2,
+    "rotation_count": 0,
+    "short_count": 2
+  },
   "latest_candidates": [
     {
       "engine": "trend",
