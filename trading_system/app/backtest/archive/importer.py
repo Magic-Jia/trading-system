@@ -10,7 +10,12 @@ from typing import Any, Iterable, Mapping, Sequence
 from trading_system.app.universe.sector_map import sector_for_symbol
 
 from ..dataset import load_historical_dataset
-from .raw_market import ImportedRawMarketRecord, ImportedRawMarketSeries, load_phase1_raw_market_imports
+from .raw_market import (
+    ImportedRawMarketRecord,
+    ImportedRawMarketSeries,
+    load_phase1_raw_market_imports,
+    load_phase1_raw_market_manifest,
+)
 
 PHASE1_IMPORTER_SCOPE = "phase1_binance_futures"
 PHASE1_IMPORTER_MARKET_CONTEXT_SCHEMA = "imported_market_context.v1"
@@ -551,6 +556,30 @@ def _archive_root_from_manifest_paths(manifest_paths: Sequence[str]) -> Path | N
     return archive_root
 
 
+def _validated_source_trace_against_manifests(source: Mapping[str, Any], *, context: str) -> dict[str, Any]:
+    normalized_source = _json_object_field(source, context=context)
+    manifest_paths = sorted(str(value) for value in normalized_source.get("manifest_paths") or ())
+    if not manifest_paths:
+        raise ValueError(f"{context} manifest_paths must not be empty")
+
+    referenced_files = tuple(load_phase1_raw_market_manifest(manifest_path) for manifest_path in manifest_paths)
+    referenced_source = {
+        "scope": PHASE1_IMPORTER_SCOPE,
+        "exchange": "binance",
+        "market": "futures",
+        "symbols": sorted({str(imported_file.manifest.get("symbol") or "") for imported_file in referenced_files}),
+        "series_keys": sorted({imported_file.series_key for imported_file in referenced_files}),
+        "manifest_paths": sorted(str(imported_file.manifest_path) for imported_file in referenced_files),
+    }
+    if normalized_source != referenced_source:
+        raise ValueError(
+            "materialized dataset root source trace did not match referenced raw-market manifests: "
+            f"expected {normalized_source}, loaded {referenced_source}"
+        )
+
+    return normalized_source
+
+
 def write_phase1_dataset_root_manifest(
     archive_root: str | Path,
     dataset_root: str | Path,
@@ -640,7 +669,10 @@ def validate_phase1_imported_dataset_root(
         )
 
     if root_manifest is not None:
-        loaded_source = _materialized_dataset_row_source(rows)
+        loaded_source = _validated_source_trace_against_manifests(
+            _materialized_dataset_row_source(rows),
+            context="materialized dataset bundle metadata source",
+        )
         manifest_scope = str(root_manifest.get("scope") or "")
         if manifest_scope != PHASE1_IMPORTER_SCOPE:
             raise ValueError(

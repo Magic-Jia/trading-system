@@ -301,6 +301,36 @@ def test_validate_phase1_imported_dataset_root_rejects_manifest_source_drift(tmp
         validate_phase1_imported_dataset_root(dataset_root)
 
 
+def test_validate_phase1_imported_dataset_root_rejects_missing_source_manifest(tmp_path: Path) -> None:
+    archive_root = tmp_path / "archive"
+    dataset_root = tmp_path / "dataset"
+    _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT")
+
+    import_phase1_archive_dataset_root(archive_root, dataset_root)
+    manifest = json.loads((dataset_root / "import_manifest.json").read_text(encoding="utf-8"))
+    source_manifest_path = Path(manifest["source"]["manifest_paths"][0])
+    source_manifest_path.unlink()
+
+    with pytest.raises(FileNotFoundError, match="raw-market manifest missing"):
+        validate_phase1_imported_dataset_root(dataset_root)
+
+
+def test_validate_phase1_imported_dataset_root_rejects_out_of_scope_source_manifest(tmp_path: Path) -> None:
+    archive_root = tmp_path / "archive"
+    dataset_root = tmp_path / "dataset"
+    _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT")
+
+    import_phase1_archive_dataset_root(archive_root, dataset_root)
+    manifest = json.loads((dataset_root / "import_manifest.json").read_text(encoding="utf-8"))
+    source_manifest_path = Path(manifest["source"]["manifest_paths"][0])
+    source_manifest = json.loads(source_manifest_path.read_text(encoding="utf-8"))
+    source_manifest["market"] = "spot"
+    source_manifest_path.write_text(json.dumps(source_manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="only binance futures raw-market datasets are supported in phase 1"):
+        validate_phase1_imported_dataset_root(dataset_root)
+
+
 def test_validate_phase1_imported_dataset_root_rejects_timestamp_drift(tmp_path: Path) -> None:
     archive_root = tmp_path / "archive"
     dataset_root = tmp_path / "dataset"
