@@ -590,11 +590,32 @@ def validate_phase1_imported_dataset_root(
         )
 
     if root_manifest is not None:
+        manifest_scope = str(root_manifest.get("scope") or "")
+        if manifest_scope != PHASE1_IMPORTER_SCOPE:
+            raise ValueError(
+                "materialized dataset root manifest scope is out of phase1 importer scope: "
+                f"expected {PHASE1_IMPORTER_SCOPE}, loaded {manifest_scope}"
+            )
         manifest_snapshot_count = root_manifest.get("snapshot_count")
         if manifest_snapshot_count != len(rows):
             raise ValueError(
                 "materialized dataset root manifest snapshot_count did not round-trip: "
                 f"expected {manifest_snapshot_count}, loaded {len(rows)}"
+            )
+        manifest_symbols = tuple(str(value) for value in root_manifest.get("symbols") or ())
+        loaded_symbols = tuple(
+            sorted(
+                {
+                    str(symbol)
+                    for row in rows
+                    for symbol in dict(row.market.get("symbols") or {}).keys()
+                }
+            )
+        )
+        if manifest_symbols != loaded_symbols:
+            raise ValueError(
+                "materialized dataset root manifest symbols did not round-trip: "
+                f"expected {manifest_symbols}, loaded {loaded_symbols}"
             )
         manifest_bundle_dirs = tuple(Path(str(value)) for value in root_manifest.get("bundle_dirs") or ())
         if loaded_bundle_dirs != manifest_bundle_dirs:
