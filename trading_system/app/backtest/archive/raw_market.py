@@ -509,6 +509,13 @@ def load_phase1_raw_market_series(
     return _build_import_series(imported_files)
 
 
+def load_phase1_raw_market_manifest(manifest_path: str | Path) -> ImportedRawMarketFile:
+    path = Path(manifest_path)
+    if not path.exists():
+        raise FileNotFoundError(f"raw-market manifest missing: {path}")
+    return _load_import_file(path)
+
+
 def load_phase1_raw_market_imports(archive_root: str | Path) -> tuple[ImportedRawMarketSeries, ...]:
     raw_market_root = Path(archive_root) / RAW_MARKET_ROOT_DIRNAME
     if not raw_market_root.exists():
@@ -529,6 +536,7 @@ __all__ = [
     "RAW_MARKET_ROOT_DIRNAME",
     "archive_raw_market_payload",
     "load_phase1_raw_market_imports",
+    "load_phase1_raw_market_manifest",
     "load_phase1_raw_market_series",
     "raw_market_series_key",
     "raw_market_storage_dir",
