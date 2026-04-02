@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from trading_system.app.backtest.engine import replay_snapshot
 from trading_system.app.backtest.dataset import load_historical_dataset
 from trading_system.app.runtime_paths import build_runtime_paths
 
@@ -43,3 +44,24 @@ def test_archive_runtime_fixture_snapshots_match_archive_bundle_shape(fixture_di
     assert bundle_metadata["timestamp"] == latest_summary["finished_at"]
     assert Path(latest_summary["bucket_dir"]).as_posix().endswith("archive_runtime/runtime/paper/research")
     assert Path(latest_summary["state_file"]).name == paths.state_file.name
+
+
+def test_archive_runtime_fixture_runtime_state_tracks_replayed_regime_and_universes(
+    fixture_dir: Path,
+) -> None:
+    runtime_root = fixture_dir / "archive_runtime" / "runtime"
+    archive_root = fixture_dir / "archive_runtime" / "archive_dataset"
+    paths = build_runtime_paths("paper", runtime_root=runtime_root, runtime_env="research")
+
+    row = load_historical_dataset(archive_root)[0]
+    replayed = replay_snapshot(row)
+    runtime_state = _load_json(paths.state_file)
+
+    expected_regime = {
+        key: replayed["regime"][key]
+        for key in ("label", "confidence", "risk_multiplier", "execution_policy", "bucket_targets", "suppression_rules")
+    }
+
+    assert runtime_state["execution_mode"] == "paper"
+    assert {key: runtime_state["latest_regime"][key] for key in expected_regime} == expected_regime
+    assert runtime_state["latest_universes"] == replayed["universes"]
