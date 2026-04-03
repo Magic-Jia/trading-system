@@ -114,6 +114,28 @@ def test_archive_runtime_fixture_runtime_state_tracks_phase1_paper_execution_sum
     }
 
 
+def test_archive_runtime_fixture_summary_counts_match_runtime_state_and_jsonl_artifacts(
+    fixture_dir: Path,
+) -> None:
+    runtime_root = fixture_dir / "archive_runtime" / "runtime"
+    paths = build_runtime_paths("paper", runtime_root=runtime_root, runtime_env="research")
+
+    runtime_state = _load_json(paths.state_file)
+    latest_summary = _load_json(paths.latest_summary_file)
+    execution_events = _load_jsonl(paths.execution_log_file)
+    ledger_events = _load_jsonl(paths.paper_ledger_file)
+
+    assert runtime_state["latest_candidates"] == [{"engine": "trend", "symbol": "BTCUSDT", "score": 0.91}]
+    assert latest_summary["state_written"] is True
+    assert latest_summary["candidate_count"] == len(runtime_state["latest_candidates"]) == 1
+    assert latest_summary["allocation_count"] == len(runtime_state["latest_allocations"]) == 1
+    assert runtime_state["paper_trading"]["emitted_count"] == len(execution_events) == 1
+    assert runtime_state["paper_trading"]["ledger_event_count"] == len(ledger_events) == 1
+    assert latest_summary["paper_trading"]["emitted_count"] == len(execution_events) == 1
+    assert latest_summary["paper_trading"]["ledger_event_count"] == len(ledger_events) == 1
+    assert runtime_state["paper_trading"]["replayed_count"] == latest_summary["paper_trading"]["replayed_count"] == 0
+
+
 def test_archive_runtime_fixture_paper_execution_artifacts_share_phase1_intent_contract(
     fixture_dir: Path,
 ) -> None:
