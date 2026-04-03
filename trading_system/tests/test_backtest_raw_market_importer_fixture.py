@@ -230,3 +230,28 @@ def test_raw_market_importer_phase1_runtime_summary_exposes_provenance_pointers(
 
     assert {key: latest_summary[key] for key in expected_provenance} == expected_provenance
     assert {key: config.metadata[key] for key in expected_provenance} == expected_provenance
+
+
+def test_raw_market_importer_phase1_bundle_account_snapshot_preserves_provenance_metadata(
+    fixture_dir: Path,
+) -> None:
+    archive_runtime_root = fixture_dir / "archive_runtime"
+    config_path = archive_runtime_root / "imported_dataset_backtest_config.json"
+
+    config = load_backtest_config(config_path)
+    row = load_historical_dataset(config.dataset_root)[0]
+    bundle_metadata = _load_json(row.source_path / "metadata.json")
+    latest_summary = _load_json(archive_runtime_root / "runtime" / "paper" / "research" / "latest.json")
+
+    expected_meta = {
+        "account_type": "paper",
+        "snapshot_source": "paper_runtime_fixture",
+        "source_bundle": row.source_path.name,
+        "source_run_id": row.run_id,
+        "source_mode": config.metadata["source_mode"],
+        "source_runtime_env": config.metadata["source_runtime_env"],
+        "source_finished_at": latest_summary["finished_at"],
+    }
+
+    assert row.account["as_of"] == bundle_metadata["timestamp"] == latest_summary["finished_at"]
+    assert row.account["meta"] == expected_meta
