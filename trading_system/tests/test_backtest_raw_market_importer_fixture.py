@@ -90,6 +90,43 @@ def test_raw_market_importer_phase1_assembly_expectations_match_dataset_bundle(f
         assert derivatives_row["open_interest_usdt"] == expected["open_interest_usdt"]
 
 
+def test_raw_market_importer_phase1_bundle_timestamp_tracks_latest_open_interest_cutoff(
+    fixture_dir: Path,
+) -> None:
+    archive_runtime_root = fixture_dir / "archive_runtime"
+    raw_market_root = archive_runtime_root / "raw_market"
+    expectations = _load_json(archive_runtime_root / "assembly_expectations.json")
+    bundle_dir = archive_runtime_root / "archive_dataset" / expectations["bundle"]
+    metadata = _load_json(bundle_dir / "metadata.json")
+    market_context = _load_json(bundle_dir / "market_context.json")
+    derivatives_snapshot = _load_json(bundle_dir / "derivatives_snapshot.json")
+    manifest = _load_json(raw_market_root / "importer_manifest.json")
+
+    ohlcv_timestamps = set()
+    funding_timestamps = set()
+    open_interest_timestamps = set()
+
+    for item in manifest["imports"]:
+        payload = _load_json(raw_market_root / "archive" / item["archive_path"])
+        row = payload["rows"][-1]
+
+        if item["dataset"] == "ohlcv":
+            ohlcv_timestamps.add(row["open_time"])
+        elif item["dataset"] == "funding":
+            funding_timestamps.add(row["funding_time"])
+        elif item["dataset"] == "open_interest":
+            open_interest_timestamps.add(row["timestamp"])
+
+    assert ohlcv_timestamps == {"2026-03-31T00:00:00Z"}
+    assert funding_timestamps == {"2026-03-31T00:00:00Z"}
+    assert open_interest_timestamps == {"2026-03-31T00:15:00Z"}
+    assert metadata["timestamp"] == expectations["timestamp"] == "2026-03-31T00:15:00Z"
+    assert market_context["as_of"] == metadata["timestamp"]
+    assert derivatives_snapshot["as_of"] == metadata["timestamp"]
+    assert metadata["timestamp"] not in ohlcv_timestamps
+    assert metadata["timestamp"] not in funding_timestamps
+
+
 def test_raw_market_importer_phase1_materializes_loader_valid_dataset_root_for_validation(fixture_dir: Path) -> None:
     config_path = fixture_dir / "archive_runtime" / "imported_dataset_backtest_config.json"
 
