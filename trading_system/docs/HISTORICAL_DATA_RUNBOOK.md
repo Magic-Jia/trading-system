@@ -336,6 +336,25 @@ grep -RInE '"run_id"|"timestamp"|"source_bundle"|"source_mode"|"source_runtime_e
 - 有没有把 `latest.json` 当成完整 execution 账本；真正的 paper execution continuity 仍要回看 `runtime_state.json` 与 ledger
 - 有没有任何说明让 operator 误以为当前仓库已经存在自动 importer / downloader
 
+### Step 3A1: provenance continuity triage
+
+如果 Step 3A 的 grep/readback 发现 provenance 不连续，不要先写 note，先把故障归类：
+
+1. **raw-market 身份链断了**
+   - 现象：`source.manifest_paths` 指向缺失 manifest，或 bundle `metadata.json.source` / dataset row `meta.source` 已不再对齐
+   - 处理：先回到 raw-market manifest 与 `import_manifest.json.source`，恢复同一个 importer trace；恢复前不要把 dataset root 当作可交付输入
+2. **runtime 身份链断了**
+   - 现象：`latest.json` / config 仍保留 `source_bundle`、`source_run_id`、`source_timestamp`，但 bundle `metadata.json` 已缺 `source_*`
+   - 处理：先把 bundle metadata 补回 runtime 对表字段，再继续 dataset readback；不要只在 handoff note 里写“来源是这次 runtime”
+3. **两条链都在，但 bundle 身份互相打架**
+   - 现象：raw-market `source` 与 runtime `source_*` 指向不同 bundle / `run_id` / `timestamp`
+   - 处理：直接判定 readback fail，回到 runtime bundle 与 importer trace 重新对表；human note 只能记录排查过程，不能宣布通过
+4. **只剩 operator note**
+   - 现象：machine-readable provenance 已缺失，只剩 ticket / handoff note 还能解释来源
+   - 处理：视为 repair 线索，不视为 handoff 完成；必须先把 machine contract 补回 dataset root 外围引用的 importer/runtime 记录，再重新 readback
+
+目标很简单：**先恢复 machine-readable continuity，再补 human-readable note**，而不是反过来。
+
 ### Step 3B: materialization readback loop
 
 对真实 dataset root，建议把装配与读回视为一个短回路，而不是“全部复制完再祈祷”：
