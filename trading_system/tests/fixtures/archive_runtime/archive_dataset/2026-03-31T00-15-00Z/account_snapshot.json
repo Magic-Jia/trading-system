@@ -19,6 +19,11 @@
   "open_orders": [],
   "meta": {
     "account_type": "paper",
-    "snapshot_source": "paper_runtime_fixture"
+    "snapshot_source": "paper_runtime_fixture",
+    "source_bundle": "2026-03-31T00-15-00Z",
+    "source_run_id": "paper-research-2026-03-31t00-15-00z",
+    "source_mode": "paper",
+    "source_runtime_env": "research",
+    "source_finished_at": "2026-03-31T00:15:00Z"
   }
 }

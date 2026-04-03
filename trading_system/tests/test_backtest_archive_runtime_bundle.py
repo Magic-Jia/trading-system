@@ -50,6 +50,35 @@ def test_archive_runtime_fixture_snapshots_match_archive_bundle_shape(fixture_di
     assert Path(latest_summary["state_file"]).name == paths.state_file.name
 
 
+def test_archive_runtime_fixture_account_snapshot_meta_tracks_phase1_provenance(
+    fixture_dir: Path,
+) -> None:
+    runtime_root = fixture_dir / "archive_runtime" / "runtime"
+    archive_root = fixture_dir / "archive_runtime" / "archive_dataset"
+    paths = build_runtime_paths("paper", runtime_root=runtime_root, runtime_env="research")
+
+    row = load_historical_dataset(archive_root)[0]
+    runtime_account = _load_json(paths.account_snapshot_file)
+    latest_summary = _load_json(paths.latest_summary_file)
+    runtime_state = _load_json(paths.state_file)
+    paper_intent = runtime_state["paper_trading"]["intents"][0]
+
+    expected_meta = {
+        "account_type": "paper",
+        "snapshot_source": "paper_runtime_fixture",
+        "source_bundle": latest_summary["source_bundle"],
+        "source_run_id": latest_summary["source_run_id"],
+        "source_mode": latest_summary["mode"],
+        "source_runtime_env": latest_summary["runtime_env"],
+        "source_finished_at": latest_summary["finished_at"],
+    }
+
+    assert runtime_account == row.account
+    assert runtime_account["as_of"] == latest_summary["finished_at"]
+    assert runtime_account["meta"] == expected_meta
+    assert runtime_account["open_positions"][0]["symbol"] == paper_intent["symbol"]
+
+
 def test_archive_runtime_fixture_runtime_state_tracks_replayed_regime_and_universes(
     fixture_dir: Path,
 ) -> None:
