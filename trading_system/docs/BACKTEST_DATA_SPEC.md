@@ -72,6 +72,20 @@ Each bundle must be self-describing and deterministic:
 - `source.manifest_paths` 指向的 raw-market manifest 必须真实存在；“路径看起来像对的”但文件已丢失，不算通过
 - 每个被引用的 raw-market manifest 仍必须声明 Phase 1 允许的来源身份：至少保持 `exchange=binance`、`market=futures`；若 manifest 漂成 spot 或其他 market，这个 imported dataset root 就已超出当前 scope
 
+### Source-manifest and runtime provenance continuity
+
+对 runtime 派生的 imported dataset，Phase 1 现在要求把两条 provenance 链接在同一个 bundle 身份上，而不是分散成几份互不对表的说明：
+
+1. raw-market 身份链：raw-market manifest -> `import_manifest.json.source.manifest_paths` -> bundle `metadata.json.source` -> dataset row `meta.source`
+2. runtime 身份链：runtime `latest.json` -> bundle `metadata.json` / config `metadata` / dataset row `meta`
+
+最小连续性要求：
+
+- `import_manifest.json.source` 与每个 bundle `metadata.json.source` 应保持同一个 importer trace 语义，而不是各写各的摘要
+- 同一份 bundle `metadata.json` 还应继续保留 `source_bundle`、`source_run_id`、`source_timestamp`、`source_mode`、`source_runtime_env`、`source_finished_at`
+- `source.manifest_paths` 解决的是“这份 bundle 用了哪些 raw-market manifests”；`source_bundle` 等字段解决的是“这份 bundle 对应哪次 runtime/research 产物”；两者互补，不互相替代
+- 如果只剩 runtime summary 而 bundle metadata 不再带 raw-market `source`，或只剩 `source.manifest_paths` 却对不上 runtime `source_*` 字段，都应视为 provenance continuity 已断
+
 ## Loader behavior
 
 `trading_system.app.backtest.dataset.load_historical_dataset`:
