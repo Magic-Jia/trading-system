@@ -100,6 +100,41 @@ def test_archive_runtime_fixture_runtime_state_tracks_replayed_regime_and_univer
     assert runtime_state["latest_universes"] == replayed["universes"]
 
 
+def test_archive_runtime_fixture_universe_liquidity_meta_matches_archived_snapshot_inputs(
+    fixture_dir: Path,
+) -> None:
+    runtime_root = fixture_dir / "archive_runtime" / "runtime"
+    archive_root = fixture_dir / "archive_runtime" / "archive_dataset"
+    paths = build_runtime_paths("paper", runtime_root=runtime_root, runtime_env="research")
+
+    row = load_historical_dataset(archive_root)[0]
+    runtime_state = _load_json(paths.state_file)
+    derivatives_by_symbol = {entry["symbol"]: entry for entry in row.derivatives}
+
+    for universe_name in ("major_universe", "short_universe"):
+        for universe_row in runtime_state["latest_universes"][universe_name]:
+            symbol = universe_row["symbol"]
+            market_symbol = row.market["symbols"][symbol]
+            derivatives_row = derivatives_by_symbol[symbol]
+            liquidity_meta = universe_row["liquidity_meta"]
+            expected_spot_volume = market_symbol["daily"]["volume_usdt_24h"]
+
+            assert liquidity_meta["rolling_notional"] == expected_spot_volume
+            assert liquidity_meta["depth_proxy_notional"] == expected_spot_volume * 0.2
+            assert liquidity_meta["slippage_bps"] == 2.0
+            assert liquidity_meta["listing_age_days"] == 3650.0
+            assert liquidity_meta["rolling_notional_ok"] is True
+            assert liquidity_meta["depth_proxy_ok"] is True
+            assert liquidity_meta["slippage_ok"] is True
+            assert liquidity_meta["listing_age_ok"] is True
+            assert liquidity_meta["wick_risk_ok"] is True
+            assert liquidity_meta["spot_volume_usdt_24h"] == expected_spot_volume
+            assert liquidity_meta["open_interest_usdt"] == derivatives_row["open_interest_usdt"]
+            assert liquidity_meta["liquidity_source"] == "volume_usdt_24h"
+
+    assert runtime_state["latest_universes"]["rotation_universe"] == []
+
+
 def test_archive_runtime_fixture_runtime_state_tracks_phase1_paper_execution_summary(
     fixture_dir: Path,
 ) -> None:
