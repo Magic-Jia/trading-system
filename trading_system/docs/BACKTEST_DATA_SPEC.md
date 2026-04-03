@@ -86,6 +86,19 @@ Each bundle must be self-describing and deterministic:
 - `source.manifest_paths` 解决的是“这份 bundle 用了哪些 raw-market manifests”；`source_bundle` 等字段解决的是“这份 bundle 对应哪次 runtime/research 产物”；两者互补，不互相替代
 - 如果只剩 runtime summary 而 bundle metadata 不再带 raw-market `source`，或只剩 `source.manifest_paths` 却对不上 runtime `source_*` 字段，都应视为 provenance continuity 已断
 
+### Phase 1 provenance promotion gate
+
+对 operator 来说，Phase 1 现在还多了一条 promotion gate：**只要 raw-market 身份链或 runtime 身份链有一条断掉，这份 imported dataset 就只能继续留在 readback / repair 状态，不能当成已完成 handoff。**
+
+最小判断规则：
+
+- raw-market manifest 仍在、`source.manifest_paths` 也还能对上，但 bundle `metadata.json` / dataset row `meta` 缺少对应 `source`：说明 imported dataset 丢了 machine-readable raw-market 身份，先补 metadata/importer trace，再谈交付
+- runtime `latest.json` 或 config 还能对上 `source_bundle` / `source_run_id` / `source_timestamp`，但 bundle metadata 已经缺这些 `source_*` 字段：说明 runtime 身份链断在 imported dataset 这一层，先修 bundle metadata，再谈交付
+- raw-market `source` 与 runtime `source_*` 两条链都还在，但互相指向不同 bundle 身份：说明 provenance join point 已漂移；应直接视为 readback fail，而不是靠 operator note 解释过去
+- 只有 human-written note 还能说明“这份数据大概来自哪里”，但 machine contract 已经断掉：说明这份 dataset 目前只剩线索，不算可交付 research input
+
+operator note / handoff note 可以记录 repair 过程，但**不能**替代 `import_manifest.json.source`、bundle `metadata.json.source` 或 bundle `metadata.json` 里的 runtime `source_*` 字段。
+
 ## Loader behavior
 
 `trading_system.app.backtest.dataset.load_historical_dataset`:
