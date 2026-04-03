@@ -665,6 +665,8 @@ def validate_phase1_imported_dataset_root(
 
     manifest_path = _phase1_dataset_root_manifest_path(dataset_path)
     root_manifest = _read_json_object(manifest_path) if manifest_path.exists() else None
+    explicit_bundle_dirs = tuple(Path(bundle_dir) for bundle_dir in expected_bundle_dirs) if expected_bundle_dirs is not None else None
+    explicit_timestamps = tuple(expected_timestamps) if expected_timestamps is not None else None
     if root_manifest is not None:
         schema_version = str(root_manifest.get("schema_version") or "")
         if schema_version != PHASE1_IMPORTER_ROOT_SCHEMA:
@@ -675,37 +677,43 @@ def validate_phase1_imported_dataset_root(
                 "materialized dataset root manifest dataset_root mismatch: "
                 f"expected {dataset_path}, loaded {manifest_dataset_root}"
             )
-        if expected_bundle_dirs is None:
-            expected_bundle_dirs = tuple(Path(value) for value in root_manifest.get("bundle_dirs") or ())
-        if expected_timestamps is None:
-            expected_timestamps = tuple(_utc_datetime(str(value)) for value in root_manifest.get("bundle_timestamps") or ())
-
-    if expected_bundle_dirs is None or expected_timestamps is None:
+    if explicit_bundle_dirs is None and explicit_timestamps is None and root_manifest is None:
         raise ValueError("expected bundle directories/timestamps or root manifest are required for validation")
 
+    explicit_row_count: int | None = None
+    if explicit_bundle_dirs is not None:
+        explicit_row_count = len(explicit_bundle_dirs)
+    if explicit_timestamps is not None:
+        if explicit_row_count is None:
+            explicit_row_count = len(explicit_timestamps)
+        elif len(explicit_timestamps) != explicit_row_count:
+            raise ValueError(
+                "materialized dataset root explicit expectations must share one row count: "
+                f"bundle_dirs={explicit_row_count}, timestamps={len(explicit_timestamps)}"
+            )
+
     rows = load_historical_dataset(dataset_path)
-    if len(rows) != len(expected_bundle_dirs):
+    if explicit_row_count is not None and len(rows) != explicit_row_count:
         raise ValueError(
             "materialized dataset root failed validation: "
-            f"expected {len(expected_bundle_dirs)} rows, loaded {len(rows)}"
+            f"expected {explicit_row_count} rows, loaded {len(rows)}"
         )
 
     loaded_bundle_dirs = tuple(row.source_path for row in rows)
-    expected_bundle_tuple = tuple(Path(bundle_dir) for bundle_dir in expected_bundle_dirs)
-    if loaded_bundle_dirs != expected_bundle_tuple:
+    if explicit_bundle_dirs is not None and loaded_bundle_dirs != explicit_bundle_dirs:
         raise ValueError(
             "materialized dataset root bundle directories did not round-trip: "
-            f"expected {expected_bundle_tuple}, loaded {loaded_bundle_dirs}"
+            f"expected {explicit_bundle_dirs}, loaded {loaded_bundle_dirs}"
         )
 
     loaded_timestamps = tuple(row.timestamp for row in rows)
-    expected_timestamp_tuple = tuple(expected_timestamps)
-    if loaded_timestamps != expected_timestamp_tuple:
+    if explicit_timestamps is not None and loaded_timestamps != explicit_timestamps:
         raise ValueError(
             "materialized dataset root timestamps did not round-trip: "
-            f"expected {expected_timestamp_tuple}, loaded {loaded_timestamps}"
+            f"expected {explicit_timestamps}, loaded {loaded_timestamps}"
         )
-    for bundle_dir, timestamp in zip(loaded_bundle_dirs, expected_timestamp_tuple, strict=False):
+    payload_timestamps = explicit_timestamps if explicit_timestamps is not None else loaded_timestamps
+    for bundle_dir, timestamp in zip(loaded_bundle_dirs, payload_timestamps, strict=False):
         _validate_bundle_payloads(bundle_dir, expected_timestamp=timestamp)
 
     if root_manifest is not None:
