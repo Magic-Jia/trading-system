@@ -240,6 +240,7 @@ find trading_system/data/archive/raw-market -maxdepth 6 -type d | sort
 - 如需保留 provenance / handoff 说明，应放在 dataset root 外的 operator/readback 记录中
 - 若 `import_manifest.json` 存在，确认 `source.manifest_paths` 都在同一个 `raw-market` 树下，且反推出的 `archive_root` 没漂移
 - 继续打开这些 `source.manifest_paths` 指向的 raw-market manifest，确认文件没有丢失，且 payload 仍明确是 `exchange=binance`、`market=futures`
+- 若 dataset 还带 runtime provenance，确认 `import_manifest.json.source`、bundle `metadata.json.source`、dataset row `meta.source` 描述的是同一个 importer trace，而不是几份彼此不一致的摘要
 
 ### Step 3A: do a lightweight imported-dataset readback
 
@@ -314,6 +315,11 @@ STATE_JSON=trading_system/tests/fixtures/archive_runtime/runtime/paper/research/
 grep -nE '"source_bundle"|"source_run_id"|"source_timestamp"|"source_mode"|"source_runtime_env"|"source_finished_at"' "$CONFIG_JSON"
 grep -nE '"mode"|"runtime_env"|"finished_at"|"source_bundle"|"source_run_id"|"source_timestamp"' "$LATEST_JSON"
 grep -nE '"latest_allocations"|"execution"|"paper_trading"|"ledger_path"|"intent_id"|"ledger_event_count"|"emitted_count"|"replayed_count"' "$STATE_JSON"
+test ! -f "$DATASET_ROOT/import_manifest.json" || \
+  grep -nE '"archive_root"|"source"|"manifest_paths"|"exchange"|"market"|"scope"' \
+    "$DATASET_ROOT/import_manifest.json"
+grep -RInE '"source"|"source_bundle"|"source_run_id"|"source_timestamp"|"source_mode"|"source_runtime_env"|"source_finished_at"' \
+  "$DATASET_ROOT"/*/metadata.json
 grep -RInE '"run_id"|"timestamp"|"source_bundle"|"source_mode"|"source_runtime_env"|"source_finished_at"' "$DATASET_ROOT"/*/metadata.json
 ```
 
@@ -325,6 +331,8 @@ grep -RInE '"run_id"|"timestamp"|"source_bundle"|"source_mode"|"source_runtime_e
 - 有没有把 bundle 目录名误当成排序或时间戳合同
 - 有没有把 provenance note 错放到 loader 会扫描的一级目录
 - 有没有 `source.manifest_paths` 指向不存在、或已经漂成 spot / 非 futures 的 raw-market manifest
+- 有没有 `import_manifest.json.source` 与 bundle `metadata.json.source` 已经写成两套不同的 provenance 摘要
+- 有没有 bundle `metadata.json` 还保留 raw-market `source`，却丢了 `source_bundle` / `source_run_id` / `source_timestamp` 这些 runtime 对表字段
 - 有没有把 `latest.json` 当成完整 execution 账本；真正的 paper execution continuity 仍要回看 `runtime_state.json` 与 ledger
 - 有没有任何说明让 operator 误以为当前仓库已经存在自动 importer / downloader
 
