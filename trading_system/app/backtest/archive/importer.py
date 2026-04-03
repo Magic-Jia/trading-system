@@ -581,6 +581,13 @@ def _validated_source_trace_against_manifests(source: Mapping[str, Any], *, cont
 
 
 def _validate_bundle_payloads(bundle_dir: Path, *, expected_timestamp: datetime) -> None:
+    expected_bundle_name = f"{_bundle_fragment(expected_timestamp)}__{_run_id(expected_timestamp)}"
+    if bundle_dir.name != expected_bundle_name:
+        raise ValueError(
+            "materialized dataset bundle directory name did not round-trip: "
+            f"expected {expected_bundle_name}, loaded {bundle_dir.name}"
+        )
+
     metadata = _read_json_object(bundle_dir / "metadata.json")
     expected_run_id = _run_id(expected_timestamp)
     loaded_run_id = str(metadata.get("run_id") or "")

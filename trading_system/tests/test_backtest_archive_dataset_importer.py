@@ -441,3 +441,21 @@ def test_validate_phase1_imported_dataset_root_rejects_bundle_dir_mismatch(tmp_p
             expected_bundle_dirs=(bundle_dir,),
             expected_timestamps=(material.timestamp,),
         )
+
+
+def test_validate_phase1_imported_dataset_root_rejects_bundle_dir_name_drift(tmp_path: Path) -> None:
+    archive_root = tmp_path / "archive"
+    dataset_root = tmp_path / "dataset"
+    _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT")
+
+    import_phase1_archive_dataset_root(archive_root, dataset_root)
+    manifest_path = dataset_root / "import_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    bundle_dir = Path(manifest["bundle_dirs"][-1])
+    renamed_bundle_dir = bundle_dir.with_name("renamed-bundle")
+    bundle_dir.rename(renamed_bundle_dir)
+    manifest["bundle_dirs"][-1] = str(renamed_bundle_dir)
+    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="bundle directory name did not round-trip"):
+        validate_phase1_imported_dataset_root(dataset_root)
