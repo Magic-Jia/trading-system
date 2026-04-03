@@ -376,6 +376,12 @@ grep -RInE '"run_id"|"timestamp"|"source_bundle"|"source_mode"|"source_runtime_e
 ```text
 dataset_root:
 research_window_or_bundle_set:
+archive_root:
+raw_market_manifest_paths:
+runtime_latest_json:
+runtime_config_metadata_source:
+runtime_state_or_ledger_refs:
+runtime_bundle_join_identity: source_bundle / source_run_id / source_timestamp
 bundle_timestamps_and_run_ids:
 market_context_source:
 derivatives_snapshot_source:
@@ -389,9 +395,12 @@ open_questions:
 写这份记录时，重点不是“把故事写漂亮”，而是把 Phase 1 materialization 的几个关键决定固定下来：
 
 - dataset root 到底服务哪个研究窗口，而不是模糊地“给 backtest 用”
+- raw-market manifest、runtime 记录、dataset bundle 三者到底靠哪组引用与 join 字段串起来，而不是事后靠人脑回忆
 - `timestamp` / `run_id` 是从哪份现有记录写入，而不是现场脑补
 - snapshot 来源是否已经能被下一位 operator 复核
 - 最近一次 lightweight readback 是否真的通过
+
+如果 operator note 里的 raw-market/runtime 引用，与 `import_manifest.json.source` 或 bundle `metadata.json` 的 machine-readable 字段冲突，先按 readback fail 处理；不要让 note 反向“解释通过”。
 
 只要这些字段还空着，就不要把 dataset root 当成已完成 handoff。
 
