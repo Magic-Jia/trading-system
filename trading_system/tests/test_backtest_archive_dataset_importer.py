@@ -358,6 +358,72 @@ def test_validate_phase1_imported_dataset_root_rejects_timestamp_drift(tmp_path:
         )
 
 
+def test_validate_phase1_imported_dataset_root_rejects_bundle_metadata_run_id_drift(tmp_path: Path) -> None:
+    archive_root = tmp_path / "archive"
+    dataset_root = tmp_path / "dataset"
+    _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT")
+
+    imported = load_phase1_raw_market_imports(archive_root)
+    material = build_phase1_dataset_bundle_materials(imported)[-1]
+    bundle_dir = write_phase1_dataset_bundle(material, dataset_root)
+
+    metadata_path = bundle_dir / "metadata.json"
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    metadata["run_id"] = "phase1-import-2024-03-01T00-00-00Z"
+    metadata_path.write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="bundle metadata run_id did not round-trip"):
+        validate_phase1_imported_dataset_root(
+            dataset_root,
+            expected_bundle_dirs=(bundle_dir,),
+            expected_timestamps=(material.timestamp,),
+        )
+
+
+def test_validate_phase1_imported_dataset_root_rejects_bundle_payload_schema_drift(tmp_path: Path) -> None:
+    archive_root = tmp_path / "archive"
+    dataset_root = tmp_path / "dataset"
+    _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT")
+
+    imported = load_phase1_raw_market_imports(archive_root)
+    material = build_phase1_dataset_bundle_materials(imported)[-1]
+    bundle_dir = write_phase1_dataset_bundle(material, dataset_root)
+
+    market_context_path = bundle_dir / "market_context.json"
+    market_context = json.loads(market_context_path.read_text(encoding="utf-8"))
+    market_context["schema_version"] = "imported_market_context.v2"
+    market_context_path.write_text(json.dumps(market_context, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="bundle payload schema_version is out of phase1 importer scope"):
+        validate_phase1_imported_dataset_root(
+            dataset_root,
+            expected_bundle_dirs=(bundle_dir,),
+            expected_timestamps=(material.timestamp,),
+        )
+
+
+def test_validate_phase1_imported_dataset_root_rejects_bundle_payload_as_of_drift(tmp_path: Path) -> None:
+    archive_root = tmp_path / "archive"
+    dataset_root = tmp_path / "dataset"
+    _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT")
+
+    imported = load_phase1_raw_market_imports(archive_root)
+    material = build_phase1_dataset_bundle_materials(imported)[-1]
+    bundle_dir = write_phase1_dataset_bundle(material, dataset_root)
+
+    market_context_path = bundle_dir / "market_context.json"
+    market_context = json.loads(market_context_path.read_text(encoding="utf-8"))
+    market_context["as_of"] = "2024-03-01T00:00:00Z"
+    market_context_path.write_text(json.dumps(market_context, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="bundle payload as_of did not round-trip"):
+        validate_phase1_imported_dataset_root(
+            dataset_root,
+            expected_bundle_dirs=(bundle_dir,),
+            expected_timestamps=(material.timestamp,),
+        )
+
+
 def test_validate_phase1_imported_dataset_root_rejects_bundle_dir_mismatch(tmp_path: Path) -> None:
     archive_root = tmp_path / "archive"
     dataset_root = tmp_path / "dataset"

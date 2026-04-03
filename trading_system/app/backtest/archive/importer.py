@@ -580,6 +580,37 @@ def _validated_source_trace_against_manifests(source: Mapping[str, Any], *, cont
     return normalized_source
 
 
+def _validate_bundle_payloads(bundle_dir: Path, *, expected_timestamp: datetime) -> None:
+    metadata = _read_json_object(bundle_dir / "metadata.json")
+    expected_run_id = _run_id(expected_timestamp)
+    loaded_run_id = str(metadata.get("run_id") or "")
+    if loaded_run_id != expected_run_id:
+        raise ValueError(
+            "materialized dataset bundle metadata run_id did not round-trip: "
+            f"expected {expected_run_id}, loaded {loaded_run_id}"
+        )
+
+    expected_as_of = _utc_timestamp(expected_timestamp)
+    for file_name, expected_schema in (
+        ("market_context.json", PHASE1_IMPORTER_MARKET_CONTEXT_SCHEMA),
+        ("derivatives_snapshot.json", PHASE1_IMPORTER_DERIVATIVES_SCHEMA),
+        ("account_snapshot.json", PHASE1_IMPORTER_ACCOUNT_SCHEMA),
+    ):
+        payload = _read_json_object(bundle_dir / file_name)
+        loaded_schema = str(payload.get("schema_version") or "")
+        if loaded_schema != expected_schema:
+            raise ValueError(
+                "materialized dataset bundle payload schema_version is out of phase1 importer scope: "
+                f"expected {expected_schema}, loaded {loaded_schema}"
+            )
+        loaded_as_of = str(payload.get("as_of") or "")
+        if loaded_as_of != expected_as_of:
+            raise ValueError(
+                "materialized dataset bundle payload as_of did not round-trip: "
+                f"expected {expected_as_of}, loaded {loaded_as_of}"
+            )
+
+
 def write_phase1_dataset_root_manifest(
     archive_root: str | Path,
     dataset_root: str | Path,
@@ -667,6 +698,8 @@ def validate_phase1_imported_dataset_root(
             "materialized dataset root timestamps did not round-trip: "
             f"expected {expected_timestamp_tuple}, loaded {loaded_timestamps}"
         )
+    for bundle_dir, timestamp in zip(loaded_bundle_dirs, expected_timestamp_tuple, strict=False):
+        _validate_bundle_payloads(bundle_dir, expected_timestamp=timestamp)
 
     if root_manifest is not None:
         loaded_source = _validated_source_trace_against_manifests(
