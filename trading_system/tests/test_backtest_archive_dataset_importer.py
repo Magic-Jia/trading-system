@@ -226,6 +226,36 @@ def test_import_phase1_archive_dataset_root_materializes_loadable_dataset_root(t
     assert [row.timestamp for row in validated_rows] == [row.timestamp for row in rows]
 
 
+def test_validate_phase1_imported_dataset_root_rejects_manifest_schema_version_drift(tmp_path: Path) -> None:
+    archive_root = tmp_path / "archive"
+    dataset_root = tmp_path / "dataset"
+    _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT")
+
+    import_phase1_archive_dataset_root(archive_root, dataset_root)
+    manifest_path = dataset_root / "import_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["schema_version"] = "phase1_imported_dataset_root.v2"
+    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="unsupported phase1 dataset root manifest schema"):
+        validate_phase1_imported_dataset_root(dataset_root)
+
+
+def test_validate_phase1_imported_dataset_root_rejects_manifest_dataset_root_drift(tmp_path: Path) -> None:
+    archive_root = tmp_path / "archive"
+    dataset_root = tmp_path / "dataset"
+    _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT")
+
+    import_phase1_archive_dataset_root(archive_root, dataset_root)
+    manifest_path = dataset_root / "import_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["dataset_root"] = str(tmp_path / "other-dataset")
+    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="dataset root manifest dataset_root mismatch"):
+        validate_phase1_imported_dataset_root(dataset_root)
+
+
 def test_validate_phase1_imported_dataset_root_rejects_manifest_snapshot_count_drift(tmp_path: Path) -> None:
     archive_root = tmp_path / "archive"
     dataset_root = tmp_path / "dataset"
