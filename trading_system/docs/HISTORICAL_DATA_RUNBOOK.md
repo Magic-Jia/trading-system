@@ -231,6 +231,10 @@ find trading_system/data/archive/raw-market -maxdepth 6 -type d | sort
 - root 级普通文件里，当前只有 `baseline_account_snapshot.json` 会被 loader 读取；`import_manifest.json` 不参与 loader 排序，但若存在，会进入 importer readback validation
 - 若 `import_manifest.json` 存在，至少要能读回 `dataset_root`、`scope`、`snapshot_count`、`symbols`、`archive_root`、`source`、`bundle_dirs`、`bundle_timestamps`、`start_timestamp`、`end_timestamp`
 
+这里要特别记住一条操作口径：**dataset root 还能被 loader 读开，不等于 imported-root contract 仍然成立。**
+
+loader 只证明“这些文件还长得像 dataset”；但 `snapshot_count`、`symbols`、`archive_root`、`source`、`bundle_dirs` 还要继续证明“这仍然是 manifest 当初声明的那一份 dataset”。
+
 重点检查：
 
 - dataset root 下只放 bundle 目录和允许的 root 文件（baseline、可选 importer manifest）
@@ -368,6 +372,53 @@ test ! -f "$DATASET_ROOT/import_manifest.json" || \
 如果这里打印出多个 `schema_version`，或真实 imported root 打印出 `None` / 缺失值，就不要继续手改 manifest；先回到 bundle metadata 的来源记录做修复。
 
 这里的判断原则很简单：**先用实际 bundle metadata 决定 dataset root 现在“是什么”，再决定 manifest 应不应该更新。** 不要反过来拿 manifest 去掩盖 bundle 漂移。
+
+### Step 3A0b: classify identity / source drift field-by-field
+
+除了 `schema_version`、`bundle_timestamps`、`start_timestamp`、`end_timestamp` 这 4 类常见漂移，还要把下面 5 个字段单独过一遍；它们保护的是 imported root 身份，不只是 readback 摘要：
+
+1. **`snapshot_count`**
+   - 看什么：manifest 记录的 snapshot 数，是否等于当前 root 下能按 loader contract 成立的 bundle 数
+   - 报错通常说明什么：多了/少了 bundle，或 manifest 没跟上最近一次 materialization
+   - 怎么判断哪边坏了：如果实际 bundle 集合与 handoff 目标一致，只是 manifest 数字落后，就是 manifest stale；如果 root 确实多了/少了目录、混入了备份 bundle，就是 root drift
+
+2. **`symbols`**
+   - 看什么：manifest 声明的 symbol universe，是否仍与 bundle `metadata.json.source`、被引用的 raw-market manifests、外部 handoff 目标一致
+   - 报错通常说明什么：混入了错误 symbol 的 bundle，或 source provenance 已漂到另一组交易对
+   - 怎么判断哪边坏了：如果 bundle/source 与 raw-market manifests 都一致，只有 manifest 没刷新，就是 manifest stale；如果实际 bundle/source 已改成另一组 symbols，就是 archive/root reality drift
+
+3. **`archive_root`**
+   - 看什么：`source.manifest_paths` 是否都还能反推出同一个 canonical raw-market root，并与 manifest 的 `archive_root` 一致
+   - 报错通常说明什么：manifest 路径陈旧、source manifests 被搬迁，或 dataset 已混用了多个 archive roots
+   - 怎么判断哪边坏了：如果所有 `source.manifest_paths` 仍收敛到同一个真实 root，只是 manifest 文本旧了，就是 manifest stale；如果 `source.manifest_paths` 已经散到多个 roots 或临时路径，就是 archive/source drift
+
+4. **`source`**
+   - 看什么：`import_manifest.json.source`、bundle `metadata.json.source`、dataset row `meta.source`、以及 runtime `source_*` 字段，是否仍指向同一个 bundle 身份
+   - 报错通常说明什么：machine-readable provenance 丢了、被改写了，或不同层开始讲不同来源故事
+   - 怎么判断哪边坏了：如果 bundle `source` 与 raw-market manifests / runtime `source_*` 仍一致，只有 root manifest 不一致，就是 manifest stale；如果 bundle 之间自己的 `source` 就互相冲突，就是 root/source drift
+
+5. **`bundle_dirs`**
+   - 看什么：manifest 记录的一级目录成员，是否仍与 root 下实际 bundle 目录一致
+   - 报错通常说明什么：手工改名、旧 bundle 残留、`archive/` / `notes/` / `tmp/` / `backup/` 混入，或 materialization 后忘了刷新 manifest
+   - 怎么判断哪边坏了：如果实际目录集合正是当前 handoff 要交付的那一批 bundle，只是 manifest 列表旧了，就是 manifest stale；如果 root 下出现脏目录、备份目录、错误重命名目录，就是 root drift
+
+可以直接追加一轮最小 shell readback：
+
+```bash
+test ! -f "$DATASET_ROOT/import_manifest.json" || \
+  grep -nE '"snapshot_count"|"symbols"|"archive_root"|"bundle_dirs"|"source"' \
+    "$DATASET_ROOT/import_manifest.json"
+
+find "$DATASET_ROOT" -mindepth 1 -maxdepth 1 -type d | sort
+grep -RInE '"source"|"symbol"|"symbols"' "$DATASET_ROOT"/*/metadata.json
+```
+
+如果这一步发现：
+
+- 只有 `import_manifest.json` 跟不上实际 bundle/source -> 先判为 **manifest stale**，重建 manifest
+- 实际 bundle/source/manifest_paths 自己已经互相冲突 -> 先判为 **archive/root reality drift**，恢复 root 或回到 archive 侧重做 materialization
+
+不要在这一轮里用“loader 还能跑”给 dataset root 放行；那只说明格式还凑合，不说明身份合同还成立。
 
 如果读的是由 runtime bundle 派生出的 imported dataset，还要额外确认 provenance 指针没有断：
 
