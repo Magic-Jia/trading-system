@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -147,3 +149,37 @@ def test_capture_runtime_envs_and_main_emit_structured_results(tmp_path: Path, c
     assert exit_code == 0
     assert [item["runtime_env"] for item in payload] == ["prod", "paper"]
     assert [item["status"] for item in payload] == ["already_archived", "already_archived"]
+
+
+def test_python_m_capture_emits_clean_json_only(tmp_path: Path) -> None:
+    runtime_root = tmp_path / "runtime"
+    _prepare_runtime_bucket(
+        runtime_root,
+        runtime_env="prod",
+        snapshot_as_of="2026-04-04T13:05:01.856498Z",
+        finished_at="2026-04-04T13:05:09.875678Z",
+    )
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "trading_system.app.backtest.archive.capture",
+            "--runtime-root",
+            str(runtime_root),
+            "--mode",
+            "paper",
+            "--runtime-env",
+            "prod",
+        ],
+        cwd=Path(__file__).resolve().parents[2],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0
+    assert completed.stderr == ""
+    payload = json.loads(completed.stdout)
+    assert payload[0]["runtime_env"] == "prod"
+    assert payload[0]["status"] == "archived"
