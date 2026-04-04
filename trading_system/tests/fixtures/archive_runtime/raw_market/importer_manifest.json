@@ -1,0 +1,67 @@
+{
+  "source": "binance",
+  "selection_policy": "binance-first",
+  "market": "futures",
+  "priority": "futures-first",
+  "coverage_policy": "coverage-driven",
+  "datasets": [
+    "ohlcv",
+    "funding",
+    "open_interest"
+  ],
+  "coverage": {
+    "required_symbols": [
+      "BTCUSDT",
+      "ETHUSDT"
+    ],
+    "required_datasets": [
+      "ohlcv",
+      "funding",
+      "open_interest"
+    ],
+    "required_intervals": {
+      "ohlcv": [
+        "1h"
+      ],
+      "open_interest": [
+        "5m"
+      ]
+    }
+  },
+  "imports": [
+    {
+      "dataset": "ohlcv",
+      "symbol": "BTCUSDT",
+      "interval": "1h",
+      "archive_path": "binance/futures/ohlcv/BTCUSDT/1h/2026/03/31.json"
+    },
+    {
+      "dataset": "ohlcv",
+      "symbol": "ETHUSDT",
+      "interval": "1h",
+      "archive_path": "binance/futures/ohlcv/ETHUSDT/1h/2026/03/31.json"
+    },
+    {
+      "dataset": "funding",
+      "symbol": "BTCUSDT",
+      "archive_path": "binance/futures/funding/BTCUSDT/2026/03/31.json"
+    },
+    {
+      "dataset": "funding",
+      "symbol": "ETHUSDT",
+      "archive_path": "binance/futures/funding/ETHUSDT/2026/03/31.json"
+    },
+    {
+      "dataset": "open_interest",
+      "symbol": "BTCUSDT",
+      "interval": "5m",
+      "archive_path": "binance/futures/open_interest/BTCUSDT/5m/2026/03/31.json"
+    },
+    {
+      "dataset": "open_interest",
+      "symbol": "ETHUSDT",
+      "interval": "5m",
+      "archive_path": "binance/futures/open_interest/ETHUSDT/5m/2026/03/31.json"
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "source": "binance",
+  "market": "futures",
+  "dataset": "open_interest",
+  "symbol": "BTCUSDT",
+  "interval": "5m",
+  "rows": [
+    {
+      "timestamp": "2026-03-31T00:15:00Z",
+      "open_interest_usdt": 24500000000
+    }
+  ]
+}
