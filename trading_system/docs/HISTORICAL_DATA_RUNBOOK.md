@@ -138,11 +138,12 @@ find trading_system/data/archive/raw-market -maxdepth 6 -type d | sort
 
 但要明确当前 repo reality：
 
-- `trading_system/app/backtest/archive/importer.py` 还没落地
-- `trading_system/app/backtest/archive/cli.py` 也还没落地
-- 当前没有“通用 downloader 一跑完就自动生成 dataset root”的现成入口
+- `trading_system/app/backtest/archive/importer.py` 已落地，可做 imported dataset root（导入数据集根目录）装配与 readback validation（回读校验）
+- `python3 -m trading_system.app.backtest.archive.fetch ...` 已落地，可做 Phase 1 的 Binance futures（币安合约）raw-market 抓取与落库
+- `trading_system/app/backtest/archive/cli.py` 这类统一 archive/import 总控 CLI 仍未落地
+- 当前仍没有“一条命令抓完 raw-market 就自动生成 dataset root”的完整总控入口
 
-所以 operator 在 Phase 1 要做的是：**先证明 archive coverage 正确，再准备一份 importer-facing handoff，再把研究需要的数据整理成 loader 可读的 dataset root**。
+所以 operator 在 Phase 1 要做的是：**先证明 archive coverage 正确，再准备一份 importer-facing handoff，必要时调用 importer 装配 loader 可读的 dataset root**。
 
 ### Importer-facing handoff checklist
 
@@ -529,22 +530,37 @@ open_questions:
 
 ## Step 4: smoke-test current repo reality
 
-因为 archive CLI / importer 还在计划实现阶段，当前最可靠的轻量验证仍是：
+当前 repo reality 已经比最初计划前进了一步：raw-market fetcher（原始市场抓取器）与 importer（导入器）都已落地，但 unified archive CLI（统一归档命令行）仍未收口。因此当前最可靠的轻量验证仍分两层：
 
-1. 验证 dataset loader
-2. 验证现有 backtest engine/output
+1. 验证 raw-market fetch / archive contract（抓取/归档合同）
+2. 验证 dataset loader + backtest engine/output（数据集加载器 + 回测输出）
 
 推荐命令：
 
 ```bash
 export UV_CACHE_DIR=/tmp/uv-cache-historical-archive-docs
 uv run --with pytest python3 -m pytest -q -p no:cacheprovider \
+  trading_system/tests/test_backtest_raw_market_fetch.py \
+  trading_system/tests/test_backtest_archive_importer.py \
   trading_system/tests/test_backtest_dataset.py \
   trading_system/tests/test_backtest_engine.py
 ```
 
-这组测试通过，说明：
+如果要实际抓 Binance futures raw-market 并落库，最小命令是：
 
+```bash
+python3 -m trading_system.app.backtest.archive.fetch \
+  --archive-root trading_system/data/archive \
+  --dataset ohlcv \
+  --symbol BTCUSDT \
+  --timeframe 1h \
+  --coverage-start 2024-01-01T00:00:00Z \
+  --coverage-end 2024-02-01T00:00:00Z
+```
+
+这组验证通过，说明：
+
+- 当前 raw-market fetch / archive contract 已可执行
 - 当前 loader contract 没被文档改坏
 - 当前 backtest CLI 的最小输出契约仍成立
 
