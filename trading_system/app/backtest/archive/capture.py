@@ -49,8 +49,10 @@ def capture_runtime_env(
     except FileExistsError:
         archived_fragment = archived_at.replace(":", "-").replace("+", "-").replace(".", "-").lower()
         run_id = f"{paths.mode}-{paths.runtime_env}-{archived_fragment}"
-        bundle_timestamp = json.loads(paths.account_snapshot_file.read_text(encoding="utf-8")).get("as_of") or archived_at
-        bundle_dir = paths.archive_runtime_bundles_dir / f"{str(bundle_timestamp).replace(':', '-')}--{run_id}"
+        matches = sorted(paths.archive_runtime_bundles_dir.glob(f"*--{run_id}"))
+        if len(matches) != 1:
+            raise
+        bundle_dir = matches[0]
         status = "already_archived"
     return RuntimeCaptureResult(
         mode=paths.mode,

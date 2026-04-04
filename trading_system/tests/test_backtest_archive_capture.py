@@ -114,6 +114,66 @@ def test_capture_runtime_env_skips_when_same_finished_at_already_archived(tmp_pa
     assert second.bundle_dir == first.bundle_dir
 
 
+def test_capture_runtime_env_reuses_exact_existing_bundle_dir_when_input_timestamps_differ(tmp_path: Path) -> None:
+    runtime_root = tmp_path / "runtime"
+    paths = build_runtime_paths("paper", runtime_root=runtime_root, runtime_env="prod")
+    paths.bucket_dir.mkdir(parents=True, exist_ok=True)
+
+    _write_json(
+        paths.account_snapshot_file,
+        {
+            "as_of": "2026-04-04T13:05:01.111111Z",
+            "schema_version": "v2",
+            "equity": 100000.0,
+            "available_balance": 100000.0,
+            "futures_wallet_balance": 100000.0,
+            "open_positions": [],
+            "open_orders": [],
+            "meta": {"account_type": "paper"},
+        },
+    )
+    _write_json(
+        paths.market_context_file,
+        {
+            "as_of": "2026-04-04T13:05:01.222222Z",
+            "schema_version": "v2",
+            "symbols": {"BTCUSDT": {"4h": {"close": 65000.0}}},
+        },
+    )
+    _write_json(
+        paths.derivatives_snapshot_file,
+        {
+            "as_of": "2026-04-04T13:05:01.333333Z",
+            "schema_version": "v2",
+            "rows": [{"symbol": "BTCUSDT", "funding_rate": 0.0001}],
+        },
+    )
+    _write_json(paths.state_file, _bundle_state_payload())
+    _write_json(
+        paths.latest_summary_file,
+        {
+            "status": "ok",
+            "mode": "paper",
+            "runtime_env": "prod",
+            "runtime_root": str(runtime_root),
+            "bucket_dir": str(paths.bucket_dir),
+            "state_file": str(paths.state_file),
+            "finished_at": "2026-04-04T13:05:09.875678Z",
+            "state_written": True,
+            "candidate_count": 0,
+            "allocation_count": 0,
+            "paper_trading": {"mode": "paper", "ledger_event_count": 0, "emitted_count": 0, "replayed_count": 0, "intents": []},
+        },
+    )
+
+    first = capture_runtime_env(runtime_root=runtime_root, mode="paper", runtime_env="prod")
+    second = capture_runtime_env(runtime_root=runtime_root, mode="paper", runtime_env="prod")
+
+    assert first.bundle_dir.name.startswith("2026-04-04T13-05-01.222222Z")
+    assert second.status == "already_archived"
+    assert second.bundle_dir == first.bundle_dir
+
+
 def test_capture_runtime_envs_and_main_emit_structured_results(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     runtime_root = tmp_path / "runtime"
     _prepare_runtime_bucket(
