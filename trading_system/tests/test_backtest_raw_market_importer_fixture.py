@@ -23,6 +23,22 @@ def _dataset_root_timestamp_summary(dataset_root: Path) -> dict[str, str | list[
     }
 
 
+def _imported_dataset_root_identity_manifest(
+    fixture_dir: Path,
+    dataset_root: Path,
+    rows: list,
+) -> dict[str, int | list[str] | str]:
+    archive_runtime_root = (fixture_dir / "archive_runtime").resolve()
+    importer_manifest = _load_json(archive_runtime_root / "raw_market" / "importer_manifest.json")
+
+    return {
+        "snapshot_count": len(rows),
+        "symbols": sorted({symbol for row in rows for symbol in row.market["symbols"]}),
+        "archive_root": dataset_root.resolve().relative_to(archive_runtime_root).as_posix(),
+        "source": importer_manifest["source"],
+    }
+
+
 def test_raw_market_importer_manifest_is_binance_first_and_futures_first(fixture_dir: Path) -> None:
     manifest_path = fixture_dir / "archive_runtime" / "raw_market" / "importer_manifest.json"
 
@@ -321,3 +337,48 @@ def test_raw_market_importer_phase1_bundle_account_snapshot_preserves_provenance
 
     assert row.account["as_of"] == bundle_metadata["timestamp"] == latest_summary["finished_at"]
     assert row.account["meta"] == expected_meta
+
+
+def test_raw_market_importer_phase1_imported_dataset_root_identity_manifest_stays_aligned_with_archive_inputs(
+    fixture_dir: Path,
+) -> None:
+    archive_runtime_root = (fixture_dir / "archive_runtime").resolve()
+    raw_config = _load_json(archive_runtime_root / "imported_dataset_backtest_config.json")
+    config = load_backtest_config(archive_runtime_root / "imported_dataset_backtest_config.json")
+    rows = load_historical_dataset(config.dataset_root)
+    identity_manifest = _imported_dataset_root_identity_manifest(fixture_dir, config.dataset_root, rows)
+    importer_manifest = _load_json(archive_runtime_root / "raw_market" / "importer_manifest.json")
+    expectations = _load_json(archive_runtime_root / "assembly_expectations.json")
+    bundle_metadata = _load_json(rows[0].source_path / "metadata.json")
+
+    archive_sources = set()
+    imported_symbols_by_dataset: dict[str, set[str]] = {}
+    archive_roots = set()
+    for item in importer_manifest["imports"]:
+        imported_symbols_by_dataset.setdefault(item["dataset"], set()).add(item["symbol"])
+        archive_payload = _load_json(archive_runtime_root / "raw_market" / "archive" / item["archive_path"])
+        archive_sources.add(archive_payload["source"])
+        archive_roots.add("/".join(Path(item["archive_path"]).parts[:2]))
+
+    expected_manifest = {
+        "snapshot_count": 1,
+        "symbols": ["BTCUSDT", "ETHUSDT"],
+        "archive_root": "archive_dataset",
+        "source": "binance",
+    }
+    dataset_root_bundle_count = len([path for path in config.dataset_root.iterdir() if path.is_dir()])
+    loader_market_symbols = sorted(rows[0].market["symbols"])
+    loader_derivatives_symbols = sorted(row["symbol"] for row in rows[0].derivatives)
+
+    assert identity_manifest == expected_manifest
+    assert identity_manifest["snapshot_count"] == len(rows) == dataset_root_bundle_count
+    assert identity_manifest["archive_root"] == raw_config["dataset_root"]
+    assert rows[0].source_path.name == raw_config["metadata"]["source_bundle"]
+    assert identity_manifest["symbols"] == importer_manifest["coverage"]["required_symbols"]
+    assert identity_manifest["symbols"] == sorted(expectations["symbols"])
+    assert identity_manifest["symbols"] == loader_market_symbols == loader_derivatives_symbols
+    assert all(sorted(symbols) == identity_manifest["symbols"] for symbols in imported_symbols_by_dataset.values())
+    assert archive_sources == {identity_manifest["source"]}
+    assert archive_roots == {f"{identity_manifest['source']}/futures"}
+    assert rows[0].source_path.parent.resolve() == archive_runtime_root / identity_manifest["archive_root"]
+    assert rows[0].source_path.name == bundle_metadata["source_bundle"]
