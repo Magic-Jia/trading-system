@@ -15,6 +15,12 @@ from .runtime_bundle import (
     archive_runtime_bundle_from_environment,
     runtime_bundle_archive_enabled,
 )
+from .capture import (
+    RuntimeCaptureResult,
+    capture_runtime_env,
+    capture_runtime_envs,
+    main,
+)
 from .raw_market import (
     ArchivedRawMarketPayload,
     ImportedRawMarketFile,
@@ -32,6 +38,9 @@ __all__ = [
     "ARCHIVE_RUNTIME_BUNDLE_ENV",
     "ArchivedRawMarketPayload",
     "ArchivedRuntimeBundle",
+    "RuntimeCaptureResult",
+    "capture_runtime_envs",
+    "main",
     "ImportedRawMarketFile",
     "ImportedRawMarketRecord",
     "ImportedRawMarketSeries",
@@ -41,6 +50,7 @@ __all__ = [
     "archive_raw_market_payload",
     "archive_runtime_bundle",
     "archive_runtime_bundle_from_environment",
+    "capture_runtime_env",
     "build_phase1_dataset_bundle_materials",
     "import_phase1_archive_dataset_root",
     "load_phase1_raw_market_imports",
