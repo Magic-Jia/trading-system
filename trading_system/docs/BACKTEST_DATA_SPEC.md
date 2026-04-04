@@ -5,6 +5,7 @@
 Historical datasets live under a single root directory.
 
 - `baseline_account_snapshot.json` — optional fallback account context
+- `import_manifest.json` — optional imported-root manifest for materialization trace / validation
 - `<bundle>/metadata.json` — required, contains `timestamp` and `run_id`
 - `<bundle>/market_context.json` — required market snapshot
 - `<bundle>/derivatives_snapshot.json` — required derivatives snapshot

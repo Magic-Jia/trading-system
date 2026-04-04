@@ -1,7 +1,6 @@
-# Dev Status
-branch/worktree: codex/backtest-foundation @ /home/cn/.openclaw/agents/trade/workspace/.worktrees/backtest-foundation
-current objective: land the smallest remaining backtest gap: fixture-backed backtest CLI
-last verified command + result: PYTHONDONTWRITEBYTECODE=1 UV_CACHE_DIR=/tmp/codex-uv-cache-backtest uv run --with pytest python -m pytest -q -p no:cacheprovider trading_system/tests/test_backtest_engine.py -> 3 passed; python3 -m trading_system.app.backtest.cli run --config trading_system/tests/fixtures/backtest/minimal_config.json --output-dir /tmp/backtest-cli-smoke.XXXXXX -> wrote manifest/summary/scorecard
-last commit: c788560
-next action: commit is blocked by sandbox because git worktree metadata lives outside writable roots; hand off status to user
-last user update time: 2026-03-31 16:44 GMT+2
+branch/worktree: codex/historical-archive-core @ /home/cn/.openclaw/agents/trade/workspace/.worktrees/historical-archive-core
+current objective: Extend the production importer just enough to validate and materialize phase-1 Binance futures dataset roots end-to-end from archive inputs
+last verified command + result: `UV_CACHE_DIR=/tmp/uv-cache uv run --with pytest pytest -q trading_system/tests/test_backtest_archive_importer.py trading_system/tests/test_backtest_archive_dataset_importer.py trading_system/tests/test_backtest_dataset.py` => 17 passed
+last commit: 9705bf71f6ae378c847a043565c9545bb15ad369
+next action: main session should hand-commit the importer slice because `git add` failed on `.git/worktrees/historical-archive-core/index.lock` permission denied; code changes and focused verification are already complete
+last user update time: 2026-04-01 09:57 GMT+2
