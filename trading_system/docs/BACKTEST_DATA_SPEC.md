@@ -72,6 +72,46 @@ Each bundle must be self-describing and deterministic:
 - `source.manifest_paths` 指向的 raw-market manifest 必须真实存在；“路径看起来像对的”但文件已丢失，不算通过
 - 每个被引用的 raw-market manifest 仍必须声明 Phase 1 允许的来源身份：至少保持 `exchange=binance`、`market=futures`；若 manifest 漂成 spot 或其他 market，这个 imported dataset root 就已超出当前 scope
 
+### Imported root identity and source drift contract
+
+只要 `import_manifest.json` 存在，下面这些字段就不再是“方便人看懂的摘要”，而是 imported dataset root 身份的一部分。
+
+更直白地说：**dataset root 现在“能被 loader 读开”，只证明文件形状还勉强像个 dataset；不证明这份 dataset 仍然代表 manifest 当初声明的那一批 bundle、那一组 symbol、那一个 archive/source 身份。**
+
+至少要把这 5 个字段理解成 field-level identity gate：
+
+1. **`snapshot_count`**
+   - 保护什么：保护 imported dataset root 里“应有多少个 snapshot / bundle 成员”的基数合同，防止 bundle 被误增、误删、漏拷、混入备份目录后还被当成同一份 dataset
+   - 报错意味着什么：manifest 记录的 snapshot 数，与当前按 loader 合同能成立的 bundle 数不一致；常见原因是 root 里多了/少了 bundle，或 manifest 没跟上最近一次 materialization
+   - 怎么判断是 manifest 坏了还是 root 现实变了：如果实际 bundle 集合、各 bundle `metadata.json`、外部 handoff note 彼此一致，只是 `import_manifest.json` 数字落后，那是 manifest 旧了；如果 root 里确实多了/少了目录、混进了备份 bundle，或原 bundle 被替换掉，那是 root 现实变了
+   - 恢复动作：先按实际一级 bundle 目录 + 必需文件读回真实成员数，再决定是整份重建 manifest，还是移除/补回错误 bundle
+
+2. **`symbols`**
+   - 保护什么：保护这份 imported dataset 声称覆盖的是哪一组交易对，而不是只要文件还能读就算同一批研究输入
+   - 报错意味着什么：manifest 里的 symbol universe，已经对不上实际 bundle/source 指向的 symbol 集合；常见原因是混入了错误 symbol 的 bundle、archive provenance 漂到另一组 symbols，或 manifest 仍停留在旧研究范围
+   - 怎么判断是 manifest 坏了还是 archive/root 现实变了：如果 bundle `metadata.json.source`、被引用的 raw-market manifests、外部 handoff 目标都一致指向同一组 symbols，而只有 manifest 没刷新，那是 manifest 旧了；如果实际 bundle/source 已经指向另一组 symbols，哪怕 loader 还能读，也说明 archive/root 现实已经换了
+   - 恢复动作：先以 bundle metadata 与 raw-market manifests 对表实际 symbol 集合；若 bundle/source 才是正确目标，就重建 manifest；若 handoff 目标才正确，就移除错误 symbol 的 bundle 或回到 archive 侧重做 materialization
+
+3. **`archive_root`**
+   - 保护什么：保护这份 imported dataset 的 raw-market 来源树身份，确保所有 `source.manifest_paths` 仍然属于同一个 canonical archive root，而不是从多个树、旧路径、临时副本里拼起来
+   - 报错意味着什么：manifest 声明的 `archive_root`，已不能稳定解释 `source.manifest_paths` 实际落在哪棵 raw-market 树上；常见原因是 manifest 路径陈旧、source manifest 被搬家，或更糟的是 dataset 已经混用了多个 archive roots
+   - 怎么判断是 manifest 坏了还是 archive/root 现实变了：如果 `source.manifest_paths` 仍都存在、仍都能反推出同一个 canonical raw-market root，只是 `archive_root` 文本没更新，那是 manifest 旧了；如果 `source.manifest_paths` 已分叉到多个 roots、引用临时目录、或只能靠人工解释“它们其实差不多”，那是 archive/source 现实变了
+   - 恢复动作：先从每个 `source.manifest_paths` 反推真实 raw-market root；若真实来源树唯一且一致，就重建 manifest；若来源树已经分叉，先选定单一 canonical archive root 并重新 materialize，不要手改一个 `archive_root` 字段把问题盖住
+
+4. **`source`**
+   - 保护什么：保护 importer trace / raw-market provenance 对象本身，确保 `import_manifest.json.source`、bundle `metadata.json.source`、dataset row `meta.source` 仍在讲同一个来源故事
+   - 报错意味着什么：source 对象丢了、被改写了、或不同 bundle/不同层写成了彼此不一致的 provenance 摘要；这说明 dataset 的 machine-readable 来源身份已经断裂
+   - 怎么判断是 manifest 坏了还是 archive/root 现实变了：如果各 bundle `metadata.json.source` 与被引用的 raw-market manifests 彼此一致，只有 root manifest 的 `source` 不一致，那是 manifest 旧了；如果 bundle 之间自己的 `source` 就互相打架，或 bundle `source` 与 raw-market manifests / runtime `source_*` 字段对不上，那是 root/source 现实变了
+   - 恢复动作：先把实际 bundle/source 与 raw-market manifests、runtime `source_*` 字段重新对表；只有在 machine-readable source 已经重新闭合到同一个 bundle 身份后，才重建 manifest。不要拿 operator note 代替 `source`
+
+5. **`bundle_dirs`**
+   - 保护什么：保护 imported dataset root 里“哪几个一级目录属于这次 handoff”的成员身份，避免备份目录、临时目录、重命名目录、旧 bundle 残留被静默算进去
+   - 报错意味着什么：manifest 记录的目录成员，与实际 root 下的一级目录集合不一致；常见原因是手工改目录名、残留 `archive/` / `notes/` / `tmp/` / `backup/`，或 materialization 后忘了刷新 manifest
+   - 怎么判断是 manifest 坏了还是 root 现实变了：如果实际一级目录集合正是 operator 当前要交付的那一批 bundle，只是 manifest 目录列表没更新，那是 manifest 旧了；如果 root 下出现不该存在的目录、旧 bundle 目录、备份目录，或正确 bundle 被重命名/替换，那是 root 现实变了
+   - 恢复动作：先把 root 一级目录清到只剩真实 bundle，再核对每个 bundle 的 `timestamp` / `run_id` / `source`；确认 root 干净后再重建 manifest，而不是反过来改 `bundle_dirs` 让脏目录“看起来合法”
+
+最小总规则：**只要上述 5 个字段中任一项已经不能从实际 bundle/source 读回同一份身份，就算 loader 还能读，合同也已经失效。**
+
 ### Imported dataset root drift gates
 
 只要 `import_manifest.json` 存在，下面四类漂移都应视为 **readback fail / repair required**，而不是“manifest 稍微旧一点”：

@@ -246,6 +246,24 @@ validation 语义也要一起理解：
 - 若 `source.manifest_paths` 存在，它们必须都留在同一个 `raw-market` 树下，并且只能反推出一个 `archive_root`
 - 被 `source.manifest_paths` 引用的 raw-market manifest 必须真实存在，并继续声明 `exchange=binance`、`market=futures`；否则 imported root 虽然还在，但 provenance scope 已经漂移
 
+从架构角度看，这里至少有 5 个字段不能再被理解成“附带说明”：
+
+- `snapshot_count` 保护的是 imported root 的成员基数：它回答的是“这次 handoff 到底有几份 snapshot / bundle”，不是“目录里大概这些文件还能读”
+- `symbols` 保护的是研究输入的 symbol universe：它回答的是“这份 dataset 代表哪组交易对”，不是“某些 bundle 还能凑出数据”
+- `archive_root` 保护的是 raw-market 来源树身份：它要求 `source.manifest_paths` 仍能收敛到同一个 canonical archive root，而不是散落在多个路径/副本上
+- `source` 保护的是 importer trace / provenance 对象：它要求 `import_manifest.json.source`、bundle `metadata.json.source`、dataset row `meta.source` 仍在讲同一个 machine-readable 来源故事
+- `bundle_dirs` 保护的是一级目录成员身份：虽然 loader 不靠目录名排序，但 imported root 仍要知道“哪些一级目录属于这次 handoff，哪些只是脏目录/备份目录/旧残留”
+
+所以这里要把一句话说死：**物理上还能被 loader 读开 != 架构上仍是同一份 imported dataset。**
+
+如果这 5 个字段里有任何一个已经不能从实际 bundle/source 读回同一份身份，operator 就不能把问题降级成“manifest 备注没更新”；这时要么是 manifest 落后于现实，要么是 archive/root 现实本身已经漂移。
+
+最小判定口径：
+
+1. 如果实际 bundle 集合、bundle metadata、`source.manifest_paths`、runtime `source_*` 字段彼此仍然对齐，只有 `import_manifest.json` 落后，这是 **manifest stale**
+2. 如果实际 bundle 成员、symbol 集合、archive root 或 provenance 对象之间已经互相打架，这是 **archive/root reality drift**
+3. 只有在先确认哪一侧才是 source of truth 之后，才允许修复；不允许先手改 manifest，再让它去解释一个已经变掉的 dataset root
+
 这里还要把 4 类 imported-root drift gate 理解成**同一份研究输入身份**的保护栏，而不是普通备注字段：
 
 1. **bundle metadata `schema_version`** 保护的是 bundle metadata 语义本身：同一 root 内 bundle 必须仍属于同一版 metadata contract
