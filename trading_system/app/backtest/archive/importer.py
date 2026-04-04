@@ -589,6 +589,12 @@ def _validate_bundle_payloads(bundle_dir: Path, *, expected_timestamp: datetime)
         )
 
     metadata = _read_json_object(bundle_dir / "metadata.json")
+    loaded_schema_version = str(metadata.get("schema_version") or "")
+    if loaded_schema_version != PHASE1_IMPORTER_BUNDLE_SCHEMA:
+        raise ValueError(
+            "materialized dataset bundle metadata schema_version is out of phase1 importer scope: "
+            f"expected {PHASE1_IMPORTER_BUNDLE_SCHEMA}, loaded {loaded_schema_version}"
+        )
     expected_run_id = _run_id(expected_timestamp)
     loaded_run_id = str(metadata.get("run_id") or "")
     if loaded_run_id != expected_run_id:

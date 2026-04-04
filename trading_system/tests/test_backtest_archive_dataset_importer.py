@@ -380,6 +380,28 @@ def test_validate_phase1_imported_dataset_root_rejects_bundle_metadata_run_id_dr
         )
 
 
+def test_validate_phase1_imported_dataset_root_rejects_bundle_metadata_schema_drift(tmp_path: Path) -> None:
+    archive_root = tmp_path / "archive"
+    dataset_root = tmp_path / "dataset"
+    _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT")
+
+    imported = load_phase1_raw_market_imports(archive_root)
+    material = build_phase1_dataset_bundle_materials(imported)[-1]
+    bundle_dir = write_phase1_dataset_bundle(material, dataset_root)
+
+    metadata_path = bundle_dir / "metadata.json"
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    metadata["schema_version"] = "phase1_import_bundle.v2"
+    metadata_path.write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="bundle metadata schema_version is out of phase1 importer scope"):
+        validate_phase1_imported_dataset_root(
+            dataset_root,
+            expected_bundle_dirs=(bundle_dir,),
+            expected_timestamps=(material.timestamp,),
+        )
+
+
 def test_validate_phase1_imported_dataset_root_rejects_bundle_payload_schema_drift(tmp_path: Path) -> None:
     archive_root = tmp_path / "archive"
     dataset_root = tmp_path / "dataset"
@@ -473,4 +495,34 @@ def test_validate_phase1_imported_dataset_root_rejects_manifest_bundle_timestamp
     manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
 
     with pytest.raises(ValueError, match="manifest bundle_timestamps did not round-trip"):
+        validate_phase1_imported_dataset_root(dataset_root)
+
+
+def test_validate_phase1_imported_dataset_root_rejects_manifest_start_timestamp_drift(tmp_path: Path) -> None:
+    archive_root = tmp_path / "archive"
+    dataset_root = tmp_path / "dataset"
+    _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT")
+
+    import_phase1_archive_dataset_root(archive_root, dataset_root)
+    manifest_path = dataset_root / "import_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["start_timestamp"] = "2024-03-01T00:00:00Z"
+    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="manifest start_timestamp did not round-trip"):
+        validate_phase1_imported_dataset_root(dataset_root)
+
+
+def test_validate_phase1_imported_dataset_root_rejects_manifest_end_timestamp_drift(tmp_path: Path) -> None:
+    archive_root = tmp_path / "archive"
+    dataset_root = tmp_path / "dataset"
+    _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT")
+
+    import_phase1_archive_dataset_root(archive_root, dataset_root)
+    manifest_path = dataset_root / "import_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["end_timestamp"] = "2024-03-01T00:00:00Z"
+    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="manifest end_timestamp did not round-trip"):
         validate_phase1_imported_dataset_root(dataset_root)
