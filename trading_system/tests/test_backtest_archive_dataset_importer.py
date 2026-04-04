@@ -9,6 +9,7 @@ import pytest
 from trading_system.app.backtest.archive.importer import (
     build_phase1_dataset_bundle_materials,
     import_phase1_archive_dataset_root,
+    inspect_phase1_imported_dataset_root,
     validate_phase1_imported_dataset_root,
     write_phase1_dataset_bundle,
 )
@@ -556,3 +557,54 @@ def test_validate_phase1_imported_dataset_root_rejects_manifest_end_timestamp_dr
 
     with pytest.raises(ValueError, match="manifest end_timestamp did not round-trip"):
         validate_phase1_imported_dataset_root(dataset_root)
+
+
+def test_inspect_phase1_imported_dataset_root_summarizes_manifest_and_rows(tmp_path: Path) -> None:
+    archive_root = tmp_path / "archive"
+    dataset_root = tmp_path / "dataset"
+    _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT")
+
+    imported_root = import_phase1_archive_dataset_root(archive_root, dataset_root)
+    rows = load_historical_dataset(dataset_root)
+    manifest = json.loads((dataset_root / "import_manifest.json").read_text(encoding="utf-8"))
+
+    summary = inspect_phase1_imported_dataset_root(dataset_root)
+
+    expected = {
+        "snapshot_count": imported_root.snapshot_count,
+        "symbols": list(imported_root.symbols),
+        "archive_root": str(imported_root.archive_root),
+        "bundle_dirs": [str(bundle_dir) for bundle_dir in imported_root.bundle_dirs],
+        "bundle_timestamps": [row.timestamp.isoformat().replace("+00:00", "Z") for row in rows],
+        "start_timestamp": imported_root.start_timestamp.isoformat().replace("+00:00", "Z"),
+        "end_timestamp": imported_root.end_timestamp.isoformat().replace("+00:00", "Z"),
+        "source": manifest["source"],
+    }
+
+    assert summary["manifest"] == summary["rows"]
+    assert summary["manifest"] == expected
+
+
+def test_inspect_phase1_imported_dataset_root_keeps_row_summary_without_manifest(tmp_path: Path) -> None:
+    archive_root = tmp_path / "archive"
+    dataset_root = tmp_path / "dataset"
+    _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT")
+
+    imported_root = import_phase1_archive_dataset_root(archive_root, dataset_root)
+    rows = load_historical_dataset(dataset_root)
+    manifest_source = json.loads((dataset_root / "import_manifest.json").read_text(encoding="utf-8"))["source"]
+    (dataset_root / "import_manifest.json").unlink()
+
+    summary = inspect_phase1_imported_dataset_root(dataset_root)
+
+    assert summary["manifest"] is None
+    assert summary["rows"] == {
+        "snapshot_count": imported_root.snapshot_count,
+        "symbols": list(imported_root.symbols),
+        "archive_root": str(imported_root.archive_root),
+        "bundle_dirs": [str(bundle_dir) for bundle_dir in imported_root.bundle_dirs],
+        "bundle_timestamps": [row.timestamp.isoformat().replace("+00:00", "Z") for row in rows],
+        "start_timestamp": imported_root.start_timestamp.isoformat().replace("+00:00", "Z"),
+        "end_timestamp": imported_root.end_timestamp.isoformat().replace("+00:00", "Z"),
+        "source": manifest_source,
+    }
