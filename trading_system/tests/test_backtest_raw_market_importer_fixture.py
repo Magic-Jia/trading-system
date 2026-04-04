@@ -13,6 +13,16 @@ def _load_json(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _dataset_root_timestamp_summary(dataset_root: Path) -> dict[str, str | list[str] | None]:
+    bundle_dirs = sorted(path for path in dataset_root.iterdir() if path.is_dir())
+    bundle_timestamps = [_load_json(path / "metadata.json")["timestamp"] for path in bundle_dirs]
+    return {
+        "bundle_timestamps": bundle_timestamps,
+        "start_timestamp": bundle_timestamps[0] if bundle_timestamps else None,
+        "end_timestamp": bundle_timestamps[-1] if bundle_timestamps else None,
+    }
+
+
 def test_raw_market_importer_manifest_is_binance_first_and_futures_first(fixture_dir: Path) -> None:
     manifest_path = fixture_dir / "archive_runtime" / "raw_market" / "importer_manifest.json"
 
@@ -139,6 +149,25 @@ def test_raw_market_importer_phase1_materializes_loader_valid_dataset_root_for_v
     assert rows[0].source_path == config.dataset_root / "2026-03-31T00-15-00Z"
     assert split["train"] == []
     assert [row.run_id for row in split["validation"]] == ["paper-research-2026-03-31t00-15-00z"]
+
+
+def test_raw_market_importer_phase1_imported_dataset_root_preserves_timestamp_continuity(
+    fixture_dir: Path,
+) -> None:
+    archive_runtime_root = fixture_dir / "archive_runtime"
+    config = load_backtest_config(archive_runtime_root / "imported_dataset_backtest_config.json")
+    rows = load_historical_dataset(config.dataset_root)
+    timestamp_summary = _dataset_root_timestamp_summary(config.dataset_root)
+
+    assert timestamp_summary == {
+        "bundle_timestamps": ["2026-03-31T00:15:00Z"],
+        "start_timestamp": "2026-03-31T00:15:00Z",
+        "end_timestamp": "2026-03-31T00:15:00Z",
+    }
+    assert [row.timestamp.isoformat().replace("+00:00", "Z") for row in rows] == timestamp_summary["bundle_timestamps"]
+    assert rows[0].source_path == config.dataset_root / "2026-03-31T00-15-00Z"
+    assert _load_json(rows[0].source_path / "metadata.json")["timestamp"] == timestamp_summary["end_timestamp"]
+    assert config.metadata["source_timestamp"] == timestamp_summary["end_timestamp"]
 
 
 def test_raw_market_importer_phase1_bundle_is_replayable_by_core_without_download_enrichment(
