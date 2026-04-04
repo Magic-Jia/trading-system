@@ -72,6 +72,32 @@ Each bundle must be self-describing and deterministic:
 - `source.manifest_paths` 指向的 raw-market manifest 必须真实存在；“路径看起来像对的”但文件已丢失，不算通过
 - 每个被引用的 raw-market manifest 仍必须声明 Phase 1 允许的来源身份：至少保持 `exchange=binance`、`market=futures`；若 manifest 漂成 spot 或其他 market，这个 imported dataset root 就已超出当前 scope
 
+### Imported dataset root drift gates
+
+只要 `import_manifest.json` 存在，下面四类漂移都应视为 **readback fail / repair required**，而不是“manifest 稍微旧一点”：
+
+1. **bundle metadata `schema_version` 漂移**
+   - 保护什么：保护每个 bundle `metadata.json` 的字段语义仍属于同一版 importer/runtime metadata contract，避免同一个 dataset root 里混入不同 schema 的 bundle
+   - 报错意味着什么：实际 bundle metadata 的 `schema_version` 与 importer / root manifest 预期不一致，或同一 root 内 bundle 彼此混用了不同 schema；这说明 dataset 里的 bundle 已经不再共享同一份 metadata 合同
+   - 操作员怎么处理：先回到 source runtime/importer 记录，确认本次 handoff 应该使用哪一版 schema；若是错版本 bundle 混入，就恢复正确 bundle；若是整批数据确实升级到新 schema，就整批重 materialize bundle metadata 与 `import_manifest.json`，不要手改单个 bundle 字段糊过去
+
+2. **manifest `bundle_timestamps` 漂移**
+   - 保护什么：保护 root manifest 记录的 bundle 时间戳集合与实际 bundle 集合一致，防止 operator 增删 bundle、重写 metadata、补拷目录后忘了刷新 manifest
+   - 报错意味着什么：`import_manifest.json.bundle_timestamps` 与实际从 bundle `metadata.json.timestamp` 读出的有序列表不一致；常见原因是多了旧 bundle、少了新 bundle，或 bundle metadata 已改但 manifest 还停留在旧窗口
+   - 操作员怎么处理：先逐个核对实际 bundle 的 `timestamp` / `run_id` 与目标研究窗口；若目录里的 bundle 才是正确 source of truth，就重建 `import_manifest.json`；若 manifest 才是正确目标，就移除或恢复错误 bundle。不要只改 manifest 列表而不核对 bundle 本体
+
+3. **manifest `start_timestamp` 漂移**
+   - 保护什么：保护 imported dataset research window 的下边界，确保 operator、importer、backtest 看到的是同一个起点
+   - 报错意味着什么：manifest 声明的最早时间戳，不再等于按 loader 合同从实际 bundle 读回后的首个时间戳；常见原因是错误混入更早 bundle、漏掉起始 bundle，或 bundle metadata 起点被改写
+   - 操作员怎么处理：先按 `timestamp`、再按 `run_id` 重排实际 bundle，确认真实首个 bundle；若是 root 被污染（例如误放备份 bundle），先清理错误目录；若研究窗口本来就变了，就同步重写 `bundle_timestamps`、`start_timestamp` 与 dataset root 外部 handoff note，然后重新 readback
+
+4. **manifest `end_timestamp` 漂移**
+   - 保护什么：保护 imported dataset research window 的上边界，确保交付出去的 dataset root 仍然代表同一个结束点
+   - 报错意味着什么：manifest 声明的最后时间戳，不再等于实际 bundle 集合读回后的末尾时间戳；常见原因是增量补数后只换了 bundle 没刷新 manifest，或末尾 bundle 丢失/回退到了旧版本
+   - 操作员怎么处理：先确认本次 handoff 预期的终点窗口，再核对最后一个 bundle 的 `timestamp` / `run_id`；若实际 bundle 集合正确，就重建 manifest；若 manifest 目标才正确，就补回缺失 bundle 或回滚错误追加。不要在末尾时间戳漂移时继续把 dataset root 当成已完成 handoff 的研究输入
+
+这四类漂移里，后 3 项都应以 **按 loader 合同从 bundle metadata 读回的实际结果** 为准：先按 `timestamp`、再按 `run_id` 排序，再比较 manifest 的 `bundle_timestamps`、`start_timestamp`、`end_timestamp`。
+
 ### Source-manifest and runtime provenance continuity
 
 对 runtime 派生的 imported dataset，Phase 1 现在要求把两条 provenance 链接在同一个 bundle 身份上，而不是分散成几份互不对表的说明：
