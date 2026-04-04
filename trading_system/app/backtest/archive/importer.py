@@ -506,6 +506,19 @@ def _phase1_dataset_root_manifest(
     }
 
 
+def _phase1_dataset_root_summary_fields(payload: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "snapshot_count": int(payload.get("snapshot_count") or 0),
+        "symbols": [str(value) for value in payload.get("symbols") or ()],
+        "archive_root": str(payload.get("archive_root") or "") or None,
+        "bundle_dirs": [str(value) for value in payload.get("bundle_dirs") or ()],
+        "bundle_timestamps": [str(value) for value in payload.get("bundle_timestamps") or ()],
+        "start_timestamp": str(payload.get("start_timestamp") or "") or None,
+        "end_timestamp": str(payload.get("end_timestamp") or "") or None,
+        "source": _json_object_field(payload.get("source") or {}, context="phase1 dataset root summary source"),
+    }
+
+
 def _json_object_field(value: Any, *, context: str) -> dict[str, Any]:
     if not isinstance(value, Mapping):
         raise ValueError(f"{context} must contain a JSON object")
@@ -655,6 +668,36 @@ def write_phase1_dataset_bundle(material: Phase1DatasetBundleMaterial, dataset_r
     _write_json(bundle_dir / "derivatives_snapshot.json", material.derivatives_snapshot)
     _write_json(bundle_dir / "account_snapshot.json", material.account_snapshot)
     return bundle_dir
+
+
+def inspect_phase1_imported_dataset_root(dataset_root: str | Path) -> dict[str, dict[str, Any] | None]:
+    dataset_path = Path(dataset_root)
+    rows = load_historical_dataset(dataset_path)
+    loaded_source = _materialized_dataset_row_source(rows)
+    loaded_archive_root = _archive_root_from_manifest_paths(loaded_source.get("manifest_paths") or ())
+    row_summary = {
+        "snapshot_count": len(rows),
+        "symbols": sorted(
+            {
+                str(symbol)
+                for row in rows
+                for symbol in dict(row.market.get("symbols") or {}).keys()
+            }
+        ),
+        "archive_root": str(loaded_archive_root) if loaded_archive_root is not None else None,
+        "bundle_dirs": [str(row.source_path) for row in rows],
+        "bundle_timestamps": [_utc_timestamp(row.timestamp) for row in rows],
+        "start_timestamp": _utc_timestamp(rows[0].timestamp) if rows else None,
+        "end_timestamp": _utc_timestamp(rows[-1].timestamp) if rows else None,
+        "source": loaded_source,
+    }
+
+    manifest_path = _phase1_dataset_root_manifest_path(dataset_path)
+    manifest_summary = _phase1_dataset_root_summary_fields(_read_json_object(manifest_path)) if manifest_path.exists() else None
+    return {
+        "manifest": manifest_summary,
+        "rows": row_summary,
+    }
 
 
 def validate_phase1_imported_dataset_root(
@@ -846,6 +889,7 @@ __all__ = [
     "Phase1DatasetBundleMaterial",
     "build_phase1_dataset_bundle_materials",
     "import_phase1_archive_dataset_root",
+    "inspect_phase1_imported_dataset_root",
     "validate_phase1_imported_dataset_root",
     "write_phase1_dataset_bundle",
     "write_phase1_dataset_root_manifest",
