@@ -297,6 +297,78 @@ test ! -f "$DATASET_ROOT/import_manifest.json" || \
 
 这组 readback 是本地文件系统检查，不依赖 downloader、网络连通性或任何尚未落地的 archive importer。
 
+### Step 3A0: classify imported-root drift before repair
+
+如果 `import_manifest.json` 存在，先把最常见的 4 类漂移单独归类；不要一上来就手改 manifest：
+
+1. **bundle metadata `schema_version` 漂移**
+   - 保护什么：保护 bundle metadata 字段语义仍属于同一版 contract
+   - 报错意味着什么：同一 root 内 bundle metadata 不再共享同一版 schema，或与 importer/root manifest 预期的 schema 对不上
+   - 怎么处理：回到 source runtime/importer 记录，确认应以哪一版 schema 为准；恢复错版本 bundle，或整批重 materialize metadata + manifest，不要手修单个字段硬凑一致
+
+2. **manifest `bundle_timestamps` 漂移**
+   - 保护什么：保护 manifest 记录的 bundle 集合与实际 bundle 集合一致
+   - 报错意味着什么：`import_manifest.json.bundle_timestamps` 已经不能准确描述当前 root 里的 bundle 时间戳集合；通常表示 bundle 被增删/替换过，但 manifest 没跟上
+   - 怎么处理：先按实际 bundle `metadata.json.timestamp` / `run_id` 读回真实集合；若 bundle 本体正确，就重建 manifest；若 manifest 才是目标窗口，就恢复/移除错误 bundle
+
+3. **manifest `start_timestamp` 漂移**
+   - 保护什么：保护研究窗口起点
+   - 报错意味着什么：manifest 记录的起始时间，已经不是当前 dataset 按 loader 合同读回的最早 bundle 时间戳
+   - 怎么处理：优先排查是不是误混入更早 bundle、漏了起始 bundle、或错误改写了最早 bundle metadata；只有确认研究窗口本来就改了，才同步改 manifest 与外部 handoff note
+
+4. **manifest `end_timestamp` 漂移**
+   - 保护什么：保护研究窗口终点
+   - 报错意味着什么：manifest 记录的结束时间，已经不是当前 dataset 读回的最后 bundle 时间戳；常见于增量补数、末尾 bundle 回滚或漏拷后 manifest 没刷新
+   - 怎么处理：先确认本次 handoff 的目标终点，再决定是恢复末尾 bundle，还是重建 manifest；末尾漂移未修复前，不要把这份 dataset root 继续交付给 backtest/research
+
+可以先用一段轻量脚本把实际 bundle 读回结果摊平出来，再决定修哪一侧：
+
+```bash
+DATASET_ROOT=trading_system/tests/fixtures/backtest/sample_dataset
+export DATASET_ROOT
+
+python3 - <<'PY'
+import json
+from datetime import datetime
+from pathlib import Path
+import os
+
+root = Path(os.environ['DATASET_ROOT'])
+bundles = []
+for bundle in sorted(path for path in root.iterdir() if path.is_dir()):
+    meta = json.loads((bundle / 'metadata.json').read_text(encoding='utf-8'))
+    bundles.append({
+        'dir': bundle.name,
+        'timestamp': str(meta['timestamp']),
+        'run_id': str(meta['run_id']),
+        'schema_version': meta.get('schema_version'),
+    })
+
+def parse_ts(value: str) -> datetime:
+    return datetime.fromisoformat(value.replace('Z', '+00:00'))
+
+ordered = sorted(bundles, key=lambda item: (parse_ts(item['timestamp']), item['run_id']))
+print('ordered bundles:')
+for item in ordered:
+    print(item)
+print('bundle_timestamps =', [item['timestamp'] for item in ordered])
+print('start_timestamp =', ordered[0]['timestamp'] if ordered else None)
+print('end_timestamp =', ordered[-1]['timestamp'] if ordered else None)
+print(
+    'schema_versions =',
+    sorted({item['schema_version'] for item in ordered}, key=lambda item: '' if item is None else str(item)),
+)
+PY
+
+test ! -f "$DATASET_ROOT/import_manifest.json" || \
+  grep -nE '"schema_version"|"bundle_timestamps"|"start_timestamp"|"end_timestamp"' \
+    "$DATASET_ROOT/import_manifest.json"
+```
+
+如果这里打印出多个 `schema_version`，或真实 imported root 打印出 `None` / 缺失值，就不要继续手改 manifest；先回到 bundle metadata 的来源记录做修复。
+
+这里的判断原则很简单：**先用实际 bundle metadata 决定 dataset root 现在“是什么”，再决定 manifest 应不应该更新。** 不要反过来拿 manifest 去掩盖 bundle 漂移。
+
 如果读的是由 runtime bundle 派生出的 imported dataset，还要额外确认 provenance 指针没有断：
 
 - runtime `latest.json` 至少要暴露 `source_bundle`、`source_run_id`、`source_timestamp`

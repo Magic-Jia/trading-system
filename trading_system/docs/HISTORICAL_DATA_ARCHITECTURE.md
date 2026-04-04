@@ -246,6 +246,24 @@ validation 语义也要一起理解：
 - 若 `source.manifest_paths` 存在，它们必须都留在同一个 `raw-market` 树下，并且只能反推出一个 `archive_root`
 - 被 `source.manifest_paths` 引用的 raw-market manifest 必须真实存在，并继续声明 `exchange=binance`、`market=futures`；否则 imported root 虽然还在，但 provenance scope 已经漂移
 
+这里还要把 4 类 imported-root drift gate 理解成**同一份研究输入身份**的保护栏，而不是普通备注字段：
+
+1. **bundle metadata `schema_version`** 保护的是 bundle metadata 语义本身：同一 root 内 bundle 必须仍属于同一版 metadata contract
+2. **manifest `bundle_timestamps`** 保护的是 bundle 成员集合：manifest 记下的是哪一批 bundle，而不是目录里“大概有这些文件”
+3. **manifest `start_timestamp`** 保护的是研究窗口下边界：最早 bundle 漂了，就不是同一份 dataset 了
+4. **manifest `end_timestamp`** 保护的是研究窗口上边界：末尾 bundle 漂了，交付窗口也就变了
+
+所以 imported dataset root 即便在物理上还能被当前 loader 读开，只要这 4 类 gate 中任一项漂移，架构语义上都应视为：**这已经不是原先那份 handoff-complete research input，而是一份待修复的 materialization。**
+
+恢复顺序也应固定：
+
+1. 先按 bundle `metadata.json` 读回实际 bundle 集合，并按 `timestamp`、`run_id` 排序
+2. 再判断是 bundle 本体错了，还是 `import_manifest.json` 落后了
+3. 修错的一侧：要么恢复正确 bundle，要么整份重建 root manifest
+4. 最后再补 operator note，说明这次 drift 为什么发生、如何恢复
+
+换句话说，不允许把 `schema_version`、`bundle_timestamps`、`start_timestamp`、`end_timestamp` 的漂移降级成“说明文档没跟上”；它们就是 imported root identity 的一部分。
+
 换句话说，Phase 1 imported root 的 provenance continuity 现在至少要闭合成一条可读回的链：
 
 `raw-market manifest -> import_manifest.json.source -> bundle metadata.json.source -> dataset row meta.source -> runtime source_* fields`
