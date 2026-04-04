@@ -1,0 +1,44 @@
+{
+  "dataset_root": "archive_dataset",
+  "experiment_kind": "importer_phase1_validation",
+  "sample_windows": [
+    {
+      "name": "train",
+      "start": "2026-03-30T00:00:00Z",
+      "end": "2026-03-30T23:59:59Z",
+      "split": "in_sample"
+    },
+    {
+      "name": "validation",
+      "start": "2026-03-31T00:15:00Z",
+      "end": "2026-03-31T00:15:00Z",
+      "split": "out_of_sample"
+    }
+  ],
+  "forward_return_windows": [
+    {
+      "name": "1d",
+      "hours": 24
+    },
+    {
+      "name": "3d",
+      "hours": 72
+    }
+  ],
+  "costs": {
+    "fee_bps": 4.0,
+    "slippage_bps": 6.0,
+    "funding_bps_per_day": 1.5
+  },
+  "baseline_name": "importer_phase1_fixture",
+  "variant_name": "assembled_archive_dataset",
+  "metadata": {
+    "phase": "importer_phase1",
+    "source_bundle": "2026-03-31T00-15-00Z",
+    "source_timestamp": "2026-03-31T00:15:00Z",
+    "source_run_id": "paper-research-2026-03-31t00-15-00z",
+    "source_mode": "paper",
+    "source_runtime_env": "research",
+    "source_finished_at": "2026-03-31T00:15:00Z"
+  }
+}

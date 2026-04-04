@@ -1,0 +1,29 @@
+{
+  "as_of": "2026-03-31T00:15:00Z",
+  "equity": 126500.0,
+  "available_balance": 101200.0,
+  "futures_wallet_balance": 122400.0,
+  "open_positions": [
+    {
+      "symbol": "BTCUSDT",
+      "side": "LONG",
+      "qty": 0.5,
+      "entry_price": 69250.0,
+      "mark_price": 70120.0,
+      "unrealized_pnl": 435.0,
+      "notional": 35060.0,
+      "leverage": 2.0,
+      "strategy_tag": "trend_v2"
+    }
+  ],
+  "open_orders": [],
+  "meta": {
+    "account_type": "paper",
+    "snapshot_source": "paper_runtime_fixture",
+    "source_bundle": "2026-03-31T00-15-00Z",
+    "source_run_id": "paper-research-2026-03-31t00-15-00z",
+    "source_mode": "paper",
+    "source_runtime_env": "research",
+    "source_finished_at": "2026-03-31T00:15:00Z"
+  }
+}

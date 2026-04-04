@@ -1,0 +1,16 @@
+{
+  "bundle": "2026-03-31T00-15-00Z",
+  "timestamp": "2026-03-31T00:15:00Z",
+  "symbols": {
+    "BTCUSDT": {
+      "market_close": 70120.0,
+      "funding_rate": 0.00011,
+      "open_interest_usdt": 24500000000
+    },
+    "ETHUSDT": {
+      "market_close": 3550.0,
+      "funding_rate": 0.00013,
+      "open_interest_usdt": 12400000000
+    }
+  }
+}

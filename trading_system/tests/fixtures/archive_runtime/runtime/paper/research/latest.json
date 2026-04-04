@@ -1,0 +1,22 @@
+{
+  "status": "ok",
+  "mode": "paper",
+  "runtime_env": "research",
+  "runtime_root": "trading_system/tests/fixtures/archive_runtime/runtime",
+  "bucket_dir": "trading_system/tests/fixtures/archive_runtime/runtime/paper/research",
+  "state_file": "trading_system/tests/fixtures/archive_runtime/runtime/paper/research/runtime_state.json",
+  "finished_at": "2026-03-31T00:15:00Z",
+  "source_bundle": "2026-03-31T00-15-00Z",
+  "source_run_id": "paper-research-2026-03-31t00-15-00z",
+  "source_timestamp": "2026-03-31T00:15:00Z",
+  "state_written": true,
+  "execution_mode": "paper",
+  "candidate_count": 1,
+  "allocation_count": 1,
+  "paper_trading": {
+    "mode": "paper",
+    "ledger_event_count": 1,
+    "emitted_count": 1,
+    "replayed_count": 0
+  }
+}

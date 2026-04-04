@@ -1,0 +1,12 @@
+{
+  "source": "binance",
+  "market": "futures",
+  "dataset": "funding",
+  "symbol": "ETHUSDT",
+  "rows": [
+    {
+      "funding_time": "2026-03-31T00:00:00Z",
+      "funding_rate": 0.00013
+    }
+  ]
+}
