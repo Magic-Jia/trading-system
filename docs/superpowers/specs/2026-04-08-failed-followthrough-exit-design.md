@@ -2,7 +2,7 @@
 
 Date: 2026-04-08
 Owner: Claw
-Status: Draft approved in chat, awaiting written-spec review
+Status: Draft revised after written-spec review
 
 ## Goal
 
@@ -56,7 +56,8 @@ Status: Draft approved in chat, awaiting written-spec review
 
 1. **早期窗口内**
    - 持仓仍处于定义好的 early window（早期观察窗口）内
-   - 示例表达：`bars_since_entry <= early_window_bars`
+   - 固定表达：`bars_since_entry <= early_window_bars`
+   - 边界定义：`bars_since_entry == early_window_bars` 仍算 early（早期窗口内）
 
 2. **尚未达到第一目标位**
    - 若 `first_target_hit = true`，则不触发本规则
@@ -64,13 +65,33 @@ Status: Draft approved in chat, awaiting written-spec review
 
 3. **最小展开不足**
    - 最大有利展开（max favorable excursion, MFE）不足以证明 trade（交易）按预期展开
-   - 示例表达：`max_favorable_excursion_r < min_followthrough_r`
+   - 固定表达：`max_favorable_excursion_r < min_followthrough_r`
+   - 边界定义：`max_favorable_excursion_r == min_followthrough_r` 不算“展开不足”，因此不触发
 
 4. **价格跌回 breakout support（突破支撑）下方**
    - 这是“结构失速”信号
-   - 示例表达：`close < breakout_support`
+   - 固定表达：`close < breakout_support`
+   - 边界定义：`close == breakout_support` 不算跌破，因此不触发
 
 只有四条同时成立，才发出 failed follow-through exit 建议。
+
+## Threshold ownership and defaults
+
+第一版为避免配置扩散，核心阈值归属固定如下：
+
+- `early_window_bars`
+  - 归属：`exit_policy.py` 内部的保守默认常量
+  - 第一版不要求 position metadata（持仓元数据）动态传入
+  - 后续若证明需要按 setup（形态）差异化，再单独升格为配置项
+
+- `min_followthrough_r`
+  - 归属：`exit_policy.py` 内部的保守默认常量
+  - 第一版同样不做外部配置化
+
+选择这条边界的原因：
+- 这一刀是最小退出纪律补丁，不应先引入新的全局配置面
+- 先把行为、优先级与测试边界钉死，比先做参数体系更重要
+- 这样 planner（实现计划）可以把当前切片收敛在 `exit_policy` + 测试层，而不是额外扩展配置系统
 
 ## Position in rule priority
 
@@ -92,29 +113,53 @@ Status: Draft approved in chat, awaiting written-spec review
 
 ## Data / metadata expectations
 
-第一版需要 exit policy 能读到或构造以下信息：
+第一版需要 exit policy 读取以下输入：
 - `bars_since_entry`
 - `first_target_hit`
 - `max_favorable_excursion_r`
 - `breakout_support`
 - 当前价格 / bar close
 
-如果现有 position / lifecycle metadata（元数据）里缺少 `breakout_support`，则这一刀的最小实现必须优先评估：
-- 是否已有可复用字段
-- 若没有，是否可以通过最小扩展在不大面积扩散的前提下补入
+最小接口边界固定如下：
 
-原则：
-- 优先复用现有字段
-- 若必须补字段，也只补到能支撑这条规则为止
-- 不顺手扩大到更泛的结构分析系统
+- `exit_policy` **只消费，不负责重新推导 breakout 结构**
+  - 也就是说，`exit_policy` 不在这一刀里自行回看历史 K 线推断 `breakout_support`
+  - 它只读取 position / lifecycle 已经提供好的数值字段
+
+- 上游职责
+  - `bars_since_entry`、`first_target_hit`、`max_favorable_excursion_r` 继续沿用现有持仓生命周期数据来源
+  - `breakout_support` 若当前已存在可复用字段，则直接复用
+  - 若当前不存在，则允许做**一处最小上游 metadata 补入**，仅为了让 `exit_policy` 能消费该字段
+
+- 本刀不允许做的事
+  - 不在 `exit_policy` 内新增通用结构识别器
+  - 不为了这一刀把整个 position schema（持仓结构）重构
+  - 不扩展到更泛的 setup taxonomy（形态分类体系）
+
+### Missing / invalid data behavior
+
+第一版缺字段时采用**安全降级，不触发**原则：
+
+- 若 `breakout_support` 缺失 → 本规则跳过，不报错，不触发
+- 若 `max_favorable_excursion_r` 缺失或不是有效数值 → 本规则跳过，不触发
+- 若 `first_target_hit` 缺失 → 视为本规则输入不完整，跳过，不触发
+- 若 `bars_since_entry` 缺失或非法 → 跳过，不触发
+- 若当前价格 / close 缺失或非法 → 跳过，不触发
+
+原因：
+- exit 规则在生产里应优先保证安全，不因元数据缺口制造错误清仓
+- 这一刀的目标是补一条高价值规则，不是顺手引入新的强校验失败面
+
+测试层必须覆盖至少一条“关键字段缺失时安全跳过”的场景。
 
 ## Suggested output semantics
 
 新增退出建议时，输出应清楚区分于 invalidation 和 time stop。
 
-建议：
+固定输出契约建议：
 - action（动作）仍走现有主动退出建议路径
-- reason / category（原因 / 分类）明确标识为 `failed_followthrough` 或等价枚举
+- reason / category（原因 / 分类）固定标识为 `failed_followthrough`
+- 若当前系统已有 `meta.exit_trigger` 或同类字段，则其值也固定为 `failed_followthrough`
 - explanation（解释）需是人话，可直接进入后续报告层
 
 建议的人话说明：
@@ -159,6 +204,17 @@ Status: Draft approved in chat, awaiting written-spec review
    - 应优先走原有逻辑失效路径
    - 预期：不和 failed follow-through 产生错误优先级冲突
 
+5. **字段缺失或非法**
+   - 如 `breakout_support` 缺失、MFE 不是数值、`first_target_hit` 不可用
+   - 预期：安全跳过，不触发
+
+### Boundary checks
+
+测试里应显式写死以下边界：
+- `bars_since_entry == early_window_bars` → 仍属于 early window（可继续评估）
+- `max_favorable_excursion_r == min_followthrough_r` → 不算展开不足，因此不触发
+- `close == breakout_support` → 不算跌破，因此不触发
+
 ## Minimal implementation plan boundary
 
 第一刀代码改动尽量控制在：
@@ -176,7 +232,7 @@ Status: Draft approved in chat, awaiting written-spec review
 
 本设计明确推荐：
 
-**B 口径 + 结构失守型 failed follow-through 规则**
+**B 口径（只有“展开不足 + 结构失守”同时成立才快退） + 结构失守型 failed follow-through 规则**
 
 也就是：
 - 不做纯时间版
