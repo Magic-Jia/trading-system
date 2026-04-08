@@ -38,8 +38,8 @@ Status: Draft revised after written-spec review
 ### In scope
 
 第一版只覆盖：
-- trend / breakout 风格持仓
-- long（做多）方向
+- **breakout-continuation long（突破延续型做多）** 持仓
+- 不覆盖 generic trend（泛趋势）但没有 breakout 语义的 long
 - 纸上执行主链的 exit policy（退出策略）
 - 明确、可解释、可测试的最小规则
 
@@ -79,14 +79,19 @@ Status: Draft revised after written-spec review
 
 ### Eligibility gate（适用资格）
 
-第一版 failed follow-through 不是对所有 long（做多）仓位生效，而是只对已有 breakout / trend continuation 语义的仓位生效。
+第一版 failed follow-through 不是对所有 long（做多）仓位生效，而是只对已有 **breakout-continuation** 语义的仓位生效。
 
 最小资格判断固定为：
 - `side == "LONG"`
-- `invalidation_source` 含有现有 breakout / continuation 语义
-- 第一版默认复用当前主线已经存在的 breakout 风格失效来源命名，例如：
+- `invalidation_source` 明确包含 breakout 语义
+- 第一版只接受类似以下命名风格：
   - `trend_breakout_failure_below_4h_ema20`
-  - 或其他同类 `*_breakout_*` / `*_continuation_*` 风格来源
+  - 或其他同类 `*_breakout_*` / `*_continuation_*` 且明确指向 breakout-continuation 的来源
+
+明确排除：
+- generic trend 但没有 breakout 语义的来源（例如 `trend_structure_loss_*` 这类泛趋势失效）
+- short（做空）仓位
+- 没有 `invalidation_source` 或来源语义不明确的仓位
 
 实现边界：
 - 第一版允许 `exit_policy` 只做**轻量字符串资格判断**
@@ -153,8 +158,12 @@ Status: Draft revised after written-spec review
 
 - 上游职责
   - `bars_since_entry`、`first_target_hit`、`max_favorable_excursion_r` 继续沿用现有持仓生命周期数据来源
-  - `breakout_support` 若当前已存在可复用字段，则直接复用
-  - 若当前不存在，则允许做**一处最小上游 metadata 补入**，仅为了让 `exit_policy` 能消费该字段
+  - `breakout_support` 的权威来源固定为：**position payload（持仓载荷）上的 `breakout_support` 数值字段**
+  - 该字段由上游持仓 / lifecycle 组装单元负责写入；第一版若当前主线尚未提供，则允许只为这一刀补一处最小 metadata 注入，把 breakout 支撑位写入 `position["breakout_support"]`
+
+- 第一版不接受的替代方案
+  - 不在 `exit_policy` 内复用 `stop_loss` 冒充 `breakout_support`
+  - 不在 `exit_policy` 内临时用其他 reference anchor（参考锚点）推导近似值
 
 - 本刀不允许做的事
   - 不在 `exit_policy` 内新增通用结构识别器
@@ -183,9 +192,12 @@ Status: Draft revised after written-spec review
 新增退出建议时，输出应清楚区分于 invalidation 和 time stop。
 
 固定输出契约建议：
-- action（动作）仍走现有主动退出建议路径
+- `action = "EXIT"`
+- `qty_fraction = 1.0`
+- `priority = "MEDIUM"`
 - reason / category（原因 / 分类）固定标识为 `failed_followthrough`
 - 若当前系统已有 `meta.exit_trigger` 或同类字段，则其值也固定为 `failed_followthrough`
+- `reference_price` 固定使用当前 `mark_price`
 - explanation（解释）需是人话，可直接进入后续报告层
 
 若 failed follow-through 与 `defensive_regime_de_risk` 同时成立：
@@ -198,12 +210,13 @@ Status: Draft revised after written-spec review
 > 这笔突破在早期阶段没有形成最小有效展开，且价格已跌回突破支撑下方，说明延续失败，建议提前退出。
 
 元数据建议至少带：
+- `exit_trigger = "failed_followthrough"`
 - `bars_since_entry`
 - `early_window_bars`
 - `max_favorable_excursion_r`
 - `min_followthrough_r`
 - `breakout_support`
-- `close`
+- `mark_price`
 
 ## Testing strategy
 
