@@ -59,6 +59,7 @@ Status: Draft revised after written-spec review
 
 1. **早期窗口内**
    - 持仓仍处于定义好的 early window（早期观察窗口）内
+   - `bars_since_entry` 采用 **1-based（从 1 开始）** 计数：入场后的第一个完整评估 bar 记为 1
    - 固定表达：`bars_since_entry <= early_window_bars`
    - 边界定义：`bars_since_entry == early_window_bars` 仍算 early（早期窗口内）
 
@@ -83,10 +84,10 @@ Status: Draft revised after written-spec review
 
 最小资格判断固定为：
 - `side == "LONG"`
-- `invalidation_source` 明确包含 breakout 语义
-- 第一版只接受类似以下命名风格：
-  - `trend_breakout_failure_below_4h_ema20`
-  - 或其他同类 `*_breakout_*` / `*_continuation_*` 且明确指向 breakout-continuation 的来源
+- `invalidation_source` 必须满足精确 v1 谓词：`str(invalidation_source).startswith("trend_breakout_")`
+
+明确纳入：
+- `trend_breakout_failure_below_4h_ema20` 及其他同前缀来源
 
 明确排除：
 - generic trend 但没有 breakout 语义的来源（例如 `trend_structure_loss_*` 这类泛趋势失效）
@@ -160,6 +161,7 @@ Status: Draft revised after written-spec review
   - `bars_since_entry`、`first_target_hit`、`max_favorable_excursion_r` 继续沿用现有持仓生命周期数据来源
   - `breakout_support` 的权威来源固定为：**position payload（持仓载荷）上的 `breakout_support` 数值字段**
   - 该字段由上游持仓 / lifecycle 组装单元负责写入；第一版若当前主线尚未提供，则允许只为这一刀补一处最小 metadata 注入，把 breakout 支撑位写入 `position["breakout_support"]`
+  - 对本规则而言，`breakout_support` 是**entry/setup time（入场/建仓时）冻结的结构参考值**，后续 lifecycle 不允许在持仓过程中漂移更新该字段
 
 - 第一版不接受的替代方案
   - 不在 `exit_policy` 内复用 `stop_loss` 冒充 `breakout_support`
@@ -169,6 +171,11 @@ Status: Draft revised after written-spec review
   - 不在 `exit_policy` 内新增通用结构识别器
   - 不为了这一刀把整个 position schema（持仓结构）重构
   - 不扩展到更泛的 setup taxonomy（形态分类体系）
+
+### Evaluation order note
+
+- `first_target_hit` 读取的是**当前评估周期里已经更新后的 lifecycle 状态**
+- 也就是说，若同一评估轮次里上游已先确认第一目标位命中，则本规则应把该仓位视为 `first_target_hit = true`，直接不触发 failed follow-through
 
 ### Missing / invalid data behavior
 
