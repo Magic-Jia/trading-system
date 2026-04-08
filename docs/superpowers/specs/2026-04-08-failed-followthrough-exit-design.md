@@ -130,11 +130,18 @@ Status: Draft revised after written-spec review
 1. **硬失效 / 原有 invalidation（逻辑失效）** 之后
 2. **time stop（时间止损）** 之前
 
-优先级顺序建议：
+优先级顺序固定为：
 - stop / thesis invalidation（止损 / 逻辑失效）
 - failed follow-through（突破后续无力快退）
 - time stop（时间止损）
 - 其他更慢的退出纪律
+
+同一评估周期的冲突规则固定为：
+- 若 `thesis_invalidation` 成立，则直接输出 invalidation exit，不再评估 failed follow-through
+- 若 `failed_followthrough` 成立，则它在同轮里是**排他型退出**：
+  - 抑制 `time_stop`
+  - 抑制 `defensive_regime_de_risk`
+- 第一版不允许同一轮同时输出 `failed_followthrough` 与 `time_stop` / `defensive_regime_de_risk`
 
 理由：
 - 如果已经正式失效，不需要再说“后续无力”
@@ -160,7 +167,7 @@ Status: Draft revised after written-spec review
 - 上游职责
   - `bars_since_entry`、`first_target_hit`、`max_favorable_excursion_r` 继续沿用现有持仓生命周期数据来源
   - `breakout_support` 的权威来源固定为：**position payload（持仓载荷）上的 `breakout_support` 数值字段**
-  - 该字段由上游持仓 / lifecycle 组装单元负责写入；第一版若当前主线尚未提供，则允许只为这一刀补一处最小 metadata 注入，把 breakout 支撑位写入 `position["breakout_support"]`
+  - 该字段由**开仓时的持仓快照组装层（position snapshot / lifecycle assembler）**负责写入 `position["breakout_support"]`
   - 对本规则而言，`breakout_support` 是**entry/setup time（入场/建仓时）冻结的结构参考值**，后续 lifecycle 不允许在持仓过程中漂移更新该字段
 
 - 第一版不接受的替代方案
@@ -194,29 +201,24 @@ Status: Draft revised after written-spec review
 
 测试层必须覆盖至少一条“关键字段缺失时安全跳过”的场景。
 
-## Suggested output semantics
+## Required output semantics
 
-新增退出建议时，输出应清楚区分于 invalidation 和 time stop。
+新增退出建议时，输出必须清楚区分于 invalidation 和 time stop。
 
-固定输出契约建议：
+第一版强制输出契约固定为：
 - `action = "EXIT"`
 - `qty_fraction = 1.0`
 - `priority = "MEDIUM"`
 - reason / category（原因 / 分类）固定标识为 `failed_followthrough`
-- 若当前系统已有 `meta.exit_trigger` 或同类字段，则其值也固定为 `failed_followthrough`
+- `meta.exit_trigger = "failed_followthrough"`
 - `reference_price` 固定使用当前 `mark_price`
 - explanation（解释）需是人话，可直接进入后续报告层
-
-若 failed follow-through 与 `defensive_regime_de_risk` 同时成立：
-- 优先展示 failed follow-through
-- 不叠加一条额外的 defensive de-risk（防守减仓）建议
-- 原因：一条明确的主动退出，优先级应高于“先减 25% 再观察”的防守处理
 
 建议的人话说明：
 
 > 这笔突破在早期阶段没有形成最小有效展开，且价格已跌回突破支撑下方，说明延续失败，建议提前退出。
 
-元数据建议至少带：
+第一版要求的最小元数据为：
 - `exit_trigger = "failed_followthrough"`
 - `bars_since_entry`
 - `early_window_bars`
@@ -258,6 +260,14 @@ Status: Draft revised after written-spec review
 5. **字段缺失或非法**
    - 如 `breakout_support` 缺失、MFE 不是数值、`first_target_hit` 不可用
    - 预期：安全跳过，不触发
+
+6. **同轮出现 defensive de-risk 条件**
+   - 当 failed follow-through 已成立时，即便 defensive regime 也成立
+   - 预期：只输出 failed follow-through，不叠加 defensive de-risk
+
+7. **同轮出现 time stop 条件**
+   - 当 failed follow-through 与 time stop 同时满足
+   - 预期：只输出 failed follow-through，不叠加 time stop
 
 ### Boundary checks
 
