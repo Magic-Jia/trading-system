@@ -9,6 +9,9 @@ Status: Draft revised after written-spec review
 为自动交易程序补下一刀最小但高价值的 exit rule（退出规则）：
 **failed follow-through exit（突破后续无力快退）**。
 
+本文档里的 **B 口径** 明确定义为：
+**只有“展开不足 + 结构失守”同时成立，才触发快退。**
+
 目标不是替代已有的 stop（止损）或 time stop（时间止损），而是补一层更前置的职业交易员式认错：
 当一笔 breakout / trend continuation（突破 / 趋势延续）交易在早期阶段没有形成最小有效展开，且价格重新跌破 breakout support（突破支撑）时，系统应提前退出，而不是继续死等硬止损或拖到 time stop。
 
@@ -70,8 +73,25 @@ Status: Draft revised after written-spec review
 
 4. **价格跌回 breakout support（突破支撑）下方**
    - 这是“结构失速”信号
-   - 固定表达：`close < breakout_support`
-   - 边界定义：`close == breakout_support` 不算跌破，因此不触发
+   - 第一版固定使用当前系统已有的 `mark_price` 作为判断价格
+   - 固定表达：`mark_price < breakout_support`
+   - 边界定义：`mark_price == breakout_support` 不算跌破，因此不触发
+
+### Eligibility gate（适用资格）
+
+第一版 failed follow-through 不是对所有 long（做多）仓位生效，而是只对已有 breakout / trend continuation 语义的仓位生效。
+
+最小资格判断固定为：
+- `side == "LONG"`
+- `invalidation_source` 含有现有 breakout / continuation 语义
+- 第一版默认复用当前主线已经存在的 breakout 风格失效来源命名，例如：
+  - `trend_breakout_failure_below_4h_ema20`
+  - 或其他同类 `*_breakout_*` / `*_continuation_*` 风格来源
+
+实现边界：
+- 第一版允许 `exit_policy` 只做**轻量字符串资格判断**
+- 不允许为这一刀新增新的 setup classifier（形态分类器）
+- 若仓位不满足该资格门槛，则本规则直接跳过，不触发
 
 只有四条同时成立，才发出 failed follow-through exit 建议。
 
@@ -79,19 +99,23 @@ Status: Draft revised after written-spec review
 
 第一版为避免配置扩散，核心阈值归属固定如下：
 
-- `early_window_bars`
+- `early_window_bars = 6`
   - 归属：`exit_policy.py` 内部的保守默认常量
   - 第一版不要求 position metadata（持仓元数据）动态传入
-  - 后续若证明需要按 setup（形态）差异化，再单独升格为配置项
+  - 含义：入场后的前 6 个评估 bar（K 线）仍视为 early window（早期窗口）
 
-- `min_followthrough_r`
+- `min_followthrough_r = 0.25`
   - 归属：`exit_policy.py` 内部的保守默认常量
   - 第一版同样不做外部配置化
+  - 含义：若最大有利展开连 0.25R 都没有达到，则视为“最小展开不足”
 
-选择这条边界的原因：
+选择这组保守默认值的原因：
+- 比 time stop（时间止损）更早，但还不至于把正常回踩的强单过早赶出去
+- 0.25R 只是“是否有最小有效跟随”的门槛，不是要求趋势单必须立即大幅盈利
 - 这一刀是最小退出纪律补丁，不应先引入新的全局配置面
 - 先把行为、优先级与测试边界钉死，比先做参数体系更重要
-- 这样 planner（实现计划）可以把当前切片收敛在 `exit_policy` + 测试层，而不是额外扩展配置系统
+
+这样 planner（实现计划）可以把当前切片收敛在 `exit_policy` + 测试层，而不是额外扩展配置系统
 
 ## Position in rule priority
 
@@ -118,7 +142,8 @@ Status: Draft revised after written-spec review
 - `first_target_hit`
 - `max_favorable_excursion_r`
 - `breakout_support`
-- 当前价格 / bar close
+- `mark_price`
+- `invalidation_source`
 
 最小接口边界固定如下：
 
@@ -144,7 +169,8 @@ Status: Draft revised after written-spec review
 - 若 `max_favorable_excursion_r` 缺失或不是有效数值 → 本规则跳过，不触发
 - 若 `first_target_hit` 缺失 → 视为本规则输入不完整，跳过，不触发
 - 若 `bars_since_entry` 缺失或非法 → 跳过，不触发
-- 若当前价格 / close 缺失或非法 → 跳过，不触发
+- 若 `mark_price` 缺失或非法 → 跳过，不触发
+- 若 `invalidation_source` 不具备 breakout / continuation 语义 → 跳过，不触发
 
 原因：
 - exit 规则在生产里应优先保证安全，不因元数据缺口制造错误清仓
@@ -161,6 +187,11 @@ Status: Draft revised after written-spec review
 - reason / category（原因 / 分类）固定标识为 `failed_followthrough`
 - 若当前系统已有 `meta.exit_trigger` 或同类字段，则其值也固定为 `failed_followthrough`
 - explanation（解释）需是人话，可直接进入后续报告层
+
+若 failed follow-through 与 `defensive_regime_de_risk` 同时成立：
+- 优先展示 failed follow-through
+- 不叠加一条额外的 defensive de-risk（防守减仓）建议
+- 原因：一条明确的主动退出，优先级应高于“先减 25% 再观察”的防守处理
 
 建议的人话说明：
 
@@ -183,7 +214,7 @@ Status: Draft revised after written-spec review
 - 处于早期窗口内
 - 未达到第一目标位
 - 最大展开不足
-- close 已跌回 breakout support 下方
+- `mark_price` 已跌回 breakout support 下方
 - 预期：触发 failed follow-through exit
 
 ### Should not trigger
@@ -193,7 +224,7 @@ Status: Draft revised after written-spec review
    - 预期：不触发
 
 2. **结构尚未失守**
-   - 展开不足，但仍在 breakout support 上方
+   - 展开不足，但 `mark_price` 仍在 breakout support 上方
    - 预期：不触发
 
 3. **已达到第一目标位**
@@ -213,7 +244,8 @@ Status: Draft revised after written-spec review
 测试里应显式写死以下边界：
 - `bars_since_entry == early_window_bars` → 仍属于 early window（可继续评估）
 - `max_favorable_excursion_r == min_followthrough_r` → 不算展开不足，因此不触发
-- `close == breakout_support` → 不算跌破，因此不触发
+- `mark_price == breakout_support` → 不算跌破，因此不触发
+- `bars_since_entry > early_window_bars` → 超出早期窗口，因此不触发
 
 ## Minimal implementation plan boundary
 
