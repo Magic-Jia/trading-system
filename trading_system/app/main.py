@@ -15,6 +15,7 @@ from .market_regime.derivatives import symbol_derivatives_features
 from .portfolio.allocator import allocate_candidates
 from .portfolio.lifecycle import advance_lifecycle_positions, build_management_action_intents, evaluate_portfolio
 from .portfolio.positions import apply_executed_intent, sync_positions_from_account
+from .portfolio.target_management import derive_target_management_fields
 from .reporting.daily_report import build_lifecycle_report, build_rotation_report, build_short_report
 from .reporting.regime_report import build_regime_summary
 from .risk.stop_policy import build_stop_policy
@@ -394,7 +395,8 @@ def _candidate_signal(candidate: Mapping[str, Any], market: Mapping[str, Any], r
     if take_profit <= 0:
         take_profit = _float(candidate_meta, "take_profit")
     if take_profit <= 0:
-        take_profit = entry_price * (1.04 if side == "LONG" else 0.96)
+        take_profit = None
+    structure_target_price = round(take_profit, 8) if take_profit and take_profit > 0 else None
     invalidation_source = str(candidate_row.get("invalidation_source") or candidate_meta.get("invalidation_source") or "").strip()
     invalidation_reason = str(candidate_row.get("invalidation_reason") or candidate_meta.get("invalidation_reason") or "").strip()
     stop_family = str(candidate_row.get("stop_family") or candidate_meta.get("stop_family") or "").strip()
@@ -407,6 +409,8 @@ def _candidate_signal(candidate: Mapping[str, Any], market: Mapping[str, Any], r
         "score": candidate_row.get("score"),
         "invalidation_source": invalidation_source,
     }
+    if structure_target_price is not None:
+        signal_meta["structure_target_price"] = structure_target_price
     for key, value in (
         ("invalidation_reason", invalidation_reason),
         ("stop_family", stop_family),
@@ -421,7 +425,7 @@ def _candidate_signal(candidate: Mapping[str, Any], market: Mapping[str, Any], r
         side=side,
         entry_price=round(entry_price, 8),
         stop_loss=round(stop_loss, 8),
-        take_profit=round(take_profit, 8),
+        take_profit=round(take_profit, 8) if take_profit is not None and take_profit > 0 else None,
         source="strategy",
         timeframe="4h",
         tags=["v2", str(candidate_row.get("engine", "trend"))],
@@ -700,6 +704,16 @@ def main() -> None:
                 "stop_reference": signal.meta.get("stop_reference"),
                 "stop_policy_source": signal.meta.get("stop_policy_source"),
                 "taxonomy_stop_loss": signal.stop_loss,
+                "structure_target_price": signal.meta.get("structure_target_price"),
+                "original_position_qty": qty,
+                **derive_target_management_fields(
+                    side=signal.side,
+                    entry_price=signal.entry_price,
+                    stop_loss=signal.stop_loss,
+                    structure_target_price=signal.meta.get("structure_target_price"),
+                    legacy_take_profit=signal.take_profit,
+                    original_position_qty=qty,
+                ),
             },
         )
         execution = executor.execute(order, state)
