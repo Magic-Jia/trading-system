@@ -390,6 +390,106 @@ def test_main_paper_cycle_executes_break_even_before_target_scale_out(monkeypatc
     assert state["lifecycle_summary"]["management_action_counts"].get("PARTIAL_TAKE_PROFIT", 0) == 0
 
 
+def test_main_paper_cycle_terminalizes_second_stage_after_first_stage_writeback(monkeypatch, tmp_path):
+    output_path = tmp_path / "runtime_state.json"
+    account_path = tmp_path / "account_snapshot.json"
+    market_path = tmp_path / "market_context.json"
+    deriv_path = tmp_path / "derivatives_snapshot.json"
+    output_path.write_text(
+        json.dumps(
+            {
+                "updated_at_bj": "2026-04-09T20:00:00+08:00",
+                "positions": {
+                    "BTCUSDT": {
+                        "symbol": "BTCUSDT",
+                        "side": "LONG",
+                        "qty": 0.28,
+                        "remaining_position_qty": 0.28,
+                        "entry_price": 100.0,
+                        "mark_price": 110.2,
+                        "stop_loss": 95.0,
+                        "first_target_price": 105.0,
+                        "second_target_price": 110.0,
+                        "original_position_qty": 0.28,
+                        "first_target_status": "pending",
+                        "first_target_hit": False,
+                        "first_target_filled_qty": 0.0,
+                        "second_target_status": "pending",
+                        "second_target_hit": False,
+                        "second_target_filled_qty": 0.0,
+                        "runner_protected": False,
+                        "runner_stop_price": None,
+                        "symbol_step_size": 0.01,
+                        "min_order_qty": 0.1,
+                        "status": "OPEN",
+                    }
+                },
+                "management_suggestions": [],
+                "management_action_previews": [],
+            }
+        )
+    )
+    account_path.write_text(
+        json.dumps(
+            {
+                "equity": 1000.0,
+                "available_balance": 1000.0,
+                "futures_wallet_balance": 1000.0,
+                "open_positions": [
+                    {
+                        "symbol": "BTCUSDT",
+                        "side": "LONG",
+                        "qty": 0.28,
+                        "entry_price": 100.0,
+                        "mark_price": 110.2,
+                        "unrealized_pnl": 2.86,
+                        "notional": 30.86,
+                        "leverage": 3.0,
+                    }
+                ],
+                "open_orders": [],
+            }
+        )
+    )
+    market_path.write_text(json.dumps({}))
+    deriv_path.write_text(json.dumps({}))
+    monkeypatch.setenv("TRADING_STATE_FILE", str(output_path))
+    monkeypatch.setenv("TRADING_ACCOUNT_SNAPSHOT_FILE", str(account_path))
+    monkeypatch.setenv("TRADING_MARKET_CONTEXT_FILE", str(market_path))
+    monkeypatch.setenv("TRADING_DERIVATIVES_SNAPSHOT_FILE", str(deriv_path))
+    monkeypatch.setenv("TRADING_EXECUTION_MODE", "paper")
+    monkeypatch.setattr(main_module, "load_market_context", lambda *args, **kwargs: [])
+    monkeypatch.setattr(main_module, "load_derivatives_snapshot", lambda *args, **kwargs: {})
+    monkeypatch.setattr(main_module, "generate_trend_candidates", lambda *args, **kwargs: [])
+    monkeypatch.setattr(main_module, "generate_rotation_candidates", lambda *args, **kwargs: [])
+    monkeypatch.setattr(main_module, "generate_short_candidates", lambda *args, **kwargs: [])
+    monkeypatch.setattr(main_module, "allocate_candidates", lambda **kwargs: [])
+
+    main_module.main()
+
+    state = json.loads(output_path.read_text())
+    position = state["positions"]["BTCUSDT"]
+    assert position["qty"] == pytest.approx(0.14)
+    assert position["remaining_position_qty"] == pytest.approx(0.14)
+    assert position["first_target_status"] == "filled"
+    assert position["first_target_hit"] is True
+    assert position["first_target_filled_qty"] == pytest.approx(0.14)
+    assert position["second_target_status"] == "satisfied_by_external_reduction"
+    assert position["second_target_hit"] is False
+    assert not any(
+        row.get("action") == "PARTIAL_TAKE_PROFIT" and (row.get("meta") or {}).get("target_stage") == "second"
+        for row in state.get("management_suggestions", [])
+    )
+    assert state["lifecycle_summary"]["management_action_counts"].get("PARTIAL_TAKE_PROFIT", 0) == 0
+    assert state["lifecycle_summary"]["audit_target_states"] == [
+        {
+            "symbol": "BTCUSDT",
+            "first_target_status": "filled",
+            "second_target_status": "satisfied_by_external_reduction",
+        }
+    ]
+
+
 def test_execute_management_actions_stops_same_round_sequence_when_first_stage_remains_pending(monkeypatch, tmp_path):
     executor = OrderExecutor(_paper_app_config(tmp_path), mode="paper")
     state = RuntimeStateV2(

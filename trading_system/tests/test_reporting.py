@@ -491,3 +491,105 @@ def test_build_lifecycle_report_keeps_target_stage_review_rows_without_stop_taxo
             "runner_stop_price": 105.0,
         }
     ]
+
+
+def test_build_lifecycle_report_retains_target_stage_review_rows_under_review_cap():
+    summary = build_lifecycle_report(
+        lifecycle_updates={
+            "BTCUSDT": {
+                "state": "PAYLOAD",
+                "reason_codes": ["payload_waiting_second_stage"],
+                "r_multiple": 1.6,
+                "first_target_hit": True,
+                "second_target_hit": False,
+                "first_target_status": "filled",
+                "second_target_status": "pending",
+                "runner_protected": False,
+                "runner_stop_price": None,
+            }
+        },
+        management_suggestions=[
+            {
+                "symbol": "S0",
+                "action": "BREAK_EVEN",
+                "priority": "MEDIUM",
+                "suggested_stop_loss": 100.0,
+                "meta": {
+                    "stop_family": "structure_stop",
+                    "stop_reference": "4h_ema20",
+                    "invalidation_source": "foo",
+                    "invalidation_reason": "bar",
+                    "stop_policy_source": "shared_taxonomy",
+                },
+            },
+            {
+                "symbol": "S1",
+                "action": "BREAK_EVEN",
+                "priority": "MEDIUM",
+                "suggested_stop_loss": 100.0,
+                "meta": {
+                    "stop_family": "structure_stop",
+                    "stop_reference": "4h_ema20",
+                    "invalidation_source": "foo",
+                    "invalidation_reason": "bar",
+                    "stop_policy_source": "shared_taxonomy",
+                },
+            },
+            {
+                "symbol": "S2",
+                "action": "BREAK_EVEN",
+                "priority": "MEDIUM",
+                "suggested_stop_loss": 100.0,
+                "meta": {
+                    "stop_family": "structure_stop",
+                    "stop_reference": "4h_ema20",
+                    "invalidation_source": "foo",
+                    "invalidation_reason": "bar",
+                    "stop_policy_source": "shared_taxonomy",
+                },
+            },
+            {
+                "symbol": "S3",
+                "action": "BREAK_EVEN",
+                "priority": "MEDIUM",
+                "suggested_stop_loss": 100.0,
+                "meta": {
+                    "stop_family": "structure_stop",
+                    "stop_reference": "4h_ema20",
+                    "invalidation_source": "foo",
+                    "invalidation_reason": "bar",
+                    "stop_policy_source": "shared_taxonomy",
+                },
+            },
+            {
+                "symbol": "S4",
+                "action": "BREAK_EVEN",
+                "priority": "MEDIUM",
+                "suggested_stop_loss": 100.0,
+                "meta": {
+                    "stop_family": "structure_stop",
+                    "stop_reference": "4h_ema20",
+                    "invalidation_source": "foo",
+                    "invalidation_reason": "bar",
+                    "stop_policy_source": "shared_taxonomy",
+                },
+            },
+            {
+                "symbol": "BTCUSDT",
+                "action": "PARTIAL_TAKE_PROFIT",
+                "priority": "MEDIUM",
+                "qty_fraction": 0.25,
+                "meta": {
+                    "target_stage": "second",
+                    "fraction_basis": "original_position",
+                    "runner_stop_price": 105.0,
+                },
+            },
+        ],
+    )
+
+    assert len(summary["review_actions"]) == 5
+    assert any(
+        row["action"] == "PARTIAL_TAKE_PROFIT" and row.get("target_stage") == "second"
+        for row in summary["review_actions"]
+    )

@@ -4,6 +4,8 @@ from typing import Any, Mapping, Sequence
 
 
 _LIFECYCLE_STATES = ("INIT", "CONFIRM", "PAYLOAD", "PROTECT", "EXIT")
+_REVIEW_ACTION_CAP = 5
+_TARGET_REVIEW_KEYS = ("target_price", "target_stage", "fraction_basis", "runner_stop_price")
 
 
 def _float(value: Any) -> float:
@@ -122,6 +124,33 @@ def _review_action_row(row: Mapping[str, Any]) -> dict[str, Any] | None:
     return payload
 
 
+def _is_target_management_review_row(row: Mapping[str, Any]) -> bool:
+    return any(key in row for key in _TARGET_REVIEW_KEYS)
+
+
+def _cap_review_actions(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if len(rows) <= _REVIEW_ACTION_CAP:
+        return rows
+
+    selected_indices = list(range(_REVIEW_ACTION_CAP))
+    target_indices = [idx for idx, row in enumerate(rows) if _is_target_management_review_row(row)]
+    if not target_indices:
+        return rows[:_REVIEW_ACTION_CAP]
+
+    target_index_set = set(target_indices)
+    for target_idx in target_indices:
+        if target_idx in selected_indices:
+            continue
+        drop_candidates = [idx for idx in selected_indices if idx not in target_index_set]
+        if not drop_candidates:
+            break
+        selected_indices.remove(drop_candidates[-1])
+        selected_indices.append(target_idx)
+
+    selected_indices.sort()
+    return [rows[idx] for idx in selected_indices]
+
+
 def build_lifecycle_report(
     *,
     lifecycle_updates: Mapping[str, Mapping[str, Any]],
@@ -183,7 +212,7 @@ def build_lifecycle_report(
         "exit_symbols": exit_symbols,
         "attention_symbols": attention_symbols,
         "management_action_counts": management_action_counts,
-        "review_actions": review_actions[:5],
+        "review_actions": _cap_review_actions(review_actions),
         "audit_target_states": audit_target_states,
         "leaders": leaders[:3],
     }
