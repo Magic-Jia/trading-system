@@ -83,6 +83,27 @@ class OrderExecutor:
                 "result": {"status": "UNSUPPORTED", "reason": "paper_mode_only"},
             }
 
+        if intent.action in {"BREAK_EVEN", "ADD_PROTECTIVE_STOP"}:
+            stop_loss = intent.stop_loss
+            if stop_loss is None:
+                return {
+                    "intent": asdict(intent),
+                    "result": {"status": "UNSUPPORTED", "reason": "missing_stop_loss"},
+                }
+            position = dict(state.positions.get(intent.symbol, {}))
+            if not position:
+                return {
+                    "intent": asdict(intent),
+                    "result": {"status": "UNSUPPORTED", "reason": "position_not_found"},
+                }
+            position["stop_loss"] = round(float(stop_loss), 8)
+            state.positions[intent.symbol] = position
+            return {
+                "intent": asdict(intent),
+                "result": {"status": "FILLED", "mode": "paper", "updated_stop_loss": position["stop_loss"]},
+                "position": position,
+            }
+
         qty = float(intent.qty or 0.0)
         if intent.action not in {"PARTIAL_TAKE_PROFIT", "DE_RISK", "EXIT"}:
             return {
