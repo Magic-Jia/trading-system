@@ -101,3 +101,81 @@ def test_evaluate_exit_policy_emits_defensive_regime_de_risking_when_trade_is_in
             },
         )
     ]
+
+
+def test_evaluate_exit_policy_emits_first_and_second_partials_in_order_on_gap_through_second_target():
+    decisions = evaluate_exit_policy(
+        _position(
+            side="LONG",
+            mark_price=110.5,
+            stop_loss=95.0,
+            first_target_price=105.0,
+            second_target_price=110.0,
+            first_target_status="pending",
+            second_target_status="pending",
+            runner_protected=False,
+        )
+    )
+
+    assert [(item.action, item.qty_fraction, item.meta["target_stage"]) for item in decisions] == [
+        ("PARTIAL_TAKE_PROFIT", 0.5, "first"),
+        ("PARTIAL_TAKE_PROFIT", 0.25, "second"),
+    ]
+    assert decisions[1].meta["runner_stop_price"] == pytest.approx(105.0)
+    assert decisions[1].meta["runner_protected"] is True
+
+
+def test_evaluate_exit_policy_emits_runner_exit_after_second_target_protection():
+    decisions = evaluate_exit_policy(
+        _position(
+            mark_price=104.5,
+            first_target_price=105.0,
+            second_target_price=110.0,
+            first_target_status="filled",
+            second_target_status="filled",
+            runner_protected=True,
+            runner_stop_price=105.0,
+        )
+    )
+
+    assert decisions == [
+        ExitDecision(
+            action="EXIT",
+            qty_fraction=1.0,
+            priority="HIGH",
+            reason="runner 保护价已被击穿，建议退出当前剩余全部尾仓。",
+            reference_price=pytest.approx(104.5),
+            meta={"exit_trigger": "runner_stop_hit", "runner_stop_price": pytest.approx(105.0)},
+        )
+    ]
+
+
+def test_evaluate_exit_policy_skips_invalid_runner_state_without_guessing_stop():
+    decisions = evaluate_exit_policy(
+        _position(
+            mark_price=104.5,
+            first_target_price=105.0,
+            second_target_price=110.0,
+            runner_protected=True,
+            runner_stop_price=None,
+            first_target_status="filled",
+            second_target_status="filled",
+        )
+    )
+
+    assert decisions == []
+
+
+def test_evaluate_exit_policy_does_not_stack_defensive_de_risk_on_same_round_as_target_stage():
+    decisions = evaluate_exit_policy(
+        _position(
+            mark_price=105.0,
+            first_target_price=105.0,
+            second_target_price=110.0,
+            first_target_status="pending",
+            second_target_status="pending",
+        ),
+        regime={"label": "CRASH_DEFENSIVE", "execution_policy": "downsize", "risk_multiplier": 0.35},
+    )
+
+    assert [item.meta.get("exit_trigger") for item in decisions] == ["first_target_hit"]
