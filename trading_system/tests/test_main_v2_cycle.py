@@ -3181,20 +3181,32 @@ def test_main_v2_break_even_and_partial_take_profit_preserve_taxonomy_semantics(
     assert break_even["meta"]["invalidation_reason"] == "breakout continuation lost 4h breakout support"
     assert break_even["meta"]["stop_policy_source"] == "shared_taxonomy"
 
-    partial = actions["PARTIAL_TAKE_PROFIT"]
-    assert partial["qty_fraction"] == pytest.approx(0.5)
-    assert "breakout continuation lost 4h breakout support" in partial["reason"]
-    assert partial["meta"]["target_price"] == pytest.approx(110.0)
-    assert partial["meta"]["stop_family"] == "structure_stop"
-    assert partial["meta"]["stop_reference"] == "4h_ema20"
-    assert partial["meta"]["invalidation_source"] == "trend_breakout_failure_below_4h_ema20"
-    assert partial["meta"]["invalidation_reason"] == "breakout continuation lost 4h breakout support"
-    assert partial["meta"]["stop_policy_source"] == "shared_taxonomy"
+    partials = [row for row in suggestions if row.get("action") == "PARTIAL_TAKE_PROFIT"]
+    assert len(partials) == 2
+    first_partial = next(row for row in partials if row.get("meta", {}).get("target_stage") == "first")
+    second_partial = next(row for row in partials if row.get("meta", {}).get("target_stage") == "second")
+
+    assert first_partial["qty_fraction"] == pytest.approx(0.5)
+    assert "第一目标位" in first_partial["reason"]
+    assert first_partial["meta"]["target_price"] == pytest.approx(105.0)
+    assert first_partial["meta"]["stop_family"] == "structure_stop"
+    assert first_partial["meta"]["stop_reference"] == "4h_ema20"
+    assert first_partial["meta"]["invalidation_source"] == "trend_breakout_failure_below_4h_ema20"
+    assert first_partial["meta"]["invalidation_reason"] == "breakout continuation lost 4h breakout support"
+    assert first_partial["meta"]["stop_policy_source"] == "shared_taxonomy"
+    assert second_partial["qty_fraction"] == pytest.approx(0.25)
+    assert second_partial["meta"]["target_price"] == pytest.approx(110.0)
+    assert second_partial["meta"]["runner_stop_price"] == pytest.approx(105.0)
 
     previews = [row for row in state.get("management_action_previews", []) if row.get("intent", {}).get("symbol") == "BTCUSDT"]
-    preview_actions = {row.get("intent", {}).get("action"): row for row in previews}
-    assert preview_actions["BREAK_EVEN"]["preview"]["intent"]["meta"]["stop_family"] == "structure_stop"
-    assert preview_actions["PARTIAL_TAKE_PROFIT"]["preview"]["intent"]["meta"]["invalidation_source"] == "trend_breakout_failure_below_4h_ema20"
+    preview_break_even = next(row for row in previews if row.get("intent", {}).get("action") == "BREAK_EVEN")
+    partial_previews = [row for row in previews if row.get("intent", {}).get("action") == "PARTIAL_TAKE_PROFIT"]
+    assert preview_break_even["preview"]["intent"]["meta"]["stop_family"] == "structure_stop"
+    assert {row["preview"]["intent"]["meta"].get("target_stage") for row in partial_previews} == {"first", "second"}
+    assert all(
+        row["preview"]["intent"]["meta"]["invalidation_source"] == "trend_breakout_failure_below_4h_ema20"
+        for row in partial_previews
+    )
 
 
 
@@ -3377,12 +3389,16 @@ def test_main_v2_emits_review_ready_lifecycle_summary_for_taxonomy_aware_exits(m
 
     state = json.loads(Path(output_path).read_text())
     summary = state["lifecycle_summary"]
-    assert summary["management_action_counts"] == {"BREAK_EVEN": 1, "PARTIAL_TAKE_PROFIT": 1}
+    assert summary["management_action_counts"] == {"BREAK_EVEN": 1, "PARTIAL_TAKE_PROFIT": 2}
     assert summary["review_actions"][0]["action"] == "BREAK_EVEN"
     assert summary["review_actions"][0]["stop_family"] == "structure_stop"
     assert summary["review_actions"][0]["invalidation_source"] == "trend_breakout_failure_below_4h_ema20"
-    assert summary["review_actions"][1]["action"] == "PARTIAL_TAKE_PROFIT"
-    assert summary["review_actions"][1]["target_price"] == pytest.approx(110.0)
+    partial_review_rows = [row for row in summary["review_actions"] if row["action"] == "PARTIAL_TAKE_PROFIT"]
+    assert len(partial_review_rows) == 2
+    first_review = next(row for row in partial_review_rows if row.get("target_stage") == "first")
+    second_review = next(row for row in partial_review_rows if row.get("target_stage") == "second")
+    assert first_review["target_price"] == pytest.approx(105.0)
+    assert second_review["target_price"] == pytest.approx(110.0)
     assert summary["leaders"][0]["invalidation_reason"] == "breakout continuation lost 4h breakout support"
 
 
