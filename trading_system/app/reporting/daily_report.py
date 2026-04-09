@@ -76,39 +76,47 @@ def _lifecycle_leader_row(symbol: str, payload: Mapping[str, Any]) -> dict[str, 
 
 def _review_action_row(row: Mapping[str, Any]) -> dict[str, Any] | None:
     meta = dict(row.get("meta") or {})
-    semantics_present = any(
-        meta.get(key)
-        for key in ("stop_family", "stop_reference", "invalidation_source", "invalidation_reason", "stop_policy_source")
+    stop_semantics_keys = ("stop_family", "stop_reference", "invalidation_source", "invalidation_reason", "stop_policy_source")
+    has_stop_semantics = any(meta.get(key) for key in stop_semantics_keys)
+
+    target_price = meta.get("target_price", row.get("target_price"))
+    target_stage = meta.get("target_stage")
+    fraction_basis = meta.get("fraction_basis")
+    runner_stop_price = meta.get("runner_stop_price")
+    qty_fraction = row.get("qty_fraction")
+    has_target_management_semantics = any(
+        value is not None for value in (target_price, target_stage, fraction_basis, runner_stop_price, qty_fraction)
     )
-    if not semantics_present:
+
+    if not (has_stop_semantics or has_target_management_semantics):
         return None
 
     payload = {
         "symbol": str(row.get("symbol", "")),
         "action": str(row.get("action", "")),
         "priority": str(row.get("priority", "MEDIUM")),
-        "stop_family": str(meta.get("stop_family", "")),
-        "stop_reference": str(meta.get("stop_reference", "")),
-        "invalidation_source": str(meta.get("invalidation_source", "")),
-        "invalidation_reason": str(meta.get("invalidation_reason", "")),
-        "stop_policy_source": str(meta.get("stop_policy_source", "")),
     }
+    if has_stop_semantics:
+        payload.update(
+            {
+                "stop_family": str(meta.get("stop_family", "")),
+                "stop_reference": str(meta.get("stop_reference", "")),
+                "invalidation_source": str(meta.get("invalidation_source", "")),
+                "invalidation_reason": str(meta.get("invalidation_reason", "")),
+                "stop_policy_source": str(meta.get("stop_policy_source", "")),
+            }
+        )
     suggested_stop_loss = row.get("suggested_stop_loss")
     if suggested_stop_loss is not None:
         payload["suggested_stop_loss"] = round(_float(suggested_stop_loss), 8)
-    qty_fraction = row.get("qty_fraction")
     if qty_fraction is not None:
         payload["qty_fraction"] = _float(qty_fraction)
-    target_price = meta.get("target_price", row.get("target_price"))
     if target_price is not None:
         payload["target_price"] = round(_float(target_price), 8)
-    target_stage = meta.get("target_stage")
     if target_stage is not None:
         payload["target_stage"] = str(target_stage)
-    fraction_basis = meta.get("fraction_basis")
     if fraction_basis is not None:
         payload["fraction_basis"] = str(fraction_basis)
-    runner_stop_price = meta.get("runner_stop_price")
     if runner_stop_price is not None:
         payload["runner_stop_price"] = round(_float(runner_stop_price), 8)
     return payload
