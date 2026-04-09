@@ -1085,7 +1085,7 @@ git commit -m "feat: apply target management state in paper execution"
 - Modify: `trading_system/tests/test_reporting.py:241-377`
 - Create: `trading_system/tests/test_target_scaleout_runner_cycle.py`
 
-- [ ] **Step 1: Write the failing reporting and cycle tests**
+- [x] **Step 1: Write the failing reporting and cycle tests**
 
 ```python
 def test_build_lifecycle_report_surfaces_b_view_target_runner_fields():
@@ -1225,7 +1225,7 @@ def test_main_dry_run_cycle_surfaces_gap_through_suggestions_and_previews(monkey
     assert position["runner_stop_price"] is None
 ```
 
-- [ ] **Step 2: Run the reporting and cycle tests to verify they fail**
+- [x] **Step 2: Run the reporting and cycle tests to verify they fail**
 
 Run:
 ```bash
@@ -1235,7 +1235,7 @@ uv run --with pytest python -m pytest trading_system/tests/test_reporting.py tra
 Expected:
 - FAIL because reporting does not yet project the new fields and no focused cycle file exists
 
-- [ ] **Step 3: Implement the reporting projection and focused cycle coverage**
+- [x] **Step 3: Implement the reporting projection and focused cycle coverage**
 
 Update reporting helpers so that:
 - `_lifecycle_leader_row()` includes, when present:
@@ -1257,7 +1257,7 @@ The focused cycle test should:
 - assert preview quantities are based on original size, not current qty multiplier shortcuts
 - assert lifecycle summary counts the new actions deterministically
 
-- [ ] **Step 4: Run the full focused verification set**
+- [x] **Step 4: Run the full focused verification set**
 
 Run:
 ```bash
@@ -1267,7 +1267,7 @@ uv run --with pytest python -m pytest trading_system/tests/test_target_managemen
 Expected:
 - PASS
 
-- [ ] **Step 5: Commit the reporting and cycle coverage**
+- [x] **Step 5: Commit the reporting and cycle coverage**
 
 ```bash
 git add trading_system/app/reporting/daily_report.py trading_system/tests/test_reporting.py trading_system/tests/test_target_scaleout_runner_cycle.py
@@ -1325,12 +1325,18 @@ Document in the execution handoff / PR summary:
 ## Execution handoff
 
 - Scope delivered across the prior milestone commits through `07749f7`: target-state freeze and legacy migration, ordered first/second target decisions, reconciliation against live remaining size, deterministic paper writeback, and reporting plus focused cycle coverage.
+- Post-closeout rerun on `bdac536` (paper lifecycle summary alignment): the focused target-management bundle still passed cleanly and the adjacent paper/runtime regression slice remained green, so no further runtime or reporting fixes were required after the final summary expectation cleanup.
 - Focused verification run on 2026-04-09:
   - `uv run --with pytest python -m pytest trading_system/tests/test_target_management_state.py trading_system/tests/test_exit_policy.py trading_system/tests/test_management_execution.py trading_system/tests/test_reporting.py trading_system/tests/test_target_scaleout_runner_cycle.py -q -p no:cacheprovider`
   - Result: `37 passed in 0.25s`
 - Neighboring regression run on 2026-04-09:
   - `uv run --with pytest python -m pytest trading_system/tests/test_paper_executor.py trading_system/tests/test_main_v2_cycle.py -q -p no:cacheprovider -k "taxonomy or followthrough or de_risk or partial"`
   - Result: `10 passed, 50 deselected in 0.19s`
+- Refreshed closeout verification rerun on 2026-04-09 after `bdac536`:
+  - `uv run --with pytest python -m pytest trading_system/tests/test_target_management_state.py trading_system/tests/test_exit_policy.py trading_system/tests/test_management_execution.py trading_system/tests/test_reporting.py trading_system/tests/test_target_scaleout_runner_cycle.py -q -p no:cacheprovider`
+  - Result: `37 passed in 0.23s`
+  - `uv run --with pytest python -m pytest trading_system/tests/test_paper_executor.py trading_system/tests/test_main_v2_cycle.py -q -p no:cacheprovider -k "taxonomy or followthrough or de_risk or partial"`
+  - Result: `10 passed, 50 deselected in 0.65s`
 - Diff inspection run on 2026-04-09:
   - `git diff --stat HEAD~5..HEAD`
   - Result: planned portfolio / execution / reporting files and focused target-management tests changed, matching the intended implementation slices before this closeout note.
