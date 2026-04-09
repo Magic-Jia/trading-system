@@ -199,3 +199,41 @@ def test_sync_positions_from_account_preserves_existing_target_management_state(
     assert state.positions["BTCUSDT"]["runner_protected"] is True
     assert state.positions["BTCUSDT"]["runner_stop_price"] == pytest.approx(107.0)
     assert state.positions["BTCUSDT"]["remaining_position_qty"] == pytest.approx(0.5)
+
+
+def test_sync_positions_from_account_does_not_auto_derive_target_management_for_snapshot_only_position(monkeypatch):
+    monkeypatch.setattr("trading_system.app.portfolio.positions._now_bj", lambda: "2026-04-09T18:00:00+08:00")
+    state = RuntimeStateV2(
+        updated_at_bj="2026-04-09T12:00:00+08:00",
+        positions={
+            "BTCUSDT": {
+                "symbol": "BTCUSDT",
+                "side": "LONG",
+                "qty": 0.62,
+                "entry_price": 62850.0,
+                "mark_price": 64120.0,
+                "stop_loss": 61593.0,
+                "status": "OPEN",
+                "source": "account_snapshot",
+                "tracked_from_snapshot": True,
+                "tracked_from_intent": False,
+            }
+        },
+    )
+
+    sync_positions_from_account(
+        state,
+        AccountSnapshot(
+            equity=1000.0,
+            available_balance=1000.0,
+            futures_wallet_balance=1000.0,
+            open_positions=[PositionSnapshot(symbol="BTCUSDT", side="LONG", qty=0.62, entry_price=62850.0, mark_price=64120.0)],
+        ),
+    )
+
+    position = state.positions["BTCUSDT"]
+    assert position["stop_loss"] == pytest.approx(61593.0)
+    assert "first_target_price" not in position
+    assert "second_target_price" not in position
+    assert "first_target_status" not in position
+    assert "second_target_status" not in position

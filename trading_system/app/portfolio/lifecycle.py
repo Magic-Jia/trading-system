@@ -4,6 +4,7 @@ from dataclasses import asdict
 from typing import Any
 
 from .exit_policy import ExitDecision, evaluate_exit_policy
+from .positions import _has_explicit_target_management_state
 from .target_management import reconciled_stage_qty, stage_requested_qty
 from .lifecycle_v2 import advance_lifecycle_transition
 from ..types import ManagementActionIntent, ManagementSuggestion, RuntimeState
@@ -267,7 +268,8 @@ def advance_lifecycle_positions(state: RuntimeState, lifecycle_config: Any) -> d
         stop_loss = _float(stop) if stop is not None else 0.0
         take_profit = position.get("take_profit")
         r_multiple = _r_multiple(position)
-        current_state = str((latest.get(symbol) or {}).get("state", "INIT"))
+        carries_persistent_lifecycle = bool(position.get("tracked_from_intent")) or _has_explicit_target_management_state(position)
+        current_state = str((latest.get(symbol) or {}).get("state", "INIT")) if carries_persistent_lifecycle else "INIT"
 
         stop_hit = False
         if mark > 0 and stop is not None and _valid_stop(side, _float(position.get("entry_price")), stop_loss):

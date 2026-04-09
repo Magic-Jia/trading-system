@@ -7,7 +7,7 @@ from typing import Any, Callable
 
 from ..connectors.binance import query_open_protective_orders
 from ..config import AppConfig
-from ..portfolio.positions import apply_management_action_fill
+from ..portfolio.positions import _has_explicit_target_management_state, apply_management_action_fill
 from ..types import ManagementActionIntent, OrderIntent, RuntimeState
 from .paper_executor import PaperExecutor
 from .paper_ledger import PaperLedger
@@ -96,11 +96,31 @@ class OrderExecutor:
                     "intent": asdict(intent),
                     "result": {"status": "UNSUPPORTED", "reason": "position_not_found"},
                 }
+            if (
+                intent.action == "BREAK_EVEN"
+                and not position.get("tracked_from_intent")
+                and not _has_explicit_target_management_state(position)
+            ):
+                return {
+                    "intent": asdict(intent),
+                    "result": {
+                        "status": "FILLED",
+                        "mode": "paper",
+                        "updated_stop_loss": round(float(stop_loss), 8),
+                        "writeback_skipped": True,
+                    },
+                    "position": position,
+                }
             position["stop_loss"] = round(float(stop_loss), 8)
             state.positions[intent.symbol] = position
             return {
                 "intent": asdict(intent),
-                "result": {"status": "FILLED", "mode": "paper", "updated_stop_loss": position["stop_loss"]},
+                "result": {
+                    "status": "FILLED",
+                    "mode": "paper",
+                    "updated_stop_loss": position["stop_loss"],
+                    "writeback_skipped": False,
+                },
                 "position": position,
             }
 
