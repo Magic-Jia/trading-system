@@ -3,8 +3,8 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from .target_management import ensure_target_management_state
-from ..types import AccountSnapshot, BJ, OrderIntent, PositionSnapshot, RuntimeState
+from .target_management import ensure_target_management_state, stage_completed, terminalize_all_unreachable_stages
+from ..types import AccountSnapshot, BJ, ManagementActionIntent, OrderIntent, PositionSnapshot, RuntimeState
 
 
 _POSITION_TAXONOMY_KEYS = (
@@ -238,3 +238,45 @@ def apply_executed_intent(state: RuntimeState, order: OrderIntent) -> dict[str, 
     updated_position = ensure_target_management_state(position)
     state.positions[order.symbol] = updated_position
     return updated_position
+
+
+def apply_management_action_fill(state: RuntimeState, intent: ManagementActionIntent) -> dict[str, Any]:
+    existing = state.positions.get(intent.symbol)
+    if not existing:
+        return {}
+
+    position = dict(existing)
+    current_qty = float(position.get("qty", 0.0) or 0.0)
+    filled_qty = round(float(intent.qty or 0.0), 8)
+    remaining_qty = max(round(current_qty - filled_qty, 8), 0.0)
+    position["qty"] = remaining_qty
+    position["remaining_position_qty"] = remaining_qty
+
+    stage = str((intent.meta or {}).get("target_stage") or "")
+    if intent.action == "PARTIAL_TAKE_PROFIT" and stage in {"first", "second"}:
+        key = f"{stage}_target_filled_qty"
+        position[key] = round(float(position.get(key, 0.0) or 0.0) + filled_qty, 8)
+        if stage_completed(position, stage=stage):
+            position[f"{stage}_target_status"] = "filled"
+            position[f"{stage}_target_hit"] = True
+            if stage == "second" and remaining_qty > 0:
+                position["runner_protected"] = bool((intent.meta or {}).get("runner_protected"))
+                position["runner_stop_price"] = (intent.meta or {}).get("runner_stop_price")
+            elif stage == "second":
+                position["runner_protected"] = False
+                position["runner_stop_price"] = None
+        else:
+            position[f"{stage}_target_status"] = "pending"
+            position[f"{stage}_target_hit"] = False
+            if stage == "second":
+                position["runner_protected"] = False
+                position["runner_stop_price"] = None
+    elif intent.action == "EXIT":
+        position["qty"] = 0.0
+        position["remaining_position_qty"] = 0.0
+        position["runner_protected"] = False
+        position["runner_stop_price"] = None
+
+    updated = terminalize_all_unreachable_stages(position)
+    state.positions[intent.symbol] = updated
+    return updated
