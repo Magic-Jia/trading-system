@@ -60,6 +60,17 @@ def _lifecycle_leader_row(symbol: str, payload: Mapping[str, Any]) -> dict[str, 
         value = payload.get(key)
         if value:
             row[key] = str(value)
+    for key in ("first_target_hit", "second_target_hit", "runner_protected"):
+        if key in payload:
+            row[key] = bool(payload.get(key))
+    runner_stop_price = payload.get("runner_stop_price")
+    if runner_stop_price is not None:
+        row["runner_stop_price"] = round(_float(runner_stop_price), 8)
+    if "scale_out_plan" in payload:
+        row["scale_out_plan"] = dict(payload.get("scale_out_plan") or {})
+    second_target_source = payload.get("second_target_source")
+    if second_target_source:
+        row["second_target_source"] = str(second_target_source)
     return row
 
 
@@ -91,6 +102,15 @@ def _review_action_row(row: Mapping[str, Any]) -> dict[str, Any] | None:
     target_price = meta.get("target_price", row.get("target_price"))
     if target_price is not None:
         payload["target_price"] = round(_float(target_price), 8)
+    target_stage = meta.get("target_stage")
+    if target_stage is not None:
+        payload["target_stage"] = str(target_stage)
+    fraction_basis = meta.get("fraction_basis")
+    if fraction_basis is not None:
+        payload["fraction_basis"] = str(fraction_basis)
+    runner_stop_price = meta.get("runner_stop_price")
+    if runner_stop_price is not None:
+        payload["runner_stop_price"] = round(_float(runner_stop_price), 8)
     return payload
 
 
@@ -129,6 +149,7 @@ def build_lifecycle_report(
     )
     management_action_counts: dict[str, int] = {}
     review_actions: list[dict[str, Any]] = []
+    audit_target_states: list[dict[str, Any]] = []
     for row in management_suggestions:
         action = str(row.get("action", "")).upper()
         if action:
@@ -136,6 +157,16 @@ def build_lifecycle_report(
         review_row = _review_action_row(row)
         if review_row is not None:
             review_actions.append(review_row)
+    for symbol, payload in sorted(lifecycle_updates.items()):
+        if "first_target_status" not in payload and "second_target_status" not in payload:
+            continue
+        audit_target_states.append(
+            {
+                "symbol": symbol,
+                "first_target_status": str(payload.get("first_target_status", "")),
+                "second_target_status": str(payload.get("second_target_status", "")),
+            }
+        )
     return {
         "tracked_count": len(lifecycle_updates),
         "state_counts": state_counts,
@@ -145,6 +176,7 @@ def build_lifecycle_report(
         "attention_symbols": attention_symbols,
         "management_action_counts": management_action_counts,
         "review_actions": review_actions[:5],
+        "audit_target_states": audit_target_states,
         "leaders": leaders[:3],
     }
 
