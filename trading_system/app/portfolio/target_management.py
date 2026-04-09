@@ -204,6 +204,16 @@ def stage_requested_qty(position: Mapping[str, Any], *, stage: str) -> float:
     return _round_qty(original_qty * fraction)
 
 
+def stage_completed(position: Mapping[str, Any], *, stage: str) -> bool:
+    target_qty = stage_requested_qty(position, stage=stage)
+    if target_qty <= 0:
+        return False
+    filled_qty = _float(position.get(f"{stage}_target_filled_qty")) or 0.0
+    step_size = _float(position.get("symbol_step_size"))
+    epsilon = _qty_epsilon(step_size)
+    return filled_qty + epsilon >= target_qty
+
+
 def reconciled_stage_qty(position: Mapping[str, Any], *, stage: str) -> float | None:
     requested_qty = stage_requested_qty(position, stage=stage)
     if requested_qty <= 0:
@@ -227,6 +237,24 @@ def reconciled_stage_qty(position: Mapping[str, Any], *, stage: str) -> float | 
     if min_qty is not None and min_qty > 0 and executable_qty < min_qty:
         return None
     return _round_qty(executable_qty)
+
+
+def terminalize_all_unreachable_stages(position: Mapping[str, Any]) -> dict[str, Any]:
+    payload = dict(position)
+    if str(payload.get("side") or "").upper() != "LONG":
+        return payload
+
+    for stage in ("first", "second"):
+        if str(payload.get(f"{stage}_target_status") or TARGET_STATUS_PENDING) != TARGET_STATUS_PENDING:
+            continue
+        if not _stage_unreachable(payload, stage=stage):
+            continue
+        payload[f"{stage}_target_status"] = TARGET_STATUS_EXTERNAL
+        payload[f"{stage}_target_hit"] = False
+        if stage == "second":
+            payload["runner_protected"] = False
+            payload["runner_stop_price"] = None
+    return payload
 
 
 def _apply_legacy_stage_seed(position: dict[str, Any]) -> dict[str, Any]:

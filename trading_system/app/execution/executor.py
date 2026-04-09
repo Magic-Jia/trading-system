@@ -7,6 +7,7 @@ from typing import Any, Callable
 
 from ..connectors.binance import query_open_protective_orders
 from ..config import AppConfig
+from ..portfolio.positions import apply_management_action_fill
 from ..types import ManagementActionIntent, OrderIntent, RuntimeState
 from .paper_executor import PaperExecutor
 from .paper_ledger import PaperLedger
@@ -74,6 +75,52 @@ class OrderExecutor:
         open_orders: list[dict[str, Any]] | None = None,
     ) -> list[dict[str, Any]]:
         return [self.preview_management_action(intent, open_orders) for intent in intents]
+
+    def execute_management_action(self, intent: ManagementActionIntent, state: RuntimeState) -> dict[str, Any]:
+        if self.mode != "paper":
+            return {
+                "intent": asdict(intent),
+                "result": {"status": "UNSUPPORTED", "reason": "paper_mode_only"},
+            }
+
+        qty = float(intent.qty or 0.0)
+        if intent.action not in {"PARTIAL_TAKE_PROFIT", "DE_RISK", "EXIT"}:
+            return {
+                "intent": asdict(intent),
+                "result": {"status": "UNSUPPORTED", "reason": "unsupported_management_action"},
+            }
+        if qty <= 0:
+            return {
+                "intent": asdict(intent),
+                "result": {"status": "UNSUPPORTED", "reason": "missing_reduce_qty"},
+            }
+
+        updated_position = apply_management_action_fill(state, intent)
+        return {
+            "intent": asdict(intent),
+            "result": {"status": "FILLED", "mode": "paper", "filled_qty": round(qty, 8)},
+            "position": updated_position,
+        }
+
+    def execute_management_actions(
+        self,
+        intents: list[ManagementActionIntent],
+        state: RuntimeState,
+    ) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        for intent in intents:
+            row = self.execute_management_action(intent, state)
+            status = str((row.get("result") or {}).get("status") or "")
+            if status != "FILLED":
+                break
+            rows.append(row)
+
+            stage = str((intent.meta or {}).get("target_stage") or "")
+            if intent.action == "PARTIAL_TAKE_PROFIT" and stage in {"first", "second"}:
+                position = dict(state.positions.get(intent.symbol, {}))
+                if str(position.get(f"{stage}_target_status") or "pending") == "pending":
+                    break
+        return rows
 
     def append_log(self, order: OrderIntent, result: dict[str, Any]) -> None:
         payload = {

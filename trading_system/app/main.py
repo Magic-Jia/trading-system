@@ -15,7 +15,7 @@ from .market_regime.derivatives import symbol_derivatives_features
 from .portfolio.allocator import allocate_candidates
 from .portfolio.lifecycle import advance_lifecycle_positions, build_management_action_intents, evaluate_portfolio
 from .portfolio.positions import apply_executed_intent, sync_positions_from_account
-from .portfolio.target_management import derive_target_management_fields
+from .portfolio.target_management import derive_target_management_fields, terminalize_all_unreachable_stages
 from .reporting.daily_report import build_lifecycle_report, build_rotation_report, build_short_report
 from .reporting.regime_report import build_regime_summary
 from .risk.stop_policy import build_stop_policy
@@ -562,6 +562,11 @@ def _paper_trading_summary(mode: str, ledger_path: Path | None, execution_rows: 
     }
 
 
+def run_management_terminalization_pass(state: Any) -> None:
+    for symbol, position in list(state.positions.items()):
+        state.positions[symbol] = terminalize_all_unreachable_stages(dict(position))
+
+
 def main() -> None:
     config = _with_state_file_override(load_config())
     if config.execution.mode == "live" and not config.execution.allow_live_execution:
@@ -741,7 +746,11 @@ def main() -> None:
     }
     management = evaluate_portfolio(state, regime=regime_payload)
     management_intents = build_management_action_intents(state, management)
+    run_management_terminalization_pass(state)
     management_previews = executor.preview_management_actions(management_intents, account.open_orders)
+    if config.execution.mode == "paper":
+        executor.execute_management_actions(management_intents, state)
+        run_management_terminalization_pass(state)
     lifecycle_updates = advance_lifecycle_positions(state, config.lifecycle)
     lifecycle_summary = build_lifecycle_report(
         lifecycle_updates=lifecycle_updates,
