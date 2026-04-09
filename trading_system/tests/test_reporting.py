@@ -448,3 +448,46 @@ def test_build_lifecycle_report_surfaces_b_view_target_runner_fields():
         "first_target_status": "satisfied_by_external_reduction",
         "second_target_status": "pending",
     }
+
+
+def test_build_lifecycle_report_keeps_target_stage_review_rows_without_stop_taxonomy_meta():
+    summary = build_lifecycle_report(
+        lifecycle_updates={
+            "BTCUSDT": {
+                "state": "PAYLOAD",
+                "reason_codes": ["payload_waiting_second_stage"],
+                "r_multiple": 1.6,
+                "first_target_hit": True,
+                "second_target_hit": False,
+                "first_target_status": "filled",
+                "second_target_status": "pending",
+                "runner_protected": False,
+                "runner_stop_price": None,
+            }
+        },
+        management_suggestions=[
+            {
+                "symbol": "BTCUSDT",
+                "action": "PARTIAL_TAKE_PROFIT",
+                "priority": "MEDIUM",
+                "qty_fraction": 0.25,
+                "meta": {
+                    "target_stage": "second",
+                    "fraction_basis": "original_position",
+                    "runner_stop_price": 105.0,
+                },
+            }
+        ],
+    )
+
+    assert summary["review_actions"] == [
+        {
+            "symbol": "BTCUSDT",
+            "action": "PARTIAL_TAKE_PROFIT",
+            "priority": "MEDIUM",
+            "qty_fraction": 0.25,
+            "target_stage": "second",
+            "fraction_basis": "original_position",
+            "runner_stop_price": 105.0,
+        }
+    ]
