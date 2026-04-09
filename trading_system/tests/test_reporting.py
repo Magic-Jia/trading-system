@@ -1,3 +1,5 @@
+import pytest
+
 from trading_system.app.reporting.daily_report import build_lifecycle_report, build_rotation_report, build_short_report
 from trading_system.app.reporting.regime_report import build_regime_summary
 
@@ -278,6 +280,7 @@ def test_build_lifecycle_report_returns_compact_deterministic_state_surface():
         "attention_symbols": ["BTCUSDT", "SOLUSDT"],
         "management_action_counts": {"ADD_PROTECTIVE_STOP": 1, "EXIT": 1},
         "review_actions": [],
+        "audit_target_states": [],
         "leaders": [
             {
                 "symbol": "SOLUSDT",
@@ -375,3 +378,73 @@ def test_build_lifecycle_report_surfaces_review_ready_taxonomy_semantics():
     ]
     assert summary["leaders"][0]["stop_family"] == "structure_stop"
     assert summary["leaders"][0]["invalidation_source"] == "trend_breakout_failure_below_4h_ema20"
+
+
+def test_build_lifecycle_report_surfaces_b_view_target_runner_fields():
+    summary = build_lifecycle_report(
+        lifecycle_updates={
+            "BTCUSDT": {
+                "state": "PROTECT",
+                "reason_codes": ["payload_to_protect_trend_mature"],
+                "r_multiple": 2.0,
+                "first_target_hit": True,
+                "second_target_hit": True,
+                "first_target_status": "filled",
+                "second_target_status": "filled",
+                "runner_protected": True,
+                "runner_stop_price": 105.0,
+                "scale_out_plan": {"first": 0.5, "second": 0.25, "runner": 0.25, "basis": "original_position"},
+                "second_target_source": "fixed_2r",
+            },
+            "ETHUSDT": {
+                "state": "PAYLOAD",
+                "reason_codes": ["payload_waiting_second_stage"],
+                "r_multiple": 0.9,
+                "first_target_hit": False,
+                "second_target_hit": False,
+                "first_target_status": "satisfied_by_external_reduction",
+                "second_target_status": "pending",
+                "runner_protected": False,
+                "runner_stop_price": None,
+                "scale_out_plan": {"first": 0.5, "second": 0.25, "runner": 0.25, "basis": "original_position"},
+                "second_target_source": "fixed_2r",
+            },
+        },
+        management_suggestions=[
+            {
+                "symbol": "BTCUSDT",
+                "action": "PARTIAL_TAKE_PROFIT",
+                "priority": "MEDIUM",
+                "qty_fraction": 0.25,
+                "meta": {
+                    "target_stage": "second",
+                    "fraction_basis": "original_position",
+                    "runner_stop_price": 105.0,
+                    "invalidation_source": "trend_breakout_failure_below_4h_ema20",
+                    "invalidation_reason": "breakout continuation lost 4h breakout support",
+                    "stop_family": "structure_stop",
+                    "stop_reference": "4h_ema20",
+                    "stop_policy_source": "shared_taxonomy",
+                },
+            }
+        ],
+    )
+
+    leader = summary["leaders"][0]
+    assert leader["symbol"] == "BTCUSDT"
+    assert leader["first_target_hit"] is True
+    assert leader["second_target_hit"] is True
+    assert leader["runner_protected"] is True
+    assert leader["runner_stop_price"] == pytest.approx(105.0)
+    assert leader["scale_out_plan"] == {"first": 0.5, "second": 0.25, "runner": 0.25, "basis": "original_position"}
+    assert leader["second_target_source"] == "fixed_2r"
+    assert summary["review_actions"][0]["target_stage"] == "second"
+    assert summary["review_actions"][0]["fraction_basis"] == "original_position"
+    assert summary["review_actions"][0]["runner_stop_price"] == pytest.approx(105.0)
+    audit_rows = {row["symbol"]: row for row in summary["audit_target_states"]}
+    assert audit_rows["BTCUSDT"] == {"symbol": "BTCUSDT", "first_target_status": "filled", "second_target_status": "filled"}
+    assert audit_rows["ETHUSDT"] == {
+        "symbol": "ETHUSDT",
+        "first_target_status": "satisfied_by_external_reduction",
+        "second_target_status": "pending",
+    }
