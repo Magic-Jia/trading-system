@@ -14,6 +14,46 @@ from trading_system.app.risk.validator import ValidationResult
 from trading_system.app.signals.short_engine import generate_short_candidates as generate_real_short_candidates
 
 
+def _expected_paper_lifecycle_summary_after_break_even_writeback() -> dict:
+    return {
+        "tracked_count": 3,
+        "state_counts": {
+            "INIT": 0,
+            "CONFIRM": 3,
+            "PAYLOAD": 0,
+            "PROTECT": 0,
+            "EXIT": 0,
+        },
+        "pending_confirmation_symbols": [],
+        "protected_symbols": [],
+        "exit_symbols": [],
+        "attention_symbols": ["BTCUSDT", "ETHUSDT", "SOLUSDT"],
+        "management_action_counts": {"BREAK_EVEN": 3},
+        "review_actions": [],
+        "audit_target_states": [],
+        "leaders": [
+            {
+                "symbol": "SOLUSDT",
+                "state": "CONFIRM",
+                "r_multiple": pytest.approx(1.883562, abs=1e-6),
+                "reason_codes": ["init_to_confirm_confirmed"],
+            },
+            {
+                "symbol": "ETHUSDT",
+                "state": "CONFIRM",
+                "r_multiple": pytest.approx(1.323988, abs=1e-6),
+                "reason_codes": ["init_to_confirm_confirmed"],
+            },
+            {
+                "symbol": "BTCUSDT",
+                "state": "CONFIRM",
+                "r_multiple": pytest.approx(1.010342, abs=1e-6),
+                "reason_codes": ["init_to_confirm_confirmed"],
+            },
+        ],
+    }
+
+
 def test_v2_config_exposes_regime_universe_allocator_sections():
     assert hasattr(DEFAULT_CONFIG, "regime")
     assert hasattr(DEFAULT_CONFIG, "universe")
@@ -299,42 +339,7 @@ def test_main_v2_cycle_writes_regime_and_allocation_sections(monkeypatch, tmp_pa
     assert "latest_allocations" in state
     assert state.get("partial_v2_coverage") is True
     assert state.get("rotation_candidates") == []
-    assert state.get("lifecycle_summary") == {
-        "tracked_count": 3,
-        "state_counts": {
-            "INIT": 3,
-            "CONFIRM": 0,
-            "PAYLOAD": 0,
-            "PROTECT": 0,
-            "EXIT": 0,
-        },
-        "pending_confirmation_symbols": ["BTCUSDT", "ETHUSDT", "SOLUSDT"],
-        "protected_symbols": [],
-        "exit_symbols": [],
-        "attention_symbols": ["BTCUSDT", "ETHUSDT", "SOLUSDT"],
-        "management_action_counts": {"ADD_PROTECTIVE_STOP": 3},
-        "review_actions": [],
-        "leaders": [
-            {
-                "symbol": "SOLUSDT",
-                "state": "INIT",
-                "r_multiple": pytest.approx(0.037671, abs=1e-6),
-                "reason_codes": ["init_waiting_confirmation"],
-            },
-            {
-                "symbol": "ETHUSDT",
-                "state": "INIT",
-                "r_multiple": pytest.approx(0.02648, abs=1e-6),
-                "reason_codes": ["init_waiting_confirmation"],
-            },
-            {
-                "symbol": "BTCUSDT",
-                "state": "INIT",
-                "r_multiple": pytest.approx(0.020207, abs=1e-6),
-                "reason_codes": ["init_waiting_confirmation"],
-            },
-        ],
-    }
+    assert state.get("lifecycle_summary") == _expected_paper_lifecycle_summary_after_break_even_writeback()
     assert state.get("rotation_summary") == {
         "universe_count": 0,
         "candidate_count": 0,
@@ -508,42 +513,7 @@ def test_main_v2_stdout_surfaces_rotation_reporting(monkeypatch, tmp_path, load_
     assert payload["regime"]["rotation"]["accepted_symbols"] == []
     assert payload["regime"]["rotation"]["executed_symbols"] == []
     assert payload["regime"]["rotation"]["leaders"] == []
-    assert payload["portfolio"]["lifecycle_summary"] == {
-        "tracked_count": 3,
-        "state_counts": {
-            "INIT": 3,
-            "CONFIRM": 0,
-            "PAYLOAD": 0,
-            "PROTECT": 0,
-            "EXIT": 0,
-        },
-        "pending_confirmation_symbols": ["BTCUSDT", "ETHUSDT", "SOLUSDT"],
-        "protected_symbols": [],
-        "exit_symbols": [],
-        "attention_symbols": ["BTCUSDT", "ETHUSDT", "SOLUSDT"],
-        "management_action_counts": {"ADD_PROTECTIVE_STOP": 3},
-        "review_actions": [],
-        "leaders": [
-            {
-                "symbol": "SOLUSDT",
-                "state": "INIT",
-                "r_multiple": pytest.approx(0.037671, abs=1e-6),
-                "reason_codes": ["init_waiting_confirmation"],
-            },
-            {
-                "symbol": "ETHUSDT",
-                "state": "INIT",
-                "r_multiple": pytest.approx(0.02648, abs=1e-6),
-                "reason_codes": ["init_waiting_confirmation"],
-            },
-            {
-                "symbol": "BTCUSDT",
-                "state": "INIT",
-                "r_multiple": pytest.approx(0.020207, abs=1e-6),
-                "reason_codes": ["init_waiting_confirmation"],
-            },
-        ],
-    }
+    assert payload["portfolio"]["lifecycle_summary"] == _expected_paper_lifecycle_summary_after_break_even_writeback()
 
 
 def _defensive_short_market() -> dict:
