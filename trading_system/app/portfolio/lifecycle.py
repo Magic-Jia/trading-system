@@ -229,6 +229,32 @@ def _r_multiple(position: dict[str, Any]) -> float:
     return (entry - mark) / risk_unit
 
 
+def _target_management_lifecycle_projection(position: dict[str, Any]) -> dict[str, Any]:
+    payload: dict[str, Any] = {}
+    for key in ("first_target_hit", "second_target_hit", "runner_protected"):
+        if key in position:
+            payload[key] = bool(position.get(key))
+
+    runner_stop = position.get("runner_stop_price")
+    if runner_stop is not None:
+        runner_stop_price = _float(runner_stop)
+        payload["runner_stop_price"] = round(runner_stop_price, 8)
+
+    scale_out_plan = position.get("scale_out_plan")
+    if scale_out_plan is not None:
+        payload["scale_out_plan"] = dict(scale_out_plan or {})
+
+    second_target_source = position.get("second_target_source")
+    if second_target_source:
+        payload["second_target_source"] = str(second_target_source)
+
+    for key in ("first_target_status", "second_target_status"):
+        if key in position:
+            payload[key] = str(position.get(key) or "")
+
+    return payload
+
+
 def advance_lifecycle_positions(state: RuntimeState, lifecycle_config: Any) -> dict[str, dict[str, Any]]:
     latest = dict(getattr(state, "latest_lifecycle", {}) or {})
     updates: dict[str, dict[str, Any]] = {}
@@ -268,6 +294,7 @@ def advance_lifecycle_positions(state: RuntimeState, lifecycle_config: Any) -> d
             "reason_codes": reason_codes,
             "r_multiple": round(r_multiple, 6),
             **_position_taxonomy_meta(position),
+            **_target_management_lifecycle_projection(position),
         }
 
     return updates
