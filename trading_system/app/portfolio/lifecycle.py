@@ -4,6 +4,7 @@ from dataclasses import asdict
 from typing import Any
 
 from .exit_policy import ExitDecision, evaluate_exit_policy
+from .target_management import reconciled_stage_qty, stage_requested_qty
 from .lifecycle_v2 import advance_lifecycle_transition
 from ..types import ManagementActionIntent, ManagementSuggestion, RuntimeState
 
@@ -297,13 +298,38 @@ def build_management_action_intents(
         qty_fraction = float(row.get("qty_fraction") or 0.0)
         qty = None
         stop_loss = None
+        row_meta = dict(row.get("meta") or {})
+        target_stage = str(row_meta.get("target_stage") or "")
 
         if action in {"BREAK_EVEN", "ADD_PROTECTIVE_STOP"}:
             stop_loss = row.get("suggested_stop_loss")
         elif action in {"PARTIAL_TAKE_PROFIT", "DE_RISK"}:
-            qty = round(position_qty * qty_fraction, 8)
+            if action == "PARTIAL_TAKE_PROFIT" and target_stage in {"first", "second"}:
+                qty = reconciled_stage_qty(position, stage=target_stage)
+                if qty is None:
+                    continue
+            else:
+                qty = round(position_qty * qty_fraction, 8)
         elif action == "EXIT":
             qty = position_qty
+
+        meta = {
+            "reason": row.get("reason"),
+            "priority": row.get("priority"),
+            "qty_fraction": row.get("qty_fraction"),
+            "position_stop_loss": position.get("stop_loss"),
+            "position_take_profit": position.get("take_profit"),
+            **row_meta,
+        }
+        if action == "PARTIAL_TAKE_PROFIT" and target_stage in {"first", "second"} and qty is not None:
+            meta.update(
+                {
+                    "target_stage": target_stage,
+                    "fraction_basis": row_meta.get("fraction_basis") or "original_position",
+                    "requested_qty": stage_requested_qty(position, stage=target_stage),
+                    "reconciled_qty": qty,
+                }
+            )
 
         intents.append(
             ManagementActionIntent(
@@ -315,14 +341,7 @@ def build_management_action_intents(
                 qty=qty,
                 stop_loss=stop_loss,
                 reference_price=row.get("reference_price"),
-                meta={
-                    "reason": row.get("reason"),
-                    "priority": row.get("priority"),
-                    "qty_fraction": row.get("qty_fraction"),
-                    "position_stop_loss": position.get("stop_loss"),
-                    "position_take_profit": position.get("take_profit"),
-                    **dict(row.get("meta") or {}),
-                },
+                meta=meta,
             )
         )
     return intents

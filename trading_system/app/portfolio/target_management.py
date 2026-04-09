@@ -188,6 +188,47 @@ def _stage_unreachable(position: Mapping[str, Any], *, stage: str) -> bool:
     return False
 
 
+def _stage_fraction(stage: str) -> float:
+    if stage == "first":
+        return FIRST_STAGE_FRACTION
+    if stage == "second":
+        return SECOND_STAGE_FRACTION
+    return 0.0
+
+
+def stage_requested_qty(position: Mapping[str, Any], *, stage: str) -> float:
+    fraction = _stage_fraction(stage)
+    original_qty = _float(position.get("original_position_qty")) or 0.0
+    if fraction <= 0 or original_qty <= 0:
+        return 0.0
+    return _round_qty(original_qty * fraction)
+
+
+def reconciled_stage_qty(position: Mapping[str, Any], *, stage: str) -> float | None:
+    requested_qty = stage_requested_qty(position, stage=stage)
+    if requested_qty <= 0:
+        return None
+
+    filled_qty = _float(position.get(f"{stage}_target_filled_qty")) or 0.0
+    stage_remaining_qty = max(requested_qty - filled_qty, 0.0)
+    if stage_remaining_qty <= 0:
+        return None
+
+    remaining_qty = _float(position.get("remaining_position_qty"))
+    if remaining_qty is None:
+        remaining_qty = _float(position.get("qty")) or 0.0
+    raw_executable_qty = min(stage_remaining_qty, max(remaining_qty, 0.0))
+    step = _float(position.get("symbol_step_size"))
+    executable_qty = _floor_to_step(raw_executable_qty, step)
+    if executable_qty <= 0:
+        return None
+
+    min_qty = _float(position.get("min_order_qty"))
+    if min_qty is not None and min_qty > 0 and executable_qty < min_qty:
+        return None
+    return _round_qty(executable_qty)
+
+
 def _apply_legacy_stage_seed(position: dict[str, Any]) -> dict[str, Any]:
     legacy_partial = _float(position.get("legacy_partial_filled_qty"))
     if legacy_partial is None:
