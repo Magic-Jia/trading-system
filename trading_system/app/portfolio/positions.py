@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
+from .target_management import ensure_target_management_state
 from ..types import AccountSnapshot, BJ, OrderIntent, PositionSnapshot, RuntimeState
 
 
@@ -13,6 +14,27 @@ _POSITION_TAXONOMY_KEYS = (
     "stop_family",
     "stop_reference",
     "stop_policy_source",
+)
+_TARGET_MANAGEMENT_KEYS = (
+    "structure_target_price",
+    "first_target_price",
+    "first_target_source",
+    "first_target_status",
+    "first_target_hit",
+    "first_target_filled_qty",
+    "second_target_price",
+    "second_target_source",
+    "second_target_status",
+    "second_target_hit",
+    "second_target_filled_qty",
+    "runner_protected",
+    "runner_stop_price",
+    "original_position_qty",
+    "remaining_position_qty",
+    "scale_out_plan",
+    "symbol_step_size",
+    "min_order_qty",
+    "legacy_partial_filled_qty",
 )
 
 
@@ -75,6 +97,23 @@ def _order_taxonomy_fields(order: OrderIntent, existing: dict[str, Any]) -> dict
     return payload
 
 
+def _target_management_fields(existing: dict[str, Any]) -> dict[str, Any]:
+    payload: dict[str, Any] = {}
+    for key in _TARGET_MANAGEMENT_KEYS:
+        if key in existing:
+            payload[key] = existing.get(key)
+    return payload
+
+
+def _order_target_management_fields(order: OrderIntent) -> dict[str, Any]:
+    payload: dict[str, Any] = {}
+    meta = dict(order.meta or {})
+    for key in _TARGET_MANAGEMENT_KEYS:
+        if key in meta:
+            payload[key] = meta.get(key)
+    return payload
+
+
 def sync_positions_from_account(state: RuntimeState, account: AccountSnapshot) -> list[dict[str, Any]]:
     now_bj = _now_bj()
     seen_symbols: set[str] = set()
@@ -110,7 +149,7 @@ def sync_positions_from_account(state: RuntimeState, account: AccountSnapshot) -
             else round(float(snapshot.unrealized_pnl), 4)
         )
 
-        state.positions[snapshot.symbol] = {
+        synced_position = {
             "symbol": snapshot.symbol,
             "side": snapshot.side,
             "qty": qty,
@@ -131,7 +170,9 @@ def sync_positions_from_account(state: RuntimeState, account: AccountSnapshot) -
             "opened_at_bj": existing.get("opened_at_bj", now_bj),
             "updated_at_bj": now_bj,
             "last_synced_from": "account_snapshot",
+            **_target_management_fields(existing),
         }
+        state.positions[snapshot.symbol] = ensure_target_management_state(synced_position)
 
     stale_symbols: list[str] = []
     for symbol, position in state.positions.items():
@@ -167,6 +208,10 @@ def apply_executed_intent(state: RuntimeState, order: OrderIntent) -> dict[str, 
     else:
         weighted_entry = float(order.entry_price)
 
+    target_management_fields = _target_management_fields(existing)
+    if not target_management_fields.get("first_target_price") or not target_management_fields.get("second_target_price"):
+        target_management_fields.update(_order_target_management_fields(order))
+
     position = {
         "symbol": order.symbol,
         "side": order.side,
@@ -182,6 +227,7 @@ def apply_executed_intent(state: RuntimeState, order: OrderIntent) -> dict[str, 
         "intent_id": order.intent_id,
         "signal_id": order.signal_id,
         **_order_taxonomy_fields(order, existing),
+        **target_management_fields,
         "source": _source(existing, from_snapshot=tracked_from_snapshot, from_intent=True),
         "tracked_from_snapshot": tracked_from_snapshot,
         "tracked_from_intent": True,
@@ -189,5 +235,6 @@ def apply_executed_intent(state: RuntimeState, order: OrderIntent) -> dict[str, 
         "updated_at_bj": now_bj,
         "last_synced_from": "executed_intent",
     }
-    state.positions[order.symbol] = position
-    return position
+    updated_position = ensure_target_management_state(position)
+    state.positions[order.symbol] = updated_position
+    return updated_position
