@@ -175,6 +175,45 @@ def test_execute_management_actions_writes_back_first_then_second_stage_and_runn
     assert state.positions["BTCUSDT"]["runner_stop_price"] == pytest.approx(105.0)
 
 
+def test_execute_management_action_does_not_write_back_snapshot_only_stop_updates(tmp_path):
+    executor = OrderExecutor(_paper_app_config(tmp_path), mode="paper")
+    state = RuntimeStateV2(
+        updated_at_bj="2026-04-09T20:00:00+08:00",
+        positions={
+            "BTCUSDT": {
+                "symbol": "BTCUSDT",
+                "side": "LONG",
+                "qty": 0.62,
+                "entry_price": 62850.0,
+                "mark_price": 64120.0,
+                "stop_loss": 61593.0,
+                "status": "OPEN",
+                "source": "account_snapshot",
+                "tracked_from_snapshot": True,
+                "tracked_from_intent": False,
+            }
+        },
+    )
+
+    result = executor.execute_management_action(
+        ManagementActionIntent(
+            intent_id="mgmt-btcusdt-break-even",
+            symbol="BTCUSDT",
+            action="BREAK_EVEN",
+            side="LONG",
+            position_qty=0.62,
+            stop_loss=62850.0,
+            reference_price=64120.0,
+        ),
+        state,
+    )
+
+    assert result["result"]["status"] == "FILLED"
+    assert result["result"]["updated_stop_loss"] == pytest.approx(62850.0)
+    assert result["result"]["writeback_skipped"] is True
+    assert state.positions["BTCUSDT"]["stop_loss"] == pytest.approx(61593.0)
+
+
 def run_management_terminalization_pass(state: RuntimeStateV2) -> None:
     for symbol, position in list(state.positions.items()):
         state.positions[symbol] = terminalize_all_unreachable_stages(dict(position))
