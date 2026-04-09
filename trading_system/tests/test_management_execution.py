@@ -288,6 +288,11 @@ def test_main_runs_terminalization_pass_when_no_management_intents(monkeypatch, 
     state = json.loads(output_path.read_text())
     assert state["positions"]["BTCUSDT"]["second_target_status"] == "satisfied_by_external_reduction"
     assert state["positions"]["BTCUSDT"]["second_target_hit"] is False
+    assert not any(
+        row.get("action") == "PARTIAL_TAKE_PROFIT" and (row.get("meta") or {}).get("target_stage") == "second"
+        for row in state.get("management_suggestions", [])
+    )
+    assert state["lifecycle_summary"]["management_action_counts"].get("PARTIAL_TAKE_PROFIT", 0) == 0
 
 
 def test_execute_management_actions_stops_same_round_sequence_when_first_stage_remains_pending(monkeypatch, tmp_path):

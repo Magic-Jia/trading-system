@@ -747,10 +747,15 @@ def main() -> None:
     management = evaluate_portfolio(state, regime=regime_payload)
     management_intents = build_management_action_intents(state, management)
     run_management_terminalization_pass(state)
+    management = evaluate_portfolio(state, regime=regime_payload)
+    management_intents = build_management_action_intents(state, management)
     management_previews = executor.preview_management_actions(management_intents, account.open_orders)
     if config.execution.mode == "paper":
         executor.execute_management_actions(management_intents, state)
         run_management_terminalization_pass(state)
+        management = evaluate_portfolio(state, regime=regime_payload)
+        management_intents = build_management_action_intents(state, management)
+        management_previews = executor.preview_management_actions(management_intents, account.open_orders)
     lifecycle_updates = advance_lifecycle_positions(state, config.lifecycle)
     lifecycle_summary = build_lifecycle_report(
         lifecycle_updates=lifecycle_updates,
