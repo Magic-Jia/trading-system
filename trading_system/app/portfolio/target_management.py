@@ -257,8 +257,8 @@ def terminalize_all_unreachable_stages(position: Mapping[str, Any]) -> dict[str,
     return payload
 
 
-def _apply_legacy_stage_seed(position: dict[str, Any]) -> dict[str, Any]:
-    legacy_partial = _float(position.get("legacy_partial_filled_qty"))
+def _apply_legacy_stage_seed(position: dict[str, Any], *, allow_legacy_partial_seed: bool) -> dict[str, Any]:
+    legacy_partial = _float(position.get("legacy_partial_filled_qty")) if allow_legacy_partial_seed else None
     if legacy_partial is not None:
         stage_target_qty = (_float(position.get("original_position_qty")) or 0.0) * FIRST_STAGE_FRACTION
         seeded_filled_qty = max(legacy_partial, 0.0)
@@ -343,4 +343,4 @@ def ensure_target_management_state(position: Mapping[str, Any]) -> dict[str, Any
     payload.update(sticky_stage_state)
     if remaining_qty is not None and remaining_qty >= 0:
         payload["remaining_position_qty"] = _round_qty(remaining_qty)
-    return _apply_legacy_stage_seed(payload)
+    return _apply_legacy_stage_seed(payload, allow_legacy_partial_seed=first_target_price is None)
