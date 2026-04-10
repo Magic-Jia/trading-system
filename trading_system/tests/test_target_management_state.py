@@ -91,6 +91,29 @@ def test_ensure_target_management_state_maps_invalid_legacy_take_profit_back_to_
     assert position["second_target_price"] == pytest.approx(110.0)
 
 
+def test_ensure_target_management_state_rederives_invalid_frozen_target_order():
+    position = ensure_target_management_state(
+        {
+            "symbol": "BTCUSDT",
+            "side": "LONG",
+            "entry_price": 100.0,
+            "stop_loss": 95.0,
+            "qty": 2.0,
+            "first_target_price": 111.0,
+            "first_target_source": "structure",
+            "second_target_price": 110.0,
+            "second_target_source": "fixed_2r",
+            "original_position_qty": 2.0,
+            "remaining_position_qty": 2.0,
+        }
+    )
+
+    assert position["first_target_price"] == pytest.approx(105.0)
+    assert position["first_target_source"] == "fallback_1r"
+    assert position["second_target_price"] == pytest.approx(110.0)
+    assert position["second_target_source"] == "fixed_2r"
+
+
 def test_ensure_target_management_state_normalizes_null_frozen_stage_fields():
     position = ensure_target_management_state(
         {

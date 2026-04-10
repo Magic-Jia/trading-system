@@ -163,6 +163,21 @@ def _with_default_target_state(payload: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
+def _valid_frozen_target_order(position: Mapping[str, Any], *, first_target_price: float, second_target_price: float) -> bool:
+    if first_target_price >= second_target_price:
+        return False
+
+    entry_price = _float(position.get("entry_price"))
+    if entry_price is not None and entry_price > 0 and entry_price >= first_target_price:
+        return False
+
+    stop_loss = _float(position.get("stop_loss"))
+    if stop_loss is not None and entry_price is not None and stop_loss >= entry_price:
+        return False
+
+    return True
+
+
 def _stage_unreachable(position: Mapping[str, Any], *, stage: str) -> bool:
     fraction = FIRST_STAGE_FRACTION if stage == "first" else SECOND_STAGE_FRACTION
     original_qty = _float(position.get("original_position_qty")) or 0.0
@@ -297,7 +312,14 @@ def ensure_target_management_state(position: Mapping[str, Any]) -> dict[str, Any
     first_target_price = _float(payload.get("first_target_price"))
     second_target_price = _float(payload.get("second_target_price"))
     if first_target_price is not None and second_target_price is not None:
-        return _with_default_target_state(payload)
+        if _valid_frozen_target_order(
+            payload,
+            first_target_price=first_target_price,
+            second_target_price=second_target_price,
+        ):
+            return _with_default_target_state(payload)
+        first_target_price = None
+        second_target_price = None
 
     sticky_stage_state: dict[str, Any] = {}
     if first_target_price is not None:
