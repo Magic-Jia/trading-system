@@ -91,6 +91,39 @@ def test_ensure_target_management_state_maps_invalid_legacy_take_profit_back_to_
     assert position["second_target_price"] == pytest.approx(110.0)
 
 
+def test_ensure_target_management_state_normalizes_null_frozen_stage_fields():
+    position = ensure_target_management_state(
+        {
+            "symbol": "BTCUSDT",
+            "side": "LONG",
+            "entry_price": 100.0,
+            "stop_loss": 95.0,
+            "qty": 2.0,
+            "first_target_price": 105.0,
+            "first_target_source": "fallback_1r",
+            "second_target_price": 110.0,
+            "second_target_source": "fixed_2r",
+            "first_target_status": None,
+            "first_target_hit": None,
+            "first_target_filled_qty": None,
+            "second_target_status": None,
+            "second_target_hit": None,
+            "second_target_filled_qty": None,
+            "runner_protected": None,
+            "runner_stop_price": None,
+        }
+    )
+
+    assert position["first_target_status"] == "pending"
+    assert position["first_target_hit"] is False
+    assert position["first_target_filled_qty"] == pytest.approx(0.0)
+    assert position["second_target_status"] == "pending"
+    assert position["second_target_hit"] is False
+    assert position["second_target_filled_qty"] == pytest.approx(0.0)
+    assert position["runner_protected"] is False
+    assert position["runner_stop_price"] is None
+
+
 def test_ensure_target_management_state_maps_legacy_take_profit_and_completed_partial():
     position = ensure_target_management_state(
         {

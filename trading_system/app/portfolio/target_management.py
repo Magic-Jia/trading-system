@@ -135,24 +135,31 @@ def _with_default_target_state(payload: dict[str, Any]) -> dict[str, Any]:
 
     payload["original_position_qty"] = _round_qty(max(original_qty, 0.0))
     payload["remaining_position_qty"] = _round_qty(max(remaining_qty, 0.0))
-    payload.setdefault(
-        "scale_out_plan",
-        {
+    if payload.get("scale_out_plan") is None:
+        payload["scale_out_plan"] = {
             "first": FIRST_STAGE_FRACTION,
             "second": SECOND_STAGE_FRACTION,
             "runner": RUNNER_FRACTION,
             "basis": "original_position",
-        },
-    )
-    payload.setdefault("first_target_status", TARGET_STATUS_PENDING)
-    payload.setdefault("first_target_hit", False)
-    payload.setdefault("first_target_filled_qty", 0.0)
-    payload.setdefault("second_target_status", TARGET_STATUS_PENDING)
-    payload.setdefault("second_target_hit", False)
-    payload.setdefault("second_target_filled_qty", 0.0)
-    payload.setdefault("runner_protected", False)
-    payload.setdefault("runner_stop_price", None)
-    payload.setdefault("second_target_source", SECOND_TARGET_SOURCE)
+        }
+    if payload.get("first_target_status") is None:
+        payload["first_target_status"] = TARGET_STATUS_PENDING
+    if payload.get("first_target_hit") is None:
+        payload["first_target_hit"] = False
+    if payload.get("first_target_filled_qty") is None:
+        payload["first_target_filled_qty"] = 0.0
+    if payload.get("second_target_status") is None:
+        payload["second_target_status"] = TARGET_STATUS_PENDING
+    if payload.get("second_target_hit") is None:
+        payload["second_target_hit"] = False
+    if payload.get("second_target_filled_qty") is None:
+        payload["second_target_filled_qty"] = 0.0
+    if payload.get("runner_protected") is None:
+        payload["runner_protected"] = False
+    if "runner_stop_price" not in payload:
+        payload["runner_stop_price"] = None
+    if payload.get("second_target_source") is None:
+        payload["second_target_source"] = SECOND_TARGET_SOURCE
     return payload
 
 
