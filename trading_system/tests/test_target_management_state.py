@@ -201,7 +201,7 @@ def test_sync_positions_from_account_preserves_existing_target_management_state(
     assert state.positions["BTCUSDT"]["remaining_position_qty"] == pytest.approx(0.5)
 
 
-def test_sync_positions_from_account_does_not_auto_derive_target_management_for_snapshot_only_position(monkeypatch):
+def test_sync_positions_from_account_derives_target_management_when_snapshot_has_usable_entry_and_stop(monkeypatch):
     monkeypatch.setattr("trading_system.app.portfolio.positions._now_bj", lambda: "2026-04-09T18:00:00+08:00")
     state = RuntimeStateV2(
         updated_at_bj="2026-04-09T12:00:00+08:00",
@@ -233,7 +233,9 @@ def test_sync_positions_from_account_does_not_auto_derive_target_management_for_
 
     position = state.positions["BTCUSDT"]
     assert position["stop_loss"] == pytest.approx(61593.0)
-    assert "first_target_price" not in position
-    assert "second_target_price" not in position
-    assert "first_target_status" not in position
-    assert "second_target_status" not in position
+    assert position["first_target_price"] == pytest.approx(64107.0)
+    assert position["first_target_source"] == "fallback_1r"
+    assert position["second_target_price"] == pytest.approx(65364.0)
+    assert position["second_target_source"] == "fixed_2r"
+    assert position["first_target_status"] == "pending"
+    assert position["second_target_status"] == "pending"
