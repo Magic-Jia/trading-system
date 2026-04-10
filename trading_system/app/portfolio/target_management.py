@@ -335,7 +335,7 @@ def ensure_target_management_state(position: Mapping[str, Any]) -> dict[str, Any
     had_frozen_second_target = second_target_price is not None
 
     sticky_stage_state: dict[str, Any] = {}
-    if had_frozen_first_target:
+    if had_frozen_first_target or had_frozen_second_target:
         for key in ("first_target_status", "first_target_hit", "first_target_filled_qty"):
             if key in payload:
                 sticky_stage_state[key] = payload.get(key)
@@ -414,4 +414,7 @@ def ensure_target_management_state(position: Mapping[str, Any]) -> dict[str, Any
     payload.update(sticky_stage_state)
     if remaining_qty is not None and remaining_qty >= 0:
         payload["remaining_position_qty"] = _round_qty(remaining_qty)
-    return _apply_legacy_stage_seed(payload, allow_legacy_partial_seed=not had_frozen_first_target)
+    allow_legacy_partial_seed = not had_frozen_first_target and not any(
+        key in sticky_stage_state for key in ("first_target_status", "first_target_hit", "first_target_filled_qty")
+    )
+    return _apply_legacy_stage_seed(payload, allow_legacy_partial_seed=allow_legacy_partial_seed)
