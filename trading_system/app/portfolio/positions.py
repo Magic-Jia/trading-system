@@ -36,20 +36,6 @@ _TARGET_MANAGEMENT_KEYS = (
     "min_order_qty",
     "legacy_partial_filled_qty",
 )
-_EXPLICIT_TARGET_MANAGEMENT_STATE_KEYS = (
-    "first_target_price",
-    "second_target_price",
-    "first_target_status",
-    "second_target_status",
-    "first_target_filled_qty",
-    "second_target_filled_qty",
-    "runner_protected",
-    "runner_stop_price",
-    "scale_out_plan",
-    "original_position_qty",
-    "remaining_position_qty",
-    "legacy_partial_filled_qty",
-)
 
 
 def _now_bj() -> str:
@@ -128,10 +114,6 @@ def _order_target_management_fields(order: OrderIntent) -> dict[str, Any]:
     return payload
 
 
-def _has_explicit_target_management_state(existing: dict[str, Any]) -> bool:
-    return any(key in existing for key in _EXPLICIT_TARGET_MANAGEMENT_STATE_KEYS)
-
-
 def sync_positions_from_account(state: RuntimeState, account: AccountSnapshot) -> list[dict[str, Any]]:
     now_bj = _now_bj()
     seen_symbols: set[str] = set()
@@ -190,10 +172,7 @@ def sync_positions_from_account(state: RuntimeState, account: AccountSnapshot) -
             "last_synced_from": "account_snapshot",
             **_target_management_fields(existing),
         }
-        if tracked_from_intent or _has_explicit_target_management_state(existing):
-            state.positions[snapshot.symbol] = ensure_target_management_state(synced_position)
-        else:
-            state.positions[snapshot.symbol] = synced_position
+        state.positions[snapshot.symbol] = ensure_target_management_state(synced_position)
 
     stale_symbols: list[str] = []
     for symbol, position in state.positions.items():
