@@ -4,9 +4,9 @@ from trading_system.app.portfolio.target_management import (
     derive_target_management_fields,
     ensure_target_management_state,
 )
-from trading_system.app.portfolio.positions import sync_positions_from_account
+from trading_system.app.portfolio.positions import apply_executed_intent, sync_positions_from_account
 from trading_system.app.storage.state_store import RuntimeStateV2
-from trading_system.app.types import AccountSnapshot, PositionSnapshot
+from trading_system.app.types import AccountSnapshot, OrderIntent, PositionSnapshot
 
 
 def test_derive_target_management_fields_prefers_structure_target_between_1r_and_2r():
@@ -385,6 +385,59 @@ def test_ensure_target_management_state_does_not_reseed_frozen_first_stage_from_
     assert position["first_target_filled_qty"] == pytest.approx(1.0)
     assert position["second_target_price"] == pytest.approx(110.0)
     assert position["second_target_source"] == "fixed_2r"
+
+
+def test_apply_executed_intent_refreshes_remaining_qty_when_position_is_topped_up():
+    state = RuntimeStateV2(
+        updated_at_bj="2026-04-09T12:00:00+08:00",
+        positions={
+            "BTCUSDT": {
+                "symbol": "BTCUSDT",
+                "side": "LONG",
+                "qty": 1.0,
+                "entry_price": 100.0,
+                "mark_price": 101.0,
+                "stop_loss": 95.0,
+                "take_profit": 107.0,
+                "first_target_price": 107.0,
+                "first_target_source": "legacy_take_profit_mapped",
+                "second_target_price": 110.0,
+                "second_target_source": "fixed_2r",
+                "original_position_qty": 1.0,
+                "remaining_position_qty": 1.0,
+                "first_target_status": "pending",
+                "first_target_hit": False,
+                "first_target_filled_qty": 0.0,
+                "second_target_status": "pending",
+                "second_target_hit": False,
+                "second_target_filled_qty": 0.0,
+                "runner_protected": False,
+                "runner_stop_price": None,
+            }
+        },
+    )
+
+    apply_executed_intent(
+        state,
+        OrderIntent(
+            intent_id="intent-2",
+            signal_id="signal-2",
+            symbol="BTCUSDT",
+            side="LONG",
+            qty=0.5,
+            entry_price=102.0,
+            stop_loss=95.0,
+            take_profit=107.0,
+            status="FILLED",
+            meta={},
+        ),
+    )
+
+    position = state.positions["BTCUSDT"]
+    assert position["qty"] == pytest.approx(1.5)
+    assert position["remaining_position_qty"] == pytest.approx(1.5)
+    assert position["first_target_price"] == pytest.approx(107.0)
+    assert position["second_target_price"] == pytest.approx(110.0)
 
 
 def test_sync_positions_from_account_refreshes_remaining_qty_for_external_reductions(monkeypatch):
