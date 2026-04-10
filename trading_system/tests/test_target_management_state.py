@@ -440,6 +440,57 @@ def test_apply_executed_intent_refreshes_remaining_qty_when_position_is_topped_u
     assert position["second_target_price"] == pytest.approx(110.0)
 
 
+def test_apply_executed_intent_keeps_frozen_first_target_when_only_second_target_is_missing():
+    state = RuntimeStateV2(
+        updated_at_bj="2026-04-09T12:00:00+08:00",
+        positions={
+            "BTCUSDT": {
+                "symbol": "BTCUSDT",
+                "side": "LONG",
+                "qty": 1.0,
+                "entry_price": 100.0,
+                "mark_price": 101.0,
+                "stop_loss": 95.0,
+                "take_profit": 107.0,
+                "first_target_price": 108.0,
+                "first_target_source": "structure",
+                "original_position_qty": 1.0,
+                "remaining_position_qty": 1.0,
+                "tracked_from_snapshot": False,
+                "tracked_from_intent": True,
+            }
+        },
+    )
+
+    apply_executed_intent(
+        state,
+        OrderIntent(
+            intent_id="intent-3",
+            signal_id="signal-3",
+            symbol="BTCUSDT",
+            side="LONG",
+            qty=0.5,
+            entry_price=102.0,
+            stop_loss=95.0,
+            take_profit=107.0,
+            status="FILLED",
+            meta={
+                "first_target_price": 107.0,
+                "first_target_source": "legacy_take_profit_mapped",
+                "second_target_price": 110.0,
+                "second_target_source": "fixed_2r",
+                "original_position_qty": 0.5,
+            },
+        ),
+    )
+
+    position = state.positions["BTCUSDT"]
+    assert position["first_target_price"] == pytest.approx(108.0)
+    assert position["first_target_source"] == "structure"
+    assert position["second_target_price"] == pytest.approx(110.0)
+    assert position["second_target_source"] == "fixed_2r"
+
+
 def test_sync_positions_from_account_refreshes_remaining_qty_for_external_reductions(monkeypatch):
     monkeypatch.setattr("trading_system.app.portfolio.positions._now_bj", lambda: "2026-04-09T18:00:00+08:00")
     state = RuntimeStateV2(

@@ -210,8 +210,41 @@ def apply_executed_intent(state: RuntimeState, order: OrderIntent) -> dict[str, 
         weighted_entry = float(order.entry_price)
 
     target_management_fields = _target_management_fields(existing)
-    if not target_management_fields.get("first_target_price") or not target_management_fields.get("second_target_price"):
-        target_management_fields.update(_order_target_management_fields(order))
+    order_target_management_fields = _order_target_management_fields(order)
+    if order_target_management_fields:
+        if not target_management_fields.get("first_target_price"):
+            for key in ("first_target_price", "first_target_source"):
+                if key in order_target_management_fields:
+                    target_management_fields[key] = order_target_management_fields.get(key)
+            for key in ("first_target_status", "first_target_hit", "first_target_filled_qty"):
+                if key in order_target_management_fields and target_management_fields.get(key) is None:
+                    target_management_fields[key] = order_target_management_fields.get(key)
+
+        if not target_management_fields.get("second_target_price"):
+            for key in ("second_target_price", "second_target_source"):
+                if key in order_target_management_fields:
+                    target_management_fields[key] = order_target_management_fields.get(key)
+            for key in (
+                "second_target_status",
+                "second_target_hit",
+                "second_target_filled_qty",
+                "runner_protected",
+                "runner_stop_price",
+            ):
+                if key in order_target_management_fields and target_management_fields.get(key) is None:
+                    target_management_fields[key] = order_target_management_fields.get(key)
+
+        for key in (
+            "structure_target_price",
+            "original_position_qty",
+            "remaining_position_qty",
+            "scale_out_plan",
+            "symbol_step_size",
+            "min_order_qty",
+            "legacy_partial_filled_qty",
+        ):
+            if key in order_target_management_fields and target_management_fields.get(key) is None:
+                target_management_fields[key] = order_target_management_fields.get(key)
 
     position = {
         "symbol": order.symbol,
