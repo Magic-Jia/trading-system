@@ -261,13 +261,16 @@ def _apply_legacy_stage_seed(position: dict[str, Any]) -> dict[str, Any]:
     legacy_partial = _float(position.get("legacy_partial_filled_qty"))
     if legacy_partial is not None:
         stage_target_qty = (_float(position.get("original_position_qty")) or 0.0) * FIRST_STAGE_FRACTION
+        seeded_filled_qty = max(legacy_partial, 0.0)
+        if stage_target_qty > 0:
+            seeded_filled_qty = min(seeded_filled_qty, stage_target_qty)
         step_size = _float(position.get("symbol_step_size"))
         epsilon = _qty_epsilon(step_size)
-        position["first_target_filled_qty"] = _round_qty(max(legacy_partial, 0.0))
-        if stage_target_qty > 0 and legacy_partial + epsilon >= stage_target_qty:
+        position["first_target_filled_qty"] = _round_qty(seeded_filled_qty)
+        if stage_target_qty > 0 and seeded_filled_qty + epsilon >= stage_target_qty:
             position["first_target_status"] = TARGET_STATUS_FILLED
             position["first_target_hit"] = True
-        elif legacy_partial > epsilon:
+        elif seeded_filled_qty > epsilon:
             position["first_target_status"] = TARGET_STATUS_PENDING
             position["first_target_hit"] = False
 
