@@ -292,6 +292,22 @@ def ensure_target_management_state(position: Mapping[str, Any]) -> dict[str, Any
     if first_target_price is not None and second_target_price is not None:
         return _with_default_target_state(payload)
 
+    sticky_stage_state: dict[str, Any] = {}
+    if first_target_price is not None:
+        for key in ("first_target_status", "first_target_hit", "first_target_filled_qty"):
+            if key in payload:
+                sticky_stage_state[key] = payload.get(key)
+    if second_target_price is not None:
+        for key in (
+            "second_target_status",
+            "second_target_hit",
+            "second_target_filled_qty",
+            "runner_protected",
+            "runner_stop_price",
+        ):
+            if key in payload:
+                sticky_stage_state[key] = payload.get(key)
+
     original_qty = _float(payload.get("original_position_qty"))
     if original_qty is None or original_qty <= 0:
         original_qty = _float(payload.get("qty")) or 0.0
@@ -324,6 +340,7 @@ def ensure_target_management_state(position: Mapping[str, Any]) -> dict[str, Any
             derived.pop("second_target_source", None)
 
     payload.update(derived)
+    payload.update(sticky_stage_state)
     if remaining_qty is not None and remaining_qty >= 0:
         payload["remaining_position_qty"] = _round_qty(remaining_qty)
     return _apply_legacy_stage_seed(payload)
