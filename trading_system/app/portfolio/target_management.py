@@ -311,22 +311,15 @@ def ensure_target_management_state(position: Mapping[str, Any]) -> dict[str, Any
 
     first_target_price = _float(payload.get("first_target_price"))
     second_target_price = _float(payload.get("second_target_price"))
-    if first_target_price is not None and second_target_price is not None:
-        if _valid_frozen_target_order(
-            payload,
-            first_target_price=first_target_price,
-            second_target_price=second_target_price,
-        ):
-            return _with_default_target_state(payload)
-        first_target_price = None
-        second_target_price = None
+    had_frozen_first_target = first_target_price is not None
+    had_frozen_second_target = second_target_price is not None
 
     sticky_stage_state: dict[str, Any] = {}
-    if first_target_price is not None:
+    if had_frozen_first_target:
         for key in ("first_target_status", "first_target_hit", "first_target_filled_qty"):
             if key in payload:
                 sticky_stage_state[key] = payload.get(key)
-    if second_target_price is not None:
+    if had_frozen_second_target:
         for key in (
             "second_target_status",
             "second_target_hit",
@@ -336,6 +329,16 @@ def ensure_target_management_state(position: Mapping[str, Any]) -> dict[str, Any
         ):
             if key in payload:
                 sticky_stage_state[key] = payload.get(key)
+
+    if first_target_price is not None and second_target_price is not None:
+        if _valid_frozen_target_order(
+            payload,
+            first_target_price=first_target_price,
+            second_target_price=second_target_price,
+        ):
+            return _with_default_target_state(payload)
+        first_target_price = None
+        second_target_price = None
 
     original_qty = _float(payload.get("original_position_qty"))
     if original_qty is None or original_qty <= 0:
@@ -372,4 +375,4 @@ def ensure_target_management_state(position: Mapping[str, Any]) -> dict[str, Any
     payload.update(sticky_stage_state)
     if remaining_qty is not None and remaining_qty >= 0:
         payload["remaining_position_qty"] = _round_qty(remaining_qty)
-    return _apply_legacy_stage_seed(payload, allow_legacy_partial_seed=first_target_price is None)
+    return _apply_legacy_stage_seed(payload, allow_legacy_partial_seed=not had_frozen_first_target)
