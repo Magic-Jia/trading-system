@@ -624,6 +624,55 @@ def test_apply_executed_intent_keeps_frozen_first_target_when_only_second_target
     assert position["second_target_source"] == "fixed_2r"
 
 
+def test_apply_executed_intent_does_not_carry_opposite_side_frozen_targets():
+    state = RuntimeStateV2(
+        updated_at_bj="2026-04-09T12:00:00+08:00",
+        positions={
+            "BTCUSDT": {
+                "symbol": "BTCUSDT",
+                "side": "SHORT",
+                "qty": 1.0,
+                "entry_price": 100.0,
+                "mark_price": 99.0,
+                "stop_loss": 105.0,
+                "take_profit": 95.0,
+                "first_target_price": 108.0,
+                "first_target_source": "structure",
+                "second_target_price": 111.0,
+                "second_target_source": "fixed_2r",
+                "original_position_qty": 1.0,
+                "remaining_position_qty": 1.0,
+                "tracked_from_snapshot": True,
+                "tracked_from_intent": True,
+            }
+        },
+    )
+
+    apply_executed_intent(
+        state,
+        OrderIntent(
+            intent_id="intent-4",
+            signal_id="signal-4",
+            symbol="BTCUSDT",
+            side="LONG",
+            qty=1.0,
+            entry_price=100.0,
+            stop_loss=95.0,
+            take_profit=107.0,
+            status="FILLED",
+            meta={},
+        ),
+    )
+
+    position = state.positions["BTCUSDT"]
+    assert position["side"] == "LONG"
+    assert position["stop_loss"] == pytest.approx(95.0)
+    assert position["first_target_price"] == pytest.approx(107.0)
+    assert position["first_target_source"] == "legacy_take_profit_mapped"
+    assert position["second_target_price"] == pytest.approx(110.0)
+    assert position["second_target_source"] == "fixed_2r"
+
+
 def test_sync_positions_from_account_refreshes_remaining_qty_for_external_reductions(monkeypatch):
     monkeypatch.setattr("trading_system.app.portfolio.positions._now_bj", lambda: "2026-04-09T18:00:00+08:00")
     state = RuntimeStateV2(
@@ -672,6 +721,49 @@ def test_sync_positions_from_account_refreshes_remaining_qty_for_external_reduct
     assert position["remaining_position_qty"] == pytest.approx(0.4)
     assert position["first_target_status"] == "pending"
     assert position["second_target_status"] == "pending"
+
+
+def test_sync_positions_from_account_does_not_carry_opposite_side_target_state(monkeypatch):
+    monkeypatch.setattr("trading_system.app.portfolio.positions._now_bj", lambda: "2026-04-09T18:00:00+08:00")
+    state = RuntimeStateV2(
+        updated_at_bj="2026-04-09T12:00:00+08:00",
+        positions={
+            "BTCUSDT": {
+                "symbol": "BTCUSDT",
+                "side": "SHORT",
+                "qty": 1.0,
+                "entry_price": 100.0,
+                "mark_price": 99.0,
+                "stop_loss": 105.0,
+                "take_profit": 95.0,
+                "first_target_price": 95.0,
+                "first_target_source": "legacy_take_profit_mapped",
+                "second_target_price": 90.0,
+                "second_target_source": "fixed_2r",
+                "original_position_qty": 1.0,
+                "remaining_position_qty": 1.0,
+                "tracked_from_snapshot": True,
+                "tracked_from_intent": True,
+            }
+        },
+    )
+
+    sync_positions_from_account(
+        state,
+        AccountSnapshot(
+            equity=1000.0,
+            available_balance=1000.0,
+            futures_wallet_balance=1000.0,
+            open_positions=[PositionSnapshot(symbol="BTCUSDT", side="LONG", qty=1.0, entry_price=100.0, mark_price=101.0)],
+        ),
+    )
+
+    position = state.positions["BTCUSDT"]
+    assert position["side"] == "LONG"
+    assert position["stop_loss"] is None
+    assert position["take_profit"] is None
+    assert "first_target_price" not in position
+    assert "second_target_price" not in position
 
 
 def test_sync_positions_from_account_derives_target_management_when_snapshot_has_usable_entry_and_stop(monkeypatch):
