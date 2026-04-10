@@ -160,6 +160,26 @@ def _with_default_target_state(payload: dict[str, Any]) -> dict[str, Any]:
         payload["runner_stop_price"] = None
     if payload.get("second_target_source") is None:
         payload["second_target_source"] = SECOND_TARGET_SOURCE
+    return _normalize_runner_state(payload)
+
+
+def _normalize_runner_state(payload: dict[str, Any]) -> dict[str, Any]:
+    if not bool(payload.get("runner_protected")):
+        return payload
+
+    if str(payload.get("second_target_status") or TARGET_STATUS_PENDING) != TARGET_STATUS_FILLED:
+        payload["runner_protected"] = False
+        payload["runner_stop_price"] = None
+        return payload
+
+    remaining_qty = _float(payload.get("remaining_position_qty"))
+    if remaining_qty is None:
+        remaining_qty = _float(payload.get("qty")) or 0.0
+    epsilon = _qty_epsilon(_float(payload.get("symbol_step_size")))
+    if remaining_qty <= epsilon:
+        payload["runner_protected"] = False
+        payload["runner_stop_price"] = None
+
     return payload
 
 
