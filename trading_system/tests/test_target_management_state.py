@@ -112,6 +112,25 @@ def test_ensure_target_management_state_maps_legacy_take_profit_and_completed_pa
     assert position["first_target_filled_qty"] == pytest.approx(1.0)
 
 
+def test_ensure_target_management_state_caps_completed_legacy_partial_to_stage_target_qty():
+    position = ensure_target_management_state(
+        {
+            "symbol": "BTCUSDT",
+            "side": "LONG",
+            "entry_price": 100.0,
+            "stop_loss": 95.0,
+            "qty": 0.8,
+            "take_profit": 107.0,
+            "original_position_qty": 2.0,
+            "legacy_partial_filled_qty": 1.3,
+        }
+    )
+
+    assert position["first_target_status"] == "filled"
+    assert position["first_target_hit"] is True
+    assert position["first_target_filled_qty"] == pytest.approx(1.0)
+
+
 def test_ensure_target_management_state_keeps_legacy_stage_one_pending_when_only_partially_filled():
     position = ensure_target_management_state(
         {
