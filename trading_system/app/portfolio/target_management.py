@@ -310,6 +310,19 @@ def ensure_target_management_state(position: Mapping[str, Any]) -> dict[str, Any
     if not derived:
         return payload
 
+    if first_target_price is not None:
+        derived["first_target_price"] = _round_qty(first_target_price)
+        if "first_target_source" in payload:
+            derived["first_target_source"] = payload.get("first_target_source")
+        else:
+            derived.pop("first_target_source", None)
+    if second_target_price is not None:
+        derived["second_target_price"] = _round_qty(second_target_price)
+        if "second_target_source" in payload:
+            derived["second_target_source"] = payload.get("second_target_source")
+        else:
+            derived.pop("second_target_source", None)
+
     payload.update(derived)
     if remaining_qty is not None and remaining_qty >= 0:
         payload["remaining_position_qty"] = _round_qty(remaining_qty)
