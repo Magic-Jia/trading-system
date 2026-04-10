@@ -259,21 +259,21 @@ def terminalize_all_unreachable_stages(position: Mapping[str, Any]) -> dict[str,
 
 def _apply_legacy_stage_seed(position: dict[str, Any]) -> dict[str, Any]:
     legacy_partial = _float(position.get("legacy_partial_filled_qty"))
-    if legacy_partial is None:
-        return _with_default_target_state(position)
+    if legacy_partial is not None:
+        stage_target_qty = (_float(position.get("original_position_qty")) or 0.0) * FIRST_STAGE_FRACTION
+        step_size = _float(position.get("symbol_step_size"))
+        epsilon = _qty_epsilon(step_size)
+        position["first_target_filled_qty"] = _round_qty(max(legacy_partial, 0.0))
+        if stage_target_qty > 0 and legacy_partial + epsilon >= stage_target_qty:
+            position["first_target_status"] = TARGET_STATUS_FILLED
+            position["first_target_hit"] = True
+        elif legacy_partial > epsilon:
+            position["first_target_status"] = TARGET_STATUS_PENDING
+            position["first_target_hit"] = False
 
-    stage_target_qty = (_float(position.get("original_position_qty")) or 0.0) * FIRST_STAGE_FRACTION
-    step_size = _float(position.get("symbol_step_size"))
-    epsilon = _qty_epsilon(step_size)
-    position["first_target_filled_qty"] = _round_qty(max(legacy_partial, 0.0))
-    if stage_target_qty > 0 and legacy_partial + epsilon >= stage_target_qty:
-        position["first_target_status"] = TARGET_STATUS_FILLED
-        position["first_target_hit"] = True
-    elif legacy_partial > epsilon:
-        position["first_target_status"] = TARGET_STATUS_PENDING
-        position["first_target_hit"] = False
-
-    if position.get("first_target_status") == TARGET_STATUS_PENDING and _stage_unreachable(position, stage="first"):
+    if str(position.get("first_target_status") or TARGET_STATUS_PENDING) == TARGET_STATUS_PENDING and _stage_unreachable(
+        position, stage="first"
+    ):
         position["first_target_status"] = TARGET_STATUS_EXTERNAL
         position["first_target_hit"] = False
     return _with_default_target_state(position)
