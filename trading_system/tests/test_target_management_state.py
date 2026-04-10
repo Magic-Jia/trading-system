@@ -492,6 +492,41 @@ def test_sync_positions_from_account_preserves_first_stage_progress_when_backfil
     assert position["second_target_source"] == "fixed_2r"
 
 
+def test_ensure_target_management_state_preserves_first_stage_progress_when_backfilling_first_target():
+    position = ensure_target_management_state(
+        {
+            "symbol": "BTCUSDT",
+            "side": "LONG",
+            "entry_price": 100.0,
+            "stop_loss": 95.0,
+            "qty": 0.5,
+            "take_profit": 107.0,
+            "second_target_price": 110.0,
+            "second_target_source": "fixed_2r",
+            "first_target_status": "filled",
+            "first_target_hit": True,
+            "first_target_filled_qty": 1.0,
+            "second_target_status": "filled",
+            "second_target_hit": True,
+            "second_target_filled_qty": 0.5,
+            "runner_protected": True,
+            "runner_stop_price": 107.0,
+            "original_position_qty": 2.0,
+            "remaining_position_qty": 0.5,
+        }
+    )
+
+    assert position["first_target_price"] == pytest.approx(107.0)
+    assert position["first_target_source"] == "legacy_take_profit_mapped"
+    assert position["first_target_status"] == "filled"
+    assert position["first_target_hit"] is True
+    assert position["first_target_filled_qty"] == pytest.approx(1.0)
+    assert position["second_target_price"] == pytest.approx(110.0)
+    assert position["second_target_status"] == "filled"
+    assert position["runner_protected"] is True
+    assert position["runner_stop_price"] == pytest.approx(107.0)
+
+
 def test_ensure_target_management_state_does_not_reseed_frozen_first_stage_from_stale_legacy_partial():
     position = ensure_target_management_state(
         {
