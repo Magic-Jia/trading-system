@@ -145,6 +145,35 @@ def test_ensure_target_management_state_rederives_invalid_frozen_target_order_wi
     assert position["first_target_filled_qty"] == pytest.approx(1.0)
 
 
+def test_ensure_target_management_state_rederives_invalid_frozen_first_target_when_second_target_is_missing():
+    position = ensure_target_management_state(
+        {
+            "symbol": "BTCUSDT",
+            "side": "LONG",
+            "entry_price": 100.0,
+            "stop_loss": 95.0,
+            "qty": 1.0,
+            "take_profit": 107.0,
+            "first_target_price": 111.0,
+            "first_target_source": "structure",
+            "first_target_status": "filled",
+            "first_target_hit": True,
+            "first_target_filled_qty": 1.0,
+            "legacy_partial_filled_qty": 0.7,
+            "original_position_qty": 2.0,
+            "remaining_position_qty": 1.0,
+        }
+    )
+
+    assert position["first_target_price"] == pytest.approx(107.0)
+    assert position["first_target_source"] == "legacy_take_profit_mapped"
+    assert position["second_target_price"] == pytest.approx(110.0)
+    assert position["second_target_source"] == "fixed_2r"
+    assert position["first_target_status"] == "filled"
+    assert position["first_target_hit"] is True
+    assert position["first_target_filled_qty"] == pytest.approx(1.0)
+
+
 def test_ensure_target_management_state_normalizes_null_frozen_stage_fields():
     position = ensure_target_management_state(
         {

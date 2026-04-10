@@ -358,18 +358,37 @@ def ensure_target_management_state(position: Mapping[str, Any]) -> dict[str, Any
     if not derived:
         return payload
 
+    preserved_first_target_price = None
     if first_target_price is not None:
-        derived["first_target_price"] = _round_qty(first_target_price)
-        if "first_target_source" in payload:
-            derived["first_target_source"] = payload.get("first_target_source")
-        else:
-            derived.pop("first_target_source", None)
+        comparison_second_target = second_target_price
+        if comparison_second_target is None:
+            comparison_second_target = _float(derived.get("second_target_price"))
+        if comparison_second_target is not None and _valid_frozen_target_order(
+            payload,
+            first_target_price=first_target_price,
+            second_target_price=comparison_second_target,
+        ):
+            preserved_first_target_price = _round_qty(first_target_price)
+            derived["first_target_price"] = preserved_first_target_price
+            if "first_target_source" in payload:
+                derived["first_target_source"] = payload.get("first_target_source")
+            else:
+                derived.pop("first_target_source", None)
+
     if second_target_price is not None:
-        derived["second_target_price"] = _round_qty(second_target_price)
-        if "second_target_source" in payload:
-            derived["second_target_source"] = payload.get("second_target_source")
-        else:
-            derived.pop("second_target_source", None)
+        comparison_first_target = preserved_first_target_price
+        if comparison_first_target is None:
+            comparison_first_target = _float(derived.get("first_target_price"))
+        if comparison_first_target is not None and _valid_frozen_target_order(
+            payload,
+            first_target_price=comparison_first_target,
+            second_target_price=second_target_price,
+        ):
+            derived["second_target_price"] = _round_qty(second_target_price)
+            if "second_target_source" in payload:
+                derived["second_target_source"] = payload.get("second_target_source")
+            else:
+                derived.pop("second_target_source", None)
 
     payload.update(derived)
     payload.update(sticky_stage_state)
