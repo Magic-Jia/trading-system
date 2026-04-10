@@ -172,6 +172,7 @@ def sync_positions_from_account(state: RuntimeState, account: AccountSnapshot) -
             "last_synced_from": "account_snapshot",
             **_target_management_fields(existing),
         }
+        synced_position["remaining_position_qty"] = round(qty, 8)
         state.positions[snapshot.symbol] = ensure_target_management_state(synced_position)
 
     stale_symbols: list[str] = []
