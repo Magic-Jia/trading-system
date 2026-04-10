@@ -153,6 +153,26 @@ def test_ensure_target_management_state_terminalizes_legacy_stage_one_when_exter
     assert position["first_target_hit"] is False
 
 
+def test_ensure_target_management_state_terminalizes_unreachable_legacy_stage_even_without_partial_history():
+    position = ensure_target_management_state(
+        {
+            "symbol": "BTCUSDT",
+            "side": "LONG",
+            "entry_price": 100.0,
+            "stop_loss": 95.0,
+            "qty": 0.04,
+            "remaining_position_qty": 0.04,
+            "take_profit": 107.0,
+            "original_position_qty": 2.0,
+            "symbol_step_size": 0.01,
+            "min_order_qty": 0.1,
+        }
+    )
+
+    assert position["first_target_status"] == "satisfied_by_external_reduction"
+    assert position["first_target_hit"] is False
+
+
 def test_sync_positions_from_account_preserves_existing_target_management_state(monkeypatch):
     monkeypatch.setattr("trading_system.app.portfolio.positions._now_bj", lambda: "2026-04-09T18:00:00+08:00")
     state = RuntimeStateV2(
