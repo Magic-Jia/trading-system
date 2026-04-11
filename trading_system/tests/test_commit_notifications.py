@@ -2,11 +2,8 @@ from pathlib import Path
 
 import pytest
 
-from trading_system.devtools.commit_notifications import (
-    CommitNotification,
-    build_notification_text,
-    build_openclaw_command,
-)
+from trading_system.devtools import commit_notifications
+from trading_system.devtools.commit_notifications import CommitNotification, build_notification_text, build_openclaw_command
 from trading_system.devtools.install_commit_hook import (
     build_install_commands,
     resolve_hooks_dir,
@@ -67,6 +64,74 @@ def test_build_openclaw_command_uses_immediate_mode_and_timeout():
         "--timeout",
         "1500",
     ]
+
+
+def test_build_openclaw_child_env_preserves_existing_env_token():
+    env = {
+        "OPENCLAW_GATEWAY_TOKEN": "from-env",
+        "OPENCLAW_CONFIG_PATH": "/tmp/custom-openclaw.json",
+    }
+
+    child_env = commit_notifications.build_openclaw_child_env(env)
+
+    assert child_env["OPENCLAW_GATEWAY_TOKEN"] == "from-env"
+    assert child_env["OPENCLAW_CONFIG_PATH"] == "/tmp/custom-openclaw.json"
+
+
+def test_build_openclaw_child_env_loads_token_from_config_path_when_missing(tmp_path: Path):
+    config_path = tmp_path / "openclaw.json"
+    config_path.write_text('{"gateway":{"auth":{"token":"from-config"}}}', encoding="utf-8")
+
+    child_env = commit_notifications.build_openclaw_child_env({"OPENCLAW_CONFIG_PATH": str(config_path)})
+
+    assert child_env["OPENCLAW_GATEWAY_TOKEN"] == "from-config"
+
+
+def test_build_openclaw_child_env_tolerates_malformed_or_missing_config(tmp_path: Path):
+    malformed_path = tmp_path / "malformed.json"
+    malformed_path.write_text("{", encoding="utf-8")
+    missing_path = tmp_path / "missing.json"
+
+    malformed_env = commit_notifications.build_openclaw_child_env({"OPENCLAW_CONFIG_PATH": str(malformed_path)})
+    missing_env = commit_notifications.build_openclaw_child_env({"OPENCLAW_CONFIG_PATH": str(missing_path)})
+
+    assert "OPENCLAW_GATEWAY_TOKEN" not in malformed_env
+    assert "OPENCLAW_GATEWAY_TOKEN" not in missing_env
+
+
+def test_send_commit_notification_passes_built_env_into_popen(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    captured: dict[str, object] = {}
+
+    def fake_popen(*args, **kwargs):
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+        return object()
+
+    monkeypatch.setattr(
+        commit_notifications,
+        "collect_head_commit",
+        lambda repo_root: CommitNotification(
+            repo_name=repo_root.name,
+            branch="main",
+            short_sha="abc1234",
+            subject="test commit",
+        ),
+    )
+    monkeypatch.setattr(commit_notifications, "_resolve_log_path", lambda _repo_root: tmp_path / "notify.log")
+    monkeypatch.setattr(commit_notifications.subprocess, "Popen", fake_popen)
+
+    env = {
+        "OPENCLAW_COMMIT_NOTIFY": "1",
+        "OPENCLAW_GATEWAY_TOKEN": "from-env",
+        "OPENCLAW_CONFIG_PATH": "/tmp/custom-openclaw.json",
+    }
+    result = commit_notifications.send_commit_notification(tmp_path, env=env)
+
+    assert result == 0
+    assert captured["args"]
+    passed_env = captured["kwargs"]["env"]
+    assert passed_env["OPENCLAW_GATEWAY_TOKEN"] == "from-env"
+    assert passed_env["OPENCLAW_CONFIG_PATH"] == "/tmp/custom-openclaw.json"
 
 
 def test_build_install_commands_uses_worktree_hooks_for_multi_worktree_repos():
