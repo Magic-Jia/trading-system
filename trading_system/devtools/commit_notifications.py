@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import subprocess
@@ -12,6 +13,10 @@ from typing import Mapping, Sequence
 DEFAULT_TIMEOUT_MS = 30000
 DEFAULT_MAX_SUBJECT_LENGTH = 120
 VALID_NOTIFICATION_MODES = {"now", "next-heartbeat"}
+OPENCLAW_GATEWAY_TOKEN_ENV = "OPENCLAW_GATEWAY_TOKEN"
+OPENCLAW_CONFIG_PATH_ENV = "OPENCLAW_CONFIG_PATH"
+DEFAULT_OPENCLAW_CONFIG_PATH = Path.home() / ".openclaw" / "openclaw.json"
+FALLBACK_OPENCLAW_CONFIG_PATH = Path.home() / ".openclaw" / "config.json"
 SENSITIVE_ASSIGNMENT_PATTERN = re.compile(
     r"(?i)\b(api[_-]?key|secret|token|password|passphrase)\b\s*[:=]\s*([^\s]+)"
 )
@@ -125,6 +130,52 @@ def _append_log(log_path: Path, message: str) -> None:
         handle.write(message.rstrip() + "\n")
 
 
+def _read_gateway_token_from_config(config_path: Path) -> str | None:
+    try:
+        with config_path.open("r", encoding="utf-8") as handle:
+            data = json.load(handle)
+    except (FileNotFoundError, OSError, json.JSONDecodeError):
+        return None
+
+    if not isinstance(data, dict):
+        return None
+    gateway = data.get("gateway")
+    if not isinstance(gateway, dict):
+        return None
+    auth = gateway.get("auth")
+    if not isinstance(auth, dict):
+        return None
+    token = auth.get("token")
+    return token if isinstance(token, str) and token else None
+
+
+def _resolve_openclaw_config_path(runtime_env: Mapping[str, str]) -> tuple[Path, Path]:
+    configured_path_raw = runtime_env.get(OPENCLAW_CONFIG_PATH_ENV)
+    configured_path = Path(configured_path_raw).expanduser() if configured_path_raw else DEFAULT_OPENCLAW_CONFIG_PATH
+    return configured_path, FALLBACK_OPENCLAW_CONFIG_PATH
+
+
+def build_openclaw_child_env(runtime_env: Mapping[str, str] | None = None) -> dict[str, str]:
+    source_env = runtime_env or os.environ
+    child_env = dict(source_env)
+    existing_token = child_env.get(OPENCLAW_GATEWAY_TOKEN_ENV)
+    if isinstance(existing_token, str) and existing_token:
+        return child_env
+
+    configured_path, fallback_path = _resolve_openclaw_config_path(source_env)
+    token = _read_gateway_token_from_config(configured_path)
+    if token is None and configured_path != fallback_path:
+        token = _read_gateway_token_from_config(fallback_path)
+    if token:
+        child_env[OPENCLAW_GATEWAY_TOKEN_ENV] = token
+
+    # Preserve the active config override when the caller provided one.
+    configured_path_raw = source_env.get(OPENCLAW_CONFIG_PATH_ENV)
+    if isinstance(configured_path_raw, str) and configured_path_raw:
+        child_env[OPENCLAW_CONFIG_PATH_ENV] = configured_path_raw
+    return child_env
+
+
 def send_commit_notification(repo_root: Path, env: Mapping[str, str] | None = None) -> int:
     runtime_env = env or os.environ
     if not _env_flag_is_enabled(runtime_env.get("OPENCLAW_COMMIT_NOTIFY"), default=True):
@@ -149,12 +200,14 @@ def send_commit_notification(repo_root: Path, env: Mapping[str, str] | None = No
         timeout_ms=timeout_ms,
     )
     log_path = _resolve_log_path(repo_root)
+    child_env = build_openclaw_child_env(runtime_env)
 
     stderr_handle = log_path.open("a", encoding="utf-8")
     try:
         subprocess.Popen(
             command,
             cwd=repo_root,
+            env=child_env,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=stderr_handle,
