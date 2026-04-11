@@ -132,14 +132,18 @@ def _second_target_decision(
     )
 
 
-def _runner_stop_decision(mark_price: float, runner_stop_price: float) -> ExitDecision:
+def _runner_stop_decision(mark_price: float, runner_stop_price: float, invalidation_meta: dict[str, Any]) -> ExitDecision:
     return ExitDecision(
         action="EXIT",
         qty_fraction=1.0,
         priority="HIGH",
         reason="runner 保护价已被击穿，建议退出当前剩余全部尾仓。",
         reference_price=round(mark_price, 8),
-        meta={"exit_trigger": "runner_stop_hit", "runner_stop_price": round(runner_stop_price, 8)},
+        meta={
+            "exit_trigger": "runner_stop_hit",
+            "runner_stop_price": round(runner_stop_price, 8),
+            **invalidation_meta,
+        },
     )
 
 
@@ -221,7 +225,7 @@ def evaluate_exit_policy(
             if runner_stop_price is None:
                 return []
             if mark_price <= runner_stop_price:
-                return [_runner_stop_decision(mark_price, runner_stop_price)]
+                return [_runner_stop_decision(mark_price, runner_stop_price, invalidation_meta)]
             return []
 
         first_pending = first_target_status == "pending"
