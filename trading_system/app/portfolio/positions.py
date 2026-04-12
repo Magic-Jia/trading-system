@@ -129,7 +129,39 @@ def _order_target_management_fields(order: OrderIntent) -> dict[str, Any]:
 
 
 def _has_explicit_target_management_state(existing: dict[str, Any]) -> bool:
-    return any(key in existing for key in _EXPLICIT_TARGET_MANAGEMENT_STATE_KEYS)
+    if not any(key in existing for key in _EXPLICIT_TARGET_MANAGEMENT_STATE_KEYS):
+        return False
+
+    def _positive(value: Any) -> bool:
+        try:
+            return float(value) > 0.0
+        except (TypeError, ValueError):
+            return False
+
+    statuses: dict[str, str] = {}
+    for key in ("first_target_status", "second_target_status"):
+        status = str(existing.get(key) or "").strip().lower()
+        statuses[key] = status
+        if status and status != "pending":
+            return True
+
+    if _positive(existing.get("first_target_filled_qty")) or _positive(existing.get("second_target_filled_qty")):
+        return True
+    if bool(existing.get("runner_protected")) or existing.get("runner_stop_price") is not None:
+        return True
+    if _positive(existing.get("legacy_partial_filled_qty")):
+        return True
+
+    first_source = str(existing.get("first_target_source") or "").strip().lower()
+    second_source = str(existing.get("second_target_source") or "").strip().lower()
+    has_legacy_or_structure_seed = existing.get("take_profit") is not None or existing.get("structure_target_price") is not None
+    pending_only = all(not value or value == "pending" for value in statuses.values())
+    fallback_seed_only = first_source == "fallback_1r" and second_source == "fixed_2r"
+
+    if pending_only and fallback_seed_only and not has_legacy_or_structure_seed:
+        return False
+
+    return True
 
 
 def sync_positions_from_account(state: RuntimeState, account: AccountSnapshot) -> list[dict[str, Any]]:
@@ -141,20 +173,20 @@ def sync_positions_from_account(state: RuntimeState, account: AccountSnapshot) -
             continue
 
         existing = state.positions.get(snapshot.symbol, {})
-        tracked_from_intent = bool(existing.get("tracked_from_intent"))
+        carry_existing = existing if existing.get("side") == snapshot.side else {}
+        tracked_from_intent = bool(carry_existing.get("tracked_from_intent"))
         seen_symbols.add(snapshot.symbol)
 
         preserve_paper_position = (
             tracked_from_intent
-            and existing.get("side") == snapshot.side
-            and float(existing.get("qty", 0.0) or 0.0) > 0.0
-            and float(existing.get("entry_price", 0.0) or 0.0) > 0.0
+            and float(carry_existing.get("qty", 0.0) or 0.0) > 0.0
+            and float(carry_existing.get("entry_price", 0.0) or 0.0) > 0.0
         )
-        qty = round(abs(float(existing.get("qty", snapshot.qty) or snapshot.qty)), 6) if preserve_paper_position else round(
+        qty = round(abs(float(carry_existing.get("qty", snapshot.qty) or snapshot.qty)), 6) if preserve_paper_position else round(
             abs(float(snapshot.qty)), 6
         )
         entry_price = (
-            _round_price(float(existing.get("entry_price", snapshot.entry_price) or snapshot.entry_price)) or 0.0
+            _round_price(float(carry_existing.get("entry_price", snapshot.entry_price) or snapshot.entry_price)) or 0.0
             if preserve_paper_position
             else (_round_price(snapshot.entry_price) or 0.0)
         )
@@ -176,24 +208,22 @@ def sync_positions_from_account(state: RuntimeState, account: AccountSnapshot) -
             "unrealized_pnl": unrealized_pnl,
             "notional": notional,
             "leverage": snapshot.leverage,
-            "stop_loss": existing.get("stop_loss"),
-            "take_profit": existing.get("take_profit"),
+            "stop_loss": carry_existing.get("stop_loss"),
+            "take_profit": carry_existing.get("take_profit"),
             "status": "OPEN",
-            "intent_id": existing.get("intent_id"),
-            "signal_id": existing.get("signal_id"),
-            **_taxonomy_fields(existing),
-            "source": _source(existing, from_snapshot=True, from_intent=tracked_from_intent),
+            "intent_id": carry_existing.get("intent_id"),
+            "signal_id": carry_existing.get("signal_id"),
+            **_taxonomy_fields(carry_existing),
+            "source": _source(carry_existing, from_snapshot=True, from_intent=tracked_from_intent),
             "tracked_from_snapshot": True,
             "tracked_from_intent": tracked_from_intent,
-            "opened_at_bj": existing.get("opened_at_bj", now_bj),
+            "opened_at_bj": carry_existing.get("opened_at_bj", now_bj),
             "updated_at_bj": now_bj,
             "last_synced_from": "account_snapshot",
-            **_target_management_fields(existing),
+            **_target_management_fields(carry_existing),
         }
-        if tracked_from_intent or _has_explicit_target_management_state(existing):
-            state.positions[snapshot.symbol] = ensure_target_management_state(synced_position)
-        else:
-            state.positions[snapshot.symbol] = synced_position
+        synced_position["remaining_position_qty"] = round(qty, 8)
+        state.positions[snapshot.symbol] = ensure_target_management_state(synced_position)
 
     stale_symbols: list[str] = []
     for symbol, position in state.positions.items():
@@ -219,6 +249,7 @@ def apply_executed_intent(state: RuntimeState, order: OrderIntent) -> dict[str, 
     existing = state.positions.get(order.symbol, {})
     tracked_from_snapshot = bool(existing.get("tracked_from_snapshot"))
     same_side = existing.get("side") == order.side
+    carry_existing = existing if same_side else {}
 
     existing_qty = float(existing.get("qty", 0.0)) if same_side else 0.0
     aggregate_qty = existing_qty + float(order.qty)
@@ -229,30 +260,64 @@ def apply_executed_intent(state: RuntimeState, order: OrderIntent) -> dict[str, 
     else:
         weighted_entry = float(order.entry_price)
 
-    target_management_fields = _target_management_fields(existing)
-    if not target_management_fields.get("first_target_price") or not target_management_fields.get("second_target_price"):
-        target_management_fields.update(_order_target_management_fields(order))
+    target_management_fields = _target_management_fields(carry_existing)
+    order_target_management_fields = _order_target_management_fields(order)
+    if order_target_management_fields:
+        if not target_management_fields.get("first_target_price"):
+            for key in ("first_target_price", "first_target_source"):
+                if key in order_target_management_fields:
+                    target_management_fields[key] = order_target_management_fields.get(key)
+            for key in ("first_target_status", "first_target_hit", "first_target_filled_qty"):
+                if key in order_target_management_fields and target_management_fields.get(key) is None:
+                    target_management_fields[key] = order_target_management_fields.get(key)
+
+        if not target_management_fields.get("second_target_price"):
+            for key in ("second_target_price", "second_target_source"):
+                if key in order_target_management_fields:
+                    target_management_fields[key] = order_target_management_fields.get(key)
+            for key in (
+                "second_target_status",
+                "second_target_hit",
+                "second_target_filled_qty",
+                "runner_protected",
+                "runner_stop_price",
+            ):
+                if key in order_target_management_fields and target_management_fields.get(key) is None:
+                    target_management_fields[key] = order_target_management_fields.get(key)
+
+        for key in (
+            "structure_target_price",
+            "original_position_qty",
+            "remaining_position_qty",
+            "scale_out_plan",
+            "symbol_step_size",
+            "min_order_qty",
+            "legacy_partial_filled_qty",
+        ):
+            if key in order_target_management_fields and target_management_fields.get(key) is None:
+                target_management_fields[key] = order_target_management_fields.get(key)
 
     position = {
         "symbol": order.symbol,
         "side": order.side,
         "qty": round(aggregate_qty if aggregate_qty > 0 else float(order.qty), 6),
         "entry_price": round(weighted_entry, 8),
-        "mark_price": existing.get("mark_price", round(float(order.entry_price), 8)),
-        "unrealized_pnl": round(float(existing.get("unrealized_pnl", 0.0)), 4),
+        "mark_price": carry_existing.get("mark_price", round(float(order.entry_price), 8)),
+        "unrealized_pnl": round(float(carry_existing.get("unrealized_pnl", 0.0)), 4),
         "notional": round((aggregate_qty if aggregate_qty > 0 else float(order.qty)) * weighted_entry, 4),
-        "leverage": existing.get("leverage"),
+        "leverage": carry_existing.get("leverage"),
         "stop_loss": round(float(order.stop_loss), 8),
         "take_profit": _round_price(order.take_profit),
         "status": "OPEN" if order.status in {"FILLED", "SENT"} else order.status,
         "intent_id": order.intent_id,
         "signal_id": order.signal_id,
-        **_order_taxonomy_fields(order, existing),
+        **_order_taxonomy_fields(order, carry_existing),
         **target_management_fields,
-        "source": _source(existing, from_snapshot=tracked_from_snapshot, from_intent=True),
-        "tracked_from_snapshot": tracked_from_snapshot,
+        "remaining_position_qty": round(aggregate_qty if aggregate_qty > 0 else float(order.qty), 8),
+        "source": _source(carry_existing, from_snapshot=tracked_from_snapshot and same_side, from_intent=True),
+        "tracked_from_snapshot": tracked_from_snapshot and same_side,
         "tracked_from_intent": True,
-        "opened_at_bj": existing.get("opened_at_bj", now_bj),
+        "opened_at_bj": carry_existing.get("opened_at_bj", now_bj),
         "updated_at_bj": now_bj,
         "last_synced_from": "executed_intent",
     }
