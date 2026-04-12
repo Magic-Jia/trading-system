@@ -4,9 +4,34 @@ from trading_system.app.portfolio.target_management import (
     derive_target_management_fields,
     ensure_target_management_state,
 )
-from trading_system.app.portfolio.positions import apply_executed_intent, sync_positions_from_account
+from trading_system.app.portfolio.positions import (
+    _has_explicit_target_management_state,
+    apply_executed_intent,
+    sync_positions_from_account,
+)
 from trading_system.app.storage.state_store import RuntimeStateV2
 from trading_system.app.types import AccountSnapshot, OrderIntent, PositionSnapshot
+
+
+def test_has_explicit_target_management_state_detects_persisted_target_fields():
+    assert _has_explicit_target_management_state({"first_target_price": 105.0}) is True
+    assert _has_explicit_target_management_state({"first_target_status": "pending"}) is True
+    assert _has_explicit_target_management_state({"second_target_status": "pending"}) is True
+    assert _has_explicit_target_management_state(
+        {
+            "first_target_status": "pending",
+            "second_target_status": "pending",
+            "first_target_source": "fallback_1r",
+            "second_target_source": "fixed_2r",
+        }
+    ) is False
+    assert _has_explicit_target_management_state({"first_target_status": "filled"}) is True
+    assert _has_explicit_target_management_state({"second_target_status": "satisfied_by_external_reduction"}) is True
+    assert _has_explicit_target_management_state({"first_target_filled_qty": 0.01}) is True
+    assert _has_explicit_target_management_state({"runner_protected": True}) is True
+    assert _has_explicit_target_management_state({"legacy_partial_filled_qty": 0.25}) is True
+    assert _has_explicit_target_management_state({"first_target_source": "fallback_1r"}) is False
+    assert _has_explicit_target_management_state({"qty": 1.0}) is False
 
 
 def test_derive_target_management_fields_prefers_structure_target_between_1r_and_2r():
