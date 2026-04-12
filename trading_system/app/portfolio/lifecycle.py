@@ -173,7 +173,17 @@ def evaluate_position(position: dict[str, Any], *, regime: dict[str, Any] | None
             )
         )
 
+    allow_target_stage_exits = bool(position.get("tracked_from_intent")) or _has_explicit_target_management_state(position)
     for decision in evaluate_exit_policy(position, regime=regime):
+        trigger = str((decision.meta or {}).get("exit_trigger") or "")
+        if (
+            not allow_target_stage_exits
+            and (
+                (decision.action == "PARTIAL_TAKE_PROFIT" and trigger in {"first_target_hit", "second_target_hit"})
+                or (decision.action == "EXIT" and trigger == "runner_stop_hit")
+            )
+        ):
+            continue
         suggestions.append(_exit_decision_to_suggestion(position, decision))
 
     if _stop_breached(side, mark_price, stop_loss) and not any(item.action == "EXIT" for item in suggestions):
@@ -291,12 +301,13 @@ def advance_lifecycle_positions(state: RuntimeState, lifecycle_config: Any) -> d
             },
             config=lifecycle_config,
         )
+        projection = _target_management_lifecycle_projection(position) if carries_persistent_lifecycle else {}
         updates[symbol] = {
             "state": next_state.value,
             "reason_codes": reason_codes,
             "r_multiple": round(r_multiple, 6),
             **_position_taxonomy_meta(position),
-            **_target_management_lifecycle_projection(position),
+            **projection,
         }
 
     return updates

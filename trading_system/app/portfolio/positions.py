@@ -36,6 +36,20 @@ _TARGET_MANAGEMENT_KEYS = (
     "min_order_qty",
     "legacy_partial_filled_qty",
 )
+_EXPLICIT_TARGET_MANAGEMENT_STATE_KEYS = (
+    "first_target_price",
+    "second_target_price",
+    "first_target_status",
+    "second_target_status",
+    "first_target_filled_qty",
+    "second_target_filled_qty",
+    "runner_protected",
+    "runner_stop_price",
+    "scale_out_plan",
+    "original_position_qty",
+    "remaining_position_qty",
+    "legacy_partial_filled_qty",
+)
 
 
 def _now_bj() -> str:
@@ -112,6 +126,42 @@ def _order_target_management_fields(order: OrderIntent) -> dict[str, Any]:
         if key in meta:
             payload[key] = meta.get(key)
     return payload
+
+
+def _has_explicit_target_management_state(existing: dict[str, Any]) -> bool:
+    if not any(key in existing for key in _EXPLICIT_TARGET_MANAGEMENT_STATE_KEYS):
+        return False
+
+    def _positive(value: Any) -> bool:
+        try:
+            return float(value) > 0.0
+        except (TypeError, ValueError):
+            return False
+
+    statuses: dict[str, str] = {}
+    for key in ("first_target_status", "second_target_status"):
+        status = str(existing.get(key) or "").strip().lower()
+        statuses[key] = status
+        if status and status != "pending":
+            return True
+
+    if _positive(existing.get("first_target_filled_qty")) or _positive(existing.get("second_target_filled_qty")):
+        return True
+    if bool(existing.get("runner_protected")) or existing.get("runner_stop_price") is not None:
+        return True
+    if _positive(existing.get("legacy_partial_filled_qty")):
+        return True
+
+    first_source = str(existing.get("first_target_source") or "").strip().lower()
+    second_source = str(existing.get("second_target_source") or "").strip().lower()
+    has_legacy_or_structure_seed = existing.get("take_profit") is not None or existing.get("structure_target_price") is not None
+    pending_only = all(not value or value == "pending" for value in statuses.values())
+    fallback_seed_only = first_source == "fallback_1r" and second_source == "fixed_2r"
+
+    if pending_only and fallback_seed_only and not has_legacy_or_structure_seed:
+        return False
+
+    return True
 
 
 def sync_positions_from_account(state: RuntimeState, account: AccountSnapshot) -> list[dict[str, Any]]:
