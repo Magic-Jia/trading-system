@@ -135,25 +135,67 @@ def _with_default_target_state(payload: dict[str, Any]) -> dict[str, Any]:
 
     payload["original_position_qty"] = _round_qty(max(original_qty, 0.0))
     payload["remaining_position_qty"] = _round_qty(max(remaining_qty, 0.0))
-    payload.setdefault(
-        "scale_out_plan",
-        {
+    if payload.get("scale_out_plan") is None:
+        payload["scale_out_plan"] = {
             "first": FIRST_STAGE_FRACTION,
             "second": SECOND_STAGE_FRACTION,
             "runner": RUNNER_FRACTION,
             "basis": "original_position",
-        },
-    )
-    payload.setdefault("first_target_status", TARGET_STATUS_PENDING)
-    payload.setdefault("first_target_hit", False)
-    payload.setdefault("first_target_filled_qty", 0.0)
-    payload.setdefault("second_target_status", TARGET_STATUS_PENDING)
-    payload.setdefault("second_target_hit", False)
-    payload.setdefault("second_target_filled_qty", 0.0)
-    payload.setdefault("runner_protected", False)
-    payload.setdefault("runner_stop_price", None)
-    payload.setdefault("second_target_source", SECOND_TARGET_SOURCE)
+        }
+    if payload.get("first_target_status") is None:
+        payload["first_target_status"] = TARGET_STATUS_PENDING
+    if payload.get("first_target_hit") is None:
+        payload["first_target_hit"] = False
+    if payload.get("first_target_filled_qty") is None:
+        payload["first_target_filled_qty"] = 0.0
+    if payload.get("second_target_status") is None:
+        payload["second_target_status"] = TARGET_STATUS_PENDING
+    if payload.get("second_target_hit") is None:
+        payload["second_target_hit"] = False
+    if payload.get("second_target_filled_qty") is None:
+        payload["second_target_filled_qty"] = 0.0
+    if payload.get("runner_protected") is None:
+        payload["runner_protected"] = False
+    if "runner_stop_price" not in payload:
+        payload["runner_stop_price"] = None
+    if payload.get("second_target_source") is None:
+        payload["second_target_source"] = SECOND_TARGET_SOURCE
+    return _normalize_runner_state(payload)
+
+
+def _normalize_runner_state(payload: dict[str, Any]) -> dict[str, Any]:
+    if not bool(payload.get("runner_protected")):
+        return payload
+
+    if str(payload.get("second_target_status") or TARGET_STATUS_PENDING) != TARGET_STATUS_FILLED:
+        payload["runner_protected"] = False
+        payload["runner_stop_price"] = None
+        return payload
+
+    remaining_qty = _float(payload.get("remaining_position_qty"))
+    if remaining_qty is None:
+        remaining_qty = _float(payload.get("qty")) or 0.0
+    epsilon = _qty_epsilon(_float(payload.get("symbol_step_size")))
+    if remaining_qty <= epsilon:
+        payload["runner_protected"] = False
+        payload["runner_stop_price"] = None
+
     return payload
+
+
+def _valid_frozen_target_order(position: Mapping[str, Any], *, first_target_price: float, second_target_price: float) -> bool:
+    if first_target_price >= second_target_price:
+        return False
+
+    entry_price = _float(position.get("entry_price"))
+    if entry_price is not None and entry_price > 0 and entry_price >= first_target_price:
+        return False
+
+    stop_loss = _float(position.get("stop_loss"))
+    if stop_loss is not None and entry_price is not None and stop_loss >= entry_price:
+        return False
+
+    return True
 
 
 def _stage_unreachable(position: Mapping[str, Any], *, stage: str) -> bool:
@@ -257,23 +299,26 @@ def terminalize_all_unreachable_stages(position: Mapping[str, Any]) -> dict[str,
     return payload
 
 
-def _apply_legacy_stage_seed(position: dict[str, Any]) -> dict[str, Any]:
-    legacy_partial = _float(position.get("legacy_partial_filled_qty"))
-    if legacy_partial is None:
-        return _with_default_target_state(position)
+def _apply_legacy_stage_seed(position: dict[str, Any], *, allow_legacy_partial_seed: bool) -> dict[str, Any]:
+    legacy_partial = _float(position.get("legacy_partial_filled_qty")) if allow_legacy_partial_seed else None
+    if legacy_partial is not None:
+        stage_target_qty = (_float(position.get("original_position_qty")) or 0.0) * FIRST_STAGE_FRACTION
+        seeded_filled_qty = max(legacy_partial, 0.0)
+        if stage_target_qty > 0:
+            seeded_filled_qty = min(seeded_filled_qty, stage_target_qty)
+        step_size = _float(position.get("symbol_step_size"))
+        epsilon = _qty_epsilon(step_size)
+        position["first_target_filled_qty"] = _round_qty(seeded_filled_qty)
+        if stage_target_qty > 0 and seeded_filled_qty + epsilon >= stage_target_qty:
+            position["first_target_status"] = TARGET_STATUS_FILLED
+            position["first_target_hit"] = True
+        elif seeded_filled_qty > epsilon:
+            position["first_target_status"] = TARGET_STATUS_PENDING
+            position["first_target_hit"] = False
 
-    stage_target_qty = (_float(position.get("original_position_qty")) or 0.0) * FIRST_STAGE_FRACTION
-    step_size = _float(position.get("symbol_step_size"))
-    epsilon = _qty_epsilon(step_size)
-    position["first_target_filled_qty"] = _round_qty(max(legacy_partial, 0.0))
-    if stage_target_qty > 0 and legacy_partial + epsilon >= stage_target_qty:
-        position["first_target_status"] = TARGET_STATUS_FILLED
-        position["first_target_hit"] = True
-    elif legacy_partial > epsilon:
-        position["first_target_status"] = TARGET_STATUS_PENDING
-        position["first_target_hit"] = False
-
-    if position.get("first_target_status") == TARGET_STATUS_PENDING and _stage_unreachable(position, stage="first"):
+    if str(position.get("first_target_status") or TARGET_STATUS_PENDING) == TARGET_STATUS_PENDING and _stage_unreachable(
+        position, stage="first"
+    ):
         position["first_target_status"] = TARGET_STATUS_EXTERNAL
         position["first_target_hit"] = False
     return _with_default_target_state(position)
@@ -286,8 +331,34 @@ def ensure_target_management_state(position: Mapping[str, Any]) -> dict[str, Any
 
     first_target_price = _float(payload.get("first_target_price"))
     second_target_price = _float(payload.get("second_target_price"))
+    had_frozen_first_target = first_target_price is not None
+    had_frozen_second_target = second_target_price is not None
+
+    sticky_stage_state: dict[str, Any] = {}
+    if had_frozen_first_target or had_frozen_second_target:
+        for key in ("first_target_status", "first_target_hit", "first_target_filled_qty"):
+            if key in payload:
+                sticky_stage_state[key] = payload.get(key)
+    if had_frozen_second_target:
+        for key in (
+            "second_target_status",
+            "second_target_hit",
+            "second_target_filled_qty",
+            "runner_protected",
+            "runner_stop_price",
+        ):
+            if key in payload:
+                sticky_stage_state[key] = payload.get(key)
+
     if first_target_price is not None and second_target_price is not None:
-        return _with_default_target_state(payload)
+        if _valid_frozen_target_order(
+            payload,
+            first_target_price=first_target_price,
+            second_target_price=second_target_price,
+        ):
+            return _with_default_target_state(payload)
+        first_target_price = None
+        second_target_price = None
 
     original_qty = _float(payload.get("original_position_qty"))
     if original_qty is None or original_qty <= 0:
@@ -307,7 +378,43 @@ def ensure_target_management_state(position: Mapping[str, Any]) -> dict[str, Any
     if not derived:
         return payload
 
+    preserved_first_target_price = None
+    if first_target_price is not None:
+        comparison_second_target = second_target_price
+        if comparison_second_target is None:
+            comparison_second_target = _float(derived.get("second_target_price"))
+        if comparison_second_target is not None and _valid_frozen_target_order(
+            payload,
+            first_target_price=first_target_price,
+            second_target_price=comparison_second_target,
+        ):
+            preserved_first_target_price = _round_qty(first_target_price)
+            derived["first_target_price"] = preserved_first_target_price
+            if "first_target_source" in payload:
+                derived["first_target_source"] = payload.get("first_target_source")
+            else:
+                derived.pop("first_target_source", None)
+
+    if second_target_price is not None:
+        comparison_first_target = preserved_first_target_price
+        if comparison_first_target is None:
+            comparison_first_target = _float(derived.get("first_target_price"))
+        if comparison_first_target is not None and _valid_frozen_target_order(
+            payload,
+            first_target_price=comparison_first_target,
+            second_target_price=second_target_price,
+        ):
+            derived["second_target_price"] = _round_qty(second_target_price)
+            if "second_target_source" in payload:
+                derived["second_target_source"] = payload.get("second_target_source")
+            else:
+                derived.pop("second_target_source", None)
+
     payload.update(derived)
+    payload.update(sticky_stage_state)
     if remaining_qty is not None and remaining_qty >= 0:
         payload["remaining_position_qty"] = _round_qty(remaining_qty)
-    return _apply_legacy_stage_seed(payload)
+    allow_legacy_partial_seed = not had_frozen_first_target and not any(
+        key in sticky_stage_state for key in ("first_target_status", "first_target_hit", "first_target_filled_qty")
+    )
+    return _apply_legacy_stage_seed(payload, allow_legacy_partial_seed=allow_legacy_partial_seed)

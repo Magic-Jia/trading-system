@@ -145,7 +145,12 @@ def test_evaluate_exit_policy_emits_runner_exit_after_second_target_protection()
             priority="HIGH",
             reason="runner 保护价已被击穿，建议退出当前剩余全部尾仓。",
             reference_price=pytest.approx(104.5),
-            meta={"exit_trigger": "runner_stop_hit", "runner_stop_price": pytest.approx(105.0)},
+            meta={
+                "exit_trigger": "runner_stop_hit",
+                "runner_stop_price": pytest.approx(105.0),
+                "invalidation_source": "trend_breakout_failure_below_4h_ema20",
+                "invalidation_reason": "breakout continuation lost 4h breakout support",
+            },
         )
     ]
 
