@@ -36,7 +36,6 @@ from .signals.short_engine import (
 from .risk.validator import validate_candidate_for_allocation, validate_candidate_for_execution, validate_signal
 from .signals.trend_engine import (
     _extension_pct as _trend_extension_pct,
-    _is_high_liquidity_strong_name as _trend_is_high_liquidity_strong_name,
     _is_uptrend as _trend_is_uptrend,
     _passes_absolute_strength_gate as _trend_passes_absolute_strength_gate,
     _reject_price_extension_overheat as _trend_reject_price_extension_overheat,
@@ -301,6 +300,7 @@ def _timeframe_row(payload: Mapping[str, Any], timeframe: str) -> Mapping[str, A
 def _trend_review_notes(
     *,
     market: Mapping[str, Any],
+    major_universe: list[Mapping[str, Any]],
     trend_candidates: list[Any],
 ) -> list[dict[str, Any]]:
     candidate_symbols = {_candidate_symbol(candidate) for candidate in trend_candidates}
@@ -309,18 +309,17 @@ def _trend_review_notes(
         return []
 
     notes: list[dict[str, Any]] = []
-    for symbol, payload in market_symbols.items():
-        symbol = str(symbol).upper().strip()
-        if not symbol or symbol in candidate_symbols or not isinstance(payload, Mapping):
+    for universe_row in major_universe:
+        symbol = str(universe_row.get("symbol", "")).upper().strip()
+        if not symbol or symbol in candidate_symbols:
+            continue
+        payload = market_symbols.get(symbol)
+        if not isinstance(payload, Mapping):
             continue
 
         daily = _timeframe_row(payload, "daily")
         h4 = _timeframe_row(payload, "4h")
         h1 = _timeframe_row(payload, "1h")
-        sector = str(payload.get("sector", ""))
-        is_major = sector == "majors"
-        if not is_major and not _trend_is_high_liquidity_strong_name(payload):
-            continue
         if not _trend_is_uptrend(daily, h4, h1):
             continue
 
@@ -928,16 +927,19 @@ def main() -> None:
     )
     state.latest_lifecycle = lifecycle_updates
     state.lifecycle_summary = lifecycle_summary
-    trend_candidate_rows = [row for row in candidate_rows if str(row.get("engine", "")).lower() == "trend"]
+    state.trend_candidates = [row for row in candidate_rows if str(row.get("engine", "")).lower() == "trend"]
     trend_review_notes = _trend_review_notes(
         market=market,
-        trend_candidates=trend_candidates,
+        major_universe=list(state.latest_universes.get("major_universe", [])),
+        trend_candidates=state.trend_candidates,
     )
-    trend_summary = build_trend_report(
-        trend_candidates=trend_candidate_rows,
+    state.trend_summary = build_trend_report(
+        trend_candidates=state.trend_candidates,
         allocations=state.latest_allocations,
-        executions=execution_rows,
+        major_universe=list(state.latest_universes.get("major_universe", [])),
     )
+    if trend_review_notes:
+        state.trend_summary["review_notes"] = trend_review_notes
     state.rotation_candidates = [row for row in candidate_rows if str(row.get("engine", "")).lower() == "rotation"]
     rotation_review_notes = _rotation_review_notes(
         market=market,
@@ -973,7 +975,9 @@ def main() -> None:
         candidates=state.latest_candidates,
         allocations=state.latest_allocations,
         executions=execution_rows,
-        trend_report={**trend_summary, "review_notes": trend_review_notes} if trend_review_notes else trend_summary,
+        trend_report={**state.trend_summary, "review_notes": trend_review_notes}
+        if trend_review_notes
+        else state.trend_summary,
         rotation_report={**state.rotation_summary, "review_notes": rotation_review_notes}
         if rotation_review_notes
         else state.rotation_summary,

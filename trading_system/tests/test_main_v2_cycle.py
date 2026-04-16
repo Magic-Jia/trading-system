@@ -578,6 +578,66 @@ def test_main_v2_stdout_surfaces_trend_b2_absolute_strength_review_notes(monkeyp
     assert "absolute strength" in note["message"]
 
 
+def test_main_v2_cycle_persists_trend_b2_review_notes_in_runtime_state(monkeypatch, tmp_path, load_fixture):
+    output_path = tmp_path / "runtime_state.json"
+    account_path = tmp_path / "account_snapshot.json"
+    market_path = tmp_path / "market_context.json"
+    deriv_path = tmp_path / "derivatives_snapshot.json"
+    market = load_fixture("market_context_v2.json")
+    market["symbols"]["BTCUSDT"]["daily"]["return_pct_7d"] = 0.02
+    market["symbols"]["BTCUSDT"]["4h"]["return_pct_3d"] = 0.008
+    market["symbols"]["BTCUSDT"]["1h"]["return_pct_24h"] = 0.002
+
+    account_path.write_text(json.dumps(load_fixture("account_snapshot_v2.json")))
+    market_path.write_text(json.dumps(market))
+    deriv_path.write_text(
+        json.dumps(
+            {
+                "as_of": "2026-03-25T00:00:00Z",
+                "schema_version": "v2",
+                "rows": [
+                    {
+                        "symbol": "BTCUSDT",
+                        "funding_rate": 0.00004,
+                        "open_interest_usdt": 23_100_000_000,
+                        "open_interest_change_24h_pct": 0.01,
+                        "mark_price_change_24h_pct": 0.012,
+                        "taker_buy_sell_ratio": 1.01,
+                        "basis_bps": 12,
+                    },
+                    {
+                        "symbol": "ETHUSDT",
+                        "funding_rate": 0.00003,
+                        "open_interest_usdt": 11_800_000_000,
+                        "open_interest_change_24h_pct": 0.009,
+                        "mark_price_change_24h_pct": 0.008,
+                        "taker_buy_sell_ratio": 1.0,
+                        "basis_bps": 10,
+                    },
+                ],
+            }
+        )
+    )
+    monkeypatch.setenv("TRADING_STATE_FILE", str(output_path))
+    monkeypatch.setenv("TRADING_ACCOUNT_SNAPSHOT_FILE", str(account_path))
+    monkeypatch.setenv("TRADING_MARKET_CONTEXT_FILE", str(market_path))
+    monkeypatch.setenv("TRADING_DERIVATIVES_SNAPSHOT_FILE", str(deriv_path))
+    monkeypatch.setattr(main_module, "generate_rotation_candidates", lambda *args, **kwargs: [])
+    monkeypatch.setattr(main_module, "generate_short_candidates", lambda *args, **kwargs: [])
+
+    main_module.main()
+    state = json.loads(output_path.read_text())
+
+    trend_summary = state["trend_summary"]
+    assert trend_summary["candidate_count"] == 1
+    assert [row["symbol"] for row in trend_summary["leaders"]] == ["ETHUSDT"]
+    assert [note["symbol"] for note in trend_summary["review_notes"]] == ["BTCUSDT"]
+    note = trend_summary["review_notes"][0]
+    assert note["reason"] == "absolute_strength_floor"
+    assert note["setup_type"] == "PULLBACK_CONTINUATION"
+    assert note["daily_return_pct_7d"] == 0.02
+
+
 def test_main_v2_stdout_surfaces_rotation_b2_price_extension_review_notes(monkeypatch, tmp_path, load_fixture, capsys):
     output_path = tmp_path / "runtime_state.json"
     account_path = tmp_path / "account_snapshot.json"
