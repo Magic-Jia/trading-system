@@ -22,6 +22,7 @@ def build_regime_summary(
     candidates: Sequence[Mapping[str, Any]],
     allocations: Sequence[Mapping[str, Any]],
     executions: Sequence[Mapping[str, Any]],
+    trend_report: Mapping[str, Any] | None = None,
     rotation_report: Mapping[str, Any] | None = None,
     short_report: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -83,6 +84,7 @@ def build_regime_summary(
             "count": len(executions),
             "symbols": sorted({str(row.get("symbol")) for row in executions if row.get("symbol")}),
         },
+        "trend": dict(trend_report or {}),
         "rotation": dict(rotation_report or {}),
         "short": dict(short_report or {}),
     }

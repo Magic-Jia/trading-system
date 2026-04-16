@@ -16,10 +16,17 @@ from .portfolio.allocator import allocate_candidates
 from .portfolio.lifecycle import advance_lifecycle_positions, build_management_action_intents, evaluate_portfolio
 from .portfolio.positions import apply_executed_intent, sync_positions_from_account
 from .portfolio.target_management import derive_target_management_fields, terminalize_all_unreachable_stages
-from .reporting.daily_report import build_lifecycle_report, build_rotation_report, build_short_report
+from .reporting.daily_report import build_lifecycle_report, build_rotation_report, build_short_report, build_trend_report
 from .reporting.regime_report import build_regime_summary
 from .risk.stop_policy import build_stop_policy
-from .signals.rotation_engine import generate_rotation_candidates
+from .signals.rotation_engine import (
+    _extension_pct as _rotation_extension_pct,
+    _passes_absolute_strength_gate as _rotation_passes_absolute_strength_gate,
+    _reject_price_extension_overheat as _rotation_reject_price_extension_overheat,
+    _setup_type as _rotation_setup_type,
+    _trend_intact as _rotation_trend_intact,
+    generate_rotation_candidates,
+)
 from .signals.short_engine import (
     _reject_crowded_short_squeeze_risk,
     _setup_type as _short_setup_type,
@@ -27,7 +34,15 @@ from .signals.short_engine import (
     generate_short_candidates,
 )
 from .risk.validator import validate_candidate_for_allocation, validate_candidate_for_execution, validate_signal
-from .signals.trend_engine import generate_trend_candidates
+from .signals.trend_engine import (
+    _extension_pct as _trend_extension_pct,
+    _is_high_liquidity_strong_name as _trend_is_high_liquidity_strong_name,
+    _is_uptrend as _trend_is_uptrend,
+    _passes_absolute_strength_gate as _trend_passes_absolute_strength_gate,
+    _reject_price_extension_overheat as _trend_reject_price_extension_overheat,
+    _setup_type as _trend_setup_type,
+    generate_trend_candidates,
+)
 from .storage.state_store import build_state_store
 from .universe.builder import UniverseBuildResult, build_universes
 from .types import AccountSnapshot, OrderIntent, PositionSnapshot, TradeSignal
@@ -270,10 +285,150 @@ def _candidate_sort_key(row: Mapping[str, Any]) -> tuple[float, str, str]:
     return (-float(row.get("score", 0.0) or 0.0), str(row.get("symbol", "")), str(row.get("engine", "")))
 
 
-def _short_candidate_symbol(candidate: Any) -> str:
+def _candidate_symbol(candidate: Any) -> str:
     if isinstance(candidate, Mapping):
         return str(candidate.get("symbol", "")).upper().strip()
     return str(getattr(candidate, "symbol", "")).upper().strip()
+
+
+def _timeframe_row(payload: Mapping[str, Any], timeframe: str) -> Mapping[str, Any]:
+    row = payload.get(timeframe)
+    if isinstance(row, Mapping):
+        return row
+    return {}
+
+
+def _trend_review_notes(
+    *,
+    market: Mapping[str, Any],
+    trend_candidates: list[Any],
+) -> list[dict[str, Any]]:
+    candidate_symbols = {_candidate_symbol(candidate) for candidate in trend_candidates}
+    market_symbols = market.get("symbols", {})
+    if not isinstance(market_symbols, Mapping):
+        return []
+
+    notes: list[dict[str, Any]] = []
+    for symbol, payload in market_symbols.items():
+        symbol = str(symbol).upper().strip()
+        if not symbol or symbol in candidate_symbols or not isinstance(payload, Mapping):
+            continue
+
+        daily = _timeframe_row(payload, "daily")
+        h4 = _timeframe_row(payload, "4h")
+        h1 = _timeframe_row(payload, "1h")
+        sector = str(payload.get("sector", ""))
+        is_major = sector == "majors"
+        if not is_major and not _trend_is_high_liquidity_strong_name(payload):
+            continue
+        if not _trend_is_uptrend(daily, h4, h1):
+            continue
+
+        setup_type = _trend_setup_type(payload)
+        if not _trend_passes_absolute_strength_gate(payload):
+            daily_return_pct_7d = round(_float(daily, "return_pct_7d"), 6)
+            h4_return_pct_3d = round(_float(h4, "return_pct_3d"), 6)
+            h1_return_pct_24h = round(_float(h1, "return_pct_24h"), 6)
+            notes.append(
+                {
+                    "symbol": symbol,
+                    "setup_type": setup_type,
+                    "reason": "absolute_strength_floor",
+                    "daily_return_pct_7d": daily_return_pct_7d,
+                    "h4_return_pct_3d": h4_return_pct_3d,
+                    "h1_return_pct_24h": h1_return_pct_24h,
+                    "message": (
+                        f"{symbol} {setup_type} suppressed: absolute strength floor failed "
+                        f"(7d {daily_return_pct_7d:.3f}, 3d {h4_return_pct_3d:.3f}, 24h {h1_return_pct_24h:.3f})."
+                    ),
+                }
+            )
+            continue
+        if _trend_reject_price_extension_overheat(payload):
+            h4_extension_pct = round(_trend_extension_pct(h4), 6)
+            h1_extension_pct = round(_trend_extension_pct(h1), 6)
+            notes.append(
+                {
+                    "symbol": symbol,
+                    "setup_type": setup_type,
+                    "reason": "price_extension_overheat",
+                    "h4_extension_pct": h4_extension_pct,
+                    "h1_extension_pct": h1_extension_pct,
+                    "message": (
+                        f"{symbol} {setup_type} suppressed: overheat remained elevated "
+                        f"(4h extension {h4_extension_pct:.3f}, 1h extension {h1_extension_pct:.3f})."
+                    ),
+                }
+            )
+
+    return sorted(notes, key=lambda row: (str(row.get("symbol", "")), str(row.get("setup_type", ""))))
+
+
+def _rotation_review_notes(
+    *,
+    market: Mapping[str, Any],
+    rotation_universe: list[Mapping[str, Any]],
+    rotation_candidates: list[Any],
+) -> list[dict[str, Any]]:
+    candidate_symbols = {_candidate_symbol(candidate) for candidate in rotation_candidates}
+    market_symbols = market.get("symbols", {})
+    if not isinstance(market_symbols, Mapping):
+        return []
+
+    notes: list[dict[str, Any]] = []
+    for universe_row in rotation_universe:
+        symbol = str(universe_row.get("symbol", "")).upper().strip()
+        if not symbol or symbol in candidate_symbols:
+            continue
+        payload = market_symbols.get(symbol)
+        if not isinstance(payload, Mapping):
+            continue
+        if not _rotation_trend_intact(payload):
+            continue
+
+        setup_type = _rotation_setup_type(payload)
+        if not _rotation_passes_absolute_strength_gate(payload):
+            daily = _timeframe_row(payload, "daily")
+            h4 = _timeframe_row(payload, "4h")
+            h1 = _timeframe_row(payload, "1h")
+            daily_return_pct_7d = round(_float(daily, "return_pct_7d"), 6)
+            h4_return_pct_3d = round(_float(h4, "return_pct_3d"), 6)
+            h1_return_pct_24h = round(_float(h1, "return_pct_24h"), 6)
+            notes.append(
+                {
+                    "symbol": symbol,
+                    "setup_type": setup_type,
+                    "reason": "absolute_strength_floor",
+                    "daily_return_pct_7d": daily_return_pct_7d,
+                    "h4_return_pct_3d": h4_return_pct_3d,
+                    "h1_return_pct_24h": h1_return_pct_24h,
+                    "message": (
+                        f"{symbol} {setup_type} suppressed: absolute strength floor failed "
+                        f"(7d {daily_return_pct_7d:.3f}, 3d {h4_return_pct_3d:.3f}, 24h {h1_return_pct_24h:.3f})."
+                    ),
+                }
+            )
+            continue
+        if _rotation_reject_price_extension_overheat(payload):
+            h4 = _timeframe_row(payload, "4h")
+            h1 = _timeframe_row(payload, "1h")
+            h4_extension_pct = round(_rotation_extension_pct(h4), 6)
+            h1_extension_pct = round(_rotation_extension_pct(h1), 6)
+            notes.append(
+                {
+                    "symbol": symbol,
+                    "setup_type": setup_type,
+                    "reason": "price_extension_overheat",
+                    "h4_extension_pct": h4_extension_pct,
+                    "h1_extension_pct": h1_extension_pct,
+                    "message": (
+                        f"{symbol} {setup_type} suppressed: overheat remained elevated "
+                        f"(4h extension {h4_extension_pct:.3f}, 1h extension {h1_extension_pct:.3f})."
+                    ),
+                }
+            )
+
+    return sorted(notes, key=lambda row: (str(row.get("symbol", "")), str(row.get("setup_type", ""))))
 
 
 def _short_review_notes(
@@ -283,7 +438,7 @@ def _short_review_notes(
     short_candidates: list[Any],
     derivatives: Mapping[str, Any] | list[dict[str, Any]] | None,
 ) -> list[dict[str, Any]]:
-    candidate_symbols = {_short_candidate_symbol(candidate) for candidate in short_candidates}
+    candidate_symbols = {_candidate_symbol(candidate) for candidate in short_candidates}
     market_symbols = market.get("symbols", {})
     if not isinstance(market_symbols, Mapping):
         return []
@@ -773,7 +928,22 @@ def main() -> None:
     )
     state.latest_lifecycle = lifecycle_updates
     state.lifecycle_summary = lifecycle_summary
+    trend_candidate_rows = [row for row in candidate_rows if str(row.get("engine", "")).lower() == "trend"]
+    trend_review_notes = _trend_review_notes(
+        market=market,
+        trend_candidates=trend_candidates,
+    )
+    trend_summary = build_trend_report(
+        trend_candidates=trend_candidate_rows,
+        allocations=state.latest_allocations,
+        executions=execution_rows,
+    )
     state.rotation_candidates = [row for row in candidate_rows if str(row.get("engine", "")).lower() == "rotation"]
+    rotation_review_notes = _rotation_review_notes(
+        market=market,
+        rotation_universe=list(state.latest_universes.get("rotation_universe", [])),
+        rotation_candidates=rotation_candidates,
+    )
     state.rotation_summary = build_rotation_report(
         rotation_candidates=state.rotation_candidates,
         allocations=state.latest_allocations,
@@ -803,7 +973,10 @@ def main() -> None:
         candidates=state.latest_candidates,
         allocations=state.latest_allocations,
         executions=execution_rows,
-        rotation_report=state.rotation_summary,
+        trend_report={**trend_summary, "review_notes": trend_review_notes} if trend_review_notes else trend_summary,
+        rotation_report={**state.rotation_summary, "review_notes": rotation_review_notes}
+        if rotation_review_notes
+        else state.rotation_summary,
         short_report={**state.short_summary, "review_notes": short_review_notes} if short_review_notes else state.short_summary,
     )
     print(
