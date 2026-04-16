@@ -1,3 +1,22 @@
 __pycache__/
 .pytest_cache/
 .worktrees/
+
+# Local workspace memory / learning scratch
+memory/.dreams/
+memory/20*.md
+.learnings/ERRORS.md
+.learnings/FEATURE_REQUESTS.md
+
+# Local temporary scripts and investigation artifacts
+.tmp/
+tmp/
+.tmp_*.py
+.tmp_binance_inspect.py
+tmp*.py
+
+# Generated runtime / research outputs
+trading_system/data/runtime/
+trading_system/data/archive/
+trading_system/data/imported-datasets/
+trading_system/data/backtest-results/
