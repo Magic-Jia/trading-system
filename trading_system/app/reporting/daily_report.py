@@ -243,13 +243,12 @@ def build_trend_report(
     *,
     trend_candidates: Sequence[Mapping[str, Any]],
     allocations: Sequence[Mapping[str, Any]],
-    executions: Sequence[Mapping[str, Any]],
+    major_universe: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
     ranked = sorted(
         [dict(row) for row in trend_candidates if str(row.get("symbol", ""))],
         key=lambda row: (-_float(row.get("score")), str(row.get("symbol", ""))),
     )
-    trend_symbols = {str(row.get("symbol", "")) for row in ranked if row.get("symbol")}
     accepted_symbols = sorted(
         {
             str(row.get("symbol", ""))
@@ -257,18 +256,11 @@ def build_trend_report(
             if str(row.get("engine", "")).lower() == "trend" and row.get("status") in {"ACCEPTED", "DOWNSIZED"}
         }
     )
-    executed_symbols = sorted(
-        {
-            str(row.get("symbol", ""))
-            for row in executions
-            if str(row.get("symbol", "")) in trend_symbols and row.get("status") == "FILLED"
-        }
-    )
     leaders = [_trend_leader_row(row) for row in ranked[:3]]
     return {
+        "universe_count": len(major_universe),
         "candidate_count": len(ranked),
         "accepted_symbols": accepted_symbols,
-        "executed_symbols": executed_symbols,
         "leaders": leaders,
     }
 
