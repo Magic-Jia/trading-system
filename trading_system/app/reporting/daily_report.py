@@ -51,6 +51,27 @@ def _short_leader_row(candidate: Mapping[str, Any]) -> dict[str, Any]:
     return row
 
 
+def _trend_leader_row(candidate: Mapping[str, Any]) -> dict[str, Any]:
+    timeframe_meta = dict(candidate.get("timeframe_meta") or {})
+    liquidity_meta = dict(candidate.get("liquidity_meta") or {})
+    row = {
+        "symbol": str(candidate.get("symbol", "")),
+        "setup_type": str(candidate.get("setup_type", "")),
+        "score": round(_float(candidate.get("score")), 6),
+        "daily_bias": str(timeframe_meta.get("daily_bias", "")),
+        "h4_structure": str(timeframe_meta.get("h4_structure", "")),
+        "h1_trigger": str(timeframe_meta.get("h1_trigger", "")),
+        "derivatives": dict(timeframe_meta.get("derivatives") or {}),
+        "volume_usdt_24h": _float(liquidity_meta.get("volume_usdt_24h")),
+        "liquidity_tier": str(liquidity_meta.get("liquidity_tier", "")),
+    }
+    for key in ("stop_family", "stop_reference", "invalidation_source", "invalidation_reason", "stop_policy_source"):
+        value = candidate.get(key)
+        if value:
+            row[key] = str(value)
+    return row
+
+
 def _lifecycle_leader_row(symbol: str, payload: Mapping[str, Any]) -> dict[str, Any]:
     row = {
         "symbol": symbol,
@@ -215,6 +236,40 @@ def build_lifecycle_report(
         "review_actions": _cap_review_actions(review_actions),
         "audit_target_states": audit_target_states,
         "leaders": leaders[:3],
+    }
+
+
+def build_trend_report(
+    *,
+    trend_candidates: Sequence[Mapping[str, Any]],
+    allocations: Sequence[Mapping[str, Any]],
+    executions: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    ranked = sorted(
+        [dict(row) for row in trend_candidates if str(row.get("symbol", ""))],
+        key=lambda row: (-_float(row.get("score")), str(row.get("symbol", ""))),
+    )
+    trend_symbols = {str(row.get("symbol", "")) for row in ranked if row.get("symbol")}
+    accepted_symbols = sorted(
+        {
+            str(row.get("symbol", ""))
+            for row in allocations
+            if str(row.get("engine", "")).lower() == "trend" and row.get("status") in {"ACCEPTED", "DOWNSIZED"}
+        }
+    )
+    executed_symbols = sorted(
+        {
+            str(row.get("symbol", ""))
+            for row in executions
+            if str(row.get("symbol", "")) in trend_symbols and row.get("status") == "FILLED"
+        }
+    )
+    leaders = [_trend_leader_row(row) for row in ranked[:3]]
+    return {
+        "candidate_count": len(ranked),
+        "accepted_symbols": accepted_symbols,
+        "executed_symbols": executed_symbols,
+        "leaders": leaders,
     }
 
 
