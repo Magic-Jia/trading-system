@@ -392,7 +392,9 @@ def _build_import_series(files: list[ImportedRawMarketFile]) -> ImportedRawMarke
     )
     _validate_non_overlapping_series_files(ordered_files)
     first = ordered_files[0]
-    manifest = first.manifest
+    normalized_exchange, normalized_market, canonical_dataset, normalized_symbol, normalized_timeframe, _ = (
+        _validated_import_scope(first.manifest, manifest_path=first.manifest_path)
+    )
     flattened_records = tuple(
         record
         for imported_file in ordered_files
@@ -400,11 +402,11 @@ def _build_import_series(files: list[ImportedRawMarketFile]) -> ImportedRawMarke
     )
     return ImportedRawMarketSeries(
         series_key=first.series_key,
-        exchange=str(manifest["exchange"]),
-        market=str(manifest["market"]),
-        dataset=str(manifest["dataset"]),
-        symbol=str(manifest["symbol"]),
-        timeframe=manifest.get("timeframe"),
+        exchange=normalized_exchange,
+        market=normalized_market,
+        dataset=canonical_dataset,
+        symbol=normalized_symbol,
+        timeframe=normalized_timeframe,
         symbol_metadata=_series_symbol_metadata(ordered_files),
         files=ordered_files,
         records=flattened_records,
