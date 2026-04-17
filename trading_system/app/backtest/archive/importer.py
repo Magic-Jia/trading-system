@@ -100,14 +100,24 @@ def _to_float(value: Any, *, default: float = 0.0) -> float:
 
 def _hourly_ohlcv_bar(record: ImportedRawMarketRecord) -> _OhlcvBar:
     payload = record.payload
-    if not isinstance(payload, Mapping):
+    if isinstance(payload, Mapping):
+        close = _to_float(payload.get("close"))
+        open_value = _to_float(payload.get("open"), default=close)
+        high = _to_float(payload.get("high"), default=max(open_value, close))
+        low = _to_float(payload.get("low"), default=min(open_value, close))
+        base_volume = _to_float(payload.get("volume"))
+        quote_volume = _to_float(payload.get("quote_asset_volume"), default=close * base_volume)
+    elif isinstance(payload, (list, tuple)):
+        if len(payload) < 6:
+            raise ValueError(f"ohlcv array payload must match Binance kline layout: {record.observed_at}")
+        close = _to_float(payload[4])
+        open_value = _to_float(payload[1], default=close)
+        high = _to_float(payload[2], default=max(open_value, close))
+        low = _to_float(payload[3], default=min(open_value, close))
+        base_volume = _to_float(payload[5])
+        quote_volume = _to_float(payload[7], default=close * base_volume) if len(payload) > 7 else close * base_volume
+    else:
         raise ValueError(f"ohlcv record payload must be a JSON object: {record.observed_at}")
-    close = _to_float(payload.get("close"))
-    open_value = _to_float(payload.get("open"), default=close)
-    high = _to_float(payload.get("high"), default=max(open_value, close))
-    low = _to_float(payload.get("low"), default=min(open_value, close))
-    base_volume = _to_float(payload.get("volume"))
-    quote_volume = _to_float(payload.get("quote_asset_volume"), default=close * base_volume)
     if close <= 0.0:
         raise ValueError(f"ohlcv close must be positive: {record.observed_at}")
     return _OhlcvBar(
