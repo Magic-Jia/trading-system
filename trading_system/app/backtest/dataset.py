@@ -5,7 +5,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Iterable
 
-from .types import DatasetSnapshotRow, SampleWindow
+from .types import DatasetSnapshotRow, InstrumentSnapshotRow, SampleWindow
 
 _REQUIRED_BUNDLE_FILES = ("metadata.json", "market_context.json", "derivatives_snapshot.json")
 _BASELINE_ACCOUNT_FILENAME = "baseline_account_snapshot.json"
@@ -17,6 +17,28 @@ def _parse_timestamp(value: str) -> datetime:
 
 def _load_json(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _instrument_rows(payload: dict) -> tuple[InstrumentSnapshotRow, ...]:
+    raw_rows = payload.get("instrument_rows")
+    if raw_rows is None:
+        return ()
+    if not isinstance(raw_rows, list):
+        raise ValueError("dataset bundle has invalid instrument rows payload")
+    return tuple(
+        InstrumentSnapshotRow(
+            symbol=str(row["symbol"]),
+            market_type=str(row["market_type"]),  # type: ignore[arg-type]
+            base_asset=str(row["base_asset"]),
+            listing_timestamp=_parse_timestamp(str(row["listing_timestamp"])),
+            quote_volume_usdt_24h=float(row["quote_volume_usdt_24h"]),
+            liquidity_tier=str(row["liquidity_tier"]),
+            quantity_step=float(row["quantity_step"]),
+            price_tick=float(row["price_tick"]),
+            has_complete_funding=bool(row["has_complete_funding"]),
+        )
+        for row in raw_rows
+    )
 
 
 def _bundle_dirs(dataset_root: Path) -> list[Path]:
@@ -62,6 +84,7 @@ def _row_from_bundle(bundle_path: Path, *, fallback_account: dict | None) -> Dat
         run_id=str(metadata["run_id"]),
         market=market,
         derivatives=[dict(row) for row in derivatives],
+        instrument_rows=_instrument_rows(market),
         account=dict(account),
         forward_returns={str(key): float(value) for key, value in forward_returns.items()},
         forward_drawdowns={str(key): float(value) for key, value in forward_drawdowns.items()},

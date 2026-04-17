@@ -159,6 +159,31 @@ def test_build_phase1_dataset_bundle_materials_returns_dataset_ready_bundle_and_
     assert rows[0].derivatives[0]["open_interest_usdt"] == pytest.approx(latest_open_interest * latest_close)
 
 
+def test_imported_dataset_bundle_exposes_tradeability_metadata(tmp_path: Path) -> None:
+    archive_root = tmp_path / "archive"
+    dataset_root = tmp_path / "dataset"
+    _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT")
+
+    imported = load_phase1_raw_market_imports(archive_root)
+
+    materials = build_phase1_dataset_bundle_materials(imported)
+    latest = materials[-1]
+    write_phase1_dataset_bundle(latest, dataset_root)
+
+    rows = load_historical_dataset(dataset_root)
+
+    symbol_row = rows[0].instrument_rows[0]
+    assert symbol_row.symbol == "BTCUSDT"
+    assert symbol_row.market_type == "futures"
+    assert symbol_row.base_asset == "BTC"
+    assert symbol_row.listing_timestamp == datetime(2024, 1, 1, tzinfo=UTC)
+    assert symbol_row.quote_volume_usdt_24h == pytest.approx(3_744_673_000.0)
+    assert symbol_row.liquidity_tier == "top"
+    assert symbol_row.quantity_step == pytest.approx(0.001)
+    assert symbol_row.price_tick == pytest.approx(0.1)
+    assert symbol_row.has_complete_funding is True
+
+
 def test_build_phase1_dataset_bundle_materials_requires_complete_phase1_symbol_set(tmp_path: Path) -> None:
     archive_root = tmp_path / "archive"
     start = datetime(2024, 1, 1, tzinfo=UTC)

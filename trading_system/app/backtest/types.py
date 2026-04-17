@@ -76,11 +76,25 @@ class BacktestConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class InstrumentSnapshotRow:
+    symbol: str
+    market_type: MarketType
+    base_asset: str
+    listing_timestamp: datetime
+    quote_volume_usdt_24h: float
+    liquidity_tier: str
+    quantity_step: float
+    price_tick: float
+    has_complete_funding: bool
+
+
+@dataclass(frozen=True, slots=True)
 class DatasetSnapshotRow:
     timestamp: datetime
     run_id: str
     market: dict[str, Any]
     derivatives: list[dict[str, Any]]
+    instrument_rows: tuple[InstrumentSnapshotRow, ...] = ()
     account: dict[str, Any] | None = None
     forward_returns: dict[str, float] = field(default_factory=dict)
     forward_drawdowns: dict[str, float] = field(default_factory=dict)
