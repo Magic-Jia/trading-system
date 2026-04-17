@@ -239,6 +239,20 @@ def _listing_timestamp(series: ImportedRawMarketSeries) -> datetime:
     return min(record.observed_at for record in series.records)
 
 
+def _symbol_metadata_timestamp(series: ImportedRawMarketSeries) -> datetime:
+    symbol_metadata = series.symbol_metadata
+    if symbol_metadata is None:
+        return _listing_timestamp(series)
+    return _utc_datetime(str(symbol_metadata["listing_timestamp"]))
+
+
+def _symbol_metadata_float(series: ImportedRawMarketSeries, *, field: str, default: float) -> float:
+    symbol_metadata = series.symbol_metadata
+    if symbol_metadata is None:
+        return default
+    return _to_float(symbol_metadata.get(field), default=default)
+
+
 def _has_complete_funding_series(
     funding_records: Sequence[ImportedRawMarketRecord],
     *,
@@ -469,11 +483,19 @@ def build_phase1_dataset_bundle_materials(
                     "symbol": item.symbol,
                     "market_type": "futures",
                     "base_asset": _base_asset(item.symbol),
-                    "listing_timestamp": _utc_timestamp(_listing_timestamp(item.ohlcv)),
+                    "listing_timestamp": _utc_timestamp(_symbol_metadata_timestamp(item.ohlcv)),
                     "quote_volume_usdt_24h": volume_usdt_24h,
                     "liquidity_tier": liquidity_tier,
-                    "quantity_step": _PHASE1_DEFAULT_QUANTITY_STEP,
-                    "price_tick": _PHASE1_DEFAULT_PRICE_TICK,
+                    "quantity_step": _symbol_metadata_float(
+                        item.ohlcv,
+                        field="quantity_step",
+                        default=_PHASE1_DEFAULT_QUANTITY_STEP,
+                    ),
+                    "price_tick": _symbol_metadata_float(
+                        item.ohlcv,
+                        field="price_tick",
+                        default=_PHASE1_DEFAULT_PRICE_TICK,
+                    ),
                     "has_complete_funding": _has_complete_funding_series(
                         item.funding.records,
                         start=hourly_bars[0].observed_at,

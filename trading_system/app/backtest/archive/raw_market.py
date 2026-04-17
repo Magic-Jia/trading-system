@@ -5,7 +5,7 @@ import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 RAW_MARKET_ROOT_DIRNAME = "raw-market"
 RAW_MARKET_MANIFEST_SCHEMA_VERSION = "raw_market_manifest.v1"
@@ -39,6 +39,7 @@ class ImportedRawMarketFile:
     manifest_path: Path
     data_path: Path
     manifest: dict[str, Any]
+    symbol_metadata: dict[str, Any] | None
     coverage_start: datetime
     coverage_end: datetime
     fetched_at: datetime
@@ -53,6 +54,7 @@ class ImportedRawMarketSeries:
     dataset: str
     symbol: str
     timeframe: str | None
+    symbol_metadata: dict[str, Any] | None
     files: tuple[ImportedRawMarketFile, ...]
     records: tuple[ImportedRawMarketRecord, ...]
 
@@ -97,6 +99,37 @@ def _payload_bytes(payload: Any) -> bytes:
     if isinstance(payload, str):
         return payload.encode("utf-8")
     return json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
+
+
+def _normalized_symbol_metadata(payload: Any, *, context: Path | str) -> dict[str, Any] | None:
+    if payload is None:
+        return None
+    if not isinstance(payload, dict):
+        raise ValueError(f"raw-market symbol_metadata must be an object: {context}")
+
+    listing_timestamp = payload.get("listing_timestamp")
+    if not isinstance(listing_timestamp, str) or not listing_timestamp.strip():
+        raise ValueError(f"raw-market symbol_metadata listing_timestamp must be a non-empty string: {context}")
+
+    try:
+        quantity_step = float(payload.get("quantity_step"))
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"raw-market symbol_metadata quantity_step must be numeric: {context}") from exc
+    if quantity_step <= 0.0:
+        raise ValueError(f"raw-market symbol_metadata quantity_step must be positive: {context}")
+
+    try:
+        price_tick = float(payload.get("price_tick"))
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"raw-market symbol_metadata price_tick must be numeric: {context}") from exc
+    if price_tick <= 0.0:
+        raise ValueError(f"raw-market symbol_metadata price_tick must be positive: {context}")
+
+    return {
+        "listing_timestamp": _utc_timestamp(listing_timestamp),
+        "quantity_step": quantity_step,
+        "price_tick": price_tick,
+    }
 
 
 def _canonical_dataset(value: str) -> str:
@@ -315,11 +348,25 @@ def _load_import_file(manifest_path: Path) -> ImportedRawMarketFile:
         manifest_path=manifest_path,
         data_path=data_path,
         manifest=manifest,
+        symbol_metadata=_normalized_symbol_metadata(manifest.get("symbol_metadata"), context=manifest_path),
         coverage_start=_utc_datetime(_required_manifest_value(manifest, "coverage_start", manifest_path=manifest_path)),
         coverage_end=_utc_datetime(_required_manifest_value(manifest, "coverage_end", manifest_path=manifest_path)),
         fetched_at=_utc_datetime(_required_manifest_value(manifest, "fetched_at", manifest_path=manifest_path)),
         records=records,
     )
+
+
+def _series_symbol_metadata(files: tuple[ImportedRawMarketFile, ...]) -> dict[str, Any] | None:
+    resolved: dict[str, Any] | None = None
+    for imported_file in files:
+        if imported_file.symbol_metadata is None:
+            continue
+        if resolved is None:
+            resolved = imported_file.symbol_metadata
+            continue
+        if imported_file.symbol_metadata != resolved:
+            raise ValueError(f"raw-market symbol metadata mismatch across series manifests: {imported_file.manifest_path}")
+    return resolved
 
 
 def _build_import_series(files: list[ImportedRawMarketFile]) -> ImportedRawMarketSeries:
@@ -343,6 +390,7 @@ def _build_import_series(files: list[ImportedRawMarketFile]) -> ImportedRawMarke
         dataset=str(manifest["dataset"]),
         symbol=str(manifest["symbol"]),
         timeframe=manifest.get("timeframe"),
+        symbol_metadata=_series_symbol_metadata(ordered_files),
         files=ordered_files,
         records=flattened_records,
     )
@@ -389,6 +437,7 @@ def archive_raw_market_payload(
     fetched_at: str,
     endpoint: str,
     payload: Any,
+    symbol_metadata: Mapping[str, Any] | None = None,
     timeframe: str | None = None,
 ) -> ArchivedRawMarketPayload:
     normalized_exchange, normalized_market, canonical_dataset, normalized_symbol, normalized_timeframe = _validated_scope(
@@ -462,6 +511,9 @@ def archive_raw_market_payload(
             "size_bytes": len(raw_bytes),
         },
     }
+    normalized_symbol_metadata = _normalized_symbol_metadata(symbol_metadata, context=storage_dir)
+    if normalized_symbol_metadata is not None:
+        manifest["symbol_metadata"] = normalized_symbol_metadata
     if normalized_timeframe:
         manifest["timeframe"] = normalized_timeframe
     manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
