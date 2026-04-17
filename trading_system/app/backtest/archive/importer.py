@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from bisect import bisect_right
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -996,11 +997,20 @@ def import_phase1_archive_dataset_root(
     if not imported_series:
         raise FileNotFoundError(f"no phase1 raw-market imports found under: {archive_path}")
 
-    symbols = tuple(sorted(item.symbol for item in _phase1_symbol_series(imported_series)))
     materials = build_phase1_dataset_bundle_materials(imported_series)
     if not materials:
         raise ValueError("phase1 raw-market imports did not yield any eligible dataset bundles")
+    symbols = tuple(
+        sorted(
+            {
+                str(symbol)
+                for material in materials
+                for symbol in dict(material.market_context.get("symbols") or {}).keys()
+            }
+        )
+    )
 
+    dataset_preexisted = dataset_path.exists()
     if dataset_path.exists():
         if not dataset_path.is_dir():
             raise NotADirectoryError(f"dataset root is not a directory: {dataset_path}")
@@ -1009,19 +1019,26 @@ def import_phase1_archive_dataset_root(
     else:
         dataset_path.mkdir(parents=True, exist_ok=True)
 
-    bundle_dirs = tuple(write_phase1_dataset_bundle(material, dataset_path) for material in materials)
-    write_phase1_dataset_root_manifest(
-        archive_path,
-        dataset_path,
-        symbols=symbols,
-        materials=materials,
-        bundle_dirs=bundle_dirs,
-    )
-    rows = validate_phase1_imported_dataset_root(
-        dataset_path,
-        expected_bundle_dirs=bundle_dirs,
-        expected_timestamps=tuple(material.timestamp for material in materials),
-    )
+    try:
+        bundle_dirs = tuple(write_phase1_dataset_bundle(material, dataset_path) for material in materials)
+        write_phase1_dataset_root_manifest(
+            archive_path,
+            dataset_path,
+            symbols=symbols,
+            materials=materials,
+            bundle_dirs=bundle_dirs,
+        )
+        rows = validate_phase1_imported_dataset_root(
+            dataset_path,
+            expected_bundle_dirs=bundle_dirs,
+            expected_timestamps=tuple(material.timestamp for material in materials),
+        )
+    except Exception:
+        if dataset_path.exists():
+            shutil.rmtree(dataset_path)
+            if dataset_preexisted:
+                dataset_path.mkdir(parents=True, exist_ok=True)
+        raise
 
     return ImportedPhase1DatasetRoot(
         archive_root=archive_path,
