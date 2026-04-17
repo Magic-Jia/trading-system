@@ -11,7 +11,7 @@ from .data_sources import load_derivatives_snapshot, load_market_context
 from .execution.executor import OrderExecutor
 from .execution.idempotency import already_processed, intent_id, mark_processed, replay_processed_execution
 from .market_regime import classify_regime, summarize_derivatives_risk
-from .market_regime.derivatives import symbol_derivatives_features
+from .market_regime.derivatives import is_late_stage_long_blowoff, symbol_derivatives_features
 from .portfolio.allocator import allocate_candidates
 from .portfolio.lifecycle import advance_lifecycle_positions, build_management_action_intents, evaluate_portfolio
 from .portfolio.positions import apply_executed_intent, sync_positions_from_account
@@ -302,6 +302,7 @@ def _trend_review_notes(
     market: Mapping[str, Any],
     major_universe: list[Mapping[str, Any]],
     trend_candidates: list[Any],
+    derivatives: Mapping[str, Any] | list[dict[str, Any]] | None,
 ) -> list[dict[str, Any]]:
     candidate_symbols = {_candidate_symbol(candidate) for candidate in trend_candidates}
     market_symbols = market.get("symbols", {})
@@ -343,9 +344,53 @@ def _trend_review_notes(
                 }
             )
             continue
+
+        derivatives_features = symbol_derivatives_features(derivatives, symbol)
+        h4_extension_pct = round(_trend_extension_pct(h4), 6)
+        h1_extension_pct = round(_trend_extension_pct(h1), 6)
+        if is_late_stage_long_blowoff(
+            derivatives_features,
+            h4_extension_pct=h4_extension_pct,
+            h1_extension_pct=h1_extension_pct,
+        ):
+            funding_rate = round(float(derivatives_features.get("funding_rate", 0.0) or 0.0), 6)
+            basis_bps = round(float(derivatives_features.get("basis_bps", 0.0) or 0.0), 6)
+            oi_change_24h_pct = round(float(derivatives_features.get("open_interest_change_24h_pct", 0.0) or 0.0), 6)
+            mark_price_change_24h_pct = round(float(derivatives_features.get("mark_price_change_24h_pct", 0.0) or 0.0), 6)
+            funding_basis_blowoff = funding_rate >= 0.0002 and basis_bps >= 25.0
+            if funding_basis_blowoff:
+                notes.append(
+                    {
+                        "symbol": symbol,
+                        "setup_type": setup_type,
+                        "reason": "funding_basis_blowoff",
+                        "funding_rate": funding_rate,
+                        "basis_bps": basis_bps,
+                        "message": (
+                            f"{symbol} {setup_type} suppressed: funding/basis blowoff remained elevated "
+                            f"(funding {funding_rate:.5f}, basis {basis_bps:.1f} bps)."
+                        ),
+                    }
+                )
+            else:
+                notes.append(
+                    {
+                        "symbol": symbol,
+                        "setup_type": setup_type,
+                        "reason": "late_stage_long_blowoff",
+                        "h4_extension_pct": h4_extension_pct,
+                        "h1_extension_pct": h1_extension_pct,
+                        "open_interest_change_24h_pct": oi_change_24h_pct,
+                        "mark_price_change_24h_pct": mark_price_change_24h_pct,
+                        "message": (
+                            f"{symbol} {setup_type} suppressed: late-stage long blowoff remained elevated "
+                            f"(4h extension {h4_extension_pct:.3f}, 1h extension {h1_extension_pct:.3f}, "
+                            f"OI 24h {oi_change_24h_pct:.3f}, price 24h {mark_price_change_24h_pct:.3f})."
+                        ),
+                    }
+                )
+            continue
         if _trend_reject_price_extension_overheat(payload):
-            h4_extension_pct = round(_trend_extension_pct(h4), 6)
-            h1_extension_pct = round(_trend_extension_pct(h1), 6)
             notes.append(
                 {
                     "symbol": symbol,
@@ -368,6 +413,7 @@ def _rotation_review_notes(
     market: Mapping[str, Any],
     rotation_universe: list[Mapping[str, Any]],
     rotation_candidates: list[Any],
+    derivatives: Mapping[str, Any] | list[dict[str, Any]] | None,
 ) -> list[dict[str, Any]]:
     candidate_symbols = {_candidate_symbol(candidate) for candidate in rotation_candidates}
     market_symbols = market.get("symbols", {})
@@ -408,11 +454,55 @@ def _rotation_review_notes(
                 }
             )
             continue
+
+        h4 = _timeframe_row(payload, "4h")
+        h1 = _timeframe_row(payload, "1h")
+        h4_extension_pct = round(_rotation_extension_pct(h4), 6)
+        h1_extension_pct = round(_rotation_extension_pct(h1), 6)
+        derivatives_features = symbol_derivatives_features(derivatives, symbol)
+        if is_late_stage_long_blowoff(
+            derivatives_features,
+            h4_extension_pct=h4_extension_pct,
+            h1_extension_pct=h1_extension_pct,
+        ):
+            funding_rate = round(float(derivatives_features.get("funding_rate", 0.0) or 0.0), 6)
+            basis_bps = round(float(derivatives_features.get("basis_bps", 0.0) or 0.0), 6)
+            oi_change_24h_pct = round(float(derivatives_features.get("open_interest_change_24h_pct", 0.0) or 0.0), 6)
+            mark_price_change_24h_pct = round(float(derivatives_features.get("mark_price_change_24h_pct", 0.0) or 0.0), 6)
+            funding_basis_blowoff = funding_rate >= 0.0002 and basis_bps >= 25.0
+            if funding_basis_blowoff:
+                notes.append(
+                    {
+                        "symbol": symbol,
+                        "setup_type": setup_type,
+                        "reason": "funding_basis_blowoff",
+                        "funding_rate": funding_rate,
+                        "basis_bps": basis_bps,
+                        "message": (
+                            f"{symbol} {setup_type} suppressed: funding/basis blowoff remained elevated "
+                            f"(funding {funding_rate:.5f}, basis {basis_bps:.1f} bps)."
+                        ),
+                    }
+                )
+            else:
+                notes.append(
+                    {
+                        "symbol": symbol,
+                        "setup_type": setup_type,
+                        "reason": "late_stage_long_blowoff",
+                        "h4_extension_pct": h4_extension_pct,
+                        "h1_extension_pct": h1_extension_pct,
+                        "open_interest_change_24h_pct": oi_change_24h_pct,
+                        "mark_price_change_24h_pct": mark_price_change_24h_pct,
+                        "message": (
+                            f"{symbol} {setup_type} suppressed: late-stage long blowoff remained elevated "
+                            f"(4h extension {h4_extension_pct:.3f}, 1h extension {h1_extension_pct:.3f}, "
+                            f"OI 24h {oi_change_24h_pct:.3f}, price 24h {mark_price_change_24h_pct:.3f})."
+                        ),
+                    }
+                )
+            continue
         if _rotation_reject_price_extension_overheat(payload):
-            h4 = _timeframe_row(payload, "4h")
-            h1 = _timeframe_row(payload, "1h")
-            h4_extension_pct = round(_rotation_extension_pct(h4), 6)
-            h1_extension_pct = round(_rotation_extension_pct(h1), 6)
             notes.append(
                 {
                     "symbol": symbol,
@@ -932,6 +1022,7 @@ def main() -> None:
         market=market,
         major_universe=list(state.latest_universes.get("major_universe", [])),
         trend_candidates=state.trend_candidates,
+        derivatives=derivatives,
     )
     state.trend_summary = build_trend_report(
         trend_candidates=state.trend_candidates,
@@ -945,6 +1036,7 @@ def main() -> None:
         market=market,
         rotation_universe=list(state.latest_universes.get("rotation_universe", [])),
         rotation_candidates=rotation_candidates,
+        derivatives=derivatives,
     )
     state.rotation_summary = build_rotation_report(
         rotation_candidates=state.rotation_candidates,
