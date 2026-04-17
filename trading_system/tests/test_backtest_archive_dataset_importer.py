@@ -28,6 +28,9 @@ def _archive_phase1_symbol_history(
     start: datetime | None = None,
     total_hours: int = 60 * 24,
     ohlcv_row_format: str = "dict",
+    open_interest_field: str = "sumOpenInterest",
+    open_interest_base: float = 10_000.0,
+    open_interest_step: float = 10.0,
     symbol_metadata: dict[str, object] | None = None,
     ohlcv_symbol_metadata: dict[str, object] | None = None,
     funding_symbol_metadata: dict[str, object] | None = None,
@@ -84,7 +87,7 @@ def _archive_phase1_symbol_history(
         open_interest_rows.append(
             {
                 "timestamp": _timestamp_ms(observed_at),
-                "sumOpenInterest": f"{10_000.0 + (index * 10.0):.6f}",
+                open_interest_field: f"{open_interest_base + (index * open_interest_step):.6f}",
             }
         )
         if index % 8 == 0:
@@ -199,6 +202,46 @@ def test_build_phase1_dataset_bundle_materials_returns_dataset_ready_bundle_and_
     assert rows[0].timestamp == latest.timestamp
     assert rows[0].market["symbols"]["BTCUSDT"]["1h"]["close"] == pytest.approx(64_390.0)
     assert rows[0].derivatives[0]["open_interest_usdt"] == pytest.approx(latest_open_interest * latest_close)
+
+
+def test_build_phase1_dataset_bundle_materials_uses_quote_denominated_open_interest_rows_directly(
+    tmp_path: Path,
+) -> None:
+    archive_root = tmp_path / "archive"
+    total_hours = 60 * 24
+    open_interest_base = 114_000_000.0
+    open_interest_step = 250_000.0
+    _archive_phase1_symbol_history(
+        archive_root,
+        symbol="BTCUSDT",
+        total_hours=total_hours,
+        open_interest_field="sumOpenInterestValue",
+        open_interest_base=open_interest_base,
+        open_interest_step=open_interest_step,
+    )
+
+    imported = load_phase1_raw_market_imports(archive_root)
+
+    materials = build_phase1_dataset_bundle_materials(imported)
+
+    latest = materials[-1]
+    latest_open_interest_value = open_interest_base + ((total_hours - 1) * open_interest_step)
+    open_interest_value_24h_ago = open_interest_base + ((total_hours - 25) * open_interest_step)
+
+    assert latest.derivatives_snapshot["rows"] == [
+        {
+            "symbol": "BTCUSDT",
+            "funding_rate": pytest.approx(0.000279),
+            "open_interest_usdt": pytest.approx(latest_open_interest_value),
+            "open_interest_change_24h_pct": pytest.approx(
+                (latest_open_interest_value / open_interest_value_24h_ago) - 1.0,
+                rel=1e-6,
+            ),
+            "mark_price_change_24h_pct": pytest.approx((64_390.0 / 64_150.0) - 1.0, rel=1e-6),
+            "taker_buy_sell_ratio": 1.0,
+            "basis_bps": 0.0,
+        }
+    ]
 
 
 def test_build_phase1_dataset_bundle_materials_accepts_binance_array_ohlcv_rows(tmp_path: Path) -> None:
