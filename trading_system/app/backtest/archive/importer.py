@@ -25,6 +25,9 @@ PHASE1_IMPORTER_BUNDLE_SCHEMA = "phase1_import_bundle.v1"
 PHASE1_IMPORTER_ROOT_SCHEMA = "phase1_imported_dataset_root.v1"
 PHASE1_IMPORTER_OHLCV_TIMEFRAME = "1h"
 PHASE1_IMPORTER_ROOT_MANIFEST = "import_manifest.json"
+_KNOWN_QUOTES = ("USDT", "USDC", "BUSD", "FDUSD", "USD")
+_PHASE1_DEFAULT_QUANTITY_STEP = 0.001
+_PHASE1_DEFAULT_PRICE_TICK = 0.1
 
 
 @dataclass(frozen=True, slots=True)
@@ -222,6 +225,42 @@ def _liquidity_tier(volume_usdt_24h: float) -> str:
     return "low"
 
 
+def _base_asset(symbol: str) -> str:
+    upper = str(symbol).upper().strip()
+    for quote in _KNOWN_QUOTES:
+        if upper.endswith(quote) and len(upper) > len(quote):
+            return upper[: -len(quote)]
+    return upper
+
+
+def _listing_timestamp(series: ImportedRawMarketSeries) -> datetime:
+    if not series.records:
+        raise ValueError(f"ohlcv series must include at least one record: {series.series_key}")
+    return min(record.observed_at for record in series.records)
+
+
+def _has_complete_funding_series(
+    funding_records: Sequence[ImportedRawMarketRecord],
+    *,
+    start: datetime,
+    end: datetime,
+) -> bool:
+    if not funding_records:
+        return False
+    max_gap = timedelta(hours=8, minutes=1)
+    timestamps = sorted(record.observed_at for record in funding_records if start <= record.observed_at <= end)
+    if not timestamps:
+        return False
+    if timestamps[0] - start > max_gap:
+        return False
+    previous = timestamps[0]
+    for current in timestamps[1:]:
+        if current - previous > max_gap:
+            return False
+        previous = current
+    return end - timestamps[-1] <= max_gap
+
+
 def _series_index(imported_series: Iterable[ImportedRawMarketSeries]) -> dict[tuple[str, str, str | None], ImportedRawMarketSeries]:
     indexed: dict[tuple[str, str, str | None], ImportedRawMarketSeries] = {}
     for series in imported_series:
@@ -371,6 +410,7 @@ def build_phase1_dataset_bundle_materials(
     for timestamp in common_timestamps:
         market_symbols: dict[str, Any] = {}
         derivatives_rows: list[dict[str, Any]] = []
+        instrument_rows: list[dict[str, Any]] = []
         eligible = True
 
         for item in symbol_series:
@@ -405,9 +445,10 @@ def build_phase1_dataset_bundle_materials(
                 break
 
             volume_usdt_24h = _rolling_quote_volume(hourly_bars)
+            liquidity_tier = _liquidity_tier(volume_usdt_24h)
             market_symbols[item.symbol] = {
                 "sector": sector_for_symbol(item.symbol),
-                "liquidity_tier": _liquidity_tier(volume_usdt_24h),
+                "liquidity_tier": liquidity_tier,
                 "daily": _timeframe_payload(hourly_bars, timeframe="daily"),
                 "4h": _timeframe_payload(hourly_bars, timeframe="4h"),
                 "1h": _timeframe_payload(hourly_bars, timeframe="1h"),
@@ -421,6 +462,23 @@ def build_phase1_dataset_bundle_materials(
                     "mark_price_change_24h_pct": _return_pct(hourly_bars, periods_back=24),
                     "taker_buy_sell_ratio": 1.0,
                     "basis_bps": 0.0,
+                }
+            )
+            instrument_rows.append(
+                {
+                    "symbol": item.symbol,
+                    "market_type": "futures",
+                    "base_asset": _base_asset(item.symbol),
+                    "listing_timestamp": _utc_timestamp(_listing_timestamp(item.ohlcv)),
+                    "quote_volume_usdt_24h": volume_usdt_24h,
+                    "liquidity_tier": liquidity_tier,
+                    "quantity_step": _PHASE1_DEFAULT_QUANTITY_STEP,
+                    "price_tick": _PHASE1_DEFAULT_PRICE_TICK,
+                    "has_complete_funding": _has_complete_funding_series(
+                        item.funding.records,
+                        start=hourly_bars[0].observed_at,
+                        end=timestamp,
+                    ),
                 }
             )
 
@@ -444,6 +502,7 @@ def build_phase1_dataset_bundle_materials(
                     "as_of": timestamp_iso,
                     "schema_version": PHASE1_IMPORTER_MARKET_CONTEXT_SCHEMA,
                     "symbols": market_symbols,
+                    "instrument_rows": sorted(instrument_rows, key=lambda row: str(row["symbol"])),
                 },
                 derivatives_snapshot={
                     "as_of": timestamp_iso,

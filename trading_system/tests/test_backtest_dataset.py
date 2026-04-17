@@ -121,6 +121,61 @@ def test_load_historical_dataset_orders_rows_and_applies_baseline_account(fixtur
     assert rows[1].account["meta"]["account_type"] == "paper"
 
 
+def test_load_historical_dataset_loads_instrument_rows(tmp_path: Path) -> None:
+    dataset_root = tmp_path / "sample_dataset"
+    bundle = dataset_root / "2026-03-10T00-00-00Z"
+    bundle.mkdir(parents=True)
+    (bundle / "metadata.json").write_text(
+        json.dumps({"timestamp": "2026-03-10T00:00:00Z", "run_id": "sample-001"}),
+        encoding="utf-8",
+    )
+    (bundle / "market_context.json").write_text(
+        json.dumps(
+            {
+                "as_of": "2026-03-10T00:00:00Z",
+                "schema_version": "imported_market_context.v1",
+                "symbols": {
+                    "BTCUSDT": {
+                        "sector": "majors",
+                        "liquidity_tier": "high",
+                        "1h": {"volume_usdt_24h": 250_000_000.0},
+                    }
+                },
+                "instrument_rows": [
+                    {
+                        "symbol": "BTCUSDT",
+                        "market_type": "futures",
+                        "base_asset": "BTC",
+                        "listing_timestamp": "2020-01-01T00:00:00Z",
+                        "quote_volume_usdt_24h": 250_000_000.0,
+                        "liquidity_tier": "high",
+                        "quantity_step": "0.001",
+                        "price_tick": "0.1",
+                        "has_complete_funding": True,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (bundle / "derivatives_snapshot.json").write_text(json.dumps({"rows": []}), encoding="utf-8")
+    (bundle / "account_snapshot.json").write_text(json.dumps({"equity": 100_000.0}), encoding="utf-8")
+
+    rows = load_historical_dataset(dataset_root)
+
+    assert len(rows) == 1
+    instrument_row = rows[0].instrument_rows[0]
+    assert instrument_row.symbol == "BTCUSDT"
+    assert instrument_row.market_type == "futures"
+    assert instrument_row.base_asset == "BTC"
+    assert instrument_row.listing_timestamp == datetime(2020, 1, 1, tzinfo=UTC)
+    assert instrument_row.quote_volume_usdt_24h == pytest.approx(250_000_000.0)
+    assert instrument_row.liquidity_tier == "high"
+    assert instrument_row.quantity_step == pytest.approx(0.001)
+    assert instrument_row.price_tick == pytest.approx(0.1)
+    assert instrument_row.has_complete_funding is True
+
+
 def test_load_historical_dataset_fails_when_required_snapshot_is_missing(tmp_path: Path) -> None:
     dataset_root = tmp_path / "sample_dataset"
     bundle = dataset_root / "2026-03-10T00-00-00Z"
