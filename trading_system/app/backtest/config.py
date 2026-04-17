@@ -5,7 +5,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from .types import BacktestConfig, BacktestCosts, ForwardReturnWindow, SampleWindow
+from .types import BacktestConfig, BacktestCosts, CapitalModelConfig, ForwardReturnWindow, SampleWindow, UniverseFilterConfig
 
 
 def _require(raw: dict[str, Any], field_name: str) -> Any:
@@ -67,11 +67,51 @@ def load_backtest_config(path: str | Path) -> BacktestConfig:
     raw_costs = _require(raw, "costs")
     if not isinstance(raw_costs, dict):
         raise ValueError("costs must be an object")
-    costs = BacktestCosts(
-        fee_bps=float(_require(raw_costs, "fee_bps")),
-        slippage_bps=float(_require(raw_costs, "slippage_bps")),
-        funding_bps_per_day=float(raw_costs.get("funding_bps_per_day", 0.0)),
-    )
+
+    markets: tuple[str, ...] = ()
+    universe: UniverseFilterConfig | None = None
+    capital: CapitalModelConfig | None = None
+
+    if experiment_kind == "full_market_baseline":
+        raw_markets = _require(raw, "markets")
+        if not isinstance(raw_markets, list):
+            raise ValueError("markets must be a list")
+        markets = tuple(str(item) for item in raw_markets)
+
+        raw_universe = _require(raw, "universe")
+        if not isinstance(raw_universe, dict):
+            raise ValueError("universe must be an object")
+        universe = UniverseFilterConfig(
+            listing_age_days=int(_require(raw_universe, "listing_age_days")),
+            min_quote_volume_usdt_24h={
+                str(key): float(value) for key, value in dict(_require(raw_universe, "min_quote_volume_usdt_24h")).items()
+            },
+            require_complete_funding=bool(raw_universe.get("require_complete_funding", True)),
+        )
+
+        raw_capital = _require(raw, "capital")
+        if not isinstance(raw_capital, dict):
+            raise ValueError("capital must be an object")
+        capital = CapitalModelConfig(
+            model=str(_require(raw_capital, "model")),
+            initial_equity=float(_require(raw_capital, "initial_equity")),
+            risk_per_trade=float(_require(raw_capital, "risk_per_trade")),
+            max_open_risk=float(_require(raw_capital, "max_open_risk")),
+        )
+
+        costs = BacktestCosts(
+            fee_bps_by_market={str(key): float(value) for key, value in dict(_require(raw_costs, "fee_bps")).items()},
+            slippage_bps_by_tier={
+                str(key): float(value) for key, value in dict(_require(raw_costs, "slippage_tiers")).items()
+            },
+            funding_mode=str(_require(raw_costs, "funding_mode")),
+        )
+    else:
+        costs = BacktestCosts(
+            fee_bps=float(_require(raw_costs, "fee_bps")),
+            slippage_bps=float(_require(raw_costs, "slippage_bps")),
+            funding_bps_per_day=float(raw_costs.get("funding_bps_per_day", 0.0)),
+        )
 
     return BacktestConfig(
         dataset_root=dataset_root,
@@ -81,5 +121,8 @@ def load_backtest_config(path: str | Path) -> BacktestConfig:
         costs=costs,
         baseline_name=str(_require(raw, "baseline_name")),
         variant_name=str(_require(raw, "variant_name")),
+        markets=markets,
+        universe=universe,
+        capital=capital,
         metadata=dict(raw.get("metadata") or {}),
     )
