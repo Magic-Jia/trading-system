@@ -427,6 +427,44 @@ def _import_trace(symbol_series: Sequence[_Phase1SymbolSeries]) -> dict[str, Any
     }
 
 
+def _merged_import_trace(traces: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
+    scope: str | None = None
+    exchange: str | None = None
+    market: str | None = None
+    symbols: set[str] = set()
+    series_keys: set[str] = set()
+    manifest_paths: set[str] = set()
+
+    for trace in traces:
+        normalized = dict(trace)
+        current_scope = str(normalized.get("scope") or "")
+        current_exchange = str(normalized.get("exchange") or "")
+        current_market = str(normalized.get("market") or "")
+        if scope is None:
+            scope = current_scope
+            exchange = current_exchange
+            market = current_market
+        elif (current_scope, current_exchange, current_market) != (scope, exchange, market):
+            raise ValueError(
+                "phase1 importer source trace scope/exchange/market must stay aligned across bundles: "
+                f"expected {(scope, exchange, market)}, loaded {(current_scope, current_exchange, current_market)}"
+            )
+        symbols.update(str(value) for value in normalized.get("symbols") or ())
+        series_keys.update(str(value) for value in normalized.get("series_keys") or ())
+        manifest_paths.update(str(value) for value in normalized.get("manifest_paths") or ())
+
+    if scope is None or exchange is None or market is None:
+        return {}
+    return {
+        "scope": scope,
+        "exchange": exchange,
+        "market": market,
+        "symbols": sorted(symbols),
+        "series_keys": sorted(series_keys),
+        "manifest_paths": sorted(manifest_paths),
+    }
+
+
 def build_phase1_dataset_bundle_materials(
     imported_series: Iterable[ImportedRawMarketSeries],
 ) -> tuple[Phase1DatasetBundleMaterial, ...]:
@@ -434,13 +472,18 @@ def build_phase1_dataset_bundle_materials(
     if not symbol_series:
         return ()
 
-    timestamp_sets = [
-        {record.observed_at for record in item.ohlcv.records}
+    ohlcv_timestamp_sets = {
+        item.symbol: {record.observed_at for record in item.ohlcv.records}
         for item in symbol_series
-    ]
-    common_timestamps = sorted(set.intersection(*timestamp_sets))
+    }
+    all_timestamps = sorted(
+        {
+            timestamp
+            for timestamps in ohlcv_timestamp_sets.values()
+            for timestamp in timestamps
+        }
+    )
     materials: list[Phase1DatasetBundleMaterial] = []
-    trace = _import_trace(symbol_series)
 
     funding_lookups = {
         item.symbol: _record_lookup(item.funding.records)
@@ -451,22 +494,22 @@ def build_phase1_dataset_bundle_materials(
         for item in symbol_series
     }
 
-    for timestamp in common_timestamps:
+    for timestamp in all_timestamps:
         market_symbols: dict[str, Any] = {}
         derivatives_rows: list[dict[str, Any]] = []
         instrument_rows: list[dict[str, Any]] = []
-        eligible = True
+        eligible_symbol_series: list[_Phase1SymbolSeries] = []
 
         for item in symbol_series:
+            if timestamp not in ohlcv_timestamp_sets[item.symbol]:
+                continue
             hourly_bars = _hourly_history_up_to(item.ohlcv, timestamp=timestamp)
             if len(hourly_bars) < 24:
-                eligible = False
-                break
+                continue
             daily_bars = _resample_bars(hourly_bars, hours=24)
             four_hour_bars = _resample_bars(hourly_bars, hours=4)
             if len(daily_bars) < 50 or len(four_hour_bars) < 50 or len(hourly_bars) < 50:
-                eligible = False
-                break
+                continue
 
             funding_times, funding_records = funding_lookups[item.symbol]
             current_funding = _latest_record_at_or_before(funding_times, funding_records, timestamp)
@@ -478,15 +521,13 @@ def build_phase1_dataset_bundle_materials(
                 timestamp - timedelta(hours=24),
             )
             if current_funding is None or current_open_interest is None or previous_open_interest is None:
-                eligible = False
-                break
+                continue
 
             latest_close = hourly_bars[-1].close
             current_open_interest_units = _open_interest_units(current_open_interest)
             previous_open_interest_units = _open_interest_units(previous_open_interest)
             if previous_open_interest_units <= 0.0:
-                eligible = False
-                break
+                continue
 
             volume_usdt_24h = _rolling_quote_volume(hourly_bars)
             liquidity_tier = _liquidity_tier(volume_usdt_24h)
@@ -538,8 +579,9 @@ def build_phase1_dataset_bundle_materials(
                     ),
                 }
             )
+            eligible_symbol_series.append(item)
 
-        if not eligible:
+        if not eligible_symbol_series:
             continue
 
         timestamp_iso = _utc_timestamp(timestamp)
@@ -548,7 +590,7 @@ def build_phase1_dataset_bundle_materials(
             "timestamp": timestamp_iso,
             "run_id": run_id,
             "schema_version": PHASE1_IMPORTER_BUNDLE_SCHEMA,
-            "source": dict(trace),
+            "source": _import_trace(eligible_symbol_series),
         }
         materials.append(
             Phase1DatasetBundleMaterial(
@@ -618,7 +660,7 @@ def _phase1_dataset_root_manifest(
         "end_timestamp": bundle_timestamps[-1],
         "bundle_dirs": [str(bundle_dir) for bundle_dir in bundle_dirs],
         "bundle_timestamps": bundle_timestamps,
-        "source": dict(materials[-1].metadata.get("source") or {}),
+        "source": _merged_import_trace(material.metadata.get("source") or {} for material in materials),
     }
 
 
@@ -642,18 +684,10 @@ def _json_object_field(value: Any, *, context: str) -> dict[str, Any]:
 
 
 def _materialized_dataset_row_source(rows: Sequence[Any]) -> dict[str, Any]:
-    loaded_source: dict[str, Any] | None = None
-    for row in rows:
-        row_source = _json_object_field(row.meta.get("source") or {}, context="materialized dataset bundle metadata source")
-        if loaded_source is None:
-            loaded_source = row_source
-            continue
-        if row_source != loaded_source:
-            raise ValueError(
-                "materialized dataset bundle metadata source did not round-trip: "
-                f"expected {loaded_source}, loaded {row_source}"
-            )
-    return loaded_source or {}
+    return _merged_import_trace(
+        _json_object_field(row.meta.get("source") or {}, context="materialized dataset bundle metadata source")
+        for row in rows
+    )
 
 
 def _archive_root_from_manifest_paths(manifest_paths: Sequence[str]) -> Path | None:

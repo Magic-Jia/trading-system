@@ -25,12 +25,14 @@ def _archive_phase1_symbol_history(
     archive_root: Path,
     *,
     symbol: str,
+    start: datetime | None = None,
+    total_hours: int = 60 * 24,
     symbol_metadata: dict[str, object] | None = None,
     ohlcv_symbol_metadata: dict[str, object] | None = None,
     funding_symbol_metadata: dict[str, object] | None = None,
     open_interest_symbol_metadata: dict[str, object] | None = None,
 ) -> None:
-    start = datetime(2024, 1, 1, tzinfo=UTC)
+    start = datetime(2024, 1, 1, tzinfo=UTC) if start is None else start
     hourly_rows: list[dict[str, str | int]] = []
     funding_rows: list[dict[str, str | int]] = []
     open_interest_rows: list[dict[str, str | int]] = []
@@ -38,7 +40,7 @@ def _archive_phase1_symbol_history(
     funding_metadata = symbol_metadata if funding_symbol_metadata is None else funding_symbol_metadata
     open_interest_metadata = symbol_metadata if open_interest_symbol_metadata is None else open_interest_symbol_metadata
 
-    for index in range(60 * 24):
+    for index in range(total_hours):
         observed_at = start + timedelta(hours=index)
         close = 50_000.0 + (index * 10.0)
         volume = 1_000.0 + index
@@ -281,6 +283,83 @@ def test_build_phase1_dataset_bundle_materials_rejects_cross_dataset_symbol_meta
 
     with pytest.raises(ValueError, match="raw-market symbol metadata mismatch across phase1 datasets for symbol BTCUSDT"):
         build_phase1_dataset_bundle_materials(imported)
+
+
+def test_build_phase1_dataset_bundle_materials_keeps_eligible_symbol_subsets_per_timestamp(tmp_path: Path) -> None:
+    archive_root = tmp_path / "archive"
+    dataset_root = tmp_path / "dataset"
+    _archive_phase1_symbol_history(
+        archive_root,
+        symbol="BTCUSDT",
+        start=datetime(2024, 1, 1, tzinfo=UTC),
+        total_hours=110 * 24,
+    )
+    _archive_phase1_symbol_history(
+        archive_root,
+        symbol="ETHUSDT",
+        start=datetime(2024, 2, 15, tzinfo=UTC),
+        total_hours=60 * 24,
+    )
+
+    imported = load_phase1_raw_market_imports(archive_root)
+
+    materials = build_phase1_dataset_bundle_materials(imported)
+
+    assert materials
+    first = materials[0]
+    assert first.timestamp == datetime(2024, 2, 19, tzinfo=UTC)
+    assert first.metadata["source"]["symbols"] == ["BTCUSDT"]
+    assert first.metadata["source"]["series_keys"] == [
+        "binance:futures:funding:BTCUSDT",
+        "binance:futures:ohlcv:BTCUSDT:1h",
+        "binance:futures:open-interest:BTCUSDT",
+    ]
+    assert len(first.metadata["source"]["manifest_paths"]) == 3
+    assert set(first.market_context["symbols"]) == {"BTCUSDT"}
+    assert [row["symbol"] for row in first.market_context["instrument_rows"]] == ["BTCUSDT"]
+    assert [row["symbol"] for row in first.derivatives_snapshot["rows"]] == ["BTCUSDT"]
+
+    overlap_before_eth_is_ready = next(
+        material for material in materials if material.timestamp == datetime(2024, 3, 20, tzinfo=UTC)
+    )
+    assert overlap_before_eth_is_ready.metadata["source"]["symbols"] == ["BTCUSDT"]
+    assert set(overlap_before_eth_is_ready.market_context["symbols"]) == {"BTCUSDT"}
+    assert [row["symbol"] for row in overlap_before_eth_is_ready.derivatives_snapshot["rows"]] == ["BTCUSDT"]
+
+    first_dual_symbol = next(
+        material for material in materials if material.timestamp == datetime(2024, 4, 4, tzinfo=UTC)
+    )
+    assert first_dual_symbol.metadata["source"]["symbols"] == ["BTCUSDT", "ETHUSDT"]
+    assert first_dual_symbol.metadata["source"]["series_keys"] == [
+        "binance:futures:funding:BTCUSDT",
+        "binance:futures:funding:ETHUSDT",
+        "binance:futures:ohlcv:BTCUSDT:1h",
+        "binance:futures:ohlcv:ETHUSDT:1h",
+        "binance:futures:open-interest:BTCUSDT",
+        "binance:futures:open-interest:ETHUSDT",
+    ]
+    assert len(first_dual_symbol.metadata["source"]["manifest_paths"]) == 6
+    assert set(first_dual_symbol.market_context["symbols"]) == {"BTCUSDT", "ETHUSDT"}
+    assert [row["symbol"] for row in first_dual_symbol.market_context["instrument_rows"]] == ["BTCUSDT", "ETHUSDT"]
+    assert [row["symbol"] for row in first_dual_symbol.derivatives_snapshot["rows"]] == ["BTCUSDT", "ETHUSDT"]
+
+    imported_root = import_phase1_archive_dataset_root(archive_root, dataset_root)
+    rows = validate_phase1_imported_dataset_root(dataset_root)
+    manifest = json.loads((dataset_root / "import_manifest.json").read_text(encoding="utf-8"))
+
+    assert imported_root.start_timestamp == datetime(2024, 2, 19, tzinfo=UTC)
+    assert imported_root.symbols == ("BTCUSDT", "ETHUSDT")
+    assert rows[0].timestamp == datetime(2024, 2, 19, tzinfo=UTC)
+    assert rows[0].meta["source"]["symbols"] == ["BTCUSDT"]
+    assert next(row for row in rows if row.timestamp == datetime(2024, 3, 20, tzinfo=UTC)).meta["source"]["symbols"] == [
+        "BTCUSDT"
+    ]
+    assert next(row for row in rows if row.timestamp == datetime(2024, 4, 4, tzinfo=UTC)).meta["source"]["symbols"] == [
+        "BTCUSDT",
+        "ETHUSDT",
+    ]
+    assert manifest["source"]["symbols"] == ["BTCUSDT", "ETHUSDT"]
+    assert len(manifest["source"]["manifest_paths"]) == 6
 
 
 def test_build_phase1_dataset_bundle_materials_requires_complete_phase1_symbol_set(tmp_path: Path) -> None:
