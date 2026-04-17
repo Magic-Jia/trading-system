@@ -414,6 +414,13 @@ def _open_interest_units(record: ImportedRawMarketRecord) -> float:
     return _to_float(payload.get("sumOpenInterest"))
 
 
+def _open_interest_is_quote_value(record: ImportedRawMarketRecord) -> bool:
+    payload = record.payload
+    if not isinstance(payload, Mapping):
+        return False
+    return "sumOpenInterestValue" in payload or "openInterestUsd" in payload
+
+
 def _funding_rate(record: ImportedRawMarketRecord) -> float:
     payload = record.payload
     if not isinstance(payload, Mapping):
@@ -553,7 +560,11 @@ def build_phase1_dataset_bundle_materials(
                 {
                     "symbol": item.symbol,
                     "funding_rate": _funding_rate(current_funding),
-                    "open_interest_usdt": current_open_interest_units * latest_close,
+                    "open_interest_usdt": (
+                        current_open_interest_units
+                        if _open_interest_is_quote_value(current_open_interest)
+                        else current_open_interest_units * latest_close
+                    ),
                     "open_interest_change_24h_pct": (current_open_interest_units / previous_open_interest_units) - 1.0,
                     "mark_price_change_24h_pct": _return_pct(hourly_bars, periods_back=24),
                     "taker_buy_sell_ratio": 1.0,
