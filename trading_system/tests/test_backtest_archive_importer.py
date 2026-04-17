@@ -137,6 +137,40 @@ def test_archive_raw_market_payload_round_trips_explicit_symbol_metadata_through
     assert imported.symbol_metadata == symbol_metadata
 
 
+def test_archive_raw_market_payload_rejects_invalid_symbol_metadata_without_writing_archive_files(tmp_path: Path) -> None:
+    archive_root = tmp_path / "archive"
+    expected_dir = archive_root / "raw-market" / "binance" / "futures" / "ohlcv" / "BTCUSDT" / "1h"
+
+    with pytest.raises(ValueError, match="raw-market symbol_metadata quantity_step must be positive"):
+        archive_raw_market_payload(
+            archive_root=archive_root,
+            exchange="binance",
+            market="futures",
+            dataset="ohlcv",
+            symbol="BTCUSDT",
+            timeframe="1h",
+            coverage_start="2024-04-01T00:00:00Z",
+            coverage_end="2024-04-01T02:00:00Z",
+            fetched_at="2026-04-01T01:02:03Z",
+            endpoint="/fapi/v1/klines",
+            payload={
+                "symbol": "BTCUSDT",
+                "interval": "1h",
+                "rows": [
+                    {"open_time": 1711929600000, "close": "70000.0"},
+                    {"open_time": 1711933200000, "close": "70100.0"},
+                ],
+            },
+            symbol_metadata={
+                "listing_timestamp": "2020-05-01T00:00:00Z",
+                "quantity_step": 0.0,
+                "price_tick": 0.25,
+            },
+        )
+
+    assert not expected_dir.exists() or list(expected_dir.iterdir()) == []
+
+
 def test_archive_raw_market_payload_adds_coverage_driven_sync_metadata_and_canonical_open_interest_dataset(
     tmp_path: Path,
 ) -> None:

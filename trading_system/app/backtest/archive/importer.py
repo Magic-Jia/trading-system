@@ -68,6 +68,7 @@ class _Phase1SymbolSeries:
     ohlcv: ImportedRawMarketSeries
     funding: ImportedRawMarketSeries
     open_interest: ImportedRawMarketSeries
+    symbol_metadata: dict[str, Any] | None
 
 
 def _utc_timestamp(value: datetime) -> str:
@@ -239,15 +240,40 @@ def _listing_timestamp(series: ImportedRawMarketSeries) -> datetime:
     return min(record.observed_at for record in series.records)
 
 
-def _symbol_metadata_timestamp(series: ImportedRawMarketSeries) -> datetime:
-    symbol_metadata = series.symbol_metadata
+def _resolved_symbol_metadata(
+    *,
+    symbol: str,
+    series_items: Sequence[ImportedRawMarketSeries],
+) -> dict[str, Any] | None:
+    resolved: dict[str, Any] | None = None
+    for series in series_items:
+        symbol_metadata = series.symbol_metadata
+        if symbol_metadata is None:
+            continue
+        if resolved is None:
+            resolved = symbol_metadata
+            continue
+        if symbol_metadata != resolved:
+            raise ValueError(f"raw-market symbol metadata mismatch across phase1 datasets for symbol {symbol}")
+    return resolved
+
+
+def _symbol_metadata_timestamp(
+    *,
+    symbol_metadata: Mapping[str, Any] | None,
+    fallback_series: ImportedRawMarketSeries,
+) -> datetime:
     if symbol_metadata is None:
-        return _listing_timestamp(series)
+        return _listing_timestamp(fallback_series)
     return _utc_datetime(str(symbol_metadata["listing_timestamp"]))
 
 
-def _symbol_metadata_float(series: ImportedRawMarketSeries, *, field: str, default: float) -> float:
-    symbol_metadata = series.symbol_metadata
+def _symbol_metadata_float(
+    *,
+    symbol_metadata: Mapping[str, Any] | None,
+    field: str,
+    default: float,
+) -> float:
     if symbol_metadata is None:
         return default
     return _to_float(symbol_metadata.get(field), default=default)
@@ -307,6 +333,10 @@ def _phase1_symbol_series(imported_series: Iterable[ImportedRawMarketSeries]) ->
                 ohlcv=ohlcv,
                 funding=funding,
                 open_interest=open_interest,
+                symbol_metadata=_resolved_symbol_metadata(
+                    symbol=symbol,
+                    series_items=(ohlcv, funding, open_interest),
+                ),
             )
         )
     return tuple(assembled)
@@ -483,16 +513,21 @@ def build_phase1_dataset_bundle_materials(
                     "symbol": item.symbol,
                     "market_type": "futures",
                     "base_asset": _base_asset(item.symbol),
-                    "listing_timestamp": _utc_timestamp(_symbol_metadata_timestamp(item.ohlcv)),
+                    "listing_timestamp": _utc_timestamp(
+                        _symbol_metadata_timestamp(
+                            symbol_metadata=item.symbol_metadata,
+                            fallback_series=item.ohlcv,
+                        )
+                    ),
                     "quote_volume_usdt_24h": volume_usdt_24h,
                     "liquidity_tier": liquidity_tier,
                     "quantity_step": _symbol_metadata_float(
-                        item.ohlcv,
+                        symbol_metadata=item.symbol_metadata,
                         field="quantity_step",
                         default=_PHASE1_DEFAULT_QUANTITY_STEP,
                     ),
                     "price_tick": _symbol_metadata_float(
-                        item.ohlcv,
+                        symbol_metadata=item.symbol_metadata,
                         field="price_tick",
                         default=_PHASE1_DEFAULT_PRICE_TICK,
                     ),
