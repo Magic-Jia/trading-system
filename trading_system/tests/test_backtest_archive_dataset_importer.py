@@ -362,6 +362,52 @@ def test_build_phase1_dataset_bundle_materials_keeps_eligible_symbol_subsets_per
     assert len(manifest["source"]["manifest_paths"]) == 6
 
 
+def test_import_phase1_archive_dataset_root_excludes_never_eligible_symbols_from_materialized_root(
+    tmp_path: Path,
+) -> None:
+    archive_root = tmp_path / "archive"
+    dataset_root = tmp_path / "dataset"
+    _archive_phase1_symbol_history(
+        archive_root,
+        symbol="BTCUSDT",
+        start=datetime(2024, 1, 1, tzinfo=UTC),
+        total_hours=110 * 24,
+    )
+    _archive_phase1_symbol_history(
+        archive_root,
+        symbol="ETHUSDT",
+        start=datetime(2024, 2, 15, tzinfo=UTC),
+        total_hours=20 * 24,
+    )
+
+    imported = load_phase1_raw_market_imports(archive_root)
+    materials = build_phase1_dataset_bundle_materials(imported)
+
+    assert materials
+    assert {
+        symbol
+        for material in materials
+        for symbol in material.market_context["symbols"].keys()
+    } == {"BTCUSDT"}
+
+    try:
+        imported_root = import_phase1_archive_dataset_root(archive_root, dataset_root)
+    except ValueError as exc:
+        remaining_paths = sorted(path.name for path in dataset_root.iterdir()) if dataset_root.exists() else []
+        assert remaining_paths == []
+        pytest.fail(f"import should succeed without leaking partial dataset output: {exc}")
+
+    rows = validate_phase1_imported_dataset_root(dataset_root)
+    manifest = json.loads((dataset_root / "import_manifest.json").read_text(encoding="utf-8"))
+
+    assert imported_root.symbols == ("BTCUSDT",)
+    assert manifest["symbols"] == ["BTCUSDT"]
+    assert manifest["source"]["symbols"] == ["BTCUSDT"]
+    assert len(manifest["source"]["manifest_paths"]) == 3
+    assert {symbol for row in rows for symbol in row.market["symbols"].keys()} == {"BTCUSDT"}
+    assert [row.symbol for dataset_row in rows for row in dataset_row.instrument_rows] == ["BTCUSDT"] * len(rows)
+
+
 def test_build_phase1_dataset_bundle_materials_requires_complete_phase1_symbol_set(tmp_path: Path) -> None:
     archive_root = tmp_path / "archive"
     start = datetime(2024, 1, 1, tzinfo=UTC)
