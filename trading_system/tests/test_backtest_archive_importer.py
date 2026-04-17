@@ -94,6 +94,49 @@ def test_archive_raw_market_payload_omits_timeframe_segment_for_non_ohlcv_datase
     assert "timeframe" not in stored.manifest
 
 
+def test_archive_raw_market_payload_round_trips_explicit_symbol_metadata_through_imports(tmp_path: Path) -> None:
+    archive_root = tmp_path / "archive"
+    symbol_metadata = {
+        "listing_timestamp": "2020-05-01T00:00:00Z",
+        "quantity_step": 0.005,
+        "price_tick": 0.25,
+    }
+
+    stored = archive_raw_market_payload(
+        archive_root=archive_root,
+        exchange="binance",
+        market="futures",
+        dataset="ohlcv",
+        symbol="BTCUSDT",
+        timeframe="1h",
+        coverage_start="2024-04-01T00:00:00Z",
+        coverage_end="2024-04-01T02:00:00Z",
+        fetched_at="2026-04-01T01:02:03Z",
+        endpoint="/fapi/v1/klines",
+        payload={
+            "symbol": "BTCUSDT",
+            "interval": "1h",
+            "rows": [
+                {"open_time": 1711929600000, "close": "70000.0"},
+                {"open_time": 1711933200000, "close": "70100.0"},
+            ],
+        },
+        symbol_metadata=symbol_metadata,
+    )
+
+    imported = load_phase1_raw_market_series(
+        archive_root,
+        exchange="binance",
+        market="futures",
+        dataset="ohlcv",
+        symbol="BTCUSDT",
+        timeframe="1h",
+    )
+
+    assert stored.manifest["symbol_metadata"] == symbol_metadata
+    assert imported.symbol_metadata == symbol_metadata
+
+
 def test_archive_raw_market_payload_adds_coverage_driven_sync_metadata_and_canonical_open_interest_dataset(
     tmp_path: Path,
 ) -> None:

@@ -21,7 +21,12 @@ def _timestamp_ms(value: datetime) -> int:
     return int(value.timestamp() * 1000)
 
 
-def _archive_phase1_symbol_history(archive_root: Path, *, symbol: str) -> None:
+def _archive_phase1_symbol_history(
+    archive_root: Path,
+    *,
+    symbol: str,
+    symbol_metadata: dict[str, object] | None = None,
+) -> None:
     start = datetime(2024, 1, 1, tzinfo=UTC)
     hourly_rows: list[dict[str, str | int]] = []
     funding_rows: list[dict[str, str | int]] = []
@@ -68,6 +73,7 @@ def _archive_phase1_symbol_history(archive_root: Path, *, symbol: str) -> None:
         fetched_at="2026-04-01T07:30:00Z",
         endpoint="/fapi/v1/klines",
         payload={"symbol": symbol, "interval": "1h", "rows": hourly_rows},
+        symbol_metadata=symbol_metadata,
     )
     archive_raw_market_payload(
         archive_root=archive_root,
@@ -80,6 +86,7 @@ def _archive_phase1_symbol_history(archive_root: Path, *, symbol: str) -> None:
         fetched_at="2026-04-01T07:31:00Z",
         endpoint="/fapi/v1/fundingRate",
         payload=funding_rows,
+        symbol_metadata=symbol_metadata,
     )
     archive_raw_market_payload(
         archive_root=archive_root,
@@ -92,6 +99,7 @@ def _archive_phase1_symbol_history(archive_root: Path, *, symbol: str) -> None:
         fetched_at="2026-04-01T07:32:00Z",
         endpoint="/futures/data/openInterestHist",
         payload=open_interest_rows,
+        symbol_metadata=symbol_metadata,
     )
 
 
@@ -182,6 +190,33 @@ def test_imported_dataset_bundle_exposes_tradeability_metadata(tmp_path: Path) -
     assert symbol_row.quantity_step == pytest.approx(0.001)
     assert symbol_row.price_tick == pytest.approx(0.1)
     assert symbol_row.has_complete_funding is True
+
+
+def test_imported_dataset_bundle_prefers_explicit_symbol_metadata_over_coverage_start_and_defaults(
+    tmp_path: Path,
+) -> None:
+    archive_root = tmp_path / "archive"
+    dataset_root = tmp_path / "dataset"
+    _archive_phase1_symbol_history(
+        archive_root,
+        symbol="BTCUSDT",
+        symbol_metadata={
+            "listing_timestamp": "2020-05-01T00:00:00Z",
+            "quantity_step": 0.005,
+            "price_tick": 0.25,
+        },
+    )
+
+    imported = load_phase1_raw_market_imports(archive_root)
+
+    latest = build_phase1_dataset_bundle_materials(imported)[-1]
+    write_phase1_dataset_bundle(latest, dataset_root)
+    rows = load_historical_dataset(dataset_root)
+
+    symbol_row = rows[0].instrument_rows[0]
+    assert symbol_row.listing_timestamp == datetime(2020, 5, 1, tzinfo=UTC)
+    assert symbol_row.quantity_step == pytest.approx(0.005)
+    assert symbol_row.price_tick == pytest.approx(0.25)
 
 
 def test_build_phase1_dataset_bundle_materials_requires_complete_phase1_symbol_set(tmp_path: Path) -> None:
