@@ -711,6 +711,139 @@ def test_main_v2_stdout_surfaces_rotation_b2_price_extension_review_notes(monkey
     assert "overheat" in note["message"]
 
 
+def test_main_v2_stdout_surfaces_trend_b2_funding_basis_blowoff_review_notes(monkeypatch, tmp_path, load_fixture, capsys):
+    output_path = tmp_path / "runtime_state.json"
+    account_path = tmp_path / "account_snapshot.json"
+    market_path = tmp_path / "market_context.json"
+    deriv_path = tmp_path / "derivatives_snapshot.json"
+    market = load_fixture("market_context_v2.json")
+
+    account_path.write_text(json.dumps(load_fixture("account_snapshot_v2.json")))
+    market_path.write_text(json.dumps(market))
+    deriv_path.write_text(
+        json.dumps(
+            {
+                "as_of": "2026-03-25T00:00:00Z",
+                "schema_version": "v2",
+                "rows": [
+                    {
+                        "symbol": "BTCUSDT",
+                        "funding_rate": 0.00022,
+                        "open_interest_usdt": 23_100_000_000,
+                        "open_interest_change_24h_pct": 0.01,
+                        "mark_price_change_24h_pct": 0.012,
+                        "taker_buy_sell_ratio": 1.0,
+                        "basis_bps": 26,
+                    },
+                    {
+                        "symbol": "ETHUSDT",
+                        "funding_rate": 0.00003,
+                        "open_interest_usdt": 11_800_000_000,
+                        "open_interest_change_24h_pct": 0.009,
+                        "mark_price_change_24h_pct": 0.008,
+                        "taker_buy_sell_ratio": 1.0,
+                        "basis_bps": 10,
+                    },
+                ],
+            }
+        )
+    )
+    monkeypatch.setenv("TRADING_STATE_FILE", str(output_path))
+    monkeypatch.setenv("TRADING_ACCOUNT_SNAPSHOT_FILE", str(account_path))
+    monkeypatch.setenv("TRADING_MARKET_CONTEXT_FILE", str(market_path))
+    monkeypatch.setenv("TRADING_DERIVATIVES_SNAPSHOT_FILE", str(deriv_path))
+    monkeypatch.setattr(main_module, "generate_rotation_candidates", lambda *args, **kwargs: [])
+    monkeypatch.setattr(main_module, "generate_short_candidates", lambda *args, **kwargs: [])
+
+    main_module.main()
+    payload = json.loads(capsys.readouterr().out)
+
+    trend_report = payload["regime"]["trend"]
+    assert trend_report["candidate_count"] == 1
+    assert [row["symbol"] for row in trend_report["leaders"]] == ["ETHUSDT"]
+    assert [note["symbol"] for note in trend_report["review_notes"]] == ["BTCUSDT"]
+    note = trend_report["review_notes"][0]
+    assert note["reason"] == "funding_basis_blowoff"
+    assert note["setup_type"] == "BREAKOUT_CONTINUATION"
+    assert note["funding_rate"] == 0.00022
+    assert note["basis_bps"] == 26.0
+    assert "funding" in note["message"]
+    assert "basis" in note["message"]
+
+
+def test_main_v2_stdout_surfaces_rotation_b2_late_stage_blowoff_review_notes(monkeypatch, tmp_path, load_fixture, capsys):
+    output_path = tmp_path / "runtime_state.json"
+    account_path = tmp_path / "account_snapshot.json"
+    market_path = tmp_path / "market_context.json"
+    deriv_path = tmp_path / "derivatives_snapshot.json"
+    market = load_fixture("market_context_v2.json")
+    market["symbols"]["SOLUSDT"]["4h"]["close"] = 155.0
+    market["symbols"]["SOLUSDT"]["1h"]["close"] = 153.0
+
+    account_path.write_text(json.dumps(load_fixture("account_snapshot_v2.json")))
+    market_path.write_text(json.dumps(market))
+    deriv_path.write_text(
+        json.dumps(
+            {
+                "as_of": "2026-03-25T00:00:00Z",
+                "schema_version": "v2",
+                "rows": [
+                    {
+                        "symbol": "SOLUSDT",
+                        "funding_rate": 0.00005,
+                        "open_interest_usdt": 2_900_000_000,
+                        "open_interest_change_24h_pct": 0.045,
+                        "mark_price_change_24h_pct": 0.024,
+                        "taker_buy_sell_ratio": 1.01,
+                        "basis_bps": 14,
+                    },
+                    {
+                        "symbol": "LINKUSDT",
+                        "funding_rate": 0.00003,
+                        "open_interest_usdt": 1_750_000_000,
+                        "open_interest_change_24h_pct": 0.009,
+                        "mark_price_change_24h_pct": 0.008,
+                        "taker_buy_sell_ratio": 1.0,
+                        "basis_bps": 10,
+                    },
+                ],
+            }
+        )
+    )
+    monkeypatch.setenv("TRADING_STATE_FILE", str(output_path))
+    monkeypatch.setenv("TRADING_ACCOUNT_SNAPSHOT_FILE", str(account_path))
+    monkeypatch.setenv("TRADING_MARKET_CONTEXT_FILE", str(market_path))
+    monkeypatch.setenv("TRADING_DERIVATIVES_SNAPSHOT_FILE", str(deriv_path))
+    monkeypatch.setattr(main_module, "generate_trend_candidates", lambda *args, **kwargs: [])
+    monkeypatch.setattr(main_module, "generate_short_candidates", lambda *args, **kwargs: [])
+    monkeypatch.setattr(
+        main_module,
+        "build_universes",
+        lambda *args, **kwargs: UniverseBuildResult(
+            major_universe=[],
+            rotation_universe=[
+                {"symbol": "SOLUSDT", "sector": "alt_l1", "liquidity_tier": "high", "liquidity_meta": {"rolling_notional": 2_900_000_000.0, "slippage_bps": 8.0}},
+                {"symbol": "LINKUSDT", "sector": "oracle", "liquidity_tier": "high", "liquidity_meta": {"rolling_notional": 1_750_000_000.0, "slippage_bps": 8.0}},
+            ],
+            short_universe=[],
+        ),
+    )
+
+    main_module.main()
+    payload = json.loads(capsys.readouterr().out)
+
+    rotation_report = payload["regime"]["rotation"]
+    assert rotation_report["candidate_count"] == 1
+    assert [row["symbol"] for row in rotation_report["leaders"]] == ["LINKUSDT"]
+    assert [note["symbol"] for note in rotation_report["review_notes"]] == ["SOLUSDT"]
+    note = rotation_report["review_notes"][0]
+    assert note["reason"] == "late_stage_long_blowoff"
+    assert note["setup_type"] == "RS_REACCELERATION"
+    assert note["open_interest_change_24h_pct"] == 0.045
+    assert note["mark_price_change_24h_pct"] == 0.024
+    assert "late-stage" in note["message"]
+
+
 def _defensive_short_market() -> dict:
     return {
         "symbols": {
