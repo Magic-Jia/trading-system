@@ -25,20 +25,26 @@ def _instrument_rows(payload: dict) -> tuple[InstrumentSnapshotRow, ...]:
         return ()
     if not isinstance(raw_rows, list):
         raise ValueError("dataset bundle has invalid instrument rows payload")
-    return tuple(
-        InstrumentSnapshotRow(
-            symbol=str(row["symbol"]),
-            market_type=str(row["market_type"]),  # type: ignore[arg-type]
-            base_asset=str(row["base_asset"]),
-            listing_timestamp=_parse_timestamp(str(row["listing_timestamp"])),
-            quote_volume_usdt_24h=float(row["quote_volume_usdt_24h"]),
-            liquidity_tier=str(row["liquidity_tier"]),
-            quantity_step=float(row["quantity_step"]),
-            price_tick=float(row["price_tick"]),
-            has_complete_funding=bool(row["has_complete_funding"]),
+
+    parsed_rows: list[InstrumentSnapshotRow] = []
+    for row in raw_rows:
+        has_complete_funding = row["has_complete_funding"]
+        if not isinstance(has_complete_funding, bool):
+            raise ValueError("dataset bundle instrument row has_complete_funding must be a boolean")
+        parsed_rows.append(
+            InstrumentSnapshotRow(
+                symbol=str(row["symbol"]),
+                market_type=str(row["market_type"]),  # type: ignore[arg-type]
+                base_asset=str(row["base_asset"]),
+                listing_timestamp=_parse_timestamp(str(row["listing_timestamp"])),
+                quote_volume_usdt_24h=float(row["quote_volume_usdt_24h"]),
+                liquidity_tier=str(row["liquidity_tier"]),
+                quantity_step=float(row["quantity_step"]),
+                price_tick=float(row["price_tick"]),
+                has_complete_funding=has_complete_funding,
+            )
         )
-        for row in raw_rows
-    )
+    return tuple(parsed_rows)
 
 
 def _bundle_dirs(dataset_root: Path) -> list[Path]:

@@ -176,6 +176,44 @@ def test_load_historical_dataset_loads_instrument_rows(tmp_path: Path) -> None:
     assert instrument_row.has_complete_funding is True
 
 
+def test_load_historical_dataset_rejects_non_bool_has_complete_funding(tmp_path: Path) -> None:
+    dataset_root = tmp_path / "sample_dataset"
+    bundle = dataset_root / "2026-03-10T00-00-00Z"
+    bundle.mkdir(parents=True)
+    (bundle / "metadata.json").write_text(
+        json.dumps({"timestamp": "2026-03-10T00:00:00Z", "run_id": "sample-001"}),
+        encoding="utf-8",
+    )
+    (bundle / "market_context.json").write_text(
+        json.dumps(
+            {
+                "as_of": "2026-03-10T00:00:00Z",
+                "schema_version": "imported_market_context.v1",
+                "symbols": {},
+                "instrument_rows": [
+                    {
+                        "symbol": "BTCUSDT",
+                        "market_type": "futures",
+                        "base_asset": "BTC",
+                        "listing_timestamp": "2020-01-01T00:00:00Z",
+                        "quote_volume_usdt_24h": 250_000_000.0,
+                        "liquidity_tier": "high",
+                        "quantity_step": "0.001",
+                        "price_tick": "0.1",
+                        "has_complete_funding": "False",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (bundle / "derivatives_snapshot.json").write_text(json.dumps({"rows": []}), encoding="utf-8")
+    (bundle / "account_snapshot.json").write_text(json.dumps({"equity": 100_000.0}), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="has_complete_funding must be a boolean"):
+        load_historical_dataset(dataset_root)
+
+
 def test_load_historical_dataset_fails_when_required_snapshot_is_missing(tmp_path: Path) -> None:
     dataset_root = tmp_path / "sample_dataset"
     bundle = dataset_root / "2026-03-10T00-00-00Z"
