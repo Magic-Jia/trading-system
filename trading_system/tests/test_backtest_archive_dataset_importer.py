@@ -140,6 +140,12 @@ def _archive_phase1_symbol_history(
     )
 
 
+def _rewrite_raw_market_manifest_fields(manifest_path: Path, **updates: object) -> None:
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest.update(updates)
+    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
 def test_build_phase1_dataset_bundle_materials_returns_dataset_ready_bundle_and_writes_dataset_root(
     tmp_path: Path,
 ) -> None:
@@ -526,6 +532,47 @@ def test_build_phase1_dataset_bundle_materials_requires_complete_phase1_symbol_s
 
     with pytest.raises(ValueError, match="missing required phase1 raw-market series for symbol BTCUSDT: open-interest"):
         build_phase1_dataset_bundle_materials(imported)
+
+
+@pytest.mark.parametrize(
+    ("manifest_glob", "manifest_updates", "expected_dataset", "expected_timeframe"),
+    [
+        ("**/open-interest/BTCUSDT/*.manifest.json", {"dataset": "open_interest"}, "open-interest", None),
+        ("**/ohlcv/BTCUSDT/1h/*.manifest.json", {"timeframe": "1H"}, "ohlcv", "1h"),
+    ],
+)
+def test_build_phase1_dataset_bundle_materials_uses_canonicalized_import_scope_from_valid_manifest_aliases(
+    tmp_path: Path,
+    manifest_glob: str,
+    manifest_updates: dict[str, str],
+    expected_dataset: str,
+    expected_timeframe: str | None,
+) -> None:
+    archive_root = tmp_path / "archive"
+    _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT")
+
+    manifest_path = next((archive_root / "raw-market").glob(manifest_glob))
+    _rewrite_raw_market_manifest_fields(manifest_path, **manifest_updates)
+
+    imported = load_phase1_raw_market_imports(archive_root)
+
+    canonical_series = next(
+        series
+        for series in imported
+        if series.symbol == "BTCUSDT"
+        and series.dataset == expected_dataset
+        and series.timeframe == expected_timeframe
+    )
+
+    assert canonical_series.exchange == "binance"
+    assert canonical_series.market == "futures"
+    assert canonical_series.dataset == expected_dataset
+    assert canonical_series.symbol == "BTCUSDT"
+    assert canonical_series.timeframe == expected_timeframe
+
+    materials = build_phase1_dataset_bundle_materials(imported)
+
+    assert materials[-1].metadata["source"]["symbols"] == ["BTCUSDT"]
 
 
 def test_import_phase1_archive_dataset_root_materializes_loadable_dataset_root(tmp_path: Path) -> None:
