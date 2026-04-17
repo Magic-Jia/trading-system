@@ -27,13 +27,14 @@ def _archive_phase1_symbol_history(
     symbol: str,
     start: datetime | None = None,
     total_hours: int = 60 * 24,
+    ohlcv_row_format: str = "dict",
     symbol_metadata: dict[str, object] | None = None,
     ohlcv_symbol_metadata: dict[str, object] | None = None,
     funding_symbol_metadata: dict[str, object] | None = None,
     open_interest_symbol_metadata: dict[str, object] | None = None,
 ) -> None:
     start = datetime(2024, 1, 1, tzinfo=UTC) if start is None else start
-    hourly_rows: list[dict[str, str | int]] = []
+    hourly_rows: list[dict[str, str | int] | list[str | int]] = []
     funding_rows: list[dict[str, str | int]] = []
     open_interest_rows: list[dict[str, str | int]] = []
     ohlcv_metadata = symbol_metadata if ohlcv_symbol_metadata is None else ohlcv_symbol_metadata
@@ -44,17 +45,42 @@ def _archive_phase1_symbol_history(
         observed_at = start + timedelta(hours=index)
         close = 50_000.0 + (index * 10.0)
         volume = 1_000.0 + index
-        hourly_rows.append(
-            {
-                "open_time": _timestamp_ms(observed_at),
-                "open": f"{close - 5.0:.6f}",
-                "high": f"{close + 20.0:.6f}",
-                "low": f"{close - 20.0:.6f}",
-                "close": f"{close:.6f}",
-                "volume": f"{volume:.6f}",
-                "quote_asset_volume": f"{close * volume:.6f}",
-            }
-        )
+        open_time_ms = _timestamp_ms(observed_at)
+        open_value = f"{close - 5.0:.6f}"
+        high_value = f"{close + 20.0:.6f}"
+        low_value = f"{close - 20.0:.6f}"
+        close_value = f"{close:.6f}"
+        volume_value = f"{volume:.6f}"
+        quote_volume_value = f"{close * volume:.6f}"
+        if ohlcv_row_format == "binance-array":
+            hourly_rows.append(
+                [
+                    open_time_ms,
+                    open_value,
+                    high_value,
+                    low_value,
+                    close_value,
+                    volume_value,
+                    open_time_ms + int(timedelta(hours=1).total_seconds() * 1000) - 1,
+                    quote_volume_value,
+                    1234,
+                    f"{volume * 0.55:.6f}",
+                    f"{close * volume * 0.55:.6f}",
+                    "0",
+                ]
+            )
+        else:
+            hourly_rows.append(
+                {
+                    "open_time": open_time_ms,
+                    "open": open_value,
+                    "high": high_value,
+                    "low": low_value,
+                    "close": close_value,
+                    "volume": volume_value,
+                    "quote_asset_volume": quote_volume_value,
+                }
+            )
         open_interest_rows.append(
             {
                 "timestamp": _timestamp_ms(observed_at),
@@ -173,6 +199,22 @@ def test_build_phase1_dataset_bundle_materials_returns_dataset_ready_bundle_and_
     assert rows[0].timestamp == latest.timestamp
     assert rows[0].market["symbols"]["BTCUSDT"]["1h"]["close"] == pytest.approx(64_390.0)
     assert rows[0].derivatives[0]["open_interest_usdt"] == pytest.approx(latest_open_interest * latest_close)
+
+
+def test_build_phase1_dataset_bundle_materials_accepts_binance_array_ohlcv_rows(tmp_path: Path) -> None:
+    archive_root = tmp_path / "archive"
+    _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT", ohlcv_row_format="binance-array")
+
+    imported = load_phase1_raw_market_imports(archive_root)
+
+    materials = build_phase1_dataset_bundle_materials(imported)
+
+    assert materials
+    latest = materials[-1]
+    market_symbol = latest.market_context["symbols"]["BTCUSDT"]
+    assert market_symbol["1h"]["close"] == pytest.approx(64_390.0)
+    assert market_symbol["1h"]["volume_usdt_24h"] > 0.0
+    assert latest.derivatives_snapshot["rows"][0]["symbol"] == "BTCUSDT"
 
 
 def test_imported_dataset_bundle_exposes_tradeability_metadata(tmp_path: Path) -> None:
