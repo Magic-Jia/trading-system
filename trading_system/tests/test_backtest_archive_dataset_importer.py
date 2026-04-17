@@ -266,6 +266,104 @@ def test_build_phase1_dataset_bundle_materials_accepts_binance_array_ohlcv_rows(
     assert latest.derivatives_snapshot["rows"][0]["symbol"] == "BTCUSDT"
 
 
+def test_build_phase1_dataset_bundle_materials_skips_sparse_ohlcv_rows_mislabeled_as_hourly(
+    tmp_path: Path,
+) -> None:
+    archive_root = tmp_path / "archive"
+    symbol = "BTCUSDT"
+    start = datetime(2024, 1, 1, tzinfo=UTC)
+    total_days = 60
+    symbol_metadata = {
+        "listing_timestamp": "2020-01-01T00:00:00Z",
+        "quantity_step": 0.001,
+        "price_tick": 0.1,
+    }
+
+    sparse_ohlcv_rows: list[dict[str, str | int]] = []
+    for index in range(total_days):
+        observed_at = start + timedelta(days=index)
+        close = 50_000.0 + (index * 100.0)
+        base_volume = 1_000.0 + index
+        sparse_ohlcv_rows.append(
+            {
+                "open_time": _timestamp_ms(observed_at),
+                "open": f"{close - 5.0:.6f}",
+                "high": f"{close + 20.0:.6f}",
+                "low": f"{close - 20.0:.6f}",
+                "close": f"{close:.6f}",
+                "volume": f"{base_volume:.6f}",
+                "quote_asset_volume": f"{close * base_volume:.6f}",
+            }
+        )
+
+    archive_raw_market_payload(
+        archive_root=archive_root,
+        exchange="binance",
+        market="futures",
+        dataset="ohlcv",
+        symbol=symbol,
+        timeframe="1h",
+        coverage_start=start.isoformat().replace("+00:00", "Z"),
+        coverage_end=(start + timedelta(days=total_days)).isoformat().replace("+00:00", "Z"),
+        fetched_at="2026-04-01T07:30:00Z",
+        endpoint="/fapi/v1/klines",
+        payload={"symbol": symbol, "interval": "1h", "rows": sparse_ohlcv_rows},
+        symbol_metadata=symbol_metadata,
+    )
+
+    open_interest_rows: list[dict[str, str | int]] = []
+    funding_rows: list[dict[str, str | int]] = []
+    for hour_index in range(total_days * 24):
+        observed_at = start + timedelta(hours=hour_index)
+        open_interest_rows.append(
+            {
+                "timestamp": _timestamp_ms(observed_at),
+                "sumOpenInterest": f"{10_000.0 + (hour_index * 10.0):.6f}",
+            }
+        )
+        if hour_index % 8 == 0:
+            funding_rows.append(
+                {
+                    "fundingTime": _timestamp_ms(observed_at),
+                    "fundingRate": f"{0.0001 + ((hour_index // 8) * 0.000001):.8f}",
+                }
+            )
+
+    coverage_end = (start + timedelta(days=total_days)).isoformat().replace("+00:00", "Z")
+    archive_raw_market_payload(
+        archive_root=archive_root,
+        exchange="binance",
+        market="futures",
+        dataset="funding",
+        symbol=symbol,
+        coverage_start=start.isoformat().replace("+00:00", "Z"),
+        coverage_end=coverage_end,
+        fetched_at="2026-04-01T07:31:00Z",
+        endpoint="/fapi/v1/fundingRate",
+        payload=funding_rows,
+        symbol_metadata=symbol_metadata,
+    )
+    archive_raw_market_payload(
+        archive_root=archive_root,
+        exchange="binance",
+        market="futures",
+        dataset="open_interest",
+        symbol=symbol,
+        coverage_start=start.isoformat().replace("+00:00", "Z"),
+        coverage_end=coverage_end,
+        fetched_at="2026-04-01T07:32:00Z",
+        endpoint="/futures/data/openInterestHist",
+        payload=open_interest_rows,
+        symbol_metadata=symbol_metadata,
+    )
+
+    imported = load_phase1_raw_market_imports(archive_root)
+
+    materials = build_phase1_dataset_bundle_materials(imported)
+
+    assert materials == ()
+
+
 def test_imported_dataset_bundle_exposes_tradeability_metadata(tmp_path: Path) -> None:
     archive_root = tmp_path / "archive"
     dataset_root = tmp_path / "dataset"

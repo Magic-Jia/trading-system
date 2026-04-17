@@ -370,8 +370,20 @@ def _latest_record_at_or_before(
 
 
 def _hourly_history_up_to(series: ImportedRawMarketSeries, *, timestamp: datetime) -> list[_OhlcvBar]:
-    history = [_hourly_ohlcv_bar(record) for record in series.records if record.observed_at <= timestamp]
-    return sorted(history, key=lambda row: row.observed_at)
+    ordered = sorted(
+        (_hourly_ohlcv_bar(record) for record in series.records if record.observed_at <= timestamp),
+        key=lambda row: row.observed_at,
+    )
+    if not ordered:
+        return []
+    contiguous = [ordered[-1]]
+    expected_gap = timedelta(hours=1)
+    for previous, current in zip(reversed(ordered[:-1]), reversed(ordered[1:]), strict=False):
+        if current.observed_at - previous.observed_at != expected_gap:
+            break
+        contiguous.append(previous)
+    contiguous.reverse()
+    return contiguous
 
 
 def _timeframe_payload(hourly_bars: Sequence[_OhlcvBar], *, timeframe: str) -> dict[str, float]:
