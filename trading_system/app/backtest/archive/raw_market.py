@@ -322,6 +322,8 @@ def _load_import_file(manifest_path: Path) -> ImportedRawMarketFile:
     normalized_exchange, normalized_market, canonical_dataset, normalized_symbol, normalized_timeframe, series_key = (
         _validated_import_scope(manifest, manifest_path=manifest_path)
     )
+    coverage_start = _utc_datetime(_required_manifest_value(manifest, "coverage_start", manifest_path=manifest_path))
+    coverage_end = _utc_datetime(_required_manifest_value(manifest, "coverage_end", manifest_path=manifest_path))
     data_path = _manifest_data_path(manifest, manifest_path=manifest_path)
     if not data_path.exists():
         raise FileNotFoundError(f"raw-market data file missing: {data_path}")
@@ -329,28 +331,32 @@ def _load_import_file(manifest_path: Path) -> ImportedRawMarketFile:
     _validate_manifest_file_metadata(manifest, manifest_path=manifest_path, data_path=data_path, raw_bytes=raw_bytes)
     payload = json.loads(raw_bytes.decode("utf-8"))
     rows = _rows_payload(payload, dataset=canonical_dataset, data_path=data_path)
-    records = tuple(
-        sorted(
-            (
-                ImportedRawMarketRecord(
-                    observed_at=_utc_datetime(
-                        _timestamp_value_for_row(dataset=canonical_dataset, row=row, data_path=data_path, index=index)
-                    ),
-                    payload=row,
-                )
-                for index, row in enumerate(rows)
-            ),
-            key=lambda record: record.observed_at,
+    materialized_records: list[ImportedRawMarketRecord] = []
+    for index, row in enumerate(rows):
+        observed_at = _utc_datetime(
+            _timestamp_value_for_row(dataset=canonical_dataset, row=row, data_path=data_path, index=index)
         )
-    )
+        if observed_at < coverage_start or observed_at >= coverage_end:
+            raise ValueError(
+                "raw-market record timestamp outside declared coverage window: "
+                f"{data_path} rows[{index}] observed_at={observed_at.isoformat()} "
+                f"coverage=[{coverage_start.isoformat()} -> {coverage_end.isoformat()})"
+            )
+        materialized_records.append(
+            ImportedRawMarketRecord(
+                observed_at=observed_at,
+                payload=row,
+            )
+        )
+    records = tuple(sorted(materialized_records, key=lambda record: record.observed_at))
     return ImportedRawMarketFile(
         series_key=series_key,
         manifest_path=manifest_path,
         data_path=data_path,
         manifest=manifest,
         symbol_metadata=_normalized_symbol_metadata(manifest.get("symbol_metadata"), context=manifest_path),
-        coverage_start=_utc_datetime(_required_manifest_value(manifest, "coverage_start", manifest_path=manifest_path)),
-        coverage_end=_utc_datetime(_required_manifest_value(manifest, "coverage_end", manifest_path=manifest_path)),
+        coverage_start=coverage_start,
+        coverage_end=coverage_end,
         fetched_at=_utc_datetime(_required_manifest_value(manifest, "fetched_at", manifest_path=manifest_path)),
         records=records,
     )
