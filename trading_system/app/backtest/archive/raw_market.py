@@ -458,6 +458,7 @@ def archive_raw_market_payload(
         symbol=normalized_symbol,
         timeframe=normalized_timeframe,
     )
+    normalized_symbol_metadata = _normalized_symbol_metadata(symbol_metadata, context=storage_dir)
     storage_dir.mkdir(parents=True, exist_ok=True)
     duplicate_manifest = _existing_manifest_for_coverage(
         storage_dir,
@@ -511,7 +512,6 @@ def archive_raw_market_payload(
             "size_bytes": len(raw_bytes),
         },
     }
-    normalized_symbol_metadata = _normalized_symbol_metadata(symbol_metadata, context=storage_dir)
     if normalized_symbol_metadata is not None:
         manifest["symbol_metadata"] = normalized_symbol_metadata
     if normalized_timeframe:
