@@ -283,6 +283,66 @@ def test_archive_raw_market_payload_rejects_duplicate_coverage_window_even_with_
         archive_raw_market_payload(fetched_at="2026-04-01T01:05:00Z", **kwargs)
 
 
+def test_load_phase1_raw_market_series_rejects_overlapping_coverage_windows_for_same_series(
+    tmp_path: Path,
+) -> None:
+    archive_root = tmp_path / "archive"
+    archive_raw_market_payload(
+        archive_root=archive_root,
+        exchange="binance",
+        market="futures",
+        dataset="ohlcv",
+        symbol="BTCUSDT",
+        timeframe="1h",
+        coverage_start="2024-04-01T00:00:00Z",
+        coverage_end="2024-04-01T04:00:00Z",
+        fetched_at="2026-04-01T01:02:03Z",
+        endpoint="/fapi/v1/klines",
+        payload={
+            "symbol": "BTCUSDT",
+            "interval": "1h",
+            "rows": [
+                {"open_time": 1711929600000, "close": "70000.0"},
+                {"open_time": 1711933200000, "close": "70100.0"},
+                {"open_time": 1711936800000, "close": "70200.0"},
+                {"open_time": 1711940400000, "close": "70300.0"},
+            ],
+        },
+    )
+    archive_raw_market_payload(
+        archive_root=archive_root,
+        exchange="binance",
+        market="futures",
+        dataset="ohlcv",
+        symbol="BTCUSDT",
+        timeframe="1h",
+        coverage_start="2024-04-01T02:00:00Z",
+        coverage_end="2024-04-01T06:00:00Z",
+        fetched_at="2026-04-01T01:05:03Z",
+        endpoint="/fapi/v1/klines",
+        payload={
+            "symbol": "BTCUSDT",
+            "interval": "1h",
+            "rows": [
+                {"open_time": 1711936800000, "close": "70250.0"},
+                {"open_time": 1711940400000, "close": "70350.0"},
+                {"open_time": 1711944000000, "close": "70450.0"},
+                {"open_time": 1711947600000, "close": "70550.0"},
+            ],
+        },
+    )
+
+    with pytest.raises(ValueError, match="raw-market coverage windows overlap for series"):
+        load_phase1_raw_market_series(
+            archive_root,
+            exchange="binance",
+            market="futures",
+            dataset="ohlcv",
+            symbol="BTCUSDT",
+            timeframe="1h",
+        )
+
+
 def test_load_phase1_raw_market_series_reads_manifest_backed_files_into_importer_structures(
     tmp_path: Path,
 ) -> None:

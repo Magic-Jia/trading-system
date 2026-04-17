@@ -369,6 +369,20 @@ def _series_symbol_metadata(files: tuple[ImportedRawMarketFile, ...]) -> dict[st
     return resolved
 
 
+def _validate_non_overlapping_series_files(files: tuple[ImportedRawMarketFile, ...]) -> None:
+    previous_file: ImportedRawMarketFile | None = None
+    for imported_file in files:
+        if previous_file is not None and imported_file.coverage_start < previous_file.coverage_end:
+            raise ValueError(
+                "raw-market coverage windows overlap for series "
+                f"{imported_file.series_key}: {previous_file.manifest_path} "
+                f"[{previous_file.coverage_start.isoformat()} -> {previous_file.coverage_end.isoformat()}] "
+                f"and {imported_file.manifest_path} "
+                f"[{imported_file.coverage_start.isoformat()} -> {imported_file.coverage_end.isoformat()}]"
+            )
+        previous_file = imported_file
+
+
 def _build_import_series(files: list[ImportedRawMarketFile]) -> ImportedRawMarketSeries:
     ordered_files = tuple(
         sorted(
@@ -376,6 +390,7 @@ def _build_import_series(files: list[ImportedRawMarketFile]) -> ImportedRawMarke
             key=lambda item: (item.coverage_start, item.coverage_end, item.fetched_at, str(item.manifest_path)),
         )
     )
+    _validate_non_overlapping_series_files(ordered_files)
     first = ordered_files[0]
     manifest = first.manifest
     flattened_records = tuple(
