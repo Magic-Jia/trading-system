@@ -1,0 +1,39 @@
+{
+  "as_of": "2026-03-10T00:00:00Z",
+  "schema_version": "imported_instrument_snapshot.v1",
+  "rows": [
+    {
+      "symbol": "BTCUSDT",
+      "market_type": "spot",
+      "base_asset": "BTC",
+      "listing_timestamp": "2020-01-01T00:00:00Z",
+      "quote_volume_usdt_24h": 50000000.0,
+      "liquidity_tier": "top",
+      "quantity_step": 0.001,
+      "price_tick": 0.1,
+      "has_complete_funding": true
+    },
+    {
+      "symbol": "BTCUSDTPERP",
+      "market_type": "futures",
+      "base_asset": "BTC",
+      "listing_timestamp": "2020-01-01T00:00:00Z",
+      "quote_volume_usdt_24h": 80000000.0,
+      "liquidity_tier": "high",
+      "quantity_step": 0.001,
+      "price_tick": 0.1,
+      "has_complete_funding": true
+    },
+    {
+      "symbol": "ETHUSDT",
+      "market_type": "spot",
+      "base_asset": "ETH",
+      "listing_timestamp": "2020-01-01T00:00:00Z",
+      "quote_volume_usdt_24h": 20000000.0,
+      "liquidity_tier": "low",
+      "quantity_step": 0.001,
+      "price_tick": 0.1,
+      "has_complete_funding": true
+    }
+  ]
+}

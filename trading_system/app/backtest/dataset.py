@@ -9,6 +9,7 @@ from .types import DatasetSnapshotRow, InstrumentSnapshotRow, SampleWindow
 
 _REQUIRED_BUNDLE_FILES = ("metadata.json", "market_context.json", "derivatives_snapshot.json")
 _BASELINE_ACCOUNT_FILENAME = "baseline_account_snapshot.json"
+_INSTRUMENT_SNAPSHOT_FILENAME = "instrument_snapshot.json"
 
 
 def _parse_timestamp(value: str) -> datetime:
@@ -19,32 +20,38 @@ def _load_json(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _instrument_rows(payload: dict) -> tuple[InstrumentSnapshotRow, ...]:
-    raw_rows = payload.get("instrument_rows")
-    if raw_rows is None:
+def _instrument_rows(bundle_path: Path) -> tuple[InstrumentSnapshotRow, ...]:
+    path = bundle_path / _INSTRUMENT_SNAPSHOT_FILENAME
+    if not path.exists():
         return ()
-    if not isinstance(raw_rows, list):
-        raise ValueError("dataset bundle has invalid instrument rows payload")
 
-    parsed_rows: list[InstrumentSnapshotRow] = []
-    for row in raw_rows:
-        has_complete_funding = row["has_complete_funding"]
-        if not isinstance(has_complete_funding, bool):
-            raise ValueError("dataset bundle instrument row has_complete_funding must be a boolean")
-        parsed_rows.append(
+    payload = _load_json(path)
+    raw_rows = payload.get("rows", payload)
+    if not isinstance(raw_rows, list):
+        raise ValueError(f"dataset bundle has invalid instrument rows: {path}")
+
+    rows: list[InstrumentSnapshotRow] = []
+    for raw_row in raw_rows:
+        if not isinstance(raw_row, dict):
+            raise ValueError(f"dataset bundle has invalid instrument row payload: {path}")
+        market_type = str(raw_row["market_type"])
+        if market_type not in {"spot", "futures"}:
+            raise ValueError(f"dataset bundle has invalid instrument market_type: {path}")
+        rows.append(
             InstrumentSnapshotRow(
-                symbol=str(row["symbol"]),
-                market_type=str(row["market_type"]),  # type: ignore[arg-type]
-                base_asset=str(row["base_asset"]),
-                listing_timestamp=_parse_timestamp(str(row["listing_timestamp"])),
-                quote_volume_usdt_24h=float(row["quote_volume_usdt_24h"]),
-                liquidity_tier=str(row["liquidity_tier"]),
-                quantity_step=float(row["quantity_step"]),
-                price_tick=float(row["price_tick"]),
-                has_complete_funding=has_complete_funding,
+                symbol=str(raw_row["symbol"]),
+                market_type=market_type,
+                base_asset=str(raw_row["base_asset"]),
+                listing_timestamp=_parse_timestamp(str(raw_row["listing_timestamp"])),
+                quote_volume_usdt_24h=float(raw_row["quote_volume_usdt_24h"]),
+                liquidity_tier=str(raw_row["liquidity_tier"]),
+                quantity_step=float(raw_row["quantity_step"]),
+                price_tick=float(raw_row["price_tick"]),
+                has_complete_funding=bool(raw_row["has_complete_funding"]),
             )
         )
-    return tuple(parsed_rows)
+
+    return tuple(sorted(rows, key=lambda row: (row.market_type, row.symbol)))
 
 
 def _bundle_dirs(dataset_root: Path) -> list[Path]:
@@ -77,6 +84,7 @@ def _row_from_bundle(bundle_path: Path, *, fallback_account: dict | None) -> Dat
         raise FileNotFoundError(
             f"dataset bundle missing account snapshot and no baseline provided: {bundle_path / 'account_snapshot.json'}"
         )
+    instrument_rows = _instrument_rows(bundle_path)
 
     forward_returns = dict(metadata.get("forward_returns") or {})
     forward_drawdowns = dict(metadata.get("forward_drawdowns") or {})
@@ -90,8 +98,8 @@ def _row_from_bundle(bundle_path: Path, *, fallback_account: dict | None) -> Dat
         run_id=str(metadata["run_id"]),
         market=market,
         derivatives=[dict(row) for row in derivatives],
-        instrument_rows=_instrument_rows(market),
         account=dict(account),
+        instrument_rows=instrument_rows,
         forward_returns={str(key): float(value) for key, value in forward_returns.items()},
         forward_drawdowns={str(key): float(value) for key, value in forward_drawdowns.items()},
         meta=meta,

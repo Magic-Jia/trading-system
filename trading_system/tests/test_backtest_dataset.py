@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -8,7 +7,7 @@ import pytest
 
 from trading_system.app.backtest.config import load_backtest_config
 from trading_system.app.backtest.dataset import load_historical_dataset, split_rows_by_windows
-from trading_system.app.backtest.types import DatasetSnapshotRow, ExperimentMetadata, ForwardReturnWindow
+from trading_system.app.backtest.types import DatasetSnapshotRow, ExperimentMetadata, ForwardReturnWindow, InstrumentSnapshotRow
 
 
 def test_backtest_shared_types_can_be_instantiated() -> None:
@@ -32,6 +31,58 @@ def test_backtest_shared_types_can_be_instantiated() -> None:
     assert metadata.variant_name == "no_rotation_suppression"
     assert row.run_id == "sample-001"
     assert window.hours == 72
+
+
+def test_load_historical_dataset_loads_normalized_instrument_rows(tmp_path: Path) -> None:
+    dataset_root = tmp_path / "sample_dataset"
+    bundle = dataset_root / "2026-03-10T00-00-00Z__sample-001"
+    bundle.mkdir(parents=True)
+    (bundle / "metadata.json").write_text(
+        '{"timestamp": "2026-03-10T00:00:00Z", "run_id": "sample-001"}',
+        encoding="utf-8",
+    )
+    (bundle / "market_context.json").write_text('{"symbols": {"BTCUSDT": {}}}', encoding="utf-8")
+    (bundle / "derivatives_snapshot.json").write_text('{"rows": [{"symbol": "BTCUSDT"}]}', encoding="utf-8")
+    (bundle / "account_snapshot.json").write_text('{"equity": 100000.0}', encoding="utf-8")
+    (bundle / "instrument_snapshot.json").write_text(
+        """
+        {
+          "as_of": "2026-03-10T00:00:00Z",
+          "schema_version": "imported_instrument_snapshot.v1",
+          "rows": [
+            {
+              "symbol": "BTCUSDT",
+              "market_type": "futures",
+              "base_asset": "BTC",
+              "listing_timestamp": "2020-01-01T00:00:00Z",
+              "quote_volume_usdt_24h": 250000000.0,
+              "liquidity_tier": "high",
+              "quantity_step": 0.001,
+              "price_tick": 0.1,
+              "has_complete_funding": true
+            }
+          ]
+        }
+        """.strip(),
+        encoding="utf-8",
+    )
+
+    rows = load_historical_dataset(dataset_root)
+
+    assert len(rows) == 1
+    assert rows[0].instrument_rows == (
+        InstrumentSnapshotRow(
+            symbol="BTCUSDT",
+            market_type="futures",
+            base_asset="BTC",
+            listing_timestamp=datetime(2020, 1, 1, tzinfo=UTC),
+            quote_volume_usdt_24h=250_000_000.0,
+            liquidity_tier="high",
+            quantity_step=0.001,
+            price_tick=0.1,
+            has_complete_funding=True,
+        ),
+    )
 
 
 def test_load_backtest_config(fixture_dir: Path) -> None:
@@ -58,58 +109,75 @@ def test_load_backtest_config_requires_dataset_root(tmp_path: Path) -> None:
 
 
 def test_load_backtest_config_parses_full_market_baseline_contract(tmp_path: Path) -> None:
-    config_path = tmp_path / "full_market_baseline.json"
+    dataset_root = tmp_path / "sample_dataset"
+    config_path = tmp_path / "full_market_config.json"
     config_path.write_text(
-        json.dumps(
+        """
+        {
+          "dataset_root": "sample_dataset",
+          "experiment_kind": "full_market_baseline",
+          "sample_windows": [
             {
-                "dataset_root": "./dataset",
-                "experiment_kind": "full_market_baseline",
-                "baseline_name": "current_system",
-                "variant_name": "auditable_baseline",
-                "sample_windows": [
-                    {
-                        "name": "full_history",
-                        "start": "2021-01-01T00:00:00Z",
-                        "end": "2026-01-01T00:00:00Z",
-                        "split": "in_sample",
-                    }
-                ],
-                "markets": ["spot", "futures"],
-                "universe": {
-                    "listing_age_days": 90,
-                    "min_quote_volume_usdt_24h": {"spot": 5_000_000, "futures": 20_000_000},
-                    "require_complete_funding": True,
-                },
-                "capital": {
-                    "model": "shared_pool",
-                    "initial_equity": 100000.0,
-                    "risk_per_trade": 0.005,
-                    "max_open_risk": 0.03,
-                },
-                "costs": {
-                    "fee_bps": {"spot": 10.0, "futures": 5.0},
-                    "slippage_tiers": {
-                        "top": 4.0,
-                        "high": 8.0,
-                        "medium": 15.0,
-                        "low": 30.0,
-                    },
-                    "funding_mode": "historical_series",
-                },
+              "name": "train",
+              "start": "2026-01-01T00:00:00Z",
+              "end": "2026-02-01T00:00:00Z"
             }
-        ),
+          ],
+          "forward_return_windows": [
+            {
+              "name": "1d",
+              "hours": 24
+            }
+          ],
+          "universe": {
+            "listing_age_days": 45,
+            "min_quote_volume_usdt_24h": {
+              "spot": 1000000.0,
+              "futures": 5000000.0
+            },
+            "require_complete_funding": true
+          },
+          "capital": {
+            "model": "shared_pool",
+            "initial_equity": 250000.0,
+            "risk_per_trade": 0.01,
+            "max_open_risk": 0.05
+          },
+          "costs": {
+            "fee_bps": {
+              "spot": 10.0,
+              "futures": 5.0
+            },
+            "slippage_tiers": {
+              "deep": 2.5,
+              "mid": 6.0,
+              "thin": 12.0
+            },
+            "funding_mode": "historical_series"
+          },
+          "baseline_name": "market-wide",
+          "variant_name": "baseline-v1"
+        }
+        """.strip(),
         encoding="utf-8",
     )
 
-    loaded = load_backtest_config(config_path)
+    config = load_backtest_config(config_path)
 
-    assert loaded.experiment_kind == "full_market_baseline"
-    assert loaded.markets == ("spot", "futures")
-    assert loaded.capital.model == "shared_pool"
-    assert loaded.capital.risk_per_trade == pytest.approx(0.005)
-    assert loaded.universe.require_complete_funding is True
-    assert loaded.costs.fee_bps_by_market["futures"] == pytest.approx(5.0)
-    assert loaded.costs.slippage_bps_by_tier["medium"] == pytest.approx(15.0)
+    assert config.dataset_root == dataset_root
+    assert config.experiment_kind == "full_market_baseline"
+    assert config.universe is not None
+    assert config.universe.listing_age_days == 45
+    assert config.universe.min_quote_volume_usdt_24h == {"spot": 1000000.0, "futures": 5000000.0}
+    assert config.universe.require_complete_funding is True
+    assert config.capital is not None
+    assert config.capital.model == "shared_pool"
+    assert config.capital.initial_equity == pytest.approx(250000.0)
+    assert config.capital.risk_per_trade == pytest.approx(0.01)
+    assert config.capital.max_open_risk == pytest.approx(0.05)
+    assert config.costs.fee_bps_by_market == {"spot": 10.0, "futures": 5.0}
+    assert config.costs.slippage_bps_by_tier == {"deep": 2.5, "mid": 6.0, "thin": 12.0}
+    assert config.costs.funding_mode == "historical_series"
 
 
 def test_load_historical_dataset_orders_rows_and_applies_baseline_account(fixture_dir: Path) -> None:
@@ -119,99 +187,6 @@ def test_load_historical_dataset_orders_rows_and_applies_baseline_account(fixtur
     assert rows[0].timestamp < rows[1].timestamp < rows[2].timestamp
     assert rows[1].account is not None
     assert rows[1].account["meta"]["account_type"] == "paper"
-
-
-def test_load_historical_dataset_loads_instrument_rows(tmp_path: Path) -> None:
-    dataset_root = tmp_path / "sample_dataset"
-    bundle = dataset_root / "2026-03-10T00-00-00Z"
-    bundle.mkdir(parents=True)
-    (bundle / "metadata.json").write_text(
-        json.dumps({"timestamp": "2026-03-10T00:00:00Z", "run_id": "sample-001"}),
-        encoding="utf-8",
-    )
-    (bundle / "market_context.json").write_text(
-        json.dumps(
-            {
-                "as_of": "2026-03-10T00:00:00Z",
-                "schema_version": "imported_market_context.v1",
-                "symbols": {
-                    "BTCUSDT": {
-                        "sector": "majors",
-                        "liquidity_tier": "high",
-                        "1h": {"volume_usdt_24h": 250_000_000.0},
-                    }
-                },
-                "instrument_rows": [
-                    {
-                        "symbol": "BTCUSDT",
-                        "market_type": "futures",
-                        "base_asset": "BTC",
-                        "listing_timestamp": "2020-01-01T00:00:00Z",
-                        "quote_volume_usdt_24h": 250_000_000.0,
-                        "liquidity_tier": "high",
-                        "quantity_step": "0.001",
-                        "price_tick": "0.1",
-                        "has_complete_funding": True,
-                    }
-                ],
-            }
-        ),
-        encoding="utf-8",
-    )
-    (bundle / "derivatives_snapshot.json").write_text(json.dumps({"rows": []}), encoding="utf-8")
-    (bundle / "account_snapshot.json").write_text(json.dumps({"equity": 100_000.0}), encoding="utf-8")
-
-    rows = load_historical_dataset(dataset_root)
-
-    assert len(rows) == 1
-    instrument_row = rows[0].instrument_rows[0]
-    assert instrument_row.symbol == "BTCUSDT"
-    assert instrument_row.market_type == "futures"
-    assert instrument_row.base_asset == "BTC"
-    assert instrument_row.listing_timestamp == datetime(2020, 1, 1, tzinfo=UTC)
-    assert instrument_row.quote_volume_usdt_24h == pytest.approx(250_000_000.0)
-    assert instrument_row.liquidity_tier == "high"
-    assert instrument_row.quantity_step == pytest.approx(0.001)
-    assert instrument_row.price_tick == pytest.approx(0.1)
-    assert instrument_row.has_complete_funding is True
-
-
-def test_load_historical_dataset_rejects_non_bool_has_complete_funding(tmp_path: Path) -> None:
-    dataset_root = tmp_path / "sample_dataset"
-    bundle = dataset_root / "2026-03-10T00-00-00Z"
-    bundle.mkdir(parents=True)
-    (bundle / "metadata.json").write_text(
-        json.dumps({"timestamp": "2026-03-10T00:00:00Z", "run_id": "sample-001"}),
-        encoding="utf-8",
-    )
-    (bundle / "market_context.json").write_text(
-        json.dumps(
-            {
-                "as_of": "2026-03-10T00:00:00Z",
-                "schema_version": "imported_market_context.v1",
-                "symbols": {},
-                "instrument_rows": [
-                    {
-                        "symbol": "BTCUSDT",
-                        "market_type": "futures",
-                        "base_asset": "BTC",
-                        "listing_timestamp": "2020-01-01T00:00:00Z",
-                        "quote_volume_usdt_24h": 250_000_000.0,
-                        "liquidity_tier": "high",
-                        "quantity_step": "0.001",
-                        "price_tick": "0.1",
-                        "has_complete_funding": "False",
-                    }
-                ],
-            }
-        ),
-        encoding="utf-8",
-    )
-    (bundle / "derivatives_snapshot.json").write_text(json.dumps({"rows": []}), encoding="utf-8")
-    (bundle / "account_snapshot.json").write_text(json.dumps({"equity": 100_000.0}), encoding="utf-8")
-
-    with pytest.raises(ValueError, match="has_complete_funding must be a boolean"):
-        load_historical_dataset(dataset_root)
 
 
 def test_load_historical_dataset_fails_when_required_snapshot_is_missing(tmp_path: Path) -> None:

@@ -1,0 +1,29 @@
+{
+  "symbols": {
+    "SOLUSDTPERP": {
+      "sector": "majors",
+      "liquidity_tier": "medium",
+      "daily": {
+        "close": 55.0,
+        "ema_20": 53.9,
+        "ema_50": 52.25,
+        "return_pct_7d": 0.05,
+        "volume_usdt_24h": 50000000.0,
+        "atr_pct": 0.03
+      },
+      "4h": {
+        "close": 55.0,
+        "ema_20": 54.175,
+        "ema_50": 52.8,
+        "return_pct_3d": 0.03
+      },
+      "1h": {
+        "close": 55.0,
+        "ema_20": 54.45,
+        "ema_50": 53.35,
+        "return_pct_24h": 0.01
+      }
+    }
+  },
+  "candidate_symbols": []
+}
