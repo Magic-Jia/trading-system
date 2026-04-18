@@ -343,7 +343,7 @@ def test_load_phase1_raw_market_series_rejects_overlapping_coverage_windows_for_
         )
 
 
-def test_load_phase1_raw_market_series_rejects_records_outside_declared_contiguous_coverage_window(
+def test_load_phase1_raw_market_series_rejects_ambiguous_duplicate_boundary_record_timestamps(
     tmp_path: Path,
 ) -> None:
     archive_root = tmp_path / "archive"
@@ -389,7 +389,7 @@ def test_load_phase1_raw_market_series_rejects_records_outside_declared_contiguo
         },
     )
 
-    with pytest.raises(ValueError, match="raw-market record timestamp outside declared coverage window"):
+    with pytest.raises(ValueError, match="raw-market duplicate record timestamp for series"):
         load_phase1_raw_market_series(
             archive_root,
             exchange="binance",
@@ -398,6 +398,89 @@ def test_load_phase1_raw_market_series_rejects_records_outside_declared_contiguo
             symbol="BTCUSDT",
             timeframe="1h",
         )
+
+
+def test_load_phase1_raw_market_series_accepts_terminal_record_equal_to_coverage_end(
+    tmp_path: Path,
+) -> None:
+    archive_root = tmp_path / "archive"
+    archive_raw_market_payload(
+        archive_root=archive_root,
+        exchange="binance",
+        market="futures",
+        dataset="funding",
+        symbol="BTCUSDT",
+        coverage_start="2024-04-01T00:00:00Z",
+        coverage_end="2024-04-01T08:00:00Z",
+        fetched_at="2026-04-01T01:02:03Z",
+        endpoint="/fapi/v1/fundingRate",
+        payload=[
+            {"fundingTime": 1711929600000, "fundingRate": "0.0001"},
+            {"fundingTime": 1711958400000, "fundingRate": "0.0002"},
+        ],
+    )
+
+    imported = load_phase1_raw_market_series(
+        archive_root,
+        exchange="binance",
+        market="futures",
+        dataset="funding",
+        symbol="BTCUSDT",
+    )
+
+    assert [record.observed_at for record in imported.records] == [
+        datetime(2024, 4, 1, 0, 0, tzinfo=UTC),
+        datetime(2024, 4, 1, 8, 0, tzinfo=UTC),
+    ]
+
+
+def test_load_phase1_raw_market_series_coalesces_identical_touching_boundary_records(
+    tmp_path: Path,
+) -> None:
+    archive_root = tmp_path / "archive"
+    archive_raw_market_payload(
+        archive_root=archive_root,
+        exchange="binance",
+        market="futures",
+        dataset="open-interest",
+        symbol="BTCUSDT",
+        coverage_start="2024-04-01T00:00:00Z",
+        coverage_end="2024-04-01T01:00:00Z",
+        fetched_at="2026-04-01T01:02:03Z",
+        endpoint="/futures/data/openInterestHist",
+        payload=[
+            {"timestamp": 1711929600000, "sumOpenInterest": "10"},
+            {"timestamp": 1711933200000, "sumOpenInterest": "11"},
+        ],
+    )
+    archive_raw_market_payload(
+        archive_root=archive_root,
+        exchange="binance",
+        market="futures",
+        dataset="open-interest",
+        symbol="BTCUSDT",
+        coverage_start="2024-04-01T01:00:00Z",
+        coverage_end="2024-04-01T01:00:00Z",
+        fetched_at="2026-04-01T01:05:03Z",
+        endpoint="/futures/data/openInterestHist",
+        payload=[
+            {"timestamp": 1711933200000, "sumOpenInterest": "11"},
+        ],
+    )
+
+    imported = load_phase1_raw_market_series(
+        archive_root,
+        exchange="binance",
+        market="futures",
+        dataset="open-interest",
+        symbol="BTCUSDT",
+    )
+
+    assert [record.observed_at for record in imported.records] == [
+        datetime(2024, 4, 1, 0, 0, tzinfo=UTC),
+        datetime(2024, 4, 1, 1, 0, tzinfo=UTC),
+    ]
+    assert [record.payload["sumOpenInterest"] for record in imported.records] == ["10", "11"]
 
 
 def test_load_phase1_raw_market_series_rejects_duplicate_record_timestamps_within_series(

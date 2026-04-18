@@ -10,8 +10,10 @@ from trading_system.app.backtest.archive.importer import (
     build_phase1_dataset_bundle_materials,
     import_phase1_archive_dataset_root,
     inspect_phase1_imported_dataset_root,
+    supplement_phase1_imported_dataset_root_instrument_snapshots,
     validate_phase1_imported_dataset_root,
     write_phase1_dataset_bundle,
+    write_phase1_dataset_root_manifest,
 )
 from trading_system.app.backtest.archive.raw_market import archive_raw_market_payload, load_phase1_raw_market_imports
 from trading_system.app.backtest.dataset import load_historical_dataset
@@ -839,6 +841,251 @@ def test_validate_phase1_imported_dataset_root_rejects_out_of_scope_source_manif
 
     with pytest.raises(ValueError, match="only binance futures raw-market datasets are supported in phase 1"):
         validate_phase1_imported_dataset_root(dataset_root)
+
+
+def test_write_phase1_dataset_bundle_materializes_instrument_snapshot_file(tmp_path: Path) -> None:
+    archive_root = tmp_path / "archive"
+    dataset_root = tmp_path / "dataset"
+    _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT")
+
+    imported = load_phase1_raw_market_imports(archive_root)
+    material = build_phase1_dataset_bundle_materials(imported)[-1]
+    bundle_dir = write_phase1_dataset_bundle(material, dataset_root)
+
+    instrument_snapshot = json.loads((bundle_dir / "instrument_snapshot.json").read_text(encoding="utf-8"))
+
+    assert instrument_snapshot == {
+        "as_of": material.market_context["as_of"],
+        "schema_version": "imported_instrument_snapshot.v1",
+        "rows": material.market_context["instrument_rows"],
+    }
+
+
+def test_supplement_phase1_imported_dataset_root_instrument_snapshots_backfills_legacy_root(tmp_path: Path) -> None:
+    archive_root = tmp_path / "archive"
+    dataset_root = tmp_path / "dataset"
+    _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT")
+
+    imported = load_phase1_raw_market_imports(archive_root)
+    material = build_phase1_dataset_bundle_materials(imported)[-1]
+    bundle_dir = dataset_root / f"{material.timestamp.isoformat().replace('+00:00', 'Z').replace(':', '-')}__{material.run_id}"
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "metadata.json").write_text(json.dumps(material.metadata, ensure_ascii=False, indent=2), encoding="utf-8")
+    (bundle_dir / "market_context.json").write_text(
+        json.dumps({key: value for key, value in material.market_context.items() if key != "instrument_rows"}, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    (bundle_dir / "derivatives_snapshot.json").write_text(
+        json.dumps(material.derivatives_snapshot, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    (bundle_dir / "account_snapshot.json").write_text(
+        json.dumps(material.account_snapshot, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    write_phase1_dataset_root_manifest(
+        archive_root,
+        dataset_root,
+        symbols=("BTCUSDT",),
+        materials=(material,),
+        bundle_dirs=(bundle_dir,),
+    )
+
+    written_paths = supplement_phase1_imported_dataset_root_instrument_snapshots(dataset_root)
+    rows = load_historical_dataset(dataset_root)
+
+    assert written_paths == (bundle_dir / "instrument_snapshot.json",)
+    assert rows[0].instrument_rows[0].symbol == "BTCUSDT"
+    assert rows[0].instrument_rows[0].listing_timestamp == datetime(2024, 1, 1, tzinfo=UTC)
+
+
+def test_supplement_phase1_imported_dataset_root_instrument_snapshots_uses_recorded_manifest_paths_not_full_archive_root(
+    tmp_path: Path,
+) -> None:
+    archive_root = tmp_path / "archive"
+    dataset_root = tmp_path / "dataset"
+    _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT")
+
+    imported = load_phase1_raw_market_imports(archive_root)
+    material = build_phase1_dataset_bundle_materials(imported)[-1]
+    bundle_dir = dataset_root / f"{material.timestamp.isoformat().replace('+00:00', 'Z').replace(':', '-')}__{material.run_id}"
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "metadata.json").write_text(json.dumps(material.metadata, ensure_ascii=False, indent=2), encoding="utf-8")
+    (bundle_dir / "market_context.json").write_text(
+        json.dumps({key: value for key, value in material.market_context.items() if key != "instrument_rows"}, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    (bundle_dir / "derivatives_snapshot.json").write_text(
+        json.dumps(material.derivatives_snapshot, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    (bundle_dir / "account_snapshot.json").write_text(
+        json.dumps(material.account_snapshot, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    write_phase1_dataset_root_manifest(
+        archive_root,
+        dataset_root,
+        symbols=("BTCUSDT",),
+        materials=(material,),
+        bundle_dirs=(bundle_dir,),
+    )
+
+    _archive_phase1_symbol_history(archive_root, symbol="ETHUSDT")
+
+    written_paths = supplement_phase1_imported_dataset_root_instrument_snapshots(dataset_root)
+    rows = load_historical_dataset(dataset_root)
+
+    assert written_paths == (bundle_dir / "instrument_snapshot.json",)
+    assert [item.symbol for item in rows[0].instrument_rows] == ["BTCUSDT"]
+
+
+def test_supplement_phase1_imported_dataset_root_instrument_snapshots_resolves_relative_manifest_paths(
+    tmp_path: Path,
+) -> None:
+    repo_root = tmp_path / "repo"
+    archive_root = repo_root / "trading_system" / "data" / "archive"
+    dataset_root = repo_root / "trading_system" / "data" / "imported-datasets" / "sample_dataset"
+    _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT")
+
+    imported = load_phase1_raw_market_imports(archive_root)
+    material = build_phase1_dataset_bundle_materials(imported)[-1]
+    bundle_dir = write_phase1_dataset_bundle(material, dataset_root)
+    write_phase1_dataset_root_manifest(
+        archive_root,
+        dataset_root,
+        symbols=("BTCUSDT",),
+        materials=(material,),
+        bundle_dirs=(bundle_dir,),
+    )
+    (bundle_dir / "instrument_snapshot.json").unlink()
+
+    metadata_path = bundle_dir / "metadata.json"
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    metadata["source"]["manifest_paths"] = [str(Path(path).relative_to(repo_root)) for path in metadata["source"]["manifest_paths"]]
+    metadata_path.write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    manifest_path = dataset_root / "import_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["archive_root"] = str(Path(manifest["archive_root"]).relative_to(repo_root))
+    manifest["dataset_root"] = str(Path(manifest["dataset_root"]).relative_to(repo_root))
+    manifest["bundle_dirs"] = [str(Path(path).relative_to(repo_root)) for path in manifest["bundle_dirs"]]
+    manifest["source"]["manifest_paths"] = [str(Path(path).relative_to(repo_root)) for path in manifest["source"]["manifest_paths"]]
+    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    written_paths = supplement_phase1_imported_dataset_root_instrument_snapshots(dataset_root)
+    rows = load_historical_dataset(dataset_root)
+
+    assert written_paths == (bundle_dir / "instrument_snapshot.json",)
+    assert [item.symbol for item in rows[0].instrument_rows] == ["BTCUSDT"]
+
+
+def test_supplement_phase1_imported_dataset_root_instrument_snapshots_rejects_relative_manifest_paths_when_dataset_root_base_dir_cannot_be_resolved(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo_root = tmp_path / "repo"
+    archive_root = repo_root / "trading_system" / "data" / "archive"
+    dataset_root = repo_root / "trading_system" / "data" / "imported-datasets" / "sample_dataset"
+    _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT")
+
+    imported = load_phase1_raw_market_imports(archive_root)
+    material = build_phase1_dataset_bundle_materials(imported)[-1]
+    bundle_dir = write_phase1_dataset_bundle(material, dataset_root)
+    write_phase1_dataset_root_manifest(
+        archive_root,
+        dataset_root,
+        symbols=("BTCUSDT",),
+        materials=(material,),
+        bundle_dirs=(bundle_dir,),
+    )
+    (bundle_dir / "instrument_snapshot.json").unlink()
+
+    metadata_path = bundle_dir / "metadata.json"
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    metadata["source"]["manifest_paths"] = [str(Path(path).relative_to(repo_root)) for path in metadata["source"]["manifest_paths"]]
+    metadata_path.write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    manifest_path = dataset_root / "import_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["archive_root"] = str(Path(manifest["archive_root"]).relative_to(repo_root))
+    manifest["dataset_root"] = "broken/place/for/dataset_root"
+    manifest["bundle_dirs"] = [str(Path(path).relative_to(repo_root)) for path in manifest["bundle_dirs"]]
+    manifest["source"]["manifest_paths"] = [str(Path(path).relative_to(repo_root)) for path in manifest["source"]["manifest_paths"]]
+    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    monkeypatch.chdir(repo_root)
+
+    with pytest.raises(ValueError, match="relative source manifest_paths require a resolvable dataset_root base dir"):
+        supplement_phase1_imported_dataset_root_instrument_snapshots(dataset_root)
+
+
+def test_validate_phase1_imported_dataset_root_rejects_missing_instrument_snapshot(tmp_path: Path) -> None:
+    archive_root = tmp_path / "archive"
+    dataset_root = tmp_path / "dataset"
+    _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT")
+
+    imported = load_phase1_raw_market_imports(archive_root)
+    material = build_phase1_dataset_bundle_materials(imported)[-1]
+    bundle_dir = write_phase1_dataset_bundle(material, dataset_root)
+    (bundle_dir / "instrument_snapshot.json").unlink()
+
+    with pytest.raises(FileNotFoundError, match="instrument_snapshot.json"):
+        validate_phase1_imported_dataset_root(
+            dataset_root,
+            expected_bundle_dirs=(bundle_dir,),
+            expected_timestamps=(material.timestamp,),
+        )
+
+
+def test_validate_phase1_imported_dataset_root_rejects_instrument_snapshot_drift_from_market_context(
+    tmp_path: Path,
+) -> None:
+    archive_root = tmp_path / "archive"
+    dataset_root = tmp_path / "dataset"
+    _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT")
+
+    imported = load_phase1_raw_market_imports(archive_root)
+    material = build_phase1_dataset_bundle_materials(imported)[-1]
+    bundle_dir = write_phase1_dataset_bundle(material, dataset_root)
+
+    instrument_snapshot_path = bundle_dir / "instrument_snapshot.json"
+    instrument_snapshot = json.loads(instrument_snapshot_path.read_text(encoding="utf-8"))
+    instrument_snapshot["rows"][0]["liquidity_tier"] = "drifted-tier"
+    instrument_snapshot_path.write_text(json.dumps(instrument_snapshot, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="instrument rows drifted between market_context.json and instrument_snapshot.json"):
+        validate_phase1_imported_dataset_root(
+            dataset_root,
+            expected_bundle_dirs=(bundle_dir,),
+            expected_timestamps=(material.timestamp,),
+        )
+
+
+
+def test_validate_phase1_imported_dataset_root_allows_legacy_market_context_without_instrument_rows(
+    tmp_path: Path,
+) -> None:
+    archive_root = tmp_path / "archive"
+    dataset_root = tmp_path / "dataset"
+    _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT")
+
+    imported = load_phase1_raw_market_imports(archive_root)
+    material = build_phase1_dataset_bundle_materials(imported)[-1]
+    bundle_dir = write_phase1_dataset_bundle(material, dataset_root)
+
+    market_context_path = bundle_dir / "market_context.json"
+    market_context = json.loads(market_context_path.read_text(encoding="utf-8"))
+    market_context.pop("instrument_rows", None)
+    market_context_path.write_text(json.dumps(market_context, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    rows = validate_phase1_imported_dataset_root(
+        dataset_root,
+        expected_bundle_dirs=(bundle_dir,),
+        expected_timestamps=(material.timestamp,),
+    )
+
+    assert [item.symbol for item in rows[0].instrument_rows] == ["BTCUSDT"]
 
 
 def test_validate_phase1_imported_dataset_root_rejects_timestamp_drift(tmp_path: Path) -> None:
