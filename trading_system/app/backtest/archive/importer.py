@@ -15,6 +15,7 @@ from .raw_market import (
     ImportedRawMarketRecord,
     ImportedRawMarketSeries,
     load_phase1_raw_market_imports,
+    load_phase1_raw_market_imports_from_manifest_paths,
     load_phase1_raw_market_manifest,
 )
 
@@ -22,6 +23,7 @@ PHASE1_IMPORTER_SCOPE = "phase1_binance_futures"
 PHASE1_IMPORTER_MARKET_CONTEXT_SCHEMA = "imported_market_context.v1"
 PHASE1_IMPORTER_DERIVATIVES_SCHEMA = "imported_derivatives_snapshot.v1"
 PHASE1_IMPORTER_ACCOUNT_SCHEMA = "imported_account_snapshot.v1"
+PHASE1_IMPORTER_INSTRUMENT_SNAPSHOT_SCHEMA = "imported_instrument_snapshot.v1"
 PHASE1_IMPORTER_BUNDLE_SCHEMA = "phase1_import_bundle.v1"
 PHASE1_IMPORTER_ROOT_SCHEMA = "phase1_imported_dataset_root.v1"
 PHASE1_IMPORTER_OHLCV_TIMEFRAME = "1h"
@@ -659,6 +661,14 @@ def build_phase1_dataset_bundle_materials(
     return tuple(materials)
 
 
+def _instrument_snapshot_payload(*, as_of: str, instrument_rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    return {
+        "as_of": as_of,
+        "schema_version": PHASE1_IMPORTER_INSTRUMENT_SNAPSHOT_SCHEMA,
+        "rows": [dict(row) for row in instrument_rows],
+    }
+
+
 def _write_json(path: Path, payload: Mapping[str, Any]) -> None:
     path.write_text(json.dumps(dict(payload), ensure_ascii=False, indent=2), encoding="utf-8")
 
@@ -801,12 +811,15 @@ def _validate_bundle_payloads(bundle_dir: Path, *, expected_timestamp: datetime)
         )
 
     expected_as_of = _utc_timestamp(expected_timestamp)
+    loaded_payloads: dict[str, dict[str, Any]] = {}
     for file_name, expected_schema in (
         ("market_context.json", PHASE1_IMPORTER_MARKET_CONTEXT_SCHEMA),
         ("derivatives_snapshot.json", PHASE1_IMPORTER_DERIVATIVES_SCHEMA),
         ("account_snapshot.json", PHASE1_IMPORTER_ACCOUNT_SCHEMA),
+        ("instrument_snapshot.json", PHASE1_IMPORTER_INSTRUMENT_SNAPSHOT_SCHEMA),
     ):
         payload = _read_json_object(bundle_dir / file_name)
+        loaded_payloads[file_name] = payload
         loaded_schema = str(payload.get("schema_version") or "")
         if loaded_schema != expected_schema:
             raise ValueError(
@@ -818,6 +831,31 @@ def _validate_bundle_payloads(bundle_dir: Path, *, expected_timestamp: datetime)
             raise ValueError(
                 "materialized dataset bundle payload as_of did not round-trip: "
                 f"expected {expected_as_of}, loaded {loaded_as_of}"
+            )
+
+    market_context_rows = loaded_payloads["market_context.json"].get("instrument_rows")
+    if market_context_rows is not None:
+        if not isinstance(market_context_rows, list):
+            raise ValueError(
+                f"materialized dataset bundle market_context instrument_rows must be a JSON array: {bundle_dir / 'market_context.json'}"
+            )
+        instrument_snapshot_rows = loaded_payloads["instrument_snapshot.json"].get("rows")
+        if not isinstance(instrument_snapshot_rows, list):
+            raise ValueError(
+                f"materialized dataset bundle instrument_snapshot rows must be a JSON array: {bundle_dir / 'instrument_snapshot.json'}"
+            )
+        normalized_market_context_rows = sorted(
+            (_json_object_field(row, context="materialized dataset bundle market_context instrument_rows item") for row in market_context_rows),
+            key=lambda row: json.dumps(row, ensure_ascii=False, sort_keys=True),
+        )
+        normalized_instrument_snapshot_rows = sorted(
+            (_json_object_field(row, context="materialized dataset bundle instrument_snapshot rows item") for row in instrument_snapshot_rows),
+            key=lambda row: json.dumps(row, ensure_ascii=False, sort_keys=True),
+        )
+        if normalized_market_context_rows != normalized_instrument_snapshot_rows:
+            raise ValueError(
+                "materialized dataset bundle instrument rows drifted between market_context.json and instrument_snapshot.json: "
+                f"{bundle_dir}"
             )
 
 
@@ -851,6 +889,13 @@ def write_phase1_dataset_bundle(material: Phase1DatasetBundleMaterial, dataset_r
     _write_json(bundle_dir / "market_context.json", material.market_context)
     _write_json(bundle_dir / "derivatives_snapshot.json", material.derivatives_snapshot)
     _write_json(bundle_dir / "account_snapshot.json", material.account_snapshot)
+    _write_json(
+        bundle_dir / "instrument_snapshot.json",
+        _instrument_snapshot_payload(
+            as_of=str(material.market_context["as_of"]),
+            instrument_rows=tuple(dict(row) for row in material.market_context.get("instrument_rows") or ()),
+        ),
+    )
     return bundle_dir
 
 
@@ -1020,6 +1065,127 @@ def validate_phase1_imported_dataset_root(
     return rows
 
 
+def _phase1_imported_dataset_root_relative_base_dir(dataset_path: Path) -> Path | None:
+    manifest_path = _phase1_dataset_root_manifest_path(dataset_path)
+    if not manifest_path.exists():
+        return None
+    manifest = _read_json_object(manifest_path)
+    dataset_root_value = str(manifest.get("dataset_root") or "").strip()
+    if not dataset_root_value:
+        return None
+    recorded_dataset_root = Path(dataset_root_value)
+    if recorded_dataset_root.is_absolute():
+        return None
+
+    resolved_dataset_path = dataset_path.resolve()
+    recorded_parts = recorded_dataset_root.parts
+    if len(recorded_parts) > len(resolved_dataset_path.parts):
+        return None
+    if tuple(resolved_dataset_path.parts[-len(recorded_parts) :]) != tuple(recorded_parts):
+        return None
+
+    base_dir = resolved_dataset_path
+    for _ in recorded_parts:
+        base_dir = base_dir.parent
+    return base_dir
+
+
+def _resolved_source_manifest_paths(dataset_path: Path, manifest_paths: Sequence[str]) -> tuple[str, ...]:
+    base_dir = _phase1_imported_dataset_root_relative_base_dir(dataset_path)
+    resolved_paths: list[str] = []
+    for value in manifest_paths:
+        path = Path(value)
+        if path.is_absolute():
+            resolved_paths.append(str(path))
+            continue
+        if base_dir is None:
+            raise ValueError(
+                "relative source manifest_paths require a resolvable dataset_root base dir: "
+                f"{dataset_path} -> {path}"
+            )
+        resolved_paths.append(str(base_dir / path))
+    return tuple(resolved_paths)
+
+
+def _phase1_imported_dataset_root_manifest_paths(dataset_path: Path, rows: Sequence[Any]) -> tuple[str, ...]:
+    loaded_source = _materialized_dataset_row_source(rows)
+    manifest_paths = tuple(sorted(str(value) for value in loaded_source.get("manifest_paths") or ()))
+    if not manifest_paths:
+        raise ValueError("phase1 imported dataset root does not declare source manifest_paths")
+    return _resolved_source_manifest_paths(dataset_path, manifest_paths)
+
+
+def _normalized_phase1_source_trace(dataset_path: Path, source: Mapping[str, Any], *, context: str) -> dict[str, Any]:
+    normalized = _json_object_field(source, context=context)
+    manifest_paths = tuple(sorted(str(value) for value in normalized.get("manifest_paths") or ()))
+    normalized["manifest_paths"] = list(_resolved_source_manifest_paths(dataset_path, manifest_paths))
+    return normalized
+
+
+def supplement_phase1_imported_dataset_root_instrument_snapshots(
+    dataset_root: str | Path,
+    *,
+    overwrite: bool = False,
+) -> tuple[Path, ...]:
+    dataset_path = Path(dataset_root)
+    rows = load_historical_dataset(dataset_path)
+    if not rows:
+        return ()
+
+    manifest_paths = _phase1_imported_dataset_root_manifest_paths(dataset_path, rows)
+    imported_series = load_phase1_raw_market_imports_from_manifest_paths(manifest_paths)
+    if not imported_series:
+        raise FileNotFoundError(
+            "phase1 imported dataset root source manifest_paths did not resolve any raw-market imports: "
+            f"{dataset_path}"
+        )
+    materials = build_phase1_dataset_bundle_materials(imported_series)
+    materials_by_timestamp = {material.timestamp: material for material in materials}
+
+    written_paths: list[Path] = []
+    for row in rows:
+        material = materials_by_timestamp.get(row.timestamp)
+        if material is None:
+            raise ValueError(
+                "phase1 imported dataset root timestamp is missing from archive-derived materials: "
+                f"{_utc_timestamp(row.timestamp)}"
+            )
+        expected_source = _normalized_phase1_source_trace(
+            dataset_path,
+            material.metadata.get("source") or {},
+            context="archive-derived phase1 bundle metadata source",
+        )
+        loaded_source = _normalized_phase1_source_trace(
+            dataset_path,
+            row.meta.get("source") or {},
+            context="loaded phase1 bundle metadata source",
+        )
+        if loaded_source != expected_source:
+            raise ValueError(
+                "phase1 imported dataset root source trace did not match archive-derived materials: "
+                f"expected {expected_source}, loaded {loaded_source}"
+            )
+        bundle_dir = row.source_path
+        if bundle_dir is None:
+            raise ValueError(f"phase1 imported dataset row is missing source_path: {row.run_id}")
+        instrument_snapshot_path = bundle_dir / "instrument_snapshot.json"
+        if instrument_snapshot_path.exists() and not overwrite:
+            continue
+        _write_json(
+            instrument_snapshot_path,
+            _instrument_snapshot_payload(
+                as_of=str(material.market_context["as_of"]),
+                instrument_rows=tuple(dict(item) for item in material.market_context.get("instrument_rows") or ()),
+            ),
+        )
+        written_paths.append(instrument_snapshot_path)
+
+    reloaded_rows = load_historical_dataset(dataset_path)
+    if any(not row.instrument_rows for row in reloaded_rows):
+        raise ValueError(f"phase1 imported dataset root still has bundles without instrument rows after supplement: {dataset_path}")
+    return tuple(written_paths)
+
+
 def import_phase1_archive_dataset_root(
     archive_root: str | Path,
     dataset_root: str | Path,
@@ -1090,6 +1256,7 @@ __all__ = [
     "build_phase1_dataset_bundle_materials",
     "import_phase1_archive_dataset_root",
     "inspect_phase1_imported_dataset_root",
+    "supplement_phase1_imported_dataset_root_instrument_snapshots",
     "validate_phase1_imported_dataset_root",
     "write_phase1_dataset_bundle",
     "write_phase1_dataset_root_manifest",

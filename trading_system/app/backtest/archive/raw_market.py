@@ -332,15 +332,23 @@ def _load_import_file(manifest_path: Path) -> ImportedRawMarketFile:
     payload = json.loads(raw_bytes.decode("utf-8"))
     rows = _rows_payload(payload, dataset=canonical_dataset, data_path=data_path)
     materialized_records: list[ImportedRawMarketRecord] = []
+    last_index = len(rows) - 1
     for index, row in enumerate(rows):
         observed_at = _utc_datetime(
             _timestamp_value_for_row(dataset=canonical_dataset, row=row, data_path=data_path, index=index)
         )
-        if observed_at < coverage_start or observed_at >= coverage_end:
+        if observed_at < coverage_start or observed_at > coverage_end:
             raise ValueError(
                 "raw-market record timestamp outside declared coverage window: "
                 f"{data_path} rows[{index}] observed_at={observed_at.isoformat()} "
-                f"coverage=[{coverage_start.isoformat()} -> {coverage_end.isoformat()})"
+                f"coverage=[{coverage_start.isoformat()} -> {coverage_end.isoformat()}]"
+            )
+        if observed_at == coverage_end and index != last_index:
+            raise ValueError(
+                "raw-market record timestamp outside declared coverage window: "
+                f"{data_path} rows[{index}] observed_at={observed_at.isoformat()} "
+                f"coverage=[{coverage_start.isoformat()} -> {coverage_end.isoformat()}] "
+                "only the terminal record may equal coverage_end"
             )
         materialized_records.append(
             ImportedRawMarketRecord(
@@ -416,11 +424,25 @@ def _build_import_series(files: list[ImportedRawMarketFile]) -> ImportedRawMarke
     normalized_exchange, normalized_market, canonical_dataset, normalized_symbol, normalized_timeframe, _ = (
         _validated_import_scope(first.manifest, manifest_path=first.manifest_path)
     )
-    flattened_records = tuple(
-        record
-        for imported_file in ordered_files
-        for record in imported_file.records
-    )
+    flattened_records_list: list[ImportedRawMarketRecord] = []
+    previous_file: ImportedRawMarketFile | None = None
+    for imported_file in ordered_files:
+        start_index = 0
+        if previous_file is not None and flattened_records_list and imported_file.records:
+            previous_record = flattened_records_list[-1]
+            current_record = imported_file.records[0]
+            touching_boundary = (
+                imported_file.coverage_start == previous_file.coverage_end == current_record.observed_at
+            )
+            if (
+                touching_boundary
+                and previous_record.observed_at == current_record.observed_at
+                and previous_record.payload == current_record.payload
+            ):
+                start_index = 1
+        flattened_records_list.extend(imported_file.records[start_index:])
+        previous_file = imported_file
+    flattened_records = tuple(flattened_records_list)
     _validate_unique_record_timestamps(flattened_records, series_key=first.series_key)
     return ImportedRawMarketSeries(
         series_key=first.series_key,
@@ -607,6 +629,16 @@ def load_phase1_raw_market_manifest(manifest_path: str | Path) -> ImportedRawMar
     return _load_import_file(path)
 
 
+def load_phase1_raw_market_imports_from_manifest_paths(
+    manifest_paths: Sequence[str | Path],
+) -> tuple[ImportedRawMarketSeries, ...]:
+    grouped_files: dict[str, list[ImportedRawMarketFile]] = {}
+    for manifest_path in manifest_paths:
+        imported_file = load_phase1_raw_market_manifest(manifest_path)
+        grouped_files.setdefault(imported_file.series_key, []).append(imported_file)
+    return tuple(_build_import_series(grouped_files[series_key]) for series_key in sorted(grouped_files))
+
+
 def load_phase1_raw_market_imports(archive_root: str | Path) -> tuple[ImportedRawMarketSeries, ...]:
     raw_market_root = Path(archive_root) / RAW_MARKET_ROOT_DIRNAME
     if not raw_market_root.exists():
@@ -627,6 +659,7 @@ __all__ = [
     "RAW_MARKET_ROOT_DIRNAME",
     "archive_raw_market_payload",
     "load_phase1_raw_market_imports",
+    "load_phase1_raw_market_imports_from_manifest_paths",
     "load_phase1_raw_market_manifest",
     "load_phase1_raw_market_series",
     "raw_market_series_key",
