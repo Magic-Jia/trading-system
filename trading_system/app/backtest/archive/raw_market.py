@@ -389,6 +389,21 @@ def _validate_non_overlapping_series_files(files: tuple[ImportedRawMarketFile, .
         previous_file = imported_file
 
 
+def _validate_unique_record_timestamps(
+    records: tuple[ImportedRawMarketRecord, ...],
+    *,
+    series_key: str,
+) -> None:
+    previous_timestamp: datetime | None = None
+    for record in records:
+        if previous_timestamp == record.observed_at:
+            raise ValueError(
+                "raw-market duplicate record timestamp for series "
+                f"{series_key}: {record.observed_at.isoformat()}"
+            )
+        previous_timestamp = record.observed_at
+
+
 def _build_import_series(files: list[ImportedRawMarketFile]) -> ImportedRawMarketSeries:
     ordered_files = tuple(
         sorted(
@@ -406,6 +421,7 @@ def _build_import_series(files: list[ImportedRawMarketFile]) -> ImportedRawMarke
         for imported_file in ordered_files
         for record in imported_file.records
     )
+    _validate_unique_record_timestamps(flattened_records, series_key=first.series_key)
     return ImportedRawMarketSeries(
         series_key=first.series_key,
         exchange=normalized_exchange,
