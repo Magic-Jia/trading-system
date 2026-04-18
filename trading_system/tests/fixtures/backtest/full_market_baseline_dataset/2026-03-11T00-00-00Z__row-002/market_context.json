@@ -1,0 +1,79 @@
+{
+  "symbols": {
+    "BTCUSDT": {
+      "sector": "majors",
+      "liquidity_tier": "top",
+      "daily": {
+        "close": 110.0,
+        "ema_20": 107.8,
+        "ema_50": 104.5,
+        "return_pct_7d": 0.05,
+        "volume_usdt_24h": 50000000.0,
+        "atr_pct": 0.03
+      },
+      "4h": {
+        "close": 110.0,
+        "ema_20": 108.35,
+        "ema_50": 105.6,
+        "return_pct_3d": 0.03
+      },
+      "1h": {
+        "close": 110.0,
+        "ema_20": 108.9,
+        "ema_50": 106.7,
+        "return_pct_24h": 0.01
+      }
+    },
+    "ETHUSDT": {
+      "sector": "majors",
+      "liquidity_tier": "low",
+      "daily": {
+        "close": 980.0,
+        "ema_20": 960.4,
+        "ema_50": 931.0,
+        "return_pct_7d": 0.05,
+        "volume_usdt_24h": 50000000.0,
+        "atr_pct": 0.03
+      },
+      "4h": {
+        "close": 980.0,
+        "ema_20": 965.3,
+        "ema_50": 940.8,
+        "return_pct_3d": 0.03
+      },
+      "1h": {
+        "close": 980.0,
+        "ema_20": 970.2,
+        "ema_50": 950.6,
+        "return_pct_24h": 0.01
+      }
+    },
+    "SOLUSDTPERP": {
+      "sector": "majors",
+      "liquidity_tier": "medium",
+      "daily": {
+        "close": 50.0,
+        "ema_20": 49.0,
+        "ema_50": 47.5,
+        "return_pct_7d": 0.05,
+        "volume_usdt_24h": 50000000.0,
+        "atr_pct": 0.03
+      },
+      "4h": {
+        "close": 50.0,
+        "ema_20": 49.25,
+        "ema_50": 48.0,
+        "return_pct_3d": 0.03
+      },
+      "1h": {
+        "close": 50.0,
+        "ema_20": 49.5,
+        "ema_50": 48.5,
+        "return_pct_24h": 0.01
+      }
+    }
+  },
+  "candidate_symbols": [
+    "SOLUSDTPERP"
+  ]
+}

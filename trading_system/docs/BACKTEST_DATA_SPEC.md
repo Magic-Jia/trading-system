@@ -10,6 +10,7 @@ Historical datasets live under a single root directory.
 - `<bundle>/market_context.json` — required market snapshot
 - `<bundle>/derivatives_snapshot.json` — required derivatives snapshot
 - `<bundle>/account_snapshot.json` — optional bundle override
+- `<bundle>/instrument_snapshot.json` — optional for regime research, required for `full_market_baseline`; carries normalized tradeability metadata per instrument
 
 ## Bundle requirements
 
@@ -19,6 +20,27 @@ Each bundle must be self-describing and deterministic:
 - bundle files are immutable research inputs
 - repeated loads must preserve timestamp ordering
 - forward returns / drawdowns belong in `metadata.json`
+- `full_market_baseline` bundles must expose enough instrument metadata to replay the market without hand-picked symbol lists
+
+## Full-market baseline instrument contract
+
+When the experiment kind is `full_market_baseline`, each bundle is expected to
+ship an `instrument_snapshot.json` with rows that normalize the replay inputs the
+portfolio path depends on:
+
+- `symbol`
+- `market_type`
+- `base_asset`
+- `listing_timestamp`
+- `quote_volume_usdt_24h`
+- `liquidity_tier`
+- `quantity_step`
+- `price_tick`
+- `has_complete_funding`
+
+This keeps the baseline replay auditable: universe filtering, crowding checks,
+cost tier selection, and funding completeness all read from the same frozen
+bundle data instead of ad-hoc runtime guesses.
 
 ## Imported dataset assembly contract
 

@@ -8,8 +8,9 @@ from typing import Any, Callable
 
 from .config import load_backtest_config
 from .dataset import load_historical_dataset, split_rows_by_windows
+from .engine import replay_full_market_baseline
 from .experiments import run_regime_predictive_power_experiment
-from .reporting import render_regime_scorecard
+from .reporting import render_full_market_baseline_report, render_regime_scorecard
 from .types import BacktestConfig, DatasetSnapshotRow
 
 
@@ -44,7 +45,7 @@ def _base_metadata(config: BacktestConfig, rows: list[DatasetSnapshotRow]) -> di
     }
 
 
-def _regime_research_outputs(config: BacktestConfig, rows: list[DatasetSnapshotRow]) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+def _regime_research_outputs(config: BacktestConfig, rows: list[DatasetSnapshotRow]) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
     experiment = run_regime_predictive_power_experiment(rows)
     summary = dict(experiment)
     summary["metadata"] = {
@@ -62,11 +63,30 @@ def _regime_research_outputs(config: BacktestConfig, rows: list[DatasetSnapshotR
         "snapshot_count": len(rows),
         "artifacts": ["manifest.json", "summary.json", "scorecard.json"],
     }
-    return manifest, summary, scorecard
+    return manifest, {"summary.json": summary, "scorecard.json": scorecard}
 
 
-_EXPERIMENT_HANDLERS: dict[str, Callable[[BacktestConfig, list[DatasetSnapshotRow]], tuple[dict[str, Any], dict[str, Any], dict[str, Any]]]] = {
+def _full_market_baseline_outputs(config: BacktestConfig, rows: list[DatasetSnapshotRow]) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
+    result = replay_full_market_baseline(config)
+    report = render_full_market_baseline_report(result)
+    metadata = _base_metadata(config, rows)
+    artifacts = {
+        "summary.json": {"metadata": metadata, "summary": report["summary"]},
+        "breakdowns.json": {"metadata": metadata, "breakdowns": report["breakdowns"]},
+        "audit.json": {"metadata": metadata, "audit": report["audit"]},
+    }
+    manifest = {
+        **metadata,
+        "bundle_name": _bundle_name(config),
+        "snapshot_count": len(rows),
+        "artifacts": ["manifest.json", *artifacts.keys()],
+    }
+    return manifest, artifacts
+
+
+_EXPERIMENT_HANDLERS: dict[str, Callable[[BacktestConfig, list[DatasetSnapshotRow]], tuple[dict[str, Any], dict[str, dict[str, Any]]]]] = {
     "regime_research": _regime_research_outputs,
+    "full_market_baseline": _full_market_baseline_outputs,
 }
 
 
@@ -85,12 +105,12 @@ def _run_command(args: argparse.Namespace) -> int:
         supported = ", ".join(sorted(_EXPERIMENT_HANDLERS))
         raise ValueError(f"unsupported experiment_kind: {config.experiment_kind}; supported: {supported}")
 
-    manifest, summary, scorecard = handler(config, rows)
+    manifest, artifacts = handler(config, rows)
     bundle_dir = Path(args.output_dir) / _bundle_name(config)
     bundle_dir.mkdir(parents=True, exist_ok=True)
     _write_json(bundle_dir / "manifest.json", manifest)
-    _write_json(bundle_dir / "summary.json", summary)
-    _write_json(bundle_dir / "scorecard.json", scorecard)
+    for filename, payload in artifacts.items():
+        _write_json(bundle_dir / filename, payload)
     print(bundle_dir)
     return 0
 
