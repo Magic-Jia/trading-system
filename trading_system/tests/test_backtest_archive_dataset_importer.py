@@ -980,6 +980,48 @@ def test_supplement_phase1_imported_dataset_root_instrument_snapshots_resolves_r
     assert [item.symbol for item in rows[0].instrument_rows] == ["BTCUSDT"]
 
 
+def test_supplement_phase1_imported_dataset_root_instrument_snapshots_dedupes_manifest_paths_after_relative_resolution(
+    tmp_path: Path,
+) -> None:
+    repo_root = tmp_path / "repo"
+    archive_root = repo_root / "trading_system" / "data" / "archive"
+    dataset_root = repo_root / "trading_system" / "data" / "imported-datasets" / "sample_dataset"
+    _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT")
+
+    imported = load_phase1_raw_market_imports(archive_root)
+    material = build_phase1_dataset_bundle_materials(imported)[-1]
+    bundle_dir = write_phase1_dataset_bundle(material, dataset_root)
+    write_phase1_dataset_root_manifest(
+        archive_root,
+        dataset_root,
+        symbols=("BTCUSDT",),
+        materials=(material,),
+        bundle_dirs=(bundle_dir,),
+    )
+    (bundle_dir / "instrument_snapshot.json").unlink()
+
+    metadata_path = bundle_dir / "metadata.json"
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    absolute_paths = list(metadata["source"]["manifest_paths"])
+    relative_paths = [str(Path(path).relative_to(repo_root)) for path in absolute_paths]
+    metadata["source"]["manifest_paths"] = absolute_paths + relative_paths
+    metadata_path.write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    manifest_path = dataset_root / "import_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["archive_root"] = str(Path(manifest["archive_root"]).relative_to(repo_root))
+    manifest["dataset_root"] = str(Path(manifest["dataset_root"]).relative_to(repo_root))
+    manifest["bundle_dirs"] = [str(Path(path).relative_to(repo_root)) for path in manifest["bundle_dirs"]]
+    manifest["source"]["manifest_paths"] = [str(Path(path).relative_to(repo_root)) for path in manifest["source"]["manifest_paths"]]
+    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    written_paths = supplement_phase1_imported_dataset_root_instrument_snapshots(dataset_root)
+    rows = load_historical_dataset(dataset_root)
+
+    assert written_paths == (bundle_dir / "instrument_snapshot.json",)
+    assert [item.symbol for item in rows[0].instrument_rows] == ["BTCUSDT"]
+
+
 def test_supplement_phase1_imported_dataset_root_instrument_snapshots_rejects_relative_manifest_paths_when_dataset_root_base_dir_cannot_be_resolved(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1018,6 +1060,45 @@ def test_supplement_phase1_imported_dataset_root_instrument_snapshots_rejects_re
 
     with pytest.raises(ValueError, match="relative source manifest_paths require a resolvable dataset_root base dir"):
         supplement_phase1_imported_dataset_root_instrument_snapshots(dataset_root)
+
+
+def test_validate_phase1_imported_dataset_root_accepts_relative_manifest_paths_and_root_fields(
+    tmp_path: Path,
+) -> None:
+    repo_root = tmp_path / "repo"
+    archive_root = repo_root / "trading_system" / "data" / "archive"
+    dataset_root = repo_root / "trading_system" / "data" / "imported-datasets" / "sample_dataset"
+    _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT")
+
+    imported = load_phase1_raw_market_imports(archive_root)
+    material = build_phase1_dataset_bundle_materials(imported)[-1]
+    bundle_dir = write_phase1_dataset_bundle(material, dataset_root)
+    write_phase1_dataset_root_manifest(
+        archive_root,
+        dataset_root,
+        symbols=("BTCUSDT",),
+        materials=(material,),
+        bundle_dirs=(bundle_dir,),
+    )
+
+    metadata_path = bundle_dir / "metadata.json"
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    metadata["source"]["manifest_paths"] = [str(Path(path).relative_to(repo_root)) for path in metadata["source"]["manifest_paths"]]
+    metadata_path.write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    manifest_path = dataset_root / "import_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["archive_root"] = str(Path(manifest["archive_root"]).relative_to(repo_root))
+    manifest["dataset_root"] = str(Path(manifest["dataset_root"]).relative_to(repo_root))
+    manifest["bundle_dirs"] = [str(Path(path).relative_to(repo_root)) for path in manifest["bundle_dirs"]]
+    manifest["source"]["manifest_paths"] = [str(Path(path).relative_to(repo_root)) for path in manifest["source"]["manifest_paths"]]
+    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    rows = validate_phase1_imported_dataset_root(dataset_root)
+
+    assert len(rows) == 1
+    assert rows[0].source_path == bundle_dir
+    assert [item.symbol for item in rows[0].instrument_rows] == ["BTCUSDT"]
 
 
 def test_validate_phase1_imported_dataset_root_rejects_missing_instrument_snapshot(tmp_path: Path) -> None:

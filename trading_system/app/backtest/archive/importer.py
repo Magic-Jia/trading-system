@@ -721,6 +721,16 @@ def _phase1_dataset_root_summary_fields(payload: Mapping[str, Any]) -> dict[str,
     }
 
 
+def _resolved_phase1_imported_dataset_root_path(dataset_path: Path, value: str | Path) -> Path:
+    path = Path(str(value))
+    if path.is_absolute():
+        return path
+    base_dir = _phase1_imported_dataset_root_relative_base_dir(dataset_path)
+    if base_dir is None:
+        return path
+    return base_dir / path
+
+
 def _json_object_field(value: Any, *, context: str) -> dict[str, Any]:
     if not isinstance(value, Mapping):
         raise ValueError(f"{context} must contain a JSON object")
@@ -902,7 +912,11 @@ def write_phase1_dataset_bundle(material: Phase1DatasetBundleMaterial, dataset_r
 def inspect_phase1_imported_dataset_root(dataset_root: str | Path) -> dict[str, dict[str, Any] | None]:
     dataset_path = Path(dataset_root)
     rows = load_historical_dataset(dataset_path)
-    loaded_source = _materialized_dataset_row_source(rows)
+    loaded_source = _normalized_phase1_source_trace(
+        dataset_path,
+        _materialized_dataset_row_source(rows),
+        context="materialized dataset bundle metadata source",
+    )
     loaded_archive_root = _archive_root_from_manifest_paths(loaded_source.get("manifest_paths") or ())
     row_summary = {
         "snapshot_count": len(rows),
@@ -923,6 +937,20 @@ def inspect_phase1_imported_dataset_root(dataset_root: str | Path) -> dict[str, 
 
     manifest_path = _phase1_dataset_root_manifest_path(dataset_path)
     manifest_summary = _phase1_dataset_root_summary_fields(_read_json_object(manifest_path)) if manifest_path.exists() else None
+    if manifest_summary is not None:
+        if manifest_summary.get("archive_root"):
+            manifest_summary["archive_root"] = str(
+                _resolved_phase1_imported_dataset_root_path(dataset_path, manifest_summary["archive_root"])
+            )
+        manifest_summary["bundle_dirs"] = [
+            str(_resolved_phase1_imported_dataset_root_path(dataset_path, value))
+            for value in manifest_summary.get("bundle_dirs") or ()
+        ]
+        manifest_summary["source"] = _normalized_phase1_source_trace(
+            dataset_path,
+            manifest_summary.get("source") or {},
+            context="phase1 dataset root summary source",
+        )
     return {
         "manifest": manifest_summary,
         "rows": row_summary,
@@ -949,8 +977,8 @@ def validate_phase1_imported_dataset_root(
         schema_version = str(root_manifest.get("schema_version") or "")
         if schema_version != PHASE1_IMPORTER_ROOT_SCHEMA:
             raise ValueError(f"unsupported phase1 dataset root manifest schema: {manifest_path}")
-        manifest_dataset_root = Path(str(root_manifest.get("dataset_root") or ""))
-        if manifest_dataset_root != dataset_path:
+        manifest_dataset_root = _resolved_phase1_imported_dataset_root_path(dataset_path, str(root_manifest.get("dataset_root") or ""))
+        if manifest_dataset_root.resolve() != dataset_path.resolve():
             raise ValueError(
                 "materialized dataset root manifest dataset_root mismatch: "
                 f"expected {dataset_path}, loaded {manifest_dataset_root}"
@@ -996,7 +1024,11 @@ def validate_phase1_imported_dataset_root(
 
     if root_manifest is not None:
         loaded_source = _validated_source_trace_against_manifests(
-            _materialized_dataset_row_source(rows),
+            _normalized_phase1_source_trace(
+                dataset_path,
+                _materialized_dataset_row_source(rows),
+                context="materialized dataset bundle metadata source",
+            ),
             context="materialized dataset bundle metadata source",
         )
         manifest_scope = str(root_manifest.get("scope") or "")
@@ -1026,21 +1058,31 @@ def validate_phase1_imported_dataset_root(
                 "materialized dataset root manifest symbols did not round-trip: "
                 f"expected {manifest_symbols}, loaded {loaded_symbols}"
             )
-        manifest_archive_root = Path(str(root_manifest.get("archive_root") or ""))
+        manifest_archive_root = _resolved_phase1_imported_dataset_root_path(
+            dataset_path,
+            str(root_manifest.get("archive_root") or ""),
+        )
         loaded_archive_root = _archive_root_from_manifest_paths(loaded_source.get("manifest_paths") or ())
-        if loaded_archive_root is not None and manifest_archive_root != loaded_archive_root:
+        if loaded_archive_root is not None and manifest_archive_root.resolve() != loaded_archive_root.resolve():
             raise ValueError(
                 "materialized dataset root manifest archive_root did not round-trip: "
                 f"expected {manifest_archive_root}, loaded {loaded_archive_root}"
             )
-        manifest_source = _json_object_field(root_manifest.get("source") or {}, context="materialized dataset root manifest source")
+        manifest_source = _normalized_phase1_source_trace(
+            dataset_path,
+            root_manifest.get("source") or {},
+            context="materialized dataset root manifest source",
+        )
         if manifest_source != loaded_source:
             raise ValueError(
                 "materialized dataset root manifest source did not round-trip: "
                 f"expected {manifest_source}, loaded {loaded_source}"
             )
-        manifest_bundle_dirs = tuple(Path(str(value)) for value in root_manifest.get("bundle_dirs") or ())
-        if loaded_bundle_dirs != manifest_bundle_dirs:
+        manifest_bundle_dirs = tuple(
+            _resolved_phase1_imported_dataset_root_path(dataset_path, str(value))
+            for value in root_manifest.get("bundle_dirs") or ()
+        )
+        if tuple(path.resolve() for path in loaded_bundle_dirs) != tuple(path.resolve() for path in manifest_bundle_dirs):
             raise ValueError(
                 "materialized dataset root manifest bundle_dirs did not round-trip: "
                 f"expected {manifest_bundle_dirs}, loaded {loaded_bundle_dirs}"
@@ -1104,7 +1146,7 @@ def _resolved_source_manifest_paths(dataset_path: Path, manifest_paths: Sequence
                 f"{dataset_path} -> {path}"
             )
         resolved_paths.append(str(base_dir / path))
-    return tuple(resolved_paths)
+    return tuple(sorted(set(resolved_paths)))
 
 
 def _phase1_imported_dataset_root_manifest_paths(dataset_path: Path, rows: Sequence[Any]) -> tuple[str, ...]:
