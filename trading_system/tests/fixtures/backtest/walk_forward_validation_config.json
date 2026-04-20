@@ -1,0 +1,37 @@
+{
+  "dataset_root": "sample_dataset",
+  "experiment_kind": "walk_forward_validation",
+  "sample_windows": [
+    {
+      "name": "history",
+      "start": "2026-03-10T00:00:00Z",
+      "end": "2026-03-12T00:00:00Z",
+      "split": "in_sample"
+    }
+  ],
+  "forward_return_windows": [
+    {
+      "name": "1d",
+      "hours": 24
+    },
+    {
+      "name": "3d",
+      "hours": 72
+    }
+  ],
+  "costs": {
+    "fee_bps": 4.0,
+    "slippage_bps": 6.0,
+    "funding_bps_per_day": 1.5
+  },
+  "baseline_name": "current_policy",
+  "variant_name": "rolling_walk_forward",
+  "experiment_params": {
+    "evaluation_window": "3d",
+    "walk_forward": {
+      "in_sample_size": 90,
+      "out_of_sample_size": 30,
+      "step_size": 15
+    }
+  }
+}

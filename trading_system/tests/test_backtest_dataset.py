@@ -7,7 +7,12 @@ import pytest
 
 from trading_system.app.backtest.config import load_backtest_config
 from trading_system.app.backtest.dataset import load_historical_dataset, split_rows_by_windows
-from trading_system.app.backtest.types import DatasetSnapshotRow, ExperimentMetadata, ForwardReturnWindow, InstrumentSnapshotRow
+from trading_system.app.backtest.types import (
+    DatasetSnapshotRow,
+    ExperimentMetadata,
+    ForwardReturnWindow,
+    InstrumentSnapshotRow,
+)
 
 
 def test_backtest_shared_types_can_be_instantiated() -> None:
@@ -95,6 +100,7 @@ def test_load_backtest_config(fixture_dir: Path) -> None:
     assert config.costs.slippage_bps == pytest.approx(6.0)
     assert config.baseline_name == "current_policy"
     assert config.variant_name == "no_rotation_suppression"
+    assert config.experiment_params is None
 
 
 def test_load_backtest_config_requires_dataset_root(tmp_path: Path) -> None:
@@ -178,6 +184,59 @@ def test_load_backtest_config_parses_full_market_baseline_contract(tmp_path: Pat
     assert config.costs.fee_bps_by_market == {"spot": 10.0, "futures": 5.0}
     assert config.costs.slippage_bps_by_tier == {"deep": 2.5, "mid": 6.0, "thin": 12.0}
     assert config.costs.funding_mode == "historical_series"
+    assert config.experiment_params is None
+
+
+def test_load_backtest_config_parses_rotation_suppression_experiment_params(fixture_dir: Path) -> None:
+    config = load_backtest_config(fixture_dir / "backtest" / "rotation_suppression_config.json")
+
+    assert config.experiment_kind == "rotation_suppression"
+    assert config.experiment_params is not None
+    assert config.experiment_params.evaluation_window == "3d"
+    assert config.experiment_params.soft_score_floor == pytest.approx(0.72)
+    assert config.experiment_params.walk_forward is None
+
+
+def test_load_backtest_config_parses_allocator_friction_experiment_params(fixture_dir: Path) -> None:
+    config = load_backtest_config(fixture_dir / "backtest" / "allocator_friction_config.json")
+
+    assert config.experiment_kind == "allocator_friction"
+    assert config.experiment_params is not None
+    assert config.experiment_params.evaluation_window == "3d"
+    assert config.experiment_params.soft_score_floor is None
+    assert config.experiment_params.walk_forward is None
+
+
+def test_load_backtest_config_parses_engine_filter_ablation_experiment_params(fixture_dir: Path) -> None:
+    config = load_backtest_config(fixture_dir / "backtest" / "engine_filter_ablation_config.json")
+
+    assert config.experiment_kind == "engine_filter_ablation"
+    assert config.experiment_params is not None
+    assert config.experiment_params.evaluation_window == "1d"
+    assert config.experiment_params.soft_score_floor is None
+    assert config.experiment_params.walk_forward is None
+
+
+def test_load_backtest_config_parses_walk_forward_validation_experiment_params(fixture_dir: Path) -> None:
+    config = load_backtest_config(fixture_dir / "backtest" / "walk_forward_validation_config.json")
+
+    assert config.experiment_kind == "walk_forward_validation"
+    assert config.experiment_params is not None
+    assert config.experiment_params.evaluation_window == "3d"
+    assert config.experiment_params.soft_score_floor is None
+    assert config.experiment_params.walk_forward is not None
+    assert config.experiment_params.walk_forward.in_sample_size == 90
+    assert config.experiment_params.walk_forward.out_of_sample_size == 30
+    assert config.experiment_params.walk_forward.step_size == 15
+
+
+def test_load_backtest_config_keeps_full_market_baseline_fixture_compatible(fixture_dir: Path) -> None:
+    config = load_backtest_config(fixture_dir / "backtest" / "full_market_baseline.json")
+
+    assert config.experiment_kind == "full_market_baseline"
+    assert config.universe is not None
+    assert config.capital is not None
+    assert config.experiment_params is None
 
 
 def test_load_historical_dataset_orders_rows_and_applies_baseline_account(fixture_dir: Path) -> None:

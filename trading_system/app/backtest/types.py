@@ -57,6 +57,20 @@ class CapitalModelConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class WalkForwardConfig:
+    in_sample_size: int
+    out_of_sample_size: int
+    step_size: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ExperimentParams:
+    evaluation_window: str | None = None
+    soft_score_floor: float | None = None
+    walk_forward: WalkForwardConfig | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class PortfolioCandidate:
     symbol: str
     market_type: Literal["spot", "futures"]
@@ -158,6 +172,7 @@ class BacktestConfig:
     variant_name: str
     universe: UniverseFilterConfig | None = None
     capital: CapitalModelConfig | None = None
+    experiment_params: ExperimentParams | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
 

@@ -5,7 +5,16 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from .types import BacktestConfig, BacktestCosts, CapitalModelConfig, ForwardReturnWindow, SampleWindow, UniverseFilterConfig
+from .types import (
+    BacktestConfig,
+    BacktestCosts,
+    CapitalModelConfig,
+    ExperimentParams,
+    ForwardReturnWindow,
+    SampleWindow,
+    UniverseFilterConfig,
+    WalkForwardConfig,
+)
 
 
 def _require(raw: dict[str, Any], field_name: str) -> Any:
@@ -106,6 +115,52 @@ def _load_costs(raw: Any, *, experiment_kind: str) -> BacktestCosts:
     )
 
 
+def _load_walk_forward(raw: Any) -> WalkForwardConfig:
+    if not isinstance(raw, dict):
+        raise ValueError("experiment_params.walk_forward must be an object")
+    return WalkForwardConfig(
+        in_sample_size=int(_require(raw, "in_sample_size")),
+        out_of_sample_size=int(_require(raw, "out_of_sample_size")),
+        step_size=int(raw["step_size"]) if "step_size" in raw else None,
+    )
+
+
+def _load_experiment_params(raw: Any, *, experiment_kind: str) -> ExperimentParams | None:
+    if raw is None:
+        if experiment_kind in {
+            "rotation_suppression",
+            "allocator_friction",
+            "engine_filter_ablation",
+            "walk_forward_validation",
+        }:
+            raise ValueError(f"experiment_params are required for {experiment_kind}")
+        return None
+    if not isinstance(raw, dict):
+        raise ValueError("experiment_params must be an object")
+
+    params = ExperimentParams(
+        evaluation_window=str(raw["evaluation_window"]) if "evaluation_window" in raw else None,
+        soft_score_floor=float(raw["soft_score_floor"]) if "soft_score_floor" in raw else None,
+        walk_forward=_load_walk_forward(raw["walk_forward"]) if "walk_forward" in raw else None,
+    )
+
+    if experiment_kind == "rotation_suppression":
+        if params.evaluation_window is None:
+            raise ValueError("experiment_params.evaluation_window is required for rotation_suppression")
+        if params.soft_score_floor is None:
+            raise ValueError("experiment_params.soft_score_floor is required for rotation_suppression")
+    elif experiment_kind in {"allocator_friction", "engine_filter_ablation"}:
+        if params.evaluation_window is None:
+            raise ValueError(f"experiment_params.evaluation_window is required for {experiment_kind}")
+    elif experiment_kind == "walk_forward_validation":
+        if params.evaluation_window is None:
+            raise ValueError("experiment_params.evaluation_window is required for walk_forward_validation")
+        if params.walk_forward is None:
+            raise ValueError("experiment_params.walk_forward is required for walk_forward_validation")
+
+    return params
+
+
 def load_backtest_config(path: str | Path) -> BacktestConfig:
     config_path = Path(path)
     raw = json.loads(config_path.read_text(encoding="utf-8"))
@@ -125,5 +180,6 @@ def load_backtest_config(path: str | Path) -> BacktestConfig:
         variant_name=str(_require(raw, "variant_name")),
         universe=_load_universe(_require(raw, "universe")) if experiment_kind == "full_market_baseline" else None,
         capital=_load_capital(_require(raw, "capital")) if experiment_kind == "full_market_baseline" else None,
+        experiment_params=_load_experiment_params(raw.get("experiment_params"), experiment_kind=experiment_kind),
         metadata=dict(raw.get("metadata") or {}),
     )
