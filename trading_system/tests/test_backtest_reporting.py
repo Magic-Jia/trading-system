@@ -12,6 +12,7 @@ from trading_system.app.backtest.types import (
     BacktestCosts,
     BaselineReplayResult,
     CapitalModelConfig,
+    DatasetSnapshotRow,
     PortfolioDecisionLedgerRow,
     PortfolioScorecardRow,
     SampleWindow,
@@ -188,6 +189,48 @@ def _write_fixture_bundle(dataset_root: Path, *, timestamp: str, run_id: str) ->
     )
 
 
+def _sample_dataset_rows() -> list[DatasetSnapshotRow]:
+    return [
+        DatasetSnapshotRow(
+            timestamp=_ts("2026-03-10T00:00:00Z"),
+            run_id="row-001",
+            market={"symbols": {}},
+            derivatives=[],
+            account={
+                "equity": 100_000.0,
+                "available_balance": 100_000.0,
+                "futures_wallet_balance": 100_000.0,
+                "open_positions": [],
+            },
+        ),
+        DatasetSnapshotRow(
+            timestamp=_ts("2026-03-12T00:00:00Z"),
+            run_id="row-002",
+            market={"symbols": {}},
+            derivatives=[],
+            account={
+                "equity": 100_000.0,
+                "available_balance": 100_000.0,
+                "futures_wallet_balance": 100_000.0,
+                "open_positions": [],
+            },
+        ),
+    ]
+
+
+
+def _write_experiment_fixture_config(tmp_path: Path, fixture_name: str) -> Path:
+    fixture_path = Path("trading_system/tests/fixtures/backtest") / fixture_name
+    raw = json.loads(fixture_path.read_text(encoding="utf-8"))
+    dataset_root = tmp_path / "dataset"
+    dataset_root.mkdir(parents=True, exist_ok=True)
+    raw["dataset_root"] = str(dataset_root)
+    output_path = tmp_path / fixture_name
+    output_path.write_text(json.dumps(raw), encoding="utf-8")
+    return output_path
+
+
+
 def sample_full_market_config(tmp_path: Path) -> Path:
     dataset_root = tmp_path / "dataset"
     _write_fixture_bundle(dataset_root, timestamp="2026-03-10T00:00:00Z", run_id="row-001")
@@ -302,6 +345,240 @@ def test_backtest_cli_writes_full_market_baseline_bundle(monkeypatch: pytest.Mon
         "breakdowns.json",
         "audit.json",
     ]
+
+
+
+def test_backtest_cli_writes_rotation_suppression_bundle(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(cli, "load_historical_dataset", lambda _dataset_root: _sample_dataset_rows(), raising=False)
+    monkeypatch.setattr(
+        cli,
+        "run_rotation_suppression_experiment",
+        lambda rows, *, evaluation_window, soft_score_floor: {
+            "policies": {
+                "current": {"bucket_level_pnl": 0.08, "trade_count": 2},
+                "no_suppression": {"bucket_level_pnl": 0.12, "trade_count": 3},
+                "soft_suppression": {"bucket_level_pnl": 0.1, "trade_count": 2},
+            },
+            "opportunity_kill_rate": 0.25,
+            "avoid_loss_rate": 0.75,
+            "rotation_comparison_rows": [{"symbol": "LINKUSDT", "current": "suppressed", "soft_suppression": "selected"}],
+        },
+        raising=False,
+    )
+
+    exit_code = cli.main(
+        [
+            "run",
+            "--config",
+            str(_write_experiment_fixture_config(tmp_path, "rotation_suppression_config.json")),
+            "--output-dir",
+            str(tmp_path / "out"),
+        ]
+    )
+
+    bundle_dir = tmp_path / "out" / "rotation_suppression__current_policy__soft_suppression"
+    assert exit_code == 0
+    assert (bundle_dir / "manifest.json").exists()
+    assert (bundle_dir / "summary.json").exists()
+    assert (bundle_dir / "comparison_rows.json").exists()
+    assert (bundle_dir / "scorecard.json").exists()
+
+    manifest = json.loads((bundle_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["artifacts"] == [
+        "manifest.json",
+        "summary.json",
+        "comparison_rows.json",
+        "scorecard.json",
+    ]
+    scorecard = json.loads((bundle_dir / "scorecard.json").read_text(encoding="utf-8"))
+    assert scorecard["metadata"]["evaluation_window"] == "3d"
+    assert scorecard["key_metrics"]["snapshot_count"] == 2
+    assert scorecard["decision_summary"]["decision"] in {
+        "keep_researching",
+        "candidate_for_promotion",
+        "reject",
+    }
+
+
+
+def test_backtest_cli_writes_allocator_friction_bundle(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(cli, "load_historical_dataset", lambda _dataset_root: _sample_dataset_rows(), raising=False)
+    monkeypatch.setattr(
+        cli,
+        "run_allocator_friction_experiment",
+        lambda rows, *, evaluation_window: {
+            "metadata": {"snapshot_count": 2, "variant_count": 3, "evaluation_window": evaluation_window},
+            "variants": {
+                "current_allocator": {
+                    "allocation_summary": {"accepted_allocations": 2, "total_risk_budget": 0.02},
+                    "frictions": {
+                        "base": {"net_bucket_pnl": 0.03, "cost_drag": 0.004, "trade_count": 2},
+                        "low": {"net_bucket_pnl": 0.031, "cost_drag": 0.003, "trade_count": 2},
+                        "stressed": {"net_bucket_pnl": 0.02, "cost_drag": 0.008, "trade_count": 2},
+                    },
+                },
+                "equal_weight_baseline": {
+                    "allocation_summary": {"accepted_allocations": 3, "total_risk_budget": 0.03},
+                    "frictions": {
+                        "base": {"net_bucket_pnl": 0.04, "cost_drag": 0.005, "trade_count": 3},
+                        "low": {"net_bucket_pnl": 0.041, "cost_drag": 0.004, "trade_count": 3},
+                        "stressed": {"net_bucket_pnl": 0.025, "cost_drag": 0.01, "trade_count": 3},
+                    },
+                },
+            },
+            "comparison_rows": [{"allocator_variant": "current_allocator", "friction_scenario": "base", "net_bucket_pnl": 0.03}],
+        },
+        raising=False,
+    )
+
+    exit_code = cli.main(
+        [
+            "run",
+            "--config",
+            str(_write_experiment_fixture_config(tmp_path, "allocator_friction_config.json")),
+            "--output-dir",
+            str(tmp_path / "out"),
+        ]
+    )
+
+    bundle_dir = tmp_path / "out" / "allocator_friction__current_policy__allocator_fee_drag"
+    assert exit_code == 0
+    assert (bundle_dir / "manifest.json").exists()
+    assert (bundle_dir / "summary.json").exists()
+    assert (bundle_dir / "comparison_rows.json").exists()
+    assert (bundle_dir / "scorecard.json").exists()
+
+    manifest = json.loads((bundle_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["artifacts"] == [
+        "manifest.json",
+        "summary.json",
+        "comparison_rows.json",
+        "scorecard.json",
+    ]
+    scorecard = json.loads((bundle_dir / "scorecard.json").read_text(encoding="utf-8"))
+    assert scorecard["metadata"]["evaluation_window"] == "3d"
+    assert scorecard["key_metrics"]["snapshot_count"] == 2
+    assert scorecard["decision_summary"]["decision"] in {
+        "keep_researching",
+        "candidate_for_promotion",
+        "reject",
+    }
+
+
+
+def test_backtest_cli_writes_engine_filter_ablation_bundle(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(cli, "load_historical_dataset", lambda _dataset_root: _sample_dataset_rows(), raising=False)
+    monkeypatch.setattr(
+        cli,
+        "run_engine_filter_ablation_experiment",
+        lambda rows, *, evaluation_window: {
+            "metadata": {"snapshot_count": 2, "variant_count": 4, "evaluation_window": evaluation_window},
+            "variants": {
+                "trend_only": {"funnel": {"accepted_allocations": 2}, "performance": {"bucket_level_pnl": 0.02, "trade_count": 2}},
+                "rotation_only": {"funnel": {"accepted_allocations": 1}, "performance": {"bucket_level_pnl": 0.01, "trade_count": 1}},
+            },
+        },
+        raising=False,
+    )
+
+    exit_code = cli.main(
+        [
+            "run",
+            "--config",
+            str(_write_experiment_fixture_config(tmp_path, "engine_filter_ablation_config.json")),
+            "--output-dir",
+            str(tmp_path / "out"),
+        ]
+    )
+
+    bundle_dir = tmp_path / "out" / "engine_filter_ablation__current_policy__no_engine_filter"
+    assert exit_code == 0
+    assert (bundle_dir / "manifest.json").exists()
+    assert (bundle_dir / "summary.json").exists()
+    assert (bundle_dir / "scorecard.json").exists()
+
+    manifest = json.loads((bundle_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["artifacts"] == [
+        "manifest.json",
+        "summary.json",
+        "scorecard.json",
+    ]
+    scorecard = json.loads((bundle_dir / "scorecard.json").read_text(encoding="utf-8"))
+    assert scorecard["metadata"]["evaluation_window"] == "1d"
+    assert scorecard["key_metrics"]["snapshot_count"] == 2
+    assert scorecard["decision_summary"]["decision"] in {
+        "keep_researching",
+        "candidate_for_promotion",
+        "reject",
+    }
+
+
+
+def test_backtest_cli_writes_walk_forward_validation_bundle(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(cli, "load_historical_dataset", lambda _dataset_root: _sample_dataset_rows(), raising=False)
+    monkeypatch.setattr(
+        cli,
+        "run_walk_forward_validation_experiment",
+        lambda rows, *, evaluation_window, in_sample_size, out_of_sample_size, step_size: {
+            "metadata": {
+                "snapshot_count": 2,
+                "window_count": 1,
+                "evaluation_window": evaluation_window,
+                "in_sample_size": in_sample_size,
+                "out_of_sample_size": out_of_sample_size,
+                "step_size": step_size,
+            },
+            "windows": [
+                {
+                    "window_index": 1,
+                    "out_of_sample": {
+                        "scorecard": {"total_return": 0.03, "trade_count": 1},
+                        "run_ids": ["row-002"],
+                    },
+                }
+            ],
+            "robustness_summary": {
+                "out_of_sample_scorecard": {"total_return": 0.03, "trade_count": 1},
+                "performance_dispersion": {"positive_window_ratio": 1.0},
+            },
+            "parameter_stability": {"parameter_stability_score": 0.8},
+        },
+        raising=False,
+    )
+
+    exit_code = cli.main(
+        [
+            "run",
+            "--config",
+            str(_write_experiment_fixture_config(tmp_path, "walk_forward_validation_config.json")),
+            "--output-dir",
+            str(tmp_path / "out"),
+        ]
+    )
+
+    bundle_dir = tmp_path / "out" / "walk_forward_validation__current_policy__rolling_walk_forward"
+    assert exit_code == 0
+    assert (bundle_dir / "manifest.json").exists()
+    assert (bundle_dir / "summary.json").exists()
+    assert (bundle_dir / "windows.json").exists()
+    assert (bundle_dir / "scorecard.json").exists()
+
+    manifest = json.loads((bundle_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["artifacts"] == [
+        "manifest.json",
+        "summary.json",
+        "windows.json",
+        "scorecard.json",
+    ]
+    scorecard = json.loads((bundle_dir / "scorecard.json").read_text(encoding="utf-8"))
+    assert scorecard["metadata"]["evaluation_window"] == "3d"
+    assert scorecard["key_metrics"]["snapshot_count"] == 2
+    assert scorecard["decision_summary"]["decision"] in {
+        "keep_researching",
+        "candidate_for_promotion",
+        "reject",
+    }
+
 
 
 def test_full_market_baseline_runbook_documents_required_inputs_outputs_and_limitations() -> None:

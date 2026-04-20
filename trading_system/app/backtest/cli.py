@@ -9,9 +9,26 @@ from typing import Any, Callable
 from .config import load_backtest_config
 from .dataset import load_historical_dataset, split_rows_by_windows
 from .engine import replay_full_market_baseline
-from .experiments import run_regime_predictive_power_experiment
-from .reporting import render_full_market_baseline_report, render_regime_scorecard
-from .types import BacktestConfig, DatasetSnapshotRow
+from .experiments import (
+    run_allocator_friction_experiment,
+    run_engine_filter_ablation_experiment,
+    run_regime_predictive_power_experiment,
+    run_rotation_suppression_experiment,
+    run_walk_forward_validation_experiment,
+)
+from .reporting import (
+    render_allocator_friction_report,
+    render_engine_filter_ablation_report,
+    render_full_market_baseline_report,
+    render_regime_scorecard,
+    render_rotation_suppression_report,
+    render_walk_forward_validation_report,
+)
+from .types import BacktestConfig, DatasetSnapshotRow, ExperimentParams
+
+
+HandlerResult = tuple[dict[str, Any], dict[str, dict[str, Any]]]
+Handler = Callable[[BacktestConfig, list[DatasetSnapshotRow]], HandlerResult]
 
 
 def _bundle_name(config: BacktestConfig) -> str:
@@ -45,7 +62,23 @@ def _base_metadata(config: BacktestConfig, rows: list[DatasetSnapshotRow]) -> di
     }
 
 
-def _regime_research_outputs(config: BacktestConfig, rows: list[DatasetSnapshotRow]) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
+def _manifest(config: BacktestConfig, rows: list[DatasetSnapshotRow], artifacts: dict[str, dict[str, Any]], metadata: dict[str, Any] | None = None) -> dict[str, Any]:
+    base = metadata if metadata is not None else _base_metadata(config, rows)
+    return {
+        **base,
+        "bundle_name": _bundle_name(config),
+        "snapshot_count": len(rows),
+        "artifacts": ["manifest.json", *artifacts.keys()],
+    }
+
+
+def _require_experiment_params(config: BacktestConfig) -> ExperimentParams:
+    if config.experiment_params is None:
+        raise ValueError(f"experiment_params are required for {config.experiment_kind}")
+    return config.experiment_params
+
+
+def _regime_research_outputs(config: BacktestConfig, rows: list[DatasetSnapshotRow]) -> HandlerResult:
     experiment = run_regime_predictive_power_experiment(rows)
     summary = dict(experiment)
     summary["metadata"] = {
@@ -57,16 +90,11 @@ def _regime_research_outputs(config: BacktestConfig, rows: list[DatasetSnapshotR
         experiment=experiment,
         metadata=summary["metadata"],
     )
-    manifest = {
-        **_base_metadata(config, rows),
-        "bundle_name": _bundle_name(config),
-        "snapshot_count": len(rows),
-        "artifacts": ["manifest.json", "summary.json", "scorecard.json"],
-    }
-    return manifest, {"summary.json": summary, "scorecard.json": scorecard}
+    artifacts = {"summary.json": summary, "scorecard.json": scorecard}
+    return _manifest(config, rows, artifacts), artifacts
 
 
-def _full_market_baseline_outputs(config: BacktestConfig, rows: list[DatasetSnapshotRow]) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
+def _full_market_baseline_outputs(config: BacktestConfig, rows: list[DatasetSnapshotRow]) -> HandlerResult:
     result = replay_full_market_baseline(config)
     report = render_full_market_baseline_report(result)
     metadata = _base_metadata(config, rows)
@@ -75,18 +103,121 @@ def _full_market_baseline_outputs(config: BacktestConfig, rows: list[DatasetSnap
         "breakdowns.json": {"metadata": metadata, "breakdowns": report["breakdowns"]},
         "audit.json": {"metadata": metadata, "audit": report["audit"]},
     }
-    manifest = {
-        **metadata,
-        "bundle_name": _bundle_name(config),
+    return _manifest(config, rows, artifacts, metadata), artifacts
+
+
+def _rotation_suppression_outputs(config: BacktestConfig, rows: list[DatasetSnapshotRow]) -> HandlerResult:
+    params = _require_experiment_params(config)
+    evaluation_window = params.evaluation_window or "3d"
+    soft_score_floor = float(params.soft_score_floor if params.soft_score_floor is not None else 0.72)
+    experiment = run_rotation_suppression_experiment(
+        rows,
+        evaluation_window=evaluation_window,
+        soft_score_floor=soft_score_floor,
+    )
+    metadata = {
+        **_base_metadata(config, rows),
         "snapshot_count": len(rows),
-        "artifacts": ["manifest.json", *artifacts.keys()],
+        "evaluation_window": evaluation_window,
+        "soft_score_floor": soft_score_floor,
     }
-    return manifest, artifacts
+    report = render_rotation_suppression_report(
+        experiment_name=config.experiment_kind,
+        experiment=experiment,
+        metadata=metadata,
+    )
+    artifacts = {
+        "summary.json": report["summary"],
+        "comparison_rows.json": report["comparison_rows"],
+        "scorecard.json": report["scorecard"],
+    }
+    return _manifest(config, rows, artifacts, metadata), artifacts
 
 
-_EXPERIMENT_HANDLERS: dict[str, Callable[[BacktestConfig, list[DatasetSnapshotRow]], tuple[dict[str, Any], dict[str, dict[str, Any]]]]] = {
+def _allocator_friction_outputs(config: BacktestConfig, rows: list[DatasetSnapshotRow]) -> HandlerResult:
+    params = _require_experiment_params(config)
+    evaluation_window = params.evaluation_window or "3d"
+    experiment = run_allocator_friction_experiment(rows, evaluation_window=evaluation_window)
+    metadata = {
+        **_base_metadata(config, rows),
+        "snapshot_count": len(rows),
+        "evaluation_window": evaluation_window,
+    }
+    report = render_allocator_friction_report(
+        experiment_name=config.experiment_kind,
+        experiment=experiment,
+        metadata=metadata,
+    )
+    artifacts = {
+        "summary.json": report["summary"],
+        "comparison_rows.json": report["comparison_rows"],
+        "scorecard.json": report["scorecard"],
+    }
+    return _manifest(config, rows, artifacts, metadata), artifacts
+
+
+def _engine_filter_ablation_outputs(config: BacktestConfig, rows: list[DatasetSnapshotRow]) -> HandlerResult:
+    params = _require_experiment_params(config)
+    evaluation_window = params.evaluation_window or "3d"
+    experiment = run_engine_filter_ablation_experiment(rows, evaluation_window=evaluation_window)
+    metadata = {
+        **_base_metadata(config, rows),
+        "snapshot_count": len(rows),
+        "evaluation_window": evaluation_window,
+    }
+    report = render_engine_filter_ablation_report(
+        experiment_name=config.experiment_kind,
+        experiment=experiment,
+        metadata=metadata,
+    )
+    artifacts = {
+        "summary.json": report["summary"],
+        "scorecard.json": report["scorecard"],
+    }
+    return _manifest(config, rows, artifacts, metadata), artifacts
+
+
+def _walk_forward_validation_outputs(config: BacktestConfig, rows: list[DatasetSnapshotRow]) -> HandlerResult:
+    params = _require_experiment_params(config)
+    evaluation_window = params.evaluation_window or "3d"
+    if params.walk_forward is None:
+        raise ValueError("experiment_params.walk_forward is required for walk_forward_validation")
+    experiment = run_walk_forward_validation_experiment(
+        rows,
+        evaluation_window=evaluation_window,
+        in_sample_size=params.walk_forward.in_sample_size,
+        out_of_sample_size=params.walk_forward.out_of_sample_size,
+        step_size=params.walk_forward.step_size,
+    )
+    metadata = {
+        **_base_metadata(config, rows),
+        "snapshot_count": len(rows),
+        "evaluation_window": evaluation_window,
+        "window_count": int(dict(experiment.get("metadata", {})).get("window_count", 0)),
+        "in_sample_size": params.walk_forward.in_sample_size,
+        "out_of_sample_size": params.walk_forward.out_of_sample_size,
+        "step_size": params.walk_forward.step_size,
+    }
+    report = render_walk_forward_validation_report(
+        experiment_name=config.experiment_kind,
+        experiment=experiment,
+        metadata=metadata,
+    )
+    artifacts = {
+        "summary.json": report["summary"],
+        "windows.json": report["windows"],
+        "scorecard.json": report["scorecard"],
+    }
+    return _manifest(config, rows, artifacts, metadata), artifacts
+
+
+_EXPERIMENT_HANDLERS: dict[str, Handler] = {
     "regime_research": _regime_research_outputs,
     "full_market_baseline": _full_market_baseline_outputs,
+    "rotation_suppression": _rotation_suppression_outputs,
+    "allocator_friction": _allocator_friction_outputs,
+    "engine_filter_ablation": _engine_filter_ablation_outputs,
+    "walk_forward_validation": _walk_forward_validation_outputs,
 }
 
 
