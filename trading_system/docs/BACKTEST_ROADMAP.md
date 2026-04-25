@@ -147,6 +147,29 @@
 
 建议分成 6 个阶段，不要乱序。
 
+### 当前实现覆盖表
+
+| 研究对象 / experiment | 已实现 experiment | 已接入 CLI | 已接入 gate | 说明 |
+| --- | --- | --- | --- | --- |
+| `regime_research` | 是 | 是 | 部分（旧 scorecard gate） | 用于看 regime predictive power，不是最终 promotion comparator 主体 |
+| `full_market_baseline` | 是 | 是 | 是 | 可输出 bundle，也可通过 `compare` 进入统一 `promotion_gate.json` |
+| `rotation_suppression` | 是 | 是 | 是 | 重点回答 suppression 是避坑还是错杀 |
+| `allocator_friction` | 是 | 是 | 是 | 重点回答 allocator 成本后是否仍保留优势 |
+| `engine_filter_ablation` | 是 | 是 | 是 | 重点回答 filter 改善质量还是主要减少交易 |
+| `walk_forward_validation` | 是 | 是 | 是 | 重点回答 OOS / walk-forward 结论是否稳定 |
+
+### 当前推荐研究顺序
+
+不要乱序，先按下面顺序推进：
+
+1. `rotation suppression`
+2. `allocator friction`
+3. `engine filter ablation`
+4. `walk-forward validation`
+5. 只有前面结论通过 gate，才允许进入“改交易程序”阶段
+
+这张表的用途不是展示“代码很多”，而是明确：**哪些 experiment 已实现、哪些已经能通过统一 CLI 生成 bundle、哪些已经接入统一 promotion gate。**
+
 ---
 
 ## Phase 0 — Backtest infrastructure and truth baseline

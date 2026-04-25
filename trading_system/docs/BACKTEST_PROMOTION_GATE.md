@@ -179,3 +179,41 @@
 - [ ] 有回滚条件
 
 任何一项没勾，默认继续研究，不进入主线。
+
+---
+
+## 7. 与代码一致的 `promotion_gate.json` 示例
+
+下面这个示例对应当前 `compare` CLI 的稳定输出风格：
+
+```json
+{
+  "experiment_kind": "full_market_baseline",
+  "baseline_bundle": "/tmp/backtests/full_market_baseline__current_system__baseline_policy",
+  "variant_bundle": "/tmp/backtests/full_market_baseline__current_system__candidate_policy",
+  "decision": "hold",
+  "checks": {
+    "has_baseline_variant_pair": true,
+    "has_cost_adjusted_edge": true,
+    "has_out_of_sample_evidence": false,
+    "has_attribution_or_funnel_explanation": true,
+    "has_runtime_observability_plan": false,
+    "has_rollback_plan": false
+  },
+  "metric_deltas": {
+    "cost_drag": 0.0,
+    "max_drawdown": 0.0,
+    "sharpe": 0.0,
+    "total_return": 0.0
+  },
+  "why": ["missing out-of-sample evidence"]
+}
+```
+
+解释方式：
+
+- `decision == "candidate_for_promotion"`：可以进入候选 promotion，才允许讨论改交易程序
+- `decision == "hold"`：继续研究，暂不改交易程序
+- `decision == "reject"`：当前研究结论不能进入主线
+
+同时要配套看 `decision_summary.json`，它是给人快速阅读的摘要层；`promotion_gate.json` 才是自动化 gate 的真实判断依据。

@@ -37,6 +37,10 @@ python -m trading_system.run_cycle --mode paper
 ## 定时跑批约定
 
 - 若要把 `paper` cycle 接到 `systemd timer`，优先直接复用 `deploy/systemd/trading-system-paper.service` 与 `deploy/systemd/trading-system-paper.timer`。
+- 若要把 `paper` cycle 接到 cron，使用 `deploy/cron/install-trading-system-paper-crontab.sh` 安装 wrapper 入口。
+- `systemd service` 与 cron wrapper 的正式配置入口都是 `/etc/default/trading-system-paper`；二者都不再依赖任何 workspace env fallback。
+- 可把 `deploy/systemd/trading-system-paper.env.no-short.example` 复制到 `/etc/default/trading-system-paper` 作为模板；`TRADING_PAPER_ENV_FILE` 只应用于你明确知道自己在做什么的显式覆盖/测试场景。
+- 若 `/etc/default/trading-system-paper` 缺失，cron wrapper 会在启动前直接报错退出，而不是回退去找历史工作区里的 env 文件。
 - 详细安装和巡检步骤见 `trading_system/docs/BATCH_RUNTIME_RUNBOOK.md`。
 - timer 模式默认也走同一个 paper bucket；部署到 `/opt/trading-system` 后，对应绝对路径是 `/opt/trading-system/trading_system/data/runtime/paper/paper/`。
 - `paper_ledger.jsonl` 会跟随 `runtime_state.json` 落在同级目录，所以不要把整个 runtime bucket 放到临时目录，除非你接受 ledger 丢失。
