@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal
+from typing import Callable, Literal
 
 from .runtime_paths import RUNTIME_ENV_ENV, build_runtime_paths
 
@@ -28,6 +28,46 @@ def _env_bool(name: str, default: bool = False) -> bool:
     if value is None:
         return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _normalize_string_list(
+    raw: str | list[str] | tuple[str, ...] | set[str] | frozenset[str] | None,
+    *,
+    transform: Callable[[str], str] = str.lower,
+) -> tuple[str, ...]:
+    if raw is None:
+        return ()
+    items = raw.split(",") if isinstance(raw, str) else list(raw)
+    normalized: list[str] = []
+    for item in items:
+        value = transform(str(item).strip())
+        if not value:
+            continue
+        if value not in normalized:
+            normalized.append(value)
+    return tuple(normalized)
+
+
+def normalize_engine_names(raw: str | list[str] | tuple[str, ...] | set[str] | frozenset[str] | None) -> tuple[str, ...]:
+    return _normalize_string_list(raw, transform=str.lower)
+
+
+def normalize_setup_types(raw: str | list[str] | tuple[str, ...] | set[str] | frozenset[str] | None) -> tuple[str, ...]:
+    return _normalize_string_list(raw, transform=str.upper)
+
+
+def _env_engine_list(name: str) -> tuple[str, ...]:
+    value = os.environ.get(name)
+    if value is None:
+        return ()
+    return normalize_engine_names(value)
+
+
+def _env_setup_type_list(name: str) -> tuple[str, ...]:
+    value = os.environ.get(name)
+    if value is None:
+        return ()
+    return normalize_setup_types(value)
 
 
 def _env_execution_mode(name: str, default: ExecutionMode = "paper") -> ExecutionMode:
@@ -116,6 +156,8 @@ class LifecycleConfig:
 class ExecutionConfig:
     mode: ExecutionMode = field(default_factory=lambda: _env_execution_mode("TRADING_EXECUTION_MODE", "paper"))
     allow_live_execution: bool = field(default_factory=lambda: _env_bool("TRADING_ALLOW_LIVE_EXECUTION", False))
+    disabled_engines: tuple[str, ...] = field(default_factory=lambda: _env_engine_list("TRADING_DISABLED_ENGINES"))
+    disabled_setup_types: tuple[str, ...] = field(default_factory=lambda: _env_setup_type_list("TRADING_DISABLED_SETUP_TYPES"))
 
 
 @dataclass(frozen=True, slots=True)

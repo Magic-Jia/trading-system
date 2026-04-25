@@ -6,12 +6,15 @@ from dataclasses import asdict, dataclass, is_dataclass, replace
 from pathlib import Path
 from typing import Any, Mapping
 
-from .config import build_config, runtime_path_defaults_enabled
+from .config import build_config, normalize_engine_names, normalize_setup_types, runtime_path_defaults_enabled
 from .data_sources import load_derivatives_snapshot, load_market_context
 from .execution.executor import OrderExecutor
 from .execution.idempotency import already_processed, intent_id, mark_processed, replay_processed_execution
 from .market_regime import classify_regime, summarize_derivatives_risk
 from .market_regime.derivatives import is_late_stage_long_blowoff, symbol_derivatives_features
+from .paper_optimization.collector import collect_signal_facts
+from .paper_optimization.metrics import write_daily_metrics_and_health_report
+from .paper_optimization.outcomes import collect_trade_outcomes
 from .portfolio.allocator import allocate_candidates
 from .portfolio.lifecycle import advance_lifecycle_positions, build_management_action_intents, evaluate_portfolio
 from .portfolio.positions import apply_executed_intent, sync_positions_from_account
@@ -811,8 +814,36 @@ def run_management_terminalization_pass(state: Any) -> None:
         state.positions[symbol] = terminalize_all_unreachable_stages(dict(position))
 
 
+def _candidate_setup_type(candidate: Any) -> str:
+    if isinstance(candidate, Mapping):
+        return str(candidate.get("setup_type", "") or "").strip().upper()
+    return str(getattr(candidate, "setup_type", "") or "").strip().upper()
+
+
+def _filter_disabled_setup_types(
+    candidates: list[Any], disabled_setup_types: frozenset[str]
+) -> tuple[list[Any], list[dict[str, Any]]]:
+    if not disabled_setup_types:
+        return list(candidates), []
+
+    kept: list[Any] = []
+    filtered: list[dict[str, Any]] = []
+    for candidate in candidates:
+        setup_type = _candidate_setup_type(candidate)
+        if setup_type in disabled_setup_types:
+            row = _candidate_row(candidate)
+            row["reason"] = "disabled_setup_type"
+            row["disabled_by"] = setup_type
+            filtered.append(row)
+            continue
+        kept.append(candidate)
+    return kept, filtered
+
+
 def main() -> None:
     config = _with_state_file_override(load_config())
+    disabled_engines = frozenset(normalize_engine_names(getattr(config.execution, "disabled_engines", ())))
+    disabled_setup_types = frozenset(normalize_setup_types(getattr(config.execution, "disabled_setup_types", ())))
     if config.execution.mode == "live" and not config.execution.allow_live_execution:
         raise RuntimeError("live execution is disabled unless TRADING_ALLOW_LIVE_EXECUTION is explicitly enabled")
     if config.execution.mode == "live":
@@ -824,26 +855,46 @@ def main() -> None:
     market = _market_payload(market_rows)
     derivatives = load_derivatives_snapshot(_resolve_derivatives_snapshot_path(config=config))
     derivatives_summary = summarize_derivatives_risk(derivatives)
-    regime = classify_regime(market_rows, derivatives)
+    regime = classify_regime(market_rows, derivatives, disabled_engines=disabled_engines)
     universes = build_universes(market, derivatives=derivatives)
 
-    trend_candidates = generate_trend_candidates(
-        market,
-        derivatives=derivatives,
-        include_high_liquidity_strong_names=False,
+    trend_candidates = (
+        []
+        if "trend" in disabled_engines
+        else generate_trend_candidates(
+            market,
+            derivatives=derivatives,
+            include_high_liquidity_strong_names=False,
+            regime=regime,
+        )
     )
-    rotation_candidates = generate_rotation_candidates(
-        market,
-        rotation_universe=universes.rotation_universe,
-        derivatives=derivatives,
-        regime=regime,
+    rotation_candidates = (
+        []
+        if "rotation" in disabled_engines
+        else generate_rotation_candidates(
+            market,
+            rotation_universe=universes.rotation_universe,
+            derivatives=derivatives,
+            regime=regime,
+        )
     )
-    short_candidates = generate_short_candidates(
-        market,
-        short_universe=universes.short_universe,
-        derivatives=derivatives,
-        regime=regime,
+    short_candidates = (
+        []
+        if "short" in disabled_engines
+        else generate_short_candidates(
+            market,
+            short_universe=universes.short_universe,
+            derivatives=derivatives,
+            regime=regime,
+        )
     )
+    disabled_setup_type_filtered_candidates: list[dict[str, Any]] = []
+    trend_candidates, filtered = _filter_disabled_setup_types(trend_candidates, disabled_setup_types)
+    disabled_setup_type_filtered_candidates.extend(filtered)
+    rotation_candidates, filtered = _filter_disabled_setup_types(rotation_candidates, disabled_setup_types)
+    disabled_setup_type_filtered_candidates.extend(filtered)
+    short_candidates, filtered = _filter_disabled_setup_types(short_candidates, disabled_setup_types)
+    disabled_setup_type_filtered_candidates.extend(filtered)
     candidate_rows: list[dict[str, Any]] = []
     validated_rows: list[dict[str, Any]] = []
     for candidate in [*trend_candidates, *rotation_candidates, *short_candidates]:
@@ -880,7 +931,13 @@ def main() -> None:
         except ValueError as exc:
             allocation["execution"] = {"status": "BLOCKED", "reason": str(exc)}
             continue
-        signal_validation, _signal_context = validate_signal(signal, account, config.risk)
+        execution_risk_budget = float(allocation.get("final_risk_budget", 0.0) or 0.0)
+        signal_validation, _signal_context = validate_signal(
+            signal,
+            account,
+            config.risk,
+            risk_pct_override=execution_risk_budget if execution_risk_budget > 0 else None,
+        )
         if not signal_validation.allowed:
             allocation["execution"] = {
                 "status": "BLOCKED",
@@ -1010,10 +1067,37 @@ def main() -> None:
     state.latest_universes = _universes_payload(universes)
     state.latest_candidates = candidate_rows
     state.latest_allocations = allocation_rows
+    state.disabled_setup_type_filtered_candidates = disabled_setup_type_filtered_candidates
     state.paper_trading = _paper_trading_summary(
         config.execution.mode,
         executor.paper_ledger_path if config.execution.mode == "paper" else None,
         execution_rows,
+    )
+    optimization_dir = Path(config.state_file).parent / "optimization"
+    signal_facts_path = optimization_dir / "signal_facts.jsonl"
+    trade_outcomes_path = optimization_dir / "trade_outcomes.jsonl"
+    daily_metrics_path = optimization_dir / "daily_metrics.json"
+    health_report_path = optimization_dir / "health_report.json"
+    collect_signal_facts(
+        signal_facts_path=signal_facts_path,
+        candidate_rows=candidate_rows,
+        allocation_rows=allocation_rows,
+        execution_rows=execution_rows,
+        regime=regime_payload,
+        mode=config.execution.mode,
+        runtime_env=Path(config.state_file).parent.name,
+    )
+    collect_trade_outcomes(
+        trade_outcomes_path=trade_outcomes_path,
+        signal_facts_path=signal_facts_path,
+        runtime_positions=state.positions,
+        paper_ledger_path=executor.paper_ledger_path if config.execution.mode == "paper" else None,
+    )
+    write_daily_metrics_and_health_report(
+        trade_outcomes_path=trade_outcomes_path,
+        signal_facts_path=signal_facts_path,
+        daily_metrics_path=daily_metrics_path,
+        health_report_path=health_report_path,
     )
     state.latest_lifecycle = lifecycle_updates
     state.lifecycle_summary = lifecycle_summary

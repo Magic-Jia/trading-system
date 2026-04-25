@@ -1,6 +1,6 @@
 import importlib
 import json
-from dataclasses import replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import pytest
@@ -8,7 +8,7 @@ import pytest
 from trading_system.app.config import AppConfig, DEFAULT_CONFIG
 from trading_system.app import config as config_module
 from trading_system.app import main as main_module
-from trading_system.app.storage.state_store import build_state_store
+from trading_system.app.storage.state_store import RuntimeStateV2, StateStore, build_state_store
 from trading_system.app.types import RegimeSnapshot, EngineCandidate, AllocationDecision, LifecycleState
 from trading_system.app.risk.validator import ValidationResult
 from trading_system.app.signals.short_engine import generate_short_candidates as generate_real_short_candidates
@@ -131,6 +131,14 @@ def test_v2_build_config_reads_execution_mode_overrides(monkeypatch):
 
     assert config.execution.mode == "dry-run"
     assert config.execution.allow_live_execution is True
+
+
+def test_v2_build_config_reads_disabled_setup_types_overrides(monkeypatch):
+    monkeypatch.setenv("TRADING_DISABLED_SETUP_TYPES", " rs_pullback ,RS_PULLBACK, breakdown_short ")
+
+    config = config_module.build_config()
+
+    assert config.execution.disabled_setup_types == ("RS_PULLBACK", "BREAKDOWN_SHORT")
 
 
 def test_v2_build_config_routes_default_state_file_to_runtime_bucket(monkeypatch, tmp_path):
@@ -646,6 +654,7 @@ def test_main_v2_stdout_surfaces_rotation_b2_price_extension_review_notes(monkey
     market = load_fixture("market_context_v2.json")
     market["symbols"]["SOLUSDT"]["4h"]["close"] = 155.0
     market["symbols"]["SOLUSDT"]["1h"]["close"] = 153.0
+    market["symbols"]["LINKUSDT"]["1h"]["close"] = 24.75
 
     account_path.write_text(json.dumps(load_fixture("account_snapshot_v2.json")))
     market_path.write_text(json.dumps(market))
@@ -779,6 +788,7 @@ def test_main_v2_stdout_surfaces_rotation_b2_late_stage_blowoff_review_notes(mon
     market = load_fixture("market_context_v2.json")
     market["symbols"]["SOLUSDT"]["4h"]["close"] = 155.0
     market["symbols"]["SOLUSDT"]["1h"]["close"] = 153.0
+    market["symbols"]["LINKUSDT"]["1h"]["close"] = 24.75
 
     account_path.write_text(json.dumps(load_fixture("account_snapshot_v2.json")))
     market_path.write_text(json.dumps(market))
@@ -954,7 +964,7 @@ def test_main_v2_short_allocations_propagate_explicit_stop_and_invalidation_sour
     monkeypatch.setattr(
         main_module,
         "validate_signal",
-        lambda signal, account, config: (ValidationResult(True, "INFO", reasons=[], metrics={}), {"sizing": None}),
+        lambda signal, account, config, **_kwargs: (ValidationResult(True, "INFO", reasons=[], metrics={}), {"sizing": None}),
     )
     monkeypatch.setattr(
         main_module,
@@ -999,6 +1009,94 @@ def test_main_v2_short_allocations_propagate_explicit_stop_and_invalidation_sour
     assert all(row.get("execution", {}).get("reason") == "short_execution_not_enabled" for row in accepted_short)
 
 
+def test_main_v2_disabled_setup_types_remove_matching_candidates_before_validation_and_summary(monkeypatch, tmp_path, load_fixture):
+    output_path = tmp_path / "runtime_state.json"
+    account_path = tmp_path / "account_snapshot.json"
+    market_path = tmp_path / "market_context.json"
+    deriv_path = tmp_path / "derivatives_snapshot.json"
+    account_path.write_text(json.dumps(load_fixture("account_snapshot_v2.json")))
+    market_path.write_text(json.dumps(load_fixture("market_context_v2.json")))
+    deriv_path.write_text(json.dumps(load_fixture("derivatives_snapshot_v2.json")))
+
+    monkeypatch.setenv("TRADING_STATE_FILE", str(output_path))
+    monkeypatch.setenv("TRADING_ACCOUNT_SNAPSHOT_FILE", str(account_path))
+    monkeypatch.setenv("TRADING_MARKET_CONTEXT_FILE", str(market_path))
+    monkeypatch.setenv("TRADING_DERIVATIVES_SNAPSHOT_FILE", str(deriv_path))
+    monkeypatch.setenv("TRADING_EXECUTION_MODE", "dry-run")
+    monkeypatch.setenv("TRADING_DISABLED_SETUP_TYPES", "rs_pullback")
+    monkeypatch.setattr(
+        main_module,
+        "validate_candidate_for_allocation",
+        lambda candidate, account: ValidationResult(True, "INFO", reasons=[], metrics={}),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "generate_trend_candidates",
+        lambda *args, **kwargs: [
+            EngineCandidate(
+                engine="trend",
+                setup_type="BREAKOUT_CONTINUATION",
+                symbol="BTCUSDT",
+                side="LONG",
+                score=0.95,
+                sector="majors",
+                timeframe_meta={"entry_tf": "4h"},
+                liquidity_meta={"volume_usdt_24h": 12_500_000_000.0},
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        main_module,
+        "generate_rotation_candidates",
+        lambda *args, **kwargs: [
+            EngineCandidate(
+                engine="rotation",
+                setup_type="RS_PULLBACK",
+                symbol="ETHUSDT",
+                side="LONG",
+                score=0.88,
+                sector="alts",
+                timeframe_meta={"entry_tf": "4h"},
+                liquidity_meta={"volume_usdt_24h": 2_100_000_000.0},
+            ),
+            EngineCandidate(
+                engine="rotation",
+                setup_type="RS_REACCELERATION",
+                symbol="SOLUSDT",
+                side="LONG",
+                score=0.91,
+                sector="alts",
+                timeframe_meta={"entry_tf": "4h"},
+                liquidity_meta={"volume_usdt_24h": 3_400_000_000.0},
+            ),
+        ],
+    )
+    monkeypatch.setattr(main_module, "generate_short_candidates", lambda *args, **kwargs: [])
+    monkeypatch.setattr(main_module, "allocate_candidates", lambda **kwargs: [])
+
+    main_module.main()
+
+    state = json.loads(Path(output_path).read_text())
+    assert {(row["engine"], row["setup_type"], row["symbol"]) for row in state["latest_candidates"]} == {
+        ("trend", "BREAKOUT_CONTINUATION", "BTCUSDT"),
+        ("rotation", "RS_REACCELERATION", "SOLUSDT"),
+    }
+    assert state["latest_allocations"] == []
+    assert state["rotation_summary"]["candidate_count"] == 1
+    assert state["rotation_summary"]["leaders"][0]["symbol"] == "SOLUSDT"
+    assert [row["symbol"] for row in state["rotation_summary"]["leaders"]] == ["SOLUSDT"]
+
+    filtered_candidates = state["disabled_setup_type_filtered_candidates"]
+    assert len(filtered_candidates) == 1
+    assert {key: filtered_candidates[0].get(key) for key in ("symbol", "engine", "setup_type", "reason", "disabled_by")} == {
+        "symbol": "ETHUSDT",
+        "engine": "rotation",
+        "setup_type": "RS_PULLBACK",
+        "reason": "disabled_setup_type",
+        "disabled_by": "RS_PULLBACK",
+    }
+
+
 def test_main_v2_short_runtime_surfaces_setup_specific_stop_and_invalidation_semantics(monkeypatch, tmp_path, load_fixture):
     output_path = tmp_path / "runtime_state.json"
     account_path = tmp_path / "account_snapshot.json"
@@ -1040,7 +1138,7 @@ def test_main_v2_short_runtime_surfaces_setup_specific_stop_and_invalidation_sem
     monkeypatch.setattr(
         main_module,
         "validate_signal",
-        lambda signal, account, config: (ValidationResult(True, "INFO", reasons=[], metrics={}), {"sizing": None}),
+        lambda signal, account, config, **_kwargs: (ValidationResult(True, "INFO", reasons=[], metrics={}), {"sizing": None}),
     )
     monkeypatch.setattr(
         main_module,
@@ -2620,7 +2718,7 @@ def test_main_v2_rewrites_trend_breakout_stop_fields_from_shared_taxonomy(monkey
     monkeypatch.setattr(
         main_module,
         "validate_signal",
-        lambda signal, account, config: (ValidationResult(True, "INFO", reasons=[], metrics={}), {"sizing": None}),
+        lambda signal, account, config, **_kwargs: (ValidationResult(True, "INFO", reasons=[], metrics={}), {"sizing": None}),
     )
     monkeypatch.setattr(
         main_module,
@@ -2687,7 +2785,7 @@ def test_main_v2_applies_crash_defensive_stop_taxonomy_to_trend_entry(monkeypatc
     monkeypatch.setattr(
         main_module,
         "validate_signal",
-        lambda signal, account, config: (ValidationResult(True, "INFO", reasons=[], metrics={}), {"sizing": None}),
+        lambda signal, account, config, **_kwargs: (ValidationResult(True, "INFO", reasons=[], metrics={}), {"sizing": None}),
     )
     monkeypatch.setattr(
         main_module,
@@ -2697,7 +2795,7 @@ def test_main_v2_applies_crash_defensive_stop_taxonomy_to_trend_entry(monkeypatc
     monkeypatch.setattr(
         main_module,
         "classify_regime",
-        lambda market, derivatives: RegimeSnapshot(
+        lambda market, derivatives, **_kwargs: RegimeSnapshot(
             label="CRASH_DEFENSIVE",
             confidence=0.3,
             risk_multiplier=0.45,
@@ -2760,7 +2858,7 @@ def test_main_v2_rotation_allocations_propagate_explicit_stop_and_invalidation_s
     monkeypatch.setattr(
         main_module,
         "validate_signal",
-        lambda signal, account, config: (ValidationResult(True, "INFO", reasons=[], metrics={}), {"sizing": None}),
+        lambda signal, account, config, **_kwargs: (ValidationResult(True, "INFO", reasons=[], metrics={}), {"sizing": None}),
     )
     monkeypatch.setattr(
         main_module,
@@ -2949,6 +3047,118 @@ def test_main_v2_blocks_when_execution_would_breach_net_exposure_cap(monkeypatch
     assert all(not position.get("tracked_from_intent") for position in state.get("positions", {}).values())
 
 
+def test_main_v2_execution_sizing_uses_allocation_budget_for_net_exposure_guardrail(monkeypatch, tmp_path, load_fixture):
+    @dataclass(slots=True)
+    class SizingRegressionState(RuntimeStateV2):
+        disabled_setup_type_filtered_candidates: list[dict] = field(default_factory=list)
+
+    class SizingRegressionStore(StateStore):
+        def load(self):
+            return SizingRegressionState.empty()
+
+    output_path = tmp_path / "runtime_state.json"
+    account_path = tmp_path / "account_snapshot.json"
+    market_path = tmp_path / "market_context.json"
+    deriv_path = tmp_path / "derivatives_snapshot.json"
+    account_path.write_text(
+        json.dumps(
+            {
+                "equity": 1000.0,
+                "available_balance": 500.0,
+                "futures_wallet_balance": 1000.0,
+                "open_positions": [
+                    {
+                        "symbol": "ADAUSDT",
+                        "side": "LONG",
+                        "qty": 8.0,
+                        "entry_price": 100.0,
+                        "mark_price": 100.0,
+                        "notional": 800.0,
+                    }
+                ],
+                "open_orders": [],
+            }
+        )
+    )
+    market_path.write_text(json.dumps(load_fixture("market_context_v2.json")))
+    deriv_path.write_text(json.dumps(load_fixture("derivatives_snapshot_v2.json")))
+    monkeypatch.setenv("TRADING_STATE_FILE", str(output_path))
+    monkeypatch.setenv("TRADING_ACCOUNT_SNAPSHOT_FILE", str(account_path))
+    monkeypatch.setenv("TRADING_MARKET_CONTEXT_FILE", str(market_path))
+    monkeypatch.setenv("TRADING_DERIVATIVES_SNAPSHOT_FILE", str(deriv_path))
+    monkeypatch.setenv("TRADING_EXECUTION_MODE", "dry-run")
+    monkeypatch.setenv("TRADING_MAX_TOTAL_RISK_PCT", "1.0")
+    monkeypatch.setenv("TRADING_MAX_SYMBOL_RISK_PCT", "1.0")
+    monkeypatch.setenv("TRADING_MAX_NET_EXPOSURE_PCT", "0.85")
+    monkeypatch.setenv("TRADING_MAX_STOP_DISTANCE_PCT", "0.20")
+    monkeypatch.setattr(main_module, "build_state_store", lambda config: SizingRegressionStore(config.state_file))
+    monkeypatch.setattr(
+        main_module,
+        "validate_candidate_for_allocation",
+        lambda candidate, account: ValidationResult(True, "INFO", reasons=[], metrics={}),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "classify_regime",
+        lambda *args, **kwargs: RegimeSnapshot(
+            label="NORMAL",
+            confidence=0.9,
+            risk_multiplier=1.0,
+            execution_policy="normal",
+            bucket_targets={"trend": 1.0},
+            suppression_rules=[],
+        ),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "generate_trend_candidates",
+        lambda *args, **kwargs: [
+            {
+                "engine": "trend",
+                "setup_type": "BREAKOUT",
+                "symbol": "XRPUSDT",
+                "side": "LONG",
+                "score": 0.9,
+                "stop_loss": 90.0,
+                "invalidation_source": "test_stop",
+            }
+        ],
+    )
+    monkeypatch.setattr(main_module, "generate_rotation_candidates", lambda *args, **kwargs: [])
+    monkeypatch.setattr(main_module, "generate_short_candidates", lambda *args, **kwargs: [])
+    monkeypatch.setattr(
+        main_module,
+        "allocate_candidates",
+        lambda **kwargs: [AllocationDecision(status="ACCEPTED", engine="trend", final_risk_budget=0.004, rank=1)],
+    )
+
+    def allocation_sized_signal(*args, **kwargs):
+        return main_module.TradeSignal(
+            signal_id="allocation-sized-net-exposure",
+            symbol="XRPUSDT",
+            side="LONG",
+            entry_price=100.0,
+            stop_loss=90.0,
+            take_profit=120.0,
+            source="strategy",
+            timeframe="4h",
+            tags=["v2", "trend"],
+            meta={"setup_type": "BREAKOUT", "score": 0.9},
+        )
+
+    monkeypatch.setattr(main_module, "_candidate_signal", allocation_sized_signal)
+
+    main_module.main()
+
+    state = json.loads(Path(output_path).read_text())
+    accepted_allocations = [row for row in state.get("latest_allocations", []) if row.get("status") in {"ACCEPTED", "DOWNSIZED"}]
+    assert len(accepted_allocations) == 1
+    execution = accepted_allocations[0].get("execution", {})
+    assert execution.get("status") == "SENT"
+    assert "净敞口" not in execution.get("reason", "")
+    assert state.get("active_orders") == {}
+
+
 def test_main_v2_paper_execution_persists_stop_taxonomy_into_tracked_state(monkeypatch, tmp_path, load_fixture):
     output_path = tmp_path / "runtime_state.json"
     account_path = tmp_path / "account_snapshot.json"
@@ -2981,7 +3191,7 @@ def test_main_v2_paper_execution_persists_stop_taxonomy_into_tracked_state(monke
     monkeypatch.setattr(
         main_module,
         "validate_signal",
-        lambda signal, account, config: (ValidationResult(True, "INFO", reasons=[], metrics={}), {"sizing": None}),
+        lambda signal, account, config, **_kwargs: (ValidationResult(True, "INFO", reasons=[], metrics={}), {"sizing": None}),
     )
     monkeypatch.setattr(
         main_module,
@@ -3057,7 +3267,7 @@ def test_main_v2_paper_cycle_emits_paper_trading_summary_and_records_ledger(
     monkeypatch.setattr(
         main_module,
         "validate_signal",
-        lambda signal, account, config: (ValidationResult(True, "INFO", reasons=[], metrics={}), {"sizing": None}),
+        lambda signal, account, config, **_kwargs: (ValidationResult(True, "INFO", reasons=[], metrics={}), {"sizing": None}),
     )
     monkeypatch.setattr(
         main_module,
@@ -3141,7 +3351,7 @@ def test_main_v2_paper_cycle_replays_from_ledger_when_state_is_missing(
     monkeypatch.setattr(
         main_module,
         "validate_signal",
-        lambda signal, account, config: (ValidationResult(True, "INFO", reasons=[], metrics={}), {"sizing": None}),
+        lambda signal, account, config, **_kwargs: (ValidationResult(True, "INFO", reasons=[], metrics={}), {"sizing": None}),
     )
     monkeypatch.setattr(
         main_module,
@@ -3232,7 +3442,7 @@ def test_main_v2_runtime_bucket_replays_from_bucket_ledger_when_state_is_missing
     monkeypatch.setattr(
         main_module,
         "validate_signal",
-        lambda signal, account, config: (ValidationResult(True, "INFO", reasons=[], metrics={}), {"sizing": None}),
+        lambda signal, account, config, **_kwargs: (ValidationResult(True, "INFO", reasons=[], metrics={}), {"sizing": None}),
     )
     monkeypatch.setattr(
         main_module,

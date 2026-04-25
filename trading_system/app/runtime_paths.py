@@ -26,8 +26,13 @@ class RuntimePaths:
     bucket_dir: Path
     archive_root: Path
     archive_runtime_bundles_dir: Path
+    optimization_dir: Path
     state_file: Path
     paper_ledger_file: Path
+    signal_facts_file: Path
+    trade_outcomes_file: Path
+    daily_metrics_file: Path
+    health_report_file: Path
     execution_log_file: Path
     account_snapshot_file: Path
     market_context_file: Path
@@ -45,6 +50,7 @@ def build_runtime_paths(mode: str, runtime_root: Path | str | None = None, runti
     resolved_runtime_root = Path(runtime_root) if runtime_root is not None else DEFAULT_RUNTIME_ROOT
     bucket_dir = resolved_runtime_root / normalized_mode / normalized_runtime_env
     archive_root = resolved_runtime_root.parent / "archive"
+    optimization_dir = bucket_dir / "optimization"
     return RuntimePaths(
         mode=normalized_mode,
         runtime_env=normalized_runtime_env,
@@ -52,8 +58,13 @@ def build_runtime_paths(mode: str, runtime_root: Path | str | None = None, runti
         bucket_dir=bucket_dir,
         archive_root=archive_root,
         archive_runtime_bundles_dir=archive_root / "runtime-bundles" / normalized_mode / normalized_runtime_env,
+        optimization_dir=optimization_dir,
         state_file=bucket_dir / "runtime_state.json",
         paper_ledger_file=bucket_dir / "paper_ledger.jsonl",
+        signal_facts_file=optimization_dir / "signal_facts.jsonl",
+        trade_outcomes_file=optimization_dir / "trade_outcomes.jsonl",
+        daily_metrics_file=optimization_dir / "daily_metrics.json",
+        health_report_file=optimization_dir / "health_report.json",
         execution_log_file=bucket_dir / "execution_log.jsonl",
         account_snapshot_file=bucket_dir / "account_snapshot.json",
         market_context_file=bucket_dir / "market_context.json",

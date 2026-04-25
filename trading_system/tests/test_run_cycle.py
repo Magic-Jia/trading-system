@@ -61,6 +61,65 @@ def test_run_cycle_prepares_runtime_bucket_calls_main_and_writes_latest_summary(
     assert "finished_at" in latest
 
 
+def test_run_cycle_latest_summary_includes_disabled_setup_types(monkeypatch, tmp_path):
+    runtime_root = tmp_path / "runtime"
+    expected_bucket = runtime_root / "paper" / "prod"
+
+    def fake_main() -> None:
+        return None
+
+    monkeypatch.setattr(run_cycle_module, "run_main", fake_main)
+    monkeypatch.setenv("TRADING_DISABLED_SETUP_TYPES", "rs_pullback, breakdown_short")
+
+    summary = run_cycle_module.run_cycle("paper", runtime_root=runtime_root, runtime_env="prod")
+
+    latest_path = expected_bucket / "latest.json"
+    latest = json.loads(latest_path.read_text(encoding="utf-8"))
+
+    assert summary == latest
+    assert latest["disabled_setup_types"] == ["RS_PULLBACK", "BREAKDOWN_SHORT"]
+    assert latest["disabled_setup_type_filtered_count"] == 0
+    assert latest["disabled_setup_type_filtered_candidates"] == []
+
+
+def test_run_cycle_latest_summary_mirrors_disabled_setup_type_filtered_candidates(monkeypatch, tmp_path):
+    runtime_root = tmp_path / "runtime"
+    expected_bucket = runtime_root / "paper" / "prod"
+    filtered_candidates = [
+        {
+            "symbol": "ETHUSDT",
+            "engine": "rotation",
+            "setup_type": "RS_PULLBACK",
+            "reason": "disabled_setup_type",
+            "disabled_by": "RS_PULLBACK",
+        }
+    ]
+
+    def fake_main() -> None:
+        Path(os.environ["TRADING_STATE_FILE"]).write_text(
+            json.dumps(
+                {
+                    "execution_mode": "paper",
+                    "latest_candidates": [],
+                    "latest_allocations": [],
+                    "disabled_setup_type_filtered_candidates": filtered_candidates,
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    monkeypatch.setattr(run_cycle_module, "run_main", fake_main)
+
+    summary = run_cycle_module.run_cycle("paper", runtime_root=runtime_root, runtime_env="prod")
+
+    latest_path = expected_bucket / "latest.json"
+    latest = json.loads(latest_path.read_text(encoding="utf-8"))
+
+    assert summary == latest
+    assert latest["disabled_setup_type_filtered_count"] == 1
+    assert latest["disabled_setup_type_filtered_candidates"] == filtered_candidates
+
+
 def test_run_cycle_defaults_paper_mode_to_paper_runtime_bucket(monkeypatch, tmp_path):
     runtime_root = tmp_path / "runtime"
     expected_bucket = runtime_root / "paper" / "paper"
@@ -681,7 +740,7 @@ def test_run_cycle_dry_run_still_falls_back_to_default_snapshot_data_when_runtim
     monkeypatch.setattr(
         main_module,
         "validate_signal",
-        lambda signal, account, config: (ValidationResult(True, "INFO", reasons=[], metrics={}), {"sizing": None}),
+        lambda signal, account, config, **_kwargs: (ValidationResult(True, "INFO", reasons=[], metrics={}), {"sizing": None}),
     )
     monkeypatch.setattr(
         main_module,
@@ -788,7 +847,7 @@ def test_run_cycle_preserves_paper_ledger_and_reports_replay_summary_when_state_
     monkeypatch.setattr(
         main_module,
         "validate_signal",
-        lambda signal, account, config: (ValidationResult(True, "INFO", reasons=[], metrics={}), {"sizing": None}),
+        lambda signal, account, config, **_kwargs: (ValidationResult(True, "INFO", reasons=[], metrics={}), {"sizing": None}),
     )
     monkeypatch.setattr(
         main_module,

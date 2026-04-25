@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator, Mapping
 
-from trading_system.app.config import BASE_DIR_ENV
+from trading_system.app.config import BASE_DIR_ENV, normalize_engine_names, normalize_setup_types
 from trading_system.app.backtest.archive import (
     archive_runtime_bundle_from_environment,
     runtime_bundle_archive_enabled,
@@ -29,6 +29,8 @@ from trading_system.paper_snapshots import (
 )
 
 EXECUTION_MODE_ENV = "TRADING_EXECUTION_MODE"
+EFFECTIVE_ENV_FILE_ENV = "TRADING_EFFECTIVE_ENV_FILE"
+EFFECTIVE_LOG_FILE_ENV = "TRADING_EFFECTIVE_LOG_FILE"
 LATEST_SUMMARY_NAME = "latest.json"
 ERROR_SUMMARY_NAME = "error.json"
 PAPER_RUNTIME_ENV = "paper"
@@ -62,6 +64,8 @@ def _base_summary(paths: RuntimePaths, *, status: str, finished_at: str) -> dict
         "status": status,
         "mode": paths.mode,
         "runtime_env": paths.runtime_env,
+        "env_file": os.environ.get(EFFECTIVE_ENV_FILE_ENV),
+        "wrapper_log_file": os.environ.get(EFFECTIVE_LOG_FILE_ENV),
         "runtime_root": str(paths.runtime_root),
         "bucket_dir": str(paths.bucket_dir),
         "state_file": str(paths.state_file),
@@ -76,10 +80,27 @@ def _state_summary(paths: RuntimePaths) -> dict[str, Any]:
             "execution_mode": None,
             "candidate_count": 0,
             "allocation_count": 0,
+            "disabled_setup_type_filtered_count": 0,
+            "disabled_setup_type_filtered_candidates": [],
+            "suppression_rules": [],
+            "disabled_engines": list(normalize_engine_names(os.environ.get("TRADING_DISABLED_ENGINES"))),
+            "disabled_setup_types": list(normalize_setup_types(os.environ.get("TRADING_DISABLED_SETUP_TYPES"))),
+            "trend_candidate_count": 0,
+            "rotation_candidate_count": 0,
+            "short_candidate_count": 0,
+            "short_accepted_symbols": [],
+            "short_deferred_execution_symbols": [],
             "paper_trading": {},
         }
 
     state = json.loads(paths.state_file.read_text(encoding="utf-8"))
+    regime = state.get("latest_regime") if isinstance(state.get("latest_regime"), dict) else {}
+    trend_summary = state.get("trend_summary") if isinstance(state.get("trend_summary"), dict) else {}
+    rotation_summary = state.get("rotation_summary") if isinstance(state.get("rotation_summary"), dict) else {}
+    short_summary = state.get("short_summary") if isinstance(state.get("short_summary"), dict) else {}
+    disabled_setup_type_filtered_candidates = state.get("disabled_setup_type_filtered_candidates")
+    if not isinstance(disabled_setup_type_filtered_candidates, list):
+        disabled_setup_type_filtered_candidates = []
     paper_trading = state.get("paper_trading")
     if not isinstance(paper_trading, dict):
         paper_trading = {}
@@ -88,6 +109,16 @@ def _state_summary(paths: RuntimePaths) -> dict[str, Any]:
         "execution_mode": state.get("execution_mode"),
         "candidate_count": len(state.get("latest_candidates") or []),
         "allocation_count": len(state.get("latest_allocations") or []),
+        "disabled_setup_type_filtered_count": len(disabled_setup_type_filtered_candidates),
+        "disabled_setup_type_filtered_candidates": disabled_setup_type_filtered_candidates,
+        "suppression_rules": list(regime.get("suppression_rules") or []),
+        "disabled_engines": list(normalize_engine_names(os.environ.get("TRADING_DISABLED_ENGINES"))),
+        "disabled_setup_types": list(normalize_setup_types(os.environ.get("TRADING_DISABLED_SETUP_TYPES"))),
+        "trend_candidate_count": int(trend_summary.get("candidate_count") or 0),
+        "rotation_candidate_count": int(rotation_summary.get("candidate_count") or 0),
+        "short_candidate_count": int(short_summary.get("candidate_count") or 0),
+        "short_accepted_symbols": list(short_summary.get("accepted_symbols") or []),
+        "short_deferred_execution_symbols": list(short_summary.get("deferred_execution_symbols") or []),
         "paper_trading": paper_trading,
     }
 

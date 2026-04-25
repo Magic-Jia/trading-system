@@ -1,0 +1,225 @@
+from __future__ import annotations
+
+import importlib
+import json
+from pathlib import Path
+
+import pytest
+
+from trading_system.app.runtime_paths import build_runtime_paths
+
+
+def _metrics_module():
+    try:
+        return importlib.import_module("trading_system.app.paper_optimization.metrics")
+    except ModuleNotFoundError as exc:
+        pytest.fail(f"paper optimization metrics module is missing: {exc}")
+
+
+def test_write_daily_metrics_and_health_report_summarizes_trade_outcomes(tmp_path: Path) -> None:
+    paths = build_runtime_paths("paper", runtime_root=tmp_path / "runtime", runtime_env="research")
+    module = _metrics_module()
+    paths.signal_facts_file.parent.mkdir(parents=True, exist_ok=True)
+    paths.signal_facts_file.write_text(
+        "\n".join(
+            [
+                json.dumps({"fact_type": "signal", "symbol": "BTCUSDT"}),
+                json.dumps({"fact_type": "signal", "symbol": "ETHUSDT"}),
+                json.dumps({"fact_type": "signal", "symbol": "SOLUSDT"}),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    paths.trade_outcomes_file.write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "fact_type": "trade_outcome",
+                        "mode": "paper",
+                        "runtime_env": "research",
+                        "regime_label": "RISK_ON_TREND",
+                        "symbol": "BTCUSDT",
+                        "side": "LONG",
+                        "engine": "trend",
+                        "setup_type": "BREAKOUT_CONTINUATION",
+                        "intent_id": "intent-btc",
+                        "signal_id": "signal-btc",
+                        "allocation_status": "ACCEPTED",
+                        "execution_status": "FILLED",
+                        "outcome_status": "OPEN",
+                        "position_status": "OPEN",
+                        "score": 0.91,
+                        "final_risk_budget": 0.01,
+                        "filled_qty": 0.02,
+                        "open_qty": 0.02,
+                        "entry_price": 64000.0,
+                        "mark_price": 64650.0,
+                        "stop_loss": 62830.0,
+                        "take_profit": 67200.0,
+                        "unrealized_pnl": 13.0,
+                        "realized_pnl": None,
+                        "pnl_basis": "unrealized",
+                        "opened_at_bj": "2026-04-23T12:00:00+08:00",
+                        "updated_at_bj": "2026-04-23T12:05:00+08:00",
+                        "recorded_at_bj": "2026-04-23T12:00:00+08:00",
+                    }
+                ),
+                json.dumps(
+                    {
+                        "fact_type": "trade_outcome",
+                        "mode": "paper",
+                        "runtime_env": "research",
+                        "regime_label": "RISK_ON_TREND",
+                        "symbol": "ETHUSDT",
+                        "side": "LONG",
+                        "engine": "rotation",
+                        "setup_type": "RS_PULLBACK",
+                        "intent_id": None,
+                        "signal_id": None,
+                        "allocation_status": "ACCEPTED",
+                        "execution_status": "BLOCKED",
+                        "outcome_status": "NOT_EXECUTED",
+                        "position_status": None,
+                        "score": 0.77,
+                        "final_risk_budget": 0.008,
+                        "filled_qty": None,
+                        "open_qty": None,
+                        "entry_price": None,
+                        "mark_price": None,
+                        "stop_loss": 3100.0,
+                        "take_profit": None,
+                        "unrealized_pnl": None,
+                        "realized_pnl": None,
+                        "pnl_basis": None,
+                        "opened_at_bj": None,
+                        "updated_at_bj": None,
+                        "recorded_at_bj": None,
+                    }
+                ),
+                json.dumps(
+                    {
+                        "fact_type": "trade_outcome",
+                        "mode": "paper",
+                        "runtime_env": "research",
+                        "regime_label": "RISK_OFF",
+                        "symbol": "SOLUSDT",
+                        "side": "LONG",
+                        "engine": "trend",
+                        "setup_type": "BREAKOUT_CONTINUATION",
+                        "intent_id": "intent-sol",
+                        "signal_id": None,
+                        "allocation_status": "ACCEPTED",
+                        "execution_status": "FILLED",
+                        "outcome_status": "POSITION_NOT_TRACKED",
+                        "position_status": None,
+                        "score": 0.66,
+                        "final_risk_budget": 0.004,
+                        "filled_qty": None,
+                        "open_qty": None,
+                        "entry_price": None,
+                        "mark_price": None,
+                        "stop_loss": 118.0,
+                        "take_profit": None,
+                        "unrealized_pnl": None,
+                        "realized_pnl": None,
+                        "pnl_basis": None,
+                        "opened_at_bj": None,
+                        "updated_at_bj": None,
+                        "recorded_at_bj": None,
+                    }
+                ),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    summary = module.write_daily_metrics_and_health_report(
+        trade_outcomes_path=paths.trade_outcomes_file,
+        signal_facts_path=paths.signal_facts_file,
+        daily_metrics_path=paths.daily_metrics_file,
+        health_report_path=paths.health_report_file,
+        recorded_at_bj="2026-04-23T18:50:00+08:00",
+    )
+
+    assert summary == {
+        "daily_metrics_path": str(paths.daily_metrics_file),
+        "health_report_path": str(paths.health_report_file),
+        "trade_outcome_count": 3,
+        "signal_fact_count": 3,
+        "open_count": 1,
+        "position_not_tracked_count": 1,
+        "warning_count": 1,
+    }
+
+    daily_metrics = json.loads(paths.daily_metrics_file.read_text(encoding="utf-8"))
+    assert daily_metrics == {
+        "recorded_at_bj": "2026-04-23T18:50:00+08:00",
+        "signal_fact_count": 3,
+        "trade_outcome_count": 3,
+        "execution_status_counts": {"BLOCKED": 1, "FILLED": 2},
+        "outcome_status_counts": {"NOT_EXECUTED": 1, "OPEN": 1, "POSITION_NOT_TRACKED": 1},
+        "open_count": 1,
+        "not_executed_count": 1,
+        "position_not_tracked_count": 1,
+        "unrealized_pnl_total": 13.0,
+        "by_engine": {
+            "rotation": {
+                "trade_outcome_count": 1,
+                "open_count": 0,
+                "position_not_tracked_count": 0,
+                "unrealized_pnl_total": 0.0,
+            },
+            "trend": {
+                "trade_outcome_count": 2,
+                "open_count": 1,
+                "position_not_tracked_count": 1,
+                "unrealized_pnl_total": 13.0,
+            },
+        },
+        "by_setup_type": {
+            "BREAKOUT_CONTINUATION": {
+                "trade_outcome_count": 2,
+                "open_count": 1,
+                "position_not_tracked_count": 1,
+                "unrealized_pnl_total": 13.0,
+            },
+            "RS_PULLBACK": {
+                "trade_outcome_count": 1,
+                "open_count": 0,
+                "position_not_tracked_count": 0,
+                "unrealized_pnl_total": 0.0,
+            },
+        },
+        "by_regime": {
+            "RISK_OFF": {
+                "trade_outcome_count": 1,
+                "open_count": 0,
+                "position_not_tracked_count": 1,
+                "unrealized_pnl_total": 0.0,
+            },
+            "RISK_ON_TREND": {
+                "trade_outcome_count": 2,
+                "open_count": 1,
+                "position_not_tracked_count": 0,
+                "unrealized_pnl_total": 13.0,
+            },
+        },
+    }
+
+    health_report = json.loads(paths.health_report_file.read_text(encoding="utf-8"))
+    assert health_report == {
+        "recorded_at_bj": "2026-04-23T18:50:00+08:00",
+        "status": "warn",
+        "signal_fact_count": 3,
+        "trade_outcome_count": 3,
+        "warnings": [
+            {
+                "code": "position_not_tracked",
+                "count": 1,
+                "message": "1 filled outcomes do not currently map to an active runtime position",
+            }
+        ],
+    }
