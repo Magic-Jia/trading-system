@@ -10,7 +10,7 @@ from ..connectors.binance import (
 )
 from ..types import BJ, ManagementActionIntent, ManagementActionPreview, OrderIntent
 
-OrderMode = Literal["paper", "dry-run", "live"]
+OrderMode = Literal["paper", "dry-run", "live", "testnet"]
 
 
 def side_to_binance(side: str) -> str:

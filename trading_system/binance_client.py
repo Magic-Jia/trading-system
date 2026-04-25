@@ -100,8 +100,13 @@ def env_ready() -> bool:
     return bool(_api_key() and _api_secret())
 
 
-def _request(url: str, headers: Dict[str, str] | None = None) -> Any:
-    req = urllib.request.Request(url, headers=headers or {})
+def _request(
+    url: str,
+    headers: Dict[str, str] | None = None,
+    data: bytes | None = None,
+    method: str | None = None,
+) -> Any:
+    req = urllib.request.Request(url, headers=headers or {}, data=data, method=method)
     with urllib.request.urlopen(req, timeout=20) as resp:
         return json.loads(resp.read().decode())
 
@@ -125,9 +130,57 @@ def signed_get(base: str, path: str, params: Dict[str, Any] | None = None) -> An
     return _request(url, headers={"X-MBX-APIKEY": key})
 
 
+def signed_post(base: str, path: str, params: Dict[str, Any] | None = None) -> Any:
+    key = _api_key()
+    secret = _api_secret()
+    if not key or not secret:
+        raise RuntimeError("Missing Binance API credentials")
+    params = params or {}
+    qs = urllib.parse.urlencode(params, doseq=True)
+    sig = hmac.new(secret.encode(), qs.encode(), hashlib.sha256).hexdigest()
+    body = f"{qs}&signature={sig}".encode()
+    return _request(
+        f"{base}{path}",
+        headers={"X-MBX-APIKEY": key, "Content-Type": "application/x-www-form-urlencoded"},
+        data=body,
+        method="POST",
+    )
+
+
 def server_time() -> int:
     return int(public_get(SPOT_BASE, "/api/v3/time")["serverTime"])
 
 
 def signed_params(recv_window: int = 5000) -> Dict[str, Any]:
     return {"timestamp": server_time(), "recvWindow": recv_window}
+
+
+def fetch_futures_testnet_local_time_ms() -> int:
+    return int(time.time() * 1000)
+
+
+def _futures_testnet_signed_params(
+    *,
+    timestamp_ms: int | None = None,
+    recv_window: int = 5000,
+) -> Dict[str, Any]:
+    return {
+        "timestamp": fetch_futures_testnet_local_time_ms() if timestamp_ms is None else int(timestamp_ms),
+        "recvWindow": recv_window,
+    }
+
+
+def submit_futures_testnet_order(
+    payload: dict[str, Any],
+    *,
+    timestamp_ms: int | None = None,
+    recv_window: int = 5000,
+) -> dict[str, Any]:
+    if not _is_testnet_mode() or "testnet.binancefuture.com" not in FUTURES_BASE:
+        raise RuntimeError("futures testnet order submission requires Binance Futures testnet endpoint")
+    params = dict(payload)
+    params.update(_futures_testnet_signed_params(timestamp_ms=timestamp_ms, recv_window=recv_window))
+    response = signed_post(FUTURES_BASE, "/fapi/v1/order", params)
+    if not isinstance(response, dict):
+        raise RuntimeError("Unexpected futures testnet order response payload")
+    return response

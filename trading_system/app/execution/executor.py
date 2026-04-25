@@ -6,6 +6,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
 
+from trading_system.binance_client import submit_futures_testnet_order
+
 from ..connectors.binance import query_open_protective_orders
 from ..config import AppConfig
 from ..portfolio.positions import _has_explicit_target_management_state, apply_management_action_fill
@@ -50,16 +52,33 @@ class OrderExecutor:
 
             submission_enabled = bool(self.config.execution.testnet_order_submission_enabled)
             submission_prerequisites_passed = bool(preview.get("submission_prerequisites_passed", False))
+            would_submit = submission_enabled and submission_prerequisites_passed
             result = {
                 "mode": "testnet",
                 "ts_bj": datetime.now(BJ).isoformat(),
                 "intent": asdict(order),
                 "validated_order_preview": preview,
                 "submission_enabled": submission_enabled,
-                "would_submit": submission_enabled and submission_prerequisites_passed,
+                "would_submit": would_submit,
                 "submission_prerequisites_passed": submission_prerequisites_passed,
                 "result": "PREVIEW_ONLY",
             }
+            if would_submit:
+                payloads = preview.get("payloads") if isinstance(preview, dict) else {}
+                entry_payload = payloads.get("entry") if isinstance(payloads, dict) else None
+                if not isinstance(entry_payload, dict):
+                    raise ExecutionError("testnet submission requires a validated entry payload")
+                exchange_response = submit_futures_testnet_order(entry_payload)
+                order.status = "SENT"
+                result.update(
+                    {
+                        "venue": "binance_futures_testnet",
+                        "entry_order": entry_payload,
+                        "clientOrderId": entry_payload.get("newClientOrderId"),
+                        "exchange_response": exchange_response,
+                        "result": "SUBMITTED",
+                    }
+                )
             self.append_log(order, result)
             return result
 

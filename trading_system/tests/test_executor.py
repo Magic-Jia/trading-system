@@ -138,3 +138,38 @@ def test_order_executor_testnet_mode_returns_preview_without_submission(monkeypa
     assert result["mode"] == "testnet"
     assert result["would_submit"] is False
     assert result["submission_enabled"] is False
+
+
+def test_order_executor_testnet_submission_uses_fake_submitter(monkeypatch, tmp_path):
+    from trading_system.app.execution import executor as executor_module
+
+    exec_log = tmp_path / "execution_log.jsonl"
+    monkeypatch.setattr(executor_module, "EXEC_LOG", exec_log)
+    config = build_testnet_config(tmp_path, monkeypatch)
+    config = replace(
+        config,
+        execution=replace(config.execution, testnet_order_submission_enabled=True),
+    )
+    calls = []
+
+    def fake_submit(payload):
+        calls.append(payload)
+        return {"orderId": 12345, "status": "NEW", "clientOrderId": payload["newClientOrderId"]}
+
+    monkeypatch.setattr(executor_module, "submit_futures_testnet_order", fake_submit)
+    order = _sample_order()
+    order.meta["validated_order_preview"] = {
+        "submission_prerequisites_passed": True,
+        "payloads": {"entry": {"symbol": "BTCUSDT", "side": "BUY", "type": "MARKET", "quantity": 0.01, "newClientOrderId": "intent-btc-long"}},
+    }
+    executor = OrderExecutor(config)
+
+    result = executor.execute(order, RuntimeStateV2.empty())
+
+    assert calls == [{"symbol": "BTCUSDT", "side": "BUY", "type": "MARKET", "quantity": 0.01, "newClientOrderId": "intent-btc-long"}]
+    assert result["mode"] == "testnet"
+    assert result["venue"] == "binance_futures_testnet"
+    assert result["result"] == "SUBMITTED"
+    assert result["exchange_response"]["orderId"] == 12345
+    assert result["clientOrderId"] == "intent-btc-long"
+    assert not (tmp_path / "paper_ledger.jsonl").exists()

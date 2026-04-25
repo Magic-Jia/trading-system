@@ -4,6 +4,7 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Literal
+from urllib.parse import urlparse
 
 from .runtime_paths import RUNTIME_ENV_ENV, build_runtime_paths
 from .signals.entry_profile import ENTRY_PROFILE_ENV, EntryProfile, resolve_entry_profile
@@ -13,7 +14,7 @@ DATA_DIR = BASE / "data"
 STATE_FILE = DATA_DIR / "runtime_state.json"
 BASE_DIR_ENV = "TRADING_BASE_DIR"
 
-ExecutionMode = Literal["paper", "dry-run", "live"]
+ExecutionMode = Literal["paper", "dry-run", "live", "testnet"]
 
 
 def _env_float(name: str, default: str) -> float:
@@ -71,10 +72,19 @@ def _env_setup_type_list(name: str) -> tuple[str, ...]:
     return normalize_setup_types(value)
 
 
+def _env_csv(name: str) -> tuple[str, ...]:
+    return _normalize_string_list(os.environ.get(name), transform=str.upper)
+
+
+def _has_testnet_futures_endpoint(endpoint: str) -> bool:
+    parsed = urlparse(endpoint)
+    return parsed.scheme in {"http", "https"} and parsed.netloc == "testnet.binancefuture.com"
+
+
 def _env_execution_mode(name: str, default: ExecutionMode = "paper") -> ExecutionMode:
     value = os.environ.get(name, default).strip().lower()
-    if value not in {"paper", "dry-run", "live"}:
-        raise ValueError(f"{name} must be one of paper, dry-run, live")
+    if value not in {"paper", "dry-run", "live", "testnet"}:
+        raise ValueError(f"{name} must be one of paper, dry-run, live, testnet")
     return value  # type: ignore[return-value]
 
 
@@ -157,8 +167,39 @@ class LifecycleConfig:
 class ExecutionConfig:
     mode: ExecutionMode = field(default_factory=lambda: _env_execution_mode("TRADING_EXECUTION_MODE", "paper"))
     allow_live_execution: bool = field(default_factory=lambda: _env_bool("TRADING_ALLOW_LIVE_EXECUTION", False))
+    testnet_order_submission_enabled: bool = field(
+        default_factory=lambda: _env_bool("TRADING_TESTNET_ORDER_SUBMISSION_ENABLED", False)
+    )
+    testnet_allowed_symbols: tuple[str, ...] = field(default_factory=lambda: _env_csv("TRADING_TESTNET_ALLOWED_SYMBOLS"))
+    testnet_max_order_notional_usdt: float = field(
+        default_factory=lambda: _env_float("TRADING_TESTNET_MAX_ORDER_NOTIONAL_USDT", "25")
+    )
+    testnet_max_open_positions: int = field(default_factory=lambda: _env_int("TRADING_TESTNET_MAX_OPEN_POSITIONS", "1"))
     disabled_engines: tuple[str, ...] = field(default_factory=lambda: _env_engine_list("TRADING_DISABLED_ENGINES"))
     disabled_setup_types: tuple[str, ...] = field(default_factory=lambda: _env_setup_type_list("TRADING_DISABLED_SETUP_TYPES"))
+
+    def __post_init__(self) -> None:
+        if self.mode != "testnet":
+            return
+        if not _env_bool("BINANCE_USE_TESTNET", False):
+            raise ValueError("testnet mode requires BINANCE_USE_TESTNET=1")
+        endpoint = os.environ.get("BINANCE_FAPI_URL", "")
+        if not _has_testnet_futures_endpoint(endpoint):
+            raise ValueError("testnet mode requires the Binance Futures testnet endpoint")
+        has_key = bool(os.environ.get("BINANCE_TESTNET_API_KEY") or os.environ.get("BINANCE_API_KEY"))
+        has_secret = bool(
+            os.environ.get("BINANCE_TESTNET_API_SECRET")
+            or os.environ.get("BINANCE_API_SECRET")
+            or os.environ.get("BINANCE_SECRET")
+        )
+        if has_key != has_secret:
+            raise ValueError("testnet credentials require both api key and secret")
+        if not self.testnet_allowed_symbols:
+            raise ValueError("testnet mode requires an allowed symbol list")
+        if self.testnet_max_order_notional_usdt <= 0:
+            raise ValueError("testnet max order notional must be positive")
+        if self.testnet_max_open_positions <= 0:
+            raise ValueError("testnet max open positions must be positive")
 
 
 @dataclass(frozen=True, slots=True)
@@ -179,3 +220,4 @@ def build_config() -> AppConfig:
 
 
 DEFAULT_CONFIG = build_config()
+
