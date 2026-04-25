@@ -27,6 +27,25 @@ def _seeded_major_account(load_fixture, *, notional: float = 1000.0):
     return account
 
 
+def _alt_seed_candidate(*, engine: str, symbol: str = "SOLUSDT", score: float = 0.88) -> dict:
+    return {
+        "engine": engine,
+        "setup_type": "RS_REACCELERATION" if engine == "rotation" else "BREAKOUT_CONTINUATION",
+        "symbol": symbol,
+        "side": "LONG",
+        "score": score,
+        "sector": "alt_l1",
+        "timeframe_meta": {
+            "derivatives": {
+                "crowding_bias": "balanced",
+                "basis_bps": 6.0,
+                "funding_rate": 0.00002,
+            }
+        },
+        "liquidity_meta": {"spread_bps": 1.2, "slippage_bps": 5.0, "volume_usdt_24h": 1_400_000_000.0},
+    }
+
+
 def test_scaled_risk_budget_respects_engine_tier_and_regime_confidence():
     budget = scaled_risk_budget(base_risk_pct=0.008, regime_multiplier=0.5, confidence=0.4)
     assert budget < 0.008
@@ -56,6 +75,30 @@ def test_allocator_accepts_rotation_candidates_when_bucket_enabled(load_fixture,
     assert accepted
     assert all(decision.engine == "rotation" for decision in accepted)
     assert all(decision.final_risk_budget > 0 for decision in accepted)
+
+
+@pytest.mark.parametrize("engine", ["trend", "rotation"])
+def test_allocator_allows_single_alt_seed_in_risk_on_rotation_when_no_major_is_open(load_fixture, engine):
+    account = _flat_account(load_fixture)
+    regime = {"label": "RISK_ON_ROTATION", "bucket_targets": {"trend": 0.45, "rotation": 0.45, "short": 0.1}, "suppressed_engines": []}
+
+    decisions = allocate_candidates(account=account, candidates=[_alt_seed_candidate(engine=engine)], regime=regime)
+
+    assert decisions
+    assert decisions[0].status in {"ACCEPTED", "DOWNSIZED"}
+    assert decisions[0].final_risk_budget > 0
+    assert decisions[0].meta["major_alt_balance_ok"] is True
+
+
+def test_allocator_keeps_alt_seed_blocked_outside_risk_on_rotation(load_fixture):
+    account = _flat_account(load_fixture)
+    regime = {"label": "MIXED", "bucket_targets": {"trend": 0.45, "rotation": 0.45, "short": 0.1}, "suppressed_engines": []}
+
+    decisions = allocate_candidates(account=account, candidates=[_alt_seed_candidate(engine="trend")], regime=regime)
+
+    assert decisions
+    assert decisions[0].status == "REJECTED"
+    assert "major/alt balance" in " ".join(decisions[0].reasons).lower()
 
 
 def test_allocator_downweights_duplicate_trend_breakouts(load_fixture, sample_trend_candidates):

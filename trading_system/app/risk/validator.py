@@ -14,6 +14,7 @@ def validate_signal(
     account: AccountSnapshot,
     config: RiskConfig,
     volatility_pct: float | None = None,
+    risk_pct_override: float | None = None,
 ) -> tuple[ValidationResult, dict]:
     reasons: list[str] = []
     metrics: dict = {}
@@ -36,7 +37,7 @@ def validate_signal(
     if reasons:
         return ValidationResult(False, "BLOCK", reasons=reasons, metrics=metrics), {}
 
-    sizing = size_signal(signal, account, config, volatility_pct=volatility_pct)
+    sizing = size_signal(signal, account, config, volatility_pct=volatility_pct, risk_pct_override=risk_pct_override)
     metrics.update(
         {
             "sizing_qty": sizing.qty,

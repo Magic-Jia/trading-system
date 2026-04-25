@@ -14,6 +14,8 @@ _TREND_ABSOLUTE_STRENGTH_H4_FLOOR = 0.01
 _TREND_ABSOLUTE_STRENGTH_H1_FLOOR = 0.003
 _TREND_H4_EXTENSION_OVERHEAT_PCT = 0.03
 _TREND_H1_EXTENSION_OVERHEAT_PCT = 0.01
+_SUPPORTIVE_NON_MAJOR_SOFT_PRETREND_REGIMES = {"MIXED", "RISK_ON_ROTATION"}
+_SUPPORTIVE_NON_MAJOR_SOFT_PRETREND_MAX_RECLAIM_GAP_PCT = 0.02
 
 
 def _to_float(value: Any) -> float:
@@ -28,6 +30,25 @@ def _tf_row(payload: Mapping[str, Any], timeframe: str) -> Mapping[str, Any]:
     if isinstance(row, Mapping):
         return row
     return {}
+
+
+def _regime_value(regime: Any, key: str, default: Any = None) -> Any:
+    if regime is None:
+        return default
+    if isinstance(regime, Mapping):
+        return regime.get(key, default)
+    return getattr(regime, key, default)
+
+
+def _regime_label(regime: Any) -> str:
+    return str(_regime_value(regime, "label", "")).upper()
+
+
+def _has_suppression_rule(regime: Any, rule_name: str) -> bool:
+    rules = _regime_value(regime, "suppression_rules", [])
+    if not isinstance(rules, list):
+        return False
+    return rule_name.lower() in {str(rule).lower().strip() for rule in rules}
 
 
 def _is_uptrend(daily: Mapping[str, Any], h4: Mapping[str, Any], h1: Mapping[str, Any]) -> bool:
@@ -49,6 +70,41 @@ def _is_high_liquidity_strong_name(payload: Mapping[str, Any]) -> bool:
         and _to_float(daily.get("return_pct_7d")) > 0.0
         and _to_float(h4.get("return_pct_3d")) > 0.0
     )
+
+
+def _lower_timeframes_intact(payload: Mapping[str, Any]) -> bool:
+    h4 = _tf_row(payload, "4h")
+    h1 = _tf_row(payload, "1h")
+    return (
+        _to_float(h4.get("close")) >= _to_float(h4.get("ema_20")) >= _to_float(h4.get("ema_50"))
+        and _to_float(h1.get("close")) >= _to_float(h1.get("ema_20")) >= _to_float(h1.get("ema_50"))
+    )
+
+
+def _is_supportive_non_major_soft_pretrend(payload: Mapping[str, Any], regime: Any) -> bool:
+    if _regime_label(regime) not in _SUPPORTIVE_NON_MAJOR_SOFT_PRETREND_REGIMES:
+        return False
+    if _has_suppression_rule(regime, "trend"):
+        return False
+
+    tier = str(payload.get("liquidity_tier", "")).lower()
+    daily = _tf_row(payload, "daily")
+    h4 = _tf_row(payload, "4h")
+    h1 = _tf_row(payload, "1h")
+    daily_close = _to_float(daily.get("close"))
+    daily_ema20 = _to_float(daily.get("ema_20"))
+    daily_ema50 = _to_float(daily.get("ema_50"))
+    daily_reclaim_nearby = (
+        daily_close > daily_ema20
+        and daily_close >= (daily_ema50 * 0.99)
+        and daily_close <= (daily_ema50 * (1.0 + _SUPPORTIVE_NON_MAJOR_SOFT_PRETREND_MAX_RECLAIM_GAP_PCT))
+    )
+    momentum_non_negative = (
+        _to_float(daily.get("return_pct_7d")) >= 0.0
+        and _to_float(h4.get("return_pct_3d")) >= 0.0
+        and _to_float(h1.get("return_pct_24h")) >= 0.0
+    )
+    return tier in _HIGH_LIQUIDITY_TIERS and daily_reclaim_nearby and _lower_timeframes_intact(payload) and momentum_non_negative
 
 
 def _volume_quality(payload: Mapping[str, Any]) -> float:
@@ -126,6 +182,7 @@ def generate_trend_candidates(
     *,
     derivatives: Mapping[str, Any] | list[dict[str, Any]] | None = None,
     include_high_liquidity_strong_names: bool = True,
+    regime: Any = None,
 ) -> list[EngineCandidate]:
     symbols = market_context.get("symbols")
     if not isinstance(symbols, Mapping):
@@ -138,15 +195,18 @@ def generate_trend_candidates(
         payload = payload_value
         sector = str(payload.get("sector", ""))
         is_major = sector == _MAJOR_SECTOR
-        if not is_major and not include_high_liquidity_strong_names:
-            continue
-        if not is_major and not _is_high_liquidity_strong_name(payload):
-            continue
+        soft_non_major_pretrend = False
+        if not is_major:
+            soft_non_major_pretrend = _is_supportive_non_major_soft_pretrend(payload, regime)
+            if not include_high_liquidity_strong_names and not soft_non_major_pretrend:
+                continue
+            if include_high_liquidity_strong_names and not _is_high_liquidity_strong_name(payload) and not soft_non_major_pretrend:
+                continue
 
         daily = _tf_row(payload, "daily")
         h4 = _tf_row(payload, "4h")
         h1 = _tf_row(payload, "1h")
-        if not _is_uptrend(daily, h4, h1):
+        if not _is_uptrend(daily, h4, h1) and not soft_non_major_pretrend:
             continue
         if not _passes_absolute_strength_gate(payload):
             continue
@@ -174,7 +234,7 @@ def generate_trend_candidates(
             continue
 
         timeframe_meta = {
-            "daily_bias": "up",
+            "daily_bias": "supportive_soft_pretrend" if soft_non_major_pretrend else "up",
             "h4_structure": "intact",
             "h1_trigger": "confirmed",
         }

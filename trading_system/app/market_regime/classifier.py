@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from trading_system.app.config import normalize_engine_names
 from trading_system.app.types import RegimeSnapshot
 
 from .breadth import compute_breadth_metrics
@@ -138,6 +139,7 @@ def classify_regime(
     derivatives: dict[str, Any] | list[dict[str, Any]],
     *,
     force_low_confidence: bool = False,
+    disabled_engines: tuple[str, ...] | list[str] | set[str] | frozenset[str] | None = None,
 ) -> RegimeSnapshot:
     market_rows = _coerce_rows(market)
     breadth = compute_breadth_metrics(market_rows)
@@ -181,6 +183,11 @@ def classify_regime(
     suppression_rules = list(profile["suppression_rules"])
     if aggression < 0.7 and "rotation" not in suppression_rules:
         suppression_rules.append("rotation")
+
+    for engine in normalize_engine_names(disabled_engines):
+        bucket_targets[engine] = 0.0
+        if engine not in suppression_rules:
+            suppression_rules.append(engine)
 
     return RegimeSnapshot(
         label=label,

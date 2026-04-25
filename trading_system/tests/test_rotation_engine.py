@@ -1,5 +1,12 @@
+import pytest
+
 from trading_system.app.signals.rotation_engine import generate_rotation_candidates
 from trading_system.app.signals.scoring import score_rotation_candidate
+
+
+def _set_h1_extension(market: dict, symbol: str, extension_pct: float) -> None:
+    h1 = market["symbols"][symbol]["1h"]
+    h1["ema_20"] = h1["close"] / (1.0 + extension_pct)
 
 
 def test_score_rotation_candidate_rewards_leadership_persistence_and_liquidity():
@@ -24,6 +31,8 @@ def test_generate_rotation_candidates_uses_rotation_universe_and_emits_relative_
         {"symbol": "ADAUSDT", "sector": "alt_l1", "liquidity_tier": "high"},
         {"symbol": "DOGEUSDT", "sector": "memes", "liquidity_tier": "medium"},
     ]
+    _set_h1_extension(market, "SOLUSDT", 0.007459)
+    _set_h1_extension(market, "LINKUSDT", 0.007459)
 
     candidates = generate_rotation_candidates(market, rotation_universe=rotation_universe)
 
@@ -89,6 +98,8 @@ def test_generate_rotation_candidates_rejects_overheated_crowded_leader(load_fix
             },
         ]
     }
+    _set_h1_extension(market, "SOLUSDT", 0.007459)
+    _set_h1_extension(market, "LINKUSDT", 0.007459)
 
     candidates = generate_rotation_candidates(
         market,
@@ -127,6 +138,8 @@ def test_generate_rotation_candidates_reject_funding_basis_blowoff_even_when_str
             },
         ]
     }
+    _set_h1_extension(market, "SOLUSDT", 0.007459)
+    _set_h1_extension(market, "LINKUSDT", 0.007459)
 
     candidates = generate_rotation_candidates(
         market,
@@ -176,6 +189,7 @@ def test_generate_rotation_candidates_require_absolute_strength_alongside_relati
     market["symbols"]["ADAUSDT"]["daily"]["return_pct_7d"] = 0.012
     market["symbols"]["ADAUSDT"]["4h"]["return_pct_3d"] = 0.004
     market["symbols"]["ADAUSDT"]["1h"]["return_pct_24h"] = 0.0015
+    _set_h1_extension(market, "LINKUSDT", 0.007459)
 
     candidates = generate_rotation_candidates(
         market,
@@ -214,6 +228,8 @@ def test_generate_rotation_candidates_reject_overextended_longs_even_when_absolu
             },
         ]
     }
+    _set_h1_extension(market, "SOLUSDT", 0.013366)
+    _set_h1_extension(market, "LINKUSDT", 0.007459)
 
     market["symbols"]["SOLUSDT"]["4h"]["close"] = 155.0
     market["symbols"]["SOLUSDT"]["1h"]["close"] = 153.0
@@ -239,3 +255,109 @@ def test_generate_rotation_candidates_respects_regime_suppression(load_fixture):
     )
 
     assert candidates == []
+
+
+def _soft_rotation_reclaim_market(
+    *,
+    sol_daily_close: float = 103.0,
+    sol_daily_ema50: float = 101.0,
+    sol_h4_return_pct: float = 0.018,
+    sol_h1_return_pct: float = 0.004,
+    sol_h1_ema20: float = 103.2,
+) -> dict[str, object]:
+    return {
+        "symbols": {
+            "BTCUSDT": {
+                "sector": "majors",
+                "liquidity_tier": "top",
+                "daily": {"close": 100.0, "ema_20": 99.2, "ema_50": 98.5, "atr_pct": 0.032, "return_pct_7d": 0.012, "volume_usdt_24h": 20_000_000_000},
+                "4h": {"close": 100.0, "ema_20": 99.4, "ema_50": 98.7, "return_pct_3d": 0.004, "volume_usdt_24h": 20_000_000_000},
+                "1h": {"close": 100.0, "ema_20": 99.6, "ema_50": 99.0, "return_pct_24h": 0.001, "volume_usdt_24h": 20_000_000_000},
+            },
+            "ETHUSDT": {
+                "sector": "majors",
+                "liquidity_tier": "top",
+                "daily": {"close": 101.0, "ema_20": 100.1, "ema_50": 99.4, "atr_pct": 0.033, "return_pct_7d": 0.011, "volume_usdt_24h": 12_000_000_000},
+                "4h": {"close": 101.0, "ema_20": 100.3, "ema_50": 99.7, "return_pct_3d": 0.003, "volume_usdt_24h": 12_000_000_000},
+                "1h": {"close": 101.0, "ema_20": 100.5, "ema_50": 100.0, "return_pct_24h": 0.001, "volume_usdt_24h": 12_000_000_000},
+            },
+            "SOLUSDT": {
+                "sector": "alt_l1",
+                "liquidity_tier": "high",
+                "daily": {"close": sol_daily_close, "ema_20": 100.0, "ema_50": sol_daily_ema50, "atr_pct": 0.05, "return_pct_7d": 0.045, "volume_usdt_24h": 2_400_000_000},
+                "4h": {"close": 104.0, "ema_20": 103.0, "ema_50": 102.0, "return_pct_3d": sol_h4_return_pct, "volume_usdt_24h": 2_400_000_000},
+                "1h": {"close": 104.0, "ema_20": sol_h1_ema20, "ema_50": 102.5, "return_pct_24h": sol_h1_return_pct, "volume_usdt_24h": 2_400_000_000},
+            },
+        }
+    }
+
+
+def test_generate_rotation_candidates_allows_soft_daily_reclaim_in_risk_on_rotation():
+    candidates = generate_rotation_candidates(
+        _soft_rotation_reclaim_market(),
+        rotation_universe=[{"symbol": "SOLUSDT", "sector": "alt_l1", "liquidity_tier": "high"}],
+        regime={"label": "RISK_ON_ROTATION", "suppression_rules": []},
+    )
+
+    assert [candidate.symbol for candidate in candidates] == ["SOLUSDT"]
+
+
+def test_generate_rotation_candidates_allows_soft_daily_reclaim_when_daily_close_is_just_above_ema50():
+    candidates = generate_rotation_candidates(
+        _soft_rotation_reclaim_market(sol_daily_close=102.0, sol_daily_ema50=101.0),
+        rotation_universe=[{"symbol": "SOLUSDT", "sector": "alt_l1", "liquidity_tier": "high"}],
+        regime={"label": "RISK_ON_ROTATION", "suppression_rules": []},
+    )
+
+    assert [candidate.symbol for candidate in candidates] == ["SOLUSDT"]
+
+
+def test_generate_rotation_candidates_allows_soft_daily_reclaim_even_when_daily_close_is_extended_above_ema50():
+    candidates = generate_rotation_candidates(
+        _soft_rotation_reclaim_market(sol_daily_close=104.0, sol_daily_ema50=101.0),
+        rotation_universe=[{"symbol": "SOLUSDT", "sector": "alt_l1", "liquidity_tier": "high"}],
+        regime={"label": "RISK_ON_ROTATION", "suppression_rules": []},
+    )
+
+    assert [candidate.symbol for candidate in candidates] == ["SOLUSDT"]
+
+
+def test_generate_rotation_candidates_rejects_soft_daily_reclaim_outside_rotation_regime():
+    candidates = generate_rotation_candidates(
+        _soft_rotation_reclaim_market(),
+        rotation_universe=[{"symbol": "SOLUSDT", "sector": "alt_l1", "liquidity_tier": "high"}],
+        regime={"label": "MIXED", "suppression_rules": []},
+    )
+
+    assert candidates == []
+
+
+def test_generate_rotation_candidates_rejects_reacceleration_when_h1_extension_is_too_low():
+    candidates = generate_rotation_candidates(
+        _soft_rotation_reclaim_market(
+            sol_h4_return_pct=0.025,
+            sol_h1_return_pct=0.008,
+            sol_h1_ema20=104.0 / 1.006112,
+        ),
+        rotation_universe=[{"symbol": "SOLUSDT", "sector": "alt_l1", "liquidity_tier": "high"}],
+        regime={"label": "RISK_ON_ROTATION", "suppression_rules": []},
+    )
+
+    assert candidates == []
+
+
+@pytest.mark.parametrize("h1_extension_pct", [0.007459, 0.013366])
+def test_generate_rotation_candidates_allows_reacceleration_when_h1_extension_qualifies(h1_extension_pct: float):
+    candidates = generate_rotation_candidates(
+        _soft_rotation_reclaim_market(
+            sol_h4_return_pct=0.025,
+            sol_h1_return_pct=0.008,
+            sol_h1_ema20=104.0 / (1.0 + h1_extension_pct),
+        ),
+        rotation_universe=[{"symbol": "SOLUSDT", "sector": "alt_l1", "liquidity_tier": "high"}],
+        regime={"label": "RISK_ON_ROTATION", "suppression_rules": []},
+    )
+
+    assert [(candidate.symbol, candidate.setup_type) for candidate in candidates] == [
+        ("SOLUSDT", "RS_REACCELERATION")
+    ]

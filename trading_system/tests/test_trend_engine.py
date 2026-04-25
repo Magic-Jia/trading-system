@@ -249,3 +249,76 @@ def test_generate_trend_candidates_attach_derivatives_meta(load_fixture):
     candidate = next(item for item in candidates if item.symbol == "BTCUSDT")
 
     assert candidate.timeframe_meta["derivatives"]["crowding_bias"] == "balanced"
+
+
+def _soft_non_major_trend_market(*, daily_close: float = 100.0, daily_ema50: float = 101.0) -> dict[str, object]:
+    return {
+        "symbols": {
+            "LINKUSDT": {
+                "sector": "oracle",
+                "liquidity_tier": "high",
+                "daily": {
+                    "close": daily_close,
+                    "ema_20": 99.0,
+                    "ema_50": daily_ema50,
+                    "atr_pct": 0.045,
+                    "return_pct_7d": 0.034,
+                    "volume_usdt_24h": 1_400_000_000,
+                },
+                "4h": {
+                    "close": 102.0,
+                    "ema_20": 101.0,
+                    "ema_50": 99.0,
+                    "return_pct_3d": 0.018,
+                    "volume_usdt_24h": 1_400_000_000,
+                },
+                "1h": {
+                    "close": 102.0,
+                    "ema_20": 101.2,
+                    "ema_50": 100.5,
+                    "return_pct_24h": 0.005,
+                    "volume_usdt_24h": 1_400_000_000,
+                },
+            }
+        }
+    }
+
+
+def test_generate_trend_candidates_allows_non_major_soft_pretrend_in_supportive_regime():
+    candidates = generate_trend_candidates(
+        _soft_non_major_trend_market(),
+        include_high_liquidity_strong_names=False,
+        regime={"label": "RISK_ON_ROTATION", "suppression_rules": []},
+    )
+
+    assert [candidate.symbol for candidate in candidates] == ["LINKUSDT"]
+
+
+def test_generate_trend_candidates_allows_non_major_soft_pretrend_when_daily_close_is_just_above_ema50():
+    candidates = generate_trend_candidates(
+        _soft_non_major_trend_market(daily_close=102.0, daily_ema50=101.0),
+        include_high_liquidity_strong_names=False,
+        regime={"label": "RISK_ON_ROTATION", "suppression_rules": []},
+    )
+
+    assert [candidate.symbol for candidate in candidates] == ["LINKUSDT"]
+
+
+def test_generate_trend_candidates_rejects_non_major_soft_pretrend_when_daily_close_is_too_extended_above_ema50():
+    candidates = generate_trend_candidates(
+        _soft_non_major_trend_market(daily_close=104.0, daily_ema50=101.0),
+        include_high_liquidity_strong_names=False,
+        regime={"label": "RISK_ON_ROTATION", "suppression_rules": []},
+    )
+
+    assert candidates == []
+
+
+def test_generate_trend_candidates_keeps_non_major_soft_pretrend_strict_in_risk_off():
+    candidates = generate_trend_candidates(
+        _soft_non_major_trend_market(),
+        include_high_liquidity_strong_names=False,
+        regime={"label": "RISK_OFF", "suppression_rules": []},
+    )
+
+    assert candidates == []

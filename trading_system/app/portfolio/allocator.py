@@ -114,6 +114,36 @@ def _major_alt_balance_ok(major_risk: float, alt_risk: float, major_target: floa
     return major_share >= threshold, major_share, threshold
 
 
+def _allow_single_alt_seed_without_majors(
+    *,
+    regime: RegimeSnapshot | Mapping[str, Any] | None,
+    side: str,
+    sector: str,
+    major_risk: float,
+    alt_risk: float,
+    current_active_risk_pct: float,
+    portfolio_risk_used: float,
+) -> bool:
+    regime_label = str(_regime_value(regime, "label", "")).upper()
+    if regime_label != "RISK_ON_ROTATION":
+        return False
+    if side.upper() != "LONG":
+        return False
+    if sector == "majors":
+        return False
+    epsilon = 1e-9
+    return (
+        major_risk <= epsilon
+        and alt_risk <= epsilon
+        and current_active_risk_pct <= epsilon
+        and portfolio_risk_used <= epsilon
+    )
+
+
+def _alt_seed_risk_cap(total_risk_cap: float) -> float:
+    return max(total_risk_cap * 0.15, _MIN_RISK_BUDGET)
+
+
 def _quality_multiplier(score: float) -> float:
     return _clamp(0.8 + (0.4 * _clamp(score, 0.0, 1.0)), 0.8, 1.2)
 
@@ -408,6 +438,24 @@ def allocate_candidates(
             downsized = True
             reasons.append("risk budget downsized to fit cap")
 
+        alt_seed_exception_applied = _allow_single_alt_seed_without_majors(
+            regime=regime,
+            side=side,
+            sector=sector,
+            major_risk=major_risk,
+            alt_risk=alt_risk,
+            current_active_risk_pct=current_active_risk_pct,
+            portfolio_risk_used=portfolio_risk_used,
+        )
+        if alt_seed_exception_applied:
+            seed_cap = min(allowed_budget, _alt_seed_risk_cap(total_risk_cap))
+            meta["alt_seed_exception_applied"] = True
+            meta["alt_seed_risk_cap"] = round(seed_cap, 6)
+            if final_budget > seed_cap:
+                final_budget = seed_cap
+                downsized = True
+                reasons.append("risk-on-rotation alt seed cap applied")
+
         guard_ok, guard_reasons, guard_meta = evaluate_allocation_guardrails(
             candidate_symbol=symbol,
             candidate_sector=sector,
@@ -430,6 +478,9 @@ def allocate_candidates(
             projected_alt_risk,
             major_target,
         )
+        if not major_alt_ok and alt_seed_exception_applied:
+            major_alt_ok = True
+            reasons.append("risk-on-rotation alt seed allowed without prior major exposure")
         meta["major_alt_balance_ok"] = major_alt_ok
         meta["major_share_after"] = round(major_share, 6)
         meta["major_share_threshold"] = round(major_threshold, 6)

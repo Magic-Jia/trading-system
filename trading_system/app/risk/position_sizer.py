@@ -43,6 +43,7 @@ def size_signal(
     regime_multiplier: float | None = None,
     confidence: float | None = None,
     engine_tier_multiplier: float = 1.0,
+    risk_pct_override: float | None = None,
 ) -> SizingResult:
     stop_distance = signal.risk_per_unit()
     if stop_distance <= 0:
@@ -58,13 +59,17 @@ def size_signal(
             notes=["止损距离无效，拒绝 sizing"],
         )
 
-    risk_pct, notes = _effective_risk_pct(
-        config,
-        volatility_pct,
-        regime_multiplier=regime_multiplier,
-        confidence=confidence,
-        engine_tier_multiplier=engine_tier_multiplier,
-    )
+    if risk_pct_override is None:
+        risk_pct, notes = _effective_risk_pct(
+            config,
+            volatility_pct,
+            regime_multiplier=regime_multiplier,
+            confidence=confidence,
+            engine_tier_multiplier=engine_tier_multiplier,
+        )
+    else:
+        risk_pct = max(float(risk_pct_override), 0.0)
+        notes = [f"使用执行分配风险预算 {risk_pct:.2%}"]
     equity = max(account.equity, 0.0)
     risk_budget = equity * risk_pct
     max_notional_cap = equity * config.max_notional_pct

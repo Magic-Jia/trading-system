@@ -289,6 +289,16 @@ def test_classify_regime_crash_stress_compresses_risk_and_execution():
     assert set(regime.suppression_rules) >= {"trend", "rotation"}
 
 
+def test_classify_regime_disabled_engines_zero_out_short_bucket_and_add_suppression(load_fixture):
+    market = load_fixture("market_context_v2.json")
+    derivatives = load_fixture("derivatives_snapshot_v2.json")
+
+    regime = classify_regime(market, derivatives, disabled_engines=("short",))
+
+    assert regime.bucket_targets["short"] == 0.0
+    assert "short" in regime.suppression_rules
+
+
 def test_classify_regime_crowded_long_dampens_confidence_and_aggression():
     market = _high_vol_mixed_market_context()
     balanced = _majors_derivatives_snapshot(

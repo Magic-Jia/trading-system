@@ -15,6 +15,8 @@ _ROTATION_ABSOLUTE_STRENGTH_H4_FLOOR = 0.01
 _ROTATION_ABSOLUTE_STRENGTH_H1_FLOOR = 0.003
 _ROTATION_H4_EXTENSION_OVERHEAT_PCT = 0.03
 _ROTATION_H1_EXTENSION_OVERHEAT_PCT = 0.01
+_ROTATION_REACCELERATION_H1_EXTENSION_FLOOR_PCT = 0.007
+_SOFT_RECLAIM_ROTATION_REGIMES = {"RISK_ON_ROTATION"}
 
 
 def _to_float(value: Any) -> float:
@@ -87,6 +89,30 @@ def _trend_intact(payload: Mapping[str, Any]) -> bool:
         and _to_float(h4.get("close")) >= _to_float(h4.get("ema_20")) >= _to_float(h4.get("ema_50"))
         and _to_float(h1.get("close")) >= _to_float(h1.get("ema_20")) >= _to_float(h1.get("ema_50"))
     )
+
+
+def _soft_reclaim_trend_intact(payload: Mapping[str, Any], regime: RegimeSnapshot | Mapping[str, Any] | None) -> bool:
+    if str(_regime_value(regime, "label", "")).upper() not in _SOFT_RECLAIM_ROTATION_REGIMES:
+        return False
+    if _rotation_suppressed(regime):
+        return False
+
+    daily = _tf_row(payload, "daily")
+    h4 = _tf_row(payload, "4h")
+    h1 = _tf_row(payload, "1h")
+    daily_close = _to_float(daily.get("close"))
+    daily_ema20 = _to_float(daily.get("ema_20"))
+    daily_ema50 = _to_float(daily.get("ema_50"))
+    return (
+        daily_close > daily_ema20
+        and daily_close >= daily_ema50
+        and _to_float(h4.get("close")) >= _to_float(h4.get("ema_20")) >= _to_float(h4.get("ema_50"))
+        and _to_float(h1.get("close")) >= _to_float(h1.get("ema_20")) >= _to_float(h1.get("ema_50"))
+    )
+
+
+def _trend_accepted(payload: Mapping[str, Any], regime: RegimeSnapshot | Mapping[str, Any] | None = None) -> bool:
+    return _trend_intact(payload) or _soft_reclaim_trend_intact(payload, regime)
 
 
 def _relative_strength_features(payload: Mapping[str, Any], proxy: Mapping[str, float]) -> dict[str, float]:
@@ -195,6 +221,12 @@ def _setup_type(payload: Mapping[str, Any]) -> str:
     return "RS_PULLBACK"
 
 
+def _passes_reacceleration_h1_extension_gate(payload: Mapping[str, Any], setup_type: str) -> bool:
+    if setup_type != "RS_REACCELERATION":
+        return True
+    return _extension_pct(_tf_row(payload, "1h")) >= _ROTATION_REACCELERATION_H1_EXTENSION_FLOOR_PCT
+
+
 def _rotation_stop_loss(payload: Mapping[str, Any]) -> float:
     h1 = _tf_row(payload, "1h")
     daily = _tf_row(payload, "daily")
@@ -232,11 +264,14 @@ def generate_rotation_candidates(
         payload = payload_value
         if str(payload.get("sector", "")).lower() == "majors":
             continue
-        if not _trend_intact(payload):
+        if not _trend_accepted(payload, regime):
             continue
         if not _passes_absolute_strength_gate(payload):
             continue
         if _reject_price_extension_overheat(payload):
+            continue
+        setup_type = _setup_type(payload)
+        if not _passes_reacceleration_h1_extension_gate(payload, setup_type):
             continue
 
         derivatives_features = symbol_derivatives_features(derivatives, str(symbol))
@@ -272,7 +307,7 @@ def generate_rotation_candidates(
         candidates.append(
             EngineCandidate(
                 engine="rotation",
-                setup_type=_setup_type(payload),
+                setup_type=setup_type,
                 symbol=symbol,
                 side="LONG",
                 score=total_score,
@@ -280,7 +315,7 @@ def generate_rotation_candidates(
                 invalidation_source="rotation_pullback_failure_below_1h_ema50",
                 timeframe_meta={
                     "daily_bias": "relative_strength_leader",
-                    "h4_structure": "leader_persistence",
+                    "h4_structure": "soft_daily_reclaim" if not _trend_intact(payload) else "leader_persistence",
                     "h1_trigger": "pullback_hold_or_reacceleration",
                     "relative_strength": {
                         "daily_spread": round(rs_features["daily_spread"], 6),
