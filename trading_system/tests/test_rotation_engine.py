@@ -1,5 +1,6 @@
 import pytest
 
+from trading_system.app.signals.entry_profile import ACTIVE_PAPER_ENTRY_PROFILE
 from trading_system.app.signals.rotation_engine import generate_rotation_candidates
 from trading_system.app.signals.scoring import score_rotation_candidate
 
@@ -198,6 +199,148 @@ def test_generate_rotation_candidates_require_absolute_strength_alongside_relati
     )
 
     assert {candidate.symbol for candidate in candidates} == {"LINKUSDT"}
+
+
+def _modest_relative_strength_rotation_market() -> dict[str, object]:
+    return {
+        "symbols": {
+            "BTCUSDT": {
+                "sector": "majors",
+                "liquidity_tier": "top",
+                "daily": {"close": 100.0, "ema_20": 99.0, "ema_50": 98.0, "atr_pct": 0.035, "return_pct_7d": 0.002, "volume_usdt_24h": 20_000_000_000},
+                "4h": {"close": 100.0, "ema_20": 99.5, "ema_50": 98.5, "return_pct_3d": 0.001, "volume_usdt_24h": 20_000_000_000},
+                "1h": {"close": 100.0, "ema_20": 99.6, "ema_50": 99.0, "return_pct_24h": 0.0002, "volume_usdt_24h": 20_000_000_000},
+            },
+            "ETHUSDT": {
+                "sector": "majors",
+                "liquidity_tier": "top",
+                "daily": {"close": 100.0, "ema_20": 99.1, "ema_50": 98.2, "atr_pct": 0.036, "return_pct_7d": 0.001, "volume_usdt_24h": 12_000_000_000},
+                "4h": {"close": 100.0, "ema_20": 99.4, "ema_50": 98.6, "return_pct_3d": 0.0005, "volume_usdt_24h": 12_000_000_000},
+                "1h": {"close": 100.0, "ema_20": 99.5, "ema_50": 99.1, "return_pct_24h": 0.0001, "volume_usdt_24h": 12_000_000_000},
+            },
+            "LINKUSDT": {
+                "sector": "oracle",
+                "liquidity_tier": "high",
+                "daily": {"close": 103.0, "ema_20": 101.0, "ema_50": 99.0, "atr_pct": 0.055, "return_pct_7d": 0.014, "volume_usdt_24h": 1_500_000_000},
+                "4h": {"close": 103.0, "ema_20": 102.0, "ema_50": 100.0, "return_pct_3d": 0.005, "volume_usdt_24h": 1_500_000_000},
+                "1h": {"close": 103.0, "ema_20": 102.4, "ema_50": 101.5, "return_pct_24h": 0.0015, "volume_usdt_24h": 1_500_000_000},
+            },
+        }
+    }
+
+
+def test_generate_rotation_candidates_keep_default_absolute_strength_gate_conservative_for_modest_relative_strength():
+    candidates = generate_rotation_candidates(
+        _modest_relative_strength_rotation_market(),
+        rotation_universe=[{"symbol": "LINKUSDT", "sector": "oracle", "liquidity_tier": "high"}],
+    )
+
+    assert candidates == []
+
+
+def test_generate_rotation_candidates_active_paper_profile_allows_modest_relative_strength():
+    candidates = generate_rotation_candidates(
+        _modest_relative_strength_rotation_market(),
+        rotation_universe=[{"symbol": "LINKUSDT", "sector": "oracle", "liquidity_tier": "high"}],
+        entry_profile=ACTIVE_PAPER_ENTRY_PROFILE,
+    )
+
+    assert [candidate.symbol for candidate in candidates] == ["LINKUSDT"]
+    assert candidates[0].stop_loss > 0
+
+
+def _active_paper_soft_relative_strength_rotation_market() -> dict[str, object]:
+    return {
+        "symbols": {
+            "BTCUSDT": {
+                "sector": "majors",
+                "liquidity_tier": "top",
+                "daily": {"close": 100.0, "ema_20": 99.2, "ema_50": 98.5, "atr_pct": 0.032, "return_pct_7d": 0.003, "volume_usdt_24h": 20_000_000_000},
+                "4h": {"close": 100.0, "ema_20": 99.4, "ema_50": 98.7, "return_pct_3d": 0.001, "volume_usdt_24h": 20_000_000_000},
+                "1h": {"close": 100.0, "ema_20": 99.6, "ema_50": 99.0, "return_pct_24h": 0.0002, "volume_usdt_24h": 20_000_000_000},
+            },
+            "ETHUSDT": {
+                "sector": "majors",
+                "liquidity_tier": "top",
+                "daily": {"close": 101.0, "ema_20": 100.1, "ema_50": 99.4, "atr_pct": 0.033, "return_pct_7d": 0.002, "volume_usdt_24h": 12_000_000_000},
+                "4h": {"close": 101.0, "ema_20": 100.3, "ema_50": 99.7, "return_pct_3d": 0.0008, "volume_usdt_24h": 12_000_000_000},
+                "1h": {"close": 101.0, "ema_20": 100.5, "ema_50": 100.0, "return_pct_24h": 0.0002, "volume_usdt_24h": 12_000_000_000},
+            },
+            "SOLUSDT": {
+                "sector": "alt_l1",
+                "liquidity_tier": "high",
+                "daily": {"close": 100.8, "ema_20": 100.0, "ema_50": 101.5, "atr_pct": 0.052, "return_pct_7d": 0.018, "volume_usdt_24h": 2_500_000_000},
+                "4h": {"close": 101.2, "ema_20": 100.4, "ema_50": 101.6, "return_pct_3d": 0.006, "volume_usdt_24h": 2_500_000_000},
+                "1h": {"close": 101.3, "ema_20": 100.8, "ema_50": 101.0, "return_pct_24h": 0.0018, "volume_usdt_24h": 2_500_000_000},
+            },
+        }
+    }
+
+
+def test_generate_rotation_candidates_active_paper_allows_soft_relative_strength_leader_only_for_profile():
+    market = _active_paper_soft_relative_strength_rotation_market()
+    universe = [
+        {
+            "symbol": "SOLUSDT",
+            "sector": "alt_l1",
+            "liquidity_tier": "high",
+            "liquidity_meta": {"rolling_notional": 2_200_000_000, "slippage_bps": 4.0},
+        }
+    ]
+    regime = {"label": "RISK_ON_ROTATION", "suppression_rules": []}
+
+    default_candidates = generate_rotation_candidates(market, rotation_universe=universe, regime=regime)
+    active_candidates = generate_rotation_candidates(
+        market,
+        rotation_universe=universe,
+        regime=regime,
+        entry_profile=ACTIVE_PAPER_ENTRY_PROFILE,
+    )
+
+    assert default_candidates == []
+    assert [candidate.symbol for candidate in active_candidates] == ["SOLUSDT"]
+    assert active_candidates[0].stop_loss > 0
+    assert active_candidates[0].timeframe_meta["h4_structure"] == "active_paper_soft_reclaim"
+
+
+def _active_paper_current_market_style_rotation_market() -> dict[str, object]:
+    market = _active_paper_soft_relative_strength_rotation_market()
+    market["symbols"]["BTCUSDT"]["4h"]["return_pct_3d"] = -0.02
+    market["symbols"]["ETHUSDT"]["4h"]["return_pct_3d"] = -0.018
+    market["symbols"]["BNBUSDT"] = {
+        "sector": "exchange",
+        "liquidity_tier": "high",
+        "daily": {"close": 638.0, "ema_20": 626.0, "ema_50": 629.0, "atr_pct": 0.026, "return_pct_7d": 0.013, "volume_usdt_24h": 40_000_000},
+        "4h": {"close": 638.0, "ema_20": 636.0, "ema_50": 633.0, "return_pct_3d": -0.006, "volume_usdt_24h": 40_000_000},
+        "1h": {"close": 638.0, "ema_20": 637.0, "ema_50": 636.0, "return_pct_24h": 0.002, "volume_usdt_24h": 40_000_000},
+    }
+    return market
+
+
+def test_generate_rotation_candidates_active_paper_allows_current_market_style_relative_pullback_only_for_profile():
+    market = _active_paper_current_market_style_rotation_market()
+    universe = [
+        {
+            "symbol": "BNBUSDT",
+            "sector": "exchange",
+            "liquidity_tier": "high",
+            "liquidity_meta": {"rolling_notional": 200_000_000, "slippage_bps": 5.0},
+        }
+    ]
+    regime = {"label": "MIXED", "suppression_rules": []}
+
+    default_candidates = generate_rotation_candidates(market, rotation_universe=universe, regime=regime)
+    active_candidates = generate_rotation_candidates(
+        market,
+        rotation_universe=universe,
+        regime=regime,
+        entry_profile=ACTIVE_PAPER_ENTRY_PROFILE,
+    )
+
+    assert default_candidates == []
+    assert [candidate.symbol for candidate in active_candidates] == ["BNBUSDT"]
+    assert active_candidates[0].stop_loss > 0
+    assert active_candidates[0].timeframe_meta["h4_structure"] == "active_paper_soft_reclaim"
 
 
 def test_generate_rotation_candidates_reject_overextended_longs_even_when_absolute_strength_is_high(load_fixture):

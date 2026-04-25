@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Callable, Literal
 
 from .runtime_paths import RUNTIME_ENV_ENV, build_runtime_paths
+from .signals.entry_profile import ENTRY_PROFILE_ENV, EntryProfile, resolve_entry_profile
 
 BASE = Path(__file__).resolve().parents[1]
 DATA_DIR = BASE / "data"
@@ -164,6 +165,7 @@ class ExecutionConfig:
 class AppConfig:
     data_dir: Path = field(default_factory=_resolve_data_dir)
     state_file: Path = field(default_factory=_resolve_state_file)
+    entry_profile: EntryProfile = field(default_factory=lambda: resolve_entry_profile(os.environ.get(ENTRY_PROFILE_ENV)))
     risk: RiskConfig = field(default_factory=RiskConfig)
     regime: RegimeConfig = field(default_factory=RegimeConfig)
     universe: UniverseConfig = field(default_factory=UniverseConfig)

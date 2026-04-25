@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, Mapping
 
 from trading_system.app.market_regime.derivatives import is_late_stage_long_blowoff, symbol_derivatives_features
+from trading_system.app.signals.entry_profile import EntryProfile, resolve_entry_profile
 from trading_system.app.signals.scoring import score_trend_candidate
 from trading_system.app.types import EngineCandidate
 
@@ -16,6 +17,7 @@ _TREND_H4_EXTENSION_OVERHEAT_PCT = 0.03
 _TREND_H1_EXTENSION_OVERHEAT_PCT = 0.01
 _SUPPORTIVE_NON_MAJOR_SOFT_PRETREND_REGIMES = {"MIXED", "RISK_ON_ROTATION"}
 _SUPPORTIVE_NON_MAJOR_SOFT_PRETREND_MAX_RECLAIM_GAP_PCT = 0.02
+_ACTIVE_PAPER_H1_PULLBACK_EMA50_TOLERANCE_PCT = 0.005
 
 
 def _to_float(value: Any) -> float:
@@ -57,6 +59,37 @@ def _is_uptrend(daily: Mapping[str, Any], h4: Mapping[str, Any], h1: Mapping[str
         and _to_float(h4.get("close")) >= _to_float(h4.get("ema_20")) >= _to_float(h4.get("ema_50"))
         and _to_float(h1.get("close")) >= _to_float(h1.get("ema_20")) >= _to_float(h1.get("ema_50"))
     )
+
+
+def _is_active_paper_profile(profile: EntryProfile) -> bool:
+    return profile.name == "active_paper"
+
+
+def _is_active_paper_major_shallow_h1_pullback(payload: Mapping[str, Any], profile: EntryProfile) -> bool:
+    if not _is_active_paper_profile(profile):
+        return False
+    if str(payload.get("sector", "")) != _MAJOR_SECTOR:
+        return False
+    if str(payload.get("liquidity_tier", "")).lower() not in _HIGH_LIQUIDITY_TIERS:
+        return False
+
+    daily = _tf_row(payload, "daily")
+    h4 = _tf_row(payload, "4h")
+    h1 = _tf_row(payload, "1h")
+    daily_constructive = _to_float(daily.get("close")) > _to_float(daily.get("ema_20")) > _to_float(daily.get("ema_50"))
+    h4_constructive = _to_float(h4.get("close")) >= _to_float(h4.get("ema_20")) >= _to_float(h4.get("ema_50"))
+    h1_close = _to_float(h1.get("close"))
+    h1_ema20 = _to_float(h1.get("ema_20"))
+    h1_ema50 = _to_float(h1.get("ema_50"))
+    h1_shallow_pullback = (
+        h1_close > 0.0
+        and h1_ema20 > 0.0
+        and h1_ema50 > 0.0
+        and h1_ema20 >= h1_ema50
+        and h1_close < h1_ema20
+        and h1_close >= h1_ema50 * (1.0 - _ACTIVE_PAPER_H1_PULLBACK_EMA50_TOLERANCE_PCT)
+    )
+    return daily_constructive and h4_constructive and h1_shallow_pullback
 
 
 def _is_high_liquidity_strong_name(payload: Mapping[str, Any]) -> bool:
@@ -133,14 +166,15 @@ def _trend_stop_loss(payload: Mapping[str, Any]) -> float:
     return stop_loss
 
 
-def _passes_absolute_strength_gate(payload: Mapping[str, Any]) -> bool:
+def _passes_absolute_strength_gate(payload: Mapping[str, Any], entry_profile: EntryProfile | str | None = None) -> bool:
+    profile = resolve_entry_profile(entry_profile)
     daily = _tf_row(payload, "daily")
     h4 = _tf_row(payload, "4h")
     h1 = _tf_row(payload, "1h")
     return (
-        _to_float(daily.get("return_pct_7d")) >= _TREND_ABSOLUTE_STRENGTH_DAILY_FLOOR
-        and _to_float(h4.get("return_pct_3d")) >= _TREND_ABSOLUTE_STRENGTH_H4_FLOOR
-        and _to_float(h1.get("return_pct_24h")) >= _TREND_ABSOLUTE_STRENGTH_H1_FLOOR
+        _to_float(daily.get("return_pct_7d")) >= profile.trend_daily_floor
+        and _to_float(h4.get("return_pct_3d")) >= profile.trend_h4_floor
+        and _to_float(h1.get("return_pct_24h")) >= profile.trend_h1_floor
     )
 
 
@@ -183,11 +217,13 @@ def generate_trend_candidates(
     derivatives: Mapping[str, Any] | list[dict[str, Any]] | None = None,
     include_high_liquidity_strong_names: bool = True,
     regime: Any = None,
+    entry_profile: EntryProfile | str | None = None,
 ) -> list[EngineCandidate]:
     symbols = market_context.get("symbols")
     if not isinstance(symbols, Mapping):
         return []
 
+    profile = resolve_entry_profile(entry_profile)
     candidates: list[EngineCandidate] = []
     for symbol, payload_value in symbols.items():
         if not isinstance(payload_value, Mapping):
@@ -196,6 +232,7 @@ def generate_trend_candidates(
         sector = str(payload.get("sector", ""))
         is_major = sector == _MAJOR_SECTOR
         soft_non_major_pretrend = False
+        active_paper_shallow_pullback = _is_active_paper_major_shallow_h1_pullback(payload, profile)
         if not is_major:
             soft_non_major_pretrend = _is_supportive_non_major_soft_pretrend(payload, regime)
             if not include_high_liquidity_strong_names and not soft_non_major_pretrend:
@@ -206,9 +243,9 @@ def generate_trend_candidates(
         daily = _tf_row(payload, "daily")
         h4 = _tf_row(payload, "4h")
         h1 = _tf_row(payload, "1h")
-        if not _is_uptrend(daily, h4, h1) and not soft_non_major_pretrend:
+        if not _is_uptrend(daily, h4, h1) and not soft_non_major_pretrend and not active_paper_shallow_pullback:
             continue
-        if not _passes_absolute_strength_gate(payload):
+        if not _passes_absolute_strength_gate(payload, profile):
             continue
         if _reject_price_extension_overheat(payload):
             continue
@@ -236,7 +273,7 @@ def generate_trend_candidates(
         timeframe_meta = {
             "daily_bias": "supportive_soft_pretrend" if soft_non_major_pretrend else "up",
             "h4_structure": "intact",
-            "h1_trigger": "confirmed",
+            "h1_trigger": "active_paper_shallow_pullback" if active_paper_shallow_pullback else "confirmed",
         }
         if derivatives is not None:
             timeframe_meta["derivatives"] = {

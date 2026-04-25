@@ -13,6 +13,7 @@ from ..types import BJ, RuntimeState
 @dataclass(slots=True)
 class RuntimeStateV2(RuntimeState):
     latest_regime: dict[str, Any] = field(default_factory=dict)
+    latest_entry_profile: dict[str, Any] = field(default_factory=dict)
     latest_universes: dict[str, Any] = field(default_factory=dict)
     latest_candidates: list[dict[str, Any]] = field(default_factory=list)
     latest_allocations: list[dict[str, Any]] = field(default_factory=list)

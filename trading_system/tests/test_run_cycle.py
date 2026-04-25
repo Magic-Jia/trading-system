@@ -82,6 +82,32 @@ def test_run_cycle_latest_summary_includes_disabled_setup_types(monkeypatch, tmp
     assert latest["disabled_setup_type_filtered_candidates"] == []
 
 
+def test_run_cycle_latest_summary_includes_entry_profile_from_state(monkeypatch, tmp_path):
+    runtime_root = tmp_path / "runtime"
+    expected_bucket = runtime_root / "paper" / "prod"
+
+    def fake_main() -> None:
+        Path(os.environ["TRADING_STATE_FILE"]).write_text(
+            json.dumps(
+                {
+                    "execution_mode": "paper",
+                    "latest_candidates": [],
+                    "latest_allocations": [],
+                    "latest_entry_profile": {"name": "active_paper"},
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    monkeypatch.setattr(run_cycle_module, "run_main", fake_main)
+
+    summary = run_cycle_module.run_cycle("paper", runtime_root=runtime_root, runtime_env="prod")
+
+    latest = json.loads((expected_bucket / "latest.json").read_text(encoding="utf-8"))
+    assert summary == latest
+    assert latest["entry_profile"] == "active_paper"
+
+
 def test_run_cycle_latest_summary_mirrors_disabled_setup_type_filtered_candidates(monkeypatch, tmp_path):
     runtime_root = tmp_path / "runtime"
     expected_bucket = runtime_root / "paper" / "prod"

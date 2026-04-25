@@ -3,8 +3,8 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from trading_system.app.config import DEFAULT_CONFIG
 from trading_system.app.market_regime.derivatives import is_late_stage_long_blowoff, symbol_derivatives_features
+from trading_system.app.signals.entry_profile import EntryProfile, resolve_entry_profile
 from trading_system.app.signals.scoring import score_rotation_candidate
 from trading_system.app.types import EngineCandidate, RegimeSnapshot
 
@@ -17,6 +17,10 @@ _ROTATION_H4_EXTENSION_OVERHEAT_PCT = 0.03
 _ROTATION_H1_EXTENSION_OVERHEAT_PCT = 0.01
 _ROTATION_REACCELERATION_H1_EXTENSION_FLOOR_PCT = 0.007
 _SOFT_RECLAIM_ROTATION_REGIMES = {"RISK_ON_ROTATION"}
+_ACTIVE_PAPER_SOFT_RECLAIM_EMA50_TOLERANCE_PCT = 0.02
+_ACTIVE_PAPER_SOFT_RECLAIM_REGIMES = {"MIXED", "RISK_ON_ROTATION"}
+_ACTIVE_PAPER_RELATIVE_H4_PULLBACK_FLOOR = -0.01
+_HIGH_LIQUIDITY_TIERS = {"high", "top"}
 
 
 def _to_float(value: Any) -> float:
@@ -91,6 +95,10 @@ def _trend_intact(payload: Mapping[str, Any]) -> bool:
     )
 
 
+def _is_active_paper_profile(profile: EntryProfile) -> bool:
+    return profile.name == "active_paper"
+
+
 def _soft_reclaim_trend_intact(payload: Mapping[str, Any], regime: RegimeSnapshot | Mapping[str, Any] | None) -> bool:
     if str(_regime_value(regime, "label", "")).upper() not in _SOFT_RECLAIM_ROTATION_REGIMES:
         return False
@@ -111,8 +119,74 @@ def _soft_reclaim_trend_intact(payload: Mapping[str, Any], regime: RegimeSnapsho
     )
 
 
-def _trend_accepted(payload: Mapping[str, Any], regime: RegimeSnapshot | Mapping[str, Any] | None = None) -> bool:
-    return _trend_intact(payload) or _soft_reclaim_trend_intact(payload, regime)
+def _active_paper_soft_reclaim_trend_intact(
+    payload: Mapping[str, Any],
+    regime: RegimeSnapshot | Mapping[str, Any] | None,
+    profile: EntryProfile,
+) -> bool:
+    if not _is_active_paper_profile(profile):
+        return False
+    if str(_regime_value(regime, "label", "")).upper() not in _ACTIVE_PAPER_SOFT_RECLAIM_REGIMES:
+        return False
+    if _rotation_suppressed(regime):
+        return False
+    if str(payload.get("sector", "")).lower() == "majors":
+        return False
+    if str(payload.get("liquidity_tier", "")).lower() not in _HIGH_LIQUIDITY_TIERS:
+        return False
+
+    daily = _tf_row(payload, "daily")
+    h4 = _tf_row(payload, "4h")
+    h1 = _tf_row(payload, "1h")
+    daily_close = _to_float(daily.get("close"))
+    daily_ema20 = _to_float(daily.get("ema_20"))
+    daily_ema50 = _to_float(daily.get("ema_50"))
+    daily_soft_reclaim = (
+        daily_close > 0.0
+        and daily_ema20 > 0.0
+        and daily_ema50 > 0.0
+        and daily_close > daily_ema20
+        and daily_close >= daily_ema50 * (1.0 - _ACTIVE_PAPER_SOFT_RECLAIM_EMA50_TOLERANCE_PCT)
+        and daily_close <= daily_ema50 * (1.0 + _ACTIVE_PAPER_SOFT_RECLAIM_EMA50_TOLERANCE_PCT)
+    )
+
+    def lower_timeframe_near_ema50(row: Mapping[str, Any]) -> bool:
+        close = _to_float(row.get("close"))
+        ema50 = _to_float(row.get("ema_50"))
+        return close > 0.0 and ema50 > 0.0 and close >= ema50 * (1.0 - _ACTIVE_PAPER_SOFT_RECLAIM_EMA50_TOLERANCE_PCT)
+
+    return daily_soft_reclaim and lower_timeframe_near_ema50(h4) and lower_timeframe_near_ema50(h1)
+
+
+def _trend_accepted(
+    payload: Mapping[str, Any],
+    regime: RegimeSnapshot | Mapping[str, Any] | None = None,
+    profile: EntryProfile | None = None,
+) -> bool:
+    return (
+        _trend_intact(payload)
+        or _soft_reclaim_trend_intact(payload, regime)
+        or (profile is not None and _active_paper_soft_reclaim_trend_intact(payload, regime, profile))
+    )
+
+
+def _passes_active_paper_relative_pullback_strength_gate(
+    payload: Mapping[str, Any],
+    profile: EntryProfile,
+    rs_features: Mapping[str, float],
+) -> bool:
+    if not _is_active_paper_profile(profile):
+        return False
+
+    daily = _tf_row(payload, "daily")
+    h4 = _tf_row(payload, "4h")
+    h1 = _tf_row(payload, "1h")
+    return (
+        _to_float(daily.get("return_pct_7d")) >= profile.rotation_daily_floor
+        and _to_float(h1.get("return_pct_24h")) >= profile.rotation_h1_floor
+        and _to_float(h4.get("return_pct_3d")) >= _ACTIVE_PAPER_RELATIVE_H4_PULLBACK_FLOOR
+        and _to_float(rs_features.get("h4_spread")) >= profile.rotation_h4_floor
+    )
 
 
 def _relative_strength_features(payload: Mapping[str, Any], proxy: Mapping[str, float]) -> dict[str, float]:
@@ -177,14 +251,15 @@ def _extension_pct(row: Mapping[str, Any]) -> float:
     return max((close / ema20) - 1.0, 0.0)
 
 
-def _passes_absolute_strength_gate(payload: Mapping[str, Any]) -> bool:
+def _passes_absolute_strength_gate(payload: Mapping[str, Any], entry_profile: EntryProfile | str | None = None) -> bool:
+    profile = resolve_entry_profile(entry_profile)
     daily = _tf_row(payload, "daily")
     h4 = _tf_row(payload, "4h")
     h1 = _tf_row(payload, "1h")
     return (
-        _to_float(daily.get("return_pct_7d")) >= _ROTATION_ABSOLUTE_STRENGTH_DAILY_FLOOR
-        and _to_float(h4.get("return_pct_3d")) >= _ROTATION_ABSOLUTE_STRENGTH_H4_FLOOR
-        and _to_float(h1.get("return_pct_24h")) >= _ROTATION_ABSOLUTE_STRENGTH_H1_FLOOR
+        _to_float(daily.get("return_pct_7d")) >= profile.rotation_daily_floor
+        and _to_float(h4.get("return_pct_3d")) >= profile.rotation_h4_floor
+        and _to_float(h1.get("return_pct_24h")) >= profile.rotation_h1_floor
     )
 
 
@@ -243,6 +318,7 @@ def generate_rotation_candidates(
     rotation_universe: Sequence[Mapping[str, Any]] | None = None,
     derivatives: Mapping[str, Any] | list[dict[str, Any]] | None = None,
     regime: RegimeSnapshot | Mapping[str, Any] | None = None,
+    entry_profile: EntryProfile | str | None = None,
 ) -> list[EngineCandidate]:
     if _rotation_suppressed(regime):
         return []
@@ -255,6 +331,7 @@ def generate_rotation_candidates(
     if not eligible:
         return []
 
+    profile = resolve_entry_profile(entry_profile)
     proxy = _major_proxy_returns(market_context)
     candidates: list[EngineCandidate] = []
     for symbol, universe_row in eligible.items():
@@ -264,9 +341,13 @@ def generate_rotation_candidates(
         payload = payload_value
         if str(payload.get("sector", "")).lower() == "majors":
             continue
-        if not _trend_accepted(payload, regime):
+        active_paper_soft_reclaim = _active_paper_soft_reclaim_trend_intact(payload, regime, profile)
+        if not _trend_accepted(payload, regime, profile):
             continue
-        if not _passes_absolute_strength_gate(payload):
+        rs_features = _relative_strength_features(payload, proxy)
+        if not _passes_absolute_strength_gate(
+            payload, profile
+        ) and not _passes_active_paper_relative_pullback_strength_gate(payload, profile, rs_features):
             continue
         if _reject_price_extension_overheat(payload):
             continue
@@ -278,7 +359,6 @@ def generate_rotation_candidates(
         if _reject_overheated_crowded_leader(derivatives_features, payload):
             continue
 
-        rs_features = _relative_strength_features(payload, proxy)
         if rs_features["relative_strength_rank"] < 0.38 or rs_features["persistence"] < (2.0 / 3.0):
             continue
 
@@ -315,7 +395,13 @@ def generate_rotation_candidates(
                 invalidation_source="rotation_pullback_failure_below_1h_ema50",
                 timeframe_meta={
                     "daily_bias": "relative_strength_leader",
-                    "h4_structure": "soft_daily_reclaim" if not _trend_intact(payload) else "leader_persistence",
+                    "h4_structure": (
+                        "leader_persistence"
+                        if _trend_intact(payload)
+                        else "active_paper_soft_reclaim"
+                        if active_paper_soft_reclaim
+                        else "soft_daily_reclaim"
+                    ),
                     "h1_trigger": "pullback_hold_or_reacceleration",
                     "relative_strength": {
                         "daily_spread": round(rs_features["daily_spread"], 6),

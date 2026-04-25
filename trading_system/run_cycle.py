@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Iterator, Mapping
 
 from trading_system.app.config import BASE_DIR_ENV, normalize_engine_names, normalize_setup_types
+from trading_system.app.signals.entry_profile import ENTRY_PROFILE_ENV, resolve_entry_profile
 from trading_system.app.backtest.archive import (
     archive_runtime_bundle_from_environment,
     runtime_bundle_archive_enabled,
@@ -74,10 +75,12 @@ def _base_summary(paths: RuntimePaths, *, status: str, finished_at: str) -> dict
 
 
 def _state_summary(paths: RuntimePaths) -> dict[str, Any]:
+    env_entry_profile = resolve_entry_profile(os.environ.get(ENTRY_PROFILE_ENV)).name
     if not paths.state_file.exists():
         return {
             "state_written": False,
             "execution_mode": None,
+            "entry_profile": env_entry_profile,
             "candidate_count": 0,
             "allocation_count": 0,
             "disabled_setup_type_filtered_count": 0,
@@ -104,9 +107,13 @@ def _state_summary(paths: RuntimePaths) -> dict[str, Any]:
     paper_trading = state.get("paper_trading")
     if not isinstance(paper_trading, dict):
         paper_trading = {}
+    latest_entry_profile = state.get("latest_entry_profile")
+    if not isinstance(latest_entry_profile, dict):
+        latest_entry_profile = {}
     return {
         "state_written": True,
         "execution_mode": state.get("execution_mode"),
+        "entry_profile": str(latest_entry_profile.get("name") or env_entry_profile),
         "candidate_count": len(state.get("latest_candidates") or []),
         "allocation_count": len(state.get("latest_allocations") or []),
         "disabled_setup_type_filtered_count": len(disabled_setup_type_filtered_candidates),

@@ -1,3 +1,4 @@
+from trading_system.app.signals.entry_profile import ACTIVE_PAPER_ENTRY_PROFILE
 from trading_system.app.signals.scoring import score_trend_candidate
 from trading_system.app.signals.trend_engine import generate_trend_candidates
 
@@ -184,6 +185,91 @@ def test_generate_trend_candidates_require_absolute_strength_before_surviving(lo
     )
 
     assert {candidate.symbol for candidate in candidates} == {"ETHUSDT"}
+
+
+def _modest_positive_trend_market() -> dict[str, object]:
+    return {
+        "symbols": {
+            "BTCUSDT": {
+                "sector": "majors",
+                "liquidity_tier": "top",
+                "daily": {
+                    "close": 100.0,
+                    "ema_20": 99.0,
+                    "ema_50": 97.0,
+                    "atr_pct": 0.04,
+                    "return_pct_7d": 0.02,
+                    "volume_usdt_24h": 18_000_000_000,
+                },
+                "4h": {
+                    "close": 101.0,
+                    "ema_20": 100.4,
+                    "ema_50": 98.5,
+                    "return_pct_3d": 0.006,
+                    "volume_usdt_24h": 18_000_000_000,
+                },
+                "1h": {
+                    "close": 101.0,
+                    "ema_20": 100.6,
+                    "ema_50": 99.2,
+                    "return_pct_24h": 0.002,
+                    "volume_usdt_24h": 18_000_000_000,
+                },
+            }
+        }
+    }
+
+
+def test_generate_trend_candidates_keep_default_absolute_strength_gate_conservative_for_modest_positive_market():
+    candidates = generate_trend_candidates(
+        _modest_positive_trend_market(),
+        include_high_liquidity_strong_names=False,
+    )
+
+    assert candidates == []
+
+
+def test_generate_trend_candidates_active_paper_profile_allows_modest_positive_market():
+    candidates = generate_trend_candidates(
+        _modest_positive_trend_market(),
+        include_high_liquidity_strong_names=False,
+        entry_profile=ACTIVE_PAPER_ENTRY_PROFILE,
+    )
+
+    assert [candidate.symbol for candidate in candidates] == ["BTCUSDT"]
+    assert candidates[0].stop_loss > 0
+
+
+def _active_paper_shallow_h1_pullback_trend_market() -> dict[str, object]:
+    market = _modest_positive_trend_market()
+    btc = market["symbols"]["BTCUSDT"]
+    btc["1h"] = {
+        "close": 99.4,
+        "ema_20": 100.2,
+        "ema_50": 99.0,
+        "return_pct_24h": 0.0015,
+        "volume_usdt_24h": 18_000_000_000,
+    }
+    return market
+
+
+def test_generate_trend_candidates_active_paper_allows_major_shallow_h1_pullback_only_for_profile():
+    market = _active_paper_shallow_h1_pullback_trend_market()
+
+    default_candidates = generate_trend_candidates(
+        market,
+        include_high_liquidity_strong_names=False,
+    )
+    active_candidates = generate_trend_candidates(
+        market,
+        include_high_liquidity_strong_names=False,
+        entry_profile=ACTIVE_PAPER_ENTRY_PROFILE,
+    )
+
+    assert default_candidates == []
+    assert [candidate.symbol for candidate in active_candidates] == ["BTCUSDT"]
+    assert active_candidates[0].stop_loss > 0
+    assert active_candidates[0].timeframe_meta["h1_trigger"] == "active_paper_shallow_pullback"
 
 
 def test_generate_trend_candidates_reject_overextended_longs_even_when_absolute_strength_is_high(load_fixture):

@@ -306,6 +306,7 @@ def _trend_review_notes(
     major_universe: list[Mapping[str, Any]],
     trend_candidates: list[Any],
     derivatives: Mapping[str, Any] | list[dict[str, Any]] | None,
+    entry_profile: Any = None,
 ) -> list[dict[str, Any]]:
     candidate_symbols = {_candidate_symbol(candidate) for candidate in trend_candidates}
     market_symbols = market.get("symbols", {})
@@ -328,7 +329,7 @@ def _trend_review_notes(
             continue
 
         setup_type = _trend_setup_type(payload)
-        if not _trend_passes_absolute_strength_gate(payload):
+        if not _trend_passes_absolute_strength_gate(payload, entry_profile):
             daily_return_pct_7d = round(_float(daily, "return_pct_7d"), 6)
             h4_return_pct_3d = round(_float(h4, "return_pct_3d"), 6)
             h1_return_pct_24h = round(_float(h1, "return_pct_24h"), 6)
@@ -417,6 +418,7 @@ def _rotation_review_notes(
     rotation_universe: list[Mapping[str, Any]],
     rotation_candidates: list[Any],
     derivatives: Mapping[str, Any] | list[dict[str, Any]] | None,
+    entry_profile: Any = None,
 ) -> list[dict[str, Any]]:
     candidate_symbols = {_candidate_symbol(candidate) for candidate in rotation_candidates}
     market_symbols = market.get("symbols", {})
@@ -435,7 +437,7 @@ def _rotation_review_notes(
             continue
 
         setup_type = _rotation_setup_type(payload)
-        if not _rotation_passes_absolute_strength_gate(payload):
+        if not _rotation_passes_absolute_strength_gate(payload, entry_profile):
             daily = _timeframe_row(payload, "daily")
             h4 = _timeframe_row(payload, "4h")
             h1 = _timeframe_row(payload, "1h")
@@ -866,6 +868,7 @@ def main() -> None:
             derivatives=derivatives,
             include_high_liquidity_strong_names=False,
             regime=regime,
+            entry_profile=config.entry_profile,
         )
     )
     rotation_candidates = (
@@ -876,6 +879,7 @@ def main() -> None:
             rotation_universe=universes.rotation_universe,
             derivatives=derivatives,
             regime=regime,
+            entry_profile=config.entry_profile,
         )
     )
     short_candidates = (
@@ -1064,6 +1068,7 @@ def main() -> None:
     )
 
     state.latest_regime = regime_payload
+    state.latest_entry_profile = config.entry_profile.as_dict()
     state.latest_universes = _universes_payload(universes)
     state.latest_candidates = candidate_rows
     state.latest_allocations = allocation_rows
@@ -1107,6 +1112,7 @@ def main() -> None:
         major_universe=list(state.latest_universes.get("major_universe", [])),
         trend_candidates=state.trend_candidates,
         derivatives=derivatives,
+        entry_profile=config.entry_profile,
     )
     state.trend_summary = build_trend_report(
         trend_candidates=state.trend_candidates,
@@ -1121,6 +1127,7 @@ def main() -> None:
         rotation_universe=list(state.latest_universes.get("rotation_universe", [])),
         rotation_candidates=rotation_candidates,
         derivatives=derivatives,
+        entry_profile=config.entry_profile,
     )
     state.rotation_summary = build_rotation_report(
         rotation_candidates=state.rotation_candidates,
@@ -1163,6 +1170,7 @@ def main() -> None:
         json.dumps(
             {
                 "regime": regime_summary,
+                "entry_profile": state.latest_entry_profile,
                 "portfolio": {
                 "tracked_positions": len(state.positions),
                 "management_suggestions": management,

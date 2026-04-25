@@ -8,6 +8,7 @@ import pytest
 from trading_system.app.config import AppConfig, DEFAULT_CONFIG
 from trading_system.app import config as config_module
 from trading_system.app import main as main_module
+from trading_system.app.signals.entry_profile import ACTIVE_PAPER_ENTRY_PROFILE, CONSERVATIVE_ENTRY_PROFILE
 from trading_system.app.storage.state_store import RuntimeStateV2, StateStore, build_state_store
 from trading_system.app.types import RegimeSnapshot, EngineCandidate, AllocationDecision, LifecycleState
 from trading_system.app.risk.validator import ValidationResult
@@ -73,6 +74,18 @@ def test_v2_config_exposes_execution_mode_controls():
     assert hasattr(DEFAULT_CONFIG, "execution")
     assert DEFAULT_CONFIG.execution.mode in {"paper", "dry-run", "live"}
     assert hasattr(DEFAULT_CONFIG.execution, "allow_live_execution")
+
+
+def test_v2_config_defaults_to_conservative_entry_profile():
+    assert DEFAULT_CONFIG.entry_profile == CONSERVATIVE_ENTRY_PROFILE
+
+
+def test_v2_build_config_reads_entry_profile_override(monkeypatch):
+    monkeypatch.setenv("TRADING_ENTRY_PROFILE", "active_paper")
+
+    config = config_module.build_config()
+
+    assert config.entry_profile == ACTIVE_PAPER_ENTRY_PROFILE
 
 
 def test_v2_types_are_importable():
@@ -252,6 +265,44 @@ def test_v2_main_explicit_file_envs_override_runtime_bucket_defaults(monkeypatch
     assert seen["market_path"] == market_path
     assert seen["derivatives_path"] == deriv_path
     assert not (bucket_dir / "runtime_state.json").exists()
+
+
+def test_v2_main_passes_selected_entry_profile_to_long_engines_and_records_it(monkeypatch, tmp_path, load_fixture):
+    output_path = tmp_path / "runtime_state.json"
+    account_path = tmp_path / "account_snapshot.json"
+    market_path = tmp_path / "market_context.json"
+    deriv_path = tmp_path / "derivatives_snapshot.json"
+    account_path.write_text(json.dumps(load_fixture("account_snapshot_v2.json")))
+    market_path.write_text(json.dumps(load_fixture("market_context_v2.json")))
+    deriv_path.write_text(json.dumps(load_fixture("derivatives_snapshot_v2.json")))
+    captured: dict[str, object] = {}
+
+    def fake_trend_candidates(*args, entry_profile=None, **kwargs):
+        captured["trend_entry_profile"] = entry_profile
+        return []
+
+    def fake_rotation_candidates(*args, entry_profile=None, **kwargs):
+        captured["rotation_entry_profile"] = entry_profile
+        return []
+
+    monkeypatch.setattr(main_module, "generate_trend_candidates", fake_trend_candidates)
+    monkeypatch.setattr(main_module, "generate_rotation_candidates", fake_rotation_candidates)
+    monkeypatch.setattr(main_module, "generate_short_candidates", lambda *args, **kwargs: [])
+    monkeypatch.setattr(main_module, "allocate_candidates", lambda **kwargs: [])
+    monkeypatch.setenv("TRADING_ENTRY_PROFILE", "active_paper")
+    monkeypatch.setenv("TRADING_STATE_FILE", str(output_path))
+    monkeypatch.setenv("TRADING_ACCOUNT_SNAPSHOT_FILE", str(account_path))
+    monkeypatch.setenv("TRADING_MARKET_CONTEXT_FILE", str(market_path))
+    monkeypatch.setenv("TRADING_DERIVATIVES_SNAPSHOT_FILE", str(deriv_path))
+
+    main_module.main()
+
+    state = json.loads(output_path.read_text(encoding="utf-8"))
+    assert captured == {
+        "trend_entry_profile": ACTIVE_PAPER_ENTRY_PROFILE,
+        "rotation_entry_profile": ACTIVE_PAPER_ENTRY_PROFILE,
+    }
+    assert state["latest_entry_profile"]["name"] == "active_paper"
 
 
 def test_v2_main_rejects_live_execution_without_explicit_allow(monkeypatch):
