@@ -132,6 +132,7 @@ def _load_experiment_params(raw: Any, *, experiment_kind: str) -> ExperimentPara
             "allocator_friction",
             "engine_filter_ablation",
             "walk_forward_validation",
+            "public_strategy_factors",
         }:
             raise ValueError(f"experiment_params are required for {experiment_kind}")
         return None
@@ -142,6 +143,8 @@ def _load_experiment_params(raw: Any, *, experiment_kind: str) -> ExperimentPara
         evaluation_window=str(raw["evaluation_window"]) if "evaluation_window" in raw else None,
         soft_score_floor=float(raw["soft_score_floor"]) if "soft_score_floor" in raw else None,
         walk_forward=_load_walk_forward(raw["walk_forward"]) if "walk_forward" in raw else None,
+        public_strategy_families=tuple(str(item) for item in raw.get("public_strategy_families", ())),
+        minimum_effectiveness_sample_count=int(raw.get("minimum_effectiveness_sample_count", 30)),
     )
 
     if experiment_kind == "rotation_suppression":
@@ -157,6 +160,11 @@ def _load_experiment_params(raw: Any, *, experiment_kind: str) -> ExperimentPara
             raise ValueError("experiment_params.evaluation_window is required for walk_forward_validation")
         if params.walk_forward is None:
             raise ValueError("experiment_params.walk_forward is required for walk_forward_validation")
+    elif experiment_kind == "public_strategy_factors":
+        if params.evaluation_window is None:
+            raise ValueError("experiment_params.evaluation_window is required for public_strategy_factors")
+        if not params.public_strategy_families:
+            raise ValueError("experiment_params.public_strategy_families is required for public_strategy_factors")
 
     return params
 

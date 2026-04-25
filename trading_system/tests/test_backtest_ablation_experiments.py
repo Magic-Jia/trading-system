@@ -9,6 +9,7 @@ from trading_system.app.backtest import experiments as backtest_experiments
 from trading_system.app.backtest.experiments import (
     run_allocator_friction_experiment,
     run_engine_filter_ablation_experiment,
+    run_public_strategy_factor_experiment,
     run_rotation_suppression_experiment,
 )
 from trading_system.app.backtest.types import DatasetSnapshotRow
@@ -91,6 +92,56 @@ def _suppressed_rotation_row(
             },
         },
     )
+
+
+def test_public_strategy_factor_experiment_scores_supported_factor_effectiveness() -> None:
+    rows = [
+        _suppressed_rotation_row(0, link_return=0.06, ada_return=-0.03, forward_return_3d=-0.02),
+        _suppressed_rotation_row(1, link_return=0.04, ada_return=-0.02, forward_return_3d=0.01),
+        _suppressed_rotation_row(2, link_return=0.05, ada_return=-0.01, forward_return_3d=0.05),
+        _suppressed_rotation_row(3, link_return=0.03, ada_return=-0.005, forward_return_3d=0.08),
+    ]
+    for index, row in enumerate(rows):
+        row.market["symbols"]["BTCUSDT"]["daily"]["return_pct_7d"] = [-0.03, 0.01, 0.04, 0.08][index]
+
+    result = run_public_strategy_factor_experiment(
+        rows,
+        evaluation_window="3d",
+        strategy_families=("momentum", "mean_reversion"),
+        minimum_effectiveness_sample_count=4,
+    )
+
+    momentum = next(factor for factor in result["factors"] if factor["factor_name"] == "momentum_3d")
+    assert momentum["supported"] is True
+    assert momentum["effectiveness"]["sample_count"] == 4
+    assert momentum["effectiveness"]["information_coefficient"] > 0.9
+    assert momentum["effectiveness"]["top_bucket_avg_forward_return"] > momentum["effectiveness"]["bottom_bucket_avg_forward_return"]
+    assert momentum["effectiveness"]["top_bucket_hit_rate"] == 1.0
+    assert momentum["effectiveness"]["effectiveness_status"] == "promising_research"
+
+    mean_reversion = next(factor for factor in result["factors"] if factor["factor_name"] == "reversal_proxy_3d")
+    assert mean_reversion["effectiveness"]["information_coefficient"] < -0.9
+    assert result["summary"]["effective_factor_count"] == 1
+    assert result["summary"]["evaluated_factor_count"] == 2
+
+
+def test_public_strategy_factor_experiment_requires_minimum_sample_count_before_promising() -> None:
+    rows = [
+        _suppressed_rotation_row(0, link_return=0.06, ada_return=-0.03, forward_return_3d=-0.02),
+        _suppressed_rotation_row(1, link_return=0.04, ada_return=-0.02, forward_return_3d=0.01),
+        _suppressed_rotation_row(2, link_return=0.05, ada_return=-0.01, forward_return_3d=0.05),
+        _suppressed_rotation_row(3, link_return=0.03, ada_return=-0.005, forward_return_3d=0.08),
+    ]
+    for index, row in enumerate(rows):
+        row.market["symbols"]["BTCUSDT"]["daily"]["return_pct_7d"] = [-0.03, 0.01, 0.04, 0.08][index]
+
+    result = run_public_strategy_factor_experiment(rows, evaluation_window="3d", strategy_families=("momentum",))
+
+    momentum = result["factors"][0]
+    assert momentum["effectiveness"]["sample_count"] == 4
+    assert momentum["effectiveness"]["minimum_sample_count"] == 30
+    assert momentum["effectiveness"]["effectiveness_status"] == "insufficient_sample"
+    assert result["summary"]["effective_factor_count"] == 0
 
 
 def test_suppression_policy_comparison() -> None:

@@ -7,11 +7,12 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .config import load_backtest_config
-from .dataset import load_historical_dataset, split_rows_by_windows
+from .dataset import load_dataset_root_metadata, load_historical_dataset, split_rows_by_windows
 from .engine import replay_full_market_baseline
 from .experiments import (
     run_allocator_friction_experiment,
     run_engine_filter_ablation_experiment,
+    run_public_strategy_factor_experiment,
     run_regime_predictive_power_experiment,
     run_rotation_suppression_experiment,
     run_walk_forward_validation_experiment,
@@ -20,6 +21,7 @@ from .reporting import (
     render_allocator_friction_report,
     render_engine_filter_ablation_report,
     render_full_market_baseline_report,
+    render_public_strategy_factor_report,
     render_regime_scorecard,
     render_rotation_suppression_report,
     render_walk_forward_validation_report,
@@ -52,7 +54,7 @@ def _window_counts(config: BacktestConfig, rows: list[DatasetSnapshotRow]) -> di
 
 
 def _base_metadata(config: BacktestConfig, rows: list[DatasetSnapshotRow]) -> dict[str, Any]:
-    return {
+    metadata: dict[str, Any] = {
         "experiment_kind": config.experiment_kind,
         "dataset_root": str(config.dataset_root),
         "baseline_name": config.baseline_name,
@@ -60,6 +62,10 @@ def _base_metadata(config: BacktestConfig, rows: list[DatasetSnapshotRow]) -> di
         "sample_period": _sample_period(rows),
         "window_counts": _window_counts(config, rows),
     }
+    dataset_root_metadata = load_dataset_root_metadata(config.dataset_root)
+    if dataset_root_metadata:
+        metadata["imported_dataset"] = dataset_root_metadata
+    return metadata
 
 
 def _manifest(config: BacktestConfig, rows: list[DatasetSnapshotRow], artifacts: dict[str, dict[str, Any]], metadata: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -177,6 +183,35 @@ def _engine_filter_ablation_outputs(config: BacktestConfig, rows: list[DatasetSn
     return _manifest(config, rows, artifacts, metadata), artifacts
 
 
+def _public_strategy_factors_outputs(config: BacktestConfig, rows: list[DatasetSnapshotRow]) -> HandlerResult:
+    params = _require_experiment_params(config)
+    evaluation_window = params.evaluation_window or "3d"
+    experiment = run_public_strategy_factor_experiment(
+        rows,
+        evaluation_window=evaluation_window,
+        strategy_families=params.public_strategy_families,
+        minimum_effectiveness_sample_count=params.minimum_effectiveness_sample_count,
+    )
+    metadata = {
+        **_base_metadata(config, rows),
+        "snapshot_count": len(rows),
+        "evaluation_window": evaluation_window,
+        "strategy_families": list(params.public_strategy_families),
+        "minimum_effectiveness_sample_count": params.minimum_effectiveness_sample_count,
+    }
+    report = render_public_strategy_factor_report(
+        experiment_name=config.experiment_kind,
+        experiment=experiment,
+        metadata=metadata,
+    )
+    artifacts = {
+        "summary.json": report["summary"],
+        "factor_catalog.json": report["factor_catalog"],
+        "scorecard.json": report["scorecard"],
+    }
+    return _manifest(config, rows, artifacts, metadata), artifacts
+
+
 def _walk_forward_validation_outputs(config: BacktestConfig, rows: list[DatasetSnapshotRow]) -> HandlerResult:
     params = _require_experiment_params(config)
     evaluation_window = params.evaluation_window or "3d"
@@ -217,6 +252,7 @@ _EXPERIMENT_HANDLERS: dict[str, Handler] = {
     "rotation_suppression": _rotation_suppression_outputs,
     "allocator_friction": _allocator_friction_outputs,
     "engine_filter_ablation": _engine_filter_ablation_outputs,
+    "public_strategy_factors": _public_strategy_factors_outputs,
     "walk_forward_validation": _walk_forward_validation_outputs,
 }
 
@@ -246,6 +282,77 @@ def _run_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def _public_strategy_factors_config_payload(
+    *,
+    dataset_root: Path,
+    rows: list[DatasetSnapshotRow],
+    minimum_effectiveness_sample_count: int,
+) -> dict[str, Any]:
+    start = rows[0].timestamp.isoformat().replace("+00:00", "Z")
+    end = rows[-1].timestamp.isoformat().replace("+00:00", "Z")
+    return {
+        "dataset_root": str(dataset_root),
+        "experiment_kind": "public_strategy_factors",
+        "sample_windows": [
+            {
+                "name": "imported_history",
+                "start": start,
+                "end": end,
+                "split": "in_sample",
+            }
+        ],
+        "forward_return_windows": [
+            {"name": "3d", "hours": 72},
+        ],
+        "costs": {
+            "fee_bps": 4.0,
+            "slippage_bps": 6.0,
+            "funding_bps_per_day": 1.5,
+        },
+        "baseline_name": "public_strategy_scan",
+        "variant_name": "factor_catalog_v1",
+        "experiment_params": {
+            "evaluation_window": "3d",
+            "public_strategy_families": [
+                "trend_following",
+                "momentum",
+                "mean_reversion",
+                "volatility_breakout",
+                "liquidity_volume",
+                "funding_basis",
+                "onchain_flow",
+            ],
+            "minimum_effectiveness_sample_count": minimum_effectiveness_sample_count,
+        },
+        "metadata": {
+            "generated_by": "write-public-strategy-factors-config",
+            "dataset_root_type": "imported_archive",
+        },
+    }
+
+
+def _write_public_strategy_factors_config_command(args: argparse.Namespace) -> int:
+    dataset_root = Path(args.dataset_root)
+    dataset_root_metadata = load_dataset_root_metadata(dataset_root)
+    if dataset_root_metadata.get("dataset_root_type") != "imported_archive":
+        raise ValueError(f"dataset root is missing import_manifest.json: {dataset_root}")
+
+    rows = load_historical_dataset(dataset_root)
+    if not rows:
+        raise ValueError(f"dataset root has no historical rows: {dataset_root}")
+
+    output_config = Path(args.output_config)
+    output_config.parent.mkdir(parents=True, exist_ok=True)
+    payload = _public_strategy_factors_config_payload(
+        dataset_root=dataset_root,
+        rows=rows,
+        minimum_effectiveness_sample_count=int(args.minimum_effectiveness_sample_count),
+    )
+    _write_json(output_config, payload)
+    print(output_config)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run deterministic backtest research experiments.")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -254,6 +361,28 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--config", required=True, help="Path to a backtest config JSON file.")
     run_parser.add_argument("--output-dir", required=True, help="Directory where research bundles should be written.")
     run_parser.set_defaults(handler=_run_command)
+
+    public_strategy_config_parser = subparsers.add_parser(
+        "write-public-strategy-factors-config",
+        help="Write a public_strategy_factors config for an imported/archive dataset root.",
+    )
+    public_strategy_config_parser.add_argument(
+        "--dataset-root",
+        required=True,
+        help="Imported/archive dataset root containing import_manifest.json and bundle directories.",
+    )
+    public_strategy_config_parser.add_argument(
+        "--output-config",
+        required=True,
+        help="Path where the generated public_strategy_factors config JSON should be written.",
+    )
+    public_strategy_config_parser.add_argument(
+        "--minimum-effectiveness-sample-count",
+        type=int,
+        default=30,
+        help="Minimum valid factor/forward-return pairs required before a factor can become promising_research.",
+    )
+    public_strategy_config_parser.set_defaults(handler=_write_public_strategy_factors_config_command)
     return parser
 
 

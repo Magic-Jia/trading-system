@@ -1,0 +1,37 @@
+{
+  "dataset_root": "sample_dataset",
+  "experiment_kind": "public_strategy_factors",
+  "sample_windows": [
+    {
+      "name": "research",
+      "start": "2026-03-01T00:00:00Z",
+      "end": "2026-04-01T00:00:00Z"
+    }
+  ],
+  "forward_return_windows": [
+    {
+      "name": "3d",
+      "hours": 72
+    }
+  ],
+  "costs": {
+    "fee_bps": 4.0,
+    "slippage_bps": 6.0,
+    "funding_bps_per_day": 1.0
+  },
+  "baseline_name": "public_strategy_scan",
+  "variant_name": "factor_catalog_v1",
+  "experiment_params": {
+    "evaluation_window": "3d",
+    "public_strategy_families": [
+      "trend_following",
+      "momentum",
+      "mean_reversion",
+      "volatility_breakout",
+      "liquidity_volume",
+      "funding_basis",
+      "onchain_flow"
+    ],
+    "minimum_effectiveness_sample_count": 30
+  }
+}

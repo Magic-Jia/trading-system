@@ -6,7 +6,11 @@ from pathlib import Path
 import pytest
 
 from trading_system.app.backtest.config import load_backtest_config
-from trading_system.app.backtest.dataset import load_historical_dataset, split_rows_by_windows
+from trading_system.app.backtest.dataset import (
+    load_dataset_root_metadata,
+    load_historical_dataset,
+    split_rows_by_windows,
+)
 from trading_system.app.backtest.types import (
     DatasetSnapshotRow,
     ExperimentMetadata,
@@ -88,6 +92,47 @@ def test_load_historical_dataset_loads_normalized_instrument_rows(tmp_path: Path
             has_complete_funding=True,
         ),
     )
+
+
+def test_load_dataset_root_metadata_surfaces_imported_manifest_summary(tmp_path: Path) -> None:
+    dataset_root = tmp_path / "imported_dataset"
+    dataset_root.mkdir()
+    (dataset_root / "import_manifest.json").write_text(
+        """
+        {
+          "schema_version": "phase1_imported_dataset_root.v1",
+          "scope": "phase1_binance_futures",
+          "archive_root": "/tmp/archive",
+          "dataset_root": "/tmp/imported_dataset",
+          "snapshot_count": 42,
+          "symbols": ["BTCUSDT", "ETHUSDT"],
+          "start_timestamp": "2025-01-01T00:00:00Z",
+          "end_timestamp": "2025-02-11T00:00:00Z",
+          "bundle_dirs": ["bundle-a", "bundle-b"],
+          "source": {"scope": "phase1_binance_futures"}
+        }
+        """.strip(),
+        encoding="utf-8",
+    )
+
+    metadata = load_dataset_root_metadata(dataset_root)
+
+    assert metadata == {
+        "dataset_root_type": "imported_archive",
+        "import_manifest_path": str(dataset_root / "import_manifest.json"),
+        "import_manifest": {
+            "schema_version": "phase1_imported_dataset_root.v1",
+            "scope": "phase1_binance_futures",
+            "archive_root": "/tmp/archive",
+            "dataset_root": "/tmp/imported_dataset",
+            "manifest_snapshot_count": 42,
+            "symbols": ["BTCUSDT", "ETHUSDT"],
+            "start_timestamp": "2025-01-01T00:00:00Z",
+            "end_timestamp": "2025-02-11T00:00:00Z",
+            "bundle_count": 2,
+            "source": {"scope": "phase1_binance_futures"},
+        },
+    }
 
 
 def test_load_backtest_config(fixture_dir: Path) -> None:
@@ -228,6 +273,24 @@ def test_load_backtest_config_parses_walk_forward_validation_experiment_params(f
     assert config.experiment_params.walk_forward.in_sample_size == 90
     assert config.experiment_params.walk_forward.out_of_sample_size == 30
     assert config.experiment_params.walk_forward.step_size == 15
+
+
+def test_load_backtest_config_parses_public_strategy_factor_families(fixture_dir: Path) -> None:
+    config = load_backtest_config(fixture_dir / "backtest" / "public_strategy_factors_config.json")
+
+    assert config.experiment_kind == "public_strategy_factors"
+    assert config.experiment_params is not None
+    assert config.experiment_params.evaluation_window == "3d"
+    assert config.experiment_params.minimum_effectiveness_sample_count == 30
+    assert config.experiment_params.public_strategy_families == (
+        "trend_following",
+        "momentum",
+        "mean_reversion",
+        "volatility_breakout",
+        "liquidity_volume",
+        "funding_basis",
+        "onchain_flow",
+    )
 
 
 def test_load_backtest_config_keeps_full_market_baseline_fixture_compatible(fixture_dir: Path) -> None:

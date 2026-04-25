@@ -64,6 +64,276 @@ _FRICTION_SCENARIOS: dict[str, BacktestCosts] = {
 }
 
 
+def _has_forward_window(rows: list[DatasetSnapshotRow], evaluation_window: str) -> bool:
+    return any(evaluation_window in row.forward_returns for row in rows)
+
+
+def _has_drawdown_window(rows: list[DatasetSnapshotRow], evaluation_window: str) -> bool:
+    return any(evaluation_window in row.forward_drawdowns for row in rows)
+
+
+def _has_liquidity_snapshot(rows: list[DatasetSnapshotRow]) -> bool:
+    return any(row.instrument_rows for row in rows)
+
+
+def _has_funding_or_basis_fields(rows: list[DatasetSnapshotRow]) -> bool:
+    for row in rows:
+        for item in row.derivatives:
+            if any(key in item for key in ("basis", "basis_bps", "funding_rate", "funding_rate_8h")):
+                return True
+    return False
+
+
+def _mean_numeric(values: list[float]) -> float | None:
+    cleaned = [float(value) for value in values if value is not None]
+    if not cleaned:
+        return None
+    return mean(cleaned)
+
+
+def _daily_symbol_values(row: DatasetSnapshotRow, key: str) -> list[float]:
+    symbols = row.market.get("symbols", {}) if isinstance(row.market, Mapping) else {}
+    if not isinstance(symbols, Mapping):
+        return []
+    values: list[float] = []
+    for payload in symbols.values():
+        if not isinstance(payload, Mapping):
+            continue
+        daily = payload.get("daily")
+        if not isinstance(daily, Mapping) or daily.get(key) is None:
+            continue
+        try:
+            values.append(float(daily[key]))
+        except (TypeError, ValueError):
+            continue
+    return values
+
+
+def _trend_factor_value(row: DatasetSnapshotRow) -> float | None:
+    symbols = row.market.get("symbols", {}) if isinstance(row.market, Mapping) else {}
+    if not isinstance(symbols, Mapping):
+        return None
+    values: list[float] = []
+    for payload in symbols.values():
+        if not isinstance(payload, Mapping):
+            continue
+        daily = payload.get("daily")
+        if not isinstance(daily, Mapping):
+            continue
+        try:
+            close = float(daily.get("close"))
+            ema50 = float(daily.get("ema_50"))
+        except (TypeError, ValueError):
+            continue
+        if ema50 == 0:
+            continue
+        values.append((close / ema50) - 1.0)
+    return _mean_numeric(values)
+
+
+def _public_strategy_factor_value(row: DatasetSnapshotRow, family: str) -> float | None:
+    if family == "trend_following":
+        return _trend_factor_value(row)
+    if family == "momentum":
+        return _mean_numeric(_daily_symbol_values(row, "return_pct_7d"))
+    if family == "mean_reversion":
+        value = _mean_numeric(_daily_symbol_values(row, "return_pct_7d"))
+        return -value if value is not None else None
+    if family == "volatility_breakout":
+        return _mean_numeric(_daily_symbol_values(row, "atr_pct"))
+    return None
+
+
+def _pearson_correlation(xs: list[float], ys: list[float]) -> float | None:
+    if len(xs) < 2 or len(xs) != len(ys):
+        return None
+    x_mean = mean(xs)
+    y_mean = mean(ys)
+    numerator = sum((x - x_mean) * (y - y_mean) for x, y in zip(xs, ys, strict=True))
+    x_var = sum((x - x_mean) ** 2 for x in xs)
+    y_var = sum((y - y_mean) ** 2 for y in ys)
+    if x_var <= 0 or y_var <= 0:
+        return None
+    return numerator / ((x_var ** 0.5) * (y_var ** 0.5))
+
+
+def _public_strategy_factor_effectiveness(
+    rows: list[DatasetSnapshotRow],
+    *,
+    family: str,
+    evaluation_window: str,
+    minimum_sample_count: int,
+) -> dict[str, Any] | None:
+    pairs: list[tuple[float, float]] = []
+    for row in rows:
+        if evaluation_window not in row.forward_returns:
+            continue
+        factor_value = _public_strategy_factor_value(row, family)
+        if factor_value is None:
+            continue
+        pairs.append((float(factor_value), float(row.forward_returns[evaluation_window])))
+
+    if not pairs:
+        return None
+
+    ordered = sorted(pairs, key=lambda item: item[0])
+    bucket_size = max(1, len(ordered) // 2)
+    bottom_returns = [forward_return for _factor_value, forward_return in ordered[:bucket_size]]
+    top_returns = [forward_return for _factor_value, forward_return in ordered[-bucket_size:]]
+    factor_values = [factor_value for factor_value, _forward_return in pairs]
+    forward_returns = [forward_return for _factor_value, forward_return in pairs]
+    information_coefficient = _pearson_correlation(factor_values, forward_returns)
+    top_bucket_avg = mean(top_returns) if top_returns else 0.0
+    bottom_bucket_avg = mean(bottom_returns) if bottom_returns else 0.0
+    top_bucket_hit_rate = sum(1 for value in top_returns if value > 0) / len(top_returns) if top_returns else 0.0
+    effectiveness_status = "insufficient_sample"
+    if (
+        len(pairs) >= minimum_sample_count
+        and information_coefficient is not None
+        and information_coefficient >= 0.2
+        and top_bucket_avg > bottom_bucket_avg
+        and top_bucket_hit_rate >= 0.5
+    ):
+        effectiveness_status = "promising_research"
+    elif len(pairs) >= minimum_sample_count:
+        effectiveness_status = "not_promising"
+
+    return {
+        "sample_count": len(pairs),
+        "minimum_sample_count": minimum_sample_count,
+        "information_coefficient": round(information_coefficient, 6) if information_coefficient is not None else None,
+        "top_bucket_avg_forward_return": round(top_bucket_avg, 6),
+        "bottom_bucket_avg_forward_return": round(bottom_bucket_avg, 6),
+        "top_minus_bottom_forward_return": round(top_bucket_avg - bottom_bucket_avg, 6),
+        "top_bucket_hit_rate": round(top_bucket_hit_rate, 6),
+        "effectiveness_status": effectiveness_status,
+    }
+
+
+def run_public_strategy_factor_experiment(
+    rows: Iterable[DatasetSnapshotRow],
+    *,
+    evaluation_window: str = "3d",
+    strategy_families: Iterable[str] = (),
+    minimum_effectiveness_sample_count: int = 30,
+) -> dict[str, Any]:
+    ordered_rows = sorted(rows, key=lambda row: (row.timestamp, row.run_id))
+    families = tuple(strategy_families) or (
+        "trend_following",
+        "momentum",
+        "mean_reversion",
+        "volatility_breakout",
+        "liquidity_volume",
+        "funding_basis",
+        "onchain_flow",
+    )
+
+    forward_supported = _has_forward_window(ordered_rows, evaluation_window)
+    drawdown_supported = _has_drawdown_window(ordered_rows, evaluation_window)
+    liquidity_supported = _has_liquidity_snapshot(ordered_rows)
+    funding_supported = _has_funding_or_basis_fields(ordered_rows)
+
+    family_specs: dict[str, dict[str, Any]] = {
+        "trend_following": {
+            "factor_name": f"trend_proxy_{evaluation_window}",
+            "required_fields": [f"forward_returns.{evaluation_window}"],
+            "supported": forward_supported,
+            "unsupported_reason": None if forward_supported else "missing_forward_return_window",
+        },
+        "momentum": {
+            "factor_name": f"momentum_{evaluation_window}",
+            "required_fields": [f"forward_returns.{evaluation_window}"],
+            "supported": forward_supported,
+            "unsupported_reason": None if forward_supported else "missing_forward_return_window",
+        },
+        "mean_reversion": {
+            "factor_name": f"reversal_proxy_{evaluation_window}",
+            "required_fields": [f"forward_returns.{evaluation_window}"],
+            "supported": forward_supported,
+            "unsupported_reason": None if forward_supported else "missing_forward_return_window",
+        },
+        "volatility_breakout": {
+            "factor_name": f"drawdown_volatility_proxy_{evaluation_window}",
+            "required_fields": [f"forward_drawdowns.{evaluation_window}"],
+            "supported": drawdown_supported,
+            "unsupported_reason": None if drawdown_supported else "missing_forward_drawdown_window",
+        },
+        "liquidity_volume": {
+            "factor_name": "liquidity_volume_filter",
+            "required_fields": ["instrument_rows.quote_volume_usdt_24h", "instrument_rows.liquidity_tier"],
+            "supported": liquidity_supported,
+            "unsupported_reason": None if liquidity_supported else "missing_instrument_snapshot_rows",
+        },
+        "funding_basis": {
+            "factor_name": "funding_basis",
+            "required_fields": ["derivatives.funding_rate", "derivatives.basis"],
+            "supported": funding_supported and liquidity_supported,
+            "unsupported_reason": None if funding_supported and liquidity_supported else "insufficient_funding_or_basis_fields",
+        },
+        "onchain_flow": {
+            "factor_name": "onchain_flow_confirmation",
+            "required_fields": ["onchain.exchange_flow", "onchain.stablecoin_supply"],
+            "supported": False,
+            "unsupported_reason": "missing_onchain_dataset",
+        },
+    }
+
+    factors = []
+    for family in families:
+        spec = dict(family_specs.get(family, {}))
+        if not spec:
+            spec = {
+                "factor_name": str(family),
+                "required_fields": [],
+                "supported": False,
+                "unsupported_reason": "unknown_strategy_family",
+            }
+        factor = {
+            "source_strategy_family": str(family),
+            "factor_name": spec["factor_name"],
+            "required_fields": list(spec["required_fields"]),
+            "supported": bool(spec["supported"]),
+            "unsupported_reason": spec["unsupported_reason"],
+            "sample_count": len(ordered_rows),
+            "evaluation_window": evaluation_window,
+        }
+        if factor["supported"]:
+            effectiveness = _public_strategy_factor_effectiveness(
+                ordered_rows,
+                family=str(family),
+                evaluation_window=evaluation_window,
+                minimum_sample_count=minimum_effectiveness_sample_count,
+            )
+            if effectiveness is not None:
+                factor["effectiveness"] = effectiveness
+        factors.append(factor)
+
+    supported = [factor for factor in factors if factor["supported"]]
+    unsupported = [factor for factor in factors if not factor["supported"]]
+    evaluated = [factor for factor in supported if isinstance(factor.get("effectiveness"), Mapping)]
+    effective = [
+        factor
+        for factor in evaluated
+        if dict(factor.get("effectiveness", {})).get("effectiveness_status") == "promising_research"
+    ]
+    return {
+        "metadata": {
+            "snapshot_count": len(ordered_rows),
+            "evaluation_window": evaluation_window,
+            "strategy_family_count": len(families),
+            "minimum_effectiveness_sample_count": minimum_effectiveness_sample_count,
+        },
+        "factors": factors,
+        "summary": {
+            "supported_factor_count": len(supported),
+            "unsupported_factor_count": len(unsupported),
+            "data_gap_count": len(unsupported),
+            "evaluated_factor_count": len(evaluated),
+            "effective_factor_count": len(effective),
+        },
+    }
+
+
 def _regime_for_row(row: DatasetSnapshotRow) -> dict[str, Any]:
     override = row.meta.get("regime_override")
     if isinstance(override, Mapping):

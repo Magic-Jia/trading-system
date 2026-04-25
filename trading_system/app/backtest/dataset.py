@@ -10,6 +10,7 @@ from .types import DatasetSnapshotRow, InstrumentSnapshotRow, SampleWindow
 _REQUIRED_BUNDLE_FILES = ("metadata.json", "market_context.json", "derivatives_snapshot.json")
 _BASELINE_ACCOUNT_FILENAME = "baseline_account_snapshot.json"
 _INSTRUMENT_SNAPSHOT_FILENAME = "instrument_snapshot.json"
+_IMPORT_MANIFEST_FILENAME = "import_manifest.json"
 
 
 def _parse_timestamp(value: str) -> datetime:
@@ -112,6 +113,31 @@ def load_historical_dataset(dataset_root: str | Path) -> list[DatasetSnapshotRow
     fallback_account = _baseline_account(root)
     rows = [_row_from_bundle(bundle_path, fallback_account=fallback_account) for bundle_path in _bundle_dirs(root)]
     return sorted(rows, key=lambda row: (row.timestamp, row.run_id))
+
+
+def load_dataset_root_metadata(dataset_root: str | Path) -> dict[str, object]:
+    root = Path(dataset_root)
+    manifest_path = root / _IMPORT_MANIFEST_FILENAME
+    if not manifest_path.exists():
+        return {}
+
+    manifest = _load_json(manifest_path)
+    return {
+        "dataset_root_type": "imported_archive",
+        "import_manifest_path": str(manifest_path),
+        "import_manifest": {
+            "schema_version": manifest.get("schema_version"),
+            "scope": manifest.get("scope"),
+            "archive_root": manifest.get("archive_root"),
+            "dataset_root": manifest.get("dataset_root"),
+            "manifest_snapshot_count": int(manifest.get("snapshot_count") or 0),
+            "symbols": [str(value) for value in manifest.get("symbols") or ()],
+            "start_timestamp": manifest.get("start_timestamp"),
+            "end_timestamp": manifest.get("end_timestamp"),
+            "bundle_count": len(manifest.get("bundle_dirs") or ()),
+            "source": dict(manifest.get("source") or {}),
+        },
+    }
 
 
 def _window_rows(rows: Iterable[DatasetSnapshotRow], window: SampleWindow) -> list[DatasetSnapshotRow]:

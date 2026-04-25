@@ -68,6 +68,8 @@ class ExperimentParams:
     evaluation_window: str | None = None
     soft_score_floor: float | None = None
     walk_forward: WalkForwardConfig | None = None
+    public_strategy_families: tuple[str, ...] = ()
+    minimum_effectiveness_sample_count: int = 30
 
 
 @dataclass(frozen=True, slots=True)

@@ -309,6 +309,48 @@ def render_engine_filter_ablation_report(
     }
 
 
+def render_public_strategy_factor_report(
+    *,
+    experiment_name: str,
+    experiment: Mapping[str, Any],
+    metadata: Mapping[str, Any],
+) -> dict[str, dict[str, Any]]:
+    summary_payload = dict(experiment.get("summary", {}))
+    factors = list(experiment.get("factors", []))
+    supported_factor_count = int(summary_payload.get("supported_factor_count", 0))
+    unsupported_factor_count = int(summary_payload.get("unsupported_factor_count", 0))
+    decision = "keep_researching" if supported_factor_count > 0 else "reject"
+    summary = (
+        "public strategy ideas were converted into evidence-backed factor candidates; data gaps remain non-promotable"
+        if supported_factor_count > 0
+        else "public strategy ideas cannot be evaluated with the current dataset fields"
+    )
+
+    assert decision in _ALLOWED_DECISIONS
+    return {
+        "summary": {
+            "metadata": dict(metadata),
+            "summary": summary_payload,
+        },
+        "factor_catalog": {
+            "metadata": dict(metadata),
+            "factors": factors,
+        },
+        "scorecard": {
+            "metadata": _scorecard_metadata(experiment_name=experiment_name, metadata=metadata),
+            "key_metrics": {
+                "snapshot_count": int(metadata.get("snapshot_count", 0)),
+                "supported_factor_count": supported_factor_count,
+                "unsupported_factor_count": unsupported_factor_count,
+                "data_gap_count": int(summary_payload.get("data_gap_count", 0)),
+                "evaluated_factor_count": int(summary_payload.get("evaluated_factor_count", 0)),
+                "effective_factor_count": int(summary_payload.get("effective_factor_count", 0)),
+            },
+            "decision_summary": _decision_summary(decision=decision, summary=summary),
+        },
+    }
+
+
 def render_walk_forward_validation_report(
     *,
     experiment_name: str,
