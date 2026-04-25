@@ -1,7 +1,10 @@
+from dataclasses import replace
+
 from trading_system.app.config import DEFAULT_CONFIG
 from trading_system.app.risk.regime_risk import scaled_risk_budget
 from trading_system.app.portfolio.exposure import exposure_snapshot
 from trading_system.app.portfolio.allocator import allocate_candidates
+from trading_system.app.signals.entry_profile import ACTIVE_PAPER_ENTRY_PROFILE
 import pytest
 
 
@@ -77,17 +80,56 @@ def test_allocator_accepts_rotation_candidates_when_bucket_enabled(load_fixture,
     assert all(decision.final_risk_budget > 0 for decision in accepted)
 
 
-@pytest.mark.parametrize("engine", ["trend", "rotation"])
-def test_allocator_allows_single_alt_seed_in_risk_on_rotation_when_no_major_is_open(load_fixture, engine):
+def test_allocator_rejects_rotation_only_without_major_anchor_in_default_profile(load_fixture):
     account = _flat_account(load_fixture)
     regime = {"label": "RISK_ON_ROTATION", "bucket_targets": {"trend": 0.45, "rotation": 0.45, "short": 0.1}, "suppressed_engines": []}
 
-    decisions = allocate_candidates(account=account, candidates=[_alt_seed_candidate(engine=engine)], regime=regime)
+    decisions = allocate_candidates(account=account, candidates=[_alt_seed_candidate(engine="rotation")], regime=regime)
+
+    assert decisions
+    assert decisions[0].status == "REJECTED"
+    assert decisions[0].final_risk_budget == 0.0
+    assert decisions[0].meta["major_alt_balance_ok"] is False
+    assert "major/alt balance" in " ".join(decisions[0].reasons).lower()
+
+
+def test_allocator_allows_active_paper_first_rotation_probe_without_major_anchor(load_fixture):
+    account = _flat_account(load_fixture)
+    config = replace(DEFAULT_CONFIG, entry_profile=ACTIVE_PAPER_ENTRY_PROFILE)
+    regime = {"label": "RISK_ON_ROTATION", "bucket_targets": {"trend": 0.45, "rotation": 0.45, "short": 0.1}, "suppressed_engines": []}
+
+    decisions = allocate_candidates(account=account, candidates=[_alt_seed_candidate(engine="rotation")], regime=regime, config=config)
 
     assert decisions
     assert decisions[0].status in {"ACCEPTED", "DOWNSIZED"}
     assert decisions[0].final_risk_budget > 0
     assert decisions[0].meta["major_alt_balance_ok"] is True
+    assert decisions[0].meta["active_paper_first_rotation_probe"] is True
+
+
+def test_allocator_allows_active_paper_first_rotation_probe_outside_rotation_regime_label(load_fixture):
+    account = _flat_account(load_fixture)
+    config = replace(DEFAULT_CONFIG, entry_profile=ACTIVE_PAPER_ENTRY_PROFILE)
+    regime = {"label": "MIXED", "bucket_targets": {"trend": 0.45, "rotation": 0.45, "short": 0.1}, "suppressed_engines": []}
+
+    decisions = allocate_candidates(account=account, candidates=[_alt_seed_candidate(engine="rotation")], regime=regime, config=config)
+
+    assert decisions
+    assert decisions[0].status in {"ACCEPTED", "DOWNSIZED"}
+    assert decisions[0].final_risk_budget > 0
+    assert decisions[0].meta["active_paper_first_rotation_probe"] is True
+
+
+def test_allocator_does_not_apply_active_paper_probe_to_trend_entries(load_fixture):
+    account = _flat_account(load_fixture)
+    config = replace(DEFAULT_CONFIG, entry_profile=ACTIVE_PAPER_ENTRY_PROFILE)
+    regime = {"label": "RISK_ON_ROTATION", "bucket_targets": {"trend": 0.45, "rotation": 0.45, "short": 0.1}, "suppressed_engines": []}
+
+    decisions = allocate_candidates(account=account, candidates=[_alt_seed_candidate(engine="trend")], regime=regime, config=config)
+
+    assert decisions
+    assert decisions[0].status == "REJECTED"
+    assert decisions[0].meta.get("active_paper_first_rotation_probe") is not True
 
 
 def test_allocator_keeps_alt_seed_blocked_outside_risk_on_rotation(load_fixture):

@@ -116,16 +116,19 @@ def _major_alt_balance_ok(major_risk: float, alt_risk: float, major_target: floa
 
 def _allow_single_alt_seed_without_majors(
     *,
-    regime: RegimeSnapshot | Mapping[str, Any] | None,
+    entry_profile_name: str,
+    engine: str,
     side: str,
     sector: str,
+    open_positions_count: int,
     major_risk: float,
     alt_risk: float,
     current_active_risk_pct: float,
     portfolio_risk_used: float,
 ) -> bool:
-    regime_label = str(_regime_value(regime, "label", "")).upper()
-    if regime_label != "RISK_ON_ROTATION":
+    if entry_profile_name not in {"active_paper", "exploratory_paper"}:
+        return False
+    if engine != "rotation":
         return False
     if side.upper() != "LONG":
         return False
@@ -133,7 +136,8 @@ def _allow_single_alt_seed_without_majors(
         return False
     epsilon = 1e-9
     return (
-        major_risk <= epsilon
+        open_positions_count == 0
+        and major_risk <= epsilon
         and alt_risk <= epsilon
         and current_active_risk_pct <= epsilon
         and portfolio_risk_used <= epsilon
@@ -439,9 +443,11 @@ def allocate_candidates(
             reasons.append("risk budget downsized to fit cap")
 
         alt_seed_exception_applied = _allow_single_alt_seed_without_majors(
-            regime=regime,
+            entry_profile_name=str(getattr(app_config.entry_profile, "name", "")).strip().lower(),
+            engine=engine,
             side=side,
             sector=sector,
+            open_positions_count=len(open_positions),
             major_risk=major_risk,
             alt_risk=alt_risk,
             current_active_risk_pct=current_active_risk_pct,
@@ -450,11 +456,12 @@ def allocate_candidates(
         if alt_seed_exception_applied:
             seed_cap = min(allowed_budget, _alt_seed_risk_cap(total_risk_cap))
             meta["alt_seed_exception_applied"] = True
+            meta["active_paper_first_rotation_probe"] = True
             meta["alt_seed_risk_cap"] = round(seed_cap, 6)
             if final_budget > seed_cap:
                 final_budget = seed_cap
                 downsized = True
-                reasons.append("risk-on-rotation alt seed cap applied")
+                reasons.append("active-paper first rotation probe cap applied")
 
         guard_ok, guard_reasons, guard_meta = evaluate_allocation_guardrails(
             candidate_symbol=symbol,
@@ -480,7 +487,7 @@ def allocate_candidates(
         )
         if not major_alt_ok and alt_seed_exception_applied:
             major_alt_ok = True
-            reasons.append("risk-on-rotation alt seed allowed without prior major exposure")
+            reasons.append("active-paper first rotation probe allowed without prior major exposure")
         meta["major_alt_balance_ok"] = major_alt_ok
         meta["major_share_after"] = round(major_share, 6)
         meta["major_share_threshold"] = round(major_threshold, 6)
