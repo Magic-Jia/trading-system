@@ -6,7 +6,7 @@ from dataclasses import asdict, dataclass, is_dataclass, replace
 from pathlib import Path
 from typing import Any, Mapping
 
-from .config import build_config, normalize_engine_names, normalize_setup_types, runtime_path_defaults_enabled
+from .config import RiskConfig, build_config, normalize_engine_names, normalize_setup_types, runtime_path_defaults_enabled
 from .data_sources import load_derivatives_snapshot, load_market_context
 from .execution.executor import OrderExecutor
 from .execution.idempotency import already_processed, intent_id, mark_processed, replay_processed_execution
@@ -582,7 +582,49 @@ def _regime_payload(regime: Any) -> Mapping[str, Any] | None:
     return None
 
 
-def _candidate_with_stop_taxonomy(candidate: Any, market: Mapping[str, Any], regime: Any | None = None) -> dict[str, Any]:
+def _is_active_paper_first_rotation_probe_row(row: Mapping[str, Any]) -> bool:
+    meta = row.get("meta") if isinstance(row.get("meta"), Mapping) else {}
+    return (
+        str(row.get("engine", "")).strip().lower() == "rotation"
+        and str(row.get("side", "LONG")).strip().upper() == "LONG"
+        and bool(meta.get("active_paper_first_rotation_probe"))
+    )
+
+
+def _apply_active_paper_probe_stop_floor(row: dict[str, Any], *, risk_config: RiskConfig | None = None) -> None:
+    if not _is_active_paper_first_rotation_probe_row(row):
+        return
+    risk = risk_config or RiskConfig()
+    min_stop_distance_pct = max(float(risk.min_stop_distance_pct), 0.0)
+    max_stop_distance_pct = max(float(risk.max_stop_distance_pct), 0.0)
+    if min_stop_distance_pct <= 0.0 or min_stop_distance_pct > max_stop_distance_pct:
+        return
+    entry_price = _float(row, "entry_price")
+    stop_loss = _float(row, "stop_loss")
+    if entry_price <= 0.0:
+        return
+    stop_distance_pct = (entry_price - stop_loss) / entry_price if stop_loss > 0.0 else 0.0
+    if stop_distance_pct >= min_stop_distance_pct:
+        return
+    floored_distance_pct = min(min_stop_distance_pct * 1.001, max_stop_distance_pct)
+    floored_stop = entry_price * (1.0 - floored_distance_pct)
+    if floored_stop <= 0.0 or floored_stop >= entry_price:
+        return
+    row["stop_loss"] = round(floored_stop, 8)
+    candidate_meta = dict(row.get("meta") or {}) if isinstance(row.get("meta"), Mapping) else {}
+    candidate_meta["active_paper_probe_stop_floor_applied"] = True
+    candidate_meta["active_paper_probe_original_stop_loss"] = round(stop_loss, 8)
+    candidate_meta["active_paper_probe_min_stop_distance_pct"] = round(min_stop_distance_pct, 6)
+    row["meta"] = candidate_meta
+
+
+def _candidate_with_stop_taxonomy(
+    candidate: Any,
+    market: Mapping[str, Any],
+    regime: Any | None = None,
+    *,
+    risk_config: RiskConfig | None = None,
+) -> dict[str, Any]:
     row = _candidate_row(candidate)
     symbol = str(row.get("symbol", "")).upper()
     payload = market.get("symbols", {}).get(symbol, {})
@@ -616,11 +658,24 @@ def _candidate_with_stop_taxonomy(candidate: Any, market: Mapping[str, Any], reg
     row["stop_reference"] = policy.stop_reference
     row["invalidation_reason"] = policy.invalidation_reason
     row["stop_policy_source"] = "shared_taxonomy"
+    if _float(row, "entry_price") <= 0.0:
+        daily = dict(payload.get("daily", {}))
+        h4 = dict(payload.get("4h", {}))
+        entry_reference = _float(daily, "close") or _float(h4, "close")
+        if entry_reference > 0.0:
+            row["entry_price"] = round(entry_reference, 8)
+    _apply_active_paper_probe_stop_floor(row, risk_config=risk_config)
     return row
 
 
-def _candidate_signal(candidate: Mapping[str, Any], market: Mapping[str, Any], regime: Any | None = None) -> TradeSignal:
-    candidate_row = _candidate_with_stop_taxonomy(candidate, market, regime)
+def _candidate_signal(
+    candidate: Mapping[str, Any],
+    market: Mapping[str, Any],
+    regime: Any | None = None,
+    *,
+    risk_config: RiskConfig | None = None,
+) -> TradeSignal:
+    candidate_row = _candidate_with_stop_taxonomy(candidate, market, regime, risk_config=risk_config)
     execution_validation = validate_candidate_for_execution(candidate_row)
     if not execution_validation.allowed:
         raise ValueError("; ".join(execution_validation.reasons) or "candidate execution validation failed")
@@ -683,13 +738,47 @@ def _candidate_signal(candidate: Mapping[str, Any], market: Mapping[str, Any], r
 
 
 def _order_qty(account: AccountSnapshot, signal: TradeSignal, allocation: Mapping[str, Any]) -> float:
-    final_risk_budget = float(allocation.get("final_risk_budget", 0.0) or 0.0)
+    final_risk_budget = float(allocation.get("execution_risk_budget", allocation.get("final_risk_budget", 0.0)) or 0.0)
     risk_per_unit = abs(signal.entry_price - signal.stop_loss)
     if final_risk_budget <= 0 or risk_per_unit <= 0:
         return 0.0
     risk_budget_usdt = float(account.equity) * final_risk_budget
     qty = risk_budget_usdt / risk_per_unit
     return round(max(qty, 0.0), 8)
+
+
+def _execution_risk_budget(
+    account: AccountSnapshot,
+    signal: TradeSignal,
+    allocation: Mapping[str, Any],
+    risk_config: RiskConfig,
+) -> float:
+    final_risk_budget = float(allocation.get("final_risk_budget", 0.0) or 0.0)
+    if final_risk_budget <= 0.0:
+        return 0.0
+    if not _is_active_paper_first_rotation_probe_row(allocation):
+        return final_risk_budget
+    if signal.side != "LONG" or "rotation" not in {tag.lower() for tag in signal.tags}:
+        return final_risk_budget
+    if account.open_positions or account.open_orders:
+        return final_risk_budget
+    if account.equity <= 0.0 or signal.entry_price <= 0.0:
+        return final_risk_budget
+
+    stop_distance_pct = signal.risk_per_unit() / signal.entry_price
+    if stop_distance_pct <= 0.0:
+        return final_risk_budget
+
+    notional_cap_pct = min(
+        max(float(risk_config.max_total_risk_pct), 0.0),
+        max(float(risk_config.max_symbol_risk_pct), 0.0),
+        max(float(risk_config.max_net_exposure_pct), 0.0),
+        max(float(risk_config.max_notional_pct), 0.0),
+    )
+    if notional_cap_pct <= 0.0:
+        return 0.0
+    probe_budget = notional_cap_pct * stop_distance_pct * 0.999
+    return round(max(min(final_risk_budget, probe_budget), 0.0), 8)
 
 
 def _with_state_file_override(config: Any) -> Any:
@@ -931,11 +1020,18 @@ def main() -> None:
             allocation["execution"] = {"status": "SKIPPED", "reason": "short_execution_not_enabled"}
             continue
         try:
-            signal = _candidate_signal(allocation, market, regime=regime)
+            signal = _candidate_signal(allocation, market, regime=regime, risk_config=config.risk)
         except ValueError as exc:
             allocation["execution"] = {"status": "BLOCKED", "reason": str(exc)}
             continue
-        execution_risk_budget = float(allocation.get("final_risk_budget", 0.0) or 0.0)
+        allocation["entry_price"] = signal.entry_price
+        allocation["stop_loss"] = signal.stop_loss
+        if signal.take_profit is not None:
+            allocation["take_profit"] = signal.take_profit
+        execution_risk_budget = _execution_risk_budget(account, signal, allocation, config.risk)
+        if execution_risk_budget < float(allocation.get("final_risk_budget", 0.0) or 0.0):
+            allocation["execution_risk_budget"] = execution_risk_budget
+            allocation["execution_probe_downsized"] = True
         signal_validation, _signal_context = validate_signal(
             signal,
             account,
@@ -1008,6 +1104,7 @@ def main() -> None:
                 "engine": allocation.get("engine"),
                 "setup_type": allocation.get("setup_type"),
                 "final_risk_budget": allocation.get("final_risk_budget", 0.0),
+                "execution_risk_budget": allocation.get("execution_risk_budget", allocation.get("final_risk_budget", 0.0)),
                 "invalidation_source": signal.meta.get("invalidation_source"),
                 "invalidation_reason": signal.meta.get("invalidation_reason"),
                 "stop_family": signal.meta.get("stop_family"),

@@ -10,7 +10,14 @@ from trading_system.app import config as config_module
 from trading_system.app import main as main_module
 from trading_system.app.signals.entry_profile import ACTIVE_PAPER_ENTRY_PROFILE, CONSERVATIVE_ENTRY_PROFILE
 from trading_system.app.storage.state_store import RuntimeStateV2, StateStore, build_state_store
-from trading_system.app.types import RegimeSnapshot, EngineCandidate, AllocationDecision, LifecycleState
+from trading_system.app.types import (
+    AccountSnapshot,
+    RegimeSnapshot,
+    EngineCandidate,
+    AllocationDecision,
+    LifecycleState,
+    PositionSnapshot,
+)
 from trading_system.app.risk.validator import ValidationResult
 from trading_system.app.signals.short_engine import generate_short_candidates as generate_real_short_candidates
 from trading_system.app.universe.builder import UniverseBuildResult
@@ -3208,6 +3215,150 @@ def test_main_v2_execution_sizing_uses_allocation_budget_for_net_exposure_guardr
     assert execution.get("status") == "SENT"
     assert "净敞口" not in execution.get("reason", "")
     assert state.get("active_orders") == {}
+
+
+def _active_paper_first_rotation_probe_allocation(**overrides):
+    row = {
+        "engine": "rotation",
+        "setup_type": "RS_PULLBACK",
+        "symbol": "BNBUSDT",
+        "side": "LONG",
+        "score": 0.78,
+        "status": "DOWNSIZED",
+        "final_risk_budget": 0.0045,
+        "rank": 1,
+        "meta": {
+            "active_paper_first_rotation_probe": True,
+            "alt_seed_exception_applied": True,
+        },
+    }
+    row.update(overrides)
+    return row
+
+
+def _near_stop_rotation_market():
+    return {
+        "symbols": {
+            "BNBUSDT": {
+                "sector": "exchange",
+                "liquidity_tier": "high",
+                "daily": {"close": 638.0, "ema_20": 626.0, "ema_50": 629.0, "atr_pct": 0.026},
+                "4h": {"close": 638.0, "ema_20": 636.0, "ema_50": 633.0},
+                "1h": {"close": 638.0, "ema_20": 637.4, "ema_50": 637.0},
+            }
+        }
+    }
+
+
+def test_main_v2_active_paper_first_rotation_probe_uses_valid_stop_and_tiny_execution_budget():
+    account = AccountSnapshot(equity=1000.0, available_balance=1000.0, futures_wallet_balance=1000.0)
+    allocation = _active_paper_first_rotation_probe_allocation()
+    signal = main_module._candidate_signal(allocation, _near_stop_rotation_market(), regime={"label": "MIXED"})
+
+    stop_distance_pct = signal.risk_per_unit() / signal.entry_price
+    execution_budget = main_module._execution_risk_budget(account, signal, allocation, DEFAULT_CONFIG.risk)
+    validation, context = main_module.validate_signal(signal, account, DEFAULT_CONFIG.risk, risk_pct_override=execution_budget)
+    sized_allocation = dict(allocation, execution_risk_budget=execution_budget)
+    qty = main_module._order_qty(account, signal, sized_allocation)
+
+    assert stop_distance_pct >= DEFAULT_CONFIG.risk.min_stop_distance_pct
+    assert execution_budget < float(allocation["final_risk_budget"])
+    assert validation.allowed is True
+    assert context["sizing"].planned_notional_usdt / account.equity <= DEFAULT_CONFIG.risk.max_symbol_risk_pct
+    assert qty * signal.entry_price / account.equity <= DEFAULT_CONFIG.risk.max_symbol_risk_pct
+
+
+def test_main_v2_conservative_rotation_keeps_near_stop_blocked():
+    account = AccountSnapshot(equity=1000.0, available_balance=1000.0, futures_wallet_balance=1000.0)
+    allocation = _active_paper_first_rotation_probe_allocation(meta={})
+    signal = main_module._candidate_signal(allocation, _near_stop_rotation_market(), regime={"label": "MIXED"})
+
+    validation, _context = main_module.validate_signal(
+        signal,
+        account,
+        DEFAULT_CONFIG.risk,
+        risk_pct_override=float(allocation["final_risk_budget"]),
+    )
+
+    assert signal.stop_loss == pytest.approx(637.0)
+    assert validation.allowed is False
+    assert any("止损太近" in reason for reason in validation.reasons)
+
+
+def test_main_v2_active_paper_probe_cap_does_not_apply_to_trend_or_short_entries():
+    account = AccountSnapshot(equity=1000.0, available_balance=1000.0, futures_wallet_balance=1000.0)
+    market = _near_stop_rotation_market()
+
+    trend_signal = main_module._candidate_signal(
+        _active_paper_first_rotation_probe_allocation(engine="trend", setup_type="BREAKOUT_CONTINUATION"),
+        market,
+        regime={"label": "MIXED"},
+    )
+    short_signal = main_module._candidate_signal(
+        _active_paper_first_rotation_probe_allocation(engine="short", side="SHORT", setup_type="BREAKDOWN_SHORT"),
+        {
+            "symbols": {
+                "BNBUSDT": {
+                    "daily": {"close": 638.0},
+                    "4h": {"close": 638.0, "ema_20": 640.0},
+                    "1h": {"ema_50": 641.0},
+                }
+            }
+        },
+        regime={"label": "MIXED"},
+    )
+
+    trend_allocation = {
+        "engine": "trend",
+        "side": "LONG",
+        "final_risk_budget": 0.0045,
+        "meta": {"active_paper_first_rotation_probe": True},
+    }
+    short_allocation = {
+        "engine": "short",
+        "side": "SHORT",
+        "final_risk_budget": 0.0045,
+        "meta": {"active_paper_first_rotation_probe": True},
+    }
+    assert main_module._execution_risk_budget(
+        account,
+        trend_signal,
+        trend_allocation,
+        DEFAULT_CONFIG.risk,
+    ) == pytest.approx(0.0045)
+    assert main_module._execution_risk_budget(
+        account,
+        short_signal,
+        short_allocation,
+        DEFAULT_CONFIG.risk,
+    ) == pytest.approx(0.0045)
+
+
+def test_main_v2_active_paper_probe_still_enforces_existing_total_and_symbol_caps():
+    account = AccountSnapshot(
+        equity=1000.0,
+        available_balance=1000.0,
+        futures_wallet_balance=1000.0,
+        open_positions=[
+            PositionSnapshot(
+                symbol="BNBUSDT",
+                side="LONG",
+                qty=0.02,
+                entry_price=638.0,
+                mark_price=638.0,
+                notional=12.8,
+            )
+        ],
+    )
+    allocation = _active_paper_first_rotation_probe_allocation()
+    signal = main_module._candidate_signal(allocation, _near_stop_rotation_market(), regime={"label": "MIXED"})
+    execution_budget = main_module._execution_risk_budget(account, signal, allocation, DEFAULT_CONFIG.risk)
+
+    validation, _context = main_module.validate_signal(signal, account, DEFAULT_CONFIG.risk, risk_pct_override=execution_budget)
+
+    assert execution_budget == pytest.approx(float(allocation["final_risk_budget"]))
+    assert validation.allowed is False
+    assert any("单标的风险" in reason or "总风险暴露" in reason for reason in validation.reasons)
 
 
 def test_main_v2_paper_execution_persists_stop_taxonomy_into_tracked_state(monkeypatch, tmp_path, load_fixture):
