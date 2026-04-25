@@ -619,12 +619,219 @@ def test_backtest_cli_writes_engine_filter_ablation_bundle(monkeypatch: pytest.M
 
 
 
+def test_backtest_cli_filters_engine_filter_ablation_rows_to_sample_windows(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(cli, "load_historical_dataset", lambda _dataset_root: _sample_dataset_rows(), raising=False)
+    captured: dict[str, object] = {}
+
+    def _fake_engine_filter(rows, *, evaluation_window):
+        captured["run_ids"] = [row.run_id for row in rows]
+        captured["evaluation_window"] = evaluation_window
+        return {
+            "metadata": {"snapshot_count": len(rows), "variant_count": 1, "evaluation_window": evaluation_window},
+            "variants": {
+                "trend_only": {
+                    "funnel": {"accepted_allocations": len(rows)},
+                    "performance": {"bucket_level_pnl": 0.0, "trade_count": len(rows)},
+                }
+            },
+        }
+
+    monkeypatch.setattr(cli, "run_engine_filter_ablation_experiment", _fake_engine_filter, raising=False)
+
+    config_path = _write_experiment_fixture_config(tmp_path, "engine_filter_ablation_config.json")
+    raw = json.loads(config_path.read_text(encoding="utf-8"))
+    raw["sample_windows"] = [
+        {
+            "name": "train_only",
+            "start": "2026-03-10T00:00:00Z",
+            "end": "2026-03-10T00:00:00Z",
+            "split": "in_sample",
+        }
+    ]
+    config_path.write_text(json.dumps(raw), encoding="utf-8")
+
+    exit_code = cli.main(
+        [
+            "run",
+            "--config",
+            str(config_path),
+            "--output-dir",
+            str(tmp_path / "out"),
+        ]
+    )
+
+    bundle_dir = tmp_path / "out" / "engine_filter_ablation__current_policy__no_engine_filter"
+    scorecard = json.loads((bundle_dir / "scorecard.json").read_text(encoding="utf-8"))
+    summary = json.loads((bundle_dir / "summary.json").read_text(encoding="utf-8"))
+
+    assert exit_code == 0
+    assert captured["run_ids"] == ["row-001"]
+    assert captured["evaluation_window"] == "1d"
+    assert summary["metadata"]["snapshot_count"] == 1
+    assert summary["metadata"]["sample_period"] == {
+        "start": "2026-03-10T00:00:00+00:00",
+        "end": "2026-03-10T00:00:00+00:00",
+    }
+    assert summary["metadata"]["window_counts"] == {"train_only": 1}
+    assert scorecard["key_metrics"]["snapshot_count"] == 1
+
+
+
+def test_backtest_cli_writes_long_gate_telemetry_bundle(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(cli, "load_historical_dataset", lambda _dataset_root: _sample_dataset_rows(), raising=False)
+    monkeypatch.setattr(
+        cli,
+        "run_long_gate_telemetry_experiment",
+        lambda rows, *, evaluation_window: {
+            "metadata": {"snapshot_count": 2, "engine_count": 2, "evaluation_window": evaluation_window},
+            "engines": {
+                "trend_long": {
+                    "funnel": {"raw_candidates": 3, "accepted_allocations": 1},
+                    "filter_counts": {"trend_filtered": 2, "selected": 1},
+                    "performance": {"bucket_level_pnl": 0.01, "trade_count": 1},
+                },
+                "rotation_long": {
+                    "funnel": {"raw_candidates": 0, "accepted_allocations": 0},
+                    "filter_counts": {"overheat_filtered": 4, "selected": 0},
+                    "performance": {"bucket_level_pnl": 0.0, "trade_count": 0},
+                },
+            },
+            "symbol_breakdown": {
+                "trend_long": {
+                    "BTCUSDT": {
+                        "snapshot_count": 1,
+                        "funnel": {"raw_candidates": 1, "validated_candidates": 1, "allocation_decisions": 1, "accepted_allocations": 1},
+                        "filter_counts": {"selected": 1},
+                    }
+                },
+                "rotation_long": {},
+            },
+            "regime_breakdown": {
+                "RISK_ON_TREND": {
+                    "snapshot_count": 2,
+                    "engines": {
+                        "trend_long": {
+                            "funnel": {"raw_candidates": 1, "validated_candidates": 1, "allocation_decisions": 1, "accepted_allocations": 1},
+                            "filter_counts": {"selected": 1},
+                            "performance": {"bucket_level_pnl": 0.01, "trade_count": 1},
+                        },
+                        "rotation_long": {
+                            "funnel": {"raw_candidates": 0, "validated_candidates": 0, "allocation_decisions": 0, "accepted_allocations": 0},
+                            "filter_counts": {"trend_filtered": 1, "selected": 0},
+                            "performance": {"bucket_level_pnl": 0.0, "trade_count": 0},
+                        },
+                    },
+                }
+            },
+            "snapshot_rows": [
+                {
+                    "timestamp": "2026-03-10T00:00:00+00:00",
+                    "run_id": "row-001",
+                    "regime_label": "RISK_ON_TREND",
+                    "total_long_raw_candidates": 1,
+                    "total_long_accepted_allocations": 1,
+                    "engines": {},
+                }
+            ],
+        },
+        raising=False,
+    )
+
+    config_path = _write_experiment_fixture_config(tmp_path, "long_gate_telemetry_config.json")
+    raw = json.loads(config_path.read_text(encoding="utf-8"))
+    raw["sample_windows"] = [
+        {
+            "name": "train",
+            "start": "2026-03-10T00:00:00Z",
+            "end": "2026-03-12T00:00:00Z",
+            "split": "in_sample",
+        }
+    ]
+    config_path.write_text(json.dumps(raw), encoding="utf-8")
+
+    exit_code = cli.main(
+        [
+            "run",
+            "--config",
+            str(config_path),
+            "--output-dir",
+            str(tmp_path / "out"),
+        ]
+    )
+
+    bundle_dir = tmp_path / "out" / "long_gate_telemetry__current_policy__long_gate_diagnostic"
+    assert exit_code == 0
+    assert (bundle_dir / "manifest.json").exists()
+    assert (bundle_dir / "summary.json").exists()
+    assert (bundle_dir / "snapshot_rows.json").exists()
+    assert (bundle_dir / "symbol_breakdown.json").exists()
+    assert (bundle_dir / "regime_breakdown.json").exists()
+    assert (bundle_dir / "scorecard.json").exists()
+
+    manifest = json.loads((bundle_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["artifacts"] == [
+        "manifest.json",
+        "summary.json",
+        "snapshot_rows.json",
+        "symbol_breakdown.json",
+        "regime_breakdown.json",
+        "scorecard.json",
+    ]
+    scorecard = json.loads((bundle_dir / "scorecard.json").read_text(encoding="utf-8"))
+    assert scorecard["metadata"]["evaluation_window"] == "3d"
+    assert scorecard["key_metrics"]["snapshot_count"] == 2
+    assert scorecard["decision_summary"]["decision"] == "keep_researching"
+    assert scorecard["key_metrics"]["dominant_blocker_gate"] in {"trend_filtered", "overheat_filtered"}
+    snapshot_rows = json.loads((bundle_dir / "snapshot_rows.json").read_text(encoding="utf-8"))
+    assert snapshot_rows["rows"][0]["run_id"] == "row-001"
+    symbol_breakdown = json.loads((bundle_dir / "symbol_breakdown.json").read_text(encoding="utf-8"))
+    assert symbol_breakdown["engines"]["trend_long"]["BTCUSDT"]["funnel"]["accepted_allocations"] == 1
+    regime_breakdown = json.loads((bundle_dir / "regime_breakdown.json").read_text(encoding="utf-8"))
+    assert regime_breakdown["regimes"]["RISK_ON_TREND"]["engines"]["trend_long"]["funnel"]["accepted_allocations"] == 1
+
+
+
+def test_render_long_gate_telemetry_prefers_specific_eligibility_blocker_in_scorecard() -> None:
+    report = cli.render_long_gate_telemetry_report(
+        experiment_name="long_gate_telemetry",
+        metadata={"snapshot_count": 1, "evaluation_window": "3d"},
+        experiment={
+            "engines": {
+                "trend_long": {
+                    "funnel": {"raw_candidates": 0, "accepted_allocations": 0},
+                    "filter_counts": {
+                        "eligibility_filtered": 6,
+                        "eligibility_liquidity_tier_filtered": 2,
+                        "eligibility_pretrend_filtered": 1,
+                        "eligibility_daily_return_filtered": 3,
+                        "eligibility_h4_return_filtered": 1,
+                        "selected": 0,
+                    },
+                    "performance": {"bucket_level_pnl": 0.0, "trade_count": 0},
+                },
+                "rotation_long": {
+                    "funnel": {"raw_candidates": 0, "accepted_allocations": 0},
+                    "filter_counts": {"trend_filtered": 2, "selected": 0},
+                    "performance": {"bucket_level_pnl": 0.0, "trade_count": 0},
+                },
+            },
+            "snapshot_rows": [],
+        },
+    )
+
+    assert report["scorecard"]["key_metrics"]["dominant_blocker_engine"] == "trend_long"
+    assert report["scorecard"]["key_metrics"]["dominant_blocker_gate"] == "eligibility_daily_return_filtered"
+
+
+
 def test_backtest_cli_writes_walk_forward_validation_bundle(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr(cli, "load_historical_dataset", lambda _dataset_root: _sample_dataset_rows(), raising=False)
     monkeypatch.setattr(
         cli,
         "run_walk_forward_validation_experiment",
-        lambda rows, *, evaluation_window, in_sample_size, out_of_sample_size, step_size: {
+        lambda rows, *, evaluation_window, in_sample_size, out_of_sample_size, step_size, config=None: {
             "metadata": {
                 "snapshot_count": 2,
                 "window_count": 1,
@@ -838,3 +1045,34 @@ def test_full_market_baseline_runbook_documents_required_inputs_outputs_and_limi
     assert "parameter search" in runbook
     assert "walk-forward" in runbook
     assert "order-book simulation" in runbook
+
+
+
+def test_backtest_docs_cover_run_compare_gate_and_roadmap() -> None:
+    runbook = Path("trading_system/docs/BACKTEST_RUNBOOK.md").read_text(encoding="utf-8")
+    promotion_gate = Path("trading_system/docs/BACKTEST_PROMOTION_GATE.md").read_text(encoding="utf-8")
+    roadmap = Path("trading_system/docs/BACKTEST_ROADMAP.md").read_text(encoding="utf-8")
+
+    assert "python -m trading_system.app.backtest.cli run" in runbook
+    assert "python -m trading_system.app.backtest.cli compare" in runbook
+    assert "promotion_gate.json" in runbook
+    assert "decision_summary.json" in runbook
+    assert "scorecard.json" in runbook
+    assert "什么时候允许进入“改交易程序”阶段" in runbook or "什么时候允许改交易程序" in runbook
+    assert "必须继续研究，不准改源码" in runbook or "继续研究，不进入主线" in runbook
+    assert "rotation_suppression" in runbook
+    assert "allocator_friction" in runbook
+    assert "engine_filter_ablation" in runbook
+    assert "walk_forward_validation" in runbook
+
+    assert '"decision": "hold"' in promotion_gate
+    assert '"has_runtime_observability_plan": false' in promotion_gate
+    assert '"has_rollback_plan": false' in promotion_gate
+    assert '"why": ["missing out-of-sample evidence"]' in promotion_gate
+
+    assert "已实现 experiment" in roadmap
+    assert "已接入 CLI" in roadmap
+    assert "已接入 gate" in roadmap
+    assert "rotation suppression" in roadmap
+    assert "allocator" in roadmap
+    assert "walk-forward" in roadmap

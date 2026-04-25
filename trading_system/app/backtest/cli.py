@@ -12,15 +12,18 @@ from .engine import replay_full_market_baseline
 from .experiments import (
     run_allocator_friction_experiment,
     run_engine_filter_ablation_experiment,
+    run_long_gate_telemetry_experiment,
     run_public_strategy_factor_experiment,
     run_regime_predictive_power_experiment,
     run_rotation_suppression_experiment,
     run_walk_forward_validation_experiment,
 )
+from .promotion import compare_backtest_bundles
 from .reporting import (
     render_allocator_friction_report,
     render_engine_filter_ablation_report,
     render_full_market_baseline_report,
+    render_long_gate_telemetry_report,
     render_public_strategy_factor_report,
     render_regime_scorecard,
     render_rotation_suppression_report,
@@ -53,6 +56,18 @@ def _window_counts(config: BacktestConfig, rows: list[DatasetSnapshotRow]) -> di
     }
 
 
+def _rows_in_sample_windows(config: BacktestConfig, rows: list[DatasetSnapshotRow]) -> list[DatasetSnapshotRow]:
+    if not config.sample_windows:
+        return rows
+    split = split_rows_by_windows(rows, config.sample_windows)
+    selected: dict[tuple[str, str], DatasetSnapshotRow] = {}
+    for window_rows in split.values():
+        for row in window_rows:
+            key = (row.timestamp.isoformat(), row.run_id)
+            selected[key] = row
+    return sorted(selected.values(), key=lambda row: (row.timestamp, row.run_id))
+
+
 def _base_metadata(config: BacktestConfig, rows: list[DatasetSnapshotRow]) -> dict[str, Any]:
     metadata: dict[str, Any] = {
         "experiment_kind": config.experiment_kind,
@@ -65,6 +80,13 @@ def _base_metadata(config: BacktestConfig, rows: list[DatasetSnapshotRow]) -> di
     dataset_root_metadata = load_dataset_root_metadata(config.dataset_root)
     if dataset_root_metadata:
         metadata["imported_dataset"] = dataset_root_metadata
+    if config.promotion_metadata is not None:
+        metadata["promotion_metadata"] = {
+            "runtime_fields": list(config.promotion_metadata.runtime_fields),
+            "rollback_target": config.promotion_metadata.rollback_target,
+            "rollback_trigger": config.promotion_metadata.rollback_trigger,
+            "observation_window": config.promotion_metadata.observation_window,
+        }
     return metadata
 
 
@@ -212,6 +234,30 @@ def _public_strategy_factors_outputs(config: BacktestConfig, rows: list[DatasetS
     return _manifest(config, rows, artifacts, metadata), artifacts
 
 
+def _long_gate_telemetry_outputs(config: BacktestConfig, rows: list[DatasetSnapshotRow]) -> HandlerResult:
+    params = _require_experiment_params(config)
+    evaluation_window = params.evaluation_window or "3d"
+    experiment = run_long_gate_telemetry_experiment(rows, evaluation_window=evaluation_window)
+    metadata = {
+        **_base_metadata(config, rows),
+        "snapshot_count": len(rows),
+        "evaluation_window": evaluation_window,
+    }
+    report = render_long_gate_telemetry_report(
+        experiment_name=config.experiment_kind,
+        experiment=experiment,
+        metadata=metadata,
+    )
+    artifacts = {
+        "summary.json": report["summary"],
+        "snapshot_rows.json": report["snapshot_rows"],
+        "symbol_breakdown.json": report["symbol_breakdown"],
+        "regime_breakdown.json": report["regime_breakdown"],
+        "scorecard.json": report["scorecard"],
+    }
+    return _manifest(config, rows, artifacts, metadata), artifacts
+
+
 def _walk_forward_validation_outputs(config: BacktestConfig, rows: list[DatasetSnapshotRow]) -> HandlerResult:
     params = _require_experiment_params(config)
     evaluation_window = params.evaluation_window or "3d"
@@ -223,6 +269,7 @@ def _walk_forward_validation_outputs(config: BacktestConfig, rows: list[DatasetS
         in_sample_size=params.walk_forward.in_sample_size,
         out_of_sample_size=params.walk_forward.out_of_sample_size,
         step_size=params.walk_forward.step_size,
+        config=config,
     )
     metadata = {
         **_base_metadata(config, rows),
@@ -253,6 +300,7 @@ _EXPERIMENT_HANDLERS: dict[str, Handler] = {
     "allocator_friction": _allocator_friction_outputs,
     "engine_filter_ablation": _engine_filter_ablation_outputs,
     "public_strategy_factors": _public_strategy_factors_outputs,
+    "long_gate_telemetry": _long_gate_telemetry_outputs,
     "walk_forward_validation": _walk_forward_validation_outputs,
 }
 
@@ -272,7 +320,11 @@ def _run_command(args: argparse.Namespace) -> int:
         supported = ", ".join(sorted(_EXPERIMENT_HANDLERS))
         raise ValueError(f"unsupported experiment_kind: {config.experiment_kind}; supported: {supported}")
 
-    manifest, artifacts = handler(config, rows)
+    handler_rows = rows
+    if config.experiment_kind != "full_market_baseline":
+        handler_rows = _rows_in_sample_windows(config, rows)
+
+    manifest, artifacts = handler(config, handler_rows)
     bundle_dir = Path(args.output_dir) / _bundle_name(config)
     bundle_dir.mkdir(parents=True, exist_ok=True)
     _write_json(bundle_dir / "manifest.json", manifest)
@@ -353,6 +405,19 @@ def _write_public_strategy_factors_config_command(args: argparse.Namespace) -> i
     return 0
 
 
+def _compare_command(args: argparse.Namespace) -> int:
+    output_dir = Path(args.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    comparison = compare_backtest_bundles(
+        baseline_bundle=Path(args.baseline_bundle),
+        variant_bundle=Path(args.variant_bundle),
+    )
+    _write_json(output_dir / "promotion_gate.json", comparison["promotion_gate"])
+    _write_json(output_dir / "decision_summary.json", comparison["decision_summary"])
+    print(output_dir)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run deterministic backtest research experiments.")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -383,6 +448,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Minimum valid factor/forward-return pairs required before a factor can become promising_research.",
     )
     public_strategy_config_parser.set_defaults(handler=_write_public_strategy_factors_config_command)
+
+    compare_parser = subparsers.add_parser("compare", help="Compare baseline and variant bundles and write promotion artifacts.")
+    compare_parser.add_argument("--baseline-bundle", required=True, help="Path to the baseline bundle directory.")
+    compare_parser.add_argument("--variant-bundle", required=True, help="Path to the variant bundle directory.")
+    compare_parser.add_argument("--output-dir", required=True, help="Directory where promotion artifacts should be written.")
+    compare_parser.set_defaults(handler=_compare_command)
     return parser
 
 

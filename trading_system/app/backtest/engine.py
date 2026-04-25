@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, is_dataclass
 from typing import Any, Mapping
 
-from trading_system.app.config import DEFAULT_CONFIG, AppConfig
+from trading_system.app.config import DEFAULT_CONFIG, AppConfig, normalize_engine_names
 from trading_system.app.market_regime.classifier import classify_regime
 from trading_system.app.portfolio.allocator import allocate_candidates
 from trading_system.app.risk.validator import validate_candidate_for_allocation
@@ -43,11 +43,11 @@ def _rank_key(row: Mapping[str, Any]) -> tuple[float, str, str]:
     return (-float(row.get("score", 0.0) or 0.0), str(row.get("symbol", "")), str(row.get("engine", "")))
 
 
-def _regime_dict(row: DatasetSnapshotRow) -> dict[str, Any]:
+def _regime_dict(row: DatasetSnapshotRow, *, disabled_engines: frozenset[str] | None = None) -> dict[str, Any]:
     override = row.meta.get("regime_override")
     if isinstance(override, Mapping):
         return dict(override)
-    return asdict(classify_regime(row.market, row.derivatives))
+    return asdict(classify_regime(row.market, row.derivatives, disabled_engines=disabled_engines))
 
 
 def _universes_payload(universes: UniverseBuildResult) -> dict[str, Any]:
@@ -122,7 +122,8 @@ def replay_snapshot(
 ) -> dict[str, Any]:
     resolved_config = app_config or DEFAULT_CONFIG
     resolved_costs = costs or BacktestCosts(fee_bps=0.0, slippage_bps=0.0, funding_bps_per_day=0.0)
-    regime = _regime_dict(row)
+    disabled_engines = frozenset(normalize_engine_names(getattr(resolved_config.execution, "disabled_engines", ())))
+    regime = _regime_dict(row, disabled_engines=disabled_engines)
     universes = build_universes(row.market, derivatives=row.derivatives)
 
     raw_candidates = {
@@ -245,21 +246,35 @@ def _funding_rate(row: DatasetSnapshotRow, symbol: str) -> float:
     return 0.0
 
 
-def _raw_full_market_candidates(row: DatasetSnapshotRow) -> list[dict[str, Any]]:
-    regime = _regime_dict(row)
+def _raw_full_market_candidates(
+    row: DatasetSnapshotRow,
+    *,
+    disabled_engines: frozenset[str] | None = None,
+    allowed_short_setup_types: frozenset[str] | None = None,
+) -> list[dict[str, Any]]:
+    regime = _regime_dict(row, disabled_engines=disabled_engines)
     universes = build_universes(row.market, derivatives=row.derivatives)
-    raw_candidates = [
-        *[_candidate_row(candidate) for candidate in generate_trend_candidates(row.market, derivatives=row.derivatives)],
-        *[
-            _candidate_row(candidate)
-            for candidate in generate_rotation_candidates(
-                row.market,
-                rotation_universe=universes.rotation_universe,
-                derivatives=row.derivatives,
-                regime=regime,
-            )
-        ],
-        *[
+    disabled = disabled_engines or frozenset()
+    allowed_short_setups = allowed_short_setup_types or frozenset()
+    raw_candidates: list[dict[str, Any]] = []
+    if "trend" not in disabled:
+        raw_candidates.extend(
+            [_candidate_row(candidate) for candidate in generate_trend_candidates(row.market, derivatives=row.derivatives)]
+        )
+    if "rotation" not in disabled:
+        raw_candidates.extend(
+            [
+                _candidate_row(candidate)
+                for candidate in generate_rotation_candidates(
+                    row.market,
+                    rotation_universe=universes.rotation_universe,
+                    derivatives=row.derivatives,
+                    regime=regime,
+                )
+            ]
+        )
+    if "short" not in disabled:
+        short_candidates = [
             _candidate_row(candidate)
             for candidate in generate_short_candidates(
                 row.market,
@@ -267,8 +282,14 @@ def _raw_full_market_candidates(row: DatasetSnapshotRow) -> list[dict[str, Any]]
                 derivatives=row.derivatives,
                 regime=regime,
             )
-        ],
-    ]
+        ]
+        if allowed_short_setups:
+            short_candidates = [
+                candidate
+                for candidate in short_candidates
+                if str(candidate.get("setup_type", "")).strip().upper() in allowed_short_setups
+            ]
+        raw_candidates.extend(short_candidates)
     return sorted(raw_candidates, key=_rank_key)
 
 
@@ -359,8 +380,19 @@ def replay_full_market_baseline(config: BacktestConfig) -> BaselineReplayResult:
         raise ValueError("full-market baseline replay requires capital and universe config")
 
     rows = _windowed_rows(config)
+    return _replay_full_market_baseline_rows(config, rows)
+
+
+def _replay_full_market_baseline_rows(
+    config: BacktestConfig,
+    rows: list[DatasetSnapshotRow] | tuple[DatasetSnapshotRow, ...],
+) -> BaselineReplayResult:
     if len(rows) < 2:
         return _empty_replay_result(config)
+    disabled_engines = frozenset(config.experiment_params.disabled_engines) if config.experiment_params is not None else frozenset()
+    allowed_short_setup_types = (
+        frozenset(config.experiment_params.allowed_short_setup_types) if config.experiment_params is not None else frozenset()
+    )
 
     equity = float(config.capital.initial_equity)
     open_trades: list[_OpenTrade] = []
@@ -396,7 +428,11 @@ def replay_full_market_baseline(config: BacktestConfig) -> BaselineReplayResult:
         included_rows, _excluded_rows = filter_universe(row.instrument_rows, universe_config=config.universe)
         included_by_symbol = {instrument.symbol: instrument for instrument in included_rows}
         open_positions: list[PortfolioPosition] = []
-        for candidate_row in _raw_full_market_candidates(row):
+        for candidate_row in _raw_full_market_candidates(
+            row,
+            disabled_engines=disabled_engines,
+            allowed_short_setup_types=allowed_short_setup_types,
+        ):
             symbol = str(candidate_row.get("symbol", ""))
             instrument = included_by_symbol.get(symbol)
             if instrument is None:

@@ -16,6 +16,7 @@ from trading_system.app.backtest.types import (
     ExperimentMetadata,
     ForwardReturnWindow,
     InstrumentSnapshotRow,
+    PromotionMetadata,
 )
 
 
@@ -232,6 +233,130 @@ def test_load_backtest_config_parses_full_market_baseline_contract(tmp_path: Pat
     assert config.experiment_params is None
 
 
+def test_load_backtest_config_parses_full_market_baseline_disabled_engines(tmp_path: Path) -> None:
+    dataset_root = tmp_path / "sample_dataset"
+    config_path = tmp_path / "full_market_disabled_engines_config.json"
+    config_path.write_text(
+        """
+        {
+          "dataset_root": "sample_dataset",
+          "experiment_kind": "full_market_baseline",
+          "sample_windows": [
+            {
+              "name": "train",
+              "start": "2026-01-01T00:00:00Z",
+              "end": "2026-02-01T00:00:00Z"
+            }
+          ],
+          "forward_return_windows": [],
+          "universe": {
+            "listing_age_days": 30,
+            "min_quote_volume_usdt_24h": {
+              "spot": 1000000.0,
+              "futures": 1000000.0
+            },
+            "require_complete_funding": true
+          },
+          "capital": {
+            "model": "shared_pool",
+            "initial_equity": 100000.0,
+            "risk_per_trade": 0.01,
+            "max_open_risk": 0.03
+          },
+          "costs": {
+            "fee_bps": {
+              "spot": 10.0,
+              "futures": 5.0
+            },
+            "slippage_tiers": {
+              "top": 2.0,
+              "high": 8.0,
+              "medium": 15.0,
+              "low": 30.0
+            },
+            "funding_mode": "historical_series"
+          },
+          "baseline_name": "market-wide",
+          "variant_name": "baseline-no-short",
+          "experiment_params": {
+            "disabled_engines": ["short"]
+          }
+        }
+        """.strip(),
+        encoding="utf-8",
+    )
+
+    config = load_backtest_config(config_path)
+
+    assert config.dataset_root == dataset_root
+    assert config.experiment_kind == "full_market_baseline"
+    assert config.experiment_params is not None
+    assert config.experiment_params.disabled_engines == ("short",)
+    assert config.experiment_params.allowed_short_setup_types == ()
+
+
+def test_load_backtest_config_parses_full_market_baseline_allowed_short_setup_types(tmp_path: Path) -> None:
+    dataset_root = tmp_path / "sample_dataset"
+    config_path = tmp_path / "full_market_allowed_short_setup_types_config.json"
+    config_path.write_text(
+        """
+        {
+          "dataset_root": "sample_dataset",
+          "experiment_kind": "full_market_baseline",
+          "sample_windows": [
+            {
+              "name": "train",
+              "start": "2026-01-01T00:00:00Z",
+              "end": "2026-02-01T00:00:00Z"
+            }
+          ],
+          "forward_return_windows": [],
+          "universe": {
+            "listing_age_days": 30,
+            "min_quote_volume_usdt_24h": {
+              "spot": 1000000.0,
+              "futures": 1000000.0
+            },
+            "require_complete_funding": true
+          },
+          "capital": {
+            "model": "shared_pool",
+            "initial_equity": 100000.0,
+            "risk_per_trade": 0.01,
+            "max_open_risk": 0.03
+          },
+          "costs": {
+            "fee_bps": {
+              "spot": 10.0,
+              "futures": 5.0
+            },
+            "slippage_tiers": {
+              "top": 2.0,
+              "high": 8.0,
+              "medium": 15.0,
+              "low": 30.0
+            },
+            "funding_mode": "historical_series"
+          },
+          "baseline_name": "market-wide",
+          "variant_name": "baseline-breakdown-short-only",
+          "experiment_params": {
+            "allowed_short_setup_types": ["BREAKDOWN_SHORT"]
+          }
+        }
+        """.strip(),
+        encoding="utf-8",
+    )
+
+    config = load_backtest_config(config_path)
+
+    assert config.dataset_root == dataset_root
+    assert config.experiment_kind == "full_market_baseline"
+    assert config.experiment_params is not None
+    assert config.experiment_params.disabled_engines == ()
+    assert config.experiment_params.allowed_short_setup_types == ("BREAKDOWN_SHORT",)
+
+
 def test_load_backtest_config_parses_rotation_suppression_experiment_params(fixture_dir: Path) -> None:
     config = load_backtest_config(fixture_dir / "backtest" / "rotation_suppression_config.json")
 
@@ -262,6 +387,18 @@ def test_load_backtest_config_parses_engine_filter_ablation_experiment_params(fi
     assert config.experiment_params.walk_forward is None
 
 
+
+def test_load_backtest_config_parses_long_gate_telemetry_experiment_params(fixture_dir: Path) -> None:
+    config = load_backtest_config(fixture_dir / "backtest" / "long_gate_telemetry_config.json")
+
+    assert config.experiment_kind == "long_gate_telemetry"
+    assert config.experiment_params is not None
+    assert config.experiment_params.evaluation_window == "3d"
+    assert config.experiment_params.soft_score_floor is None
+    assert config.experiment_params.walk_forward is None
+
+
+
 def test_load_backtest_config_parses_walk_forward_validation_experiment_params(fixture_dir: Path) -> None:
     config = load_backtest_config(fixture_dir / "backtest" / "walk_forward_validation_config.json")
 
@@ -290,6 +427,55 @@ def test_load_backtest_config_parses_public_strategy_factor_families(fixture_dir
         "liquidity_volume",
         "funding_basis",
         "onchain_flow",
+    )
+
+
+def test_load_backtest_config_parses_promotion_metadata(tmp_path: Path) -> None:
+    config_path = tmp_path / "promotion_metadata_config.json"
+    config_path.write_text(
+        """
+        {
+          "dataset_root": "sample_dataset",
+          "experiment_kind": "walk_forward_validation",
+          "sample_windows": [
+            {
+              "name": "train",
+              "start": "2026-01-01T00:00:00Z",
+              "end": "2026-02-01T00:00:00Z"
+            }
+          ],
+          "costs": {
+            "fee_bps": 4.0,
+            "slippage_bps": 6.0
+          },
+          "baseline_name": "current_policy",
+          "variant_name": "candidate_policy",
+          "experiment_params": {
+            "evaluation_window": "3d",
+            "walk_forward": {
+              "in_sample_size": 90,
+              "out_of_sample_size": 30,
+              "step_size": 15
+            }
+          },
+          "promotion_metadata": {
+            "runtime_fields": ["regime", "allocator_decision_reason"],
+            "rollback_target": "current_policy",
+            "rollback_trigger": "oos_total_return_below_zero",
+            "observation_window": "14d"
+          }
+        }
+        """.strip(),
+        encoding="utf-8",
+    )
+
+    config = load_backtest_config(config_path)
+
+    assert config.promotion_metadata == PromotionMetadata(
+        runtime_fields=("regime", "allocator_decision_reason"),
+        rollback_target="current_policy",
+        rollback_trigger="oos_total_return_below_zero",
+        observation_window="14d",
     )
 
 

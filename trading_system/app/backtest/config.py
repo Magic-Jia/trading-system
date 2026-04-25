@@ -11,6 +11,7 @@ from .types import (
     CapitalModelConfig,
     ExperimentParams,
     ForwardReturnWindow,
+    PromotionMetadata,
     SampleWindow,
     UniverseFilterConfig,
     WalkForwardConfig,
@@ -102,7 +103,9 @@ def _load_capital(raw: Any) -> CapitalModelConfig:
 def _load_costs(raw: Any, *, experiment_kind: str) -> BacktestCosts:
     if not isinstance(raw, dict):
         raise ValueError("costs must be an object")
-    if experiment_kind == "full_market_baseline":
+    if experiment_kind == "full_market_baseline" or (
+        experiment_kind == "walk_forward_validation" and (isinstance(raw.get("fee_bps"), dict) or "slippage_tiers" in raw or "funding_mode" in raw)
+    ):
         return BacktestCosts(
             fee_bps_by_market=_load_float_map(_require(raw, "fee_bps"), field_name="costs.fee_bps"),
             slippage_bps_by_tier=_load_float_map(_require(raw, "slippage_tiers"), field_name="costs.slippage_tiers"),
@@ -125,12 +128,43 @@ def _load_walk_forward(raw: Any) -> WalkForwardConfig:
     )
 
 
+def _load_disabled_engines(raw: Any) -> tuple[str, ...]:
+    if raw is None:
+        return ()
+    if not isinstance(raw, list):
+        raise ValueError("experiment_params.disabled_engines must be a list")
+    normalized: list[str] = []
+    for item in raw:
+        engine = str(item).strip().lower()
+        if not engine:
+            continue
+        if engine not in normalized:
+            normalized.append(engine)
+    return tuple(normalized)
+
+
+def _load_allowed_short_setup_types(raw: Any) -> tuple[str, ...]:
+    if raw is None:
+        return ()
+    if not isinstance(raw, list):
+        raise ValueError("experiment_params.allowed_short_setup_types must be a list")
+    normalized: list[str] = []
+    for item in raw:
+        setup_type = str(item).strip().upper()
+        if not setup_type:
+            continue
+        if setup_type not in normalized:
+            normalized.append(setup_type)
+    return tuple(normalized)
+
+
 def _load_experiment_params(raw: Any, *, experiment_kind: str) -> ExperimentParams | None:
     if raw is None:
         if experiment_kind in {
             "rotation_suppression",
             "allocator_friction",
             "engine_filter_ablation",
+            "long_gate_telemetry",
             "walk_forward_validation",
             "public_strategy_factors",
         }:
@@ -145,6 +179,8 @@ def _load_experiment_params(raw: Any, *, experiment_kind: str) -> ExperimentPara
         walk_forward=_load_walk_forward(raw["walk_forward"]) if "walk_forward" in raw else None,
         public_strategy_families=tuple(str(item) for item in raw.get("public_strategy_families", ())),
         minimum_effectiveness_sample_count=int(raw.get("minimum_effectiveness_sample_count", 30)),
+        disabled_engines=_load_disabled_engines(raw.get("disabled_engines")),
+        allowed_short_setup_types=_load_allowed_short_setup_types(raw.get("allowed_short_setup_types")),
     )
 
     if experiment_kind == "rotation_suppression":
@@ -152,7 +188,7 @@ def _load_experiment_params(raw: Any, *, experiment_kind: str) -> ExperimentPara
             raise ValueError("experiment_params.evaluation_window is required for rotation_suppression")
         if params.soft_score_floor is None:
             raise ValueError("experiment_params.soft_score_floor is required for rotation_suppression")
-    elif experiment_kind in {"allocator_friction", "engine_filter_ablation"}:
+    elif experiment_kind in {"allocator_friction", "engine_filter_ablation", "long_gate_telemetry"}:
         if params.evaluation_window is None:
             raise ValueError(f"experiment_params.evaluation_window is required for {experiment_kind}")
     elif experiment_kind == "walk_forward_validation":
@@ -169,6 +205,25 @@ def _load_experiment_params(raw: Any, *, experiment_kind: str) -> ExperimentPara
     return params
 
 
+
+def _load_promotion_metadata(raw: Any) -> PromotionMetadata | None:
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise ValueError("promotion_metadata must be an object")
+    runtime_fields_raw = raw.get("runtime_fields", [])
+    if not isinstance(runtime_fields_raw, list):
+        raise ValueError("promotion_metadata.runtime_fields must be a list")
+    runtime_fields = tuple(str(item) for item in runtime_fields_raw)
+    return PromotionMetadata(
+        runtime_fields=runtime_fields,
+        rollback_target=str(raw["rollback_target"]) if raw.get("rollback_target") is not None else None,
+        rollback_trigger=str(raw["rollback_trigger"]) if raw.get("rollback_trigger") is not None else None,
+        observation_window=str(raw["observation_window"]) if raw.get("observation_window") is not None else None,
+    )
+
+
+
 def load_backtest_config(path: str | Path) -> BacktestConfig:
     config_path = Path(path)
     raw = json.loads(config_path.read_text(encoding="utf-8"))
@@ -181,13 +236,14 @@ def load_backtest_config(path: str | Path) -> BacktestConfig:
     return BacktestConfig(
         dataset_root=dataset_root,
         experiment_kind=experiment_kind,
-        sample_windows=sample_windows,
+        sample_windows=_load_sample_windows(list(_require(raw, "sample_windows"))),
         forward_return_windows=_load_forward_windows(raw.get("forward_return_windows")),
         costs=costs,
         baseline_name=str(_require(raw, "baseline_name")),
         variant_name=str(_require(raw, "variant_name")),
-        universe=_load_universe(_require(raw, "universe")) if experiment_kind == "full_market_baseline" else None,
-        capital=_load_capital(_require(raw, "capital")) if experiment_kind == "full_market_baseline" else None,
+        universe=_load_universe(raw["universe"]) if raw.get("universe") is not None else None,
+        capital=_load_capital(raw["capital"]) if raw.get("capital") is not None else None,
         experiment_params=_load_experiment_params(raw.get("experiment_params"), experiment_kind=experiment_kind),
+        promotion_metadata=_load_promotion_metadata(raw.get("promotion_metadata")),
         metadata=dict(raw.get("metadata") or {}),
     )

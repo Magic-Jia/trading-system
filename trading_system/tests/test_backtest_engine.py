@@ -8,10 +8,20 @@ from typing import Any
 
 import pytest
 
+from trading_system.app.backtest import cli as backtest_cli
 from trading_system.app.backtest.config import load_backtest_config
 from trading_system.app.backtest import engine as backtest_engine
 from trading_system.app.backtest.dataset import load_historical_dataset
 from trading_system.app.backtest.engine import replay_snapshot
+from trading_system.app.backtest.types import (
+    BacktestConfig,
+    BacktestCosts,
+    CapitalModelConfig,
+    ExperimentParams,
+    SampleWindow,
+    UniverseFilterConfig,
+    WalkForwardConfig,
+)
 from trading_system.app.types import EngineCandidate, RegimeSnapshot
 from trading_system.app.universe.builder import UniverseBuildResult
 
@@ -401,6 +411,342 @@ def _install_replay_candidates(monkeypatch: Any) -> None:
     monkeypatch.setattr(backtest_engine, "generate_short_candidates", lambda *_args, **_kwargs: [])
 
 
+def _walk_forward_strategy_dataset_root(tmp_path: Path) -> Path:
+    dataset_root = tmp_path / "walk_forward_strategy_dataset"
+    instrument_rows = [
+        {
+            "symbol": "BTCUSDT",
+            "market_type": "spot",
+            "base_asset": "BTC",
+            "listing_timestamp": "2020-01-01T00:00:00Z",
+            "quote_volume_usdt_24h": 50_000_000.0,
+            "liquidity_tier": "top",
+            "quantity_step": 0.001,
+            "price_tick": 0.1,
+            "has_complete_funding": True,
+        },
+        {
+            "symbol": "BTCUSDTPERP",
+            "market_type": "futures",
+            "base_asset": "BTC",
+            "listing_timestamp": "2020-01-01T00:00:00Z",
+            "quote_volume_usdt_24h": 80_000_000.0,
+            "liquidity_tier": "high",
+            "quantity_step": 0.001,
+            "price_tick": 0.1,
+            "has_complete_funding": True,
+        },
+        {
+            "symbol": "ETHUSDTPERP",
+            "market_type": "futures",
+            "base_asset": "ETH",
+            "listing_timestamp": "2020-01-01T00:00:00Z",
+            "quote_volume_usdt_24h": 60_000_000.0,
+            "liquidity_tier": "high",
+            "quantity_step": 0.001,
+            "price_tick": 0.1,
+            "has_complete_funding": True,
+        },
+    ]
+
+    _write_market_bundle(
+        dataset_root,
+        timestamp="2026-03-10T00:00:00Z",
+        run_id="wf-row-001",
+        market_symbols={
+            "BTCUSDT": _sample_symbol(close=100.0),
+            "BTCUSDTPERP": _sample_symbol(close=100.0),
+            "ETHUSDTPERP": _sample_symbol(close=50.0),
+        },
+        derivatives_rows=[
+            {"symbol": "BTCUSDTPERP", "funding_rate": 0.0002},
+            {"symbol": "ETHUSDTPERP", "funding_rate": 0.0001},
+        ],
+        instrument_rows=instrument_rows,
+        candidate_symbols=["BTCUSDT", "BTCUSDTPERP", "ETHUSDTPERP"],
+    )
+    _write_market_bundle(
+        dataset_root,
+        timestamp="2026-03-11T00:00:00Z",
+        run_id="wf-row-002",
+        market_symbols={
+            "BTCUSDT": _sample_symbol(close=110.0),
+            "BTCUSDTPERP": _sample_symbol(close=115.0),
+            "ETHUSDTPERP": _sample_symbol(close=40.0),
+        },
+        derivatives_rows=[
+            {"symbol": "BTCUSDTPERP", "funding_rate": 0.0002},
+            {"symbol": "ETHUSDTPERP", "funding_rate": 0.0001},
+        ],
+        instrument_rows=instrument_rows,
+        candidate_symbols=[],
+    )
+    _write_market_bundle(
+        dataset_root,
+        timestamp="2026-03-12T00:00:00Z",
+        run_id="wf-row-003",
+        market_symbols={
+            "BTCUSDT": _sample_symbol(close=120.0),
+            "BTCUSDTPERP": _sample_symbol(close=120.0),
+            "ETHUSDTPERP": _sample_symbol(close=60.0),
+        },
+        derivatives_rows=[
+            {"symbol": "BTCUSDTPERP", "funding_rate": 0.0002},
+            {"symbol": "ETHUSDTPERP", "funding_rate": 0.0001},
+        ],
+        instrument_rows=instrument_rows,
+        candidate_symbols=["BTCUSDT", "BTCUSDTPERP", "ETHUSDTPERP"],
+    )
+    _write_market_bundle(
+        dataset_root,
+        timestamp="2026-03-13T00:00:00Z",
+        run_id="wf-row-004",
+        market_symbols={
+            "BTCUSDT": _sample_symbol(close=130.0),
+            "BTCUSDTPERP": _sample_symbol(close=140.0),
+            "ETHUSDTPERP": _sample_symbol(close=45.0),
+        },
+        derivatives_rows=[
+            {"symbol": "BTCUSDTPERP", "funding_rate": 0.0002},
+            {"symbol": "ETHUSDTPERP", "funding_rate": 0.0001},
+        ],
+        instrument_rows=instrument_rows,
+        candidate_symbols=[],
+    )
+    return dataset_root
+
+
+def _walk_forward_strategy_config(
+    dataset_root: Path,
+    *,
+    disabled_engines: tuple[str, ...] = (),
+    allowed_short_setup_types: tuple[str, ...] = (),
+) -> BacktestConfig:
+    rows = load_historical_dataset(dataset_root)
+    return BacktestConfig(
+        dataset_root=dataset_root,
+        experiment_kind="walk_forward_validation",
+        sample_windows=(
+            SampleWindow(
+                name="history",
+                start=rows[0].timestamp,
+                end=rows[-1].timestamp,
+            ),
+        ),
+        forward_return_windows=(),
+        costs=BacktestCosts(
+            fee_bps_by_market={"spot": 10.0, "futures": 5.0},
+            slippage_bps_by_tier={"top": 2.0, "high": 8.0},
+            funding_mode="historical_series",
+        ),
+        baseline_name="current_system",
+        variant_name="wf_no_short" if disabled_engines else "wf_current_system",
+        universe=UniverseFilterConfig(
+            listing_age_days=30,
+            min_quote_volume_usdt_24h={"spot": 1_000_000.0, "futures": 1_000_000.0},
+            require_complete_funding=True,
+        ),
+        capital=CapitalModelConfig(
+            model="shared_pool",
+            initial_equity=100_000.0,
+            risk_per_trade=0.02,
+            max_open_risk=0.10,
+        ),
+        experiment_params=ExperimentParams(
+            evaluation_window="3d",
+            walk_forward=WalkForwardConfig(in_sample_size=2, out_of_sample_size=2, step_size=2),
+            disabled_engines=disabled_engines,
+            allowed_short_setup_types=allowed_short_setup_types,
+        ),
+    )
+
+
+def test_load_backtest_config_walk_forward_validation_supports_strategy_replay_fields(tmp_path: Path) -> None:
+    dataset_root = _walk_forward_strategy_dataset_root(tmp_path)
+    config_path = tmp_path / "walk_forward_strategy_config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "dataset_root": str(dataset_root),
+                "experiment_kind": "walk_forward_validation",
+                "sample_windows": [
+                    {
+                        "name": "history",
+                        "start": "2026-03-10T00:00:00Z",
+                        "end": "2026-03-13T00:00:00Z",
+                    }
+                ],
+                "forward_return_windows": [],
+                "costs": {
+                    "fee_bps": {"spot": 10.0, "futures": 5.0},
+                    "slippage_tiers": {"top": 2.0, "high": 8.0},
+                    "funding_mode": "historical_series",
+                },
+                "universe": {
+                    "listing_age_days": 30,
+                    "min_quote_volume_usdt_24h": {"spot": 1000000.0, "futures": 1000000.0},
+                    "require_complete_funding": True
+                },
+                "capital": {
+                    "model": "shared_pool",
+                    "initial_equity": 100000.0,
+                    "risk_per_trade": 0.02,
+                    "max_open_risk": 0.10
+                },
+                "baseline_name": "current_system",
+                "variant_name": "wf_current_system",
+                "experiment_params": {
+                    "evaluation_window": "3d",
+                    "walk_forward": {
+                        "in_sample_size": 2,
+                        "out_of_sample_size": 2,
+                        "step_size": 2
+                    },
+                    "disabled_engines": ["short"]
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    config = load_backtest_config(config_path)
+
+    assert config.universe is not None
+    assert config.capital is not None
+    assert config.costs.fee_bps_by_market == {"spot": 10.0, "futures": 5.0}
+    assert config.costs.slippage_bps_by_tier == {"top": 2.0, "high": 8.0}
+    assert config.costs.funding_mode == "historical_series"
+    assert config.experiment_params is not None
+    assert config.experiment_params.disabled_engines == ("short",)
+
+
+def test_walk_forward_validation_respects_disabled_short_engine(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    dataset_root = _walk_forward_strategy_dataset_root(tmp_path)
+    current_config = _walk_forward_strategy_config(dataset_root)
+    no_short_config = _walk_forward_strategy_config(dataset_root, disabled_engines=("short",))
+    rows = load_historical_dataset(dataset_root)
+
+    monkeypatch.setattr(
+        backtest_engine,
+        "classify_regime",
+        lambda *_args, **_kwargs: RegimeSnapshot(label="MIXED", confidence=0.5, risk_multiplier=1.0),
+    )
+    monkeypatch.setattr(backtest_engine, "build_universes", lambda *_args, **_kwargs: UniverseBuildResult())
+    monkeypatch.setattr(
+        backtest_engine,
+        "generate_trend_candidates",
+        lambda market, **_kwargs: [
+            EngineCandidate(
+                engine="trend",
+                setup_type="BREAKOUT_CONTINUATION",
+                symbol="BTCUSDT",
+                side="LONG",
+                score=0.95,
+                stop_loss=90.0,
+            )
+        ]
+        if "BTCUSDT" in set(market.get("candidate_symbols") or [])
+        else [],
+    )
+    monkeypatch.setattr(backtest_engine, "generate_rotation_candidates", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(
+        backtest_engine,
+        "generate_short_candidates",
+        lambda market, **_kwargs: [
+            EngineCandidate(
+                engine="short",
+                setup_type="BREAKDOWN_SHORT",
+                symbol="BTCUSDTPERP",
+                side="SHORT",
+                score=0.97,
+                stop_loss=110.0,
+            )
+        ]
+        if "BTCUSDTPERP" in set(market.get("candidate_symbols") or [])
+        else [],
+    )
+
+    _current_manifest, current_artifacts = backtest_cli._walk_forward_validation_outputs(current_config, rows)
+    _no_short_manifest, no_short_artifacts = backtest_cli._walk_forward_validation_outputs(no_short_config, rows)
+
+    assert (
+        current_artifacts["scorecard.json"]["key_metrics"]["out_of_sample_total_return"]
+        != no_short_artifacts["scorecard.json"]["key_metrics"]["out_of_sample_total_return"]
+    )
+
+
+def test_walk_forward_validation_respects_allowed_short_setup_types(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    dataset_root = _walk_forward_strategy_dataset_root(tmp_path)
+    current_config = _walk_forward_strategy_config(dataset_root)
+    filtered_config = _walk_forward_strategy_config(
+        dataset_root,
+        allowed_short_setup_types=("FAILED_BOUNCE_SHORT",),
+    )
+    rows = load_historical_dataset(dataset_root)
+
+    monkeypatch.setattr(
+        backtest_engine,
+        "classify_regime",
+        lambda *_args, **_kwargs: RegimeSnapshot(label="MIXED", confidence=0.5, risk_multiplier=1.0),
+    )
+    monkeypatch.setattr(backtest_engine, "build_universes", lambda *_args, **_kwargs: UniverseBuildResult())
+    monkeypatch.setattr(
+        backtest_engine,
+        "generate_trend_candidates",
+        lambda market, **_kwargs: [
+            EngineCandidate(
+                engine="trend",
+                setup_type="BREAKOUT_CONTINUATION",
+                symbol="BTCUSDT",
+                side="LONG",
+                score=0.95,
+                stop_loss=90.0,
+            )
+        ]
+        if "BTCUSDT" in set(market.get("candidate_symbols") or [])
+        else [],
+    )
+    monkeypatch.setattr(backtest_engine, "generate_rotation_candidates", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(
+        backtest_engine,
+        "generate_short_candidates",
+        lambda market, **_kwargs: [
+            EngineCandidate(
+                engine="short",
+                setup_type="BREAKDOWN_SHORT",
+                symbol="BTCUSDTPERP",
+                side="SHORT",
+                score=0.97,
+                stop_loss=110.0,
+            ),
+            EngineCandidate(
+                engine="short",
+                setup_type="FAILED_BOUNCE_SHORT",
+                symbol="ETHUSDTPERP",
+                side="SHORT",
+                score=0.96,
+                stop_loss=60.0,
+            ),
+        ]
+        if "BTCUSDTPERP" in set(market.get("candidate_symbols") or [])
+        else [],
+    )
+
+    _current_manifest, current_artifacts = backtest_cli._walk_forward_validation_outputs(current_config, rows)
+    _filtered_manifest, filtered_artifacts = backtest_cli._walk_forward_validation_outputs(filtered_config, rows)
+
+    assert (
+        filtered_artifacts["scorecard.json"]["key_metrics"]["out_of_sample_total_return"]
+        > current_artifacts["scorecard.json"]["key_metrics"]["out_of_sample_total_return"]
+    )
+
+
 def test_replay_full_market_baseline_emits_trades_rejections_and_cost_drag(
     tmp_path: Path,
     monkeypatch: Any,
@@ -429,6 +775,134 @@ def test_replay_full_market_baseline_emits_trades_rejections_and_cost_drag(
     assert trade_by_symbol["BTCUSDT"].funding_paid == pytest.approx(0.0)
     assert trade_by_symbol["ETHUSDT"].funding_paid == pytest.approx(0.0)
     assert trade_by_symbol["SOLUSDTPERP"].funding_paid > 0.0
+
+
+def test_replay_full_market_baseline_respects_disabled_short_engine(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    config_path = _baseline_config_path(tmp_path)
+    raw = json.loads(config_path.read_text(encoding="utf-8"))
+    raw["experiment_params"] = {"disabled_engines": ["short"]}
+    config_path.write_text(json.dumps(raw), encoding="utf-8")
+    config = load_backtest_config(config_path)
+
+    monkeypatch.setattr(
+        backtest_engine,
+        "classify_regime",
+        lambda *_args, **_kwargs: RegimeSnapshot(label="MIXED", confidence=0.5, risk_multiplier=1.0),
+    )
+    monkeypatch.setattr(backtest_engine, "build_universes", lambda *_args, **_kwargs: UniverseBuildResult())
+    monkeypatch.setattr(
+        backtest_engine,
+        "generate_trend_candidates",
+        lambda market, **_kwargs: [
+            EngineCandidate(
+                engine="trend",
+                setup_type="BREAKOUT_CONTINUATION",
+                symbol="BTCUSDT",
+                side="LONG",
+                score=0.95,
+                stop_loss=90.0,
+            )
+        ]
+        if "BTCUSDT" in set(market.get("candidate_symbols") or [])
+        else [],
+    )
+    monkeypatch.setattr(backtest_engine, "generate_rotation_candidates", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(
+        backtest_engine,
+        "generate_short_candidates",
+        lambda market, **_kwargs: [
+            EngineCandidate(
+                engine="short",
+                setup_type="BREAKDOWN_SHORT",
+                symbol="BTCUSDTPERP",
+                side="SHORT",
+                score=0.97,
+                stop_loss=110.0,
+            )
+        ]
+        if "BTCUSDTPERP" in set(market.get("candidate_symbols") or [])
+        else [],
+    )
+
+    replay = getattr(backtest_engine, "replay_full_market_baseline", None)
+    assert replay is not None
+
+    result = replay(config)
+
+    assert [row.symbol for row in result.trade_ledger] == ["BTCUSDT"]
+    assert all(row.side == "long" for row in result.trade_ledger)
+    assert all(row.symbol != "BTCUSDTPERP" for row in result.trade_ledger)
+
+
+def test_replay_full_market_baseline_respects_allowed_short_setup_types(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    config_path = _baseline_config_path(tmp_path)
+    raw = json.loads(config_path.read_text(encoding="utf-8"))
+    raw["experiment_params"] = {"allowed_short_setup_types": ["BREAKDOWN_SHORT"]}
+    config_path.write_text(json.dumps(raw), encoding="utf-8")
+    config = load_backtest_config(config_path)
+
+    monkeypatch.setattr(
+        backtest_engine,
+        "classify_regime",
+        lambda *_args, **_kwargs: RegimeSnapshot(label="MIXED", confidence=0.5, risk_multiplier=1.0),
+    )
+    monkeypatch.setattr(backtest_engine, "build_universes", lambda *_args, **_kwargs: UniverseBuildResult())
+    monkeypatch.setattr(
+        backtest_engine,
+        "generate_trend_candidates",
+        lambda market, **_kwargs: [
+            EngineCandidate(
+                engine="trend",
+                setup_type="BREAKOUT_CONTINUATION",
+                symbol="BTCUSDT",
+                side="LONG",
+                score=0.95,
+                stop_loss=90.0,
+            )
+        ]
+        if "BTCUSDT" in set(market.get("candidate_symbols") or [])
+        else [],
+    )
+    monkeypatch.setattr(backtest_engine, "generate_rotation_candidates", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(
+        backtest_engine,
+        "generate_short_candidates",
+        lambda market, **_kwargs: [
+            EngineCandidate(
+                engine="short",
+                setup_type="BREAKDOWN_SHORT",
+                symbol="BTCUSDTPERP",
+                side="SHORT",
+                score=0.97,
+                stop_loss=110.0,
+            ),
+            EngineCandidate(
+                engine="short",
+                setup_type="FAILED_BOUNCE_SHORT",
+                symbol="ETHUSDTPERP",
+                side="SHORT",
+                score=0.96,
+                stop_loss=120.0,
+            ),
+        ]
+        if "BTCUSDTPERP" in set(market.get("candidate_symbols") or [])
+        else [],
+    )
+
+    replay = getattr(backtest_engine, "replay_full_market_baseline", None)
+    assert replay is not None
+
+    result = replay(config)
+
+    assert [row.symbol for row in result.trade_ledger] == ["BTCUSDTPERP", "BTCUSDT"]
+    assert [row.side for row in result.trade_ledger] == ["short", "long"]
+    assert all(row.symbol != "ETHUSDTPERP" for row in result.trade_ledger)
 
 
 def test_full_market_baseline_replay_is_deterministic_for_same_dataset_and_config(

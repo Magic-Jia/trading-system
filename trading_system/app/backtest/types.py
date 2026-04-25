@@ -70,6 +70,16 @@ class ExperimentParams:
     walk_forward: WalkForwardConfig | None = None
     public_strategy_families: tuple[str, ...] = ()
     minimum_effectiveness_sample_count: int = 30
+    disabled_engines: tuple[str, ...] = ()
+    allowed_short_setup_types: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class PromotionMetadata:
+    runtime_fields: tuple[str, ...] = ()
+    rollback_target: str | None = None
+    rollback_trigger: str | None = None
+    observation_window: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -175,6 +185,7 @@ class BacktestConfig:
     universe: UniverseFilterConfig | None = None
     capital: CapitalModelConfig | None = None
     experiment_params: ExperimentParams | None = None
+    promotion_metadata: PromotionMetadata | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
 

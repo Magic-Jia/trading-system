@@ -9,6 +9,7 @@ from trading_system.app.backtest import experiments as backtest_experiments
 from trading_system.app.backtest.experiments import (
     run_allocator_friction_experiment,
     run_engine_filter_ablation_experiment,
+    run_long_gate_telemetry_experiment,
     run_public_strategy_factor_experiment,
     run_rotation_suppression_experiment,
 )
@@ -289,6 +290,140 @@ def _bearish_short_row() -> DatasetSnapshotRow:
     )
 
 
+def _majors_soft_trend_row() -> DatasetSnapshotRow:
+    market = deepcopy(_rotation_market())
+    market["symbols"] = {
+        "BTCUSDT": deepcopy(market["symbols"]["BTCUSDT"]),
+        "LINKUSDT": deepcopy(market["symbols"]["LINKUSDT"]),
+    }
+    market["symbols"]["BTCUSDT"]["daily"]["close"] = 104.0
+    market["symbols"]["BTCUSDT"]["daily"]["ema_20"] = 102.0
+    market["symbols"]["BTCUSDT"]["daily"]["ema_50"] = 103.0
+    market["symbols"]["BTCUSDT"]["4h"]["close"] = 104.5
+    market["symbols"]["BTCUSDT"]["4h"]["ema_20"] = 103.0
+    market["symbols"]["BTCUSDT"]["4h"]["ema_50"] = 101.5
+    market["symbols"]["BTCUSDT"]["1h"]["close"] = 104.3
+    market["symbols"]["BTCUSDT"]["1h"]["ema_20"] = 103.6
+    market["symbols"]["BTCUSDT"]["1h"]["ema_50"] = 103.0
+
+    market["symbols"]["LINKUSDT"]["daily"]["close"] = 27.0
+    market["symbols"]["LINKUSDT"]["daily"]["ema_20"] = 25.5
+    market["symbols"]["LINKUSDT"]["daily"]["ema_50"] = 26.0
+    market["symbols"]["LINKUSDT"]["4h"]["close"] = 27.3
+    market["symbols"]["LINKUSDT"]["4h"]["ema_20"] = 26.4
+    market["symbols"]["LINKUSDT"]["4h"]["ema_50"] = 25.8
+    market["symbols"]["LINKUSDT"]["1h"]["close"] = 27.1
+    market["symbols"]["LINKUSDT"]["1h"]["ema_20"] = 26.8
+    market["symbols"]["LINKUSDT"]["1h"]["ema_50"] = 26.2
+
+    return DatasetSnapshotRow(
+        timestamp=datetime(2026, 3, 14, tzinfo=UTC),
+        run_id="engine-majors-soft",
+        market=market,
+        derivatives=[
+            {
+                "symbol": "BTCUSDT",
+                "funding_rate": 0.0,
+                "open_interest_usdt": 10_000_000_000,
+                "open_interest_change_24h_pct": 0.0,
+                "mark_price_change_24h_pct": 0.0,
+                "taker_buy_sell_ratio": 1.0,
+                "basis_bps": 0,
+            }
+        ],
+        account=_engine_account(),
+        forward_returns={"3d": 0.012},
+        meta={
+            "candidate_forward_returns": {
+                "trend": {
+                    "BTCUSDT": 0.024,
+                    "LINKUSDT": 0.017,
+                }
+            },
+            "regime_override": {
+                "label": "RISK_ON_TREND",
+                "confidence": 0.86,
+                "risk_multiplier": 0.92,
+                "execution_policy": "normal",
+                "bucket_targets": {"trend": 0.55, "rotation": 0.25, "short": 0.05},
+                "suppression_rules": [],
+            },
+        },
+    )
+
+
+def _majors_reclaim_band_row() -> DatasetSnapshotRow:
+    market = {
+        "symbols": {
+            "BTCUSDT": {
+                "sector": "majors",
+                "liquidity_tier": "top",
+                "daily": {"close": 102.5, "ema_20": 101.5, "ema_50": 103.0, "atr_pct": 0.022, "return_pct_7d": 0.041, "volume_usdt_24h": 20_000_000_000},
+                "4h": {"close": 103.2, "ema_20": 102.8, "ema_50": 102.1, "return_pct_3d": 0.019, "volume_usdt_24h": 20_000_000_000},
+                "1h": {"close": 103.0, "ema_20": 102.7, "ema_50": 102.2, "return_pct_24h": 0.006, "volume_usdt_24h": 20_000_000_000},
+            },
+            "ETHUSDT": {
+                "sector": "majors",
+                "liquidity_tier": "top",
+                "daily": {"close": 101.5, "ema_20": 100.5, "ema_50": 101.0, "atr_pct": 0.024, "return_pct_7d": 0.047, "volume_usdt_24h": 12_000_000_000},
+                "4h": {"close": 102.1, "ema_20": 101.5, "ema_50": 100.8, "return_pct_3d": 0.018, "volume_usdt_24h": 12_000_000_000},
+                "1h": {"close": 102.0, "ema_20": 101.6, "ema_50": 101.2, "return_pct_24h": 0.005, "volume_usdt_24h": 12_000_000_000},
+            },
+            "BNBUSDT": {
+                "sector": "majors",
+                "liquidity_tier": "medium",
+                "daily": {"close": 95.4, "ema_20": 93.8, "ema_50": 94.0, "atr_pct": 0.021, "return_pct_7d": 0.042, "volume_usdt_24h": 2_500_000_000},
+                "4h": {"close": 95.6, "ema_20": 94.8, "ema_50": 94.1, "return_pct_3d": 0.016, "volume_usdt_24h": 2_500_000_000},
+                "1h": {"close": 95.4, "ema_20": 95.0, "ema_50": 94.5, "return_pct_24h": 0.004, "volume_usdt_24h": 2_500_000_000},
+            },
+            "LINKUSDT": {
+                "sector": "oracle",
+                "liquidity_tier": "high",
+                "daily": {"close": 27.0, "ema_20": 25.5, "ema_50": 26.0, "atr_pct": 0.03, "return_pct_7d": 0.071, "volume_usdt_24h": 1_200_000_000},
+                "4h": {"close": 27.3, "ema_20": 26.4, "ema_50": 25.8, "return_pct_3d": 0.022, "volume_usdt_24h": 1_200_000_000},
+                "1h": {"close": 27.1, "ema_20": 26.8, "ema_50": 26.2, "return_pct_24h": 0.007, "volume_usdt_24h": 1_200_000_000},
+            },
+        }
+    }
+
+    return DatasetSnapshotRow(
+        timestamp=datetime(2026, 3, 15, tzinfo=UTC),
+        run_id="engine-majors-reclaim-band",
+        market=market,
+        derivatives=[
+            {
+                "symbol": "BTCUSDT",
+                "funding_rate": 0.0,
+                "open_interest_usdt": 10_000_000_000,
+                "open_interest_change_24h_pct": 0.0,
+                "mark_price_change_24h_pct": 0.0,
+                "taker_buy_sell_ratio": 1.0,
+                "basis_bps": 0,
+            }
+        ],
+        account=_engine_account(),
+        forward_returns={"3d": 0.01},
+        meta={
+            "candidate_forward_returns": {
+                "trend": {
+                    "BTCUSDT": 0.022,
+                    "ETHUSDT": 0.011,
+                    "BNBUSDT": 0.008,
+                    "LINKUSDT": 0.015,
+                }
+            },
+            "regime_override": {
+                "label": "RISK_ON_TREND",
+                "confidence": 0.87,
+                "risk_multiplier": 0.92,
+                "execution_policy": "normal",
+                "bucket_targets": {"trend": 0.55, "rotation": 0.25, "short": 0.05},
+                "suppression_rules": [],
+            },
+        },
+    )
+
+
 def test_engine_ablation_outputs_funnel_metrics() -> None:
     rows = [_bullish_ablation_row(), _bearish_short_row()]
 
@@ -296,6 +431,11 @@ def test_engine_ablation_outputs_funnel_metrics() -> None:
 
     assert set(result["variants"]) == {
         "trend_only",
+        "majors_only_trend",
+        "majors_soft_trend",
+        "majors_reclaim_band_0pct",
+        "majors_reclaim_band_1pct",
+        "majors_reclaim_band_2pct",
         "rotation_only",
         "short_only",
         "rotation_without_overheat_filter",
@@ -315,6 +455,211 @@ def test_engine_ablation_outputs_funnel_metrics() -> None:
         result["variants"]["rotation_without_overheat_filter"]["funnel"]["accepted_allocations"]
         >= result["variants"]["rotation_only"]["funnel"]["accepted_allocations"]
     )
+
+
+def test_majors_soft_trend_relaxes_daily_structure_only_for_majors() -> None:
+    result = run_engine_filter_ablation_experiment([_majors_soft_trend_row()], evaluation_window="3d")
+
+    trend_only = result["variants"]["trend_only"]
+    majors_only = result["variants"]["majors_only_trend"]
+    majors_soft = result["variants"]["majors_soft_trend"]
+
+    assert trend_only["selected_symbols"] == []
+    assert majors_only["selected_symbols"] == []
+    assert majors_soft["selected_symbols"] == ["BTCUSDT"]
+    assert majors_soft["accepted_symbols"] == ["BTCUSDT"]
+    assert "LINKUSDT" not in majors_soft["selected_symbols"]
+    assert majors_soft["funnel"]["raw_candidates"] == 1
+    assert majors_soft["funnel"]["accepted_allocations"] == 1
+
+
+def test_majors_reclaim_band_variants_keep_soft_major_entries_near_daily_ema50() -> None:
+    result = run_engine_filter_ablation_experiment([_majors_reclaim_band_row()], evaluation_window="3d")
+
+    majors_soft = result["variants"]["majors_soft_trend"]
+    reclaim_0 = result["variants"]["majors_reclaim_band_0pct"]
+    reclaim_1 = result["variants"]["majors_reclaim_band_1pct"]
+    reclaim_2 = result["variants"]["majors_reclaim_band_2pct"]
+
+    assert majors_soft["selected_symbols"] == ["BNBUSDT", "BTCUSDT", "ETHUSDT"]
+    assert reclaim_0["selected_symbols"] == ["BTCUSDT"]
+    assert reclaim_1["selected_symbols"] == ["BTCUSDT", "ETHUSDT"]
+    assert reclaim_2["selected_symbols"] == ["BNBUSDT", "BTCUSDT", "ETHUSDT"]
+    assert reclaim_0["funnel"]["raw_candidates"] == 1
+    assert reclaim_1["funnel"]["raw_candidates"] == 2
+    assert reclaim_2["funnel"]["raw_candidates"] == 3
+    assert "LINKUSDT" not in majors_soft["selected_symbols"]
+    assert "LINKUSDT" not in reclaim_2["selected_symbols"]
+
+
+
+def test_long_gate_telemetry_outputs_engine_blockers_and_snapshot_rows() -> None:
+    rows = [_bullish_ablation_row(), _bearish_short_row()]
+
+    result = run_long_gate_telemetry_experiment(rows, evaluation_window="3d")
+
+    assert set(result["engines"]) == {"trend_long", "rotation_long"}
+    assert result["metadata"]["snapshot_count"] == 2
+    assert result["metadata"]["engine_count"] == 2
+    assert result["engines"]["trend_long"]["funnel"]["raw_candidates"] > 0
+    assert result["engines"]["trend_long"]["filter_counts"]["selected"] > 0
+    assert result["engines"]["rotation_long"]["filter_counts"]["overheat_filtered"] > 0
+    assert result["engines"]["rotation_long"]["filter_counts"]["selected"] > 0
+    assert len(result["snapshot_rows"]) == 2
+
+    bearish_row = next(row for row in result["snapshot_rows"] if row["run_id"] == "engine-bear")
+    assert bearish_row["total_long_accepted_allocations"] == 0
+    assert bearish_row["engines"]["trend_long"]["filter_counts"]["trend_filtered"] > 0
+    assert bearish_row["engines"]["rotation_long"]["funnel"]["input_universe"] == 0
+    assert bearish_row["engines"]["rotation_long"]["funnel"]["raw_candidates"] == 0
+
+
+def test_long_gate_telemetry_breaks_trend_eligibility_into_specific_reasons() -> None:
+    row = _bullish_ablation_row()
+    market = deepcopy(row.market)
+    market["symbols"]["ADAUSDT"]["liquidity_tier"] = "medium"
+    market["symbols"]["ADAUSDT"]["daily"]["return_pct_7d"] = 0.08
+    market["symbols"]["ADAUSDT"]["4h"]["return_pct_3d"] = 0.03
+    market["symbols"]["ADAUSDT"]["daily"]["close"] = 0.84
+    market["symbols"]["ADAUSDT"]["daily"]["ema_20"] = 0.81
+    market["symbols"]["ADAUSDT"]["daily"]["ema_50"] = 0.78
+    market["symbols"]["ADAUSDT"]["4h"]["close"] = 0.84
+    market["symbols"]["ADAUSDT"]["4h"]["ema_20"] = 0.82
+    market["symbols"]["ADAUSDT"]["4h"]["ema_50"] = 0.80
+    market["symbols"]["ADAUSDT"]["1h"]["close"] = 0.84
+    market["symbols"]["ADAUSDT"]["1h"]["ema_20"] = 0.83
+    market["symbols"]["ADAUSDT"]["1h"]["ema_50"] = 0.82
+
+    market["symbols"]["LINKUSDT"]["daily"]["return_pct_7d"] = -0.01
+    market["symbols"]["LINKUSDT"]["4h"]["return_pct_3d"] = 0.03
+    market["symbols"]["LINKUSDT"]["daily"]["close"] = 26.0
+    market["symbols"]["LINKUSDT"]["daily"]["ema_20"] = 24.4
+    market["symbols"]["LINKUSDT"]["daily"]["ema_50"] = 23.0
+    market["symbols"]["LINKUSDT"]["4h"]["close"] = 26.5
+    market["symbols"]["LINKUSDT"]["4h"]["ema_20"] = 25.0
+    market["symbols"]["LINKUSDT"]["4h"]["ema_50"] = 24.0
+    market["symbols"]["LINKUSDT"]["1h"]["close"] = 25.5
+    market["symbols"]["LINKUSDT"]["1h"]["ema_20"] = 25.1
+    market["symbols"]["LINKUSDT"]["1h"]["ema_50"] = 24.7
+
+    market["symbols"]["XRPUSDT"] = {
+        "sector": "payments",
+        "liquidity_tier": "high",
+        "daily": {"close": 2.12, "ema_20": 2.0, "ema_50": 1.92, "atr_pct": 0.038, "return_pct_7d": 0.05, "volume_usdt_24h": 2_000_000_000},
+        "4h": {"close": 2.05, "ema_20": 2.01, "ema_50": 1.98, "return_pct_3d": -0.01, "volume_usdt_24h": 2_000_000_000},
+        "1h": {"close": 2.03, "ema_20": 2.02, "ema_50": 2.0, "return_pct_24h": 0.004, "volume_usdt_24h": 2_000_000_000},
+    }
+
+    custom_row = DatasetSnapshotRow(
+        timestamp=row.timestamp,
+        run_id="engine-eligibility-breakdown",
+        market=market,
+        derivatives=row.derivatives,
+        account=row.account,
+        forward_returns=row.forward_returns,
+        meta=row.meta,
+    )
+
+    result = run_long_gate_telemetry_experiment([custom_row], evaluation_window="3d")
+    counts = result["engines"]["trend_long"]["filter_counts"]
+
+    assert counts["eligibility_filtered"] >= 3
+    assert counts["eligibility_liquidity_tier_filtered"] >= 1
+    assert counts["eligibility_daily_return_filtered"] >= 1
+    assert counts["eligibility_h4_return_filtered"] >= 1
+    assert counts["eligibility_pretrend_filtered"] == 0
+
+
+
+def test_long_gate_telemetry_outputs_symbol_and_regime_breakdowns() -> None:
+    rows = [_bullish_ablation_row(), _bearish_short_row()]
+
+    result = run_long_gate_telemetry_experiment(rows, evaluation_window="3d")
+
+    assert set(result["regime_breakdown"]) == {"RISK_ON_TREND", "RISK_OFF"}
+    assert result["regime_breakdown"]["RISK_ON_TREND"]["snapshot_count"] == 1
+    assert result["regime_breakdown"]["RISK_OFF"]["snapshot_count"] == 1
+    assert result["regime_breakdown"]["RISK_ON_TREND"]["engines"]["trend_long"]["funnel"]["accepted_allocations"] > 0
+    assert result["regime_breakdown"]["RISK_OFF"]["engines"]["trend_long"]["filter_counts"]["trend_filtered"] > 0
+
+    trend_symbols = result["symbol_breakdown"]["trend_long"]
+    assert trend_symbols["BTCUSDT"]["snapshot_count"] == 2
+    assert trend_symbols["BTCUSDT"]["filter_counts"]["selected"] > 0
+    assert trend_symbols["BTCUSDT"]["filter_counts"]["trend_filtered"] > 0
+    assert trend_symbols["BTCUSDT"]["funnel"]["raw_candidates"] > 0
+
+
+def _supportive_soft_long_gate_row(regime_label: str = "RISK_ON_ROTATION") -> DatasetSnapshotRow:
+    market = {
+        "symbols": {
+            "BTCUSDT": {
+                "sector": "majors",
+                "liquidity_tier": "top",
+                "daily": {"close": 100.0, "ema_20": 99.2, "ema_50": 98.5, "atr_pct": 0.032, "return_pct_7d": 0.012, "volume_usdt_24h": 20_000_000_000},
+                "4h": {"close": 100.0, "ema_20": 99.4, "ema_50": 98.7, "return_pct_3d": 0.004, "volume_usdt_24h": 20_000_000_000},
+                "1h": {"close": 100.0, "ema_20": 99.6, "ema_50": 99.0, "return_pct_24h": 0.001, "volume_usdt_24h": 20_000_000_000},
+            },
+            "ETHUSDT": {
+                "sector": "majors",
+                "liquidity_tier": "top",
+                "daily": {"close": 101.0, "ema_20": 100.1, "ema_50": 99.4, "atr_pct": 0.033, "return_pct_7d": 0.011, "volume_usdt_24h": 12_000_000_000},
+                "4h": {"close": 101.0, "ema_20": 100.3, "ema_50": 99.7, "return_pct_3d": 0.003, "volume_usdt_24h": 12_000_000_000},
+                "1h": {"close": 101.0, "ema_20": 100.5, "ema_50": 100.0, "return_pct_24h": 0.001, "volume_usdt_24h": 12_000_000_000},
+            },
+            "LINKUSDT": {
+                "sector": "oracle",
+                "liquidity_tier": "high",
+                "daily": {"close": 100.5, "ema_20": 99.5, "ema_50": 100.0, "atr_pct": 0.055, "return_pct_7d": 0.061, "volume_usdt_24h": 1_450_000_000},
+                "4h": {"close": 101.0, "ema_20": 100.1, "ema_50": 99.0, "return_pct_3d": 0.024, "volume_usdt_24h": 1_450_000_000},
+                "1h": {"close": 101.0, "ema_20": 100.6, "ema_50": 100.0, "return_pct_24h": 0.008, "volume_usdt_24h": 1_450_000_000},
+            },
+        }
+    }
+    return DatasetSnapshotRow(
+        timestamp=datetime(2026, 3, 16, tzinfo=UTC),
+        run_id=f"soft-long-gate-{regime_label.lower()}",
+        market=market,
+        derivatives=[
+            {
+                "symbol": "LINKUSDT",
+                "funding_rate": 0.00002,
+                "open_interest_usdt": 1_300_000_000,
+                "open_interest_change_24h_pct": 0.006,
+                "mark_price_change_24h_pct": 0.009,
+                "taker_buy_sell_ratio": 1.02,
+                "basis_bps": 8,
+            }
+        ],
+        account=_engine_account(),
+        forward_returns={"3d": 0.018},
+        meta={
+            "candidate_forward_returns": {
+                "trend": {"LINKUSDT": 0.018},
+                "rotation": {"LINKUSDT": 0.026},
+            },
+            "regime_override": {
+                "label": regime_label,
+                "confidence": 0.78,
+                "risk_multiplier": 0.9,
+                "execution_policy": "normal",
+                "bucket_targets": {"trend": 0.45, "rotation": 0.45, "short": 0.1},
+                "suppression_rules": [],
+            },
+        },
+    )
+
+
+def test_long_gate_telemetry_reflects_supportive_soft_long_selection() -> None:
+    supportive = run_long_gate_telemetry_experiment([_supportive_soft_long_gate_row()], evaluation_window="3d")
+    defensive = run_long_gate_telemetry_experiment([_supportive_soft_long_gate_row("RISK_OFF")], evaluation_window="3d")
+
+    assert supportive["engines"]["trend_long"]["filter_counts"]["selected"] == 1
+    assert supportive["engines"]["rotation_long"]["filter_counts"]["selected"] == 1
+    assert supportive["symbol_breakdown"]["trend_long"]["LINKUSDT"]["filter_counts"]["selected"] == 1
+    assert supportive["symbol_breakdown"]["rotation_long"]["LINKUSDT"]["filter_counts"]["selected"] == 1
+    assert defensive["engines"]["trend_long"]["filter_counts"]["selected"] == 0
+    assert defensive["engines"]["rotation_long"]["filter_counts"]["selected"] == 0
+
 
 
 def test_allocator_and_friction_comparisons() -> None:

@@ -4,7 +4,7 @@ from collections import Counter
 from typing import Any, Callable, Mapping
 
 from .metrics import cost_drag
-from .types import BaselineReplayResult, TradeLedgerRow
+from .types import BaselineReplayResult, PromotionMetadata, TradeLedgerRow
 
 
 def render_regime_scorecard(
@@ -140,6 +140,37 @@ def _decision_summary(*, decision: str, summary: str) -> dict[str, str]:
     return {"decision": decision, "summary": summary}
 
 
+
+def _promotion_metadata_sections(metadata: Mapping[str, Any]) -> dict[str, Any]:
+    raw = metadata.get("promotion_metadata")
+    if raw is None:
+        return {}
+    if isinstance(raw, PromotionMetadata):
+        runtime_fields = list(raw.runtime_fields)
+        rollback_target = raw.rollback_target
+        rollback_trigger = raw.rollback_trigger
+        observation_window = raw.observation_window
+    elif isinstance(raw, Mapping):
+        runtime_fields = [str(item) for item in raw.get("runtime_fields", [])]
+        rollback_target = raw.get("rollback_target")
+        rollback_trigger = raw.get("rollback_trigger")
+        observation_window = raw.get("observation_window")
+    else:
+        return {}
+
+    sections: dict[str, Any] = {}
+    if runtime_fields:
+        sections["runtime_observability"] = {"runtime_fields": runtime_fields}
+    if rollback_target or rollback_trigger or observation_window:
+        sections["rollback_plan"] = {
+            "rollback_target": rollback_target,
+            "rollback_trigger": rollback_trigger,
+            "observation_window": observation_window,
+        }
+    return sections
+
+
+
 _ALLOWED_DECISIONS = {"keep_researching", "candidate_for_promotion", "reject"}
 
 
@@ -209,6 +240,7 @@ def render_rotation_suppression_report(
                 "avoid_loss_rate": avoid_loss_rate,
             },
             "decision_summary": _decision_summary(decision=decision, summary=summary),
+            **_promotion_metadata_sections(metadata),
         },
     }
 
@@ -262,6 +294,7 @@ def render_allocator_friction_report(
                 "current_allocator_base_cost_drag": float(dict(current_base).get("cost_drag", 0.0)),
             },
             "decision_summary": _decision_summary(decision=decision, summary=summary),
+            **_promotion_metadata_sections(metadata),
         },
     }
 
@@ -305,6 +338,121 @@ def render_engine_filter_ablation_report(
                 "best_variant_accepted_allocations": accepted_allocations,
             },
             "decision_summary": _decision_summary(decision=decision, summary=summary),
+            **_promotion_metadata_sections(metadata),
+        },
+    }
+
+
+def _top_blocker(filter_counts: Mapping[str, Any]) -> tuple[str | None, int]:
+    blocker_keys = [
+        key
+        for key in filter_counts
+        if key != "selected" and not key.endswith("_bypassed") and float(filter_counts.get(key, 0) or 0) > 0
+    ]
+    if not blocker_keys:
+        return None, 0
+    blocker_key = max(blocker_keys, key=lambda key: (float(filter_counts.get(key, 0) or 0), key))
+    return blocker_key, int(float(filter_counts.get(blocker_key, 0) or 0))
+
+
+
+def _top_specific_eligibility_blocker(filter_counts: Mapping[str, Any]) -> tuple[str | None, int]:
+    eligibility_keys = [
+        key
+        for key in filter_counts
+        if key.startswith("eligibility_")
+        and key != "eligibility_filtered"
+        and float(filter_counts.get(key, 0) or 0) > 0
+    ]
+    if not eligibility_keys:
+        return None, 0
+    blocker_key = max(eligibility_keys, key=lambda key: (float(filter_counts.get(key, 0) or 0), key))
+    return blocker_key, int(float(filter_counts.get(blocker_key, 0) or 0))
+
+
+
+def _dominant_long_gate_blocker(filter_counts: Mapping[str, Any]) -> tuple[str | None, int]:
+    blocker_gate, blocker_count = _top_blocker(filter_counts)
+    if blocker_gate != "eligibility_filtered":
+        return blocker_gate, blocker_count
+    specific_gate, specific_count = _top_specific_eligibility_blocker(filter_counts)
+    if specific_gate is None:
+        return blocker_gate, blocker_count
+    return specific_gate, specific_count
+
+
+def render_long_gate_telemetry_report(
+    *,
+    experiment_name: str,
+    experiment: Mapping[str, Any],
+    metadata: Mapping[str, Any],
+) -> dict[str, dict[str, Any]]:
+    engines = dict(experiment.get("engines", {}))
+    best_engine = None
+    best_accept_count = -1
+    dominant_blocker_engine = None
+    dominant_blocker_gate = None
+    dominant_blocker_count = 0
+
+    for engine_name, payload in engines.items():
+        funnel = dict(payload.get("funnel", {}))
+        accept_count = int(funnel.get("accepted_allocations", 0))
+        if accept_count > best_accept_count:
+            best_engine = str(engine_name)
+            best_accept_count = accept_count
+
+        blocker_gate, blocker_count = _dominant_long_gate_blocker(dict(payload.get("filter_counts", {})))
+        if blocker_count > dominant_blocker_count:
+            dominant_blocker_engine = str(engine_name)
+            dominant_blocker_gate = blocker_gate
+            dominant_blocker_count = blocker_count
+
+    total_long_accepted_allocations = sum(
+        int(dict(payload.get("funnel", {})).get("accepted_allocations", 0)) for payload in engines.values()
+    )
+    engines_with_candidate_flow = sum(
+        1 for payload in engines.values() if int(dict(payload.get("funnel", {})).get("raw_candidates", 0)) > 0
+    )
+
+    if total_long_accepted_allocations > 0:
+        decision = "keep_researching"
+        summary = f"{best_engine} still produced some accepted long allocations, but long gate failures remain concentrated at {dominant_blocker_engine}:{dominant_blocker_gate}"
+    else:
+        decision = "reject"
+        summary = f"no accepted long allocations were observed; the dominant blocker is {dominant_blocker_engine}:{dominant_blocker_gate}"
+
+    assert decision in _ALLOWED_DECISIONS
+    return {
+        "summary": {
+            "metadata": dict(metadata),
+            "engines": engines,
+        },
+        "snapshot_rows": {
+            "metadata": dict(metadata),
+            "rows": list(experiment.get("snapshot_rows", [])),
+        },
+        "symbol_breakdown": {
+            "metadata": dict(metadata),
+            "engines": dict(experiment.get("symbol_breakdown", {})),
+        },
+        "regime_breakdown": {
+            "metadata": dict(metadata),
+            "regimes": dict(experiment.get("regime_breakdown", {})),
+        },
+        "scorecard": {
+            "metadata": _scorecard_metadata(experiment_name=experiment_name, metadata=metadata),
+            "key_metrics": {
+                "snapshot_count": int(metadata.get("snapshot_count", 0)),
+                "best_engine": best_engine,
+                "best_engine_accepted_allocations": max(best_accept_count, 0),
+                "total_long_accepted_allocations": total_long_accepted_allocations,
+                "engines_with_candidate_flow": engines_with_candidate_flow,
+                "dominant_blocker_engine": dominant_blocker_engine,
+                "dominant_blocker_gate": dominant_blocker_gate,
+                "dominant_blocker_count": dominant_blocker_count,
+            },
+            "decision_summary": _decision_summary(decision=decision, summary=summary),
+            **_promotion_metadata_sections(metadata),
         },
     }
 
@@ -397,5 +545,6 @@ def render_walk_forward_validation_report(
                 "parameter_stability_score": parameter_stability_score,
             },
             "decision_summary": _decision_summary(decision=decision, summary=summary),
+            **_promotion_metadata_sections(metadata),
         },
     }
