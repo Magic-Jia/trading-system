@@ -488,6 +488,54 @@ def test_load_backtest_config_parses_public_strategy_factor_families(fixture_dir
     )
 
 
+def test_load_backtest_config_parses_llm_trend_breakout_params(fixture_dir: Path) -> None:
+    config = load_backtest_config(fixture_dir / "backtest" / "llm_trend_breakout_config.json")
+
+    assert config.experiment_kind == "llm_trend_breakout"
+    assert config.experiment_params is not None
+    assert config.experiment_params.evaluation_window == "1d"
+    assert config.experiment_params.entry_profile == "scout"
+    assert config.experiment_params.llm_label_path == str(fixture_dir / "backtest" / "llm_labels" / "sample_labels.json")
+    assert config.experiment_params.require_llm_label is True
+    assert config.experiment_params.symbols == ("BTCUSDT", "ETHUSDT", "SOLUSDT")
+    assert config.experiment_params.minimum_final_score == pytest.approx(0.75)
+    assert config.experiment_params.minimum_label_confidence == pytest.approx(0.5)
+    assert config.experiment_params.reject_high_fomo is False
+    assert config.experiment_params.allowed_setup_types == ("BREAKOUT_CONTINUATION",)
+
+
+def test_load_backtest_config_requires_llm_label_path_for_llm_trend_breakout(tmp_path: Path) -> None:
+    config_path = tmp_path / "llm_trend_breakout_missing_labels.json"
+    config_path.write_text(
+        """
+        {
+          "dataset_root": "sample_dataset",
+          "experiment_kind": "llm_trend_breakout",
+          "sample_windows": [
+            {
+              "name": "train",
+              "start": "2026-01-01T00:00:00Z",
+              "end": "2026-02-01T00:00:00Z"
+            }
+          ],
+          "costs": {
+            "fee_bps": 4.0,
+            "slippage_bps": 6.0
+          },
+          "baseline_name": "trend-breakout",
+          "variant_name": "llm-filtered",
+          "experiment_params": {
+            "evaluation_window": "1d"
+          }
+        }
+        """.strip(),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="experiment_params.llm_label_path is required"):
+        load_backtest_config(config_path)
+
+
 def test_load_backtest_config_parses_promotion_metadata(tmp_path: Path) -> None:
     config_path = tmp_path / "promotion_metadata_config.json"
     config_path.write_text(

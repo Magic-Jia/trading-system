@@ -73,6 +73,13 @@ class ExperimentParams:
     disabled_engines: tuple[str, ...] = ()
     allowed_short_setup_types: tuple[str, ...] = ()
     entry_profile: str | None = None
+    llm_label_path: str | None = None
+    require_llm_label: bool = True
+    symbols: tuple[str, ...] = ()
+    minimum_final_score: float = 0.75
+    minimum_label_confidence: float = 0.5
+    reject_high_fomo: bool = False
+    allowed_setup_types: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

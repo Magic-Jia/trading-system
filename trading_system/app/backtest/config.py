@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import json
 from datetime import datetime
 from pathlib import Path
@@ -36,6 +37,15 @@ def _resolve_dataset_root(config_path: Path, raw_root: str) -> Path:
     if not root.is_absolute():
         root = (config_path.parent / root).resolve()
     return root
+
+
+def _resolve_optional_path(config_path: Path, raw_path: str | None) -> str | None:
+    if raw_path is None:
+        return None
+    path = Path(raw_path)
+    if not path.is_absolute():
+        path = config_path.parent / path
+    return str(path)
 
 
 def _load_sample_windows(raw: list[dict[str, Any]]) -> tuple[SampleWindow, ...]:
@@ -158,6 +168,21 @@ def _load_allowed_short_setup_types(raw: Any) -> tuple[str, ...]:
     return tuple(normalized)
 
 
+def _load_upper_unique_tuple(raw: Any, *, field_name: str) -> tuple[str, ...]:
+    if raw is None:
+        return ()
+    if not isinstance(raw, list):
+        raise ValueError(f"experiment_params.{field_name} must be a list")
+    normalized: list[str] = []
+    for item in raw:
+        value = str(item).strip().upper()
+        if not value:
+            continue
+        if value not in normalized:
+            normalized.append(value)
+    return tuple(normalized)
+
+
 def _load_experiment_params(raw: Any, *, experiment_kind: str) -> ExperimentParams | None:
     if raw is None:
         if experiment_kind in {
@@ -167,6 +192,7 @@ def _load_experiment_params(raw: Any, *, experiment_kind: str) -> ExperimentPara
             "long_gate_telemetry",
             "walk_forward_validation",
             "public_strategy_factors",
+            "llm_trend_breakout",
         }:
             raise ValueError(f"experiment_params are required for {experiment_kind}")
         return None
@@ -182,6 +208,13 @@ def _load_experiment_params(raw: Any, *, experiment_kind: str) -> ExperimentPara
         disabled_engines=_load_disabled_engines(raw.get("disabled_engines")),
         allowed_short_setup_types=_load_allowed_short_setup_types(raw.get("allowed_short_setup_types")),
         entry_profile=str(raw["entry_profile"]).strip() if raw.get("entry_profile") is not None else None,
+        llm_label_path=str(raw["llm_label_path"]).strip() if raw.get("llm_label_path") is not None else None,
+        require_llm_label=bool(raw.get("require_llm_label", True)),
+        symbols=_load_upper_unique_tuple(raw.get("symbols"), field_name="symbols"),
+        minimum_final_score=float(raw.get("minimum_final_score", 0.75)),
+        minimum_label_confidence=float(raw.get("minimum_label_confidence", 0.5)),
+        reject_high_fomo=bool(raw.get("reject_high_fomo", False)),
+        allowed_setup_types=_load_upper_unique_tuple(raw.get("allowed_setup_types"), field_name="allowed_setup_types"),
     )
 
     if experiment_kind == "rotation_suppression":
@@ -202,6 +235,11 @@ def _load_experiment_params(raw: Any, *, experiment_kind: str) -> ExperimentPara
             raise ValueError("experiment_params.evaluation_window is required for public_strategy_factors")
         if not params.public_strategy_families:
             raise ValueError("experiment_params.public_strategy_families is required for public_strategy_factors")
+    elif experiment_kind == "llm_trend_breakout":
+        if params.evaluation_window is None:
+            raise ValueError("experiment_params.evaluation_window is required for llm_trend_breakout")
+        if params.llm_label_path is None:
+            raise ValueError("experiment_params.llm_label_path is required for llm_trend_breakout")
 
     return params
 
@@ -234,17 +272,24 @@ def load_backtest_config(path: str | Path) -> BacktestConfig:
     sample_windows = _load_sample_windows(list(_require(raw, "sample_windows")))
     costs = _load_costs(_require(raw, "costs"), experiment_kind=experiment_kind)
 
+    experiment_params = _load_experiment_params(raw.get("experiment_params"), experiment_kind=experiment_kind)
+    if experiment_kind == "llm_trend_breakout" and experiment_params is not None:
+        experiment_params = dataclasses.replace(
+            experiment_params,
+            llm_label_path=_resolve_optional_path(config_path, experiment_params.llm_label_path),
+        )
+
     return BacktestConfig(
         dataset_root=dataset_root,
         experiment_kind=experiment_kind,
-        sample_windows=_load_sample_windows(list(_require(raw, "sample_windows"))),
+        sample_windows=sample_windows,
         forward_return_windows=_load_forward_windows(raw.get("forward_return_windows")),
         costs=costs,
         baseline_name=str(_require(raw, "baseline_name")),
         variant_name=str(_require(raw, "variant_name")),
         universe=_load_universe(raw["universe"]) if raw.get("universe") is not None else None,
         capital=_load_capital(raw["capital"]) if raw.get("capital") is not None else None,
-        experiment_params=_load_experiment_params(raw.get("experiment_params"), experiment_kind=experiment_kind),
+        experiment_params=experiment_params,
         promotion_metadata=_load_promotion_metadata(raw.get("promotion_metadata")),
         metadata=dict(raw.get("metadata") or {}),
     )

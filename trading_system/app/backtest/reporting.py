@@ -499,6 +499,54 @@ def render_public_strategy_factor_report(
     }
 
 
+def render_llm_trend_breakout_report(
+    *,
+    experiment_name: str,
+    experiment: Mapping[str, Any],
+    metadata: Mapping[str, Any],
+) -> dict[str, dict[str, Any]]:
+    summary_payload = dict(experiment.get("summary", {}))
+    candidate_rows = list(experiment.get("candidate_rows", []))
+    technical_candidate_count = int(summary_payload.get("technical_candidate_count", 0))
+    accepted_candidate_count = int(summary_payload.get("accepted_candidate_count", 0))
+    rejected_candidate_count = int(summary_payload.get("rejected_candidate_count", 0))
+    acceptance_rate = float(summary_payload.get("acceptance_rate", 0.0))
+    if accepted_candidate_count > 0 and acceptance_rate >= 0.25:
+        decision = "keep_researching"
+        summary = "LLM trend-breakout filter preserved some technical candidate flow; keep researching before any promotion"
+    elif technical_candidate_count > 0:
+        decision = "keep_researching"
+        summary = "LLM trend-breakout filter is producing diagnostics, but accepted candidate flow is still thin"
+    else:
+        decision = "reject"
+        summary = "LLM trend-breakout experiment produced no technical candidate flow in this sample"
+
+    assert decision in _ALLOWED_DECISIONS
+    return {
+        "summary": {
+            "metadata": dict(metadata),
+            "summary": summary_payload,
+        },
+        "candidate_rows": {
+            "metadata": dict(metadata),
+            "rows": candidate_rows,
+        },
+        "scorecard": {
+            "metadata": _scorecard_metadata(experiment_name=experiment_name, metadata=metadata),
+            "key_metrics": {
+                "snapshot_count": int(metadata.get("snapshot_count", 0)),
+                "technical_candidate_count": technical_candidate_count,
+                "accepted_candidate_count": accepted_candidate_count,
+                "rejected_candidate_count": rejected_candidate_count,
+                "acceptance_rate": acceptance_rate,
+            },
+            "decision_summary": _decision_summary(decision=decision, summary=summary),
+            "rejection_reasons": dict(summary_payload.get("rejection_reasons", {})),
+            **_promotion_metadata_sections(metadata),
+        },
+    }
+
+
 def render_walk_forward_validation_report(
     *,
     experiment_name: str,

@@ -1,0 +1,23 @@
+{
+  "labels": [
+    {
+      "timestamp": "2026-01-15T10:00:00Z",
+      "symbol": "solusdt",
+      "sentiment_score": 0.35,
+      "event_risk": "low",
+      "fomo_risk": "medium",
+      "allow_long": true,
+      "confidence": 0.72,
+      "reason": "Positive ecosystem news; no major negative event found."
+    },
+    {
+      "timestamp": "2026-01-15T11:00:00Z",
+      "symbol": "BTCUSDT",
+      "sentiment_score": -0.10,
+      "event_risk": "medium",
+      "fomo_risk": "low",
+      "allow_long": false,
+      "confidence": 0.66
+    }
+  ]
+}

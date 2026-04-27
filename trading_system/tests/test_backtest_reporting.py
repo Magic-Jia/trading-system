@@ -1076,3 +1076,118 @@ def test_backtest_docs_cover_run_compare_gate_and_roadmap() -> None:
     assert "rotation suppression" in roadmap
     assert "allocator" in roadmap
     assert "walk-forward" in roadmap
+
+def test_render_llm_trend_breakout_report_builds_summary_candidate_rows_and_scorecard() -> None:
+    experiment = {
+        "summary": {
+            "snapshot_count": 2,
+            "technical_candidate_count": 2,
+            "accepted_candidate_count": 1,
+            "rejected_candidate_count": 1,
+            "acceptance_rate": 0.5,
+            "rejection_reasons": {"high_event_risk": 1},
+        },
+        "candidate_rows": [
+            {"symbol": "SOLUSDT", "decision": "accepted", "reasons": ["llm_filter_passed"]},
+            {"symbol": "BTCUSDT", "decision": "rejected", "reasons": ["high_event_risk"]},
+        ],
+    }
+
+    report = reporting.render_llm_trend_breakout_report(
+        experiment_name="llm_trend_breakout",
+        experiment=experiment,
+        metadata={
+            "dataset_root": "sample_dataset",
+            "baseline_name": "trend-breakout",
+            "variant_name": "llm-filtered",
+            "evaluation_window": "1d",
+            "snapshot_count": 2,
+        },
+    )
+
+    assert set(report) == {"summary", "candidate_rows", "scorecard"}
+    assert report["summary"]["summary"]["accepted_candidate_count"] == 1
+    assert report["candidate_rows"]["rows"] == experiment["candidate_rows"]
+    assert report["scorecard"]["key_metrics"] == {
+        "snapshot_count": 2,
+        "technical_candidate_count": 2,
+        "accepted_candidate_count": 1,
+        "rejected_candidate_count": 1,
+        "acceptance_rate": 0.5,
+    }
+    assert report["scorecard"]["decision_summary"]["decision"] == "keep_researching"
+
+
+def test_backtest_cli_writes_llm_trend_breakout_bundle(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(cli, "load_historical_dataset", lambda _dataset_root: _sample_dataset_rows(), raising=False)
+    captured: dict[str, object] = {}
+
+    def _fake_llm_runner(rows, *, params):
+        captured["run_ids"] = [row.run_id for row in rows]
+        captured["params"] = params
+        return {
+            "summary": {
+                "snapshot_count": len(rows),
+                "technical_candidate_count": 2,
+                "accepted_candidate_count": 1,
+                "rejected_candidate_count": 1,
+                "acceptance_rate": 0.5,
+                "rejection_reasons": {"missing_llm_label": 1},
+            },
+            "candidate_rows": [
+                {
+                    "timestamp": "2026-03-10T00:00:00+00:00",
+                    "symbol": "SOLUSDT",
+                    "setup_type": "BREAKOUT_CONTINUATION",
+                    "technical_score": 0.8,
+                    "sentiment_score": 0.1,
+                    "final_score": 0.9,
+                    "decision": "accepted",
+                    "reasons": ["llm_filter_passed"],
+                    "event_risk": "low",
+                    "fomo_risk": "low",
+                    "label_confidence": 0.8,
+                }
+            ],
+        }
+
+    monkeypatch.setattr(cli, "run_llm_trend_breakout_experiment", _fake_llm_runner, raising=False)
+    config_path = _write_experiment_fixture_config(tmp_path, "llm_trend_breakout_config.json")
+    raw = json.loads(config_path.read_text(encoding="utf-8"))
+    raw["sample_windows"] = [
+        {
+            "name": "train_only",
+            "start": "2026-03-10T00:00:00Z",
+            "end": "2026-03-10T00:00:00Z",
+            "split": "in_sample",
+        }
+    ]
+    config_path.write_text(json.dumps(raw), encoding="utf-8")
+
+    exit_code = cli.main(
+        [
+            "run",
+            "--config",
+            str(config_path),
+            "--output-dir",
+            str(tmp_path / "out"),
+        ]
+    )
+
+    bundle_dir = tmp_path / "out" / "llm_trend_breakout__trend-breakout__llm-filtered"
+    assert exit_code == 0
+    assert captured["run_ids"] == ["row-001"]
+    assert captured["params"].llm_label_path == str(config_path.parent / "llm_labels/sample_labels.json")
+    manifest = json.loads((bundle_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["artifacts"] == ["manifest.json", "summary.json", "candidate_rows.json", "scorecard.json"]
+    summary = json.loads((bundle_dir / "summary.json").read_text(encoding="utf-8"))
+    candidate_rows = json.loads((bundle_dir / "candidate_rows.json").read_text(encoding="utf-8"))
+    scorecard = json.loads((bundle_dir / "scorecard.json").read_text(encoding="utf-8"))
+    assert summary["metadata"]["snapshot_count"] == 1
+    assert candidate_rows["rows"][0]["symbol"] == "SOLUSDT"
+    assert scorecard["metadata"]["evaluation_window"] == "1d"
+    assert scorecard["decision_summary"]["decision"] in {
+        "keep_researching",
+        "candidate_for_promotion",
+        "reject",
+    }
