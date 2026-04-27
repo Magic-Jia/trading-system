@@ -19,11 +19,13 @@ from .experiments import (
     run_walk_forward_validation_experiment,
 )
 from .promotion import compare_backtest_bundles
+from .llm_trend_breakout import run_llm_trend_breakout_experiment
 from .reporting import (
     render_allocator_friction_report,
     render_engine_filter_ablation_report,
     render_full_market_baseline_report,
     render_long_gate_telemetry_report,
+    render_llm_trend_breakout_report,
     render_public_strategy_factor_report,
     render_regime_scorecard,
     render_rotation_suppression_report,
@@ -258,6 +260,35 @@ def _long_gate_telemetry_outputs(config: BacktestConfig, rows: list[DatasetSnaps
     return _manifest(config, rows, artifacts, metadata), artifacts
 
 
+def _llm_trend_breakout_outputs(config: BacktestConfig, rows: list[DatasetSnapshotRow]) -> HandlerResult:
+    params = _require_experiment_params(config)
+    evaluation_window = params.evaluation_window or "1d"
+    experiment = run_llm_trend_breakout_experiment(rows, params=params)
+    metadata = {
+        **_base_metadata(config, rows),
+        "snapshot_count": len(rows),
+        "evaluation_window": evaluation_window,
+        "entry_profile": params.entry_profile,
+        "symbols": list(params.symbols),
+        "allowed_setup_types": list(params.allowed_setup_types),
+        "minimum_final_score": params.minimum_final_score,
+        "minimum_label_confidence": params.minimum_label_confidence,
+        "require_llm_label": params.require_llm_label,
+        "llm_label_path": params.llm_label_path,
+    }
+    report = render_llm_trend_breakout_report(
+        experiment_name=config.experiment_kind,
+        experiment=experiment,
+        metadata=metadata,
+    )
+    artifacts = {
+        "summary.json": report["summary"],
+        "candidate_rows.json": report["candidate_rows"],
+        "scorecard.json": report["scorecard"],
+    }
+    return _manifest(config, rows, artifacts, metadata), artifacts
+
+
 def _walk_forward_validation_outputs(config: BacktestConfig, rows: list[DatasetSnapshotRow]) -> HandlerResult:
     params = _require_experiment_params(config)
     evaluation_window = params.evaluation_window or "3d"
@@ -301,6 +332,7 @@ _EXPERIMENT_HANDLERS: dict[str, Handler] = {
     "engine_filter_ablation": _engine_filter_ablation_outputs,
     "public_strategy_factors": _public_strategy_factors_outputs,
     "long_gate_telemetry": _long_gate_telemetry_outputs,
+    "llm_trend_breakout": _llm_trend_breakout_outputs,
     "walk_forward_validation": _walk_forward_validation_outputs,
 }
 

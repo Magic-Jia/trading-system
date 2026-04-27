@@ -1,0 +1,34 @@
+{
+  "dataset_root": "sample_dataset",
+  "experiment_kind": "llm_trend_breakout",
+  "sample_windows": [
+    {
+      "name": "train",
+      "start": "2026-01-01T00:00:00Z",
+      "end": "2026-02-01T00:00:00Z"
+    }
+  ],
+  "forward_return_windows": [
+    {
+      "name": "1d",
+      "hours": 24
+    }
+  ],
+  "costs": {
+    "fee_bps": 4.0,
+    "slippage_bps": 6.0
+  },
+  "baseline_name": "trend-breakout",
+  "variant_name": "llm-filtered",
+  "experiment_params": {
+    "evaluation_window": "1d",
+    "entry_profile": "scout",
+    "llm_label_path": "llm_labels/sample_labels.json",
+    "require_llm_label": true,
+    "symbols": ["btcusdt", "ETHUSDT", "BTCUSDT", "solusdt"],
+    "minimum_final_score": 0.75,
+    "minimum_label_confidence": 0.5,
+    "reject_high_fomo": false,
+    "allowed_setup_types": ["breakout_continuation", "BREAKOUT_CONTINUATION"]
+  }
+}
