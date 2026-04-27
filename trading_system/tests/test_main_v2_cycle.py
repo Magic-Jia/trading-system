@@ -17,6 +17,7 @@ from trading_system.app.types import (
     AllocationDecision,
     LifecycleState,
     PositionSnapshot,
+    OrderIntent,
 )
 from trading_system.app.risk.validator import ValidationResult
 from trading_system.app.signals.short_engine import generate_short_candidates as generate_real_short_candidates
@@ -228,6 +229,45 @@ def test_v2_main_defaults_runtime_paths_to_env_bucket(monkeypatch, tmp_path, loa
     assert output_path.exists()
     assert seen["market_path"] == market_path
     assert seen["derivatives_path"] == deriv_path
+
+
+def test_main_v2_cycle_writes_recommendations_and_promotion_artifacts(monkeypatch, tmp_path, load_fixture):
+    bucket_dir = tmp_path / "data" / "runtime" / "testnet" / "prod"
+    output_path = bucket_dir / "runtime_state.json"
+    account_path = bucket_dir / "account_snapshot.json"
+    market_path = bucket_dir / "market_context.json"
+    deriv_path = bucket_dir / "derivatives_snapshot.json"
+    bucket_dir.mkdir(parents=True)
+    account_path.write_text(json.dumps(load_fixture("account_snapshot_v2.json")))
+    market_path.write_text(json.dumps(load_fixture("market_context_v2.json")))
+    deriv_path.write_text(json.dumps(load_fixture("derivatives_snapshot_v2.json")))
+
+    monkeypatch.setattr(main_module, "ACCOUNT_SNAPSHOT", tmp_path / "should-not-be-used" / "account_snapshot.json")
+    monkeypatch.setattr(main_module, "allocate_candidates", lambda **kwargs: [])
+    monkeypatch.setenv("TRADING_BASE_DIR", str(tmp_path))
+    monkeypatch.setenv("TRADING_EXECUTION_MODE", "testnet")
+    monkeypatch.setenv("TRADING_RUNTIME_ENV", "prod")
+    monkeypatch.setenv("BINANCE_USE_TESTNET", "1")
+    monkeypatch.setenv("BINANCE_FAPI_URL", "https://testnet.binancefuture.com")
+    monkeypatch.setenv("TRADING_TESTNET_ALLOWED_SYMBOLS", "BTCUSDT,ETHUSDT,LINKUSDT")
+    monkeypatch.setenv("TRADING_FEISHU_NOTIFICATIONS_ENABLED", "0")
+    monkeypatch.delenv("TRADING_STATE_FILE", raising=False)
+    monkeypatch.delenv("TRADING_ACCOUNT_SNAPSHOT_FILE", raising=False)
+    monkeypatch.delenv("TRADING_MARKET_CONTEXT_FILE", raising=False)
+    monkeypatch.delenv("TRADING_DERIVATIVES_SNAPSHOT_FILE", raising=False)
+
+    main_module.main()
+
+    optimization_dir = bucket_dir / "optimization"
+    recommendations_path = optimization_dir / "recommendations.json"
+    promotion_path = optimization_dir / "promotion_decision.json"
+    assert output_path.exists()
+    assert recommendations_path.exists()
+    assert promotion_path.exists()
+    state_payload = json.loads(output_path.read_text())
+    summary = state_payload.get("optimization_summary") or {}
+    assert summary.get("promotion_decision") == "observe"
+    assert "recommendation_count" in summary
 
 
 def test_v2_main_explicit_file_envs_override_runtime_bucket_defaults(monkeypatch, tmp_path, load_fixture):
@@ -3250,6 +3290,165 @@ def _near_stop_rotation_market():
     }
 
 
+def test_testnet_order_qty_uses_risk_budget_before_notional_cap():
+    account = AccountSnapshot(equity=100000.0, available_balance=100000.0, futures_wallet_balance=100000.0)
+    signal = main_module.TradeSignal(
+        signal_id="signal-risk-sized-btc",
+        symbol="BTCUSDT",
+        side="LONG",
+        entry_price=80000.0,
+        stop_loss=79000.0,
+        take_profit=None,
+    )
+    allocation = {"final_risk_budget": 0.008}
+
+    qty = main_module._testnet_order_qty(
+        account,
+        signal,
+        allocation,
+        max_notional_usdt=2000.0,
+    )
+
+    # Risk sizing comes first: 100000 * 0.8% / 1000 stop distance = 0.8 BTC.
+    # The testnet single-symbol notional guard then caps it to 2000 / 80000 = 0.025 BTC.
+    assert qty == pytest.approx(0.025, abs=1e-12)
+    assert qty * signal.entry_price <= 2000.0
+
+
+def test_testnet_order_qty_keeps_smaller_risk_sized_position_below_notional_cap():
+    account = AccountSnapshot(equity=100000.0, available_balance=100000.0, futures_wallet_balance=100000.0)
+    signal = main_module.TradeSignal(
+        signal_id="signal-risk-sized-eth",
+        symbol="ETHUSDT",
+        side="LONG",
+        entry_price=2000.0,
+        stop_loss=1000.0,
+        take_profit=None,
+    )
+    allocation = {"final_risk_budget": 0.001}
+
+    qty = main_module._testnet_order_qty(
+        account,
+        signal,
+        allocation,
+        max_notional_usdt=2000.0,
+    )
+
+    # Risk sizing gives 100000 * 0.1% / 1000 = 0.1 ETH, notional only 200 USDT,
+    # so the 2000 USDT cap must not force the position upward.
+    assert qty == pytest.approx(0.1, abs=1e-12)
+    assert qty * signal.entry_price == pytest.approx(200.0)
+
+
+def test_cap_order_qty_by_notional_limits_testnet_probe_size():
+    qty = main_module._cap_order_qty_by_notional(qty=0.4931058, entry_price=77938.38, max_notional_usdt=2000.0)
+
+    assert qty * 77938.38 <= 2000.0
+    assert qty == pytest.approx(0.02566129, abs=1e-8)
+
+
+def test_align_testnet_order_to_exchange_filters_keeps_order_within_caps():
+    order = OrderIntent(
+        intent_id="intent-btc-align",
+        signal_id="signal-btc-align",
+        symbol="BTCUSDT",
+        side="LONG",
+        qty=0.02564894,
+        entry_price=77975.92,
+        stop_loss=76829.74596105,
+        take_profit=None,
+    )
+    metadata = {"quantity_step_size": 0.0001, "price_tick_size": 0.1, "min_notional": 100.0}
+
+    aligned = main_module._align_testnet_order_to_exchange_filters(order, metadata, max_notional_usdt=2000.0)
+
+    assert aligned.qty == pytest.approx(0.0256, abs=1e-12)
+    assert aligned.entry_price == pytest.approx(77975.9, abs=1e-12)
+    assert aligned.stop_loss == pytest.approx(76829.7, abs=1e-12)
+    assert aligned.qty * aligned.entry_price <= 2000.0
+
+
+def test_align_testnet_order_to_exchange_filters_generates_default_take_profit_when_missing():
+    order = OrderIntent(
+        intent_id="intent-btc-default-tp",
+        signal_id="signal-btc-default-tp",
+        symbol="BTCUSDT",
+        side="LONG",
+        qty=0.05,
+        entry_price=80000.0,
+        stop_loss=79000.0,
+        take_profit=None,
+    )
+    metadata = {"quantity_step_size": 0.0001, "price_tick_size": 0.1, "min_notional": 100.0}
+
+    aligned = main_module._align_testnet_order_to_exchange_filters(order, metadata, max_notional_usdt=5000.0)
+
+    assert aligned.take_profit == pytest.approx(81500.0)
+    assert aligned.meta["default_take_profit_generated"] is True
+    assert aligned.meta["default_take_profit_r_multiple"] == pytest.approx(1.5)
+    assert aligned.meta["second_take_profit"] == pytest.approx(82000.0)
+    assert aligned.meta["second_take_profit_r_multiple"] == pytest.approx(2.0)
+
+
+def test_align_testnet_order_to_exchange_filters_preserves_structure_take_profit():
+    order = OrderIntent(
+        intent_id="intent-btc-structure-tp",
+        signal_id="signal-btc-structure-tp",
+        symbol="BTCUSDT",
+        side="LONG",
+        qty=0.05,
+        entry_price=80000.0,
+        stop_loss=79000.0,
+        take_profit=81234.56,
+    )
+    metadata = {"quantity_step_size": 0.0001, "price_tick_size": 0.1, "min_notional": 100.0}
+
+    aligned = main_module._align_testnet_order_to_exchange_filters(order, metadata, max_notional_usdt=5000.0)
+
+    assert aligned.take_profit == pytest.approx(81234.5)
+    assert "default_take_profit_generated" not in aligned.meta
+
+
+def test_notify_testnet_position_close_events_sends_once_and_marks_notified():
+    sent = []
+
+    class Execution:
+        feishu_notifications_enabled = True
+
+    class Config:
+        execution = Execution()
+
+    class Executor:
+        mode = "testnet"
+        config = Config()
+        feishu_notifier = sent.append
+
+    class State:
+        active_orders = {
+            "position-closed-ETHUSDT": {
+                "event": "POSITION_CLOSED",
+                "symbol": "ETHUSDT",
+                "side": "LONG",
+                "intent_id": "intent-eth-long",
+                "entry_price": 2329.52,
+                "take_profit": 2343.82,
+                "stop_loss": 2318.03,
+                "closed_at_bj": "2026-04-26T22:00:00+08:00",
+                "notified": False,
+            }
+        }
+
+    first = main_module._notify_testnet_position_close_events(State, Executor())
+    second = main_module._notify_testnet_position_close_events(State, Executor())
+
+    assert len(sent) == 1
+    assert "Trading testnet CLOSED" in sent[0]
+    assert "symbol=ETHUSDT" in sent[0]
+    assert State.active_orders["position-closed-ETHUSDT"]["notified"] is True
+    assert first[0]["symbol"] == "ETHUSDT"
+    assert second == []
+
+
 def test_main_v2_active_paper_first_rotation_probe_uses_valid_stop_and_tiny_execution_budget():
     account = AccountSnapshot(equity=1000.0, available_balance=1000.0, futures_wallet_balance=1000.0)
     allocation = _active_paper_first_rotation_probe_allocation()
@@ -3343,10 +3542,10 @@ def test_main_v2_active_paper_probe_still_enforces_existing_total_and_symbol_cap
             PositionSnapshot(
                 symbol="BNBUSDT",
                 side="LONG",
-                qty=0.02,
+                qty=0.047,
                 entry_price=638.0,
                 mark_price=638.0,
-                notional=12.8,
+                notional=30.0,
             )
         ],
     )

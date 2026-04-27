@@ -16,6 +16,107 @@ def _metrics_module():
         pytest.fail(f"paper optimization metrics module is missing: {exc}")
 
 
+def test_write_daily_metrics_uses_runtime_positions_for_current_open_state(tmp_path: Path) -> None:
+    paths = build_runtime_paths("testnet", runtime_root=tmp_path / "runtime", runtime_env="prod")
+    module = _metrics_module()
+    paths.signal_facts_file.parent.mkdir(parents=True, exist_ok=True)
+    paths.signal_facts_file.write_text(json.dumps({"symbol": "BTCUSDT"}) + "\n", encoding="utf-8")
+    paths.trade_outcomes_file.write_text(
+        json.dumps({"symbol": "BTCUSDT", "outcome_status": "UNKNOWN", "unrealized_pnl": -999}) + "\n",
+        encoding="utf-8",
+    )
+
+    module.write_daily_metrics_and_health_report(
+        trade_outcomes_path=paths.trade_outcomes_file,
+        signal_facts_path=paths.signal_facts_file,
+        daily_metrics_path=paths.daily_metrics_file,
+        health_report_path=paths.health_report_file,
+        recorded_at_bj="2026-04-27T00:00:00+08:00",
+        runtime_positions={
+            "BTCUSDT": {"symbol": "BTCUSDT", "status": "OPEN", "qty": 0.1, "unrealized_pnl": -5.5},
+            "ETHUSDT": {"symbol": "ETHUSDT", "status": "OPEN", "qty": 2, "unrealized_pnl": -3.5},
+            "LINKUSDT": {"symbol": "LINKUSDT", "status": "CLOSED", "qty": 0, "unrealized_pnl": 0},
+        },
+    )
+
+    daily_metrics = json.loads(paths.daily_metrics_file.read_text(encoding="utf-8"))
+    assert daily_metrics["scope"] == "current_runtime_positions"
+    assert daily_metrics["open_count"] == 2
+    assert daily_metrics["unrealized_pnl_total"] == -9.0
+    assert daily_metrics["current_positions"] == {
+        "BTCUSDT": {"status": "OPEN", "qty": 0.1, "unrealized_pnl": -5.5},
+        "ETHUSDT": {"status": "OPEN", "qty": 2.0, "unrealized_pnl": -3.5},
+    }
+
+
+def test_write_daily_metrics_deduplicates_latest_outcome_per_symbol_for_current_runtime_scope(tmp_path: Path) -> None:
+    paths = build_runtime_paths("testnet", runtime_root=tmp_path / "runtime", runtime_env="prod")
+    module = _metrics_module()
+    paths.signal_facts_file.parent.mkdir(parents=True, exist_ok=True)
+    paths.signal_facts_file.write_text("{}\n{}\n", encoding="utf-8")
+    rows = [
+        {
+            "symbol": "BTCUSDT",
+            "engine": "trend",
+            "setup_type": "BREAKOUT_CONTINUATION",
+            "regime_label": "OLD",
+            "execution_status": "FILLED",
+            "outcome_status": "OPEN",
+            "unrealized_pnl": -1000,
+            "updated_at_bj": "2026-04-26T10:00:00+08:00",
+        },
+        {
+            "symbol": "BTCUSDT",
+            "engine": "trend",
+            "setup_type": "BREAKOUT_CONTINUATION",
+            "regime_label": "NEW",
+            "execution_status": "FILLED",
+            "outcome_status": "OPEN",
+            "unrealized_pnl": -5,
+            "updated_at_bj": "2026-04-26T23:00:00+08:00",
+        },
+        {
+            "symbol": "ETHUSDT",
+            "engine": "trend",
+            "setup_type": "BREAKOUT_CONTINUATION",
+            "regime_label": "NEW",
+            "execution_status": "FILLED",
+            "outcome_status": "POSITION_NOT_TRACKED",
+            "unrealized_pnl": -99,
+            "updated_at_bj": "2026-04-26T11:00:00+08:00",
+        },
+        {
+            "symbol": "ETHUSDT",
+            "engine": "trend",
+            "setup_type": "BREAKOUT_CONTINUATION",
+            "regime_label": "NEW",
+            "execution_status": "FILLED",
+            "outcome_status": "OPEN",
+            "unrealized_pnl": -4,
+            "updated_at_bj": "2026-04-26T23:01:00+08:00",
+        },
+    ]
+    paths.trade_outcomes_file.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
+
+    module.write_daily_metrics_and_health_report(
+        trade_outcomes_path=paths.trade_outcomes_file,
+        signal_facts_path=paths.signal_facts_file,
+        daily_metrics_path=paths.daily_metrics_file,
+        health_report_path=paths.health_report_file,
+        recorded_at_bj="2026-04-27T00:00:00+08:00",
+    )
+
+    daily_metrics = json.loads(paths.daily_metrics_file.read_text(encoding="utf-8"))
+    assert daily_metrics["scope"] == "current_runtime_latest_by_symbol"
+    assert daily_metrics["raw_trade_outcome_count"] == 4
+    assert daily_metrics["trade_outcome_count"] == 2
+    assert daily_metrics["open_count"] == 2
+    assert daily_metrics["position_not_tracked_count"] == 0
+    assert daily_metrics["unrealized_pnl_total"] == -9.0
+    health_report = json.loads(paths.health_report_file.read_text(encoding="utf-8"))
+    assert health_report["status"] == "ok"
+
+
 def test_write_daily_metrics_and_health_report_summarizes_trade_outcomes(tmp_path: Path) -> None:
     paths = build_runtime_paths("paper", runtime_root=tmp_path / "runtime", runtime_env="research")
     module = _metrics_module()
@@ -157,6 +258,8 @@ def test_write_daily_metrics_and_health_report_summarizes_trade_outcomes(tmp_pat
     daily_metrics = json.loads(paths.daily_metrics_file.read_text(encoding="utf-8"))
     assert daily_metrics == {
         "recorded_at_bj": "2026-04-23T18:50:00+08:00",
+        "scope": "current_runtime_latest_by_symbol",
+        "raw_trade_outcome_count": 3,
         "signal_fact_count": 3,
         "trade_outcome_count": 3,
         "execution_status_counts": {"BLOCKED": 1, "FILLED": 2},
@@ -165,6 +268,7 @@ def test_write_daily_metrics_and_health_report_summarizes_trade_outcomes(tmp_pat
         "not_executed_count": 1,
         "position_not_tracked_count": 1,
         "unrealized_pnl_total": 13.0,
+        "current_positions": {},
         "by_engine": {
             "rotation": {
                 "trade_outcome_count": 1,
@@ -212,6 +316,8 @@ def test_write_daily_metrics_and_health_report_summarizes_trade_outcomes(tmp_pat
     health_report = json.loads(paths.health_report_file.read_text(encoding="utf-8"))
     assert health_report == {
         "recorded_at_bj": "2026-04-23T18:50:00+08:00",
+        "scope": "current_runtime_latest_by_symbol",
+        "raw_trade_outcome_count": 3,
         "status": "warn",
         "signal_fact_count": 3,
         "trade_outcome_count": 3,

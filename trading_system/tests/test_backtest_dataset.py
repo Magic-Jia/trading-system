@@ -357,6 +357,64 @@ def test_load_backtest_config_parses_full_market_baseline_allowed_short_setup_ty
     assert config.experiment_params.allowed_short_setup_types == ("BREAKDOWN_SHORT",)
 
 
+def test_load_backtest_config_parses_full_market_baseline_entry_profile(tmp_path: Path) -> None:
+    config_path = tmp_path / "full_market_intraday_multi_config.json"
+    config_path.write_text(
+        """
+        {
+          "dataset_root": "sample_dataset",
+          "experiment_kind": "full_market_baseline",
+          "sample_windows": [
+            {
+              "name": "train",
+              "start": "2026-01-01T00:00:00Z",
+              "end": "2026-02-01T00:00:00Z"
+            }
+          ],
+          "forward_return_windows": [],
+          "universe": {
+            "listing_age_days": 30,
+            "min_quote_volume_usdt_24h": {
+              "spot": 1000000.0,
+              "futures": 1000000.0
+            },
+            "require_complete_funding": true
+          },
+          "capital": {
+            "model": "shared_pool",
+            "initial_equity": 100000.0,
+            "risk_per_trade": 0.01,
+            "max_open_risk": 0.03
+          },
+          "costs": {
+            "fee_bps": {
+              "spot": 10.0,
+              "futures": 5.0
+            },
+            "slippage_tiers": {
+              "top": 2.0,
+              "high": 8.0,
+              "medium": 15.0,
+              "low": 30.0
+            },
+            "funding_mode": "historical_series"
+          },
+          "baseline_name": "market-wide",
+          "variant_name": "intraday-multi",
+          "experiment_params": {
+            "entry_profile": "intraday_multi"
+          }
+        }
+        """.strip(),
+        encoding="utf-8",
+    )
+
+    config = load_backtest_config(config_path)
+
+    assert config.experiment_params is not None
+    assert config.experiment_params.entry_profile == "intraday_multi"
+
+
 def test_load_backtest_config_parses_rotation_suppression_experiment_params(fixture_dir: Path) -> None:
     config = load_backtest_config(fixture_dir / "backtest" / "rotation_suppression_config.json")
 

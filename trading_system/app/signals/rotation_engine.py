@@ -9,6 +9,7 @@ from trading_system.app.signals.scoring import score_rotation_candidate
 from trading_system.app.types import EngineCandidate, RegimeSnapshot
 
 _ROTATION_SCORE_FLOOR = 0.60
+_SCOUT_ROTATION_SCORE_FLOOR = 0.55
 _CROWDED_LONG_BASIS_BPS = 20.0
 _ROTATION_ABSOLUTE_STRENGTH_DAILY_FLOOR = 0.03
 _ROTATION_ABSOLUTE_STRENGTH_H4_FLOOR = 0.01
@@ -99,6 +100,37 @@ def _is_active_paper_profile(profile: EntryProfile) -> bool:
     return profile.name == "active_paper"
 
 
+def _is_short_term_profile(profile: EntryProfile) -> bool:
+    return profile.name == "short_term"
+
+
+def _is_scout_profile(profile: EntryProfile) -> bool:
+    return profile.name == "scout"
+
+
+def _uses_intraday_long_trigger(profile: EntryProfile) -> bool:
+    return _is_short_term_profile(profile) or _is_scout_profile(profile)
+
+
+def _short_term_long_trigger(payload: Mapping[str, Any], profile: EntryProfile) -> bool:
+    if not _uses_intraday_long_trigger(profile):
+        return True
+    h4 = _tf_row(payload, "4h")
+    h1 = _tf_row(payload, "1h")
+    m30 = _tf_row(payload, "30m")
+    m15 = _tf_row(payload, "15m")
+    intraday_trigger = (
+        _to_float(m30.get("close")) >= _to_float(m30.get("ema_20")) >= _to_float(m30.get("ema_50"))
+        and _to_float(m15.get("close")) >= _to_float(m15.get("ema_20")) >= _to_float(m15.get("ema_50"))
+    )
+    if _is_scout_profile(profile):
+        return intraday_trigger
+    return intraday_trigger and (
+        _to_float(h4.get("close")) >= _to_float(h4.get("ema_20")) >= _to_float(h4.get("ema_50"))
+        and _to_float(h1.get("close")) >= _to_float(h1.get("ema_20")) >= _to_float(h1.get("ema_50"))
+    )
+
+
 def _soft_reclaim_trend_intact(payload: Mapping[str, Any], regime: RegimeSnapshot | Mapping[str, Any] | None) -> bool:
     if str(_regime_value(regime, "label", "")).upper() not in _SOFT_RECLAIM_ROTATION_REGIMES:
         return False
@@ -158,6 +190,21 @@ def _active_paper_soft_reclaim_trend_intact(
     return daily_soft_reclaim and lower_timeframe_near_ema50(h4) and lower_timeframe_near_ema50(h1)
 
 
+def _scout_intraday_recovery_trend_intact(payload: Mapping[str, Any], profile: EntryProfile) -> bool:
+    if not _is_scout_profile(profile):
+        return False
+    if str(payload.get("sector", "")).lower() == "majors":
+        return False
+    if str(payload.get("liquidity_tier", "")).lower() not in _HIGH_LIQUIDITY_TIERS:
+        return False
+
+    daily = _tf_row(payload, "daily")
+    h1 = _tf_row(payload, "1h")
+    daily_constructive = _to_float(daily.get("close")) > _to_float(daily.get("ema_20")) > _to_float(daily.get("ema_50"))
+    h1_reclaimed_ema20 = _to_float(h1.get("close")) >= _to_float(h1.get("ema_20")) > 0.0
+    return daily_constructive and h1_reclaimed_ema20 and _short_term_long_trigger(payload, profile)
+
+
 def _trend_accepted(
     payload: Mapping[str, Any],
     regime: RegimeSnapshot | Mapping[str, Any] | None = None,
@@ -167,6 +214,7 @@ def _trend_accepted(
         _trend_intact(payload)
         or _soft_reclaim_trend_intact(payload, regime)
         or (profile is not None and _active_paper_soft_reclaim_trend_intact(payload, regime, profile))
+        or (profile is not None and _scout_intraday_recovery_trend_intact(payload, profile))
     )
 
 
@@ -256,10 +304,18 @@ def _passes_absolute_strength_gate(payload: Mapping[str, Any], entry_profile: En
     daily = _tf_row(payload, "daily")
     h4 = _tf_row(payload, "4h")
     h1 = _tf_row(payload, "1h")
-    return (
+    m30 = _tf_row(payload, "30m")
+    m15 = _tf_row(payload, "15m")
+    base_gate = (
         _to_float(daily.get("return_pct_7d")) >= profile.rotation_daily_floor
         and _to_float(h4.get("return_pct_3d")) >= profile.rotation_h4_floor
         and _to_float(h1.get("return_pct_24h")) >= profile.rotation_h1_floor
+    )
+    if not base_gate or not _uses_intraday_long_trigger(profile):
+        return base_gate
+    return (
+        _to_float(m30.get("return_pct_8h")) >= profile.rotation_m30_floor
+        and _to_float(m15.get("return_pct_4h")) >= profile.rotation_m15_floor
     )
 
 
@@ -302,11 +358,16 @@ def _passes_reacceleration_h1_extension_gate(payload: Mapping[str, Any], setup_t
     return _extension_pct(_tf_row(payload, "1h")) >= _ROTATION_REACCELERATION_H1_EXTENSION_FLOOR_PCT
 
 
-def _rotation_stop_loss(payload: Mapping[str, Any]) -> float:
+def _rotation_stop_loss(payload: Mapping[str, Any], entry_profile: EntryProfile | None = None) -> float:
     h1 = _tf_row(payload, "1h")
     daily = _tf_row(payload, "daily")
-    entry_reference = _to_float(h1.get("close")) or _to_float(daily.get("close"))
-    stop_loss = _to_float(h1.get("ema_50"))
+    m15 = _tf_row(payload, "15m")
+    if entry_profile is not None and (_is_short_term_profile(entry_profile) or _is_scout_profile(entry_profile)):
+        entry_reference = _to_float(m15.get("close")) or _to_float(h1.get("close"))
+        stop_loss = _to_float(m15.get("ema_50"))
+    else:
+        entry_reference = _to_float(h1.get("close")) or _to_float(daily.get("close"))
+        stop_loss = _to_float(h1.get("ema_50"))
     if entry_reference <= 0 or stop_loss <= 0 or stop_loss >= entry_reference:
         return 0.0
     return stop_loss
@@ -342,7 +403,10 @@ def generate_rotation_candidates(
         if str(payload.get("sector", "")).lower() == "majors":
             continue
         active_paper_soft_reclaim = _active_paper_soft_reclaim_trend_intact(payload, regime, profile)
+        scout_intraday_recovery = _scout_intraday_recovery_trend_intact(payload, profile)
         if not _trend_accepted(payload, regime, profile):
+            continue
+        if not _short_term_long_trigger(payload, profile):
             continue
         rs_features = _relative_strength_features(payload, proxy)
         if not _passes_absolute_strength_gate(
@@ -372,10 +436,11 @@ def generate_rotation_candidates(
             }
         )
         total_score = _to_float(scored.get("total"))
-        if total_score < _ROTATION_SCORE_FLOOR:
+        score_floor = _SCOUT_ROTATION_SCORE_FLOOR if _is_scout_profile(profile) else _ROTATION_SCORE_FLOOR
+        if total_score < score_floor:
             continue
 
-        stop_loss = _rotation_stop_loss(payload)
+        stop_loss = _rotation_stop_loss(payload, profile)
         if stop_loss <= 0.0:
             continue
 
@@ -383,6 +448,15 @@ def generate_rotation_candidates(
         liquidity_meta = dict(universe_row.get("liquidity_meta", {})) if isinstance(universe_row, Mapping) else {}
         liquidity_meta.setdefault("liquidity_tier", payload.get("liquidity_tier"))
         liquidity_meta["volume_usdt_24h"] = _to_float(daily.get("volume_usdt_24h"))
+        invalidation_source = "rotation_pullback_failure_below_1h_ema50"
+        trigger_timeframes = None
+        if _is_short_term_profile(profile) or _is_scout_profile(profile):
+            invalidation_source = (
+                "scout_rotation_loss_below_15m_ema50"
+                if _is_scout_profile(profile)
+                else "short_term_rotation_loss_below_15m_ema50"
+            )
+            trigger_timeframes = ["30m", "15m"]
 
         candidates.append(
             EngineCandidate(
@@ -392,12 +466,14 @@ def generate_rotation_candidates(
                 side="LONG",
                 score=total_score,
                 stop_loss=stop_loss,
-                invalidation_source="rotation_pullback_failure_below_1h_ema50",
+                invalidation_source=invalidation_source,
                 timeframe_meta={
                     "daily_bias": "relative_strength_leader",
                     "h4_structure": (
                         "leader_persistence"
                         if _trend_intact(payload)
+                        else "scout_intraday_recovery"
+                        if scout_intraday_recovery
                         else "active_paper_soft_reclaim"
                         if active_paper_soft_reclaim
                         else "soft_daily_reclaim"
@@ -409,6 +485,7 @@ def generate_rotation_candidates(
                         "h1_spread": round(rs_features["h1_spread"], 6),
                     },
                     "score_components": scored.get("components", {}),
+                    **({"trigger_timeframes": trigger_timeframes} if trigger_timeframes else {}),
                 },
                 sector=str(payload.get("sector") or universe_row.get("sector") or ""),
                 liquidity_meta=liquidity_meta,

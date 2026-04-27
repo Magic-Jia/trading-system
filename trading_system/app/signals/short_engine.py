@@ -4,6 +4,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from trading_system.app.market_regime.derivatives import symbol_derivatives_features
+from trading_system.app.signals.entry_profile import EntryProfile, resolve_entry_profile
 from trading_system.app.signals.scoring import score_short_candidate
 from trading_system.app.types import EngineCandidate, RegimeSnapshot
 
@@ -64,6 +65,25 @@ def _short_symbols(short_universe: Sequence[Mapping[str, Any]] | None) -> dict[s
     return rows
 
 
+def _is_short_term_profile(profile: EntryProfile) -> bool:
+    return profile.name == "short_term"
+
+
+def _short_term_breakdown_trigger(payload: Mapping[str, Any], profile: EntryProfile) -> bool:
+    if not _is_short_term_profile(profile):
+        return True
+    h4 = _tf_row(payload, "4h")
+    h1 = _tf_row(payload, "1h")
+    m30 = _tf_row(payload, "30m")
+    m15 = _tf_row(payload, "15m")
+    return (
+        _to_float(h4.get("close")) <= _to_float(h4.get("ema_20")) <= _to_float(h4.get("ema_50"))
+        and _to_float(h1.get("close")) <= _to_float(h1.get("ema_20")) <= _to_float(h1.get("ema_50"))
+        and _to_float(m30.get("close")) <= _to_float(m30.get("ema_20")) <= _to_float(m30.get("ema_50"))
+        and _to_float(m15.get("close")) <= _to_float(m15.get("ema_20")) <= _to_float(m15.get("ema_50"))
+    )
+
+
 def _trend_broken(payload: Mapping[str, Any]) -> bool:
     daily = _tf_row(payload, "daily")
     h4 = _tf_row(payload, "4h")
@@ -106,11 +126,16 @@ def _setup_type(payload: Mapping[str, Any]) -> str | None:
     return None
 
 
-def _short_stop_loss(payload: Mapping[str, Any]) -> float:
+def _short_stop_loss(payload: Mapping[str, Any], entry_profile: EntryProfile | None = None) -> float:
     h4 = _tf_row(payload, "4h")
     daily = _tf_row(payload, "daily")
-    entry_reference = _to_float(daily.get("close")) or _to_float(h4.get("close"))
-    stop_loss = _to_float(h4.get("ema_50"))
+    m15 = _tf_row(payload, "15m")
+    if entry_profile is not None and _is_short_term_profile(entry_profile):
+        entry_reference = _to_float(m15.get("close")) or _to_float(h4.get("close"))
+        stop_loss = _to_float(m15.get("ema_50"))
+    else:
+        entry_reference = _to_float(daily.get("close")) or _to_float(h4.get("close"))
+        stop_loss = _to_float(h4.get("ema_50"))
     if entry_reference <= 0 or stop_loss <= 0 or stop_loss <= entry_reference:
         return 0.0
     return stop_loss
@@ -129,6 +154,7 @@ def generate_short_candidates(
     short_universe: Sequence[Mapping[str, Any]] | None = None,
     derivatives: Mapping[str, Any] | list[dict[str, Any]] | None = None,
     regime: RegimeSnapshot | Mapping[str, Any] | None = None,
+    entry_profile: EntryProfile | str | None = None,
 ) -> list[EngineCandidate]:
     if _short_suppressed(regime) or not _short_enabled(regime):
         return []
@@ -142,6 +168,7 @@ def generate_short_candidates(
         return []
 
     candidates: list[EngineCandidate] = []
+    profile = resolve_entry_profile(entry_profile)
     for symbol, universe_row in eligible.items():
         payload_value = symbols.get(symbol)
         if not isinstance(payload_value, Mapping):
@@ -150,6 +177,8 @@ def generate_short_candidates(
         if str(payload.get("sector", "")).lower() != "majors":
             continue
         if not _trend_broken(payload):
+            continue
+        if not _short_term_breakdown_trigger(payload, profile):
             continue
 
         setup_type = _setup_type(payload)
@@ -173,7 +202,7 @@ def generate_short_candidates(
         if total_score < _SHORT_SCORE_FLOOR:
             continue
 
-        stop_loss = _short_stop_loss(payload)
+        stop_loss = _short_stop_loss(payload, profile)
         if stop_loss <= 0.0:
             continue
 
@@ -184,6 +213,10 @@ def generate_short_candidates(
             "h1_trigger": "confirmed",
             "score_components": scored.get("components", {}),
         }
+        invalidation_source = "short_structure_reclaim_above_4h_ema50"
+        if _is_short_term_profile(profile):
+            timeframe_meta["trigger_timeframes"] = ["30m", "15m"]
+            invalidation_source = "short_term_short_reclaim_above_15m_ema50"
         if derivatives is not None:
             timeframe_meta["derivatives"] = {
                 "crowding_bias": str(derivatives_features.get("crowding_bias", "balanced")),
@@ -202,7 +235,7 @@ def generate_short_candidates(
                 side="SHORT",
                 score=total_score,
                 stop_loss=stop_loss,
-                invalidation_source="short_structure_reclaim_above_4h_ema50",
+                invalidation_source=invalidation_source,
                 timeframe_meta=timeframe_meta,
                 sector=str(payload.get("sector") or universe_row.get("sector") or ""),
                 liquidity_meta=liquidity_meta,

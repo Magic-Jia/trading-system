@@ -181,6 +181,7 @@ def _load_experiment_params(raw: Any, *, experiment_kind: str) -> ExperimentPara
         minimum_effectiveness_sample_count=int(raw.get("minimum_effectiveness_sample_count", 30)),
         disabled_engines=_load_disabled_engines(raw.get("disabled_engines")),
         allowed_short_setup_types=_load_allowed_short_setup_types(raw.get("allowed_short_setup_types")),
+        entry_profile=str(raw["entry_profile"]).strip() if raw.get("entry_profile") is not None else None,
     )
 
     if experiment_kind == "rotation_suppression":

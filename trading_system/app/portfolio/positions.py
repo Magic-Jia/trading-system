@@ -164,6 +164,34 @@ def _has_explicit_target_management_state(existing: dict[str, Any]) -> bool:
     return True
 
 
+def _position_close_event_payload(symbol: str, position: dict[str, Any], now_bj: str) -> dict[str, Any]:
+    return {
+        "event": "POSITION_CLOSED",
+        "symbol": symbol,
+        "side": position.get("side"),
+        "intent_id": position.get("intent_id"),
+        "signal_id": position.get("signal_id"),
+        "entry_price": position.get("entry_price"),
+        "stop_loss": position.get("stop_loss"),
+        "take_profit": position.get("take_profit"),
+        "opened_at_bj": position.get("opened_at_bj"),
+        "closed_at_bj": now_bj,
+        "notified": False,
+    }
+
+
+def _mark_intent_position_closed(state: RuntimeState, symbol: str, position: dict[str, Any], now_bj: str) -> None:
+    position["qty"] = 0.0
+    position["remaining_position_qty"] = 0.0
+    position["status"] = "CLOSED"
+    position["closed_at_bj"] = now_bj
+    position["tracked_from_snapshot"] = False
+    position["source"] = _source(position, from_snapshot=False, from_intent=True)
+    position["updated_at_bj"] = now_bj
+    position["last_synced_from"] = "account_snapshot_closed"
+    state.active_orders[f"position-closed-{symbol}"] = _position_close_event_payload(symbol, position, now_bj)
+
+
 def sync_positions_from_account(state: RuntimeState, account: AccountSnapshot) -> list[dict[str, Any]]:
     now_bj = _now_bj()
     seen_symbols: set[str] = set()
@@ -177,8 +205,11 @@ def sync_positions_from_account(state: RuntimeState, account: AccountSnapshot) -
         tracked_from_intent = bool(carry_existing.get("tracked_from_intent"))
         seen_symbols.add(snapshot.symbol)
 
+        snapshot_source = str((account.meta or {}).get("snapshot_source") or (account.meta or {}).get("source") or "").lower()
         preserve_paper_position = (
             tracked_from_intent
+            and "testnet" not in snapshot_source
+            and "binance" not in snapshot_source
             and float(carry_existing.get("qty", 0.0) or 0.0) > 0.0
             and float(carry_existing.get("entry_price", 0.0) or 0.0) > 0.0
         )
@@ -224,6 +255,7 @@ def sync_positions_from_account(state: RuntimeState, account: AccountSnapshot) -
         }
         synced_position["remaining_position_qty"] = round(qty, 8)
         state.positions[snapshot.symbol] = ensure_target_management_state(synced_position)
+        state.active_orders.pop(f"position-closed-{snapshot.symbol}", None)
 
     stale_symbols: list[str] = []
     for symbol, position in state.positions.items():
@@ -231,6 +263,10 @@ def sync_positions_from_account(state: RuntimeState, account: AccountSnapshot) -
             continue
         if position.get("tracked_from_snapshot") and not position.get("tracked_from_intent"):
             stale_symbols.append(symbol)
+            continue
+        status = str(position.get("status", "OPEN")).upper()
+        if position.get("tracked_from_intent") and status not in {"CLOSED", "SKIPPED", "FAILED", "CANCELLED"}:
+            _mark_intent_position_closed(state, symbol, position, now_bj)
             continue
         if position.get("tracked_from_snapshot"):
             position["tracked_from_snapshot"] = False

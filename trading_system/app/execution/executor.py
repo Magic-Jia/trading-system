@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
 
-from trading_system.binance_client import submit_futures_testnet_order
+from trading_system.binance_client import submit_futures_testnet_conditional_algo_order, submit_futures_testnet_order
 
 from ..connectors.binance import query_open_protective_orders
 from ..config import AppConfig
+from ..notifications import send_feishu_text
 from ..portfolio.positions import _has_explicit_target_management_state, apply_management_action_fill
 from ..types import BJ, ManagementActionIntent, OrderIntent, RuntimeState
 from .paper_executor import PaperExecutor
@@ -18,6 +20,7 @@ from .orders import OrderMode, build_management_preview, dry_run_fill, preview_r
 
 BASE = Path(__file__).resolve().parents[2]
 EXEC_LOG = BASE / "data" / "execution_log.jsonl"
+logger = logging.getLogger(__name__)
 
 
 class ExecutionError(RuntimeError):
@@ -30,10 +33,21 @@ class OrderExecutor:
         config: AppConfig,
         mode: OrderMode | None = None,
         persist_state: Callable[[RuntimeState], None] | None = None,
+        feishu_notifier: Callable[[str], None] | None = None,
     ):
         self.config = config
         self.mode = mode or config.execution.mode
         self.persist_state = persist_state
+        self.feishu_notifier = feishu_notifier or (
+            lambda message: send_feishu_text(
+                message,
+                app_id=self.config.execution.feishu_app_id,
+                app_secret=self.config.execution.feishu_app_secret,
+                receive_id=self.config.execution.feishu_receive_id,
+                receive_id_type=self.config.execution.feishu_receive_id_type,
+                domain=self.config.execution.feishu_domain,
+            )
+        )
         self.execution_log_path = EXEC_LOG
         self.paper_ledger_path = config.state_file.parent / "paper_ledger.jsonl"
         self.paper_executor = PaperExecutor(PaperLedger(self.paper_ledger_path))
@@ -66,18 +80,85 @@ class OrderExecutor:
             if would_submit:
                 payloads = preview.get("payloads") if isinstance(preview, dict) else {}
                 entry_payload = payloads.get("entry") if isinstance(payloads, dict) else None
+                stop_payload = payloads.get("stop") if isinstance(payloads, dict) else None
+                take_profit_payload = payloads.get("take_profit") if isinstance(payloads, dict) else None
                 if not isinstance(entry_payload, dict):
                     raise ExecutionError("testnet submission requires a validated entry payload")
-                exchange_response = submit_futures_testnet_order(entry_payload)
+                if not isinstance(stop_payload, dict):
+                    raise ExecutionError("testnet submission requires a protective stop before entry submission")
+                try:
+                    exchange_response = submit_futures_testnet_order(entry_payload)
+                except Exception as exc:
+                    self._notify_testnet_event(
+                        order,
+                        status="FAILED",
+                        detail=f"error={type(exc).__name__}: {exc}",
+                    )
+                    raise
+
+                stop_algo_order = None
+                stop_algo_response = None
+                stop_algo_error = None
+                take_profit_algo_order = None
+                take_profit_algo_response = None
+                take_profit_algo_error = None
+                if isinstance(stop_payload, dict):
+                    client_algo_id = stop_payload.get("newClientOrderId") or f"{entry_payload.get('newClientOrderId')}-sl"
+                    stop_algo_order = {
+                        "symbol": stop_payload["symbol"],
+                        "side": stop_payload["side"],
+                        "type": stop_payload["type"],
+                        "algoType": "CONDITIONAL",
+                        "triggerPrice": stop_payload["stopPrice"],
+                        "closePosition": stop_payload.get("closePosition", "true"),
+                        "workingType": stop_payload.get("workingType", "MARK_PRICE"),
+                        "clientAlgoId": client_algo_id,
+                    }
+                    try:
+                        stop_algo_response = submit_futures_testnet_conditional_algo_order(stop_algo_order)
+                    except Exception as exc:
+                        stop_algo_error = f"{type(exc).__name__}: {exc}"
+                        logger.exception("testnet protective stop submission failed after entry submission")
+                if isinstance(take_profit_payload, dict):
+                    client_algo_id = take_profit_payload.get("newClientOrderId") or f"{entry_payload.get('newClientOrderId')}-tp"
+                    take_profit_algo_order = {
+                        "symbol": take_profit_payload["symbol"],
+                        "side": take_profit_payload["side"],
+                        "type": take_profit_payload["type"],
+                        "algoType": "CONDITIONAL",
+                        "triggerPrice": take_profit_payload["stopPrice"],
+                        "closePosition": take_profit_payload.get("closePosition", "true"),
+                        "workingType": take_profit_payload.get("workingType", "MARK_PRICE"),
+                        "clientAlgoId": client_algo_id,
+                    }
+                    try:
+                        take_profit_algo_response = submit_futures_testnet_conditional_algo_order(take_profit_algo_order)
+                    except Exception as exc:
+                        take_profit_algo_error = f"{type(exc).__name__}: {exc}"
+                        logger.exception("testnet take profit submission failed after entry submission")
                 order.status = "SENT"
+                protective_order_error = stop_algo_error or take_profit_algo_error
                 result.update(
                     {
                         "venue": "binance_futures_testnet",
                         "entry_order": entry_payload,
                         "clientOrderId": entry_payload.get("newClientOrderId"),
                         "exchange_response": exchange_response,
-                        "result": "SUBMITTED",
+                        "stop_algo_order": stop_algo_order,
+                        "stop_algo_response": stop_algo_response,
+                        "stop_algo_error": stop_algo_error,
+                        "take_profit_algo_order": take_profit_algo_order,
+                        "take_profit_algo_response": take_profit_algo_response,
+                        "take_profit_algo_error": take_profit_algo_error,
+                        "requires_protective_stop_repair": bool(stop_algo_error),
+                        "requires_take_profit_repair": bool(take_profit_algo_error),
+                        "result": "SUBMITTED_PROTECTION_FAILED" if protective_order_error else "SUBMITTED",
                     }
+                )
+                self._notify_testnet_event(
+                    order,
+                    status="SUBMITTED",
+                    detail=f"clientOrderId={entry_payload.get('newClientOrderId')}",
                 )
             self.append_log(order, result)
             return result
@@ -210,3 +291,20 @@ class OrderExecutor:
         }
         with self.execution_log_path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(payload, ensure_ascii=False) + "\n")
+
+    def _notify_testnet_event(self, order: OrderIntent, *, status: str, detail: str) -> None:
+        if self.mode != "testnet" or not self.config.execution.feishu_notifications_enabled:
+            return
+        message = " | ".join(
+            [
+                f"Trading testnet {status}",
+                f"symbol={order.symbol}",
+                f"side={order.side}",
+                f"intent_id={order.intent_id}",
+                detail,
+            ]
+        )
+        try:
+            self.feishu_notifier(message)
+        except Exception as exc:
+            logger.warning("Feishu notification failed: %s", exc)

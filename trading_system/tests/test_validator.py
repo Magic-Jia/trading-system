@@ -125,3 +125,41 @@ def test_validate_signal_blocks_when_planned_notional_pushes_net_exposure_over_c
     assert result.metrics["current_net_exposure_pct"] == pytest.approx(0.8, abs=1e-6)
     assert result.metrics["net_exposure_after_pct"] == pytest.approx(0.92, abs=1e-6)
     assert context["sizing"].planned_notional_usdt == pytest.approx(120.0, abs=1e-6)
+
+
+def test_validate_signal_uses_planned_loss_not_notional_for_new_trade_risk_caps():
+    signal = TradeSignal(
+        signal_id="scout-risk-budget-allowed",
+        symbol="BTCUSDT",
+        side="LONG",
+        entry_price=77948.99,
+        stop_loss=76828.68949046,
+        take_profit=None,
+        source="strategy",
+        timeframe="4h",
+        tags=["v2", "trend"],
+        meta={"setup_type": "PULLBACK_CONTINUATION", "score": 0.91},
+    )
+    account = AccountSnapshot(
+        equity=100000.0,
+        available_balance=100000.0,
+        futures_wallet_balance=100000.0,
+        open_positions=[],
+    )
+    config = RiskConfig(
+        max_notional_pct=0.12,
+        max_total_risk_pct=0.03,
+        max_symbol_risk_pct=0.015,
+        max_net_exposure_pct=0.85,
+    )
+
+    result, context = validate_signal(signal, account, config, risk_pct_override=0.00541)
+
+    assert context["sizing"].planned_notional_usdt == pytest.approx(12000.0, rel=1e-4)
+    assert context["sizing"].planned_loss_usdt == pytest.approx(172.4667, rel=1e-4)
+    assert result.allowed is True
+    assert not any("总风险暴露" in reason for reason in result.reasons)
+    assert not any("单标的风险" in reason for reason in result.reasons)
+    assert result.metrics["total_risk_after_pct"] == pytest.approx(0.001725, abs=1e-6)
+    assert result.metrics["symbol_risk_after_pct"] == pytest.approx(0.001725, abs=1e-6)
+    assert result.metrics["net_exposure_after_pct"] == pytest.approx(0.12, abs=1e-6)

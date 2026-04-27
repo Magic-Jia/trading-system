@@ -4,7 +4,7 @@ set -Eeuo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../.." && pwd)"
 WRAPPER="${REPO_ROOT}/deploy/cron/trading-system-paper-cron.sh"
-CRON_EXPR="${TRADING_PAPER_CRON_EXPR:-*/15 * * * *}"
+CRON_EXPR="${TRADING_PAPER_CRON_EXPR:-* * * * *}"
 BLOCK_BEGIN="# >>> trading-system-paper cron >>>"
 BLOCK_END="# <<< trading-system-paper cron <<<"
 

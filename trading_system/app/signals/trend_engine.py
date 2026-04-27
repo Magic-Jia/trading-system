@@ -65,6 +65,41 @@ def _is_active_paper_profile(profile: EntryProfile) -> bool:
     return profile.name == "active_paper"
 
 
+def _is_short_term_profile(profile: EntryProfile) -> bool:
+    return profile.name == "short_term"
+
+
+def _is_scout_profile(profile: EntryProfile) -> bool:
+    return profile.name == "scout"
+
+
+def _is_intraday_multi_profile(profile: EntryProfile) -> bool:
+    return profile.name == "intraday_multi"
+
+
+def _uses_intraday_long_trigger(profile: EntryProfile) -> bool:
+    return _is_short_term_profile(profile) or _is_scout_profile(profile) or _is_intraday_multi_profile(profile)
+
+
+def _short_term_long_trigger(payload: Mapping[str, Any], profile: EntryProfile) -> bool:
+    if not _uses_intraday_long_trigger(profile):
+        return True
+    h4 = _tf_row(payload, "4h")
+    h1 = _tf_row(payload, "1h")
+    m30 = _tf_row(payload, "30m")
+    m15 = _tf_row(payload, "15m")
+    intraday_trigger = (
+        _to_float(m30.get("close")) >= _to_float(m30.get("ema_20")) >= _to_float(m30.get("ema_50"))
+        and _to_float(m15.get("close")) >= _to_float(m15.get("ema_20")) >= _to_float(m15.get("ema_50"))
+    )
+    if _is_scout_profile(profile):
+        return intraday_trigger
+    return intraday_trigger and (
+        _to_float(h4.get("close")) >= _to_float(h4.get("ema_20")) >= _to_float(h4.get("ema_50"))
+        and _to_float(h1.get("close")) >= _to_float(h1.get("ema_20")) >= _to_float(h1.get("ema_50"))
+    )
+
+
 def _is_active_paper_major_shallow_h1_pullback(payload: Mapping[str, Any], profile: EntryProfile) -> bool:
     if not _is_active_paper_profile(profile):
         return False
@@ -90,6 +125,23 @@ def _is_active_paper_major_shallow_h1_pullback(payload: Mapping[str, Any], profi
         and h1_close >= h1_ema50 * (1.0 - _ACTIVE_PAPER_H1_PULLBACK_EMA50_TOLERANCE_PCT)
     )
     return daily_constructive and h4_constructive and h1_shallow_pullback
+
+
+def _is_scout_major_intraday_recovery(payload: Mapping[str, Any], profile: EntryProfile) -> bool:
+    if not _is_scout_profile(profile):
+        return False
+    if str(payload.get("sector", "")) != _MAJOR_SECTOR:
+        return False
+    if str(payload.get("liquidity_tier", "")).lower() not in _HIGH_LIQUIDITY_TIERS:
+        return False
+
+    daily = _tf_row(payload, "daily")
+    h4 = _tf_row(payload, "4h")
+    h1 = _tf_row(payload, "1h")
+    daily_constructive = _to_float(daily.get("close")) > _to_float(daily.get("ema_20")) > _to_float(daily.get("ema_50"))
+    h4_reclaimed_ema20 = _to_float(h4.get("close")) >= _to_float(h4.get("ema_20")) > 0.0
+    h1_reclaimed_ema20 = _to_float(h1.get("close")) >= _to_float(h1.get("ema_20")) > 0.0
+    return daily_constructive and h4_reclaimed_ema20 and h1_reclaimed_ema20 and _short_term_long_trigger(payload, profile)
 
 
 def _is_high_liquidity_strong_name(payload: Mapping[str, Any]) -> bool:
@@ -156,11 +208,16 @@ def _setup_type(payload: Mapping[str, Any]) -> str:
     return "PULLBACK_CONTINUATION"
 
 
-def _trend_stop_loss(payload: Mapping[str, Any]) -> float:
+def _trend_stop_loss(payload: Mapping[str, Any], entry_profile: EntryProfile | None = None) -> float:
     h4 = _tf_row(payload, "4h")
     daily = _tf_row(payload, "daily")
-    entry_reference = _to_float(daily.get("close")) or _to_float(h4.get("close"))
-    stop_loss = _to_float(h4.get("ema_50"))
+    m15 = _tf_row(payload, "15m")
+    if entry_profile is not None and (_is_short_term_profile(entry_profile) or _is_scout_profile(entry_profile)):
+        entry_reference = _to_float(m15.get("close")) or _to_float(h4.get("close"))
+        stop_loss = _to_float(m15.get("ema_50"))
+    else:
+        entry_reference = _to_float(daily.get("close")) or _to_float(h4.get("close"))
+        stop_loss = _to_float(h4.get("ema_50"))
     if entry_reference <= 0 or stop_loss <= 0 or stop_loss >= entry_reference:
         return 0.0
     return stop_loss
@@ -171,10 +228,18 @@ def _passes_absolute_strength_gate(payload: Mapping[str, Any], entry_profile: En
     daily = _tf_row(payload, "daily")
     h4 = _tf_row(payload, "4h")
     h1 = _tf_row(payload, "1h")
-    return (
+    m30 = _tf_row(payload, "30m")
+    m15 = _tf_row(payload, "15m")
+    base_gate = (
         _to_float(daily.get("return_pct_7d")) >= profile.trend_daily_floor
         and _to_float(h4.get("return_pct_3d")) >= profile.trend_h4_floor
         and _to_float(h1.get("return_pct_24h")) >= profile.trend_h1_floor
+    )
+    if not base_gate or not _uses_intraday_long_trigger(profile):
+        return base_gate
+    return (
+        _to_float(m30.get("return_pct_8h")) >= profile.trend_m30_floor
+        and _to_float(m15.get("return_pct_4h")) >= profile.trend_m15_floor
     )
 
 
@@ -233,6 +298,7 @@ def generate_trend_candidates(
         is_major = sector == _MAJOR_SECTOR
         soft_non_major_pretrend = False
         active_paper_shallow_pullback = _is_active_paper_major_shallow_h1_pullback(payload, profile)
+        scout_intraday_recovery = _is_scout_major_intraday_recovery(payload, profile)
         if not is_major:
             soft_non_major_pretrend = _is_supportive_non_major_soft_pretrend(payload, regime)
             if not include_high_liquidity_strong_names and not soft_non_major_pretrend:
@@ -243,7 +309,14 @@ def generate_trend_candidates(
         daily = _tf_row(payload, "daily")
         h4 = _tf_row(payload, "4h")
         h1 = _tf_row(payload, "1h")
-        if not _is_uptrend(daily, h4, h1) and not soft_non_major_pretrend and not active_paper_shallow_pullback:
+        if (
+            not _is_uptrend(daily, h4, h1)
+            and not soft_non_major_pretrend
+            and not active_paper_shallow_pullback
+            and not scout_intraday_recovery
+        ):
+            continue
+        if not _short_term_long_trigger(payload, profile):
             continue
         if not _passes_absolute_strength_gate(payload, profile):
             continue
@@ -266,15 +339,31 @@ def generate_trend_candidates(
         if total_score <= 0.0:
             continue
 
-        stop_loss = _trend_stop_loss(payload)
+        stop_loss = _trend_stop_loss(payload, profile)
         if stop_loss <= 0.0:
             continue
 
         timeframe_meta = {
             "daily_bias": "supportive_soft_pretrend" if soft_non_major_pretrend else "up",
             "h4_structure": "intact",
-            "h1_trigger": "active_paper_shallow_pullback" if active_paper_shallow_pullback else "confirmed",
+            "h1_trigger": (
+                "scout_intraday_recovery"
+                if scout_intraday_recovery
+                else "active_paper_shallow_pullback"
+                if active_paper_shallow_pullback
+                else "confirmed"
+            ),
         }
+        invalidation_source = "trend_structure_loss_below_4h_ema50"
+        if _is_short_term_profile(profile) or _is_scout_profile(profile) or _is_intraday_multi_profile(profile):
+            timeframe_meta["trigger_timeframes"] = ["30m", "15m"]
+            invalidation_source = (
+                "scout_structure_loss_below_15m_ema50"
+                if _is_scout_profile(profile)
+                else "intraday_multi_structure_loss_below_15m_ema50"
+                if _is_intraday_multi_profile(profile)
+                else "short_term_structure_loss_below_15m_ema50"
+            )
         if derivatives is not None:
             timeframe_meta["derivatives"] = {
                 "crowding_bias": str(derivatives_features.get("crowding_bias", "balanced")),
@@ -289,7 +378,7 @@ def generate_trend_candidates(
                 side="LONG",
                 score=total_score,
                 stop_loss=stop_loss,
-                invalidation_source="trend_structure_loss_below_4h_ema50",
+                invalidation_source=invalidation_source,
                 timeframe_meta=timeframe_meta,
                 sector=sector or None,
                 liquidity_meta={

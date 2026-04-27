@@ -311,6 +311,74 @@ def test_run_cycle_auto_prepares_missing_paper_snapshots_in_bucket_before_main(m
     assert (bucket_dir / "derivatives_snapshot.json").exists()
 
 
+def test_run_cycle_testnet_prod_prepares_runtime_snapshots_and_pins_inputs_before_main(monkeypatch, tmp_path):
+    runtime_root = tmp_path / "runtime"
+    bucket_dir = runtime_root / "testnet" / "prod"
+    state_file = bucket_dir / "runtime_state.json"
+    stale_paper_dir = runtime_root / "paper" / "prod"
+    stale_paper_dir.mkdir(parents=True)
+    (stale_paper_dir / "account_snapshot.json").write_text('{"stale": true}', encoding="utf-8")
+    (stale_paper_dir / "market_context.json").write_text('{"stale": true}', encoding="utf-8")
+    (stale_paper_dir / "derivatives_snapshot.json").write_text('{"stale": true}', encoding="utf-8")
+    captured: dict[str, object] = {}
+
+    def fake_prepare(paths) -> None:
+        captured["prepared_mode"] = paths.mode
+        captured["prepared_runtime_env"] = paths.runtime_env
+        captured["prepared_bucket"] = paths.bucket_dir
+        paths.bucket_dir.mkdir(parents=True, exist_ok=True)
+        (paths.bucket_dir / "account_snapshot.json").write_text(
+            json.dumps({"fresh": "account", "bucket": str(paths.bucket_dir)}), encoding="utf-8"
+        )
+        (paths.bucket_dir / "market_context.json").write_text(
+            json.dumps({"fresh": "market", "bucket": str(paths.bucket_dir)}), encoding="utf-8"
+        )
+        (paths.bucket_dir / "derivatives_snapshot.json").write_text(
+            json.dumps({"fresh": "derivatives", "bucket": str(paths.bucket_dir)}), encoding="utf-8"
+        )
+
+    def fake_main() -> None:
+        captured["mode"] = os.environ["TRADING_EXECUTION_MODE"]
+        captured["runtime_env"] = os.environ["TRADING_RUNTIME_ENV"]
+        captured["state_file"] = Path(os.environ["TRADING_STATE_FILE"])
+        captured["account_file"] = Path(os.environ["TRADING_ACCOUNT_SNAPSHOT_FILE"])
+        captured["market_file"] = Path(os.environ["TRADING_MARKET_CONTEXT_FILE"])
+        captured["derivatives_file"] = Path(os.environ["TRADING_DERIVATIVES_SNAPSHOT_FILE"])
+        assert json.loads(captured["account_file"].read_text(encoding="utf-8"))["fresh"] == "account"
+        assert json.loads(captured["market_file"].read_text(encoding="utf-8"))["fresh"] == "market"
+        assert json.loads(captured["derivatives_file"].read_text(encoding="utf-8"))["fresh"] == "derivatives"
+        captured["state_file"].write_text(
+            json.dumps(
+                {
+                    "execution_mode": "testnet",
+                    "latest_candidates": [],
+                    "latest_allocations": [],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    monkeypatch.setenv("TRADING_ACCOUNT_SNAPSHOT_FILE", str(stale_paper_dir / "account_snapshot.json"))
+    monkeypatch.setenv("TRADING_MARKET_CONTEXT_FILE", str(stale_paper_dir / "market_context.json"))
+    monkeypatch.setenv("TRADING_DERIVATIVES_SNAPSHOT_FILE", str(stale_paper_dir / "derivatives_snapshot.json"))
+    monkeypatch.setattr(run_cycle_module, "prepare_paper_runtime_inputs", fake_prepare)
+    monkeypatch.setattr(run_cycle_module, "run_main", fake_main)
+
+    summary = run_cycle_module.run_cycle("testnet", runtime_root=runtime_root, runtime_env="prod")
+
+    assert captured["prepared_mode"] == "testnet"
+    assert captured["prepared_runtime_env"] == "prod"
+    assert captured["prepared_bucket"] == bucket_dir
+    assert captured["mode"] == "testnet"
+    assert captured["runtime_env"] == "prod"
+    assert captured["state_file"] == state_file
+    assert captured["account_file"] == bucket_dir / "account_snapshot.json"
+    assert captured["market_file"] == bucket_dir / "market_context.json"
+    assert captured["derivatives_file"] == bucket_dir / "derivatives_snapshot.json"
+    assert summary["status"] == "ok"
+    assert summary["bucket_dir"] == str(bucket_dir)
+
+
 def test_run_cycle_smoke_auto_prepares_paper_bucket_inputs_with_builtin_generators(monkeypatch, tmp_path):
     runtime_root = tmp_path / "runtime"
     bucket_dir = runtime_root / "paper" / "paper"
@@ -352,13 +420,17 @@ def test_run_cycle_smoke_auto_prepares_paper_bucket_inputs_with_builtin_generato
                 return _kline_rows(int(params["limit"]), start_close=62000.0, step=25.0)
             if interval == "1h":
                 return _kline_rows(int(params["limit"]), start_close=63500.0, step=5.0)
+            if interval == "30m":
+                return _kline_rows(int(params["limit"]), start_close=63800.0, step=3.0)
+            if interval == "15m":
+                return _kline_rows(int(params["limit"]), start_close=63900.0, step=2.0)
         if base == paper_snapshots_module.FUTURES_BASE and path == "/fapi/v1/premiumIndex":
             return {"symbol": symbol, "markPrice": "64120.0", "indexPrice": "64080.0", "lastFundingRate": "0.0001"}
         if base == paper_snapshots_module.FUTURES_BASE and path == "/fapi/v1/ticker/24hr":
             return {"symbol": symbol, "priceChangePercent": "1.7"}
         if base == paper_snapshots_module.FUTURES_BASE and path == "/fapi/v1/openInterest":
             return {"symbol": symbol, "openInterest": "1000.0"}
-        if base == paper_snapshots_module.FUTURES_BASE and path == "/futures/data/openInterestHist":
+        if base == paper_snapshots_module.FUTURES_DATA_BASE and path == "/futures/data/openInterestHist":
             return [
                 {"sumOpenInterestValue": "1000000.0"},
                 {"sumOpenInterestValue": "1025000.0"},
@@ -489,6 +561,10 @@ def test_run_cycle_refreshes_paper_snapshots_before_each_run(monkeypatch, tmp_pa
                 return _kline_rows(int(params["limit"]), start_close=float(payloads["spot_start_close"]) + 2000.0, step=25.0)
             if interval == "1h":
                 return _kline_rows(int(params["limit"]), start_close=float(payloads["spot_start_close"]) + 3500.0, step=5.0)
+            if interval == "30m":
+                return _kline_rows(int(params["limit"]), start_close=float(payloads["spot_start_close"]) + 3700.0, step=3.0)
+            if interval == "15m":
+                return _kline_rows(int(params["limit"]), start_close=float(payloads["spot_start_close"]) + 3800.0, step=2.0)
         if base == paper_snapshots_module.FUTURES_BASE and path == "/fapi/v1/premiumIndex":
             return {
                 "symbol": symbol,
@@ -500,7 +576,7 @@ def test_run_cycle_refreshes_paper_snapshots_before_each_run(monkeypatch, tmp_pa
             return {"symbol": symbol, "priceChangePercent": payloads["price_change_pct"]}
         if base == paper_snapshots_module.FUTURES_BASE and path == "/fapi/v1/openInterest":
             return {"symbol": symbol, "openInterest": payloads["open_interest"]}
-        if base == paper_snapshots_module.FUTURES_BASE and path == "/futures/data/openInterestHist":
+        if base == paper_snapshots_module.FUTURES_DATA_BASE and path == "/futures/data/openInterestHist":
             return payloads["open_interest_history"]
         if base == paper_snapshots_module.FUTURES_BASE and path == "/fapi/v1/klines":
             return _kline_rows(

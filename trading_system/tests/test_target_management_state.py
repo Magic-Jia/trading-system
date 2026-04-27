@@ -783,6 +783,84 @@ def test_sync_positions_from_account_refreshes_remaining_qty_for_external_reduct
     assert position["second_target_status"] == "pending"
 
 
+def test_sync_positions_from_account_marks_tracked_intent_position_closed_when_exchange_position_disappears(monkeypatch):
+    monkeypatch.setattr("trading_system.app.portfolio.positions._now_bj", lambda: "2026-04-09T18:00:00+08:00")
+    state = RuntimeStateV2(
+        updated_at_bj="2026-04-09T12:00:00+08:00",
+        positions={
+            "ETHUSDT": {
+                "symbol": "ETHUSDT",
+                "side": "LONG",
+                "qty": 0.858,
+                "entry_price": 2329.52,
+                "mark_price": 2346.09,
+                "stop_loss": 2318.03,
+                "take_profit": 2343.82,
+                "status": "OPEN",
+                "intent_id": "intent-eth-long",
+                "signal_id": "signal-eth-long",
+                "original_position_qty": 0.858,
+                "remaining_position_qty": 0.858,
+                "tracked_from_snapshot": True,
+                "tracked_from_intent": True,
+                "opened_at_bj": "2026-04-09T12:00:00+08:00",
+            }
+        },
+    )
+
+    synced = sync_positions_from_account(
+        state,
+        AccountSnapshot(
+            equity=1000.0,
+            available_balance=1000.0,
+            futures_wallet_balance=1000.0,
+            open_positions=[],
+        ),
+    )
+
+    position = state.positions["ETHUSDT"]
+    assert position["status"] == "CLOSED"
+    assert position["qty"] == pytest.approx(0.0)
+    assert position["remaining_position_qty"] == pytest.approx(0.0)
+    assert position["closed_at_bj"] == "2026-04-09T18:00:00+08:00"
+    assert position["last_synced_from"] == "account_snapshot_closed"
+    assert state.active_orders["position-closed-ETHUSDT"]["event"] == "POSITION_CLOSED"
+    assert state.active_orders["position-closed-ETHUSDT"]["notified"] is False
+    assert synced[0]["status"] == "CLOSED"
+
+
+def test_sync_positions_from_account_marks_tracked_intent_position_closed_even_if_snapshot_marker_was_lost(monkeypatch):
+    monkeypatch.setattr("trading_system.app.portfolio.positions._now_bj", lambda: "2026-04-09T18:00:00+08:00")
+    state = RuntimeStateV2(
+        updated_at_bj="2026-04-09T12:00:00+08:00",
+        positions={
+            "ETHUSDT": {
+                "symbol": "ETHUSDT",
+                "side": "LONG",
+                "qty": 0.858,
+                "entry_price": 2329.52,
+                "status": "OPEN",
+                "intent_id": "intent-eth-long",
+                "tracked_from_snapshot": False,
+                "tracked_from_intent": True,
+            }
+        },
+    )
+
+    sync_positions_from_account(
+        state,
+        AccountSnapshot(
+            equity=1000.0,
+            available_balance=1000.0,
+            futures_wallet_balance=1000.0,
+            open_positions=[],
+        ),
+    )
+
+    assert state.positions["ETHUSDT"]["status"] == "CLOSED"
+    assert state.active_orders["position-closed-ETHUSDT"]["notified"] is False
+
+
 def test_sync_positions_from_account_does_not_carry_opposite_side_target_state(monkeypatch):
     monkeypatch.setattr("trading_system.app.portfolio.positions._now_bj", lambda: "2026-04-09T18:00:00+08:00")
     state = RuntimeStateV2(
@@ -824,6 +902,86 @@ def test_sync_positions_from_account_does_not_carry_opposite_side_target_state(m
     assert position["take_profit"] is None
     assert "first_target_price" not in position
     assert "second_target_price" not in position
+
+
+def test_sync_positions_from_account_marks_pending_intent_closed_when_missing_from_testnet_snapshot():
+    state = RuntimeStateV2(
+        updated_at_bj="2026-04-27T01:30:00+08:00",
+        positions={
+            "LINKUSDT": {
+                "symbol": "LINKUSDT",
+                "side": "LONG",
+                "qty": 212.089077,
+                "entry_price": 9.43,
+                "mark_price": 9.43,
+                "stop_loss": 9.3657405,
+                "status": "PENDING",
+                "tracked_from_snapshot": False,
+                "tracked_from_intent": True,
+                "intent_id": "intent-link",
+                "signal_id": "sig-link",
+            }
+        },
+    )
+
+    sync_positions_from_account(
+        state,
+        AccountSnapshot(
+            equity=5000.0,
+            available_balance=4500.0,
+            futures_wallet_balance=5000.0,
+            open_positions=[],
+            meta={"snapshot_source": "binance_futures_testnet"},
+        ),
+    )
+
+    link = state.positions["LINKUSDT"]
+    assert link["status"] == "CLOSED"
+    assert link["qty"] == 0.0
+    event = state.active_orders["position-closed-LINKUSDT"]
+    assert event["event"] == "POSITION_CLOSED"
+    assert event["symbol"] == "LINKUSDT"
+    assert event["notified"] is False
+
+
+def test_sync_positions_from_account_clears_stale_closed_event_when_position_is_open_again():
+    state = RuntimeStateV2(
+        updated_at_bj="2026-04-26T23:00:00+08:00",
+        positions={
+            "BTCUSDT": {
+                "symbol": "BTCUSDT",
+                "side": "LONG",
+                "qty": 0.0256,
+                "entry_price": 78090.8,
+                "mark_price": 78090.8,
+                "status": "OPEN",
+                "tracked_from_snapshot": True,
+                "tracked_from_intent": True,
+            }
+        },
+        active_orders={
+            "position-closed-BTCUSDT": {
+                "event": "POSITION_CLOSED",
+                "symbol": "BTCUSDT",
+                "notified": True,
+            }
+        },
+    )
+
+    sync_positions_from_account(
+        state,
+        AccountSnapshot(
+            equity=1000.0,
+            available_balance=1000.0,
+            futures_wallet_balance=1000.0,
+            open_positions=[PositionSnapshot(symbol="BTCUSDT", side="LONG", qty=0.0896, entry_price=78036.9, mark_price=78081.7)],
+            meta={"snapshot_source": "binance_futures_testnet"},
+        ),
+    )
+
+    assert "position-closed-BTCUSDT" not in state.active_orders
+    assert state.positions["BTCUSDT"]["status"] == "OPEN"
+    assert state.positions["BTCUSDT"]["qty"] == pytest.approx(0.0896)
 
 
 def test_sync_positions_from_account_derives_target_management_when_snapshot_has_usable_entry_and_stop(monkeypatch):

@@ -72,6 +72,7 @@ class ExperimentParams:
     minimum_effectiveness_sample_count: int = 30
     disabled_engines: tuple[str, ...] = ()
     allowed_short_setup_types: tuple[str, ...] = ()
+    entry_profile: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

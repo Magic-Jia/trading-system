@@ -158,15 +158,30 @@ class AllocatorConfig:
 
 @dataclass(frozen=True, slots=True)
 class LifecycleConfig:
-    confirm_r_multiple: float = field(default_factory=lambda: _env_float("TRADING_LIFECYCLE_CONFIRM_R_MULTIPLE", "0.80"))
-    protect_r_multiple: float = field(default_factory=lambda: _env_float("TRADING_LIFECYCLE_PROTECT_R_MULTIPLE", "1.20"))
-    exit_r_multiple: float = field(default_factory=lambda: _env_float("TRADING_LIFECYCLE_EXIT_R_MULTIPLE", "2.00"))
+    confirm_r_multiple: float = field(default_factory=lambda: _env_float("TRADING_LIFECYCLE_CONFIRM_R_MULTIPLE", "0.40"))
+    protect_r_multiple: float = field(default_factory=lambda: _env_float("TRADING_LIFECYCLE_PROTECT_R_MULTIPLE", "0.80"))
+    exit_r_multiple: float = field(default_factory=lambda: _env_float("TRADING_LIFECYCLE_EXIT_R_MULTIPLE", "1.50"))
+    max_holding_hours: int = field(default_factory=lambda: _env_int("TRADING_LIFECYCLE_MAX_HOLDING_HOURS", "6"))
 
 
 @dataclass(frozen=True, slots=True)
 class ExecutionConfig:
     mode: ExecutionMode = field(default_factory=lambda: _env_execution_mode("TRADING_EXECUTION_MODE", "paper"))
     allow_live_execution: bool = field(default_factory=lambda: _env_bool("TRADING_ALLOW_LIVE_EXECUTION", False))
+    feishu_notifications_enabled: bool = field(
+        default_factory=lambda: _env_bool("TRADING_FEISHU_NOTIFICATIONS_ENABLED", True)
+    )
+    feishu_app_id: str | None = field(
+        default_factory=lambda: os.environ.get("TRADING_FEISHU_APP_ID") or os.environ.get("FEISHU_APP_ID") or None
+    )
+    feishu_app_secret: str | None = field(
+        default_factory=lambda: os.environ.get("TRADING_FEISHU_APP_SECRET") or os.environ.get("FEISHU_APP_SECRET") or None
+    )
+    feishu_receive_id: str | None = field(default_factory=lambda: os.environ.get("TRADING_FEISHU_RECEIVE_ID") or None)
+    feishu_receive_id_type: str = field(default_factory=lambda: os.environ.get("TRADING_FEISHU_RECEIVE_ID_TYPE") or "chat_id")
+    feishu_domain: str = field(
+        default_factory=lambda: os.environ.get("TRADING_FEISHU_DOMAIN") or os.environ.get("FEISHU_DOMAIN") or "feishu"
+    )
     testnet_order_submission_enabled: bool = field(
         default_factory=lambda: _env_bool("TRADING_TESTNET_ORDER_SUBMISSION_ENABLED", False)
     )

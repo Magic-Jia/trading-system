@@ -62,7 +62,9 @@ timestamp() {
   cd "${REPO_ROOT}"
 
   run_rc=0
-  if ! "${UV_BIN}" run python -m trading_system.run_cycle --mode "${MODE}" --runtime-env "${RUNTIME_ENV}"; then
+  if "${UV_BIN}" run python -m trading_system.run_cycle --mode "${MODE}" --runtime-env "${RUNTIME_ENV}"; then
+    run_rc=0
+  else
     run_rc=$?
   fi
 

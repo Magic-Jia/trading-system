@@ -7,13 +7,15 @@ from pathlib import Path
 from typing import Any, Callable, Iterable
 
 from trading_system.app.runtime_paths import RuntimePaths
-from trading_system.binance_client import FUTURES_BASE, SPOT_BASE, public_get
+from trading_system.binance_client import FUTURES_BASE, SPOT_BASE, _futures_testnet_signed_params, public_get, signed_get
 
 PAPER_ACCOUNT_SNAPSHOT_NAME = "account_snapshot.json"
 PAPER_MARKET_CONTEXT_NAME = "market_context.json"
 PAPER_DERIVATIVES_SNAPSHOT_NAME = "derivatives_snapshot.json"
 PAPER_SYMBOLS_ENV = "TRADING_PAPER_SNAPSHOT_SYMBOLS"
 PAPER_ACCOUNT_EQUITY_ENV = "TRADING_PAPER_ACCOUNT_EQUITY"
+FUTURES_DATA_BASE_ENV = "TRADING_FUTURES_DATA_BASE_URL"
+FUTURES_DATA_BASE = os.environ.get(FUTURES_DATA_BASE_ENV, "https://fapi.binance.com")
 
 _DEFAULT_PAPER_SYMBOLS = ("BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT", "LINKUSDT")
 _SYMBOL_METADATA: dict[str, dict[str, str]] = {
@@ -139,17 +141,23 @@ def _futures_klines(symbol: str, interval: str, *, limit: int = 24) -> list[list
     return rows
 
 
-def _timeframe_payload(rows: list[list[Any]], *, return_bars: int, volume_usdt_24h: float) -> dict[str, float]:
+def _timeframe_payload(
+    rows: list[list[Any]], *, return_bars: int, volume_usdt_24h: float, return_label: str | None = None
+) -> dict[str, float]:
     closes = [_to_float(row[4], field="close") for row in rows]
+    return_key = return_label or {
+        7: "return_pct_7d",
+        18: "return_pct_3d",
+        24: "return_pct_24h",
+        16: "return_pct_8h",
+    }.get(return_bars, "return_pct_4h")
     return {
         "close": round(closes[-1], 8),
         "ema_20": round(_ema(closes, 20), 8),
         "ema_50": round(_ema(closes, 50), 8),
         "rsi": round(_rsi(closes, 14), 4),
         "atr_pct": round(_atr_pct(rows, 14), 6),
-        f"return_pct_{'7d' if return_bars == 7 else '3d' if return_bars == 18 else '24h'}": round(
-            _pct_return(closes, return_bars), 6
-        ),
+        return_key: round(_pct_return(closes, return_bars), 6),
         "volume_usdt_24h": round(volume_usdt_24h, 4),
     }
 
@@ -183,7 +191,10 @@ def _open_interest_payload(symbol: str) -> dict[str, Any]:
 
 
 def _open_interest_change_24h_pct(symbol: str) -> float:
-    payload = public_get(FUTURES_BASE, "/futures/data/openInterestHist", {"symbol": symbol, "period": "1h", "limit": 24})
+    # Binance Futures testnet returns an empty body for /futures/data/openInterestHist.
+    # This is public market data, not order execution, so use the production public
+    # data host by default while signed/testnet orders still use binance_client.FUTURES_BASE.
+    payload = public_get(FUTURES_DATA_BASE, "/futures/data/openInterestHist", {"symbol": symbol, "period": "1h", "limit": 24})
     if not isinstance(payload, list) or len(payload) < 2:
         raise RuntimeError(f"open interest history returned insufficient rows for {symbol}")
     first = payload[0]
@@ -214,12 +225,16 @@ def _market_context_payload(symbols: Iterable[str]) -> dict[str, Any]:
         daily_rows = _spot_klines(symbol, "1d", limit=60)
         h4_rows = _spot_klines(symbol, "4h", limit=60)
         h1_rows = _spot_klines(symbol, "1h", limit=60)
+        m30_rows = _spot_klines(symbol, "30m", limit=60)
+        m15_rows = _spot_klines(symbol, "15m", limit=60)
         payload["symbols"][symbol] = {
             "sector": metadata["sector"],
             "liquidity_tier": metadata["liquidity_tier"],
             "daily": _timeframe_payload(daily_rows, return_bars=7, volume_usdt_24h=volume_usdt_24h),
             "4h": _timeframe_payload(h4_rows, return_bars=18, volume_usdt_24h=volume_usdt_24h),
             "1h": _timeframe_payload(h1_rows, return_bars=24, volume_usdt_24h=volume_usdt_24h),
+            "30m": _timeframe_payload(m30_rows, return_bars=16, volume_usdt_24h=volume_usdt_24h),
+            "15m": _timeframe_payload(m15_rows, return_bars=16, volume_usdt_24h=volume_usdt_24h, return_label="return_pct_4h"),
         }
     return payload
 
@@ -275,6 +290,63 @@ def _paper_account_snapshot_payload() -> dict[str, Any]:
     }
 
 
+def _testnet_position_side(position_amt: float, position_side: str | None) -> str:
+    side = str(position_side or "").upper()
+    if side in {"LONG", "SHORT"}:
+        return side
+    return "SHORT" if position_amt < 0 else "LONG"
+
+
+def _testnet_account_snapshot_payload() -> dict[str, Any]:
+    as_of = _timestamp()
+    params = _futures_testnet_signed_params()
+    account = signed_get(FUTURES_BASE, "/fapi/v2/account", params)
+    positions = signed_get(FUTURES_BASE, "/fapi/v2/positionRisk", params)
+    if not isinstance(account, dict):
+        raise RuntimeError("futures testnet account returned invalid payload")
+    if not isinstance(positions, list):
+        raise RuntimeError("futures testnet positionRisk returned invalid payload")
+
+    open_positions: list[dict[str, Any]] = []
+    for row in positions:
+        if not isinstance(row, dict):
+            continue
+        qty_signed = _to_float(row.get("positionAmt"), field="positionAmt")
+        if abs(qty_signed) <= 0.0:
+            continue
+        open_positions.append(
+            {
+                "symbol": str(row.get("symbol")),
+                "side": _testnet_position_side(qty_signed, row.get("positionSide")),
+                "qty": abs(qty_signed),
+                "entry_price": _to_float(row.get("entryPrice"), field="entryPrice"),
+                "mark_price": _to_float(row.get("markPrice"), field="markPrice"),
+                "unrealized_pnl": _to_float(row.get("unRealizedProfit"), field="unRealizedProfit"),
+                "notional": abs(_to_float(row.get("notional"), field="notional")),
+                "leverage": _to_float(row.get("leverage"), field="leverage") if row.get("leverage") is not None else None,
+            }
+        )
+
+    total_wallet_balance = _to_float(account.get("totalWalletBalance"), field="totalWalletBalance")
+    available_balance = _to_float(account.get("availableBalance"), field="availableBalance")
+    margin_balance = _to_float(account.get("totalMarginBalance", total_wallet_balance), field="totalMarginBalance")
+    return {
+        "as_of": as_of,
+        "schema_version": "v2",
+        "equity": margin_balance,
+        "available_balance": available_balance,
+        "futures_wallet_balance": total_wallet_balance,
+        "open_positions": open_positions,
+        "open_orders": [],
+        "meta": {
+            "account_type": "testnet",
+            "source": "binance_futures_testnet",
+            "snapshot_source": "binance_futures_testnet",
+            "generated_at": as_of,
+        },
+    }
+
+
 def _refresh_snapshot_file(path: Path, *, label: str, builder: Callable[[], dict[str, Any]]) -> None:
     try:
         payload = builder()
@@ -285,10 +357,11 @@ def _refresh_snapshot_file(path: Path, *, label: str, builder: Callable[[], dict
 
 def prepare_paper_runtime_inputs(paths: RuntimePaths) -> None:
     symbols = _paper_symbols()
+    account_builder = _testnet_account_snapshot_payload if getattr(paths, "mode", "") == "testnet" else _paper_account_snapshot_payload
     _refresh_snapshot_file(
         paths.bucket_dir / PAPER_ACCOUNT_SNAPSHOT_NAME,
         label=PAPER_ACCOUNT_SNAPSHOT_NAME,
-        builder=_paper_account_snapshot_payload,
+        builder=account_builder,
     )
     _refresh_snapshot_file(
         paths.bucket_dir / PAPER_MARKET_CONTEXT_NAME,

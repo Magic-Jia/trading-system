@@ -172,7 +172,7 @@ def run_cycle(mode: str, *, runtime_root: Path | str | None = None, runtime_env:
     }
 
     try:
-        if paths.mode == "paper":
+        if paths.mode in {"paper", "testnet"}:
             prepare_paper_runtime_inputs(paths)
             env_overrides.update(
                 {

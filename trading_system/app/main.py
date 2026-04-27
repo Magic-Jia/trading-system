@@ -2,19 +2,25 @@ from __future__ import annotations
 
 import json
 import os
+import math
 from dataclasses import asdict, dataclass, is_dataclass, replace
+from decimal import Decimal, ROUND_FLOOR
 from pathlib import Path
 from typing import Any, Mapping
 
 from .config import RiskConfig, build_config, normalize_engine_names, normalize_setup_types, runtime_path_defaults_enabled
 from .data_sources import load_derivatives_snapshot, load_market_context
+from .data_sources.testnet_exchange_metadata import load_testnet_exchange_metadata
 from .execution.executor import OrderExecutor
 from .execution.idempotency import already_processed, intent_id, mark_processed, replay_processed_execution
+from .execution.testnet_preview import build_validated_order_preview
 from .market_regime import classify_regime, summarize_derivatives_risk
 from .market_regime.derivatives import is_late_stage_long_blowoff, symbol_derivatives_features
 from .paper_optimization.collector import collect_signal_facts
 from .paper_optimization.metrics import write_daily_metrics_and_health_report
 from .paper_optimization.outcomes import collect_trade_outcomes
+from .paper_optimization.promotion import write_promotion_decision
+from .paper_optimization.recommendations import write_recommendations
 from .portfolio.allocator import allocate_candidates
 from .portfolio.lifecycle import advance_lifecycle_positions, build_management_action_intents, evaluate_portfolio
 from .portfolio.positions import apply_executed_intent, sync_positions_from_account
@@ -58,6 +64,25 @@ MARKET_CONTEXT_FILE_ENV = "TRADING_MARKET_CONTEXT_FILE"
 DERIVATIVES_SNAPSHOT_FILE_ENV = "TRADING_DERIVATIVES_SNAPSHOT_FILE"
 STATE_FILE_ENV = "TRADING_STATE_FILE"
 _PAPER_SAFE_ACCOUNT_TYPES = {"paper", "testnet"}
+
+
+def _testnet_existing_position_entry_block(state: Any, symbol: str) -> dict[str, Any] | None:
+    position = getattr(state, "positions", {}).get(symbol)
+    if not isinstance(position, dict):
+        return None
+    try:
+        qty = float(position.get("qty", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        qty = 0.0
+    status = str(position.get("status", "")).upper()
+    if qty <= 0.0 or status in {"CLOSED", "EXITED", "FLAT"}:
+        return None
+    return {
+        "status": "SKIPPED",
+        "reason": "testnet_existing_position_open",
+        "existing_intent_id": position.get("intent_id"),
+        "existing_qty": qty,
+    }
 
 
 @dataclass(frozen=True, slots=True)
@@ -747,6 +772,85 @@ def _order_qty(account: AccountSnapshot, signal: TradeSignal, allocation: Mappin
     return round(max(qty, 0.0), 8)
 
 
+def _cap_order_qty_by_notional(qty: float, entry_price: float, max_notional_usdt: float | None) -> float:
+    if qty <= 0.0 or entry_price <= 0.0:
+        return 0.0
+    if max_notional_usdt is None or max_notional_usdt <= 0.0:
+        return round(max(qty, 0.0), 8)
+    notional_capped_qty = max_notional_usdt / entry_price
+    capped_qty = max(min(qty, notional_capped_qty), 0.0)
+    return math.floor(capped_qty * 100_000_000) / 100_000_000
+
+
+def _testnet_order_qty(
+    account: AccountSnapshot,
+    signal: TradeSignal,
+    allocation: Mapping[str, Any],
+    *,
+    max_notional_usdt: float | None,
+) -> float:
+    risk_sized_qty = _order_qty(account, signal, allocation)
+    return _cap_order_qty_by_notional(risk_sized_qty, signal.entry_price, max_notional_usdt)
+
+
+def _floor_to_increment(value: float, increment: float) -> float:
+    if increment <= 0.0:
+        return value
+    decimal_value = Decimal(str(value))
+    decimal_increment = Decimal(str(increment))
+    units = (decimal_value / decimal_increment).to_integral_value(rounding=ROUND_FLOOR)
+    return float(units * decimal_increment)
+
+
+def _default_take_profit_price(order: OrderIntent, r_multiple: float) -> float | None:
+    risk_per_unit = abs(float(order.entry_price) - float(order.stop_loss))
+    if risk_per_unit <= 0.0:
+        return None
+    if order.side == "LONG":
+        return float(order.entry_price) + risk_per_unit * r_multiple
+    return float(order.entry_price) - risk_per_unit * r_multiple
+
+
+def _align_testnet_order_to_exchange_filters(
+    order: OrderIntent,
+    symbol_metadata: Mapping[str, Any],
+    *,
+    max_notional_usdt: float,
+) -> OrderIntent:
+    tick_size = float(symbol_metadata.get("price_tick_size", 0.0) or 0.0)
+    step_size = float(symbol_metadata.get("quantity_step_size", 0.0) or 0.0)
+    entry_price = _floor_to_increment(float(order.entry_price), tick_size)
+    stop_loss = _floor_to_increment(float(order.stop_loss), tick_size)
+    meta = dict(order.meta)
+    take_profit = order.take_profit
+    if take_profit is None:
+        primary_take_profit = _default_take_profit_price(replace(order, entry_price=entry_price, stop_loss=stop_loss), 1.5)
+        second_take_profit = _default_take_profit_price(replace(order, entry_price=entry_price, stop_loss=stop_loss), 2.0)
+        take_profit = primary_take_profit
+        if take_profit is not None:
+            meta["default_take_profit_generated"] = True
+            meta["default_take_profit_r_multiple"] = 1.5
+            if second_take_profit is not None:
+                meta["second_take_profit"] = _floor_to_increment(float(second_take_profit), tick_size)
+                meta["second_take_profit_r_multiple"] = 2.0
+    take_profit = _floor_to_increment(float(take_profit), tick_size) if take_profit is not None else None
+    qty = _cap_order_qty_by_notional(float(order.qty), entry_price, max_notional_usdt)
+    qty = _floor_to_increment(qty, step_size)
+    return replace(order, qty=qty, entry_price=entry_price, stop_loss=stop_loss, take_profit=take_profit, meta=meta)
+
+
+def _build_testnet_order_preview(order: OrderIntent, config: Any) -> dict[str, Any]:
+    metadata = load_testnet_exchange_metadata(config.execution.testnet_allowed_symbols)
+    return build_validated_order_preview(
+        order,
+        exchange_metadata=metadata,
+        allowlist=list(config.execution.testnet_allowed_symbols),
+        max_order_notional_usdt=float(config.execution.testnet_max_order_notional_usdt),
+        submission_enabled=bool(config.execution.testnet_order_submission_enabled),
+        preview_source="accepted_signal",
+    )
+
+
 def _execution_risk_budget(
     account: AccountSnapshot,
     signal: TradeSignal,
@@ -905,6 +1009,37 @@ def run_management_terminalization_pass(state: Any) -> None:
         state.positions[symbol] = terminalize_all_unreachable_stages(dict(position))
 
 
+def _notify_testnet_position_close_events(state: Any, executor: OrderExecutor) -> list[dict[str, Any]]:
+    sent: list[dict[str, Any]] = []
+    for key, event in list(getattr(state, "active_orders", {}).items()):
+        if not isinstance(event, dict):
+            continue
+        if event.get("event") != "POSITION_CLOSED" or event.get("notified"):
+            continue
+        symbol = event.get("symbol") or key.replace("position-closed-", "")
+        message = " | ".join(
+            [
+                "Trading testnet CLOSED",
+                f"symbol={symbol}",
+                f"side={event.get('side')}",
+                f"intent_id={event.get('intent_id')}",
+                f"entry={event.get('entry_price')}",
+                f"tp={event.get('take_profit')}",
+                f"sl={event.get('stop_loss')}",
+                f"closed_at={event.get('closed_at_bj')}",
+            ]
+        )
+        try:
+            if executor.mode == "testnet" and executor.config.execution.feishu_notifications_enabled:
+                executor.feishu_notifier(message)
+            event["notified"] = True
+            event["notified_at_bj"] = event.get("closed_at_bj")
+            sent.append({"key": key, "symbol": symbol, "message": message})
+        except Exception:
+            event["notification_error"] = "feishu_notification_failed"
+    return sent
+
+
 def _candidate_setup_type(candidate: Any) -> str:
     if isinstance(candidate, Mapping):
         return str(candidate.get("setup_type", "") or "").strip().upper()
@@ -1011,6 +1146,7 @@ def main() -> None:
     executor.execution_log_path = config.state_file.parent / "execution_log.jsonl"
     executor.execution_log_path.parent.mkdir(parents=True, exist_ok=True)
     sync_positions_from_account(state, account)
+    _notify_testnet_position_close_events(state, executor)
 
     execution_rows: list[dict[str, Any]] = []
     for allocation in allocation_rows:
@@ -1075,6 +1211,11 @@ def main() -> None:
         if store.circuit_breaker_active(state):
             allocation["execution"] = {"status": "BLOCKED", "reason": "circuit_breaker_active"}
             continue
+        if config.execution.mode == "testnet":
+            existing_position_block = _testnet_existing_position_entry_block(state, signal.symbol)
+            if existing_position_block is not None:
+                allocation["execution"] = existing_position_block
+                continue
         if already_processed(state, signal):
             allocation["execution"] = {
                 "status": "SKIPPED",
@@ -1086,6 +1227,13 @@ def main() -> None:
             continue
 
         qty = _order_qty(account, signal, allocation)
+        if config.execution.mode == "testnet":
+            qty = _testnet_order_qty(
+                account,
+                signal,
+                allocation,
+                max_notional_usdt=float(config.execution.testnet_max_order_notional_usdt),
+            )
         if qty <= 0:
             allocation["execution"] = {"status": "SKIPPED", "reason": "invalid_qty"}
             continue
@@ -1123,6 +1271,25 @@ def main() -> None:
                 ),
             },
         )
+        order.meta["remaining_position_qty"] = qty
+        if config.execution.mode == "testnet":
+            exchange_metadata = load_testnet_exchange_metadata(config.execution.testnet_allowed_symbols)
+            symbol_metadata = exchange_metadata.get(order.symbol, {})
+            order = _align_testnet_order_to_exchange_filters(
+                order,
+                symbol_metadata,
+                max_notional_usdt=float(config.execution.testnet_max_order_notional_usdt),
+            )
+            order.meta["original_position_qty"] = order.qty
+            order.meta["remaining_position_qty"] = order.qty
+            order.meta["validated_order_preview"] = build_validated_order_preview(
+                order,
+                exchange_metadata=exchange_metadata,
+                allowlist=list(config.execution.testnet_allowed_symbols),
+                max_order_notional_usdt=float(config.execution.testnet_max_order_notional_usdt),
+                submission_enabled=bool(config.execution.testnet_order_submission_enabled),
+                preview_source="accepted_signal",
+            )
         execution = executor.execute(order, state)
         if config.execution.mode != "dry-run":
             if config.execution.mode != "paper":
@@ -1180,6 +1347,8 @@ def main() -> None:
     trade_outcomes_path = optimization_dir / "trade_outcomes.jsonl"
     daily_metrics_path = optimization_dir / "daily_metrics.json"
     health_report_path = optimization_dir / "health_report.json"
+    recommendations_path = optimization_dir / "recommendations.json"
+    promotion_decision_path = optimization_dir / "promotion_decision.json"
     collect_signal_facts(
         signal_facts_path=signal_facts_path,
         candidate_rows=candidate_rows,
@@ -1195,12 +1364,33 @@ def main() -> None:
         runtime_positions=state.positions,
         paper_ledger_path=executor.paper_ledger_path if config.execution.mode == "paper" else None,
     )
-    write_daily_metrics_and_health_report(
+    metrics_payload = write_daily_metrics_and_health_report(
         trade_outcomes_path=trade_outcomes_path,
         signal_facts_path=signal_facts_path,
         daily_metrics_path=daily_metrics_path,
         health_report_path=health_report_path,
+        runtime_positions=state.positions,
     )
+    recommendations_payload = write_recommendations(
+        daily_metrics_path=daily_metrics_path,
+        health_report_path=health_report_path,
+        recommendations_path=recommendations_path,
+        previous_recommendations_path=recommendations_path,
+        recorded_at_bj=state.updated_at_bj,
+    )
+    promotion_payload = write_promotion_decision(
+        recommendations_path=recommendations_path,
+        promotion_decision_path=promotion_decision_path,
+        recorded_at_bj=state.updated_at_bj,
+    )
+    state.optimization_summary = {
+        "daily_metrics_status": (metrics_payload.get("health_report") or {}).get("status"),
+        "recommendation_count": recommendations_payload.get("recommendation_count", 0),
+        "suppressed_count": len(recommendations_payload.get("suppressed") or []),
+        "promotion_decision": promotion_payload.get("decision") or promotion_payload.get("status"),
+        "promotion_summary": promotion_payload.get("summary"),
+        "artifacts_dir": str(optimization_dir),
+    }
     state.latest_lifecycle = lifecycle_updates
     state.lifecycle_summary = lifecycle_summary
     state.trend_candidates = [row for row in candidate_rows if str(row.get("engine", "")).lower() == "trend"]

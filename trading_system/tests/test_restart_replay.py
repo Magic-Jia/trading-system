@@ -60,7 +60,7 @@ def test_main_persists_execution_recovery_state_before_post_execution_crash(
     monkeypatch.setattr(
         main_module,
         "validate_signal",
-        lambda signal, account, risk: (ValidationResult(True, "INFO", reasons=[], metrics={}), {}),
+        lambda signal, account, risk, **kwargs: (ValidationResult(True, "INFO", reasons=[], metrics={}), {}),
     )
     monkeypatch.setattr(
         main_module,
@@ -164,7 +164,7 @@ def test_main_replays_checkpointed_execution_after_crash_inside_execute_before_s
     monkeypatch.setattr(
         main_module,
         "validate_signal",
-        lambda signal, account, risk: (ValidationResult(True, "INFO", reasons=[], metrics={}), {}),
+        lambda signal, account, risk, **kwargs: (ValidationResult(True, "INFO", reasons=[], metrics={}), {}),
     )
     monkeypatch.setattr(
         main_module,
@@ -268,7 +268,7 @@ def test_main_replays_logged_execution_after_persist_state_crash_inside_execute(
     monkeypatch.setattr(
         main_module,
         "validate_signal",
-        lambda signal, account, risk: (ValidationResult(True, "INFO", reasons=[], metrics={}), {}),
+        lambda signal, account, risk, **kwargs: (ValidationResult(True, "INFO", reasons=[], metrics={}), {}),
     )
     monkeypatch.setattr(
         main_module,

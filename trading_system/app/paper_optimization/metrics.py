@@ -37,11 +37,29 @@ def _float_or_zero(value: Any) -> float:
 
 
 
+def _runtime_position_rows(runtime_positions: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
+    out: dict[str, dict[str, Any]] = {}
+    if not isinstance(runtime_positions, dict):
+        return out
+    for symbol, raw in runtime_positions.items():
+        if not isinstance(raw, dict):
+            continue
+        status = str(raw.get("status") or "").upper()
+        qty = _float_or_zero(raw.get("qty"))
+        if status in {"OPEN", "PENDING"} and qty > 0:
+            normalized = str(raw.get("symbol") or symbol).upper()
+            out[normalized] = {
+                "status": status,
+                "qty": qty,
+                "unrealized_pnl": round(_float_or_zero(raw.get("unrealized_pnl")), 4),
+            }
+    return out
+
+
 def _recorded_at_bj(value: str | None) -> str:
     if value:
         return value
     return datetime.now(BJ).isoformat()
-
 
 
 def _blank_bucket() -> dict[str, Any]:
@@ -52,6 +70,21 @@ def _blank_bucket() -> dict[str, Any]:
         "unrealized_pnl_total": 0.0,
     }
 
+
+
+def _latest_rows_by_symbol(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    latest: dict[str, dict[str, Any]] = {}
+    latest_key: dict[str, tuple[str, int]] = {}
+    for idx, row in enumerate(rows):
+        symbol = str(row.get("symbol") or "").upper()
+        if not symbol:
+            continue
+        ts = str(row.get("updated_at_bj") or row.get("recorded_at_bj") or row.get("opened_at_bj") or "")
+        key = (ts, idx)
+        if symbol not in latest_key or key >= latest_key[symbol]:
+            latest[symbol] = row
+            latest_key[symbol] = key
+    return list(latest.values())
 
 
 def _group_breakdown(rows: list[dict[str, Any]], key: str) -> dict[str, dict[str, Any]]:
@@ -80,9 +113,12 @@ def write_daily_metrics_and_health_report(
     daily_metrics_path: Path,
     health_report_path: Path,
     recorded_at_bj: str | None = None,
+    runtime_positions: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    rows = _jsonl(trade_outcomes_path)
+    raw_rows = _jsonl(trade_outcomes_path)
+    rows = _latest_rows_by_symbol(raw_rows)
     signal_fact_count = len(_jsonl(signal_facts_path))
+    raw_trade_outcome_count = len(raw_rows)
     trade_outcome_count = len(rows)
     execution_status_counts = Counter(str(row.get("execution_status") or "") for row in rows if row.get("execution_status"))
     outcome_status_counts = Counter(str(row.get("outcome_status") or "") for row in rows if row.get("outcome_status"))
@@ -90,10 +126,19 @@ def write_daily_metrics_and_health_report(
     not_executed_count = sum(1 for row in rows if row.get("outcome_status") == "NOT_EXECUTED")
     position_not_tracked_count = sum(1 for row in rows if row.get("outcome_status") == "POSITION_NOT_TRACKED")
     unrealized_pnl_total = round(sum(_float_or_zero(row.get("unrealized_pnl")) for row in rows), 4)
+    current_positions = _runtime_position_rows(runtime_positions)
+    scope = "current_runtime_latest_by_symbol"
+    if current_positions:
+        scope = "current_runtime_positions"
+        open_count = len(current_positions)
+        unrealized_pnl_total = round(sum(_float_or_zero(row.get("unrealized_pnl")) for row in current_positions.values()), 4)
+        position_not_tracked_count = 0
     recorded_at = _recorded_at_bj(recorded_at_bj)
 
     daily_metrics = {
         "recorded_at_bj": recorded_at,
+        "scope": scope,
+        "raw_trade_outcome_count": raw_trade_outcome_count,
         "signal_fact_count": signal_fact_count,
         "trade_outcome_count": trade_outcome_count,
         "execution_status_counts": dict(sorted(execution_status_counts.items())),
@@ -105,6 +150,7 @@ def write_daily_metrics_and_health_report(
         "by_engine": _group_breakdown(rows, "engine"),
         "by_setup_type": _group_breakdown(rows, "setup_type"),
         "by_regime": _group_breakdown(rows, "regime_label"),
+        "current_positions": current_positions,
     }
 
     warnings: list[dict[str, Any]] = []
@@ -119,6 +165,8 @@ def write_daily_metrics_and_health_report(
 
     health_report = {
         "recorded_at_bj": recorded_at,
+        "scope": scope,
+        "raw_trade_outcome_count": raw_trade_outcome_count,
         "status": "warn" if warnings else "ok",
         "signal_fact_count": signal_fact_count,
         "trade_outcome_count": trade_outcome_count,

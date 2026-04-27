@@ -268,6 +268,23 @@ def test_build_phase1_dataset_bundle_materials_accepts_binance_array_ohlcv_rows(
     assert latest.derivatives_snapshot["rows"][0]["symbol"] == "BTCUSDT"
 
 
+def test_build_phase1_dataset_bundle_materials_can_limit_output_window(tmp_path: Path) -> None:
+    archive_root = tmp_path / "archive"
+    _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT")
+    imported = load_phase1_raw_market_imports(archive_root)
+
+    materials = build_phase1_dataset_bundle_materials(
+        imported,
+        start_timestamp=datetime(2024, 2, 29, 20, tzinfo=UTC),
+        end_timestamp=datetime(2024, 2, 29, 22, tzinfo=UTC),
+    )
+
+    assert [material.timestamp for material in materials] == [
+        datetime(2024, 2, 29, 20, tzinfo=UTC),
+        datetime(2024, 2, 29, 21, tzinfo=UTC),
+    ]
+
+
 def test_build_phase1_dataset_bundle_materials_skips_sparse_ohlcv_rows_mislabeled_as_hourly(
     tmp_path: Path,
 ) -> None:

@@ -251,6 +251,7 @@ def _raw_full_market_candidates(
     *,
     disabled_engines: frozenset[str] | None = None,
     allowed_short_setup_types: frozenset[str] | None = None,
+    entry_profile: str | None = None,
 ) -> list[dict[str, Any]]:
     regime = _regime_dict(row, disabled_engines=disabled_engines)
     universes = build_universes(row.market, derivatives=row.derivatives)
@@ -259,7 +260,14 @@ def _raw_full_market_candidates(
     raw_candidates: list[dict[str, Any]] = []
     if "trend" not in disabled:
         raw_candidates.extend(
-            [_candidate_row(candidate) for candidate in generate_trend_candidates(row.market, derivatives=row.derivatives)]
+            [
+                _candidate_row(candidate)
+                for candidate in generate_trend_candidates(
+                    row.market,
+                    derivatives=row.derivatives,
+                    entry_profile=entry_profile,
+                )
+            ]
         )
     if "rotation" not in disabled:
         raw_candidates.extend(
@@ -270,6 +278,7 @@ def _raw_full_market_candidates(
                     rotation_universe=universes.rotation_universe,
                     derivatives=row.derivatives,
                     regime=regime,
+                    entry_profile=entry_profile,
                 )
             ]
         )
@@ -281,6 +290,7 @@ def _raw_full_market_candidates(
                 short_universe=universes.short_universe,
                 derivatives=row.derivatives,
                 regime=regime,
+                entry_profile=entry_profile,
             )
         ]
         if allowed_short_setups:
@@ -393,6 +403,7 @@ def _replay_full_market_baseline_rows(
     allowed_short_setup_types = (
         frozenset(config.experiment_params.allowed_short_setup_types) if config.experiment_params is not None else frozenset()
     )
+    entry_profile = config.experiment_params.entry_profile if config.experiment_params is not None else None
 
     equity = float(config.capital.initial_equity)
     open_trades: list[_OpenTrade] = []
@@ -432,6 +443,7 @@ def _replay_full_market_baseline_rows(
             row,
             disabled_engines=disabled_engines,
             allowed_short_setup_types=allowed_short_setup_types,
+            entry_profile=entry_profile,
         ):
             symbol = str(candidate_row.get("symbol", ""))
             instrument = included_by_symbol.get(symbol)

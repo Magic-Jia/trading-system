@@ -55,11 +55,13 @@ def evaluate_guardrails(
     account: AccountSnapshot,
     config: RiskConfig,
     planned_notional: float,
+    planned_loss: float | None = None,
 ) -> tuple[bool, list[str], dict[str, float | int]]:
     reasons: list[str] = []
     metrics: dict[str, float | int] = {}
 
     stop_distance_pct = signal.risk_per_unit() / signal.entry_price if signal.entry_price else 0.0
+    planned_risk_usdt = planned_loss if planned_loss is not None else planned_notional
     metrics["stop_distance_pct"] = round(stop_distance_pct, 6)
     metrics["current_open_risk_pct"] = round(current_open_risk_pct(account), 6)
     metrics["current_net_exposure_pct"] = round(current_net_exposure_pct(account), 6)
@@ -74,7 +76,7 @@ def evaluate_guardrails(
     if stop_distance_pct > config.max_stop_distance_pct:
         reasons.append(f"止损太宽：{stop_distance_pct:.2%} > {config.max_stop_distance_pct:.2%}")
 
-    total_risk_after = current_open_risk_pct(account) + (planned_notional / account.equity if account.equity else 0.0)
+    total_risk_after = current_open_risk_pct(account) + (planned_risk_usdt / account.equity if account.equity else 0.0)
     metrics["total_risk_after_pct"] = round(total_risk_after, 6)
     if total_risk_after > config.max_total_risk_pct:
         reasons.append(f"总风险暴露将升至 {total_risk_after:.2%}，超过上限 {config.max_total_risk_pct:.2%}")
@@ -85,7 +87,7 @@ def evaluate_guardrails(
     if abs(net_exposure_after) > config.max_net_exposure_pct:
         reasons.append(f"净敞口将升至 {net_exposure_after:.2%}，超过上限 {config.max_net_exposure_pct:.2%}")
 
-    symbol_risk_after = (existing_symbol_risk(account, signal.symbol) + planned_notional) / account.equity if account.equity else 0.0
+    symbol_risk_after = (existing_symbol_risk(account, signal.symbol) + planned_risk_usdt) / account.equity if account.equity else 0.0
     metrics["symbol_risk_after_pct"] = round(symbol_risk_after, 6)
     if symbol_risk_after > config.max_symbol_risk_pct:
         reasons.append(f"单标的风险将升至 {symbol_risk_after:.2%}，超过上限 {config.max_symbol_risk_pct:.2%}")

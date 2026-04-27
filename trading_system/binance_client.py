@@ -5,6 +5,7 @@ import hmac
 import json
 import os
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -107,8 +108,18 @@ def _request(
     method: str | None = None,
 ) -> Any:
     req = urllib.request.Request(url, headers=headers or {}, data=data, method=method)
-    with urllib.request.urlopen(req, timeout=20) as resp:
-        return json.loads(resp.read().decode())
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            return json.loads(resp.read().decode())
+    except urllib.error.HTTPError as exc:
+        try:
+            body = exc.read().decode("utf-8", errors="replace")
+        except Exception:
+            body = ""
+        parsed = urllib.parse.urlsplit(url)
+        safe_endpoint = urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", ""))
+        detail = body.strip() or exc.reason
+        raise RuntimeError(f"Binance HTTP {exc.code} {exc.reason} at {safe_endpoint}: {detail}") from exc
 
 
 def public_get(base: str, path: str, params: Dict[str, Any] | None = None) -> Any:
@@ -183,4 +194,20 @@ def submit_futures_testnet_order(
     response = signed_post(FUTURES_BASE, "/fapi/v1/order", params)
     if not isinstance(response, dict):
         raise RuntimeError("Unexpected futures testnet order response payload")
+    return response
+
+
+def submit_futures_testnet_conditional_algo_order(
+    payload: dict[str, Any],
+    *,
+    timestamp_ms: int | None = None,
+    recv_window: int = 5000,
+) -> dict[str, Any]:
+    if not _is_testnet_mode() or "testnet.binancefuture.com" not in FUTURES_BASE:
+        raise RuntimeError("futures testnet algo order submission requires Binance Futures testnet endpoint")
+    params = dict(payload)
+    params.update(_futures_testnet_signed_params(timestamp_ms=timestamp_ms, recv_window=recv_window))
+    response = signed_post(FUTURES_BASE, "/fapi/v1/algoOrder", params)
+    if not isinstance(response, dict):
+        raise RuntimeError("Unexpected futures testnet algo order response payload")
     return response

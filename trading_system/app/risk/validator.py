@@ -50,7 +50,13 @@ def validate_signal(
         reasons.append("仓位计算结果无效，拒绝开仓")
         return ValidationResult(False, "BLOCK", reasons=reasons, metrics=metrics), {"sizing": sizing}
 
-    allowed, guard_reasons, guard_metrics = evaluate_guardrails(signal, account, config, planned_notional=sizing.planned_notional_usdt)
+    allowed, guard_reasons, guard_metrics = evaluate_guardrails(
+        signal,
+        account,
+        config,
+        planned_notional=sizing.planned_notional_usdt,
+        planned_loss=sizing.planned_loss_usdt,
+    )
     metrics.update(guard_metrics)
     reasons.extend(guard_reasons)
 

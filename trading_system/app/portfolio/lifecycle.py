@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+from datetime import datetime, timezone
 from typing import Any
 
 from .exit_policy import ExitDecision, evaluate_exit_policy
@@ -240,6 +241,39 @@ def _r_multiple(position: dict[str, Any]) -> float:
     return (entry - mark) / risk_unit
 
 
+def _position_entry_profile(position: dict[str, Any]) -> str:
+    profile = str(position.get("entry_profile") or position.get("strategy_profile") or "").strip().lower().replace("-", "_")
+    if not profile:
+        meta = position.get("meta")
+        if isinstance(meta, dict):
+            profile = str(meta.get("entry_profile") or "").strip().lower().replace("-", "_")
+    return profile
+
+
+def _parse_datetime(value: Any) -> datetime | None:
+    if not value:
+        return None
+    raw = str(value).strip()
+    if not raw:
+        return None
+    if raw.endswith("Z"):
+        raw = raw[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _holding_hours(position: dict[str, Any]) -> float | None:
+    opened = _parse_datetime(position.get("opened_at") or position.get("entry_time") or position.get("created_at"))
+    if opened is None:
+        return None
+    return max((datetime.now(timezone.utc) - opened).total_seconds() / 3600.0, 0.0)
+
+
 def _target_management_lifecycle_projection(position: dict[str, Any]) -> dict[str, Any]:
     payload: dict[str, Any] = {}
     for key in ("first_target_hit", "second_target_hit", "runner_protected"):
@@ -289,6 +323,15 @@ def advance_lifecycle_positions(state: RuntimeState, lifecycle_config: Any) -> d
         if mark > 0 and take_profit is not None:
             target_hit = _in_favor(side, mark, _float(take_profit))
 
+        max_holding_hours = _float(getattr(lifecycle_config, "max_holding_hours", 0.0))
+        holding_hours = _holding_hours(position)
+        max_holding_elapsed = (
+            _position_entry_profile(position) == "short_term"
+            and max_holding_hours > 0.0
+            and holding_hours is not None
+            and holding_hours >= max_holding_hours
+        )
+
         next_state, reason_codes = advance_lifecycle_transition(
             current_state,
             {
@@ -298,14 +341,23 @@ def advance_lifecycle_positions(state: RuntimeState, lifecycle_config: Any) -> d
                 "trend_mature": r_multiple >= protect_trigger,
                 "stop_hit": stop_hit,
                 "target_hit": target_hit,
+                "exit_requested": max_holding_elapsed,
             },
             config=lifecycle_config,
         )
+        reason_codes = list(reason_codes)
+        extra_meta: dict[str, Any] = {}
+        if max_holding_elapsed:
+            reason_codes = ["max_holding_hours_elapsed"]
+            extra_meta["max_holding_hours"] = int(max_holding_hours) if max_holding_hours.is_integer() else max_holding_hours
+            if holding_hours is not None:
+                extra_meta["holding_hours"] = round(holding_hours, 4)
         projection = _target_management_lifecycle_projection(position) if carries_persistent_lifecycle else {}
         updates[symbol] = {
             "state": next_state.value,
             "reason_codes": reason_codes,
             "r_multiple": round(r_multiple, 6),
+            **extra_meta,
             **_position_taxonomy_meta(position),
             **projection,
         }

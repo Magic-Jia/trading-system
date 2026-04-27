@@ -499,6 +499,9 @@ def _merged_import_trace(traces: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
 
 def build_phase1_dataset_bundle_materials(
     imported_series: Iterable[ImportedRawMarketSeries],
+    *,
+    start_timestamp: datetime | None = None,
+    end_timestamp: datetime | None = None,
 ) -> tuple[Phase1DatasetBundleMaterial, ...]:
     symbol_series = _phase1_symbol_series(imported_series)
     if not symbol_series:
@@ -509,11 +512,14 @@ def build_phase1_dataset_bundle_materials(
         for item in symbol_series
     }
     all_timestamps = sorted(
-        {
+        timestamp
+        for timestamp in {
             timestamp
             for timestamps in ohlcv_timestamp_sets.values()
             for timestamp in timestamps
         }
+        if (start_timestamp is None or timestamp >= start_timestamp)
+        and (end_timestamp is None or timestamp < end_timestamp)
     )
     materials: list[Phase1DatasetBundleMaterial] = []
 
