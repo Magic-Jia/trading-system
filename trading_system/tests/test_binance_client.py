@@ -79,3 +79,60 @@ def test_request_includes_binance_error_body_without_sensitive_url(monkeypatch):
     assert "mandatory parameter was not sent" in message
     assert "secret-signature" not in message
     assert "secret-key" not in message
+
+def test_query_futures_testnet_order_uses_signed_get(monkeypatch):
+    calls = []
+    monkeypatch.setattr(binance_client, "FUTURES_BASE", "https://testnet.binancefuture.com")
+    monkeypatch.setenv("BINANCE_USE_TESTNET", "1")
+    monkeypatch.setattr(binance_client, "_futures_testnet_signed_params", lambda **kwargs: {"timestamp": 123, "recvWindow": 5000})
+    monkeypatch.setattr(
+        binance_client,
+        "signed_get",
+        lambda base, path, params: calls.append((base, path, params))
+        or {"orderId": 12345, "status": "NEW"},
+    )
+
+    result = binance_client.query_futures_testnet_order(symbol="BTCUSDT", orig_client_order_id="intent-btc-long")
+
+    assert result == {"orderId": 12345, "status": "NEW"}
+    assert calls == [
+        (
+            "https://testnet.binancefuture.com",
+            "/fapi/v1/order",
+            {
+                "symbol": "BTCUSDT",
+                "origClientOrderId": "intent-btc-long",
+                "timestamp": 123,
+                "recvWindow": 5000,
+            },
+        )
+    ]
+
+
+def test_cancel_futures_testnet_order_uses_signed_delete(monkeypatch):
+    calls = []
+    monkeypatch.setattr(binance_client, "FUTURES_BASE", "https://testnet.binancefuture.com")
+    monkeypatch.setenv("BINANCE_USE_TESTNET", "1")
+    monkeypatch.setattr(binance_client, "_futures_testnet_signed_params", lambda **kwargs: {"timestamp": 456, "recvWindow": 5000})
+    monkeypatch.setattr(
+        binance_client,
+        "signed_delete",
+        lambda base, path, params: calls.append((base, path, params))
+        or {"orderId": 12345, "status": "CANCELED"},
+    )
+
+    result = binance_client.cancel_futures_testnet_order(symbol="BTCUSDT", orig_client_order_id="intent-btc-long")
+
+    assert result == {"orderId": 12345, "status": "CANCELED"}
+    assert calls == [
+        (
+            "https://testnet.binancefuture.com",
+            "/fapi/v1/order",
+            {
+                "symbol": "BTCUSDT",
+                "origClientOrderId": "intent-btc-long",
+                "timestamp": 456,
+                "recvWindow": 5000,
+            },
+        )
+    ]

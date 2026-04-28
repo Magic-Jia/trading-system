@@ -2,12 +2,18 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
 
-from trading_system.binance_client import submit_futures_testnet_conditional_algo_order, submit_futures_testnet_order
+from trading_system.binance_client import (
+    cancel_futures_testnet_order,
+    query_futures_testnet_order,
+    submit_futures_testnet_conditional_algo_order,
+    submit_futures_testnet_order,
+)
 
 from ..connectors.binance import query_open_protective_orders
 from ..config import AppConfig
@@ -37,6 +43,26 @@ def _entry_payload_matches_policy(entry_payload: dict[str, Any], entry_order_pol
             and entry_payload.get("price") is not None
         )
     return False
+
+
+def _entry_executed_qty(order_status: dict[str, Any]) -> float:
+    return float(order_status.get("executedQty") or 0.0)
+
+
+def _entry_status(order_status: dict[str, Any]) -> str:
+    return str(order_status.get("status", "")).upper()
+
+
+def _has_open_entry_remainder(order_status: dict[str, Any]) -> bool:
+    return _entry_status(order_status) in {"NEW", "PARTIALLY_FILLED"}
+
+
+def _has_filled_entry_quantity(order_status: dict[str, Any]) -> bool:
+    return _entry_status(order_status) == "FILLED" or _entry_executed_qty(order_status) > 0.0
+
+
+def _is_filled_entry_order_status(order_status: dict[str, Any]) -> bool:
+    return _entry_status(order_status) == "FILLED"
 
 
 class OrderExecutor:
@@ -110,6 +136,46 @@ class OrderExecutor:
                     )
                     raise
 
+                entry_order_status = None
+                entry_cancel_response = None
+                if self.config.execution.entry_order_policy == "maker_only":
+                    entry_timeout_seconds = int(self.config.execution.maker_entry_timeout_seconds)
+                    entry_order_status = exchange_response if _is_filled_entry_order_status(exchange_response) else None
+                    if entry_order_status is None:
+                        time.sleep(entry_timeout_seconds)
+                        entry_order_status = query_futures_testnet_order(
+                            symbol=str(entry_payload["symbol"]),
+                            orig_client_order_id=str(entry_payload["newClientOrderId"]),
+                        )
+                    if _has_open_entry_remainder(entry_order_status):
+                        entry_cancel_response = cancel_futures_testnet_order(
+                            symbol=str(entry_payload["symbol"]),
+                            orig_client_order_id=str(entry_payload["newClientOrderId"]),
+                        )
+                    else:
+                        entry_cancel_response = None
+                    if not _has_filled_entry_quantity(entry_order_status):
+                        order.status = "CANCELLED"
+                        result.update(
+                            {
+                                "venue": "binance_futures_testnet",
+                                "entry_order": entry_payload,
+                                "clientOrderId": entry_payload.get("newClientOrderId"),
+                                "exchange_response": exchange_response,
+                                "entry_timeout_seconds": entry_timeout_seconds,
+                                "entry_order_status": entry_order_status,
+                                "entry_cancel_response": entry_cancel_response,
+                                "result": "ENTRY_TIMEOUT_CANCELLED",
+                            }
+                        )
+                        self._notify_testnet_event(
+                            order,
+                            status="ENTRY_TIMEOUT_CANCELLED",
+                            detail=f"clientOrderId={entry_payload.get('newClientOrderId')} timeout_seconds={entry_timeout_seconds}",
+                        )
+                        self.append_log(order, result)
+                        return result
+
                 stop_algo_order = None
                 stop_algo_response = None
                 stop_algo_error = None
@@ -158,6 +224,8 @@ class OrderExecutor:
                         "entry_order": entry_payload,
                         "clientOrderId": entry_payload.get("newClientOrderId"),
                         "exchange_response": exchange_response,
+                        "entry_order_status": entry_order_status,
+                        "entry_cancel_response": entry_cancel_response,
                         "stop_algo_order": stop_algo_order,
                         "stop_algo_response": stop_algo_response,
                         "stop_algo_error": stop_algo_error,

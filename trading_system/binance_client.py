@@ -158,6 +158,18 @@ def signed_post(base: str, path: str, params: Dict[str, Any] | None = None) -> A
     )
 
 
+def signed_delete(base: str, path: str, params: Dict[str, Any] | None = None) -> Any:
+    key = _api_key()
+    secret = _api_secret()
+    if not key or not secret:
+        raise RuntimeError("Missing Binance API credentials")
+    params = params or {}
+    qs = urllib.parse.urlencode(params, doseq=True)
+    sig = hmac.new(secret.encode(), qs.encode(), hashlib.sha256).hexdigest()
+    url = f"{base}{path}?{qs}&signature={sig}"
+    return _request(url, headers={"X-MBX-APIKEY": key}, method="DELETE")
+
+
 def server_time() -> int:
     return int(public_get(SPOT_BASE, "/api/v3/time")["serverTime"])
 
@@ -194,6 +206,46 @@ def submit_futures_testnet_order(
     response = signed_post(FUTURES_BASE, "/fapi/v1/order", params)
     if not isinstance(response, dict):
         raise RuntimeError("Unexpected futures testnet order response payload")
+    return response
+
+
+def query_futures_testnet_order(
+    *,
+    symbol: str,
+    orig_client_order_id: str,
+    timestamp_ms: int | None = None,
+    recv_window: int = 5000,
+) -> dict[str, Any]:
+    if not _is_testnet_mode() or "testnet.binancefuture.com" not in FUTURES_BASE:
+        raise RuntimeError("futures testnet order query requires Binance Futures testnet endpoint")
+    params = {
+        "symbol": symbol,
+        "origClientOrderId": orig_client_order_id,
+    }
+    params.update(_futures_testnet_signed_params(timestamp_ms=timestamp_ms, recv_window=recv_window))
+    response = signed_get(FUTURES_BASE, "/fapi/v1/order", params)
+    if not isinstance(response, dict):
+        raise RuntimeError("Unexpected futures testnet order query response payload")
+    return response
+
+
+def cancel_futures_testnet_order(
+    *,
+    symbol: str,
+    orig_client_order_id: str,
+    timestamp_ms: int | None = None,
+    recv_window: int = 5000,
+) -> dict[str, Any]:
+    if not _is_testnet_mode() or "testnet.binancefuture.com" not in FUTURES_BASE:
+        raise RuntimeError("futures testnet order cancellation requires Binance Futures testnet endpoint")
+    params = {
+        "symbol": symbol,
+        "origClientOrderId": orig_client_order_id,
+    }
+    params.update(_futures_testnet_signed_params(timestamp_ms=timestamp_ms, recv_window=recv_window))
+    response = signed_delete(FUTURES_BASE, "/fapi/v1/order", params)
+    if not isinstance(response, dict):
+        raise RuntimeError("Unexpected futures testnet order cancellation response payload")
     return response
 
 

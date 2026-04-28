@@ -289,7 +289,7 @@ def test_order_executor_testnet_does_not_notify_when_feishu_disabled(monkeypatch
     calls = []
 
     def fake_submit(payload):
-        return {"orderId": 12345, "status": "NEW", "clientOrderId": payload["newClientOrderId"]}
+        return {"orderId": 12345, "status": "FILLED", "executedQty": "0.01", "clientOrderId": payload["newClientOrderId"]}
 
     def fake_notify(message: str) -> None:
         calls.append(message)
@@ -330,7 +330,7 @@ def test_order_executor_testnet_success_notifies_when_feishu_enabled(monkeypatch
     calls = []
 
     def fake_submit(payload):
-        return {"orderId": 12345, "status": "NEW", "clientOrderId": payload["newClientOrderId"]}
+        return {"orderId": 12345, "status": "FILLED", "executedQty": "0.01", "clientOrderId": payload["newClientOrderId"]}
 
     def fake_notify(message: str) -> None:
         calls.append(message)
@@ -373,7 +373,7 @@ def test_order_executor_testnet_success_still_returns_submitted_when_notificatio
     )
 
     def fake_submit(payload):
-        return {"orderId": 12345, "status": "NEW", "clientOrderId": payload["newClientOrderId"]}
+        return {"orderId": 12345, "status": "FILLED", "executedQty": "0.01", "clientOrderId": payload["newClientOrderId"]}
 
     def fake_notify(_message: str) -> None:
         raise RuntimeError("feishu down")
@@ -417,7 +417,7 @@ def test_order_executor_testnet_submits_entry_and_stop_algo_order(monkeypatch, t
 
     def fake_submit_entry(payload):
         submitted_entry_payloads.append(payload)
-        return {"orderId": 12345, "status": "NEW", "clientOrderId": payload["newClientOrderId"]}
+        return {"orderId": 12345, "status": "FILLED", "executedQty": "0.01", "clientOrderId": payload["newClientOrderId"]}
 
     def fake_submit_stop(payload):
         submitted_stop_payloads.append(payload)
@@ -518,6 +518,229 @@ def test_order_executor_testnet_stop_failure_returns_partial_success_and_logs(mo
     assert "intent-btc-long" in log_payload
 
 
+
+def test_order_executor_testnet_submits_protection_after_maker_entry_fills_within_timeout(monkeypatch, tmp_path):
+    from trading_system.app.execution import executor as executor_module
+
+    exec_log = tmp_path / "execution_log.jsonl"
+    monkeypatch.setattr(executor_module, "EXEC_LOG", exec_log)
+    config = build_testnet_config(tmp_path, monkeypatch)
+    config = replace(
+        config,
+        execution=replace(
+            config.execution,
+            testnet_order_submission_enabled=True,
+            feishu_notifications_enabled=False,
+            entry_order_policy="maker_only",
+            maker_entry_timeout_seconds=15,
+        ),
+    )
+    submitted_algo_payloads = []
+    cancelled_orders = []
+    monkeypatch.setattr(
+        executor_module,
+        "submit_futures_testnet_order",
+        lambda payload: {"orderId": 12345, "status": "NEW", "clientOrderId": payload["newClientOrderId"]},
+    )
+    monkeypatch.setattr(
+        executor_module,
+        "query_futures_testnet_order",
+        lambda *, symbol, orig_client_order_id: {"orderId": 12345, "status": "FILLED", "executedQty": "0.01", "clientOrderId": orig_client_order_id},
+    )
+    monkeypatch.setattr(
+        executor_module,
+        "cancel_futures_testnet_order",
+        lambda **kwargs: cancelled_orders.append(kwargs) or {"status": "CANCELED"},
+    )
+    monkeypatch.setattr(
+        executor_module,
+        "submit_futures_testnet_conditional_algo_order",
+        lambda payload: submitted_algo_payloads.append(payload) or {"algoId": len(submitted_algo_payloads), "algoStatus": "NEW", "clientAlgoId": payload["clientAlgoId"]},
+    )
+    monkeypatch.setattr(executor_module.time, "sleep", lambda seconds: None)
+    order = _sample_order()
+    order.meta["validated_order_preview"] = {
+        "submission_prerequisites_passed": True,
+        "payloads": _testnet_preview_payloads(include_stop=True, include_take_profit=True),
+    }
+    executor = OrderExecutor(config)
+
+    result = executor.execute(order, RuntimeStateV2.empty())
+
+    assert result["result"] == "SUBMITTED"
+    assert cancelled_orders == []
+    assert len(submitted_algo_payloads) == 2
+    assert result["entry_order_status"]["status"] == "FILLED"
+
+
+def test_order_executor_testnet_cancels_unfilled_maker_entry_after_timeout(monkeypatch, tmp_path):
+    from trading_system.app.execution import executor as executor_module
+
+    exec_log = tmp_path / "execution_log.jsonl"
+    monkeypatch.setattr(executor_module, "EXEC_LOG", exec_log)
+    config = build_testnet_config(tmp_path, monkeypatch)
+    config = replace(
+        config,
+        execution=replace(
+            config.execution,
+            testnet_order_submission_enabled=True,
+            feishu_notifications_enabled=False,
+            entry_order_policy="maker_only",
+            maker_entry_timeout_seconds=15,
+        ),
+    )
+    submitted_entry_payloads = []
+    queried_orders = []
+    cancelled_orders = []
+    submitted_algo_payloads = []
+    slept = []
+
+    def fake_submit_entry(payload):
+        submitted_entry_payloads.append(payload)
+        return {"orderId": 12345, "status": "NEW", "clientOrderId": payload["newClientOrderId"]}
+
+    def fake_query_order(*, symbol, orig_client_order_id):
+        queried_orders.append({"symbol": symbol, "origClientOrderId": orig_client_order_id})
+        return {"orderId": 12345, "status": "NEW", "executedQty": "0", "clientOrderId": orig_client_order_id}
+
+    def fake_cancel_order(*, symbol, orig_client_order_id):
+        cancelled_orders.append({"symbol": symbol, "origClientOrderId": orig_client_order_id})
+        return {"orderId": 12345, "status": "CANCELED", "clientOrderId": orig_client_order_id}
+
+    monkeypatch.setattr(executor_module, "submit_futures_testnet_order", fake_submit_entry)
+    monkeypatch.setattr(executor_module, "query_futures_testnet_order", fake_query_order)
+    monkeypatch.setattr(executor_module, "cancel_futures_testnet_order", fake_cancel_order)
+    monkeypatch.setattr(executor_module, "submit_futures_testnet_conditional_algo_order", lambda payload: submitted_algo_payloads.append(payload) or {"algoId": 1})
+    monkeypatch.setattr(executor_module.time, "sleep", lambda seconds: slept.append(seconds))
+    order = _sample_order()
+    order.meta["validated_order_preview"] = {
+        "submission_prerequisites_passed": True,
+        "payloads": _testnet_preview_payloads(include_stop=True, include_take_profit=True),
+    }
+    executor = OrderExecutor(config)
+
+    result = executor.execute(order, RuntimeStateV2.empty())
+
+    assert result["result"] == "ENTRY_TIMEOUT_CANCELLED"
+    assert slept == [15]
+    assert queried_orders == [{"symbol": "BTCUSDT", "origClientOrderId": "intent-btc-long"}]
+    assert cancelled_orders == [{"symbol": "BTCUSDT", "origClientOrderId": "intent-btc-long"}]
+    assert submitted_entry_payloads == [order.meta["validated_order_preview"]["payloads"]["entry"]]
+    assert submitted_algo_payloads == []
+    assert result["entry_timeout_seconds"] == 15
+    assert result["entry_order_status"]["status"] == "NEW"
+    assert result["entry_cancel_response"]["status"] == "CANCELED"
+
+
+@pytest.mark.parametrize("terminal_status", ["EXPIRED", "CANCELED"])
+def test_order_executor_testnet_does_not_submit_protection_when_maker_entry_expires(monkeypatch, tmp_path, terminal_status):
+    from trading_system.app.execution import executor as executor_module
+
+    exec_log = tmp_path / "execution_log.jsonl"
+    monkeypatch.setattr(executor_module, "EXEC_LOG", exec_log)
+    config = build_testnet_config(tmp_path, monkeypatch)
+    config = replace(
+        config,
+        execution=replace(
+            config.execution,
+            testnet_order_submission_enabled=True,
+            feishu_notifications_enabled=False,
+            entry_order_policy="maker_only",
+            maker_entry_timeout_seconds=15,
+        ),
+    )
+    submitted_algo_payloads = []
+    cancelled_orders = []
+    monkeypatch.setattr(
+        executor_module,
+        "submit_futures_testnet_order",
+        lambda payload: {"orderId": 12345, "status": "NEW", "clientOrderId": payload["newClientOrderId"]},
+    )
+    monkeypatch.setattr(
+        executor_module,
+        "query_futures_testnet_order",
+        lambda *, symbol, orig_client_order_id: {"orderId": 12345, "status": terminal_status, "executedQty": "0", "clientOrderId": orig_client_order_id},
+    )
+    monkeypatch.setattr(
+        executor_module,
+        "cancel_futures_testnet_order",
+        lambda **kwargs: cancelled_orders.append(kwargs) or {"status": "CANCELED"},
+    )
+    monkeypatch.setattr(
+        executor_module,
+        "submit_futures_testnet_conditional_algo_order",
+        lambda payload: submitted_algo_payloads.append(payload) or {"algoId": 1},
+    )
+    monkeypatch.setattr(executor_module.time, "sleep", lambda seconds: None)
+    order = _sample_order()
+    order.meta["validated_order_preview"] = {
+        "submission_prerequisites_passed": True,
+        "payloads": _testnet_preview_payloads(include_stop=True, include_take_profit=True),
+    }
+    executor = OrderExecutor(config)
+
+    result = executor.execute(order, RuntimeStateV2.empty())
+
+    assert result["result"] == "ENTRY_TIMEOUT_CANCELLED"
+    assert result["entry_order_status"]["status"] == terminal_status
+    assert result["entry_cancel_response"] is None
+    assert cancelled_orders == []
+    assert submitted_algo_payloads == []
+
+
+def test_order_executor_testnet_cancels_partial_maker_entry_remainder_before_protection(monkeypatch, tmp_path):
+    from trading_system.app.execution import executor as executor_module
+
+    exec_log = tmp_path / "execution_log.jsonl"
+    monkeypatch.setattr(executor_module, "EXEC_LOG", exec_log)
+    config = build_testnet_config(tmp_path, monkeypatch)
+    config = replace(
+        config,
+        execution=replace(
+            config.execution,
+            testnet_order_submission_enabled=True,
+            feishu_notifications_enabled=False,
+            entry_order_policy="maker_only",
+            maker_entry_timeout_seconds=15,
+        ),
+    )
+    cancelled_orders = []
+    submitted_algo_payloads = []
+    monkeypatch.setattr(
+        executor_module,
+        "submit_futures_testnet_order",
+        lambda payload: {"orderId": 12345, "status": "NEW", "clientOrderId": payload["newClientOrderId"]},
+    )
+    monkeypatch.setattr(
+        executor_module,
+        "query_futures_testnet_order",
+        lambda *, symbol, orig_client_order_id: {"orderId": 12345, "status": "PARTIALLY_FILLED", "executedQty": "0.005", "clientOrderId": orig_client_order_id},
+    )
+    monkeypatch.setattr(
+        executor_module,
+        "cancel_futures_testnet_order",
+        lambda **kwargs: cancelled_orders.append(kwargs) or {"status": "CANCELED"},
+    )
+    monkeypatch.setattr(
+        executor_module,
+        "submit_futures_testnet_conditional_algo_order",
+        lambda payload: submitted_algo_payloads.append(payload) or {"algoId": len(submitted_algo_payloads) + 1, "algoStatus": "NEW", "clientAlgoId": payload["clientAlgoId"]},
+    )
+    monkeypatch.setattr(executor_module.time, "sleep", lambda seconds: None)
+    order = _sample_order()
+    order.meta["validated_order_preview"] = {
+        "submission_prerequisites_passed": True,
+        "payloads": _testnet_preview_payloads(include_stop=True, include_take_profit=True),
+    }
+    executor = OrderExecutor(config)
+
+    result = executor.execute(order, RuntimeStateV2.empty())
+
+    assert result["result"] == "SUBMITTED"
+    assert result["entry_order_status"]["status"] == "PARTIALLY_FILLED"
+    assert result["entry_cancel_response"]["status"] == "CANCELED"
+    assert cancelled_orders == [{"symbol": "BTCUSDT", "orig_client_order_id": "intent-btc-long"}]
+    assert len(submitted_algo_payloads) == 2
 
 def test_order_executor_testnet_rejects_stale_market_entry_preview_when_maker_only(monkeypatch, tmp_path):
     from trading_system.app.execution import executor as executor_module
@@ -622,7 +845,7 @@ def test_order_executor_testnet_submits_entry_stop_and_take_profit_algo_orders(m
 
     def fake_submit_entry(payload):
         submitted_entry_payloads.append(payload)
-        return {"orderId": 12345, "status": "NEW", "clientOrderId": payload["newClientOrderId"]}
+        return {"orderId": 12345, "status": "FILLED", "executedQty": "0.01", "clientOrderId": payload["newClientOrderId"]}
 
     def fake_submit_algo(payload):
         submitted_algo_payloads.append(payload)
