@@ -91,6 +91,40 @@ def _trade_breakdown_rows(
     return [buckets[key] for key in sorted(buckets)]
 
 
+def _trade_ledger_payload(trade_ledger: tuple[TradeLedgerRow, ...]) -> list[dict[str, Any]]:
+    return [
+        {
+            "symbol": row.symbol,
+            "market_type": row.market_type,
+            "base_asset": row.base_asset,
+            "side": row.side,
+            "status": row.status,
+            "entry_timestamp": row.entry_timestamp.isoformat(),
+            "exit_timestamp": row.exit_timestamp.isoformat(),
+            "entry_price": row.entry_price,
+            "exit_price": row.exit_price,
+            "qty": row.qty,
+            "position_notional": row.position_notional,
+            "gross_pnl": row.gross_pnl,
+            "net_pnl": row.net_pnl,
+            "fee_paid": row.fee_paid,
+            "slippage_paid": row.slippage_paid,
+            "funding_paid": row.funding_paid,
+            "engine": row.engine,
+            "setup_type": row.setup_type,
+            "score": row.score,
+            "stop_loss": row.stop_loss,
+            "take_profit": row.take_profit,
+            "exit_reason": row.exit_reason,
+            "mfe_pct": row.mfe_pct,
+            "mae_pct": row.mae_pct,
+            "exit_move_pct": row.exit_move_pct,
+            "cost_coverage_ratio": row.cost_coverage_ratio,
+        }
+        for row in trade_ledger
+    ]
+
+
 def render_full_market_baseline_report(result: BaselineReplayResult) -> dict[str, Any]:
     reason_counts = Counter(
         reason
@@ -122,6 +156,7 @@ def render_full_market_baseline_report(result: BaselineReplayResult) -> dict[str
             "rejection_count": len(result.rejection_ledger),
             "rejection_reasons": dict(sorted(reason_counts.items())),
         },
+        "trades": _trade_ledger_payload(result.trade_ledger),
     }
 
 

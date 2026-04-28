@@ -181,6 +181,12 @@ class _OpenTrade:
     position_notional: float
     liquidity_tier: str
     funding_rate: float
+    engine: str = ""
+    setup_type: str = ""
+    score: float = 0.0
+    stop_loss: float = 0.0
+    take_profit: float | None = None
+    cost_coverage_ratio: float | None = None
 
 
 def _experiment_name(config: BacktestConfig) -> str:
@@ -345,6 +351,31 @@ def _portfolio_state(equity: float, positions: list[PortfolioPosition]) -> Portf
     return PortfolioState(initial_equity=equity, open_positions=tuple(positions))
 
 
+def _candidate_cost_coverage_ratio(
+    candidate: PortfolioCandidate,
+    *,
+    instrument: InstrumentSnapshotRow,
+    costs: BacktestCosts,
+) -> float | None:
+    if candidate.entry_price <= 0.0 or candidate.take_profit is None or candidate.take_profit <= 0.0:
+        return None
+    if candidate.side == "long":
+        reward = float(candidate.take_profit) - float(candidate.entry_price)
+    else:
+        reward = float(candidate.entry_price) - float(candidate.take_profit)
+    if reward <= 0.0:
+        return 0.0
+    expected_reward_pct = reward / float(candidate.entry_price)
+    roundtrip_cost_bps = 2.0 * (
+        fee_bps_for_market(costs, candidate.market_type)
+        + slippage_bps_for_tier(costs, instrument.liquidity_tier)
+    )
+    required_cost_pct = roundtrip_cost_bps / 10_000.0
+    if required_cost_pct <= 0.0:
+        return None
+    return expected_reward_pct / required_cost_pct
+
+
 def _candidate_cost_coverage_ok(
     candidate: PortfolioCandidate,
     *,
@@ -356,19 +387,8 @@ def _candidate_cost_coverage_ok(
         return True
     if candidate.entry_price <= 0.0 or candidate.take_profit is None or candidate.take_profit <= 0.0:
         return True
-    if candidate.side == "long":
-        reward = float(candidate.take_profit) - float(candidate.entry_price)
-    else:
-        reward = float(candidate.entry_price) - float(candidate.take_profit)
-    if reward <= 0.0:
-        return False
-    expected_reward_pct = reward / float(candidate.entry_price)
-    roundtrip_cost_bps = 2.0 * (
-        fee_bps_for_market(costs, candidate.market_type)
-        + slippage_bps_for_tier(costs, instrument.liquidity_tier)
-    )
-    required_coverage_pct = (roundtrip_cost_bps / 10_000.0) * float(minimum_cost_coverage_ratio)
-    return expected_reward_pct >= required_coverage_pct
+    coverage_ratio = _candidate_cost_coverage_ratio(candidate, instrument=instrument, costs=costs)
+    return coverage_ratio is None or coverage_ratio >= float(minimum_cost_coverage_ratio)
 
 
 def _trade_row(
@@ -380,6 +400,15 @@ def _trade_row(
     exit_price = _reference_price(exit_row, open_trade.symbol) or open_trade.entry_price
     direction = 1.0 if open_trade.side == "long" else -1.0
     holding_hours = (exit_row.timestamp - open_trade.entry_timestamp).total_seconds() / 3600.0
+    raw_move_pct = (exit_price - open_trade.entry_price) / open_trade.entry_price if open_trade.entry_price > 0.0 else 0.0
+    if open_trade.side == "long":
+        exit_move_pct = raw_move_pct
+        mfe_pct = max(0.0, raw_move_pct)
+        mae_pct = max(0.0, -raw_move_pct)
+    else:
+        exit_move_pct = -raw_move_pct
+        mfe_pct = max(0.0, -raw_move_pct)
+        mae_pct = max(0.0, raw_move_pct)
     gross_pnl = (exit_price - open_trade.entry_price) * open_trade.qty * direction
     fees = fee_cost(position_notional=open_trade.position_notional, market_type=open_trade.market_type, costs=costs)
     slippage = slippage_cost(
@@ -418,6 +447,16 @@ def _trade_row(
             fee_paid=fees,
             slippage_paid=slippage,
             funding_paid=funding,
+            engine=open_trade.engine,
+            setup_type=open_trade.setup_type,
+            score=open_trade.score,
+            stop_loss=open_trade.stop_loss,
+            take_profit=open_trade.take_profit,
+            exit_reason="fixed_horizon",
+            mfe_pct=mfe_pct,
+            mae_pct=mae_pct,
+            exit_move_pct=exit_move_pct,
+            cost_coverage_ratio=open_trade.cost_coverage_ratio,
         ),
         gross_pnl,
         net_pnl,
@@ -518,6 +557,7 @@ def _replay_full_market_baseline_rows(
                     )
                 )
                 continue
+            cost_coverage_ratio = _candidate_cost_coverage_ratio(candidate, instrument=instrument, costs=config.costs)
             decision = evaluate_candidate(candidate, state=_portfolio_state(equity, open_positions), capital=config.capital)
             ledger_row = decision_to_ledger_row(candidate, decision)
             if decision.status == "rejected":
@@ -548,6 +588,12 @@ def _replay_full_market_baseline_rows(
                     position_notional=decision.position_notional,
                     liquidity_tier=instrument.liquidity_tier,
                     funding_rate=_funding_rate(row, candidate.symbol),
+                    engine=str(candidate_row.get("engine", "")),
+                    setup_type=str(candidate_row.get("setup_type", "")),
+                    score=float(candidate_row.get("score", 0.0) or 0.0),
+                    stop_loss=candidate.stop_loss,
+                    take_profit=candidate.take_profit,
+                    cost_coverage_ratio=cost_coverage_ratio,
                 )
             )
 

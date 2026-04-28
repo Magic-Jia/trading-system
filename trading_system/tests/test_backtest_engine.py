@@ -112,6 +112,27 @@ def test_backtest_cli_runs_full_market_baseline_smoke_fixture(
     assert (bundle_dir / "summary.json").exists()
     assert (bundle_dir / "breakdowns.json").exists()
     assert (bundle_dir / "audit.json").exists()
+    assert (bundle_dir / "trades.json").exists()
+    assert (bundle_dir / "trade_postmortem.md").exists()
+    postmortem = (bundle_dir / "trade_postmortem.md").read_text(encoding="utf-8")
+    assert "逐单复盘" in postmortem
+    assert "exit_reason" in postmortem
+    trades_path = bundle_dir / "trades.json"
+    assert trades_path.exists()
+    trades = json.loads(trades_path.read_text(encoding="utf-8"))["trades"]
+    assert trades
+    assert {
+        "engine",
+        "setup_type",
+        "score",
+        "stop_loss",
+        "take_profit",
+        "exit_reason",
+        "mfe_pct",
+        "mae_pct",
+        "exit_move_pct",
+        "cost_coverage_ratio",
+    }.issubset(trades[0])
 
 
 def test_backtest_cli_rejects_invalid_config(
@@ -833,6 +854,74 @@ def test_replay_full_market_baseline_rejects_candidates_below_minimum_cost_cover
     assert [row.symbol for row in result.trade_ledger] == ["BTCUSDTPERP"]
     rejected = {row.symbol: row for row in result.rejection_ledger}
     assert rejected["BTCUSDT"].reasons == ("minimum_cost_coverage_not_met",)
+
+
+def test_replay_full_market_baseline_trade_ledger_keeps_candidate_explanation_fields(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    config_path = _baseline_config_path(tmp_path)
+    _install_replay_candidates(monkeypatch)
+
+    result = backtest_engine.replay_full_market_baseline(load_backtest_config(config_path))
+
+    btc_trade = next(row for row in result.trade_ledger if row.symbol == "BTCUSDT")
+    assert btc_trade.engine == "trend"
+    assert btc_trade.setup_type == "BREAKOUT_CONTINUATION"
+    assert btc_trade.score == pytest.approx(0.95)
+    assert btc_trade.stop_loss == pytest.approx(90.0)
+    assert btc_trade.take_profit == pytest.approx(115.0)
+    assert btc_trade.exit_reason == "fixed_horizon"
+    assert btc_trade.mfe_pct == pytest.approx(0.10)
+    assert btc_trade.mae_pct == pytest.approx(0.0)
+    assert btc_trade.exit_move_pct == pytest.approx(0.10)
+    assert btc_trade.cost_coverage_ratio > 0.0
+
+
+def test_replay_full_market_baseline_allows_positive_reward_candidate_when_costs_are_zero(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    config_path = _baseline_config_path(tmp_path)
+    raw = json.loads(config_path.read_text(encoding="utf-8"))
+    raw["experiment_params"] = {"minimum_cost_coverage_ratio": 2.0}
+    raw["costs"]["fee_bps"] = {"spot": 0.0, "futures": 0.0}
+    raw["costs"]["slippage_tiers"] = {"top": 0.0, "high": 0.0, "medium": 0.0, "low": 0.0}
+    config_path.write_text(json.dumps(raw), encoding="utf-8")
+    config = load_backtest_config(config_path)
+
+    monkeypatch.setattr(
+        backtest_engine,
+        "classify_regime",
+        lambda *_args, **_kwargs: RegimeSnapshot(label="MIXED", confidence=0.5, risk_multiplier=1.0),
+    )
+    monkeypatch.setattr(backtest_engine, "build_universes", lambda *_args, **_kwargs: UniverseBuildResult())
+    monkeypatch.setattr(backtest_engine, "generate_rotation_candidates", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(backtest_engine, "generate_short_candidates", lambda *_args, **_kwargs: [])
+
+    def trend_candidates(market: dict[str, Any], **_kwargs: Any) -> list[EngineCandidate]:
+        symbols = set(market.get("candidate_symbols") or [])
+        if "BTCUSDT" not in symbols:
+            return []
+        return [
+            EngineCandidate(
+                engine="trend",
+                setup_type="ZERO_COST_COVERAGE",
+                symbol="BTCUSDT",
+                side="LONG",
+                score=0.99,
+                stop_loss=90.0,
+                take_profit=101.0,
+            )
+        ]
+
+    monkeypatch.setattr(backtest_engine, "generate_trend_candidates", trend_candidates)
+
+    result = backtest_engine.replay_full_market_baseline(config)
+
+    assert len(result.trade_ledger) == 1
+    assert result.trade_ledger[0].cost_coverage_ratio is None
+    assert result.rejection_ledger == ()
 
 
 def test_replay_full_market_baseline_respects_disabled_short_engine(

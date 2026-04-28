@@ -171,6 +171,16 @@ class TradeLedgerRow:
     fee_paid: float
     slippage_paid: float
     funding_paid: float
+    engine: str = ""
+    setup_type: str = ""
+    score: float = 0.0
+    stop_loss: float = 0.0
+    take_profit: float | None = None
+    exit_reason: str = "fixed_horizon"
+    mfe_pct: float = 0.0
+    mae_pct: float = 0.0
+    exit_move_pct: float = 0.0
+    cost_coverage_ratio: float | None = None
 
 
 @dataclass(frozen=True, slots=True)

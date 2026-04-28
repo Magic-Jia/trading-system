@@ -34,7 +34,7 @@ from .reporting import (
 from .types import BacktestConfig, DatasetSnapshotRow, ExperimentParams
 
 
-HandlerResult = tuple[dict[str, Any], dict[str, dict[str, Any]]]
+HandlerResult = tuple[dict[str, Any], dict[str, Any]]
 Handler = Callable[[BacktestConfig, list[DatasetSnapshotRow]], HandlerResult]
 
 
@@ -132,6 +132,8 @@ def _full_market_baseline_outputs(config: BacktestConfig, rows: list[DatasetSnap
         "summary.json": {"metadata": metadata, "summary": report["summary"]},
         "breakdowns.json": {"metadata": metadata, "breakdowns": report["breakdowns"]},
         "audit.json": {"metadata": metadata, "audit": report["audit"]},
+        "trades.json": {"metadata": metadata, "trades": report["trades"]},
+        "trade_postmortem.md": _render_trade_postmortem_markdown(report["trades"]),
     }
     return _manifest(config, rows, artifacts, metadata), artifacts
 
@@ -337,11 +339,49 @@ _EXPERIMENT_HANDLERS: dict[str, Handler] = {
 }
 
 
+def _render_trade_postmortem_markdown(trades: list[dict[str, Any]]) -> str:
+    lines = [
+        "# 逐单复盘",
+        "",
+        "| # | time | symbol | side | engine | setup | score | entry | exit | gross | net | MFE | MAE | exit_reason | cost_coverage |",
+        "|---:|---|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---|---:|",
+    ]
+    for index, trade in enumerate(trades, start=1):
+        lines.append(
+            "| {index} | {time} | {symbol} | {side} | {engine} | {setup} | {score:.4f} | {entry:.6g} | {exit:.6g} | {gross:.2f} | {net:.2f} | {mfe:.4%} | {mae:.4%} | {exit_reason} | {coverage} |".format(
+                index=index,
+                time=trade.get("entry_timestamp", ""),
+                symbol=trade.get("symbol", ""),
+                side=trade.get("side", ""),
+                engine=trade.get("engine", ""),
+                setup=trade.get("setup_type", ""),
+                score=float(trade.get("score") or 0.0),
+                entry=float(trade.get("entry_price") or 0.0),
+                exit=float(trade.get("exit_price") or 0.0),
+                gross=float(trade.get("gross_pnl") or 0.0),
+                net=float(trade.get("net_pnl") or 0.0),
+                mfe=float(trade.get("mfe_pct") or 0.0),
+                mae=float(trade.get("mae_pct") or 0.0),
+                exit_reason=trade.get("exit_reason", ""),
+                coverage="" if trade.get("cost_coverage_ratio") is None else f"{float(trade['cost_coverage_ratio']):.2f}",
+            )
+        )
+    lines.append("")
+    return "\n".join(lines)
+
+
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(
         json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
+
+
+def _write_artifact(path: Path, payload: Any) -> None:
+    if isinstance(payload, str):
+        path.write_text(payload, encoding="utf-8")
+        return
+    _write_json(path, payload)
 
 
 def _run_command(args: argparse.Namespace) -> int:
@@ -361,7 +401,7 @@ def _run_command(args: argparse.Namespace) -> int:
     bundle_dir.mkdir(parents=True, exist_ok=True)
     _write_json(bundle_dir / "manifest.json", manifest)
     for filename, payload in artifacts.items():
-        _write_json(bundle_dir / filename, payload)
+        _write_artifact(bundle_dir / filename, payload)
     print(bundle_dir)
     return 0
 

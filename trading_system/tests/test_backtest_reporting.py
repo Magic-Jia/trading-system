@@ -449,7 +449,12 @@ def test_backtest_cli_writes_full_market_baseline_bundle(monkeypatch: pytest.Mon
         "summary.json",
         "breakdowns.json",
         "audit.json",
+        "trades.json",
+        "trade_postmortem.md",
     ]
+    trades = json.loads((bundle_dir / "trades.json").read_text(encoding="utf-8"))["trades"]
+    assert trades and "exit_reason" in trades[0]
+    assert "逐单复盘" in (bundle_dir / "trade_postmortem.md").read_text(encoding="utf-8")
 
 
 
