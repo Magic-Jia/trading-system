@@ -99,6 +99,7 @@ def build_validated_order_preview(
     submission_enabled: bool,
     preview_source: str,
     entry_order_policy: EntryOrderPolicy = "maker_only",
+    maker_entry_timeout_seconds: int = 15,
 ) -> dict[str, Any]:
     payloads = {
         "entry": build_entry_order_payload(intent, entry_order_policy=entry_order_policy),
@@ -162,5 +163,7 @@ def build_validated_order_preview(
         "would_submit": submission_enabled and submission_prerequisites_passed,
         "submission_prerequisites_passed": submission_prerequisites_passed,
         "preview_source": preview_source,
+        "entry_order_policy": entry_order_policy,
+        "maker_entry_timeout_seconds": maker_entry_timeout_seconds,
         "reasons": reasons,
     }

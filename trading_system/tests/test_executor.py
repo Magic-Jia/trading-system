@@ -82,6 +82,18 @@ def test_execution_config_entry_order_policy_can_be_set_to_taker_market(monkeypa
     assert build_config().execution.entry_order_policy == "taker_market"
 
 
+def test_execution_config_maker_entry_timeout_defaults_to_15_seconds(monkeypatch):
+    monkeypatch.delenv("TRADING_MAKER_ENTRY_TIMEOUT_SECONDS", raising=False)
+
+    assert build_config().execution.maker_entry_timeout_seconds == 15
+
+
+def test_execution_config_maker_entry_timeout_can_be_overridden(monkeypatch):
+    monkeypatch.setenv("TRADING_MAKER_ENTRY_TIMEOUT_SECONDS", "30")
+
+    assert build_config().execution.maker_entry_timeout_seconds == 30
+
+
 def build_testnet_config(tmp_path, monkeypatch):
     monkeypatch.setenv("TRADING_EXECUTION_MODE", "testnet")
     monkeypatch.setenv("BINANCE_USE_TESTNET", "1")

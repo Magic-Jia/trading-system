@@ -201,6 +201,9 @@ class ExecutionConfig:
     entry_order_policy: EntryOrderPolicy = field(
         default_factory=lambda: _env_entry_order_policy("TRADING_ENTRY_ORDER_POLICY", "maker_only")
     )
+    maker_entry_timeout_seconds: int = field(
+        default_factory=lambda: _env_int("TRADING_MAKER_ENTRY_TIMEOUT_SECONDS", "15")
+    )
     disabled_engines: tuple[str, ...] = field(default_factory=lambda: _env_engine_list("TRADING_DISABLED_ENGINES"))
     disabled_setup_types: tuple[str, ...] = field(default_factory=lambda: _env_setup_type_list("TRADING_DISABLED_SETUP_TYPES"))
 
@@ -226,6 +229,8 @@ class ExecutionConfig:
             raise ValueError("testnet max order notional must be positive")
         if self.testnet_max_open_positions <= 0:
             raise ValueError("testnet max open positions must be positive")
+        if self.maker_entry_timeout_seconds <= 0:
+            raise ValueError("maker entry timeout seconds must be positive")
 
 
 @dataclass(frozen=True, slots=True)

@@ -119,6 +119,22 @@ def test_validated_order_preview_can_build_configured_taker_market_entry_payload
     assert preview["submission_prerequisites_passed"] is True
 
 
+def test_validated_order_preview_includes_configured_maker_timeout_seconds():
+    preview = build_validated_order_preview(
+        intent=fake_order_intent(),
+        exchange_metadata=fake_exchange_metadata(),
+        allowlist=["BTCUSDT"],
+        max_order_notional_usdt=1000,
+        submission_enabled=False,
+        preview_source="accepted_signal",
+        entry_order_policy="maker_only",
+        maker_entry_timeout_seconds=15,
+    )
+
+    assert preview["entry_order_policy"] == "maker_only"
+    assert preview["maker_entry_timeout_seconds"] == 15
+
+
 def test_build_validated_order_preview_marks_no_signal_fallback_source():
     preview = build_validated_order_preview(
         intent=fake_order_intent(),

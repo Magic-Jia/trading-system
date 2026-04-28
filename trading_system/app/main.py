@@ -849,6 +849,7 @@ def _build_testnet_order_preview(order: OrderIntent, config: Any) -> dict[str, A
         submission_enabled=bool(config.execution.testnet_order_submission_enabled),
         preview_source="accepted_signal",
         entry_order_policy=config.execution.entry_order_policy,
+        maker_entry_timeout_seconds=config.execution.maker_entry_timeout_seconds,
     )
 
 
@@ -1291,6 +1292,7 @@ def main() -> None:
                 submission_enabled=bool(config.execution.testnet_order_submission_enabled),
                 preview_source="accepted_signal",
                 entry_order_policy=config.execution.entry_order_policy,
+                maker_entry_timeout_seconds=config.execution.maker_entry_timeout_seconds,
             )
         execution = executor.execute(order, state)
         if config.execution.mode != "dry-run":
