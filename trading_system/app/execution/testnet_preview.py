@@ -4,11 +4,11 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from ..types import OrderIntent
-from .orders import build_entry_order_payload, build_stop_order_payload, build_take_profit_payload
+from .orders import EntryOrderPolicy, build_entry_order_payload, build_stop_order_payload, build_take_profit_payload
 
 
 REQUIRED_ORDER_TYPES = {
-    "entry": "MARKET",
+    "entry": "LIMIT",
     "stop": "STOP_MARKET",
     "take_profit": "TAKE_PROFIT_MARKET",
 }
@@ -60,13 +60,20 @@ def _validate_payload_mapping(
     *,
     reasons: list[str],
     payloads: dict[str, dict[str, Any] | None],
+    entry_order_policy: EntryOrderPolicy,
 ) -> None:
     entry_payload = payloads["entry"]
     stop_payload = payloads["stop"]
     take_profit_payload = payloads["take_profit"]
 
-    if entry_payload is None or entry_payload.get("type") != REQUIRED_ORDER_TYPES["entry"]:
+    expected_entry_type = "MARKET" if entry_order_policy == "taker_market" else REQUIRED_ORDER_TYPES["entry"]
+    if entry_payload is None or entry_payload.get("type") != expected_entry_type:
         reasons.append("fixed futures payload mapping incompatible: entry.type")
+    if entry_order_policy == "maker_only":
+        if entry_payload is None or entry_payload.get("timeInForce") != "GTX":
+            reasons.append("fixed futures payload mapping incompatible: entry.timeInForce")
+        if entry_payload is None or entry_payload.get("price") is None:
+            reasons.append("fixed futures payload mapping incompatible: entry.price")
     if stop_payload is None or stop_payload.get("type") != REQUIRED_ORDER_TYPES["stop"]:
         reasons.append("fixed futures payload mapping incompatible: stop.type")
     if stop_payload is None or str(stop_payload.get("closePosition", "")).lower() != "true":
@@ -91,9 +98,10 @@ def build_validated_order_preview(
     max_order_notional_usdt: float,
     submission_enabled: bool,
     preview_source: str,
+    entry_order_policy: EntryOrderPolicy = "maker_only",
 ) -> dict[str, Any]:
     payloads = {
-        "entry": build_entry_order_payload(intent),
+        "entry": build_entry_order_payload(intent, entry_order_policy=entry_order_policy),
         "stop": build_stop_order_payload(intent),
         "take_profit": build_take_profit_payload(intent),
     }
@@ -139,7 +147,7 @@ def build_validated_order_preview(
             price_tick_size=float(symbol_metadata.get("price_tick_size", 0.0) or 0.0),
         )
 
-    _validate_payload_mapping(reasons=reasons, payloads=payloads)
+    _validate_payload_mapping(reasons=reasons, payloads=payloads, entry_order_policy=entry_order_policy)
 
     submission_prerequisites_passed = not reasons
 

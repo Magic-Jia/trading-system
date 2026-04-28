@@ -21,7 +21,7 @@ def fake_exchange_metadata() -> dict[str, dict[str, float | list[str]]]:
             "quantity_step_size": 0.001,
             "price_tick_size": 0.1,
             "min_notional": 100,
-            "allowed_order_types": ["MARKET", "STOP_MARKET", "TAKE_PROFIT_MARKET"],
+            "allowed_order_types": ["LIMIT", "MARKET", "STOP_MARKET", "TAKE_PROFIT_MARKET"],
         }
     }
 
@@ -42,7 +42,7 @@ def test_validated_order_preview_checks_step_size_and_precision():
             "quantity_step_size": 0.001,
             "price_tick_size": 0.1,
             "min_notional": 100,
-            "allowed_order_types": ["MARKET", "STOP_MARKET", "TAKE_PROFIT_MARKET"],
+            "allowed_order_types": ["LIMIT", "MARKET", "STOP_MARKET", "TAKE_PROFIT_MARKET"],
         }
     }
 
@@ -75,7 +75,7 @@ def test_validated_order_preview_exposes_fixed_futures_payload_mapping():
             "quantity_step_size": 0.001,
             "price_tick_size": 0.1,
             "min_notional": 100,
-            "allowed_order_types": ["MARKET", "STOP_MARKET", "TAKE_PROFIT_MARKET"],
+            "allowed_order_types": ["LIMIT", "MARKET", "STOP_MARKET", "TAKE_PROFIT_MARKET"],
         }
     }
 
@@ -88,11 +88,35 @@ def test_validated_order_preview_exposes_fixed_futures_payload_mapping():
         preview_source="accepted_signal",
     )
 
-    assert preview["payloads"]["entry"]["type"] == "MARKET"
+    assert preview["payloads"]["entry"]["type"] == "LIMIT"
+    assert preview["payloads"]["entry"]["timeInForce"] == "GTX"
+    assert preview["payloads"]["entry"]["price"] == 65000
     assert preview["payloads"]["stop"]["type"] == "STOP_MARKET"
     assert preview["payloads"]["take_profit"]["type"] == "TAKE_PROFIT_MARKET"
     assert preview["payloads"]["stop"]["closePosition"] == "true"
     assert preview["payloads"]["take_profit"]["workingType"] == "MARK_PRICE"
+
+
+def test_validated_order_preview_can_build_configured_taker_market_entry_payload():
+    preview = build_validated_order_preview(
+        intent=fake_order_intent(),
+        exchange_metadata=fake_exchange_metadata(),
+        allowlist=["BTCUSDT"],
+        max_order_notional_usdt=1000,
+        submission_enabled=False,
+        preview_source="accepted_signal",
+        entry_order_policy="taker_market",
+    )
+
+    assert preview["payloads"]["entry"] == {
+        "symbol": "BTCUSDT",
+        "side": "BUY",
+        "type": "MARKET",
+        "quantity": 0.01,
+        "newClientOrderId": "intent-btc",
+    }
+    assert preview["order_types"] == ["MARKET", "STOP_MARKET", "TAKE_PROFIT_MARKET"]
+    assert preview["submission_prerequisites_passed"] is True
 
 
 def test_build_validated_order_preview_marks_no_signal_fallback_source():

@@ -848,6 +848,7 @@ def _build_testnet_order_preview(order: OrderIntent, config: Any) -> dict[str, A
         max_order_notional_usdt=float(config.execution.testnet_max_order_notional_usdt),
         submission_enabled=bool(config.execution.testnet_order_submission_enabled),
         preview_source="accepted_signal",
+        entry_order_policy=config.execution.entry_order_policy,
     )
 
 
@@ -1289,6 +1290,7 @@ def main() -> None:
                 max_order_notional_usdt=float(config.execution.testnet_max_order_notional_usdt),
                 submission_enabled=bool(config.execution.testnet_order_submission_enabled),
                 preview_source="accepted_signal",
+                entry_order_policy=config.execution.entry_order_policy,
             )
         execution = executor.execute(order, state)
         if config.execution.mode != "dry-run":

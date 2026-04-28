@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Callable, Literal
 from urllib.parse import urlparse
 
+from .execution.orders import EntryOrderPolicy
 from .runtime_paths import RUNTIME_ENV_ENV, build_runtime_paths
 from .signals.entry_profile import ENTRY_PROFILE_ENV, EntryProfile, resolve_entry_profile
 
@@ -85,6 +86,13 @@ def _env_execution_mode(name: str, default: ExecutionMode = "paper") -> Executio
     value = os.environ.get(name, default).strip().lower()
     if value not in {"paper", "dry-run", "live", "testnet"}:
         raise ValueError(f"{name} must be one of paper, dry-run, live, testnet")
+    return value  # type: ignore[return-value]
+
+
+def _env_entry_order_policy(name: str, default: EntryOrderPolicy = "maker_only") -> EntryOrderPolicy:
+    value = os.environ.get(name, default).strip().lower().replace("-", "_")
+    if value not in {"maker_only", "taker_market"}:
+        raise ValueError(f"{name} must be one of maker_only, taker_market")
     return value  # type: ignore[return-value]
 
 
@@ -190,6 +198,9 @@ class ExecutionConfig:
         default_factory=lambda: _env_float("TRADING_TESTNET_MAX_ORDER_NOTIONAL_USDT", "25")
     )
     testnet_max_open_positions: int = field(default_factory=lambda: _env_int("TRADING_TESTNET_MAX_OPEN_POSITIONS", "1"))
+    entry_order_policy: EntryOrderPolicy = field(
+        default_factory=lambda: _env_entry_order_policy("TRADING_ENTRY_ORDER_POLICY", "maker_only")
+    )
     disabled_engines: tuple[str, ...] = field(default_factory=lambda: _env_engine_list("TRADING_DISABLED_ENGINES"))
     disabled_setup_types: tuple[str, ...] = field(default_factory=lambda: _env_setup_type_list("TRADING_DISABLED_SETUP_TYPES"))
 

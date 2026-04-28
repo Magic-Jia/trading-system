@@ -10,6 +10,7 @@ from ..connectors.binance import (
 )
 from ..types import BJ, ManagementActionIntent, ManagementActionPreview, OrderIntent
 
+EntryOrderPolicy = Literal["maker_only", "taker_market"]
 OrderMode = Literal["paper", "dry-run", "live", "testnet"]
 
 
@@ -21,13 +22,26 @@ def close_side_to_binance(side: str) -> str:
     return "SELL" if side == "LONG" else "BUY"
 
 
-def build_entry_order_payload(order: OrderIntent) -> dict[str, Any]:
-    return {
+def build_entry_order_payload(
+    order: OrderIntent,
+    *,
+    entry_order_policy: EntryOrderPolicy = "maker_only",
+) -> dict[str, Any]:
+    payload = {
         "symbol": order.symbol,
         "side": side_to_binance(order.side),
-        "type": "MARKET",
         "quantity": order.qty,
         "newClientOrderId": order.intent_id,
+    }
+    if entry_order_policy == "taker_market":
+        return {**payload, "type": "MARKET"}
+    if entry_order_policy != "maker_only":
+        raise ValueError("entry_order_policy must be one of maker_only, taker_market")
+    return {
+        **payload,
+        "type": "LIMIT",
+        "timeInForce": "GTX",
+        "price": order.entry_price,
     }
 
 

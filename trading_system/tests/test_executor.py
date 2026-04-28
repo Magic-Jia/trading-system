@@ -23,13 +23,63 @@ def _sample_order() -> OrderIntent:
 
 def _testnet_preview_payloads(*, include_stop: bool = True, include_take_profit: bool = False) -> dict:
     payloads = {
-        "entry": {"symbol": "BTCUSDT", "side": "BUY", "type": "MARKET", "quantity": 0.01, "newClientOrderId": "intent-btc-long"},
+        "entry": {
+            "symbol": "BTCUSDT",
+            "side": "BUY",
+            "type": "LIMIT",
+            "timeInForce": "GTX",
+            "quantity": 0.01,
+            "price": 60000.0,
+            "newClientOrderId": "intent-btc-long",
+        },
     }
     if include_stop:
         payloads["stop"] = {"symbol": "BTCUSDT", "side": "SELL", "type": "STOP_MARKET", "stopPrice": 58000.0, "closePosition": "true", "workingType": "MARK_PRICE", "newClientOrderId": "intent-btc-long-sl"}
     if include_take_profit:
         payloads["take_profit"] = {"symbol": "BTCUSDT", "side": "SELL", "type": "TAKE_PROFIT_MARKET", "stopPrice": 64000.0, "closePosition": "true", "workingType": "MARK_PRICE", "newClientOrderId": "intent-btc-long-tp"}
     return payloads
+
+
+def test_build_entry_order_payload_defaults_to_post_only_limit_maker_order():
+    from trading_system.app.execution.orders import build_entry_order_payload
+
+    order = _sample_order()
+
+    assert build_entry_order_payload(order) == {
+        "symbol": "BTCUSDT",
+        "side": "BUY",
+        "type": "LIMIT",
+        "timeInForce": "GTX",
+        "quantity": 0.01,
+        "price": 60000.0,
+        "newClientOrderId": "intent-btc-long",
+    }
+
+
+def test_build_entry_order_payload_can_be_configured_to_market_taker_order():
+    from trading_system.app.execution.orders import build_entry_order_payload
+
+    order = _sample_order()
+
+    assert build_entry_order_payload(order, entry_order_policy="taker_market") == {
+        "symbol": "BTCUSDT",
+        "side": "BUY",
+        "type": "MARKET",
+        "quantity": 0.01,
+        "newClientOrderId": "intent-btc-long",
+    }
+
+
+def test_execution_config_entry_order_policy_defaults_to_maker_only(monkeypatch):
+    monkeypatch.delenv("TRADING_ENTRY_ORDER_POLICY", raising=False)
+
+    assert build_config().execution.entry_order_policy == "maker_only"
+
+
+def test_execution_config_entry_order_policy_can_be_set_to_taker_market(monkeypatch):
+    monkeypatch.setenv("TRADING_ENTRY_ORDER_POLICY", "taker_market")
+
+    assert build_config().execution.entry_order_policy == "taker_market"
 
 
 def build_testnet_config(tmp_path, monkeypatch):
@@ -367,7 +417,15 @@ def test_order_executor_testnet_submits_entry_and_stop_algo_order(monkeypatch, t
     order.meta["validated_order_preview"] = {
         "submission_prerequisites_passed": True,
         "payloads": {
-            "entry": {"symbol": "BTCUSDT", "side": "BUY", "type": "MARKET", "quantity": 0.01, "newClientOrderId": "intent-btc-long"},
+            "entry": {
+                "symbol": "BTCUSDT",
+                "side": "BUY",
+                "type": "LIMIT",
+                "timeInForce": "GTX",
+                "quantity": 0.01,
+                "price": 60000.0,
+                "newClientOrderId": "intent-btc-long",
+            },
             "stop": {"symbol": "BTCUSDT", "side": "SELL", "type": "STOP_MARKET", "stopPrice": 58000.0, "closePosition": "true", "workingType": "MARK_PRICE", "newClientOrderId": "intent-btc-long-sl"},
         },
     }
@@ -421,7 +479,15 @@ def test_order_executor_testnet_stop_failure_returns_partial_success_and_logs(mo
     order.meta["validated_order_preview"] = {
         "submission_prerequisites_passed": True,
         "payloads": {
-            "entry": {"symbol": "BTCUSDT", "side": "BUY", "type": "MARKET", "quantity": 0.01, "newClientOrderId": "intent-btc-long"},
+            "entry": {
+                "symbol": "BTCUSDT",
+                "side": "BUY",
+                "type": "LIMIT",
+                "timeInForce": "GTX",
+                "quantity": 0.01,
+                "price": 60000.0,
+                "newClientOrderId": "intent-btc-long",
+            },
             "stop": {"symbol": "BTCUSDT", "side": "SELL", "type": "STOP_MARKET", "stopPrice": 58000.0, "closePosition": "true", "workingType": "MARK_PRICE", "newClientOrderId": "intent-btc-long-sl"},
         },
     }
@@ -441,7 +507,45 @@ def test_order_executor_testnet_stop_failure_returns_partial_success_and_logs(mo
 
 
 
-def test_order_executor_testnet_requires_protective_stop_before_entry_submission(monkeypatch, tmp_path):
+def test_order_executor_testnet_rejects_stale_market_entry_preview_when_maker_only(monkeypatch, tmp_path):
+    from trading_system.app.execution import executor as executor_module
+
+    exec_log = tmp_path / "execution_log.jsonl"
+    monkeypatch.setattr(executor_module, "EXEC_LOG", exec_log)
+    config = build_testnet_config(tmp_path, monkeypatch)
+    config = replace(
+        config,
+        execution=replace(
+            config.execution,
+            testnet_order_submission_enabled=True,
+            feishu_notifications_enabled=False,
+            entry_order_policy="maker_only",
+        ),
+    )
+    submitted_entry_payloads = []
+    monkeypatch.setattr(
+        executor_module,
+        "submit_futures_testnet_order",
+        lambda payload: submitted_entry_payloads.append(payload) or {"orderId": 12345},
+    )
+    order = _sample_order()
+    order.meta["validated_order_preview"] = {
+        "submission_prerequisites_passed": True,
+        "payloads": {
+            "entry": {"symbol": "BTCUSDT", "side": "BUY", "type": "MARKET", "quantity": 0.01, "newClientOrderId": "intent-btc-long"},
+            "stop": {"symbol": "BTCUSDT", "side": "SELL", "type": "STOP_MARKET", "stopPrice": 58000.0, "closePosition": "true", "workingType": "MARK_PRICE", "newClientOrderId": "intent-btc-long-sl"},
+            "take_profit": None,
+        },
+    }
+    executor = OrderExecutor(config)
+
+    with pytest.raises(Exception, match="entry payload incompatible"):
+        executor.execute(order, RuntimeStateV2.empty())
+
+    assert submitted_entry_payloads == []
+
+
+def test_order_executor_testnet_requires_protective_stop_before_submission(monkeypatch, tmp_path):
     from trading_system.app.execution import executor as executor_module
 
     exec_log = tmp_path / "execution_log.jsonl"
@@ -466,7 +570,15 @@ def test_order_executor_testnet_requires_protective_stop_before_entry_submission
     order.meta["validated_order_preview"] = {
         "submission_prerequisites_passed": True,
         "payloads": {
-            "entry": {"symbol": "BTCUSDT", "side": "BUY", "type": "MARKET", "quantity": 0.01, "newClientOrderId": "intent-btc-long"},
+            "entry": {
+                "symbol": "BTCUSDT",
+                "side": "BUY",
+                "type": "LIMIT",
+                "timeInForce": "GTX",
+                "quantity": 0.01,
+                "price": 60000.0,
+                "newClientOrderId": "intent-btc-long",
+            },
             "stop": None,
             "take_profit": {"symbol": "BTCUSDT", "side": "SELL", "type": "TAKE_PROFIT_MARKET", "stopPrice": 64000.0, "closePosition": "true", "workingType": "MARK_PRICE", "newClientOrderId": "intent-btc-long-tp"},
         },
@@ -510,7 +622,15 @@ def test_order_executor_testnet_submits_entry_stop_and_take_profit_algo_orders(m
     order.meta["validated_order_preview"] = {
         "submission_prerequisites_passed": True,
         "payloads": {
-            "entry": {"symbol": "BTCUSDT", "side": "BUY", "type": "MARKET", "quantity": 0.01, "newClientOrderId": "intent-btc-long"},
+            "entry": {
+                "symbol": "BTCUSDT",
+                "side": "BUY",
+                "type": "LIMIT",
+                "timeInForce": "GTX",
+                "quantity": 0.01,
+                "price": 60000.0,
+                "newClientOrderId": "intent-btc-long",
+            },
             "stop": {"symbol": "BTCUSDT", "side": "SELL", "type": "STOP_MARKET", "stopPrice": 58000.0, "closePosition": "true", "workingType": "MARK_PRICE", "newClientOrderId": "intent-btc-long-sl"},
             "take_profit": {"symbol": "BTCUSDT", "side": "SELL", "type": "TAKE_PROFIT_MARKET", "stopPrice": 64000.0, "closePosition": "true", "workingType": "MARK_PRICE", "newClientOrderId": "intent-btc-long-tp"},
         },

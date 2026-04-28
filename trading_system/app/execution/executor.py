@@ -16,7 +16,7 @@ from ..portfolio.positions import _has_explicit_target_management_state, apply_m
 from ..types import BJ, ManagementActionIntent, OrderIntent, RuntimeState
 from .paper_executor import PaperExecutor
 from .paper_ledger import PaperLedger
-from .orders import OrderMode, build_management_preview, dry_run_fill, preview_result
+from .orders import EntryOrderPolicy, OrderMode, build_management_preview, dry_run_fill, preview_result
 
 BASE = Path(__file__).resolve().parents[2]
 EXEC_LOG = BASE / "data" / "execution_log.jsonl"
@@ -25,6 +25,18 @@ logger = logging.getLogger(__name__)
 
 class ExecutionError(RuntimeError):
     pass
+
+
+def _entry_payload_matches_policy(entry_payload: dict[str, Any], entry_order_policy: EntryOrderPolicy) -> bool:
+    if entry_order_policy == "taker_market":
+        return entry_payload.get("type") == "MARKET"
+    if entry_order_policy == "maker_only":
+        return (
+            entry_payload.get("type") == "LIMIT"
+            and entry_payload.get("timeInForce") == "GTX"
+            and entry_payload.get("price") is not None
+        )
+    return False
 
 
 class OrderExecutor:
@@ -84,6 +96,8 @@ class OrderExecutor:
                 take_profit_payload = payloads.get("take_profit") if isinstance(payloads, dict) else None
                 if not isinstance(entry_payload, dict):
                     raise ExecutionError("testnet submission requires a validated entry payload")
+                if not _entry_payload_matches_policy(entry_payload, self.config.execution.entry_order_policy):
+                    raise ExecutionError("testnet submission entry payload incompatible with configured entry order policy")
                 if not isinstance(stop_payload, dict):
                     raise ExecutionError("testnet submission requires a protective stop before entry submission")
                 try:
