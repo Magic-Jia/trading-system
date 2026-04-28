@@ -434,6 +434,9 @@ def _timeframe_payload(hourly_bars: Sequence[_OhlcvBar], *, timeframe: str) -> d
     current = bars[-1]
     volume_usdt_24h = _rolling_quote_volume(hourly_bars)
     return {
+        "open": current.open,
+        "high": current.high,
+        "low": current.low,
         "close": current.close,
         "ema_20": _ema(closes, period=20),
         "ema_50": _ema(closes, period=50),

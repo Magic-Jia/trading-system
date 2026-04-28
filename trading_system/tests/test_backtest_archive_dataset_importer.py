@@ -263,8 +263,12 @@ def test_build_phase1_dataset_bundle_materials_includes_available_intraday_trigg
 
     market_symbol = materials[-1].market_context["symbols"]["BTCUSDT"]
     assert market_symbol["30m"]["close"] == pytest.approx(market_symbol["1h"]["close"])
+    assert market_symbol["30m"]["high"] >= market_symbol["30m"]["close"]
+    assert market_symbol["30m"]["low"] <= market_symbol["30m"]["close"]
     assert market_symbol["30m"]["return_pct_8h"] > 0.0
     assert market_symbol["15m"]["close"] == pytest.approx(market_symbol["1h"]["close"])
+    assert market_symbol["15m"]["high"] >= market_symbol["15m"]["close"]
+    assert market_symbol["15m"]["low"] <= market_symbol["15m"]["close"]
     assert market_symbol["15m"]["return_pct_4h"] > 0.0
     assert "binance:futures:ohlcv:BTCUSDT:30m" in materials[-1].metadata["source"]["series_keys"]
     assert "binance:futures:ohlcv:BTCUSDT:15m" in materials[-1].metadata["source"]["series_keys"]

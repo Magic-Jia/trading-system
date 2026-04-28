@@ -246,6 +246,53 @@ def _reference_price(row: DatasetSnapshotRow, symbol: str) -> float:
     return 0.0
 
 
+def _float_or_none(value: Any) -> float | None:
+    try:
+        result = float(value)
+    except (TypeError, ValueError):
+        return None
+    return result if result > 0.0 else None
+
+
+def _path_high_low(row: DatasetSnapshotRow, symbol: str) -> tuple[float | None, float | None]:
+    payload = _symbol_payload(row, symbol)
+    highs: list[float] = []
+    lows: list[float] = []
+    for timeframe in ("15m", "30m", "1h"):
+        timeframe_row = payload.get(timeframe)
+        if not isinstance(timeframe_row, Mapping):
+            continue
+        high = _float_or_none(timeframe_row.get("high"))
+        low = _float_or_none(timeframe_row.get("low"))
+        if high is not None:
+            highs.append(high)
+        if low is not None:
+            lows.append(low)
+    if not highs or not lows:
+        return None, None
+    return max(highs), min(lows)
+
+
+def _mfe_mae_from_path(
+    *,
+    side: str,
+    entry_price: float,
+    exit_price: float,
+    path_high: float,
+    path_low: float,
+) -> tuple[float, float, float]:
+    raw_move_pct = (exit_price - entry_price) / entry_price if entry_price > 0.0 else 0.0
+    if side == "long":
+        exit_move_pct = raw_move_pct
+        mfe_pct = max(0.0, (path_high - entry_price) / entry_price) if entry_price > 0.0 else 0.0
+        mae_pct = max(0.0, (entry_price - path_low) / entry_price) if entry_price > 0.0 else 0.0
+    else:
+        exit_move_pct = -raw_move_pct
+        mfe_pct = max(0.0, (entry_price - path_low) / entry_price) if entry_price > 0.0 else 0.0
+        mae_pct = max(0.0, (path_high - entry_price) / entry_price) if entry_price > 0.0 else 0.0
+    return mfe_pct, mae_pct, exit_move_pct
+
+
 def _funding_rate(row: DatasetSnapshotRow, symbol: str) -> float:
     for item in row.derivatives:
         if str(item.get("symbol", "")) == symbol:
@@ -400,15 +447,20 @@ def _trade_row(
     exit_price = _reference_price(exit_row, open_trade.symbol) or open_trade.entry_price
     direction = 1.0 if open_trade.side == "long" else -1.0
     holding_hours = (exit_row.timestamp - open_trade.entry_timestamp).total_seconds() / 3600.0
-    raw_move_pct = (exit_price - open_trade.entry_price) / open_trade.entry_price if open_trade.entry_price > 0.0 else 0.0
-    if open_trade.side == "long":
-        exit_move_pct = raw_move_pct
-        mfe_pct = max(0.0, raw_move_pct)
-        mae_pct = max(0.0, -raw_move_pct)
+    path_high, path_low = _path_high_low(exit_row, open_trade.symbol)
+    if path_high is None or path_low is None:
+        path_high = max(open_trade.entry_price, exit_price)
+        path_low = min(open_trade.entry_price, exit_price)
     else:
-        exit_move_pct = -raw_move_pct
-        mfe_pct = max(0.0, -raw_move_pct)
-        mae_pct = max(0.0, raw_move_pct)
+        path_high = max(path_high, open_trade.entry_price, exit_price)
+        path_low = min(path_low, open_trade.entry_price, exit_price)
+    mfe_pct, mae_pct, exit_move_pct = _mfe_mae_from_path(
+        side=open_trade.side,
+        entry_price=open_trade.entry_price,
+        exit_price=exit_price,
+        path_high=path_high,
+        path_low=path_low,
+    )
     gross_pnl = (exit_price - open_trade.entry_price) * open_trade.qty * direction
     fees = fee_cost(position_notional=open_trade.position_notional, market_type=open_trade.market_type, costs=costs)
     slippage = slippage_cost(
