@@ -71,6 +71,7 @@ class _Phase1SymbolSeries:
     ohlcv: ImportedRawMarketSeries
     funding: ImportedRawMarketSeries
     open_interest: ImportedRawMarketSeries
+    intraday_ohlcv: dict[str, ImportedRawMarketSeries]
     symbol_metadata: dict[str, Any] | None
 
 
@@ -346,9 +347,19 @@ def _phase1_symbol_series(imported_series: Iterable[ImportedRawMarketSeries]) ->
                 ohlcv=ohlcv,
                 funding=funding,
                 open_interest=open_interest,
+                intraday_ohlcv={
+                    timeframe: series
+                    for timeframe in ("30m", "15m")
+                    if (series := indexed.get((symbol, "ohlcv", timeframe))) is not None
+                },
                 symbol_metadata=_resolved_symbol_metadata(
                     symbol=symbol,
-                    series_items=(ohlcv, funding, open_interest),
+                    series_items=(
+                        ohlcv,
+                        funding,
+                        open_interest,
+                        *(indexed[(symbol, "ohlcv", timeframe)] for timeframe in ("30m", "15m") if (symbol, "ohlcv", timeframe) in indexed),
+                    ),
                 ),
             )
         )
@@ -372,6 +383,15 @@ def _latest_record_at_or_before(
 
 
 def _hourly_history_up_to(series: ImportedRawMarketSeries, *, timestamp: datetime) -> list[_OhlcvBar]:
+    return _ohlcv_history_up_to(series, timestamp=timestamp, expected_gap=timedelta(hours=1))
+
+
+def _ohlcv_history_up_to(
+    series: ImportedRawMarketSeries,
+    *,
+    timestamp: datetime,
+    expected_gap: timedelta,
+) -> list[_OhlcvBar]:
     ordered = sorted(
         (_hourly_ohlcv_bar(record) for record in series.records if record.observed_at <= timestamp),
         key=lambda row: row.observed_at,
@@ -379,7 +399,6 @@ def _hourly_history_up_to(series: ImportedRawMarketSeries, *, timestamp: datetim
     if not ordered:
         return []
     contiguous = [ordered[-1]]
-    expected_gap = timedelta(hours=1)
     for previous, current in zip(reversed(ordered[:-1]), reversed(ordered[1:]), strict=False):
         if current.observed_at - previous.observed_at != expected_gap:
             break
@@ -392,12 +411,23 @@ def _timeframe_payload(hourly_bars: Sequence[_OhlcvBar], *, timeframe: str) -> d
     if timeframe == "1h":
         bars = list(hourly_bars)
         periods_back = 24
+        return_label = "return_pct_24h"
+    elif timeframe == "30m":
+        bars = list(hourly_bars)
+        periods_back = 16
+        return_label = "return_pct_8h"
+    elif timeframe == "15m":
+        bars = list(hourly_bars)
+        periods_back = 16
+        return_label = "return_pct_4h"
     elif timeframe == "4h":
         bars = _resample_bars(hourly_bars, hours=4)
         periods_back = 18
+        return_label = "return_pct_3d"
     elif timeframe == "daily":
         bars = _resample_bars(hourly_bars, hours=24)
         periods_back = 7
+        return_label = "return_pct_7d"
     else:
         raise ValueError(f"unsupported timeframe: {timeframe}")
     closes = [bar.close for bar in bars]
@@ -410,7 +440,7 @@ def _timeframe_payload(hourly_bars: Sequence[_OhlcvBar], *, timeframe: str) -> d
         "rsi": _rsi(closes, period=14),
         "atr_pct": _atr_pct(bars, period=14),
         "volume_usdt_24h": volume_usdt_24h,
-        "return_pct_24h" if timeframe == "1h" else "return_pct_3d" if timeframe == "4h" else "return_pct_7d": _return_pct(
+        return_label: _return_pct(
             bars,
             periods_back=periods_back,
         ),
@@ -446,7 +476,7 @@ def _import_trace(symbol_series: Sequence[_Phase1SymbolSeries]) -> dict[str, Any
     series_keys: list[str] = []
     manifest_paths: list[str] = []
     for item in symbol_series:
-        for series in (item.funding, item.ohlcv, item.open_interest):
+        for series in (item.funding, item.ohlcv, item.open_interest, *item.intraday_ohlcv.values()):
             series_keys.append(series.series_key)
             manifest_paths.extend(str(imported_file.manifest_path) for imported_file in series.files)
     return {
@@ -569,12 +599,20 @@ def build_phase1_dataset_bundle_materials(
 
             volume_usdt_24h = _rolling_quote_volume(hourly_bars)
             liquidity_tier = _liquidity_tier(volume_usdt_24h)
-            market_symbols[item.symbol] = {
-                "sector": sector_for_symbol(item.symbol),
-                "liquidity_tier": liquidity_tier,
+            timeframe_payloads: dict[str, Any] = {
                 "daily": _timeframe_payload(hourly_bars, timeframe="daily"),
                 "4h": _timeframe_payload(hourly_bars, timeframe="4h"),
                 "1h": _timeframe_payload(hourly_bars, timeframe="1h"),
+            }
+            for timeframe, series in item.intraday_ohlcv.items():
+                expected_gap = timedelta(minutes=30 if timeframe == "30m" else 15)
+                intraday_bars = _ohlcv_history_up_to(series, timestamp=timestamp, expected_gap=expected_gap)
+                if len(intraday_bars) >= 50:
+                    timeframe_payloads[timeframe] = _timeframe_payload(intraday_bars, timeframe=timeframe)
+            market_symbols[item.symbol] = {
+                "sector": sector_for_symbol(item.symbol),
+                "liquidity_tier": liquidity_tier,
+                **timeframe_payloads,
             }
             derivatives_rows.append(
                 {

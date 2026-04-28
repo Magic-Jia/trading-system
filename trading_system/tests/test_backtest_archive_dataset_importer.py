@@ -33,6 +33,7 @@ def _archive_phase1_symbol_history(
     open_interest_field: str = "sumOpenInterest",
     open_interest_base: float = 10_000.0,
     open_interest_step: float = 10.0,
+    extra_ohlcv_timeframes: tuple[str, ...] = (),
     symbol_metadata: dict[str, object] | None = None,
     ohlcv_symbol_metadata: dict[str, object] | None = None,
     funding_symbol_metadata: dict[str, object] | None = None,
@@ -114,6 +115,40 @@ def _archive_phase1_symbol_history(
         payload={"symbol": symbol, "interval": "1h", "rows": hourly_rows},
         symbol_metadata=ohlcv_metadata,
     )
+    for timeframe in extra_ohlcv_timeframes:
+        intervals_per_hour = 2 if timeframe == "30m" else 4 if timeframe == "15m" else 1
+        interval = timedelta(hours=1) / intervals_per_hour
+        intraday_rows: list[dict[str, str | int]] = []
+        for index in range(total_hours * intervals_per_hour):
+            observed_at = start + (interval * index)
+            close = 50_000.0 + (index * (10.0 / intervals_per_hour))
+            volume = 500.0 + index
+            open_time_ms = _timestamp_ms(observed_at)
+            intraday_rows.append(
+                {
+                    "open_time": open_time_ms,
+                    "open": f"{close - 2.5:.6f}",
+                    "high": f"{close + 10.0:.6f}",
+                    "low": f"{close - 10.0:.6f}",
+                    "close": f"{close:.6f}",
+                    "volume": f"{volume:.6f}",
+                    "quote_asset_volume": f"{close * volume:.6f}",
+                }
+            )
+        archive_raw_market_payload(
+            archive_root=archive_root,
+            exchange="binance",
+            market="futures",
+            dataset="ohlcv",
+            symbol=symbol,
+            timeframe=timeframe,
+            coverage_start=start.isoformat().replace("+00:00", "Z"),
+            coverage_end=(start + timedelta(hours=total_hours)).isoformat().replace("+00:00", "Z"),
+            fetched_at="2026-04-01T07:30:30Z",
+            endpoint="/fapi/v1/klines",
+            payload={"symbol": symbol, "interval": timeframe, "rows": intraday_rows},
+            symbol_metadata=ohlcv_metadata,
+        )
     archive_raw_market_payload(
         archive_root=archive_root,
         exchange="binance",
@@ -210,6 +245,29 @@ def test_build_phase1_dataset_bundle_materials_returns_dataset_ready_bundle_and_
     assert rows[0].timestamp == latest.timestamp
     assert rows[0].market["symbols"]["BTCUSDT"]["1h"]["close"] == pytest.approx(64_390.0)
     assert rows[0].derivatives[0]["open_interest_usdt"] == pytest.approx(latest_open_interest * latest_close)
+
+
+def test_build_phase1_dataset_bundle_materials_includes_available_intraday_trigger_timeframes(
+    tmp_path: Path,
+) -> None:
+    archive_root = tmp_path / "archive"
+    _archive_phase1_symbol_history(
+        archive_root,
+        symbol="BTCUSDT",
+        extra_ohlcv_timeframes=("30m", "15m"),
+    )
+
+    imported = load_phase1_raw_market_imports(archive_root)
+
+    materials = build_phase1_dataset_bundle_materials(imported)
+
+    market_symbol = materials[-1].market_context["symbols"]["BTCUSDT"]
+    assert market_symbol["30m"]["close"] == pytest.approx(market_symbol["1h"]["close"])
+    assert market_symbol["30m"]["return_pct_8h"] > 0.0
+    assert market_symbol["15m"]["close"] == pytest.approx(market_symbol["1h"]["close"])
+    assert market_symbol["15m"]["return_pct_4h"] > 0.0
+    assert "binance:futures:ohlcv:BTCUSDT:30m" in materials[-1].metadata["source"]["series_keys"]
+    assert "binance:futures:ohlcv:BTCUSDT:15m" in materials[-1].metadata["source"]["series_keys"]
 
 
 def test_build_phase1_dataset_bundle_materials_uses_quote_denominated_open_interest_rows_directly(
