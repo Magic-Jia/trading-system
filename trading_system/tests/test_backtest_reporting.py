@@ -983,6 +983,51 @@ def test_backtest_cli_writes_public_strategy_factor_bundle(monkeypatch: pytest.M
     assert scorecard["decision_summary"]["decision"] == "keep_researching"
 
 
+def test_public_strategy_factor_cli_surfaces_flat_tiny_sample_effectiveness_fields(
+    fixture_dir: Path, tmp_path: Path
+) -> None:
+    exit_code = cli.main(
+        [
+            "run",
+            "--config",
+            str(fixture_dir / "backtest" / "public_strategy_factors_config.json"),
+            "--output-dir",
+            str(tmp_path / "out"),
+        ]
+    )
+
+    bundle_dir = tmp_path / "out" / "public_strategy_factors__public_strategy_scan__factor_catalog_v1"
+    assert exit_code == 0
+    assert (bundle_dir / "summary.json").exists()
+    assert (bundle_dir / "scorecard.json").exists()
+    assert (bundle_dir / "factor_catalog.json").exists()
+
+    summary = json.loads((bundle_dir / "summary.json").read_text(encoding="utf-8"))
+    scorecard = json.loads((bundle_dir / "scorecard.json").read_text(encoding="utf-8"))
+    catalog = json.loads((bundle_dir / "factor_catalog.json").read_text(encoding="utf-8"))
+
+    assert summary["sample_count"] == 3
+    assert summary["minimum_sample_count"] == 30
+    assert summary["effective_factor_count"] == 0
+    assert summary["decision"] == "keep_researching"
+    assert scorecard["decision_summary"]["decision"] == "keep_researching"
+
+    evaluated_tiny_sample_factors = [
+        factor
+        for factor in catalog["factors"]
+        if factor["supported"] and factor["sample_count"] == 3
+    ]
+    assert evaluated_tiny_sample_factors
+    for factor in evaluated_tiny_sample_factors:
+        assert factor["effectiveness_status"] == "insufficient_sample"
+        assert factor["sample_count"] == 3
+        assert (
+            "information_coefficient" in factor or "rank_correlation" in factor
+        )
+        assert "top_minus_bottom_forward_return" in factor
+        assert "top_bucket_hit_rate" in factor
+
+
 def test_public_strategy_factor_cli_generates_config_for_imported_dataset_root(tmp_path: Path) -> None:
     dataset_root = tmp_path / "imported_dataset"
     config_path = tmp_path / "public_strategy_factors_real_history.json"

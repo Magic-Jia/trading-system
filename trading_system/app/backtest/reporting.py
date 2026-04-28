@@ -174,6 +174,92 @@ def _promotion_metadata_sections(metadata: Mapping[str, Any]) -> dict[str, Any]:
 _ALLOWED_DECISIONS = {"keep_researching", "candidate_for_promotion", "reject"}
 
 
+def _public_strategy_factor_minimum_sample_count(
+    *,
+    summary_payload: Mapping[str, Any],
+    factors: list[Mapping[str, Any]],
+    metadata: Mapping[str, Any],
+) -> int:
+    raw_value = metadata.get("minimum_effectiveness_sample_count")
+    if raw_value is None:
+        raw_value = summary_payload.get("minimum_sample_count")
+    if raw_value is None:
+        for factor in factors:
+            effectiveness = factor.get("effectiveness")
+            if not isinstance(effectiveness, Mapping):
+                continue
+            raw_value = effectiveness.get("minimum_sample_count")
+            if raw_value is not None:
+                break
+    return int(raw_value or 0)
+
+
+def _public_strategy_factor_sample_count(
+    *,
+    factors: list[Mapping[str, Any]],
+    metadata: Mapping[str, Any],
+) -> int:
+    evaluated_sample_counts: list[int] = []
+    for factor in factors:
+        effectiveness = factor.get("effectiveness")
+        if not isinstance(effectiveness, Mapping):
+            continue
+        sample_count = effectiveness.get("sample_count")
+        if sample_count is not None:
+            evaluated_sample_counts.append(int(sample_count))
+    if evaluated_sample_counts:
+        return min(evaluated_sample_counts)
+    return int(metadata.get("snapshot_count", 0))
+
+
+def _public_strategy_factor_directionally_supported(factor: Mapping[str, Any]) -> bool:
+    effectiveness = factor.get("effectiveness")
+    if not isinstance(effectiveness, Mapping):
+        return False
+    if effectiveness.get("effectiveness_status") != "promising_research":
+        return False
+
+    sample_count = int(effectiveness.get("sample_count", 0) or 0)
+    minimum_sample_count = int(effectiveness.get("minimum_sample_count", 0) or 0)
+    if minimum_sample_count > 0 and sample_count < minimum_sample_count:
+        return False
+
+    correlation = effectiveness.get("information_coefficient")
+    if correlation is None:
+        correlation = effectiveness.get("rank_correlation")
+    if correlation is None or float(correlation) < 0.2:
+        return False
+    if float(effectiveness.get("top_minus_bottom_forward_return", 0.0) or 0.0) <= 0.0:
+        return False
+    if float(effectiveness.get("top_bucket_hit_rate", 0.0) or 0.0) < 0.5:
+        return False
+    return True
+
+
+def _flatten_public_strategy_factor(factor: Mapping[str, Any]) -> dict[str, Any]:
+    flattened = dict(factor)
+    effectiveness = factor.get("effectiveness")
+    if not isinstance(effectiveness, Mapping):
+        return flattened
+
+    effectiveness_payload = dict(effectiveness)
+    if "sample_count" in effectiveness_payload:
+        flattened["sample_count"] = int(effectiveness_payload["sample_count"])
+    for key in (
+        "minimum_sample_count",
+        "information_coefficient",
+        "rank_correlation",
+        "top_bucket_avg_forward_return",
+        "bottom_bucket_avg_forward_return",
+        "top_minus_bottom_forward_return",
+        "top_bucket_hit_rate",
+        "effectiveness_status",
+    ):
+        if key in effectiveness_payload:
+            flattened[key] = effectiveness_payload[key]
+    return flattened
+
+
 def _variant_with_best_metric(
     variants: Mapping[str, Any],
     *,
@@ -464,21 +550,43 @@ def render_public_strategy_factor_report(
     metadata: Mapping[str, Any],
 ) -> dict[str, dict[str, Any]]:
     summary_payload = dict(experiment.get("summary", {}))
-    factors = list(experiment.get("factors", []))
+    raw_factors = [dict(factor) for factor in list(experiment.get("factors", []))]
+    factors = [_flatten_public_strategy_factor(factor) for factor in raw_factors]
     supported_factor_count = int(summary_payload.get("supported_factor_count", 0))
     unsupported_factor_count = int(summary_payload.get("unsupported_factor_count", 0))
-    decision = "keep_researching" if supported_factor_count > 0 else "reject"
-    summary = (
-        "public strategy ideas were converted into evidence-backed factor candidates; data gaps remain non-promotable"
-        if supported_factor_count > 0
-        else "public strategy ideas cannot be evaluated with the current dataset fields"
+    effective_factor_count = int(summary_payload.get("effective_factor_count", 0))
+    minimum_sample_count = _public_strategy_factor_minimum_sample_count(
+        summary_payload=summary_payload,
+        factors=raw_factors,
+        metadata=metadata,
     )
+    sample_count = _public_strategy_factor_sample_count(factors=raw_factors, metadata=metadata)
+    directionally_supported_factor_count = sum(
+        1 for factor in raw_factors if _public_strategy_factor_directionally_supported(factor)
+    )
+
+    if supported_factor_count <= 0:
+        decision = "reject"
+        summary = "public strategy ideas cannot be evaluated with the current dataset fields"
+    elif minimum_sample_count > 0 and sample_count < minimum_sample_count:
+        decision = "keep_researching"
+        summary = "public strategy factor evidence is directionally interesting, but the sample is still below the minimum research threshold"
+    elif minimum_sample_count > 0 and directionally_supported_factor_count > 0 and effective_factor_count > 0:
+        decision = "candidate_for_promotion"
+        summary = "public strategy factor research meets the minimum sample threshold and directional checks for at least one candidate"
+    else:
+        decision = "keep_researching"
+        summary = "public strategy ideas were converted into evidence-backed factor candidates; data gaps remain non-promotable"
 
     assert decision in _ALLOWED_DECISIONS
     return {
         "summary": {
             "metadata": dict(metadata),
             "summary": summary_payload,
+            "sample_count": sample_count,
+            "minimum_sample_count": minimum_sample_count,
+            "effective_factor_count": effective_factor_count,
+            "decision": decision,
         },
         "factor_catalog": {
             "metadata": dict(metadata),
@@ -492,7 +600,7 @@ def render_public_strategy_factor_report(
                 "unsupported_factor_count": unsupported_factor_count,
                 "data_gap_count": int(summary_payload.get("data_gap_count", 0)),
                 "evaluated_factor_count": int(summary_payload.get("evaluated_factor_count", 0)),
-                "effective_factor_count": int(summary_payload.get("effective_factor_count", 0)),
+                "effective_factor_count": effective_factor_count,
             },
             "decision_summary": _decision_summary(decision=decision, summary=summary),
         },
