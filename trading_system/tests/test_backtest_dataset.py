@@ -585,6 +585,53 @@ def test_load_backtest_config_parses_promotion_metadata(tmp_path: Path) -> None:
     )
 
 
+def test_load_backtest_config_parses_minimum_cost_coverage_ratio(tmp_path: Path) -> None:
+    config_path = tmp_path / "full_market_baseline_cost_gate.json"
+    config_path.write_text(
+        """
+        {
+          "dataset_root": "sample_dataset",
+          "experiment_kind": "full_market_baseline",
+          "sample_windows": [
+            {
+              "name": "full_history",
+              "start": "2026-03-10T00:00:00Z",
+              "end": "2026-03-12T00:00:00Z"
+            }
+          ],
+          "forward_return_windows": [],
+          "universe": {
+            "listing_age_days": 30,
+            "min_quote_volume_usdt_24h": {"spot": 1000000.0, "futures": 1000000.0},
+            "require_complete_funding": true
+          },
+          "capital": {
+            "model": "shared_pool",
+            "initial_equity": 100000.0,
+            "risk_per_trade": 0.02,
+            "max_open_risk": 0.03
+          },
+          "costs": {
+            "fee_bps": {"spot": 10.0, "futures": 5.0},
+            "slippage_tiers": {"top": 2.0, "high": 8.0},
+            "funding_mode": "historical_series"
+          },
+          "baseline_name": "current_system",
+          "variant_name": "cost_gate",
+          "experiment_params": {
+            "minimum_cost_coverage_ratio": 2.5
+          }
+        }
+        """.strip(),
+        encoding="utf-8",
+    )
+
+    config = load_backtest_config(config_path)
+
+    assert config.experiment_params is not None
+    assert config.experiment_params.minimum_cost_coverage_ratio == pytest.approx(2.5)
+
+
 def test_load_backtest_config_keeps_full_market_baseline_fixture_compatible(fixture_dir: Path) -> None:
     config = load_backtest_config(fixture_dir / "backtest" / "full_market_baseline.json")
 

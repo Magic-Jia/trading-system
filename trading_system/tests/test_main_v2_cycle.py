@@ -3449,6 +3449,19 @@ def test_notify_testnet_position_close_events_sends_once_and_marks_notified():
     assert second == []
 
 
+def test_candidate_signal_generates_default_take_profit_for_cost_coverage():
+    signal = main_module._candidate_signal(
+        _active_paper_first_rotation_probe_allocation(engine="trend", setup_type="BREAKOUT_CONTINUATION"),
+        _near_stop_rotation_market(),
+        regime={"label": "MIXED"},
+    )
+
+    assert signal.take_profit is not None
+    assert signal.take_profit > signal.entry_price
+    assert signal.take_profit == pytest.approx(signal.entry_price + signal.risk_per_unit() * 1.5)
+    assert signal.meta["structure_target_price"] == pytest.approx(signal.take_profit)
+
+
 def test_main_v2_active_paper_first_rotation_probe_uses_valid_stop_and_tiny_execution_budget():
     account = AccountSnapshot(equity=1000.0, available_balance=1000.0, futures_wallet_balance=1000.0)
     allocation = _active_paper_first_rotation_probe_allocation()

@@ -156,6 +156,7 @@ class EngineCandidate:
     side: Side
     score: float
     stop_loss: float = 0.0
+    take_profit: float | None = None
     invalidation_source: str = ""
     timeframe_meta: dict[str, Any] = field(default_factory=dict)
     sector: str | None = None

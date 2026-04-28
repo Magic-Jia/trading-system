@@ -777,6 +777,64 @@ def test_replay_full_market_baseline_emits_trades_rejections_and_cost_drag(
     assert trade_by_symbol["SOLUSDTPERP"].funding_paid > 0.0
 
 
+def test_replay_full_market_baseline_rejects_candidates_below_minimum_cost_coverage(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    config_path = _baseline_config_path(tmp_path)
+    raw = json.loads(config_path.read_text(encoding="utf-8"))
+    raw["experiment_params"] = {"minimum_cost_coverage_ratio": 2.0}
+    raw["costs"]["fee_bps"] = {"spot": 10.0, "futures": 5.0}
+    raw["costs"]["slippage_tiers"] = {"top": 2.0, "high": 8.0, "medium": 15.0, "low": 30.0}
+    config_path.write_text(json.dumps(raw), encoding="utf-8")
+    config = load_backtest_config(config_path)
+
+    monkeypatch.setattr(
+        backtest_engine,
+        "classify_regime",
+        lambda *_args, **_kwargs: RegimeSnapshot(label="MIXED", confidence=0.5, risk_multiplier=1.0),
+    )
+    monkeypatch.setattr(backtest_engine, "build_universes", lambda *_args, **_kwargs: UniverseBuildResult())
+    monkeypatch.setattr(backtest_engine, "generate_rotation_candidates", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(backtest_engine, "generate_short_candidates", lambda *_args, **_kwargs: [])
+
+    def trend_candidates(market: dict[str, Any], **_kwargs: Any) -> list[EngineCandidate]:
+        symbols = set(market.get("candidate_symbols") or [])
+        if "BTCUSDT" not in symbols:
+            return []
+        return [
+            EngineCandidate(
+                engine="trend",
+                setup_type="LOW_COVERAGE",
+                symbol="BTCUSDT",
+                side="LONG",
+                score=0.99,
+                stop_loss=90.0,
+                take_profit=100.1,
+            ),
+            EngineCandidate(
+                engine="trend",
+                setup_type="ENOUGH_COVERAGE",
+                symbol="BTCUSDTPERP",
+                side="LONG",
+                score=0.98,
+                stop_loss=90.0,
+                take_profit=101.0,
+            ),
+        ]
+
+    monkeypatch.setattr(backtest_engine, "generate_trend_candidates", trend_candidates)
+
+    replay = getattr(backtest_engine, "replay_full_market_baseline", None)
+    assert replay is not None
+
+    result = replay(config)
+
+    assert [row.symbol for row in result.trade_ledger] == ["BTCUSDTPERP"]
+    rejected = {row.symbol: row for row in result.rejection_ledger}
+    assert rejected["BTCUSDT"].reasons == ("minimum_cost_coverage_not_met",)
+
+
 def test_replay_full_market_baseline_respects_disabled_short_engine(
     tmp_path: Path,
     monkeypatch: Any,

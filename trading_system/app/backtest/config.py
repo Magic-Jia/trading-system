@@ -215,6 +215,7 @@ def _load_experiment_params(raw: Any, *, experiment_kind: str) -> ExperimentPara
         minimum_label_confidence=float(raw.get("minimum_label_confidence", 0.5)),
         reject_high_fomo=bool(raw.get("reject_high_fomo", False)),
         allowed_setup_types=_load_upper_unique_tuple(raw.get("allowed_setup_types"), field_name="allowed_setup_types"),
+        minimum_cost_coverage_ratio=float(raw.get("minimum_cost_coverage_ratio", 0.0)),
     )
 
     if experiment_kind == "rotation_suppression":

@@ -80,6 +80,7 @@ class ExperimentParams:
     minimum_label_confidence: float = 0.5
     reject_high_fomo: bool = False
     allowed_setup_types: tuple[str, ...] = ()
+    minimum_cost_coverage_ratio: float = 0.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,6 +99,7 @@ class PortfolioCandidate:
     side: PortfolioSide
     entry_price: float
     stop_loss: float
+    take_profit: float | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -12,7 +12,7 @@ from trading_system.app.signals.short_engine import generate_short_candidates
 from trading_system.app.signals.trend_engine import generate_trend_candidates
 from trading_system.app.universe.builder import UniverseBuildResult, build_universes
 
-from .costs import fee_cost, funding_cost, slippage_cost
+from .costs import fee_bps_for_market, fee_cost, funding_cost, slippage_bps_for_tier, slippage_cost
 from .dataset import load_historical_dataset
 from .metrics import calmar_ratio, max_drawdown, sharpe_ratio, sortino_ratio, total_return, turnover
 from .portfolio import decision_to_ledger_row, evaluate_candidate
@@ -23,6 +23,7 @@ from .types import (
     DatasetSnapshotRow,
     InstrumentSnapshotRow,
     PortfolioCandidate,
+    PortfolioDecision,
     PortfolioPosition,
     PortfolioScorecardRow,
     PortfolioState,
@@ -303,6 +304,17 @@ def _raw_full_market_candidates(
     return sorted(raw_candidates, key=_rank_key)
 
 
+def _candidate_take_profit_price(entry_price: float, stop_loss: float, side: str, r_multiple: float = 1.5) -> float | None:
+    risk_per_unit = abs(float(entry_price) - float(stop_loss))
+    if entry_price <= 0.0 or stop_loss <= 0.0 or risk_per_unit <= 0.0:
+        return None
+    if side.upper() == "LONG":
+        return float(entry_price) + risk_per_unit * r_multiple
+    if side.upper() == "SHORT":
+        return float(entry_price) - risk_per_unit * r_multiple
+    return None
+
+
 def _portfolio_candidate(
     candidate_row: Mapping[str, Any],
     *,
@@ -311,20 +323,52 @@ def _portfolio_candidate(
 ) -> PortfolioCandidate | None:
     entry_price = _reference_price(row, instrument.symbol)
     stop_loss = float(candidate_row.get("stop_loss", 0.0) or 0.0)
+    side = str(candidate_row.get("side", "")).upper()
+    take_profit_raw = candidate_row.get("take_profit")
+    take_profit = float(take_profit_raw) if take_profit_raw is not None else None
+    if take_profit is None or take_profit <= 0:
+        take_profit = _candidate_take_profit_price(entry_price, stop_loss, side)
     if entry_price <= 0.0 or stop_loss <= 0.0:
         return None
     return PortfolioCandidate(
         symbol=instrument.symbol,
         market_type=instrument.market_type,
         base_asset=instrument.base_asset,
-        side="long" if str(candidate_row.get("side", "")).upper() == "LONG" else "short",
+        side="long" if side == "LONG" else "short",
         entry_price=entry_price,
         stop_loss=stop_loss,
+        take_profit=take_profit if take_profit is not None and take_profit > 0 else None,
     )
 
 
 def _portfolio_state(equity: float, positions: list[PortfolioPosition]) -> PortfolioState:
     return PortfolioState(initial_equity=equity, open_positions=tuple(positions))
+
+
+def _candidate_cost_coverage_ok(
+    candidate: PortfolioCandidate,
+    *,
+    instrument: InstrumentSnapshotRow,
+    costs: BacktestCosts,
+    minimum_cost_coverage_ratio: float,
+) -> bool:
+    if minimum_cost_coverage_ratio <= 0.0:
+        return True
+    if candidate.entry_price <= 0.0 or candidate.take_profit is None or candidate.take_profit <= 0.0:
+        return True
+    if candidate.side == "long":
+        reward = float(candidate.take_profit) - float(candidate.entry_price)
+    else:
+        reward = float(candidate.entry_price) - float(candidate.take_profit)
+    if reward <= 0.0:
+        return False
+    expected_reward_pct = reward / float(candidate.entry_price)
+    roundtrip_cost_bps = 2.0 * (
+        fee_bps_for_market(costs, candidate.market_type)
+        + slippage_bps_for_tier(costs, instrument.liquidity_tier)
+    )
+    required_coverage_pct = (roundtrip_cost_bps / 10_000.0) * float(minimum_cost_coverage_ratio)
+    return expected_reward_pct >= required_coverage_pct
 
 
 def _trade_row(
@@ -404,6 +448,9 @@ def _replay_full_market_baseline_rows(
         frozenset(config.experiment_params.allowed_short_setup_types) if config.experiment_params is not None else frozenset()
     )
     entry_profile = config.experiment_params.entry_profile if config.experiment_params is not None else None
+    minimum_cost_coverage_ratio = (
+        config.experiment_params.minimum_cost_coverage_ratio if config.experiment_params is not None else 0.0
+    )
 
     equity = float(config.capital.initial_equity)
     open_trades: list[_OpenTrade] = []
@@ -451,6 +498,25 @@ def _replay_full_market_baseline_rows(
                 continue
             candidate = _portfolio_candidate(candidate_row, instrument=instrument, row=row)
             if candidate is None:
+                continue
+            if not _candidate_cost_coverage_ok(
+                candidate,
+                instrument=instrument,
+                costs=config.costs,
+                minimum_cost_coverage_ratio=minimum_cost_coverage_ratio,
+            ):
+                rejection_ledger.append(
+                    decision_to_ledger_row(
+                        candidate,
+                        PortfolioDecision(
+                            status="rejected",
+                            reasons=("minimum_cost_coverage_not_met",),
+                            final_risk_budget=0.0,
+                            position_notional=0.0,
+                            qty=0.0,
+                        ),
+                    )
+                )
                 continue
             decision = evaluate_candidate(candidate, state=_portfolio_state(equity, open_positions), capital=config.capital)
             ledger_row = decision_to_ledger_row(candidate, decision)

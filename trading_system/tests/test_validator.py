@@ -9,6 +9,16 @@ from trading_system.app.risk.validator import (
 from trading_system.app.types import AccountSnapshot, PositionSnapshot, TradeSignal
 
 
+def test_risk_config_defaults_enable_minimum_cost_coverage(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("TRADING_MINIMUM_COST_COVERAGE_RATIO", raising=False)
+    monkeypatch.delenv("TRADING_ESTIMATED_ROUNDTRIP_COST_BPS", raising=False)
+
+    config = RiskConfig()
+
+    assert config.minimum_cost_coverage_ratio > 0
+    assert config.estimated_roundtrip_cost_bps > 0
+
+
 def test_validate_candidate_for_allocation_blocks_existing_symbol_exposure():
     candidate = {
         "engine": "trend",
@@ -83,6 +93,113 @@ def test_validate_candidate_for_execution_blocks_missing_explicit_stop_and_inval
     assert result.metrics["has_invalidation_source"] is False
 
 
+def test_validate_candidate_for_execution_allows_without_take_profit():
+    candidate = {
+        "engine": "trend",
+        "symbol": "BTCUSDT",
+        "side": "LONG",
+        "score": 0.82,
+        "stop_loss": 99.0,
+        "invalidation_source": "ema_50",
+    }
+
+    result = validate_candidate_for_execution(candidate)
+
+    assert result.allowed is True
+    assert result.metrics["has_explicit_stop_loss"] is True
+    assert result.metrics["has_invalidation_source"] is True
+
+
+def test_validate_signal_blocks_when_cost_gate_enabled_without_take_profit():
+    signal = TradeSignal(
+        signal_id="cost-coverage-missing-tp",
+        symbol="BTCUSDT",
+        side="LONG",
+        entry_price=100.0,
+        stop_loss=98.0,
+        take_profit=None,
+        source="strategy",
+        timeframe="4h",
+        tags=["v2", "trend"],
+        meta={"setup_type": "BREAKOUT", "score": 0.8},
+    )
+    account = AccountSnapshot(equity=1000.0, available_balance=1000.0, futures_wallet_balance=1000.0)
+    config = RiskConfig(
+        minimum_cost_coverage_ratio=1.0,
+        estimated_roundtrip_cost_bps=50.0,
+        max_notional_pct=1.0,
+        max_total_risk_pct=1.0,
+        max_symbol_risk_pct=1.0,
+    )
+
+    result, _context = validate_signal(signal, account, config)
+
+    assert result.allowed is False
+    assert any("止盈目标" in reason for reason in result.reasons)
+    assert result.metrics["expected_reward_pct"] is None
+
+
+def test_validate_signal_blocks_when_expected_reward_does_not_cover_minimum_cost():
+    signal = TradeSignal(
+        signal_id="cost-coverage-block",
+        symbol="BTCUSDT",
+        side="SHORT",
+        entry_price=100.0,
+        stop_loss=104.0,
+        take_profit=99.5,
+        source="strategy",
+        timeframe="4h",
+        tags=["v2", "short"],
+        meta={"setup_type": "BREAKDOWN_SHORT", "score": 0.8},
+    )
+    account = AccountSnapshot(equity=1000.0, available_balance=1000.0, futures_wallet_balance=1000.0)
+    config = RiskConfig(
+        minimum_cost_coverage_ratio=2.0,
+        estimated_roundtrip_cost_bps=50.0,
+        max_notional_pct=1.0,
+        max_total_risk_pct=1.0,
+        max_symbol_risk_pct=1.0,
+    )
+
+    result, context = validate_signal(signal, account, config)
+
+    assert result.allowed is False
+    assert result.severity == "BLOCK"
+    assert any("成本覆盖" in reason for reason in result.reasons)
+    assert result.metrics["expected_reward_pct"] == pytest.approx(0.005, abs=1e-6)
+    assert result.metrics["minimum_cost_coverage_required_pct"] == pytest.approx(0.01, abs=1e-6)
+    assert context["sizing"].qty > 0
+
+
+def test_validate_signal_allows_when_expected_reward_covers_minimum_cost():
+    signal = TradeSignal(
+        signal_id="cost-coverage-allow",
+        symbol="BTCUSDT",
+        side="SHORT",
+        entry_price=100.0,
+        stop_loss=104.0,
+        take_profit=98.0,
+        source="strategy",
+        timeframe="4h",
+        tags=["v2", "short"],
+        meta={"setup_type": "BREAKDOWN_SHORT", "score": 0.8},
+    )
+    account = AccountSnapshot(equity=1000.0, available_balance=1000.0, futures_wallet_balance=1000.0)
+    config = RiskConfig(
+        minimum_cost_coverage_ratio=2.0,
+        estimated_roundtrip_cost_bps=50.0,
+        max_notional_pct=1.0,
+        max_total_risk_pct=1.0,
+        max_symbol_risk_pct=1.0,
+    )
+
+    result, _context = validate_signal(signal, account, config)
+
+    assert result.allowed is True
+    assert result.metrics["expected_reward_pct"] == pytest.approx(0.02, abs=1e-6)
+    assert result.metrics["minimum_cost_coverage_required_pct"] == pytest.approx(0.01, abs=1e-6)
+
+
 def test_validate_signal_blocks_when_planned_notional_pushes_net_exposure_over_cap():
     signal = TradeSignal(
         signal_id="net-exposure-block",
@@ -151,6 +268,7 @@ def test_validate_signal_uses_planned_loss_not_notional_for_new_trade_risk_caps(
         max_total_risk_pct=0.03,
         max_symbol_risk_pct=0.015,
         max_net_exposure_pct=0.85,
+        minimum_cost_coverage_ratio=0.0,
     )
 
     result, context = validate_signal(signal, account, config, risk_pct_override=0.00541)

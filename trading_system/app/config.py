@@ -134,6 +134,12 @@ class RiskConfig:
     high_volatility_threshold_pct: float = field(default_factory=lambda: _env_float("TRADING_HIGH_VOL_THRESHOLD_PCT", "0.06"))
     high_vol_risk_multiplier: float = field(default_factory=lambda: _env_float("TRADING_HIGH_VOL_RISK_MULTIPLIER", "0.5"))
     cooldown_minutes: int = field(default_factory=lambda: _env_int("TRADING_COOLDOWN_MINUTES", "30"))
+    minimum_cost_coverage_ratio: float = field(
+        default_factory=lambda: _env_float("TRADING_MINIMUM_COST_COVERAGE_RATIO", "2.0")
+    )
+    estimated_roundtrip_cost_bps: float = field(
+        default_factory=lambda: _env_float("TRADING_ESTIMATED_ROUNDTRIP_COST_BPS", "10.0")
+    )
 
 
 @dataclass(frozen=True, slots=True)

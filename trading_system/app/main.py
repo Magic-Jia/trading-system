@@ -724,6 +724,14 @@ def _candidate_signal(
     if take_profit <= 0:
         take_profit = _float(candidate_meta, "take_profit")
     if take_profit <= 0:
+        stop_loss_for_default = _float(candidate_row, "stop_loss")
+        if stop_loss_for_default <= 0:
+            stop_loss_for_default = _float(candidate_meta, "stop_loss")
+        if stop_loss_for_default > 0:
+            risk_per_unit = abs(entry_price - stop_loss_for_default)
+            if risk_per_unit > 0:
+                take_profit = entry_price + risk_per_unit * 1.5 if side == "LONG" else entry_price - risk_per_unit * 1.5
+    if take_profit <= 0:
         take_profit = None
     structure_target_price = round(take_profit, 8) if take_profit and take_profit > 0 else None
     invalidation_source = str(candidate_row.get("invalidation_source") or candidate_meta.get("invalidation_source") or "").strip()

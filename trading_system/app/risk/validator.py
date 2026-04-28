@@ -9,6 +9,24 @@ from .guardrails import MAJOR_COIN_PREFIXES, evaluate_guardrails
 from .position_sizer import size_signal
 
 
+def _expected_reward_pct(signal: TradeSignal) -> float | None:
+    if signal.entry_price <= 0 or signal.take_profit is None or signal.take_profit <= 0:
+        return None
+    if signal.side == "LONG":
+        reward = signal.take_profit - signal.entry_price
+    else:
+        reward = signal.entry_price - signal.take_profit
+    if reward <= 0:
+        return 0.0
+    return reward / signal.entry_price
+
+
+def _cost_coverage_required_pct(config: RiskConfig) -> float:
+    if config.minimum_cost_coverage_ratio <= 0 or config.estimated_roundtrip_cost_bps <= 0:
+        return 0.0
+    return config.minimum_cost_coverage_ratio * (config.estimated_roundtrip_cost_bps / 10_000.0)
+
+
 def validate_signal(
     signal: TradeSignal,
     account: AccountSnapshot,
@@ -49,6 +67,22 @@ def validate_signal(
     if not sizing.allowed or sizing.qty <= 0:
         reasons.append("仓位计算结果无效，拒绝开仓")
         return ValidationResult(False, "BLOCK", reasons=reasons, metrics=metrics), {"sizing": sizing}
+
+    required_cost_coverage_pct = _cost_coverage_required_pct(config)
+    if required_cost_coverage_pct > 0:
+        expected_reward_pct = _expected_reward_pct(signal)
+        metrics["minimum_cost_coverage_required_pct"] = required_cost_coverage_pct
+        metrics["expected_reward_pct"] = expected_reward_pct
+        if expected_reward_pct is None:
+            reasons.append("信号缺少止盈目标，无法验证最低成本覆盖门槛")
+            return ValidationResult(False, "BLOCK", reasons=reasons, metrics=metrics), {"sizing": sizing}
+        if expected_reward_pct < required_cost_coverage_pct:
+            reasons.append(
+                "预期收益空间未达到最低成本覆盖门槛: "
+                f"expected_reward_pct={expected_reward_pct:.6f}, "
+                f"required_pct={required_cost_coverage_pct:.6f}"
+            )
+            return ValidationResult(False, "BLOCK", reasons=reasons, metrics=metrics), {"sizing": sizing}
 
     allowed, guard_reasons, guard_metrics = evaluate_guardrails(
         signal,
