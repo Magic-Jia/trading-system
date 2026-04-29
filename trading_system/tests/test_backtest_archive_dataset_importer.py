@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -115,8 +116,9 @@ def _archive_phase1_symbol_history(
         payload={"symbol": symbol, "interval": "1h", "rows": hourly_rows},
         symbol_metadata=ohlcv_metadata,
     )
+    intervals_by_timeframe = {"30m": 2, "15m": 4, "5m": 12, "1m": 60}
     for timeframe in extra_ohlcv_timeframes:
-        intervals_per_hour = 2 if timeframe == "30m" else 4 if timeframe == "15m" else 1
+        intervals_per_hour = intervals_by_timeframe[timeframe]
         interval = timedelta(hours=1) / intervals_per_hour
         intraday_rows: list[dict[str, str | int]] = []
         for index in range(total_hours * intervals_per_hour):
@@ -272,6 +274,92 @@ def test_build_phase1_dataset_bundle_materials_includes_available_intraday_trigg
     assert market_symbol["15m"]["return_pct_4h"] > 0.0
     assert "binance:futures:ohlcv:BTCUSDT:30m" in materials[-1].metadata["source"]["series_keys"]
     assert "binance:futures:ohlcv:BTCUSDT:15m" in materials[-1].metadata["source"]["series_keys"]
+
+
+def test_build_phase1_dataset_bundle_materials_materializes_contiguous_5m_ohlcv_payload(
+    tmp_path: Path,
+) -> None:
+    archive_root = tmp_path / "archive"
+    _archive_phase1_symbol_history(
+        archive_root,
+        symbol="BTCUSDT",
+        extra_ohlcv_timeframes=("5m",),
+    )
+
+    imported = load_phase1_raw_market_imports(archive_root)
+
+    materials = build_phase1_dataset_bundle_materials(imported)
+
+    market_symbol = materials[-1].market_context["symbols"]["BTCUSDT"]
+    assert market_symbol["5m"]["close"] == pytest.approx(market_symbol["1h"]["close"])
+    assert market_symbol["5m"]["high"] >= market_symbol["5m"]["close"]
+    assert market_symbol["5m"]["low"] <= market_symbol["5m"]["close"]
+    assert market_symbol["5m"]["return_pct_1h"] > 0.0
+    assert market_symbol["5m"]["volume_usdt_24h"] > 0.0
+    assert "binance:futures:ohlcv:BTCUSDT:5m" in materials[-1].metadata["source"]["series_keys"]
+    assert materials[-1].metadata["source"]["ohlcv_timeframes"]["available"] == ["1h", "5m"]
+    assert materials[-1].metadata["source"]["ohlcv_timeframes"]["materialized"] == ["1h", "5m"]
+    assert materials[-1].metadata["source"]["ohlcv_timeframes"]["missing_optional"] == ["1m", "15m", "30m"]
+
+
+def test_build_phase1_dataset_bundle_materials_skips_non_contiguous_5m_payload_and_reports_coverage(
+    tmp_path: Path,
+) -> None:
+    archive_root = tmp_path / "archive"
+    _archive_phase1_symbol_history(
+        archive_root,
+        symbol="BTCUSDT",
+        extra_ohlcv_timeframes=("5m",),
+    )
+    manifest_path = next((archive_root / "raw-market").glob("**/ohlcv/BTCUSDT/5m/*.manifest.json"))
+    data_path = Path(json.loads(manifest_path.read_text(encoding="utf-8"))["file"]["path"])
+    payload = json.loads(data_path.read_text(encoding="utf-8"))
+    payload["rows"] = [
+        row
+        for row in payload["rows"]
+        if row["open_time"] != _timestamp_ms(datetime(2024, 2, 29, 22, 55, tzinfo=UTC))
+    ]
+    data_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    raw_bytes = data_path.read_bytes()
+
+    manifest["file"]["sha256"] = hashlib.sha256(raw_bytes).hexdigest()
+    manifest["file"]["size_bytes"] = len(raw_bytes)
+    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    imported = load_phase1_raw_market_imports(archive_root)
+
+    materials = build_phase1_dataset_bundle_materials(imported)
+
+    market_symbol = materials[-1].market_context["symbols"]["BTCUSDT"]
+    assert "5m" not in market_symbol
+    assert materials[-1].metadata["source"]["ohlcv_timeframes"]["available"] == ["1h", "5m"]
+    assert materials[-1].metadata["source"]["ohlcv_timeframes"]["materialized"] == ["1h"]
+    assert materials[-1].metadata["source"]["ohlcv_timeframes"]["not_materialized"] == {
+        "5m": "missing_contiguous_bars"
+    }
+
+
+def test_import_phase1_archive_dataset_root_manifest_exposes_finer_ohlcv_coverage(
+    tmp_path: Path,
+) -> None:
+    archive_root = tmp_path / "archive"
+    dataset_root = tmp_path / "dataset"
+    _archive_phase1_symbol_history(
+        archive_root,
+        symbol="BTCUSDT",
+        extra_ohlcv_timeframes=("5m",),
+    )
+
+    import_phase1_archive_dataset_root(archive_root, dataset_root)
+
+    manifest = json.loads((dataset_root / "import_manifest.json").read_text(encoding="utf-8"))
+    assert manifest["coverage"]["ohlcv_timeframes"] == {
+        "available": ["1h", "5m"],
+        "materialized": ["1h", "5m"],
+        "missing_optional": ["1m", "15m", "30m"],
+        "not_materialized": {},
+    }
 
 
 def test_build_phase1_dataset_bundle_materials_uses_quote_denominated_open_interest_rows_directly(

@@ -5,6 +5,7 @@ import shutil
 from bisect import bisect_right
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
@@ -28,6 +29,14 @@ PHASE1_IMPORTER_BUNDLE_SCHEMA = "phase1_import_bundle.v1"
 PHASE1_IMPORTER_ROOT_SCHEMA = "phase1_imported_dataset_root.v1"
 PHASE1_IMPORTER_OHLCV_TIMEFRAME = "1h"
 PHASE1_IMPORTER_ROOT_MANIFEST = "import_manifest.json"
+PHASE1_IMPORTER_OPTIONAL_INTRADAY_OHLCV_TIMEFRAMES = ("1m", "5m", "15m", "30m")
+_PHASE1_IMPORTER_INTRADAY_GAPS = {
+    "1m": timedelta(minutes=1),
+    "5m": timedelta(minutes=5),
+    "15m": timedelta(minutes=15),
+    "30m": timedelta(minutes=30),
+}
+_PHASE1_IMPORTER_OHLCV_TIMEFRAME_ORDER = ("1h", *PHASE1_IMPORTER_OPTIONAL_INTRADAY_OHLCV_TIMEFRAMES)
 _KNOWN_QUOTES = ("USDT", "USDC", "BUSD", "FDUSD", "USD")
 _PHASE1_DEFAULT_QUANTITY_STEP = 0.001
 _PHASE1_DEFAULT_PRICE_TICK = 0.1
@@ -134,6 +143,7 @@ def _hourly_ohlcv_bar(record: ImportedRawMarketRecord) -> _OhlcvBar:
     )
 
 
+@lru_cache(maxsize=200_000)
 def _bucket_start(value: datetime, *, hours: int) -> datetime:
     normalized = value.astimezone(timezone.utc).replace(minute=0, second=0, microsecond=0)
     if hours == 24:
@@ -349,7 +359,7 @@ def _phase1_symbol_series(imported_series: Iterable[ImportedRawMarketSeries]) ->
                 open_interest=open_interest,
                 intraday_ohlcv={
                     timeframe: series
-                    for timeframe in ("30m", "15m")
+                    for timeframe in PHASE1_IMPORTER_OPTIONAL_INTRADAY_OHLCV_TIMEFRAMES
                     if (series := indexed.get((symbol, "ohlcv", timeframe))) is not None
                 },
                 symbol_metadata=_resolved_symbol_metadata(
@@ -358,7 +368,11 @@ def _phase1_symbol_series(imported_series: Iterable[ImportedRawMarketSeries]) ->
                         ohlcv,
                         funding,
                         open_interest,
-                        *(indexed[(symbol, "ohlcv", timeframe)] for timeframe in ("30m", "15m") if (symbol, "ohlcv", timeframe) in indexed),
+                        *(
+                            indexed[(symbol, "ohlcv", timeframe)]
+                            for timeframe in PHASE1_IMPORTER_OPTIONAL_INTRADAY_OHLCV_TIMEFRAMES
+                            if (symbol, "ohlcv", timeframe) in indexed
+                        ),
                     ),
                 ),
             )
@@ -369,6 +383,11 @@ def _phase1_symbol_series(imported_series: Iterable[ImportedRawMarketSeries]) ->
 def _record_lookup(records: Sequence[ImportedRawMarketRecord]) -> tuple[list[datetime], list[ImportedRawMarketRecord]]:
     ordered = sorted(records, key=lambda record: record.observed_at)
     return [record.observed_at for record in ordered], ordered
+
+
+def _ohlcv_bar_lookup(records: Sequence[ImportedRawMarketRecord]) -> tuple[list[datetime], list[_OhlcvBar]]:
+    ordered = sorted((_hourly_ohlcv_bar(record) for record in records), key=lambda row: row.observed_at)
+    return [bar.observed_at for bar in ordered], ordered
 
 
 def _latest_record_at_or_before(
@@ -386,25 +405,40 @@ def _hourly_history_up_to(series: ImportedRawMarketSeries, *, timestamp: datetim
     return _ohlcv_history_up_to(series, timestamp=timestamp, expected_gap=timedelta(hours=1))
 
 
+def _contiguous_ohlcv_history_up_to(
+    timestamps: Sequence[datetime],
+    bars: Sequence[_OhlcvBar],
+    *,
+    timestamp: datetime,
+    expected_gap: timedelta,
+) -> list[_OhlcvBar]:
+    end_index = bisect_right(timestamps, timestamp) - 1
+    if end_index < 0:
+        return []
+    contiguous = [bars[end_index]]
+    for index in range(end_index - 1, -1, -1):
+        current = contiguous[-1]
+        previous = bars[index]
+        if current.observed_at - previous.observed_at != expected_gap:
+            break
+        contiguous.append(previous)
+    contiguous.reverse()
+    return contiguous
+
+
 def _ohlcv_history_up_to(
     series: ImportedRawMarketSeries,
     *,
     timestamp: datetime,
     expected_gap: timedelta,
 ) -> list[_OhlcvBar]:
-    ordered = sorted(
-        (_hourly_ohlcv_bar(record) for record in series.records if record.observed_at <= timestamp),
-        key=lambda row: row.observed_at,
+    timestamps, bars = _ohlcv_bar_lookup(series.records)
+    return _contiguous_ohlcv_history_up_to(
+        timestamps,
+        bars,
+        timestamp=timestamp,
+        expected_gap=expected_gap,
     )
-    if not ordered:
-        return []
-    contiguous = [ordered[-1]]
-    for previous, current in zip(reversed(ordered[:-1]), reversed(ordered[1:]), strict=False):
-        if current.observed_at - previous.observed_at != expected_gap:
-            break
-        contiguous.append(previous)
-    contiguous.reverse()
-    return contiguous
 
 
 def _timeframe_payload(hourly_bars: Sequence[_OhlcvBar], *, timeframe: str) -> dict[str, float]:
@@ -420,6 +454,14 @@ def _timeframe_payload(hourly_bars: Sequence[_OhlcvBar], *, timeframe: str) -> d
         bars = list(hourly_bars)
         periods_back = 16
         return_label = "return_pct_4h"
+    elif timeframe == "5m":
+        bars = list(hourly_bars)
+        periods_back = 12
+        return_label = "return_pct_1h"
+    elif timeframe == "1m":
+        bars = list(hourly_bars)
+        periods_back = 15
+        return_label = "return_pct_15m"
     elif timeframe == "4h":
         bars = _resample_bars(hourly_bars, hours=4)
         periods_back = 18
@@ -475,7 +517,42 @@ def _funding_rate(record: ImportedRawMarketRecord) -> float:
     return _to_float(payload.get("fundingRate"))
 
 
-def _import_trace(symbol_series: Sequence[_Phase1SymbolSeries]) -> dict[str, Any]:
+def _ordered_timeframes(values: Iterable[str]) -> list[str]:
+    present = {str(value) for value in values}
+    ordered = [timeframe for timeframe in _PHASE1_IMPORTER_OHLCV_TIMEFRAME_ORDER if timeframe in present]
+    ordered.extend(sorted(present.difference(ordered)))
+    return ordered
+
+
+def _ohlcv_timeframe_coverage(
+    symbol_series: Sequence[_Phase1SymbolSeries],
+    *,
+    materialized_timeframes: Iterable[str],
+    not_materialized: Mapping[str, str] | None = None,
+) -> dict[str, Any]:
+    available = {"1h"}
+    for item in symbol_series:
+        available.update(item.intraday_ohlcv.keys())
+    materialized = set(materialized_timeframes)
+    missing_optional = [
+        timeframe
+        for timeframe in PHASE1_IMPORTER_OPTIONAL_INTRADAY_OHLCV_TIMEFRAMES
+        if timeframe not in available
+    ]
+    return {
+        "available": _ordered_timeframes(available),
+        "materialized": _ordered_timeframes(materialized),
+        "missing_optional": list(missing_optional),
+        "not_materialized": dict(sorted((not_materialized or {}).items())),
+    }
+
+
+def _import_trace(
+    symbol_series: Sequence[_Phase1SymbolSeries],
+    *,
+    materialized_timeframes: Iterable[str] | None = None,
+    not_materialized: Mapping[str, str] | None = None,
+) -> dict[str, Any]:
     series_keys: list[str] = []
     manifest_paths: list[str] = []
     for item in symbol_series:
@@ -489,6 +566,11 @@ def _import_trace(symbol_series: Sequence[_Phase1SymbolSeries]) -> dict[str, Any
         "symbols": sorted(item.symbol for item in symbol_series),
         "series_keys": sorted(series_keys),
         "manifest_paths": sorted(manifest_paths),
+        "ohlcv_timeframes": _ohlcv_timeframe_coverage(
+            symbol_series,
+            materialized_timeframes=materialized_timeframes or ("1h",),
+            not_materialized=not_materialized,
+        ),
     }
 
 
@@ -530,6 +612,33 @@ def _merged_import_trace(traces: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _merged_ohlcv_timeframe_coverage(traces: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
+    available: set[str] = set()
+    materialized: set[str] = set()
+    not_materialized: dict[str, str] = {}
+    for trace in traces:
+        coverage = trace.get("ohlcv_timeframes")
+        if not isinstance(coverage, Mapping):
+            continue
+        available.update(str(value) for value in coverage.get("available") or ())
+        materialized.update(str(value) for value in coverage.get("materialized") or ())
+        raw_not_materialized = coverage.get("not_materialized") or {}
+        if isinstance(raw_not_materialized, Mapping):
+            for timeframe, reason in raw_not_materialized.items():
+                not_materialized[str(timeframe)] = str(reason)
+    missing_optional = [
+        timeframe
+        for timeframe in PHASE1_IMPORTER_OPTIONAL_INTRADAY_OHLCV_TIMEFRAMES
+        if timeframe not in available
+    ]
+    return {
+        "available": _ordered_timeframes(available),
+        "materialized": _ordered_timeframes(materialized),
+        "missing_optional": list(missing_optional),
+        "not_materialized": dict(sorted(not_materialized.items())),
+    }
+
+
 def build_phase1_dataset_bundle_materials(
     imported_series: Iterable[ImportedRawMarketSeries],
     *,
@@ -564,17 +673,34 @@ def build_phase1_dataset_bundle_materials(
         item.symbol: _record_lookup(item.open_interest.records)
         for item in symbol_series
     }
+    hourly_ohlcv_lookups = {
+        item.symbol: _ohlcv_bar_lookup(item.ohlcv.records)
+        for item in symbol_series
+    }
+    intraday_ohlcv_lookups = {
+        (item.symbol, timeframe): _ohlcv_bar_lookup(series.records)
+        for item in symbol_series
+        for timeframe, series in item.intraday_ohlcv.items()
+    }
 
     for timestamp in all_timestamps:
         market_symbols: dict[str, Any] = {}
         derivatives_rows: list[dict[str, Any]] = []
         instrument_rows: list[dict[str, Any]] = []
         eligible_symbol_series: list[_Phase1SymbolSeries] = []
+        materialized_ohlcv_timeframes = {"1h"}
+        not_materialized_ohlcv_timeframes: dict[str, str] = {}
 
         for item in symbol_series:
             if timestamp not in ohlcv_timestamp_sets[item.symbol]:
                 continue
-            hourly_bars = _hourly_history_up_to(item.ohlcv, timestamp=timestamp)
+            hourly_timestamps, hourly_lookup_bars = hourly_ohlcv_lookups[item.symbol]
+            hourly_bars = _contiguous_ohlcv_history_up_to(
+                hourly_timestamps,
+                hourly_lookup_bars,
+                timestamp=timestamp,
+                expected_gap=timedelta(hours=1),
+            )
             if len(hourly_bars) < 24:
                 continue
             daily_bars = _resample_bars(hourly_bars, hours=24)
@@ -608,10 +734,19 @@ def build_phase1_dataset_bundle_materials(
                 "1h": _timeframe_payload(hourly_bars, timeframe="1h"),
             }
             for timeframe, series in item.intraday_ohlcv.items():
-                expected_gap = timedelta(minutes=30 if timeframe == "30m" else 15)
-                intraday_bars = _ohlcv_history_up_to(series, timestamp=timestamp, expected_gap=expected_gap)
+                expected_gap = _PHASE1_IMPORTER_INTRADAY_GAPS[timeframe]
+                intraday_timestamps, intraday_lookup_bars = intraday_ohlcv_lookups[(item.symbol, timeframe)]
+                intraday_bars = _contiguous_ohlcv_history_up_to(
+                    intraday_timestamps,
+                    intraday_lookup_bars,
+                    timestamp=timestamp,
+                    expected_gap=expected_gap,
+                )
                 if len(intraday_bars) >= 50:
                     timeframe_payloads[timeframe] = _timeframe_payload(intraday_bars, timeframe=timeframe)
+                    materialized_ohlcv_timeframes.add(timeframe)
+                else:
+                    not_materialized_ohlcv_timeframes[timeframe] = "missing_contiguous_bars"
             market_symbols[item.symbol] = {
                 "sector": sector_for_symbol(item.symbol),
                 "liquidity_tier": liquidity_tier,
@@ -673,7 +808,11 @@ def build_phase1_dataset_bundle_materials(
             "timestamp": timestamp_iso,
             "run_id": run_id,
             "schema_version": PHASE1_IMPORTER_BUNDLE_SCHEMA,
-            "source": _import_trace(eligible_symbol_series),
+            "source": _import_trace(
+                eligible_symbol_series,
+                materialized_timeframes=materialized_ohlcv_timeframes,
+                not_materialized=not_materialized_ohlcv_timeframes,
+            ),
         }
         materials.append(
             Phase1DatasetBundleMaterial(
@@ -752,6 +891,11 @@ def _phase1_dataset_root_manifest(
         "bundle_dirs": [str(bundle_dir) for bundle_dir in bundle_dirs],
         "bundle_timestamps": bundle_timestamps,
         "source": _merged_import_trace(material.metadata.get("source") or {} for material in materials),
+        "coverage": {
+            "ohlcv_timeframes": _merged_ohlcv_timeframe_coverage(
+                material.metadata.get("source") or {} for material in materials
+            )
+        },
     }
 
 

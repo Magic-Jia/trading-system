@@ -110,7 +110,15 @@ def test_load_dataset_root_metadata_surfaces_imported_manifest_summary(tmp_path:
           "start_timestamp": "2025-01-01T00:00:00Z",
           "end_timestamp": "2025-02-11T00:00:00Z",
           "bundle_dirs": ["bundle-a", "bundle-b"],
-          "source": {"scope": "phase1_binance_futures"}
+          "source": {"scope": "phase1_binance_futures"},
+          "coverage": {
+            "ohlcv_timeframes": {
+              "available": ["1h", "5m"],
+              "materialized": ["1h", "5m"],
+              "missing_optional": ["1m", "15m", "30m"],
+              "not_materialized": {}
+            }
+          }
         }
         """.strip(),
         encoding="utf-8",
@@ -132,6 +140,14 @@ def test_load_dataset_root_metadata_surfaces_imported_manifest_summary(tmp_path:
             "end_timestamp": "2025-02-11T00:00:00Z",
             "bundle_count": 2,
             "source": {"scope": "phase1_binance_futures"},
+            "coverage": {
+                "ohlcv_timeframes": {
+                    "available": ["1h", "5m"],
+                    "materialized": ["1h", "5m"],
+                    "missing_optional": ["1m", "15m", "30m"],
+                    "not_materialized": {},
+                }
+            },
         },
     }
 

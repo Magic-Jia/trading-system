@@ -136,6 +136,7 @@ def load_dataset_root_metadata(dataset_root: str | Path) -> dict[str, object]:
             "end_timestamp": manifest.get("end_timestamp"),
             "bundle_count": len(manifest.get("bundle_dirs") or ()),
             "source": dict(manifest.get("source") or {}),
+            "coverage": dict(manifest.get("coverage") or {}),
         },
     }
 

@@ -1020,6 +1020,39 @@ def test_replay_full_market_baseline_uses_intraday_path_for_trade_mfe_mae(
     assert btc_trade.mae_pct == pytest.approx(0.04)
 
 
+def test_replay_full_market_baseline_prefers_finest_available_intraday_path_for_mfe_mae(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    config_path = _baseline_config_path(tmp_path)
+    config = load_backtest_config(config_path)
+    row2_bundle = config.dataset_root / "2026-03-11T00-00-00Z__row-002"
+    market_path = row2_bundle / "market_context.json"
+    market_payload = json.loads(market_path.read_text(encoding="utf-8"))
+    market_payload["symbols"]["BTCUSDT"]["15m"] = {
+        **market_payload["symbols"]["BTCUSDT"].get("15m", {}),
+        "high": 130.0,
+        "low": 70.0,
+        "close": 110.0,
+    }
+    market_payload["symbols"]["BTCUSDT"]["5m"] = {
+        **market_payload["symbols"]["BTCUSDT"].get("5m", {}),
+        "high": 112.0,
+        "low": 96.0,
+        "close": 110.0,
+    }
+    market_path.write_text(json.dumps(market_payload), encoding="utf-8")
+    _install_replay_candidates(monkeypatch)
+
+    result = backtest_engine.replay_full_market_baseline(load_backtest_config(config_path))
+
+    btc_trade = next(row for row in result.trade_ledger if row.symbol == "BTCUSDT")
+    assert btc_trade.exit_move_pct == pytest.approx(0.10)
+    assert btc_trade.mfe_pct == pytest.approx(0.12)
+    assert btc_trade.mae_pct == pytest.approx(0.04)
+    assert btc_trade.simulated_exit_reason == "fixed_horizon"
+
+
 def test_replay_full_market_baseline_envelopes_intraday_path_with_entry_and_exit(
     tmp_path: Path,
     monkeypatch: Any,

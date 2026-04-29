@@ -270,21 +270,15 @@ def _float_or_none(value: Any) -> float | None:
 
 def _path_high_low(row: DatasetSnapshotRow, symbol: str) -> tuple[float | None, float | None]:
     payload = _symbol_payload(row, symbol)
-    highs: list[float] = []
-    lows: list[float] = []
-    for timeframe in ("15m", "30m", "1h"):
+    for timeframe in ("1m", "5m", "15m", "30m", "1h"):
         timeframe_row = payload.get(timeframe)
         if not isinstance(timeframe_row, Mapping):
             continue
         high = _float_or_none(timeframe_row.get("high"))
         low = _float_or_none(timeframe_row.get("low"))
-        if high is not None:
-            highs.append(high)
-        if low is not None:
-            lows.append(low)
-    if not highs or not lows:
-        return None, None
-    return max(highs), min(lows)
+        if high is not None and low is not None:
+            return high, low
+    return None, None
 
 
 def _mfe_mae_from_path(
