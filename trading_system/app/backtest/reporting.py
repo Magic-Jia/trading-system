@@ -119,6 +119,11 @@ def _trade_ledger_payload(trade_ledger: tuple[TradeLedgerRow, ...]) -> list[dict
             "mfe_pct": row.mfe_pct,
             "mae_pct": row.mae_pct,
             "exit_move_pct": row.exit_move_pct,
+            "simulated_exit_reason": row.simulated_exit_reason,
+            "simulated_exit_price": row.simulated_exit_price,
+            "simulated_exit_move_pct": row.simulated_exit_move_pct,
+            "simulated_gross_pnl": row.simulated_gross_pnl,
+            "simulated_net_pnl": row.simulated_net_pnl,
             "cost_coverage_ratio": row.cost_coverage_ratio,
         }
         for row in trade_ledger

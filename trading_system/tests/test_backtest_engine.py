@@ -131,6 +131,11 @@ def test_backtest_cli_runs_full_market_baseline_smoke_fixture(
         "mfe_pct",
         "mae_pct",
         "exit_move_pct",
+        "simulated_exit_reason",
+        "simulated_exit_price",
+        "simulated_exit_move_pct",
+        "simulated_gross_pnl",
+        "simulated_net_pnl",
         "cost_coverage_ratio",
     }.issubset(trades[0])
 
@@ -854,6 +859,117 @@ def test_replay_full_market_baseline_rejects_candidates_below_minimum_cost_cover
     assert [row.symbol for row in result.trade_ledger] == ["BTCUSDTPERP"]
     rejected = {row.symbol: row for row in result.rejection_ledger}
     assert rejected["BTCUSDT"].reasons == ("minimum_cost_coverage_not_met",)
+
+
+def test_replay_full_market_baseline_simulates_take_profit_exit_from_intraday_path(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    config_path = _baseline_config_path(tmp_path)
+    config = load_backtest_config(config_path)
+    row2_bundle = config.dataset_root / "2026-03-11T00-00-00Z__row-002"
+    market_path = row2_bundle / "market_context.json"
+    market_payload = json.loads(market_path.read_text(encoding="utf-8"))
+    market_payload["symbols"]["BTCUSDT"]["1h"] = {
+        **market_payload["symbols"]["BTCUSDT"].get("1h", {}),
+        "high": 116.0,
+        "low": 99.0,
+        "close": 110.0,
+    }
+    market_path.write_text(json.dumps(market_payload), encoding="utf-8")
+    _install_replay_candidates(monkeypatch)
+
+    result = backtest_engine.replay_full_market_baseline(load_backtest_config(config_path))
+
+    btc_trade = next(row for row in result.trade_ledger if row.symbol == "BTCUSDT")
+    assert btc_trade.exit_reason == "fixed_horizon"
+    assert btc_trade.exit_price == pytest.approx(110.0)
+    assert btc_trade.simulated_exit_reason == "take_profit"
+    assert btc_trade.simulated_exit_price == pytest.approx(115.0)
+    assert btc_trade.simulated_exit_move_pct == pytest.approx(0.15)
+    assert btc_trade.simulated_gross_pnl > btc_trade.gross_pnl
+
+
+def test_replay_full_market_baseline_simulates_short_stop_loss_conservatively(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    config_path = _baseline_config_path(tmp_path)
+    config = load_backtest_config(config_path)
+    row2_bundle = config.dataset_root / "2026-03-11T00-00-00Z__row-002"
+    market_path = row2_bundle / "market_context.json"
+    market_payload = json.loads(market_path.read_text(encoding="utf-8"))
+    market_payload["symbols"]["BTCUSDTPERP"] = {
+        **_sample_symbol(close=95.0),
+        "liquidity_tier": "high",
+        "1h": {
+            **_sample_symbol(close=95.0)["1h"],
+            "high": 112.0,
+            "low": 80.0,
+            "close": 95.0,
+        },
+    }
+    market_payload["candidate_symbols"] = ["BTCUSDTPERP"]
+    market_path.write_text(json.dumps(market_payload), encoding="utf-8")
+    _install_replay_candidates(monkeypatch)
+    monkeypatch.setattr(backtest_engine, "generate_trend_candidates", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(backtest_engine, "generate_rotation_candidates", lambda *_args, **_kwargs: [])
+
+    def short_candidates(market: dict[str, Any], **_kwargs: Any) -> list[EngineCandidate]:
+        if "BTCUSDTPERP" not in set(market.get("candidate_symbols") or []):
+            return []
+        return [
+            EngineCandidate(
+                engine="short",
+                setup_type="BREAKDOWN_SHORT",
+                symbol="BTCUSDTPERP",
+                side="SHORT",
+                score=0.97,
+                stop_loss=110.0,
+                take_profit=85.0,
+            )
+        ]
+
+    monkeypatch.setattr(backtest_engine, "generate_short_candidates", short_candidates)
+
+    result = backtest_engine.replay_full_market_baseline(load_backtest_config(config_path))
+
+    short_trade = next(row for row in result.trade_ledger if row.symbol == "BTCUSDTPERP")
+    assert short_trade.side == "short"
+    assert short_trade.exit_price == pytest.approx(95.0)
+    assert short_trade.simulated_exit_reason == "stop_loss"
+    assert short_trade.simulated_exit_price == pytest.approx(110.0)
+    assert short_trade.simulated_exit_move_pct == pytest.approx(-0.10)
+    assert short_trade.simulated_gross_pnl < short_trade.gross_pnl
+
+
+def test_replay_full_market_baseline_does_not_simulate_stop_or_target_without_intraday_path(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    config_path = _baseline_config_path(tmp_path)
+    config = load_backtest_config(config_path)
+    row2_bundle = config.dataset_root / "2026-03-11T00-00-00Z__row-002"
+    market_path = row2_bundle / "market_context.json"
+    market_payload = json.loads(market_path.read_text(encoding="utf-8"))
+    for timeframe in ("daily", "4h", "1h"):
+        market_payload["symbols"]["BTCUSDT"][timeframe] = {
+            **market_payload["symbols"]["BTCUSDT"].get(timeframe, {}),
+            "close": 120.0,
+        }
+    market_path.write_text(json.dumps(market_payload), encoding="utf-8")
+    _install_replay_candidates(monkeypatch)
+
+    result = backtest_engine.replay_full_market_baseline(load_backtest_config(config_path))
+
+    btc_trade = next(row for row in result.trade_ledger if row.symbol == "BTCUSDT")
+    assert btc_trade.take_profit == pytest.approx(115.0)
+    assert btc_trade.exit_price == pytest.approx(120.0)
+    assert btc_trade.simulated_exit_reason == "fixed_horizon"
+    assert btc_trade.simulated_exit_price == pytest.approx(btc_trade.exit_price)
+    assert btc_trade.simulated_exit_move_pct == pytest.approx(btc_trade.exit_move_pct)
+    assert btc_trade.simulated_gross_pnl == pytest.approx(btc_trade.gross_pnl)
+    assert btc_trade.simulated_net_pnl == pytest.approx(btc_trade.net_pnl)
 
 
 def test_replay_full_market_baseline_trade_ledger_keeps_candidate_explanation_fields(

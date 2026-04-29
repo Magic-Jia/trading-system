@@ -293,6 +293,47 @@ def _mfe_mae_from_path(
     return mfe_pct, mae_pct, exit_move_pct
 
 
+def _simulate_intraday_exit(
+    *,
+    side: str,
+    entry_price: float,
+    fixed_exit_price: float,
+    stop_loss: float,
+    take_profit: float | None,
+    path_high: float,
+    path_low: float,
+) -> tuple[str, float, float]:
+    if entry_price <= 0.0:
+        return "fixed_horizon", fixed_exit_price, 0.0
+    if side == "long":
+        stop_hit = stop_loss > 0.0 and path_low <= stop_loss
+        take_profit_hit = take_profit is not None and take_profit > 0.0 and path_high >= take_profit
+        if stop_hit:
+            exit_reason = "stop_loss"
+            simulated_exit_price = stop_loss
+        elif take_profit_hit:
+            exit_reason = "take_profit"
+            simulated_exit_price = float(take_profit)
+        else:
+            exit_reason = "fixed_horizon"
+            simulated_exit_price = fixed_exit_price
+        simulated_exit_move_pct = (simulated_exit_price - entry_price) / entry_price
+    else:
+        stop_hit = stop_loss > 0.0 and path_high >= stop_loss
+        take_profit_hit = take_profit is not None and take_profit > 0.0 and path_low <= take_profit
+        if stop_hit:
+            exit_reason = "stop_loss"
+            simulated_exit_price = stop_loss
+        elif take_profit_hit:
+            exit_reason = "take_profit"
+            simulated_exit_price = float(take_profit)
+        else:
+            exit_reason = "fixed_horizon"
+            simulated_exit_price = fixed_exit_price
+        simulated_exit_move_pct = (entry_price - simulated_exit_price) / entry_price
+    return exit_reason, simulated_exit_price, simulated_exit_move_pct
+
+
 def _funding_rate(row: DatasetSnapshotRow, symbol: str) -> float:
     for item in row.derivatives:
         if str(item.get("symbol", "")) == symbol:
@@ -448,6 +489,7 @@ def _trade_row(
     direction = 1.0 if open_trade.side == "long" else -1.0
     holding_hours = (exit_row.timestamp - open_trade.entry_timestamp).total_seconds() / 3600.0
     path_high, path_low = _path_high_low(exit_row, open_trade.symbol)
+    has_intraday_path = path_high is not None and path_low is not None
     if path_high is None or path_low is None:
         path_high = max(open_trade.entry_price, exit_price)
         path_low = min(open_trade.entry_price, exit_price)
@@ -461,6 +503,20 @@ def _trade_row(
         path_high=path_high,
         path_low=path_low,
     )
+    if has_intraday_path:
+        simulated_exit_reason, simulated_exit_price, simulated_exit_move_pct = _simulate_intraday_exit(
+            side=open_trade.side,
+            entry_price=open_trade.entry_price,
+            fixed_exit_price=exit_price,
+            stop_loss=open_trade.stop_loss,
+            take_profit=open_trade.take_profit,
+            path_high=path_high,
+            path_low=path_low,
+        )
+    else:
+        simulated_exit_reason = "fixed_horizon"
+        simulated_exit_price = exit_price
+        simulated_exit_move_pct = exit_move_pct
     gross_pnl = (exit_price - open_trade.entry_price) * open_trade.qty * direction
     fees = fee_cost(position_notional=open_trade.position_notional, market_type=open_trade.market_type, costs=costs)
     slippage = slippage_cost(
@@ -477,6 +533,8 @@ def _trade_row(
         costs=costs,
     )
     net_pnl = gross_pnl - fees - slippage - funding
+    simulated_gross_pnl = (simulated_exit_price - open_trade.entry_price) * open_trade.qty * direction
+    simulated_net_pnl = simulated_gross_pnl - fees - slippage - funding
     denominator = open_trade.position_notional if open_trade.position_notional > 0.0 else 1.0
     return (
         TradeLedgerRow(
@@ -508,6 +566,11 @@ def _trade_row(
             mfe_pct=mfe_pct,
             mae_pct=mae_pct,
             exit_move_pct=exit_move_pct,
+            simulated_exit_reason=simulated_exit_reason,
+            simulated_exit_price=simulated_exit_price,
+            simulated_exit_move_pct=simulated_exit_move_pct,
+            simulated_gross_pnl=simulated_gross_pnl,
+            simulated_net_pnl=simulated_net_pnl,
             cost_coverage_ratio=open_trade.cost_coverage_ratio,
         ),
         gross_pnl,

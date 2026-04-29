@@ -180,6 +180,11 @@ class TradeLedgerRow:
     mfe_pct: float = 0.0
     mae_pct: float = 0.0
     exit_move_pct: float = 0.0
+    simulated_exit_reason: str = ""
+    simulated_exit_price: float | None = None
+    simulated_exit_move_pct: float | None = None
+    simulated_gross_pnl: float | None = None
+    simulated_net_pnl: float | None = None
     cost_coverage_ratio: float | None = None
 
 
