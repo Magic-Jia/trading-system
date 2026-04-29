@@ -15,6 +15,22 @@ UniverseExclusionReason = Literal[
 PortfolioSide = Literal["long", "short"]
 PortfolioDecisionStatus = Literal["accepted", "resized", "rejected"]
 TradeLedgerStatus = Literal["accepted", "resized"]
+ExecutionFillModel = Literal[
+    "reference_close",
+    "taker_ohlcv_approx",
+    "taker_orderbook",
+    "maker_orderbook_trade_evidence",
+]
+ExecutionPriceSource = Literal[
+    "ohlcv_close",
+    "ohlcv_reference",
+    "best_bid",
+    "best_ask",
+    "trade_print",
+    "book_cross",
+    "no_crossing_evidence",
+]
+FillQuality = Literal["approximate", "evidence_backed", "no_fill"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -194,6 +210,9 @@ class TradeLedgerRow:
     entry_reference_price: float = 0.0
     gate_timeframes: tuple[str, ...] = ()
     trigger_timeframes: tuple[str, ...] = ()
+    execution_price_source: ExecutionPriceSource = "ohlcv_close"
+    fill_model: ExecutionFillModel = "reference_close"
+    fill_quality: FillQuality = "approximate"
 
 
 @dataclass(frozen=True, slots=True)

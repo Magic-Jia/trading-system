@@ -137,7 +137,13 @@ def test_backtest_cli_runs_full_market_baseline_smoke_fixture(
         "simulated_gross_pnl",
         "simulated_net_pnl",
         "cost_coverage_ratio",
+        "execution_price_source",
+        "fill_model",
+        "fill_quality",
     }.issubset(trades[0])
+    assert trades[0]["fill_model"] == "reference_close"
+    assert trades[0]["execution_price_source"] == "ohlcv_close"
+    assert trades[0]["fill_quality"] == "approximate"
 
 
 def test_backtest_cli_rejects_invalid_config(

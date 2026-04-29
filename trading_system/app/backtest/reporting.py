@@ -129,6 +129,9 @@ def _trade_ledger_payload(trade_ledger: tuple[TradeLedgerRow, ...]) -> list[dict
             "entry_reference_price": row.entry_reference_price,
             "gate_timeframes": list(row.gate_timeframes),
             "trigger_timeframes": list(row.trigger_timeframes),
+            "execution_price_source": row.execution_price_source,
+            "fill_model": row.fill_model,
+            "fill_quality": row.fill_quality,
         }
         for row in trade_ledger
     ]

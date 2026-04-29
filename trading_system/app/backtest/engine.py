@@ -14,6 +14,7 @@ from trading_system.app.universe.builder import UniverseBuildResult, build_unive
 
 from .costs import fee_bps_for_market, fee_cost, funding_cost, slippage_bps_for_tier, slippage_cost
 from .dataset import load_historical_dataset
+from .execution_sim import reference_close_fill
 from .metrics import calmar_ratio, max_drawdown, sharpe_ratio, sortino_ratio, total_return, turnover
 from .portfolio import decision_to_ledger_row, evaluate_candidate
 from .types import (
@@ -191,6 +192,9 @@ class _OpenTrade:
     entry_reference_price: float = 0.0
     gate_timeframes: tuple[str, ...] = ()
     trigger_timeframes: tuple[str, ...] = ()
+    execution_price_source: str = "ohlcv_close"
+    fill_model: str = "reference_close"
+    fill_quality: str = "approximate"
 
 
 def _experiment_name(config: BacktestConfig) -> str:
@@ -258,6 +262,15 @@ def _reference_price_with_timeframe(
 def _reference_price(row: DatasetSnapshotRow, symbol: str) -> float:
     price, _timeframe = _reference_price_with_timeframe(row, symbol)
     return price
+
+
+def _reference_close_execution(row: DatasetSnapshotRow, symbol: str, side: str):
+    return reference_close_fill(
+        symbol=symbol,
+        side="sell" if side == "short" else "buy",
+        quantity=0.0,
+        close_price=_reference_price(row, symbol),
+    )
 
 
 def _float_or_none(value: Any) -> float | None:
@@ -456,6 +469,12 @@ def _portfolio_candidate(
     )
     stop_loss = float(candidate_row.get("stop_loss", 0.0) or 0.0)
     side = str(candidate_row.get("side", "")).upper()
+    entry_fill = reference_close_fill(
+        symbol=instrument.symbol,
+        side="sell" if side == "SHORT" else "buy",
+        quantity=0.0,
+        close_price=entry_price,
+    )
     take_profit_raw = candidate_row.get("take_profit")
     take_profit = float(take_profit_raw) if take_profit_raw is not None else None
     if take_profit is None or take_profit <= 0:
@@ -619,6 +638,9 @@ def _trade_row(
             entry_reference_price=open_trade.entry_reference_price,
             gate_timeframes=open_trade.gate_timeframes,
             trigger_timeframes=open_trade.trigger_timeframes,
+            execution_price_source=open_trade.execution_price_source,
+            fill_model=open_trade.fill_model,
+            fill_quality=open_trade.fill_quality,
         ),
         gross_pnl,
         net_pnl,
@@ -760,6 +782,9 @@ def _replay_full_market_baseline_rows(
                     entry_reference_price=candidate.entry_reference_price,
                     gate_timeframes=candidate.gate_timeframes,
                     trigger_timeframes=candidate.trigger_timeframes,
+                    execution_price_source="ohlcv_close",
+                    fill_model="reference_close",
+                    fill_quality="approximate",
                 )
             )
 
