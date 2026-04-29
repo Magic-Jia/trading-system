@@ -42,6 +42,185 @@ def test_maker_buy_limit_fills_when_trade_path_crosses_limit_with_evidence() -> 
     assert fill.outcome == "filled"
 
 
+def test_maker_buy_queue_ahead_consumes_sell_trade_volume_before_own_fill() -> None:
+    fill = simulate_maker_limit_fill(
+        symbol="BTCUSDT",
+        side="buy",
+        limit_price=99.5,
+        quantity=1.0,
+        queue_ahead_quantity=2.0,
+        placement_timestamp=_ts("2026-03-10T00:00:00Z"),
+        timeout_seconds=10.0,
+        latency_ms=0,
+        trades=(
+            TradePrint(
+                timestamp=_ts("2026-03-10T00:00:01Z"),
+                symbol="BTCUSDT",
+                price=99.5,
+                quantity=3.0,
+                side="sell",
+            ),
+        ),
+    )
+
+    assert fill.maker_status == "filled"
+    assert fill.filled is True
+    assert fill.fill_price == pytest.approx(99.5)
+    assert fill.filled_quantity == pytest.approx(1.0)
+    assert fill.unfilled_quantity == pytest.approx(0.0)
+    assert fill.queue_ahead_initial == pytest.approx(2.0)
+    assert fill.queue_ahead_remaining == pytest.approx(0.0)
+    assert fill.first_fill_timestamp == _ts("2026-03-10T00:00:01Z")
+    assert fill.last_fill_timestamp == _ts("2026-03-10T00:00:01Z")
+    assert fill.maker_wait_seconds == pytest.approx(1.0)
+    assert "queue_depleted" in fill.maker_reasons
+
+
+def test_maker_sell_queue_fills_only_on_buy_aggressor_trades_at_or_above_limit() -> None:
+    fill = simulate_maker_limit_fill(
+        symbol="BTCUSDT",
+        side="sell",
+        limit_price=100.5,
+        quantity=1.0,
+        queue_ahead_quantity=0.5,
+        placement_timestamp=_ts("2026-03-10T00:00:00Z"),
+        timeout_seconds=10.0,
+        trades=(
+            TradePrint(
+                timestamp=_ts("2026-03-10T00:00:01Z"),
+                symbol="BTCUSDT",
+                price=100.6,
+                quantity=2.0,
+                side="sell",
+            ),
+            TradePrint(
+                timestamp=_ts("2026-03-10T00:00:02Z"),
+                symbol="BTCUSDT",
+                price=100.4,
+                quantity=2.0,
+                side="buy",
+            ),
+            TradePrint(
+                timestamp=_ts("2026-03-10T00:00:03Z"),
+                symbol="BTCUSDT",
+                price=100.5,
+                quantity=1.5,
+                side="buy",
+            ),
+        ),
+    )
+
+    assert fill.maker_status == "filled"
+    assert fill.filled_quantity == pytest.approx(1.0)
+    assert fill.first_fill_timestamp == _ts("2026-03-10T00:00:03Z")
+
+
+def test_maker_timeout_returns_expired_partial_with_unfilled_quantity() -> None:
+    fill = simulate_maker_limit_fill(
+        symbol="BTCUSDT",
+        side="buy",
+        limit_price=99.5,
+        quantity=2.0,
+        queue_ahead_quantity=1.0,
+        placement_timestamp=_ts("2026-03-10T00:00:00Z"),
+        timeout_seconds=2.0,
+        trades=(
+            TradePrint(
+                timestamp=_ts("2026-03-10T00:00:01Z"),
+                symbol="BTCUSDT",
+                price=99.5,
+                quantity=2.0,
+                side="sell",
+            ),
+            TradePrint(
+                timestamp=_ts("2026-03-10T00:00:03Z"),
+                symbol="BTCUSDT",
+                price=99.4,
+                quantity=10.0,
+                side="sell",
+            ),
+        ),
+    )
+
+    assert fill.maker_status == "expired"
+    assert fill.filled is True
+    assert fill.fill_quality == "partial_evidence_backed"
+    assert fill.filled_quantity == pytest.approx(1.0)
+    assert fill.unfilled_quantity == pytest.approx(1.0)
+    assert fill.queue_ahead_remaining == pytest.approx(0.0)
+    assert "timeout_expired" in fill.maker_reasons
+
+
+def test_maker_latency_ignores_trade_prints_before_effective_placement_time() -> None:
+    fill = simulate_maker_limit_fill(
+        symbol="BTCUSDT",
+        side="buy",
+        limit_price=99.5,
+        quantity=1.0,
+        queue_ahead_quantity=0.0,
+        placement_timestamp=_ts("2026-03-10T00:00:00Z"),
+        latency_ms=50,
+        timeout_seconds=10.0,
+        trades=(
+            TradePrint(
+                timestamp=_ts("2026-03-10T00:00:00.010000Z"),
+                symbol="BTCUSDT",
+                price=99.5,
+                quantity=1.0,
+                side="sell",
+            ),
+            TradePrint(
+                timestamp=_ts("2026-03-10T00:00:00.060000Z"),
+                symbol="BTCUSDT",
+                price=99.5,
+                quantity=1.0,
+                side="sell",
+            ),
+        ),
+    )
+
+    assert fill.maker_status == "filled"
+    assert fill.first_fill_timestamp == _ts("2026-03-10T00:00:00.060000Z")
+    assert fill.maker_wait_seconds == pytest.approx(0.01)
+    assert "latency_applied" in fill.maker_reasons
+
+
+def test_maker_cancel_replace_before_fill_stops_later_prints() -> None:
+    fill = simulate_maker_limit_fill(
+        symbol="BTCUSDT",
+        side="buy",
+        limit_price=99.5,
+        quantity=1.0,
+        queue_ahead_quantity=2.0,
+        placement_timestamp=_ts("2026-03-10T00:00:00Z"),
+        cancel_replace_timestamp=_ts("2026-03-10T00:00:02Z"),
+        timeout_seconds=10.0,
+        trades=(
+            TradePrint(
+                timestamp=_ts("2026-03-10T00:00:01Z"),
+                symbol="BTCUSDT",
+                price=99.5,
+                quantity=1.0,
+                side="sell",
+            ),
+            TradePrint(
+                timestamp=_ts("2026-03-10T00:00:03Z"),
+                symbol="BTCUSDT",
+                price=99.5,
+                quantity=10.0,
+                side="sell",
+            ),
+        ),
+    )
+
+    assert fill.maker_status == "cancelled_replaced"
+    assert fill.filled is False
+    assert fill.filled_quantity == pytest.approx(0.0)
+    assert fill.unfilled_quantity == pytest.approx(1.0)
+    assert fill.queue_ahead_remaining == pytest.approx(1.0)
+    assert "cancel_replace_before_fill" in fill.maker_reasons
+
+
 def test_maker_buy_limit_misses_when_no_trade_or_book_evidence_crosses_limit() -> None:
     fill = simulate_maker_limit_fill(
         symbol="BTCUSDT",

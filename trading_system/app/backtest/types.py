@@ -23,6 +23,7 @@ ExecutionFillModel = Literal[
     "taker_orderbook_depth",
     "taker_trade_print",
     "maker_orderbook_trade_evidence",
+    "maker_post_only_queue",
 ]
 ExecutionPriceSource = Literal[
     "ohlcv_close",
@@ -139,6 +140,13 @@ class PortfolioCandidate:
     depth_levels_consumed: int | None = None
     execution_impact_bps: float | None = None
     slippage_bps: float | None = None
+    maker_status: str | None = None
+    first_fill_timestamp: datetime | None = None
+    last_fill_timestamp: datetime | None = None
+    queue_ahead_initial: float | None = None
+    queue_ahead_remaining: float | None = None
+    maker_wait_seconds: float | None = None
+    maker_reasons: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -242,6 +250,13 @@ class TradeLedgerRow:
     depth_levels_consumed: int | None = None
     execution_impact_bps: float | None = None
     slippage_bps: float | None = None
+    maker_status: str | None = None
+    first_fill_timestamp: datetime | None = None
+    last_fill_timestamp: datetime | None = None
+    queue_ahead_initial: float | None = None
+    queue_ahead_remaining: float | None = None
+    maker_wait_seconds: float | None = None
+    maker_reasons: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

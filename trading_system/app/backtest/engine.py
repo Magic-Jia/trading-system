@@ -215,6 +215,13 @@ class _OpenTrade:
     depth_levels_consumed: int | None = None
     execution_impact_bps: float | None = None
     slippage_bps: float | None = None
+    maker_status: str | None = None
+    first_fill_timestamp: Any = None
+    last_fill_timestamp: Any = None
+    queue_ahead_initial: float | None = None
+    queue_ahead_remaining: float | None = None
+    maker_wait_seconds: float | None = None
+    maker_reasons: tuple[str, ...] = ()
 
 
 def _experiment_name(config: BacktestConfig) -> str:
@@ -362,7 +369,9 @@ def _execution_evidence(
             if price is None or quantity is None:
                 continue
             timestamp = _datetime_or_none(item.get("timestamp")) or row.timestamp
-            trades.append(TradePrint(timestamp=timestamp, symbol=symbol, price=price, quantity=quantity))
+            raw_side = str(item.get("side", "")).strip().lower()
+            side = raw_side if raw_side in {"buy", "sell"} else None
+            trades.append(TradePrint(timestamp=timestamp, symbol=symbol, price=price, quantity=quantity, side=side))
     return tuple(order_books), tuple(trades)
 
 
@@ -596,6 +605,8 @@ def _entry_execution_fill(
             side="sell" if order_side == "sell" else "buy",
             limit_price=entry_price,
             quantity=1.0,
+            placement_timestamp=row.timestamp,
+            timeout_seconds=60.0,
             order_books=order_books,
             trades=trades,
         )
@@ -682,6 +693,13 @@ def _portfolio_candidate(
         depth_levels_consumed=entry_fill.depth_levels_consumed,
         execution_impact_bps=entry_fill.execution_impact_bps,
         slippage_bps=entry_fill.slippage_bps,
+        maker_status=entry_fill.maker_status,
+        first_fill_timestamp=entry_fill.first_fill_timestamp,
+        last_fill_timestamp=entry_fill.last_fill_timestamp,
+        queue_ahead_initial=entry_fill.queue_ahead_initial,
+        queue_ahead_remaining=entry_fill.queue_ahead_remaining,
+        maker_wait_seconds=entry_fill.maker_wait_seconds,
+        maker_reasons=entry_fill.maker_reasons,
     )
 
 
@@ -702,6 +720,34 @@ def _candidate_with_execution_fill(candidate: PortfolioCandidate, fill: Executio
         depth_levels_consumed=fill.depth_levels_consumed,
         execution_impact_bps=fill.execution_impact_bps,
         slippage_bps=fill.slippage_bps,
+        maker_status=fill.maker_status,
+        first_fill_timestamp=fill.first_fill_timestamp,
+        last_fill_timestamp=fill.last_fill_timestamp,
+        queue_ahead_initial=fill.queue_ahead_initial,
+        queue_ahead_remaining=fill.queue_ahead_remaining,
+        maker_wait_seconds=fill.maker_wait_seconds,
+        maker_reasons=fill.maker_reasons,
+    )
+
+
+def _maker_fill_for_decision(
+    *,
+    row: DatasetSnapshotRow,
+    candidate: PortfolioCandidate,
+    decision: PortfolioDecision,
+) -> ExecutionFill | None:
+    if candidate.fill_model != "maker_post_only_queue":
+        return None
+    order_books, trades = _execution_evidence(row, candidate.symbol)
+    return simulate_maker_limit_fill(
+        symbol=candidate.symbol,
+        side="sell" if candidate.side == "short" else "buy",
+        limit_price=candidate.entry_reference_price if candidate.entry_reference_price > 0.0 else candidate.entry_price,
+        quantity=decision.qty,
+        placement_timestamp=row.timestamp,
+        timeout_seconds=60.0,
+        order_books=order_books,
+        trades=trades,
     )
 
 
@@ -750,7 +796,8 @@ def _decision_with_depth_fill(
     status = decision.status
     if fill.fill_quality == "partial_evidence_backed":
         status = "resized"
-        reasons = tuple(dict.fromkeys((*reasons, "depth_liquidity_limited")))
+        limited_reason = "maker_queue_limited" if fill.fill_model == "maker_post_only_queue" else "depth_liquidity_limited"
+        reasons = tuple(dict.fromkeys((*reasons, limited_reason)))
     stop_distance = abs(float(candidate.entry_price) - float(candidate.stop_loss))
     risk_budget = (filled_quantity * stop_distance / equity) if equity > 0.0 and stop_distance > 0.0 else decision.final_risk_budget
     return PortfolioDecision(
@@ -916,6 +963,13 @@ def _trade_row(
             depth_levels_consumed=open_trade.depth_levels_consumed,
             execution_impact_bps=open_trade.execution_impact_bps,
             slippage_bps=open_trade.slippage_bps,
+            maker_status=open_trade.maker_status,
+            first_fill_timestamp=open_trade.first_fill_timestamp,
+            last_fill_timestamp=open_trade.last_fill_timestamp,
+            queue_ahead_initial=open_trade.queue_ahead_initial,
+            queue_ahead_remaining=open_trade.queue_ahead_remaining,
+            maker_wait_seconds=open_trade.maker_wait_seconds,
+            maker_reasons=open_trade.maker_reasons,
         ),
         gross_pnl,
         net_pnl,
@@ -1032,12 +1086,14 @@ def _replay_full_market_baseline_rows(
                 continue
             cost_coverage_ratio = _candidate_cost_coverage_ratio(candidate, instrument=instrument, costs=config.costs)
             decision = evaluate_candidate(candidate, state=_portfolio_state(equity, open_positions), capital=config.capital)
-            depth_fill = _depth_fill_for_decision(row=row, candidate=candidate, decision=decision)
-            if depth_fill is not None:
-                candidate = _candidate_with_execution_fill(candidate, depth_fill)
+            execution_fill = _maker_fill_for_decision(row=row, candidate=candidate, decision=decision)
+            if execution_fill is None:
+                execution_fill = _depth_fill_for_decision(row=row, candidate=candidate, decision=decision)
+            if execution_fill is not None:
+                candidate = _candidate_with_execution_fill(candidate, execution_fill)
                 decision = _decision_with_depth_fill(
                     decision=decision,
-                    fill=depth_fill,
+                    fill=execution_fill,
                     candidate=candidate,
                     equity=equity,
                 )
@@ -1093,6 +1149,13 @@ def _replay_full_market_baseline_rows(
                     depth_levels_consumed=candidate.depth_levels_consumed,
                     execution_impact_bps=candidate.execution_impact_bps,
                     slippage_bps=candidate.slippage_bps,
+                    maker_status=candidate.maker_status,
+                    first_fill_timestamp=candidate.first_fill_timestamp,
+                    last_fill_timestamp=candidate.last_fill_timestamp,
+                    queue_ahead_initial=candidate.queue_ahead_initial,
+                    queue_ahead_remaining=candidate.queue_ahead_remaining,
+                    maker_wait_seconds=candidate.maker_wait_seconds,
+                    maker_reasons=candidate.maker_reasons,
                 )
             )
 

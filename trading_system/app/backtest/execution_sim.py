@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Literal, Mapping
 
 OrderSide = Literal["buy", "sell"]
@@ -13,6 +13,7 @@ ExecutionFillModel = Literal[
     "taker_orderbook_depth",
     "taker_trade_print",
     "maker_orderbook_trade_evidence",
+    "maker_post_only_queue",
 ]
 ExecutionPriceSource = Literal[
     "ohlcv_close",
@@ -28,6 +29,8 @@ ExecutionPriceSource = Literal[
 ]
 FillQuality = Literal["approximate", "evidence_backed", "partial_evidence_backed", "no_fill"]
 FillOutcome = Literal["filled", "missed_alpha"]
+TradePrintSide = Literal["buy", "sell"]
+MakerStatus = Literal["filled", "partial", "no_fill", "expired", "cancelled_replaced"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,6 +57,7 @@ class TradePrint:
     symbol: str
     price: float
     quantity: float
+    side: TradePrintSide | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,6 +82,13 @@ class ExecutionFill:
     depth_levels_consumed: int | None = None
     execution_impact_bps: float | None = None
     slippage_bps: float | None = None
+    maker_status: MakerStatus | None = None
+    first_fill_timestamp: datetime | None = None
+    last_fill_timestamp: datetime | None = None
+    queue_ahead_initial: float | None = None
+    queue_ahead_remaining: float | None = None
+    maker_wait_seconds: float | None = None
+    maker_reasons: tuple[str, ...] = ()
 
 
 def reference_close_fill(*, symbol: str, side: OrderSide, quantity: float, close_price: float) -> ExecutionFill:
@@ -330,9 +341,36 @@ def simulate_maker_limit_fill(
     side: OrderSide,
     limit_price: float,
     quantity: float,
+    queue_ahead_quantity: float | None = None,
+    placement_timestamp: datetime | None = None,
+    timeout_seconds: float | None = None,
+    latency_ms: int | float = 0,
+    cancel_replace_timestamp: datetime | None = None,
     order_books: tuple[OrderBookSnapshot, ...] = (),
     trades: tuple[TradePrint, ...] = (),
 ) -> ExecutionFill:
+    uses_queue_model = (
+        queue_ahead_quantity is not None
+        or placement_timestamp is not None
+        or timeout_seconds is not None
+        or latency_ms
+        or cancel_replace_timestamp is not None
+    )
+    if uses_queue_model:
+        return _simulate_maker_queue_fill(
+            symbol=symbol,
+            side=side,
+            limit_price=limit_price,
+            quantity=quantity,
+            queue_ahead_quantity=queue_ahead_quantity,
+            placement_timestamp=placement_timestamp,
+            timeout_seconds=timeout_seconds,
+            latency_ms=latency_ms,
+            cancel_replace_timestamp=cancel_replace_timestamp,
+            order_books=order_books,
+            trades=trades,
+        )
+
     sorted_trades = sorted((trade for trade in trades if trade.symbol == symbol), key=lambda trade: trade.timestamp)
     filled_qty = 0.0
     for trade in sorted_trades:
@@ -381,6 +419,165 @@ def simulate_maker_limit_fill(
         fill_quality="no_fill",
         outcome="missed_alpha",
     )
+
+
+def _simulate_maker_queue_fill(
+    *,
+    symbol: str,
+    side: OrderSide,
+    limit_price: float,
+    quantity: float,
+    queue_ahead_quantity: float | None,
+    placement_timestamp: datetime | None,
+    timeout_seconds: float | None,
+    latency_ms: int | float,
+    cancel_replace_timestamp: datetime | None,
+    order_books: tuple[OrderBookSnapshot, ...],
+    trades: tuple[TradePrint, ...],
+) -> ExecutionFill:
+    requested_quantity = max(float(quantity), 0.0)
+    effective_placement = placement_timestamp
+    reasons: list[str] = []
+    if placement_timestamp is not None and float(latency_ms or 0.0) > 0.0:
+        effective_placement = placement_timestamp + timedelta(milliseconds=float(latency_ms))
+        reasons.append("latency_applied")
+    queue_initial = _maker_queue_ahead(
+        side=side,
+        queue_ahead_quantity=queue_ahead_quantity,
+        order_books=order_books,
+        effective_placement=effective_placement,
+    )
+    queue_remaining = queue_initial
+    filled_quantity = 0.0
+    first_fill_timestamp: datetime | None = None
+    last_fill_timestamp: datetime | None = None
+    deadline = (
+        effective_placement + timedelta(seconds=float(timeout_seconds))
+        if effective_placement is not None and timeout_seconds is not None
+        else None
+    )
+    cutoff = _maker_cutoff(deadline=deadline, cancel_replace_timestamp=cancel_replace_timestamp)
+
+    for trade in sorted((trade for trade in trades if trade.symbol == symbol), key=lambda trade: trade.timestamp):
+        if effective_placement is not None and trade.timestamp < effective_placement:
+            continue
+        if cutoff is not None and trade.timestamp > cutoff:
+            continue
+        if not _crosses_limit(side=side, price=trade.price, limit_price=limit_price):
+            continue
+        if not _maker_trade_side_consumes_queue(side=side, trade_side=trade.side):
+            continue
+        if trade.side is None:
+            reasons.append("ambiguous_trade_side_assumed")
+        remaining_print_quantity = max(float(trade.quantity), 0.0)
+        if remaining_print_quantity <= 0.0:
+            continue
+        if queue_remaining > 0.0:
+            queue_take = min(queue_remaining, remaining_print_quantity)
+            queue_remaining -= queue_take
+            remaining_print_quantity -= queue_take
+            if queue_remaining <= 1e-12:
+                queue_remaining = 0.0
+                reasons.append("queue_depleted")
+        if remaining_print_quantity <= 0.0:
+            continue
+        own_fill = min(requested_quantity - filled_quantity, remaining_print_quantity)
+        if own_fill <= 0.0:
+            continue
+        filled_quantity += own_fill
+        if first_fill_timestamp is None:
+            first_fill_timestamp = trade.timestamp
+        last_fill_timestamp = trade.timestamp
+        if filled_quantity >= requested_quantity - 1e-12:
+            filled_quantity = requested_quantity
+            break
+
+    unfilled_quantity = max(requested_quantity - filled_quantity, 0.0)
+    full_fill = requested_quantity <= 0.0 or unfilled_quantity <= 1e-12
+    status: MakerStatus
+    if full_fill:
+        status = "filled"
+    elif cancel_replace_timestamp is not None and (deadline is None or cancel_replace_timestamp <= deadline):
+        status = "cancelled_replaced"
+        reasons.append("cancel_replace_after_partial" if filled_quantity > 0.0 else "cancel_replace_before_fill")
+    elif deadline is not None:
+        status = "expired"
+        reasons.append("timeout_expired")
+    elif filled_quantity > 0.0:
+        status = "partial"
+    else:
+        status = "no_fill"
+        reasons.append("no_crossing_evidence")
+
+    fill_quality: FillQuality
+    if filled_quantity <= 0.0:
+        fill_quality = "no_fill"
+    elif full_fill:
+        fill_quality = "evidence_backed"
+    else:
+        fill_quality = "partial_evidence_backed"
+    end_time = first_fill_timestamp or cutoff
+    maker_wait_seconds = (
+        max((end_time - effective_placement).total_seconds(), 0.0)
+        if effective_placement is not None and end_time is not None
+        else None
+    )
+    filled_notional = filled_quantity * float(limit_price)
+    return ExecutionFill(
+        symbol=symbol,
+        side=side,
+        quantity=requested_quantity,
+        filled=filled_quantity > 0.0,
+        fill_price=float(limit_price) if filled_quantity > 0.0 else None,
+        fill_model="maker_post_only_queue",
+        execution_price_source="trade_print" if filled_quantity > 0.0 else "no_crossing_evidence",
+        fill_quality=fill_quality,
+        outcome="filled" if filled_quantity > 0.0 else "missed_alpha",
+        evidence_timestamp=last_fill_timestamp,
+        requested_quantity=requested_quantity,
+        filled_quantity=filled_quantity,
+        filled_notional=filled_notional,
+        unfilled_quantity=unfilled_quantity,
+        maker_status=status,
+        first_fill_timestamp=first_fill_timestamp,
+        last_fill_timestamp=last_fill_timestamp,
+        queue_ahead_initial=queue_initial,
+        queue_ahead_remaining=queue_remaining,
+        maker_wait_seconds=maker_wait_seconds,
+        maker_reasons=tuple(dict.fromkeys(reasons)),
+    )
+
+
+def _maker_queue_ahead(
+    *,
+    side: OrderSide,
+    queue_ahead_quantity: float | None,
+    order_books: tuple[OrderBookSnapshot, ...],
+    effective_placement: datetime | None,
+) -> float:
+    explicit = _positive_float(queue_ahead_quantity)
+    if explicit is not None:
+        return explicit
+    eligible_books = [book for book in order_books if effective_placement is None or book.timestamp <= effective_placement]
+    if not eligible_books:
+        eligible_books = list(order_books)
+    if not eligible_books:
+        return 0.0
+    book = sorted(eligible_books, key=lambda item: item.timestamp)[-1]
+    size = book.bid_size if side == "buy" else book.ask_size
+    return float(size or 0.0)
+
+
+def _maker_cutoff(
+    *,
+    deadline: datetime | None,
+    cancel_replace_timestamp: datetime | None,
+) -> datetime | None:
+    if deadline is None:
+        return cancel_replace_timestamp
+    if cancel_replace_timestamp is None:
+        return deadline
+    return min(deadline, cancel_replace_timestamp)
 
 
 def _first_symbol_book(symbol: str, order_books: tuple[OrderBookSnapshot, ...]) -> OrderBookSnapshot | None:
@@ -455,3 +652,9 @@ def _crosses_limit(*, side: OrderSide, price: float, limit_price: float) -> bool
     if side == "buy":
         return float(price) <= float(limit_price)
     return float(price) >= float(limit_price)
+
+
+def _maker_trade_side_consumes_queue(*, side: OrderSide, trade_side: TradePrintSide | None) -> bool:
+    if trade_side is None:
+        return True
+    return trade_side == ("sell" if side == "buy" else "buy")
