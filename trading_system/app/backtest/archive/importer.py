@@ -31,6 +31,9 @@ PHASE1_IMPORTER_OHLCV_TIMEFRAME = "1h"
 PHASE1_IMPORTER_ROOT_MANIFEST = "import_manifest.json"
 PHASE1_IMPORTER_OPTIONAL_INTRADAY_OHLCV_TIMEFRAMES = ("1m", "5m", "15m", "30m")
 PHASE1_IMPORTER_DEFAULT_EXECUTION_EVIDENCE_MAX_STALENESS = timedelta(minutes=5)
+PHASE1_IMPORTER_DEFAULT_MARK_PRICE_MAX_AGE = timedelta(hours=1, minutes=1)
+PHASE1_IMPORTER_DEFAULT_FUNDING_MAX_AGE = timedelta(hours=8, minutes=1)
+PHASE1_IMPORTER_DEFAULT_OPEN_INTEREST_MAX_AGE = timedelta(hours=1, minutes=1)
 _PHASE1_IMPORTER_INTRADAY_GAPS = {
     "1m": timedelta(minutes=1),
     "5m": timedelta(minutes=5),
@@ -79,8 +82,9 @@ class _OhlcvBar:
 class _Phase1SymbolSeries:
     symbol: str
     ohlcv: ImportedRawMarketSeries
-    funding: ImportedRawMarketSeries
-    open_interest: ImportedRawMarketSeries
+    funding: ImportedRawMarketSeries | None
+    mark_price: ImportedRawMarketSeries | None
+    open_interest: ImportedRawMarketSeries | None
     intraday_ohlcv: dict[str, ImportedRawMarketSeries]
     order_book: ImportedRawMarketSeries | None
     trades: ImportedRawMarketSeries | None
@@ -344,21 +348,20 @@ def _phase1_symbol_series(imported_series: Iterable[ImportedRawMarketSeries]) ->
         missing: list[str] = []
         ohlcv = indexed.get((symbol, "ohlcv", PHASE1_IMPORTER_OHLCV_TIMEFRAME))
         funding = indexed.get((symbol, "funding", None))
+        mark_price = indexed.get((symbol, "mark-price", None))
         open_interest = indexed.get((symbol, "open-interest", None))
         if ohlcv is None:
             missing.append("ohlcv:1h")
-        if funding is None:
-            missing.append("funding")
-        if open_interest is None:
-            missing.append("open-interest")
         if missing:
             missing_suffix = ", ".join(missing)
             raise ValueError(f"missing required phase1 raw-market series for symbol {symbol}: {missing_suffix}")
+        assert ohlcv is not None
         assembled.append(
             _Phase1SymbolSeries(
                 symbol=symbol,
                 ohlcv=ohlcv,
                 funding=funding,
+                mark_price=mark_price,
                 open_interest=open_interest,
                 intraday_ohlcv={
                     timeframe: series
@@ -371,8 +374,7 @@ def _phase1_symbol_series(imported_series: Iterable[ImportedRawMarketSeries]) ->
                     symbol=symbol,
                     series_items=(
                         ohlcv,
-                        funding,
-                        open_interest,
+                        *tuple(series for series in (funding, mark_price, open_interest) if series is not None),
                         *(
                             indexed[(symbol, "ohlcv", timeframe)]
                             for timeframe in PHASE1_IMPORTER_OPTIONAL_INTRADAY_OHLCV_TIMEFRAMES
@@ -665,6 +667,59 @@ def _funding_rate(record: ImportedRawMarketRecord) -> float:
     return _to_float(payload.get("fundingRate"))
 
 
+def _mark_price(record: ImportedRawMarketRecord) -> float:
+    payload = record.payload
+    if not isinstance(payload, Mapping):
+        return 0.0
+    return _to_float(payload.get("markPrice", payload.get("mark_price")))
+
+
+def _context_coverage_template(
+    *,
+    available: bool,
+    mark_price_max_age: timedelta,
+    funding_max_age: timedelta,
+    open_interest_max_age: timedelta,
+) -> dict[str, Any]:
+    return {
+        "available": available,
+        "max_age_seconds": {
+            "mark_price": int(mark_price_max_age.total_seconds()),
+            "funding": int(funding_max_age.total_seconds()),
+            "open_interest": int(open_interest_max_age.total_seconds()),
+        },
+        "materialized": {"mark_price": 0, "funding": 0, "open_interest": 0},
+        "missing": {"mark_price": 0, "funding": 0, "open_interest": 0},
+        "stale": {"mark_price": 0, "funding": 0, "open_interest": 0},
+    }
+
+
+def _increment_context_coverage(coverage: dict[str, Any], bucket: str, evidence_type: str) -> None:
+    current = coverage.setdefault(bucket, {}).setdefault(evidence_type, 0)
+    coverage[bucket][evidence_type] = int(current) + 1
+
+
+def _latest_fresh_record_at_or_before(
+    timestamps: Sequence[datetime],
+    records: Sequence[ImportedRawMarketRecord],
+    target: datetime,
+    *,
+    max_age: timedelta,
+    coverage: dict[str, Any],
+    evidence_type: str,
+) -> tuple[ImportedRawMarketRecord | None, str, int | None]:
+    record = _latest_record_at_or_before(timestamps, records, target)
+    if record is None:
+        _increment_context_coverage(coverage, "missing", evidence_type)
+        return None, "missing", None
+    age_seconds = int((target - record.observed_at).total_seconds())
+    if age_seconds < 0 or target - record.observed_at > max_age:
+        _increment_context_coverage(coverage, "stale", evidence_type)
+        return None, "stale", age_seconds
+    _increment_context_coverage(coverage, "materialized", evidence_type)
+    return record, "materialized", age_seconds
+
+
 def _ordered_timeframes(values: Iterable[str]) -> list[str]:
     present = {str(value) for value in values}
     ordered = [timeframe for timeframe in _PHASE1_IMPORTER_OHLCV_TIMEFRAME_ORDER if timeframe in present]
@@ -701,6 +756,7 @@ def _import_trace(
     materialized_timeframes: Iterable[str] | None = None,
     not_materialized: Mapping[str, str] | None = None,
     execution_coverage: Mapping[str, Any] | None = None,
+    futures_context_coverage: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     series_keys: list[str] = []
     manifest_paths: list[str] = []
@@ -710,7 +766,12 @@ def _import_trace(
             for series in (item.order_book, item.trades)
             if series is not None
         )
-        for series in (item.funding, item.ohlcv, item.open_interest, *item.intraday_ohlcv.values(), *optional_execution_series):
+        for series in (
+            item.ohlcv,
+            *tuple(series for series in (item.funding, item.mark_price, item.open_interest) if series is not None),
+            *item.intraday_ohlcv.values(),
+            *optional_execution_series,
+        ):
             series_keys.append(series.series_key)
             manifest_paths.extend(str(imported_file.manifest_path) for imported_file in series.files)
     return {
@@ -729,6 +790,16 @@ def _import_trace(
             execution_coverage
             if execution_coverage is not None
             else _execution_coverage_template(available=False, max_staleness=PHASE1_IMPORTER_DEFAULT_EXECUTION_EVIDENCE_MAX_STALENESS)
+        ),
+        "futures_context": dict(
+            futures_context_coverage
+            if futures_context_coverage is not None
+            else _context_coverage_template(
+                available=False,
+                mark_price_max_age=PHASE1_IMPORTER_DEFAULT_MARK_PRICE_MAX_AGE,
+                funding_max_age=PHASE1_IMPORTER_DEFAULT_FUNDING_MAX_AGE,
+                open_interest_max_age=PHASE1_IMPORTER_DEFAULT_OPEN_INTEREST_MAX_AGE,
+            )
         ),
     }
 
@@ -826,12 +897,49 @@ def _merged_execution_evidence_coverage(traces: Iterable[Mapping[str, Any]]) -> 
     return merged
 
 
+def _merged_futures_context_coverage(traces: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
+    merged = _context_coverage_template(
+        available=False,
+        mark_price_max_age=PHASE1_IMPORTER_DEFAULT_MARK_PRICE_MAX_AGE,
+        funding_max_age=PHASE1_IMPORTER_DEFAULT_FUNDING_MAX_AGE,
+        open_interest_max_age=PHASE1_IMPORTER_DEFAULT_OPEN_INTEREST_MAX_AGE,
+    )
+    max_age_values: dict[str, set[int]] = {"mark_price": set(), "funding": set(), "open_interest": set()}
+    for trace in traces:
+        coverage = trace.get("futures_context")
+        if not isinstance(coverage, Mapping):
+            continue
+        merged["available"] = bool(merged["available"]) or bool(coverage.get("available"))
+        raw_max_age = coverage.get("max_age_seconds") or {}
+        if isinstance(raw_max_age, Mapping):
+            for evidence_type in max_age_values:
+                try:
+                    max_age_values[evidence_type].add(int(raw_max_age.get(evidence_type) or 0))
+                except (TypeError, ValueError):
+                    pass
+        for bucket in ("materialized", "missing", "stale"):
+            raw_counts = coverage.get(bucket) or {}
+            if not isinstance(raw_counts, Mapping):
+                continue
+            for evidence_type in ("mark_price", "funding", "open_interest"):
+                merged[bucket][evidence_type] = int(merged[bucket].get(evidence_type, 0)) + int(
+                    raw_counts.get(evidence_type) or 0
+                )
+    for evidence_type, values in max_age_values.items():
+        if len(values) == 1:
+            merged["max_age_seconds"][evidence_type] = next(iter(values))
+    return merged
+
+
 def build_phase1_dataset_bundle_materials(
     imported_series: Iterable[ImportedRawMarketSeries],
     *,
     start_timestamp: datetime | None = None,
     end_timestamp: datetime | None = None,
     execution_evidence_max_staleness: timedelta = PHASE1_IMPORTER_DEFAULT_EXECUTION_EVIDENCE_MAX_STALENESS,
+    mark_price_max_age: timedelta = PHASE1_IMPORTER_DEFAULT_MARK_PRICE_MAX_AGE,
+    funding_max_age: timedelta = PHASE1_IMPORTER_DEFAULT_FUNDING_MAX_AGE,
+    open_interest_max_age: timedelta = PHASE1_IMPORTER_DEFAULT_OPEN_INTEREST_MAX_AGE,
 ) -> tuple[Phase1DatasetBundleMaterial, ...]:
     symbol_series = _phase1_symbol_series(imported_series)
     if not symbol_series:
@@ -856,10 +964,17 @@ def build_phase1_dataset_bundle_materials(
     funding_lookups = {
         item.symbol: _record_lookup(item.funding.records)
         for item in symbol_series
+        if item.funding is not None
+    }
+    mark_price_lookups = {
+        item.symbol: _record_lookup(item.mark_price.records)
+        for item in symbol_series
+        if item.mark_price is not None
     }
     open_interest_lookups = {
         item.symbol: _record_lookup(item.open_interest.records)
         for item in symbol_series
+        if item.open_interest is not None
     }
     hourly_ohlcv_lookups = {
         item.symbol: _ohlcv_bar_lookup(item.ohlcv.records)
@@ -889,6 +1004,12 @@ def build_phase1_dataset_bundle_materials(
             available=execution_evidence_available,
             max_staleness=execution_evidence_max_staleness,
         )
+        context_coverage = _context_coverage_template(
+            available=any(item.funding is not None or item.mark_price is not None or item.open_interest is not None for item in symbol_series),
+            mark_price_max_age=mark_price_max_age,
+            funding_max_age=funding_max_age,
+            open_interest_max_age=open_interest_max_age,
+        )
 
         for item in symbol_series:
             if timestamp not in ohlcv_timestamp_sets[item.symbol]:
@@ -907,26 +1028,128 @@ def build_phase1_dataset_bundle_materials(
             if len(daily_bars) < 50 or len(four_hour_bars) < 50 or len(hourly_bars) < 50:
                 continue
 
-            funding_times, funding_records = funding_lookups[item.symbol]
-            current_funding = _latest_record_at_or_before(funding_times, funding_records, timestamp)
-            open_interest_times, open_interest_records = open_interest_lookups[item.symbol]
-            current_open_interest = _latest_record_at_or_before(open_interest_times, open_interest_records, timestamp)
-            previous_open_interest = _latest_record_at_or_before(
-                open_interest_times,
-                open_interest_records,
-                timestamp - timedelta(hours=24),
-            )
-            if current_funding is None or current_open_interest is None or previous_open_interest is None:
-                continue
-
             latest_close = hourly_bars[-1].close
-            current_open_interest_units = _open_interest_units(current_open_interest)
-            previous_open_interest_units = _open_interest_units(previous_open_interest)
-            if previous_open_interest_units <= 0.0:
-                continue
-
             volume_usdt_24h = _rolling_quote_volume(hourly_bars)
             liquidity_tier = _liquidity_tier(volume_usdt_24h)
+            futures_context: dict[str, Any] = {}
+            derivatives_row: dict[str, Any] = {"symbol": item.symbol}
+
+            mark_record: ImportedRawMarketRecord | None = None
+            mark_age: int | None = None
+            mark_status = "missing"
+            if item.mark_price is None:
+                _increment_context_coverage(context_coverage, "missing", "mark_price")
+            else:
+                mark_times, mark_records = mark_price_lookups[item.symbol]
+                mark_record, mark_status, mark_age = _latest_fresh_record_at_or_before(
+                    mark_times,
+                    mark_records,
+                    timestamp,
+                    max_age=mark_price_max_age,
+                    coverage=context_coverage,
+                    evidence_type="mark_price",
+                )
+            futures_context["mark_price_status"] = mark_status
+            if mark_record is not None:
+                mark_value = _mark_price(mark_record)
+                if mark_value > 0.0:
+                    futures_context.update(
+                        {
+                            "mark_price": mark_value,
+                            "mark_price_timestamp": _utc_timestamp(mark_record.observed_at),
+                            "mark_price_age_seconds": mark_age,
+                        }
+                    )
+                    derivatives_row.update(
+                        {
+                            "mark_price": mark_value,
+                            "mark_price_timestamp": _utc_timestamp(mark_record.observed_at),
+                            "mark_price_age_seconds": mark_age,
+                        }
+                    )
+
+            funding_record: ImportedRawMarketRecord | None = None
+            funding_age: int | None = None
+            funding_status = "missing"
+            if item.funding is None:
+                _increment_context_coverage(context_coverage, "missing", "funding")
+            else:
+                funding_times, funding_records = funding_lookups[item.symbol]
+                funding_record, funding_status, funding_age = _latest_fresh_record_at_or_before(
+                    funding_times,
+                    funding_records,
+                    timestamp,
+                    max_age=funding_max_age,
+                    coverage=context_coverage,
+                    evidence_type="funding",
+                )
+            futures_context["funding_status"] = funding_status
+            if funding_record is not None:
+                funding_value = _funding_rate(funding_record)
+                futures_context.update(
+                    {
+                        "funding_rate": funding_value,
+                        "funding_timestamp": _utc_timestamp(funding_record.observed_at),
+                        "funding_age_seconds": funding_age,
+                    }
+                )
+                derivatives_row.update(
+                    {
+                        "funding_rate": funding_value,
+                        "funding_timestamp": _utc_timestamp(funding_record.observed_at),
+                        "funding_age_seconds": funding_age,
+                    }
+                )
+
+            current_open_interest: ImportedRawMarketRecord | None = None
+            oi_age: int | None = None
+            oi_status = "missing"
+            previous_open_interest: ImportedRawMarketRecord | None = None
+            if item.open_interest is None:
+                _increment_context_coverage(context_coverage, "missing", "open_interest")
+            else:
+                open_interest_times, open_interest_records = open_interest_lookups[item.symbol]
+                current_open_interest, oi_status, oi_age = _latest_fresh_record_at_or_before(
+                    open_interest_times,
+                    open_interest_records,
+                    timestamp,
+                    max_age=open_interest_max_age,
+                    coverage=context_coverage,
+                    evidence_type="open_interest",
+                )
+                previous_open_interest = _latest_record_at_or_before(
+                    open_interest_times,
+                    open_interest_records,
+                    timestamp - timedelta(hours=24),
+                )
+            futures_context["open_interest_status"] = oi_status
+            if current_open_interest is not None:
+                current_open_interest_units = _open_interest_units(current_open_interest)
+                open_interest_usdt = (
+                    current_open_interest_units
+                    if _open_interest_is_quote_value(current_open_interest)
+                    else current_open_interest_units * latest_close
+                )
+                futures_context.update(
+                    {
+                        "open_interest_usdt": open_interest_usdt,
+                        "open_interest_timestamp": _utc_timestamp(current_open_interest.observed_at),
+                        "open_interest_age_seconds": oi_age,
+                    }
+                )
+                derivatives_row.update(
+                    {
+                        "open_interest_usdt": open_interest_usdt,
+                        "open_interest_timestamp": _utc_timestamp(current_open_interest.observed_at),
+                        "open_interest_age_seconds": oi_age,
+                    }
+                )
+                if previous_open_interest is not None:
+                    previous_open_interest_units = _open_interest_units(previous_open_interest)
+                    if previous_open_interest_units > 0.0:
+                        derivatives_row["open_interest_change_24h_pct"] = (
+                            current_open_interest_units / previous_open_interest_units
+                        ) - 1.0
             timeframe_payloads: dict[str, Any] = {
                 "daily": _timeframe_payload(hourly_bars, timeframe="daily"),
                 "4h": _timeframe_payload(hourly_bars, timeframe="4h"),
@@ -950,6 +1173,7 @@ def build_phase1_dataset_bundle_materials(
                 "sector": sector_for_symbol(item.symbol),
                 "liquidity_tier": liquidity_tier,
                 **timeframe_payloads,
+                "futures_context": futures_context,
             }
             execution_payload = _execution_payload_for_symbol(
                 item=item,
@@ -961,21 +1185,14 @@ def build_phase1_dataset_bundle_materials(
             if execution_payload is not None:
                 symbol_payload["execution"] = execution_payload
             market_symbols[item.symbol] = symbol_payload
-            derivatives_rows.append(
+            derivatives_row.update(
                 {
-                    "symbol": item.symbol,
-                    "funding_rate": _funding_rate(current_funding),
-                    "open_interest_usdt": (
-                        current_open_interest_units
-                        if _open_interest_is_quote_value(current_open_interest)
-                        else current_open_interest_units * latest_close
-                    ),
-                    "open_interest_change_24h_pct": (current_open_interest_units / previous_open_interest_units) - 1.0,
                     "mark_price_change_24h_pct": _return_pct(hourly_bars, periods_back=24),
                     "taker_buy_sell_ratio": 1.0,
                     "basis_bps": 0.0,
                 }
             )
+            derivatives_rows.append(derivatives_row)
             instrument_rows.append(
                 {
                     "symbol": item.symbol,
@@ -1000,7 +1217,7 @@ def build_phase1_dataset_bundle_materials(
                         default=_PHASE1_DEFAULT_PRICE_TICK,
                     ),
                     "has_complete_funding": _has_complete_funding_series(
-                        item.funding.records,
+                        item.funding.records if item.funding is not None else (),
                         start=hourly_bars[0].observed_at,
                         end=timestamp,
                     ),
@@ -1022,6 +1239,7 @@ def build_phase1_dataset_bundle_materials(
                 materialized_timeframes=materialized_ohlcv_timeframes,
                 not_materialized=not_materialized_ohlcv_timeframes,
                 execution_coverage=execution_coverage,
+                futures_context_coverage=context_coverage,
             ),
         }
         materials.append(
@@ -1106,6 +1324,9 @@ def _phase1_dataset_root_manifest(
                 material.metadata.get("source") or {} for material in materials
             ),
             "execution_evidence": _merged_execution_evidence_coverage(
+                material.metadata.get("source") or {} for material in materials
+            ),
+            "futures_context": _merged_futures_context_coverage(
                 material.metadata.get("source") or {} for material in materials
             ),
         },

@@ -16,6 +16,9 @@ PHASE1_RAW_MARKET_MARKET = "futures"
 PHASE1_RAW_MARKET_DATASET_ALIASES = {
     "ohlcv": "ohlcv",
     "funding": "funding",
+    "mark-price": "mark-price",
+    "mark_price": "mark-price",
+    "markprice": "mark-price",
     "open-interest": "open-interest",
     "open_interest": "open-interest",
     "order-book": "order-book",

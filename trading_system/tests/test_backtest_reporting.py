@@ -79,6 +79,15 @@ def sample_baseline_result() -> BaselineReplayResult:
                 depth_levels_consumed=2,
                 execution_impact_bps=4.5,
                 slippage_bps=10.0,
+                mark_price=100.25,
+                mark_price_timestamp=_ts("2026-03-10T00:00:00Z"),
+                mark_price_age_seconds=0,
+                funding_rate=0.0004,
+                funding_timestamp=_ts("2026-03-10T00:00:00Z"),
+                funding_age_seconds=0,
+                open_interest_usdt=120_000_000.0,
+                open_interest_timestamp=_ts("2026-03-10T00:00:00Z"),
+                open_interest_age_seconds=0,
             ),
             TradeLedgerRow(
                 symbol="BTCUSDTPERP",
@@ -245,6 +254,26 @@ def test_full_market_report_exposes_depth_and_maker_fill_fields() -> None:
     assert trade["queue_ahead_remaining"] == pytest.approx(0.0)
     assert trade["maker_wait_seconds"] == pytest.approx(1.0)
     assert trade["maker_reasons"] == ["queue_depleted"]
+
+
+def test_full_market_report_and_postmortem_expose_futures_context_fields() -> None:
+    report = reporting.render_full_market_baseline_report(sample_baseline_result())
+
+    trade = report["trades"][0]
+    assert trade["mark_price"] == pytest.approx(100.25)
+    assert trade["mark_price_timestamp"] == "2026-03-10T00:00:00+00:00"
+    assert trade["mark_price_age_seconds"] == 0
+    assert trade["funding_rate"] == pytest.approx(0.0004)
+    assert trade["funding_timestamp"] == "2026-03-10T00:00:00+00:00"
+    assert trade["funding_age_seconds"] == 0
+    assert trade["open_interest_usdt"] == pytest.approx(120_000_000.0)
+    assert trade["open_interest_timestamp"] == "2026-03-10T00:00:00+00:00"
+    assert trade["open_interest_age_seconds"] == 0
+
+    markdown = cli._render_trade_postmortem_markdown([trade])
+    assert "mark_price" in markdown
+    assert "funding_rate" in markdown
+    assert "open_interest" in markdown
 
 
 def _write_fixture_bundle(dataset_root: Path, *, timestamp: str, run_id: str) -> None:

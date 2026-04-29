@@ -343,12 +343,12 @@ def _render_trade_postmortem_markdown(trades: list[dict[str, Any]]) -> str:
     lines = [
         "# 逐单复盘",
         "",
-        "| # | time | symbol | side | engine | setup | score | entry | exit | gross | net | MFE | MAE | exit_reason | fill_model | exec_source | exec_tf | lag_bars | fill_quality | maker_status | maker_wait | filled_qty | unfilled_qty | depth_levels | impact_bps | cost_coverage |",
-        "|---:|---|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---|---|---|---|---:|---|---|---:|---:|---:|---:|---:|",
+        "| # | time | symbol | side | engine | setup | score | entry | exit | gross | net | MFE | MAE | exit_reason | fill_model | exec_source | exec_tf | lag_bars | fill_quality | maker_status | maker_wait | filled_qty | unfilled_qty | depth_levels | impact_bps | cost_coverage | mark_price | funding_rate | open_interest |",
+        "|---:|---|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---|---|---|---|---:|---|---|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for index, trade in enumerate(trades, start=1):
         lines.append(
-            "| {index} | {time} | {symbol} | {side} | {engine} | {setup} | {score:.4f} | {entry:.6g} | {exit:.6g} | {gross:.2f} | {net:.2f} | {mfe:.4%} | {mae:.4%} | {exit_reason} | {fill_model} | {exec_source} | {exec_tf} | {lag_bars} | {fill_quality} | {maker_status} | {maker_wait} | {filled_qty} | {unfilled_qty} | {depth_levels} | {impact_bps} | {coverage} |".format(
+            "| {index} | {time} | {symbol} | {side} | {engine} | {setup} | {score:.4f} | {entry:.6g} | {exit:.6g} | {gross:.2f} | {net:.2f} | {mfe:.4%} | {mae:.4%} | {exit_reason} | {fill_model} | {exec_source} | {exec_tf} | {lag_bars} | {fill_quality} | {maker_status} | {maker_wait} | {filled_qty} | {unfilled_qty} | {depth_levels} | {impact_bps} | {coverage} | {mark_price} | {funding_rate} | {open_interest} |".format(
                 index=index,
                 time=trade.get("entry_timestamp", ""),
                 symbol=trade.get("symbol", ""),
@@ -375,6 +375,9 @@ def _render_trade_postmortem_markdown(trades: list[dict[str, Any]]) -> str:
                 depth_levels="" if trade.get("depth_levels_consumed") is None else int(trade["depth_levels_consumed"]),
                 impact_bps="" if trade.get("execution_impact_bps") is None else f"{float(trade['execution_impact_bps']):.2f}",
                 coverage="" if trade.get("cost_coverage_ratio") is None else f"{float(trade['cost_coverage_ratio']):.2f}",
+                mark_price="" if trade.get("mark_price") is None else f"{float(trade['mark_price']):.6g}",
+                funding_rate="" if trade.get("funding_rate") is None else f"{float(trade['funding_rate']):.8f}",
+                open_interest="" if trade.get("open_interest_usdt") is None else f"{float(trade['open_interest_usdt']):.6g}",
             )
         )
     lines.append("")

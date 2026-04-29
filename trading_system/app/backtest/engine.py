@@ -222,6 +222,14 @@ class _OpenTrade:
     queue_ahead_remaining: float | None = None
     maker_wait_seconds: float | None = None
     maker_reasons: tuple[str, ...] = ()
+    mark_price: float | None = None
+    mark_price_timestamp: Any = None
+    mark_price_age_seconds: int | None = None
+    funding_timestamp: Any = None
+    funding_age_seconds: int | None = None
+    open_interest_usdt: float | None = None
+    open_interest_timestamp: Any = None
+    open_interest_age_seconds: int | None = None
 
 
 def _experiment_name(config: BacktestConfig) -> str:
@@ -473,6 +481,49 @@ def _funding_rate(row: DatasetSnapshotRow, symbol: str) -> float:
         if str(item.get("symbol", "")) == symbol:
             return float(item.get("funding_rate", 0.0) or 0.0)
     return 0.0
+
+
+def _optional_positive_float(value: Any) -> float | None:
+    parsed = _float_or_none(value)
+    return parsed
+
+
+def _optional_float(value: Any) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _optional_int(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _futures_context(row: DatasetSnapshotRow, symbol: str) -> dict[str, Any]:
+    context: dict[str, Any] = {}
+    symbol_context = _symbol_payload(row, symbol).get("futures_context")
+    if isinstance(symbol_context, Mapping):
+        context.update(symbol_context)
+    for derivative in row.derivatives:
+        if str(derivative.get("symbol", "")) == symbol:
+            for key in (
+                "mark_price",
+                "mark_price_timestamp",
+                "mark_price_age_seconds",
+                "funding_rate",
+                "funding_timestamp",
+                "funding_age_seconds",
+                "open_interest_usdt",
+                "open_interest_timestamp",
+                "open_interest_age_seconds",
+            ):
+                if key not in context and key in derivative:
+                    context[key] = derivative[key]
+            break
+    return context
 
 
 def _raw_full_market_candidates(
@@ -970,6 +1021,15 @@ def _trade_row(
             queue_ahead_remaining=open_trade.queue_ahead_remaining,
             maker_wait_seconds=open_trade.maker_wait_seconds,
             maker_reasons=open_trade.maker_reasons,
+            mark_price=open_trade.mark_price,
+            mark_price_timestamp=open_trade.mark_price_timestamp,
+            mark_price_age_seconds=open_trade.mark_price_age_seconds,
+            funding_rate=open_trade.funding_rate,
+            funding_timestamp=open_trade.funding_timestamp,
+            funding_age_seconds=open_trade.funding_age_seconds,
+            open_interest_usdt=open_trade.open_interest_usdt,
+            open_interest_timestamp=open_trade.open_interest_timestamp,
+            open_interest_age_seconds=open_trade.open_interest_age_seconds,
         ),
         gross_pnl,
         net_pnl,
@@ -1113,6 +1173,8 @@ def _replay_full_market_baseline_rows(
                     qty=decision.qty,
                 )
             )
+            futures_context = _futures_context(row, candidate.symbol)
+            funding_rate = _optional_float(futures_context.get("funding_rate"))
             open_trades.append(
                 _OpenTrade(
                     symbol=candidate.symbol,
@@ -1125,7 +1187,7 @@ def _replay_full_market_baseline_rows(
                     qty=decision.qty,
                     position_notional=decision.position_notional,
                     liquidity_tier=instrument.liquidity_tier,
-                    funding_rate=_funding_rate(row, candidate.symbol),
+                    funding_rate=funding_rate if funding_rate is not None else _funding_rate(row, candidate.symbol),
                     engine=str(candidate_row.get("engine", "")),
                     setup_type=str(candidate_row.get("setup_type", "")),
                     score=float(candidate_row.get("score", 0.0) or 0.0),
@@ -1156,6 +1218,14 @@ def _replay_full_market_baseline_rows(
                     queue_ahead_remaining=candidate.queue_ahead_remaining,
                     maker_wait_seconds=candidate.maker_wait_seconds,
                     maker_reasons=candidate.maker_reasons,
+                    mark_price=_optional_positive_float(futures_context.get("mark_price")),
+                    mark_price_timestamp=_datetime_or_none(futures_context.get("mark_price_timestamp")),
+                    mark_price_age_seconds=_optional_int(futures_context.get("mark_price_age_seconds")),
+                    funding_timestamp=_datetime_or_none(futures_context.get("funding_timestamp")),
+                    funding_age_seconds=_optional_int(futures_context.get("funding_age_seconds")),
+                    open_interest_usdt=_optional_positive_float(futures_context.get("open_interest_usdt")),
+                    open_interest_timestamp=_datetime_or_none(futures_context.get("open_interest_timestamp")),
+                    open_interest_age_seconds=_optional_int(futures_context.get("open_interest_age_seconds")),
                 )
             )
 

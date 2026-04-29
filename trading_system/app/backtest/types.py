@@ -257,6 +257,15 @@ class TradeLedgerRow:
     queue_ahead_remaining: float | None = None
     maker_wait_seconds: float | None = None
     maker_reasons: tuple[str, ...] = ()
+    mark_price: float | None = None
+    mark_price_timestamp: datetime | None = None
+    mark_price_age_seconds: int | None = None
+    funding_rate: float | None = None
+    funding_timestamp: datetime | None = None
+    funding_age_seconds: int | None = None
+    open_interest_usdt: float | None = None
+    open_interest_timestamp: datetime | None = None
+    open_interest_age_seconds: int | None = None
 
 
 @dataclass(frozen=True, slots=True)

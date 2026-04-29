@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +25,10 @@ from trading_system.app.backtest.types import (
 )
 from trading_system.app.types import EngineCandidate, RegimeSnapshot
 from trading_system.app.universe.builder import UniverseBuildResult
+
+
+def _ts(value: str) -> Any:
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
 def test_replay_snapshot_records_layer_artifacts(fixture_dir: Path) -> None:
@@ -144,6 +149,27 @@ def test_backtest_cli_runs_full_market_baseline_smoke_fixture(
     assert trades[0]["fill_model"] == "reference_close"
     assert trades[0]["execution_price_source"] == "ohlcv_close"
     assert trades[0]["fill_quality"] == "approximate"
+
+
+def test_full_market_baseline_ledger_exposes_entry_futures_context(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    config = load_backtest_config(_baseline_config_path(tmp_path))
+    _install_replay_candidates(monkeypatch)
+
+    result = backtest_engine.replay_full_market_baseline(config)
+
+    futures_trade = next(row for row in result.trade_ledger if row.symbol == "SOLUSDTPERP")
+    assert futures_trade.mark_price == pytest.approx(50.25)
+    assert futures_trade.mark_price_timestamp == _ts("2026-03-11T00:00:00Z")
+    assert futures_trade.mark_price_age_seconds == 0
+    assert futures_trade.funding_rate == pytest.approx(0.0002)
+    assert futures_trade.funding_timestamp == _ts("2026-03-11T00:00:00Z")
+    assert futures_trade.funding_age_seconds == 0
+    assert futures_trade.open_interest_usdt == pytest.approx(80_000_000.0)
+    assert futures_trade.open_interest_timestamp == _ts("2026-03-11T00:00:00Z")
+    assert futures_trade.open_interest_age_seconds == 0
 
 
 def test_backtest_cli_rejects_invalid_config(
@@ -300,7 +326,20 @@ def _baseline_config_path(tmp_path: Path) -> Path:
         run_id="row-001",
         market_symbols={
             "BTCUSDT": _sample_symbol(close=100.0),
-            "BTCUSDTPERP": _sample_symbol(close=100.0),
+            "BTCUSDTPERP": {
+                **_sample_symbol(close=100.0),
+                "futures_context": {
+                    "mark_price": 100.25,
+                    "mark_price_timestamp": "2026-03-10T00:00:00Z",
+                    "mark_price_age_seconds": 0,
+                    "funding_rate": 0.0004,
+                    "funding_timestamp": "2026-03-10T00:00:00Z",
+                    "funding_age_seconds": 0,
+                    "open_interest_usdt": 120_000_000.0,
+                    "open_interest_timestamp": "2026-03-10T00:00:00Z",
+                    "open_interest_age_seconds": 0,
+                },
+            },
             "ETHUSDT": {
                 **_sample_symbol(close=1000.0),
                 "liquidity_tier": "low",
@@ -323,6 +362,17 @@ def _baseline_config_path(tmp_path: Path) -> Path:
             "SOLUSDTPERP": {
                 **_sample_symbol(close=50.0),
                 "liquidity_tier": "medium",
+                "futures_context": {
+                    "mark_price": 50.25,
+                    "mark_price_timestamp": "2026-03-11T00:00:00Z",
+                    "mark_price_age_seconds": 0,
+                    "funding_rate": 0.0002,
+                    "funding_timestamp": "2026-03-11T00:00:00Z",
+                    "funding_age_seconds": 0,
+                    "open_interest_usdt": 80_000_000.0,
+                    "open_interest_timestamp": "2026-03-11T00:00:00Z",
+                    "open_interest_age_seconds": 0,
+                },
             },
         },
         derivatives_rows=[{"symbol": "SOLUSDTPERP", "funding_rate": 0.0002}],

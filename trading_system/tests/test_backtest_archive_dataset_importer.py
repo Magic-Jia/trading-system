@@ -185,6 +185,43 @@ def _rewrite_raw_market_manifest_fields(manifest_path: Path, **updates: object) 
     manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def _rewrite_raw_market_payload(manifest_path: Path, rows: list[dict[str, object]]) -> None:
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    data_path = Path(manifest["file"]["path"])
+    payload = json.loads(data_path.read_text(encoding="utf-8"))
+    if isinstance(payload, dict) and "rows" in payload:
+        payload["rows"] = rows
+    else:
+        payload = rows
+    data_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    raw_bytes = data_path.read_bytes()
+    manifest["file"]["sha256"] = hashlib.sha256(raw_bytes).hexdigest()
+    manifest["file"]["size_bytes"] = len(raw_bytes)
+    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _archive_mark_price_history(
+    archive_root: Path,
+    *,
+    symbol: str,
+    rows: list[dict[str, object]],
+    start: datetime,
+    end: datetime,
+) -> None:
+    archive_raw_market_payload(
+        archive_root=archive_root,
+        exchange="binance",
+        market="futures",
+        dataset="mark_price",
+        symbol=symbol,
+        coverage_start=start.isoformat().replace("+00:00", "Z"),
+        coverage_end=end.isoformat().replace("+00:00", "Z"),
+        fetched_at="2026-04-01T07:32:30Z",
+        endpoint="/fapi/v1/premiumIndex",
+        payload=rows,
+    )
+
+
 def test_build_phase1_dataset_bundle_materials_returns_dataset_ready_bundle_and_writes_dataset_root(
     tmp_path: Path,
 ) -> None:
@@ -224,20 +261,21 @@ def test_build_phase1_dataset_bundle_materials_returns_dataset_ready_bundle_and_
     latest_open_interest = 10_000.0 + ((total_hours - 1) * 10.0)
     open_interest_24h_ago = 10_000.0 + ((total_hours - 25) * 10.0)
     latest_funding = 0.0001 + (((total_hours - 1) // 8) * 0.000001)
-    assert latest.derivatives_snapshot["rows"] == [
-        {
-            "symbol": "BTCUSDT",
-            "funding_rate": pytest.approx(latest_funding),
-            "open_interest_usdt": pytest.approx(latest_open_interest * latest_close),
-            "open_interest_change_24h_pct": pytest.approx(
-                (latest_open_interest / open_interest_24h_ago) - 1.0,
-                rel=1e-6,
-            ),
-            "mark_price_change_24h_pct": pytest.approx((latest_close / close_24h_ago) - 1.0, rel=1e-6),
-            "taker_buy_sell_ratio": 1.0,
-            "basis_bps": 0.0,
-        }
-    ]
+    derivative = latest.derivatives_snapshot["rows"][0]
+    assert derivative["symbol"] == "BTCUSDT"
+    assert derivative["funding_rate"] == pytest.approx(latest_funding)
+    assert derivative["funding_timestamp"] == "2024-02-29T16:00:00Z"
+    assert derivative["funding_age_seconds"] == 7 * 60 * 60
+    assert derivative["open_interest_usdt"] == pytest.approx(latest_open_interest * latest_close)
+    assert derivative["open_interest_timestamp"] == "2024-02-29T23:00:00Z"
+    assert derivative["open_interest_age_seconds"] == 0
+    assert derivative["open_interest_change_24h_pct"] == pytest.approx(
+        (latest_open_interest / open_interest_24h_ago) - 1.0,
+        rel=1e-6,
+    )
+    assert derivative["mark_price_change_24h_pct"] == pytest.approx((latest_close / close_24h_ago) - 1.0, rel=1e-6)
+    assert derivative["taker_buy_sell_ratio"] == 1.0
+    assert derivative["basis_bps"] == 0.0
 
     bundle_dir = write_phase1_dataset_bundle(latest, dataset_root)
     rows = load_historical_dataset(dataset_root)
@@ -247,6 +285,113 @@ def test_build_phase1_dataset_bundle_materials_returns_dataset_ready_bundle_and_
     assert rows[0].timestamp == latest.timestamp
     assert rows[0].market["symbols"]["BTCUSDT"]["1h"]["close"] == pytest.approx(64_390.0)
     assert rows[0].derivatives[0]["open_interest_usdt"] == pytest.approx(latest_open_interest * latest_close)
+
+
+def test_build_phase1_dataset_bundle_materials_aligns_futures_context_without_lookahead(
+    tmp_path: Path,
+) -> None:
+    archive_root = tmp_path / "archive"
+    start = datetime(2024, 1, 1, tzinfo=UTC)
+    total_hours = 60 * 24
+    latest_timestamp = start + timedelta(hours=total_hours - 1)
+    future_timestamp = latest_timestamp + timedelta(hours=1)
+    _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT", start=start, total_hours=total_hours)
+    _archive_mark_price_history(
+        archive_root,
+        symbol="BTCUSDT",
+        start=latest_timestamp,
+        end=future_timestamp,
+        rows=[
+            {"timestamp": _timestamp_ms(latest_timestamp), "markPrice": "64395.5"},
+            {"timestamp": _timestamp_ms(future_timestamp), "markPrice": "99999.9"},
+        ],
+    )
+    funding_manifest = next((archive_root / "raw-market").glob("**/funding/BTCUSDT/*.manifest.json"))
+    funding_payload = json.loads(Path(json.loads(funding_manifest.read_text(encoding="utf-8"))["file"]["path"]).read_text())
+    funding_payload.append({"fundingTime": _timestamp_ms(future_timestamp), "fundingRate": "0.99999999"})
+    _rewrite_raw_market_payload(funding_manifest, funding_payload)
+    oi_manifest = next((archive_root / "raw-market").glob("**/open-interest/BTCUSDT/*.manifest.json"))
+    oi_payload = json.loads(Path(json.loads(oi_manifest.read_text(encoding="utf-8"))["file"]["path"]).read_text())
+    oi_payload.append({"timestamp": _timestamp_ms(future_timestamp), "sumOpenInterest": "999999999.0"})
+    _rewrite_raw_market_payload(oi_manifest, oi_payload)
+
+    materials = build_phase1_dataset_bundle_materials(load_phase1_raw_market_imports(archive_root))
+    latest = materials[-1]
+
+    futures_context = latest.market_context["symbols"]["BTCUSDT"]["futures_context"]
+    derivative = latest.derivatives_snapshot["rows"][0]
+    assert futures_context["mark_price"] == pytest.approx(64395.5)
+    assert futures_context["mark_price_timestamp"] == latest_timestamp.isoformat().replace("+00:00", "Z")
+    assert futures_context["mark_price_age_seconds"] == 0
+    assert derivative["mark_price"] == pytest.approx(64395.5)
+    assert derivative["funding_rate"] != pytest.approx(0.99999999)
+    assert derivative["open_interest_usdt"] != pytest.approx(999999999.0 * derivative["mark_price"])
+    assert latest.metadata["source"]["futures_context"]["materialized"]["mark_price"] >= 1
+
+
+def test_build_phase1_dataset_bundle_materials_reports_stale_and_missing_futures_context(
+    tmp_path: Path,
+) -> None:
+    archive_root = tmp_path / "archive"
+    _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT")
+
+    materials = build_phase1_dataset_bundle_materials(
+        load_phase1_raw_market_imports(archive_root),
+        funding_max_age=timedelta(hours=1),
+    )
+    latest = materials[-1]
+
+    futures_context = latest.market_context["symbols"]["BTCUSDT"]["futures_context"]
+    coverage = latest.metadata["source"]["futures_context"]
+    assert futures_context["funding_status"] == "stale"
+    assert "funding_rate" not in futures_context
+    assert futures_context["mark_price_status"] == "missing"
+    assert coverage["stale"]["funding"] >= 1
+    assert coverage["missing"]["mark_price"] >= 1
+
+
+def test_build_phase1_dataset_bundle_materials_allows_ohlcv_only_archive_with_context_missing(
+    tmp_path: Path,
+) -> None:
+    archive_root = tmp_path / "archive"
+    start = datetime(2024, 1, 1, tzinfo=UTC)
+    rows = []
+    for index in range(60 * 24):
+        observed_at = start + timedelta(hours=index)
+        close = 50_000.0 + (index * 10.0)
+        rows.append(
+            {
+                "open_time": _timestamp_ms(observed_at),
+                "open": f"{close - 5.0:.6f}",
+                "high": f"{close + 20.0:.6f}",
+                "low": f"{close - 20.0:.6f}",
+                "close": f"{close:.6f}",
+                "volume": "1000.0",
+                "quote_asset_volume": f"{close * 1000.0:.6f}",
+            }
+        )
+    archive_raw_market_payload(
+        archive_root=archive_root,
+        exchange="binance",
+        market="futures",
+        dataset="ohlcv",
+        symbol="BTCUSDT",
+        timeframe="1h",
+        coverage_start=start.isoformat().replace("+00:00", "Z"),
+        coverage_end=(start + timedelta(hours=len(rows))).isoformat().replace("+00:00", "Z"),
+        fetched_at="2026-04-01T07:30:00Z",
+        endpoint="/fapi/v1/klines",
+        payload={"symbol": "BTCUSDT", "interval": "1h", "rows": rows},
+    )
+
+    materials = build_phase1_dataset_bundle_materials(load_phase1_raw_market_imports(archive_root))
+
+    assert materials
+    futures_context = materials[-1].market_context["symbols"]["BTCUSDT"]["futures_context"]
+    assert futures_context["mark_price_status"] == "missing"
+    assert futures_context["funding_status"] == "missing"
+    assert futures_context["open_interest_status"] == "missing"
+    assert materials[-1].metadata["source"]["futures_context"]["available"] is False
 
 
 def test_build_phase1_dataset_bundle_materials_includes_available_intraday_trigger_timeframes(
@@ -568,20 +713,19 @@ def test_build_phase1_dataset_bundle_materials_uses_quote_denominated_open_inter
     latest_open_interest_value = open_interest_base + ((total_hours - 1) * open_interest_step)
     open_interest_value_24h_ago = open_interest_base + ((total_hours - 25) * open_interest_step)
 
-    assert latest.derivatives_snapshot["rows"] == [
-        {
-            "symbol": "BTCUSDT",
-            "funding_rate": pytest.approx(0.000279),
-            "open_interest_usdt": pytest.approx(latest_open_interest_value),
-            "open_interest_change_24h_pct": pytest.approx(
-                (latest_open_interest_value / open_interest_value_24h_ago) - 1.0,
-                rel=1e-6,
-            ),
-            "mark_price_change_24h_pct": pytest.approx((64_390.0 / 64_150.0) - 1.0, rel=1e-6),
-            "taker_buy_sell_ratio": 1.0,
-            "basis_bps": 0.0,
-        }
-    ]
+    derivative = latest.derivatives_snapshot["rows"][0]
+    assert derivative["symbol"] == "BTCUSDT"
+    assert derivative["funding_rate"] == pytest.approx(0.000279)
+    assert derivative["open_interest_usdt"] == pytest.approx(latest_open_interest_value)
+    assert derivative["open_interest_timestamp"] == "2024-02-29T23:00:00Z"
+    assert derivative["open_interest_age_seconds"] == 0
+    assert derivative["open_interest_change_24h_pct"] == pytest.approx(
+        (latest_open_interest_value / open_interest_value_24h_ago) - 1.0,
+        rel=1e-6,
+    )
+    assert derivative["mark_price_change_24h_pct"] == pytest.approx((64_390.0 / 64_150.0) - 1.0, rel=1e-6)
+    assert derivative["taker_buy_sell_ratio"] == 1.0
+    assert derivative["basis_bps"] == 0.0
 
 
 def test_build_phase1_dataset_bundle_materials_accepts_binance_array_ohlcv_rows(tmp_path: Path) -> None:
@@ -948,7 +1092,9 @@ def test_import_phase1_archive_dataset_root_excludes_never_eligible_symbols_from
     assert [row.symbol for dataset_row in rows for row in dataset_row.instrument_rows] == ["BTCUSDT"] * len(rows)
 
 
-def test_build_phase1_dataset_bundle_materials_requires_complete_phase1_symbol_set(tmp_path: Path) -> None:
+def test_build_phase1_dataset_bundle_materials_treats_funding_and_open_interest_as_optional_context(
+    tmp_path: Path,
+) -> None:
     archive_root = tmp_path / "archive"
     start = datetime(2024, 1, 1, tzinfo=UTC)
     archive_raw_market_payload(
@@ -979,8 +1125,7 @@ def test_build_phase1_dataset_bundle_materials_requires_complete_phase1_symbol_s
 
     imported = load_phase1_raw_market_imports(archive_root)
 
-    with pytest.raises(ValueError, match="missing required phase1 raw-market series for symbol BTCUSDT: open-interest"):
-        build_phase1_dataset_bundle_materials(imported)
+    assert build_phase1_dataset_bundle_materials(imported) == ()
 
 
 @pytest.mark.parametrize(
