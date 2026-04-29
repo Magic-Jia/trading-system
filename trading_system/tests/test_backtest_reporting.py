@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from trading_system.app.backtest import cli, reporting
+from trading_system.app.backtest.evaluation import CostStressScenario, build_evaluation_report
 from trading_system.app.backtest.types import (
     BacktestConfig,
     BacktestCosts,
@@ -274,6 +275,50 @@ def test_full_market_report_and_postmortem_expose_futures_context_fields() -> No
     assert "mark_price" in markdown
     assert "funding_rate" in markdown
     assert "open_interest" in markdown
+
+
+def test_render_backtest_evaluation_report_labels_is_oos_regime_and_cost_stress() -> None:
+    rows = [
+        DatasetSnapshotRow(
+            timestamp=_ts("2026-03-10T00:00:00Z"),
+            run_id="row-001",
+            market={"symbols": {"BTCUSDT": {"daily": {"close": 110.0, "ema_50": 100.0, "return_pct_7d": 0.06, "atr_pct": 0.02}}}},
+            derivatives=[],
+        ),
+        DatasetSnapshotRow(
+            timestamp=_ts("2026-03-11T00:00:00Z"),
+            run_id="row-002",
+            market={"symbols": {"BTCUSDT": {"daily": {"close": 108.0, "ema_50": 100.0, "return_pct_7d": 0.05, "atr_pct": 0.02}}}},
+            derivatives=[],
+        ),
+        DatasetSnapshotRow(
+            timestamp=_ts("2026-03-12T00:00:00Z"),
+            run_id="row-003",
+            market={"symbols": {"BTCUSDT": {"daily": {"close": 90.0, "ema_50": 100.0, "return_pct_7d": -0.06, "atr_pct": 0.07}}}},
+            derivatives=[],
+        ),
+    ]
+    trade = sample_baseline_result().trade_ledger[0]
+    evaluation = build_evaluation_report(
+        rows=rows,
+        trade_ledger=(trade,),
+        train_size=2,
+        test_size=1,
+        cost_scenarios=(CostStressScenario(name="fees_2x", fee_multiplier=2.0),),
+    )
+
+    report = reporting.render_backtest_evaluation_report(
+        experiment_name="full_market_baseline",
+        evaluation=evaluation,
+        metadata={"baseline_name": "current_system", "variant_name": "auditable_baseline"},
+    )
+
+    assert report["summary"]["metadata"]["evaluation_layer"] == "walk_forward_oos_regime_cost_stress"
+    assert report["walk_forward"]["windows"][0]["splits"]["in_sample"]["label"] == "IS"
+    assert report["walk_forward"]["windows"][0]["splits"]["out_of_sample"]["label"] == "OOS"
+    assert report["regimes"]["buckets"]
+    assert report["cost_stress"]["scenarios"][0]["label"] == "cost_stress:fees_2x"
+    assert report["summary"]["cost_stress_scenarios"] == ["fees_2x"]
 
 
 def _write_fixture_bundle(dataset_root: Path, *, timestamp: str, run_id: str) -> None:

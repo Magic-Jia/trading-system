@@ -1,0 +1,182 @@
+from __future__ import annotations
+
+from datetime import datetime, timedelta, timezone
+
+import pytest
+
+from trading_system.app.backtest.evaluation import (
+    CostStressScenario,
+    build_evaluation_report,
+    build_walk_forward_evaluation,
+    build_walk_forward_windows,
+    evaluate_regime_buckets,
+    run_cost_stress_tests,
+)
+from trading_system.app.backtest.types import DatasetSnapshotRow, TradeLedgerRow
+
+
+def _ts(value: str) -> datetime:
+    return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(timezone.utc)
+
+
+def _row(index: int, *, close: float = 100.0, ema_50: float = 98.0, ret: float = 0.01, atr: float = 0.02) -> DatasetSnapshotRow:
+    timestamp = _ts("2026-01-01T00:00:00Z") + timedelta(days=index)
+    return DatasetSnapshotRow(
+        timestamp=timestamp,
+        run_id=f"row-{index:03d}",
+        market={
+            "symbols": {
+                "BTCUSDT": {
+                    "daily": {
+                        "close": close,
+                        "ema_50": ema_50,
+                        "return_pct_7d": ret,
+                        "atr_pct": atr,
+                    }
+                }
+            }
+        },
+        derivatives=[],
+    )
+
+
+def _trade(symbol: str, entry: str, *, net_pnl: float, costs: tuple[float, float, float] = (1.0, 2.0, 3.0)) -> TradeLedgerRow:
+    entry_timestamp = _ts(entry)
+    gross_pnl = net_pnl + sum(costs)
+    return TradeLedgerRow(
+        symbol=symbol,
+        market_type="futures",
+        base_asset=symbol.removesuffix("USDT").removesuffix("PERP"),
+        side="long",
+        status="accepted",
+        entry_timestamp=entry_timestamp,
+        exit_timestamp=entry_timestamp + timedelta(hours=4),
+        entry_price=100.0,
+        exit_price=105.0,
+        qty=1.0,
+        position_notional=100.0,
+        holding_hours=4.0,
+        gross_pnl=gross_pnl,
+        net_pnl=net_pnl,
+        gross_return_pct=gross_pnl / 100.0,
+        net_return_pct=net_pnl / 100.0,
+        fee_paid=costs[0],
+        slippage_paid=costs[1],
+        funding_paid=costs[2],
+    )
+
+
+def test_window_builder_creates_chronological_non_overlapping_windows() -> None:
+    rows = [_row(index) for index in (3, 0, 2, 1, 4)]
+
+    windows = build_walk_forward_windows(rows, train_size=2, test_size=1, step_size=1)
+
+    assert [window.window_index for window in windows] == [1, 2, 3]
+    assert [row.run_id for row in windows[0].train_rows] == ["row-000", "row-001"]
+    assert [row.run_id for row in windows[0].test_rows] == ["row-002"]
+    assert [row.run_id for row in windows[-1].train_rows] == ["row-002", "row-003"]
+    assert [row.run_id for row in windows[-1].test_rows] == ["row-004"]
+    for window in windows:
+        assert window.train_end < window.test_start
+        assert {row.run_id for row in window.train_rows}.isdisjoint(row.run_id for row in window.test_rows)
+
+
+def test_walk_forward_evaluation_returns_insufficient_status_for_short_dataset() -> None:
+    result = build_walk_forward_evaluation(
+        rows=[_row(0), _row(1)],
+        trade_ledger=[],
+        train_size=2,
+        test_size=2,
+    )
+
+    assert result.status == "insufficient_data"
+    assert result.reason == "dataset shorter than train_size + test_size"
+    assert result.windows == ()
+    assert result.to_dict()["status"] == "insufficient_data"
+
+
+def test_walk_forward_metrics_use_train_and_test_period_trades_separately() -> None:
+    rows = [_row(index) for index in range(5)]
+    trades = (
+        _trade("BTCUSDT", "2026-01-01T12:00:00Z", net_pnl=10.0),
+        _trade("ETHUSDT", "2026-01-02T12:00:00Z", net_pnl=-3.0),
+        _trade("SOLUSDT", "2026-01-03T12:00:00Z", net_pnl=7.0),
+        _trade("BNBUSDT", "2026-01-04T12:00:00Z", net_pnl=5.0),
+    )
+
+    result = build_walk_forward_evaluation(
+        rows=rows,
+        trade_ledger=trades,
+        train_size=2,
+        test_size=1,
+        step_size=2,
+    )
+
+    assert result.status == "ok"
+    assert len(result.windows) == 2
+    assert result.windows[0].in_sample_metrics["trade_count"] == 2
+    assert result.windows[0].in_sample_metrics["net_pnl"] == pytest.approx(7.0)
+    assert result.windows[0].out_of_sample_metrics["trade_count"] == 1
+    assert result.windows[0].out_of_sample_metrics["net_pnl"] == pytest.approx(7.0)
+    assert result.windows[1].in_sample_trade_ids == ("SOLUSDT@2026-01-03T12:00:00+00:00", "BNBUSDT@2026-01-04T12:00:00+00:00")
+    assert result.windows[1].out_of_sample_metrics["trade_count"] == 0
+
+
+def test_cost_stress_scenarios_do_not_mutate_original_trades() -> None:
+    trades = (_trade("BTCUSDT", "2026-01-01T12:00:00Z", net_pnl=20.0, costs=(1.0, 2.0, 3.0)),)
+    scenario = CostStressScenario(name="double_costs", fee_multiplier=2.0, slippage_multiplier=2.0, funding_multiplier=2.0)
+
+    stressed = run_cost_stress_tests(trades, [scenario])
+
+    assert trades[0].net_pnl == pytest.approx(20.0)
+    assert stressed[0].scenario.name == "double_costs"
+    assert stressed[0].base_metrics["net_pnl"] == pytest.approx(20.0)
+    assert stressed[0].stressed_metrics["net_pnl"] == pytest.approx(14.0)
+    assert stressed[0].base_metrics["total_net_return"] == pytest.approx(0.20)
+    assert stressed[0].stressed_metrics["total_net_return"] == pytest.approx(0.14)
+    assert stressed[0].stressed_trades[0]["base_net_pnl"] == pytest.approx(20.0)
+    assert stressed[0].stressed_trades[0]["stressed_net_pnl"] == pytest.approx(14.0)
+
+
+def test_regime_buckets_are_deterministic_and_report_per_regime_metrics() -> None:
+    rows = [
+        _row(0, close=110.0, ema_50=100.0, ret=0.06, atr=0.02),
+        _row(1, close=90.0, ema_50=100.0, ret=-0.06, atr=0.07),
+        _row(2, close=101.0, ema_50=100.0, ret=0.001, atr=0.015),
+    ]
+    trades = (
+        _trade("BTCUSDT", "2026-01-01T12:00:00Z", net_pnl=9.0),
+        _trade("ETHUSDT", "2026-01-02T12:00:00Z", net_pnl=-4.0),
+    )
+
+    buckets = evaluate_regime_buckets(rows, trades)
+
+    assert [bucket.label for bucket in buckets] == ["high_vol_downtrend", "low_vol_range", "low_vol_uptrend"]
+    by_label = {bucket.label: bucket for bucket in buckets}
+    assert by_label["low_vol_uptrend"].row_count == 1
+    assert by_label["low_vol_uptrend"].metrics["trade_count"] == 1
+    assert by_label["low_vol_uptrend"].metrics["net_pnl"] == pytest.approx(9.0)
+    assert by_label["high_vol_downtrend"].metrics["net_pnl"] == pytest.approx(-4.0)
+
+
+def test_evaluation_report_labels_walk_forward_regimes_and_cost_stress() -> None:
+    rows = [_row(index) for index in range(4)]
+    trades = (
+        _trade("BTCUSDT", "2026-01-01T12:00:00Z", net_pnl=9.0),
+        _trade("ETHUSDT", "2026-01-03T12:00:00Z", net_pnl=5.0),
+    )
+
+    report = build_evaluation_report(
+        rows=rows,
+        trade_ledger=trades,
+        train_size=2,
+        test_size=1,
+        cost_scenarios=(CostStressScenario(name="fees_2x", fee_multiplier=2.0),),
+    )
+
+    assert report["walk_forward"]["status"] == "ok"
+    assert report["walk_forward"]["windows"][0]["splits"]["in_sample"]["label"] == "IS"
+    assert report["walk_forward"]["windows"][0]["splits"]["out_of_sample"]["label"] == "OOS"
+    assert report["regimes"]["buckets"]
+    assert report["cost_stress"]["scenarios"][0]["scenario"]["name"] == "fees_2x"
+    assert report["cost_stress"]["scenarios"][0]["label"] == "cost_stress:fees_2x"

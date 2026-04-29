@@ -64,6 +64,39 @@ def render_regime_scorecard(
     }
 
 
+def render_backtest_evaluation_report(
+    *,
+    experiment_name: str,
+    evaluation: Mapping[str, Any],
+    metadata: Mapping[str, Any],
+) -> dict[str, Any]:
+    walk_forward = dict(evaluation.get("walk_forward", {}))
+    regimes = dict(evaluation.get("regimes", {}))
+    cost_stress = dict(evaluation.get("cost_stress", {}))
+    stress_scenarios = [
+        str(dict(scenario_payload.get("scenario", {})).get("name", ""))
+        for scenario_payload in cost_stress.get("scenarios", [])
+    ]
+    stress_scenarios = [name for name in stress_scenarios if name]
+
+    return {
+        "summary": {
+            "metadata": {
+                **dict(metadata),
+                "experiment_name": experiment_name,
+                "evaluation_layer": "walk_forward_oos_regime_cost_stress",
+            },
+            "walk_forward_status": walk_forward.get("status"),
+            "walk_forward_window_count": int(dict(walk_forward.get("metadata", {})).get("window_count", 0)),
+            "regime_bucket_count": len(list(regimes.get("buckets", []))),
+            "cost_stress_scenarios": stress_scenarios,
+        },
+        "walk_forward": walk_forward,
+        "regimes": regimes,
+        "cost_stress": cost_stress,
+    }
+
+
 def _trade_breakdown_rows(
     trade_ledger: tuple[TradeLedgerRow, ...], *, key_name: str, key_fn: Callable[[TradeLedgerRow], Any]
 ) -> list[dict[str, Any]]:
