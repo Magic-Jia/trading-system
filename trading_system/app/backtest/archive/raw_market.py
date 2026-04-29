@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import hashlib
+import csv
+import io
 import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -16,6 +18,14 @@ PHASE1_RAW_MARKET_DATASET_ALIASES = {
     "funding": "funding",
     "open-interest": "open-interest",
     "open_interest": "open-interest",
+    "order-book": "order-book",
+    "order_book": "order-book",
+    "order-books": "order-book",
+    "order_books": "order-book",
+    "trades": "trades",
+    "aggTrades": "trades",
+    "agg_trades": "trades",
+    "agg-trades": "trades",
 }
 
 
@@ -269,6 +279,16 @@ def _rows_payload(payload: Any, *, dataset: str, data_path: Path) -> list[Any]:
     return rows
 
 
+def _decode_raw_market_payload(raw_bytes: bytes, *, data_path: Path) -> Any:
+    suffix = data_path.suffix.lower()
+    text = raw_bytes.decode("utf-8")
+    if suffix == ".jsonl":
+        return [json.loads(line) for line in text.splitlines() if line.strip()]
+    if suffix == ".csv":
+        return list(csv.DictReader(io.StringIO(text)))
+    return json.loads(text)
+
+
 def _timestamp_value_for_row(*, dataset: str, row: Any, data_path: Path, index: int) -> str | int | float:
     if dataset == "ohlcv":
         if isinstance(row, dict):
@@ -284,6 +304,8 @@ def _timestamp_value_for_row(*, dataset: str, row: Any, data_path: Path, index: 
         raise ValueError(f"{dataset} rows must be JSON objects: {data_path} rows[{index}]")
     field_name = "fundingTime" if dataset == "funding" else "timestamp"
     value = row.get(field_name)
+    if value is None and dataset in {"order-book", "trades"}:
+        value = row.get("time")
     if value is None:
         raise ValueError(f"{dataset} row missing {field_name}: {data_path} rows[{index}]")
     return value
@@ -329,7 +351,7 @@ def _load_import_file(manifest_path: Path) -> ImportedRawMarketFile:
         raise FileNotFoundError(f"raw-market data file missing: {data_path}")
     raw_bytes = data_path.read_bytes()
     _validate_manifest_file_metadata(manifest, manifest_path=manifest_path, data_path=data_path, raw_bytes=raw_bytes)
-    payload = json.loads(raw_bytes.decode("utf-8"))
+    payload = _decode_raw_market_payload(raw_bytes, data_path=data_path)
     rows = _rows_payload(payload, dataset=canonical_dataset, data_path=data_path)
     materialized_records: list[ImportedRawMarketRecord] = []
     last_index = len(rows) - 1

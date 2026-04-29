@@ -362,6 +362,188 @@ def test_import_phase1_archive_dataset_root_manifest_exposes_finer_ohlcv_coverag
     }
 
 
+def test_build_phase1_dataset_bundle_materials_materializes_fresh_order_book_execution_evidence(
+    tmp_path: Path,
+) -> None:
+    archive_root = tmp_path / "archive"
+    _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT")
+    signal_time = datetime(2024, 2, 29, 23, tzinfo=UTC)
+    evidence_time = signal_time + timedelta(seconds=5)
+    archive_raw_market_payload(
+        archive_root=archive_root,
+        exchange="binance",
+        market="futures",
+        dataset="order_book",
+        symbol="BTCUSDT",
+        coverage_start=signal_time.isoformat().replace("+00:00", "Z"),
+        coverage_end=(signal_time + timedelta(minutes=1)).isoformat().replace("+00:00", "Z"),
+        fetched_at="2026-04-01T07:33:00Z",
+        endpoint="local://execution/order_book",
+        payload={
+            "rows": [
+                {
+                    "timestamp": _timestamp_ms(evidence_time),
+                    "symbol": "BTCUSDT",
+                    "bid": "64389.50",
+                    "ask": "64390.50",
+                    "bid_size": "3.25",
+                    "ask_size": "2.75",
+                }
+            ]
+        },
+    )
+
+    imported = load_phase1_raw_market_imports(archive_root)
+
+    latest = build_phase1_dataset_bundle_materials(imported)[-1]
+
+    execution = latest.market_context["symbols"]["BTCUSDT"]["execution"]
+    assert execution["order_book"] == {
+        "timestamp": "2024-02-29T23:00:05Z",
+        "symbol": "BTCUSDT",
+        "bid": pytest.approx(64389.5),
+        "ask": pytest.approx(64390.5),
+        "bid_size": pytest.approx(3.25),
+        "ask_size": pytest.approx(2.75),
+    }
+    assert latest.metadata["source"]["execution_evidence"]["materialized"]["order_book"] == 1
+    assert latest.metadata["source"]["execution_evidence"]["missing"]["order_book"] == 0
+
+
+def test_build_phase1_dataset_bundle_materials_materializes_only_fresh_trades_at_or_after_signal_time(
+    tmp_path: Path,
+) -> None:
+    archive_root = tmp_path / "archive"
+    _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT")
+    signal_time = datetime(2024, 2, 29, 23, tzinfo=UTC)
+    archive_raw_market_payload(
+        archive_root=archive_root,
+        exchange="binance",
+        market="futures",
+        dataset="trades",
+        symbol="BTCUSDT",
+        coverage_start=(signal_time - timedelta(minutes=1)).isoformat().replace("+00:00", "Z"),
+        coverage_end=(signal_time + timedelta(minutes=10)).isoformat().replace("+00:00", "Z"),
+        fetched_at="2026-04-01T07:33:00Z",
+        endpoint="local://execution/trades",
+        payload={
+            "rows": [
+                {
+                    "timestamp": _timestamp_ms(signal_time - timedelta(seconds=1)),
+                    "symbol": "BTCUSDT",
+                    "price": "64380.00",
+                    "quantity": "0.10",
+                    "side": "sell",
+                },
+                {
+                    "timestamp": _timestamp_ms(signal_time + timedelta(seconds=2)),
+                    "symbol": "BTCUSDT",
+                    "price": "64391.00",
+                    "quantity": "0.20",
+                    "side": "buy",
+                },
+                {
+                    "timestamp": _timestamp_ms(signal_time + timedelta(minutes=4)),
+                    "symbol": "BTCUSDT",
+                    "price": "64392.00",
+                    "quantity": "0.30",
+                    "side": "buy",
+                },
+                {
+                    "timestamp": _timestamp_ms(signal_time + timedelta(minutes=6)),
+                    "symbol": "BTCUSDT",
+                    "price": "64395.00",
+                    "quantity": "0.40",
+                    "side": "buy",
+                },
+            ]
+        },
+    )
+
+    imported = load_phase1_raw_market_imports(archive_root)
+
+    latest = build_phase1_dataset_bundle_materials(
+        imported,
+        execution_evidence_max_staleness=timedelta(minutes=5),
+    )[-1]
+
+    assert latest.market_context["symbols"]["BTCUSDT"]["execution"]["trades"] == [
+        {
+            "timestamp": "2024-02-29T23:00:02Z",
+            "symbol": "BTCUSDT",
+            "price": pytest.approx(64391.0),
+            "quantity": pytest.approx(0.2),
+            "side": "buy",
+        },
+        {
+            "timestamp": "2024-02-29T23:04:00Z",
+            "symbol": "BTCUSDT",
+            "price": pytest.approx(64392.0),
+            "quantity": pytest.approx(0.3),
+            "side": "buy",
+        },
+    ]
+    assert latest.metadata["source"]["execution_evidence"]["materialized"]["trades"] == 1
+
+
+def test_import_phase1_archive_dataset_root_reports_stale_execution_evidence_without_materializing_it(
+    tmp_path: Path,
+) -> None:
+    archive_root = tmp_path / "archive"
+    dataset_root = tmp_path / "dataset"
+    _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT")
+    signal_time = datetime(2024, 2, 29, 23, tzinfo=UTC)
+    archive_raw_market_payload(
+        archive_root=archive_root,
+        exchange="binance",
+        market="futures",
+        dataset="order_book",
+        symbol="BTCUSDT",
+        coverage_start=signal_time.isoformat().replace("+00:00", "Z"),
+        coverage_end=(signal_time + timedelta(minutes=15)).isoformat().replace("+00:00", "Z"),
+        fetched_at="2026-04-01T07:33:00Z",
+        endpoint="local://execution/order_book",
+        payload={
+            "rows": [
+                {
+                    "timestamp": _timestamp_ms(signal_time + timedelta(minutes=10)),
+                    "symbol": "BTCUSDT",
+                    "bid": "64389.50",
+                    "ask": "64390.50",
+                    "bid_size": "3.25",
+                    "ask_size": "2.75",
+                }
+            ]
+        },
+    )
+
+    import_phase1_archive_dataset_root(archive_root, dataset_root)
+
+    rows = load_historical_dataset(dataset_root)
+    latest = rows[-1]
+    manifest = json.loads((dataset_root / "import_manifest.json").read_text(encoding="utf-8"))
+    assert "execution" not in latest.market["symbols"]["BTCUSDT"]
+    assert latest.meta["source"]["execution_evidence"]["stale"]["order_book"] == 1
+    assert manifest["coverage"]["execution_evidence"]["stale"]["order_book"] >= 1
+    assert manifest["coverage"]["execution_evidence"]["missing"]["order_book"] >= 1
+
+
+def test_import_phase1_archive_dataset_root_keeps_ohlcv_only_archives_backward_compatible(
+    tmp_path: Path,
+) -> None:
+    archive_root = tmp_path / "archive"
+    dataset_root = tmp_path / "dataset"
+    _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT")
+
+    import_phase1_archive_dataset_root(archive_root, dataset_root)
+
+    rows = load_historical_dataset(dataset_root)
+    manifest = json.loads((dataset_root / "import_manifest.json").read_text(encoding="utf-8"))
+    assert rows
+    assert all("execution" not in row.market["symbols"]["BTCUSDT"] for row in rows)
+    assert manifest["coverage"]["execution_evidence"]["available"] is False
+
+
 def test_build_phase1_dataset_bundle_materials_uses_quote_denominated_open_interest_rows_directly(
     tmp_path: Path,
 ) -> None:

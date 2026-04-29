@@ -30,6 +30,7 @@ PHASE1_IMPORTER_ROOT_SCHEMA = "phase1_imported_dataset_root.v1"
 PHASE1_IMPORTER_OHLCV_TIMEFRAME = "1h"
 PHASE1_IMPORTER_ROOT_MANIFEST = "import_manifest.json"
 PHASE1_IMPORTER_OPTIONAL_INTRADAY_OHLCV_TIMEFRAMES = ("1m", "5m", "15m", "30m")
+PHASE1_IMPORTER_DEFAULT_EXECUTION_EVIDENCE_MAX_STALENESS = timedelta(minutes=5)
 _PHASE1_IMPORTER_INTRADAY_GAPS = {
     "1m": timedelta(minutes=1),
     "5m": timedelta(minutes=5),
@@ -81,6 +82,8 @@ class _Phase1SymbolSeries:
     funding: ImportedRawMarketSeries
     open_interest: ImportedRawMarketSeries
     intraday_ohlcv: dict[str, ImportedRawMarketSeries]
+    order_book: ImportedRawMarketSeries | None
+    trades: ImportedRawMarketSeries | None
     symbol_metadata: dict[str, Any] | None
 
 
@@ -362,6 +365,8 @@ def _phase1_symbol_series(imported_series: Iterable[ImportedRawMarketSeries]) ->
                     for timeframe in PHASE1_IMPORTER_OPTIONAL_INTRADAY_OHLCV_TIMEFRAMES
                     if (series := indexed.get((symbol, "ohlcv", timeframe))) is not None
                 },
+                order_book=indexed.get((symbol, "order-book", None)),
+                trades=indexed.get((symbol, "trades", None)),
                 symbol_metadata=_resolved_symbol_metadata(
                     symbol=symbol,
                     series_items=(
@@ -399,6 +404,149 @@ def _latest_record_at_or_before(
     if index < 0:
         return None
     return records[index]
+
+
+def _first_record_at_or_after(
+    timestamps: Sequence[datetime],
+    records: Sequence[ImportedRawMarketRecord],
+    target: datetime,
+) -> ImportedRawMarketRecord | None:
+    index = bisect_right(timestamps, target - timedelta(microseconds=1))
+    if index >= len(records):
+        return None
+    return records[index]
+
+
+def _records_in_window(
+    timestamps: Sequence[datetime],
+    records: Sequence[ImportedRawMarketRecord],
+    *,
+    start: datetime,
+    end: datetime,
+) -> list[ImportedRawMarketRecord]:
+    index = bisect_right(timestamps, start - timedelta(microseconds=1))
+    selected: list[ImportedRawMarketRecord] = []
+    for record in records[index:]:
+        if record.observed_at > end:
+            break
+        selected.append(record)
+    return selected
+
+
+def _execution_coverage_template(*, available: bool, max_staleness: timedelta) -> dict[str, Any]:
+    return {
+        "available": available,
+        "max_staleness_seconds": int(max_staleness.total_seconds()),
+        "materialized": {"order_book": 0, "trades": 0},
+        "missing": {"order_book": 0, "trades": 0},
+        "stale": {"order_book": 0, "trades": 0},
+        "ambiguous": {"order_book": 0, "trades": 0},
+    }
+
+
+def _increment_execution_coverage(coverage: dict[str, Any], bucket: str, evidence_type: str) -> None:
+    current = coverage.setdefault(bucket, {}).setdefault(evidence_type, 0)
+    coverage[bucket][evidence_type] = int(current) + 1
+
+
+def _positive_execution_float(value: Any) -> float | None:
+    parsed = _to_float(value, default=-1.0)
+    return parsed if parsed > 0.0 else None
+
+
+def _execution_symbol_matches(payload: Mapping[str, Any], symbol: str) -> bool:
+    raw_symbol = payload.get("symbol")
+    return raw_symbol is None or str(raw_symbol).upper() == symbol.upper()
+
+
+def _order_book_payload(record: ImportedRawMarketRecord, *, symbol: str) -> dict[str, Any] | None:
+    payload = record.payload
+    if not isinstance(payload, Mapping) or not _execution_symbol_matches(payload, symbol):
+        return None
+    bid = _positive_execution_float(payload.get("bid"))
+    ask = _positive_execution_float(payload.get("ask"))
+    if bid is None or ask is None or ask < bid:
+        return None
+    result: dict[str, Any] = {
+        "timestamp": _utc_timestamp(record.observed_at),
+        "symbol": symbol,
+        "bid": bid,
+        "ask": ask,
+    }
+    bid_size = _positive_execution_float(payload.get("bid_size", payload.get("bidSize")))
+    ask_size = _positive_execution_float(payload.get("ask_size", payload.get("askSize")))
+    if bid_size is not None:
+        result["bid_size"] = bid_size
+    if ask_size is not None:
+        result["ask_size"] = ask_size
+    return result
+
+
+def _trade_payload(record: ImportedRawMarketRecord, *, symbol: str) -> dict[str, Any] | None:
+    payload = record.payload
+    if not isinstance(payload, Mapping) or not _execution_symbol_matches(payload, symbol):
+        return None
+    price = _positive_execution_float(payload.get("price"))
+    quantity = _positive_execution_float(payload.get("quantity", payload.get("qty")))
+    if price is None or quantity is None:
+        return None
+    result = {
+        "timestamp": _utc_timestamp(record.observed_at),
+        "symbol": symbol,
+        "price": price,
+        "quantity": quantity,
+    }
+    side = str(payload.get("side") or "").strip().lower()
+    if side in {"buy", "sell"}:
+        result["side"] = side
+    return result
+
+
+def _execution_payload_for_symbol(
+    *,
+    item: _Phase1SymbolSeries,
+    timestamp: datetime,
+    evidence_lookups: Mapping[tuple[str, str], tuple[list[datetime], list[ImportedRawMarketRecord]]],
+    max_staleness: timedelta,
+    coverage: dict[str, Any],
+) -> dict[str, Any] | None:
+    execution: dict[str, Any] = {}
+    window_end = timestamp + max_staleness
+
+    if item.order_book is not None:
+        order_book_times, order_book_records = evidence_lookups[(item.symbol, "order_book")]
+        candidate = _first_record_at_or_after(order_book_times, order_book_records, timestamp)
+        if candidate is None:
+            _increment_execution_coverage(coverage, "missing", "order_book")
+        elif candidate.observed_at > window_end:
+            _increment_execution_coverage(coverage, "missing", "order_book")
+            _increment_execution_coverage(coverage, "stale", "order_book")
+        else:
+            order_book = _order_book_payload(candidate, symbol=item.symbol)
+            if order_book is None:
+                _increment_execution_coverage(coverage, "ambiguous", "order_book")
+                _increment_execution_coverage(coverage, "missing", "order_book")
+            else:
+                execution["order_book"] = order_book
+                _increment_execution_coverage(coverage, "materialized", "order_book")
+
+    if item.trades is not None:
+        trade_times, trade_records = evidence_lookups[(item.symbol, "trades")]
+        trade_rows = [
+            trade
+            for record in _records_in_window(trade_times, trade_records, start=timestamp, end=window_end)
+            if (trade := _trade_payload(record, symbol=item.symbol)) is not None
+        ]
+        if trade_rows:
+            execution["trades"] = trade_rows
+            _increment_execution_coverage(coverage, "materialized", "trades")
+        else:
+            candidate = _first_record_at_or_after(trade_times, trade_records, timestamp)
+            _increment_execution_coverage(coverage, "missing", "trades")
+            if candidate is not None and candidate.observed_at > window_end:
+                _increment_execution_coverage(coverage, "stale", "trades")
+
+    return execution or None
 
 
 def _hourly_history_up_to(series: ImportedRawMarketSeries, *, timestamp: datetime) -> list[_OhlcvBar]:
@@ -552,11 +700,17 @@ def _import_trace(
     *,
     materialized_timeframes: Iterable[str] | None = None,
     not_materialized: Mapping[str, str] | None = None,
+    execution_coverage: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     series_keys: list[str] = []
     manifest_paths: list[str] = []
     for item in symbol_series:
-        for series in (item.funding, item.ohlcv, item.open_interest, *item.intraday_ohlcv.values()):
+        optional_execution_series = tuple(
+            series
+            for series in (item.order_book, item.trades)
+            if series is not None
+        )
+        for series in (item.funding, item.ohlcv, item.open_interest, *item.intraday_ohlcv.values(), *optional_execution_series):
             series_keys.append(series.series_key)
             manifest_paths.extend(str(imported_file.manifest_path) for imported_file in series.files)
     return {
@@ -570,6 +724,11 @@ def _import_trace(
             symbol_series,
             materialized_timeframes=materialized_timeframes or ("1h",),
             not_materialized=not_materialized,
+        ),
+        "execution_evidence": dict(
+            execution_coverage
+            if execution_coverage is not None
+            else _execution_coverage_template(available=False, max_staleness=PHASE1_IMPORTER_DEFAULT_EXECUTION_EVIDENCE_MAX_STALENESS)
         ),
     }
 
@@ -639,11 +798,40 @@ def _merged_ohlcv_timeframe_coverage(traces: Iterable[Mapping[str, Any]]) -> dic
     }
 
 
+def _merged_execution_evidence_coverage(traces: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
+    merged = _execution_coverage_template(
+        available=False,
+        max_staleness=PHASE1_IMPORTER_DEFAULT_EXECUTION_EVIDENCE_MAX_STALENESS,
+    )
+    max_staleness_values: set[int] = set()
+    for trace in traces:
+        coverage = trace.get("execution_evidence")
+        if not isinstance(coverage, Mapping):
+            continue
+        merged["available"] = bool(merged["available"]) or bool(coverage.get("available"))
+        try:
+            max_staleness_values.add(int(coverage.get("max_staleness_seconds") or 0))
+        except (TypeError, ValueError):
+            pass
+        for bucket in ("materialized", "missing", "stale", "ambiguous"):
+            raw_counts = coverage.get(bucket) or {}
+            if not isinstance(raw_counts, Mapping):
+                continue
+            for evidence_type in ("order_book", "trades"):
+                merged[bucket][evidence_type] = int(merged[bucket].get(evidence_type, 0)) + int(
+                    raw_counts.get(evidence_type) or 0
+                )
+    if len(max_staleness_values) == 1:
+        merged["max_staleness_seconds"] = next(iter(max_staleness_values))
+    return merged
+
+
 def build_phase1_dataset_bundle_materials(
     imported_series: Iterable[ImportedRawMarketSeries],
     *,
     start_timestamp: datetime | None = None,
     end_timestamp: datetime | None = None,
+    execution_evidence_max_staleness: timedelta = PHASE1_IMPORTER_DEFAULT_EXECUTION_EVIDENCE_MAX_STALENESS,
 ) -> tuple[Phase1DatasetBundleMaterial, ...]:
     symbol_series = _phase1_symbol_series(imported_series)
     if not symbol_series:
@@ -682,6 +870,13 @@ def build_phase1_dataset_bundle_materials(
         for item in symbol_series
         for timeframe, series in item.intraday_ohlcv.items()
     }
+    execution_evidence_available = any(item.order_book is not None or item.trades is not None for item in symbol_series)
+    execution_evidence_lookups: dict[tuple[str, str], tuple[list[datetime], list[ImportedRawMarketRecord]]] = {}
+    for item in symbol_series:
+        if item.order_book is not None:
+            execution_evidence_lookups[(item.symbol, "order_book")] = _record_lookup(item.order_book.records)
+        if item.trades is not None:
+            execution_evidence_lookups[(item.symbol, "trades")] = _record_lookup(item.trades.records)
 
     for timestamp in all_timestamps:
         market_symbols: dict[str, Any] = {}
@@ -690,6 +885,10 @@ def build_phase1_dataset_bundle_materials(
         eligible_symbol_series: list[_Phase1SymbolSeries] = []
         materialized_ohlcv_timeframes = {"1h"}
         not_materialized_ohlcv_timeframes: dict[str, str] = {}
+        execution_coverage = _execution_coverage_template(
+            available=execution_evidence_available,
+            max_staleness=execution_evidence_max_staleness,
+        )
 
         for item in symbol_series:
             if timestamp not in ohlcv_timestamp_sets[item.symbol]:
@@ -747,11 +946,21 @@ def build_phase1_dataset_bundle_materials(
                     materialized_ohlcv_timeframes.add(timeframe)
                 else:
                     not_materialized_ohlcv_timeframes[timeframe] = "missing_contiguous_bars"
-            market_symbols[item.symbol] = {
+            symbol_payload = {
                 "sector": sector_for_symbol(item.symbol),
                 "liquidity_tier": liquidity_tier,
                 **timeframe_payloads,
             }
+            execution_payload = _execution_payload_for_symbol(
+                item=item,
+                timestamp=timestamp,
+                evidence_lookups=execution_evidence_lookups,
+                max_staleness=execution_evidence_max_staleness,
+                coverage=execution_coverage,
+            )
+            if execution_payload is not None:
+                symbol_payload["execution"] = execution_payload
+            market_symbols[item.symbol] = symbol_payload
             derivatives_rows.append(
                 {
                     "symbol": item.symbol,
@@ -812,6 +1021,7 @@ def build_phase1_dataset_bundle_materials(
                 eligible_symbol_series,
                 materialized_timeframes=materialized_ohlcv_timeframes,
                 not_materialized=not_materialized_ohlcv_timeframes,
+                execution_coverage=execution_coverage,
             ),
         }
         materials.append(
@@ -894,7 +1104,10 @@ def _phase1_dataset_root_manifest(
         "coverage": {
             "ohlcv_timeframes": _merged_ohlcv_timeframe_coverage(
                 material.metadata.get("source") or {} for material in materials
-            )
+            ),
+            "execution_evidence": _merged_execution_evidence_coverage(
+                material.metadata.get("source") or {} for material in materials
+            ),
         },
     }
 
