@@ -14,7 +14,7 @@ from trading_system.app.universe.builder import UniverseBuildResult, build_unive
 
 from .costs import fee_bps_for_market, fee_cost, funding_cost, slippage_bps_for_tier, slippage_cost
 from .dataset import load_historical_dataset
-from .execution_sim import reference_close_fill
+from .execution_sim import next_bar_ohlcv_fill, reference_close_fill
 from .metrics import calmar_ratio, max_drawdown, sharpe_ratio, sortino_ratio, total_return, turnover
 from .portfolio import decision_to_ledger_row, evaluate_candidate
 from .types import (
@@ -195,6 +195,8 @@ class _OpenTrade:
     execution_price_source: str = "ohlcv_close"
     fill_model: str = "reference_close"
     fill_quality: str = "approximate"
+    execution_timeframe: str = ""
+    execution_lag_bars: int = 0
 
 
 def _experiment_name(config: BacktestConfig) -> str:
@@ -456,6 +458,18 @@ def _entry_reference_timeframes(candidate_row: Mapping[str, Any]) -> tuple[str, 
     return ("daily", "4h", "1h")
 
 
+def _has_intraday_entry_metadata(candidate_row: Mapping[str, Any], entry_reference_timeframe: str) -> bool:
+    meta = _candidate_timeframe_meta(candidate_row)
+    trigger_timeframes = _string_tuple(meta.get("trigger_timeframes"))
+    entry_reference_timeframes = _string_tuple(meta.get("entry_reference_timeframes"))
+    intraday_timeframes = {"15m", "30m"}
+    return (
+        entry_reference_timeframe in intraday_timeframes
+        or any(timeframe in intraday_timeframes for timeframe in trigger_timeframes)
+        or any(timeframe in intraday_timeframes for timeframe in entry_reference_timeframes)
+    )
+
+
 def _portfolio_candidate(
     candidate_row: Mapping[str, Any],
     *,
@@ -469,12 +483,23 @@ def _portfolio_candidate(
     )
     stop_loss = float(candidate_row.get("stop_loss", 0.0) or 0.0)
     side = str(candidate_row.get("side", "")).upper()
-    entry_fill = reference_close_fill(
-        symbol=instrument.symbol,
-        side="sell" if side == "SHORT" else "buy",
-        quantity=0.0,
-        close_price=entry_price,
-    )
+    order_side = "sell" if side == "SHORT" else "buy"
+    if _has_intraday_entry_metadata(candidate_row, entry_reference_timeframe):
+        entry_fill = next_bar_ohlcv_fill(
+            symbol=instrument.symbol,
+            side=order_side,
+            quantity=0.0,
+            reference_close=entry_price,
+            symbol_payload=_symbol_payload(row, instrument.symbol),
+        )
+    else:
+        entry_fill = reference_close_fill(
+            symbol=instrument.symbol,
+            side=order_side,
+            quantity=0.0,
+            close_price=entry_price,
+        )
+    executed_entry_price = float(entry_fill.fill_price if entry_fill.fill_price is not None else entry_price)
     take_profit_raw = candidate_row.get("take_profit")
     take_profit = float(take_profit_raw) if take_profit_raw is not None else None
     if take_profit is None or take_profit <= 0:
@@ -487,13 +512,18 @@ def _portfolio_candidate(
         market_type=instrument.market_type,
         base_asset=instrument.base_asset,
         side="long" if side == "LONG" else "short",
-        entry_price=entry_price,
+        entry_price=executed_entry_price,
         stop_loss=stop_loss,
         take_profit=take_profit if take_profit is not None and take_profit > 0 else None,
         entry_reference_timeframe=entry_reference_timeframe,
         entry_reference_price=entry_price,
         gate_timeframes=_string_tuple(timeframe_meta.get("gate_timeframes")),
         trigger_timeframes=_string_tuple(timeframe_meta.get("trigger_timeframes")),
+        execution_price_source=entry_fill.execution_price_source,
+        fill_model=entry_fill.fill_model,
+        fill_quality=entry_fill.fill_quality,
+        execution_timeframe=entry_fill.execution_timeframe,
+        execution_lag_bars=entry_fill.execution_lag_bars,
     )
 
 
@@ -641,6 +671,8 @@ def _trade_row(
             execution_price_source=open_trade.execution_price_source,
             fill_model=open_trade.fill_model,
             fill_quality=open_trade.fill_quality,
+            execution_timeframe=open_trade.execution_timeframe,
+            execution_lag_bars=open_trade.execution_lag_bars,
         ),
         gross_pnl,
         net_pnl,
@@ -782,9 +814,11 @@ def _replay_full_market_baseline_rows(
                     entry_reference_price=candidate.entry_reference_price,
                     gate_timeframes=candidate.gate_timeframes,
                     trigger_timeframes=candidate.trigger_timeframes,
-                    execution_price_source="ohlcv_close",
-                    fill_model="reference_close",
-                    fill_quality="approximate",
+                    execution_price_source=candidate.execution_price_source,
+                    fill_model=candidate.fill_model,
+                    fill_quality=candidate.fill_quality,
+                    execution_timeframe=candidate.execution_timeframe,
+                    execution_lag_bars=candidate.execution_lag_bars,
                 )
             )
 

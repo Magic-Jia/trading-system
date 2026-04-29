@@ -62,6 +62,11 @@ def sample_baseline_result() -> BaselineReplayResult:
                 entry_reference_price=100.0,
                 gate_timeframes=("daily", "4h", "1h"),
                 trigger_timeframes=("30m", "15m"),
+                execution_price_source="ohlcv_next_open",
+                fill_model="next_bar_ohlcv",
+                fill_quality="evidence_backed",
+                execution_timeframe="1m",
+                execution_lag_bars=1,
             ),
             TradeLedgerRow(
                 symbol="BTCUSDTPERP",
@@ -430,9 +435,11 @@ def test_render_full_market_baseline_report_contains_summary_breakdowns_and_audi
     assert first_trade["entry_reference_price"] == pytest.approx(100.0)
     assert first_trade["gate_timeframes"] == ["daily", "4h", "1h"]
     assert first_trade["trigger_timeframes"] == ["30m", "15m"]
-    assert first_trade["fill_model"] == "reference_close"
-    assert first_trade["execution_price_source"] == "ohlcv_close"
-    assert first_trade["fill_quality"] == "approximate"
+    assert first_trade["fill_model"] == "next_bar_ohlcv"
+    assert first_trade["execution_price_source"] == "ohlcv_next_open"
+    assert first_trade["fill_quality"] == "evidence_backed"
+    assert first_trade["execution_timeframe"] == "1m"
+    assert first_trade["execution_lag_bars"] == 1
 
 
 def test_backtest_cli_writes_full_market_baseline_bundle(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -467,9 +474,13 @@ def test_backtest_cli_writes_full_market_baseline_bundle(monkeypatch: pytest.Mon
     trades = json.loads((bundle_dir / "trades.json").read_text(encoding="utf-8"))["trades"]
     assert trades and "exit_reason" in trades[0]
     assert trades[0]["entry_reference_timeframe"] == "15m"
-    assert trades[0]["fill_model"] == "reference_close"
-    assert trades[0]["fill_quality"] == "approximate"
-    assert "逐单复盘" in (bundle_dir / "trade_postmortem.md").read_text(encoding="utf-8")
+    assert trades[0]["fill_model"] == "next_bar_ohlcv"
+    assert trades[0]["fill_quality"] == "evidence_backed"
+    assert trades[0]["execution_timeframe"] == "1m"
+    postmortem = (bundle_dir / "trade_postmortem.md").read_text(encoding="utf-8")
+    assert "逐单复盘" in postmortem
+    assert "exec_tf" in postmortem
+    assert "next_bar_ohlcv" in postmortem
 
 
 

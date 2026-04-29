@@ -17,12 +17,14 @@ PortfolioDecisionStatus = Literal["accepted", "resized", "rejected"]
 TradeLedgerStatus = Literal["accepted", "resized"]
 ExecutionFillModel = Literal[
     "reference_close",
+    "next_bar_ohlcv",
     "taker_ohlcv_approx",
     "taker_orderbook",
     "maker_orderbook_trade_evidence",
 ]
 ExecutionPriceSource = Literal[
     "ohlcv_close",
+    "ohlcv_next_open",
     "ohlcv_reference",
     "best_bid",
     "best_ask",
@@ -120,6 +122,11 @@ class PortfolioCandidate:
     entry_reference_price: float = 0.0
     gate_timeframes: tuple[str, ...] = ()
     trigger_timeframes: tuple[str, ...] = ()
+    execution_price_source: ExecutionPriceSource = "ohlcv_close"
+    fill_model: ExecutionFillModel = "reference_close"
+    fill_quality: FillQuality = "approximate"
+    execution_timeframe: str = ""
+    execution_lag_bars: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -213,6 +220,8 @@ class TradeLedgerRow:
     execution_price_source: ExecutionPriceSource = "ohlcv_close"
     fill_model: ExecutionFillModel = "reference_close"
     fill_quality: FillQuality = "approximate"
+    execution_timeframe: str = ""
+    execution_lag_bars: int = 0
 
 
 @dataclass(frozen=True, slots=True)

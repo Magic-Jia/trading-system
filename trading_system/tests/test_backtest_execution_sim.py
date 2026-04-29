@@ -7,6 +7,7 @@ import pytest
 from trading_system.app.backtest.execution_sim import (
     OrderBookSnapshot,
     TradePrint,
+    next_bar_ohlcv_fill,
     simulate_maker_limit_fill,
     simulate_taker_fill,
 )
@@ -112,3 +113,47 @@ def test_taker_without_orderbook_keeps_ohlcv_approximation_label() -> None:
     assert fill.fill_model == "taker_ohlcv_approx"
     assert fill.execution_price_source == "ohlcv_reference"
     assert fill.fill_quality == "approximate"
+
+
+def test_next_bar_ohlcv_fill_prefers_1m_then_5m_open_over_reference_close() -> None:
+    fill = next_bar_ohlcv_fill(
+        symbol="BTCUSDT",
+        side="buy",
+        quantity=1.0,
+        reference_close=100.0,
+        symbol_payload={
+            "15m": {"close": 100.0, "next_bar": {"open": 101.5, "timestamp": "2026-03-10T00:15:00Z"}},
+            "5m": {"next_bar": {"open": 100.8, "timestamp": "2026-03-10T00:05:00Z"}},
+            "1m": {"next_bar": {"open": 100.2, "timestamp": "2026-03-10T00:01:00Z"}},
+        },
+    )
+
+    assert fill.filled is True
+    assert fill.fill_price == pytest.approx(100.2)
+    assert fill.fill_model == "next_bar_ohlcv"
+    assert fill.execution_price_source == "ohlcv_next_open"
+    assert fill.fill_quality == "evidence_backed"
+    assert fill.execution_timeframe == "1m"
+    assert fill.execution_lag_bars == 1
+    assert fill.evidence_timestamp == _ts("2026-03-10T00:01:00Z")
+
+
+def test_next_bar_ohlcv_fill_falls_back_to_reference_close_without_evidence() -> None:
+    fill = next_bar_ohlcv_fill(
+        symbol="BTCUSDT",
+        side="sell",
+        quantity=1.0,
+        reference_close=100.0,
+        symbol_payload={
+            "15m": {"close": 99.0},
+            "5m": {"close": 100.8},
+        },
+    )
+
+    assert fill.filled is True
+    assert fill.fill_price == pytest.approx(100.0)
+    assert fill.fill_model == "reference_close"
+    assert fill.execution_price_source == "ohlcv_close"
+    assert fill.fill_quality == "approximate"
+    assert fill.execution_timeframe == ""
+    assert fill.execution_lag_bars == 0

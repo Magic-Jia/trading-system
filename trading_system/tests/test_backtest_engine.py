@@ -1223,6 +1223,133 @@ def test_replay_full_market_baseline_uses_intraday_entry_reference_for_short_ter
     assert trade.trigger_timeframes == ("30m", "15m")
 
 
+def test_replay_full_market_baseline_executes_intraday_entry_on_next_finer_bar(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    config_path = _baseline_config_path(tmp_path)
+    config = load_backtest_config(config_path)
+    row1_bundle = config.dataset_root / "2026-03-10T00-00-00Z__row-001"
+    row1_market_path = row1_bundle / "market_context.json"
+    row1_payload = json.loads(row1_market_path.read_text(encoding="utf-8"))
+    row1_payload["candidate_symbols"] = ["BTCUSDTPERP"]
+    row1_payload["symbols"]["BTCUSDTPERP"]["daily"]["close"] = 100.0
+    row1_payload["symbols"]["BTCUSDTPERP"]["1h"]["close"] = 99.0
+    row1_payload["symbols"]["BTCUSDTPERP"]["30m"] = {"close": 96.0}
+    row1_payload["symbols"]["BTCUSDTPERP"]["15m"] = {"close": 94.0}
+    row1_payload["symbols"]["BTCUSDTPERP"]["5m"] = {
+        "close": 95.0,
+        "next_bar": {"open": 92.5, "timestamp": "2026-03-10T00:05:00Z"},
+    }
+    row1_payload["symbols"]["BTCUSDTPERP"]["1m"] = {
+        "close": 94.4,
+        "next_bar": {"open": 93.25, "timestamp": "2026-03-10T00:01:00Z"},
+    }
+    row1_market_path.write_text(json.dumps(row1_payload), encoding="utf-8")
+
+    row2_bundle = config.dataset_root / "2026-03-11T00-00-00Z__row-002"
+    row2_market_path = row2_bundle / "market_context.json"
+    row2_payload = json.loads(row2_market_path.read_text(encoding="utf-8"))
+    row2_payload["symbols"]["BTCUSDTPERP"] = {**_sample_symbol(close=90.0), "liquidity_tier": "high"}
+    row2_payload["candidate_symbols"] = []
+    row2_market_path.write_text(json.dumps(row2_payload), encoding="utf-8")
+
+    monkeypatch.setattr(
+        backtest_engine,
+        "classify_regime",
+        lambda *_args, **_kwargs: RegimeSnapshot(label="MIXED", confidence=0.5, risk_multiplier=1.0),
+    )
+    monkeypatch.setattr(backtest_engine, "build_universes", lambda *_args, **_kwargs: UniverseBuildResult())
+    monkeypatch.setattr(backtest_engine, "generate_trend_candidates", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(backtest_engine, "generate_rotation_candidates", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(
+        backtest_engine,
+        "generate_short_candidates",
+        lambda *_args, **_kwargs: [
+            EngineCandidate(
+                engine="short",
+                setup_type="BREAKDOWN_SHORT",
+                symbol="BTCUSDTPERP",
+                side="SHORT",
+                score=0.97,
+                stop_loss=101.0,
+                timeframe_meta={"trigger_timeframes": ["30m", "15m"]},
+            )
+        ],
+    )
+
+    result = backtest_engine.replay_full_market_baseline(load_backtest_config(config_path))
+
+    trade = result.trade_ledger[0]
+    assert trade.entry_reference_timeframe == "15m"
+    assert trade.entry_reference_price == pytest.approx(94.0)
+    assert trade.entry_price == pytest.approx(93.25)
+    assert trade.fill_model == "next_bar_ohlcv"
+    assert trade.execution_price_source == "ohlcv_next_open"
+    assert trade.fill_quality == "evidence_backed"
+    assert trade.execution_timeframe == "1m"
+    assert trade.execution_lag_bars == 1
+
+
+def test_replay_full_market_baseline_labels_intraday_entry_reference_fallback_as_approximate(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    config_path = _baseline_config_path(tmp_path)
+    config = load_backtest_config(config_path)
+    row1_bundle = config.dataset_root / "2026-03-10T00-00-00Z__row-001"
+    row1_market_path = row1_bundle / "market_context.json"
+    row1_payload = json.loads(row1_market_path.read_text(encoding="utf-8"))
+    row1_payload["candidate_symbols"] = ["BTCUSDTPERP"]
+    row1_payload["symbols"]["BTCUSDTPERP"]["daily"]["close"] = 100.0
+    row1_payload["symbols"]["BTCUSDTPERP"]["1h"]["close"] = 99.0
+    row1_payload["symbols"]["BTCUSDTPERP"]["30m"] = {"close": 96.0}
+    row1_payload["symbols"]["BTCUSDTPERP"]["15m"] = {"close": 94.0}
+    row1_payload["symbols"]["BTCUSDTPERP"]["5m"] = {"close": 92.5}
+    row1_market_path.write_text(json.dumps(row1_payload), encoding="utf-8")
+
+    row2_bundle = config.dataset_root / "2026-03-11T00-00-00Z__row-002"
+    row2_market_path = row2_bundle / "market_context.json"
+    row2_payload = json.loads(row2_market_path.read_text(encoding="utf-8"))
+    row2_payload["symbols"]["BTCUSDTPERP"] = {**_sample_symbol(close=90.0), "liquidity_tier": "high"}
+    row2_payload["candidate_symbols"] = []
+    row2_market_path.write_text(json.dumps(row2_payload), encoding="utf-8")
+
+    monkeypatch.setattr(
+        backtest_engine,
+        "classify_regime",
+        lambda *_args, **_kwargs: RegimeSnapshot(label="MIXED", confidence=0.5, risk_multiplier=1.0),
+    )
+    monkeypatch.setattr(backtest_engine, "build_universes", lambda *_args, **_kwargs: UniverseBuildResult())
+    monkeypatch.setattr(backtest_engine, "generate_trend_candidates", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(backtest_engine, "generate_rotation_candidates", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(
+        backtest_engine,
+        "generate_short_candidates",
+        lambda *_args, **_kwargs: [
+            EngineCandidate(
+                engine="short",
+                setup_type="BREAKDOWN_SHORT",
+                symbol="BTCUSDTPERP",
+                side="SHORT",
+                score=0.97,
+                stop_loss=101.0,
+                timeframe_meta={"trigger_timeframes": ["30m", "15m"]},
+            )
+        ],
+    )
+
+    result = backtest_engine.replay_full_market_baseline(load_backtest_config(config_path))
+
+    trade = result.trade_ledger[0]
+    assert trade.entry_price == pytest.approx(94.0)
+    assert trade.fill_model == "reference_close"
+    assert trade.execution_price_source == "ohlcv_close"
+    assert trade.fill_quality == "approximate"
+    assert trade.execution_timeframe == ""
+    assert trade.execution_lag_bars == 0
+
+
 def test_replay_full_market_baseline_generates_take_profit_from_intraday_entry_reference(
     tmp_path: Path,
     monkeypatch: Any,
