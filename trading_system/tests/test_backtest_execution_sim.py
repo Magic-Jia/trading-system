@@ -5,10 +5,12 @@ from datetime import datetime, timezone
 import pytest
 
 from trading_system.app.backtest.execution_sim import (
+    DepthLevel,
     OrderBookSnapshot,
     TradePrint,
     next_bar_ohlcv_fill,
     simulate_maker_limit_fill,
+    simulate_taker_depth_fill,
     simulate_taker_fill,
 )
 
@@ -97,6 +99,131 @@ def test_taker_uses_best_ask_for_buy_when_orderbook_is_available() -> None:
     assert fill.fill_model == "taker_orderbook"
     assert fill.execution_price_source == "best_ask"
     assert fill.fill_quality == "evidence_backed"
+
+
+def test_taker_depth_buy_consumes_multiple_ask_levels_with_weighted_average() -> None:
+    fill = simulate_taker_depth_fill(
+        symbol="BTCUSDT",
+        side="buy",
+        quantity=3.0,
+        reference_price=100.0,
+        order_book=OrderBookSnapshot(
+            timestamp=_ts("2026-03-10T00:00:01Z"),
+            symbol="BTCUSDT",
+            bid=99.9,
+            ask=100.0,
+            ask_levels=(DepthLevel(price=100.0, quantity=1.0), DepthLevel(price=101.0, quantity=2.0)),
+        ),
+    )
+
+    assert fill.filled is True
+    assert fill.fill_price == pytest.approx((100.0 * 1.0 + 101.0 * 2.0) / 3.0)
+    assert fill.fill_model == "taker_orderbook_depth"
+    assert fill.execution_price_source == "ask_depth"
+    assert fill.fill_quality == "evidence_backed"
+    assert fill.requested_quantity == pytest.approx(3.0)
+    assert fill.filled_quantity == pytest.approx(3.0)
+    assert fill.filled_notional == pytest.approx(302.0)
+    assert fill.unfilled_quantity == pytest.approx(0.0)
+    assert fill.depth_levels_consumed == 2
+    assert fill.execution_impact_bps == pytest.approx(((302.0 / 3.0) - 100.0) / 100.0 * 10_000.0)
+    assert fill.slippage_bps == pytest.approx(((302.0 / 3.0) - 100.0) / 100.0 * 10_000.0)
+
+
+def test_taker_depth_sell_consumes_multiple_bid_levels_with_weighted_average() -> None:
+    fill = simulate_taker_depth_fill(
+        symbol="BTCUSDT",
+        side="sell",
+        quantity=4.0,
+        reference_price=100.0,
+        order_book=OrderBookSnapshot(
+            timestamp=_ts("2026-03-10T00:00:01Z"),
+            symbol="BTCUSDT",
+            bid=100.0,
+            ask=100.2,
+            bid_levels=(DepthLevel(price=100.0, quantity=1.5), DepthLevel(price=99.5, quantity=2.5)),
+        ),
+    )
+
+    assert fill.filled is True
+    assert fill.fill_price == pytest.approx((100.0 * 1.5 + 99.5 * 2.5) / 4.0)
+    assert fill.fill_model == "taker_orderbook_depth"
+    assert fill.execution_price_source == "bid_depth"
+    assert fill.fill_quality == "evidence_backed"
+    assert fill.filled_quantity == pytest.approx(4.0)
+    assert fill.unfilled_quantity == pytest.approx(0.0)
+    assert fill.depth_levels_consumed == 2
+    assert fill.execution_impact_bps == pytest.approx((100.0 - fill.fill_price) / 100.0 * 10_000.0)
+
+
+def test_taker_depth_buy_can_consume_by_requested_notional() -> None:
+    fill = simulate_taker_depth_fill(
+        symbol="BTCUSDT",
+        side="buy",
+        requested_notional=251.0,
+        reference_price=100.0,
+        order_book=OrderBookSnapshot(
+            timestamp=_ts("2026-03-10T00:00:01Z"),
+            symbol="BTCUSDT",
+            bid=99.9,
+            ask=100.0,
+            ask_levels=(DepthLevel(price=100.0, quantity=1.0), DepthLevel(price=101.0, quantity=2.0)),
+        ),
+    )
+
+    assert fill.filled is True
+    assert fill.requested_notional == pytest.approx(251.0)
+    assert fill.filled_notional == pytest.approx(251.0)
+    assert fill.filled_quantity == pytest.approx(1.0 + 151.0 / 101.0)
+    assert fill.unfilled_quantity == pytest.approx(0.0)
+    assert fill.depth_levels_consumed == 2
+
+
+def test_taker_depth_returns_partial_fill_when_depth_is_insufficient() -> None:
+    fill = simulate_taker_depth_fill(
+        symbol="BTCUSDT",
+        side="buy",
+        quantity=5.0,
+        reference_price=100.0,
+        order_book=OrderBookSnapshot(
+            timestamp=_ts("2026-03-10T00:00:01Z"),
+            symbol="BTCUSDT",
+            bid=99.9,
+            ask=100.0,
+            ask_levels=(DepthLevel(price=100.0, quantity=1.0), DepthLevel(price=101.0, quantity=2.0)),
+        ),
+    )
+
+    assert fill.filled is True
+    assert fill.fill_price == pytest.approx(302.0 / 3.0)
+    assert fill.fill_quality == "partial_evidence_backed"
+    assert fill.requested_quantity == pytest.approx(5.0)
+    assert fill.filled_quantity == pytest.approx(3.0)
+    assert fill.unfilled_quantity == pytest.approx(2.0)
+    assert fill.depth_levels_consumed == 2
+
+
+def test_taker_depth_returns_no_fill_without_side_liquidity() -> None:
+    fill = simulate_taker_depth_fill(
+        symbol="BTCUSDT",
+        side="buy",
+        quantity=1.0,
+        reference_price=100.0,
+        order_book=OrderBookSnapshot(
+            timestamp=_ts("2026-03-10T00:00:01Z"),
+            symbol="BTCUSDT",
+            bid=99.9,
+            ask=100.0,
+            bid_levels=(DepthLevel(price=99.9, quantity=3.0),),
+        ),
+    )
+
+    assert fill.filled is False
+    assert fill.fill_price is None
+    assert fill.fill_quality == "no_fill"
+    assert fill.filled_quantity == pytest.approx(0.0)
+    assert fill.unfilled_quantity == pytest.approx(1.0)
+    assert fill.depth_levels_consumed == 0
 
 
 def test_taker_without_orderbook_keeps_ohlcv_approximation_label() -> None:

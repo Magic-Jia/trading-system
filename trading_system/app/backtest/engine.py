@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, is_dataclass
+from dataclasses import asdict, dataclass, is_dataclass, replace
 from typing import Any, Mapping
 
 from trading_system.app.config import DEFAULT_CONFIG, AppConfig, normalize_engine_names
@@ -15,12 +15,14 @@ from trading_system.app.universe.builder import UniverseBuildResult, build_unive
 from .costs import fee_bps_for_market, fee_cost, funding_cost, slippage_bps_for_tier, slippage_cost
 from .dataset import load_historical_dataset
 from .execution_sim import (
+    DepthLevel,
     ExecutionFill,
     OrderBookSnapshot,
     TradePrint,
     next_bar_ohlcv_fill,
     reference_close_fill,
     simulate_maker_limit_fill,
+    simulate_taker_depth_fill,
     simulate_taker_fill,
 )
 from .metrics import calmar_ratio, max_drawdown, sharpe_ratio, sortino_ratio, total_return, turnover
@@ -205,6 +207,14 @@ class _OpenTrade:
     fill_quality: str = "approximate"
     execution_timeframe: str = ""
     execution_lag_bars: int = 0
+    requested_quantity: float | None = None
+    requested_notional: float | None = None
+    filled_quantity: float | None = None
+    filled_notional: float | None = None
+    unfilled_quantity: float | None = None
+    depth_levels_consumed: int | None = None
+    execution_impact_bps: float | None = None
+    slippage_bps: float | None = None
 
 
 def _experiment_name(config: BacktestConfig) -> str:
@@ -328,7 +338,18 @@ def _execution_evidence(
         if bid is None or ask is None:
             continue
         timestamp = _datetime_or_none(item.get("timestamp")) or row.timestamp
-        order_books.append(OrderBookSnapshot(timestamp=timestamp, symbol=symbol, bid=bid, ask=ask))
+        order_books.append(
+            OrderBookSnapshot(
+                timestamp=timestamp,
+                symbol=symbol,
+                bid=bid,
+                ask=ask,
+                bid_size=_float_or_none(item.get("bid_size", item.get("bidSize"))),
+                ask_size=_float_or_none(item.get("ask_size", item.get("askSize"))),
+                bid_levels=_depth_levels(item.get("bids")),
+                ask_levels=_depth_levels(item.get("asks")),
+            )
+        )
 
     trades: list[TradePrint] = []
     raw_trades = execution.get("trades")
@@ -343,6 +364,25 @@ def _execution_evidence(
             timestamp = _datetime_or_none(item.get("timestamp")) or row.timestamp
             trades.append(TradePrint(timestamp=timestamp, symbol=symbol, price=price, quantity=quantity))
     return tuple(order_books), tuple(trades)
+
+
+def _depth_levels(value: Any) -> tuple[DepthLevel, ...]:
+    if not isinstance(value, list):
+        return ()
+    levels: list[DepthLevel] = []
+    for item in value:
+        if isinstance(item, Mapping):
+            price = _float_or_none(item.get("price"))
+            quantity = _float_or_none(item.get("quantity", item.get("qty", item.get("size"))))
+        elif isinstance(item, (list, tuple)) and len(item) >= 2:
+            price = _float_or_none(item[0])
+            quantity = _float_or_none(item[1])
+        else:
+            continue
+        if price is None or quantity is None:
+            continue
+        levels.append(DepthLevel(price=price, quantity=quantity))
+    return tuple(levels)
 
 
 def _path_high_low(row: DatasetSnapshotRow, symbol: str) -> tuple[float | None, float | None]:
@@ -634,6 +674,91 @@ def _portfolio_candidate(
         fill_quality=entry_fill.fill_quality,
         execution_timeframe=entry_fill.execution_timeframe,
         execution_lag_bars=entry_fill.execution_lag_bars,
+        requested_quantity=entry_fill.requested_quantity,
+        requested_notional=entry_fill.requested_notional,
+        filled_quantity=entry_fill.filled_quantity,
+        filled_notional=entry_fill.filled_notional,
+        unfilled_quantity=entry_fill.unfilled_quantity,
+        depth_levels_consumed=entry_fill.depth_levels_consumed,
+        execution_impact_bps=entry_fill.execution_impact_bps,
+        slippage_bps=entry_fill.slippage_bps,
+    )
+
+
+def _candidate_with_execution_fill(candidate: PortfolioCandidate, fill: ExecutionFill) -> PortfolioCandidate:
+    return replace(
+        candidate,
+        entry_price=float(fill.fill_price if fill.fill_price is not None else candidate.entry_price),
+        execution_price_source=fill.execution_price_source,
+        fill_model=fill.fill_model,
+        fill_quality=fill.fill_quality,
+        execution_timeframe=fill.execution_timeframe,
+        execution_lag_bars=fill.execution_lag_bars,
+        requested_quantity=fill.requested_quantity,
+        requested_notional=fill.requested_notional,
+        filled_quantity=fill.filled_quantity,
+        filled_notional=fill.filled_notional,
+        unfilled_quantity=fill.unfilled_quantity,
+        depth_levels_consumed=fill.depth_levels_consumed,
+        execution_impact_bps=fill.execution_impact_bps,
+        slippage_bps=fill.slippage_bps,
+    )
+
+
+def _depth_fill_for_decision(
+    *,
+    row: DatasetSnapshotRow,
+    candidate: PortfolioCandidate,
+    decision: PortfolioDecision,
+) -> ExecutionFill | None:
+    order_books, _trades = _execution_evidence(row, candidate.symbol)
+    if not order_books:
+        return None
+    book = sorted(order_books, key=lambda item: item.timestamp)[0]
+    side = "sell" if candidate.side == "short" else "buy"
+    levels = book.bid_levels if side == "sell" else book.ask_levels
+    if not levels:
+        return None
+    reference_price = candidate.entry_reference_price if candidate.entry_reference_price > 0.0 else candidate.entry_price
+    return simulate_taker_depth_fill(
+        symbol=candidate.symbol,
+        side=side,
+        quantity=decision.qty,
+        reference_price=reference_price,
+        order_book=book,
+    )
+
+
+def _decision_with_depth_fill(
+    *,
+    decision: PortfolioDecision,
+    fill: ExecutionFill,
+    candidate: PortfolioCandidate,
+    equity: float,
+) -> PortfolioDecision:
+    filled_quantity = float(fill.filled_quantity or 0.0)
+    filled_notional = float(fill.filled_notional or 0.0)
+    if filled_quantity <= 0.0 or filled_notional <= 0.0:
+        return PortfolioDecision(
+            status="rejected",
+            reasons=("depth_no_fill_evidence",),
+            final_risk_budget=0.0,
+            position_notional=0.0,
+            qty=0.0,
+        )
+    reasons = tuple(decision.reasons)
+    status = decision.status
+    if fill.fill_quality == "partial_evidence_backed":
+        status = "resized"
+        reasons = tuple(dict.fromkeys((*reasons, "depth_liquidity_limited")))
+    stop_distance = abs(float(candidate.entry_price) - float(candidate.stop_loss))
+    risk_budget = (filled_quantity * stop_distance / equity) if equity > 0.0 and stop_distance > 0.0 else decision.final_risk_budget
+    return PortfolioDecision(
+        status=status,
+        reasons=reasons,
+        final_risk_budget=round(min(float(decision.final_risk_budget), risk_budget), 10),
+        position_notional=round(filled_notional, 8),
+        qty=round(filled_quantity, 8),
     )
 
 
@@ -783,6 +908,14 @@ def _trade_row(
             fill_quality=open_trade.fill_quality,
             execution_timeframe=open_trade.execution_timeframe,
             execution_lag_bars=open_trade.execution_lag_bars,
+            requested_quantity=open_trade.requested_quantity,
+            requested_notional=open_trade.requested_notional,
+            filled_quantity=open_trade.filled_quantity,
+            filled_notional=open_trade.filled_notional,
+            unfilled_quantity=open_trade.unfilled_quantity,
+            depth_levels_consumed=open_trade.depth_levels_consumed,
+            execution_impact_bps=open_trade.execution_impact_bps,
+            slippage_bps=open_trade.slippage_bps,
         ),
         gross_pnl,
         net_pnl,
@@ -899,6 +1032,15 @@ def _replay_full_market_baseline_rows(
                 continue
             cost_coverage_ratio = _candidate_cost_coverage_ratio(candidate, instrument=instrument, costs=config.costs)
             decision = evaluate_candidate(candidate, state=_portfolio_state(equity, open_positions), capital=config.capital)
+            depth_fill = _depth_fill_for_decision(row=row, candidate=candidate, decision=decision)
+            if depth_fill is not None:
+                candidate = _candidate_with_execution_fill(candidate, depth_fill)
+                decision = _decision_with_depth_fill(
+                    decision=decision,
+                    fill=depth_fill,
+                    candidate=candidate,
+                    equity=equity,
+                )
             ledger_row = decision_to_ledger_row(candidate, decision)
             if decision.status == "rejected":
                 rejection_ledger.append(ledger_row)
@@ -943,6 +1085,14 @@ def _replay_full_market_baseline_rows(
                     fill_quality=candidate.fill_quality,
                     execution_timeframe=candidate.execution_timeframe,
                     execution_lag_bars=candidate.execution_lag_bars,
+                    requested_quantity=candidate.requested_quantity,
+                    requested_notional=candidate.requested_notional,
+                    filled_quantity=candidate.filled_quantity,
+                    filled_notional=candidate.filled_notional,
+                    unfilled_quantity=candidate.unfilled_quantity,
+                    depth_levels_consumed=candidate.depth_levels_consumed,
+                    execution_impact_bps=candidate.execution_impact_bps,
+                    slippage_bps=candidate.slippage_bps,
                 )
             )
 

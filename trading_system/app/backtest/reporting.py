@@ -134,6 +134,14 @@ def _trade_ledger_payload(trade_ledger: tuple[TradeLedgerRow, ...]) -> list[dict
             "fill_quality": row.fill_quality,
             "execution_timeframe": row.execution_timeframe,
             "execution_lag_bars": row.execution_lag_bars,
+            "requested_quantity": row.requested_quantity,
+            "requested_notional": row.requested_notional,
+            "filled_quantity": row.filled_quantity,
+            "filled_notional": row.filled_notional,
+            "unfilled_quantity": row.unfilled_quantity,
+            "depth_levels_consumed": row.depth_levels_consumed,
+            "execution_impact_bps": row.execution_impact_bps,
+            "slippage_bps": row.slippage_bps,
         }
         for row in trade_ledger
     ]

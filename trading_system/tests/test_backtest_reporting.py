@@ -67,6 +67,13 @@ def sample_baseline_result() -> BaselineReplayResult:
                 fill_quality="evidence_backed",
                 execution_timeframe="1m",
                 execution_lag_bars=1,
+                requested_quantity=10.0,
+                filled_quantity=10.0,
+                filled_notional=1_000.0,
+                unfilled_quantity=0.0,
+                depth_levels_consumed=2,
+                execution_impact_bps=4.5,
+                slippage_bps=10.0,
             ),
             TradeLedgerRow(
                 symbol="BTCUSDTPERP",
@@ -192,6 +199,10 @@ def test_full_market_trade_postmortem_exposes_execution_source_and_quality() -> 
                 "execution_timeframe": "",
                 "execution_lag_bars": 0,
                 "fill_quality": "evidence_backed",
+                "filled_quantity": 10.0,
+                "unfilled_quantity": 0.0,
+                "depth_levels_consumed": 2,
+                "execution_impact_bps": 4.5,
             }
         ]
     )
@@ -200,6 +211,23 @@ def test_full_market_trade_postmortem_exposes_execution_source_and_quality() -> 
     assert "best_ask" in markdown
     assert "taker_orderbook" in markdown
     assert "evidence_backed" in markdown
+    assert "filled_qty" in markdown
+    assert "unfilled_qty" in markdown
+    assert "depth_levels" in markdown
+    assert "impact_bps" in markdown
+
+
+def test_full_market_report_exposes_depth_fill_fields() -> None:
+    report = reporting.render_full_market_baseline_report(sample_baseline_result())
+
+    trade = report["trades"][0]
+    assert trade["requested_quantity"] == pytest.approx(10.0)
+    assert trade["filled_quantity"] == pytest.approx(10.0)
+    assert trade["filled_notional"] == pytest.approx(1_000.0)
+    assert trade["unfilled_quantity"] == pytest.approx(0.0)
+    assert trade["depth_levels_consumed"] == 2
+    assert trade["execution_impact_bps"] == pytest.approx(4.5)
+    assert trade["slippage_bps"] == pytest.approx(10.0)
 
 
 def _write_fixture_bundle(dataset_root: Path, *, timestamp: str, run_id: str) -> None:

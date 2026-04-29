@@ -343,12 +343,12 @@ def _render_trade_postmortem_markdown(trades: list[dict[str, Any]]) -> str:
     lines = [
         "# 逐单复盘",
         "",
-        "| # | time | symbol | side | engine | setup | score | entry | exit | gross | net | MFE | MAE | exit_reason | fill_model | exec_source | exec_tf | lag_bars | fill_quality | cost_coverage |",
-        "|---:|---|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---|---|---|---|---:|---|---:|",
+        "| # | time | symbol | side | engine | setup | score | entry | exit | gross | net | MFE | MAE | exit_reason | fill_model | exec_source | exec_tf | lag_bars | fill_quality | filled_qty | unfilled_qty | depth_levels | impact_bps | cost_coverage |",
+        "|---:|---|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---|---|---|---|---:|---|---:|---:|---:|---:|---:|",
     ]
     for index, trade in enumerate(trades, start=1):
         lines.append(
-            "| {index} | {time} | {symbol} | {side} | {engine} | {setup} | {score:.4f} | {entry:.6g} | {exit:.6g} | {gross:.2f} | {net:.2f} | {mfe:.4%} | {mae:.4%} | {exit_reason} | {fill_model} | {exec_source} | {exec_tf} | {lag_bars} | {fill_quality} | {coverage} |".format(
+            "| {index} | {time} | {symbol} | {side} | {engine} | {setup} | {score:.4f} | {entry:.6g} | {exit:.6g} | {gross:.2f} | {net:.2f} | {mfe:.4%} | {mae:.4%} | {exit_reason} | {fill_model} | {exec_source} | {exec_tf} | {lag_bars} | {fill_quality} | {filled_qty} | {unfilled_qty} | {depth_levels} | {impact_bps} | {coverage} |".format(
                 index=index,
                 time=trade.get("entry_timestamp", ""),
                 symbol=trade.get("symbol", ""),
@@ -368,6 +368,10 @@ def _render_trade_postmortem_markdown(trades: list[dict[str, Any]]) -> str:
                 exec_tf=trade.get("execution_timeframe", ""),
                 lag_bars=int(trade.get("execution_lag_bars") or 0),
                 fill_quality=trade.get("fill_quality", ""),
+                filled_qty="" if trade.get("filled_quantity") is None else f"{float(trade['filled_quantity']):.8g}",
+                unfilled_qty="" if trade.get("unfilled_quantity") is None else f"{float(trade['unfilled_quantity']):.8g}",
+                depth_levels="" if trade.get("depth_levels_consumed") is None else int(trade["depth_levels_consumed"]),
+                impact_bps="" if trade.get("execution_impact_bps") is None else f"{float(trade['execution_impact_bps']):.2f}",
                 coverage="" if trade.get("cost_coverage_ratio") is None else f"{float(trade['cost_coverage_ratio']):.2f}",
             )
         )

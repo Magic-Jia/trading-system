@@ -20,6 +20,7 @@ ExecutionFillModel = Literal[
     "next_bar_ohlcv",
     "taker_ohlcv_approx",
     "taker_orderbook",
+    "taker_orderbook_depth",
     "taker_trade_print",
     "maker_orderbook_trade_evidence",
 ]
@@ -29,11 +30,13 @@ ExecutionPriceSource = Literal[
     "ohlcv_reference",
     "best_bid",
     "best_ask",
+    "bid_depth",
+    "ask_depth",
     "trade_print",
     "book_cross",
     "no_crossing_evidence",
 ]
-FillQuality = Literal["approximate", "evidence_backed", "no_fill"]
+FillQuality = Literal["approximate", "evidence_backed", "partial_evidence_backed", "no_fill"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,6 +131,14 @@ class PortfolioCandidate:
     fill_quality: FillQuality = "approximate"
     execution_timeframe: str = ""
     execution_lag_bars: int = 0
+    requested_quantity: float | None = None
+    requested_notional: float | None = None
+    filled_quantity: float | None = None
+    filled_notional: float | None = None
+    unfilled_quantity: float | None = None
+    depth_levels_consumed: int | None = None
+    execution_impact_bps: float | None = None
+    slippage_bps: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -223,6 +234,14 @@ class TradeLedgerRow:
     fill_quality: FillQuality = "approximate"
     execution_timeframe: str = ""
     execution_lag_bars: int = 0
+    requested_quantity: float | None = None
+    requested_notional: float | None = None
+    filled_quantity: float | None = None
+    filled_notional: float | None = None
+    unfilled_quantity: float | None = None
+    depth_levels_consumed: int | None = None
+    execution_impact_bps: float | None = None
+    slippage_bps: float | None = None
 
 
 @dataclass(frozen=True, slots=True)

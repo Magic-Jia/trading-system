@@ -10,6 +10,7 @@ ExecutionFillModel = Literal[
     "next_bar_ohlcv",
     "taker_ohlcv_approx",
     "taker_orderbook",
+    "taker_orderbook_depth",
     "taker_trade_print",
     "maker_orderbook_trade_evidence",
 ]
@@ -19,12 +20,20 @@ ExecutionPriceSource = Literal[
     "ohlcv_reference",
     "best_bid",
     "best_ask",
+    "bid_depth",
+    "ask_depth",
     "trade_print",
     "book_cross",
     "no_crossing_evidence",
 ]
-FillQuality = Literal["approximate", "evidence_backed", "no_fill"]
+FillQuality = Literal["approximate", "evidence_backed", "partial_evidence_backed", "no_fill"]
 FillOutcome = Literal["filled", "missed_alpha"]
+
+
+@dataclass(frozen=True, slots=True)
+class DepthLevel:
+    price: float
+    quantity: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,6 +42,10 @@ class OrderBookSnapshot:
     symbol: str
     bid: float
     ask: float
+    bid_size: float | None = None
+    ask_size: float | None = None
+    bid_levels: tuple[DepthLevel, ...] = ()
+    ask_levels: tuple[DepthLevel, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,6 +70,14 @@ class ExecutionFill:
     evidence_timestamp: datetime | None = None
     execution_timeframe: str = ""
     execution_lag_bars: int = 0
+    requested_quantity: float | None = None
+    requested_notional: float | None = None
+    filled_quantity: float | None = None
+    filled_notional: float | None = None
+    unfilled_quantity: float | None = None
+    depth_levels_consumed: int | None = None
+    execution_impact_bps: float | None = None
+    slippage_bps: float | None = None
 
 
 def reference_close_fill(*, symbol: str, side: OrderSide, quantity: float, close_price: float) -> ExecutionFill:
@@ -121,6 +142,14 @@ def simulate_taker_fill(
 ) -> ExecutionFill:
     book = _first_symbol_book(symbol, order_books)
     if book is not None:
+        if _side_levels(book, side=side):
+            return simulate_taker_depth_fill(
+                symbol=symbol,
+                side=side,
+                quantity=quantity,
+                reference_price=reference_price,
+                order_book=book,
+            )
         if side == "buy":
             price = book.ask
             source: ExecutionPriceSource = "best_ask"
@@ -138,6 +167,11 @@ def simulate_taker_fill(
             fill_quality="evidence_backed",
             outcome="filled",
             evidence_timestamp=book.timestamp,
+            requested_quantity=quantity,
+            filled_quantity=quantity if quantity > 0.0 else None,
+            filled_notional=(quantity * float(price)) if quantity > 0.0 else None,
+            unfilled_quantity=0.0 if quantity > 0.0 else None,
+            depth_levels_consumed=1 if quantity > 0.0 else None,
         )
 
     trade_fill = _conservative_trade_print_taker_fill(symbol=symbol, side=side, quantity=quantity, trades=trades)
@@ -154,6 +188,139 @@ def simulate_taker_fill(
         execution_price_source="ohlcv_reference",
         fill_quality="approximate",
         outcome="filled",
+    )
+
+
+def simulate_taker_depth_fill(
+    *,
+    symbol: str,
+    side: OrderSide,
+    quantity: float | None = None,
+    requested_notional: float | None = None,
+    reference_price: float,
+    order_book: OrderBookSnapshot,
+) -> ExecutionFill:
+    notional_request = _positive_float(requested_notional)
+    requested_quantity = max(float(quantity or 0.0), 0.0)
+    levels = _side_levels(order_book, side=side)
+    source: ExecutionPriceSource = "ask_depth" if side == "buy" else "bid_depth"
+    if not levels:
+        return ExecutionFill(
+            symbol=symbol,
+            side=side,
+            quantity=requested_quantity,
+            filled=False,
+            fill_price=None,
+            fill_model="taker_orderbook_depth",
+            execution_price_source=source,
+            fill_quality="no_fill",
+            outcome="missed_alpha",
+            evidence_timestamp=order_book.timestamp,
+            requested_quantity=requested_quantity,
+            requested_notional=notional_request,
+            filled_quantity=0.0,
+            filled_notional=0.0,
+            unfilled_quantity=requested_quantity,
+            depth_levels_consumed=0,
+        )
+    if requested_quantity <= 0.0 and notional_request is None:
+        return ExecutionFill(
+            symbol=symbol,
+            side=side,
+            quantity=requested_quantity,
+            filled=True,
+            fill_price=float(levels[0].price),
+            fill_model="taker_orderbook_depth",
+            execution_price_source=source,
+            fill_quality="evidence_backed",
+            outcome="filled",
+            evidence_timestamp=order_book.timestamp,
+            requested_quantity=requested_quantity,
+            requested_notional=None,
+            filled_quantity=0.0,
+            filled_notional=0.0,
+            unfilled_quantity=0.0,
+            depth_levels_consumed=0,
+            execution_impact_bps=0.0,
+            slippage_bps=_side_slippage_bps(side=side, fill_price=float(levels[0].price), reference_price=reference_price),
+        )
+
+    remaining = requested_quantity
+    remaining_notional = notional_request
+    filled_quantity = 0.0
+    filled_notional = 0.0
+    levels_consumed = 0
+    for level in levels:
+        available = max(float(level.quantity), 0.0)
+        if available <= 0.0:
+            continue
+        if remaining_notional is not None:
+            take_quantity = min(available, remaining_notional / float(level.price))
+        else:
+            take_quantity = min(remaining, available)
+        if take_quantity <= 0.0:
+            continue
+        filled_quantity += take_quantity
+        level_notional = take_quantity * float(level.price)
+        filled_notional += level_notional
+        if remaining_notional is not None:
+            remaining_notional -= level_notional
+        else:
+            remaining -= take_quantity
+        levels_consumed += 1
+        if remaining_notional is not None and remaining_notional <= 1e-12:
+            remaining_notional = 0.0
+            break
+        if remaining_notional is None and remaining <= 1e-12:
+            remaining = 0.0
+            break
+
+    if filled_quantity <= 0.0:
+        return ExecutionFill(
+            symbol=symbol,
+            side=side,
+            quantity=requested_quantity,
+            filled=False,
+            fill_price=None,
+            fill_model="taker_orderbook_depth",
+            execution_price_source=source,
+            fill_quality="no_fill",
+            outcome="missed_alpha",
+            evidence_timestamp=order_book.timestamp,
+            requested_quantity=requested_quantity,
+            requested_notional=notional_request,
+            filled_quantity=0.0,
+            filled_notional=0.0,
+            unfilled_quantity=requested_quantity,
+            depth_levels_consumed=0,
+        )
+
+    average_price = filled_notional / filled_quantity
+    top_price = float(levels[0].price)
+    unfilled_quantity = 0.0 if remaining_notional is not None and remaining_notional <= 0.0 else remaining
+    if remaining_notional is not None and remaining_notional > 0.0:
+        fill_quality: FillQuality = "partial_evidence_backed"
+    else:
+        fill_quality = "evidence_backed" if remaining <= 0.0 else "partial_evidence_backed"
+    return ExecutionFill(
+        symbol=symbol,
+        side=side,
+        quantity=requested_quantity,
+        filled=True,
+        fill_price=average_price,
+        fill_model="taker_orderbook_depth",
+        execution_price_source=source,
+        fill_quality=fill_quality,
+        outcome="filled",
+        evidence_timestamp=order_book.timestamp,
+        requested_quantity=requested_quantity,
+        requested_notional=notional_request,
+        filled_quantity=filled_quantity,
+        filled_notional=filled_notional,
+        unfilled_quantity=unfilled_quantity,
+        depth_levels_consumed=levels_consumed,
+        execution_impact_bps=_side_slippage_bps(side=side, fill_price=average_price, reference_price=top_price),
+        slippage_bps=_side_slippage_bps(side=side, fill_price=average_price, reference_price=reference_price),
     )
 
 
@@ -218,6 +385,26 @@ def simulate_maker_limit_fill(
 
 def _first_symbol_book(symbol: str, order_books: tuple[OrderBookSnapshot, ...]) -> OrderBookSnapshot | None:
     return next((book for book in sorted(order_books, key=lambda item: item.timestamp) if book.symbol == symbol), None)
+
+
+def _side_levels(order_book: OrderBookSnapshot, *, side: OrderSide) -> tuple[DepthLevel, ...]:
+    raw_levels = order_book.ask_levels if side == "buy" else order_book.bid_levels
+    valid_levels = tuple(
+        DepthLevel(price=float(level.price), quantity=float(level.quantity))
+        for level in raw_levels
+        if float(level.price) > 0.0 and float(level.quantity) > 0.0
+    )
+    if side == "buy":
+        return tuple(sorted(valid_levels, key=lambda level: level.price))
+    return tuple(sorted(valid_levels, key=lambda level: level.price, reverse=True))
+
+
+def _side_slippage_bps(*, side: OrderSide, fill_price: float, reference_price: float) -> float | None:
+    if reference_price <= 0.0 or fill_price <= 0.0:
+        return None
+    if side == "buy":
+        return ((float(fill_price) - float(reference_price)) / float(reference_price)) * 10_000.0
+    return ((float(reference_price) - float(fill_price)) / float(reference_price)) * 10_000.0
 
 
 def _conservative_trade_print_taker_fill(
