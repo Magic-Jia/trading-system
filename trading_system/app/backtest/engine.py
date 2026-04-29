@@ -14,7 +14,15 @@ from trading_system.app.universe.builder import UniverseBuildResult, build_unive
 
 from .costs import fee_bps_for_market, fee_cost, funding_cost, slippage_bps_for_tier, slippage_cost
 from .dataset import load_historical_dataset
-from .execution_sim import next_bar_ohlcv_fill, reference_close_fill
+from .execution_sim import (
+    ExecutionFill,
+    OrderBookSnapshot,
+    TradePrint,
+    next_bar_ohlcv_fill,
+    reference_close_fill,
+    simulate_maker_limit_fill,
+    simulate_taker_fill,
+)
 from .metrics import calmar_ratio, max_drawdown, sharpe_ratio, sortino_ratio, total_return, turnover
 from .portfolio import decision_to_ledger_row, evaluate_candidate
 from .types import (
@@ -283,6 +291,60 @@ def _float_or_none(value: Any) -> float | None:
     return result if result > 0.0 else None
 
 
+def _datetime_or_none(value: Any):
+    if hasattr(value, "isoformat"):
+        return value
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        from datetime import datetime
+
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _execution_evidence(
+    row: DatasetSnapshotRow,
+    symbol: str,
+) -> tuple[tuple[OrderBookSnapshot, ...], tuple[TradePrint, ...]]:
+    execution = _symbol_payload(row, symbol).get("execution")
+    if not isinstance(execution, Mapping):
+        return (), ()
+
+    order_books: list[OrderBookSnapshot] = []
+    raw_book = execution.get("order_book")
+    raw_books = execution.get("order_books")
+    book_rows: list[Any] = []
+    if isinstance(raw_book, Mapping):
+        book_rows.append(raw_book)
+    if isinstance(raw_books, list):
+        book_rows.extend(raw_books)
+    for item in book_rows:
+        if not isinstance(item, Mapping):
+            continue
+        bid = _float_or_none(item.get("bid"))
+        ask = _float_or_none(item.get("ask"))
+        if bid is None or ask is None:
+            continue
+        timestamp = _datetime_or_none(item.get("timestamp")) or row.timestamp
+        order_books.append(OrderBookSnapshot(timestamp=timestamp, symbol=symbol, bid=bid, ask=ask))
+
+    trades: list[TradePrint] = []
+    raw_trades = execution.get("trades")
+    if isinstance(raw_trades, list):
+        for item in raw_trades:
+            if not isinstance(item, Mapping):
+                continue
+            price = _float_or_none(item.get("price"))
+            quantity = _float_or_none(item.get("quantity"))
+            if price is None or quantity is None:
+                continue
+            timestamp = _datetime_or_none(item.get("timestamp")) or row.timestamp
+            trades.append(TradePrint(timestamp=timestamp, symbol=symbol, price=price, quantity=quantity))
+    return tuple(order_books), tuple(trades)
+
+
 def _path_high_low(row: DatasetSnapshotRow, symbol: str) -> tuple[float | None, float | None]:
     payload = _symbol_payload(row, symbol)
     for timeframe in ("1m", "5m", "15m", "30m", "1h"):
@@ -470,6 +532,61 @@ def _has_intraday_entry_metadata(candidate_row: Mapping[str, Any], entry_referen
     )
 
 
+def _entry_execution_policy(candidate_row: Mapping[str, Any]) -> str:
+    raw_policy = candidate_row.get("execution_policy")
+    if raw_policy is None:
+        raw_policy = _candidate_timeframe_meta(candidate_row).get("execution_policy")
+    return str(raw_policy or "taker").strip().lower()
+
+
+def _entry_execution_fill(
+    *,
+    row: DatasetSnapshotRow,
+    symbol: str,
+    order_side: str,
+    entry_price: float,
+    candidate_row: Mapping[str, Any],
+    entry_reference_timeframe: str,
+) -> ExecutionFill:
+    order_books, trades = _execution_evidence(row, symbol)
+    policy = _entry_execution_policy(candidate_row)
+    if policy in {"maker", "post_only", "post-only", "maker_limit"}:
+        return simulate_maker_limit_fill(
+            symbol=symbol,
+            side="sell" if order_side == "sell" else "buy",
+            limit_price=entry_price,
+            quantity=1.0,
+            order_books=order_books,
+            trades=trades,
+        )
+
+    if order_books or trades:
+        return simulate_taker_fill(
+            symbol=symbol,
+            side="sell" if order_side == "sell" else "buy",
+            quantity=0.0,
+            reference_price=entry_price,
+            order_books=order_books,
+            trades=trades,
+        )
+
+    if _has_intraday_entry_metadata(candidate_row, entry_reference_timeframe):
+        return next_bar_ohlcv_fill(
+            symbol=symbol,
+            side="sell" if order_side == "sell" else "buy",
+            quantity=0.0,
+            reference_close=entry_price,
+            symbol_payload=_symbol_payload(row, symbol),
+        )
+
+    return reference_close_fill(
+        symbol=symbol,
+        side="sell" if order_side == "sell" else "buy",
+        quantity=0.0,
+        close_price=entry_price,
+    )
+
+
 def _portfolio_candidate(
     candidate_row: Mapping[str, Any],
     *,
@@ -484,21 +601,14 @@ def _portfolio_candidate(
     stop_loss = float(candidate_row.get("stop_loss", 0.0) or 0.0)
     side = str(candidate_row.get("side", "")).upper()
     order_side = "sell" if side == "SHORT" else "buy"
-    if _has_intraday_entry_metadata(candidate_row, entry_reference_timeframe):
-        entry_fill = next_bar_ohlcv_fill(
-            symbol=instrument.symbol,
-            side=order_side,
-            quantity=0.0,
-            reference_close=entry_price,
-            symbol_payload=_symbol_payload(row, instrument.symbol),
-        )
-    else:
-        entry_fill = reference_close_fill(
-            symbol=instrument.symbol,
-            side=order_side,
-            quantity=0.0,
-            close_price=entry_price,
-        )
+    entry_fill = _entry_execution_fill(
+        row=row,
+        symbol=instrument.symbol,
+        order_side=order_side,
+        entry_price=entry_price,
+        candidate_row=candidate_row,
+        entry_reference_timeframe=entry_reference_timeframe,
+    )
     executed_entry_price = float(entry_fill.fill_price if entry_fill.fill_price is not None else entry_price)
     take_profit_raw = candidate_row.get("take_profit")
     take_profit = float(take_profit_raw) if take_profit_raw is not None else None
@@ -753,6 +863,20 @@ def _replay_full_market_baseline_rows(
                 continue
             candidate = _portfolio_candidate(candidate_row, instrument=instrument, row=row)
             if candidate is None:
+                continue
+            if candidate.fill_quality == "no_fill":
+                rejection_ledger.append(
+                    decision_to_ledger_row(
+                        candidate,
+                        PortfolioDecision(
+                            status="rejected",
+                            reasons=("maker_no_fill_evidence",),
+                            final_risk_budget=0.0,
+                            position_notional=0.0,
+                            qty=0.0,
+                        ),
+                    )
+                )
                 continue
             if not _candidate_cost_coverage_ok(
                 candidate,

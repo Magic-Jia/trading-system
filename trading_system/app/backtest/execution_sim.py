@@ -10,6 +10,7 @@ ExecutionFillModel = Literal[
     "next_bar_ohlcv",
     "taker_ohlcv_approx",
     "taker_orderbook",
+    "taker_trade_print",
     "maker_orderbook_trade_evidence",
 ]
 ExecutionPriceSource = Literal[
@@ -116,38 +117,43 @@ def simulate_taker_fill(
     quantity: float,
     reference_price: float,
     order_books: tuple[OrderBookSnapshot, ...] = (),
+    trades: tuple[TradePrint, ...] = (),
 ) -> ExecutionFill:
     book = _first_symbol_book(symbol, order_books)
-    if book is None:
+    if book is not None:
+        if side == "buy":
+            price = book.ask
+            source: ExecutionPriceSource = "best_ask"
+        else:
+            price = book.bid
+            source = "best_bid"
         return ExecutionFill(
             symbol=symbol,
             side=side,
             quantity=quantity,
             filled=True,
-            fill_price=float(reference_price),
-            fill_model="taker_ohlcv_approx",
-            execution_price_source="ohlcv_reference",
-            fill_quality="approximate",
+            fill_price=float(price),
+            fill_model="taker_orderbook",
+            execution_price_source=source,
+            fill_quality="evidence_backed",
             outcome="filled",
+            evidence_timestamp=book.timestamp,
         )
 
-    if side == "buy":
-        price = book.ask
-        source: ExecutionPriceSource = "best_ask"
-    else:
-        price = book.bid
-        source = "best_bid"
+    trade_fill = _conservative_trade_print_taker_fill(symbol=symbol, side=side, quantity=quantity, trades=trades)
+    if trade_fill is not None:
+        return trade_fill
+
     return ExecutionFill(
         symbol=symbol,
         side=side,
         quantity=quantity,
         filled=True,
-        fill_price=float(price),
-        fill_model="taker_orderbook",
-        execution_price_source=source,
-        fill_quality="evidence_backed",
+        fill_price=float(reference_price),
+        fill_model="taker_ohlcv_approx",
+        execution_price_source="ohlcv_reference",
+        fill_quality="approximate",
         outcome="filled",
-        evidence_timestamp=book.timestamp,
     )
 
 
@@ -212,6 +218,31 @@ def simulate_maker_limit_fill(
 
 def _first_symbol_book(symbol: str, order_books: tuple[OrderBookSnapshot, ...]) -> OrderBookSnapshot | None:
     return next((book for book in sorted(order_books, key=lambda item: item.timestamp) if book.symbol == symbol), None)
+
+
+def _conservative_trade_print_taker_fill(
+    *,
+    symbol: str,
+    side: OrderSide,
+    quantity: float,
+    trades: tuple[TradePrint, ...],
+) -> ExecutionFill | None:
+    symbol_trades = [trade for trade in trades if trade.symbol == symbol and trade.price > 0.0]
+    if not symbol_trades:
+        return None
+    trade = max(symbol_trades, key=lambda item: item.price) if side == "buy" else min(symbol_trades, key=lambda item: item.price)
+    return ExecutionFill(
+        symbol=symbol,
+        side=side,
+        quantity=quantity,
+        filled=True,
+        fill_price=float(trade.price),
+        fill_model="taker_trade_print",
+        execution_price_source="trade_print",
+        fill_quality="approximate",
+        outcome="filled",
+        evidence_timestamp=trade.timestamp,
+    )
 
 
 def _positive_float(value: Any) -> float | None:

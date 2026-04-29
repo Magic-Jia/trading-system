@@ -1291,6 +1291,241 @@ def test_replay_full_market_baseline_executes_intraday_entry_on_next_finer_bar(
     assert trade.execution_lag_bars == 1
 
 
+def test_replay_full_market_baseline_short_entry_uses_orderbook_bid_before_next_bar(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    config_path = _baseline_config_path(tmp_path)
+    config = load_backtest_config(config_path)
+    row1_market_path = config.dataset_root / "2026-03-10T00-00-00Z__row-001" / "market_context.json"
+    row1_payload = json.loads(row1_market_path.read_text(encoding="utf-8"))
+    row1_payload["candidate_symbols"] = ["BTCUSDTPERP"]
+    row1_payload["symbols"]["BTCUSDTPERP"]["daily"]["close"] = 100.0
+    row1_payload["symbols"]["BTCUSDTPERP"]["30m"] = {"close": 96.0}
+    row1_payload["symbols"]["BTCUSDTPERP"]["15m"] = {"close": 94.0}
+    row1_payload["symbols"]["BTCUSDTPERP"]["1m"] = {
+        "next_bar": {"open": 93.25, "timestamp": "2026-03-10T00:01:00Z"}
+    }
+    row1_payload["symbols"]["BTCUSDTPERP"]["execution"] = {
+        "order_book": {
+            "timestamp": "2026-03-10T00:00:05Z",
+            "bid": 99.9,
+            "ask": 100.1,
+            "bid_size": 10,
+            "ask_size": 12,
+        }
+    }
+    row1_market_path.write_text(json.dumps(row1_payload), encoding="utf-8")
+
+    row2_market_path = config.dataset_root / "2026-03-11T00-00-00Z__row-002" / "market_context.json"
+    row2_payload = json.loads(row2_market_path.read_text(encoding="utf-8"))
+    row2_payload["symbols"]["BTCUSDTPERP"] = {**_sample_symbol(close=90.0), "liquidity_tier": "high"}
+    row2_payload["candidate_symbols"] = []
+    row2_market_path.write_text(json.dumps(row2_payload), encoding="utf-8")
+
+    monkeypatch.setattr(
+        backtest_engine,
+        "classify_regime",
+        lambda *_args, **_kwargs: RegimeSnapshot(label="MIXED", confidence=0.5, risk_multiplier=1.0),
+    )
+    monkeypatch.setattr(backtest_engine, "build_universes", lambda *_args, **_kwargs: UniverseBuildResult())
+    monkeypatch.setattr(backtest_engine, "generate_trend_candidates", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(backtest_engine, "generate_rotation_candidates", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(
+        backtest_engine,
+        "generate_short_candidates",
+        lambda *_args, **_kwargs: [
+            EngineCandidate(
+                engine="short",
+                setup_type="BREAKDOWN_SHORT",
+                symbol="BTCUSDTPERP",
+                side="SHORT",
+                score=0.97,
+                stop_loss=105.0,
+                timeframe_meta={"trigger_timeframes": ["30m", "15m"]},
+            )
+        ],
+    )
+
+    result = backtest_engine.replay_full_market_baseline(load_backtest_config(config_path))
+
+    trade = result.trade_ledger[0]
+    assert trade.entry_price == pytest.approx(99.9)
+    assert trade.fill_model == "taker_orderbook"
+    assert trade.execution_price_source == "best_bid"
+    assert trade.fill_quality == "evidence_backed"
+
+
+def test_replay_full_market_baseline_long_entry_uses_orderbook_ask(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    config_path = _baseline_config_path(tmp_path)
+    config = load_backtest_config(config_path)
+    row1_market_path = config.dataset_root / "2026-03-10T00-00-00Z__row-001" / "market_context.json"
+    row1_payload = json.loads(row1_market_path.read_text(encoding="utf-8"))
+    row1_payload["candidate_symbols"] = ["BTCUSDT"]
+    row1_payload["symbols"]["BTCUSDT"]["execution"] = {
+        "order_book": {
+            "timestamp": "2026-03-10T00:00:05Z",
+            "bid": 99.9,
+            "ask": 100.1,
+            "bid_size": 10,
+            "ask_size": 12,
+        }
+    }
+    row1_market_path.write_text(json.dumps(row1_payload), encoding="utf-8")
+
+    row2_market_path = config.dataset_root / "2026-03-11T00-00-00Z__row-002" / "market_context.json"
+    row2_payload = json.loads(row2_market_path.read_text(encoding="utf-8"))
+    row2_payload["symbols"]["BTCUSDT"] = {**_sample_symbol(close=110.0), "liquidity_tier": "top"}
+    row2_payload["candidate_symbols"] = []
+    row2_market_path.write_text(json.dumps(row2_payload), encoding="utf-8")
+
+    monkeypatch.setattr(
+        backtest_engine,
+        "classify_regime",
+        lambda *_args, **_kwargs: RegimeSnapshot(label="MIXED", confidence=0.5, risk_multiplier=1.0),
+    )
+    monkeypatch.setattr(backtest_engine, "build_universes", lambda *_args, **_kwargs: UniverseBuildResult())
+    monkeypatch.setattr(
+        backtest_engine,
+        "generate_trend_candidates",
+        lambda *_args, **_kwargs: [
+            EngineCandidate(
+                engine="trend",
+                setup_type="TREND_PULLBACK",
+                symbol="BTCUSDT",
+                side="LONG",
+                score=0.95,
+                stop_loss=95.0,
+            )
+        ],
+    )
+    monkeypatch.setattr(backtest_engine, "generate_rotation_candidates", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(backtest_engine, "generate_short_candidates", lambda *_args, **_kwargs: [])
+
+    result = backtest_engine.replay_full_market_baseline(load_backtest_config(config_path))
+
+    trade = result.trade_ledger[0]
+    assert trade.entry_price == pytest.approx(100.1)
+    assert trade.fill_model == "taker_orderbook"
+    assert trade.execution_price_source == "best_ask"
+    assert trade.fill_quality == "evidence_backed"
+
+
+def test_replay_full_market_baseline_uses_conservative_trade_print_when_orderbook_missing(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    config_path = _baseline_config_path(tmp_path)
+    config = load_backtest_config(config_path)
+    row1_market_path = config.dataset_root / "2026-03-10T00-00-00Z__row-001" / "market_context.json"
+    row1_payload = json.loads(row1_market_path.read_text(encoding="utf-8"))
+    row1_payload["candidate_symbols"] = ["BTCUSDT"]
+    row1_payload["symbols"]["BTCUSDT"]["execution"] = {
+        "trades": [
+            {"timestamp": "2026-03-10T00:00:06Z", "price": 100.05, "quantity": 0.5, "side": "buy"},
+            {"timestamp": "2026-03-10T00:00:07Z", "price": 100.20, "quantity": 0.3, "side": "buy"},
+        ],
+    }
+    row1_market_path.write_text(json.dumps(row1_payload), encoding="utf-8")
+
+    row2_market_path = config.dataset_root / "2026-03-11T00-00-00Z__row-002" / "market_context.json"
+    row2_payload = json.loads(row2_market_path.read_text(encoding="utf-8"))
+    row2_payload["symbols"]["BTCUSDT"] = {**_sample_symbol(close=110.0), "liquidity_tier": "top"}
+    row2_payload["candidate_symbols"] = []
+    row2_market_path.write_text(json.dumps(row2_payload), encoding="utf-8")
+
+    monkeypatch.setattr(
+        backtest_engine,
+        "classify_regime",
+        lambda *_args, **_kwargs: RegimeSnapshot(label="MIXED", confidence=0.5, risk_multiplier=1.0),
+    )
+    monkeypatch.setattr(backtest_engine, "build_universes", lambda *_args, **_kwargs: UniverseBuildResult())
+    monkeypatch.setattr(
+        backtest_engine,
+        "generate_trend_candidates",
+        lambda *_args, **_kwargs: [
+            EngineCandidate(
+                engine="trend",
+                setup_type="TREND_PULLBACK",
+                symbol="BTCUSDT",
+                side="LONG",
+                score=0.95,
+                stop_loss=95.0,
+            )
+        ],
+    )
+    monkeypatch.setattr(backtest_engine, "generate_rotation_candidates", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(backtest_engine, "generate_short_candidates", lambda *_args, **_kwargs: [])
+
+    result = backtest_engine.replay_full_market_baseline(load_backtest_config(config_path))
+
+    trade = result.trade_ledger[0]
+    assert trade.entry_price == pytest.approx(100.20)
+    assert trade.fill_model == "taker_trade_print"
+    assert trade.execution_price_source == "trade_print"
+    assert trade.fill_quality == "approximate"
+
+
+def test_replay_full_market_baseline_post_only_without_crossing_evidence_is_rejected(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    config_path = _baseline_config_path(tmp_path)
+    config = load_backtest_config(config_path)
+    row1_market_path = config.dataset_root / "2026-03-10T00-00-00Z__row-001" / "market_context.json"
+    row1_payload = json.loads(row1_market_path.read_text(encoding="utf-8"))
+    row1_payload["candidate_symbols"] = ["BTCUSDT"]
+    row1_payload["symbols"]["BTCUSDT"]["execution"] = {
+        "order_book": {
+            "timestamp": "2026-03-10T00:00:05Z",
+            "bid": 99.8,
+            "ask": 100.2,
+            "bid_size": 10,
+            "ask_size": 12,
+        },
+        "trades": [
+            {"timestamp": "2026-03-10T00:00:06Z", "price": 100.1, "quantity": 0.5, "side": "buy"}
+        ],
+    }
+    row1_market_path.write_text(json.dumps(row1_payload), encoding="utf-8")
+
+    monkeypatch.setattr(
+        backtest_engine,
+        "classify_regime",
+        lambda *_args, **_kwargs: RegimeSnapshot(label="MIXED", confidence=0.5, risk_multiplier=1.0),
+    )
+    monkeypatch.setattr(backtest_engine, "build_universes", lambda *_args, **_kwargs: UniverseBuildResult())
+    monkeypatch.setattr(
+        backtest_engine,
+        "generate_trend_candidates",
+        lambda *_args, **_kwargs: [
+            EngineCandidate(
+                engine="trend",
+                setup_type="TREND_PULLBACK",
+                symbol="BTCUSDT",
+                side="LONG",
+                score=0.95,
+                stop_loss=95.0,
+                timeframe_meta={"execution_policy": "post_only"},
+            )
+        ],
+    )
+    monkeypatch.setattr(backtest_engine, "generate_rotation_candidates", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(backtest_engine, "generate_short_candidates", lambda *_args, **_kwargs: [])
+
+    result = backtest_engine.replay_full_market_baseline(load_backtest_config(config_path))
+
+    assert result.trade_ledger == ()
+    assert len(result.rejection_ledger) == 1
+    rejection = result.rejection_ledger[0]
+    assert rejection.symbol == "BTCUSDT"
+    assert rejection.status == "rejected"
+    assert "maker_no_fill_evidence" in rejection.reasons
+
+
 def test_replay_full_market_baseline_labels_intraday_entry_reference_fallback_as_approximate(
     tmp_path: Path,
     monkeypatch: Any,

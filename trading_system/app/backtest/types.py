@@ -20,6 +20,7 @@ ExecutionFillModel = Literal[
     "next_bar_ohlcv",
     "taker_ohlcv_approx",
     "taker_orderbook",
+    "taker_trade_print",
     "maker_orderbook_trade_evidence",
 ]
 ExecutionPriceSource = Literal[

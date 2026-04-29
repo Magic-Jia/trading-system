@@ -170,6 +170,38 @@ def sample_baseline_result() -> BaselineReplayResult:
     )
 
 
+def test_full_market_trade_postmortem_exposes_execution_source_and_quality() -> None:
+    markdown = cli._render_trade_postmortem_markdown(
+        [
+            {
+                "entry_timestamp": "2026-03-10T00:00:00+00:00",
+                "symbol": "BTCUSDT",
+                "side": "long",
+                "engine": "trend",
+                "setup_type": "TREND_PULLBACK",
+                "score": 0.95,
+                "entry_price": 100.1,
+                "exit_price": 110.0,
+                "gross_pnl": 99.0,
+                "net_pnl": 95.0,
+                "mfe_pct": 0.12,
+                "mae_pct": 0.01,
+                "exit_reason": "fixed_horizon",
+                "fill_model": "taker_orderbook",
+                "execution_price_source": "best_ask",
+                "execution_timeframe": "",
+                "execution_lag_bars": 0,
+                "fill_quality": "evidence_backed",
+            }
+        ]
+    )
+
+    assert "exec_source" in markdown
+    assert "best_ask" in markdown
+    assert "taker_orderbook" in markdown
+    assert "evidence_backed" in markdown
+
+
 def _write_fixture_bundle(dataset_root: Path, *, timestamp: str, run_id: str) -> None:
     bundle_dir = dataset_root / f"{timestamp.replace(':', '-')}__{run_id}"
     bundle_dir.mkdir(parents=True)

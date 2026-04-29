@@ -343,12 +343,12 @@ def _render_trade_postmortem_markdown(trades: list[dict[str, Any]]) -> str:
     lines = [
         "# 逐单复盘",
         "",
-        "| # | time | symbol | side | engine | setup | score | entry | exit | gross | net | MFE | MAE | exit_reason | fill_model | exec_tf | lag_bars | fill_quality | cost_coverage |",
-        "|---:|---|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---|---|---|---:|---|---:|",
+        "| # | time | symbol | side | engine | setup | score | entry | exit | gross | net | MFE | MAE | exit_reason | fill_model | exec_source | exec_tf | lag_bars | fill_quality | cost_coverage |",
+        "|---:|---|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---|---|---|---|---:|---|---:|",
     ]
     for index, trade in enumerate(trades, start=1):
         lines.append(
-            "| {index} | {time} | {symbol} | {side} | {engine} | {setup} | {score:.4f} | {entry:.6g} | {exit:.6g} | {gross:.2f} | {net:.2f} | {mfe:.4%} | {mae:.4%} | {exit_reason} | {fill_model} | {exec_tf} | {lag_bars} | {fill_quality} | {coverage} |".format(
+            "| {index} | {time} | {symbol} | {side} | {engine} | {setup} | {score:.4f} | {entry:.6g} | {exit:.6g} | {gross:.2f} | {net:.2f} | {mfe:.4%} | {mae:.4%} | {exit_reason} | {fill_model} | {exec_source} | {exec_tf} | {lag_bars} | {fill_quality} | {coverage} |".format(
                 index=index,
                 time=trade.get("entry_timestamp", ""),
                 symbol=trade.get("symbol", ""),
@@ -364,6 +364,7 @@ def _render_trade_postmortem_markdown(trades: list[dict[str, Any]]) -> str:
                 mae=float(trade.get("mae_pct") or 0.0),
                 exit_reason=trade.get("exit_reason", ""),
                 fill_model=trade.get("fill_model", ""),
+                exec_source=trade.get("execution_price_source", ""),
                 exec_tf=trade.get("execution_timeframe", ""),
                 lag_bars=int(trade.get("execution_lag_bars") or 0),
                 fill_quality=trade.get("fill_quality", ""),
