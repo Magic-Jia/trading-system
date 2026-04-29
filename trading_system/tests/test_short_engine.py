@@ -257,6 +257,36 @@ def test_generate_short_candidates_attach_derivatives_meta():
     assert candidate.timeframe_meta["derivatives"]["basis_bps"] == -8.0
 
 
+def test_short_term_short_candidates_expose_intraday_entry_reference_metadata():
+    market = _defensive_market()
+    market["symbols"]["BTCUSDT"]["30m"] = {
+        "close": 95600.0,
+        "ema_20": 95800.0,
+        "ema_50": 96000.0,
+    }
+    market["symbols"]["BTCUSDT"]["15m"] = {
+        "close": 95500.0,
+        "ema_20": 95650.0,
+        "ema_50": 95800.0,
+    }
+
+    candidates = generate_short_candidates(
+        market,
+        short_universe=[
+            {"symbol": "BTCUSDT", "sector": "majors", "liquidity_meta": {"rolling_notional": 12_500_000_000.0}},
+        ],
+        regime={"label": "HIGH_VOL_DEFENSIVE", "bucket_targets": {"trend": 0.2, "rotation": 0.0, "short": 0.8}},
+        entry_profile="short_term",
+    )
+
+    candidate = next(item for item in candidates if item.symbol == "BTCUSDT")
+
+    assert candidate.timeframe_meta["gate_timeframes"] == ["daily", "4h", "1h"]
+    assert candidate.timeframe_meta["trigger_timeframes"] == ["30m", "15m"]
+    assert candidate.timeframe_meta["entry_reference_timeframes"] == ["15m", "30m", "1h", "4h", "daily"]
+    assert candidate.timeframe_meta["stop_reference_timeframe"] == "15m"
+
+
 def test_generate_short_candidates_respects_regime_gate_and_suppression():
     market = _defensive_market()
     short_universe = [{"symbol": "BTCUSDT", "sector": "majors", "liquidity_meta": {"rolling_notional": 12_500_000_000.0}}]

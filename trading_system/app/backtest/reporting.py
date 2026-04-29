@@ -125,6 +125,10 @@ def _trade_ledger_payload(trade_ledger: tuple[TradeLedgerRow, ...]) -> list[dict
             "simulated_gross_pnl": row.simulated_gross_pnl,
             "simulated_net_pnl": row.simulated_net_pnl,
             "cost_coverage_ratio": row.cost_coverage_ratio,
+            "entry_reference_timeframe": row.entry_reference_timeframe,
+            "entry_reference_price": row.entry_reference_price,
+            "gate_timeframes": list(row.gate_timeframes),
+            "trigger_timeframes": list(row.trigger_timeframes),
         }
         for row in trade_ledger
     ]

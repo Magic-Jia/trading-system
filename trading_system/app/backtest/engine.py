@@ -187,6 +187,10 @@ class _OpenTrade:
     stop_loss: float = 0.0
     take_profit: float | None = None
     cost_coverage_ratio: float | None = None
+    entry_reference_timeframe: str = ""
+    entry_reference_price: float = 0.0
+    gate_timeframes: tuple[str, ...] = ()
+    trigger_timeframes: tuple[str, ...] = ()
 
 
 def _experiment_name(config: BacktestConfig) -> str:
@@ -235,15 +239,25 @@ def _symbol_payload(row: DatasetSnapshotRow, symbol: str) -> Mapping[str, Any]:
     return {}
 
 
-def _reference_price(row: DatasetSnapshotRow, symbol: str) -> float:
+def _reference_price_with_timeframe(
+    row: DatasetSnapshotRow,
+    symbol: str,
+    *,
+    timeframes: tuple[str, ...] = ("daily", "4h", "1h"),
+) -> tuple[float, str]:
     payload = _symbol_payload(row, symbol)
-    for timeframe in ("daily", "4h", "1h"):
+    for timeframe in timeframes:
         timeframe_row = payload.get(timeframe)
         if isinstance(timeframe_row, Mapping):
             price = float(timeframe_row.get("close", 0.0) or 0.0)
             if price > 0.0:
-                return price
-    return 0.0
+                return price, timeframe
+    return 0.0, ""
+
+
+def _reference_price(row: DatasetSnapshotRow, symbol: str) -> float:
+    price, _timeframe = _reference_price_with_timeframe(row, symbol)
+    return price
 
 
 def _float_or_none(value: Any) -> float | None:
@@ -409,13 +423,43 @@ def _candidate_take_profit_price(entry_price: float, stop_loss: float, side: str
     return None
 
 
+def _string_tuple(value: Any) -> tuple[str, ...]:
+    if isinstance(value, str):
+        return (value,)
+    if isinstance(value, (list, tuple)):
+        return tuple(str(item) for item in value if item is not None and str(item))
+    return ()
+
+
+def _candidate_timeframe_meta(candidate_row: Mapping[str, Any]) -> Mapping[str, Any]:
+    meta = candidate_row.get("timeframe_meta")
+    if isinstance(meta, Mapping):
+        return meta
+    return {}
+
+
+def _entry_reference_timeframes(candidate_row: Mapping[str, Any]) -> tuple[str, ...]:
+    meta = _candidate_timeframe_meta(candidate_row)
+    explicit = _string_tuple(meta.get("entry_reference_timeframes"))
+    if explicit:
+        return explicit
+    trigger_timeframes = _string_tuple(meta.get("trigger_timeframes"))
+    if any(timeframe in {"15m", "30m"} for timeframe in trigger_timeframes):
+        return ("15m", "30m", "1h", "4h", "daily")
+    return ("daily", "4h", "1h")
+
+
 def _portfolio_candidate(
     candidate_row: Mapping[str, Any],
     *,
     instrument: InstrumentSnapshotRow,
     row: DatasetSnapshotRow,
 ) -> PortfolioCandidate | None:
-    entry_price = _reference_price(row, instrument.symbol)
+    entry_price, entry_reference_timeframe = _reference_price_with_timeframe(
+        row,
+        instrument.symbol,
+        timeframes=_entry_reference_timeframes(candidate_row),
+    )
     stop_loss = float(candidate_row.get("stop_loss", 0.0) or 0.0)
     side = str(candidate_row.get("side", "")).upper()
     take_profit_raw = candidate_row.get("take_profit")
@@ -424,6 +468,7 @@ def _portfolio_candidate(
         take_profit = _candidate_take_profit_price(entry_price, stop_loss, side)
     if entry_price <= 0.0 or stop_loss <= 0.0:
         return None
+    timeframe_meta = _candidate_timeframe_meta(candidate_row)
     return PortfolioCandidate(
         symbol=instrument.symbol,
         market_type=instrument.market_type,
@@ -432,6 +477,10 @@ def _portfolio_candidate(
         entry_price=entry_price,
         stop_loss=stop_loss,
         take_profit=take_profit if take_profit is not None and take_profit > 0 else None,
+        entry_reference_timeframe=entry_reference_timeframe,
+        entry_reference_price=entry_price,
+        gate_timeframes=_string_tuple(timeframe_meta.get("gate_timeframes")),
+        trigger_timeframes=_string_tuple(timeframe_meta.get("trigger_timeframes")),
     )
 
 
@@ -572,6 +621,10 @@ def _trade_row(
             simulated_gross_pnl=simulated_gross_pnl,
             simulated_net_pnl=simulated_net_pnl,
             cost_coverage_ratio=open_trade.cost_coverage_ratio,
+            entry_reference_timeframe=open_trade.entry_reference_timeframe,
+            entry_reference_price=open_trade.entry_reference_price,
+            gate_timeframes=open_trade.gate_timeframes,
+            trigger_timeframes=open_trade.trigger_timeframes,
         ),
         gross_pnl,
         net_pnl,
@@ -709,6 +762,10 @@ def _replay_full_market_baseline_rows(
                     stop_loss=candidate.stop_loss,
                     take_profit=candidate.take_profit,
                     cost_coverage_ratio=cost_coverage_ratio,
+                    entry_reference_timeframe=candidate.entry_reference_timeframe,
+                    entry_reference_price=candidate.entry_reference_price,
+                    gate_timeframes=candidate.gate_timeframes,
+                    trigger_timeframes=candidate.trigger_timeframes,
                 )
             )
 

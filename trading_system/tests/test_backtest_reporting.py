@@ -58,6 +58,10 @@ def sample_baseline_result() -> BaselineReplayResult:
                 fee_paid=1.0,
                 slippage_paid=4.0,
                 funding_paid=0.0,
+                entry_reference_timeframe="15m",
+                entry_reference_price=100.0,
+                gate_timeframes=("daily", "4h", "1h"),
+                trigger_timeframes=("30m", "15m"),
             ),
             TradeLedgerRow(
                 symbol="BTCUSDTPERP",
@@ -421,6 +425,11 @@ def test_render_full_market_baseline_report_contains_summary_breakdowns_and_audi
     assert "by_market" in report["breakdowns"]
     assert "by_year" in report["breakdowns"]
     assert report["audit"]["rejection_count"] == 3
+    first_trade = report["trades"][0]
+    assert first_trade["entry_reference_timeframe"] == "15m"
+    assert first_trade["entry_reference_price"] == pytest.approx(100.0)
+    assert first_trade["gate_timeframes"] == ["daily", "4h", "1h"]
+    assert first_trade["trigger_timeframes"] == ["30m", "15m"]
 
 
 def test_backtest_cli_writes_full_market_baseline_bundle(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -454,6 +463,7 @@ def test_backtest_cli_writes_full_market_baseline_bundle(monkeypatch: pytest.Mon
     ]
     trades = json.loads((bundle_dir / "trades.json").read_text(encoding="utf-8"))["trades"]
     assert trades and "exit_reason" in trades[0]
+    assert trades[0]["entry_reference_timeframe"] == "15m"
     assert "逐单复盘" in (bundle_dir / "trade_postmortem.md").read_text(encoding="utf-8")
 
 

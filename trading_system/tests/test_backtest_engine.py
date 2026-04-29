@@ -1124,6 +1124,120 @@ def test_replay_full_market_baseline_allows_positive_reward_candidate_when_costs
     assert result.rejection_ledger == ()
 
 
+def test_replay_full_market_baseline_uses_intraday_entry_reference_for_short_term_short(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    config_path = _baseline_config_path(tmp_path)
+    config = load_backtest_config(config_path)
+    row1_bundle = config.dataset_root / "2026-03-10T00-00-00Z__row-001"
+    row1_market_path = row1_bundle / "market_context.json"
+    row1_payload = json.loads(row1_market_path.read_text(encoding="utf-8"))
+    row1_payload["candidate_symbols"] = ["BTCUSDTPERP"]
+    row1_payload["symbols"]["BTCUSDTPERP"]["daily"]["close"] = 100.0
+    row1_payload["symbols"]["BTCUSDTPERP"]["1h"]["close"] = 99.0
+    row1_payload["symbols"]["BTCUSDTPERP"]["30m"] = {"close": 96.0, "high": 98.0, "low": 94.0}
+    row1_payload["symbols"]["BTCUSDTPERP"]["15m"] = {"close": 94.0, "high": 95.0, "low": 93.5}
+    row1_market_path.write_text(json.dumps(row1_payload), encoding="utf-8")
+
+    row2_bundle = config.dataset_root / "2026-03-11T00-00-00Z__row-002"
+    row2_market_path = row2_bundle / "market_context.json"
+    row2_payload = json.loads(row2_market_path.read_text(encoding="utf-8"))
+    row2_payload["symbols"]["BTCUSDTPERP"] = {**_sample_symbol(close=90.0), "liquidity_tier": "high"}
+    row2_payload["candidate_symbols"] = []
+    row2_market_path.write_text(json.dumps(row2_payload), encoding="utf-8")
+
+    monkeypatch.setattr(
+        backtest_engine,
+        "classify_regime",
+        lambda *_args, **_kwargs: RegimeSnapshot(label="MIXED", confidence=0.5, risk_multiplier=1.0),
+    )
+    monkeypatch.setattr(backtest_engine, "build_universes", lambda *_args, **_kwargs: UniverseBuildResult())
+    monkeypatch.setattr(backtest_engine, "generate_trend_candidates", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(backtest_engine, "generate_rotation_candidates", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(
+        backtest_engine,
+        "generate_short_candidates",
+        lambda *_args, **_kwargs: [
+            EngineCandidate(
+                engine="short",
+                setup_type="BREAKDOWN_SHORT",
+                symbol="BTCUSDTPERP",
+                side="SHORT",
+                score=0.97,
+                stop_loss=101.0,
+                timeframe_meta={
+                    "gate_timeframes": ["daily", "4h", "1h"],
+                    "trigger_timeframes": ["30m", "15m"],
+                },
+            )
+        ],
+    )
+
+    result = backtest_engine.replay_full_market_baseline(load_backtest_config(config_path))
+
+    trade = result.trade_ledger[0]
+    assert trade.entry_price == pytest.approx(94.0)
+    assert trade.entry_reference_timeframe == "15m"
+    assert trade.entry_reference_price == pytest.approx(94.0)
+    assert trade.gate_timeframes == ("daily", "4h", "1h")
+    assert trade.trigger_timeframes == ("30m", "15m")
+
+
+def test_replay_full_market_baseline_generates_take_profit_from_intraday_entry_reference(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    config_path = _baseline_config_path(tmp_path)
+    config = load_backtest_config(config_path)
+    row1_bundle = config.dataset_root / "2026-03-10T00-00-00Z__row-001"
+    row1_market_path = row1_bundle / "market_context.json"
+    row1_payload = json.loads(row1_market_path.read_text(encoding="utf-8"))
+    row1_payload["candidate_symbols"] = ["BTCUSDTPERP"]
+    row1_payload["symbols"]["BTCUSDTPERP"]["daily"]["close"] = 100.0
+    row1_payload["symbols"]["BTCUSDTPERP"]["1h"]["close"] = 99.0
+    row1_payload["symbols"]["BTCUSDTPERP"]["30m"] = {"close": 96.0}
+    row1_payload["symbols"]["BTCUSDTPERP"]["15m"] = {"close": 94.0}
+    row1_market_path.write_text(json.dumps(row1_payload), encoding="utf-8")
+
+    row2_bundle = config.dataset_root / "2026-03-11T00-00-00Z__row-002"
+    row2_market_path = row2_bundle / "market_context.json"
+    row2_payload = json.loads(row2_market_path.read_text(encoding="utf-8"))
+    row2_payload["symbols"]["BTCUSDTPERP"] = {**_sample_symbol(close=90.0), "liquidity_tier": "high"}
+    row2_payload["candidate_symbols"] = []
+    row2_market_path.write_text(json.dumps(row2_payload), encoding="utf-8")
+
+    monkeypatch.setattr(
+        backtest_engine,
+        "classify_regime",
+        lambda *_args, **_kwargs: RegimeSnapshot(label="MIXED", confidence=0.5, risk_multiplier=1.0),
+    )
+    monkeypatch.setattr(backtest_engine, "build_universes", lambda *_args, **_kwargs: UniverseBuildResult())
+    monkeypatch.setattr(backtest_engine, "generate_trend_candidates", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(backtest_engine, "generate_rotation_candidates", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(
+        backtest_engine,
+        "generate_short_candidates",
+        lambda *_args, **_kwargs: [
+            EngineCandidate(
+                engine="short",
+                setup_type="BREAKDOWN_SHORT",
+                symbol="BTCUSDTPERP",
+                side="SHORT",
+                score=0.97,
+                stop_loss=101.0,
+                timeframe_meta={"trigger_timeframes": ["30m", "15m"]},
+            )
+        ],
+    )
+
+    result = backtest_engine.replay_full_market_baseline(load_backtest_config(config_path))
+
+    trade = result.trade_ledger[0]
+    assert trade.entry_price == pytest.approx(94.0)
+    assert trade.take_profit == pytest.approx(83.5)
+
+
 def test_replay_full_market_baseline_respects_disabled_short_engine(
     tmp_path: Path,
     monkeypatch: Any,

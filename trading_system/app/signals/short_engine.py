@@ -211,11 +211,14 @@ def generate_short_candidates(
             "daily_bias": "down",
             "h4_structure": "breakdown",
             "h1_trigger": "confirmed",
+            "gate_timeframes": ["daily", "4h", "1h"],
             "score_components": scored.get("components", {}),
         }
         invalidation_source = "short_structure_reclaim_above_4h_ema50"
         if _is_short_term_profile(profile):
             timeframe_meta["trigger_timeframes"] = ["30m", "15m"]
+            timeframe_meta["entry_reference_timeframes"] = ["15m", "30m", "1h", "4h", "daily"]
+            timeframe_meta["stop_reference_timeframe"] = "15m"
             invalidation_source = "short_term_short_reclaim_above_15m_ema50"
         if derivatives is not None:
             timeframe_meta["derivatives"] = {

@@ -100,6 +100,10 @@ class PortfolioCandidate:
     entry_price: float
     stop_loss: float
     take_profit: float | None = None
+    entry_reference_timeframe: str = ""
+    entry_reference_price: float = 0.0
+    gate_timeframes: tuple[str, ...] = ()
+    trigger_timeframes: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -186,6 +190,10 @@ class TradeLedgerRow:
     simulated_gross_pnl: float | None = None
     simulated_net_pnl: float | None = None
     cost_coverage_ratio: float | None = None
+    entry_reference_timeframe: str = ""
+    entry_reference_price: float = 0.0
+    gate_timeframes: tuple[str, ...] = ()
+    trigger_timeframes: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
