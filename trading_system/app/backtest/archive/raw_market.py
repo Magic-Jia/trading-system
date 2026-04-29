@@ -521,6 +521,7 @@ def archive_raw_market_payload(
     endpoint: str,
     payload: Any,
     symbol_metadata: Mapping[str, Any] | None = None,
+    metadata: Mapping[str, Any] | None = None,
     timeframe: str | None = None,
 ) -> ArchivedRawMarketPayload:
     normalized_exchange, normalized_market, canonical_dataset, normalized_symbol, normalized_timeframe = _validated_scope(
@@ -597,6 +598,8 @@ def archive_raw_market_payload(
     }
     if normalized_symbol_metadata is not None:
         manifest["symbol_metadata"] = normalized_symbol_metadata
+    if metadata is not None:
+        manifest["metadata"] = dict(metadata)
     if normalized_timeframe:
         manifest["timeframe"] = normalized_timeframe
     manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
