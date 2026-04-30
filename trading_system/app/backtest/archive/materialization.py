@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import json
 import shutil
+import sys
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Any, Iterable, Mapping, Sequence, TextIO
 
 from .importer import (
     build_phase1_dataset_bundle_materials,
@@ -17,6 +19,7 @@ from .raw_market import _utc_datetime, load_phase1_raw_market_imports_from_manif
 _OHLCV_TIMEFRAMES = ("1h", "1m", "5m", "15m", "30m")
 _OPTIONAL_CONTEXT_DATASETS = {"funding", "mark-price", "open-interest"}
 _EXECUTION_DATASETS = {"order-book", "trades"}
+_WINDOW_IMPORT_HISTORY_WARMUP = timedelta(days=50)
 
 
 def _read_manifest(path: Path) -> dict[str, Any]:
@@ -159,11 +162,23 @@ def materialize_phase1_evidence_windows(
     *,
     symbols: Sequence[str] | None = None,
     windows_days: Iterable[int] = (30, 90, 180),
+    progress_stream: TextIO | None = None,
 ) -> dict[str, Any]:
     resolved_archive_root = _archive_root_from_input(archive_root)
+    resolved_windows_days = tuple(int(days) for days in windows_days)
+    if not resolved_windows_days:
+        raise ValueError("windows_days must contain at least one window")
+
+    def emit_progress(message: str) -> None:
+        print(message, file=progress_stream or sys.stderr)
+
+    def write_coverage_report() -> None:
+        (output_path / "coverage_report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+
     initial_manifests = _selected_manifest_paths(resolved_archive_root, symbols=symbols)
     if not initial_manifests:
         raise FileNotFoundError(f"no matching raw-market manifests found under: {resolved_archive_root}")
+    emit_progress(f"selected manifests initial count={len(initial_manifests)}")
 
     coverage_ends = [
         bounds[1]
@@ -172,48 +187,73 @@ def materialize_phase1_evidence_windows(
     ]
     if not coverage_ends:
         raise ValueError("selected raw-market manifests did not expose coverage_end timestamps")
-    max_window_days = max(int(days) for days in windows_days)
     end_exclusive = max(coverage_ends) + timedelta(hours=1)
-    earliest_start = end_exclusive - timedelta(days=max_window_days)
-
-    selected_manifests = _selected_manifest_paths(
-        resolved_archive_root,
-        symbols=symbols,
-        start_timestamp=earliest_start,
-        end_timestamp=end_exclusive,
-    )
-    imported_series = load_phase1_raw_market_imports_from_manifest_paths(selected_manifests)
-    all_materials = build_phase1_dataset_bundle_materials(
-        imported_series,
-        start_timestamp=earliest_start,
-        end_timestamp=end_exclusive,
-    )
-    if not all_materials:
-        raise ValueError("selected raw-market manifests did not yield any eligible dataset bundles")
-
-    end_exclusive = max(material.timestamp for material in all_materials) + timedelta(hours=1)
     output_path = Path(output_root)
     output_path.mkdir(parents=True, exist_ok=True)
+    materialized_symbols: set[str] = set()
+    selected_manifest_paths: set[Path] = set()
     report: dict[str, Any] = {
         "schema_version": "phase1_evidence_window_materialization.v1",
         "archive_root": str(resolved_archive_root),
         "output_root": str(output_path),
-        "symbols": sorted({series.symbol for series in imported_series}),
-        "selected_manifest_count": len(selected_manifests),
-        "selected_manifest_paths": [str(path) for path in selected_manifests],
+        "symbols": [],
+        "selected_manifest_count": 0,
+        "selected_manifest_paths": [],
         "windows": {},
     }
 
-    for days in windows_days:
+    for days in resolved_windows_days:
+        started_at = time.perf_counter()
         window_name = f"{int(days)}d"
         start = end_exclusive - timedelta(days=int(days))
-        materials = tuple(material for material in all_materials if start <= material.timestamp < end_exclusive)
+        import_start = start - _WINDOW_IMPORT_HISTORY_WARMUP
+        emit_progress(
+            f"window {window_name} start start={start.isoformat().replace('+00:00', 'Z')} "
+            f"end={end_exclusive.isoformat().replace('+00:00', 'Z')}"
+        )
+        selected_manifests = _selected_manifest_paths(
+            resolved_archive_root,
+            symbols=symbols,
+            start_timestamp=import_start,
+            end_timestamp=end_exclusive,
+        )
+        selected_manifest_paths.update(selected_manifests)
+        emit_progress(f"selected manifests window={window_name} count={len(selected_manifests)}")
+        imported_series = (
+            load_phase1_raw_market_imports_from_manifest_paths(
+                selected_manifests,
+                start_timestamp=import_start,
+                end_timestamp=end_exclusive,
+            )
+            if selected_manifests
+            else ()
+        )
+        materialized_symbols.update(series.symbol for series in imported_series)
+        emit_progress(f"window {window_name} imported series count={len(imported_series)}")
+        materials = (
+            build_phase1_dataset_bundle_materials(
+                imported_series,
+                start_timestamp=start,
+                end_timestamp=end_exclusive,
+            )
+            if imported_series
+            else ()
+        )
         if not materials:
             report["windows"][window_name] = {
                 "status": "empty",
                 "start_timestamp": start.isoformat().replace("+00:00", "Z"),
                 "end_timestamp": end_exclusive.isoformat().replace("+00:00", "Z"),
+                "selected_manifest_count": len(selected_manifests),
+                "selected_manifest_paths": [str(path) for path in selected_manifests],
+                "imported_series_count": len(imported_series),
             }
+            report["symbols"] = sorted(materialized_symbols)
+            report["selected_manifest_count"] = len(selected_manifest_paths)
+            report["selected_manifest_paths"] = [str(path) for path in sorted(selected_manifest_paths, key=str)]
+            write_coverage_report()
+            elapsed = time.perf_counter() - started_at
+            emit_progress(f"window {window_name} end status=empty snapshot count=0 elapsed seconds={elapsed:.3f}")
             continue
         window_report = _materialize_dataset_root(
             archive_root=resolved_archive_root,
@@ -221,8 +261,19 @@ def materialize_phase1_evidence_windows(
             materials=materials,
         )
         window_report["status"] = "materialized"
+        window_report["selected_manifest_count"] = len(selected_manifests)
+        window_report["selected_manifest_paths"] = [str(path) for path in selected_manifests]
+        window_report["imported_series_count"] = len(imported_series)
         window_report["evidence_gap"] = _execution_evidence_gap(window_report["coverage"])
         report["windows"][window_name] = window_report
+        report["symbols"] = sorted(materialized_symbols)
+        report["selected_manifest_count"] = len(selected_manifest_paths)
+        report["selected_manifest_paths"] = [str(path) for path in sorted(selected_manifest_paths, key=str)]
+        write_coverage_report()
+        elapsed = time.perf_counter() - started_at
+        emit_progress(
+            f"window {window_name} end status=materialized snapshot count={window_report['snapshot_count']} "
+            f"elapsed seconds={elapsed:.3f}"
+        )
 
-    (output_path / "coverage_report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     return report

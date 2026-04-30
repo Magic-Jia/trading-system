@@ -622,6 +622,132 @@ def test_materialize_phase1_evidence_windows_selects_intraday_layers_and_reports
         assert window["evidence_gap"]["missing_execution_evidence"] == ["order_book", "trades"]
 
 
+def test_materialize_phase1_evidence_windows_streams_windows_and_reports_progress(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    archive_root = tmp_path / "archive"
+    output_root = tmp_path / "materialized"
+    _archive_phase1_symbol_history(
+        archive_root,
+        symbol="BTCUSDT",
+        start=datetime(2024, 1, 1, tzinfo=UTC),
+        total_hours=100 * 24,
+    )
+    real_manifest = next((archive_root / "raw-market").rglob("*.manifest.json"))
+    events: list[tuple[str, str]] = []
+
+    class FakeSeries:
+        symbol = "BTCUSDT"
+
+    class FakeMaterial:
+        def __init__(self, timestamp: datetime) -> None:
+            self.timestamp = timestamp
+            self.market_context = {"symbols": {"BTCUSDT": {}}}
+
+    def fake_selected_manifest_paths(
+        _archive_root: Path,
+        *,
+        symbols: tuple[str, ...] | None = None,
+        start_timestamp: datetime | None = None,
+        end_timestamp: datetime | None = None,
+    ) -> tuple[Path, ...]:
+        if start_timestamp is None or end_timestamp is None:
+            events.append(("select", "initial"))
+            return (real_manifest,)
+        days = int((end_timestamp - start_timestamp).total_seconds() // 86400) - 50
+        events.append(("select", f"{days}d"))
+        return (Path(f"{days}d.manifest.json"),)
+
+    def fake_load_phase1_raw_market_imports_from_manifest_paths(
+        manifest_paths: tuple[Path, ...],
+        *,
+        start_timestamp: datetime | None = None,
+        end_timestamp: datetime | None = None,
+    ) -> tuple[FakeSeries, ...]:
+        assert start_timestamp is not None
+        assert end_timestamp is not None
+        events.append(("load", Path(manifest_paths[0]).name.removesuffix(".manifest.json")))
+        return (FakeSeries(),)
+
+    def fake_build_phase1_dataset_bundle_materials(
+        imported_series: tuple[FakeSeries, ...],
+        *,
+        start_timestamp: datetime | None = None,
+        end_timestamp: datetime | None = None,
+    ) -> tuple[FakeMaterial, ...]:
+        assert start_timestamp is not None
+        assert end_timestamp is not None
+        days = int((end_timestamp - start_timestamp).total_seconds() // 86400)
+        events.append(("build", f"{days}d"))
+        return (FakeMaterial(end_timestamp - timedelta(hours=1)),)
+
+    def fake_materialize_dataset_root(
+        *,
+        archive_root: Path,
+        dataset_root: Path,
+        materials: tuple[FakeMaterial, ...],
+    ) -> dict[str, object]:
+        if dataset_root.name == "30d":
+            assert not any(event == ("select", "90d") for event in events)
+        dataset_root.mkdir(parents=True)
+        (dataset_root / "manifest.json").write_text("{}", encoding="utf-8")
+        events.append(("write", dataset_root.name))
+        return {
+            "dataset_root": str(dataset_root),
+            "snapshot_count": len(materials),
+            "start_timestamp": materials[0].timestamp.isoformat().replace("+00:00", "Z"),
+            "end_timestamp": materials[-1].timestamp.isoformat().replace("+00:00", "Z"),
+            "coverage": {"execution_evidence": {"materialized": {"order_book": 0, "trades": 0}}},
+        }
+
+    monkeypatch.setattr(
+        "trading_system.app.backtest.archive.materialization._selected_manifest_paths",
+        fake_selected_manifest_paths,
+    )
+    monkeypatch.setattr(
+        "trading_system.app.backtest.archive.materialization.load_phase1_raw_market_imports_from_manifest_paths",
+        fake_load_phase1_raw_market_imports_from_manifest_paths,
+    )
+    monkeypatch.setattr(
+        "trading_system.app.backtest.archive.materialization.build_phase1_dataset_bundle_materials",
+        fake_build_phase1_dataset_bundle_materials,
+    )
+    monkeypatch.setattr(
+        "trading_system.app.backtest.archive.materialization._materialize_dataset_root",
+        fake_materialize_dataset_root,
+    )
+
+    report = materialize_phase1_evidence_windows(
+        archive_root,
+        output_root,
+        symbols=("BTCUSDT",),
+        windows_days=(30, 90),
+    )
+
+    assert events == [
+        ("select", "initial"),
+        ("select", "30d"),
+        ("load", "30d"),
+        ("build", "30d"),
+        ("write", "30d"),
+        ("select", "90d"),
+        ("load", "90d"),
+        ("build", "90d"),
+        ("write", "90d"),
+    ]
+    assert report["windows"]["30d"]["status"] == "materialized"
+    assert json.loads((output_root / "coverage_report.json").read_text(encoding="utf-8"))["windows"]["30d"]["status"] == "materialized"
+    progress = capsys.readouterr().err
+    assert "selected manifests" in progress
+    assert "window 30d start" in progress
+    assert "window 30d end" in progress
+    assert "imported series count=1" in progress
+    assert "snapshot count=1" in progress
+    assert "elapsed seconds=" in progress
+
+
 def test_materialized_intraday_imported_rows_include_next_bar_open_for_evidence_backed_fill(
     tmp_path: Path,
 ) -> None:

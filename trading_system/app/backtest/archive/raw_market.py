@@ -343,7 +343,12 @@ def _validated_import_scope(manifest: dict[str, Any], *, manifest_path: Path) ->
     return normalized_exchange, normalized_market, canonical_dataset, normalized_symbol, normalized_timeframe, series_key
 
 
-def _load_import_file(manifest_path: Path) -> ImportedRawMarketFile:
+def _load_import_file(
+    manifest_path: Path,
+    *,
+    start_timestamp: datetime | None = None,
+    end_timestamp: datetime | None = None,
+) -> ImportedRawMarketFile:
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     if not isinstance(manifest, dict):
         raise ValueError(f"raw-market manifest must be a JSON object: {manifest_path}")
@@ -378,6 +383,10 @@ def _load_import_file(manifest_path: Path) -> ImportedRawMarketFile:
                 f"coverage=[{coverage_start.isoformat()} -> {coverage_end.isoformat()}] "
                 "only the terminal record may equal coverage_end"
             )
+        if start_timestamp is not None and observed_at < start_timestamp:
+            continue
+        if end_timestamp is not None and observed_at >= end_timestamp:
+            continue
         materialized_records.append(
             ImportedRawMarketRecord(
                 observed_at=observed_at,
@@ -662,10 +671,17 @@ def load_phase1_raw_market_manifest(manifest_path: str | Path) -> ImportedRawMar
 
 def load_phase1_raw_market_imports_from_manifest_paths(
     manifest_paths: Sequence[str | Path],
+    *,
+    start_timestamp: datetime | None = None,
+    end_timestamp: datetime | None = None,
 ) -> tuple[ImportedRawMarketSeries, ...]:
     grouped_files: dict[str, list[ImportedRawMarketFile]] = {}
     for manifest_path in manifest_paths:
-        imported_file = load_phase1_raw_market_manifest(manifest_path)
+        imported_file = _load_import_file(
+            Path(manifest_path),
+            start_timestamp=start_timestamp,
+            end_timestamp=end_timestamp,
+        )
         grouped_files.setdefault(imported_file.series_key, []).append(imported_file)
     return tuple(_build_import_series(grouped_files[series_key]) for series_key in sorted(grouped_files))
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -11,7 +12,11 @@ from trading_system.app.backtest.archive.fetch import (
     fetch_phase1_raw_market_coverage,
     main,
 )
-from trading_system.app.backtest.archive.raw_market import load_phase1_raw_market_series
+from trading_system.app.backtest.archive.raw_market import (
+    archive_raw_market_payload,
+    load_phase1_raw_market_imports_from_manifest_paths,
+    load_phase1_raw_market_series,
+)
 
 
 class _FakeFetcher:
@@ -170,6 +175,45 @@ def test_fetch_phase1_raw_market_coverage_archives_binance_agg_trades(tmp_path: 
     assert [record.observed_at.isoformat().replace("+00:00", "Z") for record in imported.records] == [
         "2024-04-01T00:00:02Z",
         "2024-04-01T00:00:05Z",
+    ]
+
+
+def test_load_raw_market_imports_from_manifest_paths_filters_records_to_requested_window(tmp_path: Path) -> None:
+    archive_root = tmp_path / "archive"
+    archived = archive_raw_market_payload(
+        archive_root=archive_root,
+        exchange="binance",
+        market="futures",
+        dataset="ohlcv",
+        symbol="BTCUSDT",
+        timeframe="1h",
+        coverage_start="2024-04-01T00:00:00Z",
+        coverage_end="2024-04-01T05:00:00Z",
+        fetched_at="2026-04-01T07:30:00Z",
+        endpoint="/fapi/v1/klines",
+        payload={
+            "symbol": "BTCUSDT",
+            "interval": "1h",
+            "rows": [
+                [1711929600000, "70000", "70100", "69900", "70050", "123.4"],
+                [1711933200000, "70050", "70200", "70000", "70100", "223.4"],
+                [1711936800000, "70100", "70300", "70080", "70250", "323.4"],
+                [1711940400000, "70250", "70400", "70200", "70300", "423.4"],
+                [1711944000000, "70300", "70500", "70250", "70400", "523.4"],
+            ],
+        },
+    )
+
+    imported = load_phase1_raw_market_imports_from_manifest_paths(
+        (archived.manifest_path,),
+        start_timestamp=datetime(2024, 4, 1, 2, tzinfo=UTC),
+        end_timestamp=datetime(2024, 4, 1, 4, tzinfo=UTC),
+    )
+
+    assert len(imported) == 1
+    assert [record.observed_at.isoformat().replace("+00:00", "Z") for record in imported[0].records] == [
+        "2024-04-01T02:00:00Z",
+        "2024-04-01T03:00:00Z",
     ]
 
 
