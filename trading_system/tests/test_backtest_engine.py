@@ -173,6 +173,39 @@ def test_full_market_baseline_ledger_exposes_entry_futures_context(
     assert futures_trade.open_interest_age_seconds == 0
 
 
+def test_full_market_baseline_uses_trade_print_execution_evidence_for_entry_fill(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    config_path = _baseline_config_path(tmp_path)
+    dataset_root = tmp_path / "baseline_dataset"
+    first_bundle = dataset_root / "2026-03-10T00-00-00Z__row-001"
+    market_path = first_bundle / "market_context.json"
+    market_payload = json.loads(market_path.read_text(encoding="utf-8"))
+    market_payload["symbols"]["BTCUSDT"]["execution"] = {
+        "trades": [
+            {
+                "timestamp": "2026-03-10T00:00:03Z",
+                "price": 101.25,
+                "quantity": 2.0,
+                "side": "buy",
+            }
+        ]
+    }
+    market_path.write_text(json.dumps(market_payload), encoding="utf-8")
+
+    config = load_backtest_config(config_path)
+    _install_replay_candidates(monkeypatch)
+
+    result = backtest_engine.replay_full_market_baseline(config)
+
+    btc_trade = next(row for row in result.trade_ledger if row.symbol == "BTCUSDT")
+    assert btc_trade.entry_price == pytest.approx(101.25)
+    assert btc_trade.fill_model == "taker_trade_print"
+    assert btc_trade.execution_price_source == "trade_print"
+    assert btc_trade.fill_quality == "evidence_backed"
+
+
 def test_backtest_cli_rejects_invalid_config(
     fixture_dir: Path,
     tmp_path: Path,

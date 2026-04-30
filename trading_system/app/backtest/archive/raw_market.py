@@ -376,7 +376,7 @@ def _load_import_file(
                 f"{data_path} rows[{index}] observed_at={observed_at.isoformat()} "
                 f"coverage=[{coverage_start.isoformat()} -> {coverage_end.isoformat()}]"
             )
-        if observed_at == coverage_end and index != last_index:
+        if canonical_dataset != "trades" and observed_at == coverage_end and index != last_index:
             raise ValueError(
                 "raw-market record timestamp outside declared coverage window: "
                 f"{data_path} rows[{index}] observed_at={observed_at.isoformat()} "
