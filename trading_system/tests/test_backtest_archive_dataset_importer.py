@@ -350,6 +350,53 @@ def test_build_phase1_dataset_bundle_materials_reports_stale_and_missing_futures
     assert coverage["missing"]["mark_price"] >= 1
 
 
+def test_build_phase1_dataset_bundle_materials_defaults_missing_open_interest_change_for_regime_compatibility(
+    tmp_path: Path,
+) -> None:
+    archive_root = tmp_path / "archive"
+    start = datetime(2024, 1, 1, tzinfo=UTC)
+    rows = []
+    for index in range(60 * 24):
+        observed_at = start + timedelta(hours=index)
+        close = 50_000.0 + (index * 10.0)
+        rows.append(
+            {
+                "open_time": _timestamp_ms(observed_at),
+                "open": f"{close - 5.0:.6f}",
+                "high": f"{close + 20.0:.6f}",
+                "low": f"{close - 20.0:.6f}",
+                "close": f"{close:.6f}",
+                "volume": "1000.0",
+                "quote_asset_volume": f"{close * 1000.0:.6f}",
+            }
+        )
+    archive_raw_market_payload(
+        archive_root=archive_root,
+        exchange="binance",
+        market="futures",
+        dataset="ohlcv",
+        symbol="BTCUSDT",
+        timeframe="1h",
+        coverage_start=start.isoformat().replace("+00:00", "Z"),
+        coverage_end=(start + timedelta(hours=len(rows))).isoformat().replace("+00:00", "Z"),
+        fetched_at="2026-04-01T07:30:00Z",
+        endpoint="/fapi/v1/klines",
+        payload={"symbol": "BTCUSDT", "interval": "1h", "rows": rows},
+    )
+
+    materials = build_phase1_dataset_bundle_materials(load_phase1_raw_market_imports(archive_root))
+    latest = materials[-1]
+
+    futures_context = latest.market_context["symbols"]["BTCUSDT"]["futures_context"]
+    derivative = latest.derivatives_snapshot["rows"][0]
+    assert futures_context["open_interest_status"] == "missing"
+    assert "open_interest_usdt" not in derivative
+    assert derivative["open_interest_change_24h_pct"] == pytest.approx(0.0)
+    assert derivative["mark_price_change_24h_pct"] > 0.0
+    assert derivative["taker_buy_sell_ratio"] == pytest.approx(1.0)
+    assert derivative["basis_bps"] == pytest.approx(0.0)
+
+
 def test_build_phase1_dataset_bundle_materials_allows_ohlcv_only_archive_with_context_missing(
     tmp_path: Path,
 ) -> None:

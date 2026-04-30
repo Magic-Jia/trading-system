@@ -1032,7 +1032,10 @@ def build_phase1_dataset_bundle_materials(
             volume_usdt_24h = _rolling_quote_volume(hourly_bars)
             liquidity_tier = _liquidity_tier(volume_usdt_24h)
             futures_context: dict[str, Any] = {}
-            derivatives_row: dict[str, Any] = {"symbol": item.symbol}
+            derivatives_row: dict[str, Any] = {
+                "symbol": item.symbol,
+                "open_interest_change_24h_pct": 0.0,
+            }
 
             mark_record: ImportedRawMarketRecord | None = None
             mark_age: int | None = None
