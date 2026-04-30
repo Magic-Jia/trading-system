@@ -215,21 +215,6 @@ def test_archive_raw_market_payload_rejects_out_of_scope_phase1_inputs(tmp_path:
             payload=[],
         )
 
-    with pytest.raises(ValueError, match="dataset must be one of: funding, ohlcv, open-interest"):
-        archive_raw_market_payload(
-            archive_root=tmp_path / "archive",
-            exchange="binance",
-            market="futures",
-            dataset="trades",
-            symbol="BTCUSDT",
-            timeframe=None,
-            coverage_start="2024-04-01T00:00:00Z",
-            coverage_end="2024-04-01T01:00:00Z",
-            fetched_at="2026-04-01T01:02:03Z",
-            endpoint="/fapi/v1/trades",
-            payload=[],
-        )
-
     with pytest.raises(ValueError, match="ohlcv dataset requires timeframe"):
         archive_raw_market_payload(
             archive_root=tmp_path / "archive",
@@ -518,6 +503,40 @@ def test_load_phase1_raw_market_series_rejects_duplicate_record_timestamps_withi
             symbol="BTCUSDT",
             timeframe="1h",
         )
+
+
+def test_load_phase1_raw_market_series_accepts_distinct_trades_with_same_millisecond(
+    tmp_path: Path,
+) -> None:
+    archive_root = tmp_path / "archive"
+    archive_raw_market_payload(
+        archive_root=archive_root,
+        exchange="binance",
+        market="futures",
+        dataset="trades",
+        symbol="BTCUSDT",
+        coverage_start="2024-04-01T00:00:00Z",
+        coverage_end="2024-04-01T00:00:01Z",
+        fetched_at="2026-04-01T01:02:03Z",
+        endpoint="/fapi/v1/aggTrades",
+        payload=[
+            {"timestamp": 1711929600000, "agg_trade_id": 1, "price": "70000.0", "quantity": "0.1"},
+            {"timestamp": 1711929600000, "agg_trade_id": 2, "price": "70001.0", "quantity": "0.2"},
+            {"timestamp": 1711929600001, "agg_trade_id": 3, "price": "70002.0", "quantity": "0.3"},
+        ],
+    )
+
+    imported = load_phase1_raw_market_series(
+        archive_root,
+        exchange="binance",
+        market="futures",
+        dataset="trades",
+        symbol="BTCUSDT",
+    )
+
+    assert imported.dataset == "trades"
+    assert [record.payload["agg_trade_id"] for record in imported.records] == [1, 2, 3]
+    assert [record.observed_at for record in imported.records].count(datetime(2024, 4, 1, 0, 0, tzinfo=UTC)) == 2
 
 
 def test_load_phase1_raw_market_series_reads_manifest_backed_files_into_importer_structures(

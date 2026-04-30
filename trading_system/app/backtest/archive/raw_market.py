@@ -438,7 +438,14 @@ def _validate_unique_record_timestamps(
     records: tuple[ImportedRawMarketRecord, ...],
     *,
     series_key: str,
+    dataset: str,
 ) -> None:
+    if dataset == "trades":
+        # Binance aggTrades are timestamped at millisecond precision and multiple
+        # distinct aggregate trades can legitimately share the same millisecond.
+        # Keep duplicate protection for bar/snapshot datasets, where duplicate
+        # observed_at values are ambiguous.
+        return
     previous_timestamp: datetime | None = None
     for record in records:
         if previous_timestamp == record.observed_at:
@@ -480,7 +487,7 @@ def _build_import_series(files: list[ImportedRawMarketFile]) -> ImportedRawMarke
         flattened_records_list.extend(imported_file.records[start_index:])
         previous_file = imported_file
     flattened_records = tuple(flattened_records_list)
-    _validate_unique_record_timestamps(flattened_records, series_key=first.series_key)
+    _validate_unique_record_timestamps(flattened_records, series_key=first.series_key, dataset=canonical_dataset)
     return ImportedRawMarketSeries(
         series_key=first.series_key,
         exchange=normalized_exchange,
