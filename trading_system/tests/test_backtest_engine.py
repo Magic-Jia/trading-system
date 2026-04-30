@@ -12,6 +12,7 @@ import pytest
 from trading_system.app.backtest import cli as backtest_cli
 from trading_system.app.backtest.config import load_backtest_config
 from trading_system.app.backtest import engine as backtest_engine
+from trading_system.app.backtest import reporting as backtest_reporting
 from trading_system.app.backtest.dataset import load_historical_dataset
 from trading_system.app.backtest.engine import replay_snapshot
 from trading_system.app.backtest.types import (
@@ -1641,7 +1642,13 @@ def test_replay_full_market_baseline_uses_conservative_trade_print_when_orderboo
     assert trade.entry_price == pytest.approx(100.20)
     assert trade.fill_model == "taker_trade_print"
     assert trade.execution_price_source == "trade_print"
-    assert trade.fill_quality == "approximate"
+    assert trade.fill_quality == "evidence_backed"
+
+    report = backtest_reporting.render_full_market_baseline_report(result)
+    reported_trade = report["trades"][0]
+    assert reported_trade["fill_model"] == "taker_trade_print"
+    assert reported_trade["execution_price_source"] == "trade_print"
+    assert reported_trade["fill_quality"] == "evidence_backed"
 
 
 def test_replay_full_market_baseline_post_only_without_crossing_evidence_is_rejected(

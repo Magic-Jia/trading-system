@@ -132,6 +132,47 @@ def test_fetch_phase1_raw_market_coverage_uses_dataset_specific_endpoint_default
     assert open_interest_fetcher.calls[0][1]["limit"] == PHASE1_BINANCE_FUTURES_ENDPOINTS["open-interest"].max_limit
 
 
+def test_fetch_phase1_raw_market_coverage_archives_binance_agg_trades(tmp_path: Path) -> None:
+    archive_root = tmp_path / "archive"
+    fetcher = _FakeFetcher(
+        {
+            (
+                "/fapi/v1/aggTrades",
+                1711929600000,
+            ): [
+                {"a": 10, "p": "70000.50", "q": "0.25", "T": 1711929602000, "m": False},
+                {"a": 11, "p": "70001.00", "q": "0.10", "T": 1711929605000, "m": True},
+            ],
+        }
+    )
+
+    result = fetch_phase1_raw_market_coverage(
+        archive_root=archive_root,
+        dataset="aggTrades",
+        symbol="BTCUSDT",
+        coverage_start="2024-04-01T00:00:00Z",
+        coverage_end="2024-04-01T00:01:00Z",
+        fetch_json=fetcher,
+    )
+
+    assert result.dataset == "trades"
+    assert result.record_count == 2
+    assert fetcher.calls[0][0] == "/fapi/v1/aggTrades"
+    assert fetcher.calls[0][1]["limit"] == PHASE1_BINANCE_FUTURES_ENDPOINTS["trades"].max_limit
+
+    imported = load_phase1_raw_market_series(
+        archive_root,
+        exchange="binance",
+        market="futures",
+        dataset="trades",
+        symbol="BTCUSDT",
+    )
+    assert [record.observed_at.isoformat().replace("+00:00", "Z") for record in imported.records] == [
+        "2024-04-01T00:00:02Z",
+        "2024-04-01T00:00:05Z",
+    ]
+
+
 def test_main_emits_structured_json_for_multiple_symbols(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     archive_root = tmp_path / "archive"
     pages = {

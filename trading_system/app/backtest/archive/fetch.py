@@ -55,6 +55,7 @@ PHASE1_BINANCE_FUTURES_ENDPOINTS: dict[str, Phase1BinanceEndpoint] = {
     "ohlcv": Phase1BinanceEndpoint(dataset="ohlcv", path="/fapi/v1/klines", max_limit=1500),
     "funding": Phase1BinanceEndpoint(dataset="funding", path="/fapi/v1/fundingRate", max_limit=1000),
     "open-interest": Phase1BinanceEndpoint(dataset="open-interest", path="/futures/data/openInterestHist", max_limit=500),
+    "trades": Phase1BinanceEndpoint(dataset="trades", path="/fapi/v1/aggTrades", max_limit=1000),
 }
 
 
@@ -98,6 +99,12 @@ def _row_timestamp_ms(*, dataset: str, row: object) -> int:
         raise ValueError(f"{dataset} rows must be JSON objects")
     if dataset == "funding":
         return int(row["fundingTime"])
+    if dataset == "trades":
+        if row.get("timestamp") is not None:
+            return int(row["timestamp"])
+        if row.get("time") is not None:
+            return int(row["time"])
+        return int(row["T"])
     return int(row["timestamp"])
 
 

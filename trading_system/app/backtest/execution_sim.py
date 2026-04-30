@@ -623,7 +623,7 @@ def _conservative_trade_print_taker_fill(
         fill_price=float(trade.price),
         fill_model="taker_trade_print",
         execution_price_source="trade_print",
-        fill_quality="approximate",
+        fill_quality="evidence_backed",
         outcome="filled",
         evidence_timestamp=trade.timestamp,
     )

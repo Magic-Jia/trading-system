@@ -26,6 +26,7 @@ PHASE1_RAW_MARKET_DATASET_ALIASES = {
     "order-books": "order-book",
     "order_books": "order-book",
     "trades": "trades",
+    "aggtrades": "trades",
     "aggTrades": "trades",
     "agg_trades": "trades",
     "agg-trades": "trades",
@@ -309,6 +310,8 @@ def _timestamp_value_for_row(*, dataset: str, row: Any, data_path: Path, index: 
     value = row.get(field_name)
     if value is None and dataset in {"order-book", "trades"}:
         value = row.get("time")
+    if value is None and dataset == "trades":
+        value = row.get("T")
     if value is None:
         raise ValueError(f"{dataset} row missing {field_name}: {data_path} rows[{index}]")
     return value

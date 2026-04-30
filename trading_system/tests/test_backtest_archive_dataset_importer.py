@@ -678,6 +678,54 @@ def test_build_phase1_dataset_bundle_materials_materializes_only_fresh_trades_at
     assert latest.metadata["source"]["execution_evidence"]["materialized"]["trades"] == 1
 
 
+def test_build_phase1_dataset_bundle_materials_materializes_binance_agg_trades_rows(
+    tmp_path: Path,
+) -> None:
+    archive_root = tmp_path / "archive"
+    _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT")
+    signal_time = datetime(2024, 2, 29, 23, tzinfo=UTC)
+    archive_raw_market_payload(
+        archive_root=archive_root,
+        exchange="binance",
+        market="futures",
+        dataset="aggTrades",
+        symbol="BTCUSDT",
+        coverage_start=signal_time.isoformat().replace("+00:00", "Z"),
+        coverage_end=(signal_time + timedelta(minutes=5)).isoformat().replace("+00:00", "Z"),
+        fetched_at="2026-04-01T07:33:00Z",
+        endpoint="/fapi/v1/aggTrades",
+        payload={
+            "rows": [
+                {"a": 10, "p": "64391.00", "q": "0.20", "T": _timestamp_ms(signal_time + timedelta(seconds=2)), "m": False},
+                {"a": 11, "p": "64392.00", "q": "0.30", "T": _timestamp_ms(signal_time + timedelta(minutes=4)), "m": True},
+            ]
+        },
+    )
+
+    latest = build_phase1_dataset_bundle_materials(
+        load_phase1_raw_market_imports(archive_root),
+        execution_evidence_max_staleness=timedelta(minutes=5),
+    )[-1]
+
+    assert latest.market_context["symbols"]["BTCUSDT"]["execution"]["trades"] == [
+        {
+            "timestamp": "2024-02-29T23:00:02Z",
+            "symbol": "BTCUSDT",
+            "price": pytest.approx(64391.0),
+            "quantity": pytest.approx(0.2),
+            "side": "buy",
+        },
+        {
+            "timestamp": "2024-02-29T23:04:00Z",
+            "symbol": "BTCUSDT",
+            "price": pytest.approx(64392.0),
+            "quantity": pytest.approx(0.3),
+            "side": "sell",
+        },
+    ]
+    assert latest.metadata["source"]["execution_evidence"]["materialized"]["trades"] == 1
+
+
 def test_import_phase1_archive_dataset_root_reports_stale_execution_evidence_without_materializing_it(
     tmp_path: Path,
 ) -> None:

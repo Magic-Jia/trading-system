@@ -488,8 +488,8 @@ def _trade_payload(record: ImportedRawMarketRecord, *, symbol: str) -> dict[str,
     payload = record.payload
     if not isinstance(payload, Mapping) or not _execution_symbol_matches(payload, symbol):
         return None
-    price = _positive_execution_float(payload.get("price"))
-    quantity = _positive_execution_float(payload.get("quantity", payload.get("qty")))
+    price = _positive_execution_float(payload.get("price", payload.get("p")))
+    quantity = _positive_execution_float(payload.get("quantity", payload.get("qty", payload.get("q"))))
     if price is None or quantity is None:
         return None
     result = {
@@ -501,6 +501,8 @@ def _trade_payload(record: ImportedRawMarketRecord, *, symbol: str) -> dict[str,
     side = str(payload.get("side") or "").strip().lower()
     if side in {"buy", "sell"}:
         result["side"] = side
+    elif "m" in payload:
+        result["side"] = "sell" if bool(payload.get("m")) else "buy"
     return result
 
 
