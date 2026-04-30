@@ -555,6 +555,40 @@ def test_import_phase1_archive_dataset_root_manifest_exposes_finer_ohlcv_coverag
     }
 
 
+
+def test_materialize_phase1_evidence_windows_prefilters_manifests_outside_requested_windows(
+    tmp_path: Path,
+) -> None:
+    archive_root = tmp_path / "archive"
+    output_root = tmp_path / "materialized"
+    _archive_phase1_symbol_history(
+        archive_root,
+        symbol="BTCUSDT",
+        start=datetime(2022, 1, 1, tzinfo=UTC),
+        total_hours=70,
+        extra_ohlcv_timeframes=("1m",),
+    )
+    _archive_phase1_symbol_history(
+        archive_root,
+        symbol="BTCUSDT",
+        start=datetime(2024, 1, 1, tzinfo=UTC),
+        total_hours=50 * 24,
+        extra_ohlcv_timeframes=("1m",),
+    )
+
+    report = materialize_phase1_evidence_windows(
+        archive_root / "raw-market" / "binance" / "futures",
+        output_root,
+        symbols=("BTCUSDT",),
+        windows_days=(30,),
+    )
+
+    assert report["windows"]["30d"]["status"] == "materialized"
+    selected_paths = report["selected_manifest_paths"]
+    assert selected_paths
+    assert all("2022-" not in path for path in selected_paths)
+    assert any("2024-" in path for path in selected_paths)
+
 def test_materialize_phase1_evidence_windows_selects_intraday_layers_and_reports_missing_execution_evidence(
     tmp_path: Path,
 ) -> None:

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import shutil
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
@@ -12,7 +12,7 @@ from .importer import (
     write_phase1_dataset_bundle,
     write_phase1_dataset_root_manifest,
 )
-from .raw_market import load_phase1_raw_market_imports_from_manifest_paths
+from .raw_market import _utc_datetime, load_phase1_raw_market_imports_from_manifest_paths
 
 _OHLCV_TIMEFRAMES = ("1h", "1m", "5m", "15m", "30m")
 _OPTIONAL_CONTEXT_DATASETS = {"funding", "mark-price", "open-interest"}
@@ -53,18 +53,36 @@ def _manifest_is_selected(
     return dataset in _OPTIONAL_CONTEXT_DATASETS or dataset in _EXECUTION_DATASETS
 
 
+def _manifest_coverage_bounds(manifest: Mapping[str, Any]) -> tuple[datetime, datetime] | None:
+    start = manifest.get("coverage_start")
+    end = manifest.get("coverage_end")
+    if start is None or end is None:
+        return None
+    return _utc_datetime(str(start)), _utc_datetime(str(end))
+
+
 def _selected_manifest_paths(
     archive_root: Path,
     *,
     symbols: Sequence[str] | None,
+    start_timestamp: datetime | None = None,
+    end_timestamp: datetime | None = None,
 ) -> tuple[Path, ...]:
     raw_market_root = archive_root / "raw-market"
     selected_symbols = {symbol.upper() for symbol in symbols} if symbols else None
     manifest_paths: list[Path] = []
     for manifest_path in sorted(raw_market_root.rglob("*.manifest.json")):
         manifest = _read_manifest(manifest_path)
-        if _manifest_is_selected(manifest, symbols=selected_symbols):
-            manifest_paths.append(manifest_path)
+        if not _manifest_is_selected(manifest, symbols=selected_symbols):
+            continue
+        bounds = _manifest_coverage_bounds(manifest)
+        if bounds is not None:
+            coverage_start, coverage_end = bounds
+            if start_timestamp is not None and coverage_end < start_timestamp:
+                continue
+            if end_timestamp is not None and coverage_start >= end_timestamp:
+                continue
+        manifest_paths.append(manifest_path)
     return tuple(manifest_paths)
 
 
@@ -143,12 +161,33 @@ def materialize_phase1_evidence_windows(
     windows_days: Iterable[int] = (30, 90, 180),
 ) -> dict[str, Any]:
     resolved_archive_root = _archive_root_from_input(archive_root)
-    selected_manifests = _selected_manifest_paths(resolved_archive_root, symbols=symbols)
-    if not selected_manifests:
+    initial_manifests = _selected_manifest_paths(resolved_archive_root, symbols=symbols)
+    if not initial_manifests:
         raise FileNotFoundError(f"no matching raw-market manifests found under: {resolved_archive_root}")
 
+    coverage_ends = [
+        bounds[1]
+        for manifest_path in initial_manifests
+        if (bounds := _manifest_coverage_bounds(_read_manifest(manifest_path))) is not None
+    ]
+    if not coverage_ends:
+        raise ValueError("selected raw-market manifests did not expose coverage_end timestamps")
+    max_window_days = max(int(days) for days in windows_days)
+    end_exclusive = max(coverage_ends) + timedelta(hours=1)
+    earliest_start = end_exclusive - timedelta(days=max_window_days)
+
+    selected_manifests = _selected_manifest_paths(
+        resolved_archive_root,
+        symbols=symbols,
+        start_timestamp=earliest_start,
+        end_timestamp=end_exclusive,
+    )
     imported_series = load_phase1_raw_market_imports_from_manifest_paths(selected_manifests)
-    all_materials = build_phase1_dataset_bundle_materials(imported_series)
+    all_materials = build_phase1_dataset_bundle_materials(
+        imported_series,
+        start_timestamp=earliest_start,
+        end_timestamp=end_exclusive,
+    )
     if not all_materials:
         raise ValueError("selected raw-market manifests did not yield any eligible dataset bundles")
 
