@@ -173,7 +173,48 @@ def test_agg_trades_pagination_handles_multiple_pages_without_duplicate_rows(tmp
     )
     assert result.trade_request_count == 3
     assert [record.payload["agg_trade_id"] for record in imported.records] == [10, 11, 12]
-    assert [call[1].get("fromId") for call in transport.calls if call[0] == "/fapi/v1/aggTrades"] == [None, 12, 13]
+    agg_trade_params = [call[1] for call in transport.calls if call[0] == "/fapi/v1/aggTrades"]
+    assert [params.get("fromId") for params in agg_trade_params] == [None, 12, 13]
+    assert "endTime" in agg_trade_params[0]
+    assert all("endTime" not in params for params in agg_trade_params[1:])
+
+
+def test_agg_trades_pagination_stops_when_from_id_page_is_beyond_requested_end(tmp_path: Path) -> None:
+    transport = _FakeTransport(
+        [
+            [
+                {"a": 10, "p": "100.00", "q": "1.00", "T": 1709247600000, "m": False},
+                {"a": 11, "p": "101.00", "q": "1.10", "T": 1709247601000, "m": False},
+            ],
+            [
+                {"a": 12, "p": "102.00", "q": "1.20", "T": 1709247605000, "m": True},
+                {"a": 13, "p": "103.00", "q": "1.30", "T": 1709247606000, "m": True},
+            ],
+        ]
+    )
+
+    result = download_binance_execution_evidence(
+        archive_root=tmp_path / "archive",
+        symbol="BTCUSDT",
+        start_time="2024-02-29T23:00:00Z",
+        end_time="2024-02-29T23:00:03Z",
+        include_order_book=False,
+        agg_trades_limit=2,
+        fetch_json=transport,
+        sleep=lambda _: None,
+        now=lambda: "2026-04-01T07:33:00Z",
+    )
+
+    imported = load_phase1_raw_market_series(
+        tmp_path / "archive",
+        exchange="binance",
+        market="futures",
+        dataset="trades",
+        symbol="BTCUSDT",
+    )
+    assert result.trade_request_count == 2
+    assert [record.payload["agg_trade_id"] for record in imported.records] == [10, 11]
+    assert [call[1].get("fromId") for call in transport.calls if call[0] == "/fapi/v1/aggTrades"] == [None, 12]
 
 
 def test_rate_limit_error_is_retried_then_surfaces_without_partial_archive(tmp_path: Path) -> None:

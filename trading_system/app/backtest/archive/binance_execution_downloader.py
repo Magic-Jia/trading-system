@@ -231,6 +231,7 @@ def _fetch_agg_trades(
         request_params = dict(params)
         if next_from_id is not None:
             request_params.pop("startTime", None)
+            request_params.pop("endTime", None)
             request_params["fromId"] = next_from_id
         try:
             payload = _call_with_retries(
@@ -258,8 +259,11 @@ def _fetch_agg_trades(
                 rows_by_id.setdefault(int(row["agg_trade_id"]), row)
                 mapped_page.append(row)
         last_id = max(_trade_id(item) for item in page if isinstance(item, Mapping))
+        page_times = [_trade_time_ms(item) for item in page if isinstance(item, Mapping)]
         next_from_id = last_id + 1
         if len(page) < agg_trades_limit:
+            break
+        if page_times and min(page_times) > end_ms:
             break
         if mapped_page and max(int(row["timestamp"]) for row in mapped_page) >= end_ms:
             break
