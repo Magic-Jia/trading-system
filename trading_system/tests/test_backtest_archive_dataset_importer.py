@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from trading_system.app.backtest.archive import importer as archive_importer
 from trading_system.app.backtest.archive.importer import (
     build_phase1_dataset_bundle_materials,
     import_phase1_archive_dataset_root,
@@ -1067,6 +1068,33 @@ def test_build_phase1_dataset_bundle_materials_can_limit_output_window(tmp_path:
         datetime(2024, 2, 29, 20, tzinfo=UTC),
         datetime(2024, 2, 29, 21, tzinfo=UTC),
     ]
+
+
+def test_build_phase1_dataset_bundle_materials_reuses_derived_timeframe_bars_across_snapshots(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    archive_root = tmp_path / "archive"
+    _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT", total_hours=90 * 24)
+    imported = load_phase1_raw_market_imports(archive_root)
+    original_resample_bars = archive_importer._resample_bars
+    resample_calls: list[int] = []
+
+    def counting_resample_bars(hourly_bars, *, hours: int):
+        resample_calls.append(hours)
+        return original_resample_bars(hourly_bars, hours=hours)
+
+    monkeypatch.setattr(archive_importer, "_resample_bars", counting_resample_bars)
+
+    materials = build_phase1_dataset_bundle_materials(
+        imported,
+        start_timestamp=datetime(2024, 3, 25, tzinfo=UTC),
+        end_timestamp=datetime(2024, 3, 25, 6, tzinfo=UTC),
+    )
+
+    assert len(materials) == 6
+    assert set(resample_calls).issubset({4, 24})
+    assert len(resample_calls) <= 4
 
 
 def test_build_phase1_dataset_bundle_materials_skips_sparse_ohlcv_rows_mislabeled_as_hourly(

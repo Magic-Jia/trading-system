@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import shutil
 from bisect import bisect_right
+from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
@@ -76,6 +77,83 @@ class _OhlcvBar:
     close: float
     base_volume: float
     quote_volume: float
+
+
+@dataclass(frozen=True, slots=True)
+class _OhlcvSeriesIndex:
+    timestamps: tuple[datetime, ...]
+    bars: tuple[_OhlcvBar, ...]
+    timestamp_set: frozenset[datetime]
+    contiguous_start_indexes: tuple[int, ...]
+
+    @classmethod
+    def from_records(cls, records: Sequence[ImportedRawMarketRecord], *, expected_gap: timedelta) -> "_OhlcvSeriesIndex":
+        timestamps, bars = _ohlcv_bar_lookup(records)
+        start_indexes: list[int] = []
+        current_start = 0
+        for index, bar in enumerate(bars):
+            if index > 0 and bar.observed_at - bars[index - 1].observed_at != expected_gap:
+                current_start = index
+            start_indexes.append(current_start)
+        return cls(
+            timestamps=tuple(timestamps),
+            bars=tuple(bars),
+            timestamp_set=frozenset(timestamps),
+            contiguous_start_indexes=tuple(start_indexes),
+        )
+
+    def contiguous_history_up_to(self, timestamp: datetime) -> list[_OhlcvBar]:
+        end_index = bisect_right(self.timestamps, timestamp) - 1
+        if end_index < 0:
+            return []
+        start_index = self.contiguous_start_indexes[end_index]
+        return list(self.bars[start_index : end_index + 1])
+
+
+def _aggregate_ohlcv_bucket(bucket: datetime, rows: Sequence[_OhlcvBar]) -> _OhlcvBar:
+    first = rows[0]
+    last = rows[-1]
+    return _OhlcvBar(
+        observed_at=bucket,
+        open=first.open,
+        high=max(row.high for row in rows),
+        low=min(row.low for row in rows),
+        close=last.close,
+        base_volume=sum(row.base_volume for row in rows),
+        quote_volume=sum(row.quote_volume for row in rows),
+    )
+
+
+def _resampled_history_by_hourly_timestamp(
+    hourly_index: _OhlcvSeriesIndex,
+    *,
+    hours: int,
+) -> dict[datetime, tuple[_OhlcvBar, ...]]:
+    histories: dict[datetime, tuple[_OhlcvBar, ...]] = {}
+    aggregated: list[_OhlcvBar] = []
+    bucket_rows: list[_OhlcvBar] = []
+    current_bucket: datetime | None = None
+    previous_bar: _OhlcvBar | None = None
+
+    for bar in hourly_index.bars:
+        if previous_bar is None or bar.observed_at - previous_bar.observed_at != timedelta(hours=1):
+            aggregated = []
+            bucket_rows = []
+            current_bucket = None
+
+        bucket = _bucket_start(bar.observed_at, hours=hours)
+        if current_bucket != bucket:
+            current_bucket = bucket
+            bucket_rows = [bar]
+            aggregated.append(_aggregate_ohlcv_bucket(bucket, bucket_rows))
+        else:
+            bucket_rows.append(bar)
+            aggregated[-1] = _aggregate_ohlcv_bucket(bucket, bucket_rows)
+
+        histories[bar.observed_at] = tuple(aggregated)
+        previous_bar = bar
+
+    return histories
 
 
 @dataclass(frozen=True, slots=True)
@@ -644,6 +722,163 @@ def _timeframe_payload(hourly_bars: Sequence[_OhlcvBar], *, timeframe: str) -> d
     }
 
 
+def _intraday_timeframe_return_config(timeframe: str) -> tuple[int, str]:
+    if timeframe == "1h":
+        return 24, "return_pct_24h"
+    if timeframe == "30m":
+        return 16, "return_pct_8h"
+    if timeframe == "15m":
+        return 16, "return_pct_4h"
+    if timeframe == "5m":
+        return 12, "return_pct_1h"
+    if timeframe == "1m":
+        return 15, "return_pct_15m"
+    raise ValueError(f"unsupported incremental timeframe: {timeframe}")
+
+
+def _timeframe_payloads_by_timestamp(
+    bar_index: _OhlcvSeriesIndex,
+    *,
+    timeframe: str,
+) -> dict[datetime, dict[str, Any]]:
+    periods_back, return_label = _intraday_timeframe_return_config(timeframe)
+    payloads: dict[datetime, dict[str, Any]] = {}
+    closes: list[float] = []
+    quote_window: deque[float] = deque()
+    quote_window_sum = 0.0
+    true_range_window: deque[float] = deque()
+    true_range_sum = 0.0
+    ema20: float | None = None
+    ema50: float | None = None
+    previous_close: float | None = None
+    rsi_seed_gains: list[float] = []
+    rsi_seed_losses: list[float] = []
+    rsi_avg_gain: float | None = None
+    rsi_avg_loss: float | None = None
+    rsi_period = 14
+
+    def reset_state() -> None:
+        nonlocal quote_window_sum, true_range_sum, ema20, ema50, previous_close, rsi_avg_gain, rsi_avg_loss
+        closes.clear()
+        quote_window.clear()
+        quote_window_sum = 0.0
+        true_range_window.clear()
+        true_range_sum = 0.0
+        ema20 = None
+        ema50 = None
+        previous_close = None
+        rsi_seed_gains.clear()
+        rsi_seed_losses.clear()
+        rsi_avg_gain = None
+        rsi_avg_loss = None
+
+    for index, bar in enumerate(bar_index.bars):
+        if bar_index.contiguous_start_indexes[index] == index:
+            reset_state()
+
+        close = bar.close
+        closes.append(close)
+
+        ema20 = close if ema20 is None else (close * (2.0 / 21.0)) + (ema20 * (1.0 - (2.0 / 21.0)))
+        ema50 = close if ema50 is None else (close * (2.0 / 51.0)) + (ema50 * (1.0 - (2.0 / 51.0)))
+
+        quote_window.append(bar.quote_volume)
+        quote_window_sum += bar.quote_volume
+        if len(quote_window) > 24:
+            quote_window_sum -= quote_window.popleft()
+
+        if previous_close is None:
+            true_range = max(bar.high - bar.low, 0.0)
+        else:
+            true_range = max(
+                bar.high - bar.low,
+                abs(bar.high - previous_close),
+                abs(bar.low - previous_close),
+                0.0,
+            )
+            delta = close - previous_close
+            gain = max(delta, 0.0)
+            loss = abs(min(delta, 0.0))
+            if len(rsi_seed_gains) < rsi_period:
+                rsi_seed_gains.append(gain)
+                rsi_seed_losses.append(loss)
+                if len(rsi_seed_gains) == rsi_period:
+                    rsi_avg_gain = sum(rsi_seed_gains) / rsi_period
+                    rsi_avg_loss = sum(rsi_seed_losses) / rsi_period
+            elif rsi_avg_gain is not None and rsi_avg_loss is not None:
+                rsi_avg_gain = ((rsi_avg_gain * (rsi_period - 1)) + gain) / rsi_period
+                rsi_avg_loss = ((rsi_avg_loss * (rsi_period - 1)) + loss) / rsi_period
+
+        true_range_window.append(true_range)
+        true_range_sum += true_range
+        if len(true_range_window) > 14:
+            true_range_sum -= true_range_window.popleft()
+
+        if (
+            len(closes) >= 50
+            and len(closes) > periods_back
+            and len(quote_window) == 24
+            and len(true_range_window) == 14
+            and rsi_avg_gain is not None
+            and rsi_avg_loss is not None
+            and ema20 is not None
+            and ema50 is not None
+        ):
+            rsi = 100.0 if rsi_avg_loss <= 0.0 else 100.0 - (100.0 / (1.0 + (rsi_avg_gain / rsi_avg_loss)))
+            previous_return_close = closes[-(periods_back + 1)]
+            return_pct = 0.0 if previous_return_close <= 0.0 else (close / previous_return_close) - 1.0
+            payloads[bar.observed_at] = {
+                "open": bar.open,
+                "high": bar.high,
+                "low": bar.low,
+                "close": close,
+                "ema_20": ema20,
+                "ema_50": ema50,
+                "rsi": rsi,
+                "atr_pct": (true_range_sum / 14) / close if close > 0.0 else 0.0,
+                "volume_usdt_24h": quote_window_sum,
+                return_label: return_pct,
+            }
+
+        previous_close = close
+
+    return payloads
+
+
+def _derived_timeframe_payload(
+    bars: Sequence[_OhlcvBar],
+    *,
+    source_hourly_bars: Sequence[_OhlcvBar],
+    timeframe: str,
+) -> dict[str, Any]:
+    if timeframe == "4h":
+        periods_back = 18
+        return_label = "return_pct_3d"
+    elif timeframe == "daily":
+        periods_back = 7
+        return_label = "return_pct_7d"
+    else:
+        raise ValueError(f"unsupported derived timeframe: {timeframe}")
+    closes = [bar.close for bar in bars]
+    current = bars[-1]
+    volume_usdt_24h = _rolling_quote_volume(source_hourly_bars)
+    return {
+        "open": current.open,
+        "high": current.high,
+        "low": current.low,
+        "close": current.close,
+        "ema_20": _ema(closes, period=20),
+        "ema_50": _ema(closes, period=50),
+        "rsi": _rsi(closes, period=14),
+        "atr_pct": _atr_pct(bars, period=14),
+        "volume_usdt_24h": volume_usdt_24h,
+        return_label: _return_pct(
+            bars,
+            periods_back=periods_back,
+        ),
+    }
+
+
 def _next_ohlcv_bar_payload(
     timestamps: Sequence[datetime],
     bars: Sequence[_OhlcvBar],
@@ -968,10 +1203,11 @@ def build_phase1_dataset_bundle_materials(
     if not symbol_series:
         return ()
 
-    ohlcv_timestamp_sets = {
-        item.symbol: {record.observed_at for record in item.ohlcv.records}
+    hourly_ohlcv_indexes = {
+        item.symbol: _OhlcvSeriesIndex.from_records(item.ohlcv.records, expected_gap=timedelta(hours=1))
         for item in symbol_series
     }
+    ohlcv_timestamp_sets = {symbol: index.timestamp_set for symbol, index in hourly_ohlcv_indexes.items()}
     all_timestamps = sorted(
         timestamp
         for timestamp in {
@@ -999,14 +1235,30 @@ def build_phase1_dataset_bundle_materials(
         for item in symbol_series
         if item.open_interest is not None
     }
-    hourly_ohlcv_lookups = {
-        item.symbol: _ohlcv_bar_lookup(item.ohlcv.records)
+    derived_ohlcv_histories = {
+        item.symbol: {
+            4: _resampled_history_by_hourly_timestamp(hourly_ohlcv_indexes[item.symbol], hours=4),
+            24: _resampled_history_by_hourly_timestamp(hourly_ohlcv_indexes[item.symbol], hours=24),
+        }
         for item in symbol_series
     }
-    intraday_ohlcv_lookups = {
-        (item.symbol, timeframe): _ohlcv_bar_lookup(series.records)
+    hourly_payloads = {
+        item.symbol: _timeframe_payloads_by_timestamp(hourly_ohlcv_indexes[item.symbol], timeframe="1h")
+        for item in symbol_series
+    }
+    intraday_ohlcv_indexes = {
+        (item.symbol, timeframe): _OhlcvSeriesIndex.from_records(
+            series.records,
+            expected_gap=_PHASE1_IMPORTER_INTRADAY_GAPS[timeframe],
+        )
         for item in symbol_series
         for timeframe, series in item.intraday_ohlcv.items()
+    }
+    intraday_payloads = {
+        (item.symbol, timeframe): _timeframe_payloads_by_timestamp(index, timeframe=timeframe)
+        for item in symbol_series
+        for timeframe in item.intraday_ohlcv
+        for index in (intraday_ohlcv_indexes[(item.symbol, timeframe)],)
     }
     execution_evidence_available = any(item.order_book is not None or item.trades is not None for item in symbol_series)
     execution_evidence_lookups: dict[tuple[str, str], tuple[list[datetime], list[ImportedRawMarketRecord]]] = {}
@@ -1037,18 +1289,14 @@ def build_phase1_dataset_bundle_materials(
         for item in symbol_series:
             if timestamp not in ohlcv_timestamp_sets[item.symbol]:
                 continue
-            hourly_timestamps, hourly_lookup_bars = hourly_ohlcv_lookups[item.symbol]
-            hourly_bars = _contiguous_ohlcv_history_up_to(
-                hourly_timestamps,
-                hourly_lookup_bars,
-                timestamp=timestamp,
-                expected_gap=timedelta(hours=1),
-            )
+            hourly_index = hourly_ohlcv_indexes[item.symbol]
+            hourly_bars = hourly_index.contiguous_history_up_to(timestamp)
             if len(hourly_bars) < 24:
                 continue
-            daily_bars = _resample_bars(hourly_bars, hours=24)
-            four_hour_bars = _resample_bars(hourly_bars, hours=4)
-            if len(daily_bars) < 50 or len(four_hour_bars) < 50 or len(hourly_bars) < 50:
+            daily_bars = list(derived_ohlcv_histories[item.symbol][24].get(timestamp, ()))
+            four_hour_bars = list(derived_ohlcv_histories[item.symbol][4].get(timestamp, ()))
+            hourly_payload = hourly_payloads[item.symbol].get(timestamp)
+            if len(daily_bars) < 50 or len(four_hour_bars) < 50 or hourly_payload is None:
                 continue
 
             latest_close = hourly_bars[-1].close
@@ -1177,24 +1425,19 @@ def build_phase1_dataset_bundle_materials(
                             current_open_interest_units / previous_open_interest_units
                         ) - 1.0
             timeframe_payloads: dict[str, Any] = {
-                "daily": _timeframe_payload(hourly_bars, timeframe="daily"),
-                "4h": _timeframe_payload(hourly_bars, timeframe="4h"),
-                "1h": _timeframe_payload(hourly_bars, timeframe="1h"),
+                "daily": _derived_timeframe_payload(daily_bars, source_hourly_bars=hourly_bars, timeframe="daily"),
+                "4h": _derived_timeframe_payload(four_hour_bars, source_hourly_bars=hourly_bars, timeframe="4h"),
+                "1h": hourly_payload,
             }
             for timeframe, series in item.intraday_ohlcv.items():
-                expected_gap = _PHASE1_IMPORTER_INTRADAY_GAPS[timeframe]
-                intraday_timestamps, intraday_lookup_bars = intraday_ohlcv_lookups[(item.symbol, timeframe)]
-                intraday_bars = _contiguous_ohlcv_history_up_to(
-                    intraday_timestamps,
-                    intraday_lookup_bars,
-                    timestamp=timestamp,
-                    expected_gap=expected_gap,
-                )
-                if len(intraday_bars) >= 50:
-                    timeframe_payload = _timeframe_payload(intraday_bars, timeframe=timeframe)
+                intraday_index = intraday_ohlcv_indexes[(item.symbol, timeframe)]
+                intraday_bars = intraday_index.contiguous_history_up_to(timestamp)
+                timeframe_payload = intraday_payloads[(item.symbol, timeframe)].get(timestamp)
+                if len(intraday_bars) >= 50 and timeframe_payload is not None:
+                    timeframe_payload = dict(timeframe_payload)
                     next_bar = _next_ohlcv_bar_payload(
-                        intraday_timestamps,
-                        intraday_lookup_bars,
+                        intraday_index.timestamps,
+                        intraday_index.bars,
                         timestamp=timestamp,
                     )
                     if next_bar is not None:
