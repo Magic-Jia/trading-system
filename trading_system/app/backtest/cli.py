@@ -32,6 +32,7 @@ from .reporting import (
     render_walk_forward_validation_report,
 )
 from .types import BacktestConfig, DatasetSnapshotRow, ExperimentParams
+from .archive.materialization import materialize_phase1_evidence_windows
 
 
 HandlerResult = tuple[dict[str, Any], dict[str, Any]]
@@ -504,6 +505,19 @@ def _compare_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def _materialize_evidence_windows_command(args: argparse.Namespace) -> int:
+    symbols = tuple(str(value).strip().upper() for value in args.symbols.split(",") if str(value).strip()) if args.symbols else None
+    windows_days = tuple(int(value.strip()) for value in args.windows_days.split(",") if value.strip())
+    report = materialize_phase1_evidence_windows(
+        args.archive_root,
+        args.output_root,
+        symbols=symbols,
+        windows_days=windows_days,
+    )
+    print(json.dumps(report, ensure_ascii=False, indent=2))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run deterministic backtest research experiments.")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -540,6 +554,32 @@ def build_parser() -> argparse.ArgumentParser:
     compare_parser.add_argument("--variant-bundle", required=True, help="Path to the variant bundle directory.")
     compare_parser.add_argument("--output-dir", required=True, help="Directory where promotion artifacts should be written.")
     compare_parser.set_defaults(handler=_compare_command)
+
+    materialize_parser = subparsers.add_parser(
+        "materialize-evidence-windows",
+        help="Materialize 30/90/180 imported datasets from raw-market intraday/execution archives.",
+    )
+    materialize_parser.add_argument(
+        "--archive-root",
+        required=True,
+        help="Archive root, raw-market root, or raw-market/binance/futures root to read.",
+    )
+    materialize_parser.add_argument(
+        "--output-root",
+        required=True,
+        help="Directory where window dataset roots and coverage_report.json should be written.",
+    )
+    materialize_parser.add_argument(
+        "--symbols",
+        default=None,
+        help="Optional comma-separated symbols to materialize, for example BTCUSDT,ETHUSDT,SOLUSDT.",
+    )
+    materialize_parser.add_argument(
+        "--windows-days",
+        default="30,90,180",
+        help="Comma-separated day windows to materialize from the latest eligible archive timestamp.",
+    )
+    materialize_parser.set_defaults(handler=_materialize_evidence_windows_command)
     return parser
 
 

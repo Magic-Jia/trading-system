@@ -16,6 +16,7 @@ from trading_system.app.backtest.archive.importer import (
     write_phase1_dataset_bundle,
     write_phase1_dataset_root_manifest,
 )
+from trading_system.app.backtest.archive.materialization import materialize_phase1_evidence_windows
 from trading_system.app.backtest.archive.raw_market import archive_raw_market_payload, load_phase1_raw_market_imports
 from trading_system.app.backtest.dataset import load_historical_dataset
 
@@ -552,6 +553,58 @@ def test_import_phase1_archive_dataset_root_manifest_exposes_finer_ohlcv_coverag
         "missing_optional": ["1m", "15m", "30m"],
         "not_materialized": {},
     }
+
+
+def test_materialize_phase1_evidence_windows_selects_intraday_layers_and_reports_missing_execution_evidence(
+    tmp_path: Path,
+) -> None:
+    archive_root = tmp_path / "archive"
+    output_root = tmp_path / "materialized"
+    _archive_phase1_symbol_history(
+        archive_root,
+        symbol="BTCUSDT",
+        total_hours=50 * 24,
+        extra_ohlcv_timeframes=("1m", "5m", "15m"),
+    )
+
+    report = materialize_phase1_evidence_windows(
+        archive_root / "raw-market" / "binance" / "futures",
+        output_root,
+        symbols=("BTCUSDT",),
+        windows_days=(30, 90, 180),
+    )
+
+    assert report["windows"]["30d"]["status"] == "materialized"
+    assert report["windows"]["90d"]["status"] == "materialized"
+    assert report["windows"]["180d"]["status"] == "materialized"
+    for window_name in ("30d", "90d", "180d"):
+        window = report["windows"][window_name]
+        assert Path(window["dataset_root"]).is_dir()
+        assert window["coverage"]["ohlcv_timeframes"]["available"] == ["1h", "1m", "5m", "15m"]
+        assert window["coverage"]["ohlcv_timeframes"]["materialized"] == ["1h", "1m", "5m", "15m"]
+        assert window["coverage"]["ohlcv_timeframes"]["missing_optional"] == ["30m"]
+        assert window["coverage"]["execution_evidence"]["available"] is False
+        assert window["coverage"]["execution_evidence"]["materialized"] == {"order_book": 0, "trades": 0}
+        assert window["evidence_gap"]["missing_execution_evidence"] == ["order_book", "trades"]
+
+
+def test_materialized_intraday_imported_rows_include_next_bar_open_for_evidence_backed_fill(
+    tmp_path: Path,
+) -> None:
+    archive_root = tmp_path / "archive"
+    dataset_root = tmp_path / "dataset"
+    _archive_phase1_symbol_history(
+        archive_root,
+        symbol="BTCUSDT",
+        extra_ohlcv_timeframes=("1m", "5m", "15m"),
+    )
+
+    import_phase1_archive_dataset_root(archive_root, dataset_root)
+
+    row = load_historical_dataset(dataset_root)[-2]
+    symbol_payload = row.market["symbols"]["BTCUSDT"]
+    assert symbol_payload["1m"]["next_bar"]["open"] != pytest.approx(symbol_payload["15m"]["close"])
+    assert symbol_payload["1m"]["next_bar"]["timestamp"] > row.timestamp.isoformat().replace("+00:00", "Z")
 
 
 def test_build_phase1_dataset_bundle_materials_materializes_fresh_order_book_execution_evidence(

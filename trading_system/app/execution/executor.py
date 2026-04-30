@@ -4,7 +4,7 @@ import json
 import logging
 import time
 from dataclasses import asdict
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
@@ -87,11 +87,13 @@ class OrderExecutor:
             )
         )
         self.execution_log_path = EXEC_LOG
+        self.execution_telemetry_path = config.data_dir / "execution_telemetry.jsonl"
         self.paper_ledger_path = config.state_file.parent / "paper_ledger.jsonl"
         self.paper_executor = PaperExecutor(PaperLedger(self.paper_ledger_path))
         if self.mode == "live" and not config.execution.allow_live_execution:
             raise ExecutionError("live execution is disabled unless TRADING_ALLOW_LIVE_EXECUTION is explicitly enabled")
         self.execution_log_path.parent.mkdir(parents=True, exist_ok=True)
+        self.execution_telemetry_path.parent.mkdir(parents=True, exist_ok=True)
 
     def execute(self, order: OrderIntent, state: RuntimeState) -> dict[str, Any]:
         if self.mode == "live":
@@ -126,9 +128,22 @@ class OrderExecutor:
                     raise ExecutionError("testnet submission entry payload incompatible with configured entry order policy")
                 if not isinstance(stop_payload, dict):
                     raise ExecutionError("testnet submission requires a protective stop before entry submission")
+                submit_timestamp = _utc_now()
                 try:
                     exchange_response = submit_futures_testnet_order(entry_payload)
+                    ack_timestamp = _utc_now()
                 except Exception as exc:
+                    self.append_execution_telemetry(
+                        self._execution_telemetry_payload(
+                            order=order,
+                            entry_payload=entry_payload,
+                            submit_timestamp=submit_timestamp,
+                            ack_timestamp=_utc_now(),
+                            exchange_response=None,
+                            entry_order_status=None,
+                            error=f"{type(exc).__name__}: {exc}",
+                        )
+                    )
                     self._notify_testnet_event(
                         order,
                         status="FAILED",
@@ -156,6 +171,19 @@ class OrderExecutor:
                         entry_cancel_response = None
                     if not _has_filled_entry_quantity(entry_order_status):
                         order.status = "CANCELLED"
+                        self.append_execution_telemetry(
+                            self._execution_telemetry_payload(
+                                order=order,
+                                entry_payload=entry_payload,
+                                submit_timestamp=submit_timestamp,
+                                ack_timestamp=ack_timestamp,
+                                exchange_response=exchange_response,
+                                entry_order_status=entry_order_status,
+                                entry_cancel_response=entry_cancel_response,
+                                timeout_timestamp=_utc_now(),
+                                cancel_timestamp=_utc_now() if entry_cancel_response is not None else None,
+                            )
+                        )
                         result.update(
                             {
                                 "venue": "binance_futures_testnet",
@@ -175,6 +203,17 @@ class OrderExecutor:
                         )
                         self.append_log(order, result)
                         return result
+                self.append_execution_telemetry(
+                    self._execution_telemetry_payload(
+                        order=order,
+                        entry_payload=entry_payload,
+                        submit_timestamp=submit_timestamp,
+                        ack_timestamp=ack_timestamp,
+                        exchange_response=exchange_response,
+                        entry_order_status=entry_order_status,
+                        entry_cancel_response=entry_cancel_response,
+                    )
+                )
 
                 stop_algo_order = None
                 stop_algo_response = None
@@ -374,6 +413,62 @@ class OrderExecutor:
         with self.execution_log_path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(payload, ensure_ascii=False) + "\n")
 
+    def append_execution_telemetry(self, payload: dict[str, Any]) -> None:
+        with self.execution_telemetry_path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(payload, ensure_ascii=False) + "\n")
+
+    def _execution_telemetry_payload(
+        self,
+        *,
+        order: OrderIntent,
+        entry_payload: dict[str, Any],
+        submit_timestamp: str,
+        ack_timestamp: str,
+        exchange_response: dict[str, Any] | None,
+        entry_order_status: dict[str, Any] | None,
+        entry_cancel_response: dict[str, Any] | None = None,
+        timeout_timestamp: str | None = None,
+        cancel_timestamp: str | None = None,
+        error: str | None = None,
+    ) -> dict[str, Any]:
+        final_status = entry_order_status if entry_order_status is not None else exchange_response
+        final_status = final_status if isinstance(final_status, dict) else {}
+        response = exchange_response if isinstance(exchange_response, dict) else {}
+        executed_qty = _float_or_none(final_status.get("executedQty", response.get("executedQty"))) or 0.0
+        avg_price = _float_or_none(final_status.get("avgPrice", response.get("avgPrice")))
+        status = str(final_status.get("status") or response.get("status") or ("ERROR" if error else "UNKNOWN")).upper()
+        post_only = entry_payload.get("timeInForce") == "GTX"
+        fill_state = _fill_state(status=status, executed_qty=executed_qty)
+        payload: dict[str, Any] = {
+            "schema_version": "execution_telemetry.v1",
+            "intent_id": order.intent_id,
+            "symbol": order.symbol,
+            "side": order.side,
+            "order_policy": self.config.execution.entry_order_policy,
+            "entry_reference_price": order.entry_price,
+            "order_type": entry_payload.get("type"),
+            "time_in_force": entry_payload.get("timeInForce"),
+            "submitted_price": _float_or_none(entry_payload.get("price")),
+            "submitted_qty": _float_or_none(entry_payload.get("quantity")),
+            "submit_timestamp": submit_timestamp,
+            "ack_timestamp": ack_timestamp,
+            "fill_timestamp": ack_timestamp if fill_state in {"filled", "partial_fill"} else None,
+            "exchange_order_id": response.get("orderId") or final_status.get("orderId"),
+            "client_order_id": entry_payload.get("newClientOrderId") or response.get("clientOrderId") or final_status.get("clientOrderId"),
+            "status": status,
+            "avgPrice": avg_price,
+            "executedQty": executed_qty,
+            "maker_taker": "maker" if post_only else "taker",
+            "post_only": post_only,
+            "fill_state": fill_state,
+            "timeout_timestamp": timeout_timestamp,
+            "cancel_timestamp": cancel_timestamp,
+            "cancel_status": entry_cancel_response.get("status") if isinstance(entry_cancel_response, dict) else None,
+            "missed_alpha": None,
+            "error": error,
+        }
+        return payload
+
     def _notify_testnet_event(self, order: OrderIntent, *, status: str, detail: str) -> None:
         if self.mode != "testnet" or not self.config.execution.feishu_notifications_enabled:
             return
@@ -390,3 +485,26 @@ class OrderExecutor:
             self.feishu_notifier(message)
         except Exception as exc:
             logger.warning("Feishu notification failed: %s", exc)
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _float_or_none(value: Any) -> float | None:
+    try:
+        if value is None:
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _fill_state(*, status: str, executed_qty: float) -> str:
+    if status == "FILLED":
+        return "filled"
+    if status == "PARTIALLY_FILLED" or executed_qty > 0.0:
+        return "partial_fill"
+    if status in {"NEW", "CANCELED", "EXPIRED", "REJECTED", "UNKNOWN", "ERROR"}:
+        return "no_fill"
+    return "unknown"

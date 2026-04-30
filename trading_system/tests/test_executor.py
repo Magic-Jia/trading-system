@@ -1,4 +1,5 @@
 from dataclasses import replace
+import json
 
 import pytest
 
@@ -397,6 +398,87 @@ def test_order_executor_testnet_success_still_returns_submitted_when_notificatio
     assert result["exchange_response"]["orderId"] == 12345
 
 
+def test_order_executor_testnet_market_submission_appends_execution_telemetry(monkeypatch, tmp_path):
+    from trading_system.app.execution import executor as executor_module
+
+    exec_log = tmp_path / "execution_log.jsonl"
+    monkeypatch.setattr(executor_module, "EXEC_LOG", exec_log)
+    config = build_testnet_config(tmp_path, monkeypatch)
+    config = replace(
+        config,
+        execution=replace(
+            config.execution,
+            testnet_order_submission_enabled=True,
+            feishu_notifications_enabled=False,
+            entry_order_policy="taker_market",
+        ),
+    )
+
+    def fake_submit_entry(payload):
+        return {
+            "orderId": 12345,
+            "clientOrderId": payload["newClientOrderId"],
+            "status": "FILLED",
+            "avgPrice": "60001.25",
+            "executedQty": "0.01",
+            "type": "MARKET",
+        }
+
+    monkeypatch.setattr(executor_module, "submit_futures_testnet_order", fake_submit_entry)
+    monkeypatch.setattr(
+        executor_module,
+        "submit_futures_testnet_conditional_algo_order",
+        lambda payload: {"algoId": 67890, "algoStatus": "NEW", "clientAlgoId": payload["clientAlgoId"]},
+    )
+    order = _sample_order()
+    order.meta["validated_order_preview"] = {
+        "submission_prerequisites_passed": True,
+        "payloads": {
+            "entry": {
+                "symbol": "BTCUSDT",
+                "side": "BUY",
+                "type": "MARKET",
+                "quantity": 0.01,
+                "newClientOrderId": "intent-btc-long",
+            },
+            "stop": {
+                "symbol": "BTCUSDT",
+                "side": "SELL",
+                "type": "STOP_MARKET",
+                "stopPrice": 58000.0,
+                "closePosition": "true",
+                "workingType": "MARK_PRICE",
+                "newClientOrderId": "intent-btc-long-sl",
+            },
+        },
+    }
+    executor = OrderExecutor(config)
+
+    result = executor.execute(order, RuntimeStateV2.empty())
+
+    telemetry_path = tmp_path / "execution_telemetry.jsonl"
+    telemetry = [json.loads(line) for line in telemetry_path.read_text(encoding="utf-8").splitlines()]
+    assert result["result"] == "SUBMITTED"
+    assert len(telemetry) == 1
+    row = telemetry[0]
+    assert row["intent_id"] == "intent-btc-long"
+    assert row["symbol"] == "BTCUSDT"
+    assert row["side"] == "LONG"
+    assert row["order_policy"] == "taker_market"
+    assert row["entry_reference_price"] == pytest.approx(60000.0)
+    assert row["order_type"] == "MARKET"
+    assert row["submitted_qty"] == pytest.approx(0.01)
+    assert row["submit_timestamp"]
+    assert row["ack_timestamp"]
+    assert row["exchange_order_id"] == 12345
+    assert row["client_order_id"] == "intent-btc-long"
+    assert row["status"] == "FILLED"
+    assert row["avgPrice"] == pytest.approx(60001.25)
+    assert row["executedQty"] == pytest.approx(0.01)
+    assert row["fill_state"] == "filled"
+    assert row["post_only"] is False
+
+
 
 def test_order_executor_testnet_submits_entry_and_stop_algo_order(monkeypatch, tmp_path):
     from trading_system.app.execution import executor as executor_module
@@ -630,6 +712,22 @@ def test_order_executor_testnet_cancels_unfilled_maker_entry_after_timeout(monke
     assert result["entry_timeout_seconds"] == 15
     assert result["entry_order_status"]["status"] == "NEW"
     assert result["entry_cancel_response"]["status"] == "CANCELED"
+
+    telemetry = [
+        json.loads(line)
+        for line in (tmp_path / "execution_telemetry.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert len(telemetry) == 1
+    assert telemetry[0]["order_policy"] == "maker_only"
+    assert telemetry[0]["order_type"] == "LIMIT"
+    assert telemetry[0]["time_in_force"] == "GTX"
+    assert telemetry[0]["submitted_price"] == pytest.approx(60000.0)
+    assert telemetry[0]["status"] == "NEW"
+    assert telemetry[0]["executedQty"] == pytest.approx(0.0)
+    assert telemetry[0]["fill_state"] == "no_fill"
+    assert telemetry[0]["timeout_timestamp"]
+    assert telemetry[0]["cancel_timestamp"]
+    assert telemetry[0]["post_only"] is True
 
 
 @pytest.mark.parametrize("terminal_status", ["EXPIRED", "CANCELED"])

@@ -593,7 +593,7 @@ def _ohlcv_history_up_to(
     )
 
 
-def _timeframe_payload(hourly_bars: Sequence[_OhlcvBar], *, timeframe: str) -> dict[str, float]:
+def _timeframe_payload(hourly_bars: Sequence[_OhlcvBar], *, timeframe: str) -> dict[str, Any]:
     if timeframe == "1h":
         bars = list(hourly_bars)
         periods_back = 24
@@ -641,6 +641,27 @@ def _timeframe_payload(hourly_bars: Sequence[_OhlcvBar], *, timeframe: str) -> d
             bars,
             periods_back=periods_back,
         ),
+    }
+
+
+def _next_ohlcv_bar_payload(
+    timestamps: Sequence[datetime],
+    bars: Sequence[_OhlcvBar],
+    *,
+    timestamp: datetime,
+) -> dict[str, Any] | None:
+    index = bisect_right(timestamps, timestamp)
+    if index >= len(bars):
+        return None
+    next_bar = bars[index]
+    return {
+        "timestamp": _utc_timestamp(next_bar.observed_at),
+        "open": next_bar.open,
+        "high": next_bar.high,
+        "low": next_bar.low,
+        "close": next_bar.close,
+        "volume": next_bar.base_volume,
+        "quote_asset_volume": next_bar.quote_volume,
     }
 
 
@@ -1170,7 +1191,15 @@ def build_phase1_dataset_bundle_materials(
                     expected_gap=expected_gap,
                 )
                 if len(intraday_bars) >= 50:
-                    timeframe_payloads[timeframe] = _timeframe_payload(intraday_bars, timeframe=timeframe)
+                    timeframe_payload = _timeframe_payload(intraday_bars, timeframe=timeframe)
+                    next_bar = _next_ohlcv_bar_payload(
+                        intraday_timestamps,
+                        intraday_lookup_bars,
+                        timestamp=timestamp,
+                    )
+                    if next_bar is not None:
+                        timeframe_payload["next_bar"] = next_bar
+                    timeframe_payloads[timeframe] = timeframe_payload
                     materialized_ohlcv_timeframes.add(timeframe)
                 else:
                     not_materialized_ohlcv_timeframes[timeframe] = "missing_contiguous_bars"
