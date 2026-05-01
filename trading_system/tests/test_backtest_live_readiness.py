@@ -281,6 +281,83 @@ def test_quarantined_short_setup_types_exclude_only_when_configured(
     assert [candidate["setup_type"] for candidate in quarantined_candidates] == ["CLEAN_SHORT"]
 
 
+def test_quarantined_setup_types_exclude_any_setup_bucket_when_configured(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "dataset_root": str(tmp_path),
+                "experiment_kind": "full_market_baseline",
+                "sample_windows": [{"name": "all", "start": "2026-03-01T00:00:00Z", "end": "2026-03-02T00:00:00Z"}],
+                "costs": {"fee_bps": {"spot": 4.0, "futures": 4.0}, "slippage_tiers": {"top": 1.0}, "funding_mode": "historical_series"},
+                "baseline_name": "current",
+                "variant_name": "quarantine",
+                "universe": {"listing_age_days": 1, "min_quote_volume_usdt_24h": {"top": 1.0}},
+                "capital": {"model": "shared_pool", "initial_equity": 100000.0, "risk_per_trade": 0.01, "max_open_risk": 0.03},
+                "experiment_params": {
+                    "quarantined_setup_types": ["rs_pullback", "RS_REACCELERATION", "FAILED_BOUNCE_SHORT"]
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    config = load_backtest_config(config_path)
+    assert config.experiment_params is not None
+    assert config.experiment_params.quarantined_setup_types == (
+        "RS_PULLBACK",
+        "RS_REACCELERATION",
+        "FAILED_BOUNCE_SHORT",
+    )
+
+    row = DatasetSnapshotRow(
+        timestamp=datetime(2026, 3, 1, tzinfo=UTC),
+        run_id="row-1",
+        market={"symbols": {"BTCUSDT": {}, "ETHUSDT": {}, "SOLUSDT": {}, "BNBUSDT": {}}},
+        derivatives=[],
+    )
+
+    monkeypatch.setattr(backtest_engine, "build_universes", lambda market, derivatives: _Universes())
+    monkeypatch.setattr(
+        backtest_engine,
+        "generate_trend_candidates",
+        lambda *args, **kwargs: [
+            {"symbol": "BTCUSDT", "engine": "trend", "setup_type": "RS_PULLBACK", "score": 0.95},
+            {"symbol": "ETHUSDT", "engine": "trend", "setup_type": "TREND_CONTINUATION", "score": 0.9},
+        ],
+    )
+    monkeypatch.setattr(
+        backtest_engine,
+        "generate_rotation_candidates",
+        lambda *args, **kwargs: [
+            {"symbol": "SOLUSDT", "engine": "rotation", "setup_type": "RS_REACCELERATION", "score": 0.85}
+        ],
+    )
+    monkeypatch.setattr(
+        backtest_engine,
+        "generate_short_candidates",
+        lambda *args, **kwargs: [
+            {"symbol": "BNBUSDT", "engine": "short", "setup_type": "FAILED_BOUNCE_SHORT", "score": 0.8}
+        ],
+    )
+
+    default_candidates = backtest_engine._raw_full_market_candidates(row)
+    quarantined_candidates = backtest_engine._raw_full_market_candidates(
+        row,
+        quarantined_setup_types=frozenset(config.experiment_params.quarantined_setup_types),
+    )
+
+    assert [candidate["setup_type"] for candidate in default_candidates] == [
+        "RS_PULLBACK",
+        "TREND_CONTINUATION",
+        "RS_REACCELERATION",
+        "FAILED_BOUNCE_SHORT",
+    ]
+    assert [candidate["setup_type"] for candidate in quarantined_candidates] == ["TREND_CONTINUATION"]
+
+
 class _Universes:
     major_universe = ()
     rotation_universe = ()

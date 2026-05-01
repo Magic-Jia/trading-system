@@ -518,6 +518,78 @@ def test_load_backtest_config_parses_llm_trend_breakout_params(fixture_dir: Path
     assert config.experiment_params.minimum_label_confidence == pytest.approx(0.5)
     assert config.experiment_params.reject_high_fomo is False
     assert config.experiment_params.allowed_setup_types == ("BREAKOUT_CONTINUATION",)
+    assert config.experiment_params.quarantined_setup_types == ()
+    assert config.experiment_params.quarantined_short_setup_types == ()
+
+
+def test_load_backtest_config_parses_quarantined_setup_types(tmp_path: Path) -> None:
+    config_path = tmp_path / "general_quarantine_config.json"
+    config_path.write_text(
+        """
+        {
+          "dataset_root": "sample_dataset",
+          "experiment_kind": "full_market_baseline",
+          "sample_windows": [
+            {
+              "name": "all",
+              "start": "2026-03-01T00:00:00Z",
+              "end": "2026-03-02T00:00:00Z"
+            }
+          ],
+          "costs": {
+            "fee_bps": {"spot": 4.0, "futures": 4.0},
+            "slippage_tiers": {"top": 1.0},
+            "funding_mode": "historical_series"
+          },
+          "baseline_name": "current",
+          "variant_name": "quarantine",
+          "experiment_params": {
+            "quarantined_setup_types": ["rs_pullback", "RS_REACCELERATION", "rs_pullback"],
+            "quarantined_short_setup_types": ["failed_bounce_short"]
+          }
+        }
+        """.strip(),
+        encoding="utf-8",
+    )
+
+    config = load_backtest_config(config_path)
+
+    assert config.experiment_params is not None
+    assert config.experiment_params.quarantined_setup_types == ("RS_PULLBACK", "RS_REACCELERATION")
+    assert config.experiment_params.quarantined_short_setup_types == ("FAILED_BOUNCE_SHORT",)
+
+
+def test_load_backtest_config_rejects_non_list_quarantined_setup_types(tmp_path: Path) -> None:
+    config_path = tmp_path / "invalid_general_quarantine_config.json"
+    config_path.write_text(
+        """
+        {
+          "dataset_root": "sample_dataset",
+          "experiment_kind": "full_market_baseline",
+          "sample_windows": [
+            {
+              "name": "all",
+              "start": "2026-03-01T00:00:00Z",
+              "end": "2026-03-02T00:00:00Z"
+            }
+          ],
+          "costs": {
+            "fee_bps": {"spot": 4.0, "futures": 4.0},
+            "slippage_tiers": {"top": 1.0},
+            "funding_mode": "historical_series"
+          },
+          "baseline_name": "current",
+          "variant_name": "quarantine",
+          "experiment_params": {
+            "quarantined_setup_types": "RS_PULLBACK"
+          }
+        }
+        """.strip(),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="experiment_params.quarantined_setup_types must be a list"):
+        load_backtest_config(config_path)
 
 
 def test_load_backtest_config_requires_llm_label_path_for_llm_trend_breakout(tmp_path: Path) -> None:
@@ -567,8 +639,9 @@ def test_load_backtest_config_parses_promotion_metadata(tmp_path: Path) -> None:
             }
           ],
           "costs": {
-            "fee_bps": 4.0,
-            "slippage_bps": 6.0
+            "fee_bps": {"spot": 4.0, "futures": 4.0},
+            "slippage_tiers": {"top": 1.0},
+            "funding_mode": "historical_series"
           },
           "baseline_name": "current_policy",
           "variant_name": "candidate_policy",

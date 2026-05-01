@@ -531,6 +531,7 @@ def _raw_full_market_candidates(
     *,
     disabled_engines: frozenset[str] | None = None,
     allowed_short_setup_types: frozenset[str] | None = None,
+    quarantined_setup_types: frozenset[str] | None = None,
     quarantined_short_setup_types: frozenset[str] | None = None,
     entry_profile: str | None = None,
 ) -> list[dict[str, Any]]:
@@ -538,6 +539,7 @@ def _raw_full_market_candidates(
     universes = build_universes(row.market, derivatives=row.derivatives)
     disabled = disabled_engines or frozenset()
     allowed_short_setups = allowed_short_setup_types or frozenset()
+    quarantined_setups = quarantined_setup_types or frozenset()
     quarantined_short_setups = quarantined_short_setup_types or frozenset()
     raw_candidates: list[dict[str, Any]] = []
     if "trend" not in disabled:
@@ -588,6 +590,12 @@ def _raw_full_market_candidates(
                 if str(candidate.get("setup_type", "")).strip().upper() not in quarantined_short_setups
             ]
         raw_candidates.extend(short_candidates)
+    if quarantined_setups:
+        raw_candidates = [
+            candidate
+            for candidate in raw_candidates
+            if str(candidate.get("setup_type", "")).strip().upper() not in quarantined_setups
+        ]
     return sorted(raw_candidates, key=_rank_key)
 
 
@@ -1067,6 +1075,9 @@ def _replay_full_market_baseline_rows(
     allowed_short_setup_types = (
         frozenset(config.experiment_params.allowed_short_setup_types) if config.experiment_params is not None else frozenset()
     )
+    quarantined_setup_types = (
+        frozenset(config.experiment_params.quarantined_setup_types) if config.experiment_params is not None else frozenset()
+    )
     quarantined_short_setup_types = (
         frozenset(config.experiment_params.quarantined_short_setup_types)
         if config.experiment_params is not None
@@ -1115,6 +1126,7 @@ def _replay_full_market_baseline_rows(
             row,
             disabled_engines=disabled_engines,
             allowed_short_setup_types=allowed_short_setup_types,
+            quarantined_setup_types=quarantined_setup_types,
             quarantined_short_setup_types=quarantined_short_setup_types,
             entry_profile=entry_profile,
         ):

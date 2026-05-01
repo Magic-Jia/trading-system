@@ -90,6 +90,13 @@ def _base_metadata(config: BacktestConfig, rows: list[DatasetSnapshotRow]) -> di
             "rollback_trigger": config.promotion_metadata.rollback_trigger,
             "observation_window": config.promotion_metadata.observation_window,
         }
+    params = config.experiment_params or ExperimentParams()
+    metadata["experiment_params"] = {
+        "disabled_engines": list(params.disabled_engines),
+        "allowed_short_setup_types": list(params.allowed_short_setup_types),
+        "quarantined_setup_types": list(params.quarantined_setup_types),
+        "quarantined_short_setup_types": list(params.quarantined_short_setup_types),
+    }
     return metadata
 
 
@@ -274,6 +281,7 @@ def _llm_trend_breakout_outputs(config: BacktestConfig, rows: list[DatasetSnapsh
         "entry_profile": params.entry_profile,
         "symbols": list(params.symbols),
         "allowed_setup_types": list(params.allowed_setup_types),
+        "quarantined_setup_types": list(params.quarantined_setup_types),
         "quarantined_short_setup_types": list(params.quarantined_short_setup_types),
         "minimum_final_score": params.minimum_final_score,
         "minimum_label_confidence": params.minimum_label_confidence,

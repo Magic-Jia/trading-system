@@ -95,6 +95,7 @@ class ExperimentParams:
     minimum_effectiveness_sample_count: int = 30
     disabled_engines: tuple[str, ...] = ()
     allowed_short_setup_types: tuple[str, ...] = ()
+    quarantined_setup_types: tuple[str, ...] = ()
     quarantined_short_setup_types: tuple[str, ...] = ()
     entry_profile: str | None = None
     llm_label_path: str | None = None
