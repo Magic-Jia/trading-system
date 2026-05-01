@@ -531,12 +531,14 @@ def _raw_full_market_candidates(
     *,
     disabled_engines: frozenset[str] | None = None,
     allowed_short_setup_types: frozenset[str] | None = None,
+    quarantined_short_setup_types: frozenset[str] | None = None,
     entry_profile: str | None = None,
 ) -> list[dict[str, Any]]:
     regime = _regime_dict(row, disabled_engines=disabled_engines)
     universes = build_universes(row.market, derivatives=row.derivatives)
     disabled = disabled_engines or frozenset()
     allowed_short_setups = allowed_short_setup_types or frozenset()
+    quarantined_short_setups = quarantined_short_setup_types or frozenset()
     raw_candidates: list[dict[str, Any]] = []
     if "trend" not in disabled:
         raw_candidates.extend(
@@ -578,6 +580,12 @@ def _raw_full_market_candidates(
                 candidate
                 for candidate in short_candidates
                 if str(candidate.get("setup_type", "")).strip().upper() in allowed_short_setups
+            ]
+        if quarantined_short_setups:
+            short_candidates = [
+                candidate
+                for candidate in short_candidates
+                if str(candidate.get("setup_type", "")).strip().upper() not in quarantined_short_setups
             ]
         raw_candidates.extend(short_candidates)
     return sorted(raw_candidates, key=_rank_key)
@@ -1059,6 +1067,11 @@ def _replay_full_market_baseline_rows(
     allowed_short_setup_types = (
         frozenset(config.experiment_params.allowed_short_setup_types) if config.experiment_params is not None else frozenset()
     )
+    quarantined_short_setup_types = (
+        frozenset(config.experiment_params.quarantined_short_setup_types)
+        if config.experiment_params is not None
+        else frozenset()
+    )
     entry_profile = config.experiment_params.entry_profile if config.experiment_params is not None else None
     minimum_cost_coverage_ratio = (
         config.experiment_params.minimum_cost_coverage_ratio if config.experiment_params is not None else 0.0
@@ -1102,6 +1115,7 @@ def _replay_full_market_baseline_rows(
             row,
             disabled_engines=disabled_engines,
             allowed_short_setup_types=allowed_short_setup_types,
+            quarantined_short_setup_types=quarantined_short_setup_types,
             entry_profile=entry_profile,
         ):
             symbol = str(candidate_row.get("symbol", ""))

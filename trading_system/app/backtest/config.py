@@ -168,6 +168,21 @@ def _load_allowed_short_setup_types(raw: Any) -> tuple[str, ...]:
     return tuple(normalized)
 
 
+def _load_quarantined_short_setup_types(raw: Any) -> tuple[str, ...]:
+    if raw is None:
+        return ()
+    if not isinstance(raw, list):
+        raise ValueError("experiment_params.quarantined_short_setup_types must be a list")
+    normalized: list[str] = []
+    for item in raw:
+        setup_type = str(item).strip().upper()
+        if not setup_type:
+            continue
+        if setup_type not in normalized:
+            normalized.append(setup_type)
+    return tuple(normalized)
+
+
 def _load_upper_unique_tuple(raw: Any, *, field_name: str) -> tuple[str, ...]:
     if raw is None:
         return ()
@@ -207,6 +222,7 @@ def _load_experiment_params(raw: Any, *, experiment_kind: str) -> ExperimentPara
         minimum_effectiveness_sample_count=int(raw.get("minimum_effectiveness_sample_count", 30)),
         disabled_engines=_load_disabled_engines(raw.get("disabled_engines")),
         allowed_short_setup_types=_load_allowed_short_setup_types(raw.get("allowed_short_setup_types")),
+        quarantined_short_setup_types=_load_quarantined_short_setup_types(raw.get("quarantined_short_setup_types")),
         entry_profile=str(raw["entry_profile"]).strip() if raw.get("entry_profile") is not None else None,
         llm_label_path=str(raw["llm_label_path"]).strip() if raw.get("llm_label_path") is not None else None,
         require_llm_label=bool(raw.get("require_llm_label", True)),
