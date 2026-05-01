@@ -119,6 +119,7 @@ def test_backtest_cli_runs_full_market_baseline_smoke_fixture(
     assert (bundle_dir / "breakdowns.json").exists()
     assert (bundle_dir / "audit.json").exists()
     assert (bundle_dir / "trades.json").exists()
+    assert (bundle_dir / "exit_path_replay.json").exists()
     assert (bundle_dir / "trade_postmortem.md").exists()
     postmortem = (bundle_dir / "trade_postmortem.md").read_text(encoding="utf-8")
     assert "逐单复盘" in postmortem
@@ -126,6 +127,19 @@ def test_backtest_cli_runs_full_market_baseline_smoke_fixture(
     trades_path = bundle_dir / "trades.json"
     assert trades_path.exists()
     trades = json.loads(trades_path.read_text(encoding="utf-8"))["trades"]
+    exit_path_payload = json.loads((bundle_dir / "exit_path_replay.json").read_text(encoding="utf-8"))
+    assert exit_path_payload["metadata"]["experiment_kind"] == "full_market_baseline"
+    assert exit_path_payload["exit_path_replay"]["schema_version"] == "exit_path_replay_audit.v1"
+    assert exit_path_payload["exit_path_replay"]["counts"]
+    assert len(exit_path_payload["exit_path_replay"]["trades"]) == len(trades)
+    assert "simulated_exit_ordering" in exit_path_payload["exit_path_replay"]["trades"][0]
+    summary_payload = json.loads((bundle_dir / "summary.json").read_text(encoding="utf-8"))
+    assert summary_payload["metadata"]["experiment_params"] == {
+        "disabled_engines": [],
+        "allowed_short_setup_types": [],
+        "quarantined_setup_types": [],
+        "quarantined_short_setup_types": [],
+    }
     assert trades
     assert {
         "engine",
@@ -146,6 +160,11 @@ def test_backtest_cli_runs_full_market_baseline_smoke_fixture(
         "execution_price_source",
         "fill_model",
         "fill_quality",
+        "exit_fill_model",
+        "exit_price_source",
+        "exit_fill_quality",
+        "exit_fill_timestamp",
+        "exit_slippage_vs_reference_bps",
     }.issubset(trades[0])
     assert trades[0]["fill_model"] == "reference_close"
     assert trades[0]["execution_price_source"] == "ohlcv_close"
@@ -204,6 +223,98 @@ def test_full_market_baseline_uses_trade_print_execution_evidence_for_entry_fill
     assert btc_trade.fill_model == "taker_trade_print"
     assert btc_trade.execution_price_source == "trade_print"
     assert btc_trade.fill_quality == "evidence_backed"
+
+
+def test_full_market_baseline_uses_trade_print_execution_evidence_for_fixed_horizon_exit(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    config_path = _baseline_config_path(tmp_path)
+    dataset_root = tmp_path / "baseline_dataset"
+    first_bundle = dataset_root / "2026-03-10T00-00-00Z__row-001"
+    first_market_path = first_bundle / "market_context.json"
+    first_market_payload = json.loads(first_market_path.read_text(encoding="utf-8"))
+    first_market_payload["symbols"]["BTCUSDT"]["execution"] = {
+        "trades": [
+            {
+                "timestamp": "2026-03-10T00:00:03Z",
+                "price": 101.25,
+                "quantity": 2.0,
+                "side": "buy",
+            }
+        ]
+    }
+    first_market_path.write_text(json.dumps(first_market_payload), encoding="utf-8")
+
+    exit_bundle = dataset_root / "2026-03-11T00-00-00Z__row-002"
+    exit_market_path = exit_bundle / "market_context.json"
+    exit_market_payload = json.loads(exit_market_path.read_text(encoding="utf-8"))
+    exit_market_payload["symbols"]["BTCUSDT"]["execution"] = {
+        "trades": [
+            {
+                "timestamp": "2026-03-10T23:59:58Z",
+                "price": 109.5,
+                "quantity": 1.0,
+                "side": "sell",
+            },
+            {
+                "timestamp": "2026-03-11T00:00:02Z",
+                "price": 108.75,
+                "quantity": 1.0,
+                "side": "sell",
+            },
+        ]
+    }
+    exit_market_path.write_text(json.dumps(exit_market_payload), encoding="utf-8")
+
+    config = load_backtest_config(config_path)
+    _install_replay_candidates(monkeypatch)
+
+    result = backtest_engine.replay_full_market_baseline(config)
+
+    btc_trade = next(row for row in result.trade_ledger if row.symbol == "BTCUSDT")
+    assert btc_trade.exit_timestamp == _ts("2026-03-11T00:00:00Z")
+    assert btc_trade.exit_price == pytest.approx(108.75)
+    assert btc_trade.exit_fill_model == "taker_trade_print"
+    assert btc_trade.exit_price_source == "trade_print"
+    assert btc_trade.exit_fill_quality == "evidence_backed"
+    assert btc_trade.exit_fill_timestamp == _ts("2026-03-11T00:00:02Z")
+    assert btc_trade.exit_slippage_vs_reference_bps == pytest.approx(((108.75 - 110.0) / 110.0) * 10_000.0)
+
+
+def test_full_market_baseline_uses_nearby_pre_exit_trade_print_when_no_post_exit_print(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    config_path = _baseline_config_path(tmp_path)
+    dataset_root = tmp_path / "baseline_dataset"
+    exit_bundle = dataset_root / "2026-03-11T00-00-00Z__row-002"
+    exit_market_path = exit_bundle / "market_context.json"
+    exit_market_payload = json.loads(exit_market_path.read_text(encoding="utf-8"))
+    exit_market_payload["symbols"]["BTCUSDT"]["execution"] = {
+        "trades": [
+            {
+                "timestamp": "2026-03-10T23:59:59.700Z",
+                "price": 109.25,
+                "quantity": 1.0,
+                "side": "sell",
+            }
+        ]
+    }
+    exit_market_path.write_text(json.dumps(exit_market_payload), encoding="utf-8")
+
+    config = load_backtest_config(config_path)
+    _install_replay_candidates(monkeypatch)
+
+    result = backtest_engine.replay_full_market_baseline(config)
+
+    btc_trade = next(row for row in result.trade_ledger if row.symbol == "BTCUSDT")
+    assert btc_trade.exit_timestamp == _ts("2026-03-11T00:00:00Z")
+    assert btc_trade.exit_price == pytest.approx(109.25)
+    assert btc_trade.exit_fill_model == "taker_trade_print"
+    assert btc_trade.exit_price_source == "trade_print"
+    assert btc_trade.exit_fill_quality == "evidence_backed"
+    assert btc_trade.exit_fill_timestamp == _ts("2026-03-10T23:59:59.700Z")
 
 
 def test_backtest_cli_rejects_invalid_config(
@@ -1031,6 +1142,32 @@ def test_replay_full_market_baseline_simulates_short_stop_loss_conservatively(
     assert short_trade.simulated_exit_price == pytest.approx(110.0)
     assert short_trade.simulated_exit_move_pct == pytest.approx(-0.10)
     assert short_trade.simulated_gross_pnl < short_trade.gross_pnl
+
+
+def test_replay_full_market_baseline_marks_same_bar_stop_and_target_as_ambiguous_conservative(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    config_path = _baseline_config_path(tmp_path)
+    config = load_backtest_config(config_path)
+    row2_bundle = config.dataset_root / "2026-03-11T00-00-00Z__row-002"
+    market_path = row2_bundle / "market_context.json"
+    market_payload = json.loads(market_path.read_text(encoding="utf-8"))
+    market_payload["symbols"]["BTCUSDT"]["1h"] = {
+        **market_payload["symbols"]["BTCUSDT"].get("1h", {}),
+        "high": 116.0,
+        "low": 89.0,
+        "close": 110.0,
+    }
+    market_path.write_text(json.dumps(market_payload), encoding="utf-8")
+    _install_replay_candidates(monkeypatch)
+
+    result = backtest_engine.replay_full_market_baseline(load_backtest_config(config_path))
+
+    btc_trade = next(row for row in result.trade_ledger if row.symbol == "BTCUSDT")
+    assert btc_trade.simulated_exit_reason == "stop_loss"
+    assert btc_trade.simulated_exit_price == pytest.approx(90.0)
+    assert btc_trade.simulated_exit_ordering == "ambiguous_conservative_stop"
 
 
 def test_replay_full_market_baseline_does_not_simulate_stop_or_target_without_intraday_path(

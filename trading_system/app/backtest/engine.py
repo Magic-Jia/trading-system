@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, is_dataclass, replace
+from datetime import timedelta
 from typing import Any, Mapping
 
 from trading_system.app.config import DEFAULT_CONFIG, AppConfig, normalize_engine_names
@@ -299,6 +300,66 @@ def _reference_price(row: DatasetSnapshotRow, symbol: str) -> float:
     return price
 
 
+def _exit_execution_fill(row: DatasetSnapshotRow, open_trade: _OpenTrade, reference_price: float):
+    """Return fixed-horizon exit fill evidence.
+
+    Prefer the first executable trade print at or after the scheduled exit
+    timestamp. This avoids treating higher-timeframe reference closes as if
+    they were actual executable exits when aggTrades/trade-print evidence is
+    present in the exit row.
+    """
+    exit_side = "sell" if open_trade.side == "long" else "buy"
+    _order_books, trades = _execution_evidence(row, open_trade.symbol)
+    symbol_trades = sorted(
+        (trade for trade in trades if trade.symbol == open_trade.symbol and trade.price > 0.0),
+        key=lambda trade: trade.timestamp,
+    )
+    post_exit_trades = [trade for trade in symbol_trades if trade.timestamp >= row.timestamp]
+    if post_exit_trades:
+        trade = post_exit_trades[0]
+    else:
+        pre_exit_floor = row.timestamp - timedelta(seconds=1)
+        pre_exit_trades = [trade for trade in symbol_trades if pre_exit_floor <= trade.timestamp < row.timestamp]
+        trade = pre_exit_trades[-1] if pre_exit_trades else None
+    if trade is not None:
+        return ExecutionFill(
+            symbol=open_trade.symbol,
+            side=exit_side,
+            quantity=open_trade.qty,
+            filled=True,
+            fill_price=float(trade.price),
+            fill_model="taker_trade_print",
+            execution_price_source="trade_print",
+            fill_quality="evidence_backed",
+            outcome="filled",
+            evidence_timestamp=trade.timestamp,
+            requested_quantity=open_trade.qty,
+            requested_notional=open_trade.position_notional,
+            filled_quantity=open_trade.qty,
+            filled_notional=open_trade.qty * float(trade.price),
+            unfilled_quantity=0.0,
+            slippage_bps=_exit_slippage_vs_reference_bps(
+                side=open_trade.side,
+                fill_price=float(trade.price),
+                reference_price=reference_price,
+            ),
+        )
+    return reference_close_fill(
+        symbol=open_trade.symbol,
+        side=exit_side,
+        quantity=open_trade.qty,
+        close_price=reference_price,
+    )
+
+
+def _exit_slippage_vs_reference_bps(*, side: str, fill_price: float, reference_price: float) -> float | None:
+    if fill_price <= 0.0 or reference_price <= 0.0:
+        return None
+    if side == "long":
+        return ((float(fill_price) - float(reference_price)) / float(reference_price)) * 10_000.0
+    return ((float(reference_price) - float(fill_price)) / float(reference_price)) * 10_000.0
+
+
 def _reference_close_execution(row: DatasetSnapshotRow, symbol: str, side: str):
     return reference_close_fill(
         symbol=symbol,
@@ -444,21 +505,24 @@ def _simulate_intraday_exit(
     take_profit: float | None,
     path_high: float,
     path_low: float,
-) -> tuple[str, float, float]:
+) -> tuple[str, float, float, str]:
     if entry_price <= 0.0:
-        return "fixed_horizon", fixed_exit_price, 0.0
+        return "fixed_horizon", fixed_exit_price, 0.0, "no_intraday_ordering"
     if side == "long":
         stop_hit = stop_loss > 0.0 and path_low <= stop_loss
         take_profit_hit = take_profit is not None and take_profit > 0.0 and path_high >= take_profit
         if stop_hit:
             exit_reason = "stop_loss"
             simulated_exit_price = stop_loss
+            ordering = "ambiguous_conservative_stop" if take_profit_hit else "stop_only"
         elif take_profit_hit:
             exit_reason = "take_profit"
             simulated_exit_price = float(take_profit)
+            ordering = "target_only"
         else:
             exit_reason = "fixed_horizon"
             simulated_exit_price = fixed_exit_price
+            ordering = "neither_hit"
         simulated_exit_move_pct = (simulated_exit_price - entry_price) / entry_price
     else:
         stop_hit = stop_loss > 0.0 and path_high >= stop_loss
@@ -466,14 +530,17 @@ def _simulate_intraday_exit(
         if stop_hit:
             exit_reason = "stop_loss"
             simulated_exit_price = stop_loss
+            ordering = "ambiguous_conservative_stop" if take_profit_hit else "stop_only"
         elif take_profit_hit:
             exit_reason = "take_profit"
             simulated_exit_price = float(take_profit)
+            ordering = "target_only"
         else:
             exit_reason = "fixed_horizon"
             simulated_exit_price = fixed_exit_price
+            ordering = "neither_hit"
         simulated_exit_move_pct = (entry_price - simulated_exit_price) / entry_price
-    return exit_reason, simulated_exit_price, simulated_exit_move_pct
+    return exit_reason, simulated_exit_price, simulated_exit_move_pct, ordering
 
 
 def _funding_rate(row: DatasetSnapshotRow, symbol: str) -> float:
@@ -926,7 +993,9 @@ def _trade_row(
     exit_row: DatasetSnapshotRow,
     costs: BacktestCosts,
 ) -> tuple[TradeLedgerRow, float, float, float, float, float]:
-    exit_price = _reference_price(exit_row, open_trade.symbol) or open_trade.entry_price
+    reference_price = _reference_price(exit_row, open_trade.symbol) or open_trade.entry_price
+    exit_fill = _exit_execution_fill(exit_row, open_trade, reference_price)
+    exit_price = exit_fill.fill_price if exit_fill.fill_price is not None else reference_price
     direction = 1.0 if open_trade.side == "long" else -1.0
     holding_hours = (exit_row.timestamp - open_trade.entry_timestamp).total_seconds() / 3600.0
     path_high, path_low = _path_high_low(exit_row, open_trade.symbol)
@@ -945,7 +1014,7 @@ def _trade_row(
         path_low=path_low,
     )
     if has_intraday_path:
-        simulated_exit_reason, simulated_exit_price, simulated_exit_move_pct = _simulate_intraday_exit(
+        simulated_exit_reason, simulated_exit_price, simulated_exit_move_pct, simulated_exit_ordering = _simulate_intraday_exit(
             side=open_trade.side,
             entry_price=open_trade.entry_price,
             fixed_exit_price=exit_price,
@@ -958,6 +1027,7 @@ def _trade_row(
         simulated_exit_reason = "fixed_horizon"
         simulated_exit_price = exit_price
         simulated_exit_move_pct = exit_move_pct
+        simulated_exit_ordering = "no_intraday_path"
     gross_pnl = (exit_price - open_trade.entry_price) * open_trade.qty * direction
     fees = fee_cost(position_notional=open_trade.position_notional, market_type=open_trade.market_type, costs=costs)
     slippage = slippage_cost(
@@ -1010,6 +1080,7 @@ def _trade_row(
             simulated_exit_reason=simulated_exit_reason,
             simulated_exit_price=simulated_exit_price,
             simulated_exit_move_pct=simulated_exit_move_pct,
+            simulated_exit_ordering=simulated_exit_ordering,
             simulated_gross_pnl=simulated_gross_pnl,
             simulated_net_pnl=simulated_net_pnl,
             cost_coverage_ratio=open_trade.cost_coverage_ratio,
@@ -1046,6 +1117,11 @@ def _trade_row(
             open_interest_usdt=open_trade.open_interest_usdt,
             open_interest_timestamp=open_trade.open_interest_timestamp,
             open_interest_age_seconds=open_trade.open_interest_age_seconds,
+            exit_fill_model=exit_fill.fill_model,
+            exit_price_source=exit_fill.execution_price_source,
+            exit_fill_quality=exit_fill.fill_quality,
+            exit_fill_timestamp=exit_fill.evidence_timestamp,
+            exit_slippage_vs_reference_bps=exit_fill.slippage_bps,
         ),
         gross_pnl,
         net_pnl,
@@ -1075,13 +1151,13 @@ def _replay_full_market_baseline_rows(
     allowed_short_setup_types = (
         frozenset(config.experiment_params.allowed_short_setup_types) if config.experiment_params is not None else frozenset()
     )
-    quarantined_setup_types = (
-        frozenset(config.experiment_params.quarantined_setup_types) if config.experiment_params is not None else frozenset()
-    )
     quarantined_short_setup_types = (
         frozenset(config.experiment_params.quarantined_short_setup_types)
         if config.experiment_params is not None
         else frozenset()
+    )
+    quarantined_setup_types = (
+        frozenset(config.experiment_params.quarantined_setup_types) if config.experiment_params is not None else frozenset()
     )
     entry_profile = config.experiment_params.entry_profile if config.experiment_params is not None else None
     minimum_cost_coverage_ratio = (

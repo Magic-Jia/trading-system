@@ -232,6 +232,7 @@ class TradeLedgerRow:
     simulated_exit_reason: str = ""
     simulated_exit_price: float | None = None
     simulated_exit_move_pct: float | None = None
+    simulated_exit_ordering: str = ""
     simulated_gross_pnl: float | None = None
     simulated_net_pnl: float | None = None
     cost_coverage_ratio: float | None = None
@@ -268,6 +269,11 @@ class TradeLedgerRow:
     open_interest_usdt: float | None = None
     open_interest_timestamp: datetime | None = None
     open_interest_age_seconds: int | None = None
+    exit_fill_model: ExecutionFillModel = "reference_close"
+    exit_price_source: ExecutionPriceSource = "ohlcv_close"
+    exit_fill_quality: FillQuality = "approximate"
+    exit_fill_timestamp: datetime | None = None
+    exit_slippage_vs_reference_bps: float | None = None
 
 
 @dataclass(frozen=True, slots=True)

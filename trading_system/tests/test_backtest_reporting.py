@@ -620,8 +620,12 @@ def test_backtest_cli_writes_full_market_baseline_bundle(monkeypatch: pytest.Mon
         "breakdowns.json",
         "audit.json",
         "trades.json",
+        "exit_path_replay.json",
         "trade_postmortem.md",
     ]
+    exit_path = json.loads((bundle_dir / "exit_path_replay.json").read_text(encoding="utf-8"))["exit_path_replay"]
+    assert exit_path["schema_version"] == "exit_path_replay_audit.v1"
+    assert len(exit_path["trades"]) == len(sample_baseline_result().trade_ledger)
     trades = json.loads((bundle_dir / "trades.json").read_text(encoding="utf-8"))["trades"]
     assert trades and "exit_reason" in trades[0]
     assert trades[0]["entry_reference_timeframe"] == "15m"

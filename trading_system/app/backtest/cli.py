@@ -9,6 +9,7 @@ from typing import Any, Callable
 from .config import load_backtest_config
 from .dataset import load_dataset_root_metadata, load_historical_dataset, split_rows_by_windows
 from .engine import replay_full_market_baseline
+from .live_readiness import audit_exit_path_replay
 from .experiments import (
     run_allocator_friction_experiment,
     run_engine_filter_ablation_experiment,
@@ -141,6 +142,7 @@ def _full_market_baseline_outputs(config: BacktestConfig, rows: list[DatasetSnap
         "breakdowns.json": {"metadata": metadata, "breakdowns": report["breakdowns"]},
         "audit.json": {"metadata": metadata, "audit": report["audit"]},
         "trades.json": {"metadata": metadata, "trades": report["trades"]},
+        "exit_path_replay.json": {"metadata": metadata, "exit_path_replay": audit_exit_path_replay(report["trades"])},
         "trade_postmortem.md": _render_trade_postmortem_markdown(report["trades"]),
     }
     return _manifest(config, rows, artifacts, metadata), artifacts

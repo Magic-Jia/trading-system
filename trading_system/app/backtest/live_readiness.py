@@ -100,6 +100,9 @@ def _exit_classification(trade: Mapping[str, Any], market_context: Mapping[str, 
     symbol = str(trade.get("symbol", ""))
     if _execution_trades_for_symbol(market_context, symbol):
         return "trade_print_path_available"
+    simulated_ordering = str(trade.get("simulated_exit_ordering") or "").lower()
+    if simulated_ordering == "ambiguous_conservative_stop":
+        return "ambiguous_intrabar_order"
     simulated_reason = str(trade.get("simulated_exit_reason") or "").lower()
     exit_reason = str(trade.get("exit_reason") or "").lower()
     if simulated_reason in {"stop_loss", "take_profit", "stop", "tp"} or (
@@ -130,6 +133,7 @@ def audit_exit_path_replay(
                 "symbol": trade.get("symbol"),
                 "exit_reason": trade.get("exit_reason"),
                 "simulated_exit_reason": trade.get("simulated_exit_reason"),
+                "simulated_exit_ordering": trade.get("simulated_exit_ordering"),
                 "classification": classification,
             }
         )
@@ -180,6 +184,12 @@ def _chunk_report(chunk_dir: Path) -> dict[str, Any]:
         if str(trade.get("fill_quality", "")).lower() in {"evidence_backed", "partial_evidence_backed"}
         or str(trade.get("execution_price_source", "")).lower() == "trade_print"
     )
+    exit_evidence_count = sum(
+        1
+        for trade in trades
+        if str(trade.get("exit_fill_quality", "")).lower() in {"evidence_backed", "partial_evidence_backed"}
+        or str(trade.get("exit_price_source", "")).lower() == "trade_print"
+    )
     metadata = _as_mapping(trades_payload.get("metadata"))
     period = metadata.get("sample_period")
     return {
@@ -190,6 +200,7 @@ def _chunk_report(chunk_dir: Path) -> dict[str, Any]:
         "gross_pnl": sum(_float_value(trade.get("gross_pnl")) for trade in trades),
         "costs": dict(_as_mapping(_as_mapping(summary_payload.get("summary")).get("cost_breakdown"))),
         "evidence_coverage": evidence_count / len(trades) if trades else 0.0,
+        "exit_evidence_coverage": exit_evidence_count / len(trades) if trades else 0.0,
         "regime": metadata.get("regime") or metadata.get("regime_label"),
         "sample_period": period if isinstance(period, Mapping) else {},
     }
@@ -199,6 +210,8 @@ def build_live_readiness_gate_report(
     chunk_results_dir: str | Path,
     *,
     evidence_coverage_threshold: float = 0.95,
+    exit_evidence_coverage_threshold: float = 0.95,
+    max_exit_path_ambiguity_rate: float = 0.05,
 ) -> dict[str, Any]:
     root = Path(chunk_results_dir)
     chunk_dirs = sorted(path for path in root.iterdir() if path.is_dir() and (path / "trades.json").exists())
@@ -229,6 +242,19 @@ def build_live_readiness_gate_report(
         or str(trade.get("execution_price_source", "")).lower() == "trade_print"
     )
     evidence_coverage = evidence_count / trade_count if trade_count else 0.0
+    exit_evidence_count = sum(
+        1
+        for trade in all_trades
+        if str(trade.get("exit_fill_quality", "")).lower() in {"evidence_backed", "partial_evidence_backed"}
+        or str(trade.get("exit_price_source", "")).lower() == "trade_print"
+    )
+    exit_evidence_coverage = exit_evidence_count / trade_count if trade_count else 0.0
+    exit_path_replay = audit_exit_path_replay(all_trades)
+    exit_path_counts = _as_mapping(exit_path_replay.get("counts"))
+    exit_path_ambiguous_count = int(exit_path_counts.get("fixed_horizon_only") or 0) + int(
+        exit_path_counts.get("ambiguous_intrabar_order") or 0
+    )
+    exit_path_ambiguity_rate = exit_path_ambiguous_count / trade_count if trade_count else 0.0
 
     major_negative = [key for key, bucket in by_setup.items() if bucket["trade_count"] >= 1 and bucket["net_pnl"] < 0.0]
     reasons: list[str] = []
@@ -236,6 +262,10 @@ def build_live_readiness_gate_report(
         reasons.append("net_pnl_below_zero")
     if evidence_coverage < evidence_coverage_threshold:
         reasons.append("evidence_coverage_below_threshold")
+    if exit_evidence_coverage < exit_evidence_coverage_threshold:
+        reasons.append("exit_evidence_coverage_below_threshold")
+    if exit_path_ambiguity_rate > max_exit_path_ambiguity_rate:
+        reasons.append("exit_path_ambiguity_rate_above_threshold")
     if major_negative:
         reasons.append("major_setup_bucket_negative")
     decision = "reject_for_live_promotion" if reasons else "candidate_for_promotion"
@@ -251,6 +281,10 @@ def build_live_readiness_gate_report(
             "costs": {"fees": fees, "slippage": slippage, "funding": funding, "total": fees + slippage + funding},
             "evidence_coverage": evidence_coverage,
             "evidence_coverage_threshold": evidence_coverage_threshold,
+            "exit_evidence_coverage": exit_evidence_coverage,
+            "exit_evidence_coverage_threshold": exit_evidence_coverage_threshold,
+            "exit_path_ambiguity_rate": exit_path_ambiguity_rate,
+            "max_exit_path_ambiguity_rate": max_exit_path_ambiguity_rate,
         },
         "failure_taxonomy": {
             "loss_trade_count": sum(1 for trade in all_trades if _float_value(trade.get("net_pnl")) < 0.0),
@@ -261,6 +295,12 @@ def build_live_readiness_gate_report(
         "by_setup_type": {key: by_setup[key] for key in sorted(by_setup)},
         "by_symbol": {key: by_symbol[key] for key in sorted(by_symbol)},
         "by_side": {key: by_side[key] for key in sorted(by_side)},
+        "exit_path_replay": {
+            "schema_version": exit_path_replay.get("schema_version"),
+            "counts": dict(exit_path_counts),
+            "ambiguous_count": exit_path_ambiguous_count,
+            "ambiguity_rate": exit_path_ambiguity_rate,
+        },
         "cost_sensitivity": {
             "net_pnl_before_costs": net_pnl + fees + slippage + funding,
             "net_pnl_if_costs_double": net_pnl - fees - slippage - funding,
@@ -272,6 +312,8 @@ def build_live_readiness_gate_report(
             "checks": {
                 "net_pnl_non_negative": net_pnl >= 0.0,
                 "evidence_coverage_met": evidence_coverage >= evidence_coverage_threshold,
+                "exit_evidence_coverage_met": exit_evidence_coverage >= exit_evidence_coverage_threshold,
+                "exit_path_ambiguity_rate_met": exit_path_ambiguity_rate <= max_exit_path_ambiguity_rate,
                 "major_setup_buckets_non_negative": not major_negative,
             },
         },
@@ -293,6 +335,8 @@ def render_live_readiness_markdown(report: Mapping[str, Any]) -> str:
         f"- trades: {totals.get('trade_count', 0)}",
         f"- net_pnl: {float(totals.get('net_pnl') or 0.0):.2f}",
         f"- evidence_coverage: {float(totals.get('evidence_coverage') or 0.0):.2%}",
+        f"- exit_evidence_coverage: {float(totals.get('exit_evidence_coverage') or 0.0):.2%}",
+        f"- exit_path_ambiguity_rate: {float(totals.get('exit_path_ambiguity_rate') or 0.0):.2%}",
         "",
         "## Caveats",
     ]

@@ -137,6 +137,15 @@ def test_exit_path_replay_audit_marks_intrabar_limitations() -> None:
                 "mfe_pct": 0.02,
                 "mae_pct": -0.03,
             },
+            {
+                "symbol": "XRPUSDT",
+                "exit_reason": "fixed_horizon",
+                "simulated_exit_reason": "stop_loss",
+                "simulated_exit_ordering": "ambiguous_conservative_stop",
+                "simulated_exit_price": 90.0,
+                "mfe_pct": 0.03,
+                "mae_pct": -0.04,
+            },
             {"symbol": "SOLUSDT", "exit_reason": "take_profit", "mfe_pct": 0.04, "mae_pct": -0.03},
             {"symbol": "BNBUSDT", "exit_reason": "fixed_horizon"},
         ],
@@ -146,8 +155,109 @@ def test_exit_path_replay_audit_marks_intrabar_limitations() -> None:
     assert report["counts"]["fixed_horizon_only"] == 1
     assert report["counts"]["bar_path_stop_or_tp"] == 1
     assert report["counts"]["trade_print_path_available"] == 1
-    assert report["counts"]["ambiguous_intrabar_order"] == 1
+    assert report["counts"]["ambiguous_intrabar_order"] == 2
+    assert any(row["simulated_exit_ordering"] == "ambiguous_conservative_stop" for row in report["trades"])
     assert any("does not invent tick precision" in caveat for caveat in report["caveats"])
+
+
+def test_live_readiness_gate_report_rejects_when_exit_path_ambiguity_rate_exceeds_threshold(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    chunk.mkdir()
+    (chunk / "trades.json").write_text(
+        json.dumps(
+            {
+                "trades": [
+                    {
+                        "symbol": "BTCUSDT",
+                        "side": "long",
+                        "setup_type": "BREAKOUT_CONTINUATION",
+                        "net_pnl": 100.0,
+                        "fill_quality": "evidence_backed",
+                        "execution_price_source": "trade_print",
+                        "exit_fill_quality": "evidence_backed",
+                        "exit_price_source": "trade_print",
+                        "exit_reason": "fixed_horizon",
+                        "mfe_pct": 0.01,
+                        "mae_pct": -0.01,
+                    },
+                    {
+                        "symbol": "ETHUSDT",
+                        "side": "long",
+                        "setup_type": "BREAKOUT_CONTINUATION",
+                        "net_pnl": 50.0,
+                        "fill_quality": "evidence_backed",
+                        "execution_price_source": "trade_print",
+                        "exit_fill_quality": "evidence_backed",
+                        "exit_price_source": "trade_print",
+                        "exit_reason": "take_profit",
+                        "mfe_pct": 0.04,
+                        "mae_pct": -0.03,
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_live_readiness_gate_report(
+        tmp_path,
+        evidence_coverage_threshold=0.95,
+        exit_evidence_coverage_threshold=0.95,
+        max_exit_path_ambiguity_rate=0.25,
+    )
+
+    assert report["exit_path_replay"]["counts"]["fixed_horizon_only"] == 1
+    assert report["exit_path_replay"]["counts"]["ambiguous_intrabar_order"] == 1
+    assert report["totals"]["exit_path_ambiguity_rate"] == pytest.approx(1.0)
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+    assert "exit_path_ambiguity_rate_above_threshold" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["checks"]["exit_path_ambiguity_rate_met"] is False
+
+
+def test_live_readiness_gate_report_rejects_when_exit_evidence_coverage_is_below_threshold(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    chunk.mkdir()
+    (chunk / "trades.json").write_text(
+        json.dumps(
+            {
+                "trades": [
+                    {
+                        "symbol": "BTCUSDT",
+                        "side": "long",
+                        "setup_type": "BREAKOUT_CONTINUATION",
+                        "net_pnl": 100.0,
+                        "fill_quality": "evidence_backed",
+                        "execution_price_source": "trade_print",
+                        "exit_fill_quality": "approximate",
+                        "exit_price_source": "ohlcv_close",
+                    },
+                    {
+                        "symbol": "ETHUSDT",
+                        "side": "long",
+                        "setup_type": "BREAKOUT_CONTINUATION",
+                        "net_pnl": 50.0,
+                        "fill_quality": "evidence_backed",
+                        "execution_price_source": "trade_print",
+                        "exit_fill_quality": "evidence_backed",
+                        "exit_price_source": "trade_print",
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_live_readiness_gate_report(
+        tmp_path,
+        evidence_coverage_threshold=0.95,
+        exit_evidence_coverage_threshold=0.95,
+    )
+
+    assert report["totals"]["evidence_coverage"] == pytest.approx(1.0)
+    assert report["totals"]["exit_evidence_coverage"] == pytest.approx(0.5)
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+    assert "exit_evidence_coverage_below_threshold" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["checks"]["exit_evidence_coverage_met"] is False
 
 
 def test_live_readiness_gate_report_rejects_negative_chunks_and_setup_buckets(tmp_path: Path) -> None:
