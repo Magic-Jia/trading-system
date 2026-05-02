@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -429,6 +430,113 @@ def test_load_backtest_config_parses_full_market_baseline_entry_profile(tmp_path
 
     assert config.experiment_params is not None
     assert config.experiment_params.entry_profile == "intraday_multi"
+
+
+def test_load_backtest_config_parses_exit_policy(tmp_path: Path) -> None:
+    config_path = tmp_path / "exit_policy_config.json"
+    config_path.write_text(
+        """
+        {
+          "dataset_root": "sample_dataset",
+          "experiment_kind": "full_market_baseline",
+          "sample_windows": [
+            {
+              "name": "train",
+              "start": "2026-01-01T00:00:00Z",
+              "end": "2026-02-01T00:00:00Z"
+            }
+          ],
+          "costs": {
+            "fee_bps": {
+              "spot": 10.0,
+              "futures": 5.0
+            },
+            "slippage_tiers": {
+              "top": 2.0
+            },
+            "funding_mode": "historical_series"
+          },
+          "baseline_name": "market-wide",
+          "variant_name": "exit-policy-config",
+          "experiment_params": {
+            "exit_policy": {
+              "name": "after_cost_breakeven_stop",
+              "after_cost_buffer_bps": 2.0,
+              "activation_minute": 0
+            }
+          }
+        }
+        """.strip(),
+        encoding="utf-8",
+    )
+
+    config = load_backtest_config(config_path)
+
+    assert config.experiment_params is not None
+    assert config.experiment_params.exit_policy is not None
+    assert config.experiment_params.exit_policy.name == "after_cost_breakeven_stop"
+    assert config.experiment_params.exit_policy.after_cost_buffer_bps == pytest.approx(2.0)
+    assert config.experiment_params.exit_policy.activation_minute == 0
+    assert config.experiment_params.exit_policy.giveback_fraction is None
+    assert config.experiment_params.exit_policy.giveback_min_bps is None
+    assert config.experiment_params.exit_policy.no_breakeven_time_stop_minute is None
+
+
+@pytest.mark.parametrize(
+    ("exit_policy", "message"),
+    [
+        ({"name": "unknown_policy"}, "unknown exit policy"),
+        ({"name": "after_cost_breakeven_stop", "after_cost_buffer_bps": -0.1}, "after_cost_buffer_bps"),
+        ({"name": "after_cost_breakeven_stop", "activation_minute": -1}, "activation_minute"),
+        ({"name": "mfe_giveback_cut", "giveback_fraction": -0.1}, "giveback_fraction"),
+        ({"name": "mfe_giveback_cut", "giveback_fraction": 1.1}, "giveback_fraction"),
+        ({"name": "mfe_giveback_cut", "giveback_min_bps": -1.0}, "giveback_min_bps"),
+        (
+            {"name": "no_breakeven_time_stop", "no_breakeven_time_stop_minute": -1},
+            "no_breakeven_time_stop_minute",
+        ),
+    ],
+)
+def test_load_backtest_config_rejects_invalid_exit_policy(
+    tmp_path: Path,
+    exit_policy: dict[str, object],
+    message: str,
+) -> None:
+    config_path = tmp_path / "invalid_exit_policy_config.json"
+    config_path.write_text(
+        f"""
+        {{
+          "dataset_root": "sample_dataset",
+          "experiment_kind": "full_market_baseline",
+          "sample_windows": [
+            {{
+              "name": "train",
+              "start": "2026-01-01T00:00:00Z",
+              "end": "2026-02-01T00:00:00Z"
+            }}
+          ],
+          "costs": {{
+            "fee_bps": {{
+              "spot": 10.0,
+              "futures": 5.0
+            }},
+            "slippage_tiers": {{
+              "top": 2.0
+            }},
+            "funding_mode": "historical_series"
+          }},
+          "baseline_name": "market-wide",
+          "variant_name": "invalid-exit-policy",
+          "experiment_params": {{
+            "exit_policy": {json.dumps(exit_policy)}
+          }}
+        }}
+        """.strip(),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match=message):
+        load_backtest_config(config_path)
 
 
 def test_load_backtest_config_parses_rotation_suppression_experiment_params(fixture_dir: Path) -> None:

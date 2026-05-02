@@ -87,6 +87,16 @@ class WalkForwardConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class ExitPolicyParams:
+    name: str
+    after_cost_buffer_bps: float = 0.0
+    activation_minute: int = 0
+    giveback_fraction: float | None = None
+    giveback_min_bps: float | None = None
+    no_breakeven_time_stop_minute: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class ExperimentParams:
     evaluation_window: str | None = None
     soft_score_floor: float | None = None
@@ -106,6 +116,7 @@ class ExperimentParams:
     reject_high_fomo: bool = False
     allowed_setup_types: tuple[str, ...] = ()
     minimum_cost_coverage_ratio: float = 0.0
+    exit_policy: ExitPolicyParams | None = None
 
 
 @dataclass(frozen=True, slots=True)

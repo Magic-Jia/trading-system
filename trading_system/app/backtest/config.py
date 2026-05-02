@@ -10,6 +10,7 @@ from .types import (
     BacktestConfig,
     BacktestCosts,
     CapitalModelConfig,
+    ExitPolicyParams,
     ExperimentParams,
     ForwardReturnWindow,
     PromotionMetadata,
@@ -138,6 +139,53 @@ def _load_walk_forward(raw: Any) -> WalkForwardConfig:
     )
 
 
+def _optional_float(raw: dict[str, Any], field_name: str) -> float | None:
+    return float(raw[field_name]) if field_name in raw else None
+
+
+def _optional_int(raw: dict[str, Any], field_name: str) -> int | None:
+    return int(raw[field_name]) if field_name in raw else None
+
+
+def _require_non_negative(value: float | int | None, *, field_name: str) -> None:
+    if value is not None and value < 0:
+        raise ValueError(f"experiment_params.exit_policy.{field_name} must be non-negative")
+
+
+def _load_exit_policy(raw: Any) -> ExitPolicyParams | None:
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise ValueError("experiment_params.exit_policy must be an object")
+
+    name = str(_require(raw, "name")).strip()
+    if name not in {"after_cost_breakeven_stop", "mfe_giveback_cut", "no_breakeven_time_stop"}:
+        raise ValueError(f"unknown exit policy: {name}")
+
+    after_cost_buffer_bps = float(raw.get("after_cost_buffer_bps", 0.0))
+    activation_minute = int(raw.get("activation_minute", 0))
+    giveback_fraction = _optional_float(raw, "giveback_fraction")
+    giveback_min_bps = _optional_float(raw, "giveback_min_bps")
+    no_breakeven_time_stop_minute = _optional_int(raw, "no_breakeven_time_stop_minute")
+
+    _require_non_negative(after_cost_buffer_bps, field_name="after_cost_buffer_bps")
+    _require_non_negative(activation_minute, field_name="activation_minute")
+    _require_non_negative(giveback_fraction, field_name="giveback_fraction")
+    _require_non_negative(giveback_min_bps, field_name="giveback_min_bps")
+    _require_non_negative(no_breakeven_time_stop_minute, field_name="no_breakeven_time_stop_minute")
+    if giveback_fraction is not None and giveback_fraction > 1:
+        raise ValueError("experiment_params.exit_policy.giveback_fraction must be between 0 and 1")
+
+    return ExitPolicyParams(
+        name=name,
+        after_cost_buffer_bps=after_cost_buffer_bps,
+        activation_minute=activation_minute,
+        giveback_fraction=giveback_fraction,
+        giveback_min_bps=giveback_min_bps,
+        no_breakeven_time_stop_minute=no_breakeven_time_stop_minute,
+    )
+
+
 def _load_disabled_engines(raw: Any) -> tuple[str, ...]:
     if raw is None:
         return ()
@@ -233,6 +281,7 @@ def _load_experiment_params(raw: Any, *, experiment_kind: str) -> ExperimentPara
         reject_high_fomo=bool(raw.get("reject_high_fomo", False)),
         allowed_setup_types=_load_upper_unique_tuple(raw.get("allowed_setup_types"), field_name="allowed_setup_types"),
         minimum_cost_coverage_ratio=float(raw.get("minimum_cost_coverage_ratio", 0.0)),
+        exit_policy=_load_exit_policy(raw.get("exit_policy")),
     )
 
     if experiment_kind == "rotation_suppression":
