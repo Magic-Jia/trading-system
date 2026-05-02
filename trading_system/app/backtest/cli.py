@@ -9,6 +9,7 @@ from typing import Any, Callable
 from .config import load_backtest_config
 from .dataset import load_dataset_root_metadata, load_historical_dataset, split_rows_by_windows
 from .engine import replay_full_market_baseline
+from .exit_policy_experiment import build_exit_policy_experiment, serialize_exit_policy
 from .live_readiness import audit_exit_path_replay
 from .experiments import (
     run_allocator_friction_experiment,
@@ -98,6 +99,9 @@ def _base_metadata(config: BacktestConfig, rows: list[DatasetSnapshotRow]) -> di
         "quarantined_setup_types": list(params.quarantined_setup_types),
         "quarantined_short_setup_types": list(params.quarantined_short_setup_types),
     }
+    serialized_exit_policy = serialize_exit_policy(params.exit_policy)
+    if serialized_exit_policy is not None:
+        metadata["experiment_params"]["exit_policy"] = serialized_exit_policy
     return metadata
 
 
@@ -145,6 +149,13 @@ def _full_market_baseline_outputs(config: BacktestConfig, rows: list[DatasetSnap
         "exit_path_replay.json": {"metadata": metadata, "exit_path_replay": audit_exit_path_replay(report["trades"])},
         "trade_postmortem.md": _render_trade_postmortem_markdown(report["trades"]),
     }
+    exit_policy = config.experiment_params.exit_policy if config.experiment_params is not None else None
+    if exit_policy is not None:
+        artifacts["exit_policy_experiment.json"] = build_exit_policy_experiment(
+            trades=report["trades"],
+            policy=exit_policy,
+            metadata=metadata,
+        )
     return _manifest(config, rows, artifacts, metadata), artifacts
 
 

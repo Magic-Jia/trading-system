@@ -14,6 +14,8 @@ from trading_system.app.backtest.types import (
     BaselineReplayResult,
     CapitalModelConfig,
     DatasetSnapshotRow,
+    ExperimentParams,
+    ExitPolicyParams,
     PortfolioDecisionLedgerRow,
     PortfolioScorecardRow,
     SampleWindow,
@@ -636,6 +638,84 @@ def test_backtest_cli_writes_full_market_baseline_bundle(monkeypatch: pytest.Mon
     assert "逐单复盘" in postmortem
     assert "exec_tf" in postmortem
     assert "next_bar_ohlcv" in postmortem
+
+
+def test_full_market_baseline_outputs_emit_exit_policy_experiment_only_when_configured(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(cli, "replay_full_market_baseline", lambda config: sample_baseline_result(), raising=False)
+
+    rows = _sample_dataset_rows()
+    default_config = BacktestConfig(
+        dataset_root=tmp_path / "dataset-default",
+        experiment_kind="full_market_baseline",
+        sample_windows=(),
+        forward_return_windows=(),
+        costs=BacktestCosts(
+            fee_bps_by_market={"spot": 10.0, "futures": 5.0},
+            slippage_bps_by_tier={"top": 2.0},
+            funding_mode="historical_series",
+        ),
+        baseline_name="current_system",
+        variant_name="auditable_baseline",
+    )
+    policy_config = BacktestConfig(
+        dataset_root=tmp_path / "dataset-policy",
+        experiment_kind="full_market_baseline",
+        sample_windows=(),
+        forward_return_windows=(),
+        costs=default_config.costs,
+        baseline_name="current_system",
+        variant_name="exit_policy_variant",
+        experiment_params=ExperimentParams(
+            exit_policy=ExitPolicyParams(name="after_cost_breakeven_stop", after_cost_buffer_bps=2.0)
+        ),
+    )
+
+    default_manifest, default_artifacts = cli._full_market_baseline_outputs(default_config, rows)
+    policy_manifest, policy_artifacts = cli._full_market_baseline_outputs(policy_config, rows)
+
+    assert "exit_policy_experiment.json" not in default_artifacts
+    assert "exit_policy" not in default_artifacts["summary.json"]["metadata"]["experiment_params"]
+    assert default_manifest["artifacts"] == [
+        "manifest.json",
+        "summary.json",
+        "breakdowns.json",
+        "audit.json",
+        "trades.json",
+        "exit_path_replay.json",
+        "trade_postmortem.md",
+    ]
+
+    assert policy_manifest["artifacts"] == [
+        "manifest.json",
+        "summary.json",
+        "breakdowns.json",
+        "audit.json",
+        "trades.json",
+        "exit_path_replay.json",
+        "trade_postmortem.md",
+        "exit_policy_experiment.json",
+    ]
+    assert policy_artifacts["summary.json"]["metadata"]["experiment_params"]["exit_policy"] == {
+        "name": "after_cost_breakeven_stop",
+        "after_cost_buffer_bps": 2.0,
+        "activation_minute": 0,
+        "giveback_fraction": None,
+        "giveback_min_bps": None,
+        "no_breakeven_time_stop_minute": None,
+    }
+    exit_policy_artifact = policy_artifacts["exit_policy_experiment.json"]
+    assert exit_policy_artifact["metadata"]["artifact_type"] == "opt_in_offline_diagnostic"
+    assert exit_policy_artifact["summary"] == {
+        "total_trades": 4,
+        "evaluated_count": 4,
+        "triggered_count": 0,
+        "not_triggered_count": 0,
+        "no_evidence_count": 4,
+        "skipped_count": 0,
+    }
 
 
 
