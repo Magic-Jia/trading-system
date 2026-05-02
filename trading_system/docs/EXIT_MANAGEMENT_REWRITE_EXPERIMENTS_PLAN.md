@@ -15,6 +15,7 @@
 - Corrected gate: `/tmp/trading-system-execution-candidate-90d-20260105-0405-run/analysis/live_readiness_gate_90d_quarantine_exit_evidence_corrected.md`
 - Corrected failure taxonomy: `/tmp/trading-system-execution-candidate-90d-20260105-0405-run/analysis/quarantine_30_trade_corrected_failure_taxonomy.md`
 - Exit rewrite hypotheses: `/tmp/trading-system-execution-candidate-90d-20260105-0405-run/analysis/exit_management_rewrite_hypotheses_corrected_30.md`
+- Corrected 30-trade exit policy comparison: `/tmp/trading-system-execution-candidate-90d-20260105-0405-run/analysis/exit_policy_experiment_corrected_30_comparison.md`
 
 Current corrected survivor state:
 
@@ -27,6 +28,7 @@ Current corrected survivor state:
 - after-cost breakeven hits: 18
 - after-cost breakeven hit then final loss: 8
 - never reached after-cost breakeven: 12
+- corrected 30-trade policy matrix: all six pre-declared policies underperformed the corrected fixed-horizon trade-print baseline; best was `mfe_giveback_cut` at `-4,815.68`, still `-769.43` worse than baseline.
 
 Non-negotiable: these are hypotheses only. Do not promote any rule until it passes full corrected 90d chunks plus OOS/walk-forward/regime validation.
 
@@ -195,34 +197,26 @@ git commit -m "feat(backtest): emit exit policy experiment artifacts"
 
 ### Task 4: Run corrected 30-trade diagnostic matrix
 
+**Status:** completed as an in-sample diagnostic; results were negative and do not support promotion.
+
 **Files/artifacts:**
-- Write outputs under `/tmp/trading-system-execution-candidate-90d-20260105-0405-run/analysis/`
+- `/tmp/trading-system-execution-candidate-90d-20260105-0405-run/analysis/exit_policy_experiment_corrected_30_comparison.json`
+- `/tmp/trading-system-execution-candidate-90d-20260105-0405-run/analysis/exit_policy_experiment_corrected_30_comparison.md`
 
-**Step 1: Evaluate fixed candidate policies**
+**Completed evaluation:**
 
-Use only pre-declared policies from the diagnostic report:
+The run attached `787,118` full-path `aggTrades` rows to the corrected 30 trades with `0` missing trade-print paths. All pre-declared policies underperformed the corrected fixed-horizon trade-print baseline (`-4,046.26` net):
 
-1. `after_cost_breakeven_stop` with small buffer.
-2. `mfe_giveback_cut` with activation `max(2x cost, 20 bps)` and giveback `max(50% MFE, 25 bps)`.
-3. `no_breakeven_time_stop` at 15m, 30m, 45m.
+| policy | triggered | net PnL | delta vs baseline |
+|---|---:|---:|---:|
+| `after_cost_breakeven_stop` buffer 0 bps | 16 | `-7,080.82` | `-3,034.56` |
+| `after_cost_breakeven_stop` buffer 5 bps | 16 | `-6,411.70` | `-2,365.45` |
+| `mfe_giveback_cut` 50% / 25 bps | 11 | `-4,815.68` | `-769.43` |
+| `no_breakeven_time_stop` 15m | 26 | `-8,574.75` | `-4,528.49` |
+| `no_breakeven_time_stop` 30m | 18 | `-6,171.70` | `-2,125.45` |
+| `no_breakeven_time_stop` 45m | 16 | `-5,037.76` | `-991.51` |
 
-**Step 2: Generate matrix artifact**
-
-Output:
-
-```text
-exit_policy_experiment_matrix_corrected_30.json
-exit_policy_experiment_matrix_corrected_30.md
-```
-
-Include:
-
-- net PnL per policy
-- trade count changed
-- evidence-backed exit count
-- by setup net
-- policy trigger counts
-- caveat that this is in-sample diagnostic only
+**Interpretation:** these simple exit-management rewrites did not rescue the survivor set. This strengthens the rejection: the problem is strategy/edge quality, not only the fixed 60m exit implementation.
 
 **Step 3: Do not tune thresholds on this sample**
 

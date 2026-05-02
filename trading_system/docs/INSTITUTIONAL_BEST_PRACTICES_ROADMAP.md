@@ -170,6 +170,27 @@ Diagnostic artifacts:
 - `/tmp/trading-system-execution-candidate-90d-20260105-0405-run/analysis/exit_management_rewrite_hypotheses_corrected_30.md`
 - `/tmp/trading-system-execution-candidate-90d-20260105-0405-run/analysis/exit_management_rewrite_hypotheses_corrected_30.json`
 
+Implementation progress and corrected 30-trade policy experiment:
+
+- `experiment_params.exit_policy` is now opt-in config only.
+- `evaluate_exit_policy(...)` now evaluates chronological trade-print exits as a pure helper; default ledger/runtime behavior is unchanged.
+- Full-market bundles can now emit a separate `exit_policy_experiment.json` artifact when an exit policy is configured; it is explicitly `opt_in_offline_diagnostic` and `changes_baseline_ledger = false`.
+- Corrected 30-trade full-path diagnostic attached `787,118` aggTrades rows with `0` missing trade-print paths. Pre-declared policies all underperformed the corrected fixed-horizon trade-print baseline:
+  - baseline corrected fixed-horizon net PnL: `-4,046.26`
+  - `after_cost_breakeven_stop` buffer 0 bps: `-7,080.82` (`-3,034.56` delta)
+  - `after_cost_breakeven_stop` buffer 5 bps: `-6,411.70` (`-2,365.45` delta)
+  - `mfe_giveback_cut` 50% / 25 bps: `-4,815.68` (`-769.43` delta)
+  - `no_breakeven_time_stop` 15m: `-8,574.75` (`-4,528.49` delta)
+  - `no_breakeven_time_stop` 30m: `-6,171.70` (`-2,125.45` delta)
+  - `no_breakeven_time_stop` 45m: `-5,037.76` (`-991.51` delta)
+
+Corrected 30-trade exit policy comparison artifacts:
+
+- `/tmp/trading-system-execution-candidate-90d-20260105-0405-run/analysis/exit_policy_experiment_corrected_30_comparison.md`
+- `/tmp/trading-system-execution-candidate-90d-20260105-0405-run/analysis/exit_policy_experiment_corrected_30_comparison.json`
+
+Interpretation: the pre-declared exit rewrites did not rescue the survivor set. The issue remains strategy/edge quality, not just fixed-horizon implementation. These experiments remain in-sample diagnostics only and cannot support promotion.
+
 ---
 
 ## 4. Strategy research layer: from rules to explainable edge
