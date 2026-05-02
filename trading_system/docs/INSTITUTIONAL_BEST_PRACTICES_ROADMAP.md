@@ -188,6 +188,15 @@ Corrected 30-trade exit policy comparison artifacts:
 
 - `/tmp/trading-system-execution-candidate-90d-20260105-0405-run/analysis/exit_policy_experiment_corrected_30_comparison.md`
 - `/tmp/trading-system-execution-candidate-90d-20260105-0405-run/analysis/exit_policy_experiment_corrected_30_comparison.json`
+- `/tmp/trading-system-execution-candidate-90d-20260105-0405-run/analysis/exit_policy_experiment_corrected_30_breakdowns.md`
+- `/tmp/trading-system-execution-candidate-90d-20260105-0405-run/analysis/exit_policy_experiment_corrected_30_breakdowns.json`
+
+Breakdown diagnostic:
+
+- Aggregate policy results are all worse than the corrected fixed-horizon trade-print baseline.
+- Positive individual deltas exist (`44` trade-policy pairs), but they are not stable enough to tune thresholds on this in-sample survivor sample.
+- There are `10` positive-delta buckets with at least 3 trades, but most remain net-negative after the policy; they reduce loss rather than create an investable edge.
+- The only positive-net positive-delta bucket with at least 3 trades is `mfe_giveback_cut` in the `45-60m` trigger-minute bucket: `4` trades, policy net `+1,610.98`, delta `+348.11`. This is explicitly too small and post-selected; it must not be treated as promotion evidence.
 
 Interpretation: the pre-declared exit rewrites did not rescue the survivor set. The issue remains strategy/edge quality, not just fixed-horizon implementation. These experiments remain in-sample diagnostics only and cannot support promotion.
 

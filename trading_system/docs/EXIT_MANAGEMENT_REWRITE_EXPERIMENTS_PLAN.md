@@ -202,6 +202,8 @@ git commit -m "feat(backtest): emit exit policy experiment artifacts"
 **Files/artifacts:**
 - `/tmp/trading-system-execution-candidate-90d-20260105-0405-run/analysis/exit_policy_experiment_corrected_30_comparison.json`
 - `/tmp/trading-system-execution-candidate-90d-20260105-0405-run/analysis/exit_policy_experiment_corrected_30_comparison.md`
+- `/tmp/trading-system-execution-candidate-90d-20260105-0405-run/analysis/exit_policy_experiment_corrected_30_breakdowns.json`
+- `/tmp/trading-system-execution-candidate-90d-20260105-0405-run/analysis/exit_policy_experiment_corrected_30_breakdowns.md`
 
 **Completed evaluation:**
 
@@ -217,6 +219,13 @@ The run attached `787,118` full-path `aggTrades` rows to the corrected 30 trades
 | `no_breakeven_time_stop` 45m | 16 | `-5,037.76` | `-991.51` |
 
 **Interpretation:** these simple exit-management rewrites did not rescue the survivor set. This strengthens the rejection: the problem is strategy/edge quality, not only the fixed 60m exit implementation.
+
+**Breakdown diagnostic:**
+
+- Aggregate policy results are all worse than the corrected fixed-horizon trade-print baseline.
+- Positive individual deltas exist (`44` trade-policy pairs), but they are isolated and not a basis for tuning thresholds on this 30-trade sample.
+- `10` buckets with at least 3 trades have positive delta, but most remain net-negative after the policy.
+- The only positive-net positive-delta bucket with at least 3 trades is `mfe_giveback_cut` in the `45-60m` trigger-minute bucket: `4` trades, policy net `+1,610.98`, delta `+348.11`. This is too small and post-selected; it must not be treated as promotion evidence.
 
 **Step 3: Do not tune thresholds on this sample**
 
