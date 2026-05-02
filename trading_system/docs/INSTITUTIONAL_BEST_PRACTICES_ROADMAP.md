@@ -152,8 +152,23 @@
 - [x] 主结果新增 exit path classification/ambiguity rate，`fixed_horizon_only` 与 `ambiguous_intrabar_order` 超阈值时必须拒绝 promotion。
 - [x] Full-market baseline bundle 新增 `exit_path_replay.json` artifact，每笔交易输出 path classification，manifest 可追踪。
 - [x] stop/take-profit ordering 无法证明时默认不采用乐观结果：同一 bar 同时触发时继续保守按 stop-loss 计入 `simulated_exit_reason`，并新增 `simulated_exit_ordering = "ambiguous_conservative_stop"` 供 ledger、`trades.json`、`exit_path_replay.json` 和 ambiguity gate 审计。
+- [x] Corrected 30-trade survivor replay 已达到 entry evidence coverage `100%`、exit evidence coverage `100%`、exit path ambiguity rate `0%`，但净值仍为 `-4,046.26`；这说明 reject 已从“证据不足”升级为“策略/exit 规则本身不合格”。
 - [ ] 主结果中 ambiguous exit trade 占比低于阈值。
 - [ ] 每笔 live-candidate trade 都能生成 path replay artifact。
+
+### Exit management rewrite hypotheses
+
+Corrected 30-trade diagnostics show no TP/SL barriers were hit; fixed 60m horizon dominates results. The next exit-management work must be opt-in experiment only, not live behavior:
+
+- after-cost breakeven stop: 18/30 reached after-cost breakeven; 8 of those later finished as losses.
+- MFE giveback cut: diagnose trades with meaningful favorable excursion but large giveback.
+- no-breakeven time stop: 12/30 never reached after-cost breakeven and currently contribute about `-6,919.45` net.
+
+Implementation plan: `trading_system/docs/EXIT_MANAGEMENT_REWRITE_EXPERIMENTS_PLAN.md`.
+Diagnostic artifacts:
+
+- `/tmp/trading-system-execution-candidate-90d-20260105-0405-run/analysis/exit_management_rewrite_hypotheses_corrected_30.md`
+- `/tmp/trading-system-execution-candidate-90d-20260105-0405-run/analysis/exit_management_rewrite_hypotheses_corrected_30.json`
 
 ---
 
