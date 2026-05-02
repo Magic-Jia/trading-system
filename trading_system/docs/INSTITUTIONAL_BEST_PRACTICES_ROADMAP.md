@@ -18,13 +18,16 @@
 - 主要亏损 short setup：`BREAKDOWN_SHORT`、`FAILED_BOUNCE_SHORT`。
 - 已新增离线 live-readiness 工具：passive/maker calibration record parser、depth readiness audit、exit path audit、live readiness gate、opt-in `quarantined_short_setup_types`；后续已扩展为通用 opt-in `quarantined_setup_types`，可过滤任意 setup bucket，同时保留 short-only 字段兼容。
 - 已开始把 exit evidence 纳入 engine/gate：fixed-horizon exit 在有 exit-row `aggTrades`/trade-print evidence 时优先使用 exit timestamp 附近可执行 trade print，并输出 `exit_fill_model`、`exit_price_source`、`exit_fill_quality`、`exit_fill_timestamp`、`exit_slippage_vs_reference_bps`；live-readiness gate 也新增 `exit_evidence_coverage` 硬检查。
-- 使用 quarantine 排除 `BREAKDOWN_SHORT` / `FAILED_BOUNCE_SHORT` 后，90d 只剩 30 笔，net PnL `+2,746.48`，但样本太少且中间多段 0 交易，仍不能上线。
+- 使用 quarantine 排除 `BREAKDOWN_SHORT` / `FAILED_BOUNCE_SHORT` 后，90d 只剩 30 笔，旧 reference/fixed-horizon ledger 曾显示 net PnL `+2,746.48`，但 full-path `aggTrades` exit audit 证明该正收益不是 exit-executable-confirmed。
+- 已用 engine-level exit trade-print evidence 复跑 corrected 30 笔：entry evidence coverage `100%`，exit evidence coverage `100%`，exit path ambiguity rate `0%`，corrected net PnL `-4,046.26`，promotion gate 仍为 `reject_for_live_promotion`，原因是 `net_pnl_below_zero` 与 `major_setup_bucket_negative`。
 
 当前结论：
 
 1. 原 short setup 不应上线。
-2. 删除主要亏损 setup 后结果改善，但不足以证明剩余策略有稳定 edge。
-3. 当前 evidence-backed replay 比普通粗糙回测专业很多，但仍不是完整业内顶级 live-grade 回测。
+2. 旧 quarantine survivor set 的正收益已被 exit trade-print correction 证伪；修正后剩余 30 笔整体为负，不能 promotion。
+3. `RS_PULLBACK` / `RS_REACCELERATION` 在 corrected survivor set 中也为负，必须通过通用 `quarantined_setup_types` 禁止 promotion，除非重写后重新通过 OOS / regime / cost-stress gate。
+4. `BREAKOUT_CONTINUATION` / `PULLBACK_CONTINUATION` 也不能 promotion；样本太小且 corrected net 为负，只能作为重写/OOS 研究对象。
+5. 当前 evidence-backed replay 比普通粗糙回测专业很多，但仍不是完整业内顶级 live-grade 回测。
 
 ---
 
@@ -181,7 +184,18 @@
 3. Quarantine empirically failed setup：
    - 通用字段：`quarantined_setup_types`，用于过滤任意 setup bucket，例如 `RS_PULLBACK` / `RS_REACCELERATION`；
    - 兼容字段：`quarantined_short_setup_types`，仅用于 short setup；
-   - 已证伪 short setup：`BREAKDOWN_SHORT`、`FAILED_BOUNCE_SHORT`。
+   - 已证伪 short setup：`BREAKDOWN_SHORT`、`FAILED_BOUNCE_SHORT`；
+   - exit-evidence-corrected 30 笔 survivor replay 后新增证伪/禁止 promotion：`RS_PULLBACK`、`RS_REACCELERATION`；
+   - `BREAKOUT_CONTINUATION`、`PULLBACK_CONTINUATION` corrected net 也为负，但样本分别只有 5/3 笔；默认不得 promotion，只能进入重写或 OOS 复核队列。
+   - 推荐 promotion quarantine 配置片段：
+     ```json
+     {
+       "experiment_params": {
+         "quarantined_setup_types": ["RS_PULLBACK", "RS_REACCELERATION"],
+         "quarantined_short_setup_types": ["BREAKDOWN_SHORT", "FAILED_BOUNCE_SHORT"]
+       }
+     }
+     ```
 4. 重写 short setup，而不是微调已证伪 setup：
    - 先定义何种 market structure / derivatives / crowding 状态下 short 有正期望；
    - 再写 candidate rules；
