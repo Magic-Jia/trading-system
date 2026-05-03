@@ -26,6 +26,11 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _artifact_path_is_safe(rel_path: str) -> bool:
+    path = Path(rel_path)
+    return bool(rel_path) and not path.is_absolute() and ".." not in path.parts
+
+
 def collect_promotion_evidence_bundle(
     source_dir: str | Path,
     bundle_dir: str | Path,
@@ -82,22 +87,38 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
             "bundle_dir": str(bundle),
             "manifest_path": str(manifest_path),
             "manifest_present": False,
+            "manifest_errors": ["missing_manifest"],
+            "schema_valid": False,
+            "candidate_id_valid": False,
             "missing_artifacts": [],
+            "unsafe_artifact_paths": [],
             "sha256_mismatches": [],
             "byte_size_mismatches": [],
             "checked_artifacts": [],
         }
     manifest = json.loads(manifest_path.read_text())
+    manifest_errors: list[str] = []
+    schema_valid = manifest.get("schema_version") == SCHEMA_VERSION
+    if not schema_valid:
+        manifest_errors.append("invalid_schema_version")
+    candidate_id = manifest.get("candidate_id")
+    candidate_id_valid = isinstance(candidate_id, str) and bool(candidate_id.strip())
+    if not candidate_id_valid:
+        manifest_errors.append("missing_candidate_id")
     artifacts = manifest.get("artifacts") if isinstance(manifest.get("artifacts"), list) else []
     missing: list[str] = []
     sha_mismatches: list[str] = []
     byte_mismatches: list[str] = []
+    unsafe_paths: list[str] = []
     checked: list[dict[str, Any]] = []
     for artifact in artifacts:
         if not isinstance(artifact, Mapping):
             continue
         rel_path = str(artifact.get("path") or "")
         if not rel_path:
+            continue
+        if not _artifact_path_is_safe(rel_path):
+            unsafe_paths.append(rel_path)
             continue
         path = bundle / rel_path
         if not path.is_file():
@@ -114,16 +135,26 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
         checked.append({"path": rel_path, "bytes": actual_bytes, "sha256": actual_sha})
     required = [str(name) for name in manifest.get("required_artifacts", []) if str(name)]
     for rel_path in required:
+        if not _artifact_path_is_safe(rel_path):
+            if rel_path not in unsafe_paths:
+                unsafe_paths.append(rel_path)
+            continue
         if not (bundle / rel_path).is_file() and rel_path not in missing:
             missing.append(rel_path)
+    if unsafe_paths:
+        manifest_errors.append("unsafe_artifact_path")
     return {
         "schema_version": "promotion_evidence_bundle_verification.v1",
-        "verified": not missing and not sha_mismatches and not byte_mismatches,
+        "verified": not manifest_errors and not missing and not sha_mismatches and not byte_mismatches,
         "bundle_dir": str(bundle),
         "manifest_path": str(manifest_path),
         "manifest_present": True,
-        "candidate_id": manifest.get("candidate_id"),
+        "manifest_errors": sorted(set(manifest_errors)),
+        "schema_valid": schema_valid,
+        "candidate_id_valid": candidate_id_valid,
+        "candidate_id": candidate_id,
         "missing_artifacts": sorted(missing),
+        "unsafe_artifact_paths": sorted(unsafe_paths),
         "sha256_mismatches": sorted(sha_mismatches),
         "byte_size_mismatches": sorted(byte_mismatches),
         "checked_artifacts": checked,

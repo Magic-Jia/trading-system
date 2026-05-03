@@ -206,6 +206,61 @@ def test_bundle_verify_only_cli_returns_nonzero_for_tampering(tmp_path: Path) ->
     assert REQUIRED_ARTIFACTS[0] in bad.stdout
 
 
+def test_bundle_verifier_rejects_invalid_manifest_schema_version(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    for name in REQUIRED_ARTIFACTS:
+        _write_json(source / name, {"artifact": name, "synthetic": True})
+    bundle_dir = collect_promotion_evidence_bundle(source, tmp_path / "bundle", candidate_id="candidate-1")
+    manifest_path = bundle_dir / "promotion_evidence_manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["schema_version"] = "promotion_evidence_bundle.v0"
+    manifest_path.write_text(json.dumps(manifest, sort_keys=True) + "\n")
+
+    result = verify_promotion_evidence_bundle(bundle_dir)
+
+    assert result["verified"] is False
+    assert result["schema_valid"] is False
+    assert "invalid_schema_version" in result["manifest_errors"]
+
+
+def test_bundle_verifier_rejects_missing_candidate_id(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    for name in REQUIRED_ARTIFACTS:
+        _write_json(source / name, {"artifact": name, "synthetic": True})
+    bundle_dir = collect_promotion_evidence_bundle(source, tmp_path / "bundle", candidate_id="candidate-1")
+    manifest_path = bundle_dir / "promotion_evidence_manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest.pop("candidate_id")
+    manifest_path.write_text(json.dumps(manifest, sort_keys=True) + "\n")
+
+    result = verify_promotion_evidence_bundle(bundle_dir)
+
+    assert result["verified"] is False
+    assert result["candidate_id_valid"] is False
+    assert "missing_candidate_id" in result["manifest_errors"]
+
+
+def test_bundle_verifier_rejects_artifact_path_traversal(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    for name in REQUIRED_ARTIFACTS:
+        _write_json(source / name, {"artifact": name, "synthetic": True})
+    bundle_dir = collect_promotion_evidence_bundle(source, tmp_path / "bundle", candidate_id="candidate-1")
+    manifest_path = bundle_dir / "promotion_evidence_manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["artifacts"][0]["path"] = "../outside.json"
+    manifest["required_artifacts"][0] = "../outside.json"
+    manifest_path.write_text(json.dumps(manifest, sort_keys=True) + "\n")
+
+    result = verify_promotion_evidence_bundle(bundle_dir)
+
+    assert result["verified"] is False
+    assert "../outside.json" in result["unsafe_artifact_paths"]
+    assert "unsafe_artifact_path" in result["manifest_errors"]
+
+
 def test_bundle_collector_fails_closed_when_required_artifact_missing(tmp_path: Path) -> None:
     source = tmp_path / "source"
     source.mkdir()

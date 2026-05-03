@@ -120,7 +120,7 @@ python -m pytest -q trading_system/tests/test_backtest_microstructure_evidence.p
 - Create: `trading_system/app/backtest/promotion_evidence_bundle.py`
 - Test: `trading_system/tests/test_backtest_promotion_evidence_bundle.py`
 
-**Goal:** Collect `trades.json`, `exit_path_replay.json`, and all required evidence artifacts, compute checksums, write a manifest that live-readiness can consume directly, and provide a fail-closed verifier that detects missing or tampered artifacts before promotion review.
+**Goal:** Collect `trades.json`, `exit_path_replay.json`, and all required evidence artifacts, compute checksums, write a manifest that live-readiness can consume directly, and provide a fail-closed verifier that detects missing or tampered artifacts before promotion review. The verifier must also reject invalid manifest schema versions, missing `candidate_id`, and unsafe artifact paths such as absolute paths or `..` traversal.
 
 ### Task 8: Live-readiness smoke consumption of producer artifacts
 
