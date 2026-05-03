@@ -839,6 +839,21 @@ def test_live_readiness_smoke_report_materializes_nested_full_market_bundle(tmp_
     postmortem = json.loads((output_dir / "trade_postmortem_summary.json").read_text(encoding="utf-8"))
     assert postmortem["schema_version"] == "trade_postmortem_summary.v1"
     assert postmortem["by_failure_taxonomy"]["有效盈利_after_cost"]["trades"] == 1
+    assert report["postmortem_reconciliation"] == {
+        "schema_version": "live_readiness_postmortem_reconciliation.v1",
+        "gate_trade_count": 1,
+        "postmortem_trade_count": 1,
+        "trade_count_delta": 0,
+        "gate_net_pnl": pytest.approx(100.0),
+        "postmortem_net_pnl": pytest.approx(100.0),
+        "net_pnl_delta": pytest.approx(0.0),
+        "matched": True,
+    }
+    assert persisted["postmortem_reconciliation"]["matched"] is True
+    assert "## Postmortem Reconciliation" in markdown
+    assert "- matched: true" in markdown
+    assert "- trade_count_delta: 0" in markdown
+    assert "- net_pnl_delta: 0.00" in markdown
 
 
 def test_live_readiness_cli_stdout_includes_concentration_summary(tmp_path: Path) -> None:
@@ -881,6 +896,11 @@ def test_live_readiness_cli_stdout_includes_concentration_summary(tmp_path: Path
     )
 
     stdout = json.loads(completed.stdout)
+    assert stdout["postmortem_reconciliation"] == {
+        "matched": True,
+        "trade_count_delta": 0,
+        "net_pnl_delta": 0.0,
+    }
     assert stdout["concentration"] == {
         "max_setup_trade_share": 0.45,
         "max_symbol_trade_share": 0.70,

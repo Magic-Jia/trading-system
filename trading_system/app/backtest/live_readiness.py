@@ -647,6 +647,27 @@ def _normalized_chunk_name(index: int, bundle_dir: Path, input_root: Path) -> st
     return bundle_dir.parent.name
 
 
+def _postmortem_reconciliation(report: Mapping[str, Any], postmortem_summary: Mapping[str, Any]) -> dict[str, Any]:
+    totals = _as_mapping(report.get("totals"))
+    summary = _as_mapping(postmortem_summary.get("summary"))
+    gate_trade_count = int(totals.get("trade_count") or 0)
+    postmortem_trade_count = int(summary.get("trades") or 0)
+    gate_net_pnl = _float_value(totals.get("net_pnl"))
+    postmortem_net_pnl = _float_value(summary.get("net_pnl", summary.get("net")))
+    trade_count_delta = postmortem_trade_count - gate_trade_count
+    net_pnl_delta = postmortem_net_pnl - gate_net_pnl
+    return {
+        "schema_version": "live_readiness_postmortem_reconciliation.v1",
+        "gate_trade_count": gate_trade_count,
+        "postmortem_trade_count": postmortem_trade_count,
+        "trade_count_delta": trade_count_delta,
+        "gate_net_pnl": gate_net_pnl,
+        "postmortem_net_pnl": postmortem_net_pnl,
+        "net_pnl_delta": net_pnl_delta,
+        "matched": trade_count_delta == 0 and abs(net_pnl_delta) <= 1e-6,
+    }
+
+
 def write_live_readiness_smoke_report(
     input_root: str | Path,
     output_dir: str | Path,
@@ -710,6 +731,7 @@ def write_live_readiness_smoke_report(
         for trade in _trades_payload(_load_json(chunk_dir / "trades.json"))
     )
     report["trade_postmortem_summary"] = postmortem_summary
+    report["postmortem_reconciliation"] = _postmortem_reconciliation(report, postmortem_summary)
     (target / "live_readiness_gate.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     (target / "live_readiness_gate.md").write_text(render_live_readiness_markdown(report), encoding="utf-8")
     (target / "trade_postmortem_summary.json").write_text(
@@ -757,6 +779,24 @@ def render_live_readiness_markdown(report: Mapping[str, Any]) -> str:
                 "### Failure Taxonomy",
             ]
         )
+        reconciliation = _as_mapping(report.get("postmortem_reconciliation"))
+        if reconciliation:
+            lines.extend(
+                [
+                    "",
+                    "## Postmortem Reconciliation",
+                    f"- schema_version: {reconciliation.get('schema_version')}",
+                    f"- matched: {str(bool(reconciliation.get('matched'))).lower()}",
+                    f"- gate_trade_count: {int(reconciliation.get('gate_trade_count') or 0)}",
+                    f"- postmortem_trade_count: {int(reconciliation.get('postmortem_trade_count') or 0)}",
+                    f"- trade_count_delta: {int(reconciliation.get('trade_count_delta') or 0)}",
+                    f"- gate_net_pnl: {float(reconciliation.get('gate_net_pnl') or 0.0):.2f}",
+                    f"- postmortem_net_pnl: {float(reconciliation.get('postmortem_net_pnl') or 0.0):.2f}",
+                    f"- net_pnl_delta: {float(reconciliation.get('net_pnl_delta') or 0.0):.2f}",
+                    "",
+                    "### Failure Taxonomy",
+                ]
+            )
         failure_buckets = _as_mapping(postmortem.get("by_failure_taxonomy"))
         for key, bucket in sorted(failure_buckets.items()):
             mapped_bucket = _as_mapping(bucket)
@@ -890,6 +930,15 @@ def _stdout_concentration_summary(report: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def _stdout_reconciliation_summary(report: Mapping[str, Any]) -> dict[str, Any]:
+    reconciliation = _as_mapping(report.get("postmortem_reconciliation"))
+    return {
+        "matched": bool(reconciliation.get("matched")),
+        "trade_count_delta": int(reconciliation.get("trade_count_delta") or 0),
+        "net_pnl_delta": float(reconciliation.get("net_pnl_delta") or 0.0),
+    }
+
+
 def main() -> int:
     args = _parse_args()
     report = write_live_readiness_smoke_report(
@@ -915,6 +964,7 @@ def main() -> int:
                 "reasons": gate.get("reasons", []),
                 "trade_count": totals.get("trade_count", 0),
                 "net_pnl": totals.get("net_pnl", 0.0),
+                "postmortem_reconciliation": _stdout_reconciliation_summary(report),
                 "concentration": _stdout_concentration_summary(report),
             },
             sort_keys=True,
