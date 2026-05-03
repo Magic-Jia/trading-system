@@ -162,6 +162,15 @@ def _summary(records: Iterable[PassiveOrderCalibrationRecord]) -> dict[str, Any]
     return payload
 
 
+def _slippage_summary(records: Iterable[PassiveOrderCalibrationRecord]) -> dict[str, Any]:
+    values = [value for record in records if (value := _realized_bps(record)) is not None]
+    return {
+        "sample_count": len(values),
+        "median_slippage_bps": median(values) if values else None,
+        "p95_slippage_bps": _percentile(values, 0.95),
+    }
+
+
 def _group(records: tuple[PassiveOrderCalibrationRecord, ...], field_name: str) -> dict[str, dict[str, Any]]:
     buckets: dict[str, list[PassiveOrderCalibrationRecord]] = {}
     for record in records:
@@ -172,14 +181,26 @@ def _group(records: tuple[PassiveOrderCalibrationRecord, ...], field_name: str) 
     return {key: _summary(value) for key, value in sorted(buckets.items())}
 
 
-def summarize_calibration_records(records: Iterable[PassiveOrderCalibrationRecord]) -> dict[str, Any]:
+def summarize_calibration_records(
+    records: Iterable[PassiveOrderCalibrationRecord],
+    *,
+    evidence_source: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
     rows = tuple(records)
+    maker_rows = tuple(record for record in rows if record.maker_taker == "maker")
+    taker_rows = tuple(record for record in rows if record.maker_taker == "taker")
+    source = dict(evidence_source or {"type": "unknown_offline_records"})
+    source.setdefault("type", "unknown_offline_records")
     return {
         "schema_version": "passive_order_calibration_summary.v1",
+        "evidence_source": source,
         "overall": _summary(rows),
         "by_symbol": _group(rows, "symbol"),
         "by_side": _group(rows, "side"),
         "by_setup_type": _group(rows, "setup_type"),
+        "by_maker_taker": _group(rows, "maker_taker"),
+        "passive_maker": _summary(maker_rows),
+        "taker_slippage": _slippage_summary(taker_rows),
         "records": [_record_payload(record) for record in rows],
         "caveats": [
             "Offline calibration only; no exchange calls or order placement are performed.",
@@ -195,3 +216,17 @@ def _record_payload(record: PassiveOrderCalibrationRecord) -> dict[str, Any]:
         if isinstance(value, datetime):
             payload[key] = value.isoformat()
     return payload
+
+
+def write_calibration_summary(
+    input_path: str | Path,
+    output_dir: str | Path,
+    *,
+    evidence_source: Mapping[str, Any] | None = None,
+) -> Path:
+    records = load_calibration_records(input_path)
+    summary = summarize_calibration_records(records, evidence_source=evidence_source)
+    output_path = Path(output_dir) / "passive_order_calibration_summary.json"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return output_path
