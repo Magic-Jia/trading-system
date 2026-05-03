@@ -167,6 +167,98 @@ def test_exit_path_replay_audit_marks_intrabar_limitations() -> None:
 
 
 
+
+def test_live_readiness_gate_report_rejects_missing_microstructure_evidence(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    chunk.mkdir()
+    (chunk / "trades.json").write_text(
+        json.dumps(
+            {
+                "trades": [
+                    {
+                        "symbol": "BTCUSDT",
+                        "side": "long",
+                        "setup_type": "BREAKOUT_CONTINUATION",
+                        "net_pnl": 100.0,
+                        "gross_pnl": 120.0,
+                        "fee_paid": 10.0,
+                        "slippage_paid": 10.0,
+                        "fill_quality": "evidence_backed",
+                        "execution_price_source": "trade_print",
+                        "exit_fill_quality": "evidence_backed",
+                        "exit_price_source": "trade_print",
+                        "simulated_exit_reason": "take_profit",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_live_readiness_gate_report(tmp_path, require_microstructure_evidence=True)
+
+    gate = report["microstructure_gate"]
+    assert gate["schema_version"] == "microstructure_gate.v1"
+    assert gate["required"] is True
+    assert gate["artifact_count"] == 0
+    assert gate["checks"]["l2_tick_coverage_met"] is False
+    assert gate["checks"]["depth_driven_taker_met"] is False
+    assert "microstructure_evidence_missing" in report["promotion_gate"]["reasons"]
+    assert "l2_tick_coverage_below_threshold" in report["promotion_gate"]["reasons"]
+    assert "taker_depth_driven_missing" in report["promotion_gate"]["reasons"]
+    markdown = render_live_readiness_markdown(report)
+    assert "## Microstructure Gate" in markdown
+    assert "l2_tick_coverage_met: false" in markdown
+    assert "depth_driven_taker_met: false" in markdown
+
+
+def test_live_readiness_gate_report_accepts_microstructure_evidence_artifact(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    chunk.mkdir()
+    (chunk / "trades.json").write_text(
+        json.dumps(
+            {
+                "trades": [
+                    {
+                        "symbol": "BTCUSDT",
+                        "side": "long",
+                        "setup_type": "BREAKOUT_CONTINUATION",
+                        "net_pnl": 100.0,
+                        "gross_pnl": 120.0,
+                        "fee_paid": 10.0,
+                        "slippage_paid": 10.0,
+                        "fill_quality": "evidence_backed",
+                        "execution_price_source": "trade_print",
+                        "exit_fill_quality": "evidence_backed",
+                        "exit_price_source": "trade_print",
+                        "simulated_exit_reason": "take_profit",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    (chunk / "market_microstructure_gate.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "market_microstructure_gate_input.v1",
+                "checks": {"l2_tick_coverage_met": True, "depth_driven_taker_met": True},
+                "summary": {"min_l2_tick_coverage": 0.995, "taker_fill_model": "orderbook_depth"},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_live_readiness_gate_report(tmp_path, require_microstructure_evidence=True)
+
+    gate = report["microstructure_gate"]
+    assert gate["artifact_count"] == 1
+    assert gate["checks"]["l2_tick_coverage_met"] is True
+    assert gate["checks"]["depth_driven_taker_met"] is True
+    assert "microstructure_evidence_missing" not in report["promotion_gate"]["reasons"]
+    assert "l2_tick_coverage_below_threshold" not in report["promotion_gate"]["reasons"]
+    assert "taker_depth_driven_missing" not in report["promotion_gate"]["reasons"]
+
 def test_live_readiness_gate_report_rejects_missing_validation_evidence(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     chunk.mkdir()

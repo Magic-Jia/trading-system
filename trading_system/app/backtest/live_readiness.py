@@ -269,6 +269,39 @@ def _setup_rewrite_diagnostic(chunk_dirs: Iterable[Path]) -> dict[str, Any] | No
     }
 
 
+def _microstructure_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[str, Any]:
+    required_checks = ("l2_tick_coverage_met", "depth_driven_taker_met")
+    artifacts: list[dict[str, Any]] = []
+    aggregate_checks = {key: False for key in required_checks}
+    for chunk_dir in chunk_dirs:
+        path = chunk_dir / "market_microstructure_gate.json"
+        if not path.exists():
+            continue
+        payload = _load_json(path)
+        checks = _as_mapping(payload.get("checks"))
+        artifacts.append(
+            {
+                "chunk": chunk_dir.name,
+                "path": str(path),
+                "schema_version": payload.get("schema_version"),
+                "checks": {key: bool(checks.get(key)) for key in required_checks},
+                "summary": _as_mapping(payload.get("summary")),
+            }
+        )
+    if artifacts:
+        aggregate_checks = {
+            key: all(bool(_as_mapping(artifact.get("checks")).get(key)) for artifact in artifacts)
+            for key in required_checks
+        }
+    return {
+        "schema_version": "microstructure_gate.v1",
+        "required": required,
+        "artifact_count": len(artifacts),
+        "artifacts": artifacts,
+        "checks": aggregate_checks,
+    }
+
+
 def _validation_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[str, Any]:
     artifacts: list[dict[str, Any]] = []
     required_checks = (
@@ -482,6 +515,7 @@ def build_live_readiness_gate_report(
     min_setup_trade_count: int | None = None,
     banned_setup_types: Sequence[str] | None = None,
     require_validation_evidence: bool = False,
+    require_microstructure_evidence: bool = False,
 ) -> dict[str, Any]:
     root = Path(chunk_results_dir)
     chunk_dirs = sorted(path for path in root.iterdir() if path.is_dir() and (path / "trades.json").exists())
@@ -503,6 +537,7 @@ def build_live_readiness_gate_report(
         min_setup_trade_count=min_setup_trade_count,
         banned_setup_types=banned_setup_types,
     )
+    microstructure_gate = _microstructure_gate(chunk_dirs, required=require_microstructure_evidence)
     validation_gate = _validation_gate(chunk_dirs, required=require_validation_evidence)
     setup_rewrite_diagnostic = _setup_rewrite_diagnostic(chunk_dirs)
     passive_calibration = _passive_calibration_diagnostic(
@@ -622,6 +657,13 @@ def build_live_readiness_gate_report(
         reasons.append("setup_min_sample_too_low")
     if not setup_quality_checks.get("banned_setup_types_absent", True):
         reasons.append("banned_setup_type_present")
+    microstructure_checks = _as_mapping(microstructure_gate.get("checks"))
+    if require_microstructure_evidence and int(microstructure_gate.get("artifact_count") or 0) == 0:
+        reasons.append("microstructure_evidence_missing")
+    if require_microstructure_evidence and not microstructure_checks.get("l2_tick_coverage_met", False):
+        reasons.append("l2_tick_coverage_below_threshold")
+    if require_microstructure_evidence and not microstructure_checks.get("depth_driven_taker_met", False):
+        reasons.append("taker_depth_driven_missing")
     validation_checks = _as_mapping(validation_gate.get("checks"))
     if require_validation_evidence and int(validation_gate.get("artifact_count") or 0) == 0:
         reasons.append("validation_evidence_missing")
@@ -699,6 +741,7 @@ def build_live_readiness_gate_report(
         "by_symbol": {key: by_symbol[key] for key in sorted(by_symbol)},
         "by_side": {key: by_side[key] for key in sorted(by_side)},
         "setup_quality_gate": setup_quality_gate,
+        "microstructure_gate": microstructure_gate,
         "validation_gate": validation_gate,
         "concentration": concentration,
         "passive_calibration": passive_calibration,
@@ -725,6 +768,7 @@ def build_live_readiness_gate_report(
                 "exit_path_replay_rows_met": exit_path_replay_rows_met,
                 "major_setup_buckets_non_negative": not major_negative,
                 **setup_quality_checks,
+                **microstructure_checks,
                 **validation_checks,
                 "setup_concentration_met": setup_concentration_met,
                 "symbol_concentration_met": symbol_concentration_met,
@@ -944,6 +988,7 @@ def write_live_readiness_smoke_report(
     min_setup_trade_count: int | None = None,
     banned_setup_types: Sequence[str] | None = None,
     require_validation_evidence: bool = False,
+    require_microstructure_evidence: bool = False,
 ) -> dict[str, Any]:
     source_root = Path(input_root)
     target = Path(output_dir)
@@ -987,6 +1032,7 @@ def write_live_readiness_smoke_report(
         min_setup_trade_count=min_setup_trade_count,
         banned_setup_types=banned_setup_types,
         require_validation_evidence=require_validation_evidence,
+        require_microstructure_evidence=require_microstructure_evidence,
     )
     report["smoke_report"] = {
         "schema_version": "live_readiness_smoke_report.v1",
@@ -1107,6 +1153,20 @@ def render_live_readiness_markdown(report: Mapping[str, Any]) -> str:
                 + (", ".join(str(item) for item in setup_quality.get("under_sampled_setup_types", [])) or "none"),
                 "- banned_setup_types_present: "
                 + (", ".join(str(item) for item in setup_quality.get("banned_setup_types_present", [])) or "none"),
+            ]
+        )
+    microstructure = _as_mapping(report.get("microstructure_gate"))
+    if microstructure:
+        checks = _as_mapping(microstructure.get("checks"))
+        lines.extend(
+            [
+                "",
+                "## Microstructure Gate",
+                f"- schema_version: {microstructure.get('schema_version')}",
+                f"- required: {str(bool(microstructure.get('required'))).lower()}",
+                f"- artifact_count: {int(microstructure.get('artifact_count') or 0)}",
+                f"- l2_tick_coverage_met: {str(bool(checks.get('l2_tick_coverage_met'))).lower()}",
+                f"- depth_driven_taker_met: {str(bool(checks.get('depth_driven_taker_met'))).lower()}",
             ]
         )
     validation = _as_mapping(report.get("validation_gate"))
@@ -1244,6 +1304,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--min-setup-trade-count", type=int, default=None)
     parser.add_argument("--banned-setup-type", action="append", default=[])
     parser.add_argument("--require-validation-evidence", action="store_true")
+    parser.add_argument("--require-microstructure-evidence", action="store_true")
     return parser.parse_args()
 
 
@@ -1306,6 +1367,7 @@ def main() -> int:
         min_setup_trade_count=args.min_setup_trade_count,
         banned_setup_types=args.banned_setup_type,
         require_validation_evidence=args.require_validation_evidence,
+        require_microstructure_evidence=args.require_microstructure_evidence,
     )
     gate = _as_mapping(report.get("promotion_gate"))
     totals = _as_mapping(report.get("totals"))

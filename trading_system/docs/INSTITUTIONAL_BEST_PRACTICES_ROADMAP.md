@@ -76,7 +76,7 @@
 
 ### Promotion gate
 
-- [ ] 任一回测窗口内 L2/tick coverage ≥ 99%。
+- [x] 任一回测窗口内 L2/tick coverage ≥ 99%：live-readiness 新增 `microstructure_gate.v1`；开启 `--require-microstructure-evidence` 时必须提供 `market_microstructure_gate.json` 且 `l2_tick_coverage_met=true`，缺失/不足 reason=`microstructure_evidence_missing` / `l2_tick_coverage_below_threshold`。
 - [x] 所有 raw-market 缺口可在 `raw_market_data_quality_report.v1` 中定位到 series/symbol/timeframe/dataset 与 missing interval；真实 L2/tick 缺口仍会作为未满足 coverage gate 暴露。
 - [x] 有自动化 data quality report：phase1 imported dataset root manifest 现在嵌入 `data_quality_report`，包含 per-series provenance、coverage ratio、missing intervals、L2/tick coverage gate 与 promotion decision。
 - [x] 数据缺失不能被静默 fallback 成 close/reference price：raw-market import 会拒绝重复/重叠 ambiguous series；data quality gate 会把 missing interval 与 L2/tick coverage 缺失写入 reject reasons，而不是静默用 close/reference 补齐。
@@ -130,7 +130,7 @@ Data quality gate status:
 
 ### Promotion gate
 
-- [ ] Taker cost 不再只靠固定 bps，必须支持 depth-driven fill。
+- [x] Taker cost 不再只靠固定 bps，必须支持 depth-driven fill：`microstructure_gate.v1` 要求 `depth_driven_taker_met=true`；缺少 orderbook-depth taker evidence 时 reason=`taker_depth_driven_missing`，不会把固定 bps 当作 institutional-grade fill。
 - [x] Maker 假设必须有真实 calibration records 支撑：live-readiness gate 新增 `passive_calibration_live_readiness.v1`；当 `require_passive_calibration` 开启时，缺 `passive_order_calibration_summary.json`、缺 real-exchange provenance、attempts 不足或 fill-rate 低于阈值都会保守 reject。
 - [x] fill-rate、partial-fill、missed-fill 与真实记录误差在阈值内：当前离线 gate 已支持 `min_passive_calibration_attempts` / `min_passive_fill_rate` 作为 evidence threshold；真正误差阈值必须等 testnet/live dust records 产生后填充，不能用模拟记录假通过。
 - [x] maker/low-cost sensitivity 不能单独作为上线依据：passive calibration gate 缺真实记录时输出 `passive_calibration_missing*` / `passive_calibration_insufficient_attempts` / `passive_calibration_fill_rate_below_threshold` reasons，即使 maker sensitivity 盈利也不能 promotion。
