@@ -271,6 +271,16 @@ def _setup_rewrite_diagnostic(chunk_dirs: Iterable[Path]) -> dict[str, Any] | No
     }
 
 
+def _artifact_schema_valid(payload: Mapping[str, Any], expected_schema_version: str) -> bool:
+    return payload.get("schema_version") == expected_schema_version
+
+
+def _artifact_provenance_present(payload: Mapping[str, Any]) -> bool:
+    source = _as_mapping(payload.get("evidence_source"))
+    source_type = str(source.get("type") or "").strip().lower()
+    return bool(source_type) and source_type not in {"unknown", "unknown_offline_records", "synthetic_fixture"}
+
+
 def _runtime_safety_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[str, Any]:
     required_checks = (
         "kill_switch_dry_run_met",
@@ -283,22 +293,31 @@ def _runtime_safety_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
     )
     artifacts: list[dict[str, Any]] = []
     aggregate_checks = {key: False for key in required_checks}
+    schema_valid = False
+    provenance_present = False
     for chunk_dir in chunk_dirs:
         path = chunk_dir / "runtime_safety_gate.json"
         if not path.exists():
             continue
         payload = _load_json(path)
         checks = _as_mapping(payload.get("checks"))
+        chunk_schema_valid = _artifact_schema_valid(payload, "runtime_safety_gate_input.v1")
+        chunk_provenance_present = _artifact_provenance_present(payload)
         artifacts.append(
             {
                 "chunk": chunk_dir.name,
                 "path": str(path),
                 "schema_version": payload.get("schema_version"),
+                "schema_valid": chunk_schema_valid,
+                "provenance_present": chunk_provenance_present,
+                "evidence_source": _as_mapping(payload.get("evidence_source")),
                 "checks": {key: bool(checks.get(key)) for key in required_checks},
                 "summary": _as_mapping(payload.get("summary")),
             }
         )
     if artifacts:
+        schema_valid = all(bool(artifact.get("schema_valid")) for artifact in artifacts)
+        provenance_present = all(bool(artifact.get("provenance_present")) for artifact in artifacts)
         aggregate_checks = {
             key: all(bool(_as_mapping(artifact.get("checks")).get(key)) for artifact in artifacts)
             for key in required_checks
@@ -308,7 +327,11 @@ def _runtime_safety_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
         "required": required,
         "artifact_count": len(artifacts),
         "artifacts": artifacts,
-        "checks": aggregate_checks,
+        "checks": {
+            **aggregate_checks,
+            "runtime_safety_artifact_schema_valid": (not required) or schema_valid,
+            "runtime_safety_artifact_provenance_present": (not required) or provenance_present,
+        },
     }
 
 
@@ -316,22 +339,31 @@ def _microstructure_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
     required_checks = ("l2_tick_coverage_met", "depth_driven_taker_met")
     artifacts: list[dict[str, Any]] = []
     aggregate_checks = {key: False for key in required_checks}
+    schema_valid = False
+    provenance_present = False
     for chunk_dir in chunk_dirs:
         path = chunk_dir / "market_microstructure_gate.json"
         if not path.exists():
             continue
         payload = _load_json(path)
         checks = _as_mapping(payload.get("checks"))
+        chunk_schema_valid = _artifact_schema_valid(payload, "market_microstructure_gate_input.v1")
+        chunk_provenance_present = _artifact_provenance_present(payload)
         artifacts.append(
             {
                 "chunk": chunk_dir.name,
                 "path": str(path),
                 "schema_version": payload.get("schema_version"),
+                "schema_valid": chunk_schema_valid,
+                "provenance_present": chunk_provenance_present,
+                "evidence_source": _as_mapping(payload.get("evidence_source")),
                 "checks": {key: bool(checks.get(key)) for key in required_checks},
                 "summary": _as_mapping(payload.get("summary")),
             }
         )
     if artifacts:
+        schema_valid = all(bool(artifact.get("schema_valid")) for artifact in artifacts)
+        provenance_present = all(bool(artifact.get("provenance_present")) for artifact in artifacts)
         aggregate_checks = {
             key: all(bool(_as_mapping(artifact.get("checks")).get(key)) for artifact in artifacts)
             for key in required_checks
@@ -341,7 +373,11 @@ def _microstructure_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
         "required": required,
         "artifact_count": len(artifacts),
         "artifacts": artifacts,
-        "checks": aggregate_checks,
+        "checks": {
+            **aggregate_checks,
+            "microstructure_artifact_schema_valid": (not required) or schema_valid,
+            "microstructure_artifact_provenance_present": (not required) or provenance_present,
+        },
     }
 
 
@@ -354,22 +390,31 @@ def _validation_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[str,
         "forward_contamination_absent_met",
     )
     aggregate_checks = {key: False for key in required_checks}
+    schema_valid = False
+    provenance_present = False
     for chunk_dir in chunk_dirs:
         path = chunk_dir / "validation_gate.json"
         if not path.exists():
             continue
         payload = _load_json(path)
         checks = _as_mapping(payload.get("checks"))
+        chunk_schema_valid = _artifact_schema_valid(payload, "validation_gate_input.v1")
+        chunk_provenance_present = _artifact_provenance_present(payload)
         artifacts.append(
             {
                 "chunk": chunk_dir.name,
                 "path": str(path),
                 "schema_version": payload.get("schema_version"),
+                "schema_valid": chunk_schema_valid,
+                "provenance_present": chunk_provenance_present,
+                "evidence_source": _as_mapping(payload.get("evidence_source")),
                 "checks": {key: bool(checks.get(key)) for key in required_checks},
                 "summary": _as_mapping(payload.get("summary")),
             }
         )
     if artifacts:
+        schema_valid = all(bool(artifact.get("schema_valid")) for artifact in artifacts)
+        provenance_present = all(bool(artifact.get("provenance_present")) for artifact in artifacts)
         aggregate_checks = {
             key: all(bool(_as_mapping(artifact.get("checks")).get(key)) for artifact in artifacts)
             for key in required_checks
@@ -379,7 +424,11 @@ def _validation_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[str,
         "required": required,
         "artifact_count": len(artifacts),
         "artifacts": artifacts,
-        "checks": aggregate_checks,
+        "checks": {
+            **aggregate_checks,
+            "validation_artifact_schema_valid": (not required) or schema_valid,
+            "validation_artifact_provenance_present": (not required) or provenance_present,
+        },
     }
 
 
@@ -724,6 +773,10 @@ def build_live_readiness_gate_report(
     runtime_safety_checks = _as_mapping(runtime_safety_gate.get("checks"))
     if require_runtime_safety_evidence and int(runtime_safety_gate.get("artifact_count") or 0) == 0:
         reasons.append("runtime_safety_evidence_missing")
+    if require_runtime_safety_evidence and not runtime_safety_checks.get("runtime_safety_artifact_schema_valid", False):
+        reasons.append("runtime_safety_artifact_schema_invalid")
+    if require_runtime_safety_evidence and not runtime_safety_checks.get("runtime_safety_artifact_provenance_present", False):
+        reasons.append("runtime_safety_artifact_provenance_missing")
     runtime_safety_reason_by_check = {
         "kill_switch_dry_run_met": "kill_switch_dry_run_missing",
         "order_position_reconciliation_met": "order_position_reconciliation_missing",
@@ -740,6 +793,10 @@ def build_live_readiness_gate_report(
     microstructure_checks = _as_mapping(microstructure_gate.get("checks"))
     if require_microstructure_evidence and int(microstructure_gate.get("artifact_count") or 0) == 0:
         reasons.append("microstructure_evidence_missing")
+    if require_microstructure_evidence and not microstructure_checks.get("microstructure_artifact_schema_valid", False):
+        reasons.append("microstructure_artifact_schema_invalid")
+    if require_microstructure_evidence and not microstructure_checks.get("microstructure_artifact_provenance_present", False):
+        reasons.append("microstructure_artifact_provenance_missing")
     if require_microstructure_evidence and not microstructure_checks.get("l2_tick_coverage_met", False):
         reasons.append("l2_tick_coverage_below_threshold")
     if require_microstructure_evidence and not microstructure_checks.get("depth_driven_taker_met", False):
@@ -747,6 +804,10 @@ def build_live_readiness_gate_report(
     validation_checks = _as_mapping(validation_gate.get("checks"))
     if require_validation_evidence and int(validation_gate.get("artifact_count") or 0) == 0:
         reasons.append("validation_evidence_missing")
+    if require_validation_evidence and not validation_checks.get("validation_artifact_schema_valid", False):
+        reasons.append("validation_artifact_schema_invalid")
+    if require_validation_evidence and not validation_checks.get("validation_artifact_provenance_present", False):
+        reasons.append("validation_artifact_provenance_missing")
     if require_validation_evidence and not validation_checks.get("oos_non_degraded_met", False):
         reasons.append("oos_degraded")
     if require_validation_evidence and not validation_checks.get("multi_regime_met", False):

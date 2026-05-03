@@ -465,6 +465,7 @@ def test_live_readiness_gate_report_accepts_runtime_safety_evidence_artifact(tmp
         json.dumps(
             {
                 "schema_version": "runtime_safety_gate_input.v1",
+                "evidence_source": {"type": "paper_runtime_logs", "run_id": "runtime-1"},
                 "checks": {
                     "kill_switch_dry_run_met": True,
                     "order_position_reconciliation_met": True,
@@ -530,6 +531,96 @@ def test_live_readiness_gate_report_rejects_missing_microstructure_evidence(tmp_
     assert "## Microstructure Gate" in markdown
     assert "l2_tick_coverage_met: false" in markdown
     assert "depth_driven_taker_met: false" in markdown
+
+
+def test_live_readiness_gate_report_rejects_invalid_producer_artifact_schema_and_provenance(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    chunk.mkdir()
+    (chunk / "trades.json").write_text(
+        json.dumps(
+            {
+                "trades": [
+                    {
+                        "symbol": "BTCUSDT",
+                        "side": "long",
+                        "setup_type": "BREAKOUT_CONTINUATION",
+                        "net_pnl": 100.0,
+                        "gross_pnl": 120.0,
+                        "fee_paid": 10.0,
+                        "slippage_paid": 10.0,
+                        "fill_quality": "evidence_backed",
+                        "execution_price_source": "trade_print",
+                        "exit_fill_quality": "evidence_backed",
+                        "exit_price_source": "trade_print",
+                        "simulated_exit_reason": "take_profit",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    (chunk / "market_microstructure_gate.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "unexpected_microstructure.v0",
+                "checks": {"l2_tick_coverage_met": True, "depth_driven_taker_met": True},
+                "summary": {"min_l2_tick_coverage": 0.995},
+            }
+        ),
+        encoding="utf-8",
+    )
+    (chunk / "validation_gate.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "unexpected_validation.v0",
+                "checks": {
+                    "oos_non_degraded_met": True,
+                    "multi_regime_met": True,
+                    "cost_stress_positive_met": True,
+                    "forward_contamination_absent_met": True,
+                },
+                "summary": {"oos_net_pnl": 50.0},
+            }
+        ),
+        encoding="utf-8",
+    )
+    (chunk / "runtime_safety_gate.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "unexpected_runtime.v0",
+                "checks": {
+                    "kill_switch_dry_run_met": True,
+                    "order_position_reconciliation_met": True,
+                    "fail_closed_met": True,
+                    "dust_before_scale_met": True,
+                    "live_trade_ledger_met": True,
+                    "runtime_explainability_met": True,
+                    "drift_guard_met": True,
+                },
+                "summary": {"ledger_rows": 1},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_live_readiness_gate_report(
+        tmp_path,
+        require_microstructure_evidence=True,
+        require_validation_evidence=True,
+        require_runtime_safety_evidence=True,
+    )
+
+    reasons = set(report["promotion_gate"]["reasons"])
+    assert "microstructure_artifact_schema_invalid" in reasons
+    assert "validation_artifact_schema_invalid" in reasons
+    assert "runtime_safety_artifact_schema_invalid" in reasons
+    assert "microstructure_artifact_provenance_missing" in reasons
+    assert "validation_artifact_provenance_missing" in reasons
+    assert "runtime_safety_artifact_provenance_missing" in reasons
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+    assert report["microstructure_gate"]["checks"]["microstructure_artifact_schema_valid"] is False
+    assert report["validation_gate"]["checks"]["validation_artifact_provenance_present"] is False
+    assert report["runtime_safety_gate"]["checks"]["runtime_safety_artifact_schema_valid"] is False
 
 
 def test_live_readiness_gate_report_accepts_microstructure_evidence_artifact(tmp_path: Path) -> None:
@@ -657,6 +748,7 @@ def test_live_readiness_gate_report_accepts_validation_evidence_artifact(tmp_pat
         json.dumps(
             {
                 "schema_version": "validation_gate_input.v1",
+                "evidence_source": {"type": "walk_forward_oos_report", "run_id": "validation-1"},
                 "checks": {
                     "oos_non_degraded_met": True,
                     "multi_regime_met": True,
