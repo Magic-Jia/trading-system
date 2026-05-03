@@ -707,6 +707,36 @@ def render_live_readiness_markdown(report: Mapping[str, Any]) -> str:
                     f"net={float(mapped_bucket.get('net') or 0.0):.2f}, "
                     f"win_rate={float(mapped_bucket.get('win_rate') or 0.0):.2%}"
                 )
+    concentration = _as_mapping(report.get("concentration"))
+    if concentration:
+        lines.extend(["", "## Concentration Gate"])
+        max_setup_share = concentration.get("max_setup_trade_share")
+        max_symbol_share = concentration.get("max_symbol_trade_share")
+        lines.append(
+            "- max_setup_trade_share: "
+            + (f"{float(max_setup_share):.2%}" if max_setup_share is not None else "disabled")
+        )
+        lines.append(
+            "- max_symbol_trade_share: "
+            + (f"{float(max_symbol_share):.2%}" if max_symbol_share is not None else "disabled")
+        )
+        for label, threshold in (
+            ("top_setup_by_trades", max_setup_share),
+            ("top_symbol_by_trades", max_symbol_share),
+        ):
+            bucket = _as_mapping(concentration.get(label))
+            if not bucket:
+                continue
+            trade_share = float(bucket.get("trade_share") or 0.0)
+            status = "disabled" if threshold is None else ("breach" if trade_share > float(threshold) else "ok")
+            threshold_text = "disabled" if threshold is None else f"{float(threshold):.2%}"
+            lines.append(
+                f"- {label}: {bucket.get('key')}, "
+                f"trades={int(bucket.get('trades') or 0)}, "
+                f"trade_share={trade_share:.2%}, "
+                f"threshold={threshold_text}, "
+                f"status={status}"
+            )
     lines.extend(["", "## Caveats"])
     lines.extend(f"- {item}" for item in report.get("caveats", []))
     lines.append("")

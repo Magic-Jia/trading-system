@@ -703,6 +703,11 @@ def test_live_readiness_smoke_report_materializes_nested_full_market_bundle(tmp_
     assert "- TREND_PULLBACK: trades=1" in markdown
     assert "### Symbol Summary" in markdown
     assert "- BTCUSDT: trades=1" in markdown
+    assert "## Concentration Gate" in markdown
+    assert "- max_setup_trade_share: 45.00%" in markdown
+    assert "- max_symbol_trade_share: 70.00%" in markdown
+    assert "- top_setup_by_trades: TREND_PULLBACK, trades=1, trade_share=100.00%, threshold=45.00%, status=breach" in markdown
+    assert "- top_symbol_by_trades: BTCUSDT, trades=1, trade_share=100.00%, threshold=70.00%, status=breach" in markdown
     assert (output_dir / "trade_postmortem_summary.json").exists()
     postmortem = json.loads((output_dir / "trade_postmortem_summary.json").read_text(encoding="utf-8"))
     assert postmortem["schema_version"] == "trade_postmortem_summary.v1"
