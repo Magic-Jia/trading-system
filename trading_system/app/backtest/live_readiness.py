@@ -596,6 +596,16 @@ def render_live_readiness_markdown(report: Mapping[str, Any]) -> str:
                 f"net={float(mapped_bucket.get('net') or 0.0):.2f}, "
                 f"win_rate={float(mapped_bucket.get('win_rate') or 0.0):.2%}"
             )
+        setup_buckets = _as_mapping(postmortem.get("by_setup_type"))
+        if setup_buckets:
+            lines.extend(["", "### Setup Type Summary"])
+            for key, bucket in sorted(setup_buckets.items()):
+                mapped_bucket = _as_mapping(bucket)
+                lines.append(
+                    f"- {key}: trades={int(mapped_bucket.get('trades') or 0)}, "
+                    f"net={float(mapped_bucket.get('net') or 0.0):.2f}, "
+                    f"win_rate={float(mapped_bucket.get('win_rate') or 0.0):.2%}"
+                )
     lines.extend(["", "## Caveats"])
     lines.extend(f"- {item}" for item in report.get("caveats", []))
     lines.append("")

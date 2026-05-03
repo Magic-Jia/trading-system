@@ -654,6 +654,8 @@ def test_live_readiness_smoke_report_materializes_nested_full_market_bundle(tmp_
     assert "## Trade Postmortem Summary" in markdown
     assert "- schema_version: trade_postmortem_summary.v1" in markdown
     assert "- 有效盈利_after_cost: trades=1" in markdown
+    assert "### Setup Type Summary" in markdown
+    assert "- TREND_PULLBACK: trades=1" in markdown
     assert (output_dir / "trade_postmortem_summary.json").exists()
     postmortem = json.loads((output_dir / "trade_postmortem_summary.json").read_text(encoding="utf-8"))
     assert postmortem["schema_version"] == "trade_postmortem_summary.v1"
