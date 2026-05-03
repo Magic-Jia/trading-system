@@ -440,6 +440,26 @@ def _postmortem_failure_bucket(trade: Mapping[str, Any]) -> str:
     return "净亏损_需逐单复核"
 
 
+def _postmortem_dominance_bucket(
+    buckets: Mapping[str, Mapping[str, Any]],
+    *,
+    total_trades: int,
+    total_abs_net: float,
+) -> dict[str, Any] | None:
+    if not buckets or total_trades <= 0:
+        return None
+    key, bucket = max(buckets.items(), key=lambda item: (int(item[1].get("trades", 0)), abs(_float_value(item[1].get("net"))), item[0]))
+    trades = int(bucket.get("trades", 0))
+    net = _float_value(bucket.get("net"))
+    return {
+        "key": key,
+        "trades": trades,
+        "trade_share": trades / total_trades if total_trades else 0.0,
+        "net": net,
+        "net_abs_share": abs(net) / total_abs_net if total_abs_net > 0.0 else 0.0,
+    }
+
+
 def summarize_trade_postmortem(trades: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
     rows = [dict(trade) for trade in trades]
     by_failure: dict[str, dict[str, Any]] = {}
@@ -460,12 +480,26 @@ def summarize_trade_postmortem(trades: Iterable[Mapping[str, Any]]) -> dict[str,
         "net_pnl": summary["net"],
         "cost_total": summary["cost"],
     }
+    total_trades = int(summary["trades"])
+    total_abs_net = sum(abs(_float_value(trade.get("net_pnl"))) for trade in rows)
     return {
         "schema_version": "trade_postmortem_summary.v1",
         "summary": summary_payload,
         "by_failure_taxonomy": {key: by_failure[key] for key in sorted(by_failure)},
         "by_setup_type": {key: by_setup[key] for key in sorted(by_setup)},
         "by_symbol": {key: by_symbol[key] for key in sorted(by_symbol)},
+        "dominance": {
+            "top_setup_by_trades": _postmortem_dominance_bucket(
+                by_setup,
+                total_trades=total_trades,
+                total_abs_net=total_abs_net,
+            ),
+            "top_symbol_by_trades": _postmortem_dominance_bucket(
+                by_symbol,
+                total_trades=total_trades,
+                total_abs_net=total_abs_net,
+            ),
+        },
     }
 
 

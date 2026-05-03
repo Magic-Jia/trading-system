@@ -733,6 +733,20 @@ def test_trade_postmortem_summary_buckets_failure_taxonomy_and_setups() -> None:
     assert report["by_setup_type"]["TREND_PULLBACK"]["trades"] == 2
     assert report["by_setup_type"]["TREND_PULLBACK"]["net"] == pytest.approx(-250.0)
     assert report["by_symbol"]["SOLUSDT"]["win_rate"] == 1.0
+    assert report["dominance"]["top_setup_by_trades"] == {
+        "key": "TREND_PULLBACK",
+        "trades": 2,
+        "trade_share": pytest.approx(0.4),
+        "net": pytest.approx(-250.0),
+        "net_abs_share": pytest.approx(250.0 / 755.0),
+    }
+    assert report["dominance"]["top_symbol_by_trades"] == {
+        "key": "SOLUSDT",
+        "trades": 1,
+        "trade_share": pytest.approx(0.2),
+        "net": pytest.approx(420.0),
+        "net_abs_share": pytest.approx(420.0 / 755.0),
+    }
 
 
 class _Universes:
