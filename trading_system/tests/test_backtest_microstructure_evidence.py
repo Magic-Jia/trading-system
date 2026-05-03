@@ -7,6 +7,7 @@ import pytest
 
 from trading_system.app.backtest.microstructure_evidence import (
     build_microstructure_gate,
+    simulate_depth_driven_taker_fill,
     write_microstructure_gate,
 )
 
@@ -66,3 +67,96 @@ def test_rejects_invalid_coverage_values() -> None:
         build_microstructure_gate(
             {"coverage": {"l2_snapshot_coverage": 1.5, "l2_update_coverage": 1, "tick_coverage": 1}}
         )
+
+
+def test_depth_driven_buy_fill_consumes_asks_and_reports_vwap() -> None:
+    fill = simulate_depth_driven_taker_fill(
+        side="buy",
+        quantity=3.0,
+        reference_price=100.0,
+        bids=[{"price": 99.9, "quantity": 10}],
+        asks=[{"price": 100.1, "quantity": 1}, {"price": 100.4, "quantity": 2}],
+    )
+
+    assert fill == {
+        "side": "buy",
+        "requested_quantity": 3.0,
+        "filled_quantity": 3.0,
+        "residual_quantity": 0.0,
+        "complete": True,
+        "vwap": pytest.approx(100.3),
+        "slippage_bps": pytest.approx(30.0),
+        "consumed_levels": [
+            {"price": 100.1, "quantity": 1.0},
+            {"price": 100.4, "quantity": 2.0},
+        ],
+    }
+
+
+def test_depth_driven_sell_fill_consumes_bids_and_reports_vwap() -> None:
+    fill = simulate_depth_driven_taker_fill(
+        side="sell",
+        quantity=2.5,
+        reference_price=100.0,
+        bids=[{"price": 99.9, "quantity": 1.0}, {"price": 99.7, "quantity": 5.0}],
+        asks=[{"price": 100.1, "quantity": 10}],
+    )
+
+    assert fill["complete"] is True
+    assert fill["filled_quantity"] == 2.5
+    assert fill["residual_quantity"] == 0.0
+    assert fill["vwap"] == pytest.approx(99.78)
+    assert fill["slippage_bps"] == pytest.approx(22.0)
+    assert fill["consumed_levels"] == [
+        {"price": 99.9, "quantity": 1.0},
+        {"price": 99.7, "quantity": 1.5},
+    ]
+
+
+def test_incomplete_depth_fill_keeps_gate_conservative() -> None:
+    fill = simulate_depth_driven_taker_fill(
+        side="buy",
+        quantity=5.0,
+        reference_price=100.0,
+        bids=[],
+        asks=[{"price": 100.1, "quantity": 2.0}],
+    )
+    gate = build_microstructure_gate(
+        {
+            "coverage": {
+                "l2_snapshot_coverage": 1.0,
+                "l2_update_coverage": 1.0,
+                "tick_coverage": 1.0,
+            },
+            "depth_driven_taker_fills": [fill],
+        }
+    )
+
+    assert fill["complete"] is False
+    assert fill["residual_quantity"] == 3.0
+    assert gate["checks"]["depth_driven_taker_met"] is False
+    assert "depth_driven_taker_incomplete_fill" in gate["reasons"]
+
+
+def test_complete_depth_fills_satisfy_depth_driven_taker_gate() -> None:
+    fill = simulate_depth_driven_taker_fill(
+        side="buy",
+        quantity=1.0,
+        reference_price=100.0,
+        bids=[],
+        asks=[{"price": 100.2, "quantity": 1.0}],
+    )
+    gate = build_microstructure_gate(
+        {
+            "coverage": {
+                "l2_snapshot_coverage": 1.0,
+                "l2_update_coverage": 1.0,
+                "tick_coverage": 1.0,
+            },
+            "depth_driven_taker_fills": [fill],
+        }
+    )
+
+    assert gate["checks"] == {"l2_tick_coverage_met": True, "depth_driven_taker_met": True}
+    assert gate["reasons"] == []
+    assert gate["depth_driven_taker"] == {"fill_count": 1, "complete_fill_count": 1, "incomplete_fill_count": 0}

@@ -25,6 +25,83 @@ def _normalise_coverage_value(name: str, value: Any) -> float | None:
     return coverage
 
 
+def _normalise_positive_float(name: str, value: Any) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} must be a positive number") from exc
+    if number <= 0:
+        raise ValueError(f"{name} must be a positive number")
+    return number
+
+
+def _normalise_book_levels(levels: list[Mapping[str, Any]] | tuple[Mapping[str, Any], ...]) -> list[dict[str, float]]:
+    normalised: list[dict[str, float]] = []
+    for index, level in enumerate(levels):
+        if not isinstance(level, Mapping):
+            raise ValueError(f"book level {index} must be a mapping")
+        normalised.append(
+            {
+                "price": _normalise_positive_float(f"book level {index} price", level.get("price")),
+                "quantity": _normalise_positive_float(f"book level {index} quantity", level.get("quantity")),
+            }
+        )
+    return normalised
+
+
+def simulate_depth_driven_taker_fill(
+    *,
+    side: str,
+    quantity: float,
+    reference_price: float,
+    bids: list[Mapping[str, Any]] | tuple[Mapping[str, Any], ...],
+    asks: list[Mapping[str, Any]] | tuple[Mapping[str, Any], ...],
+) -> dict[str, Any]:
+    """Simulate a marketable taker order against visible orderbook depth."""
+
+    side = side.lower()
+    if side not in {"buy", "sell"}:
+        raise ValueError("side must be buy or sell")
+    requested_quantity = _normalise_positive_float("quantity", quantity)
+    reference = _normalise_positive_float("reference_price", reference_price)
+    levels = _normalise_book_levels(asks if side == "buy" else bids)
+
+    remaining = requested_quantity
+    filled = 0.0
+    notional = 0.0
+    consumed_levels: list[dict[str, float]] = []
+
+    for level in levels:
+        if remaining <= 0:
+            break
+        consume_quantity = min(remaining, level["quantity"])
+        consumed_levels.append({"price": level["price"], "quantity": consume_quantity})
+        filled += consume_quantity
+        notional += consume_quantity * level["price"]
+        remaining -= consume_quantity
+
+    complete = remaining <= 1e-12
+    residual_quantity = 0.0 if complete else remaining
+    vwap = notional / filled if filled else None
+    if vwap is None:
+        slippage_bps = None
+    elif side == "buy":
+        slippage_bps = ((vwap - reference) / reference) * 10_000
+    else:
+        slippage_bps = ((reference - vwap) / reference) * 10_000
+
+    return {
+        "side": side,
+        "requested_quantity": requested_quantity,
+        "filled_quantity": filled,
+        "residual_quantity": residual_quantity,
+        "complete": complete,
+        "vwap": vwap,
+        "slippage_bps": slippage_bps,
+        "consumed_levels": consumed_levels,
+    }
+
+
 def build_microstructure_gate(
     manifest: Mapping[str, Any],
     *,
@@ -61,15 +138,30 @@ def build_microstructure_gate(
         coverage[key] is not None and coverage[key] >= min_required_coverage
         for key in _DEFAULT_COVERAGE_KEYS
     )
-    depth_driven_taker_met = bool(manifest.get("depth_driven_taker_met", False))
+    depth_fills = manifest.get("depth_driven_taker_fills")
+    if depth_fills is None:
+        fill_count = 0
+        complete_fill_count = 0
+        incomplete_fill_count = 0
+        depth_driven_taker_met = bool(manifest.get("depth_driven_taker_met", False))
+    elif isinstance(depth_fills, list):
+        fill_count = len(depth_fills)
+        complete_fill_count = sum(1 for fill in depth_fills if isinstance(fill, Mapping) and fill.get("complete") is True)
+        incomplete_fill_count = fill_count - complete_fill_count
+        depth_driven_taker_met = fill_count > 0 and incomplete_fill_count == 0
+    else:
+        raise ValueError("depth_driven_taker_fills must be a list")
 
     reasons: list[str] = []
     if not l2_tick_coverage_met:
         reasons.append("l2_tick_coverage_below_threshold")
     if not depth_driven_taker_met:
-        reasons.append("depth_driven_taker_evidence_missing")
+        if fill_count > 0 and incomplete_fill_count > 0:
+            reasons.append("depth_driven_taker_incomplete_fill")
+        else:
+            reasons.append("depth_driven_taker_evidence_missing")
 
-    return {
+    gate = {
         "schema_version": SCHEMA_VERSION,
         "evidence_source": evidence_source,
         "checks": {
@@ -79,6 +171,13 @@ def build_microstructure_gate(
         "coverage": coverage,
         "reasons": reasons,
     }
+    if depth_fills is not None:
+        gate["depth_driven_taker"] = {
+            "fill_count": fill_count,
+            "complete_fill_count": complete_fill_count,
+            "incomplete_fill_count": incomplete_fill_count,
+        }
+    return gate
 
 
 def write_microstructure_gate(
