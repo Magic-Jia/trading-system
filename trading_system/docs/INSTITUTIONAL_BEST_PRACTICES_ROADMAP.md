@@ -17,6 +17,9 @@
 - 90d baseline 结果：gross PnL `+25,148.91`，net PnL `-14,476.85`，总成本拖累约 `39,625.76`，promotion gate 为 `reject_for_live_promotion`。
 - 主要亏损 short setup：`BREAKDOWN_SHORT`、`FAILED_BOUNCE_SHORT`。
 - 已新增离线 live-readiness 工具：passive/maker calibration record parser、depth readiness audit、exit path audit、live readiness gate、opt-in `quarantined_short_setup_types`；后续已扩展为通用 opt-in `quarantined_setup_types`，可过滤任意 setup bucket，同时保留 short-only 字段兼容。
+- Live-readiness gate 已接入可选 `setup_rewrite_experiment.json` 离线诊断：聚合 `evaluated_count` / `would_keep_count` / `would_filter_count` / `skipped_count` / `keep_rate`、reason counts 与 by-setup buckets；若诊断显示 evaluated rows 无 surviving candidates 或仍有 skipped/no-evidence rows，promotion gate 会分别以 `setup_rewrite_no_surviving_candidates` / `setup_rewrite_missing_evidence` 保守拒绝。该 artifact 仍是 opt-in offline diagnostic，不会改写 baseline ledger。
+- 已新增可复用 live-readiness smoke CLI：`python -m trading_system.app.backtest.live_readiness --input-root <path> --output-dir <path>`。它可归一化 normalized chunk、nested full-market bundle 或 single-bundle 输入，复制 `trades.json`、可选 `summary.json`、可选 `setup_rewrite_experiment.json`，并输出 `live_readiness_gate.json` / `live_readiness_gate.md` / `normalized_chunks/`，同时在 `smoke_report` 中保留 source/normalized provenance。
+- 使用 corrected 30-trade chunk 输入跑通真实 artifact smoke：9 个 chunks、30 笔、net PnL `-4,046.26`，promotion gate 仍为 `reject_for_live_promotion`，原因是 `net_pnl_below_zero` 与 `major_setup_bucket_negative`。
 - 已开始把 exit evidence 纳入 engine/gate：fixed-horizon exit 在有 exit-row `aggTrades`/trade-print evidence 时优先使用 exit timestamp 附近可执行 trade print，并输出 `exit_fill_model`、`exit_price_source`、`exit_fill_quality`、`exit_fill_timestamp`、`exit_slippage_vs_reference_bps`；live-readiness gate 也新增 `exit_evidence_coverage` 硬检查。
 - 使用 quarantine 排除 `BREAKDOWN_SHORT` / `FAILED_BOUNCE_SHORT` 后，90d 只剩 30 笔，旧 reference/fixed-horizon ledger 曾显示 net PnL `+2,746.48`，但 full-path `aggTrades` exit audit 证明该正收益不是 exit-executable-confirmed。
 - 已用 engine-level exit trade-print evidence 复跑 corrected 30 笔：entry evidence coverage `100%`，exit evidence coverage `100%`，exit path ambiguity rate `0%`，corrected net PnL `-4,046.26`，promotion gate 仍为 `reject_for_live_promotion`，原因是 `net_pnl_below_zero` 与 `major_setup_bucket_negative`。
@@ -153,6 +156,7 @@
 - [x] Full-market baseline bundle 新增 `exit_path_replay.json` artifact，每笔交易输出 path classification，manifest 可追踪。
 - [x] stop/take-profit ordering 无法证明时默认不采用乐观结果：同一 bar 同时触发时继续保守按 stop-loss 计入 `simulated_exit_reason`，并新增 `simulated_exit_ordering = "ambiguous_conservative_stop"` 供 ledger、`trades.json`、`exit_path_replay.json` 和 ambiguity gate 审计。
 - [x] Corrected 30-trade survivor replay 已达到 entry evidence coverage `100%`、exit evidence coverage `100%`、exit path ambiguity rate `0%`，但净值仍为 `-4,046.26`；这说明 reject 已从“证据不足”升级为“策略/exit 规则本身不合格”。
+- [x] Live-readiness smoke CLI 已可复核真实 artifact：从 corrected 30-trade chunk 输入生成 `live_readiness_gate.json` / `live_readiness_gate.md`，记录 `smoke_report` provenance，并复现 9 chunks / 30 trades / net PnL `-4,046.26` / `reject_for_live_promotion`。
 - [ ] 主结果中 ambiguous exit trade 占比低于阈值。
 - [ ] 每笔 live-candidate trade 都能生成 path replay artifact。
 
@@ -256,6 +260,22 @@ Interpretation: the pre-declared exit rewrites did not rescue the survivor set. 
 - [ ] 单一 setup 或单一 symbol 不能支配全部收益。
 - [ ] failure taxonomy 可解释主要亏损来源。
 - [ ] 已证伪 setup 默认 quarantine，除非重写后重新通过 OOS gate。
+
+### Setup rewrite diagnostic and smoke CLI status
+
+The setup rewrite layer is currently evidence-gating / diagnostics only:
+
+- `setup_rewrite_experiment.json` is optional and must not silently rewrite the baseline ledger.
+- `live_readiness_gate_report.v1` aggregates setup rewrite evidence when present and conservatively rejects promotion if the rewrite leaves no surviving evaluated candidates or still has skipped/no-evidence rows.
+- The reusable smoke command for completed chunk/bundle results is:
+
+```bash
+python -m trading_system.app.backtest.live_readiness \
+  --input-root /tmp/trading-system-execution-candidate-90d-20260105-0405-run/live_readiness_gate_corrected_exit_evidence_input \
+  --output-dir /tmp/live_readiness_cli_smoke
+```
+
+Expected corrected 30-trade smoke interpretation: `trade_count = 30`, `chunks = 9`, `net_pnl ≈ -4,046.26`, `decision = reject_for_live_promotion`, reasons include `net_pnl_below_zero` and `major_setup_bucket_negative`. If a future setup rewrite artifact is present, also inspect `setup_rewrite_diagnostic` and require the setup rewrite checks to pass before discussing promotion.
 
 ---
 
