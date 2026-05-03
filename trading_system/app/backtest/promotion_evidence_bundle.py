@@ -9,6 +9,8 @@ from typing import Any, Mapping
 
 SCHEMA_VERSION = "promotion_evidence_bundle.v1"
 REQUIRED_ARTIFACTS = (
+    "trades.json",
+    "exit_path_replay.json",
     "market_microstructure_gate.json",
     "passive_order_calibration_summary.json",
     "validation_gate.json",

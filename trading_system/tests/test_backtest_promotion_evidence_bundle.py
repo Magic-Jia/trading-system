@@ -43,6 +43,94 @@ def test_collects_required_evidence_artifacts_with_checksums(tmp_path: Path) -> 
     assert (bundle_dir / first["path"]).exists()
 
 
+def test_collected_bundle_can_be_consumed_by_live_readiness_smoke(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    _write_json(
+        source / "trades.json",
+        {
+            "trades": [
+                {
+                    "trade_id": "t1",
+                    "symbol": "BTCUSDT",
+                    "side": "long",
+                    "setup_type": "BREAKOUT_CONTINUATION",
+                    "net_pnl": 100.0,
+                    "gross_pnl": 120.0,
+                    "fee_paid": 10.0,
+                    "slippage_paid": 10.0,
+                    "fill_quality": "evidence_backed",
+                    "execution_price_source": "trade_print",
+                    "exit_fill_quality": "evidence_backed",
+                    "exit_price_source": "trade_print",
+                    "simulated_exit_reason": "take_profit",
+                }
+            ]
+        },
+    )
+    _write_json(source / "exit_path_replay.json", {"trades": [{"trade_id": "t1"}]})
+    _write_json(
+        source / "market_microstructure_gate.json",
+        {
+            "checks": {"l2_tick_coverage_met": True, "depth_driven_taker_met": True},
+            "summary": {"min_l2_tick_coverage": 0.995},
+        },
+    )
+    _write_json(
+        source / "passive_order_calibration_summary.json",
+        {
+            "overall": {"attempt_count": 10, "fill_rate": 0.8},
+            "provenance": {"source": "testnet_exchange", "real_exchange_records": True},
+        },
+    )
+    _write_json(
+        source / "validation_gate.json",
+        {
+            "checks": {
+                "oos_non_degraded_met": True,
+                "multi_regime_met": True,
+                "cost_stress_positive_met": True,
+                "forward_contamination_absent_met": True,
+            }
+        },
+    )
+    _write_json(
+        source / "runtime_safety_gate.json",
+        {
+            "checks": {
+                "kill_switch_dry_run_met": True,
+                "order_position_reconciliation_met": True,
+                "fail_closed_met": True,
+                "dust_before_scale_met": True,
+                "live_trade_ledger_met": True,
+                "runtime_explainability_met": True,
+                "drift_guard_met": True,
+            }
+        },
+    )
+
+    bundle_dir = collect_promotion_evidence_bundle(source, tmp_path / "bundle", candidate_id="candidate-1")
+
+    from trading_system.app.backtest.live_readiness import write_live_readiness_smoke_report
+
+    report = write_live_readiness_smoke_report(
+        bundle_dir,
+        tmp_path / "out",
+        require_microstructure_evidence=True,
+        require_validation_evidence=True,
+        require_runtime_safety_evidence=True,
+        require_passive_calibration=True,
+        require_exit_path_replay_rows=True,
+        min_passive_calibration_attempts=5,
+    )
+    reasons = set(report["promotion_gate"]["reasons"])
+    assert "microstructure_evidence_missing" not in reasons
+    assert "validation_evidence_missing" not in reasons
+    assert "runtime_safety_evidence_missing" not in reasons
+    assert "passive_calibration_missing" not in reasons
+    assert "exit_path_replay_missing_trades" not in reasons
+
+
 def test_bundle_collector_fails_closed_when_required_artifact_missing(tmp_path: Path) -> None:
     source = tmp_path / "source"
     source.mkdir()
