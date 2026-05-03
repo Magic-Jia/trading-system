@@ -568,18 +568,28 @@ def _postmortem_dominance_bucket(
     *,
     total_trades: int,
     total_abs_net: float,
+    total_loss_abs_net: float = 0.0,
+    sort_by: str = "trades",
 ) -> dict[str, Any] | None:
     if not buckets or total_trades <= 0:
         return None
-    key, bucket = max(buckets.items(), key=lambda item: (int(item[1].get("trades", 0)), abs(_float_value(item[1].get("net"))), item[0]))
+    if sort_by == "loss_abs":
+        sort_key = lambda item: (abs(min(_float_value(item[1].get("net")), 0.0)), int(item[1].get("trades", 0)), item[0])
+    elif sort_by == "net_abs":
+        sort_key = lambda item: (abs(_float_value(item[1].get("net"))), int(item[1].get("trades", 0)), item[0])
+    else:
+        sort_key = lambda item: (int(item[1].get("trades", 0)), abs(_float_value(item[1].get("net"))), item[0])
+    key, bucket = max(buckets.items(), key=sort_key)
     trades = int(bucket.get("trades", 0))
     net = _float_value(bucket.get("net"))
+    loss_abs = abs(min(net, 0.0))
     return {
         "key": key,
         "trades": trades,
         "trade_share": trades / total_trades if total_trades else 0.0,
         "net": net,
         "net_abs_share": abs(net) / total_abs_net if total_abs_net > 0.0 else 0.0,
+        "loss_abs_share": loss_abs / total_loss_abs_net if total_loss_abs_net > 0.0 else 0.0,
     }
 
 
@@ -605,6 +615,7 @@ def summarize_trade_postmortem(trades: Iterable[Mapping[str, Any]]) -> dict[str,
     }
     total_trades = int(summary["trades"])
     total_abs_net = sum(abs(_float_value(trade.get("net_pnl"))) for trade in rows)
+    total_loss_abs_net = sum(abs(min(_float_value(trade.get("net_pnl")), 0.0)) for trade in rows)
     return {
         "schema_version": "trade_postmortem_summary.v1",
         "summary": summary_payload,
@@ -616,11 +627,41 @@ def summarize_trade_postmortem(trades: Iterable[Mapping[str, Any]]) -> dict[str,
                 by_setup,
                 total_trades=total_trades,
                 total_abs_net=total_abs_net,
+                total_loss_abs_net=total_loss_abs_net,
             ),
             "top_symbol_by_trades": _postmortem_dominance_bucket(
                 by_symbol,
                 total_trades=total_trades,
                 total_abs_net=total_abs_net,
+                total_loss_abs_net=total_loss_abs_net,
+            ),
+            "top_setup_by_net_abs": _postmortem_dominance_bucket(
+                by_setup,
+                total_trades=total_trades,
+                total_abs_net=total_abs_net,
+                total_loss_abs_net=total_loss_abs_net,
+                sort_by="net_abs",
+            ),
+            "top_symbol_by_net_abs": _postmortem_dominance_bucket(
+                by_symbol,
+                total_trades=total_trades,
+                total_abs_net=total_abs_net,
+                total_loss_abs_net=total_loss_abs_net,
+                sort_by="net_abs",
+            ),
+            "top_setup_by_loss_abs": _postmortem_dominance_bucket(
+                by_setup,
+                total_trades=total_trades,
+                total_abs_net=total_abs_net,
+                total_loss_abs_net=total_loss_abs_net,
+                sort_by="loss_abs",
+            ),
+            "top_symbol_by_loss_abs": _postmortem_dominance_bucket(
+                by_symbol,
+                total_trades=total_trades,
+                total_abs_net=total_abs_net,
+                total_loss_abs_net=total_loss_abs_net,
+                sort_by="loss_abs",
             ),
         },
     }
