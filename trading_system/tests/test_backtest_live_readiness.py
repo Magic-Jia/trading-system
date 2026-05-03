@@ -165,6 +165,52 @@ def test_exit_path_replay_audit_marks_intrabar_limitations() -> None:
     assert any("does not invent tick precision" in caveat for caveat in report["caveats"])
 
 
+
+def test_live_readiness_gate_report_rejects_under_sampled_and_banned_setups(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    chunk.mkdir()
+    trades = []
+    for index in range(3):
+        trades.append(
+            {
+                "symbol": "BTCUSDT",
+                "side": "long",
+                "setup_type": "RS_REACCELERATION",
+                "net_pnl": 25.0,
+                "gross_pnl": 30.0,
+                "fee_paid": 2.0,
+                "slippage_paid": 3.0,
+                "fill_quality": "evidence_backed",
+                "execution_price_source": "trade_print",
+                "exit_fill_quality": "evidence_backed",
+                "exit_price_source": "trade_print",
+                "simulated_exit_reason": "take_profit",
+            }
+        )
+    (chunk / "trades.json").write_text(json.dumps({"trades": trades}), encoding="utf-8")
+
+    report = build_live_readiness_gate_report(
+        tmp_path,
+        min_setup_trade_count=5,
+        banned_setup_types=["RS_REACCELERATION"],
+    )
+
+    setup_gate = report["setup_quality_gate"]
+    assert setup_gate["schema_version"] == "setup_quality_gate.v1"
+    assert setup_gate["min_setup_trade_count"] == 5
+    assert setup_gate["under_sampled_setup_types"] == ["RS_REACCELERATION"]
+    assert setup_gate["banned_setup_types_present"] == ["RS_REACCELERATION"]
+    assert report["promotion_gate"]["checks"]["setup_min_sample_met"] is False
+    assert report["promotion_gate"]["checks"]["banned_setup_types_absent"] is False
+    assert "setup_min_sample_too_low" in report["promotion_gate"]["reasons"]
+    assert "banned_setup_type_present" in report["promotion_gate"]["reasons"]
+    markdown = render_live_readiness_markdown(report)
+    assert "## Setup Quality Gate" in markdown
+    assert "min_setup_trade_count: 5" in markdown
+    assert "under_sampled_setup_types: RS_REACCELERATION" in markdown
+    assert "banned_setup_types_present: RS_REACCELERATION" in markdown
+
+
 def test_live_readiness_gate_report_rejects_concentrated_setup_and_symbol_buckets(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     chunk.mkdir()

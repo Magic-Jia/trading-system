@@ -262,10 +262,10 @@ Interpretation: the pre-declared exit rewrites did not rescue the survivor set. 
 
 ### Promotion gate
 
-- [ ] 每个要上线的 setup 有足够样本。
-- [ ] 单一 setup 或单一 symbol 不能支配全部收益。
-- [ ] failure taxonomy 可解释主要亏损来源，且 smoke Markdown/JSON 均能追溯到 setup bucket 和 symbol bucket。
-- [ ] 已证伪 setup 默认 quarantine，除非重写后重新通过 OOS gate。
+- [x] 每个要上线的 setup 有足够样本：live-readiness gate 新增 `setup_quality_gate.v1`，可用 `min_setup_trade_count` / `--min-setup-trade-count` 强制每个 setup bucket 达到最小 evidence-backed 样本；不足时 reason=`setup_min_sample_too_low`。
+- [x] 单一 setup 或单一 symbol 不能支配全部收益：已由 concentration gate 覆盖 trade-share、net-abs-share、loss-abs-share，并在 JSON/Markdown/stdout 展示阈值和 breach 状态。
+- [x] failure taxonomy 可解释主要亏损来源，且 smoke Markdown/JSON 均能追溯到 setup bucket 和 symbol bucket：`trade_postmortem_summary.v1`、`Setup Type Summary`、`Symbol Summary`、`Concentration Gate` 与 postmortem reconciliation 已接入 smoke 输出。
+- [x] 已证伪 setup 默认 quarantine，除非重写后重新通过 OOS gate：`setup_quality_gate.v1` 支持 `banned_setup_types` / `--banned-setup-type`，出现已证伪 setup 时 reason=`banned_setup_type_present`；通用 `quarantined_setup_types` 仍用于 backtest candidate 过滤。
 
 ### Setup rewrite diagnostic and smoke CLI status
 

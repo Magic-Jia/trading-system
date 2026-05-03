@@ -269,6 +269,33 @@ def _setup_rewrite_diagnostic(chunk_dirs: Iterable[Path]) -> dict[str, Any] | No
     }
 
 
+def _setup_quality_gate(
+    by_setup: Mapping[str, Mapping[str, Any]],
+    *,
+    min_setup_trade_count: int | None,
+    banned_setup_types: Sequence[str] | None,
+) -> dict[str, Any]:
+    banned = sorted({str(item) for item in (banned_setup_types or []) if str(item)})
+    under_sampled = []
+    if min_setup_trade_count is not None:
+        threshold = max(0, int(min_setup_trade_count))
+        under_sampled = sorted(
+            key for key, bucket in by_setup.items() if int(bucket.get("trade_count") or 0) < threshold
+        )
+    present_banned = sorted(key for key in banned if key in by_setup)
+    return {
+        "schema_version": "setup_quality_gate.v1",
+        "min_setup_trade_count": min_setup_trade_count,
+        "banned_setup_types": banned,
+        "under_sampled_setup_types": under_sampled,
+        "banned_setup_types_present": present_banned,
+        "checks": {
+            "setup_min_sample_met": not under_sampled,
+            "banned_setup_types_absent": not present_banned,
+        },
+    }
+
+
 def _exit_path_replay_reconciliation(chunk_dirs: Sequence[Path], *, required: bool) -> dict[str, Any]:
     trade_ids: list[str] = []
     path_trade_ids: set[str] = set()
@@ -414,6 +441,8 @@ def build_live_readiness_gate_report(
     min_passive_calibration_attempts: int = 0,
     min_passive_fill_rate: float | None = None,
     require_exit_path_replay_rows: bool = False,
+    min_setup_trade_count: int | None = None,
+    banned_setup_types: Sequence[str] | None = None,
 ) -> dict[str, Any]:
     root = Path(chunk_results_dir)
     chunk_dirs = sorted(path for path in root.iterdir() if path.is_dir() and (path / "trades.json").exists())
@@ -430,6 +459,11 @@ def build_live_readiness_gate_report(
         _add_group(by_setup, str(trade.get("setup_type") or "UNKNOWN"), "setup_type", trade)
         _add_group(by_symbol, str(trade.get("symbol") or "UNKNOWN"), "symbol", trade)
         _add_group(by_side, str(trade.get("side") or "UNKNOWN"), "side", trade)
+    setup_quality_gate = _setup_quality_gate(
+        by_setup,
+        min_setup_trade_count=min_setup_trade_count,
+        banned_setup_types=banned_setup_types,
+    )
     setup_rewrite_diagnostic = _setup_rewrite_diagnostic(chunk_dirs)
     passive_calibration = _passive_calibration_diagnostic(
         chunk_dirs,
@@ -543,6 +577,11 @@ def build_live_readiness_gate_report(
         reasons.append("exit_path_replay_missing_trades")
     if major_negative:
         reasons.append("major_setup_bucket_negative")
+    setup_quality_checks = _as_mapping(setup_quality_gate.get("checks"))
+    if not setup_quality_checks.get("setup_min_sample_met", True):
+        reasons.append("setup_min_sample_too_low")
+    if not setup_quality_checks.get("banned_setup_types_absent", True):
+        reasons.append("banned_setup_type_present")
 
     if not setup_concentration_met:
         reasons.append("setup_concentration_too_high")
@@ -608,6 +647,7 @@ def build_live_readiness_gate_report(
         "by_setup_type": {key: by_setup[key] for key in sorted(by_setup)},
         "by_symbol": {key: by_symbol[key] for key in sorted(by_symbol)},
         "by_side": {key: by_side[key] for key in sorted(by_side)},
+        "setup_quality_gate": setup_quality_gate,
         "concentration": concentration,
         "passive_calibration": passive_calibration,
         "exit_path_replay": {
@@ -632,6 +672,7 @@ def build_live_readiness_gate_report(
                 "exit_path_ambiguity_rate_met": exit_path_ambiguity_rate <= max_exit_path_ambiguity_rate,
                 "exit_path_replay_rows_met": exit_path_replay_rows_met,
                 "major_setup_buckets_non_negative": not major_negative,
+                **setup_quality_checks,
                 "setup_concentration_met": setup_concentration_met,
                 "symbol_concentration_met": symbol_concentration_met,
                 "setup_net_abs_concentration_met": setup_net_abs_concentration_met,
@@ -847,6 +888,8 @@ def write_live_readiness_smoke_report(
     min_passive_calibration_attempts: int = 0,
     min_passive_fill_rate: float | None = None,
     require_exit_path_replay_rows: bool = False,
+    min_setup_trade_count: int | None = None,
+    banned_setup_types: Sequence[str] | None = None,
 ) -> dict[str, Any]:
     source_root = Path(input_root)
     target = Path(output_dir)
@@ -887,6 +930,8 @@ def write_live_readiness_smoke_report(
         min_passive_calibration_attempts=min_passive_calibration_attempts,
         min_passive_fill_rate=min_passive_fill_rate,
         require_exit_path_replay_rows=require_exit_path_replay_rows,
+        min_setup_trade_count=min_setup_trade_count,
+        banned_setup_types=banned_setup_types,
     )
     report["smoke_report"] = {
         "schema_version": "live_readiness_smoke_report.v1",
@@ -995,6 +1040,20 @@ def render_live_readiness_markdown(report: Mapping[str, Any]) -> str:
                     f"net={float(mapped_bucket.get('net') or 0.0):.2f}, "
                     f"win_rate={float(mapped_bucket.get('win_rate') or 0.0):.2%}"
                 )
+    setup_quality = _as_mapping(report.get("setup_quality_gate"))
+    if setup_quality:
+        lines.extend(
+            [
+                "",
+                "## Setup Quality Gate",
+                f"- schema_version: {setup_quality.get('schema_version')}",
+                f"- min_setup_trade_count: {setup_quality.get('min_setup_trade_count') if setup_quality.get('min_setup_trade_count') is not None else 'disabled'}",
+                "- under_sampled_setup_types: "
+                + (", ".join(str(item) for item in setup_quality.get("under_sampled_setup_types", [])) or "none"),
+                "- banned_setup_types_present: "
+                + (", ".join(str(item) for item in setup_quality.get("banned_setup_types_present", [])) or "none"),
+            ]
+        )
     exit_path_replay = _as_mapping(report.get("exit_path_replay"))
     exit_reconciliation = _as_mapping(exit_path_replay.get("reconciliation"))
     if exit_reconciliation:
@@ -1111,6 +1170,8 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--min-passive-calibration-attempts", type=int, default=0)
     parser.add_argument("--min-passive-fill-rate", type=float, default=None)
     parser.add_argument("--require-exit-path-replay-rows", action="store_true")
+    parser.add_argument("--min-setup-trade-count", type=int, default=None)
+    parser.add_argument("--banned-setup-type", action="append", default=[])
     return parser.parse_args()
 
 
@@ -1170,6 +1231,8 @@ def main() -> int:
         min_passive_calibration_attempts=args.min_passive_calibration_attempts,
         min_passive_fill_rate=args.min_passive_fill_rate,
         require_exit_path_replay_rows=args.require_exit_path_replay_rows,
+        min_setup_trade_count=args.min_setup_trade_count,
+        banned_setup_types=args.banned_setup_type,
     )
     gate = _as_mapping(report.get("promotion_gate"))
     totals = _as_mapping(report.get("totals"))
