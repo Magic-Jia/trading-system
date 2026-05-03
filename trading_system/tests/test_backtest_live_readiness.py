@@ -13,6 +13,7 @@ from trading_system.app.backtest.live_readiness import (
     audit_execution_depth,
     audit_exit_path_replay,
     build_live_readiness_gate_report,
+    summarize_trade_postmortem,
     render_live_readiness_markdown,
     write_live_readiness_smoke_report,
 )
@@ -649,6 +650,81 @@ def test_live_readiness_smoke_report_materializes_nested_full_market_bundle(tmp_
     persisted = json.loads((output_dir / "live_readiness_gate.json").read_text(encoding="utf-8"))
     assert persisted["smoke_report"] == report["smoke_report"]
     assert "- setup_rewrite:" in (output_dir / "live_readiness_gate.md").read_text(encoding="utf-8")
+    assert (output_dir / "trade_postmortem_summary.json").exists()
+    postmortem = json.loads((output_dir / "trade_postmortem_summary.json").read_text(encoding="utf-8"))
+    assert postmortem["schema_version"] == "trade_postmortem_summary.v1"
+    assert postmortem["by_failure_taxonomy"]["有效盈利_after_cost"]["trades"] == 1
+
+
+def test_trade_postmortem_summary_buckets_failure_taxonomy_and_setups() -> None:
+    report = summarize_trade_postmortem(
+        [
+            {
+                "symbol": "SOLUSDT",
+                "setup_type": "RS_REACCELERATION",
+                "gross_pnl": 500.0,
+                "net_pnl": 420.0,
+                "fee_paid": 50.0,
+                "slippage_paid": 30.0,
+                "mfe_pct": 0.012,
+                "mae_pct": 0.0,
+            },
+            {
+                "symbol": "ETHUSDT",
+                "setup_type": "BREAKOUT_CONTINUATION",
+                "gross_pnl": 20.0,
+                "net_pnl": -25.0,
+                "fee_paid": 30.0,
+                "slippage_paid": 15.0,
+                "mfe_pct": 0.001,
+                "mae_pct": 0.0,
+            },
+            {
+                "symbol": "BTCUSDT",
+                "setup_type": "TREND_PULLBACK",
+                "gross_pnl": -100.0,
+                "net_pnl": -140.0,
+                "fee_paid": 20.0,
+                "slippage_paid": 20.0,
+                "mfe_pct": 0.0,
+                "mae_pct": 0.006,
+            },
+            {
+                "symbol": "BNBUSDT",
+                "setup_type": "TREND_PULLBACK",
+                "gross_pnl": -80.0,
+                "net_pnl": -110.0,
+                "fee_paid": 10.0,
+                "slippage_paid": 20.0,
+                "mfe_pct": 0.002,
+                "mae_pct": 0.007,
+            },
+            {
+                "symbol": "XRPUSDT",
+                "setup_type": "PULLBACK_CONTINUATION",
+                "gross_pnl": -30.0,
+                "net_pnl": -60.0,
+                "fee_paid": 10.0,
+                "slippage_paid": 20.0,
+                "mfe_pct": 0.004,
+                "mae_pct": 0.001,
+            },
+        ]
+    )
+
+    assert report["schema_version"] == "trade_postmortem_summary.v1"
+    assert report["summary"]["trades"] == 5
+    assert report["summary"]["gross_pnl"] == pytest.approx(310.0)
+    assert report["summary"]["net_pnl"] == pytest.approx(85.0)
+    assert report["summary"]["cost_total"] == pytest.approx(225.0)
+    assert report["by_failure_taxonomy"]["有效盈利_after_cost"]["trades"] == 1
+    assert report["by_failure_taxonomy"]["盈利被成本翻负"]["trades"] == 1
+    assert report["by_failure_taxonomy"]["入场后无有效顺向空间"]["trades"] == 1
+    assert report["by_failure_taxonomy"]["MAE压过MFE_方向/时机错误"]["trades"] == 1
+    assert report["by_failure_taxonomy"]["净亏损_需逐单复核"]["trades"] == 1
+    assert report["by_setup_type"]["TREND_PULLBACK"]["trades"] == 2
+    assert report["by_setup_type"]["TREND_PULLBACK"]["net"] == pytest.approx(-250.0)
+    assert report["by_symbol"]["SOLUSDT"]["win_rate"] == 1.0
 
 
 class _Universes:

@@ -408,6 +408,67 @@ def build_live_readiness_gate_report(
     return report
 
 
+def _empty_postmortem_bucket() -> dict[str, Any]:
+    return {"trades": 0, "wins": 0, "win_rate": 0.0, "gross": 0.0, "net": 0.0, "cost": 0.0}
+
+
+def _add_postmortem_bucket(bucket: dict[str, Any], trade: Mapping[str, Any]) -> None:
+    gross = _float_value(trade.get("gross_pnl"))
+    net = _float_value(trade.get("net_pnl"))
+    cost = _float_value(trade.get("fee_paid")) + _float_value(trade.get("slippage_paid")) + _float_value(trade.get("funding_paid"))
+    bucket["trades"] += 1
+    bucket["wins"] += 1 if net > 0.0 else 0
+    bucket["gross"] += gross
+    bucket["net"] += net
+    bucket["cost"] += cost
+    bucket["win_rate"] = bucket["wins"] / bucket["trades"] if bucket["trades"] else 0.0
+
+
+def _postmortem_failure_bucket(trade: Mapping[str, Any]) -> str:
+    gross = _float_value(trade.get("gross_pnl"))
+    net = _float_value(trade.get("net_pnl"))
+    mfe = _float_value(trade.get("mfe_pct"))
+    mae = _float_value(trade.get("mae_pct"))
+    if net > 0.0:
+        return "有效盈利_after_cost"
+    if gross > 0.0 and net <= 0.0:
+        return "盈利被成本翻负"
+    if mfe <= 0.0:
+        return "入场后无有效顺向空间"
+    if mae > mfe:
+        return "MAE压过MFE_方向/时机错误"
+    return "净亏损_需逐单复核"
+
+
+def summarize_trade_postmortem(trades: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
+    rows = [dict(trade) for trade in trades]
+    by_failure: dict[str, dict[str, Any]] = {}
+    by_setup: dict[str, dict[str, Any]] = {}
+    by_symbol: dict[str, dict[str, Any]] = {}
+    summary = _empty_postmortem_bucket()
+    for trade in rows:
+        _add_postmortem_bucket(summary, trade)
+        failure_key = _postmortem_failure_bucket(trade)
+        _add_postmortem_bucket(by_failure.setdefault(failure_key, _empty_postmortem_bucket()), trade)
+        setup_key = str(trade.get("setup_type") or "UNKNOWN")
+        _add_postmortem_bucket(by_setup.setdefault(setup_key, _empty_postmortem_bucket()), trade)
+        symbol_key = str(trade.get("symbol") or "UNKNOWN")
+        _add_postmortem_bucket(by_symbol.setdefault(symbol_key, _empty_postmortem_bucket()), trade)
+    summary_payload = {
+        **summary,
+        "gross_pnl": summary["gross"],
+        "net_pnl": summary["net"],
+        "cost_total": summary["cost"],
+    }
+    return {
+        "schema_version": "trade_postmortem_summary.v1",
+        "summary": summary_payload,
+        "by_failure_taxonomy": {key: by_failure[key] for key in sorted(by_failure)},
+        "by_setup_type": {key: by_setup[key] for key in sorted(by_setup)},
+        "by_symbol": {key: by_symbol[key] for key in sorted(by_symbol)},
+    }
+
+
 def _discovered_bundle_dirs(input_root: Path) -> list[Path]:
     if (input_root / "trades.json").exists():
         return [input_root]
@@ -474,8 +535,16 @@ def write_live_readiness_smoke_report(
         "chunks": normalized_chunks,
     }
     target.mkdir(parents=True, exist_ok=True)
+    postmortem_summary = summarize_trade_postmortem(
+        trade
+        for chunk_dir in sorted(path for path in normalized_root.iterdir() if path.is_dir())
+        for trade in _trades_payload(_load_json(chunk_dir / "trades.json"))
+    )
     (target / "live_readiness_gate.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     (target / "live_readiness_gate.md").write_text(render_live_readiness_markdown(report), encoding="utf-8")
+    (target / "trade_postmortem_summary.json").write_text(
+        json.dumps(postmortem_summary, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
     return report
 
 
