@@ -97,6 +97,18 @@ class ExitPolicyParams:
 
 
 @dataclass(frozen=True, slots=True)
+class SetupRewriteRule:
+    name: str
+    min_score: float | None = None
+    setup_types: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class SetupRewriteParams:
+    rules: tuple[SetupRewriteRule, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
 class ExperimentParams:
     evaluation_window: str | None = None
     soft_score_floor: float | None = None
@@ -117,6 +129,7 @@ class ExperimentParams:
     allowed_setup_types: tuple[str, ...] = ()
     minimum_cost_coverage_ratio: float = 0.0
     exit_policy: ExitPolicyParams | None = None
+    setup_rewrite: SetupRewriteParams | None = None
 
 
 @dataclass(frozen=True, slots=True)

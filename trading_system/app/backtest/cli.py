@@ -10,6 +10,7 @@ from .config import load_backtest_config
 from .dataset import load_dataset_root_metadata, load_historical_dataset, split_rows_by_windows
 from .engine import replay_full_market_baseline
 from .exit_policy_experiment import build_exit_policy_experiment, serialize_exit_policy
+from .setup_rewrite_experiment import build_setup_rewrite_experiment, serialize_setup_rewrite
 from .live_readiness import audit_exit_path_replay
 from .experiments import (
     run_allocator_friction_experiment,
@@ -102,6 +103,9 @@ def _base_metadata(config: BacktestConfig, rows: list[DatasetSnapshotRow]) -> di
     serialized_exit_policy = serialize_exit_policy(params.exit_policy)
     if serialized_exit_policy is not None:
         metadata["experiment_params"]["exit_policy"] = serialized_exit_policy
+    serialized_setup_rewrite = serialize_setup_rewrite(params.setup_rewrite)
+    if serialized_setup_rewrite is not None:
+        metadata["experiment_params"]["setup_rewrite"] = serialized_setup_rewrite
     return metadata
 
 
@@ -154,6 +158,13 @@ def _full_market_baseline_outputs(config: BacktestConfig, rows: list[DatasetSnap
         artifacts["exit_policy_experiment.json"] = build_exit_policy_experiment(
             trades=report["trades"],
             policy=exit_policy,
+            metadata=metadata,
+        )
+    setup_rewrite = config.experiment_params.setup_rewrite if config.experiment_params is not None else None
+    if setup_rewrite is not None:
+        artifacts["setup_rewrite_experiment.json"] = build_setup_rewrite_experiment(
+            rows=report["trades"],
+            setup_rewrite=setup_rewrite,
             metadata=metadata,
         )
     return _manifest(config, rows, artifacts, metadata), artifacts

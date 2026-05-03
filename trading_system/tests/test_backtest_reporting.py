@@ -19,6 +19,8 @@ from trading_system.app.backtest.types import (
     PortfolioDecisionLedgerRow,
     PortfolioScorecardRow,
     SampleWindow,
+    SetupRewriteParams,
+    SetupRewriteRule,
     TradeLedgerRow,
     UniverseFilterConfig,
 )
@@ -717,6 +719,84 @@ def test_full_market_baseline_outputs_emit_exit_policy_experiment_only_when_conf
         "skipped_count": 0,
     }
 
+
+def test_full_market_baseline_outputs_emit_setup_rewrite_experiment_only_when_configured(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(cli, "replay_full_market_baseline", lambda config: sample_baseline_result(), raising=False)
+
+    rows = _sample_dataset_rows()
+    costs = BacktestCosts(
+        fee_bps_by_market={"spot": 10.0, "futures": 5.0},
+        slippage_bps_by_tier={"top": 2.0},
+        funding_mode="historical_series",
+    )
+    default_config = BacktestConfig(
+        dataset_root=tmp_path / "dataset-default",
+        experiment_kind="full_market_baseline",
+        sample_windows=(),
+        forward_return_windows=(),
+        costs=costs,
+        baseline_name="current_system",
+        variant_name="auditable_baseline",
+    )
+    setup_rewrite_config = BacktestConfig(
+        dataset_root=tmp_path / "dataset-setup-rewrite",
+        experiment_kind="full_market_baseline",
+        sample_windows=(),
+        forward_return_windows=(),
+        costs=costs,
+        baseline_name="current_system",
+        variant_name="setup_rewrite_probe",
+        experiment_params=ExperimentParams(
+            setup_rewrite=SetupRewriteParams(
+                rules=(
+                    SetupRewriteRule(name="require_min_score", min_score=0.7),
+                    SetupRewriteRule(name="require_after_cost_breakeven_evidence"),
+                )
+            )
+        ),
+    )
+
+    default_manifest, default_artifacts = cli._full_market_baseline_outputs(default_config, rows)
+    setup_manifest, setup_artifacts = cli._full_market_baseline_outputs(setup_rewrite_config, rows)
+
+    assert "setup_rewrite_experiment.json" not in default_artifacts
+    assert "setup_rewrite" not in default_artifacts["summary.json"]["metadata"]["experiment_params"]
+    assert default_manifest["artifacts"] == [
+        "manifest.json",
+        "summary.json",
+        "breakdowns.json",
+        "audit.json",
+        "trades.json",
+        "exit_path_replay.json",
+        "trade_postmortem.md",
+    ]
+
+    assert setup_manifest["artifacts"] == [
+        "manifest.json",
+        "summary.json",
+        "breakdowns.json",
+        "audit.json",
+        "trades.json",
+        "exit_path_replay.json",
+        "trade_postmortem.md",
+        "setup_rewrite_experiment.json",
+    ]
+    assert setup_artifacts["summary.json"]["metadata"]["experiment_params"]["setup_rewrite"] == {
+        "rules": [
+            {"name": "require_min_score", "min_score": 0.7},
+            {"name": "require_after_cost_breakeven_evidence"},
+        ]
+    }
+    assert "would_keep" not in setup_artifacts["trades.json"]["trades"][0]
+    assert "evaluation_status" not in setup_artifacts["trades.json"]["trades"][0]
+
+    artifact = setup_artifacts["setup_rewrite_experiment.json"]
+    assert artifact["metadata"]["artifact_type"] == "opt_in_offline_diagnostic"
+    assert artifact["metadata"]["changes_baseline_ledger"] is False
+    assert artifact["summary"]["total_trades"] == 4
 
 
 def test_backtest_cli_writes_rotation_suppression_bundle(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

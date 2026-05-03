@@ -482,6 +482,94 @@ def test_load_backtest_config_parses_exit_policy(tmp_path: Path) -> None:
     assert config.experiment_params.exit_policy.no_breakeven_time_stop_minute is None
 
 
+def test_load_backtest_config_parses_setup_rewrite_rules(tmp_path: Path) -> None:
+    config_path = tmp_path / "setup_rewrite_config.json"
+    config_path.write_text(
+        """
+        {
+          "dataset_root": "dataset",
+          "experiment_kind": "full_market_baseline",
+          "sample_windows": [
+            {"name": "full_history", "start": "2026-03-10T00:00:00Z", "end": "2026-03-11T00:00:00Z"}
+          ],
+          "forward_return_windows": [],
+          "costs": {
+            "fee_bps": {"spot": 10.0, "futures": 5.0},
+            "slippage_tiers": {"top": 2.0},
+            "funding_mode": "historical_series"
+          },
+          "baseline_name": "current_system",
+          "variant_name": "setup_rewrite_probe",
+          "experiment_params": {
+            "setup_rewrite": {
+              "rules": [
+                {"name": "require_min_score", "min_score": 0.72},
+                {"name": "exclude_setup_types", "setup_types": ["RS_OVERHEAT", "late_breakout"]},
+                {"name": "require_after_cost_breakeven_evidence"}
+              ]
+            }
+          }
+        }
+        """,
+        encoding="utf-8",
+    )
+
+    config = load_backtest_config(config_path)
+
+    assert config.experiment_params is not None
+    assert config.experiment_params.setup_rewrite is not None
+    assert [rule.name for rule in config.experiment_params.setup_rewrite.rules] == [
+        "require_min_score",
+        "exclude_setup_types",
+        "require_after_cost_breakeven_evidence",
+    ]
+    assert config.experiment_params.setup_rewrite.rules[0].min_score == pytest.approx(0.72)
+    assert config.experiment_params.setup_rewrite.rules[1].setup_types == ("RS_OVERHEAT", "LATE_BREAKOUT")
+
+
+@pytest.mark.parametrize(
+    ("setup_rewrite", "message"),
+    [
+        ({"rules": [{"name": "invent_new_edge"}]}, "unknown setup rewrite rule"),
+        ({"rules": [{"name": "require_min_score", "min_score": -0.1}]}, "min_score must be non-negative"),
+        ({"rules": [{"name": "exclude_setup_types", "setup_types": "RS_OVERHEAT"}]}, "setup_types must be a list"),
+        ({"rules": [{"name": "require_after_cost_breakeven_evidence", "unexpected": True}]}, "unknown fields"),
+    ],
+)
+def test_load_backtest_config_rejects_invalid_setup_rewrite(
+    tmp_path: Path,
+    setup_rewrite: dict[str, object],
+    message: str,
+) -> None:
+    config_path = tmp_path / "invalid_setup_rewrite_config.json"
+    config_path.write_text(
+        f"""
+        {{
+          "dataset_root": "dataset",
+          "experiment_kind": "full_market_baseline",
+          "sample_windows": [
+            {{"name": "full_history", "start": "2026-03-10T00:00:00Z", "end": "2026-03-11T00:00:00Z"}}
+          ],
+          "forward_return_windows": [],
+          "costs": {{
+            "fee_bps": {{"spot": 10.0, "futures": 5.0}},
+            "slippage_tiers": {{"top": 2.0}},
+            "funding_mode": "historical_series"
+          }},
+          "baseline_name": "current_system",
+          "variant_name": "setup_rewrite_probe",
+          "experiment_params": {{
+            "setup_rewrite": {json.dumps(setup_rewrite)}
+          }}
+        }}
+        """,
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match=message):
+        load_backtest_config(config_path)
+
+
 @pytest.mark.parametrize(
     ("exit_policy", "message"),
     [

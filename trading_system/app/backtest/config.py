@@ -15,6 +15,8 @@ from .types import (
     ForwardReturnWindow,
     PromotionMetadata,
     SampleWindow,
+    SetupRewriteParams,
+    SetupRewriteRule,
     UniverseFilterConfig,
     WalkForwardConfig,
 )
@@ -186,6 +188,63 @@ def _load_exit_policy(raw: Any) -> ExitPolicyParams | None:
     )
 
 
+def _load_setup_rewrite(raw: Any) -> SetupRewriteParams | None:
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise ValueError("experiment_params.setup_rewrite must be an object")
+    unknown_fields = set(raw) - {"rules"}
+    if unknown_fields:
+        raise ValueError(f"experiment_params.setup_rewrite has unknown fields: {sorted(unknown_fields)}")
+    rules_raw = raw.get("rules")
+    if not isinstance(rules_raw, list):
+        raise ValueError("experiment_params.setup_rewrite.rules must be a list")
+    rules = tuple(_load_setup_rewrite_rule(item, index=index) for index, item in enumerate(rules_raw))
+    if not rules:
+        raise ValueError("experiment_params.setup_rewrite.rules must not be empty")
+    return SetupRewriteParams(rules=rules)
+
+
+def _load_setup_rewrite_rule(raw: Any, *, index: int) -> SetupRewriteRule:
+    field_name = f"experiment_params.setup_rewrite.rules[{index}]"
+    if not isinstance(raw, dict):
+        raise ValueError(f"{field_name} must be an object")
+    name = str(_require(raw, "name")).strip()
+    if name == "require_min_score":
+        unknown_fields = set(raw) - {"name", "min_score"}
+        if unknown_fields:
+            raise ValueError(f"{field_name} has unknown fields: {sorted(unknown_fields)}")
+        min_score = float(_require(raw, "min_score"))
+        if min_score < 0:
+            raise ValueError(f"{field_name}.min_score must be non-negative")
+        return SetupRewriteRule(name=name, min_score=min_score)
+    if name == "exclude_setup_types":
+        unknown_fields = set(raw) - {"name", "setup_types"}
+        if unknown_fields:
+            raise ValueError(f"{field_name} has unknown fields: {sorted(unknown_fields)}")
+        setup_types = _load_setup_rewrite_setup_types(_require(raw, "setup_types"), field_name=f"{field_name}.setup_types")
+        return SetupRewriteRule(name=name, setup_types=setup_types)
+    if name == "require_after_cost_breakeven_evidence":
+        unknown_fields = set(raw) - {"name"}
+        if unknown_fields:
+            raise ValueError(f"{field_name} has unknown fields: {sorted(unknown_fields)}")
+        return SetupRewriteRule(name=name)
+    raise ValueError(f"unknown setup rewrite rule: {name}")
+
+
+def _load_setup_rewrite_setup_types(raw: Any, *, field_name: str) -> tuple[str, ...]:
+    if not isinstance(raw, list):
+        raise ValueError(f"{field_name} must be a list")
+    normalized: list[str] = []
+    for item in raw:
+        setup_type = str(item).strip().upper()
+        if not setup_type:
+            continue
+        if setup_type not in normalized:
+            normalized.append(setup_type)
+    return tuple(normalized)
+
+
 def _load_disabled_engines(raw: Any) -> tuple[str, ...]:
     if raw is None:
         return ()
@@ -282,6 +341,7 @@ def _load_experiment_params(raw: Any, *, experiment_kind: str) -> ExperimentPara
         allowed_setup_types=_load_upper_unique_tuple(raw.get("allowed_setup_types"), field_name="allowed_setup_types"),
         minimum_cost_coverage_ratio=float(raw.get("minimum_cost_coverage_ratio", 0.0)),
         exit_policy=_load_exit_policy(raw.get("exit_policy")),
+        setup_rewrite=_load_setup_rewrite(raw.get("setup_rewrite")),
     )
 
     if experiment_kind == "rotation_suppression":
