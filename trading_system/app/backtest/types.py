@@ -100,7 +100,9 @@ class ExitPolicyParams:
 class SetupRewriteRule:
     name: str
     min_score: float | None = None
+    min_cost_coverage_ratio: float | None = None
     setup_types: tuple[str, ...] = ()
+    symbols: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

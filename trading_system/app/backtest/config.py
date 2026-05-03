@@ -224,6 +224,47 @@ def _load_setup_rewrite_rule(raw: Any, *, index: int) -> SetupRewriteRule:
             raise ValueError(f"{field_name} has unknown fields: {sorted(unknown_fields)}")
         setup_types = _load_setup_rewrite_setup_types(_require(raw, "setup_types"), field_name=f"{field_name}.setup_types")
         return SetupRewriteRule(name=name, setup_types=setup_types)
+    if name == "require_setup_min_score":
+        unknown_fields = set(raw) - {"name", "setup_types", "min_score"}
+        if unknown_fields:
+            raise ValueError(f"{field_name} has unknown fields: {sorted(unknown_fields)}")
+        setup_types = _load_setup_rewrite_setup_types(
+            _require(raw, "setup_types"),
+            field_name=f"{field_name}.setup_types",
+            require_non_empty=True,
+        )
+        min_score = float(_require(raw, "min_score"))
+        if min_score < 0:
+            raise ValueError(f"{field_name}.min_score must be non-negative")
+        return SetupRewriteRule(name=name, setup_types=setup_types, min_score=min_score)
+    if name == "require_setup_min_cost_coverage_ratio":
+        unknown_fields = set(raw) - {"name", "setup_types", "min_cost_coverage_ratio"}
+        if unknown_fields:
+            raise ValueError(f"{field_name} has unknown fields: {sorted(unknown_fields)}")
+        setup_types = _load_setup_rewrite_setup_types(
+            _require(raw, "setup_types"),
+            field_name=f"{field_name}.setup_types",
+            require_non_empty=True,
+        )
+        min_cost_coverage_ratio = float(_require(raw, "min_cost_coverage_ratio"))
+        if min_cost_coverage_ratio < 0:
+            raise ValueError(f"{field_name}.min_cost_coverage_ratio must be non-negative")
+        return SetupRewriteRule(
+            name=name,
+            setup_types=setup_types,
+            min_cost_coverage_ratio=min_cost_coverage_ratio,
+        )
+    if name == "require_setup_allowed_symbols":
+        unknown_fields = set(raw) - {"name", "setup_types", "symbols"}
+        if unknown_fields:
+            raise ValueError(f"{field_name} has unknown fields: {sorted(unknown_fields)}")
+        setup_types = _load_setup_rewrite_setup_types(
+            _require(raw, "setup_types"),
+            field_name=f"{field_name}.setup_types",
+            require_non_empty=True,
+        )
+        symbols = _load_setup_rewrite_symbols(_require(raw, "symbols"), field_name=f"{field_name}.symbols")
+        return SetupRewriteRule(name=name, setup_types=setup_types, symbols=symbols)
     if name == "require_after_cost_breakeven_evidence":
         unknown_fields = set(raw) - {"name"}
         if unknown_fields:
@@ -232,16 +273,42 @@ def _load_setup_rewrite_rule(raw: Any, *, index: int) -> SetupRewriteRule:
     raise ValueError(f"unknown setup rewrite rule: {name}")
 
 
-def _load_setup_rewrite_setup_types(raw: Any, *, field_name: str) -> tuple[str, ...]:
-    if not isinstance(raw, list):
+def _load_setup_rewrite_setup_types(
+    raw: Any,
+    *,
+    field_name: str,
+    require_non_empty: bool = False,
+) -> tuple[str, ...]:
+    if not isinstance(raw, (list, tuple)):
         raise ValueError(f"{field_name} must be a list")
     normalized: list[str] = []
     for item in raw:
+        if not isinstance(item, str):
+            raise ValueError(f"{field_name} must contain only strings")
         setup_type = str(item).strip().upper()
         if not setup_type:
             continue
         if setup_type not in normalized:
             normalized.append(setup_type)
+    if require_non_empty and not normalized:
+        raise ValueError(f"{field_name} must not be empty")
+    return tuple(normalized)
+
+
+def _load_setup_rewrite_symbols(raw: Any, *, field_name: str) -> tuple[str, ...]:
+    if not isinstance(raw, (list, tuple)):
+        raise ValueError(f"{field_name} must be a list")
+    normalized: list[str] = []
+    for item in raw:
+        if not isinstance(item, str):
+            raise ValueError(f"{field_name} must contain only strings")
+        symbol = item.strip().upper()
+        if not symbol:
+            continue
+        if symbol not in normalized:
+            normalized.append(symbol)
+    if not normalized:
+        raise ValueError(f"{field_name} must not be empty")
     return tuple(normalized)
 
 

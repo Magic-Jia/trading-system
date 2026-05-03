@@ -99,3 +99,120 @@ def test_setup_rewrite_experiment_marks_keep_filter_and_no_evidence_rows() -> No
         ("SOLUSDT", "evaluated", "excluded_setup_type", False),
         ("LINKUSDT", "no_evidence", "missing_cost_coverage_ratio", False),
     ]
+
+
+def test_setup_rewrite_experiment_applies_setup_scoped_score_and_cost_coverage_filters() -> None:
+    module = importlib.import_module("trading_system.app.backtest.setup_rewrite_experiment")
+
+    params = SetupRewriteParams(
+        rules=(
+            SetupRewriteRule(
+                name="require_setup_min_score",
+                setup_types=("RS_REACCELERATION", "RS_PULLBACK"),
+                min_score=0.7,
+            ),
+            SetupRewriteRule(
+                name="require_setup_min_cost_coverage_ratio",
+                setup_types=("RS_REACCELERATION", "RS_PULLBACK"),
+                min_cost_coverage_ratio=1.1,
+            ),
+        )
+    )
+
+    artifact = module.build_setup_rewrite_experiment(
+        rows=[
+            {
+                "symbol": "BTCUSDT",
+                "setup_type": "RS_REACCELERATION",
+                "score": 0.64,
+                "cost_coverage_ratio": 1.5,
+                "net_pnl": -3.0,
+            },
+            {
+                "symbol": "ETHUSDT",
+                "setup_type": "RS_PULLBACK",
+                "score": 0.74,
+                "cost_coverage_ratio": 0.95,
+                "net_pnl": -2.0,
+            },
+            {
+                "symbol": "SOLUSDT",
+                "setup_type": "TREND_PULLBACK",
+                "score": 0.4,
+                "cost_coverage_ratio": 0.2,
+                "net_pnl": 4.0,
+            },
+            {
+                "symbol": "LINKUSDT",
+                "setup_type": "RS_PULLBACK",
+                "cost_coverage_ratio": 1.3,
+                "net_pnl": -1.0,
+            },
+            {
+                "symbol": "ADAUSDT",
+                "setup_type": "RS_REACCELERATION",
+                "score": 0.8,
+                "net_pnl": -1.5,
+            },
+        ],
+        setup_rewrite=params,
+    )
+
+    assert artifact["metadata"]["changes_baseline_ledger"] is False
+    assert artifact["metadata"]["setup_rewrite"] == {
+        "rules": [
+            {
+                "name": "require_setup_min_score",
+                "setup_types": ["RS_REACCELERATION", "RS_PULLBACK"],
+                "min_score": 0.7,
+            },
+            {
+                "name": "require_setup_min_cost_coverage_ratio",
+                "setup_types": ["RS_REACCELERATION", "RS_PULLBACK"],
+                "min_cost_coverage_ratio": 1.1,
+            },
+        ]
+    }
+    assert artifact["summary"]["evaluated_count"] == 3
+    assert artifact["summary"]["would_keep_count"] == 1
+    assert artifact["summary"]["would_filter_count"] == 2
+    assert artifact["summary"]["skipped_count"] == 2
+
+    statuses = [(row["symbol"], row["evaluation_status"], row["evaluation_reason"], row["would_keep"]) for row in artifact["evaluation_rows"]]
+    assert statuses == [
+        ("BTCUSDT", "evaluated", "setup_score_below_minimum", False),
+        ("ETHUSDT", "evaluated", "setup_cost_coverage_below_minimum", False),
+        ("SOLUSDT", "evaluated", "passed_all_rules", True),
+        ("LINKUSDT", "no_evidence", "missing_score", False),
+        ("ADAUSDT", "no_evidence", "missing_cost_coverage_ratio", False),
+    ]
+
+
+def test_setup_rewrite_experiment_applies_setup_scoped_allowed_symbols_filter() -> None:
+    module = importlib.import_module("trading_system.app.backtest.setup_rewrite_experiment")
+
+    artifact = module.build_setup_rewrite_experiment(
+        rows=[
+            {"symbol": "BTCUSDT", "setup_type": "RS_PULLBACK", "score": 0.8},
+            {"symbol": "DOGEUSDT", "setup_type": "RS_PULLBACK", "score": 0.8},
+            {"setup_type": "RS_PULLBACK", "score": 0.8},
+            {"symbol": "DOGEUSDT", "setup_type": "TREND_PULLBACK", "score": 0.2},
+        ],
+        setup_rewrite=SetupRewriteParams(
+            rules=(
+                SetupRewriteRule(
+                    name="require_setup_allowed_symbols",
+                    setup_types=("RS_PULLBACK",),
+                    symbols=("BTCUSDT",),
+                ),
+            )
+        ),
+    )
+
+    statuses = [(row["symbol"], row["evaluation_status"], row["evaluation_reason"], row["would_keep"]) for row in artifact["evaluation_rows"]]
+    assert statuses == [
+        ("BTCUSDT", "evaluated", "passed_all_rules", True),
+        ("DOGEUSDT", "evaluated", "setup_symbol_not_allowed", False),
+        (None, "no_evidence", "missing_symbol", False),
+        ("DOGEUSDT", "evaluated", "passed_all_rules", True),
+    ]

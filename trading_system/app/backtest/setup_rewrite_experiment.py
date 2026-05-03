@@ -51,6 +51,15 @@ def _serialize_rule(rule: SetupRewriteRule) -> dict[str, Any]:
         payload["min_score"] = rule.min_score
     elif rule.name == "exclude_setup_types":
         payload["setup_types"] = list(rule.setup_types)
+    elif rule.name == "require_setup_min_score":
+        payload["setup_types"] = list(rule.setup_types)
+        payload["min_score"] = rule.min_score
+    elif rule.name == "require_setup_min_cost_coverage_ratio":
+        payload["setup_types"] = list(rule.setup_types)
+        payload["min_cost_coverage_ratio"] = rule.min_cost_coverage_ratio
+    elif rule.name == "require_setup_allowed_symbols":
+        payload["setup_types"] = list(rule.setup_types)
+        payload["symbols"] = list(rule.symbols)
     return payload
 
 
@@ -106,6 +115,40 @@ def _evaluate_rule(
             return "evaluated", "excluded_setup_type", False
         return "evaluated", "setup_type_allowed", True
 
+    if rule.name == "require_setup_min_score":
+        if not _setup_type_matches(identity=identity, rule=rule):
+            return "evaluated", "setup_type_out_of_scope", True
+        score = identity["score"]
+        if score is None:
+            return "no_evidence", "missing_score", False
+        if rule.min_score is None:
+            return "no_evidence", "missing_min_score_rule_value", False
+        if score < rule.min_score:
+            return "evaluated", "setup_score_below_minimum", False
+        return "evaluated", "setup_score_meets_minimum", True
+
+    if rule.name == "require_setup_min_cost_coverage_ratio":
+        if not _setup_type_matches(identity=identity, rule=rule):
+            return "evaluated", "setup_type_out_of_scope", True
+        cost_coverage_ratio = _float_or_none(raw_row.get("cost_coverage_ratio"))
+        if cost_coverage_ratio is None:
+            return "no_evidence", "missing_cost_coverage_ratio", False
+        if rule.min_cost_coverage_ratio is None:
+            return "no_evidence", "missing_min_cost_coverage_ratio_rule_value", False
+        if cost_coverage_ratio < rule.min_cost_coverage_ratio:
+            return "evaluated", "setup_cost_coverage_below_minimum", False
+        return "evaluated", "setup_cost_coverage_meets_minimum", True
+
+    if rule.name == "require_setup_allowed_symbols":
+        if not _setup_type_matches(identity=identity, rule=rule):
+            return "evaluated", "setup_type_out_of_scope", True
+        symbol = identity["symbol"]
+        if symbol is None:
+            return "no_evidence", "missing_symbol", False
+        if symbol.upper() not in rule.symbols:
+            return "evaluated", "setup_symbol_not_allowed", False
+        return "evaluated", "setup_symbol_allowed", True
+
     if rule.name == "require_after_cost_breakeven_evidence":
         cost_coverage_ratio = _float_or_none(raw_row.get("cost_coverage_ratio"))
         if cost_coverage_ratio is None:
@@ -115,6 +158,11 @@ def _evaluate_rule(
         return "evaluated", "after_cost_breakeven_evidence_present", True
 
     return "no_evidence", f"unknown_rule:{rule.name}", False
+
+
+def _setup_type_matches(*, identity: Mapping[str, Any], rule: SetupRewriteRule) -> bool:
+    setup_type = identity["setup_type"]
+    return setup_type is not None and setup_type.upper() in rule.setup_types
 
 
 def _breakdown(rows: Sequence[Mapping[str, Any]], *, key_name: str) -> dict[str, dict[str, Any]]:

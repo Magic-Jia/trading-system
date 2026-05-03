@@ -505,7 +505,14 @@ def test_load_backtest_config_parses_setup_rewrite_rules(tmp_path: Path) -> None
               "rules": [
                 {"name": "require_min_score", "min_score": 0.72},
                 {"name": "exclude_setup_types", "setup_types": ["RS_OVERHEAT", "late_breakout"]},
-                {"name": "require_after_cost_breakeven_evidence"}
+                {"name": "require_after_cost_breakeven_evidence"},
+                {"name": "require_setup_min_score", "setup_types": ["rs_reacceleration"], "min_score": 0.74},
+                {
+                  "name": "require_setup_min_cost_coverage_ratio",
+                  "setup_types": ["rs_pullback"],
+                  "min_cost_coverage_ratio": 1.15
+                },
+                {"name": "require_setup_allowed_symbols", "setup_types": ["RS_PULLBACK"], "symbols": ["btcusdt", "ETHUSDT"]}
               ]
             }
           }
@@ -522,9 +529,18 @@ def test_load_backtest_config_parses_setup_rewrite_rules(tmp_path: Path) -> None
         "require_min_score",
         "exclude_setup_types",
         "require_after_cost_breakeven_evidence",
+        "require_setup_min_score",
+        "require_setup_min_cost_coverage_ratio",
+        "require_setup_allowed_symbols",
     ]
     assert config.experiment_params.setup_rewrite.rules[0].min_score == pytest.approx(0.72)
     assert config.experiment_params.setup_rewrite.rules[1].setup_types == ("RS_OVERHEAT", "LATE_BREAKOUT")
+    assert config.experiment_params.setup_rewrite.rules[3].setup_types == ("RS_REACCELERATION",)
+    assert config.experiment_params.setup_rewrite.rules[3].min_score == pytest.approx(0.74)
+    assert config.experiment_params.setup_rewrite.rules[4].setup_types == ("RS_PULLBACK",)
+    assert config.experiment_params.setup_rewrite.rules[4].min_cost_coverage_ratio == pytest.approx(1.15)
+    assert config.experiment_params.setup_rewrite.rules[5].setup_types == ("RS_PULLBACK",)
+    assert config.experiment_params.setup_rewrite.rules[5].symbols == ("BTCUSDT", "ETHUSDT")
 
 
 @pytest.mark.parametrize(
@@ -533,6 +549,30 @@ def test_load_backtest_config_parses_setup_rewrite_rules(tmp_path: Path) -> None
         ({"rules": [{"name": "invent_new_edge"}]}, "unknown setup rewrite rule"),
         ({"rules": [{"name": "require_min_score", "min_score": -0.1}]}, "min_score must be non-negative"),
         ({"rules": [{"name": "exclude_setup_types", "setup_types": "RS_OVERHEAT"}]}, "setup_types must be a list"),
+        (
+            {"rules": [{"name": "require_setup_min_score", "setup_types": [], "min_score": 0.7}]},
+            "setup_types must not be empty",
+        ),
+        (
+            {"rules": [{"name": "require_setup_min_score", "setup_types": ["RS_PULLBACK"], "min_score": -0.1}]},
+            "min_score must be non-negative",
+        ),
+        (
+            {
+                "rules": [
+                    {
+                        "name": "require_setup_min_cost_coverage_ratio",
+                        "setup_types": ["RS_PULLBACK"],
+                        "min_cost_coverage_ratio": -0.1,
+                    }
+                ]
+            },
+            "min_cost_coverage_ratio must be non-negative",
+        ),
+        (
+            {"rules": [{"name": "require_setup_allowed_symbols", "setup_types": ["RS_PULLBACK"], "symbols": []}]},
+            "symbols must not be empty",
+        ),
         ({"rules": [{"name": "require_after_cost_breakeven_evidence", "unexpected": True}]}, "unknown fields"),
     ],
 )

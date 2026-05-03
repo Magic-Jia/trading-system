@@ -32,7 +32,7 @@ Current corrected survivor state:
 
 Non-negotiable: these are hypotheses only. Do not promote any rule until it passes full corrected 90d chunks plus OOS/walk-forward/regime validation.
 
-Setup-rewrite follow-up: `setup_rewrite_experiment.json` is an opt-in, offline diagnostic emitted only from full-market bundles when `experiment_params.setup_rewrite` is configured. It summarizes predeclared setup filters by setup/symbol/chunk metadata without changing `trades.json`, baseline PnL, or promotion evidence.
+Setup-rewrite follow-up: `setup_rewrite_experiment.json` is an opt-in, offline diagnostic emitted only from full-market bundles when `experiment_params.setup_rewrite` is configured. It summarizes predeclared setup filters by setup/symbol/chunk metadata without changing `trades.json`, baseline PnL, or promotion evidence. Predeclared setup-family probes now include setup-scoped minimum score, minimum cost coverage ratio, and allowed-symbol filters for weak families such as `RS_REACCELERATION` and `RS_PULLBACK`; these remain offline diagnostics only, not promotion evidence.
 
 ---
 
