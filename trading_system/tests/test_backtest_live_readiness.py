@@ -14,6 +14,7 @@ from trading_system.app.backtest.live_readiness import (
     audit_exit_path_replay,
     build_live_readiness_gate_report,
     render_live_readiness_markdown,
+    write_live_readiness_smoke_report,
 )
 from trading_system.app.backtest.types import DatasetSnapshotRow
 from trading_system.app.execution.calibration import load_calibration_records, summarize_calibration_records
@@ -575,6 +576,79 @@ def test_quarantined_setup_types_exclude_any_setup_bucket_when_configured(
         "FAILED_BOUNCE_SHORT",
     ]
     assert [candidate["setup_type"] for candidate in quarantined_candidates] == ["TREND_CONTINUATION"]
+
+
+def test_live_readiness_smoke_report_materializes_nested_full_market_bundle(tmp_path: Path) -> None:
+    input_root = tmp_path / "results"
+    bundle = input_root / "chunk_001_20260301_20260302" / "full_market_baseline__current_policy__smoke"
+    bundle.mkdir(parents=True)
+    (bundle / "trades.json").write_text(
+        json.dumps(
+            {
+                "trades": [
+                    {
+                        "symbol": "BTCUSDT",
+                        "side": "long",
+                        "setup_type": "TREND_PULLBACK",
+                        "net_pnl": 100.0,
+                        "fill_quality": "evidence_backed",
+                        "execution_price_source": "trade_print",
+                        "exit_fill_quality": "evidence_backed",
+                        "exit_price_source": "trade_print",
+                        "simulated_exit_reason": "stop_loss",
+                        "simulated_exit_price": 95.0,
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    (bundle / "summary.json").write_text(json.dumps({"summary": {"cost_breakdown": {"fees": 1.0}}}), encoding="utf-8")
+    (bundle / "setup_rewrite_experiment.json").write_text(
+        json.dumps(
+            {
+                "summary": {
+                    "evaluated_count": 1,
+                    "would_keep_count": 0,
+                    "would_filter_count": 1,
+                    "skipped_count": 1,
+                    "by_setup": {
+                        "TREND_PULLBACK": {
+                            "total_rows": 1,
+                            "evaluated_count": 1,
+                            "would_keep_count": 0,
+                            "would_filter_count": 1,
+                            "skipped_count": 1,
+                            "net_pnl": 100.0,
+                        }
+                    },
+                },
+                "evaluation_rows": [
+                    {"setup_type": "TREND_PULLBACK", "evaluation_reason": "score_below_minimum", "would_keep": False}
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    output_dir = tmp_path / "smoke"
+    report = write_live_readiness_smoke_report(input_root, output_dir)
+
+    normalized_chunk = output_dir / "normalized_chunks" / "chunk_001_20260301_20260302"
+    assert (normalized_chunk / "trades.json").exists()
+    assert (normalized_chunk / "summary.json").exists()
+    assert (normalized_chunk / "setup_rewrite_experiment.json").exists()
+    assert report["smoke_report"]["source_root"] == str(input_root)
+    assert report["smoke_report"]["normalized_input_dir"] == str(output_dir / "normalized_chunks")
+    assert report["smoke_report"]["chunks"] == [
+        {"chunk": "chunk_001_20260301_20260302", "source_dir": str(bundle), "normalized_dir": str(normalized_chunk)}
+    ]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+    assert "setup_rewrite_no_surviving_candidates" in report["promotion_gate"]["reasons"]
+    assert "setup_rewrite_missing_evidence" in report["promotion_gate"]["reasons"]
+    persisted = json.loads((output_dir / "live_readiness_gate.json").read_text(encoding="utf-8"))
+    assert persisted["smoke_report"] == report["smoke_report"]
+    assert "- setup_rewrite:" in (output_dir / "live_readiness_gate.md").read_text(encoding="utf-8")
 
 
 class _Universes:

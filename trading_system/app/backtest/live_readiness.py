@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import argparse
 import json
+import shutil
 from collections import Counter
 from pathlib import Path
 from typing import Any, Iterable, Mapping
@@ -406,6 +408,77 @@ def build_live_readiness_gate_report(
     return report
 
 
+def _discovered_bundle_dirs(input_root: Path) -> list[Path]:
+    if (input_root / "trades.json").exists():
+        return [input_root]
+    bundle_dirs: list[Path] = []
+    for child in sorted(path for path in input_root.iterdir() if path.is_dir()):
+        if (child / "trades.json").exists():
+            bundle_dirs.append(child)
+            continue
+        nested = [path for path in sorted(child.iterdir()) if path.is_dir() and (path / "trades.json").exists()]
+        bundle_dirs.extend(nested)
+    return bundle_dirs
+
+
+def _normalized_chunk_name(index: int, bundle_dir: Path, input_root: Path) -> str:
+    if bundle_dir == input_root:
+        return "chunk_001"
+    if bundle_dir.parent == input_root:
+        return bundle_dir.name
+    return bundle_dir.parent.name
+
+
+def write_live_readiness_smoke_report(
+    input_root: str | Path,
+    output_dir: str | Path,
+    *,
+    evidence_coverage_threshold: float = 0.95,
+    exit_evidence_coverage_threshold: float = 0.95,
+    max_exit_path_ambiguity_rate: float = 0.05,
+) -> dict[str, Any]:
+    source_root = Path(input_root)
+    target = Path(output_dir)
+    normalized_root = target / "normalized_chunks"
+    if normalized_root.exists():
+        shutil.rmtree(normalized_root)
+    normalized_root.mkdir(parents=True, exist_ok=True)
+    bundle_dirs = _discovered_bundle_dirs(source_root)
+    if not bundle_dirs:
+        raise FileNotFoundError(f"no trades.json bundle found under {source_root}")
+
+    seen_names: Counter[str] = Counter()
+    normalized_chunks: list[dict[str, str]] = []
+    for index, bundle_dir in enumerate(bundle_dirs, start=1):
+        base_name = _normalized_chunk_name(index, bundle_dir, source_root)
+        seen_names[base_name] += 1
+        chunk_name = base_name if seen_names[base_name] == 1 else f"{base_name}_{seen_names[base_name]:02d}"
+        chunk_dir = normalized_root / chunk_name
+        chunk_dir.mkdir(parents=True, exist_ok=True)
+        for artifact_name in ("trades.json", "summary.json", "setup_rewrite_experiment.json"):
+            source = bundle_dir / artifact_name
+            if source.exists():
+                shutil.copy2(source, chunk_dir / artifact_name)
+        normalized_chunks.append({"chunk": chunk_name, "source_dir": str(bundle_dir), "normalized_dir": str(chunk_dir)})
+
+    report = build_live_readiness_gate_report(
+        normalized_root,
+        evidence_coverage_threshold=evidence_coverage_threshold,
+        exit_evidence_coverage_threshold=exit_evidence_coverage_threshold,
+        max_exit_path_ambiguity_rate=max_exit_path_ambiguity_rate,
+    )
+    report["smoke_report"] = {
+        "schema_version": "live_readiness_smoke_report.v1",
+        "source_root": str(source_root),
+        "normalized_input_dir": str(normalized_root),
+        "chunks": normalized_chunks,
+    }
+    target.mkdir(parents=True, exist_ok=True)
+    (target / "live_readiness_gate.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    (target / "live_readiness_gate.md").write_text(render_live_readiness_markdown(report), encoding="utf-8")
+    return report
+
+
 def render_live_readiness_markdown(report: Mapping[str, Any]) -> str:
     gate = _as_mapping(report.get("promotion_gate"))
     totals = _as_mapping(report.get("totals"))
@@ -434,3 +507,43 @@ def render_live_readiness_markdown(report: Mapping[str, Any]) -> str:
     lines.extend(f"- {item}" for item in report.get("caveats", []))
     lines.append("")
     return "\n".join(lines)
+
+
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Write an offline live-readiness gate smoke report from backtest artifacts.")
+    parser.add_argument("--input-root", required=True, type=Path, help="Normalized chunk root or full-market bundle root")
+    parser.add_argument("--output-dir", required=True, type=Path, help="Directory for live_readiness_gate.json/.md")
+    parser.add_argument("--evidence-coverage-threshold", type=float, default=0.95)
+    parser.add_argument("--exit-evidence-coverage-threshold", type=float, default=0.95)
+    parser.add_argument("--max-exit-path-ambiguity-rate", type=float, default=0.05)
+    return parser.parse_args()
+
+
+def main() -> int:
+    args = _parse_args()
+    report = write_live_readiness_smoke_report(
+        args.input_root,
+        args.output_dir,
+        evidence_coverage_threshold=args.evidence_coverage_threshold,
+        exit_evidence_coverage_threshold=args.exit_evidence_coverage_threshold,
+        max_exit_path_ambiguity_rate=args.max_exit_path_ambiguity_rate,
+    )
+    gate = _as_mapping(report.get("promotion_gate"))
+    totals = _as_mapping(report.get("totals"))
+    print(
+        json.dumps(
+            {
+                "output_dir": str(args.output_dir),
+                "decision": gate.get("decision"),
+                "reasons": gate.get("reasons", []),
+                "trade_count": totals.get("trade_count", 0),
+                "net_pnl": totals.get("net_pnl", 0.0),
+            },
+            sort_keys=True,
+        )
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
