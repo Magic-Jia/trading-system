@@ -206,6 +206,65 @@ def test_live_readiness_gate_report_rejects_concentrated_setup_and_symbol_bucket
     assert report["promotion_gate"]["checks"]["symbol_concentration_met"] is False
 
 
+
+def test_live_readiness_gate_report_rejects_missing_exit_path_rows(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    chunk.mkdir()
+    trades = [
+        {
+            "trade_id": "t1",
+            "symbol": "BTCUSDT",
+            "side": "long",
+            "setup_type": "BREAKOUT_CONTINUATION",
+            "net_pnl": 50.0,
+            "gross_pnl": 60.0,
+            "fee_paid": 5.0,
+            "slippage_paid": 5.0,
+            "fill_quality": "evidence_backed",
+            "execution_price_source": "trade_print",
+            "exit_fill_quality": "evidence_backed",
+            "exit_price_source": "trade_print",
+            "simulated_exit_reason": "fixed_horizon",
+        },
+        {
+            "trade_id": "t2",
+            "symbol": "ETHUSDT",
+            "side": "long",
+            "setup_type": "BREAKOUT_CONTINUATION",
+            "net_pnl": 50.0,
+            "gross_pnl": 60.0,
+            "fee_paid": 5.0,
+            "slippage_paid": 5.0,
+            "fill_quality": "evidence_backed",
+            "execution_price_source": "trade_print",
+            "exit_fill_quality": "evidence_backed",
+            "exit_price_source": "trade_print",
+            "simulated_exit_reason": "fixed_horizon",
+        },
+    ]
+    (chunk / "trades.json").write_text(json.dumps({"trades": trades}), encoding="utf-8")
+    (chunk / "exit_path_replay.json").write_text(
+        json.dumps({"trades": [{"trade_id": "t1", "path_classification": "trade_print_path_available"}]}),
+        encoding="utf-8",
+    )
+
+    report = build_live_readiness_gate_report(tmp_path, require_exit_path_replay_rows=True)
+
+    reconciliation = report["exit_path_replay"]["reconciliation"]
+    assert reconciliation["schema_version"] == "exit_path_replay_reconciliation.v1"
+    assert reconciliation["matched"] is False
+    assert reconciliation["trade_count"] == 2
+    assert reconciliation["path_trade_count"] == 1
+    assert reconciliation["missing_trade_ids"] == ["t2"]
+    assert report["promotion_gate"]["checks"]["exit_path_replay_rows_met"] is False
+    assert "exit_path_replay_missing_trades" in report["promotion_gate"]["reasons"]
+    markdown = render_live_readiness_markdown(report)
+    assert "## Exit Path Replay Reconciliation" in markdown
+    assert "schema_version: exit_path_replay_reconciliation.v1" in markdown
+    assert "matched: false" in markdown
+    assert "missing_trade_ids: t2" in markdown
+
+
 def test_live_readiness_gate_report_rejects_when_exit_path_ambiguity_rate_exceeds_threshold(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     chunk.mkdir()

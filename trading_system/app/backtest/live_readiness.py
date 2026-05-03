@@ -269,6 +269,38 @@ def _setup_rewrite_diagnostic(chunk_dirs: Iterable[Path]) -> dict[str, Any] | No
     }
 
 
+def _exit_path_replay_reconciliation(chunk_dirs: Sequence[Path], *, required: bool) -> dict[str, Any]:
+    trade_ids: list[str] = []
+    path_trade_ids: set[str] = set()
+    chunks_missing_artifact: list[str] = []
+    for chunk_dir in chunk_dirs:
+        trades = _trades_payload(_load_json(chunk_dir / "trades.json"))
+        for index, trade in enumerate(trades):
+            trade_ids.append(str(trade.get("trade_id") or f"{chunk_dir.name}:{index}"))
+        path = chunk_dir / "exit_path_replay.json"
+        if not path.exists():
+            chunks_missing_artifact.append(chunk_dir.name)
+            continue
+        payload = _load_json(path)
+        for index, row in enumerate(_trades_payload(payload)):
+            path_trade_ids.add(str(row.get("trade_id") or f"{chunk_dir.name}:{index}"))
+    missing = [trade_id for trade_id in trade_ids if trade_id not in path_trade_ids]
+    extra = sorted(path_trade_ids - set(trade_ids))
+    matched = not missing and not extra and not chunks_missing_artifact
+    return {
+        "schema_version": "exit_path_replay_reconciliation.v1",
+        "required": required,
+        "matched": matched if required else True if not trade_ids else matched,
+        "trade_count": len(trade_ids),
+        "path_trade_count": len(path_trade_ids),
+        "missing_trade_count": len(missing),
+        "extra_path_trade_count": len(extra),
+        "chunks_missing_artifact": chunks_missing_artifact,
+        "missing_trade_ids": missing[:50],
+        "extra_path_trade_ids": extra[:50],
+    }
+
+
 def _passive_calibration_diagnostic(
     chunk_dirs: Sequence[Path],
     *,
@@ -381,6 +413,7 @@ def build_live_readiness_gate_report(
     require_passive_calibration: bool = False,
     min_passive_calibration_attempts: int = 0,
     min_passive_fill_rate: float | None = None,
+    require_exit_path_replay_rows: bool = False,
 ) -> dict[str, Any]:
     root = Path(chunk_results_dir)
     chunk_dirs = sorted(path for path in root.iterdir() if path.is_dir() and (path / "trades.json").exists())
@@ -426,6 +459,7 @@ def build_live_readiness_gate_report(
     )
     exit_evidence_coverage = exit_evidence_count / trade_count if trade_count else 0.0
     exit_path_replay = audit_exit_path_replay(all_trades)
+    exit_path_reconciliation = _exit_path_replay_reconciliation(chunk_dirs, required=require_exit_path_replay_rows)
     exit_path_counts = _as_mapping(exit_path_replay.get("counts"))
     exit_path_ambiguous_count = int(exit_path_counts.get("fixed_horizon_only") or 0) + int(
         exit_path_counts.get("ambiguous_intrabar_order") or 0
@@ -504,8 +538,12 @@ def build_live_readiness_gate_report(
         reasons.append("exit_evidence_coverage_below_threshold")
     if exit_path_ambiguity_rate > max_exit_path_ambiguity_rate:
         reasons.append("exit_path_ambiguity_rate_above_threshold")
+    exit_path_replay_rows_met = (not require_exit_path_replay_rows) or bool(exit_path_reconciliation.get("matched"))
+    if not exit_path_replay_rows_met:
+        reasons.append("exit_path_replay_missing_trades")
     if major_negative:
         reasons.append("major_setup_bucket_negative")
+
     if not setup_concentration_met:
         reasons.append("setup_concentration_too_high")
     if not symbol_concentration_met:
@@ -577,6 +615,7 @@ def build_live_readiness_gate_report(
             "counts": dict(exit_path_counts),
             "ambiguous_count": exit_path_ambiguous_count,
             "ambiguity_rate": exit_path_ambiguity_rate,
+            "reconciliation": exit_path_reconciliation,
         },
         "cost_sensitivity": {
             "net_pnl_before_costs": net_pnl + fees + slippage + funding,
@@ -591,6 +630,7 @@ def build_live_readiness_gate_report(
                 "evidence_coverage_met": evidence_coverage >= evidence_coverage_threshold,
                 "exit_evidence_coverage_met": exit_evidence_coverage >= exit_evidence_coverage_threshold,
                 "exit_path_ambiguity_rate_met": exit_path_ambiguity_rate <= max_exit_path_ambiguity_rate,
+                "exit_path_replay_rows_met": exit_path_replay_rows_met,
                 "major_setup_buckets_non_negative": not major_negative,
                 "setup_concentration_met": setup_concentration_met,
                 "symbol_concentration_met": symbol_concentration_met,
@@ -806,6 +846,7 @@ def write_live_readiness_smoke_report(
     require_passive_calibration: bool = False,
     min_passive_calibration_attempts: int = 0,
     min_passive_fill_rate: float | None = None,
+    require_exit_path_replay_rows: bool = False,
 ) -> dict[str, Any]:
     source_root = Path(input_root)
     target = Path(output_dir)
@@ -845,6 +886,7 @@ def write_live_readiness_smoke_report(
         require_passive_calibration=require_passive_calibration,
         min_passive_calibration_attempts=min_passive_calibration_attempts,
         min_passive_fill_rate=min_passive_fill_rate,
+        require_exit_path_replay_rows=require_exit_path_replay_rows,
     )
     report["smoke_report"] = {
         "schema_version": "live_readiness_smoke_report.v1",
@@ -953,6 +995,25 @@ def render_live_readiness_markdown(report: Mapping[str, Any]) -> str:
                     f"net={float(mapped_bucket.get('net') or 0.0):.2f}, "
                     f"win_rate={float(mapped_bucket.get('win_rate') or 0.0):.2%}"
                 )
+    exit_path_replay = _as_mapping(report.get("exit_path_replay"))
+    exit_reconciliation = _as_mapping(exit_path_replay.get("reconciliation"))
+    if exit_reconciliation:
+        lines.extend(
+            [
+                "",
+                "## Exit Path Replay Reconciliation",
+                f"- schema_version: {exit_reconciliation.get('schema_version')}",
+                f"- required: {str(bool(exit_reconciliation.get('required'))).lower()}",
+                f"- matched: {str(bool(exit_reconciliation.get('matched'))).lower()}",
+                f"- trade_count: {int(exit_reconciliation.get('trade_count') or 0)}",
+                f"- path_trade_count: {int(exit_reconciliation.get('path_trade_count') or 0)}",
+                f"- missing_trade_count: {int(exit_reconciliation.get('missing_trade_count') or 0)}",
+                f"- extra_path_trade_count: {int(exit_reconciliation.get('extra_path_trade_count') or 0)}",
+            ]
+        )
+        missing_ids = exit_reconciliation.get("missing_trade_ids") or []
+        if missing_ids:
+            lines.append("- missing_trade_ids: " + ", ".join(str(item) for item in missing_ids[:10]))
     passive_calibration = _as_mapping(report.get("passive_calibration"))
     if passive_calibration:
         lines.extend(
@@ -1049,6 +1110,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--require-passive-calibration", action="store_true")
     parser.add_argument("--min-passive-calibration-attempts", type=int, default=0)
     parser.add_argument("--min-passive-fill-rate", type=float, default=None)
+    parser.add_argument("--require-exit-path-replay-rows", action="store_true")
     return parser.parse_args()
 
 
@@ -1107,6 +1169,7 @@ def main() -> int:
         require_passive_calibration=args.require_passive_calibration,
         min_passive_calibration_attempts=args.min_passive_calibration_attempts,
         min_passive_fill_rate=args.min_passive_fill_rate,
+        require_exit_path_replay_rows=args.require_exit_path_replay_rows,
     )
     gate = _as_mapping(report.get("promotion_gate"))
     totals = _as_mapping(report.get("totals"))
