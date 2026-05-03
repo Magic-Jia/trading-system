@@ -72,12 +72,77 @@ def collect_promotion_evidence_bundle(
     return destination
 
 
+def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
+    bundle = Path(bundle_dir)
+    manifest_path = bundle / "promotion_evidence_manifest.json"
+    if not manifest_path.is_file():
+        return {
+            "schema_version": "promotion_evidence_bundle_verification.v1",
+            "verified": False,
+            "bundle_dir": str(bundle),
+            "manifest_path": str(manifest_path),
+            "manifest_present": False,
+            "missing_artifacts": [],
+            "sha256_mismatches": [],
+            "byte_size_mismatches": [],
+            "checked_artifacts": [],
+        }
+    manifest = json.loads(manifest_path.read_text())
+    artifacts = manifest.get("artifacts") if isinstance(manifest.get("artifacts"), list) else []
+    missing: list[str] = []
+    sha_mismatches: list[str] = []
+    byte_mismatches: list[str] = []
+    checked: list[dict[str, Any]] = []
+    for artifact in artifacts:
+        if not isinstance(artifact, Mapping):
+            continue
+        rel_path = str(artifact.get("path") or "")
+        if not rel_path:
+            continue
+        path = bundle / rel_path
+        if not path.is_file():
+            missing.append(rel_path)
+            continue
+        actual_sha = _sha256(path)
+        expected_sha = str(artifact.get("sha256") or "")
+        actual_bytes = path.stat().st_size
+        expected_bytes = int(artifact.get("bytes") or -1)
+        if expected_sha and actual_sha != expected_sha:
+            sha_mismatches.append(rel_path)
+        if expected_bytes >= 0 and actual_bytes != expected_bytes:
+            byte_mismatches.append(rel_path)
+        checked.append({"path": rel_path, "bytes": actual_bytes, "sha256": actual_sha})
+    required = [str(name) for name in manifest.get("required_artifacts", []) if str(name)]
+    for rel_path in required:
+        if not (bundle / rel_path).is_file() and rel_path not in missing:
+            missing.append(rel_path)
+    return {
+        "schema_version": "promotion_evidence_bundle_verification.v1",
+        "verified": not missing and not sha_mismatches and not byte_mismatches,
+        "bundle_dir": str(bundle),
+        "manifest_path": str(manifest_path),
+        "manifest_present": True,
+        "candidate_id": manifest.get("candidate_id"),
+        "missing_artifacts": sorted(missing),
+        "sha256_mismatches": sorted(sha_mismatches),
+        "byte_size_mismatches": sorted(byte_mismatches),
+        "checked_artifacts": checked,
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Collect promotion evidence bundle")
-    parser.add_argument("--source-dir", required=True)
+    parser = argparse.ArgumentParser(description="Collect or verify promotion evidence bundle")
+    parser.add_argument("--source-dir")
     parser.add_argument("--bundle-dir", required=True)
-    parser.add_argument("--candidate-id", required=True)
+    parser.add_argument("--candidate-id")
+    parser.add_argument("--verify-only", action="store_true")
     args = parser.parse_args(argv)
+    if args.verify_only:
+        result = verify_promotion_evidence_bundle(args.bundle_dir)
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0 if result["verified"] else 1
+    if not args.source_dir or not args.candidate_id:
+        parser.error("--source-dir and --candidate-id are required unless --verify-only is used")
     print(
         collect_promotion_evidence_bundle(
             args.source_dir,

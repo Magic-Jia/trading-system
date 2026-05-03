@@ -9,6 +9,7 @@ import pytest
 from trading_system.app.backtest.promotion_evidence_bundle import (
     REQUIRED_ARTIFACTS,
     collect_promotion_evidence_bundle,
+    verify_promotion_evidence_bundle,
 )
 
 
@@ -129,6 +130,80 @@ def test_collected_bundle_can_be_consumed_by_live_readiness_smoke(tmp_path: Path
     assert "runtime_safety_evidence_missing" not in reasons
     assert "passive_calibration_missing" not in reasons
     assert "exit_path_replay_missing_trades" not in reasons
+
+
+def test_bundle_verifier_detects_missing_and_tampered_artifacts(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    for name in REQUIRED_ARTIFACTS:
+        _write_json(source / name, {"artifact": name, "synthetic": True})
+    bundle_dir = collect_promotion_evidence_bundle(
+        source,
+        tmp_path / "bundle",
+        candidate_id="candidate-1",
+        evidence_source={"type": "synthetic_fixture"},
+    )
+
+    verified = verify_promotion_evidence_bundle(bundle_dir)
+    assert verified["schema_version"] == "promotion_evidence_bundle_verification.v1"
+    assert verified["verified"] is True
+    assert verified["missing_artifacts"] == []
+    assert verified["sha256_mismatches"] == []
+
+    (bundle_dir / REQUIRED_ARTIFACTS[0]).write_text("tampered\n", encoding="utf-8")
+    tampered = verify_promotion_evidence_bundle(bundle_dir)
+    assert tampered["verified"] is False
+    assert tampered["sha256_mismatches"] == [REQUIRED_ARTIFACTS[0]]
+
+    (bundle_dir / REQUIRED_ARTIFACTS[1]).unlink()
+    missing = verify_promotion_evidence_bundle(bundle_dir)
+    assert missing["verified"] is False
+    assert REQUIRED_ARTIFACTS[1] in missing["missing_artifacts"]
+
+
+def test_bundle_verify_only_cli_returns_nonzero_for_tampering(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    for name in REQUIRED_ARTIFACTS:
+        _write_json(source / name, {"artifact": name, "synthetic": True})
+    bundle_dir = collect_promotion_evidence_bundle(source, tmp_path / "bundle", candidate_id="candidate-1")
+
+    import subprocess
+    import sys
+
+    ok = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "trading_system.app.backtest.promotion_evidence_bundle",
+            "--bundle-dir",
+            str(bundle_dir),
+            "--verify-only",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert ok.returncode == 0
+    assert '"verified": true' in ok.stdout
+
+    (bundle_dir / REQUIRED_ARTIFACTS[0]).write_text("tampered\n", encoding="utf-8")
+    bad = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "trading_system.app.backtest.promotion_evidence_bundle",
+            "--bundle-dir",
+            str(bundle_dir),
+            "--verify-only",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert bad.returncode == 1
+    assert '"verified": false' in bad.stdout
+    assert REQUIRED_ARTIFACTS[0] in bad.stdout
 
 
 def test_bundle_collector_fails_closed_when_required_artifact_missing(tmp_path: Path) -> None:
