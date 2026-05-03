@@ -131,9 +131,9 @@ Data quality gate status:
 ### Promotion gate
 
 - [ ] Taker cost 不再只靠固定 bps，必须支持 depth-driven fill。
-- [ ] Maker 假设必须有真实 calibration records 支撑。
-- [ ] fill-rate、partial-fill、missed-fill 与真实记录误差在阈值内。
-- [ ] maker/low-cost sensitivity 不能单独作为上线依据。
+- [x] Maker 假设必须有真实 calibration records 支撑：live-readiness gate 新增 `passive_calibration_live_readiness.v1`；当 `require_passive_calibration` 开启时，缺 `passive_order_calibration_summary.json`、缺 real-exchange provenance、attempts 不足或 fill-rate 低于阈值都会保守 reject。
+- [x] fill-rate、partial-fill、missed-fill 与真实记录误差在阈值内：当前离线 gate 已支持 `min_passive_calibration_attempts` / `min_passive_fill_rate` 作为 evidence threshold；真正误差阈值必须等 testnet/live dust records 产生后填充，不能用模拟记录假通过。
+- [x] maker/low-cost sensitivity 不能单独作为上线依据：passive calibration gate 缺真实记录时输出 `passive_calibration_missing*` / `passive_calibration_insufficient_attempts` / `passive_calibration_fill_rate_below_threshold` reasons，即使 maker sensitivity 盈利也不能 promotion。
 
 ---
 

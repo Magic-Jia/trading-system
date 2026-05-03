@@ -953,6 +953,61 @@ def test_live_readiness_cli_stdout_includes_concentration_summary(tmp_path: Path
     }
 
 
+
+def test_live_readiness_gate_report_rejects_missing_real_passive_calibration_for_maker_assumption(
+    tmp_path: Path,
+) -> None:
+    chunk = tmp_path / "chunk_00"
+    chunk.mkdir()
+    (chunk / "trades.json").write_text(
+        json.dumps(
+            {
+                "trades": [
+                    {
+                        "symbol": "BTCUSDT",
+                        "side": "long",
+                        "setup_type": "TREND_PULLBACK",
+                        "gross_pnl": 200.0,
+                        "net_pnl": 150.0,
+                        "fee_paid": 10.0,
+                        "slippage_paid": 5.0,
+                        "fill_quality": "evidence_backed",
+                        "execution_price_source": "trade_print",
+                        "exit_fill_quality": "evidence_backed",
+                        "exit_price_source": "trade_print",
+                        "exit_path_classification": "trade_print_path_available",
+                    }
+                ]
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    (chunk / "passive_order_calibration_summary.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "passive_order_calibration_summary.v1",
+                "provenance": {"source": "synthetic_fixture", "real_exchange_records": False},
+                "overall": {"attempt_count": 20, "fill_rate": 0.8, "partial_fill_rate": 0.1, "missed_fill_rate": 0.2},
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_live_readiness_gate_report(
+        tmp_path,
+        require_passive_calibration=True,
+        min_passive_calibration_attempts=10,
+        min_passive_fill_rate=0.5,
+    )
+
+    assert report["passive_calibration"]["schema_version"] == "passive_calibration_live_readiness.v1"
+    assert report["passive_calibration"]["real_exchange_records"] is False
+    assert report["promotion_gate"]["checks"]["passive_calibration_real_records_met"] is False
+    assert "passive_calibration_missing_real_records" in report["promotion_gate"]["reasons"]
+
+
 def test_trade_postmortem_summary_buckets_failure_taxonomy_and_setups() -> None:
     report = summarize_trade_postmortem(
         [

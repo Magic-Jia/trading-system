@@ -269,6 +269,67 @@ def _setup_rewrite_diagnostic(chunk_dirs: Iterable[Path]) -> dict[str, Any] | No
     }
 
 
+def _passive_calibration_diagnostic(
+    chunk_dirs: Sequence[Path],
+    *,
+    required: bool,
+    min_attempts: int,
+    min_fill_rate: float | None,
+) -> dict[str, Any]:
+    chunks: list[dict[str, Any]] = []
+    total_attempts = 0
+    weighted_filled = 0.0
+    real_exchange_records = False
+    for chunk_dir in chunk_dirs:
+        path = chunk_dir / "passive_order_calibration_summary.json"
+        if not path.exists():
+            continue
+        payload = _load_json(path)
+        overall = _as_mapping(payload.get("overall"))
+        provenance = _as_mapping(payload.get("provenance"))
+        attempts = int(overall.get("attempt_count") or 0)
+        fill_rate = _float_value(overall.get("fill_rate"))
+        total_attempts += attempts
+        weighted_filled += fill_rate * attempts
+        chunk_real = bool(provenance.get("real_exchange_records")) or str(provenance.get("source") or "").lower() in {
+            "live_exchange",
+            "testnet_exchange",
+            "exchange_export",
+            "real_exchange_records",
+        }
+        real_exchange_records = real_exchange_records or chunk_real
+        chunks.append(
+            {
+                "chunk": chunk_dir.name,
+                "path": str(path),
+                "attempt_count": attempts,
+                "fill_rate": fill_rate,
+                "real_exchange_records": chunk_real,
+                "provenance": provenance,
+            }
+        )
+    fill_rate = weighted_filled / total_attempts if total_attempts else 0.0
+    attempts_met = total_attempts >= max(0, int(min_attempts))
+    fill_rate_met = min_fill_rate is None or fill_rate >= min_fill_rate
+    real_records_met = (not required) or real_exchange_records
+    return {
+        "schema_version": "passive_calibration_live_readiness.v1",
+        "required": required,
+        "chunks": chunks,
+        "attempt_count": total_attempts,
+        "min_attempts": min_attempts,
+        "fill_rate": fill_rate,
+        "min_fill_rate": min_fill_rate,
+        "real_exchange_records": real_exchange_records,
+        "checks": {
+            "passive_calibration_present_met": (not required) or bool(chunks),
+            "passive_calibration_real_records_met": real_records_met,
+            "passive_calibration_attempts_met": attempts_met,
+            "passive_calibration_fill_rate_met": fill_rate_met,
+        },
+    }
+
+
 def _dominance_from_gate_buckets(
     buckets: Mapping[str, Mapping[str, Any]],
     *,
@@ -317,6 +378,9 @@ def build_live_readiness_gate_report(
     max_symbol_net_abs_share: float | None = None,
     max_setup_loss_abs_share: float | None = None,
     max_symbol_loss_abs_share: float | None = None,
+    require_passive_calibration: bool = False,
+    min_passive_calibration_attempts: int = 0,
+    min_passive_fill_rate: float | None = None,
 ) -> dict[str, Any]:
     root = Path(chunk_results_dir)
     chunk_dirs = sorted(path for path in root.iterdir() if path.is_dir() and (path / "trades.json").exists())
@@ -334,6 +398,12 @@ def build_live_readiness_gate_report(
         _add_group(by_symbol, str(trade.get("symbol") or "UNKNOWN"), "symbol", trade)
         _add_group(by_side, str(trade.get("side") or "UNKNOWN"), "side", trade)
     setup_rewrite_diagnostic = _setup_rewrite_diagnostic(chunk_dirs)
+    passive_calibration = _passive_calibration_diagnostic(
+        chunk_dirs,
+        required=require_passive_calibration,
+        min_attempts=min_passive_calibration_attempts,
+        min_fill_rate=min_passive_fill_rate,
+    )
 
     trade_count = len(all_trades)
     net_pnl = sum(_float_value(trade.get("net_pnl")) for trade in all_trades)
@@ -448,6 +518,15 @@ def build_live_readiness_gate_report(
         reasons.append("setup_loss_abs_concentration_too_high")
     if not symbol_loss_abs_concentration_met:
         reasons.append("symbol_loss_abs_concentration_too_high")
+    passive_checks = _as_mapping(passive_calibration.get("checks"))
+    if not passive_checks.get("passive_calibration_present_met", True):
+        reasons.append("passive_calibration_missing")
+    if not passive_checks.get("passive_calibration_real_records_met", True):
+        reasons.append("passive_calibration_missing_real_records")
+    if not passive_checks.get("passive_calibration_attempts_met", True):
+        reasons.append("passive_calibration_insufficient_attempts")
+    if not passive_checks.get("passive_calibration_fill_rate_met", True):
+        reasons.append("passive_calibration_fill_rate_below_threshold")
     setup_rewrite_checks: dict[str, bool] = {}
     if setup_rewrite_diagnostic is not None:
         setup_rewrite_totals = _as_mapping(setup_rewrite_diagnostic.get("totals"))
@@ -492,6 +571,7 @@ def build_live_readiness_gate_report(
         "by_symbol": {key: by_symbol[key] for key in sorted(by_symbol)},
         "by_side": {key: by_side[key] for key in sorted(by_side)},
         "concentration": concentration,
+        "passive_calibration": passive_calibration,
         "exit_path_replay": {
             "schema_version": exit_path_replay.get("schema_version"),
             "counts": dict(exit_path_counts),
@@ -518,6 +598,7 @@ def build_live_readiness_gate_report(
                 "symbol_net_abs_concentration_met": symbol_net_abs_concentration_met,
                 "setup_loss_abs_concentration_met": setup_loss_abs_concentration_met,
                 "symbol_loss_abs_concentration_met": symbol_loss_abs_concentration_met,
+                **passive_checks,
                 **setup_rewrite_checks,
             },
         },
@@ -722,6 +803,9 @@ def write_live_readiness_smoke_report(
     max_symbol_net_abs_share: float | None = 0.60,
     max_setup_loss_abs_share: float | None = 0.60,
     max_symbol_loss_abs_share: float | None = 0.60,
+    require_passive_calibration: bool = False,
+    min_passive_calibration_attempts: int = 0,
+    min_passive_fill_rate: float | None = None,
 ) -> dict[str, Any]:
     source_root = Path(input_root)
     target = Path(output_dir)
@@ -758,6 +842,9 @@ def write_live_readiness_smoke_report(
         max_symbol_net_abs_share=max_symbol_net_abs_share,
         max_setup_loss_abs_share=max_setup_loss_abs_share,
         max_symbol_loss_abs_share=max_symbol_loss_abs_share,
+        require_passive_calibration=require_passive_calibration,
+        min_passive_calibration_attempts=min_passive_calibration_attempts,
+        min_passive_fill_rate=min_passive_fill_rate,
     )
     report["smoke_report"] = {
         "schema_version": "live_readiness_smoke_report.v1",
@@ -866,6 +953,26 @@ def render_live_readiness_markdown(report: Mapping[str, Any]) -> str:
                     f"net={float(mapped_bucket.get('net') or 0.0):.2f}, "
                     f"win_rate={float(mapped_bucket.get('win_rate') or 0.0):.2%}"
                 )
+    passive_calibration = _as_mapping(report.get("passive_calibration"))
+    if passive_calibration:
+        lines.extend(
+            [
+                "",
+                "## Passive Order Calibration Gate",
+                f"- schema_version: {passive_calibration.get('schema_version')}",
+                f"- required: {str(bool(passive_calibration.get('required'))).lower()}",
+                f"- real_exchange_records: {str(bool(passive_calibration.get('real_exchange_records'))).lower()}",
+                f"- attempt_count: {int(passive_calibration.get('attempt_count') or 0)}",
+                f"- min_attempts: {int(passive_calibration.get('min_attempts') or 0)}",
+                f"- fill_rate: {float(passive_calibration.get('fill_rate') or 0.0):.2%}",
+                "- min_fill_rate: "
+                + (
+                    f"{float(passive_calibration.get('min_fill_rate')):.2%}"
+                    if passive_calibration.get("min_fill_rate") is not None
+                    else "disabled"
+                ),
+            ]
+        )
     concentration = _as_mapping(report.get("concentration"))
     if concentration:
         lines.extend(["", "## Concentration Gate"])
@@ -939,6 +1046,9 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--max-symbol-net-abs-share", type=float, default=0.60)
     parser.add_argument("--max-setup-loss-abs-share", type=float, default=0.60)
     parser.add_argument("--max-symbol-loss-abs-share", type=float, default=0.60)
+    parser.add_argument("--require-passive-calibration", action="store_true")
+    parser.add_argument("--min-passive-calibration-attempts", type=int, default=0)
+    parser.add_argument("--min-passive-fill-rate", type=float, default=None)
     return parser.parse_args()
 
 
@@ -994,6 +1104,9 @@ def main() -> int:
         max_symbol_net_abs_share=args.max_symbol_net_abs_share,
         max_setup_loss_abs_share=args.max_setup_loss_abs_share,
         max_symbol_loss_abs_share=args.max_symbol_loss_abs_share,
+        require_passive_calibration=args.require_passive_calibration,
+        min_passive_calibration_attempts=args.min_passive_calibration_attempts,
+        min_passive_fill_rate=args.min_passive_fill_rate,
     )
     gate = _as_mapping(report.get("promotion_gate"))
     totals = _as_mapping(report.get("totals"))
