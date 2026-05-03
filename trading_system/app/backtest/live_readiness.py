@@ -5,7 +5,9 @@ import json
 import shutil
 from collections import Counter
 from pathlib import Path
-from typing import Any, Iterable, Mapping
+from typing import Any, Iterable, Mapping, Sequence
+
+from trading_system.app.backtest.promotion_evidence_bundle import verify_promotion_evidence_bundle
 
 
 DEPTH_CLASSIFICATIONS = (
@@ -558,8 +560,25 @@ def build_live_readiness_gate_report(
     require_validation_evidence: bool = False,
     require_microstructure_evidence: bool = False,
     require_runtime_safety_evidence: bool = False,
+    require_promotion_bundle_integrity: bool = False,
 ) -> dict[str, Any]:
     root = Path(chunk_results_dir)
+    promotion_bundle_integrity = {
+        "schema_version": "promotion_evidence_bundle_verification.v1",
+        "required": require_promotion_bundle_integrity,
+        "verified": True,
+        "manifest_present": False,
+        "missing_artifacts": [],
+        "sha256_mismatches": [],
+        "byte_size_mismatches": [],
+        "checked_artifacts": [],
+    }
+    manifest_candidate = root / "promotion_evidence_manifest.json"
+    if require_promotion_bundle_integrity or manifest_candidate.exists():
+        promotion_bundle_integrity = {
+            "required": require_promotion_bundle_integrity,
+            **verify_promotion_evidence_bundle(root),
+        }
     chunk_dirs = sorted(path for path in root.iterdir() if path.is_dir() and (path / "trades.json").exists())
     all_trades: list[dict[str, Any]] = []
     chunk_performance: list[dict[str, Any]] = []
@@ -682,6 +701,8 @@ def build_live_readiness_gate_report(
     setup_loss_abs_concentration_met = max_setup_loss_abs_share is None or _float_value(top_setup_loss_abs.get("loss_abs_share")) <= max_setup_loss_abs_share
     symbol_loss_abs_concentration_met = max_symbol_loss_abs_share is None or _float_value(top_symbol_loss_abs.get("loss_abs_share")) <= max_symbol_loss_abs_share
     reasons: list[str] = []
+    if require_promotion_bundle_integrity and not bool(promotion_bundle_integrity.get("verified")):
+        reasons.append("promotion_bundle_integrity_failed")
     if net_pnl < 0.0:
         reasons.append("net_pnl_below_zero")
     if evidence_coverage < evidence_coverage_threshold:
@@ -799,6 +820,7 @@ def build_live_readiness_gate_report(
         "by_setup_type": {key: by_setup[key] for key in sorted(by_setup)},
         "by_symbol": {key: by_symbol[key] for key in sorted(by_symbol)},
         "by_side": {key: by_side[key] for key in sorted(by_side)},
+        "promotion_bundle_integrity": promotion_bundle_integrity,
         "setup_quality_gate": setup_quality_gate,
         "runtime_safety_gate": runtime_safety_gate,
         "microstructure_gate": microstructure_gate,
@@ -827,6 +849,8 @@ def build_live_readiness_gate_report(
                 "exit_path_ambiguity_rate_met": exit_path_ambiguity_rate <= max_exit_path_ambiguity_rate,
                 "exit_path_replay_rows_met": exit_path_replay_rows_met,
                 "major_setup_buckets_non_negative": not major_negative,
+                "promotion_bundle_integrity_verified": (not require_promotion_bundle_integrity)
+                or bool(promotion_bundle_integrity.get("verified")),
                 **setup_quality_checks,
                 **runtime_safety_checks,
                 **microstructure_checks,
@@ -1051,6 +1075,7 @@ def write_live_readiness_smoke_report(
     require_validation_evidence: bool = False,
     require_microstructure_evidence: bool = False,
     require_runtime_safety_evidence: bool = False,
+    require_promotion_bundle_integrity: bool = False,
 ) -> dict[str, Any]:
     source_root = Path(input_root)
     target = Path(output_dir)
@@ -1105,7 +1130,28 @@ def write_live_readiness_smoke_report(
         require_validation_evidence=require_validation_evidence,
         require_microstructure_evidence=require_microstructure_evidence,
         require_runtime_safety_evidence=require_runtime_safety_evidence,
+        require_promotion_bundle_integrity=False,
     )
+    if require_promotion_bundle_integrity or (source_root / "promotion_evidence_manifest.json").exists():
+        source_integrity = {
+            "required": require_promotion_bundle_integrity,
+            **verify_promotion_evidence_bundle(source_root),
+        }
+        report["promotion_bundle_integrity"] = source_integrity
+        gate = _as_mapping(report.get("promotion_gate"))
+        reasons = list(gate.get("reasons", []))
+        checks = dict(_as_mapping(gate.get("checks")))
+        checks["promotion_bundle_integrity_verified"] = (not require_promotion_bundle_integrity) or bool(
+            source_integrity.get("verified")
+        )
+        if require_promotion_bundle_integrity and not bool(source_integrity.get("verified")):
+            reasons.append("promotion_bundle_integrity_failed")
+        report["promotion_gate"] = {
+            **dict(gate),
+            "decision": "reject_for_live_promotion" if reasons else "candidate_for_promotion",
+            "reasons": reasons,
+            "checks": checks,
+        }
     report["smoke_report"] = {
         "schema_version": "live_readiness_smoke_report.v1",
         "source_root": str(source_root),
@@ -1214,6 +1260,24 @@ def render_live_readiness_markdown(report: Mapping[str, Any]) -> str:
                     f"win_rate={float(mapped_bucket.get('win_rate') or 0.0):.2%}"
                 )
     setup_quality = _as_mapping(report.get("setup_quality_gate"))
+    promotion_bundle_integrity = _as_mapping(report.get("promotion_bundle_integrity"))
+    if promotion_bundle_integrity:
+        lines.extend(
+            [
+                "",
+                "## Promotion Bundle Integrity",
+                f"- schema_version: {promotion_bundle_integrity.get('schema_version')}",
+                f"- required: {str(bool(promotion_bundle_integrity.get('required'))).lower()}",
+                f"- verified: {str(bool(promotion_bundle_integrity.get('verified'))).lower()}",
+                f"- manifest_present: {str(bool(promotion_bundle_integrity.get('manifest_present'))).lower()}",
+                "- missing_artifacts: "
+                + (", ".join(str(item) for item in promotion_bundle_integrity.get("missing_artifacts", [])) or "none"),
+                "- sha256_mismatches: "
+                + (", ".join(str(item) for item in promotion_bundle_integrity.get("sha256_mismatches", [])) or "none"),
+                "- byte_size_mismatches: "
+                + (", ".join(str(item) for item in promotion_bundle_integrity.get("byte_size_mismatches", [])) or "none"),
+            ]
+        )
     if setup_quality:
         lines.extend(
             [
@@ -1397,6 +1461,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--require-validation-evidence", action="store_true")
     parser.add_argument("--require-microstructure-evidence", action="store_true")
     parser.add_argument("--require-runtime-safety-evidence", action="store_true")
+    parser.add_argument("--require-promotion-bundle-integrity", action="store_true")
     return parser.parse_args()
 
 
@@ -1461,6 +1526,7 @@ def main() -> int:
         require_validation_evidence=args.require_validation_evidence,
         require_microstructure_evidence=args.require_microstructure_evidence,
         require_runtime_safety_evidence=args.require_runtime_safety_evidence,
+        require_promotion_bundle_integrity=args.require_promotion_bundle_integrity,
     )
     gate = _as_mapping(report.get("promotion_gate"))
     totals = _as_mapping(report.get("totals"))

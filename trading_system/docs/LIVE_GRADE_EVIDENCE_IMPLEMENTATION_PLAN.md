@@ -128,10 +128,11 @@ python -m pytest -q trading_system/tests/test_backtest_microstructure_evidence.p
 - Modify: `trading_system/app/backtest/live_readiness.py`
 - Test: `trading_system/tests/test_backtest_live_readiness.py`
 
-**Goal:** Ensure the live-readiness smoke normalizer preserves every producer artifact required by hard gates, so a candidate run with real producer outputs is evaluated from evidence rather than incorrectly rejected as missing evidence.
+**Goal:** Ensure the live-readiness smoke normalizer preserves every producer artifact required by hard gates, so a candidate run with real producer outputs is evaluated from evidence rather than incorrectly rejected as missing evidence. When requested, live-readiness must also verify the source promotion bundle integrity and fail closed on missing or tampered artifacts before promotion review.
 
 **TDD behavior:**
 - Given a source chunk with `exit_path_replay.json`, `passive_order_calibration_summary.json`, `market_microstructure_gate.json`, `validation_gate.json`, and `runtime_safety_gate.json`, `write_live_readiness_smoke_report(...)` copies them into normalized chunks and the gate consumes them.
+- Given `--require-promotion-bundle-integrity` and a source bundle with a tampered artifact, live-readiness emits `promotion_bundle_integrity_failed`, records the verifier report, and rejects promotion.
 - If artifacts are absent, existing fail-closed missing-evidence reasons remain unchanged.
 
 ---

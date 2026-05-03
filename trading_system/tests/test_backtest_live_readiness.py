@@ -20,6 +20,7 @@ from trading_system.app.backtest.live_readiness import (
     write_live_readiness_smoke_report,
 )
 from trading_system.app.backtest.microstructure_evidence import build_microstructure_gate
+from trading_system.app.backtest.promotion_evidence_bundle import collect_promotion_evidence_bundle
 from trading_system.app.backtest.validation_evidence import build_validation_gate
 from trading_system.app.backtest.types import DatasetSnapshotRow
 from trading_system.app.execution.calibration import load_calibration_records, summarize_calibration_records
@@ -282,6 +283,98 @@ def test_live_readiness_smoke_report_consumes_producer_gate_artifacts(tmp_path: 
     assert "validation_evidence_missing" not in reasons
     assert "runtime_safety_evidence_missing" not in reasons
     assert "passive_calibration_missing" not in reasons
+
+
+def test_live_readiness_smoke_report_rejects_tampered_promotion_bundle(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    trade = {
+        "trade_id": "t1",
+        "symbol": "BTCUSDT",
+        "side": "long",
+        "setup_type": "BREAKOUT_CONTINUATION",
+        "net_pnl": 100.0,
+        "gross_pnl": 125.0,
+        "fee_paid": 10.0,
+        "slippage_paid": 10.0,
+        "funding_paid": 5.0,
+        "fill_quality": "evidence_backed",
+        "execution_price_source": "trade_print",
+        "exit_fill_quality": "evidence_backed",
+        "exit_price_source": "trade_print",
+        "simulated_exit_reason": "take_profit",
+    }
+    (source / "trades.json").write_text(json.dumps({"trades": [trade]}), encoding="utf-8")
+    (source / "exit_path_replay.json").write_text(json.dumps({"trades": [{"trade_id": "t1"}]}), encoding="utf-8")
+    (source / "market_microstructure_gate.json").write_text(
+        json.dumps({"checks": {"l2_tick_coverage_met": True, "depth_driven_taker_met": True}}),
+        encoding="utf-8",
+    )
+    (source / "validation_gate.json").write_text(
+        json.dumps(
+            {
+                "checks": {
+                    "oos_non_degraded_met": True,
+                    "multi_regime_met": True,
+                    "cost_stress_positive_met": True,
+                    "forward_contamination_absent_met": True,
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    (source / "runtime_safety_gate.json").write_text(
+        json.dumps(
+            {
+                "checks": {
+                    "kill_switch_dry_run_met": True,
+                    "order_position_reconciliation_met": True,
+                    "fail_closed_met": True,
+                    "dust_before_scale_met": True,
+                    "live_trade_ledger_met": True,
+                    "runtime_explainability_met": True,
+                    "drift_guard_met": True,
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    (source / "passive_order_calibration_summary.json").write_text(
+        json.dumps(
+            {
+                "overall": {"attempt_count": 10, "fill_rate": 0.8},
+                "provenance": {"source": "testnet_exchange", "real_exchange_records": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+    bundle_dir = collect_promotion_evidence_bundle(source, tmp_path / "bundle", candidate_id="candidate-1")
+    (bundle_dir / "trades.json").write_text(json.dumps({"trades": [{**trade, "net_pnl": 101.0}]}), encoding="utf-8")
+
+    report = write_live_readiness_smoke_report(
+        bundle_dir,
+        tmp_path / "out",
+        require_promotion_bundle_integrity=True,
+        require_microstructure_evidence=True,
+        require_validation_evidence=True,
+        require_runtime_safety_evidence=True,
+        require_passive_calibration=True,
+        require_exit_path_replay_rows=True,
+        max_setup_trade_share=None,
+        max_symbol_trade_share=None,
+        max_setup_net_abs_share=None,
+        max_symbol_net_abs_share=None,
+        max_setup_loss_abs_share=None,
+        max_symbol_loss_abs_share=None,
+    )
+
+    assert report["promotion_bundle_integrity"]["verified"] is False
+    assert "trades.json" in report["promotion_bundle_integrity"]["sha256_mismatches"]
+    assert "promotion_bundle_integrity_failed" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+    markdown = render_live_readiness_markdown(report)
+    assert "## Promotion Bundle Integrity" in markdown
+    assert "verified: false" in markdown
 
 
 def test_live_readiness_gate_report_rejects_missing_runtime_safety_evidence(tmp_path: Path) -> None:
