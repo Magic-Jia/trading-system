@@ -649,7 +649,11 @@ def test_live_readiness_smoke_report_materializes_nested_full_market_bundle(tmp_
     assert "setup_rewrite_missing_evidence" in report["promotion_gate"]["reasons"]
     persisted = json.loads((output_dir / "live_readiness_gate.json").read_text(encoding="utf-8"))
     assert persisted["smoke_report"] == report["smoke_report"]
-    assert "- setup_rewrite:" in (output_dir / "live_readiness_gate.md").read_text(encoding="utf-8")
+    markdown = (output_dir / "live_readiness_gate.md").read_text(encoding="utf-8")
+    assert "- setup_rewrite:" in markdown
+    assert "## Trade Postmortem Summary" in markdown
+    assert "- schema_version: trade_postmortem_summary.v1" in markdown
+    assert "- 有效盈利_after_cost: trades=1" in markdown
     assert (output_dir / "trade_postmortem_summary.json").exists()
     postmortem = json.loads((output_dir / "trade_postmortem_summary.json").read_text(encoding="utf-8"))
     assert postmortem["schema_version"] == "trade_postmortem_summary.v1"

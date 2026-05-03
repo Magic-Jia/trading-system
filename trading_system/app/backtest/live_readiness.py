@@ -540,6 +540,7 @@ def write_live_readiness_smoke_report(
         for chunk_dir in sorted(path for path in normalized_root.iterdir() if path.is_dir())
         for trade in _trades_payload(_load_json(chunk_dir / "trades.json"))
     )
+    report["trade_postmortem_summary"] = postmortem_summary
     (target / "live_readiness_gate.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     (target / "live_readiness_gate.md").write_text(render_live_readiness_markdown(report), encoding="utf-8")
     (target / "trade_postmortem_summary.json").write_text(
@@ -572,6 +573,29 @@ def render_live_readiness_markdown(report: Mapping[str, Any]) -> str:
             f"skipped={int(setup_totals.get('skipped_count') or 0)}, "
             f"keep_rate={float(setup_totals.get('keep_rate') or 0.0):.2%}"
         )
+    postmortem = _as_mapping(report.get("trade_postmortem_summary"))
+    if postmortem:
+        postmortem_summary = _as_mapping(postmortem.get("summary"))
+        lines.extend(
+            [
+                "",
+                "## Trade Postmortem Summary",
+                f"- schema_version: {postmortem.get('schema_version')}",
+                f"- trades: {int(postmortem_summary.get('trades') or 0)}",
+                f"- net_pnl: {float(postmortem_summary.get('net_pnl') or postmortem_summary.get('net') or 0.0):.2f}",
+                f"- cost_total: {float(postmortem_summary.get('cost_total') or postmortem_summary.get('cost') or 0.0):.2f}",
+                "",
+                "### Failure Taxonomy",
+            ]
+        )
+        failure_buckets = _as_mapping(postmortem.get("by_failure_taxonomy"))
+        for key, bucket in sorted(failure_buckets.items()):
+            mapped_bucket = _as_mapping(bucket)
+            lines.append(
+                f"- {key}: trades={int(mapped_bucket.get('trades') or 0)}, "
+                f"net={float(mapped_bucket.get('net') or 0.0):.2f}, "
+                f"win_rate={float(mapped_bucket.get('win_rate') or 0.0):.2%}"
+            )
     lines.extend(["", "## Caveats"])
     lines.extend(f"- {item}" for item in report.get("caveats", []))
     lines.append("")
