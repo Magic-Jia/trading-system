@@ -269,6 +269,44 @@ def _setup_rewrite_diagnostic(chunk_dirs: Iterable[Path]) -> dict[str, Any] | No
     }
 
 
+def _validation_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[str, Any]:
+    artifacts: list[dict[str, Any]] = []
+    required_checks = (
+        "oos_non_degraded_met",
+        "multi_regime_met",
+        "cost_stress_positive_met",
+        "forward_contamination_absent_met",
+    )
+    aggregate_checks = {key: False for key in required_checks}
+    for chunk_dir in chunk_dirs:
+        path = chunk_dir / "validation_gate.json"
+        if not path.exists():
+            continue
+        payload = _load_json(path)
+        checks = _as_mapping(payload.get("checks"))
+        artifacts.append(
+            {
+                "chunk": chunk_dir.name,
+                "path": str(path),
+                "schema_version": payload.get("schema_version"),
+                "checks": {key: bool(checks.get(key)) for key in required_checks},
+                "summary": _as_mapping(payload.get("summary")),
+            }
+        )
+    if artifacts:
+        aggregate_checks = {
+            key: all(bool(_as_mapping(artifact.get("checks")).get(key)) for artifact in artifacts)
+            for key in required_checks
+        }
+    return {
+        "schema_version": "validation_gate.v1",
+        "required": required,
+        "artifact_count": len(artifacts),
+        "artifacts": artifacts,
+        "checks": aggregate_checks,
+    }
+
+
 def _setup_quality_gate(
     by_setup: Mapping[str, Mapping[str, Any]],
     *,
@@ -443,6 +481,7 @@ def build_live_readiness_gate_report(
     require_exit_path_replay_rows: bool = False,
     min_setup_trade_count: int | None = None,
     banned_setup_types: Sequence[str] | None = None,
+    require_validation_evidence: bool = False,
 ) -> dict[str, Any]:
     root = Path(chunk_results_dir)
     chunk_dirs = sorted(path for path in root.iterdir() if path.is_dir() and (path / "trades.json").exists())
@@ -464,6 +503,7 @@ def build_live_readiness_gate_report(
         min_setup_trade_count=min_setup_trade_count,
         banned_setup_types=banned_setup_types,
     )
+    validation_gate = _validation_gate(chunk_dirs, required=require_validation_evidence)
     setup_rewrite_diagnostic = _setup_rewrite_diagnostic(chunk_dirs)
     passive_calibration = _passive_calibration_diagnostic(
         chunk_dirs,
@@ -582,6 +622,17 @@ def build_live_readiness_gate_report(
         reasons.append("setup_min_sample_too_low")
     if not setup_quality_checks.get("banned_setup_types_absent", True):
         reasons.append("banned_setup_type_present")
+    validation_checks = _as_mapping(validation_gate.get("checks"))
+    if require_validation_evidence and int(validation_gate.get("artifact_count") or 0) == 0:
+        reasons.append("validation_evidence_missing")
+    if require_validation_evidence and not validation_checks.get("oos_non_degraded_met", False):
+        reasons.append("oos_degraded")
+    if require_validation_evidence and not validation_checks.get("multi_regime_met", False):
+        reasons.append("regime_single_point_survivor")
+    if require_validation_evidence and not validation_checks.get("cost_stress_positive_met", False):
+        reasons.append("cost_stress_not_positive")
+    if require_validation_evidence and not validation_checks.get("forward_contamination_absent_met", False):
+        reasons.append("forward_contamination_unproven")
 
     if not setup_concentration_met:
         reasons.append("setup_concentration_too_high")
@@ -648,6 +699,7 @@ def build_live_readiness_gate_report(
         "by_symbol": {key: by_symbol[key] for key in sorted(by_symbol)},
         "by_side": {key: by_side[key] for key in sorted(by_side)},
         "setup_quality_gate": setup_quality_gate,
+        "validation_gate": validation_gate,
         "concentration": concentration,
         "passive_calibration": passive_calibration,
         "exit_path_replay": {
@@ -673,6 +725,7 @@ def build_live_readiness_gate_report(
                 "exit_path_replay_rows_met": exit_path_replay_rows_met,
                 "major_setup_buckets_non_negative": not major_negative,
                 **setup_quality_checks,
+                **validation_checks,
                 "setup_concentration_met": setup_concentration_met,
                 "symbol_concentration_met": symbol_concentration_met,
                 "setup_net_abs_concentration_met": setup_net_abs_concentration_met,
@@ -890,6 +943,7 @@ def write_live_readiness_smoke_report(
     require_exit_path_replay_rows: bool = False,
     min_setup_trade_count: int | None = None,
     banned_setup_types: Sequence[str] | None = None,
+    require_validation_evidence: bool = False,
 ) -> dict[str, Any]:
     source_root = Path(input_root)
     target = Path(output_dir)
@@ -932,6 +986,7 @@ def write_live_readiness_smoke_report(
         require_exit_path_replay_rows=require_exit_path_replay_rows,
         min_setup_trade_count=min_setup_trade_count,
         banned_setup_types=banned_setup_types,
+        require_validation_evidence=require_validation_evidence,
     )
     report["smoke_report"] = {
         "schema_version": "live_readiness_smoke_report.v1",
@@ -1054,6 +1109,22 @@ def render_live_readiness_markdown(report: Mapping[str, Any]) -> str:
                 + (", ".join(str(item) for item in setup_quality.get("banned_setup_types_present", [])) or "none"),
             ]
         )
+    validation = _as_mapping(report.get("validation_gate"))
+    if validation:
+        checks = _as_mapping(validation.get("checks"))
+        lines.extend(
+            [
+                "",
+                "## Validation Gate",
+                f"- schema_version: {validation.get('schema_version')}",
+                f"- required: {str(bool(validation.get('required'))).lower()}",
+                f"- artifact_count: {int(validation.get('artifact_count') or 0)}",
+                f"- oos_non_degraded_met: {str(bool(checks.get('oos_non_degraded_met'))).lower()}",
+                f"- multi_regime_met: {str(bool(checks.get('multi_regime_met'))).lower()}",
+                f"- cost_stress_positive_met: {str(bool(checks.get('cost_stress_positive_met'))).lower()}",
+                f"- forward_contamination_absent_met: {str(bool(checks.get('forward_contamination_absent_met'))).lower()}",
+            ]
+        )
     exit_path_replay = _as_mapping(report.get("exit_path_replay"))
     exit_reconciliation = _as_mapping(exit_path_replay.get("reconciliation"))
     if exit_reconciliation:
@@ -1172,6 +1243,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--require-exit-path-replay-rows", action="store_true")
     parser.add_argument("--min-setup-trade-count", type=int, default=None)
     parser.add_argument("--banned-setup-type", action="append", default=[])
+    parser.add_argument("--require-validation-evidence", action="store_true")
     return parser.parse_args()
 
 
@@ -1233,6 +1305,7 @@ def main() -> int:
         require_exit_path_replay_rows=args.require_exit_path_replay_rows,
         min_setup_trade_count=args.min_setup_trade_count,
         banned_setup_types=args.banned_setup_type,
+        require_validation_evidence=args.require_validation_evidence,
     )
     gate = _as_mapping(report.get("promotion_gate"))
     totals = _as_mapping(report.get("totals"))

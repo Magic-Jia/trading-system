@@ -166,6 +166,109 @@ def test_exit_path_replay_audit_marks_intrabar_limitations() -> None:
 
 
 
+
+def test_live_readiness_gate_report_rejects_missing_validation_evidence(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    chunk.mkdir()
+    (chunk / "trades.json").write_text(
+        json.dumps(
+            {
+                "trades": [
+                    {
+                        "symbol": "BTCUSDT",
+                        "side": "long",
+                        "setup_type": "BREAKOUT_CONTINUATION",
+                        "net_pnl": 100.0,
+                        "gross_pnl": 120.0,
+                        "fee_paid": 10.0,
+                        "slippage_paid": 10.0,
+                        "fill_quality": "evidence_backed",
+                        "execution_price_source": "trade_print",
+                        "exit_fill_quality": "evidence_backed",
+                        "exit_price_source": "trade_print",
+                        "simulated_exit_reason": "take_profit",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_live_readiness_gate_report(tmp_path, require_validation_evidence=True)
+
+    validation = report["validation_gate"]
+    assert validation["schema_version"] == "validation_gate.v1"
+    assert validation["required"] is True
+    assert validation["artifact_count"] == 0
+    assert validation["checks"]["oos_non_degraded_met"] is False
+    assert validation["checks"]["multi_regime_met"] is False
+    assert validation["checks"]["cost_stress_positive_met"] is False
+    assert validation["checks"]["forward_contamination_absent_met"] is False
+    assert "validation_evidence_missing" in report["promotion_gate"]["reasons"]
+    assert "oos_degraded" in report["promotion_gate"]["reasons"]
+    assert "regime_single_point_survivor" in report["promotion_gate"]["reasons"]
+    assert "cost_stress_not_positive" in report["promotion_gate"]["reasons"]
+    assert "forward_contamination_unproven" in report["promotion_gate"]["reasons"]
+    markdown = render_live_readiness_markdown(report)
+    assert "## Validation Gate" in markdown
+    assert "schema_version: validation_gate.v1" in markdown
+    assert "artifact_count: 0" in markdown
+
+
+def test_live_readiness_gate_report_accepts_validation_evidence_artifact(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    chunk.mkdir()
+    (chunk / "trades.json").write_text(
+        json.dumps(
+            {
+                "trades": [
+                    {
+                        "symbol": "BTCUSDT",
+                        "side": "long",
+                        "setup_type": "BREAKOUT_CONTINUATION",
+                        "net_pnl": 100.0,
+                        "gross_pnl": 120.0,
+                        "fee_paid": 10.0,
+                        "slippage_paid": 10.0,
+                        "fill_quality": "evidence_backed",
+                        "execution_price_source": "trade_print",
+                        "exit_fill_quality": "evidence_backed",
+                        "exit_price_source": "trade_print",
+                        "simulated_exit_reason": "take_profit",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    (chunk / "validation_gate.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "validation_gate_input.v1",
+                "checks": {
+                    "oos_non_degraded_met": True,
+                    "multi_regime_met": True,
+                    "cost_stress_positive_met": True,
+                    "forward_contamination_absent_met": True,
+                },
+                "summary": {"oos_net_pnl": 50.0, "worst_regime_net_pnl": 10.0, "double_cost_net_pnl": 25.0},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_live_readiness_gate_report(tmp_path, require_validation_evidence=True)
+
+    validation = report["validation_gate"]
+    assert validation["artifact_count"] == 1
+    assert all(validation["checks"].values())
+    assert "validation_evidence_missing" not in report["promotion_gate"]["reasons"]
+    assert "oos_degraded" not in report["promotion_gate"]["reasons"]
+    assert "regime_single_point_survivor" not in report["promotion_gate"]["reasons"]
+    assert "cost_stress_not_positive" not in report["promotion_gate"]["reasons"]
+    assert "forward_contamination_unproven" not in report["promotion_gate"]["reasons"]
+
+
 def test_live_readiness_gate_report_rejects_under_sampled_and_banned_setups(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     chunk.mkdir()

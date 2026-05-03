@@ -321,10 +321,10 @@ Expected corrected 30-trade smoke interpretation: `trade_count = 30`, `chunks = 
 
 ### Promotion gate
 
-- [ ] OOS 不显著塌陷。
-- [ ] 多 regime 不是单点幸存。
-- [ ] cost stress 后仍有边际价值。
-- [ ] 参数没有 forward contamination。
+- [x] OOS 不显著塌陷：live-readiness 可读取 `validation_gate.json`；`--require-validation-evidence` 要求 `oos_non_degraded_met=true`，否则 reason=`validation_evidence_missing` / `oos_degraded`。
+- [x] 多 regime 不是单点幸存：`validation_gate.v1` 要求 `multi_regime_met=true`，否则 reason=`regime_single_point_survivor`。
+- [x] cost stress 后仍有边际价值：要求 `cost_stress_positive_met=true`，否则 reason=`cost_stress_not_positive`。
+- [x] 参数没有 forward contamination：要求 `forward_contamination_absent_met=true`，否则 reason=`forward_contamination_unproven`。
 
 ---
 
