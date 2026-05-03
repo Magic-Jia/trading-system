@@ -506,6 +506,8 @@ Required:
 
 真实 corrected survivor set 仍为 `reject_for_live_promotion`；这些 gates 只提供上线前阻断与审计能力，不构成 paper/testnet/live 批准。
 
+下一阶段实现计划已落入 `trading_system/docs/LIVE_GRADE_EVIDENCE_IMPLEMENTATION_PLAN.md`，目标是为六个仍缺真实证据的方向实现 artifact producers：历史 L2/tick ingestion、depth-driven taker replay、dust/testnet/live calibration ingestion、walk-forward/OOS/regime/cost-stress validation、runtime safety evidence、promotion evidence bundle collector。
+
 ---
 
 ## 11. Non-negotiable rules
