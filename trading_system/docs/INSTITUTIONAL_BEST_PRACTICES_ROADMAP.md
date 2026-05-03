@@ -483,7 +483,32 @@ Required:
 
 ---
 
-## 10. Non-negotiable rules
+## 10. Completion audit
+
+八层路线图的 promotion gates 已全部落成可机器审计的 hard gates；当前完成含义是：**缺外部真实证据时必须 reject/block，而不是离线假装已经有 L2/testnet/live 证据**。
+
+最终 all-gates smoke 使用 synthetic fixture 验证所有外部证据缺失都会同时暴露并阻断：
+
+- artifact: `/tmp/live_readiness_all_gates_fixture_out/completion_audit.json`
+- gate JSON: `/tmp/live_readiness_all_gates_fixture_out/live_readiness_gate.json`
+- gate Markdown: `/tmp/live_readiness_all_gates_fixture_out/live_readiness_gate.md`
+- decision: `reject_for_live_promotion`
+- required missing-evidence reasons present:
+  - `passive_calibration_missing`
+  - `passive_calibration_missing_real_records`
+  - `passive_calibration_insufficient_attempts`
+  - `exit_path_replay_missing_trades`
+  - `setup_min_sample_too_low`
+  - `banned_setup_type_present`
+  - `validation_evidence_missing`
+  - `microstructure_evidence_missing`
+  - `runtime_safety_evidence_missing`
+
+真实 corrected survivor set 仍为 `reject_for_live_promotion`；这些 gates 只提供上线前阻断与审计能力，不构成 paper/testnet/live 批准。
+
+---
+
+## 11. Non-negotiable rules
 
 - 不用 approximate/reference_close 长窗口结果做上线结论。
 - 不把 REST depth snapshot 当历史 L2 replay。
