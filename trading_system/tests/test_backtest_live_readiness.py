@@ -163,6 +163,47 @@ def test_exit_path_replay_audit_marks_intrabar_limitations() -> None:
     assert any("does not invent tick precision" in caveat for caveat in report["caveats"])
 
 
+def test_live_readiness_gate_report_rejects_concentrated_setup_and_symbol_buckets(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    chunk.mkdir()
+    trades = []
+    for index in range(10):
+        trades.append(
+            {
+                "symbol": "SOLUSDT" if index < 8 else "ETHUSDT",
+                "side": "long",
+                "setup_type": "RS_REACCELERATION" if index < 5 else "BREAKOUT_CONTINUATION",
+                "net_pnl": 10.0,
+                "gross_pnl": 12.0,
+                "fee_paid": 1.0,
+                "slippage_paid": 1.0,
+                "fill_quality": "evidence_backed",
+                "execution_price_source": "trade_print",
+                "exit_fill_quality": "evidence_backed",
+                "exit_price_source": "trade_print",
+                "simulated_exit_reason": "stop_loss",
+                "simulated_exit_price": 95.0,
+            }
+        )
+    (chunk / "trades.json").write_text(json.dumps({"trades": trades}), encoding="utf-8")
+
+    report = build_live_readiness_gate_report(
+        tmp_path,
+        max_setup_trade_share=0.45,
+        max_symbol_trade_share=0.70,
+    )
+
+    assert report["concentration"]["top_setup_by_trades"]["key"] == "RS_REACCELERATION"
+    assert report["concentration"]["top_setup_by_trades"]["trade_share"] == pytest.approx(0.5)
+    assert report["concentration"]["top_symbol_by_trades"]["key"] == "SOLUSDT"
+    assert report["concentration"]["top_symbol_by_trades"]["trade_share"] == pytest.approx(0.8)
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+    assert "setup_concentration_too_high" in report["promotion_gate"]["reasons"]
+    assert "symbol_concentration_too_high" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["checks"]["setup_concentration_met"] is False
+    assert report["promotion_gate"]["checks"]["symbol_concentration_met"] is False
+
+
 def test_live_readiness_gate_report_rejects_when_exit_path_ambiguity_rate_exceeds_threshold(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     chunk.mkdir()
@@ -647,6 +688,10 @@ def test_live_readiness_smoke_report_materializes_nested_full_market_bundle(tmp_
     assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
     assert "setup_rewrite_no_surviving_candidates" in report["promotion_gate"]["reasons"]
     assert "setup_rewrite_missing_evidence" in report["promotion_gate"]["reasons"]
+    assert "setup_concentration_too_high" in report["promotion_gate"]["reasons"]
+    assert "symbol_concentration_too_high" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["checks"]["setup_concentration_met"] is False
+    assert report["promotion_gate"]["checks"]["symbol_concentration_met"] is False
     persisted = json.loads((output_dir / "live_readiness_gate.json").read_text(encoding="utf-8"))
     assert persisted["smoke_report"] == report["smoke_report"]
     markdown = (output_dir / "live_readiness_gate.md").read_text(encoding="utf-8")

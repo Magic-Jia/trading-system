@@ -269,12 +269,39 @@ def _setup_rewrite_diagnostic(chunk_dirs: Iterable[Path]) -> dict[str, Any] | No
     }
 
 
+def _dominance_from_gate_buckets(
+    buckets: Mapping[str, Mapping[str, Any]],
+    *,
+    total_trades: int,
+    total_abs_net: float,
+    net_key: str = "net_pnl",
+    trade_count_key: str = "trade_count",
+) -> dict[str, Any] | None:
+    if not buckets or total_trades <= 0:
+        return None
+    key, bucket = max(
+        buckets.items(),
+        key=lambda item: (int(item[1].get(trade_count_key, 0)), abs(_float_value(item[1].get(net_key))), item[0]),
+    )
+    trades = int(bucket.get(trade_count_key, 0))
+    net = _float_value(bucket.get(net_key))
+    return {
+        "key": key,
+        "trades": trades,
+        "trade_share": trades / total_trades if total_trades else 0.0,
+        "net": net,
+        "net_abs_share": abs(net) / total_abs_net if total_abs_net > 0.0 else 0.0,
+    }
+
+
 def build_live_readiness_gate_report(
     chunk_results_dir: str | Path,
     *,
     evidence_coverage_threshold: float = 0.95,
     exit_evidence_coverage_threshold: float = 0.95,
     max_exit_path_ambiguity_rate: float = 0.05,
+    max_setup_trade_share: float | None = None,
+    max_symbol_trade_share: float | None = None,
 ) -> dict[str, Any]:
     root = Path(chunk_results_dir)
     chunk_dirs = sorted(path for path in root.iterdir() if path.is_dir() and (path / "trades.json").exists())
@@ -321,6 +348,25 @@ def build_live_readiness_gate_report(
     exit_path_ambiguity_rate = exit_path_ambiguous_count / trade_count if trade_count else 0.0
 
     major_negative = [key for key, bucket in by_setup.items() if bucket["trade_count"] >= 1 and bucket["net_pnl"] < 0.0]
+    total_abs_net = sum(abs(_float_value(trade.get("net_pnl"))) for trade in all_trades)
+    concentration = {
+        "max_setup_trade_share": max_setup_trade_share,
+        "max_symbol_trade_share": max_symbol_trade_share,
+        "top_setup_by_trades": _dominance_from_gate_buckets(
+            by_setup,
+            total_trades=trade_count,
+            total_abs_net=total_abs_net,
+        ),
+        "top_symbol_by_trades": _dominance_from_gate_buckets(
+            by_symbol,
+            total_trades=trade_count,
+            total_abs_net=total_abs_net,
+        ),
+    }
+    top_setup = _as_mapping(concentration.get("top_setup_by_trades"))
+    top_symbol = _as_mapping(concentration.get("top_symbol_by_trades"))
+    setup_concentration_met = max_setup_trade_share is None or _float_value(top_setup.get("trade_share")) <= max_setup_trade_share
+    symbol_concentration_met = max_symbol_trade_share is None or _float_value(top_symbol.get("trade_share")) <= max_symbol_trade_share
     reasons: list[str] = []
     if net_pnl < 0.0:
         reasons.append("net_pnl_below_zero")
@@ -332,6 +378,10 @@ def build_live_readiness_gate_report(
         reasons.append("exit_path_ambiguity_rate_above_threshold")
     if major_negative:
         reasons.append("major_setup_bucket_negative")
+    if not setup_concentration_met:
+        reasons.append("setup_concentration_too_high")
+    if not symbol_concentration_met:
+        reasons.append("symbol_concentration_too_high")
     setup_rewrite_checks: dict[str, bool] = {}
     if setup_rewrite_diagnostic is not None:
         setup_rewrite_totals = _as_mapping(setup_rewrite_diagnostic.get("totals"))
@@ -375,6 +425,7 @@ def build_live_readiness_gate_report(
         "by_setup_type": {key: by_setup[key] for key in sorted(by_setup)},
         "by_symbol": {key: by_symbol[key] for key in sorted(by_symbol)},
         "by_side": {key: by_side[key] for key in sorted(by_side)},
+        "concentration": concentration,
         "exit_path_replay": {
             "schema_version": exit_path_replay.get("schema_version"),
             "counts": dict(exit_path_counts),
@@ -395,6 +446,8 @@ def build_live_readiness_gate_report(
                 "exit_evidence_coverage_met": exit_evidence_coverage >= exit_evidence_coverage_threshold,
                 "exit_path_ambiguity_rate_met": exit_path_ambiguity_rate <= max_exit_path_ambiguity_rate,
                 "major_setup_buckets_non_negative": not major_negative,
+                "setup_concentration_met": setup_concentration_met,
+                "symbol_concentration_met": symbol_concentration_met,
                 **setup_rewrite_checks,
             },
         },
@@ -531,6 +584,8 @@ def write_live_readiness_smoke_report(
     evidence_coverage_threshold: float = 0.95,
     exit_evidence_coverage_threshold: float = 0.95,
     max_exit_path_ambiguity_rate: float = 0.05,
+    max_setup_trade_share: float | None = 0.45,
+    max_symbol_trade_share: float | None = 0.70,
 ) -> dict[str, Any]:
     source_root = Path(input_root)
     target = Path(output_dir)
@@ -561,6 +616,8 @@ def write_live_readiness_smoke_report(
         evidence_coverage_threshold=evidence_coverage_threshold,
         exit_evidence_coverage_threshold=exit_evidence_coverage_threshold,
         max_exit_path_ambiguity_rate=max_exit_path_ambiguity_rate,
+        max_setup_trade_share=max_setup_trade_share,
+        max_symbol_trade_share=max_symbol_trade_share,
     )
     report["smoke_report"] = {
         "schema_version": "live_readiness_smoke_report.v1",
@@ -663,6 +720,8 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--evidence-coverage-threshold", type=float, default=0.95)
     parser.add_argument("--exit-evidence-coverage-threshold", type=float, default=0.95)
     parser.add_argument("--max-exit-path-ambiguity-rate", type=float, default=0.05)
+    parser.add_argument("--max-setup-trade-share", type=float, default=0.45)
+    parser.add_argument("--max-symbol-trade-share", type=float, default=0.70)
     return parser.parse_args()
 
 
@@ -674,6 +733,8 @@ def main() -> int:
         evidence_coverage_threshold=args.evidence_coverage_threshold,
         exit_evidence_coverage_threshold=args.exit_evidence_coverage_threshold,
         max_exit_path_ambiguity_rate=args.max_exit_path_ambiguity_rate,
+        max_setup_trade_share=args.max_setup_trade_share,
+        max_symbol_trade_share=args.max_symbol_trade_share,
     )
     gate = _as_mapping(report.get("promotion_gate"))
     totals = _as_mapping(report.get("totals"))
