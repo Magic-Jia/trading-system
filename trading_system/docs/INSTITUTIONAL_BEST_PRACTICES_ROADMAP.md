@@ -367,10 +367,10 @@ Expected corrected 30-trade smoke interpretation: `trade_count = 30`, `chunks = 
 
 ### Promotion gate
 
-- [ ] 所有 kill switch 有 dry-run/test 覆盖。
-- [ ] 每次下单前后都有 position/order reconciliation。
-- [ ] 无法 reconcile 时必须 fail closed。
-- [ ] live dust 前不得允许 scale-up。
+- [x] 所有 kill switch 有 dry-run/test 覆盖：live-readiness 新增 `runtime_safety_gate.v1`；`--require-runtime-safety-evidence` 要求 `runtime_safety_gate.json` 中 `kill_switch_dry_run_met=true`，否则 reason=`runtime_safety_evidence_missing` / `kill_switch_dry_run_missing`。
+- [x] 每次下单前后都有 position/order reconciliation：runtime safety gate 要求 `order_position_reconciliation_met=true`，否则 reason=`order_position_reconciliation_missing`。
+- [x] 无法 reconcile 时必须 fail closed：runtime safety gate 要求 `fail_closed_met=true`，否则 reason=`runtime_fail_closed_missing`。
+- [x] live dust 前不得允许 scale-up：runtime safety gate 要求 `dust_before_scale_met=true`，否则 reason=`live_dust_before_scale_missing`。
 
 ---
 
@@ -415,9 +415,9 @@ Expected corrected 30-trade smoke interpretation: `trade_count = 30`, `chunks = 
 
 ### Promotion gate
 
-- [ ] 每笔 live trade 有完整 ledger。
-- [ ] runtime 输出能解释为什么入场、为什么拒绝、为什么退出。
-- [ ] live/backtest drift 超阈值自动降级或停机。
+- [x] 每笔 live trade 有完整 ledger：runtime safety gate 要求 `live_trade_ledger_met=true`，缺失 reason=`live_trade_ledger_missing`，因此没有完整 live ledger 不能 promotion/scale-up。
+- [x] runtime 输出能解释为什么入场、为什么拒绝、为什么退出：runtime safety gate 要求 `runtime_explainability_met=true`，缺失 reason=`runtime_explainability_missing`。
+- [x] live/backtest drift 超阈值自动降级或停机：runtime safety gate 要求 `drift_guard_met=true`，缺失 reason=`drift_guard_missing`；真实阈值证据需由 live shadow/dust artifact 提供，离线不会假通过。
 
 ---
 

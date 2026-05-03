@@ -168,6 +168,118 @@ def test_exit_path_replay_audit_marks_intrabar_limitations() -> None:
 
 
 
+
+def test_live_readiness_gate_report_rejects_missing_runtime_safety_evidence(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    chunk.mkdir()
+    (chunk / "trades.json").write_text(
+        json.dumps(
+            {
+                "trades": [
+                    {
+                        "symbol": "BTCUSDT",
+                        "side": "long",
+                        "setup_type": "BREAKOUT_CONTINUATION",
+                        "net_pnl": 100.0,
+                        "gross_pnl": 120.0,
+                        "fee_paid": 10.0,
+                        "slippage_paid": 10.0,
+                        "fill_quality": "evidence_backed",
+                        "execution_price_source": "trade_print",
+                        "exit_fill_quality": "evidence_backed",
+                        "exit_price_source": "trade_print",
+                        "simulated_exit_reason": "take_profit",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_live_readiness_gate_report(tmp_path, require_runtime_safety_evidence=True)
+
+    gate = report["runtime_safety_gate"]
+    assert gate["schema_version"] == "runtime_safety_gate.v1"
+    assert gate["required"] is True
+    assert gate["artifact_count"] == 0
+    for key in (
+        "kill_switch_dry_run_met",
+        "order_position_reconciliation_met",
+        "fail_closed_met",
+        "dust_before_scale_met",
+        "live_trade_ledger_met",
+        "runtime_explainability_met",
+        "drift_guard_met",
+    ):
+        assert gate["checks"][key] is False
+    reasons = report["promotion_gate"]["reasons"]
+    assert "runtime_safety_evidence_missing" in reasons
+    assert "kill_switch_dry_run_missing" in reasons
+    assert "order_position_reconciliation_missing" in reasons
+    assert "runtime_fail_closed_missing" in reasons
+    assert "live_dust_before_scale_missing" in reasons
+    assert "live_trade_ledger_missing" in reasons
+    assert "runtime_explainability_missing" in reasons
+    assert "drift_guard_missing" in reasons
+    markdown = render_live_readiness_markdown(report)
+    assert "## Runtime Safety Gate" in markdown
+    assert "kill_switch_dry_run_met: false" in markdown
+    assert "drift_guard_met: false" in markdown
+
+
+def test_live_readiness_gate_report_accepts_runtime_safety_evidence_artifact(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    chunk.mkdir()
+    (chunk / "trades.json").write_text(
+        json.dumps(
+            {
+                "trades": [
+                    {
+                        "symbol": "BTCUSDT",
+                        "side": "long",
+                        "setup_type": "BREAKOUT_CONTINUATION",
+                        "net_pnl": 100.0,
+                        "gross_pnl": 120.0,
+                        "fee_paid": 10.0,
+                        "slippage_paid": 10.0,
+                        "fill_quality": "evidence_backed",
+                        "execution_price_source": "trade_print",
+                        "exit_fill_quality": "evidence_backed",
+                        "exit_price_source": "trade_print",
+                        "simulated_exit_reason": "take_profit",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    (chunk / "runtime_safety_gate.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "runtime_safety_gate_input.v1",
+                "checks": {
+                    "kill_switch_dry_run_met": True,
+                    "order_position_reconciliation_met": True,
+                    "fail_closed_met": True,
+                    "dust_before_scale_met": True,
+                    "live_trade_ledger_met": True,
+                    "runtime_explainability_met": True,
+                    "drift_guard_met": True,
+                },
+                "summary": {"ledger_rows": 1, "max_drift_bps": 3.0},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_live_readiness_gate_report(tmp_path, require_runtime_safety_evidence=True)
+
+    gate = report["runtime_safety_gate"]
+    assert gate["artifact_count"] == 1
+    assert all(gate["checks"].values())
+    assert "runtime_safety_evidence_missing" not in report["promotion_gate"]["reasons"]
+    assert "drift_guard_missing" not in report["promotion_gate"]["reasons"]
+
 def test_live_readiness_gate_report_rejects_missing_microstructure_evidence(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     chunk.mkdir()
