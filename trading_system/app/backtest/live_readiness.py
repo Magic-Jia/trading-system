@@ -1070,7 +1070,16 @@ def write_live_readiness_smoke_report(
         chunk_name = base_name if seen_names[base_name] == 1 else f"{base_name}_{seen_names[base_name]:02d}"
         chunk_dir = normalized_root / chunk_name
         chunk_dir.mkdir(parents=True, exist_ok=True)
-        for artifact_name in ("trades.json", "summary.json", "setup_rewrite_experiment.json"):
+        for artifact_name in (
+            "trades.json",
+            "summary.json",
+            "setup_rewrite_experiment.json",
+            "exit_path_replay.json",
+            "passive_order_calibration_summary.json",
+            "market_microstructure_gate.json",
+            "validation_gate.json",
+            "runtime_safety_gate.json",
+        ):
             source = bundle_dir / artifact_name
             if source.exists():
                 shutil.copy2(source, chunk_dir / artifact_name)

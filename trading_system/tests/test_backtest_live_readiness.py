@@ -19,8 +19,11 @@ from trading_system.app.backtest.live_readiness import (
     render_live_readiness_markdown,
     write_live_readiness_smoke_report,
 )
+from trading_system.app.backtest.microstructure_evidence import build_microstructure_gate
+from trading_system.app.backtest.validation_evidence import build_validation_gate
 from trading_system.app.backtest.types import DatasetSnapshotRow
 from trading_system.app.execution.calibration import load_calibration_records, summarize_calibration_records
+from trading_system.app.runtime.runtime_safety_evidence import build_runtime_safety_gate
 
 
 def test_calibration_jsonl_summary_groups_passive_order_quality(tmp_path: Path) -> None:
@@ -167,6 +170,118 @@ def test_exit_path_replay_audit_marks_intrabar_limitations() -> None:
 
 
 
+
+
+def test_live_readiness_smoke_report_consumes_producer_gate_artifacts(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    chunk = source / "chunk_001"
+    chunk.mkdir(parents=True)
+    trades = {
+        "trades": [
+            {
+                "trade_id": "t1",
+                "symbol": "BTCUSDT",
+                "side": "long",
+                "setup_type": "BREAKOUT_CONTINUATION",
+                "net_pnl": 100.0,
+                "gross_pnl": 125.0,
+                "fee_paid": 10.0,
+                "slippage_paid": 10.0,
+                "funding_paid": 5.0,
+                "fill_quality": "evidence_backed",
+                "execution_price_source": "trade_print",
+                "exit_fill_quality": "evidence_backed",
+                "exit_price_source": "trade_print",
+                "simulated_exit_reason": "take_profit",
+            }
+        ]
+    }
+    (chunk / "trades.json").write_text(json.dumps(trades), encoding="utf-8")
+    (chunk / "summary.json").write_text(json.dumps({"net_pnl": 100.0}), encoding="utf-8")
+    (chunk / "exit_path_replay.json").write_text(json.dumps({"trades": [{"trade_id": "t1"}]}), encoding="utf-8")
+    (chunk / "market_microstructure_gate.json").write_text(
+        json.dumps(
+            build_microstructure_gate(
+                {
+                    "coverage": {"l2_tick_coverage": 0.995, "required_l2_tick_coverage": 0.99},
+                    "depth_driven_fills": [{"depth_sufficient": True, "slippage_bps": 1.5}],
+                }
+            )
+        ),
+        encoding="utf-8",
+    )
+    (chunk / "validation_gate.json").write_text(
+        json.dumps(
+            build_validation_gate(
+                {
+                    "oos": {"baseline_net_pnl": 100.0, "oos_net_pnl": 80.0, "min_oos_ratio": 0.5},
+                    "regimes": [
+                        {"name": "trend", "net_pnl": 40.0},
+                        {"name": "chop", "net_pnl": 20.0},
+                    ],
+                    "cost_stress": {"stressed_net_pnl": 30.0},
+                    "forward_contamination": {"detected": False, "audit_complete": True},
+                }
+            )
+        ),
+        encoding="utf-8",
+    )
+    (chunk / "runtime_safety_gate.json").write_text(
+        json.dumps(
+            build_runtime_safety_gate(
+                {
+                    "events": [
+                        {"event_type": "kill_switch_dry_run", "passed": True},
+                        {"event_type": "order_position_reconciliation", "passed": True},
+                        {"event_type": "fail_closed", "passed": True},
+                        {"event_type": "live_dust_before_scale", "passed": True},
+                        {"event_type": "live_trade_ledger", "passed": True},
+                        {"event_type": "runtime_explainability", "passed": True},
+                        {"event_type": "drift_guard", "passed": True},
+                    ]
+                }
+            )
+        ),
+        encoding="utf-8",
+    )
+    (chunk / "passive_order_calibration_summary.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "passive_order_calibration_summary.v1",
+                "overall": {"attempt_count": 10, "fill_rate": 0.7},
+                "provenance": {"source": "testnet_exchange", "real_exchange_records": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = write_live_readiness_smoke_report(
+        source,
+        tmp_path / "out",
+        require_microstructure_evidence=True,
+        require_validation_evidence=True,
+        require_runtime_safety_evidence=True,
+        require_passive_calibration=True,
+        min_passive_calibration_attempts=5,
+        min_passive_fill_rate=0.5,
+        require_exit_path_replay_rows=True,
+        max_setup_trade_share=None,
+        max_symbol_trade_share=None,
+        max_setup_net_abs_share=None,
+        max_symbol_net_abs_share=None,
+        max_setup_loss_abs_share=None,
+        max_symbol_loss_abs_share=None,
+    )
+
+    assert report["microstructure_gate"]["artifact_count"] == 1
+    assert report["validation_gate"]["artifact_count"] == 1
+    assert report["runtime_safety_gate"]["artifact_count"] == 1
+    assert report["passive_calibration"]["chunks"]
+    reasons = set(report["promotion_gate"]["reasons"])
+    assert "microstructure_evidence_missing" not in reasons
+    assert "validation_evidence_missing" not in reasons
+    assert "runtime_safety_evidence_missing" not in reasons
+    assert "passive_calibration_missing" not in reasons
 
 
 def test_live_readiness_gate_report_rejects_missing_runtime_safety_evidence(tmp_path: Path) -> None:

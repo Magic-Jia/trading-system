@@ -122,6 +122,18 @@ python -m pytest -q trading_system/tests/test_backtest_microstructure_evidence.p
 
 **Goal:** Collect all required evidence artifacts, compute checksums, and write a manifest that live-readiness can consume.
 
+### Task 8: Live-readiness smoke consumption of producer artifacts
+
+**Files:**
+- Modify: `trading_system/app/backtest/live_readiness.py`
+- Test: `trading_system/tests/test_backtest_live_readiness.py`
+
+**Goal:** Ensure the live-readiness smoke normalizer preserves every producer artifact required by hard gates, so a candidate run with real producer outputs is evaluated from evidence rather than incorrectly rejected as missing evidence.
+
+**TDD behavior:**
+- Given a source chunk with `exit_path_replay.json`, `passive_order_calibration_summary.json`, `market_microstructure_gate.json`, `validation_gate.json`, and `runtime_safety_gate.json`, `write_live_readiness_smoke_report(...)` copies them into normalized chunks and the gate consumes them.
+- If artifacts are absent, existing fail-closed missing-evidence reasons remain unchanged.
+
 ---
 
 ## Non-negotiables
