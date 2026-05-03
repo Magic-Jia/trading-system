@@ -537,6 +537,62 @@ def test_live_readiness_gate_report_rejects_net_abs_concentration(tmp_path: Path
     assert concentration["top_symbol_by_net_abs"]["net_abs_share"] == pytest.approx(0.9)
 
 
+def test_live_readiness_gate_report_rejects_loss_abs_concentration(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    chunk.mkdir()
+    trades = []
+    for index, (symbol, setup_type, net_pnl) in enumerate(
+        [
+            ("BTCUSDT", "SETUP_A", -300.0),
+            ("ETHUSDT", "SETUP_B", -50.0),
+            ("SOLUSDT", "SETUP_C", -50.0),
+            ("BNBUSDT", "SETUP_D", 600.0),
+        ]
+    ):
+        trades.append(
+            {
+                "symbol": symbol,
+                "side": "long",
+                "setup_type": setup_type,
+                "net_pnl": net_pnl,
+                "fill_quality": "evidence_backed",
+                "execution_price_source": "trade_print",
+                "exit_fill_quality": "evidence_backed",
+                "exit_price_source": "trade_print",
+                "trade_id": f"trade-{index}",
+            }
+        )
+    (chunk / "trades.json").write_text(json.dumps({"trades": trades}), encoding="utf-8")
+
+    report = build_live_readiness_gate_report(
+        tmp_path,
+        max_setup_trade_share=0.50,
+        max_symbol_trade_share=0.50,
+        max_setup_net_abs_share=0.70,
+        max_symbol_net_abs_share=0.70,
+        max_setup_loss_abs_share=0.60,
+        max_symbol_loss_abs_share=0.60,
+    )
+
+    reasons = report["promotion_gate"]["reasons"]
+    checks = report["promotion_gate"]["checks"]
+    concentration = report["concentration"]
+    assert "setup_concentration_too_high" not in reasons
+    assert "symbol_concentration_too_high" not in reasons
+    assert "setup_net_abs_concentration_too_high" not in reasons
+    assert "symbol_net_abs_concentration_too_high" not in reasons
+    assert "setup_loss_abs_concentration_too_high" in reasons
+    assert "symbol_loss_abs_concentration_too_high" in reasons
+    assert checks["setup_loss_abs_concentration_met"] is False
+    assert checks["symbol_loss_abs_concentration_met"] is False
+    assert concentration["max_setup_loss_abs_share"] == 0.60
+    assert concentration["max_symbol_loss_abs_share"] == 0.60
+    assert concentration["top_setup_by_loss_abs"]["key"] == "SETUP_A"
+    assert concentration["top_setup_by_loss_abs"]["loss_abs_share"] == pytest.approx(0.75)
+    assert concentration["top_symbol_by_loss_abs"]["key"] == "BTCUSDT"
+    assert concentration["top_symbol_by_loss_abs"]["loss_abs_share"] == pytest.approx(0.75)
+
+
 def test_quarantined_short_setup_types_exclude_only_when_configured(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -747,10 +803,14 @@ def test_live_readiness_smoke_report_materializes_nested_full_market_bundle(tmp_
     assert "symbol_concentration_too_high" in report["promotion_gate"]["reasons"]
     assert "setup_net_abs_concentration_too_high" in report["promotion_gate"]["reasons"]
     assert "symbol_net_abs_concentration_too_high" in report["promotion_gate"]["reasons"]
+    assert "setup_loss_abs_concentration_too_high" not in report["promotion_gate"]["reasons"]
+    assert "symbol_loss_abs_concentration_too_high" not in report["promotion_gate"]["reasons"]
     assert report["promotion_gate"]["checks"]["setup_concentration_met"] is False
     assert report["promotion_gate"]["checks"]["symbol_concentration_met"] is False
     assert report["promotion_gate"]["checks"]["setup_net_abs_concentration_met"] is False
     assert report["promotion_gate"]["checks"]["symbol_net_abs_concentration_met"] is False
+    assert report["promotion_gate"]["checks"]["setup_loss_abs_concentration_met"] is True
+    assert report["promotion_gate"]["checks"]["symbol_loss_abs_concentration_met"] is True
     persisted = json.loads((output_dir / "live_readiness_gate.json").read_text(encoding="utf-8"))
     assert persisted["smoke_report"] == report["smoke_report"]
     markdown = (output_dir / "live_readiness_gate.md").read_text(encoding="utf-8")
@@ -767,10 +827,14 @@ def test_live_readiness_smoke_report_materializes_nested_full_market_bundle(tmp_
     assert "- max_symbol_trade_share: 70.00%" in markdown
     assert "- max_setup_net_abs_share: 60.00%" in markdown
     assert "- max_symbol_net_abs_share: 60.00%" in markdown
+    assert "- max_setup_loss_abs_share: 60.00%" in markdown
+    assert "- max_symbol_loss_abs_share: 60.00%" in markdown
     assert "- top_setup_by_trades: TREND_PULLBACK, trades=1, trade_share=100.00%, threshold=45.00%, status=breach" in markdown
     assert "- top_symbol_by_trades: BTCUSDT, trades=1, trade_share=100.00%, threshold=70.00%, status=breach" in markdown
     assert "- top_setup_by_net_abs: TREND_PULLBACK, trades=1, net_abs_share=100.00%, threshold=60.00%, status=breach" in markdown
     assert "- top_symbol_by_net_abs: BTCUSDT, trades=1, net_abs_share=100.00%, threshold=60.00%, status=breach" in markdown
+    assert "- top_setup_by_loss_abs: TREND_PULLBACK, trades=1, loss_abs_share=0.00%, threshold=60.00%, status=ok" in markdown
+    assert "- top_symbol_by_loss_abs: BTCUSDT, trades=1, loss_abs_share=0.00%, threshold=60.00%, status=ok" in markdown
     assert (output_dir / "trade_postmortem_summary.json").exists()
     postmortem = json.loads((output_dir / "trade_postmortem_summary.json").read_text(encoding="utf-8"))
     assert postmortem["schema_version"] == "trade_postmortem_summary.v1"
@@ -822,15 +886,50 @@ def test_live_readiness_cli_stdout_includes_concentration_summary(tmp_path: Path
         "max_symbol_trade_share": 0.70,
         "max_setup_net_abs_share": 0.60,
         "max_symbol_net_abs_share": 0.60,
+        "max_setup_loss_abs_share": 0.60,
+        "max_symbol_loss_abs_share": 0.60,
         "top_setup_by_trades": {
             "key": "TREND_PULLBACK",
             "trades": 1,
             "trade_share": 1.0,
             "net_abs_share": 1.0,
+            "loss_abs_share": 0.0,
         },
-        "top_symbol_by_trades": {"key": "BTCUSDT", "trades": 1, "trade_share": 1.0, "net_abs_share": 1.0},
-        "top_setup_by_net_abs": {"key": "TREND_PULLBACK", "trades": 1, "trade_share": 1.0, "net_abs_share": 1.0},
-        "top_symbol_by_net_abs": {"key": "BTCUSDT", "trades": 1, "trade_share": 1.0, "net_abs_share": 1.0},
+        "top_symbol_by_trades": {
+            "key": "BTCUSDT",
+            "trades": 1,
+            "trade_share": 1.0,
+            "net_abs_share": 1.0,
+            "loss_abs_share": 0.0,
+        },
+        "top_setup_by_net_abs": {
+            "key": "TREND_PULLBACK",
+            "trades": 1,
+            "trade_share": 1.0,
+            "net_abs_share": 1.0,
+            "loss_abs_share": 0.0,
+        },
+        "top_symbol_by_net_abs": {
+            "key": "BTCUSDT",
+            "trades": 1,
+            "trade_share": 1.0,
+            "net_abs_share": 1.0,
+            "loss_abs_share": 0.0,
+        },
+        "top_setup_by_loss_abs": {
+            "key": "TREND_PULLBACK",
+            "trades": 1,
+            "trade_share": 1.0,
+            "net_abs_share": 1.0,
+            "loss_abs_share": 0.0,
+        },
+        "top_symbol_by_loss_abs": {
+            "key": "BTCUSDT",
+            "trades": 1,
+            "trade_share": 1.0,
+            "net_abs_share": 1.0,
+            "loss_abs_share": 0.0,
+        },
     }
 
 

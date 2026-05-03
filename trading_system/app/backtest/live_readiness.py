@@ -274,25 +274,34 @@ def _dominance_from_gate_buckets(
     *,
     total_trades: int,
     total_abs_net: float,
+    total_loss_abs_net: float = 0.0,
     net_key: str = "net_pnl",
     trade_count_key: str = "trade_count",
     sort_by: str = "trades",
 ) -> dict[str, Any] | None:
     if not buckets or total_trades <= 0:
         return None
-    if sort_by == "net_abs":
+    if sort_by == "loss_abs":
+        sort_key = lambda item: (
+            abs(min(_float_value(item[1].get(net_key)), 0.0)),
+            int(item[1].get(trade_count_key, 0)),
+            item[0],
+        )
+    elif sort_by == "net_abs":
         sort_key = lambda item: (abs(_float_value(item[1].get(net_key))), int(item[1].get(trade_count_key, 0)), item[0])
     else:
         sort_key = lambda item: (int(item[1].get(trade_count_key, 0)), abs(_float_value(item[1].get(net_key))), item[0])
     key, bucket = max(buckets.items(), key=sort_key)
     trades = int(bucket.get(trade_count_key, 0))
     net = _float_value(bucket.get(net_key))
+    loss_abs = abs(min(net, 0.0))
     return {
         "key": key,
         "trades": trades,
         "trade_share": trades / total_trades if total_trades else 0.0,
         "net": net,
         "net_abs_share": abs(net) / total_abs_net if total_abs_net > 0.0 else 0.0,
+        "loss_abs_share": loss_abs / total_loss_abs_net if total_loss_abs_net > 0.0 else 0.0,
     }
 
 
@@ -306,6 +315,8 @@ def build_live_readiness_gate_report(
     max_symbol_trade_share: float | None = None,
     max_setup_net_abs_share: float | None = None,
     max_symbol_net_abs_share: float | None = None,
+    max_setup_loss_abs_share: float | None = None,
+    max_symbol_loss_abs_share: float | None = None,
 ) -> dict[str, Any]:
     root = Path(chunk_results_dir)
     chunk_dirs = sorted(path for path in root.iterdir() if path.is_dir() and (path / "trades.json").exists())
@@ -353,42 +364,67 @@ def build_live_readiness_gate_report(
 
     major_negative = [key for key, bucket in by_setup.items() if bucket["trade_count"] >= 1 and bucket["net_pnl"] < 0.0]
     total_abs_net = sum(abs(_float_value(trade.get("net_pnl"))) for trade in all_trades)
+    total_loss_abs_net = sum(abs(min(_float_value(trade.get("net_pnl")), 0.0)) for trade in all_trades)
     concentration = {
         "max_setup_trade_share": max_setup_trade_share,
         "max_symbol_trade_share": max_symbol_trade_share,
         "max_setup_net_abs_share": max_setup_net_abs_share,
         "max_symbol_net_abs_share": max_symbol_net_abs_share,
+        "max_setup_loss_abs_share": max_setup_loss_abs_share,
+        "max_symbol_loss_abs_share": max_symbol_loss_abs_share,
         "top_setup_by_trades": _dominance_from_gate_buckets(
             by_setup,
             total_trades=trade_count,
             total_abs_net=total_abs_net,
+            total_loss_abs_net=total_loss_abs_net,
         ),
         "top_symbol_by_trades": _dominance_from_gate_buckets(
             by_symbol,
             total_trades=trade_count,
             total_abs_net=total_abs_net,
+            total_loss_abs_net=total_loss_abs_net,
         ),
         "top_setup_by_net_abs": _dominance_from_gate_buckets(
             by_setup,
             total_trades=trade_count,
             total_abs_net=total_abs_net,
+            total_loss_abs_net=total_loss_abs_net,
             sort_by="net_abs",
         ),
         "top_symbol_by_net_abs": _dominance_from_gate_buckets(
             by_symbol,
             total_trades=trade_count,
             total_abs_net=total_abs_net,
+            total_loss_abs_net=total_loss_abs_net,
             sort_by="net_abs",
+        ),
+        "top_setup_by_loss_abs": _dominance_from_gate_buckets(
+            by_setup,
+            total_trades=trade_count,
+            total_abs_net=total_abs_net,
+            total_loss_abs_net=total_loss_abs_net,
+            sort_by="loss_abs",
+        ),
+        "top_symbol_by_loss_abs": _dominance_from_gate_buckets(
+            by_symbol,
+            total_trades=trade_count,
+            total_abs_net=total_abs_net,
+            total_loss_abs_net=total_loss_abs_net,
+            sort_by="loss_abs",
         ),
     }
     top_setup = _as_mapping(concentration.get("top_setup_by_trades"))
     top_symbol = _as_mapping(concentration.get("top_symbol_by_trades"))
     top_setup_net_abs = _as_mapping(concentration.get("top_setup_by_net_abs"))
     top_symbol_net_abs = _as_mapping(concentration.get("top_symbol_by_net_abs"))
+    top_setup_loss_abs = _as_mapping(concentration.get("top_setup_by_loss_abs"))
+    top_symbol_loss_abs = _as_mapping(concentration.get("top_symbol_by_loss_abs"))
     setup_concentration_met = max_setup_trade_share is None or _float_value(top_setup.get("trade_share")) <= max_setup_trade_share
     symbol_concentration_met = max_symbol_trade_share is None or _float_value(top_symbol.get("trade_share")) <= max_symbol_trade_share
     setup_net_abs_concentration_met = max_setup_net_abs_share is None or _float_value(top_setup_net_abs.get("net_abs_share")) <= max_setup_net_abs_share
     symbol_net_abs_concentration_met = max_symbol_net_abs_share is None or _float_value(top_symbol_net_abs.get("net_abs_share")) <= max_symbol_net_abs_share
+    setup_loss_abs_concentration_met = max_setup_loss_abs_share is None or _float_value(top_setup_loss_abs.get("loss_abs_share")) <= max_setup_loss_abs_share
+    symbol_loss_abs_concentration_met = max_symbol_loss_abs_share is None or _float_value(top_symbol_loss_abs.get("loss_abs_share")) <= max_symbol_loss_abs_share
     reasons: list[str] = []
     if net_pnl < 0.0:
         reasons.append("net_pnl_below_zero")
@@ -408,6 +444,10 @@ def build_live_readiness_gate_report(
         reasons.append("setup_net_abs_concentration_too_high")
     if not symbol_net_abs_concentration_met:
         reasons.append("symbol_net_abs_concentration_too_high")
+    if not setup_loss_abs_concentration_met:
+        reasons.append("setup_loss_abs_concentration_too_high")
+    if not symbol_loss_abs_concentration_met:
+        reasons.append("symbol_loss_abs_concentration_too_high")
     setup_rewrite_checks: dict[str, bool] = {}
     if setup_rewrite_diagnostic is not None:
         setup_rewrite_totals = _as_mapping(setup_rewrite_diagnostic.get("totals"))
@@ -476,6 +516,8 @@ def build_live_readiness_gate_report(
                 "symbol_concentration_met": symbol_concentration_met,
                 "setup_net_abs_concentration_met": setup_net_abs_concentration_met,
                 "symbol_net_abs_concentration_met": symbol_net_abs_concentration_met,
+                "setup_loss_abs_concentration_met": setup_loss_abs_concentration_met,
+                "symbol_loss_abs_concentration_met": symbol_loss_abs_concentration_met,
                 **setup_rewrite_checks,
             },
         },
@@ -616,6 +658,8 @@ def write_live_readiness_smoke_report(
     max_symbol_trade_share: float | None = 0.70,
     max_setup_net_abs_share: float | None = 0.60,
     max_symbol_net_abs_share: float | None = 0.60,
+    max_setup_loss_abs_share: float | None = 0.60,
+    max_symbol_loss_abs_share: float | None = 0.60,
 ) -> dict[str, Any]:
     source_root = Path(input_root)
     target = Path(output_dir)
@@ -650,6 +694,8 @@ def write_live_readiness_smoke_report(
         max_symbol_trade_share=max_symbol_trade_share,
         max_setup_net_abs_share=max_setup_net_abs_share,
         max_symbol_net_abs_share=max_symbol_net_abs_share,
+        max_setup_loss_abs_share=max_setup_loss_abs_share,
+        max_symbol_loss_abs_share=max_symbol_loss_abs_share,
     )
     report["smoke_report"] = {
         "schema_version": "live_readiness_smoke_report.v1",
@@ -746,6 +792,8 @@ def render_live_readiness_markdown(report: Mapping[str, Any]) -> str:
         max_symbol_share = concentration.get("max_symbol_trade_share")
         max_setup_net_abs_share = concentration.get("max_setup_net_abs_share")
         max_symbol_net_abs_share = concentration.get("max_symbol_net_abs_share")
+        max_setup_loss_abs_share = concentration.get("max_setup_loss_abs_share")
+        max_symbol_loss_abs_share = concentration.get("max_symbol_loss_abs_share")
         lines.append(
             "- max_setup_trade_share: "
             + (f"{float(max_setup_share):.2%}" if max_setup_share is not None else "disabled")
@@ -762,11 +810,21 @@ def render_live_readiness_markdown(report: Mapping[str, Any]) -> str:
             "- max_symbol_net_abs_share: "
             + (f"{float(max_symbol_net_abs_share):.2%}" if max_symbol_net_abs_share is not None else "disabled")
         )
+        lines.append(
+            "- max_setup_loss_abs_share: "
+            + (f"{float(max_setup_loss_abs_share):.2%}" if max_setup_loss_abs_share is not None else "disabled")
+        )
+        lines.append(
+            "- max_symbol_loss_abs_share: "
+            + (f"{float(max_symbol_loss_abs_share):.2%}" if max_symbol_loss_abs_share is not None else "disabled")
+        )
         for label, threshold, share_key in (
             ("top_setup_by_trades", max_setup_share, "trade_share"),
             ("top_symbol_by_trades", max_symbol_share, "trade_share"),
             ("top_setup_by_net_abs", max_setup_net_abs_share, "net_abs_share"),
             ("top_symbol_by_net_abs", max_symbol_net_abs_share, "net_abs_share"),
+            ("top_setup_by_loss_abs", max_setup_loss_abs_share, "loss_abs_share"),
+            ("top_symbol_by_loss_abs", max_symbol_loss_abs_share, "loss_abs_share"),
         ):
             bucket = _as_mapping(concentration.get(label))
             if not bucket:
@@ -798,6 +856,8 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--max-symbol-trade-share", type=float, default=0.70)
     parser.add_argument("--max-setup-net-abs-share", type=float, default=0.60)
     parser.add_argument("--max-symbol-net-abs-share", type=float, default=0.60)
+    parser.add_argument("--max-setup-loss-abs-share", type=float, default=0.60)
+    parser.add_argument("--max-symbol-loss-abs-share", type=float, default=0.60)
     return parser.parse_args()
 
 
@@ -811,6 +871,7 @@ def _stdout_concentration_summary(report: Mapping[str, Any]) -> dict[str, Any]:
             "trades": int(bucket.get("trades") or 0),
             "trade_share": float(bucket.get("trade_share") or 0.0),
             "net_abs_share": float(bucket.get("net_abs_share") or 0.0),
+            "loss_abs_share": float(bucket.get("loss_abs_share") or 0.0),
         }
 
     return {
@@ -818,10 +879,14 @@ def _stdout_concentration_summary(report: Mapping[str, Any]) -> dict[str, Any]:
         "max_symbol_trade_share": concentration.get("max_symbol_trade_share"),
         "max_setup_net_abs_share": concentration.get("max_setup_net_abs_share"),
         "max_symbol_net_abs_share": concentration.get("max_symbol_net_abs_share"),
+        "max_setup_loss_abs_share": concentration.get("max_setup_loss_abs_share"),
+        "max_symbol_loss_abs_share": concentration.get("max_symbol_loss_abs_share"),
         "top_setup_by_trades": _bucket("top_setup_by_trades"),
         "top_symbol_by_trades": _bucket("top_symbol_by_trades"),
         "top_setup_by_net_abs": _bucket("top_setup_by_net_abs"),
         "top_symbol_by_net_abs": _bucket("top_symbol_by_net_abs"),
+        "top_setup_by_loss_abs": _bucket("top_setup_by_loss_abs"),
+        "top_symbol_by_loss_abs": _bucket("top_symbol_by_loss_abs"),
     }
 
 
@@ -837,6 +902,8 @@ def main() -> int:
         max_symbol_trade_share=args.max_symbol_trade_share,
         max_setup_net_abs_share=args.max_setup_net_abs_share,
         max_symbol_net_abs_share=args.max_symbol_net_abs_share,
+        max_setup_loss_abs_share=args.max_setup_loss_abs_share,
+        max_symbol_loss_abs_share=args.max_symbol_loss_abs_share,
     )
     gate = _as_mapping(report.get("promotion_gate"))
     totals = _as_mapping(report.get("totals"))
