@@ -13,6 +13,7 @@ from trading_system.app.backtest.live_readiness import (
     audit_execution_depth,
     audit_exit_path_replay,
     build_live_readiness_gate_report,
+    render_live_readiness_markdown,
 )
 from trading_system.app.backtest.types import DatasetSnapshotRow
 from trading_system.app.execution.calibration import load_calibration_records, summarize_calibration_records
@@ -258,6 +259,114 @@ def test_live_readiness_gate_report_rejects_when_exit_evidence_coverage_is_below
     assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
     assert "exit_evidence_coverage_below_threshold" in report["promotion_gate"]["reasons"]
     assert report["promotion_gate"]["checks"]["exit_evidence_coverage_met"] is False
+
+
+def test_live_readiness_gate_report_gates_optional_setup_rewrite_diagnostic(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    chunk.mkdir()
+    (chunk / "trades.json").write_text(
+        json.dumps(
+            {
+                "trades": [
+                    {
+                        "symbol": "BTCUSDT",
+                        "side": "long",
+                        "setup_type": "TREND_PULLBACK",
+                        "net_pnl": 100.0,
+                        "fill_quality": "evidence_backed",
+                        "execution_price_source": "trade_print",
+                        "exit_fill_quality": "evidence_backed",
+                        "exit_price_source": "trade_print",
+                        "simulated_exit_reason": "stop_loss",
+                        "simulated_exit_price": 95.0,
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    (chunk / "setup_rewrite_experiment.json").write_text(
+        json.dumps(
+            {
+                "summary": {
+                    "total_rows": 2,
+                    "evaluated_count": 1,
+                    "would_keep_count": 0,
+                    "would_filter_count": 1,
+                    "skipped_count": 1,
+                    "by_setup": {
+                        "TREND_PULLBACK": {
+                            "total_rows": 2,
+                            "evaluated_count": 1,
+                            "would_keep_count": 0,
+                            "would_filter_count": 1,
+                            "skipped_count": 1,
+                            "net_pnl": 90.0,
+                        }
+                    },
+                },
+                "evaluation_rows": [
+                    {
+                        "symbol": "BTCUSDT",
+                        "setup_type": "TREND_PULLBACK",
+                        "evaluation_status": "evaluated",
+                        "evaluation_reason": "score_below_minimum",
+                        "would_keep": False,
+                        "net_pnl": 100.0,
+                    },
+                    {
+                        "symbol": "ETHUSDT",
+                        "setup_type": "TREND_PULLBACK",
+                        "evaluation_status": "no_evidence",
+                        "evaluation_reason": "missing_score",
+                        "would_keep": False,
+                        "net_pnl": -10.0,
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    diagnostic = report["setup_rewrite_diagnostic"]
+    assert diagnostic["schema_version"] == "setup_rewrite_live_readiness_diagnostic.v1"
+    assert diagnostic["chunks"] == [
+        {
+            "chunk": "chunk_001",
+            "path": str(chunk / "setup_rewrite_experiment.json"),
+            "status": "loaded",
+            "summary": {
+                "evaluated_count": 1,
+                "would_keep_count": 0,
+                "would_filter_count": 1,
+                "skipped_count": 1,
+            },
+        }
+    ]
+    assert diagnostic["totals"] == {
+        "evaluated_count": 1,
+        "would_keep_count": 0,
+        "would_filter_count": 1,
+        "skipped_count": 1,
+        "keep_rate": 0.0,
+    }
+    assert diagnostic["reasons"] == {"missing_score": 1, "score_below_minimum": 1}
+    assert diagnostic["by_setup"]["TREND_PULLBACK"] == {
+        "total_rows": 2,
+        "evaluated_count": 1,
+        "would_keep_count": 0,
+        "would_filter_count": 1,
+        "skipped_count": 1,
+        "net_pnl": pytest.approx(90.0),
+    }
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+    assert "setup_rewrite_no_surviving_candidates" in report["promotion_gate"]["reasons"]
+    assert "setup_rewrite_missing_evidence" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["checks"]["setup_rewrite_has_surviving_candidates"] is False
+    assert report["promotion_gate"]["checks"]["setup_rewrite_evidence_complete"] is False
+    assert "- setup_rewrite:" in render_live_readiness_markdown(report)
 
 
 def test_live_readiness_gate_report_rejects_negative_chunks_and_setup_buckets(tmp_path: Path) -> None:

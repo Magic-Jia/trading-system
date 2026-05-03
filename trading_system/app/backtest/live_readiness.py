@@ -206,6 +206,67 @@ def _chunk_report(chunk_dir: Path) -> dict[str, Any]:
     }
 
 
+def _setup_rewrite_counts(summary: Mapping[str, Any]) -> dict[str, int]:
+    return {
+        "evaluated_count": int(summary.get("evaluated_count") or 0),
+        "would_keep_count": int(summary.get("would_keep_count") or 0),
+        "would_filter_count": int(summary.get("would_filter_count") or 0),
+        "skipped_count": int(summary.get("skipped_count") or 0),
+    }
+
+
+def _add_setup_rewrite_bucket(target: dict[str, Any], source: Mapping[str, Any]) -> None:
+    for key in ("total_rows", "evaluated_count", "would_keep_count", "would_filter_count", "skipped_count"):
+        target[key] += int(source.get(key) or 0)
+    target["net_pnl"] += _float_value(source.get("net_pnl"))
+
+
+def _empty_setup_rewrite_bucket() -> dict[str, Any]:
+    return {
+        "total_rows": 0,
+        "evaluated_count": 0,
+        "would_keep_count": 0,
+        "would_filter_count": 0,
+        "skipped_count": 0,
+        "net_pnl": 0.0,
+    }
+
+
+def _setup_rewrite_diagnostic(chunk_dirs: Iterable[Path]) -> dict[str, Any] | None:
+    chunks: list[dict[str, Any]] = []
+    totals = {"evaluated_count": 0, "would_keep_count": 0, "would_filter_count": 0, "skipped_count": 0}
+    reasons: Counter[str] = Counter()
+    by_setup: dict[str, dict[str, Any]] = {}
+    for chunk_dir in chunk_dirs:
+        path = chunk_dir / "setup_rewrite_experiment.json"
+        if not path.exists():
+            continue
+        payload = _load_json(path)
+        summary = _as_mapping(payload.get("summary"))
+        counts = _setup_rewrite_counts(summary)
+        chunks.append({"chunk": chunk_dir.name, "path": str(path), "status": "loaded", "summary": counts})
+        for key, value in counts.items():
+            totals[key] += value
+        for row in payload.get("evaluation_rows", []):
+            row_mapping = _as_mapping(row)
+            reason = row_mapping.get("evaluation_reason")
+            if reason:
+                reasons[str(reason)] += 1
+        for setup_type, bucket in _as_mapping(summary.get("by_setup")).items():
+            setup_bucket = by_setup.setdefault(str(setup_type), _empty_setup_rewrite_bucket())
+            _add_setup_rewrite_bucket(setup_bucket, _as_mapping(bucket))
+    if not chunks:
+        return None
+    keep_rate = totals["would_keep_count"] / totals["evaluated_count"] if totals["evaluated_count"] else 0.0
+    return {
+        "schema_version": "setup_rewrite_live_readiness_diagnostic.v1",
+        "chunks": chunks,
+        "totals": {**totals, "keep_rate": keep_rate},
+        "reasons": dict(sorted(reasons.items())),
+        "by_setup": {key: by_setup[key] for key in sorted(by_setup)},
+    }
+
+
 def build_live_readiness_gate_report(
     chunk_results_dir: str | Path,
     *,
@@ -228,6 +289,7 @@ def build_live_readiness_gate_report(
         _add_group(by_setup, str(trade.get("setup_type") or "UNKNOWN"), "setup_type", trade)
         _add_group(by_symbol, str(trade.get("symbol") or "UNKNOWN"), "symbol", trade)
         _add_group(by_side, str(trade.get("side") or "UNKNOWN"), "side", trade)
+    setup_rewrite_diagnostic = _setup_rewrite_diagnostic(chunk_dirs)
 
     trade_count = len(all_trades)
     net_pnl = sum(_float_value(trade.get("net_pnl")) for trade in all_trades)
@@ -268,9 +330,25 @@ def build_live_readiness_gate_report(
         reasons.append("exit_path_ambiguity_rate_above_threshold")
     if major_negative:
         reasons.append("major_setup_bucket_negative")
+    setup_rewrite_checks: dict[str, bool] = {}
+    if setup_rewrite_diagnostic is not None:
+        setup_rewrite_totals = _as_mapping(setup_rewrite_diagnostic.get("totals"))
+        setup_rewrite_evaluated = int(setup_rewrite_totals.get("evaluated_count") or 0)
+        setup_rewrite_would_keep = int(setup_rewrite_totals.get("would_keep_count") or 0)
+        setup_rewrite_skipped = int(setup_rewrite_totals.get("skipped_count") or 0)
+        setup_rewrite_checks = {
+            "setup_rewrite_has_surviving_candidates": not (
+                setup_rewrite_evaluated > 0 and setup_rewrite_would_keep == 0
+            ),
+            "setup_rewrite_evidence_complete": setup_rewrite_skipped == 0,
+        }
+        if not setup_rewrite_checks["setup_rewrite_has_surviving_candidates"]:
+            reasons.append("setup_rewrite_no_surviving_candidates")
+        if not setup_rewrite_checks["setup_rewrite_evidence_complete"]:
+            reasons.append("setup_rewrite_missing_evidence")
     decision = "reject_for_live_promotion" if reasons else "candidate_for_promotion"
 
-    return {
+    report = {
         "schema_version": "live_readiness_gate_report.v1",
         "chunk_results_dir": str(root),
         "chunk_performance": chunk_performance,
@@ -315,6 +393,7 @@ def build_live_readiness_gate_report(
                 "exit_evidence_coverage_met": exit_evidence_coverage >= exit_evidence_coverage_threshold,
                 "exit_path_ambiguity_rate_met": exit_path_ambiguity_rate <= max_exit_path_ambiguity_rate,
                 "major_setup_buckets_non_negative": not major_negative,
+                **setup_rewrite_checks,
             },
         },
         "caveats": [
@@ -322,6 +401,9 @@ def build_live_readiness_gate_report(
             "Chunk aggregation depends on trades.json fields emitted by the backtest bundle.",
         ],
     }
+    if setup_rewrite_diagnostic is not None:
+        report["setup_rewrite_diagnostic"] = setup_rewrite_diagnostic
+    return report
 
 
 def render_live_readiness_markdown(report: Mapping[str, Any]) -> str:
@@ -337,9 +419,18 @@ def render_live_readiness_markdown(report: Mapping[str, Any]) -> str:
         f"- evidence_coverage: {float(totals.get('evidence_coverage') or 0.0):.2%}",
         f"- exit_evidence_coverage: {float(totals.get('exit_evidence_coverage') or 0.0):.2%}",
         f"- exit_path_ambiguity_rate: {float(totals.get('exit_path_ambiguity_rate') or 0.0):.2%}",
-        "",
-        "## Caveats",
     ]
+    setup_rewrite = _as_mapping(report.get("setup_rewrite_diagnostic"))
+    if setup_rewrite:
+        setup_totals = _as_mapping(setup_rewrite.get("totals"))
+        lines.append(
+            "- setup_rewrite: "
+            f"evaluated={int(setup_totals.get('evaluated_count') or 0)}, "
+            f"would_keep={int(setup_totals.get('would_keep_count') or 0)}, "
+            f"skipped={int(setup_totals.get('skipped_count') or 0)}, "
+            f"keep_rate={float(setup_totals.get('keep_rate') or 0.0):.2%}"
+        )
+    lines.extend(["", "## Caveats"])
     lines.extend(f"- {item}" for item in report.get("caveats", []))
     lines.append("")
     return "\n".join(lines)
