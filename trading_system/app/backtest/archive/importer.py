@@ -13,6 +13,7 @@ from typing import Any, Iterable, Mapping, Sequence
 from trading_system.app.universe.sector_map import sector_for_symbol
 
 from ..dataset import load_historical_dataset
+from .data_quality import build_raw_market_data_quality_report
 from .raw_market import (
     ImportedRawMarketRecord,
     ImportedRawMarketSeries,
@@ -1584,6 +1585,18 @@ def _phase1_dataset_root_manifest(
     bundle_dirs: Sequence[Path],
 ) -> dict[str, Any]:
     bundle_timestamps = [_utc_timestamp(material.timestamp) for material in materials]
+    data_quality_report = build_raw_market_data_quality_report(
+        archive_root,
+        expected_intervals={
+            "ohlcv:1h": timedelta(hours=1),
+            "ohlcv:30m": timedelta(minutes=30),
+            "ohlcv:15m": timedelta(minutes=15),
+            "ohlcv:5m": timedelta(minutes=5),
+            "ohlcv:1m": timedelta(minutes=1),
+            "order-book": timedelta(seconds=1),
+            "trades": timedelta(milliseconds=1),
+        },
+    )
     return {
         "schema_version": PHASE1_IMPORTER_ROOT_SCHEMA,
         "scope": PHASE1_IMPORTER_SCOPE,
@@ -1596,6 +1609,7 @@ def _phase1_dataset_root_manifest(
         "bundle_dirs": [str(bundle_dir) for bundle_dir in bundle_dirs],
         "bundle_timestamps": bundle_timestamps,
         "source": _merged_import_trace(material.metadata.get("source") or {} for material in materials),
+        "data_quality_report": data_quality_report,
         "coverage": {
             "ohlcv_timeframes": _merged_ohlcv_timeframe_coverage(
                 material.metadata.get("source") or {} for material in materials

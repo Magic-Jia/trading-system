@@ -77,9 +77,16 @@
 ### Promotion gate
 
 - [ ] 任一回测窗口内 L2/tick coverage ≥ 99%。
-- [ ] 所有缺口可定位到 symbol/timeframe。
-- [ ] 有自动化 data quality report。
-- [ ] 数据缺失不能被静默 fallback 成 close/reference price。
+- [x] 所有 raw-market 缺口可在 `raw_market_data_quality_report.v1` 中定位到 series/symbol/timeframe/dataset 与 missing interval；真实 L2/tick 缺口仍会作为未满足 coverage gate 暴露。
+- [x] 有自动化 data quality report：phase1 imported dataset root manifest 现在嵌入 `data_quality_report`，包含 per-series provenance、coverage ratio、missing intervals、L2/tick coverage gate 与 promotion decision。
+- [x] 数据缺失不能被静默 fallback 成 close/reference price：raw-market import 会拒绝重复/重叠 ambiguous series；data quality gate 会把 missing interval 与 L2/tick coverage 缺失写入 reject reasons，而不是静默用 close/reference 补齐。
+
+Data quality gate status:
+
+- 新增 `raw_market_data_quality_report.v1`，可直接从 raw-market archive 生成 per-series quality report。
+- Report 字段包括 `series[series_key].coverage_ratio`、`missing_intervals`、`provenance`、`l2_tick_coverage` 与 `promotion_gate`。
+- Phase1 imported dataset root manifest 自动嵌入 `data_quality_report`，让后续 backtest/root metadata 可审计数据质量，而不是只依赖外部说明。
+- 若 order-book/trades L2/tick 覆盖率低于 `99%`，gate 保守给出 `l2_coverage_below_threshold`；若任一 series 有缺口，给出 `raw_market_missing_intervals`。
 
 ---
 

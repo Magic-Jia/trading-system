@@ -17,6 +17,7 @@ from trading_system.app.backtest.archive.importer import (
     write_phase1_dataset_bundle,
     write_phase1_dataset_root_manifest,
 )
+from trading_system.app.backtest.archive.data_quality import build_raw_market_data_quality_report
 from trading_system.app.backtest.archive.materialization import materialize_phase1_evidence_windows
 from trading_system.app.backtest.archive.raw_market import archive_raw_market_payload, load_phase1_raw_market_imports
 from trading_system.app.backtest.dataset import load_historical_dataset
@@ -222,6 +223,100 @@ def _archive_mark_price_history(
         endpoint="/fapi/v1/premiumIndex",
         payload=rows,
     )
+
+
+def test_raw_market_data_quality_report_locates_gaps_and_l2_coverage(tmp_path: Path) -> None:
+    archive_root = tmp_path / "archive"
+    start = datetime(2024, 1, 1, tzinfo=UTC)
+    rows = []
+    for index in (0, 1, 3):
+        observed_at = start + timedelta(hours=index)
+        rows.append(
+            {
+                "open_time": _timestamp_ms(observed_at),
+                "open": "100.0",
+                "high": "110.0",
+                "low": "90.0",
+                "close": "105.0",
+                "volume": "1000.0",
+                "quote_asset_volume": "105000.0",
+            }
+        )
+    archive_raw_market_payload(
+        archive_root=archive_root,
+        exchange="binance",
+        market="futures",
+        dataset="ohlcv",
+        symbol="BTCUSDT",
+        timeframe="1h",
+        coverage_start=start.isoformat().replace("+00:00", "Z"),
+        coverage_end=(start + timedelta(hours=4)).isoformat().replace("+00:00", "Z"),
+        fetched_at="2026-04-01T07:30:00Z",
+        endpoint="/fapi/v1/klines",
+        payload={"symbol": "BTCUSDT", "interval": "1h", "rows": rows},
+    )
+    archive_raw_market_payload(
+        archive_root=archive_root,
+        exchange="binance",
+        market="futures",
+        dataset="order_book",
+        symbol="BTCUSDT",
+        coverage_start=start.isoformat().replace("+00:00", "Z"),
+        coverage_end=(start + timedelta(hours=4)).isoformat().replace("+00:00", "Z"),
+        fetched_at="2026-04-01T07:31:00Z",
+        endpoint="/fapi/v1/depth",
+        payload=[{"timestamp": _timestamp_ms(start), "bids": [["100", "1"]], "asks": [["101", "1"]]}],
+    )
+
+    report = build_raw_market_data_quality_report(
+        archive_root,
+        expected_intervals={"ohlcv:1h": timedelta(hours=1), "order-book": timedelta(hours=1)},
+        required_l2_coverage=0.99,
+    )
+
+    assert report["schema_version"] == "raw_market_data_quality_report.v1"
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+    assert "raw_market_missing_intervals" in report["promotion_gate"]["reasons"]
+    assert "l2_coverage_below_threshold" in report["promotion_gate"]["reasons"]
+    assert report["summary"]["series_count"] == 2
+    assert report["summary"]["series_with_missing_intervals"] == 1
+    assert report["summary"]["l2_coverage_met"] is False
+    ohlcv = report["series"]["binance:futures:ohlcv:BTCUSDT:1h"]
+    assert ohlcv["coverage_ratio"] == pytest.approx(0.75)
+    assert ohlcv["missing_intervals"] == [
+        {
+            "start": "2024-01-01T02:00:00Z",
+            "end": "2024-01-01T03:00:00Z",
+            "missing_records": 1,
+        }
+    ]
+    l2 = report["l2_tick_coverage"]
+    assert l2["required_coverage"] == pytest.approx(0.99)
+    assert l2["coverage_ratio"] == pytest.approx(0.25)
+    assert l2["missing_by_symbol_timeframe"][0]["symbol"] == "BTCUSDT"
+
+
+def test_phase1_dataset_root_manifest_embeds_data_quality_report(tmp_path: Path) -> None:
+    archive_root = tmp_path / "archive"
+    dataset_root = tmp_path / "dataset"
+    _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT", total_hours=60 * 24)
+    materials = build_phase1_dataset_bundle_materials(load_phase1_raw_market_imports(archive_root))
+    bundle_dirs = [write_phase1_dataset_bundle(materials[-1], dataset_root)]
+
+    manifest_path = write_phase1_dataset_root_manifest(
+        archive_root,
+        dataset_root,
+        symbols=["BTCUSDT"],
+        materials=[materials[-1]],
+        bundle_dirs=bundle_dirs,
+    )
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    data_quality = manifest["data_quality_report"]
+    assert data_quality["schema_version"] == "raw_market_data_quality_report.v1"
+    assert data_quality["summary"]["series_count"] >= 3
+    assert data_quality["promotion_gate"]["decision"] == "reject_for_live_promotion"
+    assert data_quality["promotion_gate"]["reasons"] == ["l2_coverage_below_threshold"]
 
 
 def test_build_phase1_dataset_bundle_materials_returns_dataset_ready_bundle_and_writes_dataset_root(
