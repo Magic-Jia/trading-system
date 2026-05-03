@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -712,6 +714,54 @@ def test_live_readiness_smoke_report_materializes_nested_full_market_bundle(tmp_
     postmortem = json.loads((output_dir / "trade_postmortem_summary.json").read_text(encoding="utf-8"))
     assert postmortem["schema_version"] == "trade_postmortem_summary.v1"
     assert postmortem["by_failure_taxonomy"]["有效盈利_after_cost"]["trades"] == 1
+
+
+def test_live_readiness_cli_stdout_includes_concentration_summary(tmp_path: Path) -> None:
+    input_root = tmp_path / "results"
+    bundle = input_root / "chunk_001_20260301_20260302" / "full_market_baseline__current_policy__smoke"
+    bundle.mkdir(parents=True)
+    (bundle / "trades.json").write_text(
+        json.dumps(
+            {
+                "trades": [
+                    {
+                        "symbol": "BTCUSDT",
+                        "side": "long",
+                        "setup_type": "TREND_PULLBACK",
+                        "net_pnl": 100.0,
+                        "fill_quality": "evidence_backed",
+                        "execution_price_source": "trade_print",
+                        "exit_fill_quality": "evidence_backed",
+                        "exit_price_source": "trade_print",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "trading_system.app.backtest.live_readiness",
+            "--input-root",
+            str(input_root),
+            "--output-dir",
+            str(tmp_path / "smoke"),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    stdout = json.loads(completed.stdout)
+    assert stdout["concentration"] == {
+        "max_setup_trade_share": 0.45,
+        "max_symbol_trade_share": 0.70,
+        "top_setup_by_trades": {"key": "TREND_PULLBACK", "trades": 1, "trade_share": 1.0},
+        "top_symbol_by_trades": {"key": "BTCUSDT", "trades": 1, "trade_share": 1.0},
+    }
 
 
 def test_trade_postmortem_summary_buckets_failure_taxonomy_and_setups() -> None:

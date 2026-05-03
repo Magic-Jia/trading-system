@@ -755,6 +755,25 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _stdout_concentration_summary(report: Mapping[str, Any]) -> dict[str, Any]:
+    concentration = _as_mapping(report.get("concentration"))
+
+    def _bucket(name: str) -> dict[str, Any]:
+        bucket = _as_mapping(concentration.get(name))
+        return {
+            "key": bucket.get("key"),
+            "trades": int(bucket.get("trades") or 0),
+            "trade_share": float(bucket.get("trade_share") or 0.0),
+        }
+
+    return {
+        "max_setup_trade_share": concentration.get("max_setup_trade_share"),
+        "max_symbol_trade_share": concentration.get("max_symbol_trade_share"),
+        "top_setup_by_trades": _bucket("top_setup_by_trades"),
+        "top_symbol_by_trades": _bucket("top_symbol_by_trades"),
+    }
+
+
 def main() -> int:
     args = _parse_args()
     report = write_live_readiness_smoke_report(
@@ -776,6 +795,7 @@ def main() -> int:
                 "reasons": gate.get("reasons", []),
                 "trade_count": totals.get("trade_count", 0),
                 "net_pnl": totals.get("net_pnl", 0.0),
+                "concentration": _stdout_concentration_summary(report),
             },
             sort_keys=True,
         )
