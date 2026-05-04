@@ -573,6 +573,8 @@ def test_live_readiness_gate_rejects_malformed_required_runtime_safety_artifact(
     assert runtime["checks"]["runtime_safety_artifact_schema_valid"] is False
     assert runtime["artifacts"][0]["parse_error"]
     assert "runtime_safety_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
+    markdown = render_live_readiness_markdown(report)
+    assert "runtime_safety_artifact_parse_errors: chunk_001=invalid_json" in markdown
     assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
 
 

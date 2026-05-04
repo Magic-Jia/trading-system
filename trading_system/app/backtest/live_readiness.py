@@ -1290,6 +1290,16 @@ def write_live_readiness_smoke_report(
 
 
 def render_live_readiness_markdown(report: Mapping[str, Any]) -> str:
+    def _parse_error_summary(artifacts: Any) -> str:
+        entries = []
+        if isinstance(artifacts, Sequence) and not isinstance(artifacts, (str, bytes)):
+            for artifact in artifacts:
+                mapped = _as_mapping(artifact)
+                parse_error = str(mapped.get("parse_error") or "")
+                if parse_error:
+                    entries.append(f"{mapped.get('chunk') or mapped.get('path') or 'artifact'}={parse_error}")
+        return ", ".join(entries) or "none"
+
     gate = _as_mapping(report.get("promotion_gate"))
     totals = _as_mapping(report.get("totals"))
     lines = [
@@ -1431,6 +1441,7 @@ def render_live_readiness_markdown(report: Mapping[str, Any]) -> str:
                 f"- live_trade_ledger_met: {str(bool(checks.get('live_trade_ledger_met'))).lower()}",
                 f"- runtime_explainability_met: {str(bool(checks.get('runtime_explainability_met'))).lower()}",
                 f"- drift_guard_met: {str(bool(checks.get('drift_guard_met'))).lower()}",
+                f"- runtime_safety_artifact_parse_errors: {_parse_error_summary(runtime_safety.get('artifacts'))}",
             ]
         )
     microstructure = _as_mapping(report.get("microstructure_gate"))
@@ -1445,6 +1456,7 @@ def render_live_readiness_markdown(report: Mapping[str, Any]) -> str:
                 f"- artifact_count: {int(microstructure.get('artifact_count') or 0)}",
                 f"- l2_tick_coverage_met: {str(bool(checks.get('l2_tick_coverage_met'))).lower()}",
                 f"- depth_driven_taker_met: {str(bool(checks.get('depth_driven_taker_met'))).lower()}",
+                f"- microstructure_artifact_parse_errors: {_parse_error_summary(microstructure.get('artifacts'))}",
             ]
         )
     validation = _as_mapping(report.get("validation_gate"))
@@ -1461,6 +1473,7 @@ def render_live_readiness_markdown(report: Mapping[str, Any]) -> str:
                 f"- multi_regime_met: {str(bool(checks.get('multi_regime_met'))).lower()}",
                 f"- cost_stress_positive_met: {str(bool(checks.get('cost_stress_positive_met'))).lower()}",
                 f"- forward_contamination_absent_met: {str(bool(checks.get('forward_contamination_absent_met'))).lower()}",
+                f"- validation_artifact_parse_errors: {_parse_error_summary(validation.get('artifacts'))}",
             ]
         )
     exit_path_replay = _as_mapping(report.get("exit_path_replay"))
@@ -1477,6 +1490,7 @@ def render_live_readiness_markdown(report: Mapping[str, Any]) -> str:
                 f"- path_trade_count: {int(exit_reconciliation.get('path_trade_count') or 0)}",
                 f"- missing_trade_count: {int(exit_reconciliation.get('missing_trade_count') or 0)}",
                 f"- extra_path_trade_count: {int(exit_reconciliation.get('extra_path_trade_count') or 0)}",
+                f"- exit_path_replay_artifact_parse_errors: {_parse_error_summary(exit_reconciliation.get('artifacts'))}",
             ]
         )
         missing_ids = exit_reconciliation.get("missing_trade_ids") or []
@@ -1500,6 +1514,7 @@ def render_live_readiness_markdown(report: Mapping[str, Any]) -> str:
                     if passive_calibration.get("min_fill_rate") is not None
                     else "disabled"
                 ),
+                f"- passive_calibration_artifact_parse_errors: {_parse_error_summary(passive_calibration.get('chunks'))}",
             ]
         )
     concentration = _as_mapping(report.get("concentration"))
