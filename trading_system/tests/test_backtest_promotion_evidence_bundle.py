@@ -355,6 +355,25 @@ def test_bundle_verifier_rejects_required_artifact_invalid_byte_metadata(tmp_pat
     assert "artifact_metadata_invalid" in result["manifest_errors"]
 
 
+def test_bundle_verifier_rejects_duplicate_artifact_manifest_entries(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    for name in REQUIRED_ARTIFACTS:
+        _write_json(source / name, {"artifact": name, "synthetic": True})
+    bundle_dir = collect_promotion_evidence_bundle(source, tmp_path / "bundle", candidate_id="candidate-1")
+    manifest_path = bundle_dir / "promotion_evidence_manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    duplicated = manifest["artifacts"][0]["path"]
+    manifest["artifacts"].append(dict(manifest["artifacts"][0]))
+    manifest_path.write_text(json.dumps(manifest, sort_keys=True) + "\n")
+
+    result = verify_promotion_evidence_bundle(bundle_dir)
+
+    assert result["verified"] is False
+    assert result["duplicate_artifact_paths"] == [duplicated]
+    assert "duplicate_artifact_path" in result["manifest_errors"]
+
+
 def test_bundle_verifier_rejects_missing_candidate_id(tmp_path: Path) -> None:
     source = tmp_path / "source"
     source.mkdir()

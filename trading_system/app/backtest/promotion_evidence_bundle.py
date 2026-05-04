@@ -95,6 +95,7 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
             "omitted_default_required_artifacts": [],
             "missing_artifact_metadata": [],
             "invalid_artifact_metadata": [],
+            "duplicate_artifact_paths": [],
             "unsafe_artifact_paths": [],
             "sha256_mismatches": [],
             "byte_size_mismatches": [],
@@ -119,6 +120,7 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
             "omitted_default_required_artifacts": [],
             "missing_artifact_metadata": [],
             "invalid_artifact_metadata": [],
+            "duplicate_artifact_paths": [],
             "unsafe_artifact_paths": [],
             "sha256_mismatches": [],
             "byte_size_mismatches": [],
@@ -143,12 +145,17 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
     invalid_metadata: list[str] = []
     checked: list[dict[str, Any]] = []
     checked_paths: set[str] = set()
+    seen_artifact_paths: set[str] = set()
+    duplicate_artifact_paths: list[str] = []
     for artifact in artifacts:
         if not isinstance(artifact, Mapping):
             continue
         rel_path = str(artifact.get("path") or "")
         if not rel_path:
             continue
+        if rel_path in seen_artifact_paths:
+            duplicate_artifact_paths.append(rel_path)
+        seen_artifact_paths.add(rel_path)
         if not _artifact_path_is_safe(rel_path):
             unsafe_paths.append(rel_path)
             continue
@@ -197,6 +204,8 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
         manifest_errors.append("artifact_metadata_missing")
     if invalid_metadata:
         manifest_errors.append("artifact_metadata_invalid")
+    if duplicate_artifact_paths:
+        manifest_errors.append("duplicate_artifact_path")
     if unchecked_required:
         manifest_errors.append("required_artifact_missing_manifest_entry")
     return {
@@ -214,6 +223,7 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
         "omitted_default_required_artifacts": sorted(omitted_default_required),
         "missing_artifact_metadata": sorted(set(missing_metadata)),
         "invalid_artifact_metadata": sorted(set(invalid_metadata)),
+        "duplicate_artifact_paths": sorted(set(duplicate_artifact_paths)),
         "unsafe_artifact_paths": sorted(unsafe_paths),
         "sha256_mismatches": sorted(sha_mismatches),
         "byte_size_mismatches": sorted(byte_mismatches),
