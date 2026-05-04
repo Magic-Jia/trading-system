@@ -166,6 +166,20 @@ def _float_value(value: Any) -> float:
         return 0.0
 
 
+def _int_value(value: Any) -> tuple[int, bool]:
+    try:
+        return int(value), True
+    except (TypeError, ValueError):
+        return 0, False
+
+
+def _strict_float_value(value: Any) -> tuple[float, bool]:
+    try:
+        return float(value), True
+    except (TypeError, ValueError):
+        return 0.0, False
+
+
 def _bucket_add(bucket: dict[str, Any], trade: Mapping[str, Any]) -> None:
     bucket["trade_count"] += 1
     bucket["net_pnl"] += _float_value(trade.get("net_pnl"))
@@ -547,8 +561,17 @@ def _passive_calibration_diagnostic(
         provenance = evidence_source or legacy_provenance
         schema_valid = (not parse_error) and _artifact_schema_valid(payload, "passive_order_calibration_summary.v1")
         provenance_present = (not parse_error) and _artifact_provenance_present(payload)
-        attempts = int(overall.get("attempt_count") or 0)
-        fill_rate = _float_value(overall.get("fill_rate"))
+        attempts, attempts_valid = _int_value(overall.get("attempt_count") or 0)
+        fill_rate, fill_rate_valid = _strict_float_value(overall.get("fill_rate") or 0.0)
+        numeric_error = ""
+        if not attempts_valid:
+            numeric_error = "invalid_numeric_field: attempt_count"
+        elif not fill_rate_valid:
+            numeric_error = "invalid_numeric_field: fill_rate"
+        if numeric_error:
+            parse_error = parse_error or numeric_error
+            schema_valid = False
+            provenance_present = False
         total_attempts += attempts
         weighted_filled += fill_rate * attempts
         chunk_real = bool(legacy_provenance.get("real_exchange_records")) or str(provenance.get("type") or provenance.get("source") or "").lower() in {
