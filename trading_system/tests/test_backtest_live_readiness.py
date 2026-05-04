@@ -722,6 +722,23 @@ def test_live_readiness_gate_rejects_non_integral_passive_calibration_attempts(t
     assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
 
 
+def test_live_readiness_gate_rejects_non_finite_trade_financial_metrics(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    payload = json.loads((chunk / "trades.json").read_text(encoding="utf-8"))
+    payload["trades"][0]["net_pnl"] = "NaN"
+    (chunk / "trades.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    assert report["trade_financial_integrity"]["valid"] is False
+    assert report["trade_financial_integrity"]["invalid_fields"] == [
+        {"chunk": "chunk_001", "index": 1, "field": "net_pnl", "value": "NaN"}
+    ]
+    assert "trade_financial_metric_invalid" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
 def test_live_readiness_gate_rejects_negative_passive_calibration_attempts(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     chunk.mkdir()

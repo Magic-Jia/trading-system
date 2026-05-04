@@ -19,6 +19,8 @@ DEPTH_CLASSIFICATIONS = (
     "insufficient_for_maker_replay",
 )
 
+TRADE_FINANCIAL_FIELDS = ("net_pnl", "gross_pnl", "fee_paid", "slippage_paid", "funding_paid")
+
 EXIT_CLASSIFICATIONS = (
     "fixed_horizon_only",
     "bar_path_stop_or_tp",
@@ -162,9 +164,40 @@ def audit_exit_path_replay(
 
 def _float_value(value: Any) -> float:
     try:
-        return float(value)
+        parsed = float(value)
     except (TypeError, ValueError):
         return 0.0
+    return parsed if math.isfinite(parsed) else 0.0
+
+
+def _finite_float_value(value: Any) -> tuple[float, bool]:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return 0.0, False
+    if not math.isfinite(parsed):
+        return 0.0, False
+    return parsed, True
+
+
+def _trade_financial_integrity(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
+    invalid_fields: list[dict[str, Any]] = []
+    for chunk_dir in chunk_dirs:
+        rows = _trades_payload(_load_json(chunk_dir / "trades.json"))
+        for index, trade in enumerate(rows, start=1):
+            for field in TRADE_FINANCIAL_FIELDS:
+                value = trade.get(field, 0.0)
+                _, valid = _finite_float_value(value)
+                if not valid:
+                    invalid_fields.append(
+                        {"chunk": chunk_dir.name, "index": index, "field": field, "value": value}
+                    )
+    return {
+        "schema_version": "trade_financial_integrity.v1",
+        "valid": not invalid_fields,
+        "invalid_fields": invalid_fields[:100],
+        "invalid_field_count": len(invalid_fields),
+    }
 
 
 def _int_value(value: Any) -> tuple[int, bool]:
@@ -745,6 +778,8 @@ def build_live_readiness_gate_report(
         min_fill_rate=min_passive_fill_rate,
     )
 
+    trade_financial_integrity = _trade_financial_integrity(chunk_dirs)
+
     trade_count = len(all_trades)
     net_pnl = sum(_float_value(trade.get("net_pnl")) for trade in all_trades)
     gross_pnl = sum(_float_value(trade.get("gross_pnl")) for trade in all_trades)
@@ -841,6 +876,8 @@ def build_live_readiness_gate_report(
         reasons.append("promotion_bundle_integrity_failed")
     if net_pnl < 0.0:
         reasons.append("net_pnl_below_zero")
+    if not bool(trade_financial_integrity.get("valid")):
+        reasons.append("trade_financial_metric_invalid")
     if evidence_coverage < evidence_coverage_threshold:
         reasons.append("evidence_coverage_below_threshold")
     if exit_evidence_coverage < exit_evidence_coverage_threshold:
@@ -976,6 +1013,7 @@ def build_live_readiness_gate_report(
         "by_setup_type": {key: by_setup[key] for key in sorted(by_setup)},
         "by_symbol": {key: by_symbol[key] for key in sorted(by_symbol)},
         "by_side": {key: by_side[key] for key in sorted(by_side)},
+        "trade_financial_integrity": trade_financial_integrity,
         "promotion_bundle_integrity": promotion_bundle_integrity,
         "setup_quality_gate": setup_quality_gate,
         "runtime_safety_gate": runtime_safety_gate,
