@@ -249,6 +249,7 @@ def test_live_readiness_smoke_report_consumes_producer_gate_artifacts(tmp_path: 
         json.dumps(
             {
                 "schema_version": "passive_order_calibration_summary.v1",
+                "evidence_source": {"type": "testnet_exchange", "run_id": "passive-calibration-1"},
                 "overall": {"attempt_count": 10, "fill_rate": 0.7},
                 "provenance": {"source": "testnet_exchange", "real_exchange_records": True},
             }
@@ -375,6 +376,60 @@ def test_live_readiness_smoke_report_rejects_tampered_promotion_bundle(tmp_path:
     markdown = render_live_readiness_markdown(report)
     assert "## Promotion Bundle Integrity" in markdown
     assert "verified: false" in markdown
+
+
+def test_live_readiness_gate_report_rejects_invalid_passive_calibration_schema_and_provenance(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    chunk.mkdir()
+    (chunk / "trades.json").write_text(
+        json.dumps(
+            {
+                "trades": [
+                    {
+                        "symbol": "BTCUSDT",
+                        "side": "long",
+                        "setup_type": "BREAKOUT_CONTINUATION",
+                        "net_pnl": 100.0,
+                        "gross_pnl": 120.0,
+                        "fee_paid": 10.0,
+                        "slippage_paid": 10.0,
+                        "fill_quality": "evidence_backed",
+                        "execution_price_source": "trade_print",
+                        "exit_fill_quality": "evidence_backed",
+                        "exit_price_source": "trade_print",
+                        "simulated_exit_reason": "take_profit",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    (chunk / "passive_order_calibration_summary.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "unexpected_passive_calibration.v0",
+                "evidence_source": {"type": "unknown_offline_records"},
+                "overall": {"attempt_count": 20, "fill_rate": 0.9},
+                "provenance": {"source": "testnet_exchange", "real_exchange_records": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_live_readiness_gate_report(
+        tmp_path,
+        require_passive_calibration=True,
+        min_passive_calibration_attempts=5,
+        min_passive_fill_rate=0.5,
+    )
+
+    passive = report["passive_calibration"]
+    reasons = set(report["promotion_gate"]["reasons"])
+    assert passive["checks"]["passive_calibration_artifact_schema_valid"] is False
+    assert passive["checks"]["passive_calibration_artifact_provenance_present"] is False
+    assert "passive_calibration_artifact_schema_invalid" in reasons
+    assert "passive_calibration_artifact_provenance_missing" in reasons
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
 
 
 def test_live_readiness_gate_report_rejects_missing_runtime_safety_evidence(tmp_path: Path) -> None:

@@ -132,7 +132,7 @@ python -m pytest -q trading_system/tests/test_backtest_microstructure_evidence.p
 
 **TDD behavior:**
 - Given a source chunk with `exit_path_replay.json`, `passive_order_calibration_summary.json`, `market_microstructure_gate.json`, `validation_gate.json`, and `runtime_safety_gate.json`, `write_live_readiness_smoke_report(...)` copies them into normalized chunks and the gate consumes them.
-- Given required producer evidence with invalid artifact schema versions or missing non-synthetic `evidence_source`, live-readiness emits machine-readable schema/provenance failure reasons and rejects promotion instead of trusting `checks=true` alone.
+- Given required producer evidence with invalid artifact schema versions or missing non-synthetic `evidence_source`, live-readiness emits machine-readable schema/provenance failure reasons and rejects promotion instead of trusting `checks=true` alone. This includes `passive_order_calibration_summary.json`; legacy `provenance` may be displayed for compatibility but must not substitute for live-grade `evidence_source` in required promotion gates.
 - Given `--require-promotion-bundle-integrity` and a source bundle with a tampered artifact, live-readiness emits `promotion_bundle_integrity_failed`, records the verifier report, and rejects promotion.
 - If artifacts are absent, existing fail-closed missing-evidence reasons remain unchanged.
 

@@ -508,12 +508,16 @@ def _passive_calibration_diagnostic(
             continue
         payload = _load_json(path)
         overall = _as_mapping(payload.get("overall"))
-        provenance = _as_mapping(payload.get("provenance"))
+        evidence_source = _as_mapping(payload.get("evidence_source"))
+        legacy_provenance = _as_mapping(payload.get("provenance"))
+        provenance = evidence_source or legacy_provenance
+        schema_valid = _artifact_schema_valid(payload, "passive_order_calibration_summary.v1")
+        provenance_present = _artifact_provenance_present(payload)
         attempts = int(overall.get("attempt_count") or 0)
         fill_rate = _float_value(overall.get("fill_rate"))
         total_attempts += attempts
         weighted_filled += fill_rate * attempts
-        chunk_real = bool(provenance.get("real_exchange_records")) or str(provenance.get("source") or "").lower() in {
+        chunk_real = bool(legacy_provenance.get("real_exchange_records")) or str(provenance.get("type") or provenance.get("source") or "").lower() in {
             "live_exchange",
             "testnet_exchange",
             "exchange_export",
@@ -527,6 +531,9 @@ def _passive_calibration_diagnostic(
                 "attempt_count": attempts,
                 "fill_rate": fill_rate,
                 "real_exchange_records": chunk_real,
+                "schema_valid": schema_valid,
+                "provenance_present": provenance_present,
+                "evidence_source": evidence_source,
                 "provenance": provenance,
             }
         )
@@ -534,6 +541,8 @@ def _passive_calibration_diagnostic(
     attempts_met = total_attempts >= max(0, int(min_attempts))
     fill_rate_met = min_fill_rate is None or fill_rate >= min_fill_rate
     real_records_met = (not required) or real_exchange_records
+    schema_valid = (not required) or (bool(chunks) and all(bool(chunk.get("schema_valid")) for chunk in chunks))
+    provenance_present = (not required) or (bool(chunks) and all(bool(chunk.get("provenance_present")) for chunk in chunks))
     return {
         "schema_version": "passive_calibration_live_readiness.v1",
         "required": required,
@@ -545,6 +554,8 @@ def _passive_calibration_diagnostic(
         "real_exchange_records": real_exchange_records,
         "checks": {
             "passive_calibration_present_met": (not required) or bool(chunks),
+            "passive_calibration_artifact_schema_valid": schema_valid,
+            "passive_calibration_artifact_provenance_present": provenance_present,
             "passive_calibration_real_records_met": real_records_met,
             "passive_calibration_attempts_met": attempts_met,
             "passive_calibration_fill_rate_met": fill_rate_met,
@@ -832,6 +843,10 @@ def build_live_readiness_gate_report(
     passive_checks = _as_mapping(passive_calibration.get("checks"))
     if not passive_checks.get("passive_calibration_present_met", True):
         reasons.append("passive_calibration_missing")
+    if require_passive_calibration and not passive_checks.get("passive_calibration_artifact_schema_valid", False):
+        reasons.append("passive_calibration_artifact_schema_invalid")
+    if require_passive_calibration and not passive_checks.get("passive_calibration_artifact_provenance_present", False):
+        reasons.append("passive_calibration_artifact_provenance_missing")
     if not passive_checks.get("passive_calibration_real_records_met", True):
         reasons.append("passive_calibration_missing_real_records")
     if not passive_checks.get("passive_calibration_attempts_met", True):
