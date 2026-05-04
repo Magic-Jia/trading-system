@@ -274,6 +274,31 @@ def test_bundle_verify_only_cli_writes_report_for_success_and_failure(tmp_path: 
     assert bad_report["sha256_mismatches"] == [REQUIRED_ARTIFACTS[0]]
 
 
+def test_bundle_verifier_rejects_malformed_manifest_json(tmp_path: Path) -> None:
+    bundle_dir = tmp_path / "bundle"
+    bundle_dir.mkdir()
+    (bundle_dir / "promotion_evidence_manifest.json").write_text("{not-json\n", encoding="utf-8")
+
+    result = verify_promotion_evidence_bundle(bundle_dir)
+
+    assert result["verified"] is False
+    assert result["manifest_present"] is True
+    assert result["schema_valid"] is False
+    assert "invalid_manifest_json" in result["manifest_errors"]
+
+
+def test_bundle_verifier_rejects_manifest_that_is_not_json_object(tmp_path: Path) -> None:
+    bundle_dir = tmp_path / "bundle"
+    bundle_dir.mkdir()
+    (bundle_dir / "promotion_evidence_manifest.json").write_text("[]\n", encoding="utf-8")
+
+    result = verify_promotion_evidence_bundle(bundle_dir)
+
+    assert result["verified"] is False
+    assert "manifest_not_object" in result["manifest_errors"]
+    assert result["schema_valid"] is False
+
+
 def test_bundle_verifier_rejects_invalid_manifest_schema_version(tmp_path: Path) -> None:
     source = tmp_path / "source"
     source.mkdir()

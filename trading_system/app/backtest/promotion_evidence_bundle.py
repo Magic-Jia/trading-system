@@ -98,8 +98,31 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
             "byte_size_mismatches": [],
             "checked_artifacts": [],
         }
-    manifest = json.loads(manifest_path.read_text())
     manifest_errors: list[str] = []
+    try:
+        manifest_payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        return {
+            "schema_version": "promotion_evidence_bundle_verification.v1",
+            "verified": False,
+            "bundle_dir": str(bundle),
+            "manifest_path": str(manifest_path),
+            "manifest_present": True,
+            "manifest_errors": ["invalid_manifest_json"],
+            "manifest_parse_error": str(exc),
+            "schema_valid": False,
+            "candidate_id_valid": False,
+            "missing_artifacts": [],
+            "unchecked_required_artifacts": [],
+            "omitted_default_required_artifacts": [],
+            "unsafe_artifact_paths": [],
+            "sha256_mismatches": [],
+            "byte_size_mismatches": [],
+            "checked_artifacts": [],
+        }
+    manifest = dict(manifest_payload) if isinstance(manifest_payload, Mapping) else {}
+    if not isinstance(manifest_payload, Mapping):
+        manifest_errors.append("manifest_not_object")
     schema_valid = manifest.get("schema_version") == SCHEMA_VERSION
     if not schema_valid:
         manifest_errors.append("invalid_schema_version")
