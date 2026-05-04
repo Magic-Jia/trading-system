@@ -168,10 +168,24 @@ def _float_value(value: Any) -> float:
 
 
 def _int_value(value: Any) -> tuple[int, bool]:
-    try:
-        return int(value), True
-    except (TypeError, ValueError):
+    if isinstance(value, bool):
         return 0, False
+    if isinstance(value, int):
+        return value, True
+    if isinstance(value, float):
+        if math.isfinite(value) and value.is_integer():
+            return int(value), True
+        return 0, False
+    if isinstance(value, str):
+        stripped = value.strip()
+        if not stripped:
+            return 0, False
+        try:
+            parsed = int(stripped, 10)
+        except ValueError:
+            return 0, False
+        return parsed, True
+    return 0, False
 
 
 def _strict_float_value(value: Any) -> tuple[float, bool]:
