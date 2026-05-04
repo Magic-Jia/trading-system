@@ -93,6 +93,8 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
             "missing_artifacts": [],
             "unchecked_required_artifacts": [],
             "omitted_default_required_artifacts": [],
+            "missing_artifact_metadata": [],
+            "invalid_artifact_metadata": [],
             "unsafe_artifact_paths": [],
             "sha256_mismatches": [],
             "byte_size_mismatches": [],
@@ -115,6 +117,8 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
             "missing_artifacts": [],
             "unchecked_required_artifacts": [],
             "omitted_default_required_artifacts": [],
+            "missing_artifact_metadata": [],
+            "invalid_artifact_metadata": [],
             "unsafe_artifact_paths": [],
             "sha256_mismatches": [],
             "byte_size_mismatches": [],
@@ -135,6 +139,8 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
     sha_mismatches: list[str] = []
     byte_mismatches: list[str] = []
     unsafe_paths: list[str] = []
+    missing_metadata: list[str] = []
+    invalid_metadata: list[str] = []
     checked: list[dict[str, Any]] = []
     checked_paths: set[str] = set()
     for artifact in artifacts:
@@ -151,12 +157,22 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
             missing.append(rel_path)
             continue
         actual_sha = _sha256(path)
-        expected_sha = str(artifact.get("sha256") or "")
+        expected_sha = artifact.get("sha256")
         actual_bytes = path.stat().st_size
-        expected_bytes = int(artifact.get("bytes") or -1)
-        if expected_sha and actual_sha != expected_sha:
+        expected_bytes_raw = artifact.get("bytes")
+        if not isinstance(expected_sha, str) or not expected_sha:
+            missing_metadata.append(rel_path)
+        elif actual_sha != expected_sha:
             sha_mismatches.append(rel_path)
-        if expected_bytes >= 0 and actual_bytes != expected_bytes:
+        try:
+            expected_bytes = int(expected_bytes_raw)
+        except (TypeError, ValueError):
+            invalid_metadata.append(rel_path)
+            expected_bytes = None
+        if expected_bytes is not None and expected_bytes < 0:
+            invalid_metadata.append(rel_path)
+            expected_bytes = None
+        if expected_bytes is not None and actual_bytes != expected_bytes:
             byte_mismatches.append(rel_path)
         checked.append({"path": rel_path, "bytes": actual_bytes, "sha256": actual_sha})
         checked_paths.add(rel_path)
@@ -177,6 +193,10 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
             unchecked_required.append(rel_path)
     if unsafe_paths:
         manifest_errors.append("unsafe_artifact_path")
+    if missing_metadata:
+        manifest_errors.append("artifact_metadata_missing")
+    if invalid_metadata:
+        manifest_errors.append("artifact_metadata_invalid")
     if unchecked_required:
         manifest_errors.append("required_artifact_missing_manifest_entry")
     return {
@@ -192,6 +212,8 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
         "missing_artifacts": sorted(missing),
         "unchecked_required_artifacts": sorted(unchecked_required),
         "omitted_default_required_artifacts": sorted(omitted_default_required),
+        "missing_artifact_metadata": sorted(set(missing_metadata)),
+        "invalid_artifact_metadata": sorted(set(invalid_metadata)),
         "unsafe_artifact_paths": sorted(unsafe_paths),
         "sha256_mismatches": sorted(sha_mismatches),
         "byte_size_mismatches": sorted(byte_mismatches),
