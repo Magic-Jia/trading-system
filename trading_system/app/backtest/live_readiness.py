@@ -33,8 +33,15 @@ def _as_mapping(value: Any) -> Mapping[str, Any]:
 def _load_json(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    return dict(payload) if isinstance(payload, Mapping) else {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        return {"_parse_error": f"invalid_json: {exc.msg}"}
+    return dict(payload) if isinstance(payload, Mapping) else {"_parse_error": "json_payload_not_object"}
+
+
+def _json_parse_error(payload: Mapping[str, Any]) -> str:
+    return str(payload.get("_parse_error") or "")
 
 
 def _trades_payload(payload: Mapping[str, Any]) -> list[dict[str, Any]]:
@@ -300,13 +307,15 @@ def _runtime_safety_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
         if not path.exists():
             continue
         payload = _load_json(path)
+        parse_error = _json_parse_error(payload)
         checks = _as_mapping(payload.get("checks"))
-        chunk_schema_valid = _artifact_schema_valid(payload, "runtime_safety_gate_input.v1")
-        chunk_provenance_present = _artifact_provenance_present(payload)
+        chunk_schema_valid = (not parse_error) and _artifact_schema_valid(payload, "runtime_safety_gate_input.v1")
+        chunk_provenance_present = (not parse_error) and _artifact_provenance_present(payload)
         artifacts.append(
             {
                 "chunk": chunk_dir.name,
                 "path": str(path),
+                "parse_error": parse_error,
                 "schema_version": payload.get("schema_version"),
                 "schema_valid": chunk_schema_valid,
                 "provenance_present": chunk_provenance_present,
@@ -346,13 +355,15 @@ def _microstructure_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
         if not path.exists():
             continue
         payload = _load_json(path)
+        parse_error = _json_parse_error(payload)
         checks = _as_mapping(payload.get("checks"))
-        chunk_schema_valid = _artifact_schema_valid(payload, "market_microstructure_gate_input.v1")
-        chunk_provenance_present = _artifact_provenance_present(payload)
+        chunk_schema_valid = (not parse_error) and _artifact_schema_valid(payload, "market_microstructure_gate_input.v1")
+        chunk_provenance_present = (not parse_error) and _artifact_provenance_present(payload)
         artifacts.append(
             {
                 "chunk": chunk_dir.name,
                 "path": str(path),
+                "parse_error": parse_error,
                 "schema_version": payload.get("schema_version"),
                 "schema_valid": chunk_schema_valid,
                 "provenance_present": chunk_provenance_present,
@@ -397,13 +408,15 @@ def _validation_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[str,
         if not path.exists():
             continue
         payload = _load_json(path)
+        parse_error = _json_parse_error(payload)
         checks = _as_mapping(payload.get("checks"))
-        chunk_schema_valid = _artifact_schema_valid(payload, "validation_gate_input.v1")
-        chunk_provenance_present = _artifact_provenance_present(payload)
+        chunk_schema_valid = (not parse_error) and _artifact_schema_valid(payload, "validation_gate_input.v1")
+        chunk_provenance_present = (not parse_error) and _artifact_provenance_present(payload)
         artifacts.append(
             {
                 "chunk": chunk_dir.name,
                 "path": str(path),
+                "parse_error": parse_error,
                 "schema_version": payload.get("schema_version"),
                 "schema_valid": chunk_schema_valid,
                 "provenance_present": chunk_provenance_present,
@@ -473,12 +486,14 @@ def _exit_path_replay_reconciliation(chunk_dirs: Sequence[Path], *, required: bo
             chunks_missing_artifact.append(chunk_dir.name)
             continue
         payload = _load_json(path)
-        chunk_schema_valid = _artifact_schema_valid(payload, "exit_path_replay.v1")
-        chunk_provenance_present = _artifact_provenance_present(payload)
+        parse_error = _json_parse_error(payload)
+        chunk_schema_valid = (not parse_error) and _artifact_schema_valid(payload, "exit_path_replay.v1")
+        chunk_provenance_present = (not parse_error) and _artifact_provenance_present(payload)
         artifacts.append(
             {
                 "chunk": chunk_dir.name,
                 "path": str(path),
+                "parse_error": parse_error,
                 "schema_version": payload.get("schema_version"),
                 "schema_valid": chunk_schema_valid,
                 "provenance_present": chunk_provenance_present,
@@ -525,12 +540,13 @@ def _passive_calibration_diagnostic(
         if not path.exists():
             continue
         payload = _load_json(path)
+        parse_error = _json_parse_error(payload)
         overall = _as_mapping(payload.get("overall"))
         evidence_source = _as_mapping(payload.get("evidence_source"))
         legacy_provenance = _as_mapping(payload.get("provenance"))
         provenance = evidence_source or legacy_provenance
-        schema_valid = _artifact_schema_valid(payload, "passive_order_calibration_summary.v1")
-        provenance_present = _artifact_provenance_present(payload)
+        schema_valid = (not parse_error) and _artifact_schema_valid(payload, "passive_order_calibration_summary.v1")
+        provenance_present = (not parse_error) and _artifact_provenance_present(payload)
         attempts = int(overall.get("attempt_count") or 0)
         fill_rate = _float_value(overall.get("fill_rate"))
         total_attempts += attempts
@@ -546,6 +562,7 @@ def _passive_calibration_diagnostic(
             {
                 "chunk": chunk_dir.name,
                 "path": str(path),
+                "parse_error": parse_error,
                 "attempt_count": attempts,
                 "fill_rate": fill_rate,
                 "real_exchange_records": chunk_real,

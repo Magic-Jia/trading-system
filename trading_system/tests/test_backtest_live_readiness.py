@@ -539,6 +539,43 @@ def test_live_readiness_gate_report_rejects_invalid_passive_calibration_schema_a
     assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
 
 
+def test_live_readiness_gate_rejects_malformed_required_runtime_safety_artifact(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    chunk.mkdir()
+    (chunk / "trades.json").write_text(
+        json.dumps(
+            {
+                "trades": [
+                    {
+                        "symbol": "BTCUSDT",
+                        "side": "long",
+                        "setup_type": "BREAKOUT_CONTINUATION",
+                        "net_pnl": 100.0,
+                        "gross_pnl": 120.0,
+                        "fee_paid": 10.0,
+                        "slippage_paid": 10.0,
+                        "fill_quality": "evidence_backed",
+                        "execution_price_source": "trade_print",
+                        "exit_fill_quality": "evidence_backed",
+                        "exit_price_source": "trade_print",
+                        "simulated_exit_reason": "take_profit",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    (chunk / "runtime_safety_gate.json").write_text("{not-json\n", encoding="utf-8")
+
+    report = build_live_readiness_gate_report(tmp_path, require_runtime_safety_evidence=True)
+
+    runtime = report["runtime_safety_gate"]
+    assert runtime["checks"]["runtime_safety_artifact_schema_valid"] is False
+    assert runtime["artifacts"][0]["parse_error"]
+    assert "runtime_safety_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
 def test_live_readiness_gate_report_rejects_missing_runtime_safety_evidence(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     chunk.mkdir()
