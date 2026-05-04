@@ -376,6 +376,113 @@ def test_live_readiness_smoke_report_rejects_tampered_promotion_bundle(tmp_path:
     markdown = render_live_readiness_markdown(report)
     assert "## Promotion Bundle Integrity" in markdown
     assert "verified: false" in markdown
+    assert "- sha256_mismatches: trades.json" in markdown
+
+
+def test_live_readiness_markdown_shows_bundle_manifest_and_metadata_errors(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    trade = {
+        "trade_id": "t1",
+        "symbol": "BTCUSDT",
+        "side": "long",
+        "setup_type": "BREAKOUT_CONTINUATION",
+        "net_pnl": 100.0,
+        "gross_pnl": 120.0,
+        "fee_paid": 10.0,
+        "slippage_paid": 10.0,
+        "fill_quality": "evidence_backed",
+        "execution_price_source": "trade_print",
+        "exit_fill_quality": "evidence_backed",
+        "exit_price_source": "trade_print",
+        "simulated_exit_reason": "take_profit",
+    }
+    (source / "trades.json").write_text(json.dumps({"trades": [trade]}), encoding="utf-8")
+    (source / "exit_path_replay.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "exit_path_replay.v1",
+                "evidence_source": {"type": "trade_print_path_replay", "run_id": "exit-path-1"},
+                "trades": [{"trade_id": "t1"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (source / "market_microstructure_gate.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "market_microstructure_gate_input.v1",
+                "evidence_source": {"type": "historical_l2_tick_archive", "run_id": "microstructure-1"},
+                "checks": {"l2_tick_coverage_met": True, "depth_driven_taker_met": True},
+                "summary": {"min_l2_tick_coverage": 0.995},
+            }
+        ),
+        encoding="utf-8",
+    )
+    (source / "passive_order_calibration_summary.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "passive_order_calibration_summary.v1",
+                "evidence_source": {"type": "testnet_exchange", "run_id": "passive-calibration-1"},
+                "overall": {"attempt_count": 10, "fill_rate": 0.8},
+            }
+        ),
+        encoding="utf-8",
+    )
+    (source / "validation_gate.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "validation_gate_input.v1",
+                "evidence_source": {"type": "walk_forward_oos_report", "run_id": "validation-1"},
+                "checks": {
+                    "oos_non_degraded_met": True,
+                    "multi_regime_met": True,
+                    "cost_stress_positive_met": True,
+                    "forward_contamination_absent_met": True,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    (source / "runtime_safety_gate.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "runtime_safety_gate_input.v1",
+                "evidence_source": {"type": "paper_runtime_logs", "run_id": "runtime-1"},
+                "checks": {
+                    "kill_switch_dry_run_met": True,
+                    "order_position_reconciliation_met": True,
+                    "fail_closed_met": True,
+                    "dust_before_scale_met": True,
+                    "live_trade_ledger_met": True,
+                    "runtime_explainability_met": True,
+                    "drift_guard_met": True,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    bundle_dir = collect_promotion_evidence_bundle(source, tmp_path / "bundle", candidate_id="candidate-1")
+    manifest_path = bundle_dir / "promotion_evidence_manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["artifacts"][0].pop("sha256")
+    manifest_path.write_text(json.dumps(manifest, sort_keys=True) + "\n")
+
+    report = write_live_readiness_smoke_report(
+        bundle_dir,
+        tmp_path / "out",
+        require_promotion_bundle_integrity=True,
+        max_setup_trade_share=None,
+        max_symbol_trade_share=None,
+        max_setup_net_abs_share=None,
+        max_symbol_net_abs_share=None,
+        max_setup_loss_abs_share=None,
+        max_symbol_loss_abs_share=None,
+    )
+
+    markdown = render_live_readiness_markdown(report)
+    assert "- manifest_errors: artifact_metadata_missing" in markdown
+    assert "- missing_artifact_metadata: trades.json" in markdown
 
 
 def test_live_readiness_gate_report_rejects_invalid_passive_calibration_schema_and_provenance(tmp_path: Path) -> None:
