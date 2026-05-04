@@ -39,6 +39,8 @@ def collect_promotion_evidence_bundle(
     evidence_source: Mapping[str, Any] | None = None,
     required_artifacts: tuple[str, ...] = REQUIRED_ARTIFACTS,
 ) -> Path:
+    if not isinstance(candidate_id, str) or not candidate_id.strip():
+        raise ValueError("candidate_id must be a non-empty string")
     source = Path(source_dir)
     destination = Path(bundle_dir)
     missing = [name for name in required_artifacts if not (source / name).is_file()]

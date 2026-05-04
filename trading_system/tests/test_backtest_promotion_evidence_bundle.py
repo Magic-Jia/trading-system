@@ -452,6 +452,16 @@ def test_bundle_verifier_rejects_manifest_that_omits_default_required_artifact(t
     assert "default_required_artifact_omitted" in result["manifest_errors"]
 
 
+def test_bundle_collector_rejects_blank_candidate_id(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    for name in REQUIRED_ARTIFACTS:
+        _write_json(source / name, {"artifact": name, "synthetic": True})
+
+    with pytest.raises(ValueError, match="candidate_id"):
+        collect_promotion_evidence_bundle(source, tmp_path / "bundle", candidate_id="  ")
+
+
 def test_bundle_collector_fails_closed_when_required_artifact_missing(tmp_path: Path) -> None:
     source = tmp_path / "source"
     source.mkdir()
