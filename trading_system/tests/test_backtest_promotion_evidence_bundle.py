@@ -462,6 +462,21 @@ def test_bundle_collector_rejects_blank_candidate_id(tmp_path: Path) -> None:
         collect_promotion_evidence_bundle(source, tmp_path / "bundle", candidate_id="  ")
 
 
+def test_bundle_collector_rejects_unsafe_required_artifact_paths(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    outside = tmp_path / "outside.json"
+    _write_json(outside, {"outside": True})
+
+    with pytest.raises(ValueError, match="unsafe required artifact path"):
+        collect_promotion_evidence_bundle(
+            source,
+            tmp_path / "bundle",
+            candidate_id="candidate-1",
+            required_artifacts=("../outside.json",),
+        )
+
+
 def test_bundle_collector_fails_closed_when_required_artifact_missing(tmp_path: Path) -> None:
     source = tmp_path / "source"
     source.mkdir()

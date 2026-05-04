@@ -41,6 +41,9 @@ def collect_promotion_evidence_bundle(
 ) -> Path:
     if not isinstance(candidate_id, str) or not candidate_id.strip():
         raise ValueError("candidate_id must be a non-empty string")
+    unsafe_required = [name for name in required_artifacts if not _artifact_path_is_safe(str(name))]
+    if unsafe_required:
+        raise ValueError("unsafe required artifact path(s): " + ", ".join(str(name) for name in unsafe_required))
     source = Path(source_dir)
     destination = Path(bundle_dir)
     missing = [name for name in required_artifacts if not (source / name).is_file()]
