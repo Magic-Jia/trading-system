@@ -69,10 +69,19 @@ def test_collected_bundle_can_be_consumed_by_live_readiness_smoke(tmp_path: Path
             ]
         },
     )
-    _write_json(source / "exit_path_replay.json", {"trades": [{"trade_id": "t1"}]})
+    _write_json(
+        source / "exit_path_replay.json",
+        {
+            "schema_version": "exit_path_replay.v1",
+            "evidence_source": {"type": "trade_print_path_replay", "run_id": "exit-path-1"},
+            "trades": [{"trade_id": "t1"}],
+        },
+    )
     _write_json(
         source / "market_microstructure_gate.json",
         {
+            "schema_version": "market_microstructure_gate_input.v1",
+            "evidence_source": {"type": "historical_l2_tick_archive", "run_id": "microstructure-1"},
             "checks": {"l2_tick_coverage_met": True, "depth_driven_taker_met": True},
             "summary": {"min_l2_tick_coverage": 0.995},
         },
@@ -80,6 +89,8 @@ def test_collected_bundle_can_be_consumed_by_live_readiness_smoke(tmp_path: Path
     _write_json(
         source / "passive_order_calibration_summary.json",
         {
+            "schema_version": "passive_order_calibration_summary.v1",
+            "evidence_source": {"type": "testnet_exchange", "run_id": "passive-calibration-1"},
             "overall": {"attempt_count": 10, "fill_rate": 0.8},
             "provenance": {"source": "testnet_exchange", "real_exchange_records": True},
         },
@@ -87,6 +98,8 @@ def test_collected_bundle_can_be_consumed_by_live_readiness_smoke(tmp_path: Path
     _write_json(
         source / "validation_gate.json",
         {
+            "schema_version": "validation_gate_input.v1",
+            "evidence_source": {"type": "walk_forward_oos_report", "run_id": "validation-1"},
             "checks": {
                 "oos_non_degraded_met": True,
                 "multi_regime_met": True,
@@ -98,6 +111,8 @@ def test_collected_bundle_can_be_consumed_by_live_readiness_smoke(tmp_path: Path
     _write_json(
         source / "runtime_safety_gate.json",
         {
+            "schema_version": "runtime_safety_gate_input.v1",
+            "evidence_source": {"type": "paper_runtime_logs", "run_id": "runtime-1"},
             "checks": {
                 "kill_switch_dry_run_met": True,
                 "order_position_reconciliation_met": True,

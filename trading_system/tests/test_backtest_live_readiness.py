@@ -973,6 +973,51 @@ def test_live_readiness_gate_report_rejects_missing_exit_path_rows(tmp_path: Pat
     assert "missing_trade_ids: t2" in markdown
 
 
+def test_live_readiness_gate_report_rejects_exit_path_replay_invalid_schema_and_provenance(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    chunk.mkdir()
+    trades = [
+        {
+            "trade_id": "t1",
+            "symbol": "BTCUSDT",
+            "side": "long",
+            "setup_type": "BREAKOUT_CONTINUATION",
+            "net_pnl": 100.0,
+            "gross_pnl": 120.0,
+            "fee_paid": 5.0,
+            "slippage_paid": 5.0,
+            "fill_quality": "evidence_backed",
+            "execution_price_source": "trade_print",
+            "exit_fill_quality": "evidence_backed",
+            "exit_price_source": "trade_print",
+            "simulated_exit_reason": "take_profit",
+        }
+    ]
+    (chunk / "trades.json").write_text(json.dumps({"trades": trades}), encoding="utf-8")
+    (chunk / "exit_path_replay.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "unexpected_exit_path_replay.v0",
+                "evidence_source": {"type": "synthetic_fixture"},
+                "trades": [{"trade_id": "t1", "path_classification": "trade_print_path_available"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_live_readiness_gate_report(tmp_path, require_exit_path_replay_rows=True)
+
+    reconciliation = report["exit_path_replay"]["reconciliation"]
+    reasons = set(report["promotion_gate"]["reasons"])
+    assert reconciliation["matched"] is False
+    assert reconciliation["schema_valid"] is False
+    assert reconciliation["provenance_present"] is False
+    assert report["promotion_gate"]["checks"]["exit_path_replay_rows_met"] is False
+    assert "exit_path_replay_artifact_schema_invalid" in reasons
+    assert "exit_path_replay_artifact_provenance_missing" in reasons
+
+
+
 def test_live_readiness_gate_report_rejects_when_exit_path_ambiguity_rate_exceeds_threshold(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     chunk.mkdir()

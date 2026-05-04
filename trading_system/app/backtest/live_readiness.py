@@ -463,6 +463,7 @@ def _exit_path_replay_reconciliation(chunk_dirs: Sequence[Path], *, required: bo
     trade_ids: list[str] = []
     path_trade_ids: set[str] = set()
     chunks_missing_artifact: list[str] = []
+    artifacts: list[dict[str, Any]] = []
     for chunk_dir in chunk_dirs:
         trades = _trades_payload(_load_json(chunk_dir / "trades.json"))
         for index, trade in enumerate(trades):
@@ -472,15 +473,32 @@ def _exit_path_replay_reconciliation(chunk_dirs: Sequence[Path], *, required: bo
             chunks_missing_artifact.append(chunk_dir.name)
             continue
         payload = _load_json(path)
+        chunk_schema_valid = _artifact_schema_valid(payload, "exit_path_replay.v1")
+        chunk_provenance_present = _artifact_provenance_present(payload)
+        artifacts.append(
+            {
+                "chunk": chunk_dir.name,
+                "path": str(path),
+                "schema_version": payload.get("schema_version"),
+                "schema_valid": chunk_schema_valid,
+                "provenance_present": chunk_provenance_present,
+                "evidence_source": _as_mapping(payload.get("evidence_source")),
+            }
+        )
         for index, row in enumerate(_trades_payload(payload)):
             path_trade_ids.add(str(row.get("trade_id") or f"{chunk_dir.name}:{index}"))
     missing = [trade_id for trade_id in trade_ids if trade_id not in path_trade_ids]
     extra = sorted(path_trade_ids - set(trade_ids))
-    matched = not missing and not extra and not chunks_missing_artifact
+    schema_valid = (not required) or (bool(artifacts) and all(bool(artifact.get("schema_valid")) for artifact in artifacts))
+    provenance_present = (not required) or (bool(artifacts) and all(bool(artifact.get("provenance_present")) for artifact in artifacts))
+    matched = not missing and not extra and not chunks_missing_artifact and schema_valid and provenance_present
     return {
         "schema_version": "exit_path_replay_reconciliation.v1",
         "required": required,
         "matched": matched if required else True if not trade_ids else matched,
+        "schema_valid": schema_valid,
+        "provenance_present": provenance_present,
+        "artifacts": artifacts,
         "trade_count": len(trade_ids),
         "path_trade_count": len(path_trade_ids),
         "missing_trade_count": len(missing),
@@ -774,6 +792,10 @@ def build_live_readiness_gate_report(
     exit_path_replay_rows_met = (not require_exit_path_replay_rows) or bool(exit_path_reconciliation.get("matched"))
     if not exit_path_replay_rows_met:
         reasons.append("exit_path_replay_missing_trades")
+    if require_exit_path_replay_rows and not bool(exit_path_reconciliation.get("schema_valid")):
+        reasons.append("exit_path_replay_artifact_schema_invalid")
+    if require_exit_path_replay_rows and not bool(exit_path_reconciliation.get("provenance_present")):
+        reasons.append("exit_path_replay_artifact_provenance_missing")
     if major_negative:
         reasons.append("major_setup_bucket_negative")
     setup_quality_checks = _as_mapping(setup_quality_gate.get("checks"))
