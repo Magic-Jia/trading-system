@@ -167,9 +167,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--bundle-dir", required=True)
     parser.add_argument("--candidate-id")
     parser.add_argument("--verify-only", action="store_true")
+    parser.add_argument("--verification-report-out", help="Write verify-only JSON result to this path")
     args = parser.parse_args(argv)
     if args.verify_only:
         result = verify_promotion_evidence_bundle(args.bundle_dir)
+        if args.verification_report_out:
+            report_path = Path(args.verification_report_out)
+            report_path.parent.mkdir(parents=True, exist_ok=True)
+            report_path.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0 if result["verified"] else 1
     if not args.source_dir or not args.candidate_id:

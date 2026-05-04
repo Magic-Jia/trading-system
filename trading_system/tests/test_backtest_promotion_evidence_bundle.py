@@ -206,6 +206,59 @@ def test_bundle_verify_only_cli_returns_nonzero_for_tampering(tmp_path: Path) ->
     assert REQUIRED_ARTIFACTS[0] in bad.stdout
 
 
+def test_bundle_verify_only_cli_writes_report_for_success_and_failure(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    for name in REQUIRED_ARTIFACTS:
+        _write_json(source / name, {"artifact": name, "synthetic": True})
+    bundle_dir = collect_promotion_evidence_bundle(source, tmp_path / "bundle", candidate_id="candidate-1")
+    report_path = tmp_path / "reports" / "promotion_bundle_verification.json"
+
+    import subprocess
+    import sys
+
+    ok = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "trading_system.app.backtest.promotion_evidence_bundle",
+            "--bundle-dir",
+            str(bundle_dir),
+            "--verify-only",
+            "--verification-report-out",
+            str(report_path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert ok.returncode == 0
+    ok_report = json.loads(report_path.read_text())
+    assert ok_report["verified"] is True
+    assert ok_report["checked_artifacts"]
+
+    (bundle_dir / REQUIRED_ARTIFACTS[0]).write_text("tampered\n", encoding="utf-8")
+    bad = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "trading_system.app.backtest.promotion_evidence_bundle",
+            "--bundle-dir",
+            str(bundle_dir),
+            "--verify-only",
+            "--verification-report-out",
+            str(report_path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert bad.returncode == 1
+    bad_report = json.loads(report_path.read_text())
+    assert bad_report["verified"] is False
+    assert bad_report["sha256_mismatches"] == [REQUIRED_ARTIFACTS[0]]
+
+
 def test_bundle_verifier_rejects_invalid_manifest_schema_version(tmp_path: Path) -> None:
     source = tmp_path / "source"
     source.mkdir()
