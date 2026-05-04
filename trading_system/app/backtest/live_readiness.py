@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import shutil
 from collections import Counter
 from pathlib import Path
@@ -175,9 +176,12 @@ def _int_value(value: Any) -> tuple[int, bool]:
 
 def _strict_float_value(value: Any) -> tuple[float, bool]:
     try:
-        return float(value), True
+        parsed = float(value)
     except (TypeError, ValueError):
         return 0.0, False
+    if not math.isfinite(parsed):
+        return 0.0, False
+    return parsed, True
 
 
 def _bucket_add(bucket: dict[str, Any], trade: Mapping[str, Any]) -> None:
@@ -564,9 +568,9 @@ def _passive_calibration_diagnostic(
         attempts, attempts_valid = _int_value(overall.get("attempt_count") or 0)
         fill_rate, fill_rate_valid = _strict_float_value(overall.get("fill_rate") or 0.0)
         numeric_error = ""
-        if not attempts_valid:
+        if not attempts_valid or attempts < 0:
             numeric_error = "invalid_numeric_field: attempt_count"
-        elif not fill_rate_valid:
+        elif not fill_rate_valid or fill_rate < 0.0 or fill_rate > 1.0:
             numeric_error = "invalid_numeric_field: fill_rate"
         if numeric_error:
             parse_error = parse_error or numeric_error

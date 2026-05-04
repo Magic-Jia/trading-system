@@ -624,6 +624,144 @@ def test_live_readiness_gate_rejects_invalid_passive_calibration_numeric_fields(
     assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
 
 
+def test_live_readiness_gate_rejects_non_finite_passive_calibration_fill_rate(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    chunk.mkdir()
+    (chunk / "trades.json").write_text(
+        json.dumps(
+            {
+                "trades": [
+                    {
+                        "symbol": "BTCUSDT",
+                        "side": "long",
+                        "setup_type": "BREAKOUT_CONTINUATION",
+                        "net_pnl": 100.0,
+                        "gross_pnl": 120.0,
+                        "fee_paid": 10.0,
+                        "slippage_paid": 10.0,
+                        "fill_quality": "evidence_backed",
+                        "execution_price_source": "trade_print",
+                        "exit_fill_quality": "evidence_backed",
+                        "exit_price_source": "trade_print",
+                        "simulated_exit_reason": "take_profit",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    (chunk / "passive_order_calibration_summary.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "passive_order_calibration_summary.v1",
+                "evidence_source": {"type": "exchange_export", "run_id": "calibration-1"},
+                "overall": {"attempt_count": 10, "fill_rate": "NaN"},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_live_readiness_gate_report(tmp_path, require_passive_calibration=True)
+
+    passive = report["passive_calibration"]
+    assert passive["checks"]["passive_calibration_artifact_schema_valid"] is False
+    assert passive["chunks"][0]["parse_error"] == "invalid_numeric_field: fill_rate"
+    assert "passive_calibration_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
+def test_live_readiness_gate_rejects_negative_passive_calibration_attempts(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    chunk.mkdir()
+    (chunk / "trades.json").write_text(
+        json.dumps(
+            {
+                "trades": [
+                    {
+                        "symbol": "BTCUSDT",
+                        "side": "long",
+                        "setup_type": "BREAKOUT_CONTINUATION",
+                        "net_pnl": 100.0,
+                        "gross_pnl": 120.0,
+                        "fee_paid": 10.0,
+                        "slippage_paid": 10.0,
+                        "fill_quality": "evidence_backed",
+                        "execution_price_source": "trade_print",
+                        "exit_fill_quality": "evidence_backed",
+                        "exit_price_source": "trade_print",
+                        "simulated_exit_reason": "take_profit",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    (chunk / "passive_order_calibration_summary.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "passive_order_calibration_summary.v1",
+                "evidence_source": {"type": "exchange_export", "run_id": "calibration-1"},
+                "overall": {"attempt_count": -1, "fill_rate": 0.5},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_live_readiness_gate_report(tmp_path, require_passive_calibration=True)
+
+    passive = report["passive_calibration"]
+    assert passive["checks"]["passive_calibration_artifact_schema_valid"] is False
+    assert passive["chunks"][0]["parse_error"] == "invalid_numeric_field: attempt_count"
+    assert "passive_calibration_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
+def test_live_readiness_gate_rejects_out_of_range_passive_calibration_fill_rate(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    chunk.mkdir()
+    (chunk / "trades.json").write_text(
+        json.dumps(
+            {
+                "trades": [
+                    {
+                        "symbol": "BTCUSDT",
+                        "side": "long",
+                        "setup_type": "BREAKOUT_CONTINUATION",
+                        "net_pnl": 100.0,
+                        "gross_pnl": 120.0,
+                        "fee_paid": 10.0,
+                        "slippage_paid": 10.0,
+                        "fill_quality": "evidence_backed",
+                        "execution_price_source": "trade_print",
+                        "exit_fill_quality": "evidence_backed",
+                        "exit_price_source": "trade_print",
+                        "simulated_exit_reason": "take_profit",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    (chunk / "passive_order_calibration_summary.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "passive_order_calibration_summary.v1",
+                "evidence_source": {"type": "exchange_export", "run_id": "calibration-1"},
+                "overall": {"attempt_count": 10, "fill_rate": 1.5},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_live_readiness_gate_report(tmp_path, require_passive_calibration=True)
+
+    passive = report["passive_calibration"]
+    assert passive["checks"]["passive_calibration_artifact_schema_valid"] is False
+    assert passive["chunks"][0]["parse_error"] == "invalid_numeric_field: fill_rate"
+    assert "passive_calibration_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
 def test_live_readiness_gate_report_rejects_missing_runtime_safety_evidence(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     chunk.mkdir()
