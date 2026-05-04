@@ -91,6 +91,8 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
             "schema_valid": False,
             "candidate_id_valid": False,
             "missing_artifacts": [],
+            "unchecked_required_artifacts": [],
+            "omitted_default_required_artifacts": [],
             "unsafe_artifact_paths": [],
             "sha256_mismatches": [],
             "byte_size_mismatches": [],
@@ -111,6 +113,7 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
     byte_mismatches: list[str] = []
     unsafe_paths: list[str] = []
     checked: list[dict[str, Any]] = []
+    checked_paths: set[str] = set()
     for artifact in artifacts:
         if not isinstance(artifact, Mapping):
             continue
@@ -133,7 +136,13 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
         if expected_bytes >= 0 and actual_bytes != expected_bytes:
             byte_mismatches.append(rel_path)
         checked.append({"path": rel_path, "bytes": actual_bytes, "sha256": actual_sha})
-    required = [str(name) for name in manifest.get("required_artifacts", []) if str(name)]
+        checked_paths.add(rel_path)
+    manifest_required = [str(name) for name in manifest.get("required_artifacts", []) if str(name)]
+    required = list(dict.fromkeys([*REQUIRED_ARTIFACTS, *manifest_required]))
+    omitted_default_required = [name for name in REQUIRED_ARTIFACTS if name not in manifest_required]
+    if omitted_default_required:
+        manifest_errors.append("default_required_artifact_omitted")
+    unchecked_required: list[str] = []
     for rel_path in required:
         if not _artifact_path_is_safe(rel_path):
             if rel_path not in unsafe_paths:
@@ -141,8 +150,12 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
             continue
         if not (bundle / rel_path).is_file() and rel_path not in missing:
             missing.append(rel_path)
+        if rel_path not in checked_paths:
+            unchecked_required.append(rel_path)
     if unsafe_paths:
         manifest_errors.append("unsafe_artifact_path")
+    if unchecked_required:
+        manifest_errors.append("required_artifact_missing_manifest_entry")
     return {
         "schema_version": "promotion_evidence_bundle_verification.v1",
         "verified": not manifest_errors and not missing and not sha_mismatches and not byte_mismatches,
@@ -154,6 +167,8 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
         "candidate_id_valid": candidate_id_valid,
         "candidate_id": candidate_id,
         "missing_artifacts": sorted(missing),
+        "unchecked_required_artifacts": sorted(unchecked_required),
+        "omitted_default_required_artifacts": sorted(omitted_default_required),
         "unsafe_artifact_paths": sorted(unsafe_paths),
         "sha256_mismatches": sorted(sha_mismatches),
         "byte_size_mismatches": sorted(byte_mismatches),

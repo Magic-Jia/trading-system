@@ -329,6 +329,47 @@ def test_bundle_verifier_rejects_artifact_path_traversal(tmp_path: Path) -> None
     assert "unsafe_artifact_path" in result["manifest_errors"]
 
 
+def test_bundle_verifier_rejects_required_artifact_missing_manifest_entry(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    for name in REQUIRED_ARTIFACTS:
+        _write_json(source / name, {"artifact": name, "synthetic": True})
+    bundle_dir = collect_promotion_evidence_bundle(source, tmp_path / "bundle", candidate_id="candidate-1")
+    manifest_path = bundle_dir / "promotion_evidence_manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    omitted = REQUIRED_ARTIFACTS[0]
+    manifest["artifacts"] = [artifact for artifact in manifest["artifacts"] if artifact["path"] != omitted]
+    manifest_path.write_text(json.dumps(manifest, sort_keys=True) + "\n")
+
+    result = verify_promotion_evidence_bundle(bundle_dir)
+
+    assert result["verified"] is False
+    assert result["unchecked_required_artifacts"] == [omitted]
+    assert "required_artifact_missing_manifest_entry" in result["manifest_errors"]
+
+
+def test_bundle_verifier_rejects_manifest_that_omits_default_required_artifact(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    for name in REQUIRED_ARTIFACTS:
+        _write_json(source / name, {"artifact": name, "synthetic": True})
+    bundle_dir = collect_promotion_evidence_bundle(source, tmp_path / "bundle", candidate_id="candidate-1")
+    manifest_path = bundle_dir / "promotion_evidence_manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    omitted = REQUIRED_ARTIFACTS[0]
+    manifest["required_artifacts"] = [name for name in manifest["required_artifacts"] if name != omitted]
+    manifest["artifacts"] = [artifact for artifact in manifest["artifacts"] if artifact["path"] != omitted]
+    (bundle_dir / omitted).unlink()
+    manifest_path.write_text(json.dumps(manifest, sort_keys=True) + "\n")
+
+    result = verify_promotion_evidence_bundle(bundle_dir)
+
+    assert result["verified"] is False
+    assert result["omitted_default_required_artifacts"] == [omitted]
+    assert omitted in result["missing_artifacts"]
+    assert "default_required_artifact_omitted" in result["manifest_errors"]
+
+
 def test_bundle_collector_fails_closed_when_required_artifact_missing(tmp_path: Path) -> None:
     source = tmp_path / "source"
     source.mkdir()
