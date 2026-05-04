@@ -1380,6 +1380,8 @@ def render_live_readiness_markdown(report: Mapping[str, Any]) -> str:
                 + (", ".join(str(item) for item in promotion_bundle_integrity.get("missing_artifact_metadata", [])) or "none"),
                 "- invalid_artifact_metadata: "
                 + (", ".join(str(item) for item in promotion_bundle_integrity.get("invalid_artifact_metadata", [])) or "none"),
+                "- duplicate_artifact_paths: "
+                + (", ".join(str(item) for item in promotion_bundle_integrity.get("duplicate_artifact_paths", [])) or "none"),
             ]
         )
     if setup_quality:
