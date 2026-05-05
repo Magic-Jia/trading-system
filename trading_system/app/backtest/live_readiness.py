@@ -522,6 +522,41 @@ def _trade_pnl_consistency(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
     }
 
 
+def _trade_side_price_pnl_consistency(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
+    invalid_fields: list[dict[str, Any]] = []
+    for chunk_dir in chunk_dirs:
+        rows = _trades_payload(_load_json(chunk_dir / "trades.json"))
+        for index, trade in enumerate(rows, start=1):
+            side = str(trade.get("side") or "").strip()
+            entry_price, entry_valid = _strict_float_value(trade.get("entry_price"))
+            exit_price, exit_valid = _strict_float_value(trade.get("exit_price"))
+            quantity, quantity_valid = _strict_float_value(trade.get("quantity"))
+            gross_pnl, gross_valid = _strict_float_value(trade.get("gross_pnl"))
+            if side not in VALID_TRADE_SIDES or not all((entry_valid, exit_valid, quantity_valid, gross_valid)):
+                continue
+            expected = (exit_price - entry_price) * quantity if side == "long" else (entry_price - exit_price) * quantity
+            tolerance = max(PNL_CONSISTENCY_ABS_TOLERANCE, abs(expected) * PNL_CONSISTENCY_REL_TOLERANCE)
+            if abs(gross_pnl - expected) > tolerance:
+                invalid_fields.append(
+                    {
+                        "chunk": chunk_dir.name,
+                        "index": index,
+                        "field": "gross_pnl",
+                        "value": gross_pnl,
+                        "expected": expected,
+                        "error": "side_price_pnl_mismatch",
+                    }
+                )
+    return {
+        "schema_version": "trade_side_price_pnl_consistency.v1",
+        "valid": not invalid_fields,
+        "invalid_fields": invalid_fields[:100],
+        "invalid_field_count": len(invalid_fields),
+        "absolute_tolerance": PNL_CONSISTENCY_ABS_TOLERANCE,
+        "relative_tolerance": PNL_CONSISTENCY_REL_TOLERANCE,
+    }
+
+
 def _trade_exit_reason_integrity(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
     invalid_fields: list[dict[str, Any]] = []
     for chunk_dir in chunk_dirs:
@@ -1117,6 +1152,7 @@ def build_live_readiness_gate_report(
     trade_size_integrity = _trade_size_integrity(chunk_dirs)
     trade_notional_consistency = _trade_notional_consistency(chunk_dirs)
     trade_pnl_consistency = _trade_pnl_consistency(chunk_dirs)
+    trade_side_price_pnl_consistency = _trade_side_price_pnl_consistency(chunk_dirs)
     trade_exit_reason_integrity = _trade_exit_reason_integrity(chunk_dirs)
 
     trade_count = len(all_trades)
@@ -1231,6 +1267,8 @@ def build_live_readiness_gate_report(
         reasons.append("trade_notional_inconsistent")
     if not bool(trade_pnl_consistency.get("valid")):
         reasons.append("trade_pnl_inconsistent")
+    if not bool(trade_side_price_pnl_consistency.get("valid")):
+        reasons.append("trade_side_price_pnl_inconsistent")
     if not bool(trade_exit_reason_integrity.get("valid")):
         reasons.append("trade_exit_reason_invalid")
     if evidence_coverage < evidence_coverage_threshold:
@@ -1376,6 +1414,7 @@ def build_live_readiness_gate_report(
         "trade_size_integrity": trade_size_integrity,
         "trade_notional_consistency": trade_notional_consistency,
         "trade_pnl_consistency": trade_pnl_consistency,
+        "trade_side_price_pnl_consistency": trade_side_price_pnl_consistency,
         "trade_exit_reason_integrity": trade_exit_reason_integrity,
         "promotion_bundle_integrity": promotion_bundle_integrity,
         "setup_quality_gate": setup_quality_gate,
