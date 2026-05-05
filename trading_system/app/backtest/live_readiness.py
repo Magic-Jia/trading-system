@@ -211,6 +211,34 @@ def _trade_financial_integrity(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
     }
 
 
+def _trade_identity_integrity(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
+    missing_trade_ids: list[dict[str, Any]] = []
+    occurrences: dict[str, list[dict[str, Any]]] = {}
+    for chunk_dir in chunk_dirs:
+        rows = _trades_payload(_load_json(chunk_dir / "trades.json"))
+        for index, trade in enumerate(rows, start=1):
+            raw_trade_id = trade.get("trade_id")
+            trade_id = str(raw_trade_id).strip() if raw_trade_id is not None else ""
+            location = {"chunk": chunk_dir.name, "index": index}
+            if not trade_id:
+                missing_trade_ids.append(location)
+                continue
+            occurrences.setdefault(trade_id, []).append(location)
+    duplicate_trade_ids = [
+        {"trade_id": trade_id, "occurrences": locations}
+        for trade_id, locations in sorted(occurrences.items())
+        if len(locations) > 1
+    ]
+    return {
+        "schema_version": "trade_identity_integrity.v1",
+        "valid": not missing_trade_ids and not duplicate_trade_ids,
+        "missing_trade_ids": missing_trade_ids[:100],
+        "missing_trade_id_count": len(missing_trade_ids),
+        "duplicate_trade_ids": duplicate_trade_ids[:100],
+        "duplicate_trade_id_count": len(duplicate_trade_ids),
+    }
+
+
 def _int_value(value: Any) -> tuple[int, bool]:
     if isinstance(value, bool):
         return 0, False
@@ -790,6 +818,7 @@ def build_live_readiness_gate_report(
     )
 
     trade_financial_integrity = _trade_financial_integrity(chunk_dirs)
+    trade_identity_integrity = _trade_identity_integrity(chunk_dirs)
 
     trade_count = len(all_trades)
     net_pnl = sum(_float_value(trade.get("net_pnl")) for trade in all_trades)
@@ -889,6 +918,8 @@ def build_live_readiness_gate_report(
         reasons.append("net_pnl_below_zero")
     if not bool(trade_financial_integrity.get("valid")):
         reasons.append("trade_financial_metric_invalid")
+    if not bool(trade_identity_integrity.get("valid")):
+        reasons.append("trade_identity_invalid")
     if evidence_coverage < evidence_coverage_threshold:
         reasons.append("evidence_coverage_below_threshold")
     if exit_evidence_coverage < exit_evidence_coverage_threshold:
@@ -1025,6 +1056,7 @@ def build_live_readiness_gate_report(
         "by_symbol": {key: by_symbol[key] for key in sorted(by_symbol)},
         "by_side": {key: by_side[key] for key in sorted(by_side)},
         "trade_financial_integrity": trade_financial_integrity,
+        "trade_identity_integrity": trade_identity_integrity,
         "promotion_bundle_integrity": promotion_bundle_integrity,
         "setup_quality_gate": setup_quality_gate,
         "runtime_safety_gate": runtime_safety_gate,

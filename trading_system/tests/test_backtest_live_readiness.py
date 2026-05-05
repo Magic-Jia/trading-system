@@ -761,6 +761,25 @@ def test_live_readiness_gate_rejects_missing_required_trade_financial_metrics(tm
     assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
 
 
+def test_live_readiness_gate_rejects_duplicate_trade_ids(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    payload = json.loads((chunk / "trades.json").read_text(encoding="utf-8"))
+    first = payload["trades"][0]
+    first["trade_id"] = "duplicate-id"
+    payload["trades"].append({**first, "net_pnl": 50.0, "gross_pnl": 60.0})
+    (chunk / "trades.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    assert report["trade_identity_integrity"]["valid"] is False
+    assert report["trade_identity_integrity"]["duplicate_trade_ids"] == [
+        {"trade_id": "duplicate-id", "occurrences": [{"chunk": "chunk_001", "index": 1}, {"chunk": "chunk_001", "index": 2}]}
+    ]
+    assert "trade_identity_invalid" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
 def test_live_readiness_gate_rejects_negative_passive_calibration_attempts(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     chunk.mkdir()
