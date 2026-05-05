@@ -20,6 +20,7 @@ DEPTH_CLASSIFICATIONS = (
 )
 
 TRADE_FINANCIAL_FIELDS = ("net_pnl", "gross_pnl", "fee_paid", "slippage_paid", "funding_paid")
+TRADE_DIMENSION_FIELDS = ("symbol", "side", "setup_type")
 
 EXIT_CLASSIFICATIONS = (
     "fixed_horizon_only",
@@ -236,6 +237,31 @@ def _trade_identity_integrity(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
         "missing_trade_id_count": len(missing_trade_ids),
         "duplicate_trade_ids": duplicate_trade_ids[:100],
         "duplicate_trade_id_count": len(duplicate_trade_ids),
+    }
+
+
+def _trade_dimension_integrity(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
+    invalid_fields: list[dict[str, Any]] = []
+    for chunk_dir in chunk_dirs:
+        rows = _trades_payload(_load_json(chunk_dir / "trades.json"))
+        for index, trade in enumerate(rows, start=1):
+            for field in TRADE_DIMENSION_FIELDS:
+                value = trade.get(field)
+                if value is None or not str(value).strip():
+                    invalid_fields.append(
+                        {
+                            "chunk": chunk_dir.name,
+                            "index": index,
+                            "field": field,
+                            "value": value,
+                            "error": "missing_or_blank_dimension",
+                        }
+                    )
+    return {
+        "schema_version": "trade_dimension_integrity.v1",
+        "valid": not invalid_fields,
+        "invalid_fields": invalid_fields[:100],
+        "invalid_field_count": len(invalid_fields),
     }
 
 
@@ -819,6 +845,7 @@ def build_live_readiness_gate_report(
 
     trade_financial_integrity = _trade_financial_integrity(chunk_dirs)
     trade_identity_integrity = _trade_identity_integrity(chunk_dirs)
+    trade_dimension_integrity = _trade_dimension_integrity(chunk_dirs)
 
     trade_count = len(all_trades)
     net_pnl = sum(_float_value(trade.get("net_pnl")) for trade in all_trades)
@@ -920,6 +947,8 @@ def build_live_readiness_gate_report(
         reasons.append("trade_financial_metric_invalid")
     if not bool(trade_identity_integrity.get("valid")):
         reasons.append("trade_identity_invalid")
+    if not bool(trade_dimension_integrity.get("valid")):
+        reasons.append("trade_dimension_invalid")
     if evidence_coverage < evidence_coverage_threshold:
         reasons.append("evidence_coverage_below_threshold")
     if exit_evidence_coverage < exit_evidence_coverage_threshold:
@@ -1057,6 +1086,7 @@ def build_live_readiness_gate_report(
         "by_side": {key: by_side[key] for key in sorted(by_side)},
         "trade_financial_integrity": trade_financial_integrity,
         "trade_identity_integrity": trade_identity_integrity,
+        "trade_dimension_integrity": trade_dimension_integrity,
         "promotion_bundle_integrity": promotion_bundle_integrity,
         "setup_quality_gate": setup_quality_gate,
         "runtime_safety_gate": runtime_safety_gate,
