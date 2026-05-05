@@ -27,6 +27,7 @@ TRADE_TIME_FIELDS = ("entry_time", "exit_time")
 TRADE_PRICE_FIELDS = ("entry_price", "exit_price")
 TRADE_SIZE_FIELDS = ("quantity", "notional")
 TRADE_EXIT_REASON_FIELDS = ("simulated_exit_reason", "exit_reason")
+VALID_TRADES_ARTIFACT_SCHEMA_VERSION = "trades.v1"
 TRADE_EXECUTION_COST_FIELDS = ("fee_paid", "slippage_paid")
 VALID_TRADE_SIDES = ("long", "short")
 VALID_EXIT_REASONS = ("take_profit", "stop_loss", "stop", "tp", "fixed_horizon")
@@ -201,6 +202,29 @@ def _finite_float_value(value: Any) -> tuple[float, bool]:
     if not math.isfinite(parsed):
         return 0.0, False
     return parsed, True
+
+
+def _trades_artifact_integrity(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
+    invalid_artifacts: list[dict[str, Any]] = []
+    for chunk_dir in chunk_dirs:
+        payload = _load_json(chunk_dir / "trades.json")
+        schema_version = payload.get("schema_version")
+        if schema_version != VALID_TRADES_ARTIFACT_SCHEMA_VERSION:
+            invalid_artifacts.append(
+                {
+                    "chunk": chunk_dir.name,
+                    "artifact": "trades.json",
+                    "schema_version": schema_version,
+                    "error": "invalid_or_missing_schema_version",
+                }
+            )
+    return {
+        "schema_version": "trades_artifact_integrity.v1",
+        "valid": not invalid_artifacts,
+        "expected_schema_version": VALID_TRADES_ARTIFACT_SCHEMA_VERSION,
+        "invalid_artifacts": invalid_artifacts[:100],
+        "invalid_artifact_count": len(invalid_artifacts),
+    }
 
 
 def _trade_financial_integrity(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
@@ -1228,6 +1252,7 @@ def build_live_readiness_gate_report(
     )
 
     trade_financial_integrity = _trade_financial_integrity(chunk_dirs)
+    trades_artifact_integrity = _trades_artifact_integrity(chunk_dirs)
     trade_identity_integrity = _trade_identity_integrity(chunk_dirs)
     trade_dimension_integrity = _trade_dimension_integrity(chunk_dirs)
     trade_time_integrity = _trade_time_integrity(chunk_dirs)
@@ -1337,6 +1362,8 @@ def build_live_readiness_gate_report(
         reasons.append("net_pnl_below_zero")
     if not bool(trade_financial_integrity.get("valid")):
         reasons.append("trade_financial_metric_invalid")
+    if not bool(trades_artifact_integrity.get("valid")):
+        reasons.append("trades_artifact_schema_invalid")
     if not bool(trade_identity_integrity.get("valid")):
         reasons.append("trade_identity_invalid")
     if not bool(trade_dimension_integrity.get("valid")):
@@ -1493,6 +1520,7 @@ def build_live_readiness_gate_report(
         "by_symbol": {key: by_symbol[key] for key in sorted(by_symbol)},
         "by_side": {key: by_side[key] for key in sorted(by_side)},
         "trade_financial_integrity": trade_financial_integrity,
+        "trades_artifact_integrity": trades_artifact_integrity,
         "trade_identity_integrity": trade_identity_integrity,
         "trade_dimension_integrity": trade_dimension_integrity,
         "trade_time_integrity": trade_time_integrity,
