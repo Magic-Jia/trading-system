@@ -27,6 +27,7 @@ TRADE_TIME_FIELDS = ("entry_time", "exit_time")
 TRADE_PRICE_FIELDS = ("entry_price", "exit_price")
 TRADE_SIZE_FIELDS = ("quantity", "notional")
 TRADE_EXIT_REASON_FIELDS = ("simulated_exit_reason", "exit_reason")
+TRADE_EXECUTION_COST_FIELDS = ("fee_paid", "slippage_paid")
 VALID_TRADE_SIDES = ("long", "short")
 VALID_EXIT_REASONS = ("take_profit", "stop_loss", "stop", "tp", "fixed_horizon")
 NOTIONAL_CONSISTENCY_ABS_TOLERANCE = 1e-9
@@ -520,6 +521,34 @@ def _trade_notional_consistency(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
         "invalid_field_count": len(invalid_fields),
         "absolute_tolerance": NOTIONAL_CONSISTENCY_ABS_TOLERANCE,
         "relative_tolerance": NOTIONAL_CONSISTENCY_REL_TOLERANCE,
+    }
+
+
+def _trade_cost_sign_integrity(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
+    invalid_fields: list[dict[str, Any]] = []
+    for chunk_dir in chunk_dirs:
+        rows = _trades_payload(_load_json(chunk_dir / "trades.json"))
+        for index, trade in enumerate(rows, start=1):
+            for field in TRADE_EXECUTION_COST_FIELDS:
+                value = trade.get(field)
+                parsed, valid = _strict_float_value(value)
+                if valid and parsed < 0.0:
+                    invalid_fields.append(
+                        {
+                            "chunk": chunk_dir.name,
+                            "index": index,
+                            "field": field,
+                            "value": value,
+                            "error": "negative_execution_cost",
+                        }
+                    )
+    return {
+        "schema_version": "trade_cost_sign_integrity.v1",
+        "valid": not invalid_fields,
+        "invalid_fields": invalid_fields[:100],
+        "invalid_field_count": len(invalid_fields),
+        "nonnegative_cost_fields": list(TRADE_EXECUTION_COST_FIELDS),
+        "funding_paid_policy": "signed_funding_allowed",
     }
 
 
@@ -1190,6 +1219,7 @@ def build_live_readiness_gate_report(
     trade_price_integrity = _trade_price_integrity(chunk_dirs)
     trade_size_integrity = _trade_size_integrity(chunk_dirs)
     trade_notional_consistency = _trade_notional_consistency(chunk_dirs)
+    trade_cost_sign_integrity = _trade_cost_sign_integrity(chunk_dirs)
     trade_pnl_consistency = _trade_pnl_consistency(chunk_dirs)
     trade_side_price_pnl_consistency = _trade_side_price_pnl_consistency(chunk_dirs)
     trade_exit_reason_integrity = _trade_exit_reason_integrity(chunk_dirs)
@@ -1304,6 +1334,8 @@ def build_live_readiness_gate_report(
         reasons.append("trade_size_invalid")
     if not bool(trade_notional_consistency.get("valid")):
         reasons.append("trade_notional_inconsistent")
+    if not bool(trade_cost_sign_integrity.get("valid")):
+        reasons.append("trade_cost_sign_invalid")
     if not bool(trade_pnl_consistency.get("valid")):
         reasons.append("trade_pnl_inconsistent")
     if not bool(trade_side_price_pnl_consistency.get("valid")):
@@ -1452,6 +1484,7 @@ def build_live_readiness_gate_report(
         "trade_price_integrity": trade_price_integrity,
         "trade_size_integrity": trade_size_integrity,
         "trade_notional_consistency": trade_notional_consistency,
+        "trade_cost_sign_integrity": trade_cost_sign_integrity,
         "trade_pnl_consistency": trade_pnl_consistency,
         "trade_side_price_pnl_consistency": trade_side_price_pnl_consistency,
         "trade_exit_reason_integrity": trade_exit_reason_integrity,
