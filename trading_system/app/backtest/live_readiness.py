@@ -30,6 +30,8 @@ VALID_TRADE_SIDES = ("long", "short")
 VALID_EXIT_REASONS = ("take_profit", "stop_loss", "stop", "tp", "fixed_horizon")
 NOTIONAL_CONSISTENCY_ABS_TOLERANCE = 1e-9
 NOTIONAL_CONSISTENCY_REL_TOLERANCE = 1e-6
+PNL_CONSISTENCY_ABS_TOLERANCE = 1e-9
+PNL_CONSISTENCY_REL_TOLERANCE = 1e-6
 
 EXIT_CLASSIFICATIONS = (
     "fixed_horizon_only",
@@ -482,6 +484,41 @@ def _trade_notional_consistency(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
         "invalid_field_count": len(invalid_fields),
         "absolute_tolerance": NOTIONAL_CONSISTENCY_ABS_TOLERANCE,
         "relative_tolerance": NOTIONAL_CONSISTENCY_REL_TOLERANCE,
+    }
+
+
+def _trade_pnl_consistency(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
+    invalid_fields: list[dict[str, Any]] = []
+    for chunk_dir in chunk_dirs:
+        rows = _trades_payload(_load_json(chunk_dir / "trades.json"))
+        for index, trade in enumerate(rows, start=1):
+            net_pnl, net_valid = _strict_float_value(trade.get("net_pnl"))
+            gross_pnl, gross_valid = _strict_float_value(trade.get("gross_pnl"))
+            fee_paid, fee_valid = _strict_float_value(trade.get("fee_paid"))
+            slippage_paid, slippage_valid = _strict_float_value(trade.get("slippage_paid"))
+            funding_paid, funding_valid = _strict_float_value(trade.get("funding_paid"))
+            if not all((net_valid, gross_valid, fee_valid, slippage_valid, funding_valid)):
+                continue
+            expected = gross_pnl - fee_paid - slippage_paid - funding_paid
+            tolerance = max(PNL_CONSISTENCY_ABS_TOLERANCE, abs(expected) * PNL_CONSISTENCY_REL_TOLERANCE)
+            if abs(net_pnl - expected) > tolerance:
+                invalid_fields.append(
+                    {
+                        "chunk": chunk_dir.name,
+                        "index": index,
+                        "field": "net_pnl",
+                        "value": net_pnl,
+                        "expected": expected,
+                        "error": "net_pnl_mismatch",
+                    }
+                )
+    return {
+        "schema_version": "trade_pnl_consistency.v1",
+        "valid": not invalid_fields,
+        "invalid_fields": invalid_fields[:100],
+        "invalid_field_count": len(invalid_fields),
+        "absolute_tolerance": PNL_CONSISTENCY_ABS_TOLERANCE,
+        "relative_tolerance": PNL_CONSISTENCY_REL_TOLERANCE,
     }
 
 
@@ -1079,6 +1116,7 @@ def build_live_readiness_gate_report(
     trade_price_integrity = _trade_price_integrity(chunk_dirs)
     trade_size_integrity = _trade_size_integrity(chunk_dirs)
     trade_notional_consistency = _trade_notional_consistency(chunk_dirs)
+    trade_pnl_consistency = _trade_pnl_consistency(chunk_dirs)
     trade_exit_reason_integrity = _trade_exit_reason_integrity(chunk_dirs)
 
     trade_count = len(all_trades)
@@ -1191,6 +1229,8 @@ def build_live_readiness_gate_report(
         reasons.append("trade_size_invalid")
     if not bool(trade_notional_consistency.get("valid")):
         reasons.append("trade_notional_inconsistent")
+    if not bool(trade_pnl_consistency.get("valid")):
+        reasons.append("trade_pnl_inconsistent")
     if not bool(trade_exit_reason_integrity.get("valid")):
         reasons.append("trade_exit_reason_invalid")
     if evidence_coverage < evidence_coverage_threshold:
@@ -1335,6 +1375,7 @@ def build_live_readiness_gate_report(
         "trade_price_integrity": trade_price_integrity,
         "trade_size_integrity": trade_size_integrity,
         "trade_notional_consistency": trade_notional_consistency,
+        "trade_pnl_consistency": trade_pnl_consistency,
         "trade_exit_reason_integrity": trade_exit_reason_integrity,
         "promotion_bundle_integrity": promotion_bundle_integrity,
         "setup_quality_gate": setup_quality_gate,
