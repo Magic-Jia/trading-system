@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import re
 import shutil
 from collections import Counter
 from datetime import UTC, datetime
@@ -39,6 +40,15 @@ EXIT_CLASSIFICATIONS = (
     "trade_print_path_available",
     "ambiguous_intrabar_order",
 )
+
+
+def _natural_path_key(path: Path) -> tuple[Any, ...]:
+    parts: list[Any] = []
+    for token in re.split(r"(\d+)", path.name):
+        if not token:
+            continue
+        parts.append(int(token) if token.isdigit() else token)
+    return tuple(parts)
 
 
 def _as_mapping(value: Any) -> Mapping[str, Any]:
@@ -1114,7 +1124,10 @@ def build_live_readiness_gate_report(
             "required": require_promotion_bundle_integrity,
             **verify_promotion_evidence_bundle(root),
         }
-    chunk_dirs = sorted(path for path in root.iterdir() if path.is_dir() and (path / "trades.json").exists())
+    chunk_dirs = sorted(
+        (path for path in root.iterdir() if path.is_dir() and (path / "trades.json").exists()),
+        key=_natural_path_key,
+    )
     all_trades: list[dict[str, Any]] = []
     chunk_performance: list[dict[str, Any]] = []
     for chunk_dir in chunk_dirs:

@@ -709,6 +709,23 @@ def _write_profitable_trade_chunk(chunk: Path) -> None:
     )
 
 
+def test_live_readiness_gate_sorts_chunk_names_naturally(tmp_path: Path) -> None:
+    for name in ("chunk_10", "chunk_2", "chunk_1"):
+        chunk = tmp_path / name
+        _write_profitable_trade_chunk(chunk)
+        payload = json.loads((chunk / "trades.json").read_text(encoding="utf-8"))
+        trade = payload["trades"][0]
+        suffix = int(name.split("_")[1])
+        trade["trade_id"] = f"trade-{suffix:03d}"
+        trade["entry_time"] = f"2026-03-10T00:{suffix:02d}:00Z"
+        trade["exit_time"] = f"2026-03-10T00:{suffix + 1:02d}:00Z"
+        (chunk / "trades.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    assert [row["chunk"] for row in report["chunk_performance"]] == ["chunk_1", "chunk_2", "chunk_10"]
+
+
 def test_live_readiness_gate_rejects_non_integral_passive_calibration_attempts(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     _write_profitable_trade_chunk(chunk)
