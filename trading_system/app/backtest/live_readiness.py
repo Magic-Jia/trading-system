@@ -21,6 +21,7 @@ DEPTH_CLASSIFICATIONS = (
 
 TRADE_FINANCIAL_FIELDS = ("net_pnl", "gross_pnl", "fee_paid", "slippage_paid", "funding_paid")
 TRADE_DIMENSION_FIELDS = ("symbol", "side", "setup_type")
+VALID_TRADE_SIDES = ("long", "short")
 
 EXIT_CLASSIFICATIONS = (
     "fixed_horizon_only",
@@ -247,7 +248,8 @@ def _trade_dimension_integrity(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
         for index, trade in enumerate(rows, start=1):
             for field in TRADE_DIMENSION_FIELDS:
                 value = trade.get(field)
-                if value is None or not str(value).strip():
+                stripped = str(value).strip() if value is not None else ""
+                if not stripped:
                     invalid_fields.append(
                         {
                             "chunk": chunk_dir.name,
@@ -255,6 +257,17 @@ def _trade_dimension_integrity(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
                             "field": field,
                             "value": value,
                             "error": "missing_or_blank_dimension",
+                        }
+                    )
+                    continue
+                if field == "side" and stripped not in VALID_TRADE_SIDES:
+                    invalid_fields.append(
+                        {
+                            "chunk": chunk_dir.name,
+                            "index": index,
+                            "field": field,
+                            "value": value,
+                            "error": "invalid_side",
                         }
                     )
     return {
