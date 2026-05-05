@@ -500,6 +500,7 @@ def test_live_readiness_gate_report_rejects_invalid_passive_calibration_schema_a
                         "gross_pnl": 120.0,
                         "fee_paid": 10.0,
                         "slippage_paid": 10.0,
+                        "funding_paid": 0.0,
                         "fill_quality": "evidence_backed",
                         "execution_price_source": "trade_print",
                         "exit_fill_quality": "evidence_backed",
@@ -554,6 +555,7 @@ def test_live_readiness_gate_rejects_malformed_required_runtime_safety_artifact(
                         "gross_pnl": 120.0,
                         "fee_paid": 10.0,
                         "slippage_paid": 10.0,
+                        "funding_paid": 0.0,
                         "fill_quality": "evidence_backed",
                         "execution_price_source": "trade_print",
                         "exit_fill_quality": "evidence_backed",
@@ -593,6 +595,7 @@ def test_live_readiness_gate_rejects_invalid_passive_calibration_numeric_fields(
                         "gross_pnl": 120.0,
                         "fee_paid": 10.0,
                         "slippage_paid": 10.0,
+                        "funding_paid": 0.0,
                         "fill_quality": "evidence_backed",
                         "execution_price_source": "trade_print",
                         "exit_fill_quality": "evidence_backed",
@@ -639,6 +642,7 @@ def test_live_readiness_gate_rejects_non_finite_passive_calibration_fill_rate(tm
                         "gross_pnl": 120.0,
                         "fee_paid": 10.0,
                         "slippage_paid": 10.0,
+                        "funding_paid": 0.0,
                         "fill_quality": "evidence_backed",
                         "execution_price_source": "trade_print",
                         "exit_fill_quality": "evidence_backed",
@@ -684,6 +688,7 @@ def _write_profitable_trade_chunk(chunk: Path) -> None:
                         "gross_pnl": 120.0,
                         "fee_paid": 10.0,
                         "slippage_paid": 10.0,
+                        "funding_paid": 0.0,
                         "fill_quality": "evidence_backed",
                         "execution_price_source": "trade_print",
                         "exit_fill_quality": "evidence_backed",
@@ -739,6 +744,23 @@ def test_live_readiness_gate_rejects_non_finite_trade_financial_metrics(tmp_path
     assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
 
 
+def test_live_readiness_gate_rejects_missing_required_trade_financial_metrics(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    payload = json.loads((chunk / "trades.json").read_text(encoding="utf-8"))
+    del payload["trades"][0]["fee_paid"]
+    (chunk / "trades.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    assert report["trade_financial_integrity"]["valid"] is False
+    assert report["trade_financial_integrity"]["invalid_fields"] == [
+        {"chunk": "chunk_001", "index": 1, "field": "fee_paid", "value": None, "error": "missing_required_field"}
+    ]
+    assert "trade_financial_metric_invalid" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
 def test_live_readiness_gate_rejects_negative_passive_calibration_attempts(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     chunk.mkdir()
@@ -754,6 +776,7 @@ def test_live_readiness_gate_rejects_negative_passive_calibration_attempts(tmp_p
                         "gross_pnl": 120.0,
                         "fee_paid": 10.0,
                         "slippage_paid": 10.0,
+                        "funding_paid": 0.0,
                         "fill_quality": "evidence_backed",
                         "execution_price_source": "trade_print",
                         "exit_fill_quality": "evidence_backed",
@@ -800,6 +823,7 @@ def test_live_readiness_gate_rejects_out_of_range_passive_calibration_fill_rate(
                         "gross_pnl": 120.0,
                         "fee_paid": 10.0,
                         "slippage_paid": 10.0,
+                        "funding_paid": 0.0,
                         "fill_quality": "evidence_backed",
                         "execution_price_source": "trade_print",
                         "exit_fill_quality": "evidence_backed",
@@ -846,6 +870,7 @@ def test_live_readiness_gate_report_rejects_missing_runtime_safety_evidence(tmp_
                         "gross_pnl": 120.0,
                         "fee_paid": 10.0,
                         "slippage_paid": 10.0,
+                        "funding_paid": 0.0,
                         "fill_quality": "evidence_backed",
                         "execution_price_source": "trade_print",
                         "exit_fill_quality": "evidence_backed",
@@ -904,6 +929,7 @@ def test_live_readiness_gate_report_accepts_runtime_safety_evidence_artifact(tmp
                         "gross_pnl": 120.0,
                         "fee_paid": 10.0,
                         "slippage_paid": 10.0,
+                        "funding_paid": 0.0,
                         "fill_quality": "evidence_backed",
                         "execution_price_source": "trade_print",
                         "exit_fill_quality": "evidence_backed",
@@ -958,6 +984,7 @@ def test_live_readiness_gate_report_rejects_missing_microstructure_evidence(tmp_
                         "gross_pnl": 120.0,
                         "fee_paid": 10.0,
                         "slippage_paid": 10.0,
+                        "funding_paid": 0.0,
                         "fill_quality": "evidence_backed",
                         "execution_price_source": "trade_print",
                         "exit_fill_quality": "evidence_backed",
@@ -1002,6 +1029,7 @@ def test_live_readiness_gate_report_rejects_invalid_producer_artifact_schema_and
                         "gross_pnl": 120.0,
                         "fee_paid": 10.0,
                         "slippage_paid": 10.0,
+                        "funding_paid": 0.0,
                         "fill_quality": "evidence_backed",
                         "execution_price_source": "trade_print",
                         "exit_fill_quality": "evidence_backed",
@@ -1092,6 +1120,7 @@ def test_live_readiness_gate_report_accepts_microstructure_evidence_artifact(tmp
                         "gross_pnl": 120.0,
                         "fee_paid": 10.0,
                         "slippage_paid": 10.0,
+                        "funding_paid": 0.0,
                         "fill_quality": "evidence_backed",
                         "execution_price_source": "trade_print",
                         "exit_fill_quality": "evidence_backed",
@@ -1139,6 +1168,7 @@ def test_live_readiness_gate_report_rejects_missing_validation_evidence(tmp_path
                         "gross_pnl": 120.0,
                         "fee_paid": 10.0,
                         "slippage_paid": 10.0,
+                        "funding_paid": 0.0,
                         "fill_quality": "evidence_backed",
                         "execution_price_source": "trade_print",
                         "exit_fill_quality": "evidence_backed",
@@ -1187,6 +1217,7 @@ def test_live_readiness_gate_report_accepts_validation_evidence_artifact(tmp_pat
                         "gross_pnl": 120.0,
                         "fee_paid": 10.0,
                         "slippage_paid": 10.0,
+                        "funding_paid": 0.0,
                         "fill_quality": "evidence_backed",
                         "execution_price_source": "trade_print",
                         "exit_fill_quality": "evidence_backed",

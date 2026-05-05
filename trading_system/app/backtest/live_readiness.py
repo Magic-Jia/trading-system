@@ -186,7 +186,18 @@ def _trade_financial_integrity(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
         rows = _trades_payload(_load_json(chunk_dir / "trades.json"))
         for index, trade in enumerate(rows, start=1):
             for field in TRADE_FINANCIAL_FIELDS:
-                value = trade.get(field, 0.0)
+                if field not in trade:
+                    invalid_fields.append(
+                        {
+                            "chunk": chunk_dir.name,
+                            "index": index,
+                            "field": field,
+                            "value": None,
+                            "error": "missing_required_field",
+                        }
+                    )
+                    continue
+                value = trade.get(field)
                 _, valid = _finite_float_value(value)
                 if not valid:
                     invalid_fields.append(
