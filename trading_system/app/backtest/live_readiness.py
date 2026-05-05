@@ -627,13 +627,13 @@ def _trade_exit_reason_integrity(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
     for chunk_dir in chunk_dirs:
         rows = _trades_payload(_load_json(chunk_dir / "trades.json"))
         for index, trade in enumerate(rows, start=1):
-            has_reason = False
+            reasons: dict[str, str] = {}
             for field in TRADE_EXIT_REASON_FIELDS:
                 value = trade.get(field)
                 reason = str(value).strip() if value is not None else ""
                 if not reason:
                     continue
-                has_reason = True
+                reasons[field] = reason
                 if reason not in VALID_EXIT_REASONS:
                     invalid_fields.append(
                         {
@@ -644,7 +644,7 @@ def _trade_exit_reason_integrity(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
                             "error": "invalid_exit_reason",
                         }
                     )
-            if not has_reason:
+            if not reasons:
                 invalid_fields.append(
                     {
                         "chunk": chunk_dir.name,
@@ -652,6 +652,21 @@ def _trade_exit_reason_integrity(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
                         "field": "exit_reason",
                         "value": None,
                         "error": "missing_exit_reason",
+                    }
+                )
+            elif (
+                "exit_reason" in reasons
+                and "simulated_exit_reason" in reasons
+                and reasons["exit_reason"] != reasons["simulated_exit_reason"]
+            ):
+                invalid_fields.append(
+                    {
+                        "chunk": chunk_dir.name,
+                        "index": index,
+                        "field": "exit_reason",
+                        "value": trade.get("exit_reason"),
+                        "simulated_exit_reason": trade.get("simulated_exit_reason"),
+                        "error": "conflicting_exit_reasons",
                     }
                 )
     return {

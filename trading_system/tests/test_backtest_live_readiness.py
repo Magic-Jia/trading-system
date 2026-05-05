@@ -1005,6 +1005,32 @@ def test_live_readiness_gate_rejects_invalid_exit_reason(tmp_path: Path) -> None
     assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
 
 
+def test_live_readiness_gate_rejects_conflicting_exit_reasons(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    payload = json.loads((chunk / "trades.json").read_text(encoding="utf-8"))
+    trade = payload["trades"][0]
+    trade["exit_reason"] = "fixed_horizon"
+    trade["simulated_exit_reason"] = "take_profit"
+    (chunk / "trades.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    assert report["trade_exit_reason_integrity"]["valid"] is False
+    assert report["trade_exit_reason_integrity"]["invalid_fields"] == [
+        {
+            "chunk": "chunk_001",
+            "index": 1,
+            "field": "exit_reason",
+            "value": "fixed_horizon",
+            "simulated_exit_reason": "take_profit",
+            "error": "conflicting_exit_reasons",
+        }
+    ]
+    assert "trade_exit_reason_invalid" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
 def test_live_readiness_gate_rejects_inconsistent_trade_notional(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     _write_profitable_trade_chunk(chunk)
