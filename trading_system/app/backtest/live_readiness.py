@@ -5,6 +5,7 @@ import json
 import math
 import shutil
 from collections import Counter
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
@@ -21,6 +22,7 @@ DEPTH_CLASSIFICATIONS = (
 
 TRADE_FINANCIAL_FIELDS = ("net_pnl", "gross_pnl", "fee_paid", "slippage_paid", "funding_paid")
 TRADE_DIMENSION_FIELDS = ("symbol", "side", "setup_type")
+TRADE_TIME_FIELDS = ("entry_time", "exit_time")
 VALID_TRADE_SIDES = ("long", "short")
 
 EXIT_CLASSIFICATIONS = (
@@ -272,6 +274,64 @@ def _trade_dimension_integrity(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
                     )
     return {
         "schema_version": "trade_dimension_integrity.v1",
+        "valid": not invalid_fields,
+        "invalid_fields": invalid_fields[:100],
+        "invalid_field_count": len(invalid_fields),
+    }
+
+
+def _parse_trade_time(value: Any) -> datetime | None:
+    if not isinstance(value, str):
+        return None
+    stripped = value.strip()
+    if not stripped:
+        return None
+    normalized = stripped[:-1] + "+00:00" if stripped.endswith("Z") else stripped
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
+def _trade_time_integrity(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
+    invalid_fields: list[dict[str, Any]] = []
+    for chunk_dir in chunk_dirs:
+        rows = _trades_payload(_load_json(chunk_dir / "trades.json"))
+        for index, trade in enumerate(rows, start=1):
+            parsed_times: dict[str, datetime] = {}
+            for field in TRADE_TIME_FIELDS:
+                value = trade.get(field)
+                parsed = _parse_trade_time(value)
+                if parsed is None:
+                    invalid_fields.append(
+                        {
+                            "chunk": chunk_dir.name,
+                            "index": index,
+                            "field": field,
+                            "value": value,
+                            "error": "missing_or_invalid_timestamp",
+                        }
+                    )
+                    continue
+                parsed_times[field] = parsed
+            entry_time = parsed_times.get("entry_time")
+            exit_time = parsed_times.get("exit_time")
+            if entry_time is not None and exit_time is not None and exit_time < entry_time:
+                invalid_fields.append(
+                    {
+                        "chunk": chunk_dir.name,
+                        "index": index,
+                        "field": "exit_time",
+                        "value": trade.get("exit_time"),
+                        "entry_time": trade.get("entry_time"),
+                        "error": "exit_before_entry",
+                    }
+                )
+    return {
+        "schema_version": "trade_time_integrity.v1",
         "valid": not invalid_fields,
         "invalid_fields": invalid_fields[:100],
         "invalid_field_count": len(invalid_fields),
@@ -859,6 +919,7 @@ def build_live_readiness_gate_report(
     trade_financial_integrity = _trade_financial_integrity(chunk_dirs)
     trade_identity_integrity = _trade_identity_integrity(chunk_dirs)
     trade_dimension_integrity = _trade_dimension_integrity(chunk_dirs)
+    trade_time_integrity = _trade_time_integrity(chunk_dirs)
 
     trade_count = len(all_trades)
     net_pnl = sum(_float_value(trade.get("net_pnl")) for trade in all_trades)
@@ -962,6 +1023,8 @@ def build_live_readiness_gate_report(
         reasons.append("trade_identity_invalid")
     if not bool(trade_dimension_integrity.get("valid")):
         reasons.append("trade_dimension_invalid")
+    if not bool(trade_time_integrity.get("valid")):
+        reasons.append("trade_time_invalid")
     if evidence_coverage < evidence_coverage_threshold:
         reasons.append("evidence_coverage_below_threshold")
     if exit_evidence_coverage < exit_evidence_coverage_threshold:
@@ -1100,6 +1163,7 @@ def build_live_readiness_gate_report(
         "trade_financial_integrity": trade_financial_integrity,
         "trade_identity_integrity": trade_identity_integrity,
         "trade_dimension_integrity": trade_dimension_integrity,
+        "trade_time_integrity": trade_time_integrity,
         "promotion_bundle_integrity": promotion_bundle_integrity,
         "setup_quality_gate": setup_quality_gate,
         "runtime_safety_gate": runtime_safety_gate,
