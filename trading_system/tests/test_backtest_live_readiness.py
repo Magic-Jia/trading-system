@@ -996,6 +996,36 @@ def test_live_readiness_gate_rejects_side_price_pnl_mismatch(tmp_path: Path) -> 
     assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
 
 
+def test_live_readiness_gate_rejects_duplicate_trade_ids_across_chunks(tmp_path: Path) -> None:
+    first_chunk = tmp_path / "chunk_001"
+    second_chunk = tmp_path / "chunk_002"
+    _write_profitable_trade_chunk(first_chunk)
+    _write_profitable_trade_chunk(second_chunk)
+
+    first_payload = json.loads((first_chunk / "trades.json").read_text(encoding="utf-8"))
+    second_payload = json.loads((second_chunk / "trades.json").read_text(encoding="utf-8"))
+    second_payload["trades"][0]["trade_id"] = first_payload["trades"][0]["trade_id"]
+    second_payload["trades"][0]["entry_time"] = "2026-03-10T00:10:00Z"
+    second_payload["trades"][0]["exit_time"] = "2026-03-10T00:15:00Z"
+    (second_chunk / "trades.json").write_text(json.dumps(second_payload), encoding="utf-8")
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    assert report["trade_identity_integrity"]["valid"] is False
+    assert report["trade_identity_integrity"]["duplicate_trade_id_count"] == 1
+    assert report["trade_identity_integrity"]["duplicate_trade_ids"] == [
+        {
+            "trade_id": first_payload["trades"][0]["trade_id"],
+            "occurrences": [
+                {"chunk": "chunk_001", "index": 1},
+                {"chunk": "chunk_002", "index": 1},
+            ],
+        }
+    ]
+    assert "trade_identity_invalid" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
 def test_live_readiness_gate_rejects_negative_passive_calibration_attempts(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     chunk.mkdir()
