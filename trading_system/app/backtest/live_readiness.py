@@ -235,6 +235,7 @@ def _trade_financial_integrity(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
 
 def _trade_identity_integrity(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
     missing_trade_ids: list[dict[str, Any]] = []
+    invalid_trade_ids: list[dict[str, Any]] = []
     occurrences: dict[str, list[dict[str, Any]]] = {}
     for chunk_dir in chunk_dirs:
         rows = _trades_payload(_load_json(chunk_dir / "trades.json"))
@@ -245,6 +246,9 @@ def _trade_identity_integrity(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
             if not trade_id:
                 missing_trade_ids.append(location)
                 continue
+            if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}", trade_id):
+                invalid_trade_ids.append({**location, "trade_id": raw_trade_id, "error": "invalid_trade_id"})
+                continue
             occurrences.setdefault(trade_id, []).append(location)
     duplicate_trade_ids = [
         {"trade_id": trade_id, "occurrences": locations}
@@ -253,9 +257,11 @@ def _trade_identity_integrity(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
     ]
     return {
         "schema_version": "trade_identity_integrity.v1",
-        "valid": not missing_trade_ids and not duplicate_trade_ids,
+        "valid": not missing_trade_ids and not invalid_trade_ids and not duplicate_trade_ids,
         "missing_trade_ids": missing_trade_ids[:100],
         "missing_trade_id_count": len(missing_trade_ids),
+        "invalid_trade_ids": invalid_trade_ids[:100],
+        "invalid_trade_id_count": len(invalid_trade_ids),
         "duplicate_trade_ids": duplicate_trade_ids[:100],
         "duplicate_trade_id_count": len(duplicate_trade_ids),
     }
