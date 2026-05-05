@@ -25,7 +25,9 @@ TRADE_DIMENSION_FIELDS = ("symbol", "side", "setup_type")
 TRADE_TIME_FIELDS = ("entry_time", "exit_time")
 TRADE_PRICE_FIELDS = ("entry_price", "exit_price")
 TRADE_SIZE_FIELDS = ("quantity", "notional")
+TRADE_EXIT_REASON_FIELDS = ("simulated_exit_reason", "exit_reason")
 VALID_TRADE_SIDES = ("long", "short")
+VALID_EXIT_REASONS = ("take_profit", "stop_loss", "stop", "tp", "fixed_horizon")
 
 EXIT_CLASSIFICATIONS = (
     "fixed_horizon_only",
@@ -439,6 +441,46 @@ def _trade_size_integrity(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
                     )
     return {
         "schema_version": "trade_size_integrity.v1",
+        "valid": not invalid_fields,
+        "invalid_fields": invalid_fields[:100],
+        "invalid_field_count": len(invalid_fields),
+    }
+
+
+def _trade_exit_reason_integrity(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
+    invalid_fields: list[dict[str, Any]] = []
+    for chunk_dir in chunk_dirs:
+        rows = _trades_payload(_load_json(chunk_dir / "trades.json"))
+        for index, trade in enumerate(rows, start=1):
+            has_reason = False
+            for field in TRADE_EXIT_REASON_FIELDS:
+                value = trade.get(field)
+                reason = str(value).strip() if value is not None else ""
+                if not reason:
+                    continue
+                has_reason = True
+                if reason not in VALID_EXIT_REASONS:
+                    invalid_fields.append(
+                        {
+                            "chunk": chunk_dir.name,
+                            "index": index,
+                            "field": field,
+                            "value": value,
+                            "error": "invalid_exit_reason",
+                        }
+                    )
+            if not has_reason:
+                invalid_fields.append(
+                    {
+                        "chunk": chunk_dir.name,
+                        "index": index,
+                        "field": "exit_reason",
+                        "value": None,
+                        "error": "missing_exit_reason",
+                    }
+                )
+    return {
+        "schema_version": "trade_exit_reason_integrity.v1",
         "valid": not invalid_fields,
         "invalid_fields": invalid_fields[:100],
         "invalid_field_count": len(invalid_fields),
@@ -998,6 +1040,7 @@ def build_live_readiness_gate_report(
     trade_time_integrity = _trade_time_integrity(chunk_dirs)
     trade_price_integrity = _trade_price_integrity(chunk_dirs)
     trade_size_integrity = _trade_size_integrity(chunk_dirs)
+    trade_exit_reason_integrity = _trade_exit_reason_integrity(chunk_dirs)
 
     trade_count = len(all_trades)
     net_pnl = sum(_float_value(trade.get("net_pnl")) for trade in all_trades)
@@ -1107,6 +1150,8 @@ def build_live_readiness_gate_report(
         reasons.append("trade_price_invalid")
     if not bool(trade_size_integrity.get("valid")):
         reasons.append("trade_size_invalid")
+    if not bool(trade_exit_reason_integrity.get("valid")):
+        reasons.append("trade_exit_reason_invalid")
     if evidence_coverage < evidence_coverage_threshold:
         reasons.append("evidence_coverage_below_threshold")
     if exit_evidence_coverage < exit_evidence_coverage_threshold:
@@ -1248,6 +1293,7 @@ def build_live_readiness_gate_report(
         "trade_time_integrity": trade_time_integrity,
         "trade_price_integrity": trade_price_integrity,
         "trade_size_integrity": trade_size_integrity,
+        "trade_exit_reason_integrity": trade_exit_reason_integrity,
         "promotion_bundle_integrity": promotion_bundle_integrity,
         "setup_quality_gate": setup_quality_gate,
         "runtime_safety_gate": runtime_safety_gate,
