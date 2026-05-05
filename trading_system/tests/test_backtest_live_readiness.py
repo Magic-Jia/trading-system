@@ -687,6 +687,8 @@ def _write_profitable_trade_chunk(chunk: Path) -> None:
                         "setup_type": "BREAKOUT_CONTINUATION",
                         "entry_time": "2026-03-10T00:00:00Z",
                         "exit_time": "2026-03-10T00:05:00Z",
+                        "entry_price": 100.0,
+                        "exit_price": 101.5,
                         "net_pnl": 100.0,
                         "gross_pnl": 120.0,
                         "fee_paid": 10.0,
@@ -841,6 +843,25 @@ def test_live_readiness_gate_rejects_invalid_trade_timestamps(tmp_path: Path) ->
         }
     ]
     assert "trade_time_invalid" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
+def test_live_readiness_gate_rejects_invalid_trade_prices(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    payload = json.loads((chunk / "trades.json").read_text(encoding="utf-8"))
+    payload["trades"][0]["entry_price"] = 0.0
+    payload["trades"][0]["exit_price"] = "NaN"
+    (chunk / "trades.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    assert report["trade_price_integrity"]["valid"] is False
+    assert report["trade_price_integrity"]["invalid_fields"] == [
+        {"chunk": "chunk_001", "index": 1, "field": "entry_price", "value": 0.0, "error": "non_positive_price"},
+        {"chunk": "chunk_001", "index": 1, "field": "exit_price", "value": "NaN", "error": "invalid_price"},
+    ]
+    assert "trade_price_invalid" in report["promotion_gate"]["reasons"]
     assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
 
 
