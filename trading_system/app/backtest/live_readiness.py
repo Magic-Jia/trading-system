@@ -280,6 +280,16 @@ def _trade_dimension_integrity(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
                         }
                     )
                     continue
+                if field == "symbol" and not re.fullmatch(r"[A-Z0-9]{3,20}", stripped):
+                    invalid_fields.append(
+                        {
+                            "chunk": chunk_dir.name,
+                            "index": index,
+                            "field": field,
+                            "value": value,
+                            "error": "invalid_symbol",
+                        }
+                    )
                 if field == "side" and stripped not in VALID_TRADE_SIDES:
                     invalid_fields.append(
                         {
