@@ -364,7 +364,7 @@ def _trade_time_integrity(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
                 parsed_times[field] = parsed
             entry_time = parsed_times.get("entry_time")
             exit_time = parsed_times.get("exit_time")
-            if entry_time is not None and exit_time is not None and exit_time < entry_time:
+            if entry_time is not None and exit_time is not None and exit_time <= entry_time:
                 invalid_fields.append(
                     {
                         "chunk": chunk_dir.name,
@@ -372,7 +372,7 @@ def _trade_time_integrity(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
                         "field": "exit_time",
                         "value": trade.get("exit_time"),
                         "entry_time": trade.get("entry_time"),
-                        "error": "exit_before_entry",
+                        "error": "exit_before_entry" if exit_time < entry_time else "non_positive_duration",
                     }
                 )
     return {
