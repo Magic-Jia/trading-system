@@ -149,6 +149,9 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
         manifest_errors.append("missing_candidate_id")
     elif not candidate_id_valid:
         manifest_errors.append("invalid_candidate_id")
+    evidence_source_raw = manifest.get("evidence_source")
+    if evidence_source_raw is not None and not isinstance(evidence_source_raw, Mapping):
+        manifest_errors.append("evidence_source_not_object")
     artifacts_raw = manifest.get("artifacts")
     if artifacts_raw is None:
         artifacts = []
