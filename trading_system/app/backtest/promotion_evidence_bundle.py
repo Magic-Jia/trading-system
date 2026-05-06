@@ -285,6 +285,7 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
     non_string_required_artifacts: list[str] = []
     blank_required_artifacts: list[str] = []
     noncanonical_required_artifacts: list[str] = []
+    unsafe_required_artifacts: list[str] = []
     if required_artifacts_raw is None:
         manifest_required = []
         manifest_errors.append("required_artifacts_not_list")
@@ -304,6 +305,8 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
                 invalid_required_artifacts.append(invalid_key)
                 blank_required_artifacts.append(invalid_key)
                 continue
+            if not _artifact_path_is_safe(name):
+                unsafe_required_artifacts.append(name)
             if _artifact_path_is_safe(name) and not _artifact_path_is_canonical(name):
                 noncanonical_required_artifacts.append(name)
             manifest_required.append(name)
@@ -352,6 +355,8 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
         manifest_errors.append("required_artifact_entry_not_string")
     if blank_required_artifacts:
         manifest_errors.append("required_artifact_entry_blank")
+    if unsafe_required_artifacts:
+        manifest_errors.append("required_artifact_path_unsafe")
     if noncanonical_required_artifacts:
         manifest_errors.append("required_artifact_path_noncanonical")
     if unchecked_required:
@@ -373,6 +378,7 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
         "missing_artifacts": sorted(missing),
         "unchecked_required_artifacts": sorted(unchecked_required),
         "invalid_required_artifacts": sorted(set(invalid_required_artifacts)),
+        "unsafe_required_artifacts": sorted(unsafe_required_artifacts),
         "noncanonical_required_artifacts": sorted(noncanonical_required_artifacts),
         "omitted_default_required_artifacts": sorted(omitted_default_required),
         "missing_artifact_metadata": sorted(set(missing_metadata)),
