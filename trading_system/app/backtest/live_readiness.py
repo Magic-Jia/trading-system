@@ -1680,7 +1680,10 @@ def _passive_calibration_diagnostic(
         evidence_source = _as_mapping(payload.get("evidence_source"))
         legacy_provenance = _as_mapping(payload.get("provenance"))
         provenance = evidence_source or legacy_provenance
+        unknown_top_level_fields = sorted(set(payload) - {"schema_version", "evidence_source", "provenance", "overall"})
         schema_error = _artifact_provenance_schema_error(payload) or _legacy_provenance_schema_error(payload)
+        if unknown_top_level_fields:
+            schema_error = "unknown_top_level_field: " + ", ".join(unknown_top_level_fields)
         schema_valid = (
             (not parse_error)
             and _artifact_schema_valid(payload, "passive_order_calibration_summary.v1")
