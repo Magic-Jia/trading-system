@@ -2404,8 +2404,8 @@ def build_live_readiness_gate_report(
             "max_exit_path_ambiguity_rate": max_exit_path_ambiguity_rate,
         },
         "failure_taxonomy": {
-            "loss_trade_count": sum(1 for trade in all_trades if _float_value(trade.get("net_pnl")) < 0.0),
-            "win_trade_count": sum(1 for trade in all_trades if _float_value(trade.get("net_pnl")) > 0.0),
+            "loss_trade_count": sum(1 for trade in all_trades if _strict_float_or_zero(trade.get("net_pnl")) < 0.0),
+            "win_trade_count": sum(1 for trade in all_trades if _strict_float_or_zero(trade.get("net_pnl")) > 0.0),
             "negative_setup_buckets": sorted(major_negative),
             "negative_symbol_buckets": sorted(key for key, bucket in by_symbol.items() if bucket["net_pnl"] < 0.0),
         },
