@@ -576,6 +576,17 @@ def _trade_cost_sign_integrity(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
         rows = _trades_payload(_load_json(chunk_dir / "trades.json"))
         for index, trade in enumerate(rows, start=1):
             for field in TRADE_EXECUTION_COST_FIELDS:
+                if field not in trade:
+                    invalid_fields.append(
+                        {
+                            "chunk": chunk_dir.name,
+                            "index": index,
+                            "field": field,
+                            "value": None,
+                            "error": "missing_execution_cost",
+                        }
+                    )
+                    continue
                 value = trade.get(field)
                 parsed, valid = _strict_float_value(value)
                 if valid and parsed < 0.0:
