@@ -331,7 +331,16 @@ def _summary_artifact_integrity(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
         summary = _as_mapping(payload.get("summary"))
         trades = _trades_payload(_load_json(chunk_dir / "trades.json"))
         trade_count = summary.get("trade_count")
-        if trade_count is not None:
+        if trade_count is None:
+            invalid_artifacts.append(
+                {
+                    "chunk": chunk_dir.name,
+                    "artifact": "summary.json",
+                    "field": "summary.trade_count",
+                    "error": "missing_summary_trade_count",
+                }
+            )
+        else:
             parsed_trade_count, valid_trade_count = _int_value(trade_count)
             if not valid_trade_count:
                 invalid_artifacts.append(

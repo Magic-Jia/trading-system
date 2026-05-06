@@ -1910,6 +1910,26 @@ def test_live_readiness_gate_rejects_summary_artifact_missing_cost_breakdown_fie
 
 
 
+def test_live_readiness_gate_rejects_summary_artifact_missing_trade_count(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    summary_payload = json.loads((chunk / "summary.json").read_text(encoding="utf-8"))
+    summary_payload["summary"].pop("trade_count")
+    (chunk / "summary.json").write_text(json.dumps(summary_payload), encoding="utf-8")
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    integrity = report["summary_artifact_integrity"]
+    assert integrity["valid"] is False
+    assert any(
+        item.get("error") == "missing_summary_trade_count" and item.get("field") == "summary.trade_count"
+        for item in integrity["invalid_artifacts"]
+    )
+    assert "summary_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
+
 def test_live_readiness_gate_sorts_chunk_names_naturally(tmp_path: Path) -> None:
     for name in ("chunk_10", "chunk_2", "chunk_1"):
         chunk = tmp_path / name
@@ -2046,7 +2066,7 @@ def test_live_readiness_gate_rejects_non_finite_summary_cost_breakdown(tmp_path:
         json.dumps(
             {
                 "schema_version": "backtest_summary.v1",
-                "summary": {"cost_breakdown": {"fees": "NaN", "slippage": 0.0, "funding": 0.0}},
+                "summary": {"trade_count": 1, "cost_breakdown": {"fees": "NaN", "slippage": 0.0, "funding": 0.0}},
             }
         ),
         encoding="utf-8",
