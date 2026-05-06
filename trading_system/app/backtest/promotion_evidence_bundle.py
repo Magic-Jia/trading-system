@@ -99,6 +99,7 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
             "candidate_id_valid": False,
             "missing_artifacts": [],
             "unchecked_required_artifacts": [],
+            "invalid_required_artifacts": [],
             "omitted_default_required_artifacts": [],
             "missing_artifact_metadata": [],
             "invalid_artifact_metadata": [],
@@ -124,6 +125,7 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
             "candidate_id_valid": False,
             "missing_artifacts": [],
             "unchecked_required_artifacts": [],
+            "invalid_required_artifacts": [],
             "omitted_default_required_artifacts": [],
             "missing_artifact_metadata": [],
             "invalid_artifact_metadata": [],
@@ -204,6 +206,7 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
         checked.append({"path": rel_path, "bytes": actual_bytes, "sha256": actual_sha})
         checked_paths.add(rel_path)
     required_artifacts_raw = manifest.get("required_artifacts", [])
+    invalid_required_artifacts: list[str] = []
     if required_artifacts_raw is None:
         manifest_required = []
         manifest_errors.append("required_artifacts_not_list")
@@ -211,7 +214,13 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
         manifest_required = []
         manifest_errors.append("required_artifacts_not_list")
     else:
-        manifest_required = [str(name) for name in required_artifacts_raw if str(name)]
+        manifest_required = []
+        for required_index, name in enumerate(required_artifacts_raw, start=1):
+            if not isinstance(name, str):
+                invalid_required_artifacts.append(f"required_artifacts[{required_index}]")
+                continue
+            if name:
+                manifest_required.append(name)
     required = list(dict.fromkeys([*REQUIRED_ARTIFACTS, *manifest_required]))
     omitted_default_required = [name for name in REQUIRED_ARTIFACTS if name not in manifest_required]
     if omitted_default_required:
@@ -238,6 +247,8 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
         manifest_errors.append("artifact_entry_not_object")
     if duplicate_artifact_paths:
         manifest_errors.append("duplicate_artifact_path")
+    if invalid_required_artifacts:
+        manifest_errors.append("required_artifact_entry_not_string")
     if unchecked_required:
         manifest_errors.append("required_artifact_missing_manifest_entry")
     return {
@@ -252,6 +263,7 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
         "candidate_id": candidate_id,
         "missing_artifacts": sorted(missing),
         "unchecked_required_artifacts": sorted(unchecked_required),
+        "invalid_required_artifacts": sorted(set(invalid_required_artifacts)),
         "omitted_default_required_artifacts": sorted(omitted_default_required),
         "missing_artifact_metadata": sorted(set(missing_metadata)),
         "invalid_artifact_metadata": sorted(set(invalid_metadata)),
