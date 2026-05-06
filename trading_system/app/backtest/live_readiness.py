@@ -946,13 +946,19 @@ def _chunk_report(chunk_dir: Path) -> dict[str, Any]:
     }
 
 
-def _setup_rewrite_counts(summary: Mapping[str, Any]) -> dict[str, int]:
-    return {
-        "evaluated_count": int(summary.get("evaluated_count") or 0),
-        "would_keep_count": int(summary.get("would_keep_count") or 0),
-        "would_filter_count": int(summary.get("would_filter_count") or 0),
-        "skipped_count": int(summary.get("skipped_count") or 0),
-    }
+SETUP_REWRITE_COUNT_FIELDS = ("evaluated_count", "would_keep_count", "would_filter_count", "skipped_count")
+
+
+def _setup_rewrite_counts(summary: Mapping[str, Any]) -> tuple[dict[str, int], str]:
+    counts: dict[str, int] = {}
+    parse_error = ""
+    for field in SETUP_REWRITE_COUNT_FIELDS:
+        raw_value = summary.get(field) or 0
+        parsed, valid = _int_value(raw_value)
+        counts[field] = parsed if valid else 0
+        if not valid and not parse_error:
+            parse_error = f"invalid_numeric_field: summary.{field}"
+    return counts, parse_error
 
 
 def _add_setup_rewrite_bucket(target: dict[str, Any], source: Mapping[str, Any]) -> None:
@@ -985,7 +991,8 @@ def _setup_rewrite_diagnostic(chunk_dirs: Iterable[Path]) -> dict[str, Any] | No
         payload = _load_json(path)
         parse_error = _json_parse_error(payload)
         summary = _as_mapping(payload.get("summary"))
-        counts = _setup_rewrite_counts(summary)
+        counts, count_parse_error = _setup_rewrite_counts(summary)
+        parse_error = parse_error or count_parse_error
         chunk = {
             "chunk": chunk_dir.name,
             "path": str(path),
