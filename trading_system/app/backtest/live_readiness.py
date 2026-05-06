@@ -1032,7 +1032,30 @@ def _trade_side_price_pnl_consistency(chunk_dirs: Sequence[Path]) -> dict[str, A
     for chunk_dir in chunk_dirs:
         rows = _trades_payload(_load_json(chunk_dir / "trades.json"))
         for index, trade in enumerate(rows, start=1):
-            side = str(trade.get("side") or "").strip()
+            raw_side = trade.get("side")
+            if not isinstance(raw_side, str):
+                invalid_fields.append(
+                    {
+                        "chunk": chunk_dir.name,
+                        "index": index,
+                        "field": "side",
+                        "value": raw_side,
+                        "error": "side_not_string",
+                    }
+                )
+                continue
+            side = raw_side.strip()
+            if not side or side not in VALID_TRADE_SIDES:
+                invalid_fields.append(
+                    {
+                        "chunk": chunk_dir.name,
+                        "index": index,
+                        "field": "side",
+                        "value": raw_side,
+                        "error": "invalid_side",
+                    }
+                )
+                continue
             entry_price, entry_valid = _strict_float_value(trade.get("entry_price"))
             exit_price, exit_valid = _strict_float_value(trade.get("exit_price"))
             quantity, quantity_valid = _strict_float_value(trade.get("quantity"))
@@ -1055,8 +1078,6 @@ def _trade_side_price_pnl_consistency(chunk_dirs: Sequence[Path]) -> dict[str, A
                             "error": "invalid_numeric_field",
                         }
                     )
-                continue
-            if side not in VALID_TRADE_SIDES:
                 continue
             expected = (exit_price - entry_price) * quantity if side == "long" else (entry_price - exit_price) * quantity
             tolerance = max(PNL_CONSISTENCY_ABS_TOLERANCE, abs(expected) * PNL_CONSISTENCY_REL_TOLERANCE)
