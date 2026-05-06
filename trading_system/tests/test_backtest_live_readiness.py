@@ -1780,6 +1780,31 @@ def test_live_readiness_gate_reports_non_object_trades_artifact_payload(tmp_path
     assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
 
 
+def test_live_readiness_gate_rejects_summary_artifact_with_bad_schema_version(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    (chunk / "summary.json").write_text(
+        json.dumps({"schema_version": "backtest_summary.v0", "summary": {"trade_count": 1}}),
+        encoding="utf-8",
+    )
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    assert report["summary_artifact_integrity"]["valid"] is False
+    assert report["summary_artifact_integrity"]["invalid_artifacts"] == [
+        {
+            "chunk": "chunk_001",
+            "artifact": "summary.json",
+            "schema_version": "backtest_summary.v0",
+            "expected_schema_version": "backtest_summary.v1",
+            "error": "invalid_or_missing_schema_version",
+        }
+    ]
+    assert "summary_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["checks"]["summary_artifact_integrity_valid"] is False
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
 def test_live_readiness_gate_rejects_invalid_json_summary_artifact(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     _write_profitable_trade_chunk(chunk)
@@ -1803,7 +1828,7 @@ def test_live_readiness_gate_rejects_non_finite_summary_cost_breakdown(tmp_path:
     chunk = tmp_path / "chunk_001"
     _write_profitable_trade_chunk(chunk)
     (chunk / "summary.json").write_text(
-        json.dumps({"summary": {"cost_breakdown": {"fees": "NaN"}}}),
+        json.dumps({"schema_version": "backtest_summary.v1", "summary": {"cost_breakdown": {"fees": "NaN"}}}),
         encoding="utf-8",
     )
 
@@ -1827,7 +1852,12 @@ def test_live_readiness_gate_rejects_summary_totals_inconsistent_with_trades_led
     chunk = tmp_path / "chunk_001"
     _write_profitable_trade_chunk(chunk)
     (chunk / "summary.json").write_text(
-        json.dumps({"summary": {"trade_count": 2, "cost_breakdown": {"fees": 1.0, "slippage": 0.0, "funding": 0.0}}}),
+        json.dumps(
+            {
+                "schema_version": "backtest_summary.v1",
+                "summary": {"trade_count": 2, "cost_breakdown": {"fees": 1.0, "slippage": 0.0, "funding": 0.0}},
+            }
+        ),
         encoding="utf-8",
     )
 

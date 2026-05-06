@@ -28,6 +28,7 @@ TRADE_PRICE_FIELDS = ("entry_price", "exit_price")
 TRADE_SIZE_FIELDS = ("quantity", "notional")
 TRADE_EXIT_REASON_FIELDS = ("simulated_exit_reason", "exit_reason")
 VALID_TRADES_ARTIFACT_SCHEMA_VERSION = "trades.v1"
+VALID_SUMMARY_ARTIFACT_SCHEMA_VERSION = "backtest_summary.v1"
 TRADE_EXECUTION_COST_FIELDS = ("fee_paid", "slippage_paid")
 VALID_TRADE_SIDES = ("long", "short")
 VALID_EXIT_REASONS = ("take_profit", "stop_loss", "stop", "tp", "fixed_horizon")
@@ -306,6 +307,18 @@ def _summary_artifact_integrity(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
                 }
             )
             continue
+        else:
+            schema_version = payload.get("schema_version")
+            if schema_version != VALID_SUMMARY_ARTIFACT_SCHEMA_VERSION:
+                invalid_artifacts.append(
+                    {
+                        "chunk": chunk_dir.name,
+                        "artifact": "summary.json",
+                        "schema_version": schema_version,
+                        "expected_schema_version": VALID_SUMMARY_ARTIFACT_SCHEMA_VERSION,
+                        "error": "invalid_or_missing_schema_version",
+                    }
+                )
         summary = _as_mapping(payload.get("summary"))
         trades = _trades_payload(_load_json(chunk_dir / "trades.json"))
         trade_count = summary.get("trade_count")
