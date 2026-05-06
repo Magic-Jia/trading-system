@@ -2228,8 +2228,9 @@ def test_live_readiness_gate_checks_expose_trade_integrity_results(tmp_path: Pat
 
     rejected_checks = rejected_report["promotion_gate"]["checks"]
     assert rejected_checks["trade_financial_integrity_valid"] is False
-    assert rejected_checks["trade_pnl_consistency_valid"] is True
+    assert rejected_checks["trade_pnl_consistency_valid"] is False
     assert "trade_financial_metric_invalid" in rejected_report["promotion_gate"]["reasons"]
+    assert "trade_pnl_inconsistent" in rejected_report["promotion_gate"]["reasons"]
     assert rejected_report["promotion_gate"]["decision"] == "reject_for_live_promotion"
 
 
@@ -3815,6 +3816,32 @@ def test_live_readiness_gate_rejects_trade_pnl_mismatch(tmp_path: Path) -> None:
     ]
     assert "trade_pnl_inconsistent" in report["promotion_gate"]["reasons"]
     assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
+def test_live_readiness_gate_reports_bool_trade_pnl_fields(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    payload = json.loads((chunk / "trades.json").read_text(encoding="utf-8"))
+    payload["trades"][0]["net_pnl"] = True
+    (chunk / "trades.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    consistency = report["trade_pnl_consistency"]
+    assert consistency["valid"] is False
+    assert consistency["invalid_fields"] == [
+        {
+            "chunk": "chunk_001",
+            "index": 1,
+            "field": "net_pnl",
+            "value": True,
+            "error": "invalid_numeric_field",
+        }
+    ]
+    assert "trade_pnl_inconsistent" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["checks"]["trade_pnl_consistency_valid"] is False
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
 
 
 def test_live_readiness_gate_rejects_bool_trade_price_fields(tmp_path: Path) -> None:

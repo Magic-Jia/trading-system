@@ -968,7 +968,25 @@ def _trade_pnl_consistency(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
             fee_paid, fee_valid = _strict_float_value(trade.get("fee_paid"))
             slippage_paid, slippage_valid = _strict_float_value(trade.get("slippage_paid"))
             funding_paid, funding_valid = _strict_float_value(trade.get("funding_paid"))
-            if not all((net_valid, gross_valid, fee_valid, slippage_valid, funding_valid)):
+            numeric_fields = (
+                ("net_pnl", trade.get("net_pnl"), net_valid),
+                ("gross_pnl", trade.get("gross_pnl"), gross_valid),
+                ("fee_paid", trade.get("fee_paid"), fee_valid),
+                ("slippage_paid", trade.get("slippage_paid"), slippage_valid),
+                ("funding_paid", trade.get("funding_paid"), funding_valid),
+            )
+            invalid_numeric_fields = [item for item in numeric_fields if not item[2]]
+            if invalid_numeric_fields:
+                for field, value, _valid in invalid_numeric_fields:
+                    invalid_fields.append(
+                        {
+                            "chunk": chunk_dir.name,
+                            "index": index,
+                            "field": field,
+                            "value": value,
+                            "error": "invalid_numeric_field",
+                        }
+                    )
                 continue
             expected = gross_pnl - fee_paid - slippage_paid - funding_paid
             tolerance = max(PNL_CONSISTENCY_ABS_TOLERANCE, abs(expected) * PNL_CONSISTENCY_REL_TOLERANCE)
