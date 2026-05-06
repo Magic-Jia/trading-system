@@ -1155,7 +1155,7 @@ def _setup_rewrite_counts(summary: Mapping[str, Any]) -> tuple[dict[str, int], s
     parse_error = ""
     for field in SETUP_REWRITE_COUNT_FIELDS:
         raw_value = summary.get(field) or 0
-        parsed, valid = _int_value(raw_value)
+        parsed, valid = _strict_summary_int_value(raw_value)
         counts[field] = parsed if valid else 0
         if not valid and not parse_error:
             parse_error = f"invalid_numeric_field: summary.{field}"
