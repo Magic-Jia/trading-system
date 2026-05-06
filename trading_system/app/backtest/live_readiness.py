@@ -993,6 +993,14 @@ def _setup_rewrite_diagnostic(chunk_dirs: Iterable[Path]) -> dict[str, Any] | No
         summary = _as_mapping(payload.get("summary"))
         counts, count_parse_error = _setup_rewrite_counts(summary)
         parse_error = parse_error or count_parse_error
+        evaluation_rows = payload.get("evaluation_rows", [])
+        if not parse_error and not isinstance(evaluation_rows, list):
+            parse_error = "invalid_field_type: evaluation_rows"
+        if not parse_error:
+            for row_index, row in enumerate(evaluation_rows, start=1):
+                if not isinstance(row, Mapping):
+                    parse_error = f"invalid_row_type: evaluation_rows[{row_index}]"
+                    break
         chunk = {
             "chunk": chunk_dir.name,
             "path": str(path),
@@ -1007,7 +1015,7 @@ def _setup_rewrite_diagnostic(chunk_dirs: Iterable[Path]) -> dict[str, Any] | No
             continue
         for key, value in counts.items():
             totals[key] += value
-        for row in payload.get("evaluation_rows", []):
+        for row in evaluation_rows:
             row_mapping = _as_mapping(row)
             reason = row_mapping.get("evaluation_reason")
             if reason:
