@@ -168,12 +168,20 @@ def _evidence_source_is_live_grade(value: Any) -> bool:
     return isinstance(value, str) and value.strip().lower() == "trade_print"
 
 
+def _evidence_component_invalid(value: Any) -> bool:
+    return value is not None and not isinstance(value, str)
+
+
+def _evidence_component_synthetic(value: Any) -> bool:
+    return isinstance(value, str) and value.strip().lower() in {"synthetic", "simulated", "unknown"}
+
+
 def _entry_evidence_live_grade(trade: Mapping[str, Any]) -> bool:
     fill_quality = trade.get("fill_quality")
     execution_source = trade.get("execution_price_source")
-    if isinstance(fill_quality, str) and fill_quality.strip().lower() in {"synthetic", "simulated", "unknown"}:
+    if _evidence_component_invalid(fill_quality) or _evidence_component_invalid(execution_source):
         return False
-    if isinstance(execution_source, str) and execution_source.strip().lower() in {"synthetic", "simulated", "unknown"}:
+    if _evidence_component_synthetic(fill_quality) or _evidence_component_synthetic(execution_source):
         return False
     return _evidence_quality_is_live_grade(fill_quality) or _evidence_source_is_live_grade(execution_source)
 
@@ -181,9 +189,9 @@ def _entry_evidence_live_grade(trade: Mapping[str, Any]) -> bool:
 def _exit_evidence_live_grade(trade: Mapping[str, Any]) -> bool:
     fill_quality = trade.get("exit_fill_quality")
     execution_source = trade.get("exit_price_source")
-    if isinstance(fill_quality, str) and fill_quality.strip().lower() in {"synthetic", "simulated", "unknown"}:
+    if _evidence_component_invalid(fill_quality) or _evidence_component_invalid(execution_source):
         return False
-    if isinstance(execution_source, str) and execution_source.strip().lower() in {"synthetic", "simulated", "unknown"}:
+    if _evidence_component_synthetic(fill_quality) or _evidence_component_synthetic(execution_source):
         return False
     return _evidence_quality_is_live_grade(fill_quality) or _evidence_source_is_live_grade(execution_source)
 
