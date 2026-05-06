@@ -3,11 +3,13 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import shutil
 from pathlib import Path
 from typing import Any, Mapping
 
 SCHEMA_VERSION = "promotion_evidence_bundle.v1"
+_CANDIDATE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 REQUIRED_ARTIFACTS = (
     "trades.json",
     "exit_path_replay.json",
@@ -138,9 +140,12 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
     if not schema_valid:
         manifest_errors.append("invalid_schema_version")
     candidate_id = manifest.get("candidate_id")
-    candidate_id_valid = isinstance(candidate_id, str) and bool(candidate_id.strip())
-    if not candidate_id_valid:
+    candidate_id_present = isinstance(candidate_id, str) and bool(candidate_id.strip())
+    candidate_id_valid = candidate_id_present and bool(_CANDIDATE_ID_RE.fullmatch(candidate_id))
+    if not candidate_id_present:
         manifest_errors.append("missing_candidate_id")
+    elif not candidate_id_valid:
+        manifest_errors.append("invalid_candidate_id")
     artifacts_raw = manifest.get("artifacts")
     if artifacts_raw is None:
         artifacts = []
