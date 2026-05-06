@@ -2706,6 +2706,31 @@ def test_live_readiness_gate_rejects_unknown_trade_row_field(tmp_path: Path) -> 
     assert "trades_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
 
 
+def test_live_readiness_gate_rejects_unknown_exit_path_replay_top_level_field(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    (chunk / "exit_path_replay.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "exit_path_replay.v1",
+                "evidence_source": {"type": "exchange_export", "run_id": "exit-replay-unknown-top-level"},
+                "trades": [{"trade_id": "trade-001"}],
+                "manual_override": True,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_live_readiness_gate_report(tmp_path, require_exit_path_replay_rows=True)
+
+    reconciliation = report["exit_path_replay"]["reconciliation"]
+    assert reconciliation["schema_valid"] is False
+    assert reconciliation["artifacts"][0]["parse_error"] == "unknown_top_level_field: manual_override"
+    assert "exit_path_replay_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
+
 def test_live_readiness_gate_rejects_unknown_trades_artifact_top_level_field(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     _write_profitable_trade_chunk(chunk)

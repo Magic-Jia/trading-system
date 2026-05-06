@@ -1579,6 +1579,9 @@ def _exit_path_replay_reconciliation(chunk_dirs: Sequence[Path], *, required: bo
         payload = _load_json(path)
         parse_error = _json_parse_error(payload)
         rows_payload = payload.get("trades", [])
+        unknown_top_level_fields = sorted(set(payload) - {"schema_version", "evidence_source", "trades"})
+        if not parse_error and unknown_top_level_fields:
+            parse_error = "unknown_top_level_field: " + ", ".join(unknown_top_level_fields)
         if not parse_error and not isinstance(rows_payload, list):
             parse_error = "trades_rows_not_list"
         if not parse_error:
