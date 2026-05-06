@@ -2095,6 +2095,35 @@ def test_live_readiness_exit_path_reconciliation_reports_non_string_source_trade
 
 
 
+def test_live_readiness_gate_rejects_runtime_safety_unknown_check_fields(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    runtime_payload = {
+        "schema_version": "runtime_safety_gate_input.v1",
+        "evidence_source": {"type": "exchange_export", "run_id": "runtime-unknown-check"},
+        "checks": {
+            "kill_switch_dry_run_met": True,
+            "order_position_reconciliation_met": True,
+            "fail_closed_met": True,
+            "dust_before_scale_met": True,
+            "live_trade_ledger_met": True,
+            "runtime_explainability_met": True,
+            "drift_guard_met": True,
+            "unreviewed_manual_override_met": True,
+        },
+    }
+    (chunk / "runtime_safety_gate.json").write_text(json.dumps(runtime_payload), encoding="utf-8")
+
+    report = build_live_readiness_gate_report(tmp_path, require_runtime_safety_evidence=True)
+
+    runtime_gate = report["runtime_safety_gate"]
+    assert runtime_gate["checks"]["runtime_safety_artifact_schema_valid"] is False
+    assert runtime_gate["artifacts"][0]["parse_error"] == "unknown_check_field: unreviewed_manual_override_met"
+    assert "runtime_safety_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
+
 def test_live_readiness_gate_sorts_chunk_names_naturally(tmp_path: Path) -> None:
     for name in ("chunk_10", "chunk_2", "chunk_1"):
         chunk = tmp_path / name
