@@ -152,6 +152,10 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
     evidence_source_raw = manifest.get("evidence_source")
     if evidence_source_raw is not None and not isinstance(evidence_source_raw, Mapping):
         manifest_errors.append("evidence_source_not_object")
+    if isinstance(evidence_source_raw, Mapping):
+        evidence_source_type = evidence_source_raw.get("type")
+        if evidence_source_type is not None and not isinstance(evidence_source_type, str):
+            manifest_errors.append("evidence_source_type_not_string")
     artifacts_raw = manifest.get("artifacts")
     if artifacts_raw is None:
         artifacts = []
