@@ -1234,9 +1234,14 @@ def _setup_rewrite_diagnostic(chunk_dirs: Iterable[Path]) -> dict[str, Any] | No
         if not parse_error and not isinstance(evaluation_rows, list):
             parse_error = "invalid_field_type: evaluation_rows"
         if not parse_error:
+            allowed_row_fields = {"symbol", "setup_type", "evaluation_status", "evaluation_reason", "would_keep", "net_pnl"}
             for row_index, row in enumerate(evaluation_rows, start=1):
                 if not isinstance(row, Mapping):
                     parse_error = f"invalid_row_type: evaluation_rows[{row_index}]"
+                    break
+                unknown_row_fields = sorted(set(row) - allowed_row_fields)
+                if unknown_row_fields:
+                    parse_error = f"unknown_evaluation_row_field: evaluation_rows[{row_index}]." + ", ".join(unknown_row_fields)
                     break
         chunk = {
             "chunk": chunk_dir.name,
