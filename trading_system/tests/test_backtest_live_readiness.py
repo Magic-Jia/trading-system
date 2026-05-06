@@ -1723,6 +1723,31 @@ def test_live_readiness_gate_rejects_present_exit_path_replay_artifact_with_non_
     assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
 
 
+def test_live_readiness_gate_rejects_exit_path_replay_duplicate_trade_ids(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    (chunk / "exit_path_replay.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "exit_path_replay.v1",
+                "evidence_source": {"type": "testnet_exchange"},
+                "trades": [{"trade_id": "trade-001"}, {"trade_id": "trade-001"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    reconciliation = report["exit_path_replay"]["reconciliation"]
+    assert reconciliation["matched"] is False
+    assert reconciliation["duplicate_path_trade_count"] == 1
+    assert reconciliation["duplicate_path_trade_ids"] == ["trade-001"]
+    assert "exit_path_replay_duplicate_trades" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["checks"]["exit_path_replay_rows_met"] is False
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
 def test_live_readiness_gate_sorts_chunk_names_naturally(tmp_path: Path) -> None:
     for name in ("chunk_10", "chunk_2", "chunk_1"):
         chunk = tmp_path / name
