@@ -1969,6 +1969,26 @@ def test_live_readiness_gate_rejects_string_trade_prices(tmp_path: Path) -> None
 
 
 
+def test_live_readiness_gate_rejects_string_trade_financial_fields(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    payload = json.loads((chunk / "trades.json").read_text(encoding="utf-8"))
+    payload["trades"][0]["net_pnl"] = "1.5"
+    (chunk / "trades.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    financial = report["trade_financial_integrity"]
+    assert financial["valid"] is False
+    assert any(
+        item.get("field") == "net_pnl" and item.get("value") == "1.5" and item.get("error") == "invalid_financial_field"
+        for item in financial["invalid_fields"]
+    )
+    assert "trade_financial_metric_invalid" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
+
 def test_live_readiness_gate_sorts_chunk_names_naturally(tmp_path: Path) -> None:
     for name in ("chunk_10", "chunk_2", "chunk_1"):
         chunk = tmp_path / name
@@ -2519,7 +2539,7 @@ def test_live_readiness_gate_rejects_non_finite_trade_financial_metrics(tmp_path
 
     assert report["trade_financial_integrity"]["valid"] is False
     assert report["trade_financial_integrity"]["invalid_fields"] == [
-        {"chunk": "chunk_001", "index": 1, "field": "net_pnl", "value": "NaN"}
+        {"chunk": "chunk_001", "index": 1, "field": "net_pnl", "value": "NaN", "error": "invalid_financial_field"}
     ]
     assert "trade_financial_metric_invalid" in report["promotion_gate"]["reasons"]
     assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"

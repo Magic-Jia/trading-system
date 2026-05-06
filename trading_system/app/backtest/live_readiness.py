@@ -436,10 +436,16 @@ def _trade_financial_integrity(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
                     )
                     continue
                 value = trade.get(field)
-                _, valid = _finite_float_value(value)
+                _, valid = _strict_float_value(value)
                 if not valid:
                     invalid_fields.append(
-                        {"chunk": chunk_dir.name, "index": index, "field": field, "value": value}
+                        {
+                            "chunk": chunk_dir.name,
+                            "index": index,
+                            "field": field,
+                            "value": value,
+                            "error": "invalid_financial_field",
+                        }
                     )
     return {
         "schema_version": "trade_financial_integrity.v1",
