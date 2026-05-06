@@ -1283,6 +1283,10 @@ def _setup_rewrite_diagnostic(chunk_dirs: Iterable[Path]) -> dict[str, Any] | No
                     if not net_pnl_valid:
                         parse_error = f"invalid_numeric_field: evaluation_rows[{row_index}].net_pnl"
                         break
+        if not parse_error and "would_keep_count" in summary:
+            observed_keep_count = sum(1 for row in evaluation_rows if isinstance(row, Mapping) and row.get("would_keep") is True)
+            if observed_keep_count != counts.get("would_keep_count", 0):
+                parse_error = "would_keep_count_mismatch"
         chunk = {
             "chunk": chunk_dir.name,
             "path": str(path),
