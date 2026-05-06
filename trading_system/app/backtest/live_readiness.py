@@ -1184,6 +1184,7 @@ def _trade_exit_reason_integrity(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
         rows = _trades_payload(_load_json(chunk_dir / "trades.json"))
         for index, trade in enumerate(rows, start=1):
             reasons: dict[str, str] = {}
+            invalid_reason_seen = False
             for field in TRADE_EXIT_REASON_FIELDS:
                 value = trade.get(field)
                 if value is None:
@@ -1198,9 +1199,22 @@ def _trade_exit_reason_integrity(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
                             "error": "exit_reason_not_string",
                         }
                     )
+                    invalid_reason_seen = True
                     continue
                 reason = value.strip()
                 if not reason:
+                    continue
+                if reason != value:
+                    invalid_fields.append(
+                        {
+                            "chunk": chunk_dir.name,
+                            "index": index,
+                            "field": field,
+                            "value": value,
+                            "error": "exit_reason_not_canonical",
+                        }
+                    )
+                    invalid_reason_seen = True
                     continue
                 reasons[field] = reason
                 if reason not in VALID_EXIT_REASONS:
@@ -1213,7 +1227,8 @@ def _trade_exit_reason_integrity(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
                             "error": "invalid_exit_reason",
                         }
                     )
-            if not reasons:
+                    invalid_reason_seen = True
+            if not reasons and not invalid_reason_seen:
                 invalid_fields.append(
                     {
                         "chunk": chunk_dir.name,
