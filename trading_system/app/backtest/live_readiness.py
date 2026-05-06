@@ -1883,7 +1883,10 @@ def _exit_path_replay_reconciliation(chunk_dirs: Sequence[Path], *, required: bo
                 if not trade_id.strip():
                     parse_error = f"trade_id_missing_or_blank: trades[{row_index}]"
                     break
-                if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}", trade_id.strip()):
+                if trade_id != trade_id.strip():
+                    parse_error = f"trade_id_not_canonical: trades[{row_index}]"
+                    break
+                if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}", trade_id):
                     parse_error = f"invalid_trade_id: trades[{row_index}]"
                     break
         chunk_schema_valid = (not parse_error) and _artifact_schema_valid(payload, "exit_path_replay.v1")
@@ -1903,7 +1906,10 @@ def _exit_path_replay_reconciliation(chunk_dirs: Sequence[Path], *, required: bo
             path_trade_id = row.get("trade_id")
             if not isinstance(path_trade_id, str) or not path_trade_id.strip():
                 continue
-            path_trade_id = path_trade_id.strip()
+            if path_trade_id != path_trade_id.strip():
+                continue
+            if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}", path_trade_id):
+                continue
             path_trade_ids.add(path_trade_id)
             path_trade_id_counts[path_trade_id] += 1
     duplicate_path_trade_ids = sorted(trade_id for trade_id, count in path_trade_id_counts.items() if count > 1)
