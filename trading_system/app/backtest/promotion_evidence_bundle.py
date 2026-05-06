@@ -228,6 +228,7 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
     checked_paths: set[str] = set()
     seen_artifact_paths: set[str] = set()
     duplicate_artifact_paths: list[str] = []
+    noncanonical_artifact_paths: list[str] = []
     for artifact_index, artifact in enumerate(artifacts, start=1):
         if not isinstance(artifact, Mapping):
             invalid_metadata.append(f"artifacts[{artifact_index}]")
@@ -246,6 +247,8 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
         if not _artifact_path_is_safe(rel_path):
             unsafe_paths.append(rel_path)
             continue
+        if not _artifact_path_is_canonical(rel_path):
+            noncanonical_artifact_paths.append(rel_path)
         path = bundle / rel_path
         if not path.is_file():
             missing.append(rel_path)
@@ -317,6 +320,8 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
             unchecked_required.append(rel_path)
     if unsafe_paths:
         manifest_errors.append("unsafe_artifact_path")
+    if noncanonical_artifact_paths:
+        manifest_errors.append("artifact_path_noncanonical")
     if missing_metadata:
         manifest_errors.append("artifact_metadata_missing")
     if any(str(item).endswith(".path") for item in missing_metadata):
@@ -368,6 +373,7 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
         "invalid_artifact_metadata": sorted(set(invalid_metadata)),
         "duplicate_artifact_paths": sorted(set(duplicate_artifact_paths)),
         "unsafe_artifact_paths": sorted(unsafe_paths),
+        "noncanonical_artifact_paths": sorted(noncanonical_artifact_paths),
         "sha256_mismatches": sorted(sha_mismatches),
         "byte_size_mismatches": sorted(byte_mismatches),
         "checked_artifacts": checked,
