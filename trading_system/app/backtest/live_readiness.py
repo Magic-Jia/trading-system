@@ -305,6 +305,20 @@ def _summary_artifact_integrity(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
                     "error": "json_payload_not_object",
                 }
             )
+            continue
+        cost_breakdown = _as_mapping(_as_mapping(payload.get("summary")).get("cost_breakdown"))
+        for field, value in cost_breakdown.items():
+            _, valid = _finite_float_value(value)
+            if not valid:
+                invalid_artifacts.append(
+                    {
+                        "chunk": chunk_dir.name,
+                        "artifact": "summary.json",
+                        "field": f"summary.cost_breakdown.{field}",
+                        "value": value,
+                        "error": "invalid_cost_breakdown_value",
+                    }
+                )
     return {
         "schema_version": "summary_artifact_integrity.v1",
         "valid": not invalid_artifacts,
