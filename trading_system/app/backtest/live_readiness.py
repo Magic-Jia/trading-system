@@ -1154,15 +1154,21 @@ def _setup_rewrite_counts(summary: Mapping[str, Any]) -> tuple[dict[str, int], s
     counts: dict[str, int] = {}
     parse_error = ""
     if "total_rows" in summary:
-        _, total_rows_valid = _strict_summary_int_value(summary.get("total_rows"))
+        total_rows, total_rows_valid = _strict_summary_int_value(summary.get("total_rows"))
         if not total_rows_valid:
             parse_error = "invalid_numeric_field: summary.total_rows"
+    else:
+        total_rows = None
     for field in SETUP_REWRITE_COUNT_FIELDS:
         raw_value = summary.get(field) or 0
         parsed, valid = _strict_summary_int_value(raw_value)
         counts[field] = parsed if valid else 0
         if not valid and not parse_error:
             parse_error = f"invalid_numeric_field: summary.{field}"
+    if total_rows is not None and not parse_error:
+        counted_rows = counts["would_keep_count"] + counts["would_filter_count"] + counts["skipped_count"]
+        if counted_rows != total_rows:
+            parse_error = "summary_count_mismatch"
     return counts, parse_error
 
 
