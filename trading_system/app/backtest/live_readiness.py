@@ -1583,8 +1583,11 @@ def _passive_calibration_diagnostic(
         attempts, attempts_valid = _int_value(overall.get("attempt_count") or 0)
         fill_rate, fill_rate_valid = _strict_float_value(overall.get("fill_rate") or 0.0)
         numeric_error = schema_error or ""
+        unknown_overall_fields = sorted(set(overall) - {"attempt_count", "fill_rate"})
         if not overall_object_valid:
             numeric_error = "overall_not_object"
+        elif unknown_overall_fields:
+            numeric_error = "unknown_overall_field: " + ", ".join(unknown_overall_fields)
         elif not attempts_valid or attempts < 0:
             numeric_error = "invalid_numeric_field: attempt_count"
         elif not fill_rate_valid or fill_rate < 0.0 or fill_rate > 1.0:
