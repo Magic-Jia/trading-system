@@ -806,6 +806,29 @@ def test_live_readiness_gate_rejects_non_integral_passive_calibration_attempts(t
     assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
 
 
+def test_live_readiness_gate_rejects_missing_non_finite_and_non_positive_trade_sizes(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    payload = json.loads((chunk / "trades.json").read_text(encoding="utf-8"))
+    trade = payload["trades"][0]
+    del trade["quantity"]
+    trade["notional"] = "NaN"
+    payload["trades"].append({**trade, "trade_id": "trade-002", "quantity": -1.0, "notional": 0.0})
+    (chunk / "trades.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    assert report["trade_size_integrity"]["valid"] is False
+    assert report["trade_size_integrity"]["invalid_fields"] == [
+        {"chunk": "chunk_001", "index": 1, "field": "quantity", "value": None, "error": "missing_size"},
+        {"chunk": "chunk_001", "index": 1, "field": "notional", "value": "NaN", "error": "invalid_size"},
+        {"chunk": "chunk_001", "index": 2, "field": "quantity", "value": -1.0, "error": "non_positive_size"},
+        {"chunk": "chunk_001", "index": 2, "field": "notional", "value": 0.0, "error": "non_positive_size"},
+    ]
+    assert "trade_size_invalid" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
 def test_live_readiness_gate_rejects_non_finite_trade_financial_metrics(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     _write_profitable_trade_chunk(chunk)
@@ -1049,7 +1072,7 @@ def test_live_readiness_gate_rejects_invalid_trade_size_fields(tmp_path: Path) -
     assert report["trade_size_integrity"]["valid"] is False
     assert report["trade_size_integrity"]["invalid_fields"] == [
         {"chunk": "chunk_001", "index": 1, "field": "quantity", "value": -1.0, "error": "non_positive_size"},
-        {"chunk": "chunk_001", "index": 1, "field": "notional", "value": None, "error": "invalid_size"},
+        {"chunk": "chunk_001", "index": 1, "field": "notional", "value": None, "error": "missing_size"},
     ]
     assert "trade_size_invalid" in report["promotion_gate"]["reasons"]
     assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
