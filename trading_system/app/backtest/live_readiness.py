@@ -2486,9 +2486,13 @@ def _empty_postmortem_bucket() -> dict[str, Any]:
 
 
 def _add_postmortem_bucket(bucket: dict[str, Any], trade: Mapping[str, Any]) -> None:
-    gross = _float_value(trade.get("gross_pnl"))
-    net = _float_value(trade.get("net_pnl"))
-    cost = _float_value(trade.get("fee_paid")) + _float_value(trade.get("slippage_paid")) + _float_value(trade.get("funding_paid"))
+    gross = _strict_float_or_zero(trade.get("gross_pnl"))
+    net = _strict_float_or_zero(trade.get("net_pnl"))
+    cost = (
+        _strict_float_or_zero(trade.get("fee_paid"))
+        + _strict_float_or_zero(trade.get("slippage_paid"))
+        + _strict_float_or_zero(trade.get("funding_paid"))
+    )
     bucket["trades"] += 1
     bucket["wins"] += 1 if net > 0.0 else 0
     bucket["gross"] += gross
@@ -2498,10 +2502,10 @@ def _add_postmortem_bucket(bucket: dict[str, Any], trade: Mapping[str, Any]) -> 
 
 
 def _postmortem_failure_bucket(trade: Mapping[str, Any]) -> str:
-    gross = _float_value(trade.get("gross_pnl"))
-    net = _float_value(trade.get("net_pnl"))
-    mfe = _float_value(trade.get("mfe_pct"))
-    mae = _float_value(trade.get("mae_pct"))
+    gross = _strict_float_or_zero(trade.get("gross_pnl"))
+    net = _strict_float_or_zero(trade.get("net_pnl"))
+    mfe = _strict_float_or_zero(trade.get("mfe_pct"))
+    mae = _strict_float_or_zero(trade.get("mae_pct"))
     if net > 0.0:
         return "有效盈利_after_cost"
     if gross > 0.0 and net <= 0.0:
@@ -2564,8 +2568,8 @@ def summarize_trade_postmortem(trades: Iterable[Mapping[str, Any]]) -> dict[str,
         "cost_total": summary["cost"],
     }
     total_trades = int(summary["trades"])
-    total_abs_net = sum(abs(_float_value(trade.get("net_pnl"))) for trade in rows)
-    total_loss_abs_net = sum(abs(min(_float_value(trade.get("net_pnl")), 0.0)) for trade in rows)
+    total_abs_net = sum(abs(_strict_float_or_zero(trade.get("net_pnl"))) for trade in rows)
+    total_loss_abs_net = sum(abs(min(_strict_float_or_zero(trade.get("net_pnl")), 0.0)) for trade in rows)
     return {
         "schema_version": "trade_postmortem_summary.v1",
         "summary": summary_payload,

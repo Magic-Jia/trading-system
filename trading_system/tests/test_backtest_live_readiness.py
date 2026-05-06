@@ -5352,6 +5352,33 @@ def test_live_readiness_gate_does_not_count_synthetic_fill_quality_as_entry_evid
 
 
 
+def test_postmortem_summary_does_not_count_bool_net_pnl_as_win() -> None:
+    summary = summarize_trade_postmortem(
+        [
+            {
+                "trade_id": "t1",
+                "symbol": "BTCUSDT",
+                "side": "long",
+                "setup_type": "TREND_PULLBACK",
+                "net_pnl": True,
+                "gross_pnl": 1.0,
+                "fee_paid": 0.0,
+                "slippage_paid": 0.0,
+                "funding_paid": 0.0,
+                "mfe_pct": 0.0,
+                "mae_pct": 0.0,
+            }
+        ]
+    )
+
+    assert summary["summary"]["wins"] == 0
+    assert summary["summary"]["win_rate"] == pytest.approx(0.0)
+    assert summary["summary"]["net"] == pytest.approx(0.0)
+    assert summary["by_setup_type"]["TREND_PULLBACK"]["net"] == pytest.approx(0.0)
+    assert summary["dominance"]["top_setup_by_trades"]["net"] == pytest.approx(0.0)
+
+
+
 def test_live_readiness_gate_does_not_count_bool_net_pnl_in_failure_taxonomy(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     _write_profitable_trade_chunk(chunk)
