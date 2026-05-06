@@ -1874,8 +1874,11 @@ def _exit_path_replay_reconciliation(chunk_dirs: Sequence[Path], *, required: bo
                 "evidence_source": _as_mapping(payload.get("evidence_source")),
             }
         )
-        for index, row in enumerate(_trades_payload(payload)):
-            path_trade_id = str(row.get("trade_id") or f"{chunk_dir.name}:{index}")
+        for row in _trades_payload(payload):
+            path_trade_id = row.get("trade_id")
+            if not isinstance(path_trade_id, str) or not path_trade_id.strip():
+                continue
+            path_trade_id = path_trade_id.strip()
             path_trade_ids.add(path_trade_id)
             path_trade_id_counts[path_trade_id] += 1
     duplicate_path_trade_ids = sorted(trade_id for trade_id, count in path_trade_id_counts.items() if count > 1)
