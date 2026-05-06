@@ -737,6 +737,32 @@ def test_live_readiness_gate_sorts_chunk_names_naturally(tmp_path: Path) -> None
     assert [row["chunk"] for row in report["chunk_performance"]] == ["chunk_1", "chunk_2", "chunk_10"]
 
 
+def test_live_readiness_gate_rejects_invalid_json_trades_artifact(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    chunk.mkdir(parents=True)
+    (chunk / "trades.json").write_text('{"schema_version": "trades.v1", "trades": [', encoding="utf-8")
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    assert report["trades_artifact_integrity"]["valid"] is False
+    assert report["trades_artifact_integrity"]["invalid_artifacts"] == [
+        {
+            "chunk": "chunk_001",
+            "artifact": "trades.json",
+            "schema_version": None,
+            "error": "invalid_or_missing_schema_version",
+        },
+        {
+            "chunk": "chunk_001",
+            "artifact": "trades.json",
+            "schema_version": None,
+            "error": "invalid_json",
+        },
+    ]
+    assert "trades_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
 def test_live_readiness_gate_rejects_trades_payload_that_is_not_a_list(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     _write_profitable_trade_chunk(chunk)
