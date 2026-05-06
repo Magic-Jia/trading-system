@@ -1567,7 +1567,9 @@ def _passive_calibration_diagnostic(
             continue
         payload = _load_json(path)
         parse_error = _json_parse_error(payload)
-        overall = _as_mapping(payload.get("overall"))
+        overall_payload = payload.get("overall")
+        overall_object_valid = isinstance(overall_payload, Mapping)
+        overall = _as_mapping(overall_payload)
         evidence_source = _as_mapping(payload.get("evidence_source"))
         legacy_provenance = _as_mapping(payload.get("provenance"))
         provenance = evidence_source or legacy_provenance
@@ -1581,7 +1583,9 @@ def _passive_calibration_diagnostic(
         attempts, attempts_valid = _int_value(overall.get("attempt_count") or 0)
         fill_rate, fill_rate_valid = _strict_float_value(overall.get("fill_rate") or 0.0)
         numeric_error = schema_error or ""
-        if not attempts_valid or attempts < 0:
+        if not overall_object_valid:
+            numeric_error = "overall_not_object"
+        elif not attempts_valid or attempts < 0:
             numeric_error = "invalid_numeric_field: attempt_count"
         elif not fill_rate_valid or fill_rate < 0.0 or fill_rate > 1.0:
             numeric_error = "invalid_numeric_field: fill_rate"
