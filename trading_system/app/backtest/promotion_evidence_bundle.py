@@ -328,7 +328,7 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
                 invalid_required_artifacts.append(invalid_key)
                 non_string_required_artifacts.append(invalid_key)
                 continue
-            if not name:
+            if not name.strip():
                 invalid_key = f"required_artifacts[{required_index}]"
                 invalid_required_artifacts.append(invalid_key)
                 blank_required_artifacts.append(invalid_key)
