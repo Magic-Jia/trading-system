@@ -252,6 +252,17 @@ def _trades_artifact_integrity(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
             )
             continue
         rows = payload.get("trades", [])
+        unknown_top_level_fields = sorted(set(payload) - {"schema_version", "trades"})
+        for field in unknown_top_level_fields:
+            invalid_artifacts.append(
+                {
+                    "chunk": chunk_dir.name,
+                    "artifact": "trades.json",
+                    "schema_version": schema_version,
+                    "field": field,
+                    "error": "unknown_top_level_field",
+                }
+            )
         if not isinstance(rows, list):
             invalid_artifacts.append(
                 {
