@@ -2372,6 +2372,34 @@ def test_live_readiness_gate_rejects_runtime_safety_unknown_evidence_source_fiel
 
 
 
+def test_live_readiness_gate_rejects_runtime_safety_evidence_source_run_id_not_string(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    runtime_payload = {
+        "schema_version": "runtime_safety_gate_input.v1",
+        "evidence_source": {"type": "exchange_export", "run_id": 123},
+        "checks": {
+            "kill_switch_dry_run_met": True,
+            "order_position_reconciliation_met": True,
+            "fail_closed_met": True,
+            "dust_before_scale_met": True,
+            "live_trade_ledger_met": True,
+            "runtime_explainability_met": True,
+            "drift_guard_met": True,
+        },
+    }
+    (chunk / "runtime_safety_gate.json").write_text(json.dumps(runtime_payload), encoding="utf-8")
+
+    report = build_live_readiness_gate_report(tmp_path, require_runtime_safety_evidence=True)
+
+    runtime_gate = report["runtime_safety_gate"]
+    assert runtime_gate["checks"]["runtime_safety_artifact_schema_valid"] is False
+    assert runtime_gate["artifacts"][0]["parse_error"] == "evidence_source_run_id_not_string"
+    assert "runtime_safety_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
+
 def test_live_readiness_gate_rejects_microstructure_evidence_source_not_object(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     _write_profitable_trade_chunk(chunk)

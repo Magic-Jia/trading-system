@@ -1162,6 +1162,10 @@ def _artifact_provenance_schema_error(payload: Mapping[str, Any]) -> str:
         return "evidence_source_type_not_string"
     if not source_type.strip():
         return "evidence_source_type_blank"
+    for optional_field in ("run_id", "exported_at"):
+        optional_value = source.get(optional_field)
+        if optional_value is not None and not isinstance(optional_value, str):
+            return f"evidence_source_{optional_field}_not_string"
     return ""
 
 def _strict_check_bool(value: Any) -> bool:
