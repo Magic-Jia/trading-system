@@ -2963,6 +2963,49 @@ def test_live_readiness_gate_rejects_out_of_range_passive_calibration_fill_rate(
     assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
 
 
+def test_live_readiness_gate_excludes_invalid_passive_calibration_chunks_from_aggregates(tmp_path: Path) -> None:
+    invalid_chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(invalid_chunk)
+    (invalid_chunk / "passive_order_calibration_summary.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "passive_order_calibration_summary.v1",
+                "evidence_source": {"type": "exchange_export", "run_id": "calibration-bad"},
+                "overall": {"attempt_count": 1000, "fill_rate": 1.5},
+            }
+        ),
+        encoding="utf-8",
+    )
+    valid_chunk = tmp_path / "chunk_002"
+    _write_profitable_trade_chunk(valid_chunk)
+    (valid_chunk / "passive_order_calibration_summary.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "passive_order_calibration_summary.v1",
+                "evidence_source": {"type": "exchange_export", "run_id": "calibration-good"},
+                "overall": {"attempt_count": 10, "fill_rate": 0.4},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_live_readiness_gate_report(
+        tmp_path,
+        require_passive_calibration=True,
+        min_passive_calibration_attempts=1,
+        min_passive_fill_rate=0.5,
+    )
+
+    passive = report["passive_calibration"]
+    assert passive["chunks"][0]["parse_error"] == "invalid_numeric_field: fill_rate"
+    assert passive["attempt_count"] == 10
+    assert passive["fill_rate"] == 0.4
+    assert passive["checks"]["passive_calibration_fill_rate_met"] is False
+    assert "passive_calibration_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
+    assert "passive_calibration_fill_rate_below_threshold" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
 def test_live_readiness_gate_report_rejects_missing_runtime_safety_evidence(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     chunk.mkdir()

@@ -1409,8 +1409,10 @@ def _passive_calibration_diagnostic(
             parse_error = parse_error or numeric_error
             schema_valid = False
             provenance_present = False
-        total_attempts += attempts
-        weighted_filled += fill_rate * attempts
+        chunk_valid_for_aggregation = schema_valid and provenance_present
+        if chunk_valid_for_aggregation:
+            total_attempts += attempts
+            weighted_filled += fill_rate * attempts
         chunk_real = bool(legacy_provenance.get("real_exchange_records")) or str(provenance.get("type") or provenance.get("source") or "").lower() in {
             "live_exchange",
             "testnet_exchange",
