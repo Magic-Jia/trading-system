@@ -2499,6 +2499,30 @@ def test_live_readiness_gate_rejects_runtime_safety_checks_not_object(tmp_path: 
 
 
 
+def test_live_readiness_gate_rejects_microstructure_unknown_top_level_field(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    micro_payload = {
+        "schema_version": "market_microstructure_gate_input.v1",
+        "evidence_source": {"type": "exchange_export", "run_id": "micro-unknown-top-level"},
+        "checks": {
+            "l2_tick_coverage_met": True,
+            "depth_driven_taker_met": True,
+        },
+        "manual_override": True,
+    }
+    (chunk / "market_microstructure_gate.json").write_text(json.dumps(micro_payload), encoding="utf-8")
+
+    report = build_live_readiness_gate_report(tmp_path, require_microstructure_evidence=True)
+
+    micro = report["microstructure_gate"]
+    assert micro["checks"]["microstructure_artifact_schema_valid"] is False
+    assert micro["artifacts"][0]["parse_error"] == "unknown_top_level_field: manual_override"
+    assert "microstructure_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
+
 def test_live_readiness_gate_rejects_microstructure_checks_not_object(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     _write_profitable_trade_chunk(chunk)
