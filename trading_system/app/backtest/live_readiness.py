@@ -362,6 +362,16 @@ def _summary_artifact_integrity(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
             )
             continue
         summary = _as_mapping(summary_payload)
+        unknown_summary_fields = sorted(set(summary) - {"trade_count", "cost_breakdown"})
+        for field in unknown_summary_fields:
+            invalid_artifacts.append(
+                {
+                    "chunk": chunk_dir.name,
+                    "artifact": "summary.json",
+                    "field": f"summary.{field}",
+                    "error": "unknown_summary_field",
+                }
+            )
         trades = _trades_payload(_load_json(chunk_dir / "trades.json"))
         trade_count = summary.get("trade_count")
         if trade_count is None:
