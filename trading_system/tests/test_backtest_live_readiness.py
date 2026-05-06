@@ -3818,6 +3818,32 @@ def test_live_readiness_gate_rejects_trade_pnl_mismatch(tmp_path: Path) -> None:
     assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
 
 
+def test_live_readiness_gate_reports_bool_trade_notional_fields(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    payload = json.loads((chunk / "trades.json").read_text(encoding="utf-8"))
+    payload["trades"][0]["notional"] = True
+    (chunk / "trades.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    consistency = report["trade_notional_consistency"]
+    assert consistency["valid"] is False
+    assert consistency["invalid_fields"] == [
+        {
+            "chunk": "chunk_001",
+            "index": 1,
+            "field": "notional",
+            "value": True,
+            "error": "invalid_numeric_field",
+        }
+    ]
+    assert "trade_notional_inconsistent" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["checks"]["trade_notional_consistency_valid"] is False
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
+
 def test_live_readiness_gate_reports_bool_trade_pnl_fields(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     _write_profitable_trade_chunk(chunk)

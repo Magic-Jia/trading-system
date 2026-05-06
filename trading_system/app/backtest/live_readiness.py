@@ -880,7 +880,23 @@ def _trade_notional_consistency(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
             entry_price, entry_price_valid = _strict_float_value(trade.get("entry_price"))
             quantity, quantity_valid = _strict_float_value(trade.get("quantity"))
             notional, notional_valid = _strict_float_value(trade.get("notional"))
-            if not (entry_price_valid and quantity_valid and notional_valid):
+            numeric_fields = (
+                ("entry_price", trade.get("entry_price"), entry_price_valid),
+                ("quantity", trade.get("quantity"), quantity_valid),
+                ("notional", trade.get("notional"), notional_valid),
+            )
+            invalid_numeric_fields = [item for item in numeric_fields if not item[2]]
+            if invalid_numeric_fields:
+                for field, value, _valid in invalid_numeric_fields:
+                    invalid_fields.append(
+                        {
+                            "chunk": chunk_dir.name,
+                            "index": index,
+                            "field": field,
+                            "value": value,
+                            "error": "invalid_numeric_field",
+                        }
+                    )
                 continue
             expected = entry_price * quantity
             tolerance = max(
