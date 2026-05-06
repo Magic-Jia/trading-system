@@ -1168,6 +1168,17 @@ def _artifact_provenance_schema_error(payload: Mapping[str, Any]) -> str:
             return f"evidence_source_{optional_field}_not_string"
     return ""
 
+
+def _legacy_provenance_schema_error(payload: Mapping[str, Any]) -> str:
+    legacy = _as_mapping(payload.get("provenance"))
+    source = legacy.get("source")
+    if source is not None and not isinstance(source, str):
+        return "provenance_source_not_string"
+    real_records = legacy.get("real_exchange_records")
+    if real_records is not None and not isinstance(real_records, bool):
+        return "provenance_real_exchange_records_not_bool"
+    return ""
+
 def _strict_check_bool(value: Any) -> bool:
     return value is True
 
@@ -1560,7 +1571,7 @@ def _passive_calibration_diagnostic(
         evidence_source = _as_mapping(payload.get("evidence_source"))
         legacy_provenance = _as_mapping(payload.get("provenance"))
         provenance = evidence_source or legacy_provenance
-        schema_error = _artifact_provenance_schema_error(payload)
+        schema_error = _artifact_provenance_schema_error(payload) or _legacy_provenance_schema_error(payload)
         schema_valid = (
             (not parse_error)
             and _artifact_schema_valid(payload, "passive_order_calibration_summary.v1")
