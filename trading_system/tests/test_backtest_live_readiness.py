@@ -512,6 +512,39 @@ def test_live_readiness_gate_rejects_promotion_manifest_artifact_path_non_string
     assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
 
 
+def test_live_readiness_gate_rejects_promotion_manifest_artifact_sha256_bad_format(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    trades_path = chunk / "trades.json"
+    (tmp_path / "promotion_evidence_manifest.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "promotion_evidence_bundle.v1",
+                "candidate_id": "candidate-1",
+                "required_artifacts": ["chunk_001/trades.json"],
+                "artifacts": [
+                    {
+                        "path": "chunk_001/trades.json",
+                        "sha256": "not-a-sha256",
+                        "bytes": trades_path.stat().st_size,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    integrity = report["promotion_bundle_integrity"]
+    assert integrity["verified"] is False
+    assert "artifact_sha256_invalid_format" in integrity["manifest_errors"]
+    assert integrity["invalid_artifact_metadata"] == ["chunk_001/trades.json:sha256"]
+    assert "promotion_bundle_integrity_failed" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["checks"]["promotion_bundle_integrity_verified"] is False
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
 def test_live_readiness_gate_rejects_promotion_manifest_artifact_bytes_string(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     _write_profitable_trade_chunk(chunk)

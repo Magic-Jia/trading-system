@@ -10,6 +10,7 @@ from typing import Any, Mapping
 
 SCHEMA_VERSION = "promotion_evidence_bundle.v1"
 _CANDIDATE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+_SHA256_HEX_RE = re.compile(r"^[0-9a-f]{64}$")
 REQUIRED_ARTIFACTS = (
     "trades.json",
     "exit_path_replay.json",
@@ -195,6 +196,8 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
         expected_bytes_raw = artifact.get("bytes")
         if not isinstance(expected_sha, str) or not expected_sha:
             missing_metadata.append(rel_path)
+        elif not _SHA256_HEX_RE.fullmatch(expected_sha):
+            invalid_metadata.append(f"{rel_path}:sha256")
         elif actual_sha != expected_sha:
             sha_mismatches.append(rel_path)
         if not isinstance(expected_bytes_raw, int) or isinstance(expected_bytes_raw, bool):
@@ -257,6 +260,8 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
         manifest_errors.append("artifact_metadata_invalid")
     if any(str(item).endswith(".path") for item in invalid_metadata):
         manifest_errors.append("artifact_path_not_string")
+    if any(str(item).endswith(":sha256") for item in invalid_metadata):
+        manifest_errors.append("artifact_sha256_invalid_format")
     if any(str(item).startswith("artifacts[") and not str(item).endswith(".path") for item in invalid_metadata):
         manifest_errors.append("artifact_entry_not_object")
     if duplicate_artifact_paths:
