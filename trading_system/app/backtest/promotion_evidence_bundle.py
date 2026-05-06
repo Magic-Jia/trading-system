@@ -141,7 +141,15 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
     candidate_id_valid = isinstance(candidate_id, str) and bool(candidate_id.strip())
     if not candidate_id_valid:
         manifest_errors.append("missing_candidate_id")
-    artifacts = manifest.get("artifacts") if isinstance(manifest.get("artifacts"), list) else []
+    artifacts_raw = manifest.get("artifacts")
+    if artifacts_raw is None:
+        artifacts = []
+        manifest_errors.append("artifacts_missing")
+    elif not isinstance(artifacts_raw, list):
+        artifacts = []
+        manifest_errors.append("artifacts_not_list")
+    else:
+        artifacts = artifacts_raw
     missing: list[str] = []
     sha_mismatches: list[str] = []
     byte_mismatches: list[str] = []
@@ -188,7 +196,15 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
             byte_mismatches.append(rel_path)
         checked.append({"path": rel_path, "bytes": actual_bytes, "sha256": actual_sha})
         checked_paths.add(rel_path)
-    manifest_required = [str(name) for name in manifest.get("required_artifacts", []) if str(name)]
+    required_artifacts_raw = manifest.get("required_artifacts", [])
+    if required_artifacts_raw is None:
+        manifest_required = []
+        manifest_errors.append("required_artifacts_not_list")
+    elif not isinstance(required_artifacts_raw, list):
+        manifest_required = []
+        manifest_errors.append("required_artifacts_not_list")
+    else:
+        manifest_required = [str(name) for name in required_artifacts_raw if str(name)]
     required = list(dict.fromkeys([*REQUIRED_ARTIFACTS, *manifest_required]))
     omitted_default_required = [name for name in REQUIRED_ARTIFACTS if name not in manifest_required]
     if omitted_default_required:
