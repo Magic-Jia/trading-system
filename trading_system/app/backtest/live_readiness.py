@@ -1222,7 +1222,11 @@ def _setup_rewrite_diagnostic(chunk_dirs: Iterable[Path]) -> dict[str, Any] | No
             continue
         payload = _load_json(path)
         parse_error = _json_parse_error(payload)
-        summary = _as_mapping(payload.get("summary"))
+        summary_payload = payload.get("summary")
+        summary_object_valid = isinstance(summary_payload, Mapping)
+        summary = _as_mapping(summary_payload)
+        if not parse_error and not summary_object_valid:
+            parse_error = "invalid_field_type: summary"
         counts, count_parse_error = _setup_rewrite_counts(summary)
         parse_error = parse_error or count_parse_error
         unknown_summary_fields = sorted(set(summary) - (set(SETUP_REWRITE_COUNT_FIELDS) | {"total_rows", "by_setup"}))
