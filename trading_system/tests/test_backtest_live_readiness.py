@@ -1221,6 +1221,25 @@ def test_live_readiness_gate_rejects_missing_execution_cost_fields(tmp_path: Pat
     assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
 
 
+def test_live_readiness_gate_rejects_non_finite_execution_cost_fields(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    payload = json.loads((chunk / "trades.json").read_text(encoding="utf-8"))
+    payload["trades"][0]["fee_paid"] = "NaN"
+    payload["trades"][0]["slippage_paid"] = "Infinity"
+    (chunk / "trades.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    assert report["trade_cost_sign_integrity"]["valid"] is False
+    assert report["trade_cost_sign_integrity"]["invalid_fields"] == [
+        {"chunk": "chunk_001", "index": 1, "field": "fee_paid", "value": "NaN", "error": "invalid_execution_cost"},
+        {"chunk": "chunk_001", "index": 1, "field": "slippage_paid", "value": "Infinity", "error": "invalid_execution_cost"},
+    ]
+    assert "trade_cost_sign_invalid" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
 def test_live_readiness_gate_rejects_negative_execution_costs(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     _write_profitable_trade_chunk(chunk)

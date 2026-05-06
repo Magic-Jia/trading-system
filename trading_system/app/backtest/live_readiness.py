@@ -589,7 +589,18 @@ def _trade_cost_sign_integrity(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
                     continue
                 value = trade.get(field)
                 parsed, valid = _strict_float_value(value)
-                if valid and parsed < 0.0:
+                if not valid:
+                    invalid_fields.append(
+                        {
+                            "chunk": chunk_dir.name,
+                            "index": index,
+                            "field": field,
+                            "value": value,
+                            "error": "invalid_execution_cost",
+                        }
+                    )
+                    continue
+                if parsed < 0.0:
                     invalid_fields.append(
                         {
                             "chunk": chunk_dir.name,
