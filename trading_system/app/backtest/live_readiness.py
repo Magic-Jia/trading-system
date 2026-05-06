@@ -1243,6 +1243,20 @@ def _setup_rewrite_diagnostic(chunk_dirs: Iterable[Path]) -> dict[str, Any] | No
                 if unknown_row_fields:
                     parse_error = f"unknown_evaluation_row_field: evaluation_rows[{row_index}]." + ", ".join(unknown_row_fields)
                     break
+                for field in ("symbol", "setup_type", "evaluation_status", "evaluation_reason"):
+                    if field in row and not isinstance(row.get(field), str):
+                        parse_error = f"invalid_field_type: evaluation_rows[{row_index}].{field}"
+                        break
+                if parse_error:
+                    break
+                if "would_keep" in row and not isinstance(row.get("would_keep"), bool):
+                    parse_error = f"invalid_field_type: evaluation_rows[{row_index}].would_keep"
+                    break
+                if "net_pnl" in row:
+                    _, net_pnl_valid = _strict_float_value(row.get("net_pnl"))
+                    if not net_pnl_valid:
+                        parse_error = f"invalid_numeric_field: evaluation_rows[{row_index}].net_pnl"
+                        break
         chunk = {
             "chunk": chunk_dir.name,
             "path": str(path),
