@@ -2262,6 +2262,29 @@ def test_live_readiness_gate_rejects_runtime_safety_evidence_source_not_object(t
 
 
 
+def test_live_readiness_gate_rejects_microstructure_evidence_source_not_object(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    microstructure_payload = {
+        "schema_version": "market_microstructure_gate_input.v1",
+        "evidence_source": ["exchange_export"],
+        "checks": {
+            "l2_tick_coverage_met": True,
+            "depth_driven_taker_met": True,
+        },
+    }
+    (chunk / "market_microstructure_gate.json").write_text(json.dumps(microstructure_payload), encoding="utf-8")
+
+    report = build_live_readiness_gate_report(tmp_path, require_microstructure_evidence=True)
+
+    microstructure_gate = report["microstructure_gate"]
+    assert microstructure_gate["checks"]["microstructure_artifact_schema_valid"] is False
+    assert microstructure_gate["artifacts"][0]["parse_error"] == "evidence_source_not_object"
+    assert "microstructure_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
+
 def test_live_readiness_gate_sorts_chunk_names_naturally(tmp_path: Path) -> None:
     for name in ("chunk_10", "chunk_2", "chunk_1"):
         chunk = tmp_path / name

@@ -1240,13 +1240,16 @@ def _microstructure_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
         payload = _load_json(path)
         parse_error = _json_parse_error(payload)
         checks_payload = payload.get("checks")
+        evidence_source_payload = payload.get("evidence_source")
         checks_object_valid = isinstance(checks_payload, Mapping)
+        evidence_source_object_valid = isinstance(evidence_source_payload, Mapping)
         checks = _as_mapping(checks_payload)
         unknown_check_fields = sorted(set(checks) - set(required_checks))
         chunk_schema_valid = (
             (not parse_error)
             and _artifact_schema_valid(payload, "market_microstructure_gate_input.v1")
             and checks_object_valid
+            and evidence_source_object_valid
             and not unknown_check_fields
         )
         chunk_provenance_present = (not parse_error) and _artifact_provenance_present(payload)
@@ -1254,6 +1257,8 @@ def _microstructure_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
         if not parse_error:
             if not checks_object_valid:
                 parse_error_message = "checks_not_object"
+            elif not evidence_source_object_valid:
+                parse_error_message = "evidence_source_not_object"
             elif unknown_check_fields:
                 parse_error_message = "unknown_check_field: " + ", ".join(unknown_check_fields)
         artifacts.append(
