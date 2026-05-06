@@ -163,7 +163,7 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
             manifest_errors.append("evidence_source_type_blank")
     artifacts_raw = manifest.get("artifacts")
     declared_missing_artifacts_raw = manifest.get("missing_artifacts", [])
-    if declared_missing_artifacts_raw is None:
+    if "missing_artifacts" not in manifest:
         declared_missing_artifacts: list[Any] = []
     elif isinstance(declared_missing_artifacts_raw, list):
         declared_missing_artifacts = declared_missing_artifacts_raw
