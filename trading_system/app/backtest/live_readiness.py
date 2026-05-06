@@ -1474,7 +1474,14 @@ def _artifact_provenance_present(payload: Mapping[str, Any]) -> bool:
     if not isinstance(source_type, str):
         return False
     normalized_source_type = source_type.strip().lower()
-    return bool(normalized_source_type) and normalized_source_type not in {"unknown", "unknown_offline_records", "synthetic_fixture"}
+    return bool(normalized_source_type) and normalized_source_type not in {
+        "unknown",
+        "unknown_offline_records",
+        "synthetic",
+        "synthetic_fixture",
+        "simulated",
+        "offline_simulation",
+    }
 
 
 def _artifact_provenance_schema_error(payload: Mapping[str, Any]) -> str:
