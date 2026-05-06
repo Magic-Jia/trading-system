@@ -3951,6 +3951,26 @@ def test_live_readiness_gate_reports_invalid_side_in_price_pnl_consistency(tmp_p
 
 
 
+def test_live_readiness_gate_reports_negative_trade_quantity_fields(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    payload = json.loads((chunk / "trades.json").read_text(encoding="utf-8"))
+    payload["trades"][0]["quantity"] = -1.0
+    payload["trades"][0]["notional"] = -100.0
+    (chunk / "trades.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    assert report["trade_notional_consistency"]["valid"] is False
+    assert {field["field"]: field["error"] for field in report["trade_notional_consistency"]["invalid_fields"]} == {
+        "quantity": "negative_numeric_field",
+        "notional": "negative_numeric_field",
+    }
+    assert "trade_notional_inconsistent" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
+
 def test_live_readiness_gate_reports_bool_trade_notional_fields(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     _write_profitable_trade_chunk(chunk)
