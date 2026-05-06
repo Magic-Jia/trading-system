@@ -877,6 +877,68 @@ def test_live_readiness_gate_rejects_side_price_gross_pnl_mismatch(tmp_path: Pat
     assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
 
 
+def test_live_readiness_gate_rejects_invalid_missing_and_non_positive_trade_times(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    payload = json.loads((chunk / "trades.json").read_text(encoding="utf-8"))
+    base_trade = payload["trades"][0]
+    missing_entry = {**base_trade, "trade_id": "trade-missing-entry-time"}
+    missing_entry.pop("entry_time", None)
+    invalid_exit = {**base_trade, "trade_id": "trade-invalid-exit-time", "exit_time": "not-a-time"}
+    exit_before_entry = {
+        **base_trade,
+        "trade_id": "trade-exit-before-entry",
+        "entry_time": "2026-01-01T00:10:00Z",
+        "exit_time": "2026-01-01T00:00:00Z",
+    }
+    zero_duration = {
+        **base_trade,
+        "trade_id": "trade-zero-duration",
+        "entry_time": "2026-01-01T00:00:00Z",
+        "exit_time": "2026-01-01T00:00:00Z",
+    }
+    payload["trades"] = [missing_entry, invalid_exit, exit_before_entry, zero_duration]
+    (chunk / "trades.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    assert report["trade_time_integrity"]["valid"] is False
+    assert report["trade_time_integrity"]["invalid_fields"] == [
+        {
+            "chunk": "chunk_001",
+            "index": 1,
+            "field": "entry_time",
+            "value": None,
+            "error": "missing_or_invalid_timestamp",
+        },
+        {
+            "chunk": "chunk_001",
+            "index": 2,
+            "field": "exit_time",
+            "value": "not-a-time",
+            "error": "missing_or_invalid_timestamp",
+        },
+        {
+            "chunk": "chunk_001",
+            "index": 3,
+            "field": "exit_time",
+            "value": "2026-01-01T00:00:00Z",
+            "entry_time": "2026-01-01T00:10:00Z",
+            "error": "exit_before_entry",
+        },
+        {
+            "chunk": "chunk_001",
+            "index": 4,
+            "field": "exit_time",
+            "value": "2026-01-01T00:00:00Z",
+            "entry_time": "2026-01-01T00:00:00Z",
+            "error": "non_positive_duration",
+        },
+    ]
+    assert "trade_time_invalid" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
 def test_live_readiness_gate_rejects_missing_invalid_and_conflicting_exit_reasons(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     _write_profitable_trade_chunk(chunk)
