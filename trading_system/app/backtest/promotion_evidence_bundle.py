@@ -170,6 +170,13 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
     else:
         declared_missing_artifacts = []
         manifest_errors.append("missing_artifacts_not_list")
+    invalid_declared_missing_artifacts = [
+        f"missing_artifacts[{index}]"
+        for index, item in enumerate(declared_missing_artifacts, start=1)
+        if not isinstance(item, str)
+    ]
+    if invalid_declared_missing_artifacts:
+        manifest_errors.append("missing_artifact_entry_not_string")
     if declared_missing_artifacts:
         manifest_errors.append("manifest_declares_missing_artifacts")
     if artifacts_raw is None:
@@ -319,6 +326,7 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
         "candidate_id_valid": candidate_id_valid,
         "candidate_id": candidate_id,
         "declared_missing_artifacts": sorted(str(item) for item in declared_missing_artifacts),
+        "invalid_declared_missing_artifacts": sorted(invalid_declared_missing_artifacts),
         "missing_artifacts": sorted(missing),
         "unchecked_required_artifacts": sorted(unchecked_required),
         "invalid_required_artifacts": sorted(set(invalid_required_artifacts)),
