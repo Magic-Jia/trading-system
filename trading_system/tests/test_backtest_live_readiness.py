@@ -829,6 +829,54 @@ def test_live_readiness_gate_rejects_missing_non_finite_and_non_positive_trade_s
     assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
 
 
+def test_live_readiness_gate_rejects_trade_pnl_mismatch(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    payload = json.loads((chunk / "trades.json").read_text(encoding="utf-8"))
+    payload["trades"][0]["net_pnl"] = 999.0
+    (chunk / "trades.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    assert report["trade_pnl_consistency"]["valid"] is False
+    assert report["trade_pnl_consistency"]["invalid_fields"] == [
+        {
+            "chunk": "chunk_001",
+            "index": 1,
+            "field": "net_pnl",
+            "value": 999.0,
+            "expected": 1.5,
+            "error": "net_pnl_mismatch",
+        }
+    ]
+    assert "trade_pnl_inconsistent" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
+def test_live_readiness_gate_rejects_side_price_gross_pnl_mismatch(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    payload = json.loads((chunk / "trades.json").read_text(encoding="utf-8"))
+    payload["trades"][0]["gross_pnl"] = -999.0
+    (chunk / "trades.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    assert report["trade_side_price_pnl_consistency"]["valid"] is False
+    assert report["trade_side_price_pnl_consistency"]["invalid_fields"] == [
+        {
+            "chunk": "chunk_001",
+            "index": 1,
+            "field": "gross_pnl",
+            "value": -999.0,
+            "expected": 1.5,
+            "error": "side_price_pnl_mismatch",
+        }
+    ]
+    assert "trade_side_price_pnl_inconsistent" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
 def test_live_readiness_gate_rejects_non_finite_trade_financial_metrics(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     _write_profitable_trade_chunk(chunk)
