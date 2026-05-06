@@ -2068,6 +2068,30 @@ def test_live_readiness_gate_rejects_exit_path_replay_invalid_trade_id(tmp_path:
     assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
 
 
+def test_live_readiness_gate_rejects_exit_path_replay_trade_id_not_string(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    (chunk / "exit_path_replay.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "exit_path_replay.v1",
+                "evidence_source": {"type": "testnet_exchange"},
+                "trades": [{"trade_id": 123}],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    reconciliation = report["exit_path_replay"]["reconciliation"]
+    assert reconciliation["schema_valid"] is False
+    assert reconciliation["artifacts"][0]["parse_error"] == "trade_id_not_string: trades[1]"
+    assert "exit_path_replay_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["checks"]["exit_path_replay_rows_met"] is False
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
 def test_live_readiness_gate_rejects_exit_path_replay_duplicate_trade_ids(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     _write_profitable_trade_chunk(chunk)
