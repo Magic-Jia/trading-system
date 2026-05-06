@@ -977,13 +977,13 @@ def _trade_notional_consistency(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
             )
             invalid_numeric_fields = [item for item in numeric_fields if not item[2]]
             negative_numeric_fields = [
-                (field, value)
+                (field, value, "negative_numeric_field" if parsed < 0.0 else "non_positive_numeric_field")
                 for field, value, _valid, parsed in (
                     ("entry_price", trade.get("entry_price"), entry_price_valid, entry_price),
                     ("quantity", trade.get("quantity"), quantity_valid, quantity),
                     ("notional", trade.get("notional"), notional_valid, notional),
                 )
-                if _valid and parsed < 0.0
+                if _valid and parsed <= 0.0
             ]
             if invalid_numeric_fields:
                 for field, value, _valid in invalid_numeric_fields:
@@ -998,14 +998,14 @@ def _trade_notional_consistency(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
                     )
                 continue
             if negative_numeric_fields:
-                for field, value in negative_numeric_fields:
+                for field, value, error in negative_numeric_fields:
                     invalid_fields.append(
                         {
                             "chunk": chunk_dir.name,
                             "index": index,
                             "field": field,
                             "value": value,
-                            "error": "negative_numeric_field",
+                            "error": error,
                         }
                     )
                 continue
@@ -1179,13 +1179,13 @@ def _trade_side_price_pnl_consistency(chunk_dirs: Sequence[Path]) -> dict[str, A
             )
             invalid_numeric_fields = [item for item in numeric_fields if not item[2]]
             negative_numeric_fields = [
-                (field, value)
+                (field, value, "negative_numeric_field" if parsed < 0.0 else "non_positive_numeric_field")
                 for field, value, _valid, parsed in (
                     ("entry_price", trade.get("entry_price"), entry_valid, entry_price),
                     ("exit_price", trade.get("exit_price"), exit_valid, exit_price),
                     ("quantity", trade.get("quantity"), quantity_valid, quantity),
                 )
-                if _valid and parsed < 0.0
+                if _valid and parsed <= 0.0
             ]
             if invalid_numeric_fields:
                 for field, value, _valid in invalid_numeric_fields:
@@ -1200,14 +1200,14 @@ def _trade_side_price_pnl_consistency(chunk_dirs: Sequence[Path]) -> dict[str, A
                     )
                 continue
             if negative_numeric_fields:
-                for field, value in negative_numeric_fields:
+                for field, value, error in negative_numeric_fields:
                     invalid_fields.append(
                         {
                             "chunk": chunk_dir.name,
                             "index": index,
                             "field": field,
                             "value": value,
-                            "error": "negative_numeric_field",
+                            "error": error,
                         }
                     )
                 continue
