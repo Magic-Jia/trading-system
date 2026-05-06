@@ -1236,6 +1236,10 @@ def _chunk_report(chunk_dir: Path) -> dict[str, Any]:
     net_pnl = sum(_strict_float_or_zero(trade.get("net_pnl")) for trade in trades)
     evidence_count = sum(1 for trade in trades if _entry_evidence_live_grade(trade))
     exit_evidence_count = sum(1 for trade in trades if _exit_evidence_live_grade(trade))
+    cost_breakdown = _as_mapping(_as_mapping(summary_payload.get("summary")).get("cost_breakdown"))
+    normalized_costs = {
+        field: _strict_float_or_zero(cost_breakdown.get(field)) for field in ("fees", "slippage", "funding")
+    }
     metadata = _as_mapping(trades_payload.get("metadata"))
     period = metadata.get("sample_period")
     return {
@@ -1244,7 +1248,7 @@ def _chunk_report(chunk_dir: Path) -> dict[str, Any]:
         "trade_count": len(trades),
         "net_pnl": net_pnl,
         "gross_pnl": sum(_strict_float_or_zero(trade.get("gross_pnl")) for trade in trades),
-        "costs": dict(_as_mapping(_as_mapping(summary_payload.get("summary")).get("cost_breakdown"))),
+        "costs": normalized_costs,
         "evidence_coverage": evidence_count / len(trades) if trades else 0.0,
         "exit_evidence_coverage": exit_evidence_count / len(trades) if trades else 0.0,
         "regime": metadata.get("regime") or metadata.get("regime_label"),

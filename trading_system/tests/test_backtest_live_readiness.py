@@ -5417,6 +5417,22 @@ def test_live_readiness_gate_does_not_count_bool_net_pnl_in_buckets(tmp_path: Pa
 
 
 
+def test_live_readiness_gate_normalizes_invalid_summary_costs_in_chunk_performance(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    summary_payload = json.loads((chunk / "summary.json").read_text(encoding="utf-8"))
+    summary_payload["summary"]["cost_breakdown"]["fees"] = True
+    (chunk / "summary.json").write_text(json.dumps(summary_payload), encoding="utf-8")
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    assert report["summary_artifact_integrity"]["valid"] is False
+    assert report["chunk_performance"][0]["costs"] == {"fees": 0.0, "slippage": 0.0, "funding": 0.0}
+    assert "summary_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
+
 def test_live_readiness_gate_does_not_match_bool_trade_costs_in_summary_integrity(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     _write_profitable_trade_chunk(chunk)
