@@ -160,6 +160,21 @@ def audit_execution_depth(trades_json: str | Path | Mapping[str, Any]) -> dict[s
     }
 
 
+def _dimension_bucket_key(value: Any, field: str) -> str:
+    if not isinstance(value, str):
+        return "UNKNOWN"
+    stripped = value.strip()
+    if not stripped:
+        return "UNKNOWN"
+    if field == "symbol" and not re.fullmatch(r"[A-Z0-9]{3,20}", stripped):
+        return "UNKNOWN"
+    if field == "setup_type" and not re.fullmatch(r"[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*", stripped):
+        return "UNKNOWN"
+    if field == "side" and stripped not in VALID_TRADE_SIDES:
+        return "UNKNOWN"
+    return stripped
+
+
 def _evidence_quality_is_live_grade(value: Any) -> bool:
     return isinstance(value, str) and value.strip().lower() in {"evidence_backed", "partial_evidence_backed"}
 
@@ -2112,9 +2127,9 @@ def build_live_readiness_gate_report(
     by_symbol: dict[str, dict[str, Any]] = {}
     by_side: dict[str, dict[str, Any]] = {}
     for trade in all_trades:
-        _add_group(by_setup, str(trade.get("setup_type") or "UNKNOWN"), "setup_type", trade)
-        _add_group(by_symbol, str(trade.get("symbol") or "UNKNOWN"), "symbol", trade)
-        _add_group(by_side, str(trade.get("side") or "UNKNOWN"), "side", trade)
+        _add_group(by_setup, _dimension_bucket_key(trade.get("setup_type"), "setup_type"), "setup_type", trade)
+        _add_group(by_symbol, _dimension_bucket_key(trade.get("symbol"), "symbol"), "symbol", trade)
+        _add_group(by_side, _dimension_bucket_key(trade.get("side"), "side"), "side", trade)
     setup_quality_gate = _setup_quality_gate(
         by_setup,
         min_setup_trade_count=min_setup_trade_count,
@@ -2564,9 +2579,9 @@ def summarize_trade_postmortem(trades: Iterable[Mapping[str, Any]]) -> dict[str,
         _add_postmortem_bucket(summary, trade)
         failure_key = _postmortem_failure_bucket(trade)
         _add_postmortem_bucket(by_failure.setdefault(failure_key, _empty_postmortem_bucket()), trade)
-        setup_key = str(trade.get("setup_type") or "UNKNOWN")
+        setup_key = _dimension_bucket_key(trade.get("setup_type"), "setup_type")
         _add_postmortem_bucket(by_setup.setdefault(setup_key, _empty_postmortem_bucket()), trade)
-        symbol_key = str(trade.get("symbol") or "UNKNOWN")
+        symbol_key = _dimension_bucket_key(trade.get("symbol"), "symbol")
         _add_postmortem_bucket(by_symbol.setdefault(symbol_key, _empty_postmortem_bucket()), trade)
     summary_payload = {
         **summary,
