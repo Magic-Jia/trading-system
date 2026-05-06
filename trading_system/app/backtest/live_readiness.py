@@ -341,7 +341,7 @@ def _summary_artifact_integrity(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
                 }
             )
         else:
-            parsed_trade_count, valid_trade_count = _int_value(trade_count)
+            parsed_trade_count, valid_trade_count = _strict_summary_int_value(trade_count)
             if not valid_trade_count:
                 invalid_artifacts.append(
                     {
@@ -648,6 +648,13 @@ def _int_value(value: Any) -> tuple[int, bool]:
             return 0, False
         return parsed, True
     return 0, False
+
+
+def _strict_summary_int_value(value: Any) -> tuple[int, bool]:
+    if isinstance(value, bool) or not isinstance(value, int):
+        return 0, False
+    return value, True
+
 
 
 def _strict_float_value(value: Any) -> tuple[float, bool]:
