@@ -1241,6 +1241,13 @@ def _artifact_schema_valid(payload: Mapping[str, Any], expected_schema_version: 
     return payload.get("schema_version") == expected_schema_version
 
 
+def _artifact_top_level_schema_error(payload: Mapping[str, Any], allowed_fields: set[str]) -> str:
+    unknown_fields = sorted(set(payload) - allowed_fields)
+    if unknown_fields:
+        return "unknown_top_level_field: " + ", ".join(unknown_fields)
+    return ""
+
+
 def _artifact_provenance_present(payload: Mapping[str, Any]) -> bool:
     source = _as_mapping(payload.get("evidence_source"))
     source_type = source.get("type")
@@ -1312,6 +1319,7 @@ def _runtime_safety_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
         checks_object_valid = isinstance(checks_payload, Mapping)
         evidence_source_object_valid = isinstance(evidence_source_payload, Mapping)
         evidence_source_schema_error = _artifact_provenance_schema_error(payload)
+        top_level_schema_error = _artifact_top_level_schema_error(payload, {"schema_version", "evidence_source", "checks", "summary"})
         checks = _as_mapping(checks_payload)
         unknown_check_fields = sorted(set(checks) - set(required_checks))
         chunk_schema_valid = (
@@ -1320,6 +1328,7 @@ def _runtime_safety_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
             and checks_object_valid
             and evidence_source_object_valid
             and not evidence_source_schema_error
+            and not top_level_schema_error
             and not unknown_check_fields
         )
         chunk_provenance_present = (not parse_error) and _artifact_provenance_present(payload)
@@ -1331,6 +1340,8 @@ def _runtime_safety_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
                 parse_error_message = "evidence_source_not_object"
             elif evidence_source_schema_error:
                 parse_error_message = evidence_source_schema_error
+            elif top_level_schema_error:
+                parse_error_message = top_level_schema_error
             elif unknown_check_fields:
                 parse_error_message = "unknown_check_field: " + ", ".join(unknown_check_fields)
         artifacts.append(
