@@ -5029,6 +5029,43 @@ def test_live_readiness_gate_rejects_setup_rewrite_summary_count_mismatch(tmp_pa
 
 
 
+def test_live_readiness_gate_rejects_setup_rewrite_evaluated_missing_would_keep(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    (chunk / "setup_rewrite_experiment.json").write_text(
+        json.dumps(
+            {
+                "summary": {
+                    "evaluated_count": 1,
+                    "would_keep_count": 0,
+                    "would_filter_count": 1,
+                    "skipped_count": 0,
+                    "total_rows": 1,
+                },
+                "evaluation_rows": [
+                    {
+                        "symbol": "BTCUSDT",
+                        "setup_type": "BREAKOUT_CONTINUATION",
+                        "evaluation_status": "evaluated",
+                        "evaluation_reason": "filtered",
+                        "net_pnl": -5.0,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    diagnostic = report["setup_rewrite_diagnostic"]
+    assert diagnostic["checks"]["setup_rewrite_artifact_schema_valid"] is False
+    assert diagnostic["chunks"][0]["parse_error"] == "missing_required_field: evaluation_rows[1].would_keep"
+    assert "setup_rewrite_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
+
 def test_live_readiness_gate_rejects_setup_rewrite_no_evidence_would_keep_true(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     _write_profitable_trade_chunk(chunk)
