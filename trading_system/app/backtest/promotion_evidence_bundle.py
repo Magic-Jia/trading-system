@@ -176,6 +176,9 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
     if evidence_source_raw is not None and not isinstance(evidence_source_raw, Mapping):
         manifest_errors.append("evidence_source_not_object")
     if isinstance(evidence_source_raw, Mapping):
+        unknown_evidence_source_fields = sorted(set(evidence_source_raw) - {"type", "run_id", "exported_at"})
+        for field in unknown_evidence_source_fields:
+            manifest_errors.append(f"unknown_evidence_source_field: {field}")
         evidence_source_type = evidence_source_raw.get("type")
         if evidence_source_type is not None and not isinstance(evidence_source_type, str):
             manifest_errors.append("evidence_source_type_not_string")
