@@ -877,6 +877,44 @@ def test_live_readiness_gate_rejects_side_price_gross_pnl_mismatch(tmp_path: Pat
     assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
 
 
+def test_live_readiness_gate_rejects_missing_invalid_and_conflicting_exit_reasons(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    payload = json.loads((chunk / "trades.json").read_text(encoding="utf-8"))
+    base_trade = payload["trades"][0]
+    missing_reason = {**base_trade, "trade_id": "trade-missing-exit-reason"}
+    missing_reason.pop("exit_reason", None)
+    missing_reason.pop("simulated_exit_reason", None)
+    invalid_reason = {**base_trade, "trade_id": "trade-invalid-exit-reason", "exit_reason": "moonshot"}
+    invalid_reason.pop("simulated_exit_reason", None)
+    conflicting_reason = {
+        **base_trade,
+        "trade_id": "trade-conflicting-exit-reason",
+        "exit_reason": "take_profit",
+        "simulated_exit_reason": "stop_loss",
+    }
+    payload["trades"] = [missing_reason, invalid_reason, conflicting_reason]
+    (chunk / "trades.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    assert report["trade_exit_reason_integrity"]["valid"] is False
+    assert report["trade_exit_reason_integrity"]["invalid_fields"] == [
+        {"chunk": "chunk_001", "index": 1, "field": "exit_reason", "value": None, "error": "missing_exit_reason"},
+        {"chunk": "chunk_001", "index": 2, "field": "exit_reason", "value": "moonshot", "error": "invalid_exit_reason"},
+        {
+            "chunk": "chunk_001",
+            "index": 3,
+            "field": "exit_reason",
+            "value": "take_profit",
+            "simulated_exit_reason": "stop_loss",
+            "error": "conflicting_exit_reasons",
+        },
+    ]
+    assert "trade_exit_reason_invalid" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
 def test_live_readiness_gate_rejects_non_finite_trade_financial_metrics(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     _write_profitable_trade_chunk(chunk)
