@@ -175,8 +175,21 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
         for index, item in enumerate(declared_missing_artifacts, start=1)
         if not isinstance(item, str)
     ]
+    blank_declared_missing_artifacts = [
+        f"missing_artifacts[{index}]"
+        for index, item in enumerate(declared_missing_artifacts, start=1)
+        if isinstance(item, str) and not item
+    ]
+    invalid_declared_missing_artifacts.extend(blank_declared_missing_artifacts)
     if invalid_declared_missing_artifacts:
+        manifest_errors.append("missing_artifact_entry_invalid")
+    if any(
+        not isinstance(item, str)
+        for item in declared_missing_artifacts
+    ):
         manifest_errors.append("missing_artifact_entry_not_string")
+    if blank_declared_missing_artifacts:
+        manifest_errors.append("missing_artifact_entry_blank")
     if declared_missing_artifacts:
         manifest_errors.append("manifest_declares_missing_artifacts")
     if artifacts_raw is None:
