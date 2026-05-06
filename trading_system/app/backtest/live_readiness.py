@@ -1279,6 +1279,7 @@ def _exit_path_replay_reconciliation(chunk_dirs: Sequence[Path], *, required: bo
     chunks_missing_artifact: list[str] = []
     artifacts: list[dict[str, Any]] = []
     invalid_source_trade_ids: list[dict[str, Any]] = []
+    source_trade_id_counts: Counter[str] = Counter()
     for chunk_dir in chunk_dirs:
         trades = _trades_payload(_load_json(chunk_dir / "trades.json"))
         for index, trade in enumerate(trades, start=1):
@@ -1294,6 +1295,7 @@ def _exit_path_replay_reconciliation(chunk_dirs: Sequence[Path], *, required: bo
                     {"chunk": chunk_dir.name, "index": index, "trade_id": trade_id_raw, "error": "invalid_trade_id"}
                 )
                 continue
+            source_trade_id_counts[trade_id] += 1
             trade_ids.append(trade_id)
         path = chunk_dir / "exit_path_replay.json"
         if not path.exists():
@@ -1334,6 +1336,7 @@ def _exit_path_replay_reconciliation(chunk_dirs: Sequence[Path], *, required: bo
             path_trade_ids.add(path_trade_id)
             path_trade_id_counts[path_trade_id] += 1
     duplicate_path_trade_ids = sorted(trade_id for trade_id, count in path_trade_id_counts.items() if count > 1)
+    duplicate_source_trade_ids = sorted(trade_id for trade_id, count in source_trade_id_counts.items() if count > 1)
     missing = [trade_id for trade_id in trade_ids if trade_id not in path_trade_ids]
     extra = sorted(path_trade_ids - set(trade_ids))
     schema_valid = bool(artifacts) and all(bool(artifact.get("schema_valid")) for artifact in artifacts)
@@ -1342,6 +1345,7 @@ def _exit_path_replay_reconciliation(chunk_dirs: Sequence[Path], *, required: bo
         not missing
         and not extra
         and not duplicate_path_trade_ids
+        and not duplicate_source_trade_ids
         and not invalid_source_trade_ids
         and not chunks_missing_artifact
         and (schema_valid if artifacts else not required)
@@ -1358,6 +1362,7 @@ def _exit_path_replay_reconciliation(chunk_dirs: Sequence[Path], *, required: bo
         "trade_count": len(trade_ids),
         "path_trade_count": len(path_trade_ids),
         "duplicate_path_trade_count": len(duplicate_path_trade_ids),
+        "duplicate_source_trade_count": len(duplicate_source_trade_ids),
         "invalid_source_trade_id_count": len(invalid_source_trade_ids),
         "missing_trade_count": len(missing),
         "extra_path_trade_count": len(extra),
@@ -1365,6 +1370,7 @@ def _exit_path_replay_reconciliation(chunk_dirs: Sequence[Path], *, required: bo
         "missing_trade_ids": missing[:50],
         "extra_path_trade_ids": extra[:50],
         "duplicate_path_trade_ids": duplicate_path_trade_ids[:50],
+        "duplicate_source_trade_ids": duplicate_source_trade_ids[:50],
         "invalid_source_trade_ids": invalid_source_trade_ids[:50],
     }
 
@@ -1708,6 +1714,8 @@ def build_live_readiness_gate_report(
         reasons.append("exit_path_replay_missing_trades")
     if int(exit_path_reconciliation.get("duplicate_path_trade_count") or 0) > 0:
         reasons.append("exit_path_replay_duplicate_trades")
+    if int(exit_path_reconciliation.get("duplicate_source_trade_count") or 0) > 0:
+        reasons.append("exit_path_replay_source_trade_id_duplicate")
     if int(exit_path_reconciliation.get("invalid_source_trade_id_count") or 0) > 0:
         reasons.append("exit_path_replay_source_trade_id_invalid")
     if int(exit_path_reconciliation.get("artifact_count") or len(exit_path_reconciliation.get("artifacts") or [])) > 0 and not bool(exit_path_reconciliation.get("schema_valid")):

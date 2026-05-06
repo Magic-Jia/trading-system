@@ -1825,6 +1825,43 @@ def test_live_readiness_exit_path_reconciliation_reports_source_trade_id_invalid
     assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
 
 
+def test_live_readiness_exit_path_reconciliation_reports_source_trade_id_duplicates(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    payload = json.loads((chunk / "trades.json").read_text(encoding="utf-8"))
+    first = payload["trades"][0]
+    payload["trades"].append({**first, "net_pnl": 2.0, "gross_pnl": 2.0})
+    (chunk / "trades.json").write_text(json.dumps(payload), encoding="utf-8")
+    (chunk / "summary.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "backtest_summary.v1",
+                "summary": {"trade_count": 2, "cost_breakdown": {"fees": 0.0, "slippage": 0.0, "funding": 0.0}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    (chunk / "exit_path_replay.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "exit_path_replay.v1",
+                "evidence_source": {"type": "testnet_exchange"},
+                "trades": [{"trade_id": "trade-001"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    reconciliation = report["exit_path_replay"]["reconciliation"]
+    assert reconciliation["matched"] is False
+    assert reconciliation["duplicate_source_trade_count"] == 1
+    assert reconciliation["duplicate_source_trade_ids"] == ["trade-001"]
+    assert "exit_path_replay_source_trade_id_duplicate" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
 def test_live_readiness_gate_sorts_chunk_names_naturally(tmp_path: Path) -> None:
     for name in ("chunk_10", "chunk_2", "chunk_1"):
         chunk = tmp_path / name
