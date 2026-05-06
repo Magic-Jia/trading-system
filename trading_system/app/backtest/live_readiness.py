@@ -166,6 +166,8 @@ def _dimension_bucket_key(value: Any, field: str) -> str:
     stripped = value.strip()
     if not stripped:
         return "UNKNOWN"
+    if stripped != value:
+        return "UNKNOWN"
     if field == "symbol" and not re.fullmatch(r"[A-Z0-9]{3,20}", stripped):
         return "UNKNOWN"
     if field == "setup_type" and not re.fullmatch(r"[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*", stripped):
@@ -694,6 +696,17 @@ def _trade_dimension_integrity(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
                             "field": field,
                             "value": value,
                             "error": "missing_or_blank_dimension",
+                        }
+                    )
+                    continue
+                if stripped != value:
+                    invalid_fields.append(
+                        {
+                            "chunk": chunk_dir.name,
+                            "index": index,
+                            "field": field,
+                            "value": value,
+                            "error": "dimension_not_canonical",
                         }
                     )
                     continue

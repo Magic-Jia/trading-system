@@ -4280,6 +4280,30 @@ def test_live_readiness_gate_rejects_malformed_trade_ids(tmp_path: Path) -> None
     assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
 
 
+def test_live_readiness_gate_rejects_noncanonical_trade_dimension_whitespace(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    payload = json.loads((chunk / "trades.json").read_text(encoding="utf-8"))
+    payload["trades"][0]["symbol"] = " BTCUSDT "
+    (chunk / "trades.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    assert report["trade_dimension_integrity"]["valid"] is False
+    assert report["trade_dimension_integrity"]["invalid_fields"] == [
+        {
+            "chunk": "chunk_001",
+            "index": 1,
+            "field": "symbol",
+            "value": " BTCUSDT ",
+            "error": "dimension_not_canonical",
+        }
+    ]
+    assert "trade_dimension_invalid" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
+
 def test_live_readiness_gate_does_not_stringify_invalid_symbol_bucket(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     _write_profitable_trade_chunk(chunk)
