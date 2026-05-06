@@ -1555,6 +1555,30 @@ def test_live_readiness_gate_rejects_invalid_passive_calibration_numeric_fields(
     assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
 
 
+def test_live_readiness_gate_rejects_passive_calibration_evidence_source_not_object(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    (chunk / "passive_order_calibration_summary.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "passive_order_calibration_summary.v1",
+                "evidence_source": ["exchange_export"],
+                "overall": {"attempt_count": 10, "fill_rate": 0.75},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_live_readiness_gate_report(tmp_path, require_passive_calibration=True)
+
+    passive = report["passive_calibration"]
+    assert passive["checks"]["passive_calibration_artifact_schema_valid"] is False
+    assert passive["chunks"][0]["parse_error"] == "evidence_source_not_object"
+    assert "passive_calibration_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
+
 def test_live_readiness_gate_rejects_passive_calibration_evidence_source_run_id_not_string(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     _write_profitable_trade_chunk(chunk)

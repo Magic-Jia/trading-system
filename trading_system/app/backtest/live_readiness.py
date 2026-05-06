@@ -1258,7 +1258,10 @@ def _artifact_provenance_present(payload: Mapping[str, Any]) -> bool:
 
 
 def _artifact_provenance_schema_error(payload: Mapping[str, Any]) -> str:
-    source = _as_mapping(payload.get("evidence_source"))
+    raw_source = payload.get("evidence_source")
+    if raw_source is not None and not isinstance(raw_source, Mapping):
+        return "evidence_source_not_object"
+    source = _as_mapping(raw_source)
     unknown_fields = sorted(set(source) - {"type", "run_id", "exported_at"})
     if unknown_fields:
         return "unknown_evidence_source_field: " + ", ".join(unknown_fields)
