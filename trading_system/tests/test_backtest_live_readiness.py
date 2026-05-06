@@ -2523,6 +2523,32 @@ def test_live_readiness_gate_rejects_microstructure_unknown_top_level_field(tmp_
 
 
 
+def test_live_readiness_gate_rejects_validation_unknown_top_level_field(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    validation_payload = {
+        "schema_version": "validation_gate_input.v1",
+        "evidence_source": {"type": "exchange_export", "run_id": "validation-unknown-top-level"},
+        "checks": {
+            "oos_non_degraded_met": True,
+            "multi_regime_met": True,
+            "cost_stress_positive_met": True,
+            "forward_contamination_absent_met": True,
+        },
+        "manual_override": True,
+    }
+    (chunk / "validation_gate.json").write_text(json.dumps(validation_payload), encoding="utf-8")
+
+    report = build_live_readiness_gate_report(tmp_path, require_validation_evidence=True)
+
+    validation = report["validation_gate"]
+    assert validation["checks"]["validation_artifact_schema_valid"] is False
+    assert validation["artifacts"][0]["parse_error"] == "unknown_top_level_field: manual_override"
+    assert "validation_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
+
 def test_live_readiness_gate_rejects_microstructure_checks_not_object(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     _write_profitable_trade_chunk(chunk)
