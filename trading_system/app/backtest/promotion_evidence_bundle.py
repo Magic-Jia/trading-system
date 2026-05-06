@@ -162,6 +162,16 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
         if isinstance(evidence_source_type, str) and not evidence_source_type:
             manifest_errors.append("evidence_source_type_blank")
     artifacts_raw = manifest.get("artifacts")
+    declared_missing_artifacts_raw = manifest.get("missing_artifacts", [])
+    if declared_missing_artifacts_raw is None:
+        declared_missing_artifacts: list[Any] = []
+    elif isinstance(declared_missing_artifacts_raw, list):
+        declared_missing_artifacts = declared_missing_artifacts_raw
+    else:
+        declared_missing_artifacts = []
+        manifest_errors.append("missing_artifacts_not_list")
+    if declared_missing_artifacts:
+        manifest_errors.append("manifest_declares_missing_artifacts")
     if artifacts_raw is None:
         artifacts = []
         manifest_errors.append("artifacts_missing")
@@ -308,6 +318,7 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
         "schema_valid": schema_valid,
         "candidate_id_valid": candidate_id_valid,
         "candidate_id": candidate_id,
+        "declared_missing_artifacts": sorted(str(item) for item in declared_missing_artifacts),
         "missing_artifacts": sorted(missing),
         "unchecked_required_artifacts": sorted(unchecked_required),
         "invalid_required_artifacts": sorted(set(invalid_required_artifacts)),
