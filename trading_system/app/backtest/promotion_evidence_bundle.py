@@ -34,6 +34,10 @@ def _artifact_path_is_safe(rel_path: str) -> bool:
     return bool(rel_path) and not path.is_absolute() and ".." not in path.parts
 
 
+def _artifact_path_is_canonical(rel_path: str) -> bool:
+    return rel_path == str(Path(rel_path))
+
+
 def collect_promotion_evidence_bundle(
     source_dir: str | Path,
     bundle_dir: str | Path,
@@ -186,6 +190,11 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
         for item in declared_missing_artifacts
         if isinstance(item, str) and item and not _artifact_path_is_safe(item)
     ]
+    noncanonical_declared_missing_artifacts = [
+        item
+        for item in declared_missing_artifacts
+        if isinstance(item, str) and item and _artifact_path_is_safe(item) and not _artifact_path_is_canonical(item)
+    ]
     if invalid_declared_missing_artifacts:
         manifest_errors.append("missing_artifact_entry_invalid")
     if any(
@@ -197,6 +206,8 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
         manifest_errors.append("missing_artifact_entry_blank")
     if unsafe_declared_missing_artifacts:
         manifest_errors.append("missing_artifact_path_unsafe")
+    if noncanonical_declared_missing_artifacts:
+        manifest_errors.append("missing_artifact_path_noncanonical")
     if declared_missing_artifacts:
         manifest_errors.append("manifest_declares_missing_artifacts")
     if artifacts_raw is None:
@@ -348,6 +359,7 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
         "declared_missing_artifacts": sorted(str(item) for item in declared_missing_artifacts),
         "invalid_declared_missing_artifacts": sorted(invalid_declared_missing_artifacts),
         "unsafe_declared_missing_artifacts": sorted(unsafe_declared_missing_artifacts),
+        "noncanonical_declared_missing_artifacts": sorted(noncanonical_declared_missing_artifacts),
         "missing_artifacts": sorted(missing),
         "unchecked_required_artifacts": sorted(unchecked_required),
         "invalid_required_artifacts": sorted(set(invalid_required_artifacts)),
