@@ -1213,11 +1213,11 @@ def _trade_exit_reason_integrity(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
 
 def _bucket_add(bucket: dict[str, Any], trade: Mapping[str, Any]) -> None:
     bucket["trade_count"] += 1
-    bucket["net_pnl"] += _float_value(trade.get("net_pnl"))
-    bucket["gross_pnl"] += _float_value(trade.get("gross_pnl"))
-    bucket["fees"] += _float_value(trade.get("fee_paid"))
-    bucket["slippage"] += _float_value(trade.get("slippage_paid"))
-    bucket["funding"] += _float_value(trade.get("funding_paid"))
+    bucket["net_pnl"] += _strict_float_or_zero(trade.get("net_pnl"))
+    bucket["gross_pnl"] += _strict_float_or_zero(trade.get("gross_pnl"))
+    bucket["fees"] += _strict_float_or_zero(trade.get("fee_paid"))
+    bucket["slippage"] += _strict_float_or_zero(trade.get("slippage_paid"))
+    bucket["funding"] += _strict_float_or_zero(trade.get("funding_paid"))
 
 
 def _empty_bucket(name: str, key_name: str) -> dict[str, Any]:
@@ -1233,19 +1233,9 @@ def _chunk_report(chunk_dir: Path) -> dict[str, Any]:
     trades_payload = _load_json(chunk_dir / "trades.json")
     summary_payload = _load_json(chunk_dir / "summary.json")
     trades = _trades_payload(trades_payload)
-    net_pnl = sum(_float_value(trade.get("net_pnl")) for trade in trades)
-    evidence_count = sum(
-        1
-        for trade in trades
-        if str(trade.get("fill_quality", "")).lower() in {"evidence_backed", "partial_evidence_backed"}
-        or str(trade.get("execution_price_source", "")).lower() == "trade_print"
-    )
-    exit_evidence_count = sum(
-        1
-        for trade in trades
-        if str(trade.get("exit_fill_quality", "")).lower() in {"evidence_backed", "partial_evidence_backed"}
-        or str(trade.get("exit_price_source", "")).lower() == "trade_print"
-    )
+    net_pnl = sum(_strict_float_or_zero(trade.get("net_pnl")) for trade in trades)
+    evidence_count = sum(1 for trade in trades if _entry_evidence_live_grade(trade))
+    exit_evidence_count = sum(1 for trade in trades if _exit_evidence_live_grade(trade))
     metadata = _as_mapping(trades_payload.get("metadata"))
     period = metadata.get("sample_period")
     return {
@@ -1253,7 +1243,7 @@ def _chunk_report(chunk_dir: Path) -> dict[str, Any]:
         "path": str(chunk_dir),
         "trade_count": len(trades),
         "net_pnl": net_pnl,
-        "gross_pnl": sum(_float_value(trade.get("gross_pnl")) for trade in trades),
+        "gross_pnl": sum(_strict_float_or_zero(trade.get("gross_pnl")) for trade in trades),
         "costs": dict(_as_mapping(_as_mapping(summary_payload.get("summary")).get("cost_breakdown"))),
         "evidence_coverage": evidence_count / len(trades) if trades else 0.0,
         "exit_evidence_coverage": exit_evidence_count / len(trades) if trades else 0.0,
@@ -2167,8 +2157,8 @@ def build_live_readiness_gate_report(
     exit_path_ambiguity_rate = exit_path_ambiguous_count / trade_count if trade_count else 0.0
 
     major_negative = [key for key, bucket in by_setup.items() if bucket["trade_count"] >= 1 and bucket["net_pnl"] < 0.0]
-    total_abs_net = sum(abs(_float_value(trade.get("net_pnl"))) for trade in all_trades)
-    total_loss_abs_net = sum(abs(min(_float_value(trade.get("net_pnl")), 0.0)) for trade in all_trades)
+    total_abs_net = sum(abs(_strict_float_or_zero(trade.get("net_pnl"))) for trade in all_trades)
+    total_loss_abs_net = sum(abs(min(_strict_float_or_zero(trade.get("net_pnl")), 0.0)) for trade in all_trades)
     concentration = {
         "max_setup_trade_share": max_setup_trade_share,
         "max_symbol_trade_share": max_symbol_trade_share,

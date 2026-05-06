@@ -5352,6 +5352,27 @@ def test_live_readiness_gate_does_not_count_synthetic_fill_quality_as_entry_evid
 
 
 
+def test_live_readiness_gate_does_not_count_bool_net_pnl_in_buckets(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    payload = json.loads((chunk / "trades.json").read_text(encoding="utf-8"))
+    payload["trades"][0]["net_pnl"] = True
+    (chunk / "trades.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    assert report["totals"]["net_pnl"] == pytest.approx(0.0)
+    setup_bucket = next(iter(report["by_setup_type"].values()))
+    symbol_bucket = next(iter(report["by_symbol"].values()))
+    assert setup_bucket["net_pnl"] == pytest.approx(0.0)
+    assert symbol_bucket["net_pnl"] == pytest.approx(0.0)
+    assert report["concentration"]["top_setup_by_trades"]["net"] == pytest.approx(0.0)
+    assert report["trade_financial_integrity"]["valid"] is False
+    assert "trade_financial_metric_invalid" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
+
 def test_live_readiness_gate_does_not_count_bool_execution_costs_in_totals(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     _write_profitable_trade_chunk(chunk)
