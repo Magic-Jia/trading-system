@@ -1003,7 +1003,26 @@ def _trade_side_price_pnl_consistency(chunk_dirs: Sequence[Path]) -> dict[str, A
             exit_price, exit_valid = _strict_float_value(trade.get("exit_price"))
             quantity, quantity_valid = _strict_float_value(trade.get("quantity"))
             gross_pnl, gross_valid = _strict_float_value(trade.get("gross_pnl"))
-            if side not in VALID_TRADE_SIDES or not all((entry_valid, exit_valid, quantity_valid, gross_valid)):
+            numeric_fields = (
+                ("entry_price", trade.get("entry_price"), entry_valid),
+                ("exit_price", trade.get("exit_price"), exit_valid),
+                ("quantity", trade.get("quantity"), quantity_valid),
+                ("gross_pnl", trade.get("gross_pnl"), gross_valid),
+            )
+            invalid_numeric_fields = [item for item in numeric_fields if not item[2]]
+            if invalid_numeric_fields:
+                for field, value, _valid in invalid_numeric_fields:
+                    invalid_fields.append(
+                        {
+                            "chunk": chunk_dir.name,
+                            "index": index,
+                            "field": field,
+                            "value": value,
+                            "error": "invalid_numeric_field",
+                        }
+                    )
+                continue
+            if side not in VALID_TRADE_SIDES:
                 continue
             expected = (exit_price - entry_price) * quantity if side == "long" else (entry_price - exit_price) * quantity
             tolerance = max(PNL_CONSISTENCY_ABS_TOLERANCE, abs(expected) * PNL_CONSISTENCY_REL_TOLERANCE)
