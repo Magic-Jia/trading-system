@@ -1280,6 +1280,9 @@ def _setup_rewrite_diagnostic(chunk_dirs: Iterable[Path]) -> dict[str, Any] | No
                 if evaluation_status is not None and evaluation_status not in allowed_evaluation_statuses:
                     parse_error = f"unknown_evaluation_status: evaluation_rows[{row_index}]"
                     break
+                if evaluation_status == "no_evidence" and row.get("would_keep") is True:
+                    parse_error = f"inconsistent_evaluation_row: evaluation_rows[{row_index}]"
+                    break
                 if "would_keep" in row and not isinstance(row.get("would_keep"), bool):
                     parse_error = f"invalid_field_type: evaluation_rows[{row_index}].would_keep"
                     break
