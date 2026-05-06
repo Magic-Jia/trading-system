@@ -166,6 +166,7 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
             continue
         rel_path = str(artifact.get("path") or "")
         if not rel_path:
+            missing_metadata.append(f"artifacts[{artifact_index}].path")
             continue
         if rel_path in seen_artifact_paths:
             duplicate_artifact_paths.append(rel_path)
@@ -224,6 +225,8 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
         manifest_errors.append("unsafe_artifact_path")
     if missing_metadata:
         manifest_errors.append("artifact_metadata_missing")
+    if any(str(item).endswith(".path") for item in missing_metadata):
+        manifest_errors.append("artifact_path_missing")
     if invalid_metadata:
         manifest_errors.append("artifact_metadata_invalid")
     if any(str(item).startswith("artifacts[") for item in invalid_metadata):
