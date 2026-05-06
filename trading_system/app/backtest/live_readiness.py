@@ -379,6 +379,16 @@ def _summary_artifact_integrity(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
                         "error": "missing_cost_breakdown_field",
                     }
                 )
+        for field in cost_breakdown:
+            if field not in expected_costs:
+                invalid_artifacts.append(
+                    {
+                        "chunk": chunk_dir.name,
+                        "artifact": "summary.json",
+                        "field": f"summary.cost_breakdown.{field}",
+                        "error": "unknown_cost_breakdown_field",
+                    }
+                )
         for field, value in cost_breakdown.items():
             parsed, valid = _strict_float_value(value)
             if not valid:

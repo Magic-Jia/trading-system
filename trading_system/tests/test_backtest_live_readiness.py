@@ -2033,6 +2033,27 @@ def test_live_readiness_gate_rejects_string_summary_trade_count(tmp_path: Path) 
 
 
 
+def test_live_readiness_gate_rejects_unknown_summary_cost_breakdown_fields(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    summary_payload = json.loads((chunk / "summary.json").read_text(encoding="utf-8"))
+    summary_payload["summary"]["cost_breakdown"]["rebates"] = 0.0
+    (chunk / "summary.json").write_text(json.dumps(summary_payload), encoding="utf-8")
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    integrity = report["summary_artifact_integrity"]
+    assert integrity["valid"] is False
+    assert any(
+        item.get("error") == "unknown_cost_breakdown_field"
+        and item.get("field") == "summary.cost_breakdown.rebates"
+        for item in integrity["invalid_artifacts"]
+    )
+    assert "summary_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
+
 def test_live_readiness_gate_sorts_chunk_names_naturally(tmp_path: Path) -> None:
     for name in ("chunk_10", "chunk_2", "chunk_1"):
         chunk = tmp_path / name
