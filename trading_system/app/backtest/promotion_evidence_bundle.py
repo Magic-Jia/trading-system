@@ -171,10 +171,14 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
         if not isinstance(artifact, Mapping):
             invalid_metadata.append(f"artifacts[{artifact_index}]")
             continue
-        rel_path = str(artifact.get("path") or "")
-        if not rel_path:
+        rel_path_raw = artifact.get("path")
+        if rel_path_raw is None or rel_path_raw == "":
             missing_metadata.append(f"artifacts[{artifact_index}].path")
             continue
+        if not isinstance(rel_path_raw, str):
+            invalid_metadata.append(f"artifacts[{artifact_index}].path")
+            continue
+        rel_path = rel_path_raw
         if rel_path in seen_artifact_paths:
             duplicate_artifact_paths.append(rel_path)
         seen_artifact_paths.add(rel_path)
@@ -251,7 +255,9 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
         manifest_errors.append("artifact_path_missing")
     if invalid_metadata:
         manifest_errors.append("artifact_metadata_invalid")
-    if any(str(item).startswith("artifacts[") for item in invalid_metadata):
+    if any(str(item).endswith(".path") for item in invalid_metadata):
+        manifest_errors.append("artifact_path_not_string")
+    if any(str(item).startswith("artifacts[") and not str(item).endswith(".path") for item in invalid_metadata):
         manifest_errors.append("artifact_entry_not_object")
     if duplicate_artifact_paths:
         manifest_errors.append("duplicate_artifact_path")
