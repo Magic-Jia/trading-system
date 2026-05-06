@@ -218,6 +218,28 @@ def _trades_artifact_integrity(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
                     "error": "invalid_or_missing_schema_version",
                 }
             )
+        rows = payload.get("trades", [])
+        if not isinstance(rows, list):
+            invalid_artifacts.append(
+                {
+                    "chunk": chunk_dir.name,
+                    "artifact": "trades.json",
+                    "schema_version": schema_version,
+                    "error": "trades_rows_not_list",
+                }
+            )
+            continue
+        for index, row in enumerate(rows, start=1):
+            if not isinstance(row, Mapping):
+                invalid_artifacts.append(
+                    {
+                        "chunk": chunk_dir.name,
+                        "artifact": "trades.json",
+                        "schema_version": schema_version,
+                        "index": index,
+                        "error": "trade_row_not_object",
+                    }
+                )
     return {
         "schema_version": "trades_artifact_integrity.v1",
         "valid": not invalid_artifacts,
