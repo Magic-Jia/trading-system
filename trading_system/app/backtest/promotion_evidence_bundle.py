@@ -286,6 +286,8 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
     blank_required_artifacts: list[str] = []
     noncanonical_required_artifacts: list[str] = []
     unsafe_required_artifacts: list[str] = []
+    seen_required_artifacts: set[str] = set()
+    duplicate_required_artifacts: list[str] = []
     if required_artifacts_raw is None:
         manifest_required = []
         manifest_errors.append("required_artifacts_not_list")
@@ -309,6 +311,9 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
                 unsafe_required_artifacts.append(name)
             if _artifact_path_is_safe(name) and not _artifact_path_is_canonical(name):
                 noncanonical_required_artifacts.append(name)
+            if name in seen_required_artifacts:
+                duplicate_required_artifacts.append(name)
+            seen_required_artifacts.add(name)
             manifest_required.append(name)
     required = list(dict.fromkeys([*REQUIRED_ARTIFACTS, *manifest_required]))
     omitted_default_required = [name for name in REQUIRED_ARTIFACTS if name not in manifest_required]
@@ -359,6 +364,8 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
         manifest_errors.append("required_artifact_path_unsafe")
     if noncanonical_required_artifacts:
         manifest_errors.append("required_artifact_path_noncanonical")
+    if duplicate_required_artifacts:
+        manifest_errors.append("duplicate_required_artifact")
     if unchecked_required:
         manifest_errors.append("required_artifact_missing_manifest_entry")
     return {
@@ -380,6 +387,7 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
         "invalid_required_artifacts": sorted(set(invalid_required_artifacts)),
         "unsafe_required_artifacts": sorted(unsafe_required_artifacts),
         "noncanonical_required_artifacts": sorted(noncanonical_required_artifacts),
+        "duplicate_required_artifacts": sorted(set(duplicate_required_artifacts)),
         "omitted_default_required_artifacts": sorted(omitted_default_required),
         "missing_artifact_metadata": sorted(set(missing_metadata)),
         "invalid_artifact_metadata": sorted(set(invalid_metadata)),
