@@ -1776,7 +1776,7 @@ def _passive_calibration_diagnostic(
             and not schema_error
         )
         provenance_present = (not parse_error) and _artifact_provenance_present(payload)
-        attempts, attempts_valid = _int_value(overall.get("attempt_count") or 0)
+        attempts, attempts_valid = _strict_summary_int_value(overall.get("attempt_count") or 0)
         fill_rate, fill_rate_valid = _strict_float_value(overall.get("fill_rate") or 0.0)
         numeric_error = schema_error or ""
         unknown_overall_fields = sorted(set(overall) - {"attempt_count", "fill_rate"})
