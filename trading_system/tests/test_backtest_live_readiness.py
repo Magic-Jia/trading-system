@@ -1599,6 +1599,40 @@ def test_profitable_trade_fixture_is_live_readiness_candidate(tmp_path: Path) ->
     assert report["promotion_gate"]["reasons"] == []
 
 
+def test_live_readiness_gate_checks_expose_trade_integrity_results(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    checks = report["promotion_gate"]["checks"]
+    assert checks["trade_financial_integrity_valid"] is True
+    assert checks["trades_artifact_integrity_valid"] is True
+    assert checks["summary_artifact_integrity_valid"] is True
+    assert checks["trade_identity_integrity_valid"] is True
+    assert checks["trade_dimension_integrity_valid"] is True
+    assert checks["trade_time_integrity_valid"] is True
+    assert checks["trade_price_integrity_valid"] is True
+    assert checks["trade_size_integrity_valid"] is True
+    assert checks["trade_notional_consistency_valid"] is True
+    assert checks["trade_cost_sign_integrity_valid"] is True
+    assert checks["trade_pnl_consistency_valid"] is True
+    assert checks["trade_side_price_pnl_consistency_valid"] is True
+    assert checks["trade_exit_reason_integrity_valid"] is True
+
+    payload = json.loads((chunk / "trades.json").read_text(encoding="utf-8"))
+    del payload["trades"][0]["fee_paid"]
+    (chunk / "trades.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    rejected_report = build_live_readiness_gate_report(tmp_path)
+
+    rejected_checks = rejected_report["promotion_gate"]["checks"]
+    assert rejected_checks["trade_financial_integrity_valid"] is False
+    assert rejected_checks["trade_pnl_consistency_valid"] is True
+    assert "trade_financial_metric_invalid" in rejected_report["promotion_gate"]["reasons"]
+    assert rejected_report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
 def test_live_readiness_gate_rejects_present_runtime_safety_artifact_with_bad_schema(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     _write_profitable_trade_chunk(chunk)

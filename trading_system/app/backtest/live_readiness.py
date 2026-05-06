@@ -1752,6 +1752,21 @@ def build_live_readiness_gate_report(
             reasons.append("setup_rewrite_no_surviving_candidates")
         if not setup_rewrite_checks["setup_rewrite_evidence_complete"]:
             reasons.append("setup_rewrite_missing_evidence")
+    trade_integrity_checks = {
+        "trade_financial_integrity_valid": bool(trade_financial_integrity.get("valid")),
+        "trades_artifact_integrity_valid": bool(trades_artifact_integrity.get("valid")),
+        "summary_artifact_integrity_valid": bool(summary_artifact_integrity.get("valid")),
+        "trade_identity_integrity_valid": bool(trade_identity_integrity.get("valid")),
+        "trade_dimension_integrity_valid": bool(trade_dimension_integrity.get("valid")),
+        "trade_time_integrity_valid": bool(trade_time_integrity.get("valid")),
+        "trade_price_integrity_valid": bool(trade_price_integrity.get("valid")),
+        "trade_size_integrity_valid": bool(trade_size_integrity.get("valid")),
+        "trade_notional_consistency_valid": bool(trade_notional_consistency.get("valid")),
+        "trade_cost_sign_integrity_valid": bool(trade_cost_sign_integrity.get("valid")),
+        "trade_pnl_consistency_valid": bool(trade_pnl_consistency.get("valid")),
+        "trade_side_price_pnl_consistency_valid": bool(trade_side_price_pnl_consistency.get("valid")),
+        "trade_exit_reason_integrity_valid": bool(trade_exit_reason_integrity.get("valid")),
+    }
     decision = "reject_for_live_promotion" if reasons else "candidate_for_promotion"
 
     report = {
@@ -1823,6 +1838,7 @@ def build_live_readiness_gate_report(
                 "major_setup_buckets_non_negative": not major_negative,
                 "promotion_bundle_integrity_verified": (not promotion_bundle_integrity_enforced)
                 or bool(promotion_bundle_integrity.get("verified")),
+                **trade_integrity_checks,
                 **setup_quality_checks,
                 **runtime_safety_checks,
                 **microstructure_checks,
