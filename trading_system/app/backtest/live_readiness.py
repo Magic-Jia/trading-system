@@ -1261,6 +1261,7 @@ def _setup_rewrite_diagnostic(chunk_dirs: Iterable[Path]) -> dict[str, Any] | No
                 parse_error = "row_count_mismatch: evaluation_rows"
         if not parse_error:
             allowed_row_fields = {"symbol", "setup_type", "evaluation_status", "evaluation_reason", "would_keep", "net_pnl"}
+            allowed_evaluation_statuses = {"evaluated", "no_evidence"}
             for row_index, row in enumerate(evaluation_rows, start=1):
                 if not isinstance(row, Mapping):
                     parse_error = f"invalid_row_type: evaluation_rows[{row_index}]"
@@ -1274,6 +1275,10 @@ def _setup_rewrite_diagnostic(chunk_dirs: Iterable[Path]) -> dict[str, Any] | No
                         parse_error = f"invalid_field_type: evaluation_rows[{row_index}].{field}"
                         break
                 if parse_error:
+                    break
+                evaluation_status = row.get("evaluation_status")
+                if evaluation_status is not None and evaluation_status not in allowed_evaluation_statuses:
+                    parse_error = f"unknown_evaluation_status: evaluation_rows[{row_index}]"
                     break
                 if "would_keep" in row and not isinstance(row.get("would_keep"), bool):
                     parse_error = f"invalid_field_type: evaluation_rows[{row_index}].would_keep"
