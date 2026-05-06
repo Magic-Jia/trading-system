@@ -207,7 +207,18 @@ def _finite_float_value(value: Any) -> tuple[float, bool]:
 def _trades_artifact_integrity(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
     invalid_artifacts: list[dict[str, Any]] = []
     for chunk_dir in chunk_dirs:
-        payload = _load_json(chunk_dir / "trades.json")
+        path = chunk_dir / "trades.json"
+        if not path.exists():
+            invalid_artifacts.append(
+                {
+                    "chunk": chunk_dir.name,
+                    "artifact": "trades.json",
+                    "schema_version": None,
+                    "error": "missing_artifact",
+                }
+            )
+            continue
+        payload = _load_json(path)
         schema_version = payload.get("schema_version")
         if schema_version != VALID_TRADES_ARTIFACT_SCHEMA_VERSION:
             invalid_artifacts.append(
@@ -268,6 +279,10 @@ def _trades_artifact_integrity(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
         "invalid_artifacts": invalid_artifacts[:100],
         "invalid_artifact_count": len(invalid_artifacts),
     }
+
+
+def _is_chunk_result_dir(path: Path) -> bool:
+    return path.is_dir() and ((path / "trades.json").exists() or re.fullmatch(r"chunk(?:_\d+)?", path.name) is not None)
 
 
 def _trade_financial_integrity(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
@@ -1305,10 +1320,7 @@ def build_live_readiness_gate_report(
             "required": require_promotion_bundle_integrity,
             **verify_promotion_evidence_bundle(root),
         }
-    chunk_dirs = sorted(
-        (path for path in root.iterdir() if path.is_dir() and (path / "trades.json").exists()),
-        key=_natural_path_key,
-    )
+    chunk_dirs = sorted((path for path in root.iterdir() if _is_chunk_result_dir(path)), key=_natural_path_key)
     all_trades: list[dict[str, Any]] = []
     chunk_performance: list[dict[str, Any]] = []
     for chunk_dir in chunk_dirs:
