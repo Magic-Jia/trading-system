@@ -193,6 +193,8 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
         source_path_raw = artifact.get("source_path")
         if source_path_raw is not None and not isinstance(source_path_raw, str):
             invalid_metadata.append(f"{rel_path}:source_path")
+        if isinstance(source_path_raw, str) and not source_path_raw:
+            invalid_metadata.append(f"{rel_path}:source_path")
         actual_sha = _sha256(path)
         expected_sha = artifact.get("sha256")
         actual_bytes = path.stat().st_size
@@ -267,6 +269,13 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
         manifest_errors.append("artifact_sha256_invalid_format")
     if any(str(item).endswith(":source_path") for item in invalid_metadata):
         manifest_errors.append("artifact_source_path_not_string")
+    if any(
+        isinstance(artifact, Mapping)
+        and isinstance(artifact.get("source_path"), str)
+        and not artifact.get("source_path")
+        for artifact in artifacts
+    ):
+        manifest_errors.append("artifact_source_path_blank")
     if any(str(item).startswith("artifacts[") and not str(item).endswith(".path") for item in invalid_metadata):
         manifest_errors.append("artifact_entry_not_object")
     if duplicate_artifact_paths:
