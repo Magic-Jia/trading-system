@@ -645,10 +645,9 @@ def _int_value(value: Any) -> tuple[int, bool]:
 
 
 def _strict_float_value(value: Any) -> tuple[float, bool]:
-    try:
-        parsed = float(value)
-    except (TypeError, ValueError):
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
         return 0.0, False
+    parsed = float(value)
     if not math.isfinite(parsed):
         return 0.0, False
     return parsed, True

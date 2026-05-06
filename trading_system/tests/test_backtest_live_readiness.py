@@ -1949,6 +1949,26 @@ def test_live_readiness_gate_rejects_non_string_trade_ids(tmp_path: Path) -> Non
 
 
 
+def test_live_readiness_gate_rejects_string_trade_prices(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    payload = json.loads((chunk / "trades.json").read_text(encoding="utf-8"))
+    payload["trades"][0]["entry_price"] = "100.0"
+    (chunk / "trades.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    price_integrity = report["trade_price_integrity"]
+    assert price_integrity["valid"] is False
+    assert any(
+        item.get("error") == "invalid_price" and item.get("field") == "entry_price" and item.get("value") == "100.0"
+        for item in price_integrity["invalid_fields"]
+    )
+    assert "trade_price_invalid" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
+
 def test_live_readiness_gate_sorts_chunk_names_naturally(tmp_path: Path) -> None:
     for name in ("chunk_10", "chunk_2", "chunk_1"):
         chunk = tmp_path / name
