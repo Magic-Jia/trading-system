@@ -419,6 +419,39 @@ def test_live_readiness_gate_rejects_promotion_manifest_required_artifacts_not_l
     assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
 
 
+def test_live_readiness_gate_rejects_promotion_manifest_non_object_artifact_row(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    (tmp_path / "promotion_evidence_manifest.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "promotion_evidence_bundle.v1",
+                "candidate_id": "candidate-1",
+                "required_artifacts": [
+                    "trades.json",
+                    "exit_path_replay.json",
+                    "market_microstructure_gate.json",
+                    "passive_order_calibration_summary.json",
+                    "validation_gate.json",
+                    "runtime_safety_gate.json",
+                ],
+                "artifacts": ["trades.json"],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    integrity = report["promotion_bundle_integrity"]
+    assert integrity["verified"] is False
+    assert "artifact_entry_not_object" in integrity["manifest_errors"]
+    assert integrity["invalid_artifact_metadata"] == ["artifacts[1]"]
+    assert "promotion_bundle_integrity_failed" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["checks"]["promotion_bundle_integrity_verified"] is False
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
 def test_live_readiness_markdown_shows_bundle_manifest_and_metadata_errors(tmp_path: Path) -> None:
     source = tmp_path / "source"
     source.mkdir()
