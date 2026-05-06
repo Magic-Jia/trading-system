@@ -1372,6 +1372,8 @@ def _artifact_provenance_schema_error(payload: Mapping[str, Any]) -> str:
         optional_value = source.get(optional_field)
         if optional_value is not None and not isinstance(optional_value, str):
             return f"evidence_source_{optional_field}_not_string"
+        if isinstance(optional_value, str) and not optional_value.strip():
+            return f"evidence_source_{optional_field}_blank"
     return ""
 
 
