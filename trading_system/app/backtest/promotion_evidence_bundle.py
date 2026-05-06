@@ -249,6 +249,7 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
     unsafe_paths: list[str] = []
     missing_metadata: list[str] = []
     invalid_metadata: list[str] = []
+    source_path_blank_metadata: list[str] = []
     checked: list[dict[str, Any]] = []
     checked_paths: set[str] = set()
     seen_artifact_paths: set[str] = set()
@@ -281,8 +282,8 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
         source_path_raw = artifact.get("source_path")
         if source_path_raw is not None and not isinstance(source_path_raw, str):
             invalid_metadata.append(f"{rel_path}:source_path")
-        if isinstance(source_path_raw, str) and not source_path_raw:
-            invalid_metadata.append(f"{rel_path}:source_path")
+        if isinstance(source_path_raw, str) and not source_path_raw.strip():
+            source_path_blank_metadata.append(f"{rel_path}:source_path")
         actual_sha = _sha256(path)
         expected_sha = artifact.get("sha256")
         actual_bytes = path.stat().st_size
@@ -370,12 +371,7 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
         manifest_errors.append("artifact_sha256_invalid_format")
     if any(str(item).endswith(":source_path") for item in invalid_metadata):
         manifest_errors.append("artifact_source_path_not_string")
-    if any(
-        isinstance(artifact, Mapping)
-        and isinstance(artifact.get("source_path"), str)
-        and not artifact.get("source_path")
-        for artifact in artifacts
-    ):
+    if source_path_blank_metadata:
         manifest_errors.append("artifact_source_path_blank")
     if any(str(item).startswith("artifacts[") and not str(item).endswith(".path") for item in invalid_metadata):
         manifest_errors.append("artifact_entry_not_object")
@@ -415,7 +411,7 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
         "duplicate_required_artifacts": sorted(set(duplicate_required_artifacts)),
         "omitted_default_required_artifacts": sorted(omitted_default_required),
         "missing_artifact_metadata": sorted(set(missing_metadata)),
-        "invalid_artifact_metadata": sorted(set(invalid_metadata)),
+        "invalid_artifact_metadata": sorted(set([*invalid_metadata, *source_path_blank_metadata])),
         "duplicate_artifact_paths": sorted(set(duplicate_artifact_paths)),
         "unsafe_artifact_paths": sorted(unsafe_paths),
         "noncanonical_artifact_paths": sorted(noncanonical_artifact_paths),
