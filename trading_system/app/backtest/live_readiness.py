@@ -1270,6 +1270,11 @@ def _exit_path_replay_reconciliation(chunk_dirs: Sequence[Path], *, required: bo
         rows_payload = payload.get("trades", [])
         if not parse_error and not isinstance(rows_payload, list):
             parse_error = "trades_rows_not_list"
+        if not parse_error:
+            for row_index, row in enumerate(rows_payload, start=1):
+                if not isinstance(row, Mapping):
+                    parse_error = f"trade_row_not_object: trades[{row_index}]"
+                    break
         chunk_schema_valid = (not parse_error) and _artifact_schema_valid(payload, "exit_path_replay.v1")
         chunk_provenance_present = (not parse_error) and _artifact_provenance_present(payload)
         artifacts.append(
