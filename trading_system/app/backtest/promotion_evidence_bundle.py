@@ -259,6 +259,7 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
         if not isinstance(artifact, Mapping):
             invalid_metadata.append(f"artifacts[{artifact_index}]")
             continue
+        unknown_artifact_fields = sorted(set(artifact) - {"path", "sha256", "bytes", "source_path"})
         rel_path_raw = artifact.get("path")
         if rel_path_raw is None or (isinstance(rel_path_raw, str) and not rel_path_raw.strip()):
             missing_metadata.append(f"artifacts[{artifact_index}].path")
@@ -267,6 +268,10 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
             invalid_metadata.append(f"artifacts[{artifact_index}].path")
             continue
         rel_path = rel_path_raw
+        artifact_metadata_label = rel_path
+        if unknown_artifact_fields:
+            for field in unknown_artifact_fields:
+                invalid_metadata.append(f"{artifact_metadata_label}:{field}")
         if rel_path in seen_artifact_paths:
             duplicate_artifact_paths.append(rel_path)
         seen_artifact_paths.add(rel_path)
@@ -375,6 +380,11 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
         manifest_errors.append("artifact_source_path_blank")
     if any(str(item).startswith("artifacts[") and not str(item).endswith(".path") for item in invalid_metadata):
         manifest_errors.append("artifact_entry_not_object")
+    unknown_artifact_field_names = sorted(
+        {str(item).split(":", 1)[1] for item in invalid_metadata if ":" in str(item) and str(item).rsplit(":", 1)[1] not in {"sha256", "source_path", "bytes"}}
+    )
+    for field in unknown_artifact_field_names:
+        manifest_errors.append(f"unknown_artifact_field: {field}")
     if duplicate_artifact_paths:
         manifest_errors.append("duplicate_artifact_path")
     if non_string_required_artifacts:
