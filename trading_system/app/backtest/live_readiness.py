@@ -977,14 +977,27 @@ def _setup_rewrite_diagnostic(chunk_dirs: Iterable[Path]) -> dict[str, Any] | No
     totals = {"evaluated_count": 0, "would_keep_count": 0, "would_filter_count": 0, "skipped_count": 0}
     reasons: Counter[str] = Counter()
     by_setup: dict[str, dict[str, Any]] = {}
+    artifact_schema_valid = True
     for chunk_dir in chunk_dirs:
         path = chunk_dir / "setup_rewrite_experiment.json"
         if not path.exists():
             continue
         payload = _load_json(path)
+        parse_error = _json_parse_error(payload)
         summary = _as_mapping(payload.get("summary"))
         counts = _setup_rewrite_counts(summary)
-        chunks.append({"chunk": chunk_dir.name, "path": str(path), "status": "loaded", "summary": counts})
+        chunk = {
+            "chunk": chunk_dir.name,
+            "path": str(path),
+            "status": "invalid" if parse_error else "loaded",
+            "summary": counts,
+        }
+        if parse_error:
+            artifact_schema_valid = False
+            chunk["parse_error"] = parse_error
+        chunks.append(chunk)
+        if parse_error:
+            continue
         for key, value in counts.items():
             totals[key] += value
         for row in payload.get("evaluation_rows", []):
@@ -1004,6 +1017,7 @@ def _setup_rewrite_diagnostic(chunk_dirs: Iterable[Path]) -> dict[str, Any] | No
         "totals": {**totals, "keep_rate": keep_rate},
         "reasons": dict(sorted(reasons.items())),
         "by_setup": {key: by_setup[key] for key in sorted(by_setup)},
+        "checks": {"setup_rewrite_artifact_schema_valid": artifact_schema_valid},
     }
 
 
@@ -1680,11 +1694,14 @@ def build_live_readiness_gate_report(
         setup_rewrite_would_keep = int(setup_rewrite_totals.get("would_keep_count") or 0)
         setup_rewrite_skipped = int(setup_rewrite_totals.get("skipped_count") or 0)
         setup_rewrite_checks = {
+            **_as_mapping(setup_rewrite_diagnostic.get("checks")),
             "setup_rewrite_has_surviving_candidates": not (
                 setup_rewrite_evaluated > 0 and setup_rewrite_would_keep == 0
             ),
             "setup_rewrite_evidence_complete": setup_rewrite_skipped == 0,
         }
+        if not setup_rewrite_checks.get("setup_rewrite_artifact_schema_valid", True):
+            reasons.append("setup_rewrite_artifact_schema_invalid")
         if not setup_rewrite_checks["setup_rewrite_has_surviving_candidates"]:
             reasons.append("setup_rewrite_no_surviving_candidates")
         if not setup_rewrite_checks["setup_rewrite_evidence_complete"]:

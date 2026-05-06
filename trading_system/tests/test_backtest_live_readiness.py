@@ -2589,6 +2589,34 @@ def test_live_readiness_gate_report_gates_optional_setup_rewrite_diagnostic(tmp_
     assert "- setup_rewrite:" in render_live_readiness_markdown(report)
 
 
+def test_live_readiness_gate_rejects_non_object_setup_rewrite_artifact(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    (chunk / "setup_rewrite_experiment.json").write_text(json.dumps([]), encoding="utf-8")
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    diagnostic = report["setup_rewrite_diagnostic"]
+    assert diagnostic["checks"]["setup_rewrite_artifact_schema_valid"] is False
+    assert diagnostic["chunks"] == [
+        {
+            "chunk": "chunk_001",
+            "path": str(chunk / "setup_rewrite_experiment.json"),
+            "status": "invalid",
+            "parse_error": "json_payload_not_object",
+            "summary": {
+                "evaluated_count": 0,
+                "would_keep_count": 0,
+                "would_filter_count": 0,
+                "skipped_count": 0,
+            },
+        }
+    ]
+    assert "setup_rewrite_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["checks"]["setup_rewrite_artifact_schema_valid"] is False
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
 def test_live_readiness_gate_report_rejects_negative_chunks_and_setup_buckets(tmp_path: Path) -> None:
     first = tmp_path / "chunk_001"
     second = tmp_path / "chunk_002"
