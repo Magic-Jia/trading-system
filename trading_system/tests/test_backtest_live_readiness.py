@@ -1930,6 +1930,25 @@ def test_live_readiness_gate_rejects_summary_artifact_missing_trade_count(tmp_pa
 
 
 
+def test_live_readiness_gate_rejects_non_string_trade_ids(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    payload = json.loads((chunk / "trades.json").read_text(encoding="utf-8"))
+    payload["trades"][0]["trade_id"] = 12345
+    (chunk / "trades.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    identity = report["trade_identity_integrity"]
+    assert identity["valid"] is False
+    assert identity["invalid_trade_ids"] == [
+        {"chunk": "chunk_001", "index": 1, "trade_id": 12345, "error": "trade_id_not_string"}
+    ]
+    assert "trade_identity_invalid" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
+
 def test_live_readiness_gate_sorts_chunk_names_naturally(tmp_path: Path) -> None:
     for name in ("chunk_10", "chunk_2", "chunk_1"):
         chunk = tmp_path / name

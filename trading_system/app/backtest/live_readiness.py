@@ -457,11 +457,14 @@ def _trade_identity_integrity(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
         rows = _trades_payload(_load_json(chunk_dir / "trades.json"))
         for index, trade in enumerate(rows, start=1):
             raw_trade_id = trade.get("trade_id")
-            trade_id = str(raw_trade_id).strip() if raw_trade_id is not None else ""
             location = {"chunk": chunk_dir.name, "index": index}
-            if not trade_id:
+            if raw_trade_id is None:
                 missing_trade_ids.append(location)
                 continue
+            if not isinstance(raw_trade_id, str):
+                invalid_trade_ids.append({**location, "trade_id": raw_trade_id, "error": "trade_id_not_string"})
+                continue
+            trade_id = raw_trade_id.strip()
             if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}", trade_id):
                 invalid_trade_ids.append({**location, "trade_id": raw_trade_id, "error": "invalid_trade_id"})
                 continue
