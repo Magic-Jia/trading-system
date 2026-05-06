@@ -2076,6 +2076,25 @@ def test_live_readiness_gate_rejects_non_string_exit_reasons(tmp_path: Path) -> 
 
 
 
+def test_live_readiness_exit_path_reconciliation_reports_non_string_source_trade_ids(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    payload = json.loads((chunk / "trades.json").read_text(encoding="utf-8"))
+    payload["trades"][0]["trade_id"] = 12345
+    (chunk / "trades.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    reconciliation = report["exit_path_replay"]["reconciliation"]
+    assert reconciliation["matched"] is False
+    assert reconciliation["invalid_source_trade_ids"] == [
+        {"chunk": "chunk_001", "index": 1, "trade_id": 12345, "error": "trade_id_not_string"}
+    ]
+    assert "exit_path_replay_source_trade_id_invalid" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
+
 def test_live_readiness_gate_sorts_chunk_names_naturally(tmp_path: Path) -> None:
     for name in ("chunk_10", "chunk_2", "chunk_1"):
         chunk = tmp_path / name

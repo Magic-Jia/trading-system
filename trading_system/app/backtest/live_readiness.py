@@ -1348,7 +1348,17 @@ def _exit_path_replay_reconciliation(chunk_dirs: Sequence[Path], *, required: bo
         trades = _trades_payload(_load_json(chunk_dir / "trades.json"))
         for index, trade in enumerate(trades, start=1):
             trade_id_raw = trade.get("trade_id")
-            trade_id = str(trade_id_raw).strip() if trade_id_raw is not None else ""
+            if trade_id_raw is None:
+                invalid_source_trade_ids.append(
+                    {"chunk": chunk_dir.name, "index": index, "trade_id": trade_id_raw, "error": "missing_trade_id"}
+                )
+                continue
+            if not isinstance(trade_id_raw, str):
+                invalid_source_trade_ids.append(
+                    {"chunk": chunk_dir.name, "index": index, "trade_id": trade_id_raw, "error": "trade_id_not_string"}
+                )
+                continue
+            trade_id = trade_id_raw.strip()
             if not trade_id:
                 invalid_source_trade_ids.append(
                     {"chunk": chunk_dir.name, "index": index, "trade_id": trade_id_raw, "error": "missing_trade_id"}
