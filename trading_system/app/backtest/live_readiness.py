@@ -1267,6 +1267,9 @@ def _exit_path_replay_reconciliation(chunk_dirs: Sequence[Path], *, required: bo
             continue
         payload = _load_json(path)
         parse_error = _json_parse_error(payload)
+        rows_payload = payload.get("trades", [])
+        if not parse_error and not isinstance(rows_payload, list):
+            parse_error = "trades_rows_not_list"
         chunk_schema_valid = (not parse_error) and _artifact_schema_valid(payload, "exit_path_replay.v1")
         chunk_provenance_present = (not parse_error) and _artifact_provenance_present(payload)
         artifacts.append(
@@ -1284,15 +1287,16 @@ def _exit_path_replay_reconciliation(chunk_dirs: Sequence[Path], *, required: bo
             path_trade_ids.add(str(row.get("trade_id") or f"{chunk_dir.name}:{index}"))
     missing = [trade_id for trade_id in trade_ids if trade_id not in path_trade_ids]
     extra = sorted(path_trade_ids - set(trade_ids))
-    schema_valid = (not required) or (bool(artifacts) and all(bool(artifact.get("schema_valid")) for artifact in artifacts))
-    provenance_present = (not required) or (bool(artifacts) and all(bool(artifact.get("provenance_present")) for artifact in artifacts))
-    matched = not missing and not extra and not chunks_missing_artifact and schema_valid and provenance_present
+    schema_valid = bool(artifacts) and all(bool(artifact.get("schema_valid")) for artifact in artifacts)
+    provenance_present = bool(artifacts) and all(bool(artifact.get("provenance_present")) for artifact in artifacts)
+    matched = not missing and not extra and not chunks_missing_artifact and (schema_valid if artifacts else not required) and (provenance_present if artifacts else not required)
     return {
         "schema_version": "exit_path_replay_reconciliation.v1",
         "required": required,
         "matched": matched if required else True if not trade_ids else matched,
         "schema_valid": schema_valid,
         "provenance_present": provenance_present,
+        "artifact_count": len(artifacts),
         "artifacts": artifacts,
         "trade_count": len(trade_ids),
         "path_trade_count": len(path_trade_ids),
@@ -1638,12 +1642,12 @@ def build_live_readiness_gate_report(
         reasons.append("exit_evidence_coverage_below_threshold")
     if exit_path_ambiguity_rate > max_exit_path_ambiguity_rate:
         reasons.append("exit_path_ambiguity_rate_above_threshold")
-    exit_path_replay_rows_met = (not require_exit_path_replay_rows) or bool(exit_path_reconciliation.get("matched"))
+    exit_path_replay_rows_met = bool(exit_path_reconciliation.get("matched")) if exit_path_reconciliation.get("artifacts") else not require_exit_path_replay_rows
     if not exit_path_replay_rows_met:
         reasons.append("exit_path_replay_missing_trades")
-    if require_exit_path_replay_rows and not bool(exit_path_reconciliation.get("schema_valid")):
+    if int(exit_path_reconciliation.get("artifact_count") or len(exit_path_reconciliation.get("artifacts") or [])) > 0 and not bool(exit_path_reconciliation.get("schema_valid")):
         reasons.append("exit_path_replay_artifact_schema_invalid")
-    if require_exit_path_replay_rows and not bool(exit_path_reconciliation.get("provenance_present")):
+    if int(exit_path_reconciliation.get("artifact_count") or len(exit_path_reconciliation.get("artifacts") or [])) > 0 and not bool(exit_path_reconciliation.get("provenance_present")):
         reasons.append("exit_path_replay_artifact_provenance_missing")
     if major_negative:
         reasons.append("major_setup_bucket_negative")
