@@ -383,6 +383,32 @@ def test_live_readiness_smoke_report_rejects_tampered_promotion_bundle(tmp_path:
     assert "- sha256_mismatches: trades.json" in markdown
 
 
+def test_promotion_bundle_verification_rejects_synthetic_evidence_source(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    for name in (
+        "trades.json",
+        "exit_path_replay.json",
+        "market_microstructure_gate.json",
+        "passive_order_calibration_summary.json",
+        "runtime_safety_gate.json",
+        "validation_gate.json",
+    ):
+        (source / name).write_text(json.dumps({"artifact": name}), encoding="utf-8")
+    bundle_dir = collect_promotion_evidence_bundle(
+        source,
+        tmp_path / "bundle",
+        candidate_id="candidate-1",
+        evidence_source={"type": "synthetic_fixture"},
+    )
+
+    integrity = verify_promotion_evidence_bundle(bundle_dir)
+
+    assert integrity["verified"] is False
+    assert "promotion_evidence_source_not_live_grade" in integrity["manifest_errors"]
+
+
+
 def test_promotion_bundle_verification_error_reports_keep_stable_audit_fields(tmp_path: Path) -> None:
     expected_fields = {
         "declared_missing_artifacts",
