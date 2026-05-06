@@ -305,6 +305,7 @@ def _summary_artifact_integrity(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
                     "error": "invalid_json",
                 }
             )
+            continue
         elif parse_error == "json_payload_not_object":
             invalid_artifacts.append(
                 {
@@ -326,6 +327,7 @@ def _summary_artifact_integrity(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
                         "error": "invalid_or_missing_schema_version",
                     }
                 )
+                continue
         summary = _as_mapping(payload.get("summary"))
         trades = _trades_payload(_load_json(chunk_dir / "trades.json"))
         trade_count = summary.get("trade_count")
@@ -358,6 +360,16 @@ def _summary_artifact_integrity(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
             "slippage": sum(_float_value(trade.get("slippage_paid")) for trade in trades),
             "funding": sum(_float_value(trade.get("funding_paid")) for trade in trades),
         }
+        for field in expected_costs:
+            if field not in cost_breakdown:
+                invalid_artifacts.append(
+                    {
+                        "chunk": chunk_dir.name,
+                        "artifact": "summary.json",
+                        "field": f"summary.cost_breakdown.{field}",
+                        "error": "missing_cost_breakdown_field",
+                    }
+                )
         for field, value in cost_breakdown.items():
             parsed, valid = _finite_float_value(value)
             if not valid:
