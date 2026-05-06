@@ -2686,6 +2686,26 @@ def test_live_readiness_gate_sorts_chunk_names_naturally(tmp_path: Path) -> None
     assert [row["chunk"] for row in report["chunk_performance"]] == ["chunk_1", "chunk_2", "chunk_10"]
 
 
+def test_live_readiness_gate_rejects_unknown_trade_row_field(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    payload = json.loads((chunk / "trades.json").read_text(encoding="utf-8"))
+    payload["trades"][0]["manual_override"] = True
+    (chunk / "trades.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    trades_integrity = report["trades_artifact_integrity"]
+    assert trades_integrity["valid"] is False
+    assert any(
+        item.get("artifact") == "trades.json"
+        and item.get("error") == "unknown_trade_row_field"
+        and item.get("field") == "trades[1].manual_override"
+        for item in trades_integrity["invalid_artifacts"]
+    )
+    assert "trades_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
+
+
 def test_live_readiness_gate_rejects_unknown_trades_artifact_top_level_field(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     _write_profitable_trade_chunk(chunk)

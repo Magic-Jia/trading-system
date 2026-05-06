@@ -30,6 +30,39 @@ TRADE_EXIT_REASON_FIELDS = ("simulated_exit_reason", "exit_reason")
 VALID_TRADES_ARTIFACT_SCHEMA_VERSION = "trades.v1"
 VALID_SUMMARY_ARTIFACT_SCHEMA_VERSION = "backtest_summary.v1"
 TRADE_EXECUTION_COST_FIELDS = ("fee_paid", "slippage_paid")
+TRADE_ROW_FIELDS = frozenset(
+    {
+        "depth_levels_consumed",
+        "entry_price",
+        "entry_time",
+        "execution_price_source",
+        "exit_fill_quality",
+        "exit_price",
+        "exit_price_source",
+        "exit_reason",
+        "exit_time",
+        "fee_paid",
+        "fill_model",
+        "fill_quality",
+        "funding_paid",
+        "gross_pnl",
+        "mae_pct",
+        "maker_status",
+        "maker_wait_seconds",
+        "mfe_pct",
+        "net_pnl",
+        "notional",
+        "quantity",
+        "setup_type",
+        "side",
+        "simulated_exit_ordering",
+        "simulated_exit_price",
+        "simulated_exit_reason",
+        "slippage_paid",
+        "symbol",
+        "trade_id",
+    }
+)
 VALID_TRADE_SIDES = ("long", "short")
 VALID_EXIT_REASONS = ("take_profit", "stop_loss", "stop", "tp", "fixed_horizon")
 NOTIONAL_CONSISTENCY_ABS_TOLERANCE = 1e-9
@@ -282,6 +315,19 @@ def _trades_artifact_integrity(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
                         "schema_version": schema_version,
                         "index": index,
                         "error": "trade_row_not_object",
+                    }
+                )
+                continue
+            unknown_trade_fields = sorted(set(row) - TRADE_ROW_FIELDS)
+            for field in unknown_trade_fields:
+                invalid_artifacts.append(
+                    {
+                        "chunk": chunk_dir.name,
+                        "artifact": "trades.json",
+                        "schema_version": schema_version,
+                        "index": index,
+                        "field": f"trades[{index}].{field}",
+                        "error": "unknown_trade_row_field",
                     }
                 )
     return {
