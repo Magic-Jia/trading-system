@@ -339,6 +339,17 @@ def _summary_artifact_integrity(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
                     }
                 )
                 continue
+            unknown_top_level_fields = sorted(set(payload) - {"schema_version", "summary"})
+            for field in unknown_top_level_fields:
+                invalid_artifacts.append(
+                    {
+                        "chunk": chunk_dir.name,
+                        "artifact": "summary.json",
+                        "schema_version": schema_version,
+                        "field": field,
+                        "error": "unknown_top_level_field",
+                    }
+                )
         summary_payload = payload.get("summary")
         if not isinstance(summary_payload, Mapping):
             invalid_artifacts.append(
