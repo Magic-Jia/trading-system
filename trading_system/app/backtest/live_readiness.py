@@ -1280,7 +1280,10 @@ def _artifact_provenance_schema_error(payload: Mapping[str, Any]) -> str:
 
 
 def _legacy_provenance_schema_error(payload: Mapping[str, Any]) -> str:
-    legacy = _as_mapping(payload.get("provenance"))
+    raw_legacy = payload.get("provenance")
+    if raw_legacy is not None and not isinstance(raw_legacy, Mapping):
+        return "provenance_not_object"
+    legacy = _as_mapping(raw_legacy)
     unknown_fields = sorted(set(legacy) - {"source", "real_exchange_records"})
     if unknown_fields:
         return "unknown_provenance_field: " + ", ".join(unknown_fields)
