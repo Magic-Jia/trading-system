@@ -1589,6 +1589,10 @@ def _exit_path_replay_reconciliation(chunk_dirs: Sequence[Path], *, required: bo
                 if not isinstance(row, Mapping):
                     parse_error = f"trade_row_not_object: trades[{row_index}]"
                     break
+                unknown_row_fields = sorted(set(row) - {"trade_id"})
+                if unknown_row_fields:
+                    parse_error = f"unknown_trade_row_field: trades[{row_index}]." + ", ".join(unknown_row_fields)
+                    break
                 trade_id = row.get("trade_id")
                 if not isinstance(trade_id, str) or not trade_id.strip():
                     parse_error = f"trade_id_missing_or_blank: trades[{row_index}]"
