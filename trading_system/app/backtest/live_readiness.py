@@ -758,6 +758,8 @@ def _parse_trade_time(value: Any) -> tuple[datetime | None, str | None]:
     stripped = value.strip()
     if not stripped:
         return None, "missing_or_invalid_timestamp"
+    if stripped != value:
+        return None, "timestamp_not_canonical"
     normalized = stripped[:-1] + "+00:00" if stripped.endswith("Z") else stripped
     try:
         parsed = datetime.fromisoformat(normalized)
