@@ -5352,6 +5352,23 @@ def test_live_readiness_gate_does_not_count_synthetic_fill_quality_as_entry_evid
 
 
 
+def test_live_readiness_gate_does_not_count_bool_execution_costs_in_totals(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    payload = json.loads((chunk / "trades.json").read_text(encoding="utf-8"))
+    payload["trades"][0]["fee_paid"] = True
+    (chunk / "trades.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    assert report["totals"]["costs"]["fees"] == pytest.approx(0.0)
+    assert report["totals"]["costs"]["total"] == pytest.approx(0.0)
+    assert report["trade_financial_integrity"]["valid"] is False
+    assert "trade_financial_metric_invalid" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
+
 def test_live_readiness_gate_does_not_count_non_string_fill_quality_as_entry_evidence(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     _write_profitable_trade_chunk(chunk)

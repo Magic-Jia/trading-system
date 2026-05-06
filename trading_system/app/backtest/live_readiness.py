@@ -812,6 +812,11 @@ def _strict_float_value(value: Any) -> tuple[float, bool]:
     return parsed, True
 
 
+def _strict_float_or_zero(value: Any) -> float:
+    parsed, valid = _strict_float_value(value)
+    return parsed if valid else 0.0
+
+
 def _trade_price_integrity(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
     invalid_fields: list[dict[str, Any]] = []
     for chunk_dir in chunk_dirs:
@@ -2144,11 +2149,11 @@ def build_live_readiness_gate_report(
     trade_exit_reason_integrity = _trade_exit_reason_integrity(chunk_dirs)
 
     trade_count = len(all_trades)
-    net_pnl = sum(_float_value(trade.get("net_pnl")) for trade in all_trades)
-    gross_pnl = sum(_float_value(trade.get("gross_pnl")) for trade in all_trades)
-    fees = sum(_float_value(trade.get("fee_paid")) for trade in all_trades)
-    slippage = sum(_float_value(trade.get("slippage_paid")) for trade in all_trades)
-    funding = sum(_float_value(trade.get("funding_paid")) for trade in all_trades)
+    net_pnl = sum(_strict_float_or_zero(trade.get("net_pnl")) for trade in all_trades)
+    gross_pnl = sum(_strict_float_or_zero(trade.get("gross_pnl")) for trade in all_trades)
+    fees = sum(_strict_float_or_zero(trade.get("fee_paid")) for trade in all_trades)
+    slippage = sum(_strict_float_or_zero(trade.get("slippage_paid")) for trade in all_trades)
+    funding = sum(_strict_float_or_zero(trade.get("funding_paid")) for trade in all_trades)
     evidence_count = sum(1 for trade in all_trades if _entry_evidence_live_grade(trade))
     evidence_coverage = evidence_count / trade_count if trade_count else 0.0
     exit_evidence_count = sum(1 for trade in all_trades if _exit_evidence_live_grade(trade))
