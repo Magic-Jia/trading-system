@@ -1162,6 +1162,24 @@ def _setup_rewrite_counts(summary: Mapping[str, Any]) -> tuple[dict[str, int], s
     return counts, parse_error
 
 
+def _setup_rewrite_by_setup_schema_error(summary: Mapping[str, Any]) -> str:
+    if "by_setup" not in summary:
+        return ""
+    by_setup = summary.get("by_setup")
+    if not isinstance(by_setup, Mapping):
+        return "invalid_field_type: summary.by_setup"
+    allowed_bucket_fields = {"total_rows", "evaluated_count", "would_keep_count", "would_filter_count", "skipped_count", "net_pnl"}
+    for setup_type, bucket in by_setup.items():
+        if not isinstance(setup_type, str) or not setup_type.strip():
+            return "invalid_by_setup_key"
+        if not isinstance(bucket, Mapping):
+            return f"invalid_by_setup_bucket: {setup_type}"
+        unknown_fields = sorted(set(bucket) - allowed_bucket_fields)
+        if unknown_fields:
+            return f"unknown_by_setup_field: {setup_type}." + ", ".join(unknown_fields)
+    return ""
+
+
 def _add_setup_rewrite_bucket(target: dict[str, Any], source: Mapping[str, Any]) -> None:
     for key in ("total_rows", "evaluated_count", "would_keep_count", "would_filter_count", "skipped_count"):
         target[key] += int(source.get(key) or 0)
@@ -1197,6 +1215,9 @@ def _setup_rewrite_diagnostic(chunk_dirs: Iterable[Path]) -> dict[str, Any] | No
         unknown_summary_fields = sorted(set(summary) - (set(SETUP_REWRITE_COUNT_FIELDS) | {"total_rows", "by_setup"}))
         if not parse_error and unknown_summary_fields:
             parse_error = "unknown_summary_field: " + ", ".join(unknown_summary_fields)
+        by_setup_schema_error = _setup_rewrite_by_setup_schema_error(summary)
+        if not parse_error and by_setup_schema_error:
+            parse_error = by_setup_schema_error
         unknown_top_level_fields = sorted(set(payload) - {"summary", "evaluation_rows"})
         if not parse_error and unknown_top_level_fields:
             parse_error = "unknown_top_level_field: " + ", ".join(unknown_top_level_fields)
