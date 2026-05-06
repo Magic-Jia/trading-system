@@ -281,6 +281,38 @@ def _trades_artifact_integrity(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
     }
 
 
+def _summary_artifact_integrity(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
+    invalid_artifacts: list[dict[str, Any]] = []
+    for chunk_dir in chunk_dirs:
+        path = chunk_dir / "summary.json"
+        if not path.exists():
+            continue
+        payload = _load_json(path)
+        parse_error = _json_parse_error(payload)
+        if parse_error.startswith("invalid_json"):
+            invalid_artifacts.append(
+                {
+                    "chunk": chunk_dir.name,
+                    "artifact": "summary.json",
+                    "error": "invalid_json",
+                }
+            )
+        elif parse_error == "json_payload_not_object":
+            invalid_artifacts.append(
+                {
+                    "chunk": chunk_dir.name,
+                    "artifact": "summary.json",
+                    "error": "json_payload_not_object",
+                }
+            )
+    return {
+        "schema_version": "summary_artifact_integrity.v1",
+        "valid": not invalid_artifacts,
+        "invalid_artifacts": invalid_artifacts[:100],
+        "invalid_artifact_count": len(invalid_artifacts),
+    }
+
+
 def _is_chunk_result_dir(path: Path) -> bool:
     return path.is_dir() and ((path / "trades.json").exists() or re.fullmatch(r"chunk(?:_\d+)?", path.name) is not None)
 
@@ -1352,6 +1384,7 @@ def build_live_readiness_gate_report(
 
     trade_financial_integrity = _trade_financial_integrity(chunk_dirs)
     trades_artifact_integrity = _trades_artifact_integrity(chunk_dirs)
+    summary_artifact_integrity = _summary_artifact_integrity(chunk_dirs)
     trade_identity_integrity = _trade_identity_integrity(chunk_dirs)
     trade_dimension_integrity = _trade_dimension_integrity(chunk_dirs)
     trade_time_integrity = _trade_time_integrity(chunk_dirs)
@@ -1463,6 +1496,8 @@ def build_live_readiness_gate_report(
         reasons.append("trade_financial_metric_invalid")
     if not bool(trades_artifact_integrity.get("valid")):
         reasons.append("trades_artifact_schema_invalid")
+    if not bool(summary_artifact_integrity.get("valid")):
+        reasons.append("summary_artifact_schema_invalid")
     if not bool(trade_identity_integrity.get("valid")):
         reasons.append("trade_identity_invalid")
     if not bool(trade_dimension_integrity.get("valid")):
@@ -1620,6 +1655,7 @@ def build_live_readiness_gate_report(
         "by_side": {key: by_side[key] for key in sorted(by_side)},
         "trade_financial_integrity": trade_financial_integrity,
         "trades_artifact_integrity": trades_artifact_integrity,
+        "summary_artifact_integrity": summary_artifact_integrity,
         "trade_identity_integrity": trade_identity_integrity,
         "trade_dimension_integrity": trade_dimension_integrity,
         "trade_time_integrity": trade_time_integrity,
