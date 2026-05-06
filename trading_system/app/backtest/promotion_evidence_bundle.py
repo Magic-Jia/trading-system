@@ -148,6 +148,18 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
     if not isinstance(manifest_payload, Mapping):
         manifest_errors.append("manifest_not_object")
     schema_valid = manifest.get("schema_version") == SCHEMA_VERSION
+    allowed_manifest_fields = {
+        "schema_version",
+        "candidate_id",
+        "decision",
+        "evidence_source",
+        "required_artifacts",
+        "missing_artifacts",
+        "artifacts",
+    }
+    unknown_manifest_fields = sorted(set(manifest) - allowed_manifest_fields)
+    for field in unknown_manifest_fields:
+        manifest_errors.append(f"unknown_top_level_field: {field}")
     if not schema_valid:
         manifest_errors.append("invalid_schema_version")
     manifest_decision = manifest.get("decision")
