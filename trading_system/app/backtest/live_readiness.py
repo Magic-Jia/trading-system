@@ -1261,6 +1261,7 @@ def _microstructure_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
         evidence_source_payload = payload.get("evidence_source")
         checks_object_valid = isinstance(checks_payload, Mapping)
         evidence_source_object_valid = isinstance(evidence_source_payload, Mapping)
+        evidence_source_schema_error = _artifact_provenance_schema_error(payload)
         checks = _as_mapping(checks_payload)
         unknown_check_fields = sorted(set(checks) - set(required_checks))
         chunk_schema_valid = (
@@ -1268,6 +1269,7 @@ def _microstructure_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
             and _artifact_schema_valid(payload, "market_microstructure_gate_input.v1")
             and checks_object_valid
             and evidence_source_object_valid
+            and not evidence_source_schema_error
             and not unknown_check_fields
         )
         chunk_provenance_present = (not parse_error) and _artifact_provenance_present(payload)
@@ -1277,6 +1279,8 @@ def _microstructure_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
                 parse_error_message = "checks_not_object"
             elif not evidence_source_object_valid:
                 parse_error_message = "evidence_source_not_object"
+            elif evidence_source_schema_error:
+                parse_error_message = evidence_source_schema_error
             elif unknown_check_fields:
                 parse_error_message = "unknown_check_field: " + ", ".join(unknown_check_fields)
         artifacts.append(
