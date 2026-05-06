@@ -328,7 +328,18 @@ def _summary_artifact_integrity(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
                     }
                 )
                 continue
-        summary = _as_mapping(payload.get("summary"))
+        summary_payload = payload.get("summary")
+        if not isinstance(summary_payload, Mapping):
+            invalid_artifacts.append(
+                {
+                    "chunk": chunk_dir.name,
+                    "artifact": "summary.json",
+                    "field": "summary",
+                    "error": "summary_not_object",
+                }
+            )
+            continue
+        summary = _as_mapping(summary_payload)
         trades = _trades_payload(_load_json(chunk_dir / "trades.json"))
         trade_count = summary.get("trade_count")
         if trade_count is None:

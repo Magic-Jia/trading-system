@@ -2016,6 +2016,25 @@ def test_live_readiness_gate_rejects_runtime_safety_string_false_checks(tmp_path
 
 
 
+def test_live_readiness_gate_rejects_summary_payload_not_object(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    summary_payload = json.loads((chunk / "summary.json").read_text(encoding="utf-8"))
+    summary_payload["summary"] = ["not", "object"]
+    (chunk / "summary.json").write_text(json.dumps(summary_payload), encoding="utf-8")
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    summary_integrity = report["summary_artifact_integrity"]
+    assert summary_integrity["valid"] is False
+    assert any(
+        item.get("artifact") == "summary.json" and item.get("error") == "summary_not_object"
+        for item in summary_integrity["invalid_artifacts"]
+    )
+    assert "summary_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
+
+
+
 def test_live_readiness_gate_rejects_summary_artifact_missing_cost_breakdown_fields(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     _write_profitable_trade_chunk(chunk)
