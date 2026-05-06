@@ -5003,6 +5003,46 @@ def test_live_readiness_gate_rejects_setup_rewrite_unknown_summary_field(tmp_pat
 
 
 
+def test_live_readiness_gate_rejects_setup_rewrite_by_setup_numeric_strings(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    (chunk / "setup_rewrite_experiment.json").write_text(
+        json.dumps(
+            {
+                "summary": {
+                    "total_rows": 1,
+                    "evaluated_count": 1,
+                    "would_keep_count": 1,
+                    "would_filter_count": 0,
+                    "skipped_count": 0,
+                    "by_setup": {
+                        "TREND_PULLBACK": {
+                            "total_rows": "1",
+                            "evaluated_count": 1,
+                            "would_keep_count": 1,
+                            "would_filter_count": 0,
+                            "skipped_count": 0,
+                            "net_pnl": 10.0,
+                        }
+                    },
+                },
+                "evaluation_rows": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    diagnostic = report["setup_rewrite_diagnostic"]
+    assert diagnostic["checks"]["setup_rewrite_artifact_schema_valid"] is False
+    assert diagnostic["chunks"][0]["parse_error"] == "invalid_numeric_field: summary.by_setup.TREND_PULLBACK.total_rows"
+    assert "setup_rewrite_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["checks"]["setup_rewrite_artifact_schema_valid"] is False
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
+
 def test_live_readiness_gate_rejects_setup_rewrite_unknown_by_setup_field(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     _write_profitable_trade_chunk(chunk)

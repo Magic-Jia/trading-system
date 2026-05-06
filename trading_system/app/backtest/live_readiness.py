@@ -1177,6 +1177,15 @@ def _setup_rewrite_by_setup_schema_error(summary: Mapping[str, Any]) -> str:
         unknown_fields = sorted(set(bucket) - allowed_bucket_fields)
         if unknown_fields:
             return f"unknown_by_setup_field: {setup_type}." + ", ".join(unknown_fields)
+        for field in ("total_rows", "evaluated_count", "would_keep_count", "would_filter_count", "skipped_count"):
+            if field in bucket:
+                _, valid = _strict_summary_int_value(bucket.get(field))
+                if not valid:
+                    return f"invalid_numeric_field: summary.by_setup.{setup_type}.{field}"
+        if "net_pnl" in bucket:
+            _, net_pnl_valid = _strict_float_value(bucket.get("net_pnl"))
+            if not net_pnl_valid:
+                return f"invalid_numeric_field: summary.by_setup.{setup_type}.net_pnl"
     return ""
 
 
