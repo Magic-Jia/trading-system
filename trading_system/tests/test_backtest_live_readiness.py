@@ -1922,6 +1922,32 @@ def test_live_readiness_gate_rejects_present_runtime_safety_artifact_with_bad_sc
     assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
 
 
+def test_live_readiness_gate_rejects_exit_path_replay_evidence_source_not_object(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    payload = json.loads((chunk / "trades.json").read_text(encoding="utf-8"))
+    trade_id = payload["trades"][0]["trade_id"]
+    (chunk / "exit_path_replay.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "exit_path_replay.v1",
+                "evidence_source": ["exchange_export"],
+                "trades": [{"trade_id": trade_id}],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_live_readiness_gate_report(tmp_path, require_exit_path_replay_rows=True)
+
+    reconciliation = report["exit_path_replay"]["reconciliation"]
+    assert reconciliation["schema_valid"] is False
+    assert reconciliation["artifacts"][0]["parse_error"] == "evidence_source_not_object"
+    assert "exit_path_replay_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
+
 def test_live_readiness_gate_rejects_present_exit_path_replay_artifact_with_bad_rows(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     _write_profitable_trade_chunk(chunk)
