@@ -632,6 +632,9 @@ def _trade_identity_integrity(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
                 invalid_trade_ids.append({**location, "trade_id": raw_trade_id, "error": "trade_id_not_string"})
                 continue
             trade_id = raw_trade_id.strip()
+            if trade_id != raw_trade_id:
+                invalid_trade_ids.append({**location, "trade_id": raw_trade_id, "error": "trade_id_not_canonical"})
+                continue
             if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}", trade_id):
                 invalid_trade_ids.append({**location, "trade_id": raw_trade_id, "error": "invalid_trade_id"})
                 continue
