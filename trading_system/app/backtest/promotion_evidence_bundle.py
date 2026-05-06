@@ -167,7 +167,7 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
         evidence_source_type = evidence_source_raw.get("type")
         if evidence_source_type is not None and not isinstance(evidence_source_type, str):
             manifest_errors.append("evidence_source_type_not_string")
-        if isinstance(evidence_source_type, str) and not evidence_source_type:
+        if isinstance(evidence_source_type, str) and not evidence_source_type.strip():
             manifest_errors.append("evidence_source_type_blank")
     artifacts_raw = manifest.get("artifacts")
     declared_missing_artifacts_raw = manifest.get("missing_artifacts", [])
