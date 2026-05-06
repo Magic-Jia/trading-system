@@ -1737,6 +1737,25 @@ def test_profitable_trade_fixture_is_live_readiness_candidate(tmp_path: Path) ->
     assert report["promotion_gate"]["reasons"] == []
 
 
+def test_live_readiness_gate_rejects_naive_trade_timestamps(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    payload = json.loads((chunk / "trades.json").read_text(encoding="utf-8"))
+    payload["trades"][0]["entry_time"] = "2026-03-10T00:00:00"
+    (chunk / "trades.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    time_integrity = report["trade_time_integrity"]
+    assert time_integrity["valid"] is False
+    assert any(
+        item.get("field") == "entry_time"
+        and item.get("error") == "timestamp_missing_timezone"
+        for item in time_integrity["invalid_fields"]
+    )
+    assert "trade_time_invalid" in report["promotion_gate"]["reasons"]
+
+
 def test_live_readiness_gate_checks_expose_trade_integrity_results(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     _write_profitable_trade_chunk(chunk)

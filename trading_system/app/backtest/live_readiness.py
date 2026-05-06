@@ -635,20 +635,20 @@ def _trade_dimension_integrity(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
     }
 
 
-def _parse_trade_time(value: Any) -> datetime | None:
+def _parse_trade_time(value: Any) -> tuple[datetime | None, str | None]:
     if not isinstance(value, str):
-        return None
+        return None, "missing_or_invalid_timestamp"
     stripped = value.strip()
     if not stripped:
-        return None
+        return None, "missing_or_invalid_timestamp"
     normalized = stripped[:-1] + "+00:00" if stripped.endswith("Z") else stripped
     try:
         parsed = datetime.fromisoformat(normalized)
     except ValueError:
-        return None
+        return None, "missing_or_invalid_timestamp"
     if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=UTC)
-    return parsed.astimezone(UTC)
+        return None, "timestamp_missing_timezone"
+    return parsed.astimezone(UTC), None
 
 
 def _trade_time_integrity(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
@@ -659,7 +659,7 @@ def _trade_time_integrity(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
             parsed_times: dict[str, datetime] = {}
             for field in TRADE_TIME_FIELDS:
                 value = trade.get(field)
-                parsed = _parse_trade_time(value)
+                parsed, parse_error = _parse_trade_time(value)
                 if parsed is None:
                     invalid_fields.append(
                         {
@@ -667,7 +667,7 @@ def _trade_time_integrity(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
                             "index": index,
                             "field": field,
                             "value": value,
-                            "error": "missing_or_invalid_timestamp",
+                            "error": parse_error or "missing_or_invalid_timestamp",
                         }
                     )
                     continue
