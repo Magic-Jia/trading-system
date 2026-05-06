@@ -160,6 +160,34 @@ def audit_execution_depth(trades_json: str | Path | Mapping[str, Any]) -> dict[s
     }
 
 
+def _evidence_quality_is_live_grade(value: Any) -> bool:
+    return isinstance(value, str) and value.strip().lower() in {"evidence_backed", "partial_evidence_backed"}
+
+
+def _evidence_source_is_live_grade(value: Any) -> bool:
+    return isinstance(value, str) and value.strip().lower() == "trade_print"
+
+
+def _entry_evidence_live_grade(trade: Mapping[str, Any]) -> bool:
+    fill_quality = trade.get("fill_quality")
+    execution_source = trade.get("execution_price_source")
+    if isinstance(fill_quality, str) and fill_quality.strip().lower() in {"synthetic", "simulated", "unknown"}:
+        return False
+    if isinstance(execution_source, str) and execution_source.strip().lower() in {"synthetic", "simulated", "unknown"}:
+        return False
+    return _evidence_quality_is_live_grade(fill_quality) or _evidence_source_is_live_grade(execution_source)
+
+
+def _exit_evidence_live_grade(trade: Mapping[str, Any]) -> bool:
+    fill_quality = trade.get("exit_fill_quality")
+    execution_source = trade.get("exit_price_source")
+    if isinstance(fill_quality, str) and fill_quality.strip().lower() in {"synthetic", "simulated", "unknown"}:
+        return False
+    if isinstance(execution_source, str) and execution_source.strip().lower() in {"synthetic", "simulated", "unknown"}:
+        return False
+    return _evidence_quality_is_live_grade(fill_quality) or _evidence_source_is_live_grade(execution_source)
+
+
 def _execution_trades_for_symbol(market_context: Mapping[str, Any], symbol: str) -> list[Any]:
     symbols = _as_mapping(market_context.get("symbols"))
     payload = _as_mapping(symbols.get(symbol))
@@ -2113,19 +2141,9 @@ def build_live_readiness_gate_report(
     fees = sum(_float_value(trade.get("fee_paid")) for trade in all_trades)
     slippage = sum(_float_value(trade.get("slippage_paid")) for trade in all_trades)
     funding = sum(_float_value(trade.get("funding_paid")) for trade in all_trades)
-    evidence_count = sum(
-        1
-        for trade in all_trades
-        if str(trade.get("fill_quality", "")).lower() in {"evidence_backed", "partial_evidence_backed"}
-        or str(trade.get("execution_price_source", "")).lower() == "trade_print"
-    )
+    evidence_count = sum(1 for trade in all_trades if _entry_evidence_live_grade(trade))
     evidence_coverage = evidence_count / trade_count if trade_count else 0.0
-    exit_evidence_count = sum(
-        1
-        for trade in all_trades
-        if str(trade.get("exit_fill_quality", "")).lower() in {"evidence_backed", "partial_evidence_backed"}
-        or str(trade.get("exit_price_source", "")).lower() == "trade_print"
-    )
+    exit_evidence_count = sum(1 for trade in all_trades if _exit_evidence_live_grade(trade))
     exit_evidence_coverage = exit_evidence_count / trade_count if trade_count else 0.0
     exit_path_replay = audit_exit_path_replay(all_trades)
     exit_path_reconciliation = _exit_path_replay_reconciliation(chunk_dirs, required=require_exit_path_replay_rows)
