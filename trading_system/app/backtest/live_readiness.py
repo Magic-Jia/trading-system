@@ -1246,6 +1246,14 @@ def _setup_rewrite_diagnostic(chunk_dirs: Iterable[Path]) -> dict[str, Any] | No
         if not parse_error and not isinstance(evaluation_rows, list):
             parse_error = "invalid_field_type: evaluation_rows"
         if not parse_error:
+            row_count = len(evaluation_rows)
+            if "total_rows" in summary:
+                expected_count, _ = _strict_summary_int_value(summary.get("total_rows"))
+            else:
+                expected_count = row_count
+            if expected_count != row_count:
+                parse_error = "row_count_mismatch: evaluation_rows"
+        if not parse_error:
             allowed_row_fields = {"symbol", "setup_type", "evaluation_status", "evaluation_reason", "would_keep", "net_pnl"}
             for row_index, row in enumerate(evaluation_rows, start=1):
                 if not isinstance(row, Mapping):
