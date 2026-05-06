@@ -1143,9 +1143,23 @@ def _artifact_schema_valid(payload: Mapping[str, Any], expected_schema_version: 
 
 def _artifact_provenance_present(payload: Mapping[str, Any]) -> bool:
     source = _as_mapping(payload.get("evidence_source"))
-    source_type = str(source.get("type") or "").strip().lower()
-    return bool(source_type) and source_type not in {"unknown", "unknown_offline_records", "synthetic_fixture"}
+    source_type = source.get("type")
+    if not isinstance(source_type, str):
+        return False
+    normalized_source_type = source_type.strip().lower()
+    return bool(normalized_source_type) and normalized_source_type not in {"unknown", "unknown_offline_records", "synthetic_fixture"}
 
+
+def _artifact_provenance_schema_error(payload: Mapping[str, Any]) -> str:
+    source = _as_mapping(payload.get("evidence_source"))
+    source_type = source.get("type")
+    if source_type is None:
+        return ""
+    if not isinstance(source_type, str):
+        return "evidence_source_type_not_string"
+    if not source_type.strip():
+        return "evidence_source_type_blank"
+    return ""
 
 def _strict_check_bool(value: Any) -> bool:
     return value is True
@@ -1176,6 +1190,7 @@ def _runtime_safety_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
         evidence_source_payload = payload.get("evidence_source")
         checks_object_valid = isinstance(checks_payload, Mapping)
         evidence_source_object_valid = isinstance(evidence_source_payload, Mapping)
+        evidence_source_schema_error = _artifact_provenance_schema_error(payload)
         checks = _as_mapping(checks_payload)
         unknown_check_fields = sorted(set(checks) - set(required_checks))
         chunk_schema_valid = (
@@ -1183,6 +1198,7 @@ def _runtime_safety_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
             and _artifact_schema_valid(payload, "runtime_safety_gate_input.v1")
             and checks_object_valid
             and evidence_source_object_valid
+            and not evidence_source_schema_error
             and not unknown_check_fields
         )
         chunk_provenance_present = (not parse_error) and _artifact_provenance_present(payload)
@@ -1192,6 +1208,8 @@ def _runtime_safety_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
                 parse_error_message = "checks_not_object"
             elif not evidence_source_object_valid:
                 parse_error_message = "evidence_source_not_object"
+            elif evidence_source_schema_error:
+                parse_error_message = evidence_source_schema_error
             elif unknown_check_fields:
                 parse_error_message = "unknown_check_field: " + ", ".join(unknown_check_fields)
         artifacts.append(
