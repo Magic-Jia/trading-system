@@ -22,6 +22,7 @@ DEPTH_CLASSIFICATIONS = (
 )
 
 TRADE_FINANCIAL_FIELDS = ("net_pnl", "gross_pnl", "fee_paid", "slippage_paid", "funding_paid")
+TRADE_COST_FIELDS = {"fee_paid", "slippage_paid", "funding_paid"}
 TRADE_DIMENSION_FIELDS = ("symbol", "side", "setup_type")
 TRADE_TIME_FIELDS = ("entry_time", "exit_time")
 TRADE_PRICE_FIELDS = ("entry_price", "exit_price")
@@ -603,7 +604,7 @@ def _trade_financial_integrity(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
                     )
                     continue
                 value = trade.get(field)
-                _, valid = _strict_float_value(value)
+                parsed, valid = _strict_float_value(value)
                 if not valid:
                     invalid_fields.append(
                         {
@@ -612,6 +613,17 @@ def _trade_financial_integrity(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
                             "field": field,
                             "value": value,
                             "error": "invalid_financial_field",
+                        }
+                    )
+                    continue
+                if field in TRADE_COST_FIELDS and parsed < 0.0:
+                    invalid_fields.append(
+                        {
+                            "chunk": chunk_dir.name,
+                            "index": index,
+                            "field": field,
+                            "value": value,
+                            "error": "negative_financial_field",
                         }
                     )
     return {

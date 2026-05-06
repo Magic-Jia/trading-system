@@ -4003,6 +4003,33 @@ def test_live_readiness_gate_reports_bool_trade_pnl_fields(tmp_path: Path) -> No
 
 
 
+def test_live_readiness_gate_rejects_negative_trade_cost_fields(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    payload = json.loads((chunk / "trades.json").read_text(encoding="utf-8"))
+    payload["trades"][0]["fee_paid"] = -1.0
+    (chunk / "trades.json").write_text(json.dumps(payload), encoding="utf-8")
+    summary_payload = json.loads((chunk / "summary.json").read_text(encoding="utf-8"))
+    summary_payload["summary"]["cost_breakdown"]["fees"] = -1.0
+    (chunk / "summary.json").write_text(json.dumps(summary_payload), encoding="utf-8")
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    assert report["trade_financial_integrity"]["valid"] is False
+    assert report["trade_financial_integrity"]["invalid_fields"] == [
+        {
+            "chunk": "chunk_001",
+            "index": 1,
+            "field": "fee_paid",
+            "value": -1.0,
+            "error": "negative_financial_field",
+        }
+    ]
+    assert "trade_financial_metric_invalid" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
+
 def test_live_readiness_gate_rejects_bool_trade_price_fields(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     _write_profitable_trade_chunk(chunk)
