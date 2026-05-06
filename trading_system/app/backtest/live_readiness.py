@@ -1388,6 +1388,8 @@ def _legacy_provenance_schema_error(payload: Mapping[str, Any]) -> str:
     source = legacy.get("source")
     if source is not None and not isinstance(source, str):
         return "provenance_source_not_string"
+    if isinstance(source, str) and not source.strip():
+        return "provenance_source_blank"
     real_records = legacy.get("real_exchange_records")
     if real_records is not None and not isinstance(real_records, bool):
         return "provenance_real_exchange_records_not_bool"
