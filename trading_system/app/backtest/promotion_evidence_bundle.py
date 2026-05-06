@@ -184,6 +184,12 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
             manifest_errors.append("evidence_source_type_not_string")
         if isinstance(evidence_source_type, str) and not evidence_source_type.strip():
             manifest_errors.append("evidence_source_type_blank")
+        for optional_field in ("run_id", "exported_at"):
+            optional_value = evidence_source_raw.get(optional_field)
+            if optional_value is not None and not isinstance(optional_value, str):
+                manifest_errors.append(f"evidence_source_{optional_field}_not_string")
+            elif isinstance(optional_value, str) and not optional_value.strip():
+                manifest_errors.append(f"evidence_source_{optional_field}_blank")
     artifacts_raw = manifest.get("artifacts")
     declared_missing_artifacts_raw = manifest.get("missing_artifacts", [])
     if "missing_artifacts" not in manifest:

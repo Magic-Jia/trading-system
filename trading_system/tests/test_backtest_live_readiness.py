@@ -956,6 +956,42 @@ def test_live_readiness_gate_rejects_promotion_manifest_unknown_evidence_source_
 
 
 
+def test_live_readiness_gate_rejects_promotion_manifest_evidence_source_run_id_not_string(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    trades_path = chunk / "trades.json"
+    (tmp_path / "promotion_evidence_manifest.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "promotion_evidence_bundle.v1",
+                "candidate_id": "candidate-1",
+                "decision": "bundle_complete",
+                "evidence_source": {"type": "exchange_export", "run_id": 123},
+                "required_artifacts": ["chunk_001/trades.json"],
+                "missing_artifacts": [],
+                "artifacts": [
+                    {
+                        "path": "chunk_001/trades.json",
+                        "sha256": hashlib.sha256(trades_path.read_bytes()).hexdigest(),
+                        "bytes": trades_path.stat().st_size,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    integrity = report["promotion_bundle_integrity"]
+    assert integrity["verified"] is False
+    assert "evidence_source_run_id_not_string" in integrity["manifest_errors"]
+    assert "promotion_bundle_integrity_failed" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["checks"]["promotion_bundle_integrity_verified"] is False
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
+
 def test_live_readiness_gate_rejects_promotion_manifest_decision_not_complete(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     _write_profitable_trade_chunk(chunk)
