@@ -1172,17 +1172,23 @@ def _runtime_safety_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
             continue
         payload = _load_json(path)
         parse_error = _json_parse_error(payload)
-        checks = _as_mapping(payload.get("checks"))
+        checks_payload = payload.get("checks")
+        checks_object_valid = isinstance(checks_payload, Mapping)
+        checks = _as_mapping(checks_payload)
         unknown_check_fields = sorted(set(checks) - set(required_checks))
         chunk_schema_valid = (
             (not parse_error)
             and _artifact_schema_valid(payload, "runtime_safety_gate_input.v1")
+            and checks_object_valid
             and not unknown_check_fields
         )
         chunk_provenance_present = (not parse_error) and _artifact_provenance_present(payload)
         parse_error_message = str(parse_error or "")
-        if unknown_check_fields:
-            parse_error_message = "unknown_check_field: " + ", ".join(unknown_check_fields)
+        if not parse_error:
+            if not checks_object_valid:
+                parse_error_message = "checks_not_object"
+            elif unknown_check_fields:
+                parse_error_message = "unknown_check_field: " + ", ".join(unknown_check_fields)
         artifacts.append(
             {
                 "chunk": chunk_dir.name,
