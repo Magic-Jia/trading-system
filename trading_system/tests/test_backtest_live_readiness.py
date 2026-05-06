@@ -5645,6 +5645,22 @@ def test_live_readiness_gate_does_not_count_bool_execution_costs_in_totals(tmp_p
 
 
 
+def test_live_readiness_gate_does_not_count_noncanonical_fill_quality_as_entry_evidence(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    payload = json.loads((chunk / "trades.json").read_text(encoding="utf-8"))
+    payload["trades"][0]["fill_quality"] = " evidence_backed "
+    (chunk / "trades.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    assert report["totals"]["evidence_coverage"] == pytest.approx(0.0)
+    assert report["promotion_gate"]["checks"]["evidence_coverage_met"] is False
+    assert "evidence_coverage_below_threshold" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
+
 def test_live_readiness_gate_does_not_count_non_string_fill_quality_as_entry_evidence(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     _write_profitable_trade_chunk(chunk)

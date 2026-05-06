@@ -178,15 +178,19 @@ def _dimension_bucket_key(value: Any, field: str) -> str:
 
 
 def _evidence_quality_is_live_grade(value: Any) -> bool:
-    return isinstance(value, str) and value.strip().lower() in {"evidence_backed", "partial_evidence_backed"}
+    return isinstance(value, str) and value in {"evidence_backed", "partial_evidence_backed"}
 
 
 def _evidence_source_is_live_grade(value: Any) -> bool:
-    return isinstance(value, str) and value.strip().lower() == "trade_print"
+    return isinstance(value, str) and value == "trade_print"
 
 
 def _evidence_component_invalid(value: Any) -> bool:
-    return value is not None and not isinstance(value, str)
+    if value is None:
+        return False
+    if not isinstance(value, str):
+        return True
+    return value != value.strip().lower()
 
 
 def _evidence_component_synthetic(value: Any) -> bool:
