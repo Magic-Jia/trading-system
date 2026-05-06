@@ -832,6 +832,39 @@ def test_live_readiness_gate_rejects_non_finite_summary_cost_breakdown(tmp_path:
     assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
 
 
+def test_live_readiness_gate_rejects_summary_totals_inconsistent_with_trades_ledger(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    (chunk / "summary.json").write_text(
+        json.dumps({"summary": {"trade_count": 2, "cost_breakdown": {"fees": 1.0, "slippage": 0.0, "funding": 0.0}}}),
+        encoding="utf-8",
+    )
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    assert report["summary_artifact_integrity"]["valid"] is False
+    assert report["summary_artifact_integrity"]["invalid_artifacts"] == [
+        {
+            "chunk": "chunk_001",
+            "artifact": "summary.json",
+            "field": "summary.trade_count",
+            "value": 2,
+            "expected": 1,
+            "error": "summary_trade_count_mismatch",
+        },
+        {
+            "chunk": "chunk_001",
+            "artifact": "summary.json",
+            "field": "summary.cost_breakdown.fees",
+            "value": 1.0,
+            "expected": 0.0,
+            "error": "summary_cost_breakdown_mismatch",
+        },
+    ]
+    assert "summary_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
 def test_live_readiness_gate_rejects_missing_trades_artifact_in_chunk_dir(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     chunk.mkdir(parents=True)

@@ -306,9 +306,40 @@ def _summary_artifact_integrity(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
                 }
             )
             continue
-        cost_breakdown = _as_mapping(_as_mapping(payload.get("summary")).get("cost_breakdown"))
+        summary = _as_mapping(payload.get("summary"))
+        trades = _trades_payload(_load_json(chunk_dir / "trades.json"))
+        trade_count = summary.get("trade_count")
+        if trade_count is not None:
+            parsed_trade_count, valid_trade_count = _int_value(trade_count)
+            if not valid_trade_count:
+                invalid_artifacts.append(
+                    {
+                        "chunk": chunk_dir.name,
+                        "artifact": "summary.json",
+                        "field": "summary.trade_count",
+                        "value": trade_count,
+                        "error": "invalid_summary_trade_count",
+                    }
+                )
+            elif parsed_trade_count != len(trades):
+                invalid_artifacts.append(
+                    {
+                        "chunk": chunk_dir.name,
+                        "artifact": "summary.json",
+                        "field": "summary.trade_count",
+                        "value": trade_count,
+                        "expected": len(trades),
+                        "error": "summary_trade_count_mismatch",
+                    }
+                )
+        cost_breakdown = _as_mapping(summary.get("cost_breakdown"))
+        expected_costs = {
+            "fees": sum(_float_value(trade.get("fee_paid")) for trade in trades),
+            "slippage": sum(_float_value(trade.get("slippage_paid")) for trade in trades),
+            "funding": sum(_float_value(trade.get("funding_paid")) for trade in trades),
+        }
         for field, value in cost_breakdown.items():
-            _, valid = _finite_float_value(value)
+            parsed, valid = _finite_float_value(value)
             if not valid:
                 invalid_artifacts.append(
                     {
@@ -319,6 +350,21 @@ def _summary_artifact_integrity(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
                         "error": "invalid_cost_breakdown_value",
                     }
                 )
+                continue
+            if field in expected_costs:
+                expected = expected_costs[field]
+                tolerance = max(PNL_CONSISTENCY_ABS_TOLERANCE, abs(expected) * PNL_CONSISTENCY_REL_TOLERANCE)
+                if abs(parsed - expected) > tolerance:
+                    invalid_artifacts.append(
+                        {
+                            "chunk": chunk_dir.name,
+                            "artifact": "summary.json",
+                            "field": f"summary.cost_breakdown.{field}",
+                            "value": value,
+                            "expected": expected,
+                            "error": "summary_cost_breakdown_mismatch",
+                        }
+                    )
     return {
         "schema_version": "summary_artifact_integrity.v1",
         "valid": not invalid_artifacts,
