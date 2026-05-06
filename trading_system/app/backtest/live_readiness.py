@@ -287,6 +287,13 @@ def _summary_artifact_integrity(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
     for chunk_dir in chunk_dirs:
         path = chunk_dir / "summary.json"
         if not path.exists():
+            invalid_artifacts.append(
+                {
+                    "chunk": chunk_dir.name,
+                    "artifact": "summary.json",
+                    "error": "missing_artifact",
+                }
+            )
             continue
         payload = _load_json(path)
         parse_error = _json_parse_error(payload)

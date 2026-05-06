@@ -1587,6 +1587,18 @@ def _write_profitable_trade_chunk(chunk: Path) -> None:
         ),
         encoding="utf-8",
     )
+    (chunk / "summary.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "backtest_summary.v1",
+                "summary": {
+                    "trade_count": 1,
+                    "cost_breakdown": {"fees": 0.0, "slippage": 0.0, "funding": 0.0},
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
 
 
 def test_profitable_trade_fixture_is_live_readiness_candidate(tmp_path: Path) -> None:
@@ -1777,6 +1789,22 @@ def test_live_readiness_gate_reports_non_object_trades_artifact_payload(tmp_path
         },
     ]
     assert "trades_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
+def test_live_readiness_gate_rejects_missing_summary_artifact_for_trade_chunk(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    (chunk / "summary.json").unlink()
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    assert report["summary_artifact_integrity"]["valid"] is False
+    assert report["summary_artifact_integrity"]["invalid_artifacts"] == [
+        {"chunk": "chunk_001", "artifact": "summary.json", "error": "missing_artifact"}
+    ]
+    assert "summary_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["checks"]["summary_artifact_integrity_valid"] is False
     assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
 
 
