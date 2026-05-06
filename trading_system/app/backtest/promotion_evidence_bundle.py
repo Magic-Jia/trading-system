@@ -260,7 +260,7 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
             invalid_metadata.append(f"artifacts[{artifact_index}]")
             continue
         rel_path_raw = artifact.get("path")
-        if rel_path_raw is None or rel_path_raw == "":
+        if rel_path_raw is None or (isinstance(rel_path_raw, str) and not rel_path_raw.strip()):
             missing_metadata.append(f"artifacts[{artifact_index}].path")
             continue
         if not isinstance(rel_path_raw, str):
