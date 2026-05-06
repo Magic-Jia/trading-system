@@ -229,6 +229,16 @@ def _trades_artifact_integrity(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
                 }
             )
             continue
+        if parse_error == "json_payload_not_object":
+            invalid_artifacts.append(
+                {
+                    "chunk": chunk_dir.name,
+                    "artifact": "trades.json",
+                    "schema_version": schema_version,
+                    "error": "json_payload_not_object",
+                }
+            )
+            continue
         rows = payload.get("trades", [])
         if not isinstance(rows, list):
             invalid_artifacts.append(
