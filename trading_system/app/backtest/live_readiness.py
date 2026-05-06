@@ -1290,13 +1290,21 @@ def _validation_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[str,
         payload = _load_json(path)
         parse_error = _json_parse_error(payload)
         checks = _as_mapping(payload.get("checks"))
-        chunk_schema_valid = (not parse_error) and _artifact_schema_valid(payload, "validation_gate_input.v1")
+        unknown_check_fields = sorted(set(checks) - set(required_checks))
+        chunk_schema_valid = (
+            (not parse_error)
+            and _artifact_schema_valid(payload, "validation_gate_input.v1")
+            and not unknown_check_fields
+        )
         chunk_provenance_present = (not parse_error) and _artifact_provenance_present(payload)
+        parse_error_message = str(parse_error or "")
+        if unknown_check_fields:
+            parse_error_message = "unknown_check_field: " + ", ".join(unknown_check_fields)
         artifacts.append(
             {
                 "chunk": chunk_dir.name,
                 "path": str(path),
-                "parse_error": parse_error,
+                "parse_error": parse_error_message,
                 "schema_version": payload.get("schema_version"),
                 "schema_valid": chunk_schema_valid,
                 "provenance_present": chunk_provenance_present,
