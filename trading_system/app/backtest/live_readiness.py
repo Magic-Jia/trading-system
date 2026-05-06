@@ -1238,7 +1238,11 @@ def _setup_rewrite_diagnostic(chunk_dirs: Iterable[Path]) -> dict[str, Any] | No
         unknown_top_level_fields = sorted(set(payload) - {"summary", "evaluation_rows"})
         if not parse_error and unknown_top_level_fields:
             parse_error = "unknown_top_level_field: " + ", ".join(unknown_top_level_fields)
-        evaluation_rows = payload.get("evaluation_rows", [])
+        evaluation_rows = payload.get("evaluation_rows")
+        if not parse_error and evaluation_rows is None:
+            parse_error = "missing_required_field: evaluation_rows"
+        if evaluation_rows is None:
+            evaluation_rows = []
         if not parse_error and not isinstance(evaluation_rows, list):
             parse_error = "invalid_field_type: evaluation_rows"
         if not parse_error:
