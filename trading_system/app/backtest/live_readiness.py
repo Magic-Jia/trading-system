@@ -1088,6 +1088,11 @@ def _artifact_provenance_present(payload: Mapping[str, Any]) -> bool:
     return bool(source_type) and source_type not in {"unknown", "unknown_offline_records", "synthetic_fixture"}
 
 
+def _strict_check_bool(value: Any) -> bool:
+    return value is True
+
+
+
 def _runtime_safety_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[str, Any]:
     required_checks = (
         "kill_switch_dry_run_met",
@@ -1120,7 +1125,7 @@ def _runtime_safety_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
                 "schema_valid": chunk_schema_valid,
                 "provenance_present": chunk_provenance_present,
                 "evidence_source": _as_mapping(payload.get("evidence_source")),
-                "checks": {key: bool(checks.get(key)) for key in required_checks},
+                "checks": {key: _strict_check_bool(checks.get(key)) for key in required_checks},
                 "summary": _as_mapping(payload.get("summary")),
             }
         )
@@ -1168,7 +1173,7 @@ def _microstructure_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
                 "schema_valid": chunk_schema_valid,
                 "provenance_present": chunk_provenance_present,
                 "evidence_source": _as_mapping(payload.get("evidence_source")),
-                "checks": {key: bool(checks.get(key)) for key in required_checks},
+                "checks": {key: _strict_check_bool(checks.get(key)) for key in required_checks},
                 "summary": _as_mapping(payload.get("summary")),
             }
         )
@@ -1221,7 +1226,7 @@ def _validation_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[str,
                 "schema_valid": chunk_schema_valid,
                 "provenance_present": chunk_provenance_present,
                 "evidence_source": _as_mapping(payload.get("evidence_source")),
-                "checks": {key: bool(checks.get(key)) for key in required_checks},
+                "checks": {key: _strict_check_bool(checks.get(key)) for key in required_checks},
                 "summary": _as_mapping(payload.get("summary")),
             }
         )
