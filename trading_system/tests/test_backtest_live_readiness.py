@@ -5417,6 +5417,35 @@ def test_live_readiness_gate_does_not_count_bool_net_pnl_in_buckets(tmp_path: Pa
 
 
 
+def test_live_readiness_gate_does_not_match_bool_trade_costs_in_summary_integrity(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    payload = json.loads((chunk / "trades.json").read_text(encoding="utf-8"))
+    payload["trades"][0]["fee_paid"] = True
+    (chunk / "trades.json").write_text(json.dumps(payload), encoding="utf-8")
+    summary_payload = json.loads((chunk / "summary.json").read_text(encoding="utf-8"))
+    summary_payload["summary"]["cost_breakdown"]["fees"] = 1.0
+    (chunk / "summary.json").write_text(json.dumps(summary_payload), encoding="utf-8")
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    assert report["summary_artifact_integrity"]["valid"] is False
+    assert report["summary_artifact_integrity"]["invalid_artifacts"] == [
+        {
+            "chunk": "chunk_001",
+            "artifact": "summary.json",
+            "field": "summary.cost_breakdown.fees",
+            "value": 1.0,
+            "expected": 0.0,
+            "error": "summary_cost_breakdown_mismatch",
+        }
+    ]
+    assert report["promotion_gate"]["checks"]["summary_artifact_integrity_valid"] is False
+    assert "summary_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
+
 def test_live_readiness_gate_does_not_count_bool_execution_costs_in_totals(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     _write_profitable_trade_chunk(chunk)

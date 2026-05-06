@@ -501,9 +501,9 @@ def _summary_artifact_integrity(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
             continue
         cost_breakdown = _as_mapping(cost_breakdown_payload)
         expected_costs = {
-            "fees": sum(_float_value(trade.get("fee_paid")) for trade in trades),
-            "slippage": sum(_float_value(trade.get("slippage_paid")) for trade in trades),
-            "funding": sum(_float_value(trade.get("funding_paid")) for trade in trades),
+            "fees": sum(_strict_float_or_zero(trade.get("fee_paid")) for trade in trades),
+            "slippage": sum(_strict_float_or_zero(trade.get("slippage_paid")) for trade in trades),
+            "funding": sum(_strict_float_or_zero(trade.get("funding_paid")) for trade in trades),
         }
         for field in expected_costs:
             if field not in cost_breakdown:
