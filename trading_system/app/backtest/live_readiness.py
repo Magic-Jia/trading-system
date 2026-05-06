@@ -380,7 +380,7 @@ def _summary_artifact_integrity(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
                     }
                 )
         for field, value in cost_breakdown.items():
-            parsed, valid = _finite_float_value(value)
+            parsed, valid = _strict_float_value(value)
             if not valid:
                 invalid_artifacts.append(
                     {
