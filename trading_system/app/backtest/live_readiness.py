@@ -449,7 +449,29 @@ def _trade_dimension_integrity(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
         for index, trade in enumerate(rows, start=1):
             for field in TRADE_DIMENSION_FIELDS:
                 value = trade.get(field)
-                stripped = str(value).strip() if value is not None else ""
+                if value is None:
+                    invalid_fields.append(
+                        {
+                            "chunk": chunk_dir.name,
+                            "index": index,
+                            "field": field,
+                            "value": value,
+                            "error": "missing_or_blank_dimension",
+                        }
+                    )
+                    continue
+                if not isinstance(value, str):
+                    invalid_fields.append(
+                        {
+                            "chunk": chunk_dir.name,
+                            "index": index,
+                            "field": field,
+                            "value": value,
+                            "error": "dimension_not_string",
+                        }
+                    )
+                    continue
+                stripped = value.strip()
                 if not stripped:
                     invalid_fields.append(
                         {

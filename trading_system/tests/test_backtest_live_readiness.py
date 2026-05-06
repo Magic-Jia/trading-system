@@ -1126,10 +1126,11 @@ def test_live_readiness_gate_rejects_blank_and_noncanonical_trade_dimensions(tmp
     payload = json.loads((chunk / "trades.json").read_text(encoding="utf-8"))
     base_trade = payload["trades"][0]
     missing_symbol = {**base_trade, "trade_id": "trade-missing-symbol", "symbol": "   "}
+    non_string_symbol = {**base_trade, "trade_id": "trade-non-string-symbol", "symbol": 12345}
     invalid_symbol = {**base_trade, "trade_id": "trade-invalid-symbol", "symbol": "btc/usdt"}
     invalid_setup = {**base_trade, "trade_id": "trade-invalid-setup", "setup_type": "breakout continuation"}
     invalid_side = {**base_trade, "trade_id": "trade-invalid-side", "side": "hold"}
-    payload["trades"] = [missing_symbol, invalid_symbol, invalid_setup, invalid_side]
+    payload["trades"] = [missing_symbol, non_string_symbol, invalid_symbol, invalid_setup, invalid_side]
     (chunk / "trades.json").write_text(json.dumps(payload), encoding="utf-8")
 
     report = build_live_readiness_gate_report(tmp_path)
@@ -1137,15 +1138,16 @@ def test_live_readiness_gate_rejects_blank_and_noncanonical_trade_dimensions(tmp
     assert report["trade_dimension_integrity"]["valid"] is False
     assert report["trade_dimension_integrity"]["invalid_fields"] == [
         {"chunk": "chunk_001", "index": 1, "field": "symbol", "value": "   ", "error": "missing_or_blank_dimension"},
-        {"chunk": "chunk_001", "index": 2, "field": "symbol", "value": "btc/usdt", "error": "invalid_symbol"},
+        {"chunk": "chunk_001", "index": 2, "field": "symbol", "value": 12345, "error": "dimension_not_string"},
+        {"chunk": "chunk_001", "index": 3, "field": "symbol", "value": "btc/usdt", "error": "invalid_symbol"},
         {
             "chunk": "chunk_001",
-            "index": 3,
+            "index": 4,
             "field": "setup_type",
             "value": "breakout continuation",
             "error": "invalid_setup_type",
         },
-        {"chunk": "chunk_001", "index": 4, "field": "side", "value": "hold", "error": "invalid_side"},
+        {"chunk": "chunk_001", "index": 5, "field": "side", "value": "hold", "error": "invalid_side"},
     ]
     assert "trade_dimension_invalid" in report["promotion_gate"]["reasons"]
     assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
