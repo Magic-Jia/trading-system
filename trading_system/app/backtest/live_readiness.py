@@ -936,7 +936,20 @@ def _trade_exit_reason_integrity(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
             reasons: dict[str, str] = {}
             for field in TRADE_EXIT_REASON_FIELDS:
                 value = trade.get(field)
-                reason = str(value).strip() if value is not None else ""
+                if value is None:
+                    continue
+                if not isinstance(value, str):
+                    invalid_fields.append(
+                        {
+                            "chunk": chunk_dir.name,
+                            "index": index,
+                            "field": field,
+                            "value": value,
+                            "error": "exit_reason_not_string",
+                        }
+                    )
+                    continue
+                reason = value.strip()
                 if not reason:
                     continue
                 reasons[field] = reason
