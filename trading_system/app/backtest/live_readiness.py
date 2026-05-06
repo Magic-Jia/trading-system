@@ -1498,6 +1498,8 @@ def _microstructure_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
         parse_error = _json_parse_error(payload)
         checks_payload = payload.get("checks")
         evidence_source_payload = payload.get("evidence_source")
+        summary_payload = payload.get("summary")
+        summary_object_valid = summary_payload is None or isinstance(summary_payload, Mapping)
         checks_object_valid = isinstance(checks_payload, Mapping)
         evidence_source_object_valid = isinstance(evidence_source_payload, Mapping)
         evidence_source_schema_error = _artifact_provenance_schema_error(payload)
@@ -1511,6 +1513,7 @@ def _microstructure_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
             and evidence_source_object_valid
             and not evidence_source_schema_error
             and not top_level_schema_error
+            and summary_object_valid
             and not unknown_check_fields
         )
         chunk_provenance_present = (not parse_error) and _artifact_provenance_present(payload)
@@ -1524,6 +1527,8 @@ def _microstructure_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
                 parse_error_message = evidence_source_schema_error
             elif top_level_schema_error:
                 parse_error_message = top_level_schema_error
+            elif not summary_object_valid:
+                parse_error_message = "summary_not_object"
             elif unknown_check_fields:
                 parse_error_message = "unknown_check_field: " + ", ".join(unknown_check_fields)
         artifacts.append(
@@ -1578,6 +1583,8 @@ def _validation_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[str,
         parse_error = _json_parse_error(payload)
         checks_payload = payload.get("checks")
         evidence_source_payload = payload.get("evidence_source")
+        summary_payload = payload.get("summary")
+        summary_object_valid = summary_payload is None or isinstance(summary_payload, Mapping)
         checks_object_valid = isinstance(checks_payload, Mapping)
         evidence_source_object_valid = isinstance(evidence_source_payload, Mapping)
         evidence_source_schema_error = _artifact_provenance_schema_error(payload)
@@ -1591,6 +1598,7 @@ def _validation_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[str,
             and evidence_source_object_valid
             and not evidence_source_schema_error
             and not top_level_schema_error
+            and summary_object_valid
             and not unknown_check_fields
         )
         chunk_provenance_present = (not parse_error) and _artifact_provenance_present(payload)
@@ -1604,6 +1612,8 @@ def _validation_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[str,
                 parse_error_message = evidence_source_schema_error
             elif top_level_schema_error:
                 parse_error_message = top_level_schema_error
+            elif not summary_object_valid:
+                parse_error_message = "summary_not_object"
             elif unknown_check_fields:
                 parse_error_message = "unknown_check_field: " + ", ".join(unknown_check_fields)
         artifacts.append(
