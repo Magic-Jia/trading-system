@@ -1096,8 +1096,8 @@ def _runtime_safety_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
         "artifacts": artifacts,
         "checks": {
             **aggregate_checks,
-            "runtime_safety_artifact_schema_valid": (not required) or schema_valid,
-            "runtime_safety_artifact_provenance_present": (not required) or provenance_present,
+            "runtime_safety_artifact_schema_valid": schema_valid if artifacts else not required,
+            "runtime_safety_artifact_provenance_present": provenance_present if artifacts else not required,
         },
     }
 
@@ -1144,8 +1144,8 @@ def _microstructure_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
         "artifacts": artifacts,
         "checks": {
             **aggregate_checks,
-            "microstructure_artifact_schema_valid": (not required) or schema_valid,
-            "microstructure_artifact_provenance_present": (not required) or provenance_present,
+            "microstructure_artifact_schema_valid": schema_valid if artifacts else not required,
+            "microstructure_artifact_provenance_present": provenance_present if artifacts else not required,
         },
     }
 
@@ -1197,8 +1197,8 @@ def _validation_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[str,
         "artifacts": artifacts,
         "checks": {
             **aggregate_checks,
-            "validation_artifact_schema_valid": (not required) or schema_valid,
-            "validation_artifact_provenance_present": (not required) or provenance_present,
+            "validation_artifact_schema_valid": schema_valid if artifacts else not required,
+            "validation_artifact_provenance_present": provenance_present if artifacts else not required,
         },
     }
 
@@ -1633,9 +1633,9 @@ def build_live_readiness_gate_report(
     runtime_safety_checks = _as_mapping(runtime_safety_gate.get("checks"))
     if require_runtime_safety_evidence and int(runtime_safety_gate.get("artifact_count") or 0) == 0:
         reasons.append("runtime_safety_evidence_missing")
-    if require_runtime_safety_evidence and not runtime_safety_checks.get("runtime_safety_artifact_schema_valid", False):
+    if int(runtime_safety_gate.get("artifact_count") or 0) > 0 and not runtime_safety_checks.get("runtime_safety_artifact_schema_valid", False):
         reasons.append("runtime_safety_artifact_schema_invalid")
-    if require_runtime_safety_evidence and not runtime_safety_checks.get("runtime_safety_artifact_provenance_present", False):
+    if int(runtime_safety_gate.get("artifact_count") or 0) > 0 and not runtime_safety_checks.get("runtime_safety_artifact_provenance_present", False):
         reasons.append("runtime_safety_artifact_provenance_missing")
     runtime_safety_reason_by_check = {
         "kill_switch_dry_run_met": "kill_switch_dry_run_missing",
@@ -1653,9 +1653,9 @@ def build_live_readiness_gate_report(
     microstructure_checks = _as_mapping(microstructure_gate.get("checks"))
     if require_microstructure_evidence and int(microstructure_gate.get("artifact_count") or 0) == 0:
         reasons.append("microstructure_evidence_missing")
-    if require_microstructure_evidence and not microstructure_checks.get("microstructure_artifact_schema_valid", False):
+    if int(microstructure_gate.get("artifact_count") or 0) > 0 and not microstructure_checks.get("microstructure_artifact_schema_valid", False):
         reasons.append("microstructure_artifact_schema_invalid")
-    if require_microstructure_evidence and not microstructure_checks.get("microstructure_artifact_provenance_present", False):
+    if int(microstructure_gate.get("artifact_count") or 0) > 0 and not microstructure_checks.get("microstructure_artifact_provenance_present", False):
         reasons.append("microstructure_artifact_provenance_missing")
     if require_microstructure_evidence and not microstructure_checks.get("l2_tick_coverage_met", False):
         reasons.append("l2_tick_coverage_below_threshold")
@@ -1664,9 +1664,9 @@ def build_live_readiness_gate_report(
     validation_checks = _as_mapping(validation_gate.get("checks"))
     if require_validation_evidence and int(validation_gate.get("artifact_count") or 0) == 0:
         reasons.append("validation_evidence_missing")
-    if require_validation_evidence and not validation_checks.get("validation_artifact_schema_valid", False):
+    if int(validation_gate.get("artifact_count") or 0) > 0 and not validation_checks.get("validation_artifact_schema_valid", False):
         reasons.append("validation_artifact_schema_invalid")
-    if require_validation_evidence and not validation_checks.get("validation_artifact_provenance_present", False):
+    if int(validation_gate.get("artifact_count") or 0) > 0 and not validation_checks.get("validation_artifact_provenance_present", False):
         reasons.append("validation_artifact_provenance_missing")
     if require_validation_evidence and not validation_checks.get("oos_non_degraded_met", False):
         reasons.append("oos_degraded")

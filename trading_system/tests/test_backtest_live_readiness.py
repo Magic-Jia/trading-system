@@ -735,6 +735,36 @@ def test_profitable_trade_fixture_is_live_readiness_candidate(tmp_path: Path) ->
     assert report["promotion_gate"]["reasons"] == []
 
 
+def test_live_readiness_gate_rejects_present_runtime_safety_artifact_with_bad_schema(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    (chunk / "runtime_safety_gate.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "runtime_safety_gate_input.v0",
+                "evidence_source": {"type": "testnet_exchange"},
+                "checks": {
+                    "kill_switch_dry_run_met": True,
+                    "order_position_reconciliation_met": True,
+                    "fail_closed_met": True,
+                    "dust_before_scale_met": True,
+                    "live_trade_ledger_met": True,
+                    "runtime_explainability_met": True,
+                    "drift_guard_met": True,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    assert report["runtime_safety_gate"]["checks"]["runtime_safety_artifact_schema_valid"] is False
+    assert "runtime_safety_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["checks"]["runtime_safety_artifact_schema_valid"] is False
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
 def test_live_readiness_gate_sorts_chunk_names_naturally(tmp_path: Path) -> None:
     for name in ("chunk_10", "chunk_2", "chunk_1"):
         chunk = tmp_path / name
