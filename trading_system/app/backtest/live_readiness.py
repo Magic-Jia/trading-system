@@ -374,7 +374,18 @@ def _summary_artifact_integrity(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
                         "error": "summary_trade_count_mismatch",
                     }
                 )
-        cost_breakdown = _as_mapping(summary.get("cost_breakdown"))
+        cost_breakdown_payload = summary.get("cost_breakdown")
+        if not isinstance(cost_breakdown_payload, Mapping):
+            invalid_artifacts.append(
+                {
+                    "chunk": chunk_dir.name,
+                    "artifact": "summary.json",
+                    "field": "summary.cost_breakdown",
+                    "error": "cost_breakdown_not_object",
+                }
+            )
+            continue
+        cost_breakdown = _as_mapping(cost_breakdown_payload)
         expected_costs = {
             "fees": sum(_float_value(trade.get("fee_paid")) for trade in trades),
             "slippage": sum(_float_value(trade.get("slippage_paid")) for trade in trades),
