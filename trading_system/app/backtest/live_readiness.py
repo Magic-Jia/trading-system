@@ -1582,12 +1582,16 @@ def _passive_calibration_diagnostic(
         if chunk_valid_for_aggregation:
             total_attempts += attempts
             weighted_filled += fill_rate * attempts
-        chunk_real = bool(legacy_provenance.get("real_exchange_records")) or str(provenance.get("type") or provenance.get("source") or "").lower() in {
-            "live_exchange",
-            "testnet_exchange",
-            "exchange_export",
-            "real_exchange_records",
-        }
+        chunk_real = False
+        if chunk_valid_for_aggregation:
+            chunk_real = bool(legacy_provenance.get("real_exchange_records")) or str(
+                provenance.get("type") or provenance.get("source") or ""
+            ).lower() in {
+                "live_exchange",
+                "testnet_exchange",
+                "exchange_export",
+                "real_exchange_records",
+            }
         real_exchange_records = real_exchange_records or chunk_real
         chunks.append(
             {
