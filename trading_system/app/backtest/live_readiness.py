@@ -1548,7 +1548,10 @@ def build_live_readiness_gate_report(
     setup_loss_abs_concentration_met = max_setup_loss_abs_share is None or _float_value(top_setup_loss_abs.get("loss_abs_share")) <= max_setup_loss_abs_share
     symbol_loss_abs_concentration_met = max_symbol_loss_abs_share is None or _float_value(top_symbol_loss_abs.get("loss_abs_share")) <= max_symbol_loss_abs_share
     reasons: list[str] = []
-    if require_promotion_bundle_integrity and not bool(promotion_bundle_integrity.get("verified")):
+    promotion_bundle_integrity_enforced = require_promotion_bundle_integrity or bool(
+        promotion_bundle_integrity.get("manifest_present")
+    )
+    if promotion_bundle_integrity_enforced and not bool(promotion_bundle_integrity.get("verified")):
         reasons.append("promotion_bundle_integrity_failed")
     if net_pnl < 0.0:
         reasons.append("net_pnl_below_zero")
@@ -1755,7 +1758,7 @@ def build_live_readiness_gate_report(
                 "exit_path_ambiguity_rate_met": exit_path_ambiguity_rate <= max_exit_path_ambiguity_rate,
                 "exit_path_replay_rows_met": exit_path_replay_rows_met,
                 "major_setup_buckets_non_negative": not major_negative,
-                "promotion_bundle_integrity_verified": (not require_promotion_bundle_integrity)
+                "promotion_bundle_integrity_verified": (not promotion_bundle_integrity_enforced)
                 or bool(promotion_bundle_integrity.get("verified")),
                 **setup_quality_checks,
                 **runtime_safety_checks,

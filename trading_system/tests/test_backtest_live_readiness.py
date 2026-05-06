@@ -379,6 +379,21 @@ def test_live_readiness_smoke_report_rejects_tampered_promotion_bundle(tmp_path:
     assert "- sha256_mismatches: trades.json" in markdown
 
 
+def test_live_readiness_gate_rejects_malformed_present_promotion_manifest(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    (tmp_path / "promotion_evidence_manifest.json").write_text('{"schema_version": ', encoding="utf-8")
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    assert report["promotion_bundle_integrity"]["manifest_present"] is True
+    assert report["promotion_bundle_integrity"]["verified"] is False
+    assert report["promotion_bundle_integrity"]["manifest_errors"] == ["invalid_manifest_json"]
+    assert "promotion_bundle_integrity_failed" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["checks"]["promotion_bundle_integrity_verified"] is False
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
 def test_live_readiness_markdown_shows_bundle_manifest_and_metadata_errors(tmp_path: Path) -> None:
     source = tmp_path / "source"
     source.mkdir()
