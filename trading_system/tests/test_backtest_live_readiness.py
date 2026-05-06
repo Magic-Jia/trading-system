@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import subprocess
 import sys
@@ -480,6 +481,40 @@ def test_live_readiness_gate_rejects_promotion_manifest_artifact_missing_path(tm
     assert integrity["verified"] is False
     assert "artifact_path_missing" in integrity["manifest_errors"]
     assert integrity["missing_artifact_metadata"] == ["artifacts[1].path"]
+    assert "promotion_bundle_integrity_failed" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["checks"]["promotion_bundle_integrity_verified"] is False
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
+def test_live_readiness_gate_rejects_promotion_manifest_artifact_bytes_string(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    trades_path = chunk / "trades.json"
+    trades_bytes = trades_path.stat().st_size
+    (tmp_path / "promotion_evidence_manifest.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "promotion_evidence_bundle.v1",
+                "candidate_id": "candidate-1",
+                "required_artifacts": ["chunk_001/trades.json"],
+                "artifacts": [
+                    {
+                        "path": "chunk_001/trades.json",
+                        "sha256": hashlib.sha256(trades_path.read_bytes()).hexdigest(),
+                        "bytes": str(trades_bytes),
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    integrity = report["promotion_bundle_integrity"]
+    assert integrity["verified"] is False
+    assert "artifact_metadata_invalid" in integrity["manifest_errors"]
+    assert integrity["invalid_artifact_metadata"] == ["chunk_001/trades.json:bytes"]
     assert "promotion_bundle_integrity_failed" in report["promotion_gate"]["reasons"]
     assert report["promotion_gate"]["checks"]["promotion_bundle_integrity_verified"] is False
     assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"

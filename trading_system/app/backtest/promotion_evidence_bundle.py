@@ -186,13 +186,13 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
             missing_metadata.append(rel_path)
         elif actual_sha != expected_sha:
             sha_mismatches.append(rel_path)
-        try:
-            expected_bytes = int(expected_bytes_raw)
-        except (TypeError, ValueError):
-            invalid_metadata.append(rel_path)
+        if not isinstance(expected_bytes_raw, int) or isinstance(expected_bytes_raw, bool):
+            invalid_metadata.append(f"{rel_path}:bytes")
             expected_bytes = None
+        else:
+            expected_bytes = expected_bytes_raw
         if expected_bytes is not None and expected_bytes < 0:
-            invalid_metadata.append(rel_path)
+            invalid_metadata.append(f"{rel_path}:bytes")
             expected_bytes = None
         if expected_bytes is not None and actual_bytes != expected_bytes:
             byte_mismatches.append(rel_path)
