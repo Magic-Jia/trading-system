@@ -1296,6 +1296,10 @@ def _exit_path_replay_reconciliation(chunk_dirs: Sequence[Path], *, required: bo
                 if not isinstance(row, Mapping):
                     parse_error = f"trade_row_not_object: trades[{row_index}]"
                     break
+                trade_id = row.get("trade_id")
+                if not isinstance(trade_id, str) or not trade_id.strip():
+                    parse_error = f"trade_id_missing_or_blank: trades[{row_index}]"
+                    break
         chunk_schema_valid = (not parse_error) and _artifact_schema_valid(payload, "exit_path_replay.v1")
         chunk_provenance_present = (not parse_error) and _artifact_provenance_present(payload)
         artifacts.append(
