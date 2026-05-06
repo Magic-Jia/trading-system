@@ -89,6 +89,30 @@ def collect_promotion_evidence_bundle(
     return destination
 
 
+def _empty_promotion_bundle_audit_fields() -> dict[str, list[Any]]:
+    return {
+        "declared_missing_artifacts": [],
+        "invalid_declared_missing_artifacts": [],
+        "unsafe_declared_missing_artifacts": [],
+        "noncanonical_declared_missing_artifacts": [],
+        "missing_artifacts": [],
+        "unchecked_required_artifacts": [],
+        "invalid_required_artifacts": [],
+        "unsafe_required_artifacts": [],
+        "noncanonical_required_artifacts": [],
+        "duplicate_required_artifacts": [],
+        "omitted_default_required_artifacts": [],
+        "missing_artifact_metadata": [],
+        "invalid_artifact_metadata": [],
+        "duplicate_artifact_paths": [],
+        "unsafe_artifact_paths": [],
+        "noncanonical_artifact_paths": [],
+        "sha256_mismatches": [],
+        "byte_size_mismatches": [],
+        "checked_artifacts": [],
+    }
+
+
 def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
     bundle = Path(bundle_dir)
     manifest_path = bundle / "promotion_evidence_manifest.json"
@@ -102,17 +126,7 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
             "manifest_errors": ["missing_manifest"],
             "schema_valid": False,
             "candidate_id_valid": False,
-            "missing_artifacts": [],
-            "unchecked_required_artifacts": [],
-            "invalid_required_artifacts": [],
-            "omitted_default_required_artifacts": [],
-            "missing_artifact_metadata": [],
-            "invalid_artifact_metadata": [],
-            "duplicate_artifact_paths": [],
-            "unsafe_artifact_paths": [],
-            "sha256_mismatches": [],
-            "byte_size_mismatches": [],
-            "checked_artifacts": [],
+            **_empty_promotion_bundle_audit_fields(),
         }
     manifest_errors: list[str] = []
     try:
@@ -128,17 +142,7 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
             "manifest_parse_error": str(exc),
             "schema_valid": False,
             "candidate_id_valid": False,
-            "missing_artifacts": [],
-            "unchecked_required_artifacts": [],
-            "invalid_required_artifacts": [],
-            "omitted_default_required_artifacts": [],
-            "missing_artifact_metadata": [],
-            "invalid_artifact_metadata": [],
-            "duplicate_artifact_paths": [],
-            "unsafe_artifact_paths": [],
-            "sha256_mismatches": [],
-            "byte_size_mismatches": [],
-            "checked_artifacts": [],
+            **_empty_promotion_bundle_audit_fields(),
         }
     manifest = dict(manifest_payload) if isinstance(manifest_payload, Mapping) else {}
     if not isinstance(manifest_payload, Mapping):

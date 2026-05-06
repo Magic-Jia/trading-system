@@ -21,7 +21,10 @@ from trading_system.app.backtest.live_readiness import (
     write_live_readiness_smoke_report,
 )
 from trading_system.app.backtest.microstructure_evidence import build_microstructure_gate
-from trading_system.app.backtest.promotion_evidence_bundle import collect_promotion_evidence_bundle
+from trading_system.app.backtest.promotion_evidence_bundle import (
+    collect_promotion_evidence_bundle,
+    verify_promotion_evidence_bundle,
+)
 from trading_system.app.backtest.validation_evidence import build_validation_gate
 from trading_system.app.backtest.types import DatasetSnapshotRow
 from trading_system.app.execution.calibration import load_calibration_records, summarize_calibration_records
@@ -378,6 +381,42 @@ def test_live_readiness_smoke_report_rejects_tampered_promotion_bundle(tmp_path:
     assert "## Promotion Bundle Integrity" in markdown
     assert "verified: false" in markdown
     assert "- sha256_mismatches: trades.json" in markdown
+
+
+def test_promotion_bundle_verification_error_reports_keep_stable_audit_fields(tmp_path: Path) -> None:
+    expected_fields = {
+        "declared_missing_artifacts",
+        "invalid_declared_missing_artifacts",
+        "unsafe_declared_missing_artifacts",
+        "noncanonical_declared_missing_artifacts",
+        "missing_artifacts",
+        "unchecked_required_artifacts",
+        "invalid_required_artifacts",
+        "unsafe_required_artifacts",
+        "noncanonical_required_artifacts",
+        "duplicate_required_artifacts",
+        "omitted_default_required_artifacts",
+        "missing_artifact_metadata",
+        "invalid_artifact_metadata",
+        "duplicate_artifact_paths",
+        "unsafe_artifact_paths",
+        "noncanonical_artifact_paths",
+        "sha256_mismatches",
+        "byte_size_mismatches",
+        "checked_artifacts",
+    }
+
+    missing_report = verify_promotion_evidence_bundle(tmp_path / "missing_bundle")
+    malformed_dir = tmp_path / "malformed_bundle"
+    malformed_dir.mkdir()
+    (malformed_dir / "promotion_evidence_manifest.json").write_text('{"schema_version": ', encoding="utf-8")
+    malformed_report = verify_promotion_evidence_bundle(malformed_dir)
+
+    for report in (missing_report, malformed_report):
+        assert report["verified"] is False
+        assert expected_fields <= report.keys()
+        for field in expected_fields:
+            assert report[field] == []
 
 
 def test_live_readiness_gate_rejects_malformed_present_promotion_manifest(tmp_path: Path) -> None:
