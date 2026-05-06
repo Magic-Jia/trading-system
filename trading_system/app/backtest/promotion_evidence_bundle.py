@@ -207,6 +207,8 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
         checked_paths.add(rel_path)
     required_artifacts_raw = manifest.get("required_artifacts", [])
     invalid_required_artifacts: list[str] = []
+    non_string_required_artifacts: list[str] = []
+    blank_required_artifacts: list[str] = []
     if required_artifacts_raw is None:
         manifest_required = []
         manifest_errors.append("required_artifacts_not_list")
@@ -217,10 +219,16 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
         manifest_required = []
         for required_index, name in enumerate(required_artifacts_raw, start=1):
             if not isinstance(name, str):
-                invalid_required_artifacts.append(f"required_artifacts[{required_index}]")
+                invalid_key = f"required_artifacts[{required_index}]"
+                invalid_required_artifacts.append(invalid_key)
+                non_string_required_artifacts.append(invalid_key)
                 continue
-            if name:
-                manifest_required.append(name)
+            if not name:
+                invalid_key = f"required_artifacts[{required_index}]"
+                invalid_required_artifacts.append(invalid_key)
+                blank_required_artifacts.append(invalid_key)
+                continue
+            manifest_required.append(name)
     required = list(dict.fromkeys([*REQUIRED_ARTIFACTS, *manifest_required]))
     omitted_default_required = [name for name in REQUIRED_ARTIFACTS if name not in manifest_required]
     if omitted_default_required:
@@ -247,8 +255,10 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
         manifest_errors.append("artifact_entry_not_object")
     if duplicate_artifact_paths:
         manifest_errors.append("duplicate_artifact_path")
-    if invalid_required_artifacts:
+    if non_string_required_artifacts:
         manifest_errors.append("required_artifact_entry_not_string")
+    if blank_required_artifacts:
+        manifest_errors.append("required_artifact_entry_blank")
     if unchecked_required:
         manifest_errors.append("required_artifact_missing_manifest_entry")
     return {
