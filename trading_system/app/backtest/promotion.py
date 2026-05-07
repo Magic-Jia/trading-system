@@ -148,6 +148,10 @@ def _validate_rotation_bundle(bundle: BacktestBundle) -> None:
     for policy_name in ("current", "soft_suppression"):
         policy = _require_mapping(policies, policy_name, context=f"{bundle.root}/summary.json.policies")
         _require_keys(policy, keys=("bucket_level_pnl", "trade_count"), context=f"{bundle.root}/summary.json.policies.{policy_name}")
+        _require_real_number(policy, "bucket_level_pnl", context=f"{bundle.root}/summary.json.policies.{policy_name}")
+        _require_non_negative_int(policy, "trade_count", context=f"{bundle.root}/summary.json.policies.{policy_name}")
+    for numeric_key in ("opportunity_kill_rate", "avoid_loss_rate"):
+        _require_real_number(summary, numeric_key, context=f"{bundle.root}/summary.json")
     _require_rows(bundle.artifacts["comparison_rows.json"], context=f"{bundle.root}/comparison_rows.json")
     scorecard = bundle.artifacts["scorecard.json"]
     key_metrics = _require_mapping(scorecard, "key_metrics", context=f"{bundle.root}/scorecard.json")
@@ -156,6 +160,8 @@ def _validate_rotation_bundle(bundle: BacktestBundle) -> None:
         keys=("current_bucket_level_pnl", "soft_suppression_bucket_level_pnl", "opportunity_kill_rate", "avoid_loss_rate"),
         context=f"{bundle.root}/scorecard.json.key_metrics",
     )
+    for numeric_key in ("current_bucket_level_pnl", "soft_suppression_bucket_level_pnl", "opportunity_kill_rate", "avoid_loss_rate"):
+        _require_real_number(key_metrics, numeric_key, context=f"{bundle.root}/scorecard.json.key_metrics")
 
 
 
