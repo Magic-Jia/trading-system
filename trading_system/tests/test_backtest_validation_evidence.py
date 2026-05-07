@@ -92,3 +92,15 @@ def test_validation_gate_rejects_boolean_regime_trade_count() -> None:
         assert str(exc) == "regime trade_count must be an integer count"
     else:  # pragma: no cover - RED path until producer is hardened
         raise AssertionError("expected boolean regime trade_count to be rejected")
+
+
+def test_validation_gate_rejects_boolean_oos_numeric_fields() -> None:
+    manifest = _passing_manifest()
+    manifest["oos"]["baseline_net_pnl"] = True
+
+    try:
+        build_validation_gate(manifest)
+    except ValueError as exc:
+        assert str(exc) == "oos baseline_net_pnl must be a number"
+    else:  # pragma: no cover - RED path until producer is hardened
+        raise AssertionError("expected boolean oos numeric field to be rejected")

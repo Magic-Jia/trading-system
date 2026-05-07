@@ -8,10 +8,15 @@ from typing import Any, Mapping
 SCHEMA_VERSION = "validation_gate_input.v1"
 
 
-def _float_or_none(value: Any) -> float | None:
+def _float_or_none(value: Any, name: str) -> float | None:
     if value is None or value == "":
         return None
-    return float(value)
+    if isinstance(value, bool):
+        raise ValueError(f"{name} must be a number")
+    try:
+        return float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} must be a number") from exc
 
 
 def _mapping(value: Any, name: str) -> Mapping[str, Any]:
@@ -39,9 +44,9 @@ def build_validation_gate(manifest: Mapping[str, Any]) -> dict[str, Any]:
     source.setdefault("type", "unknown_offline_records")
 
     oos = _mapping(manifest.get("oos", {}), "oos")
-    baseline = _float_or_none(oos.get("baseline_net_pnl"))
-    oos_pnl = _float_or_none(oos.get("oos_net_pnl"))
-    max_degradation = _float_or_none(oos.get("max_degradation_fraction"))
+    baseline = _float_or_none(oos.get("baseline_net_pnl"), "oos baseline_net_pnl")
+    oos_pnl = _float_or_none(oos.get("oos_net_pnl"), "oos oos_net_pnl")
+    max_degradation = _float_or_none(oos.get("max_degradation_fraction"), "oos max_degradation_fraction")
     if max_degradation is None:
         max_degradation = 0.2
     if baseline is None or baseline <= 0 or oos_pnl is None:
@@ -59,7 +64,7 @@ def build_validation_gate(manifest: Mapping[str, Any]) -> dict[str, Any]:
     for regime in regimes_raw:
         regime_mapping = _mapping(regime, "regime")
         trade_count = _integer_count(regime_mapping.get("trade_count", 0), "regime trade_count")
-        net_pnl = _float_or_none(regime_mapping.get("net_pnl"))
+        net_pnl = _float_or_none(regime_mapping.get("net_pnl"), "regime net_pnl")
         if trade_count > 0:
             eligible_regime_count += 1
         if trade_count > 0 and net_pnl is not None and net_pnl > 0:
@@ -67,7 +72,7 @@ def build_validation_gate(manifest: Mapping[str, Any]) -> dict[str, Any]:
     multi_regime_resilience_met = eligible_regime_count >= 2 and profitable_regime_count >= 2
 
     cost_stress = _mapping(manifest.get("cost_stress", {}), "cost_stress")
-    stressed_net_pnl = _float_or_none(cost_stress.get("stressed_net_pnl"))
+    stressed_net_pnl = _float_or_none(cost_stress.get("stressed_net_pnl"), "cost_stress stressed_net_pnl")
     cost_stress_positive_met = stressed_net_pnl is not None and stressed_net_pnl > 0
 
     forward = _mapping(manifest.get("forward_contamination", {}), "forward_contamination")
