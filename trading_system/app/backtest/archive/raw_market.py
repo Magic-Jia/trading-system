@@ -231,6 +231,8 @@ def _required_manifest_value(manifest: dict[str, Any], key: str, *, manifest_pat
     value = manifest.get(key)
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"raw-market manifest missing required string field '{key}': {manifest_path}")
+    if value != value.strip():
+        raise ValueError(f"raw-market manifest field '{key}' must be canonical: {manifest_path}")
     return value
 
 
