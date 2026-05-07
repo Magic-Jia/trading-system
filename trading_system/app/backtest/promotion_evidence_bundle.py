@@ -56,6 +56,9 @@ def collect_promotion_evidence_bundle(
     unsafe_required = [name for name in required_artifacts if not _artifact_path_is_safe(name)]
     if unsafe_required:
         raise ValueError("unsafe required artifact path(s): " + ", ".join(unsafe_required))
+    noncanonical_required = [name for name in required_artifacts if not _artifact_path_is_canonical(name)]
+    if noncanonical_required:
+        raise ValueError("noncanonical required artifact path(s): " + ", ".join(noncanonical_required))
     source = Path(source_dir)
     destination = Path(bundle_dir)
     missing = [name for name in required_artifacts if not (source / name).is_file()]

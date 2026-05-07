@@ -646,3 +646,19 @@ def test_collect_rejects_non_live_grade_evidence_source_type(tmp_path: Path) -> 
             candidate_id="candidate-1",
             evidence_source={"type": "synthetic_fixture", "run_id": "bundle-1"},
         )
+
+def test_bundle_collector_rejects_noncanonical_required_artifact_paths(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    nested = source / "nested"
+    nested.mkdir()
+    _write_json(nested / "artifact.json", {"artifact": "nested/artifact.json"})
+
+    with pytest.raises(ValueError, match="noncanonical required artifact path"):
+        collect_promotion_evidence_bundle(
+            source,
+            tmp_path / "bundle",
+            candidate_id="candidate-1",
+            evidence_source={"type": "promotion_bundle_export", "run_id": "bundle-1"},
+            required_artifacts=("nested//artifact.json",),
+        )
