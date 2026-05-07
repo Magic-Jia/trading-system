@@ -2290,7 +2290,7 @@ def _phase1_imported_dataset_root_relative_base_dir(dataset_path: Path) -> Path 
 def _resolved_source_manifest_paths(dataset_path: Path, manifest_paths: Sequence[str]) -> tuple[str, ...]:
     base_dir = _phase1_imported_dataset_root_relative_base_dir(dataset_path)
     resolved_paths: list[str] = []
-    for value in manifest_paths:
+    for value in _require_canonical_string_items(manifest_paths, field="source manifest_paths"):
         path = Path(value)
         if path.is_absolute():
             resolved_paths.append(str(path))

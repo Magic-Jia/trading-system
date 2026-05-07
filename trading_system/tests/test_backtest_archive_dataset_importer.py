@@ -150,6 +150,17 @@ def test_resolved_phase1_imported_dataset_root_path_rejects_padded_relative_valu
         archive_importer._resolved_phase1_imported_dataset_root_path(tmp_path, " bundles/a ")
 
 
+
+def test_resolved_source_manifest_paths_rejects_non_string_entries(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match=r"source manifest_paths\[0\] must be a string"):
+        archive_importer._resolved_source_manifest_paths(tmp_path, [123])
+
+
+def test_resolved_source_manifest_paths_rejects_padded_entries(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match=r"source manifest_paths\[0\] must be canonical"):
+        archive_importer._resolved_source_manifest_paths(tmp_path, [" raw-market/BTC/manifest.json "])
+
+
 def _timestamp_ms(value: datetime) -> int:
     return int(value.timestamp() * 1000)
 
