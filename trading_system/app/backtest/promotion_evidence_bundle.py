@@ -85,6 +85,10 @@ def collect_promotion_evidence_bundle(
     unknown_source_fields = sorted(set(source_payload) - {"type", "run_id", "exported_at"})
     if unknown_source_fields:
         raise ValueError("unknown evidence_source field: " + ", ".join(unknown_source_fields))
+    if not isinstance(source_payload.get("type"), str):
+        raise ValueError("evidence_source type must be a string")
+    if not source_payload["type"].strip():
+        raise ValueError("evidence_source type must be non-empty")
     manifest = {
         "schema_version": SCHEMA_VERSION,
         "candidate_id": candidate_id,
