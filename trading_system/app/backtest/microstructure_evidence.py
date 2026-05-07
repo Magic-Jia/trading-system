@@ -124,6 +124,9 @@ def build_microstructure_gate(
     coverage_input = manifest.get("coverage", {})
     if not isinstance(coverage_input, Mapping):
         raise ValueError("coverage must be a mapping")
+    unknown_coverage_fields = sorted(set(coverage_input) - set(_DEFAULT_COVERAGE_KEYS))
+    if unknown_coverage_fields:
+        raise ValueError("unknown microstructure coverage field: " + ", ".join(unknown_coverage_fields))
 
     coverage = {
         key: _normalise_coverage_value(key, coverage_input.get(key))
