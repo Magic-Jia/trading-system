@@ -383,6 +383,38 @@ def test_live_readiness_smoke_report_rejects_tampered_promotion_bundle(tmp_path:
     assert "- sha256_mismatches: trades.json" in markdown
 
 
+def test_promotion_bundle_verification_requires_evidence_source(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    for name in (
+        "trades.json",
+        "summary.json",
+        "runtime_safety_gate.json",
+        "market_microstructure_gate.json",
+        "validation_gate.json",
+        "exit_path_replay.json",
+        "passive_order_calibration_summary.json",
+    ):
+        (source / name).write_text("{}", encoding="utf-8")
+    bundle = tmp_path / "bundle"
+    collect_promotion_evidence_bundle(
+        source,
+        bundle,
+        candidate_id="candidate-001",
+        evidence_source={"type": "testnet_exchange"},
+    )
+    manifest_path = bundle / "promotion_evidence_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest.pop("evidence_source", None)
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    integrity = verify_promotion_evidence_bundle(bundle)
+
+    assert integrity["verified"] is False
+    assert "evidence_source_missing" in integrity["manifest_errors"]
+
+
+
 def test_promotion_bundle_verification_rejects_synthetic_evidence_source(tmp_path: Path) -> None:
     source = tmp_path / "source"
     source.mkdir()

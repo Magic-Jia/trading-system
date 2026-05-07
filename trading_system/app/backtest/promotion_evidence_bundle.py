@@ -173,7 +173,9 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
     elif not candidate_id_valid:
         manifest_errors.append("invalid_candidate_id")
     evidence_source_raw = manifest.get("evidence_source")
-    if evidence_source_raw is not None and not isinstance(evidence_source_raw, Mapping):
+    if evidence_source_raw is None:
+        manifest_errors.append("evidence_source_missing")
+    elif not isinstance(evidence_source_raw, Mapping):
         manifest_errors.append("evidence_source_not_object")
     if isinstance(evidence_source_raw, Mapping):
         unknown_evidence_source_fields = sorted(set(evidence_source_raw) - {"type", "run_id", "exported_at"})
