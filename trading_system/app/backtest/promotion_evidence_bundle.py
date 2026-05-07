@@ -35,7 +35,7 @@ def _artifact_path_is_safe(rel_path: str) -> bool:
 
 
 def _artifact_path_is_canonical(rel_path: str) -> bool:
-    return rel_path == str(Path(rel_path))
+    return rel_path == rel_path.strip() and rel_path == str(Path(rel_path))
 
 
 def collect_promotion_evidence_bundle(
