@@ -7996,3 +7996,47 @@ class _Universes:
     major_universe = ()
     rotation_universe = ()
     short_universe = ("BTCUSDT", "ETHUSDT", "SOLUSDT")
+
+
+def test_live_readiness_markdown_uses_producer_check_names() -> None:
+    markdown = render_live_readiness_markdown(
+        {
+            "promotion_gate": {"decision": "eligible_for_live_promotion", "reasons": []},
+            "totals": {"trade_count": 0, "net_pnl": 0.0},
+            "runtime_safety_gate": {
+                "schema_version": "runtime_safety_gate_input.v1",
+                "required": True,
+                "artifact_count": 1,
+                "checks": {
+                    "kill_switch_dry_run_met": True,
+                    "order_position_reconciliation_met": True,
+                    "runtime_fail_closed_met": True,
+                    "live_dust_before_scale_met": True,
+                    "live_trade_ledger_met": True,
+                    "runtime_explainability_met": True,
+                    "drift_guard_met": True,
+                },
+                "artifacts": [],
+            },
+            "validation_gate": {
+                "schema_version": "validation_gate_input.v1",
+                "required": True,
+                "artifact_count": 1,
+                "checks": {
+                    "oos_non_degraded_met": True,
+                    "multi_regime_resilience_met": True,
+                    "cost_stress_positive_met": True,
+                    "forward_contamination_absent_met": True,
+                },
+                "artifacts": [],
+            },
+            "caveats": [],
+        }
+    )
+
+    assert "- runtime_fail_closed_met: true" in markdown
+    assert "- live_dust_before_scale_met: true" in markdown
+    assert "- multi_regime_resilience_met: true" in markdown
+    assert "- fail_closed_met:" not in markdown
+    assert "- dust_before_scale_met:" not in markdown
+    assert "- multi_regime_met:" not in markdown
