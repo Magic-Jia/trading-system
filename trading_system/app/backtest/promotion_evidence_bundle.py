@@ -214,17 +214,26 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
         manifest_errors.append("invalid_candidate_id")
     evidence_source_raw = manifest.get("evidence_source")
     if evidence_source_raw is None:
+        schema_valid = False
         manifest_errors.append("evidence_source_missing")
     elif not isinstance(evidence_source_raw, Mapping):
+        schema_valid = False
         manifest_errors.append("evidence_source_not_object")
     if isinstance(evidence_source_raw, Mapping):
         unknown_evidence_source_fields = sorted(set(evidence_source_raw) - {"type", "run_id", "exported_at"})
+        if unknown_evidence_source_fields:
+            schema_valid = False
         for field in unknown_evidence_source_fields:
             manifest_errors.append(f"unknown_evidence_source_field: {field}")
         evidence_source_type = evidence_source_raw.get("type")
-        if evidence_source_type is not None and not isinstance(evidence_source_type, str):
+        if evidence_source_type is None:
+            schema_valid = False
+            manifest_errors.append("evidence_source_type_missing")
+        elif not isinstance(evidence_source_type, str):
+            schema_valid = False
             manifest_errors.append("evidence_source_type_not_string")
         if isinstance(evidence_source_type, str) and not evidence_source_type.strip():
+            schema_valid = False
             manifest_errors.append("evidence_source_type_blank")
         if isinstance(evidence_source_type, str) and evidence_source_type.strip().lower() in {
             "synthetic",
@@ -234,12 +243,15 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
             "unknown",
             "unknown_offline_records",
         }:
+            schema_valid = False
             manifest_errors.append("promotion_evidence_source_not_live_grade")
         for optional_field in ("run_id", "exported_at"):
             optional_value = evidence_source_raw.get(optional_field)
             if optional_value is not None and not isinstance(optional_value, str):
+                schema_valid = False
                 manifest_errors.append(f"evidence_source_{optional_field}_not_string")
             elif isinstance(optional_value, str) and not optional_value.strip():
+                schema_valid = False
                 manifest_errors.append(f"evidence_source_{optional_field}_blank")
     artifacts_raw = manifest.get("artifacts")
     declared_missing_artifacts_raw = manifest.get("missing_artifacts", [])
