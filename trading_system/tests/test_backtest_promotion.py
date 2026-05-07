@@ -721,3 +721,21 @@ def test_load_backtest_bundle_rejects_numeric_strings_in_parameter_stability_sum
 
     with pytest.raises(ValueError, match="parameter_stability.parameter_stability_score must be numeric"):
         promotion.load_backtest_bundle(bundle)
+
+def test_load_backtest_bundle_rejects_string_full_market_audit_trade_count(tmp_path: Path) -> None:
+    bundle = _write_full_market_bundle(
+        tmp_path / "bundle",
+        baseline_name="current_system",
+        variant_name="candidate_policy",
+        total_return=0.10,
+        max_drawdown=-0.10,
+        sharpe=1.00,
+        cost_drag=0.020,
+    )
+    audit_path = bundle / "audit.json"
+    payload = json.loads(audit_path.read_text(encoding="utf-8"))
+    payload["audit"]["trade_count"] = "5"
+    _write_json(audit_path, payload)
+
+    with pytest.raises(ValueError, match="audit.json.audit.trade_count must be a non-negative integer"):
+        promotion.load_backtest_bundle(bundle)
