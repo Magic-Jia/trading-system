@@ -44,6 +44,21 @@ def test_collects_required_evidence_artifacts_with_checksums(tmp_path: Path) -> 
     assert (bundle_dir / first["path"]).exists()
 
 
+def test_collect_rejects_non_string_required_artifact_entries(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    _write_json(source / "123", {"artifact": "coerced"})
+
+    with pytest.raises(ValueError, match="required artifact path entries must be strings"):
+        collect_promotion_evidence_bundle(
+            source,
+            tmp_path / "bundle",
+            candidate_id="candidate-1",
+            evidence_source={"type": "promotion_bundle_export", "run_id": "bundle-1"},
+            required_artifacts=(123,),  # type: ignore[arg-type]
+        )
+
+
 def test_collected_bundle_can_be_consumed_by_live_readiness_smoke(tmp_path: Path) -> None:
     source = tmp_path / "source"
     source.mkdir()
