@@ -685,3 +685,21 @@ def test_compare_backtest_bundles_rejects_string_runtime_fields_plan(tmp_path: P
 
     with pytest.raises(ValueError, match="runtime_observability.runtime_fields must be a list of strings"):
         promotion.compare_backtest_bundles(baseline_bundle=baseline_bundle, variant_bundle=variant_bundle)
+
+def test_load_backtest_bundle_rejects_numeric_strings_in_walk_forward_windows(tmp_path: Path) -> None:
+    bundle = _write_walk_forward_bundle(
+        tmp_path / "bundle",
+        baseline_name="current_policy",
+        variant_name="candidate_walk_forward",
+        out_of_sample_total_return=0.08,
+        positive_window_ratio=0.9,
+        parameter_stability_score=0.9,
+        worst_window_return=0.02,
+    )
+    windows_path = bundle / "windows.json"
+    payload = json.loads(windows_path.read_text(encoding="utf-8"))
+    payload["rows"][0]["out_of_sample"]["scorecard"]["total_return"] = "0.08"
+    _write_json(windows_path, payload)
+
+    with pytest.raises(ValueError, match=r"windows.json.rows\[0\].out_of_sample.scorecard.total_return must be numeric"):
+        promotion.load_backtest_bundle(bundle)
