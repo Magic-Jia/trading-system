@@ -14,6 +14,7 @@ from trading_system.app.backtest import engine as backtest_engine
 from trading_system.app.backtest.config import load_backtest_config
 from trading_system.app.backtest.live_readiness import (
     _dominance_from_gate_buckets,
+    _stdout_concentration_summary,
     audit_execution_depth,
     audit_exit_path_replay,
     build_live_readiness_gate_report,
@@ -113,6 +114,17 @@ def test_calibration_jsonl_summary_groups_passive_order_quality(tmp_path: Path) 
     assert summary["by_symbol"]["BTCUSDT"]["attempt_count"] == 2
     assert summary["by_side"]["buy"]["fill_rate"] == 1.0
     assert summary["by_setup_type"]["FAILED_BOUNCE_SHORT"]["missed_fill_rate"] == 1.0
+
+
+def test_stdout_concentration_summary_rejects_non_strict_bucket() -> None:
+    report = {
+        "concentration": {
+            "top_setup_by_trades": {"key": "TREND_PULLBACK", "trades": "1", "trade_share": 1.0},
+        }
+    }
+
+    with pytest.raises(ValueError, match="trades must be a strict integer"):
+        _stdout_concentration_summary(report)
 
 
 def test_markdown_renderer_rejects_non_strict_concentration_bucket() -> None:

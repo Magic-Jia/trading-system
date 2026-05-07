@@ -3437,10 +3437,10 @@ def _stdout_concentration_summary(report: Mapping[str, Any]) -> dict[str, Any]:
         bucket = _as_mapping(concentration.get(name))
         return {
             "key": bucket.get("key"),
-            "trades": int(bucket.get("trades") or 0),
-            "trade_share": float(bucket.get("trade_share") or 0.0),
-            "net_abs_share": float(bucket.get("net_abs_share") or 0.0),
-            "loss_abs_share": float(bucket.get("loss_abs_share") or 0.0),
+            "trades": _strict_bucket_int(bucket, "trades"),
+            "trade_share": _strict_bucket_float(bucket, "trade_share"),
+            "net_abs_share": _strict_bucket_float(bucket, "net_abs_share"),
+            "loss_abs_share": _strict_bucket_float(bucket, "loss_abs_share"),
         }
 
     return {
