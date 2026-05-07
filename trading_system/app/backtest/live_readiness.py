@@ -227,14 +227,18 @@ def _execution_trades_for_symbol(market_context: Mapping[str, Any], symbol: str)
 
 
 def _exit_classification(trade: Mapping[str, Any], market_context: Mapping[str, Any]) -> str:
-    symbol = str(trade.get("symbol", ""))
-    if _execution_trades_for_symbol(market_context, symbol):
+    raw_symbol = trade.get("symbol")
+    symbol = raw_symbol if isinstance(raw_symbol, str) else ""
+    if symbol and _execution_trades_for_symbol(market_context, symbol):
         return "trade_print_path_available"
-    simulated_ordering = str(trade.get("simulated_exit_ordering") or "").lower()
+    raw_simulated_ordering = trade.get("simulated_exit_ordering")
+    simulated_ordering = raw_simulated_ordering.lower() if isinstance(raw_simulated_ordering, str) else ""
     if simulated_ordering == "ambiguous_conservative_stop":
         return "ambiguous_intrabar_order"
-    simulated_reason = str(trade.get("simulated_exit_reason") or "").lower()
-    exit_reason = str(trade.get("exit_reason") or "").lower()
+    raw_simulated_reason = trade.get("simulated_exit_reason")
+    simulated_reason = raw_simulated_reason.lower() if isinstance(raw_simulated_reason, str) else ""
+    raw_exit_reason = trade.get("exit_reason")
+    exit_reason = raw_exit_reason.lower() if isinstance(raw_exit_reason, str) else ""
     if simulated_reason in {"stop_loss", "take_profit", "stop", "tp"} or (
         trade.get("simulated_exit_price") is not None and simulated_reason
     ):

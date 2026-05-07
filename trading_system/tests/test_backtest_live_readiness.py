@@ -6006,6 +6006,39 @@ def test_live_readiness_gate_report_rejects_when_exit_path_ambiguity_rate_exceed
     assert report["promotion_gate"]["checks"]["exit_path_ambiguity_rate_met"] is False
 
 
+def test_exit_path_replay_audit_does_not_use_non_string_symbol_for_market_context() -> None:
+    report = audit_exit_path_replay(
+        [
+            {
+                "symbol": True,
+                "exit_reason": "take_profit",
+                "simulated_exit_reason": "take_profit",
+            }
+        ],
+        market_context={"symbols": {"True": {"execution": {"trades": [{"price": 101.0}]}}}},
+    )
+
+    assert report["counts"]["trade_print_path_available"] == 0
+    assert report["counts"]["bar_path_stop_or_tp"] == 1
+
+
+def test_exit_path_replay_audit_does_not_classify_non_string_exit_reason() -> None:
+    report = audit_exit_path_replay(
+        [
+            {
+                "symbol": "BTCUSDT",
+                "exit_reason": "fixed_horizon",
+                "simulated_exit_reason": True,
+                "simulated_exit_price": 95.0,
+                "mfe_pct": 0.02,
+            }
+        ]
+    )
+
+    assert report["counts"]["bar_path_stop_or_tp"] == 0
+    assert report["counts"]["fixed_horizon_only"] == 1
+
+
 def test_live_readiness_gate_does_not_count_synthetic_fill_quality_as_entry_evidence(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     _write_profitable_trade_chunk(chunk)
