@@ -141,6 +141,23 @@ def test_stdout_concentration_summary_rejects_non_strict_bucket() -> None:
         _stdout_concentration_summary(report)
 
 
+def test_markdown_renderer_rejects_non_strict_totals() -> None:
+    report = {
+        "promotion_gate": {"decision": "hold", "reasons": [], "checks": {}},
+        "totals": {
+            "trade_count": 1,
+            "net_pnl": "1.0",
+            "evidence_coverage": 1.0,
+            "exit_evidence_coverage": 1.0,
+            "exit_path_ambiguity_rate": 0.0,
+        },
+        "caveats": [],
+    }
+
+    with pytest.raises(ValueError, match="net_pnl must be a strict number"):
+        render_live_readiness_markdown(report)
+
+
 def test_markdown_renderer_rejects_non_strict_concentration_bucket() -> None:
     report = {
         "promotion_gate": {"decision": "hold", "reasons": [], "checks": {}},

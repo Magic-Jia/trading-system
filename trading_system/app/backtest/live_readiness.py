@@ -3135,10 +3135,10 @@ def render_live_readiness_markdown(report: Mapping[str, Any]) -> str:
         f"- decision: {gate.get('decision')}",
         f"- reasons: {', '.join(gate.get('reasons', [])) if gate.get('reasons') else 'none'}",
         f"- trades: {totals.get('trade_count', 0)}",
-        f"- net_pnl: {float(totals.get('net_pnl') or 0.0):.2f}",
-        f"- evidence_coverage: {float(totals.get('evidence_coverage') or 0.0):.2%}",
-        f"- exit_evidence_coverage: {float(totals.get('exit_evidence_coverage') or 0.0):.2%}",
-        f"- exit_path_ambiguity_rate: {float(totals.get('exit_path_ambiguity_rate') or 0.0):.2%}",
+        f"- net_pnl: {_strict_bucket_float(totals, 'net_pnl'):.2f}",
+        f"- evidence_coverage: {_strict_bucket_float(totals, 'evidence_coverage'):.2%}",
+        f"- exit_evidence_coverage: {_strict_bucket_float(totals, 'exit_evidence_coverage'):.2%}",
+        f"- exit_path_ambiguity_rate: {_strict_bucket_float(totals, 'exit_path_ambiguity_rate'):.2%}",
     ]
     setup_rewrite = _as_mapping(report.get("setup_rewrite_diagnostic"))
     if setup_rewrite:
