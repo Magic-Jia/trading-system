@@ -247,3 +247,19 @@ def test_importer_rejects_invalid_order_book_size_fields_when_present() -> None:
 
     with pytest.raises(ValueError, match="order book bid_size must be numeric"):
         _order_book_payload(record, symbol="BTCUSDT")
+
+
+def test_importer_rejects_invalid_trade_price_and_quantity_fields() -> None:
+    price_record = ImportedRawMarketRecord(
+        observed_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        payload={"symbol": "BTCUSDT", "price": "not-a-number", "quantity": 1.0},
+    )
+    quantity_record = ImportedRawMarketRecord(
+        observed_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        payload={"symbol": "BTCUSDT", "price": 100.0, "quantity": 0.0},
+    )
+
+    with pytest.raises(ValueError, match="trade price must be numeric"):
+        _trade_payload(price_record, symbol="BTCUSDT")
+    with pytest.raises(ValueError, match="trade quantity must be positive"):
+        _trade_payload(quantity_record, symbol="BTCUSDT")

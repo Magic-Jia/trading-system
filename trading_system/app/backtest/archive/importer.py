@@ -623,10 +623,14 @@ def _trade_payload(record: ImportedRawMarketRecord, *, symbol: str) -> dict[str,
     payload = record.payload
     if not isinstance(payload, Mapping) or not _execution_symbol_matches(payload, symbol):
         return None
-    price = _positive_execution_float(payload.get("price", payload.get("p")))
-    quantity = _positive_execution_float(payload.get("quantity", payload.get("qty", payload.get("q"))))
-    if price is None or quantity is None:
-        return None
+    price = _required_positive_execution_float(
+        payload.get("price", payload.get("p")), field="trade price", observed_at=record.observed_at
+    )
+    quantity = _required_positive_execution_float(
+        payload.get("quantity", payload.get("qty", payload.get("q"))),
+        field="trade quantity",
+        observed_at=record.observed_at,
+    )
     result = {
         "timestamp": _utc_timestamp(record.observed_at),
         "symbol": symbol,
