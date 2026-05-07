@@ -188,3 +188,15 @@ def test_validation_gate_rejects_unknown_regime_fields() -> None:
         assert str(exc) == "unknown validation regime field: label"
     else:  # pragma: no cover - RED path until nested producer schema is hardened
         raise AssertionError("expected unknown validation regime field to be rejected")
+
+
+def test_validation_gate_rejects_unknown_oos_fields() -> None:
+    manifest = _passing_manifest()
+    manifest["oos"]["legacy_ratio"] = 0.9
+
+    try:
+        build_validation_gate(manifest)
+    except ValueError as exc:
+        assert str(exc) == "unknown validation oos field: legacy_ratio"
+    else:  # pragma: no cover - RED path until nested producer schema is hardened
+        raise AssertionError("expected unknown validation oos field to be rejected")

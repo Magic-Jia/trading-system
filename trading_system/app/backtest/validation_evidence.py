@@ -59,6 +59,9 @@ def build_validation_gate(manifest: Mapping[str, Any]) -> dict[str, Any]:
             raise ValueError(f"evidence_source {optional_field} must be non-empty")
 
     oos = _mapping(manifest.get("oos", {}), "oos")
+    unknown_oos_fields = sorted(set(oos) - {"baseline_net_pnl", "oos_net_pnl", "max_degradation_fraction"})
+    if unknown_oos_fields:
+        raise ValueError("unknown validation oos field: " + ", ".join(unknown_oos_fields))
     baseline = _float_or_none(oos.get("baseline_net_pnl"), "oos baseline_net_pnl")
     oos_pnl = _float_or_none(oos.get("oos_net_pnl"), "oos oos_net_pnl")
     max_degradation = _float_or_none(oos.get("max_degradation_fraction"), "oos max_degradation_fraction")
