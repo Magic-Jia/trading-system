@@ -2018,6 +2018,17 @@ def inspect_phase1_imported_dataset_root(dataset_root: str | Path) -> dict[str, 
     }
 
 
+def _canonical_string_sequence(values: Any, *, field: str) -> tuple[str, ...]:
+    if not isinstance(values, list):
+        raise ValueError(f"{field} must be a list")
+    parsed: list[str] = []
+    for value in values:
+        if not isinstance(value, str) or not value or value != value.strip():
+            raise ValueError(f"{field} entries must be canonical strings")
+        parsed.append(value)
+    return tuple(parsed)
+
+
 def _phase1_root_manifest_canonical_string(manifest: Mapping[str, Any], field: str, *, manifest_path: Path) -> str:
     value = manifest.get(field)
     if not isinstance(value, str) or not value or value != value.strip():
@@ -2033,17 +2044,10 @@ def _phase1_root_manifest_nonnegative_int(manifest: Mapping[str, Any], field: st
 
 
 def _phase1_root_manifest_canonical_strings(manifest: Mapping[str, Any], field: str, *, manifest_path: Path) -> tuple[str, ...]:
-    values = manifest.get(field)
-    if not isinstance(values, list):
-        raise ValueError(f"materialized dataset root manifest {field} must be a list: {manifest_path}")
-    normalized: list[str] = []
-    for value in values:
-        if not isinstance(value, str) or not value or value != value.strip():
-            raise ValueError(
-                f"materialized dataset root manifest {field} entries must be canonical strings: {manifest_path}"
-            )
-        normalized.append(value)
-    return tuple(normalized)
+    try:
+        return _canonical_string_sequence(manifest.get(field), field=f"materialized dataset root manifest {field}")
+    except ValueError as exc:
+        raise ValueError(f"{exc}: {manifest_path}") from exc
 
 
 def validate_phase1_imported_dataset_root(
@@ -2282,7 +2286,8 @@ def _phase1_imported_dataset_root_manifest_paths(dataset_path: Path, rows: Seque
 
 def _normalized_phase1_source_trace(dataset_path: Path, source: Mapping[str, Any], *, context: str) -> dict[str, Any]:
     normalized = _json_object_field(source, context=context)
-    manifest_paths = tuple(sorted(str(value) for value in normalized.get("manifest_paths") or ()))
+    field = f"{context} manifest_paths"
+    manifest_paths = tuple(sorted(_canonical_string_sequence(normalized.get("manifest_paths"), field=field)))
     normalized["manifest_paths"] = list(_resolved_source_manifest_paths(dataset_path, manifest_paths))
     return normalized
 
