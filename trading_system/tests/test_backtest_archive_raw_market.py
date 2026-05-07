@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
 
 from trading_system.app.backtest.archive.raw_market import (
     archive_raw_market_payload,
+    ImportedRawMarketRecord,
     load_phase1_raw_market_manifest,
 )
+from trading_system.app.backtest.archive.importer import _ohlcv_bar_lookup
 
 
 def test_load_raw_market_manifest_fails_fast_on_duplicate_file_timestamps(tmp_path: Path) -> None:
@@ -129,3 +132,19 @@ def test_load_raw_market_manifest_rejects_noncanonical_timeframe(tmp_path: Path)
 
     with pytest.raises(ValueError, match="raw-market manifest timeframe must be canonical"):
         load_phase1_raw_market_manifest(archived.manifest_path)
+
+
+def test_importer_rejects_invalid_ohlcv_numeric_fields() -> None:
+    record = ImportedRawMarketRecord(
+        observed_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        payload={
+            "open": 100.0,
+            "high": "not-a-number",
+            "low": 99.0,
+            "close": 100.5,
+            "volume": 10.0,
+        },
+    )
+
+    with pytest.raises(ValueError, match="ohlcv high must be numeric"):
+        _ohlcv_bar_lookup([record])

@@ -196,23 +196,33 @@ def _to_float(value: Any, *, default: float = 0.0) -> float:
         return default
 
 
+def _required_ohlcv_float(value: Any, *, field: str, observed_at: datetime) -> float:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"ohlcv {field} must be numeric: {observed_at}") from exc
+    if not parsed == parsed or parsed in {float("inf"), float("-inf")}:
+        raise ValueError(f"ohlcv {field} must be finite: {observed_at}")
+    return parsed
+
+
 def _hourly_ohlcv_bar(record: ImportedRawMarketRecord) -> _OhlcvBar:
     payload = record.payload
     if isinstance(payload, Mapping):
-        close = _to_float(payload.get("close"))
-        open_value = _to_float(payload.get("open"), default=close)
-        high = _to_float(payload.get("high"), default=max(open_value, close))
-        low = _to_float(payload.get("low"), default=min(open_value, close))
-        base_volume = _to_float(payload.get("volume"))
+        close = _required_ohlcv_float(payload.get("close"), field="close", observed_at=record.observed_at)
+        open_value = _required_ohlcv_float(payload.get("open", close), field="open", observed_at=record.observed_at)
+        high = _required_ohlcv_float(payload.get("high", max(open_value, close)), field="high", observed_at=record.observed_at)
+        low = _required_ohlcv_float(payload.get("low", min(open_value, close)), field="low", observed_at=record.observed_at)
+        base_volume = _required_ohlcv_float(payload.get("volume"), field="volume", observed_at=record.observed_at)
         quote_volume = _to_float(payload.get("quote_asset_volume"), default=close * base_volume)
     elif isinstance(payload, (list, tuple)):
         if len(payload) < 6:
             raise ValueError(f"ohlcv array payload must match Binance kline layout: {record.observed_at}")
-        close = _to_float(payload[4])
-        open_value = _to_float(payload[1], default=close)
-        high = _to_float(payload[2], default=max(open_value, close))
-        low = _to_float(payload[3], default=min(open_value, close))
-        base_volume = _to_float(payload[5])
+        close = _required_ohlcv_float(payload[4], field="close", observed_at=record.observed_at)
+        open_value = _required_ohlcv_float(payload[1], field="open", observed_at=record.observed_at)
+        high = _required_ohlcv_float(payload[2], field="high", observed_at=record.observed_at)
+        low = _required_ohlcv_float(payload[3], field="low", observed_at=record.observed_at)
+        base_volume = _required_ohlcv_float(payload[5], field="volume", observed_at=record.observed_at)
         quote_volume = _to_float(payload[7], default=close * base_volume) if len(payload) > 7 else close * base_volume
     else:
         raise ValueError(f"ohlcv record payload must be a JSON object: {record.observed_at}")
