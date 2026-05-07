@@ -757,3 +757,21 @@ def test_load_backtest_bundle_rejects_string_full_market_breakdown_net_pnl(tmp_p
 
     with pytest.raises(ValueError, match=r"breakdowns.json.breakdowns.by_year\[0\].net_pnl must be numeric"):
         promotion.load_backtest_bundle(bundle)
+
+def test_load_backtest_bundle_rejects_reversed_manifest_sample_period(tmp_path: Path) -> None:
+    bundle = _write_full_market_bundle(
+        tmp_path / "bundle",
+        baseline_name="current_system",
+        variant_name="candidate_policy",
+        total_return=0.10,
+        max_drawdown=-0.10,
+        sharpe=1.00,
+        cost_drag=0.020,
+    )
+    manifest_path = bundle / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["sample_period"] = {"start": "2026-02-01T00:00:00+00:00", "end": "2026-01-01T00:00:00+00:00"}
+    _write_json(manifest_path, manifest)
+
+    with pytest.raises(ValueError, match="manifest.json.sample_period start must be before end"):
+        promotion.load_backtest_bundle(bundle)

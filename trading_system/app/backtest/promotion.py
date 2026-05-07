@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -76,6 +77,13 @@ def _require_non_negative_int(payload: Mapping[str, Any], key: str, *, context: 
     return value
 
 
+def _parse_iso_datetime(value: str, *, context: str) -> datetime:
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError(f"{context} must be an ISO datetime") from exc
+
+
 def _validate_runtime_observability_plan(payload: Mapping[str, Any], *, context: str) -> None:
     for field_name in ("runtime_observability", "runtime_observability_plan"):
         if field_name not in payload:
@@ -146,6 +154,10 @@ def _validate_manifest(bundle_dir: Path, manifest: Mapping[str, Any]) -> None:
     for boundary in ("start", "end"):
         if not isinstance(sample_period.get(boundary), str) or not sample_period[boundary].strip():
             raise ValueError(f"{bundle_dir}/manifest.json.sample_period.{boundary} must be a string")
+    sample_start = _parse_iso_datetime(sample_period["start"], context=f"{bundle_dir}/manifest.json.sample_period.start")
+    sample_end = _parse_iso_datetime(sample_period["end"], context=f"{bundle_dir}/manifest.json.sample_period.end")
+    if sample_start >= sample_end:
+        raise ValueError(f"{bundle_dir}/manifest.json.sample_period start must be before end")
     window_counts = _require_mapping(manifest, "window_counts", context=f"{bundle_dir}/manifest.json")
     for count_name, count_value in window_counts.items():
         if not isinstance(count_value, int) or isinstance(count_value, bool) or count_value < 0:
