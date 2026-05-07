@@ -334,6 +334,7 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
     missing_metadata: list[str] = []
     invalid_metadata: list[str] = []
     source_path_blank_metadata: list[str] = []
+    source_path_noncanonical_metadata: list[str] = []
     checked: list[dict[str, Any]] = []
     checked_paths: set[str] = set()
     seen_artifact_paths: set[str] = set()
@@ -373,6 +374,9 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
             invalid_metadata.append(f"{rel_path}:source_path")
         if isinstance(source_path_raw, str) and not source_path_raw.strip():
             source_path_blank_metadata.append(f"{rel_path}:source_path")
+        if isinstance(source_path_raw, str) and source_path_raw.strip() and source_path_raw != source_path_raw.strip():
+            invalid_metadata.append(f"{rel_path}:source_path")
+            source_path_noncanonical_metadata.append(f"{rel_path}:source_path")
         actual_sha = _sha256(path)
         expected_sha = artifact.get("sha256")
         actual_bytes = path.stat().st_size
@@ -473,6 +477,9 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
     if source_path_blank_metadata:
         schema_valid = False
         manifest_errors.append("artifact_source_path_blank")
+    if source_path_noncanonical_metadata:
+        schema_valid = False
+        manifest_errors.append("artifact_source_path_noncanonical")
     if any(str(item).startswith("artifacts[") and not str(item).endswith(".path") for item in invalid_metadata):
         schema_valid = False
         manifest_errors.append("artifact_entry_not_object")

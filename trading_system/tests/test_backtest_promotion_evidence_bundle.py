@@ -976,3 +976,26 @@ def test_collect_rejects_padded_evidence_source_run_id(tmp_path: Path) -> None:
             candidate_id="candidate-1",
             evidence_source={"type": "promotion_bundle_export", "run_id": " bundle-1 "},
         )
+
+def test_bundle_verifier_marks_schema_invalid_for_padded_artifact_source_path(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    for name in REQUIRED_ARTIFACTS:
+        _write_json(source / name, {"artifact": name})
+    bundle_dir = collect_promotion_evidence_bundle(
+        source,
+        tmp_path / "bundle",
+        candidate_id="candidate-1",
+        evidence_source={"type": "promotion_bundle_export", "run_id": "bundle-1"},
+    )
+    manifest_path = bundle_dir / "promotion_evidence_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["artifacts"][0]["source_path"] = " " + manifest["artifacts"][0]["source_path"] + " "
+    _write_json(manifest_path, manifest)
+
+    result = verify_promotion_evidence_bundle(bundle_dir)
+
+    assert result["verified"] is False
+    assert result["schema_valid"] is False
+    assert "artifact_source_path_noncanonical" in result["manifest_errors"]
+    assert result["invalid_artifact_metadata"] == [f"{REQUIRED_ARTIFACTS[0]}:source_path"]
