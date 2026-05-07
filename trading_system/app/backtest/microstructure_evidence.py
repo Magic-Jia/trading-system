@@ -146,12 +146,16 @@ def build_microstructure_gate(
         raise ValueError("evidence_source type must be a string")
     if not evidence_source["type"].strip():
         raise ValueError("evidence_source type must be non-empty")
+    if evidence_source["type"] != evidence_source["type"].strip():
+        raise ValueError("evidence_source type must be canonical")
     for optional_field in ("run_id", "exported_at"):
         optional_value = evidence_source.get(optional_field)
         if optional_value is not None and not isinstance(optional_value, str):
             raise ValueError(f"evidence_source {optional_field} must be a string")
         if isinstance(optional_value, str) and not optional_value.strip():
             raise ValueError(f"evidence_source {optional_field} must be non-empty")
+        if isinstance(optional_value, str) and optional_value != optional_value.strip():
+            raise ValueError(f"evidence_source {optional_field} must be canonical")
 
     l2_tick_coverage_met = all(
         coverage[key] is not None and coverage[key] >= min_required_coverage

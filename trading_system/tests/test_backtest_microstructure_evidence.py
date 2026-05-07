@@ -296,3 +296,21 @@ def test_microstructure_gate_rejects_unknown_depth_fill_fields() -> None:
                 "depth_driven_taker_fills": [{"complete": True, "legacy_depth_sufficient": True}],
             }
         )
+
+def test_microstructure_gate_rejects_padded_evidence_source_type() -> None:
+    try:
+        build_microstructure_gate(
+            {
+                "evidence_source": {"type": " historical_l2_tick_archive ", "run_id": "micro-1"},
+                "coverage": {
+                    "l2_snapshot_coverage": 0.99,
+                    "l2_update_coverage": 0.99,
+                    "tick_coverage": 0.99,
+                },
+                "depth_driven_taker_fills": [{"complete": True}],
+            }
+        )
+    except ValueError as exc:
+        assert "evidence_source type must be canonical" in str(exc)
+    else:
+        raise AssertionError("expected padded evidence_source type to be rejected")
