@@ -221,9 +221,15 @@ def _validate_full_market_bundle(bundle: BacktestBundle) -> None:
         rows = breakdowns.get(group_name)
         if not isinstance(rows, list):
             raise ValueError(f"{bundle.root}/breakdowns.json.breakdowns.{group_name} must be a list")
+        identity_key = "market_type" if group_name == "by_market" else "year"
         for index, row in enumerate(rows):
             if not isinstance(row, Mapping):
                 raise ValueError(f"{bundle.root}/breakdowns.json.breakdowns.{group_name}[{index}] must be an object")
+            identity_value = row.get(identity_key)
+            if not isinstance(identity_value, str) or not identity_value.strip():
+                raise ValueError(f"{bundle.root}/breakdowns.json.breakdowns.{group_name}[{index}].{identity_key} must be a string")
+            if identity_value != identity_value.strip():
+                raise ValueError(f"{bundle.root}/breakdowns.json.breakdowns.{group_name}[{index}].{identity_key} must be canonical")
             _require_non_negative_int(row, "trade_count", context=f"{bundle.root}/breakdowns.json.breakdowns.{group_name}[{index}]")
             _require_real_number(row, "net_pnl", context=f"{bundle.root}/breakdowns.json.breakdowns.{group_name}[{index}]")
 
