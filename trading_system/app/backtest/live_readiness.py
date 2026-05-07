@@ -1907,7 +1907,11 @@ def _setup_quality_gate(
         if not isinstance(item, str):
             invalid_config.append({"field": f"banned_setup_types[{index}]", "value": item, "error": "invalid_setup_type"})
             continue
-        if not item:
+        if not item.strip():
+            invalid_config.append({"field": f"banned_setup_types[{index}]", "value": item, "error": "blank_setup_type"})
+            continue
+        if item != item.strip():
+            invalid_config.append({"field": f"banned_setup_types[{index}]", "value": item, "error": "setup_type_not_canonical"})
             continue
         banned_values.add(item)
     banned = sorted(banned_values)
