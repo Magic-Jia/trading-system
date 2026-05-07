@@ -614,3 +614,21 @@ def test_load_backtest_bundle_rejects_non_string_experiment_kind(tmp_path: Path)
 
     with pytest.raises(ValueError, match="manifest.json.experiment_kind must be a string"):
         promotion.load_backtest_bundle(bundle)
+
+def test_load_backtest_bundle_rejects_boolean_manifest_snapshot_count(tmp_path: Path) -> None:
+    bundle = _write_full_market_bundle(
+        tmp_path / "bundle",
+        baseline_name="current_system",
+        variant_name="candidate_policy",
+        total_return=0.10,
+        max_drawdown=-0.10,
+        sharpe=1.00,
+        cost_drag=0.020,
+    )
+    manifest_path = bundle / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["snapshot_count"] = True
+    _write_json(manifest_path, manifest)
+
+    with pytest.raises(ValueError, match="manifest.json.snapshot_count must be a non-negative integer"):
+        promotion.load_backtest_bundle(bundle)

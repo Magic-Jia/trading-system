@@ -104,6 +104,11 @@ def _validate_manifest(bundle_dir: Path, manifest: Mapping[str, Any]) -> None:
     for field_name in ("experiment_kind", "dataset_root", "baseline_name", "variant_name", "bundle_name"):
         if not isinstance(manifest.get(field_name), str) or not manifest[field_name].strip():
             raise ValueError(f"{bundle_dir}/manifest.json.{field_name} must be a string")
+    _require_non_negative_int(manifest, "snapshot_count", context=f"{bundle_dir}/manifest.json")
+    window_counts = _require_mapping(manifest, "window_counts", context=f"{bundle_dir}/manifest.json")
+    for count_name, count_value in window_counts.items():
+        if not isinstance(count_value, int) or isinstance(count_value, bool) or count_value < 0:
+            raise ValueError(f"{bundle_dir}/manifest.json.window_counts.{count_name} must be a non-negative integer")
     artifacts = manifest.get("artifacts")
     if not isinstance(artifacts, list) or not all(isinstance(item, str) for item in artifacts):
         raise ValueError(f"{bundle_dir}/manifest.json.artifacts must be a list of strings")
