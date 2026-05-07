@@ -2069,6 +2069,18 @@ def test_write_phase1_dataset_bundle_materializes_instrument_snapshot_file(tmp_p
     }
 
 
+def test_symbol_metadata_timestamp_rejects_non_string_listing_timestamp(tmp_path: Path) -> None:
+    archive_root = tmp_path / "archive"
+    _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT")
+    series = load_phase1_raw_market_imports(archive_root)[0]
+
+    with pytest.raises(ValueError, match="symbol_metadata listing_timestamp must be a canonical string"):
+        archive_importer._symbol_metadata_timestamp(
+            symbol_metadata={"listing_timestamp": 123},
+            fallback_series=series,
+        )
+
+
 def test_inspect_phase1_imported_dataset_root_rejects_non_string_row_symbol_key(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

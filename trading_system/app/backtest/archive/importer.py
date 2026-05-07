@@ -405,7 +405,14 @@ def _symbol_metadata_timestamp(
 ) -> datetime:
     if symbol_metadata is None:
         return _listing_timestamp(fallback_series)
-    return _utc_datetime(str(symbol_metadata["listing_timestamp"]))
+    listing_timestamp = symbol_metadata.get("listing_timestamp")
+    if (
+        not isinstance(listing_timestamp, str)
+        or not listing_timestamp.strip()
+        or listing_timestamp != listing_timestamp.strip()
+    ):
+        raise ValueError("symbol_metadata listing_timestamp must be a canonical string")
+    return _utc_datetime(listing_timestamp)
 
 
 def _symbol_metadata_float(
