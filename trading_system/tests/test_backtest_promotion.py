@@ -277,6 +277,24 @@ def test_load_backtest_bundle_rejects_noncanonical_sample_period_bounds(tmp_path
         promotion.load_backtest_bundle(bundle)
 
 
+def test_load_backtest_bundle_rejects_unsafe_manifest_artifacts(tmp_path: Path) -> None:
+    bundle = _write_full_market_bundle(
+        tmp_path / "bundle",
+        baseline_name="current_system",
+        variant_name="baseline_policy",
+        total_return=0.10,
+        max_drawdown=-0.10,
+        sharpe=1.0,
+        cost_drag=0.02,
+    )
+    manifest = json.loads((bundle / "manifest.json").read_text(encoding="utf-8"))
+    manifest["artifacts"].append("../shadow.json")
+    _write_json(bundle / "manifest.json", manifest)
+
+    with pytest.raises(ValueError, match=r"manifest.json.artifacts\[4\] must be a safe relative path"):
+        promotion.load_backtest_bundle(bundle)
+
+
 def test_load_backtest_bundle_rejects_noncanonical_manifest_artifacts(tmp_path: Path) -> None:
     bundle = _write_full_market_bundle(
         tmp_path / "bundle",

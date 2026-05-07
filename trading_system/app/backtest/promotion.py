@@ -201,6 +201,9 @@ def _validate_manifest(bundle_dir: Path, manifest: Mapping[str, Any]) -> None:
             raise ValueError(f"{bundle_dir}/manifest.json.artifacts must be a list of strings")
         if artifact != artifact.strip():
             raise ValueError(f"{bundle_dir}/manifest.json.artifacts[{index}] must be canonical")
+        artifact_path = Path(artifact)
+        if artifact_path.is_absolute() or ".." in artifact_path.parts or any(part == "" for part in artifact_path.parts):
+            raise ValueError(f"{bundle_dir}/manifest.json.artifacts[{index}] must be a safe relative path")
 
     experiment_kind = str(manifest["experiment_kind"])
     required_artifacts = _REQUIRED_ARTIFACTS.get(experiment_kind)
