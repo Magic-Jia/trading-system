@@ -3140,9 +3140,12 @@ def render_live_readiness_markdown(report: Mapping[str, Any]) -> str:
         if isinstance(artifacts, Sequence) and not isinstance(artifacts, (str, bytes)):
             for artifact in artifacts:
                 mapped = _as_mapping(artifact)
-                parse_error = str(mapped.get("parse_error") or "")
-                if parse_error:
-                    entries.append(f"{mapped.get('chunk') or mapped.get('path') or 'artifact'}={parse_error}")
+                parse_error = mapped.get("parse_error")
+                if parse_error is not None:
+                    if not isinstance(parse_error, str) or parse_error != parse_error.strip():
+                        raise ValueError("parse_error must be a canonical string")
+                    if parse_error:
+                        entries.append(f"{mapped.get('chunk') or mapped.get('path') or 'artifact'}={parse_error}")
         return ", ".join(entries) or "none"
 
     gate = _as_mapping(report.get("promotion_gate"))

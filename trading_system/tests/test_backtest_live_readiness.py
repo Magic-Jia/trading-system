@@ -163,6 +163,37 @@ def test_markdown_renderer_rejects_non_strict_microstructure_checks() -> None:
         render_live_readiness_markdown(report)
 
 
+def test_markdown_renderer_rejects_noncanonical_artifact_parse_errors() -> None:
+    report = {
+        "promotion_gate": {"decision": "hold", "reasons": [], "checks": {}},
+        "totals": {
+            "trade_count": 1,
+            "net_pnl": 1.0,
+            "evidence_coverage": 1.0,
+            "exit_evidence_coverage": 1.0,
+            "exit_path_ambiguity_rate": 0.0,
+        },
+        "runtime_safety_gate": {
+            "required": False,
+            "artifact_count": 1,
+            "checks": {
+                "kill_switch_dry_run_met": True,
+                "order_position_reconciliation_met": True,
+                "runtime_fail_closed_met": True,
+                "live_dust_before_scale_met": True,
+                "live_trade_ledger_met": True,
+                "runtime_explainability_met": True,
+                "drift_guard_met": True,
+            },
+            "artifacts": [{"parse_error": ["boom"]}],
+        },
+        "caveats": [],
+    }
+
+    with pytest.raises(ValueError, match="parse_error must be a canonical string"):
+        render_live_readiness_markdown(report)
+
+
 def test_markdown_renderer_rejects_noncanonical_promotion_bundle_lists() -> None:
     report = {
         "promotion_gate": {"decision": "hold", "reasons": [], "checks": {}},
