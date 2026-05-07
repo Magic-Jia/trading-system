@@ -563,3 +563,36 @@ def test_load_backtest_bundle_rejects_numeric_strings_in_allocator_metrics(tmp_p
 
     with pytest.raises(ValueError, match="allocation_summary.accepted_allocations must be a non-negative integer"):
         promotion.load_backtest_bundle(bundle)
+
+def test_load_backtest_bundle_rejects_numeric_strings_in_engine_metrics(tmp_path: Path) -> None:
+    bundle = tmp_path / "engine"
+    bundle.mkdir()
+    artifacts = ["manifest.json", "summary.json", "scorecard.json"]
+    _write_json(
+        bundle / "manifest.json",
+        _manifest(
+            experiment_kind="engine_filter_ablation",
+            baseline_name="current_policy",
+            variant_name="engine_variant",
+            artifacts=artifacts,
+        ),
+    )
+    _write_json(
+        bundle / "summary.json",
+        {
+            "variants": {
+                "engine_variant": {
+                    "funnel": {},
+                    "filter_counts": {},
+                    "performance": {},
+                }
+            }
+        },
+    )
+    _write_json(
+        bundle / "scorecard.json",
+        {"key_metrics": {"best_bucket_level_pnl": 0.08, "best_variant_accepted_allocations": "4"}},
+    )
+
+    with pytest.raises(ValueError, match="scorecard.json.key_metrics.best_variant_accepted_allocations must be a non-negative integer"):
+        promotion.load_backtest_bundle(bundle)

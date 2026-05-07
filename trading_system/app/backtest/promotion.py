@@ -209,6 +209,8 @@ def _validate_engine_bundle(bundle: BacktestBundle) -> None:
         keys=("best_bucket_level_pnl", "best_variant_accepted_allocations"),
         context=f"{bundle.root}/scorecard.json.key_metrics",
     )
+    _require_real_number(key_metrics, "best_bucket_level_pnl", context=f"{bundle.root}/scorecard.json.key_metrics")
+    _require_non_negative_int(key_metrics, "best_variant_accepted_allocations", context=f"{bundle.root}/scorecard.json.key_metrics")
 
 
 
