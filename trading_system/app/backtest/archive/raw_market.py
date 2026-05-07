@@ -254,9 +254,17 @@ def _manifest_data_path(manifest: dict[str, Any], *, manifest_path: Path) -> Pat
     raw_path = file_payload.get("path")
     if not isinstance(raw_path, str) or not raw_path.strip():
         raise ValueError(f"raw-market manifest missing file.path: {manifest_path}")
+    if raw_path != raw_path.strip():
+        raise ValueError(f"raw-market manifest file.path must be canonical: {manifest_path}")
     path = Path(raw_path)
+    if any(part in {"", ".."} for part in path.parts):
+        raise ValueError(f"raw-market manifest file.path must be safe: {manifest_path}")
     if not path.is_absolute():
         path = manifest_path.parent / path
+    resolved_manifest_dir = manifest_path.parent.resolve()
+    resolved_path = path.resolve()
+    if resolved_path != resolved_manifest_dir and resolved_manifest_dir not in resolved_path.parents:
+        raise ValueError(f"raw-market manifest file.path must be safe: {manifest_path}")
     return path
 
 
