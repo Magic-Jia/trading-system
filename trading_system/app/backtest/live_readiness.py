@@ -1419,7 +1419,7 @@ def _setup_rewrite_by_setup_schema_error(summary: Mapping[str, Any]) -> str:
         return "invalid_field_type: summary.by_setup"
     allowed_bucket_fields = {"total_rows", "evaluated_count", "would_keep_count", "would_filter_count", "skipped_count", "net_pnl"}
     for setup_type, bucket in by_setup.items():
-        if not isinstance(setup_type, str) or not setup_type.strip():
+        if not isinstance(setup_type, str) or not setup_type.strip() or setup_type != setup_type.strip():
             return "invalid_by_setup_key"
         if not isinstance(bucket, Mapping):
             return f"invalid_by_setup_bucket: {setup_type}"
