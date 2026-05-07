@@ -105,6 +105,11 @@ def _validate_manifest(bundle_dir: Path, manifest: Mapping[str, Any]) -> None:
         if not isinstance(manifest.get(field_name), str) or not manifest[field_name].strip():
             raise ValueError(f"{bundle_dir}/manifest.json.{field_name} must be a string")
     _require_non_negative_int(manifest, "snapshot_count", context=f"{bundle_dir}/manifest.json")
+    sample_period = _require_mapping(manifest, "sample_period", context=f"{bundle_dir}/manifest.json")
+    _require_keys(sample_period, keys=("start", "end"), context=f"{bundle_dir}/manifest.json.sample_period")
+    for boundary in ("start", "end"):
+        if not isinstance(sample_period.get(boundary), str) or not sample_period[boundary].strip():
+            raise ValueError(f"{bundle_dir}/manifest.json.sample_period.{boundary} must be a string")
     window_counts = _require_mapping(manifest, "window_counts", context=f"{bundle_dir}/manifest.json")
     for count_name, count_value in window_counts.items():
         if not isinstance(count_value, int) or isinstance(count_value, bool) or count_value < 0:
