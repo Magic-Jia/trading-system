@@ -38,7 +38,12 @@ def build_runtime_safety_gate(manifest: Mapping[str, Any]) -> dict[str, Any]:
     for event in events:
         if not isinstance(event, Mapping):
             raise ValueError("runtime safety event must be a mapping")
-        event_type = str(event.get("type") or event.get("event_type") or "").strip()
+        raw_event_type = event.get("type") if event.get("type") is not None else event.get("event_type")
+        if raw_event_type is None:
+            continue
+        if not isinstance(raw_event_type, str):
+            raise ValueError("runtime safety event type must be a string")
+        event_type = raw_event_type.strip()
         if not event_type:
             continue
         counts_by_type[event_type] = counts_by_type.get(event_type, 0) + 1

@@ -93,3 +93,15 @@ def test_runtime_safety_gate_accepts_event_type_alias_from_runtime_logs() -> Non
     assert gate["checks"]["runtime_fail_closed_met"] is True
     assert gate["checks"]["live_dust_before_scale_met"] is True
     assert gate["summary"]["counts_by_type"]["runtime_fail_closed"] == 1
+
+
+def test_runtime_safety_gate_rejects_non_string_event_type() -> None:
+    manifest = _passing_manifest()
+    manifest["events"][0]["type"] = 123
+
+    try:
+        build_runtime_safety_gate(manifest)
+    except ValueError as exc:
+        assert str(exc) == "runtime safety event type must be a string"
+    else:  # pragma: no cover - RED path until producer is hardened
+        raise AssertionError("expected non-string runtime safety event type to be rejected")
