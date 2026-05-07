@@ -139,6 +139,17 @@ def test_merged_futures_context_coverage_rejects_non_object_buckets() -> None:
         )
 
 
+
+def test_resolved_phase1_imported_dataset_root_path_rejects_non_string_relative_value(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="phase1 imported dataset root path value must be a string"):
+        archive_importer._resolved_phase1_imported_dataset_root_path(tmp_path, 123)
+
+
+def test_resolved_phase1_imported_dataset_root_path_rejects_padded_relative_value(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="phase1 imported dataset root path value must be canonical"):
+        archive_importer._resolved_phase1_imported_dataset_root_path(tmp_path, " bundles/a ")
+
+
 def _timestamp_ms(value: datetime) -> int:
     return int(value.timestamp() * 1000)
 

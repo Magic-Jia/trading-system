@@ -1791,7 +1791,14 @@ def _phase1_dataset_root_summary_fields(payload: Mapping[str, Any]) -> dict[str,
 
 
 def _resolved_phase1_imported_dataset_root_path(dataset_path: Path, value: str | Path) -> Path:
-    path = Path(str(value))
+    if isinstance(value, Path):
+        path = value
+    else:
+        if not isinstance(value, str) or not value:
+            raise ValueError("phase1 imported dataset root path value must be a string")
+        if value != value.strip():
+            raise ValueError("phase1 imported dataset root path value must be canonical")
+        path = Path(value)
     if path.is_absolute():
         return path
     base_dir = _phase1_imported_dataset_root_relative_base_dir(dataset_path)
