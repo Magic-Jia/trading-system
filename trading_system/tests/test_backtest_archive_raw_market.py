@@ -14,6 +14,7 @@ from trading_system.app.backtest.archive.raw_market import (
 from trading_system.app.backtest.archive.importer import (
     _funding_rate,
     _merged_execution_evidence_coverage,
+    _merged_futures_context_coverage,
     _mark_price,
     _ohlcv_bar_lookup,
     _open_interest_units,
@@ -325,4 +326,16 @@ def test_importer_rejects_string_execution_coverage_counts() -> None:
     with pytest.raises(ValueError, match="execution_evidence.materialized.order_book must be a non-negative integer"):
         _merged_execution_evidence_coverage([
             {"execution_evidence": {"materialized": {"order_book": "1"}}}
+        ])
+
+
+def test_importer_rejects_non_boolean_futures_context_available() -> None:
+    with pytest.raises(ValueError, match="futures_context.available must be boolean"):
+        _merged_futures_context_coverage([{"futures_context": {"available": "false"}}])
+
+
+def test_importer_rejects_string_futures_context_counts() -> None:
+    with pytest.raises(ValueError, match="futures_context.materialized.mark_price must be a non-negative integer"):
+        _merged_futures_context_coverage([
+            {"futures_context": {"materialized": {"mark_price": "1"}}}
         ])

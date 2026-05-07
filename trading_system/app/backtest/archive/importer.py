@@ -1286,22 +1286,27 @@ def _merged_futures_context_coverage(traces: Iterable[Mapping[str, Any]]) -> dic
         coverage = trace.get("futures_context")
         if not isinstance(coverage, Mapping):
             continue
-        merged["available"] = bool(merged["available"]) or bool(coverage.get("available"))
+        merged["available"] = bool(merged["available"]) or _require_bool_field(
+            coverage.get("available", False), field="futures_context.available"
+        )
         raw_max_age = coverage.get("max_age_seconds") or {}
         if isinstance(raw_max_age, Mapping):
             for evidence_type in max_age_values:
-                try:
-                    max_age_values[evidence_type].add(int(raw_max_age.get(evidence_type) or 0))
-                except (TypeError, ValueError):
-                    pass
+                max_age_values[evidence_type].add(
+                    _require_non_negative_int_field(
+                        raw_max_age.get(evidence_type, 0), field=f"futures_context.max_age_seconds.{evidence_type}"
+                    )
+                )
         for bucket in ("materialized", "missing", "stale"):
             raw_counts = coverage.get(bucket) or {}
             if not isinstance(raw_counts, Mapping):
                 continue
             for evidence_type in ("mark_price", "funding", "open_interest"):
-                merged[bucket][evidence_type] = int(merged[bucket].get(evidence_type, 0)) + int(
-                    raw_counts.get(evidence_type) or 0
+                increment = _require_non_negative_int_field(
+                    raw_counts.get(evidence_type, 0),
+                    field=f"futures_context.{bucket}.{evidence_type}",
                 )
+                merged[bucket][evidence_type] = int(merged[bucket].get(evidence_type, 0)) + increment
     for evidence_type, values in max_age_values.items():
         if len(values) == 1:
             merged["max_age_seconds"][evidence_type] = next(iter(values))
