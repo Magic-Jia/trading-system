@@ -739,3 +739,21 @@ def test_load_backtest_bundle_rejects_string_full_market_audit_trade_count(tmp_p
 
     with pytest.raises(ValueError, match="audit.json.audit.trade_count must be a non-negative integer"):
         promotion.load_backtest_bundle(bundle)
+
+def test_load_backtest_bundle_rejects_string_full_market_breakdown_net_pnl(tmp_path: Path) -> None:
+    bundle = _write_full_market_bundle(
+        tmp_path / "bundle",
+        baseline_name="current_system",
+        variant_name="candidate_policy",
+        total_return=0.10,
+        max_drawdown=-0.10,
+        sharpe=1.00,
+        cost_drag=0.020,
+    )
+    breakdowns_path = bundle / "breakdowns.json"
+    payload = json.loads(breakdowns_path.read_text(encoding="utf-8"))
+    payload["breakdowns"]["by_year"][0]["net_pnl"] = "0.10"
+    _write_json(breakdowns_path, payload)
+
+    with pytest.raises(ValueError, match=r"breakdowns.json.breakdowns.by_year\[0\].net_pnl must be numeric"):
+        promotion.load_backtest_bundle(bundle)

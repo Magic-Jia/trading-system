@@ -183,6 +183,15 @@ def _validate_full_market_bundle(bundle: BacktestBundle) -> None:
     breakdowns_json = bundle.artifacts["breakdowns.json"]
     breakdowns = _require_mapping(breakdowns_json, "breakdowns", context=f"{bundle.root}/breakdowns.json")
     _require_keys(breakdowns, keys=("by_market", "by_year"), context=f"{bundle.root}/breakdowns.json.breakdowns")
+    for group_name in ("by_market", "by_year"):
+        rows = breakdowns.get(group_name)
+        if not isinstance(rows, list):
+            raise ValueError(f"{bundle.root}/breakdowns.json.breakdowns.{group_name} must be a list")
+        for index, row in enumerate(rows):
+            if not isinstance(row, Mapping):
+                raise ValueError(f"{bundle.root}/breakdowns.json.breakdowns.{group_name}[{index}] must be an object")
+            _require_non_negative_int(row, "trade_count", context=f"{bundle.root}/breakdowns.json.breakdowns.{group_name}[{index}]")
+            _require_real_number(row, "net_pnl", context=f"{bundle.root}/breakdowns.json.breakdowns.{group_name}[{index}]")
 
     audit_json = bundle.artifacts["audit.json"]
     audit = _require_mapping(audit_json, "audit", context=f"{bundle.root}/audit.json")
