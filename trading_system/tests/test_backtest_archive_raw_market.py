@@ -92,6 +92,43 @@ def test_raw_market_data_quality_reports_timestamp_uniqueness(tmp_path: Path) ->
     assert report["promotion_gate"]["checks"]["raw_market_coverage_alignment_met"] is True
 
 
+def test_raw_market_data_quality_reports_provenance_completeness(tmp_path: Path) -> None:
+    from trading_system.app.backtest.archive.data_quality import build_raw_market_data_quality_report
+
+    archived = archive_raw_market_payload(
+        archive_root=tmp_path / "archive",
+        exchange="binance",
+        market="futures",
+        dataset="ohlcv",
+        symbol="BTCUSDT",
+        timeframe="1h",
+        coverage_start="2026-01-01T00:00:00Z",
+        coverage_end="2026-01-01T02:00:00Z",
+        fetched_at="2026-01-01T02:01:00Z",
+        endpoint="/fapi/v1/klines",
+        payload={
+            "rows": [
+                {"open_time": "2026-01-01T00:00:00Z", "open": 100.0, "high": 101.0, "low": 99.0, "close": 100.5, "volume": 10.0},
+                {"open_time": "2026-01-01T01:00:00Z", "open": 100.5, "high": 102.0, "low": 100.0, "close": 101.0, "volume": 12.0},
+            ]
+        },
+    )
+
+    report = build_raw_market_data_quality_report(tmp_path / "archive")
+    series_report = next(iter(report["series"].values()))
+
+    assert series_report["provenance_complete"] is True
+    assert series_report["provenance_file_count"] == 1
+    assert series_report["provenance_missing_sha256_count"] == 0
+    assert series_report["provenance_missing_data_path_count"] == 0
+    assert series_report["provenance_missing_manifest_path_count"] == 0
+    assert series_report["provenance"][0]["manifest_path"] == str(archived.manifest_path)
+    assert series_report["provenance"][0]["data_path"] == str(archived.data_path)
+    assert series_report["provenance"][0]["sha256"]
+    assert report["summary"]["series_with_incomplete_provenance"] == 0
+    assert report["promotion_gate"]["checks"]["raw_market_provenance_complete_met"] is True
+
+
 def test_load_raw_market_manifest_rejects_noncanonical_required_string_fields(tmp_path: Path) -> None:
     archived = archive_raw_market_payload(
         archive_root=tmp_path / "archive",

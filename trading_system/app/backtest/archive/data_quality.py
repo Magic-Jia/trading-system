@@ -76,6 +76,25 @@ def _series_report(series: ImportedRawMarketSeries, expected_interval: timedelta
         "coverage_start_matches_first_observed_at": coverage_start_matches_first,
         "coverage_end_matches_expected_terminal_boundary": coverage_end_matches_terminal,
     }
+    provenance = [
+        {
+            "manifest_path": str(item.manifest_path),
+            "data_path": str(item.data_path),
+            "coverage_start": _utc_timestamp(item.coverage_start),
+            "coverage_end": _utc_timestamp(item.coverage_end),
+            "sha256": item.manifest.get("file", {}).get("sha256"),
+        }
+        for item in files
+    ]
+    provenance_missing_sha256_count = sum(1 for item in provenance if not item.get("sha256"))
+    provenance_missing_data_path_count = sum(1 for item in provenance if not item.get("data_path"))
+    provenance_missing_manifest_path_count = sum(1 for item in provenance if not item.get("manifest_path"))
+    provenance_complete = bool(
+        provenance
+        and provenance_missing_sha256_count == 0
+        and provenance_missing_data_path_count == 0
+        and provenance_missing_manifest_path_count == 0
+    )
     return {
         "series_key": series.series_key,
         "exchange": series.exchange,
@@ -97,16 +116,12 @@ def _series_report(series: ImportedRawMarketSeries, expected_interval: timedelta
         "coverage_ratio": _coverage_ratio(series, expected_interval),
         "missing_intervals": missing,
         "has_missing_intervals": bool(missing),
-        "provenance": [
-            {
-                "manifest_path": str(item.manifest_path),
-                "data_path": str(item.data_path),
-                "coverage_start": _utc_timestamp(item.coverage_start),
-                "coverage_end": _utc_timestamp(item.coverage_end),
-                "sha256": item.manifest.get("file", {}).get("sha256"),
-            }
-            for item in files
-        ],
+        "provenance_complete": provenance_complete,
+        "provenance_file_count": len(provenance),
+        "provenance_missing_sha256_count": provenance_missing_sha256_count,
+        "provenance_missing_data_path_count": provenance_missing_data_path_count,
+        "provenance_missing_manifest_path_count": provenance_missing_manifest_path_count,
+        "provenance": provenance,
     }
 
 
@@ -159,6 +174,7 @@ def build_raw_market_data_quality_report(
     series_with_coverage_alignment_issues = sum(
         1 for report in reports.values() if not all(report["coverage_alignment"].values())
     )
+    series_with_incomplete_provenance = sum(1 for report in reports.values() if not report["provenance_complete"])
     l2 = _l2_tick_coverage(reports, required_l2_coverage)
     reasons: list[str] = []
     if series_with_missing:
@@ -167,6 +183,8 @@ def build_raw_market_data_quality_report(
         reasons.append("raw_market_duplicate_observed_at")
     if series_with_coverage_alignment_issues:
         reasons.append("raw_market_coverage_alignment_mismatch")
+    if series_with_incomplete_provenance:
+        reasons.append("raw_market_incomplete_provenance")
     if not l2["met"]:
         reasons.append("l2_coverage_below_threshold")
     decision = "ready_for_live_promotion_review" if not reasons else "reject_for_live_promotion"
@@ -178,6 +196,7 @@ def build_raw_market_data_quality_report(
             "series_with_missing_intervals": series_with_missing,
             "series_with_duplicate_observed_at": series_with_duplicate_observed_at,
             "series_with_coverage_alignment_issues": series_with_coverage_alignment_issues,
+            "series_with_incomplete_provenance": series_with_incomplete_provenance,
             "l2_coverage_met": l2["met"],
         },
         "series": reports,
@@ -188,6 +207,7 @@ def build_raw_market_data_quality_report(
                 "raw_market_missing_intervals_met": series_with_missing == 0,
                 "raw_market_observed_at_unique_met": series_with_duplicate_observed_at == 0,
                 "raw_market_coverage_alignment_met": series_with_coverage_alignment_issues == 0,
+                "raw_market_provenance_complete_met": series_with_incomplete_provenance == 0,
                 "l2_coverage_met": l2["met"],
             },
             "reasons": reasons,
