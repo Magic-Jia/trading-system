@@ -5507,6 +5507,28 @@ def test_live_readiness_gate_report_accepts_microstructure_evidence_artifact(tmp
     assert "l2_tick_coverage_below_threshold" not in report["promotion_gate"]["reasons"]
     assert "taker_depth_driven_missing" not in report["promotion_gate"]["reasons"]
 
+
+def test_live_readiness_gate_rejects_present_failing_microstructure_checks(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    (chunk / "market_microstructure_gate.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "market_microstructure_gate_input.v1",
+                "evidence_source": {"type": "historical_l2_tick_archive", "run_id": "microstructure-1"},
+                "checks": {"l2_tick_coverage_met": False, "depth_driven_taker_met": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_live_readiness_gate_report(tmp_path, require_microstructure_evidence=False)
+
+    assert report["microstructure_gate"]["checks"]["l2_tick_coverage_met"] is False
+    assert "l2_tick_coverage_below_threshold" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
 def test_live_readiness_gate_report_rejects_missing_validation_evidence(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     chunk.mkdir()
@@ -5610,6 +5632,33 @@ def test_live_readiness_gate_report_accepts_validation_evidence_artifact(tmp_pat
     assert "regime_single_point_survivor" not in report["promotion_gate"]["reasons"]
     assert "cost_stress_not_positive" not in report["promotion_gate"]["reasons"]
     assert "forward_contamination_unproven" not in report["promotion_gate"]["reasons"]
+
+
+
+def test_live_readiness_gate_rejects_present_failing_validation_checks(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    (chunk / "validation_gate.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "validation_gate_input.v1",
+                "evidence_source": {"type": "walk_forward_oos_report", "run_id": "validation-1"},
+                "checks": {
+                    "oos_non_degraded_met": False,
+                    "multi_regime_met": True,
+                    "cost_stress_positive_met": True,
+                    "forward_contamination_absent_met": True,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_live_readiness_gate_report(tmp_path, require_validation_evidence=False)
+
+    assert report["validation_gate"]["checks"]["oos_non_degraded_met"] is False
+    assert "oos_degraded" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
 
 
 def test_live_readiness_gate_rejects_out_of_range_concentration_threshold(tmp_path: Path) -> None:
