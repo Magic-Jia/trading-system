@@ -3272,6 +3272,29 @@ def test_live_readiness_gate_rejects_microstructure_summary_not_object(tmp_path:
     assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
 
 
+
+def test_live_readiness_gate_rejects_microstructure_summary_numeric_strings(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    microstructure_payload = {
+        "schema_version": "market_microstructure_gate_input.v1",
+        "evidence_source": {"type": "exchange_export", "run_id": "microstructure-summary-numeric-string"},
+        "checks": {
+            "l2_tick_coverage_met": True,
+            "depth_driven_taker_met": True,
+        },
+        "summary": {"min_l2_tick_coverage": "0.995", "taker_fill_model": "orderbook_depth"},
+    }
+    (chunk / "market_microstructure_gate.json").write_text(json.dumps(microstructure_payload), encoding="utf-8")
+
+    report = build_live_readiness_gate_report(tmp_path, require_microstructure_evidence=True)
+
+    microstructure_gate = report["microstructure_gate"]
+    assert microstructure_gate["checks"]["microstructure_artifact_schema_valid"] is False
+    assert microstructure_gate["artifacts"][0]["parse_error"] == "summary_min_l2_tick_coverage_not_number"
+    assert "microstructure_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
 def test_live_readiness_gate_rejects_validation_summary_not_object(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     _write_profitable_trade_chunk(chunk)

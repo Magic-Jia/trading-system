@@ -1791,6 +1791,21 @@ def _microstructure_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
         )
         checks = _as_mapping(checks_payload)
         unknown_check_fields = sorted(set(checks) - set(required_checks))
+        summary = _as_mapping(summary_payload)
+        summary_schema_error = ""
+        min_l2_tick_coverage = summary.get("min_l2_tick_coverage")
+        if min_l2_tick_coverage is not None:
+            _, min_coverage_valid = _strict_float_value(min_l2_tick_coverage)
+            if not min_coverage_valid:
+                summary_schema_error = "summary_min_l2_tick_coverage_not_number"
+        taker_fill_model = summary.get("taker_fill_model")
+        if not summary_schema_error and taker_fill_model is not None:
+            if not isinstance(taker_fill_model, str):
+                summary_schema_error = "summary_taker_fill_model_not_string"
+            elif not taker_fill_model.strip():
+                summary_schema_error = "summary_taker_fill_model_blank"
+            elif taker_fill_model != taker_fill_model.strip():
+                summary_schema_error = "summary_taker_fill_model_noncanonical"
         chunk_schema_valid = (
             (not parse_error)
             and _artifact_schema_valid(payload, "market_microstructure_gate_input.v1")
@@ -1799,6 +1814,7 @@ def _microstructure_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
             and not evidence_source_schema_error
             and not top_level_schema_error
             and summary_object_valid
+            and not summary_schema_error
             and not unknown_check_fields
         )
         chunk_provenance_present = (not parse_error) and _artifact_provenance_present(payload)
@@ -1814,6 +1830,8 @@ def _microstructure_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
                 parse_error_message = top_level_schema_error
             elif not summary_object_valid:
                 parse_error_message = "summary_not_object"
+            elif summary_schema_error:
+                parse_error_message = summary_schema_error
             elif unknown_check_fields:
                 parse_error_message = "unknown_check_field: " + ", ".join(unknown_check_fields)
         artifacts.append(
