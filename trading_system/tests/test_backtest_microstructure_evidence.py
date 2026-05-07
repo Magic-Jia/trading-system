@@ -187,3 +187,16 @@ def test_rejects_boolean_coverage_values() -> None:
                 }
             }
         )
+
+
+def test_rejects_string_coverage_values() -> None:
+    with pytest.raises(ValueError, match="l2_snapshot_coverage must be a number between 0 and 1"):
+        build_microstructure_gate(
+            {
+                "coverage": {
+                    "l2_snapshot_coverage": "1.0",
+                    "l2_update_coverage": 1.0,
+                    "tick_coverage": 1.0,
+                }
+            }
+        )
