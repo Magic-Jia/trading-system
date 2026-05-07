@@ -172,6 +172,19 @@ def build_microstructure_gate(
         for fill in depth_fills:
             if not isinstance(fill, Mapping):
                 raise ValueError("depth_driven_taker_fills entries must be mappings")
+            allowed_fill_fields = {
+                "side",
+                "requested_quantity",
+                "filled_quantity",
+                "residual_quantity",
+                "complete",
+                "vwap",
+                "slippage_bps",
+                "consumed_levels",
+            }
+            unknown_fill_fields = sorted(set(fill) - allowed_fill_fields)
+            if unknown_fill_fields:
+                raise ValueError("unknown depth_driven_taker_fills field: " + ", ".join(unknown_fill_fields))
             complete = fill.get("complete", False)
             if not isinstance(complete, bool):
                 raise ValueError("depth_driven_taker_fills complete must be a boolean")

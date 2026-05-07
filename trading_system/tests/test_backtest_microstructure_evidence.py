@@ -283,3 +283,16 @@ def test_microstructure_gate_rejects_unknown_coverage_fields() -> None:
                 }
             }
         )
+
+def test_microstructure_gate_rejects_unknown_depth_fill_fields() -> None:
+    with pytest.raises(ValueError, match="unknown depth_driven_taker_fills field: legacy_depth_sufficient"):
+        build_microstructure_gate(
+            {
+                "coverage": {
+                    "l2_snapshot_coverage": 1.0,
+                    "l2_update_coverage": 1.0,
+                    "tick_coverage": 1.0,
+                },
+                "depth_driven_taker_fills": [{"complete": True, "legacy_depth_sufficient": True}],
+            }
+        )
