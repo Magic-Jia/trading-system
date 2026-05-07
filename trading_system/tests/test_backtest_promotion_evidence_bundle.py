@@ -757,3 +757,25 @@ def test_bundle_verifier_rejects_missing_manifest_decision(tmp_path: Path) -> No
 
     assert result["verified"] is False
     assert "missing_manifest_decision" in result["manifest_errors"]
+
+def test_bundle_verifier_marks_schema_invalid_for_unknown_manifest_fields(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    for name in REQUIRED_ARTIFACTS:
+        _write_json(source / name, {"artifact": name})
+    bundle_dir = collect_promotion_evidence_bundle(
+        source,
+        tmp_path / "bundle",
+        candidate_id="candidate-1",
+        evidence_source={"type": "promotion_bundle_export", "run_id": "bundle-1"},
+    )
+    manifest_path = bundle_dir / "promotion_evidence_manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["legacy_field"] = "stale"
+    manifest_path.write_text(json.dumps(manifest, sort_keys=True) + "\n")
+
+    result = verify_promotion_evidence_bundle(bundle_dir)
+
+    assert result["verified"] is False
+    assert result["schema_valid"] is False
+    assert "unknown_top_level_field: legacy_field" in result["manifest_errors"]

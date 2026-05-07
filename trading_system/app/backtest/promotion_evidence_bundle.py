@@ -192,6 +192,8 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
         "artifacts",
     }
     unknown_manifest_fields = sorted(set(manifest) - allowed_manifest_fields)
+    if unknown_manifest_fields:
+        schema_valid = False
     for field in unknown_manifest_fields:
         manifest_errors.append(f"unknown_top_level_field: {field}")
     if not schema_valid:
