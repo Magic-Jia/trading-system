@@ -2263,6 +2263,19 @@ def build_live_readiness_gate_report(
         if not isinstance(value, bool) and isinstance(value, (int, float)) and math.isfinite(float(value)) and 0.0 <= float(value) <= 1.0:
             continue
         policy_invalid_config.append({"field": field, "value": value, "error": "out_of_range_threshold"})
+    for field, value in (
+        ("max_setup_trade_share", max_setup_trade_share),
+        ("max_symbol_trade_share", max_symbol_trade_share),
+        ("max_setup_net_abs_share", max_setup_net_abs_share),
+        ("max_symbol_net_abs_share", max_symbol_net_abs_share),
+        ("max_setup_loss_abs_share", max_setup_loss_abs_share),
+        ("max_symbol_loss_abs_share", max_symbol_loss_abs_share),
+    ):
+        if value is None:
+            continue
+        if not isinstance(value, bool) and isinstance(value, (int, float)) and math.isfinite(float(value)) and 0.0 <= float(value) <= 1.0:
+            continue
+        policy_invalid_config.append({"field": field, "value": value, "error": "out_of_range_threshold"})
     all_trades: list[dict[str, Any]] = []
     chunk_performance: list[dict[str, Any]] = []
     for chunk_dir in chunk_dirs:
