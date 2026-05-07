@@ -2090,6 +2090,43 @@ def test_write_phase1_dataset_bundle_rejects_non_string_market_context_as_of(tmp
         write_phase1_dataset_bundle(bad_material, dataset_root)
 
 
+def test_supplement_phase1_imported_dataset_root_rejects_non_string_archive_derived_as_of(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    archive_root = tmp_path / "archive"
+    dataset_root = tmp_path / "dataset"
+    _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT")
+    imported = load_phase1_raw_market_imports(archive_root)
+    material = build_phase1_dataset_bundle_materials(imported)[-1]
+    bundle_dir = write_phase1_dataset_bundle(material, dataset_root)
+    write_phase1_dataset_root_manifest(
+        archive_root,
+        dataset_root,
+        symbols=("BTCUSDT",),
+        materials=(material,),
+        bundle_dirs=(bundle_dir,),
+    )
+    (bundle_dir / "instrument_snapshot.json").unlink()
+    market_context = dict(material.market_context)
+    market_context["as_of"] = True
+    bad_material = archive_importer.Phase1DatasetBundleMaterial(
+        timestamp=material.timestamp,
+        run_id=material.run_id,
+        metadata=material.metadata,
+        market_context=market_context,
+        derivatives_snapshot=material.derivatives_snapshot,
+        account_snapshot=material.account_snapshot,
+    )
+    monkeypatch.setattr(
+        archive_importer,
+        "build_phase1_dataset_bundle_materials",
+        lambda imported_series: (bad_material,),
+    )
+
+    with pytest.raises(ValueError, match="market_context as_of must be a string"):
+        supplement_phase1_imported_dataset_root_instrument_snapshots(dataset_root)
+
+
 def test_supplement_phase1_imported_dataset_root_instrument_snapshots_backfills_legacy_root(tmp_path: Path) -> None:
     archive_root = tmp_path / "archive"
     dataset_root = tmp_path / "dataset"

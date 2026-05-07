@@ -2382,7 +2382,7 @@ def supplement_phase1_imported_dataset_root_instrument_snapshots(
         _write_json(
             instrument_snapshot_path,
             _instrument_snapshot_payload(
-                as_of=str(material.market_context["as_of"]),
+                as_of=_material_market_context_as_of(material),
                 instrument_rows=tuple(dict(item) for item in material.market_context.get("instrument_rows") or ()),
             ),
         )
