@@ -2181,7 +2181,14 @@ def validate_phase1_imported_dataset_root(
                 "materialized dataset root manifest bundle_dirs did not round-trip: "
                 f"expected {manifest_bundle_dirs}, loaded {loaded_bundle_dirs}"
             )
-        manifest_timestamps = tuple(_utc_datetime(str(value)) for value in root_manifest.get("bundle_timestamps") or ())
+        manifest_timestamps = tuple(
+            _utc_datetime(value)
+            for value in _phase1_root_manifest_canonical_strings(
+                root_manifest,
+                "bundle_timestamps",
+                manifest_path=manifest_path,
+            )
+        )
         if loaded_timestamps != manifest_timestamps:
             raise ValueError(
                 "materialized dataset root manifest bundle_timestamps did not round-trip: "
