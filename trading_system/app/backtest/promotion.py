@@ -143,6 +143,10 @@ def _require_rows(payload: Mapping[str, Any], *, context: str) -> list[dict[str,
 
 def _first_mapping(variants: Mapping[str, Any], *, context: str) -> dict[str, Any]:
     for key, value in variants.items():
+        if not isinstance(key, str) or not key.strip():
+            raise ValueError(f"{context} key must be a string")
+        if key != key.strip():
+            raise ValueError(f"{context} key must be canonical")
         if isinstance(value, dict):
             return dict(value)
         raise ValueError(f"{context}.{key} must be an object")

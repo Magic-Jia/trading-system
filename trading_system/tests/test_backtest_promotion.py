@@ -736,6 +736,40 @@ def test_load_backtest_bundle_rejects_numeric_strings_in_engine_metrics(tmp_path
     with pytest.raises(ValueError, match="scorecard.json.key_metrics.best_variant_accepted_allocations must be a non-negative integer"):
         promotion.load_backtest_bundle(bundle)
 
+def test_load_backtest_bundle_rejects_noncanonical_engine_variant_keys(tmp_path: Path) -> None:
+    bundle = tmp_path / "engine_variant_key"
+    bundle.mkdir()
+    artifacts = ["manifest.json", "summary.json", "scorecard.json"]
+    _write_json(
+        bundle / "manifest.json",
+        _manifest(
+            experiment_kind="engine_filter_ablation",
+            baseline_name="current_policy",
+            variant_name="engine_variant",
+            artifacts=artifacts,
+        ),
+    )
+    _write_json(
+        bundle / "summary.json",
+        {
+            "variants": {
+                " engine_variant ": {
+                    "funnel": {},
+                    "filter_counts": {},
+                    "performance": {},
+                }
+            }
+        },
+    )
+    _write_json(
+        bundle / "scorecard.json",
+        {"key_metrics": {"best_bucket_level_pnl": 0.08, "best_variant_accepted_allocations": 4}},
+    )
+
+    with pytest.raises(ValueError, match="summary.json.variants key must be canonical"):
+        promotion.load_backtest_bundle(bundle)
+
+
 def test_load_backtest_bundle_rejects_non_string_experiment_kind(tmp_path: Path) -> None:
     bundle = _write_full_market_bundle(
         tmp_path / "bundle",
