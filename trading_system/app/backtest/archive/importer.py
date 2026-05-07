@@ -2018,6 +2018,13 @@ def inspect_phase1_imported_dataset_root(dataset_root: str | Path) -> dict[str, 
     }
 
 
+def _phase1_root_manifest_canonical_string(manifest: Mapping[str, Any], field: str, *, manifest_path: Path) -> str:
+    value = manifest.get(field)
+    if not isinstance(value, str) or not value or value != value.strip():
+        raise ValueError(f"materialized dataset root manifest {field} must be a canonical string: {manifest_path}")
+    return value
+
+
 def _phase1_root_manifest_nonnegative_int(manifest: Mapping[str, Any], field: str, *, manifest_path: Path) -> int:
     value = manifest.get(field)
     if not isinstance(value, int) or isinstance(value, bool) or value < 0:
@@ -2056,10 +2063,13 @@ def validate_phase1_imported_dataset_root(
     explicit_bundle_dirs = tuple(Path(bundle_dir) for bundle_dir in expected_bundle_dirs) if expected_bundle_dirs is not None else None
     explicit_timestamps = tuple(expected_timestamps) if expected_timestamps is not None else None
     if root_manifest is not None:
-        schema_version = str(root_manifest.get("schema_version") or "")
+        schema_version = _phase1_root_manifest_canonical_string(root_manifest, "schema_version", manifest_path=manifest_path)
         if schema_version != PHASE1_IMPORTER_ROOT_SCHEMA:
             raise ValueError(f"unsupported phase1 dataset root manifest schema: {manifest_path}")
-        manifest_dataset_root = _resolved_phase1_imported_dataset_root_path(dataset_path, str(root_manifest.get("dataset_root") or ""))
+        manifest_dataset_root = _resolved_phase1_imported_dataset_root_path(
+            dataset_path,
+            _phase1_root_manifest_canonical_string(root_manifest, "dataset_root", manifest_path=manifest_path),
+        )
         if manifest_dataset_root.resolve() != dataset_path.resolve():
             raise ValueError(
                 "materialized dataset root manifest dataset_root mismatch: "
@@ -2113,7 +2123,7 @@ def validate_phase1_imported_dataset_root(
             ),
             context="materialized dataset bundle metadata source",
         )
-        manifest_scope = str(root_manifest.get("scope") or "")
+        manifest_scope = _phase1_root_manifest_canonical_string(root_manifest, "scope", manifest_path=manifest_path)
         if manifest_scope != PHASE1_IMPORTER_SCOPE:
             raise ValueError(
                 "materialized dataset root manifest scope is out of phase1 importer scope: "
@@ -2150,7 +2160,7 @@ def validate_phase1_imported_dataset_root(
             )
         manifest_archive_root = _resolved_phase1_imported_dataset_root_path(
             dataset_path,
-            str(root_manifest.get("archive_root") or ""),
+            _phase1_root_manifest_canonical_string(root_manifest, "archive_root", manifest_path=manifest_path),
         )
         loaded_archive_root = _archive_root_from_manifest_paths(loaded_source.get("manifest_paths") or ())
         if loaded_archive_root is not None and manifest_archive_root.resolve() != loaded_archive_root.resolve():
@@ -2194,15 +2204,25 @@ def validate_phase1_imported_dataset_root(
                 "materialized dataset root manifest bundle_timestamps did not round-trip: "
                 f"expected {manifest_timestamps}, loaded {loaded_timestamps}"
             )
-        if root_manifest.get("start_timestamp") != _utc_timestamp(rows[0].timestamp):
+        start_timestamp = _phase1_root_manifest_canonical_string(
+            root_manifest,
+            "start_timestamp",
+            manifest_path=manifest_path,
+        )
+        if start_timestamp != _utc_timestamp(rows[0].timestamp):
             raise ValueError(
                 "materialized dataset root manifest start_timestamp did not round-trip: "
-                f"expected {_utc_timestamp(rows[0].timestamp)}, loaded {root_manifest.get('start_timestamp')}"
+                f"expected {_utc_timestamp(rows[0].timestamp)}, loaded {start_timestamp}"
             )
-        if root_manifest.get("end_timestamp") != _utc_timestamp(rows[-1].timestamp):
+        end_timestamp = _phase1_root_manifest_canonical_string(
+            root_manifest,
+            "end_timestamp",
+            manifest_path=manifest_path,
+        )
+        if end_timestamp != _utc_timestamp(rows[-1].timestamp):
             raise ValueError(
                 "materialized dataset root manifest end_timestamp did not round-trip: "
-                f"expected {_utc_timestamp(rows[-1].timestamp)}, loaded {root_manifest.get('end_timestamp')}"
+                f"expected {_utc_timestamp(rows[-1].timestamp)}, loaded {end_timestamp}"
             )
 
     return rows
