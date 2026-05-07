@@ -1857,6 +1857,16 @@ def _validation_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[str,
             payload, {"schema_version", "evidence_source", "checks", "summary", "reasons"}
         )
         checks = _as_mapping(checks_payload)
+        summary = _as_mapping(summary_payload)
+        summary_audit_id = summary.get("forward_contamination_audit_id")
+        summary_schema_error = ""
+        if summary_audit_id is not None:
+            if not isinstance(summary_audit_id, str):
+                summary_schema_error = "summary_forward_contamination_audit_id_not_string"
+            elif not summary_audit_id.strip():
+                summary_schema_error = "summary_forward_contamination_audit_id_blank"
+            elif summary_audit_id != summary_audit_id.strip():
+                summary_schema_error = "summary_forward_contamination_audit_id_noncanonical"
         unknown_check_fields = sorted(set(checks) - set(required_checks))
         chunk_schema_valid = (
             (not parse_error)
@@ -1866,6 +1876,7 @@ def _validation_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[str,
             and not evidence_source_schema_error
             and not top_level_schema_error
             and summary_object_valid
+            and not summary_schema_error
             and not unknown_check_fields
         )
         chunk_provenance_present = (not parse_error) and _artifact_provenance_present(payload)
@@ -1881,6 +1892,8 @@ def _validation_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[str,
                 parse_error_message = top_level_schema_error
             elif not summary_object_valid:
                 parse_error_message = "summary_not_object"
+            elif summary_schema_error:
+                parse_error_message = summary_schema_error
             elif unknown_check_fields:
                 parse_error_message = "unknown_check_field: " + ", ".join(unknown_check_fields)
         artifacts.append(
