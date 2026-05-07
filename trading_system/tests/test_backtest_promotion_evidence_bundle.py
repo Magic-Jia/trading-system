@@ -539,3 +539,17 @@ def test_bundle_collector_fails_closed_when_required_artifact_missing(tmp_path: 
 
     with pytest.raises(FileNotFoundError, match="passive_order_calibration_summary.json"):
         collect_promotion_evidence_bundle(source, tmp_path / "bundle", candidate_id="candidate-1")
+
+def test_collect_rejects_unknown_evidence_source_fields(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    for name in REQUIRED_ARTIFACTS:
+        _write_json(source / name, {"artifact": name})
+
+    with pytest.raises(ValueError, match="unknown evidence_source field: label"):
+        collect_promotion_evidence_bundle(
+            source,
+            tmp_path / "bundle",
+            candidate_id="candidate-1",
+            evidence_source={"type": "promotion_bundle_export", "run_id": "bundle-1", "label": "legacy-alias"},
+        )

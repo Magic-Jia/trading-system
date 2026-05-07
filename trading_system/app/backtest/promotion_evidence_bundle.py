@@ -82,6 +82,9 @@ def collect_promotion_evidence_bundle(
         raise ValueError("evidence_source must be an object")
     source_payload = dict(evidence_source) if evidence_source is not None else {"type": "unknown_offline_records"}
     source_payload.setdefault("type", "unknown_offline_records")
+    unknown_source_fields = sorted(set(source_payload) - {"type", "run_id", "exported_at"})
+    if unknown_source_fields:
+        raise ValueError("unknown evidence_source field: " + ", ".join(unknown_source_fields))
     manifest = {
         "schema_version": SCHEMA_VERSION,
         "candidate_id": candidate_id,
