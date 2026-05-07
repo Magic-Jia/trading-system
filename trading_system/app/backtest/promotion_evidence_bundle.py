@@ -114,6 +114,8 @@ def collect_promotion_evidence_bundle(
             raise ValueError(f"evidence_source {optional_field} must be a string")
         if isinstance(optional_value, str) and not optional_value.strip():
             raise ValueError(f"evidence_source {optional_field} must be non-empty")
+        if isinstance(optional_value, str) and optional_value != optional_value.strip():
+            raise ValueError(f"evidence_source {optional_field} must be canonical")
     manifest = {
         "schema_version": SCHEMA_VERSION,
         "candidate_id": candidate_id,
@@ -263,6 +265,9 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
             elif isinstance(optional_value, str) and not optional_value.strip():
                 schema_valid = False
                 manifest_errors.append(f"evidence_source_{optional_field}_blank")
+            elif isinstance(optional_value, str) and optional_value != optional_value.strip():
+                schema_valid = False
+                manifest_errors.append(f"evidence_source_{optional_field}_noncanonical")
     artifacts_raw = manifest.get("artifacts")
     declared_missing_artifacts_raw = manifest.get("missing_artifacts", [])
     if "missing_artifacts" not in manifest:
