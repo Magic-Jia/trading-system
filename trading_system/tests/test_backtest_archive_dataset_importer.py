@@ -161,6 +161,25 @@ def test_resolved_source_manifest_paths_rejects_padded_entries(tmp_path: Path) -
         archive_importer._resolved_source_manifest_paths(tmp_path, [" raw-market/BTC/manifest.json "])
 
 
+
+def test_validated_source_trace_against_manifests_rejects_noncanonical_manifest_paths(tmp_path: Path) -> None:
+    with pytest.raises(
+        ValueError,
+        match=r"materialized dataset bundle metadata source manifest_paths\[0\] must be canonical",
+    ):
+        archive_importer._validated_source_trace_against_manifests(
+            {
+                "scope": archive_importer.PHASE1_IMPORTER_SCOPE,
+                "exchange": "binance",
+                "market": "futures",
+                "symbols": [],
+                "series_keys": [],
+                "manifest_paths": [" raw-market/BTC/manifest.json "],
+            },
+            context="materialized dataset bundle metadata source",
+        )
+
+
 def _timestamp_ms(value: datetime) -> int:
     return int(value.timestamp() * 1000)
 

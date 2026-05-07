@@ -1860,7 +1860,11 @@ def _archive_root_from_manifest_paths(manifest_paths: Sequence[str]) -> Path | N
 
 def _validated_source_trace_against_manifests(source: Mapping[str, Any], *, context: str) -> dict[str, Any]:
     normalized_source = _json_object_field(source, context=context)
-    manifest_paths = sorted(str(value) for value in normalized_source.get("manifest_paths") or ())
+    manifest_paths = sorted(
+        _require_canonical_string_items(
+            normalized_source.get("manifest_paths"), field=f"{context} manifest_paths"
+        )
+    )
     if not manifest_paths:
         raise ValueError(f"{context} manifest_paths must not be empty")
 
