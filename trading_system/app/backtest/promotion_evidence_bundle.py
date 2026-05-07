@@ -424,24 +424,34 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
         if rel_path not in checked_paths:
             unchecked_required.append(rel_path)
     if unsafe_paths:
+        schema_valid = False
         manifest_errors.append("unsafe_artifact_path")
     if noncanonical_artifact_paths:
+        schema_valid = False
         manifest_errors.append("artifact_path_noncanonical")
     if missing_metadata:
+        schema_valid = False
         manifest_errors.append("artifact_metadata_missing")
     if any(str(item).endswith(".path") for item in missing_metadata):
+        schema_valid = False
         manifest_errors.append("artifact_path_missing")
     if invalid_metadata:
+        schema_valid = False
         manifest_errors.append("artifact_metadata_invalid")
     if any(str(item).endswith(".path") for item in invalid_metadata):
+        schema_valid = False
         manifest_errors.append("artifact_path_not_string")
     if any(str(item).endswith(":sha256") for item in invalid_metadata):
+        schema_valid = False
         manifest_errors.append("artifact_sha256_invalid_format")
     if any(str(item).endswith(":source_path") for item in invalid_metadata):
+        schema_valid = False
         manifest_errors.append("artifact_source_path_not_string")
     if source_path_blank_metadata:
+        schema_valid = False
         manifest_errors.append("artifact_source_path_blank")
     if any(str(item).startswith("artifacts[") and not str(item).endswith(".path") for item in invalid_metadata):
+        schema_valid = False
         manifest_errors.append("artifact_entry_not_object")
     unknown_artifact_field_names = sorted(
         {str(item).split(":", 1)[1] for item in invalid_metadata if ":" in str(item) and str(item).rsplit(":", 1)[1] not in {"sha256", "source_path", "bytes"}}
@@ -449,18 +459,25 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
     for field in unknown_artifact_field_names:
         manifest_errors.append(f"unknown_artifact_field: {field}")
     if duplicate_artifact_paths:
+        schema_valid = False
         manifest_errors.append("duplicate_artifact_path")
     if non_string_required_artifacts:
+        schema_valid = False
         manifest_errors.append("required_artifact_entry_not_string")
     if blank_required_artifacts:
+        schema_valid = False
         manifest_errors.append("required_artifact_entry_blank")
     if unsafe_required_artifacts:
+        schema_valid = False
         manifest_errors.append("required_artifact_path_unsafe")
     if noncanonical_required_artifacts:
+        schema_valid = False
         manifest_errors.append("required_artifact_path_noncanonical")
     if duplicate_required_artifacts:
+        schema_valid = False
         manifest_errors.append("duplicate_required_artifact")
     if unchecked_required:
+        schema_valid = False
         manifest_errors.append("required_artifact_missing_manifest_entry")
     return {
         "schema_version": "promotion_evidence_bundle_verification.v1",
