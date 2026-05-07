@@ -1850,6 +1850,18 @@ def _row_market_symbol_keys(row: Any) -> tuple[str, ...]:
     return tuple(sorted(parsed))
 
 
+def _material_market_context_instrument_rows(material: Phase1DatasetBundleMaterial) -> tuple[dict[str, Any], ...]:
+    rows = material.market_context.get("instrument_rows") or ()
+    if not isinstance(rows, (list, tuple)):
+        raise ValueError("market_context instrument_rows must be a list")
+    parsed: list[dict[str, Any]] = []
+    for index, row in enumerate(rows, start=1):
+        if not isinstance(row, Mapping):
+            raise ValueError(f"market_context instrument_rows[{index}] must be an object")
+        parsed.append(dict(row))
+    return tuple(parsed)
+
+
 def _materialized_dataset_row_source(rows: Sequence[Any]) -> dict[str, Any]:
     return _merged_import_trace(
         _json_object_field(row.meta.get("source") or {}, context="materialized dataset bundle metadata source")
@@ -2024,7 +2036,7 @@ def write_phase1_dataset_bundle(material: Phase1DatasetBundleMaterial, dataset_r
         bundle_dir / "instrument_snapshot.json",
         _instrument_snapshot_payload(
             as_of=_material_market_context_as_of(material),
-            instrument_rows=tuple(dict(row) for row in material.market_context.get("instrument_rows") or ()),
+            instrument_rows=_material_market_context_instrument_rows(material),
         ),
     )
     return bundle_dir
@@ -2399,7 +2411,7 @@ def supplement_phase1_imported_dataset_root_instrument_snapshots(
             instrument_snapshot_path,
             _instrument_snapshot_payload(
                 as_of=_material_market_context_as_of(material),
-                instrument_rows=tuple(dict(item) for item in material.market_context.get("instrument_rows") or ()),
+                instrument_rows=_material_market_context_instrument_rows(material),
             ),
         )
         written_paths.append(instrument_snapshot_path)
