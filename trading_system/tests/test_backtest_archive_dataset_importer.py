@@ -2069,6 +2069,34 @@ def test_write_phase1_dataset_bundle_materializes_instrument_snapshot_file(tmp_p
     }
 
 
+def test_import_phase1_archive_dataset_root_rejects_non_string_material_symbol_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    archive_root = tmp_path / "archive"
+    dataset_root = tmp_path / "dataset"
+    _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT")
+    imported = load_phase1_raw_market_imports(archive_root)
+    material = build_phase1_dataset_bundle_materials(imported)[-1]
+    market_context = dict(material.market_context)
+    market_context["symbols"] = {123: {}}
+    bad_material = archive_importer.Phase1DatasetBundleMaterial(
+        timestamp=material.timestamp,
+        run_id=material.run_id,
+        metadata=material.metadata,
+        market_context=market_context,
+        derivatives_snapshot=material.derivatives_snapshot,
+        account_snapshot=material.account_snapshot,
+    )
+    monkeypatch.setattr(
+        archive_importer,
+        "build_phase1_dataset_bundle_materials",
+        lambda imported_series: (bad_material,),
+    )
+
+    with pytest.raises(ValueError, match="market_context symbols keys must be canonical strings"):
+        import_phase1_archive_dataset_root(archive_root, dataset_root)
+
+
 def test_write_phase1_dataset_bundle_rejects_non_string_market_context_as_of(tmp_path: Path) -> None:
     archive_root = tmp_path / "archive"
     dataset_root = tmp_path / "dataset"

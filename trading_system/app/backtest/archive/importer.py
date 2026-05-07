@@ -1828,6 +1828,18 @@ def _material_market_context_as_of(material: Phase1DatasetBundleMaterial) -> str
     )
 
 
+def _material_market_context_symbol_keys(material: Phase1DatasetBundleMaterial) -> tuple[str, ...]:
+    symbols = material.market_context.get("symbols") or {}
+    if not isinstance(symbols, Mapping):
+        raise ValueError("market_context symbols must be an object")
+    parsed: list[str] = []
+    for symbol in symbols:
+        if not isinstance(symbol, str) or not symbol.strip() or symbol != symbol.strip():
+            raise ValueError("market_context symbols keys must be canonical strings")
+        parsed.append(symbol)
+    return tuple(sorted(parsed))
+
+
 def _materialized_dataset_row_source(rows: Sequence[Any]) -> dict[str, Any]:
     return _merged_import_trace(
         _json_object_field(row.meta.get("source") or {}, context="materialized dataset bundle metadata source")
@@ -2407,15 +2419,7 @@ def import_phase1_archive_dataset_root(
     materials = build_phase1_dataset_bundle_materials(imported_series)
     if not materials:
         raise ValueError("phase1 raw-market imports did not yield any eligible dataset bundles")
-    symbols = tuple(
-        sorted(
-            {
-                str(symbol)
-                for material in materials
-                for symbol in dict(material.market_context.get("symbols") or {}).keys()
-            }
-        )
-    )
+    symbols = tuple(sorted({symbol for material in materials for symbol in _material_market_context_symbol_keys(material)}))
 
     dataset_preexisted = dataset_path.exists()
     if dataset_path.exists():
