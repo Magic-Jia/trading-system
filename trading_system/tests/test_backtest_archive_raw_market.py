@@ -263,3 +263,23 @@ def test_importer_rejects_invalid_trade_price_and_quantity_fields() -> None:
         _trade_payload(price_record, symbol="BTCUSDT")
     with pytest.raises(ValueError, match="trade quantity must be positive"):
         _trade_payload(quantity_record, symbol="BTCUSDT")
+
+
+def test_importer_rejects_noncanonical_execution_symbol() -> None:
+    record = ImportedRawMarketRecord(
+        observed_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        payload={"symbol": " BTCUSDT ", "bid": 100.0, "ask": 101.0},
+    )
+
+    with pytest.raises(ValueError, match="execution symbol must be canonical"):
+        _order_book_payload(record, symbol="BTCUSDT")
+
+
+def test_importer_rejects_non_string_execution_symbol() -> None:
+    record = ImportedRawMarketRecord(
+        observed_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        payload={"symbol": 123, "price": 100.0, "quantity": 1.0},
+    )
+
+    with pytest.raises(ValueError, match="execution symbol must be a string"):
+        _trade_payload(record, symbol="BTCUSDT")

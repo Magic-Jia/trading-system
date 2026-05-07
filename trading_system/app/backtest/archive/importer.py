@@ -579,7 +579,13 @@ def _required_positive_execution_float(value: Any, *, field: str, observed_at: d
 
 def _execution_symbol_matches(payload: Mapping[str, Any], symbol: str) -> bool:
     raw_symbol = payload.get("symbol")
-    return raw_symbol is None or str(raw_symbol).upper() == symbol.upper()
+    if raw_symbol is None:
+        return True
+    if not isinstance(raw_symbol, str) or not raw_symbol.strip():
+        raise ValueError("execution symbol must be a string")
+    if raw_symbol != raw_symbol.strip() or raw_symbol.upper() != raw_symbol:
+        raise ValueError("execution symbol must be canonical")
+    return raw_symbol == symbol.upper()
 
 
 def _order_book_payload(record: ImportedRawMarketRecord, *, symbol: str) -> dict[str, Any] | None:
