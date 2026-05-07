@@ -3321,6 +3321,31 @@ def test_live_readiness_gate_rejects_validation_summary_not_object(tmp_path: Pat
 
 
 
+
+def test_live_readiness_gate_rejects_validation_summary_numeric_strings(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    validation_payload = {
+        "schema_version": "validation_gate_input.v1",
+        "evidence_source": {"type": "exchange_export", "run_id": "validation-summary-numeric-string"},
+        "checks": {
+            "oos_non_degraded_met": True,
+            "multi_regime_resilience_met": True,
+            "cost_stress_positive_met": True,
+            "forward_contamination_absent_met": True,
+        },
+        "summary": {"oos_degradation_fraction": "0.1"},
+    }
+    (chunk / "validation_gate.json").write_text(json.dumps(validation_payload), encoding="utf-8")
+
+    report = build_live_readiness_gate_report(tmp_path, require_validation_evidence=True)
+
+    validation_gate = report["validation_gate"]
+    assert validation_gate["checks"]["validation_artifact_schema_valid"] is False
+    assert validation_gate["artifacts"][0]["parse_error"] == "summary_oos_degradation_fraction_not_number"
+    assert "validation_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
 def test_live_readiness_gate_rejects_runtime_safety_unknown_top_level_field(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     _write_profitable_trade_chunk(chunk)

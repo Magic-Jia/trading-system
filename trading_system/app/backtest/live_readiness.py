@@ -1896,9 +1896,21 @@ def _validation_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[str,
         )
         checks = _as_mapping(checks_payload)
         summary = _as_mapping(summary_payload)
-        summary_audit_id = summary.get("forward_contamination_audit_id")
         summary_schema_error = ""
-        if summary_audit_id is not None:
+        for numeric_field in (
+            "oos_degradation_fraction",
+            "baseline_net_pnl",
+            "oos_net_pnl",
+            "stressed_net_pnl",
+        ):
+            numeric_value = summary.get(numeric_field)
+            if numeric_value is not None:
+                _, numeric_valid = _strict_float_value(numeric_value)
+                if not numeric_valid:
+                    summary_schema_error = f"summary_{numeric_field}_not_number"
+                    break
+        summary_audit_id = summary.get("forward_contamination_audit_id")
+        if not summary_schema_error and summary_audit_id is not None:
             if not isinstance(summary_audit_id, str):
                 summary_schema_error = "summary_forward_contamination_audit_id_not_string"
             elif not summary_audit_id.strip():
