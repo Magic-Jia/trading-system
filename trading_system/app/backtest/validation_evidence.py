@@ -78,6 +78,9 @@ def build_validation_gate(manifest: Mapping[str, Any]) -> dict[str, Any]:
     eligible_regime_count = 0
     for regime in regimes_raw:
         regime_mapping = _mapping(regime, "regime")
+        unknown_regime_fields = sorted(set(regime_mapping) - {"trade_count", "net_pnl"})
+        if unknown_regime_fields:
+            raise ValueError("unknown validation regime field: " + ", ".join(unknown_regime_fields))
         trade_count = _integer_count(regime_mapping.get("trade_count", 0), "regime trade_count")
         net_pnl = _float_or_none(regime_mapping.get("net_pnl"), "regime net_pnl")
         if trade_count > 0:

@@ -1892,8 +1892,8 @@ def test_live_readiness_accepts_validation_producer_check_names(tmp_path: Path) 
                     "evidence_source": {"type": "walk_forward_oos_report", "run_id": "validation-1"},
                     "oos": {"baseline_net_pnl": 100.0, "oos_net_pnl": 90.0, "max_degradation_fraction": 0.2},
                     "regimes": [
-                        {"name": "trend", "trade_count": 10, "net_pnl": 40.0},
-                        {"name": "chop", "trade_count": 8, "net_pnl": 20.0},
+                        {"trade_count": 10, "net_pnl": 40.0},
+                        {"trade_count": 8, "net_pnl": 20.0},
                     ],
                     "cost_stress": {"stressed_net_pnl": 30.0},
                     "forward_contamination": {"absent": True, "audit_id": "fc-1"},

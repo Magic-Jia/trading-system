@@ -14,8 +14,8 @@ def _passing_manifest() -> dict:
         "evidence_source": {"type": "synthetic_fixture"},
         "oos": {"baseline_net_pnl": 100.0, "oos_net_pnl": 90.0, "max_degradation_fraction": 0.2},
         "regimes": [
-            {"name": "trend", "net_pnl": 40.0, "trade_count": 20},
-            {"name": "chop", "net_pnl": 10.0, "trade_count": 12},
+            {"net_pnl": 40.0, "trade_count": 20},
+            {"net_pnl": 10.0, "trade_count": 12},
         ],
         "cost_stress": {"stressed_net_pnl": 5.0},
         "forward_contamination": {"absent": True, "audit_id": "fc-1"},
@@ -47,7 +47,7 @@ def test_validation_gate_reports_each_failed_requirement() -> None:
         {
             "evidence_source": {"type": "synthetic_fixture"},
             "oos": {"baseline_net_pnl": 100.0, "oos_net_pnl": 60.0, "max_degradation_fraction": 0.2},
-            "regimes": [{"name": "trend", "net_pnl": 5.0, "trade_count": 20}],
+            "regimes": [{"net_pnl": 5.0, "trade_count": 20}],
             "cost_stress": {"stressed_net_pnl": -1.0},
             "forward_contamination": {"absent": False},
         }
@@ -82,8 +82,8 @@ def test_validation_gate_rejects_non_object_evidence_source() -> None:
 def test_validation_gate_rejects_boolean_regime_trade_count() -> None:
     manifest = _passing_manifest()
     manifest["regimes"] = [
-        {"name": "trend", "net_pnl": 40.0, "trade_count": True},
-        {"name": "chop", "net_pnl": 10.0, "trade_count": 12},
+        {"net_pnl": 40.0, "trade_count": True},
+        {"net_pnl": 10.0, "trade_count": 12},
     ]
 
     try:
@@ -176,3 +176,15 @@ def test_validation_gate_rejects_unknown_manifest_fields() -> None:
         assert str(exc) == "unknown validation manifest field: unexpected"
     else:  # pragma: no cover - RED path until producer is hardened
         raise AssertionError("expected unknown validation manifest field to be rejected")
+
+
+def test_validation_gate_rejects_unknown_regime_fields() -> None:
+    manifest = _passing_manifest()
+    manifest["regimes"] = [{"trade_count": 1, "net_pnl": 10.0, "label": "legacy-alias"}]
+
+    try:
+        build_validation_gate(manifest)
+    except ValueError as exc:
+        assert str(exc) == "unknown validation regime field: label"
+    else:  # pragma: no cover - RED path until nested producer schema is hardened
+        raise AssertionError("expected unknown validation regime field to be rejected")
