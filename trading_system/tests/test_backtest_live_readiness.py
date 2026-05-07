@@ -7328,6 +7328,36 @@ def test_live_readiness_cli_stdout_includes_concentration_summary(tmp_path: Path
 
 
 
+def test_live_readiness_gate_rejects_negative_min_passive_calibration_attempts(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    (chunk / "passive_order_calibration_summary.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "passive_order_calibration_summary.v1",
+                "overall": {"attempt_count": 0, "fill_rate": 0.0},
+                "evidence_source": {"type": "testnet_exchange"},
+                "provenance": {"source": "testnet_exchange", "real_exchange_records": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_live_readiness_gate_report(
+        tmp_path,
+        require_passive_calibration=True,
+        min_passive_calibration_attempts=-1,
+    )
+
+    assert report["passive_calibration"]["checks"]["passive_calibration_attempts_met"] is False
+    assert report["passive_calibration"]["invalid_config"] == [
+        {"field": "min_passive_calibration_attempts", "value": -1, "error": "negative_threshold"}
+    ]
+    assert "passive_calibration_config_invalid" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
+
 def test_live_readiness_gate_report_rejects_missing_real_passive_calibration_for_maker_assumption(
     tmp_path: Path,
 ) -> None:

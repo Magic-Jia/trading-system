@@ -2146,7 +2146,10 @@ def _passive_calibration_diagnostic(
             }
         )
     fill_rate = weighted_filled / total_attempts if total_attempts else 0.0
-    attempts_met = total_attempts >= max(0, int(min_attempts))
+    invalid_config: list[dict[str, Any]] = []
+    if int(min_attempts) < 0:
+        invalid_config.append({"field": "min_passive_calibration_attempts", "value": min_attempts, "error": "negative_threshold"})
+    attempts_met = (not invalid_config) and total_attempts >= int(min_attempts)
     fill_rate_met = min_fill_rate is None or fill_rate >= min_fill_rate
     real_records_met = (not required) or real_exchange_records
     schema_valid = (not required) or (bool(chunks) and all(bool(chunk.get("schema_valid")) for chunk in chunks))
@@ -2159,6 +2162,7 @@ def _passive_calibration_diagnostic(
         "min_attempts": min_attempts,
         "fill_rate": fill_rate,
         "min_fill_rate": min_fill_rate,
+        "invalid_config": invalid_config,
         "real_exchange_records": real_exchange_records,
         "checks": {
             "passive_calibration_present_met": (not required) or bool(chunks),
@@ -2494,6 +2498,8 @@ def build_live_readiness_gate_report(
     if not symbol_loss_abs_concentration_met:
         reasons.append("symbol_loss_abs_concentration_too_high")
     passive_checks = _as_mapping(passive_calibration.get("checks"))
+    if passive_calibration.get("invalid_config"):
+        reasons.append("passive_calibration_config_invalid")
     if not passive_checks.get("passive_calibration_present_met", True):
         reasons.append("passive_calibration_missing")
     if require_passive_calibration and not passive_checks.get("passive_calibration_artifact_schema_valid", False):
