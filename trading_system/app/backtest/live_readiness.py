@@ -3313,12 +3313,12 @@ def render_live_readiness_markdown(report: Mapping[str, Any]) -> str:
                 "",
                 "## Exit Path Replay Reconciliation",
                 f"- schema_version: {exit_reconciliation.get('schema_version')}",
-                f"- required: {str(bool(exit_reconciliation.get('required'))).lower()}",
-                f"- matched: {str(bool(exit_reconciliation.get('matched'))).lower()}",
-                f"- trade_count: {int(exit_reconciliation.get('trade_count') or 0)}",
-                f"- path_trade_count: {int(exit_reconciliation.get('path_trade_count') or 0)}",
-                f"- missing_trade_count: {int(exit_reconciliation.get('missing_trade_count') or 0)}",
-                f"- extra_path_trade_count: {int(exit_reconciliation.get('extra_path_trade_count') or 0)}",
+                f"- required: {_format_strict_bool(exit_reconciliation, 'required')}",
+                f"- matched: {_format_strict_bool(exit_reconciliation, 'matched')}",
+                f"- trade_count: {_strict_bucket_int(exit_reconciliation, 'trade_count')}",
+                f"- path_trade_count: {_strict_bucket_int(exit_reconciliation, 'path_trade_count')}",
+                f"- missing_trade_count: {_strict_bucket_int(exit_reconciliation, 'missing_trade_count')}",
+                f"- extra_path_trade_count: {_strict_bucket_int(exit_reconciliation, 'extra_path_trade_count')}",
                 f"- exit_path_replay_artifact_parse_errors: {_parse_error_summary(exit_reconciliation.get('artifacts'))}",
             ]
         )

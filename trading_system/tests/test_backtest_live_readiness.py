@@ -163,6 +163,33 @@ def test_markdown_renderer_rejects_non_strict_microstructure_checks() -> None:
         render_live_readiness_markdown(report)
 
 
+def test_markdown_renderer_rejects_non_strict_exit_reconciliation() -> None:
+    report = {
+        "promotion_gate": {"decision": "hold", "reasons": [], "checks": {}},
+        "totals": {
+            "trade_count": 1,
+            "net_pnl": 1.0,
+            "evidence_coverage": 1.0,
+            "exit_evidence_coverage": 1.0,
+            "exit_path_ambiguity_rate": 0.0,
+        },
+        "exit_path_replay": {
+            "reconciliation": {
+                "required": False,
+                "matched": "false",
+                "trade_count": 1,
+                "path_trade_count": 1,
+                "missing_trade_count": 0,
+                "extra_path_trade_count": 0,
+            }
+        },
+        "caveats": [],
+    }
+
+    with pytest.raises(ValueError, match="matched must be a strict boolean"):
+        render_live_readiness_markdown(report)
+
+
 def test_markdown_renderer_rejects_non_strict_runtime_gate_metadata() -> None:
     report = {
         "promotion_gate": {"decision": "hold", "reasons": [], "checks": {}},
