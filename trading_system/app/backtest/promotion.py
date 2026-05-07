@@ -111,8 +111,11 @@ def _validate_rollback_plan(payload: Mapping[str, Any], *, context: str) -> None
     if not isinstance(rollback_plan, Mapping):
         raise ValueError(f"{context}.rollback_plan must be an object")
     for field_name in ("rollback_target", "rollback_trigger", "observation_window"):
-        if not isinstance(rollback_plan.get(field_name), str) or not rollback_plan[field_name].strip():
+        field_value = rollback_plan.get(field_name)
+        if not isinstance(field_value, str) or not field_value.strip():
             raise ValueError(f"{context}.rollback_plan.{field_name} must be a string")
+        if field_value != field_value.strip():
+            raise ValueError(f"{context}.rollback_plan.{field_name} must be canonical")
 
 
 def _validate_optional_readiness_plans(bundle: BacktestBundle) -> None:

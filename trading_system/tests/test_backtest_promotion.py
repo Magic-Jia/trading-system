@@ -189,6 +189,24 @@ def test_load_backtest_bundle_rejects_noncanonical_runtime_observability_fields(
     with pytest.raises(ValueError, match="runtime_fields must be canonical strings"):
         promotion.load_backtest_bundle(bundle)
 
+
+def test_load_backtest_bundle_rejects_noncanonical_rollback_plan_fields(tmp_path: Path) -> None:
+    bundle = _write_walk_forward_bundle(
+        tmp_path / "bundle",
+        baseline_name="current_policy",
+        variant_name="candidate_walk_forward",
+        out_of_sample_total_return=0.03,
+        positive_window_ratio=0.75,
+        parameter_stability_score=0.7,
+        worst_window_return=0.01,
+        rollback_target=" baseline_policy ",
+        rollback_trigger="drawdown breach",
+        observation_window="24h",
+    )
+
+    with pytest.raises(ValueError, match="rollback_plan.rollback_target must be canonical"):
+        promotion.load_backtest_bundle(bundle)
+
 def test_compare_backtest_bundles_holds_when_out_of_sample_evidence_is_missing(tmp_path: Path) -> None:
     baseline_bundle = _write_full_market_bundle(
         tmp_path / "baseline",
