@@ -8058,3 +8058,34 @@ def test_live_readiness_markdown_uses_producer_check_names() -> None:
     assert "- fail_closed_met:" not in markdown
     assert "- dust_before_scale_met:" not in markdown
     assert "- multi_regime_met:" not in markdown
+
+def test_live_readiness_rejects_padded_runtime_evidence_source_type(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    chunk = source / "chunk_001"
+    chunk.mkdir(parents=True)
+    (chunk / "trades.json").write_text(json.dumps({"trades": []}), encoding="utf-8")
+    (chunk / "runtime_safety_gate.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "runtime_safety_gate_input.v1",
+                "evidence_source": {"type": " paper_runtime_logs ", "run_id": "runtime-1"},
+                "checks": {
+                    "kill_switch_dry_run_met": True,
+                    "order_position_reconciliation_met": True,
+                    "runtime_fail_closed_met": True,
+                    "live_dust_before_scale_met": True,
+                    "live_trade_ledger_met": True,
+                    "runtime_explainability_met": True,
+                    "drift_guard_met": True,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = write_live_readiness_smoke_report(source, tmp_path / "out", require_runtime_safety_evidence=True)
+
+    artifact = report["runtime_safety_gate"]["artifacts"][0]
+    assert artifact["schema_valid"] is False
+    assert artifact["parse_error"] == "evidence_source_type_noncanonical"
+    assert "runtime_safety_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
