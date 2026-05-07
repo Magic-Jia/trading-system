@@ -197,6 +197,18 @@ def build_microstructure_gate(
                     raise ValueError("depth_driven_taker_fills side must be canonical")
                 if side not in {"buy", "sell"}:
                     raise ValueError("depth_driven_taker_fills side must be buy or sell")
+            for numeric_field in (
+                "requested_quantity",
+                "filled_quantity",
+                "residual_quantity",
+                "vwap",
+                "slippage_bps",
+            ):
+                numeric_value = fill.get(numeric_field)
+                if numeric_value is not None and (
+                    isinstance(numeric_value, bool) or not isinstance(numeric_value, (int, float))
+                ):
+                    raise ValueError(f"depth_driven_taker_fills {numeric_field} must be a number")
             complete = fill.get("complete", False)
             if not isinstance(complete, bool):
                 raise ValueError("depth_driven_taker_fills complete must be a boolean")

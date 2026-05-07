@@ -331,3 +331,22 @@ def test_microstructure_gate_rejects_padded_depth_fill_side() -> None:
         assert "depth_driven_taker_fills side must be canonical" in str(exc)
     else:
         raise AssertionError("expected padded depth fill side to be rejected")
+
+def test_microstructure_gate_rejects_string_depth_fill_quantity() -> None:
+    try:
+        build_microstructure_gate(
+            {
+                "coverage": {
+                    "l2_snapshot_coverage": 0.99,
+                    "l2_update_coverage": 0.99,
+                    "tick_coverage": 0.99,
+                },
+                "depth_driven_taker_fills": [
+                    {"complete": True, "side": "buy", "requested_quantity": "1.0"}
+                ],
+            }
+        )
+    except ValueError as exc:
+        assert "depth_driven_taker_fills requested_quantity must be a number" in str(exc)
+    else:
+        raise AssertionError("expected string depth fill quantity to be rejected")
