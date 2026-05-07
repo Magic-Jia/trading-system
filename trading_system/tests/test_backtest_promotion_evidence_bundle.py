@@ -44,6 +44,21 @@ def test_collects_required_evidence_artifacts_with_checksums(tmp_path: Path) -> 
     assert (bundle_dir / first["path"]).exists()
 
 
+def test_collect_rejects_non_mapping_evidence_source(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    for name in REQUIRED_ARTIFACTS:
+        _write_json(source / name, {"artifact": name})
+
+    with pytest.raises(ValueError, match="evidence_source must be an object"):
+        collect_promotion_evidence_bundle(
+            source,
+            tmp_path / "bundle",
+            candidate_id="candidate-1",
+            evidence_source=[("type", "promotion_bundle_export")],  # type: ignore[arg-type]
+        )
+
+
 def test_collect_rejects_non_string_required_artifact_entries(tmp_path: Path) -> None:
     source = tmp_path / "source"
     source.mkdir()
