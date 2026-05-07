@@ -180,3 +180,20 @@ def test_importer_rejects_negative_ohlcv_volume() -> None:
 
     with pytest.raises(ValueError, match="ohlcv volume must be non-negative"):
         _ohlcv_bar_lookup([record])
+
+
+def test_importer_rejects_invalid_ohlcv_quote_volume_when_present() -> None:
+    record = ImportedRawMarketRecord(
+        observed_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        payload={
+            "open": 100.0,
+            "high": 101.0,
+            "low": 99.0,
+            "close": 100.5,
+            "volume": 10.0,
+            "quote_asset_volume": "not-a-number",
+        },
+    )
+
+    with pytest.raises(ValueError, match="ohlcv quote volume must be numeric"):
+        _ohlcv_bar_lookup([record])

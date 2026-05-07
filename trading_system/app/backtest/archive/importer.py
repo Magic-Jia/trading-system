@@ -214,7 +214,12 @@ def _hourly_ohlcv_bar(record: ImportedRawMarketRecord) -> _OhlcvBar:
         high = _required_ohlcv_float(payload.get("high", max(open_value, close)), field="high", observed_at=record.observed_at)
         low = _required_ohlcv_float(payload.get("low", min(open_value, close)), field="low", observed_at=record.observed_at)
         base_volume = _required_ohlcv_float(payload.get("volume"), field="volume", observed_at=record.observed_at)
-        quote_volume = _to_float(payload.get("quote_asset_volume"), default=close * base_volume)
+        if "quote_asset_volume" in payload:
+            quote_volume = _required_ohlcv_float(
+                payload.get("quote_asset_volume"), field="quote volume", observed_at=record.observed_at
+            )
+        else:
+            quote_volume = close * base_volume
     elif isinstance(payload, (list, tuple)):
         if len(payload) < 6:
             raise ValueError(f"ohlcv array payload must match Binance kline layout: {record.observed_at}")
@@ -223,7 +228,10 @@ def _hourly_ohlcv_bar(record: ImportedRawMarketRecord) -> _OhlcvBar:
         high = _required_ohlcv_float(payload[2], field="high", observed_at=record.observed_at)
         low = _required_ohlcv_float(payload[3], field="low", observed_at=record.observed_at)
         base_volume = _required_ohlcv_float(payload[5], field="volume", observed_at=record.observed_at)
-        quote_volume = _to_float(payload[7], default=close * base_volume) if len(payload) > 7 else close * base_volume
+        if len(payload) > 7:
+            quote_volume = _required_ohlcv_float(payload[7], field="quote volume", observed_at=record.observed_at)
+        else:
+            quote_volume = close * base_volume
     else:
         raise ValueError(f"ohlcv record payload must be a JSON object: {record.observed_at}")
     if close <= 0.0:
