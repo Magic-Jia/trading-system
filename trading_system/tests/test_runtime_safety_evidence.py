@@ -129,3 +129,15 @@ def test_runtime_safety_gate_rejects_non_string_evidence_source_type() -> None:
         assert str(exc) == "evidence_source type must be a string"
     else:  # pragma: no cover - RED path until producer is hardened
         raise AssertionError("expected non-string evidence_source type to be rejected")
+
+
+def test_runtime_safety_gate_rejects_non_string_evidence_source_run_id() -> None:
+    manifest = _passing_manifest()
+    manifest["evidence_source"] = {"type": "paper_runtime_logs", "run_id": 123}
+
+    try:
+        build_runtime_safety_gate(manifest)
+    except ValueError as exc:
+        assert str(exc) == "evidence_source run_id must be a string"
+    else:  # pragma: no cover - RED path until producer is hardened
+        raise AssertionError("expected non-string evidence_source run_id to be rejected")
