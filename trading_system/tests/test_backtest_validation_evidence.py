@@ -116,3 +116,15 @@ def test_validation_gate_rejects_string_oos_numeric_fields() -> None:
         assert str(exc) == "oos baseline_net_pnl must be a number"
     else:  # pragma: no cover - RED path until producer is hardened
         raise AssertionError("expected string oos numeric field to be rejected")
+
+
+def test_validation_gate_rejects_non_boolean_forward_contamination_absent() -> None:
+    manifest = _passing_manifest()
+    manifest["forward_contamination"]["absent"] = "true"
+
+    try:
+        build_validation_gate(manifest)
+    except ValueError as exc:
+        assert str(exc) == "forward_contamination absent must be a boolean"
+    else:  # pragma: no cover - RED path until producer is hardened
+        raise AssertionError("expected non-boolean forward contamination flag to be rejected")

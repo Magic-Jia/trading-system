@@ -73,7 +73,10 @@ def build_validation_gate(manifest: Mapping[str, Any]) -> dict[str, Any]:
     cost_stress_positive_met = stressed_net_pnl is not None and stressed_net_pnl > 0
 
     forward = _mapping(manifest.get("forward_contamination", {}), "forward_contamination")
-    forward_contamination_absent_met = forward.get("absent") is True
+    forward_absent = forward.get("absent", False)
+    if not isinstance(forward_absent, bool):
+        raise ValueError("forward_contamination absent must be a boolean")
+    forward_contamination_absent_met = forward_absent
 
     checks = {
         "oos_non_degraded_met": oos_non_degraded_met,
