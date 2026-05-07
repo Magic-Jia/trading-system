@@ -31,6 +31,11 @@ def _integer_count(value: Any, name: str) -> int:
 
 
 def build_validation_gate(manifest: Mapping[str, Any]) -> dict[str, Any]:
+    unknown_manifest_fields = sorted(
+        set(manifest) - {"evidence_source", "oos", "regimes", "cost_stress", "forward_contamination"}
+    )
+    if unknown_manifest_fields:
+        raise ValueError("unknown validation manifest field: " + ", ".join(unknown_manifest_fields))
     raw_source = manifest.get("evidence_source")
     if raw_source is None:
         source: dict[str, Any] = {"type": "unknown_offline_records"}

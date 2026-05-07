@@ -164,3 +164,15 @@ def test_validation_gate_rejects_unknown_evidence_source_fields() -> None:
         assert str(exc) == "unknown evidence_source field: extra"
     else:  # pragma: no cover - RED path until producer is hardened
         raise AssertionError("expected unknown evidence_source field to be rejected")
+
+
+def test_validation_gate_rejects_unknown_manifest_fields() -> None:
+    manifest = _passing_manifest()
+    manifest["unexpected"] = "not-allowed"
+
+    try:
+        build_validation_gate(manifest)
+    except ValueError as exc:
+        assert str(exc) == "unknown validation manifest field: unexpected"
+    else:  # pragma: no cover - RED path until producer is hardened
+        raise AssertionError("expected unknown validation manifest field to be rejected")
