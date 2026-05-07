@@ -5550,6 +5550,21 @@ def test_live_readiness_gate_report_accepts_validation_evidence_artifact(tmp_pat
     assert "forward_contamination_unproven" not in report["promotion_gate"]["reasons"]
 
 
+def test_live_readiness_gate_rejects_negative_min_setup_trade_count(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+
+    report = build_live_readiness_gate_report(tmp_path, min_setup_trade_count=-1)
+
+    assert report["setup_quality_gate"]["checks"]["setup_min_sample_met"] is False
+    assert report["setup_quality_gate"]["invalid_config"] == [
+        {"field": "min_setup_trade_count", "value": -1, "error": "negative_threshold"}
+    ]
+    assert "setup_quality_config_invalid" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
+
 def test_live_readiness_gate_report_rejects_under_sampled_and_banned_setups(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     chunk.mkdir()

@@ -1902,12 +1902,18 @@ def _setup_quality_gate(
     banned_setup_types: Sequence[str] | None,
 ) -> dict[str, Any]:
     banned = sorted({str(item) for item in (banned_setup_types or []) if str(item)})
+    invalid_config: list[dict[str, Any]] = []
     under_sampled = []
     if min_setup_trade_count is not None:
-        threshold = max(0, int(min_setup_trade_count))
-        under_sampled = sorted(
-            key for key, bucket in by_setup.items() if int(bucket.get("trade_count") or 0) < threshold
-        )
+        threshold = int(min_setup_trade_count)
+        if threshold < 0:
+            invalid_config.append(
+                {"field": "min_setup_trade_count", "value": min_setup_trade_count, "error": "negative_threshold"}
+            )
+        else:
+            under_sampled = sorted(
+                key for key, bucket in by_setup.items() if int(bucket.get("trade_count") or 0) < threshold
+            )
     present_banned = sorted(key for key in banned if key in by_setup)
     return {
         "schema_version": "setup_quality_gate.v1",
@@ -1915,8 +1921,9 @@ def _setup_quality_gate(
         "banned_setup_types": banned,
         "under_sampled_setup_types": under_sampled,
         "banned_setup_types_present": present_banned,
+        "invalid_config": invalid_config,
         "checks": {
-            "setup_min_sample_met": not under_sampled,
+            "setup_min_sample_met": not under_sampled and not invalid_config,
             "banned_setup_types_absent": not present_banned,
         },
     }
@@ -2421,6 +2428,8 @@ def build_live_readiness_gate_report(
     if major_negative:
         reasons.append("major_setup_bucket_negative")
     setup_quality_checks = _as_mapping(setup_quality_gate.get("checks"))
+    if setup_quality_gate.get("invalid_config"):
+        reasons.append("setup_quality_config_invalid")
     if not setup_quality_checks.get("setup_min_sample_met", True):
         reasons.append("setup_min_sample_too_low")
     if not setup_quality_checks.get("banned_setup_types_absent", True):
