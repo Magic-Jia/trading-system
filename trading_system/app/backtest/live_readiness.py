@@ -3158,11 +3158,9 @@ def render_live_readiness_markdown(report: Mapping[str, Any]) -> str:
                 "",
                 "## Trade Postmortem Summary",
                 f"- schema_version: {postmortem.get('schema_version')}",
-                f"- trades: {int(postmortem_summary.get('trades') or 0)}",
-                f"- net_pnl: {float(postmortem_summary.get('net_pnl') or postmortem_summary.get('net') or 0.0):.2f}",
-                f"- cost_total: {float(postmortem_summary.get('cost_total') or postmortem_summary.get('cost') or 0.0):.2f}",
-                "",
-                "### Failure Taxonomy",
+                f"- trades: {_strict_bucket_int(postmortem_summary, 'trades')}",
+                f"- net_pnl: {_strict_bucket_float(postmortem_summary, 'net_pnl'):.2f}",
+                f"- cost_total: {_strict_bucket_float(postmortem_summary, 'cost_total'):.2f}",
             ]
         )
         reconciliation = _as_mapping(report.get("postmortem_reconciliation"))
