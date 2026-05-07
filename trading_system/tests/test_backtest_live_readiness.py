@@ -4023,6 +4023,28 @@ def test_live_readiness_gate_reports_bool_trade_notional_fields(tmp_path: Path) 
 
 
 
+def test_live_readiness_gate_allows_signed_funding_paid(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    payload = json.loads((chunk / "trades.json").read_text(encoding="utf-8"))
+    payload["trades"][0]["funding_paid"] = -0.5
+    payload["trades"][0]["gross_pnl"] = 1.0
+    payload["trades"][0]["net_pnl"] = 1.5
+    (chunk / "trades.json").write_text(json.dumps(payload), encoding="utf-8")
+    summary_payload = json.loads((chunk / "summary.json").read_text(encoding="utf-8"))
+    summary_payload["summary"]["cost_breakdown"]["funding"] = -0.5
+    (chunk / "summary.json").write_text(json.dumps(summary_payload), encoding="utf-8")
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    assert report["trade_financial_integrity"]["valid"] is True
+    assert report["trade_cost_sign_integrity"]["valid"] is True
+    assert report["trade_cost_sign_integrity"]["funding_paid_policy"] == "signed_funding_allowed"
+    assert report["trade_pnl_consistency"]["valid"] is True
+    assert "trade_financial_metric_invalid" not in report["promotion_gate"]["reasons"]
+
+
+
 def test_live_readiness_gate_reports_negative_trade_pnl_cost_fields(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     _write_profitable_trade_chunk(chunk)

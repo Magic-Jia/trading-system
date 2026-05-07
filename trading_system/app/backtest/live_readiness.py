@@ -22,7 +22,7 @@ DEPTH_CLASSIFICATIONS = (
 )
 
 TRADE_FINANCIAL_FIELDS = ("net_pnl", "gross_pnl", "fee_paid", "slippage_paid", "funding_paid")
-TRADE_COST_FIELDS = {"fee_paid", "slippage_paid", "funding_paid"}
+TRADE_COST_FIELDS = {"fee_paid", "slippage_paid"}
 TRADE_DIMENSION_FIELDS = ("symbol", "side", "setup_type")
 TRADE_TIME_FIELDS = ("entry_time", "exit_time")
 TRADE_PRICE_FIELDS = ("entry_price", "exit_price")
