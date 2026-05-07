@@ -237,3 +237,13 @@ def test_importer_rejects_crossed_order_book_prices() -> None:
 
     with pytest.raises(ValueError, match="order book ask must be greater than or equal to bid"):
         _order_book_payload(record, symbol="BTCUSDT")
+
+
+def test_importer_rejects_invalid_order_book_size_fields_when_present() -> None:
+    record = ImportedRawMarketRecord(
+        observed_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        payload={"symbol": "BTCUSDT", "bid": 100.0, "ask": 101.0, "bid_size": "not-a-number"},
+    )
+
+    with pytest.raises(ValueError, match="order book bid_size must be numeric"):
+        _order_book_payload(record, symbol="BTCUSDT")

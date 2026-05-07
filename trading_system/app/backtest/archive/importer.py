@@ -596,11 +596,25 @@ def _order_book_payload(record: ImportedRawMarketRecord, *, symbol: str) -> dict
         "bid": bid,
         "ask": ask,
     }
-    bid_size = _positive_execution_float(payload.get("bid_size", payload.get("bidSize")))
-    ask_size = _positive_execution_float(payload.get("ask_size", payload.get("askSize")))
-    if bid_size is not None:
+    if "bid_size" in payload:
+        bid_size = _required_positive_execution_float(
+            payload.get("bid_size"), field="order book bid_size", observed_at=record.observed_at
+        )
         result["bid_size"] = bid_size
-    if ask_size is not None:
+    elif "bidSize" in payload:
+        bid_size = _required_positive_execution_float(
+            payload.get("bidSize"), field="order book bidSize", observed_at=record.observed_at
+        )
+        result["bid_size"] = bid_size
+    if "ask_size" in payload:
+        ask_size = _required_positive_execution_float(
+            payload.get("ask_size"), field="order book ask_size", observed_at=record.observed_at
+        )
+        result["ask_size"] = ask_size
+    elif "askSize" in payload:
+        ask_size = _required_positive_execution_float(
+            payload.get("askSize"), field="order book askSize", observed_at=record.observed_at
+        )
         result["ask_size"] = ask_size
     return result
 
