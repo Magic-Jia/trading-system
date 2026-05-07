@@ -131,6 +131,9 @@ def build_microstructure_gate(
         raise ValueError("evidence_source must be an object")
     evidence_source = dict(evidence_source)
     evidence_source.setdefault("type", "synthetic_fixture")
+    unknown_source_fields = sorted(set(evidence_source) - {"type", "run_id", "exported_at"})
+    if unknown_source_fields:
+        raise ValueError("unknown evidence_source field: " + ", ".join(unknown_source_fields))
     if not isinstance(evidence_source.get("type"), str):
         raise ValueError("evidence_source type must be a string")
     if not evidence_source["type"].strip():

@@ -14,7 +14,7 @@ from trading_system.app.backtest.microstructure_evidence import (
 
 def test_builds_synthetic_microstructure_gate_when_coverage_is_sufficient(tmp_path: Path) -> None:
     manifest = {
-        "evidence_source": {"type": "synthetic_fixture", "label": "unit-test-only"},
+        "evidence_source": {"type": "synthetic_fixture", "run_id": "unit-test-only"},
         "coverage": {
             "l2_snapshot_coverage": 0.995,
             "l2_update_coverage": 0.992,
@@ -25,7 +25,7 @@ def test_builds_synthetic_microstructure_gate_when_coverage_is_sufficient(tmp_pa
     gate = build_microstructure_gate(manifest, min_coverage=0.99)
 
     assert gate["schema_version"] == "market_microstructure_gate_input.v1"
-    assert gate["evidence_source"] == {"type": "synthetic_fixture", "label": "unit-test-only"}
+    assert gate["evidence_source"] == {"type": "synthetic_fixture", "run_id": "unit-test-only"}
     assert gate["checks"] == {
         "l2_tick_coverage_met": True,
         "depth_driven_taker_met": False,
@@ -235,6 +235,20 @@ def test_microstructure_gate_rejects_non_string_evidence_source_run_id() -> None
         build_microstructure_gate(
             {
                 "evidence_source": {"type": "historical_l2_tick_archive", "run_id": 123},
+                "coverage": {
+                    "l2_snapshot_coverage": 1.0,
+                    "l2_update_coverage": 1.0,
+                    "tick_coverage": 1.0,
+                },
+            }
+        )
+
+
+def test_microstructure_gate_rejects_unknown_evidence_source_fields() -> None:
+    with pytest.raises(ValueError, match="unknown evidence_source field: extra"):
+        build_microstructure_gate(
+            {
+                "evidence_source": {"type": "historical_l2_tick_archive", "extra": "not-allowed"},
                 "coverage": {
                     "l2_snapshot_coverage": 1.0,
                     "l2_update_coverage": 1.0,
