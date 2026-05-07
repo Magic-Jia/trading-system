@@ -128,3 +128,15 @@ def test_validation_gate_rejects_non_boolean_forward_contamination_absent() -> N
         assert str(exc) == "forward_contamination absent must be a boolean"
     else:  # pragma: no cover - RED path until producer is hardened
         raise AssertionError("expected non-boolean forward contamination flag to be rejected")
+
+
+def test_validation_gate_rejects_non_string_evidence_source_type() -> None:
+    manifest = _passing_manifest()
+    manifest["evidence_source"] = {"type": 123}
+
+    try:
+        build_validation_gate(manifest)
+    except ValueError as exc:
+        assert str(exc) == "evidence_source type must be a string"
+    else:  # pragma: no cover - RED path until producer is hardened
+        raise AssertionError("expected non-string evidence_source type to be rejected")
