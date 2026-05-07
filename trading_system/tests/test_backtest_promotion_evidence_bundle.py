@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -675,3 +677,62 @@ def test_collect_requires_explicit_evidence_source(tmp_path: Path) -> None:
             tmp_path / "bundle",
             candidate_id="candidate-1",
         )
+
+def test_promotion_bundle_cli_collect_requires_evidence_source_type(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    for name in REQUIRED_ARTIFACTS:
+        _write_json(source / name, {"artifact": name})
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "trading_system.app.backtest.promotion_evidence_bundle",
+            "--source-dir",
+            str(source),
+            "--bundle-dir",
+            str(tmp_path / "bundle"),
+            "--candidate-id",
+            "candidate-1",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert "--evidence-source-type" in result.stderr
+
+
+def test_promotion_bundle_cli_collect_accepts_live_grade_evidence_source(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    for name in REQUIRED_ARTIFACTS:
+        _write_json(source / name, {"artifact": name})
+    bundle = tmp_path / "bundle"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "trading_system.app.backtest.promotion_evidence_bundle",
+            "--source-dir",
+            str(source),
+            "--bundle-dir",
+            str(bundle),
+            "--candidate-id",
+            "candidate-1",
+            "--evidence-source-type",
+            "promotion_bundle_export",
+            "--evidence-source-run-id",
+            "bundle-1",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0
+    manifest = json.loads((bundle / "promotion_evidence_manifest.json").read_text())
+    assert manifest["evidence_source"] == {"type": "promotion_bundle_export", "run_id": "bundle-1"}

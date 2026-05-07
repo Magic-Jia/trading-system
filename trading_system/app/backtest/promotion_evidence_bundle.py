@@ -481,6 +481,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--source-dir")
     parser.add_argument("--bundle-dir", required=True)
     parser.add_argument("--candidate-id")
+    parser.add_argument("--evidence-source-type")
+    parser.add_argument("--evidence-source-run-id")
+    parser.add_argument("--evidence-source-exported-at")
     parser.add_argument("--verify-only", action="store_true")
     parser.add_argument("--verification-report-out", help="Write verify-only JSON result to this path")
     args = parser.parse_args(argv)
@@ -494,11 +497,19 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if result["verified"] else 1
     if not args.source_dir or not args.candidate_id:
         parser.error("--source-dir and --candidate-id are required unless --verify-only is used")
+    if not args.evidence_source_type:
+        parser.error("--evidence-source-type is required unless --verify-only is used")
+    evidence_source = {"type": args.evidence_source_type}
+    if args.evidence_source_run_id is not None:
+        evidence_source["run_id"] = args.evidence_source_run_id
+    if args.evidence_source_exported_at is not None:
+        evidence_source["exported_at"] = args.evidence_source_exported_at
     print(
         collect_promotion_evidence_bundle(
             args.source_dir,
             args.bundle_dir,
             candidate_id=args.candidate_id,
+            evidence_source=evidence_source,
         )
     )
     return 0
