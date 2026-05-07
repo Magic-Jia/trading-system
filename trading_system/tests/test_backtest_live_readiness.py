@@ -141,6 +141,31 @@ def test_stdout_concentration_summary_rejects_non_strict_bucket() -> None:
         _stdout_concentration_summary(report)
 
 
+def test_markdown_renderer_rejects_non_strict_setup_rewrite_totals() -> None:
+    report = {
+        "promotion_gate": {"decision": "hold", "reasons": [], "checks": {}},
+        "totals": {
+            "trade_count": 1,
+            "net_pnl": 1.0,
+            "evidence_coverage": 1.0,
+            "exit_evidence_coverage": 1.0,
+            "exit_path_ambiguity_rate": 0.0,
+        },
+        "setup_rewrite_diagnostic": {
+            "totals": {
+                "evaluated_count": "1",
+                "would_keep_count": 1,
+                "skipped_count": 0,
+                "keep_rate": 1.0,
+            }
+        },
+        "caveats": [],
+    }
+
+    with pytest.raises(ValueError, match="evaluated_count must be a strict integer"):
+        render_live_readiness_markdown(report)
+
+
 def test_markdown_renderer_rejects_non_strict_totals() -> None:
     report = {
         "promotion_gate": {"decision": "hold", "reasons": [], "checks": {}},

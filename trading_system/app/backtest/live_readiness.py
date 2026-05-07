@@ -3145,10 +3145,10 @@ def render_live_readiness_markdown(report: Mapping[str, Any]) -> str:
         setup_totals = _as_mapping(setup_rewrite.get("totals"))
         lines.append(
             "- setup_rewrite: "
-            f"evaluated={int(setup_totals.get('evaluated_count') or 0)}, "
-            f"would_keep={int(setup_totals.get('would_keep_count') or 0)}, "
-            f"skipped={int(setup_totals.get('skipped_count') or 0)}, "
-            f"keep_rate={float(setup_totals.get('keep_rate') or 0.0):.2%}"
+            f"evaluated={_strict_bucket_int(setup_totals, 'evaluated_count')}, "
+            f"would_keep={_strict_bucket_int(setup_totals, 'would_keep_count')}, "
+            f"skipped={_strict_bucket_int(setup_totals, 'skipped_count')}, "
+            f"keep_rate={_strict_bucket_float(setup_totals, 'keep_rate'):.2%}"
         )
     postmortem = _as_mapping(report.get("trade_postmortem_summary"))
     if postmortem:
