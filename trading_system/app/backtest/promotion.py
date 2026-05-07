@@ -95,12 +95,13 @@ def _validate_runtime_observability_plan(payload: Mapping[str, Any], *, context:
         if not isinstance(plan, Mapping):
             raise ValueError(f"{context}.{field_name} must be an object")
         runtime_fields = plan.get("runtime_fields")
-        if not (
-            isinstance(runtime_fields, list)
-            and runtime_fields
-            and all(isinstance(item, str) and item.strip() for item in runtime_fields)
-        ):
+        if not (isinstance(runtime_fields, list) and runtime_fields):
             raise ValueError(f"{context}.{field_name}.runtime_fields must be a list of strings")
+        for item in runtime_fields:
+            if not isinstance(item, str) or not item.strip():
+                raise ValueError(f"{context}.{field_name}.runtime_fields must be a list of strings")
+            if item != item.strip():
+                raise ValueError(f"{context}.{field_name}.runtime_fields must be canonical strings")
 
 
 def _validate_rollback_plan(payload: Mapping[str, Any], *, context: str) -> None:
