@@ -28,6 +28,12 @@ def test_phase1_dataset_root_summary_rejects_non_strict_snapshot_count() -> None
     with pytest.raises(ValueError, match="snapshot_count must be a non-negative integer"):
         archive_importer._phase1_dataset_root_summary_fields({"snapshot_count": True})
 
+
+def test_archive_root_from_manifest_paths_rejects_non_string_path_entries() -> None:
+    with pytest.raises(ValueError, match="source manifest_paths entries\\[0\\] must be a string"):
+        archive_importer._archive_root_from_manifest_paths([123])
+
+
 def _timestamp_ms(value: datetime) -> int:
     return int(value.timestamp() * 1000)
 
