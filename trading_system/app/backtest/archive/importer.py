@@ -423,7 +423,15 @@ def _symbol_metadata_float(
 ) -> float:
     if symbol_metadata is None:
         return default
-    return _to_float(symbol_metadata.get(field), default=default)
+    value = symbol_metadata.get(field)
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        raise ValueError(f"symbol_metadata {field} must be numeric")
+    parsed = float(value)
+    if not parsed == parsed or parsed in {float("inf"), float("-inf")}:
+        raise ValueError(f"symbol_metadata {field} must be finite")
+    if parsed <= 0.0:
+        raise ValueError(f"symbol_metadata {field} must be positive")
+    return parsed
 
 
 def _has_complete_funding_series(

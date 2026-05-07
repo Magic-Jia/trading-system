@@ -2069,6 +2069,24 @@ def test_write_phase1_dataset_bundle_materializes_instrument_snapshot_file(tmp_p
     }
 
 
+def test_symbol_metadata_float_rejects_numeric_strings() -> None:
+    with pytest.raises(ValueError, match="symbol_metadata quantity_step must be numeric"):
+        archive_importer._symbol_metadata_float(
+            symbol_metadata={"quantity_step": "0.001"},
+            field="quantity_step",
+            default=1.0,
+        )
+
+
+def test_symbol_metadata_float_rejects_bool() -> None:
+    with pytest.raises(ValueError, match="symbol_metadata price_tick must be numeric"):
+        archive_importer._symbol_metadata_float(
+            symbol_metadata={"price_tick": True},
+            field="price_tick",
+            default=1.0,
+        )
+
+
 def test_symbol_metadata_timestamp_rejects_non_string_listing_timestamp(tmp_path: Path) -> None:
     archive_root = tmp_path / "archive"
     _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT")
