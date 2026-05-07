@@ -27,7 +27,7 @@ def test_collects_required_evidence_artifacts_with_checksums(tmp_path: Path) -> 
         source,
         tmp_path / "bundle",
         candidate_id="candidate-1",
-        evidence_source={"type": "synthetic_fixture"},
+        evidence_source={"type": "promotion_bundle_export", "run_id": "bundle-1"},
     )
 
     manifest_path = bundle_dir / "promotion_evidence_manifest.json"
@@ -35,7 +35,7 @@ def test_collects_required_evidence_artifacts_with_checksums(tmp_path: Path) -> 
     assert manifest["schema_version"] == "promotion_evidence_bundle.v1"
     assert manifest["candidate_id"] == "candidate-1"
     assert manifest["decision"] == "bundle_complete"
-    assert manifest["evidence_source"] == {"type": "synthetic_fixture"}
+    assert manifest["evidence_source"] == {"type": "promotion_bundle_export", "run_id": "bundle-1"}
     assert manifest["missing_artifacts"] == []
     assert [artifact["path"] for artifact in manifest["artifacts"]] == list(REQUIRED_ARTIFACTS)
     first = manifest["artifacts"][0]
@@ -170,7 +170,12 @@ def test_collected_bundle_can_be_consumed_by_live_readiness_smoke(tmp_path: Path
         },
     )
 
-    bundle_dir = collect_promotion_evidence_bundle(source, tmp_path / "bundle", candidate_id="candidate-1")
+    bundle_dir = collect_promotion_evidence_bundle(
+        source,
+        tmp_path / "bundle",
+        candidate_id="candidate-1",
+        evidence_source={"type": "promotion_bundle_export", "run_id": "bundle-1"},
+    )
 
     from trading_system.app.backtest.live_readiness import write_live_readiness_smoke_report
 
@@ -359,7 +364,12 @@ def test_bundle_verifier_rejects_invalid_manifest_schema_version(tmp_path: Path)
     source.mkdir()
     for name in REQUIRED_ARTIFACTS:
         _write_json(source / name, {"artifact": name, "synthetic": True})
-    bundle_dir = collect_promotion_evidence_bundle(source, tmp_path / "bundle", candidate_id="candidate-1")
+    bundle_dir = collect_promotion_evidence_bundle(
+        source,
+        tmp_path / "bundle",
+        candidate_id="candidate-1",
+        evidence_source={"type": "promotion_bundle_export", "run_id": "bundle-1"},
+    )
     manifest_path = bundle_dir / "promotion_evidence_manifest.json"
     manifest = json.loads(manifest_path.read_text())
     manifest["schema_version"] = "promotion_evidence_bundle.v0"
@@ -377,7 +387,12 @@ def test_bundle_verifier_rejects_required_artifact_missing_checksum_metadata(tmp
     source.mkdir()
     for name in REQUIRED_ARTIFACTS:
         _write_json(source / name, {"artifact": name, "synthetic": True})
-    bundle_dir = collect_promotion_evidence_bundle(source, tmp_path / "bundle", candidate_id="candidate-1")
+    bundle_dir = collect_promotion_evidence_bundle(
+        source,
+        tmp_path / "bundle",
+        candidate_id="candidate-1",
+        evidence_source={"type": "promotion_bundle_export", "run_id": "bundle-1"},
+    )
     manifest_path = bundle_dir / "promotion_evidence_manifest.json"
     manifest = json.loads(manifest_path.read_text())
     missing_digest = REQUIRED_ARTIFACTS[0]
@@ -396,7 +411,12 @@ def test_bundle_verifier_rejects_required_artifact_invalid_byte_metadata(tmp_pat
     source.mkdir()
     for name in REQUIRED_ARTIFACTS:
         _write_json(source / name, {"artifact": name, "synthetic": True})
-    bundle_dir = collect_promotion_evidence_bundle(source, tmp_path / "bundle", candidate_id="candidate-1")
+    bundle_dir = collect_promotion_evidence_bundle(
+        source,
+        tmp_path / "bundle",
+        candidate_id="candidate-1",
+        evidence_source={"type": "promotion_bundle_export", "run_id": "bundle-1"},
+    )
     manifest_path = bundle_dir / "promotion_evidence_manifest.json"
     manifest = json.loads(manifest_path.read_text())
     invalid_bytes = REQUIRED_ARTIFACTS[0]
@@ -415,7 +435,12 @@ def test_bundle_verifier_rejects_duplicate_artifact_manifest_entries(tmp_path: P
     source.mkdir()
     for name in REQUIRED_ARTIFACTS:
         _write_json(source / name, {"artifact": name, "synthetic": True})
-    bundle_dir = collect_promotion_evidence_bundle(source, tmp_path / "bundle", candidate_id="candidate-1")
+    bundle_dir = collect_promotion_evidence_bundle(
+        source,
+        tmp_path / "bundle",
+        candidate_id="candidate-1",
+        evidence_source={"type": "promotion_bundle_export", "run_id": "bundle-1"},
+    )
     manifest_path = bundle_dir / "promotion_evidence_manifest.json"
     manifest = json.loads(manifest_path.read_text())
     duplicated = manifest["artifacts"][0]["path"]
@@ -434,7 +459,12 @@ def test_bundle_verifier_rejects_missing_candidate_id(tmp_path: Path) -> None:
     source.mkdir()
     for name in REQUIRED_ARTIFACTS:
         _write_json(source / name, {"artifact": name, "synthetic": True})
-    bundle_dir = collect_promotion_evidence_bundle(source, tmp_path / "bundle", candidate_id="candidate-1")
+    bundle_dir = collect_promotion_evidence_bundle(
+        source,
+        tmp_path / "bundle",
+        candidate_id="candidate-1",
+        evidence_source={"type": "promotion_bundle_export", "run_id": "bundle-1"},
+    )
     manifest_path = bundle_dir / "promotion_evidence_manifest.json"
     manifest = json.loads(manifest_path.read_text())
     manifest.pop("candidate_id")
@@ -452,7 +482,12 @@ def test_bundle_verifier_rejects_artifact_path_traversal(tmp_path: Path) -> None
     source.mkdir()
     for name in REQUIRED_ARTIFACTS:
         _write_json(source / name, {"artifact": name, "synthetic": True})
-    bundle_dir = collect_promotion_evidence_bundle(source, tmp_path / "bundle", candidate_id="candidate-1")
+    bundle_dir = collect_promotion_evidence_bundle(
+        source,
+        tmp_path / "bundle",
+        candidate_id="candidate-1",
+        evidence_source={"type": "promotion_bundle_export", "run_id": "bundle-1"},
+    )
     manifest_path = bundle_dir / "promotion_evidence_manifest.json"
     manifest = json.loads(manifest_path.read_text())
     manifest["artifacts"][0]["path"] = "../outside.json"
@@ -471,7 +506,12 @@ def test_bundle_verifier_rejects_required_artifact_missing_manifest_entry(tmp_pa
     source.mkdir()
     for name in REQUIRED_ARTIFACTS:
         _write_json(source / name, {"artifact": name, "synthetic": True})
-    bundle_dir = collect_promotion_evidence_bundle(source, tmp_path / "bundle", candidate_id="candidate-1")
+    bundle_dir = collect_promotion_evidence_bundle(
+        source,
+        tmp_path / "bundle",
+        candidate_id="candidate-1",
+        evidence_source={"type": "promotion_bundle_export", "run_id": "bundle-1"},
+    )
     manifest_path = bundle_dir / "promotion_evidence_manifest.json"
     manifest = json.loads(manifest_path.read_text())
     omitted = REQUIRED_ARTIFACTS[0]
@@ -490,7 +530,12 @@ def test_bundle_verifier_rejects_manifest_that_omits_default_required_artifact(t
     source.mkdir()
     for name in REQUIRED_ARTIFACTS:
         _write_json(source / name, {"artifact": name, "synthetic": True})
-    bundle_dir = collect_promotion_evidence_bundle(source, tmp_path / "bundle", candidate_id="candidate-1")
+    bundle_dir = collect_promotion_evidence_bundle(
+        source,
+        tmp_path / "bundle",
+        candidate_id="candidate-1",
+        evidence_source={"type": "promotion_bundle_export", "run_id": "bundle-1"},
+    )
     manifest_path = bundle_dir / "promotion_evidence_manifest.json"
     manifest = json.loads(manifest_path.read_text())
     omitted = REQUIRED_ARTIFACTS[0]
@@ -538,7 +583,13 @@ def test_bundle_collector_fails_closed_when_required_artifact_missing(tmp_path: 
     _write_json(source / "market_microstructure_gate.json", {"artifact": "market_microstructure_gate.json"})
 
     with pytest.raises(FileNotFoundError, match="passive_order_calibration_summary.json"):
-        collect_promotion_evidence_bundle(source, tmp_path / "bundle", candidate_id="candidate-1")
+        collect_promotion_evidence_bundle(
+            source,
+            tmp_path / "bundle",
+            candidate_id="candidate-1",
+            evidence_source={"type": "promotion_bundle_export", "run_id": "bundle-1"},
+        )
+
 
 def test_collect_rejects_unknown_evidence_source_fields(tmp_path: Path) -> None:
     source = tmp_path / "source"
@@ -580,4 +631,18 @@ def test_collect_rejects_non_string_evidence_source_run_id(tmp_path: Path) -> No
             tmp_path / "bundle",
             candidate_id="candidate-1",
             evidence_source={"type": "promotion_bundle_export", "run_id": 123},
+        )
+
+def test_collect_rejects_non_live_grade_evidence_source_type(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    for name in REQUIRED_ARTIFACTS:
+        _write_json(source / name, {"artifact": name})
+
+    with pytest.raises(ValueError, match="evidence_source type must be live-grade"):
+        collect_promotion_evidence_bundle(
+            source,
+            tmp_path / "bundle",
+            candidate_id="candidate-1",
+            evidence_source={"type": "synthetic_fixture", "run_id": "bundle-1"},
         )

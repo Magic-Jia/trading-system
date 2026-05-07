@@ -89,6 +89,15 @@ def collect_promotion_evidence_bundle(
         raise ValueError("evidence_source type must be a string")
     if not source_payload["type"].strip():
         raise ValueError("evidence_source type must be non-empty")
+    if source_payload["type"].strip().lower() in {
+        "synthetic",
+        "synthetic_fixture",
+        "simulated",
+        "offline_simulation",
+        "unknown",
+        "unknown_offline_records",
+    }:
+        raise ValueError("evidence_source type must be live-grade")
     for optional_field in ("run_id", "exported_at"):
         optional_value = source_payload.get(optional_field)
         if optional_value is not None and not isinstance(optional_value, str):

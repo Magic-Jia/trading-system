@@ -357,7 +357,12 @@ def test_live_readiness_smoke_report_rejects_tampered_promotion_bundle(tmp_path:
         ),
         encoding="utf-8",
     )
-    bundle_dir = collect_promotion_evidence_bundle(source, tmp_path / "bundle", candidate_id="candidate-1")
+    bundle_dir = collect_promotion_evidence_bundle(
+        source,
+        tmp_path / "bundle",
+        candidate_id="candidate-1",
+        evidence_source={"type": "promotion_bundle_export", "run_id": "bundle-1"},
+    )
     (bundle_dir / "trades.json").write_text(json.dumps({"trades": [{**trade, "net_pnl": 101.0}]}), encoding="utf-8")
 
     report = write_live_readiness_smoke_report(
@@ -500,8 +505,12 @@ def test_promotion_bundle_verification_rejects_synthetic_evidence_source(tmp_pat
         source,
         tmp_path / "bundle",
         candidate_id="candidate-1",
-        evidence_source={"type": "synthetic_fixture"},
+        evidence_source={"type": "promotion_bundle_export", "run_id": "bundle-1"},
     )
+    manifest_path = bundle_dir / "promotion_evidence_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["evidence_source"] = {"type": "synthetic_fixture", "run_id": "bundle-1"}
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
 
     integrity = verify_promotion_evidence_bundle(bundle_dir)
 
@@ -1761,7 +1770,12 @@ def test_live_readiness_markdown_shows_bundle_manifest_and_metadata_errors(tmp_p
         ),
         encoding="utf-8",
     )
-    bundle_dir = collect_promotion_evidence_bundle(source, tmp_path / "bundle", candidate_id="candidate-1")
+    bundle_dir = collect_promotion_evidence_bundle(
+        source,
+        tmp_path / "bundle",
+        candidate_id="candidate-1",
+        evidence_source={"type": "promotion_bundle_export", "run_id": "bundle-1"},
+    )
     manifest_path = bundle_dir / "promotion_evidence_manifest.json"
     manifest = json.loads(manifest_path.read_text())
     manifest["artifacts"][0].pop("sha256")
