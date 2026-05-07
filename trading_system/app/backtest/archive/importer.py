@@ -565,6 +565,18 @@ def _positive_execution_float(value: Any) -> float | None:
     return parsed if parsed > 0.0 else None
 
 
+def _required_positive_execution_float(value: Any, *, field: str, observed_at: datetime) -> float:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{field} must be numeric: {observed_at}") from exc
+    if not parsed == parsed or parsed in {float("inf"), float("-inf")}:
+        raise ValueError(f"{field} must be finite: {observed_at}")
+    if parsed <= 0.0:
+        raise ValueError(f"{field} must be positive: {observed_at}")
+    return parsed
+
+
 def _execution_symbol_matches(payload: Mapping[str, Any], symbol: str) -> bool:
     raw_symbol = payload.get("symbol")
     return raw_symbol is None or str(raw_symbol).upper() == symbol.upper()
@@ -574,10 +586,10 @@ def _order_book_payload(record: ImportedRawMarketRecord, *, symbol: str) -> dict
     payload = record.payload
     if not isinstance(payload, Mapping) or not _execution_symbol_matches(payload, symbol):
         return None
-    bid = _positive_execution_float(payload.get("bid"))
-    ask = _positive_execution_float(payload.get("ask"))
-    if bid is None or ask is None or ask < bid:
-        return None
+    bid = _required_positive_execution_float(payload.get("bid"), field="order book bid", observed_at=record.observed_at)
+    ask = _required_positive_execution_float(payload.get("ask"), field="order book ask", observed_at=record.observed_at)
+    if ask < bid:
+        raise ValueError(f"order book ask must be greater than or equal to bid: {record.observed_at}")
     result: dict[str, Any] = {
         "timestamp": _utc_timestamp(record.observed_at),
         "symbol": symbol,

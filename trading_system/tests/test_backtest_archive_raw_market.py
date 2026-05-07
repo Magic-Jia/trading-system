@@ -11,7 +11,7 @@ from trading_system.app.backtest.archive.raw_market import (
     ImportedRawMarketRecord,
     load_phase1_raw_market_manifest,
 )
-from trading_system.app.backtest.archive.importer import _ohlcv_bar_lookup, _trade_payload
+from trading_system.app.backtest.archive.importer import _ohlcv_bar_lookup, _order_book_payload, _trade_payload
 
 
 def test_load_raw_market_manifest_fails_fast_on_duplicate_file_timestamps(tmp_path: Path) -> None:
@@ -217,3 +217,23 @@ def test_importer_rejects_non_boolean_trade_maker_flag() -> None:
 
     with pytest.raises(ValueError, match="trade maker flag must be boolean"):
         _trade_payload(record, symbol="BTCUSDT")
+
+
+def test_importer_rejects_invalid_order_book_numeric_fields() -> None:
+    record = ImportedRawMarketRecord(
+        observed_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        payload={"symbol": "BTCUSDT", "bid": "not-a-number", "ask": 101.0},
+    )
+
+    with pytest.raises(ValueError, match="order book bid must be numeric"):
+        _order_book_payload(record, symbol="BTCUSDT")
+
+
+def test_importer_rejects_crossed_order_book_prices() -> None:
+    record = ImportedRawMarketRecord(
+        observed_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        payload={"symbol": "BTCUSDT", "bid": 102.0, "ask": 101.0},
+    )
+
+    with pytest.raises(ValueError, match="order book ask must be greater than or equal to bid"):
+        _order_book_payload(record, symbol="BTCUSDT")
