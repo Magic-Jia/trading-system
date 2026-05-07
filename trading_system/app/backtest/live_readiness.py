@@ -3116,6 +3116,20 @@ def write_live_readiness_smoke_report(
     return report
 
 
+def _canonical_string_list(mapping: Mapping[str, Any], key: str) -> list[str]:
+    raw_values = mapping.get(key, [])
+    if raw_values is None:
+        raw_values = []
+    if not isinstance(raw_values, list):
+        raise ValueError(f"{key} must be a list")
+    values: list[str] = []
+    for value in raw_values:
+        if not isinstance(value, str) or not value.strip() or value != value.strip():
+            raise ValueError(f"{key} entries must be canonical strings")
+        values.append(value)
+    return values
+
+
 def _format_strict_bool(mapping: Mapping[str, Any], key: str) -> str:
     return str(_strict_report_bool(mapping, key)).lower()
 
@@ -3225,19 +3239,19 @@ def render_live_readiness_markdown(report: Mapping[str, Any]) -> str:
                 f"- verified: {_format_strict_bool(promotion_bundle_integrity, 'verified')}",
                 f"- manifest_present: {_format_strict_bool(promotion_bundle_integrity, 'manifest_present')}",
                 "- manifest_errors: "
-                + (", ".join(str(item) for item in promotion_bundle_integrity.get("manifest_errors", [])) or "none"),
+                + (", ".join(_canonical_string_list(promotion_bundle_integrity, "manifest_errors")) or "none"),
                 "- missing_artifacts: "
-                + (", ".join(str(item) for item in promotion_bundle_integrity.get("missing_artifacts", [])) or "none"),
+                + (", ".join(_canonical_string_list(promotion_bundle_integrity, "missing_artifacts")) or "none"),
                 "- sha256_mismatches: "
-                + (", ".join(str(item) for item in promotion_bundle_integrity.get("sha256_mismatches", [])) or "none"),
+                + (", ".join(_canonical_string_list(promotion_bundle_integrity, "sha256_mismatches")) or "none"),
                 "- byte_size_mismatches: "
-                + (", ".join(str(item) for item in promotion_bundle_integrity.get("byte_size_mismatches", [])) or "none"),
+                + (", ".join(_canonical_string_list(promotion_bundle_integrity, "byte_size_mismatches")) or "none"),
                 "- missing_artifact_metadata: "
-                + (", ".join(str(item) for item in promotion_bundle_integrity.get("missing_artifact_metadata", [])) or "none"),
+                + (", ".join(_canonical_string_list(promotion_bundle_integrity, "missing_artifact_metadata")) or "none"),
                 "- invalid_artifact_metadata: "
-                + (", ".join(str(item) for item in promotion_bundle_integrity.get("invalid_artifact_metadata", [])) or "none"),
+                + (", ".join(_canonical_string_list(promotion_bundle_integrity, "invalid_artifact_metadata")) or "none"),
                 "- duplicate_artifact_paths: "
-                + (", ".join(str(item) for item in promotion_bundle_integrity.get("duplicate_artifact_paths", [])) or "none"),
+                + (", ".join(_canonical_string_list(promotion_bundle_integrity, "duplicate_artifact_paths")) or "none"),
             ]
         )
     if setup_quality:
@@ -3248,9 +3262,9 @@ def render_live_readiness_markdown(report: Mapping[str, Any]) -> str:
                 f"- schema_version: {setup_quality.get('schema_version')}",
                 f"- min_setup_trade_count: {setup_quality.get('min_setup_trade_count') if setup_quality.get('min_setup_trade_count') is not None else 'disabled'}",
                 "- under_sampled_setup_types: "
-                + (", ".join(str(item) for item in setup_quality.get("under_sampled_setup_types", [])) or "none"),
+                + (", ".join(_canonical_string_list(setup_quality, "under_sampled_setup_types")) or "none"),
                 "- banned_setup_types_present: "
-                + (", ".join(str(item) for item in setup_quality.get("banned_setup_types_present", [])) or "none"),
+                + (", ".join(_canonical_string_list(setup_quality, "banned_setup_types_present")) or "none"),
             ]
         )
     runtime_safety = _as_mapping(report.get("runtime_safety_gate"))
@@ -3324,7 +3338,7 @@ def render_live_readiness_markdown(report: Mapping[str, Any]) -> str:
         )
         missing_ids = exit_reconciliation.get("missing_trade_ids") or []
         if missing_ids:
-            lines.append("- missing_trade_ids: " + ", ".join(str(item) for item in missing_ids[:10]))
+            lines.append("- missing_trade_ids: " + ", ".join(_canonical_string_list(exit_reconciliation, "missing_trade_ids")[:10]))
     passive_calibration = _as_mapping(report.get("passive_calibration"))
     if passive_calibration:
         lines.extend(
