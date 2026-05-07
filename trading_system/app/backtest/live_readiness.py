@@ -2287,6 +2287,23 @@ def _passive_calibration_diagnostic(
     }
 
 
+def _strict_bucket_int(bucket: Mapping[str, Any], key: str) -> int:
+    value = bucket.get(key, 0)
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"{key} must be a strict integer")
+    return value
+
+
+def _strict_bucket_float(bucket: Mapping[str, Any], key: str) -> float:
+    value = bucket.get(key, 0.0)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{key} must be a strict number")
+    parsed = float(value)
+    if not math.isfinite(parsed):
+        raise ValueError(f"{key} must be finite")
+    return parsed
+
+
 def _dominance_from_gate_buckets(
     buckets: Mapping[str, Mapping[str, Any]],
     *,
@@ -2301,17 +2318,25 @@ def _dominance_from_gate_buckets(
         return None
     if sort_by == "loss_abs":
         sort_key = lambda item: (
-            abs(min(_float_value(item[1].get(net_key)), 0.0)),
-            int(item[1].get(trade_count_key, 0)),
+            abs(min(_strict_bucket_float(item[1], net_key), 0.0)),
+            _strict_bucket_int(item[1], trade_count_key),
             item[0],
         )
     elif sort_by == "net_abs":
-        sort_key = lambda item: (abs(_float_value(item[1].get(net_key))), int(item[1].get(trade_count_key, 0)), item[0])
+        sort_key = lambda item: (
+            abs(_strict_bucket_float(item[1], net_key)),
+            _strict_bucket_int(item[1], trade_count_key),
+            item[0],
+        )
     else:
-        sort_key = lambda item: (int(item[1].get(trade_count_key, 0)), abs(_float_value(item[1].get(net_key))), item[0])
+        sort_key = lambda item: (
+            _strict_bucket_int(item[1], trade_count_key),
+            abs(_strict_bucket_float(item[1], net_key)),
+            item[0],
+        )
     key, bucket = max(buckets.items(), key=sort_key)
-    trades = int(bucket.get(trade_count_key, 0))
-    net = _float_value(bucket.get(net_key))
+    trades = _strict_bucket_int(bucket, trade_count_key)
+    net = _strict_bucket_float(bucket, net_key)
     loss_abs = abs(min(net, 0.0))
     return {
         "key": key,
