@@ -31,7 +31,7 @@ def _sha256(path: Path) -> str:
 
 def _artifact_path_is_safe(rel_path: str) -> bool:
     path = Path(rel_path)
-    return bool(rel_path) and not path.is_absolute() and ".." not in path.parts
+    return bool(rel_path.strip()) and not path.is_absolute() and ".." not in path.parts
 
 
 def _artifact_path_is_canonical(rel_path: str) -> bool:
@@ -53,6 +53,9 @@ def collect_promotion_evidence_bundle(
     invalid_required_types = [index for index, name in enumerate(required_artifacts, start=1) if not isinstance(name, str)]
     if invalid_required_types:
         raise ValueError("required artifact path entries must be strings")
+    blank_required = [name for name in required_artifacts if not name.strip()]
+    if blank_required:
+        raise ValueError("blank required artifact path")
     unsafe_required = [name for name in required_artifacts if not _artifact_path_is_safe(name)]
     if unsafe_required:
         raise ValueError("unsafe required artifact path(s): " + ", ".join(unsafe_required))

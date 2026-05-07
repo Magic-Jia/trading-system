@@ -935,3 +935,16 @@ def test_bundle_verifier_marks_schema_invalid_for_blank_declared_missing_artifac
     assert result["schema_valid"] is False
     assert "missing_artifact_entry_blank" in result["manifest_errors"]
     assert result["invalid_declared_missing_artifacts"] == ["missing_artifacts[1]"]
+
+def test_collect_rejects_blank_required_artifact_entries(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+
+    with pytest.raises(ValueError, match="blank required artifact path"):
+        collect_promotion_evidence_bundle(
+            source,
+            tmp_path / "bundle",
+            candidate_id="candidate-1",
+            evidence_source={"type": "promotion_bundle_export", "run_id": "bundle-1"},
+            required_artifacts=("   ",),
+        )
