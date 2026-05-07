@@ -46,8 +46,11 @@ def build_runtime_safety_gate(manifest: Mapping[str, Any]) -> dict[str, Any]:
         event_type = raw_event_type.strip()
         if not event_type:
             continue
+        passed = event.get("passed", False)
+        if not isinstance(passed, bool):
+            raise ValueError("runtime safety event passed must be a boolean")
         counts_by_type[event_type] = counts_by_type.get(event_type, 0) + 1
-        passed_by_type[event_type] = passed_by_type.get(event_type, False) or event.get("passed") is True
+        passed_by_type[event_type] = passed_by_type.get(event_type, False) or passed is True
 
     checks: dict[str, bool] = {}
     reasons: list[str] = []
