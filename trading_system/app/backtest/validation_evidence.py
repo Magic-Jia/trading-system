@@ -100,6 +100,9 @@ def build_validation_gate(manifest: Mapping[str, Any]) -> dict[str, Any]:
     cost_stress_positive_met = stressed_net_pnl is not None and stressed_net_pnl > 0
 
     forward = _mapping(manifest.get("forward_contamination", {}), "forward_contamination")
+    unknown_forward_fields = sorted(set(forward) - {"absent", "audit_id"})
+    if unknown_forward_fields:
+        raise ValueError("unknown validation forward_contamination field: " + ", ".join(unknown_forward_fields))
     forward_absent = forward.get("absent", False)
     if not isinstance(forward_absent, bool):
         raise ValueError("forward_contamination absent must be a boolean")

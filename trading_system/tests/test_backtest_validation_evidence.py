@@ -211,3 +211,14 @@ def test_validation_gate_rejects_unknown_cost_stress_fields() -> None:
         assert str(exc) == "unknown validation cost_stress field: legacy_passed"
     else:  # pragma: no cover - RED path until nested producer schema is hardened
         raise AssertionError("expected unknown validation cost_stress field to be rejected")
+
+def test_validation_gate_rejects_unknown_forward_contamination_fields() -> None:
+    manifest = _passing_manifest()
+    manifest["forward_contamination"]["legacy_audit_complete"] = True
+
+    try:
+        build_validation_gate(manifest)
+    except ValueError as exc:
+        assert str(exc) == "unknown validation forward_contamination field: legacy_audit_complete"
+    else:  # pragma: no cover - RED path until nested producer schema is hardened
+        raise AssertionError("expected unknown validation forward_contamination field to be rejected")
