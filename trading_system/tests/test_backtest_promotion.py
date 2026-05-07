@@ -223,6 +223,24 @@ def test_load_backtest_bundle_rejects_noncanonical_manifest_identity_fields(tmp_
         promotion.load_backtest_bundle(bundle)
 
 
+def test_load_backtest_bundle_rejects_relative_manifest_dataset_root(tmp_path: Path) -> None:
+    bundle = _write_full_market_bundle(
+        tmp_path / "bundle",
+        baseline_name="current_system",
+        variant_name="baseline_policy",
+        total_return=0.10,
+        max_drawdown=-0.10,
+        sharpe=1.0,
+        cost_drag=0.02,
+    )
+    manifest = json.loads((bundle / "manifest.json").read_text(encoding="utf-8"))
+    manifest["dataset_root"] = "../dataset"
+    _write_json(bundle / "manifest.json", manifest)
+
+    with pytest.raises(ValueError, match="manifest.json.dataset_root must be an absolute path"):
+        promotion.load_backtest_bundle(bundle)
+
+
 def test_load_backtest_bundle_rejects_inconsistent_manifest_bundle_name(tmp_path: Path) -> None:
     bundle = _write_full_market_bundle(
         tmp_path / "bundle",
