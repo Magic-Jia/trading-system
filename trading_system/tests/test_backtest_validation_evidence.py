@@ -104,3 +104,15 @@ def test_validation_gate_rejects_boolean_oos_numeric_fields() -> None:
         assert str(exc) == "oos baseline_net_pnl must be a number"
     else:  # pragma: no cover - RED path until producer is hardened
         raise AssertionError("expected boolean oos numeric field to be rejected")
+
+
+def test_validation_gate_rejects_string_oos_numeric_fields() -> None:
+    manifest = _passing_manifest()
+    manifest["oos"]["baseline_net_pnl"] = "100.0"
+
+    try:
+        build_validation_gate(manifest)
+    except ValueError as exc:
+        assert str(exc) == "oos baseline_net_pnl must be a number"
+    else:  # pragma: no cover - RED path until producer is hardened
+        raise AssertionError("expected string oos numeric field to be rejected")

@@ -9,14 +9,11 @@ SCHEMA_VERSION = "validation_gate_input.v1"
 
 
 def _float_or_none(value: Any, name: str) -> float | None:
-    if value is None or value == "":
+    if value is None:
         return None
-    if isinstance(value, bool):
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError(f"{name} must be a number")
-    try:
-        return float(value)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"{name} must be a number") from exc
+    return float(value)
 
 
 def _mapping(value: Any, name: str) -> Mapping[str, Any]:
