@@ -1585,13 +1585,15 @@ def _artifact_provenance_present(payload: Mapping[str, Any]) -> bool:
     if not isinstance(source_type, str):
         return False
     normalized_source_type = source_type.strip().lower()
-    return bool(normalized_source_type) and normalized_source_type not in {
-        "unknown",
-        "unknown_offline_records",
-        "synthetic",
-        "synthetic_fixture",
-        "simulated",
-        "offline_simulation",
+    return normalized_source_type in {
+        "live_exchange",
+        "testnet_exchange",
+        "exchange_export",
+        "real_exchange_records",
+        "historical_l2_tick_archive",
+        "trade_print_path_replay",
+        "walk_forward_oos_report",
+        "paper_runtime_logs",
     }
 
 
