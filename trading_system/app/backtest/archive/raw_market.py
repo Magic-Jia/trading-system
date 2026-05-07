@@ -394,6 +394,7 @@ def _load_import_file(
             )
         )
     records = tuple(sorted(materialized_records, key=lambda record: record.observed_at))
+    _validate_unique_record_timestamps(records, series_key=series_key, dataset=canonical_dataset)
     return ImportedRawMarketFile(
         series_key=series_key,
         manifest_path=manifest_path,
