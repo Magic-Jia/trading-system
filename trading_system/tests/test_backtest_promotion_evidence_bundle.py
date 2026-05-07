@@ -156,7 +156,7 @@ def test_bundle_verifier_detects_missing_and_tampered_artifacts(tmp_path: Path) 
         source,
         tmp_path / "bundle",
         candidate_id="candidate-1",
-        evidence_source={"type": "synthetic_fixture"},
+        evidence_source={"type": "promotion_bundle_export", "run_id": "bundle-1"},
     )
 
     verified = verify_promotion_evidence_bundle(bundle_dir)
@@ -181,7 +181,12 @@ def test_bundle_verify_only_cli_returns_nonzero_for_tampering(tmp_path: Path) ->
     source.mkdir()
     for name in REQUIRED_ARTIFACTS:
         _write_json(source / name, {"artifact": name, "synthetic": True})
-    bundle_dir = collect_promotion_evidence_bundle(source, tmp_path / "bundle", candidate_id="candidate-1")
+    bundle_dir = collect_promotion_evidence_bundle(
+        source,
+        tmp_path / "bundle",
+        candidate_id="candidate-1",
+        evidence_source={"type": "promotion_bundle_export", "run_id": "bundle-1"},
+    )
 
     import subprocess
     import sys
@@ -226,7 +231,12 @@ def test_bundle_verify_only_cli_writes_report_for_success_and_failure(tmp_path: 
     source.mkdir()
     for name in REQUIRED_ARTIFACTS:
         _write_json(source / name, {"artifact": name, "synthetic": True})
-    bundle_dir = collect_promotion_evidence_bundle(source, tmp_path / "bundle", candidate_id="candidate-1")
+    bundle_dir = collect_promotion_evidence_bundle(
+        source,
+        tmp_path / "bundle",
+        candidate_id="candidate-1",
+        evidence_source={"type": "promotion_bundle_export", "run_id": "bundle-1"},
+    )
     report_path = tmp_path / "reports" / "promotion_bundle_verification.json"
 
     import subprocess
@@ -351,7 +361,7 @@ def test_bundle_verifier_rejects_required_artifact_invalid_byte_metadata(tmp_pat
     result = verify_promotion_evidence_bundle(bundle_dir)
 
     assert result["verified"] is False
-    assert result["invalid_artifact_metadata"] == [invalid_bytes]
+    assert result["invalid_artifact_metadata"] == [f"{invalid_bytes}:bytes"]
     assert "artifact_metadata_invalid" in result["manifest_errors"]
 
 
