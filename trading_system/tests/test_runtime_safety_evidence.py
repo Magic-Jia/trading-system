@@ -176,3 +176,24 @@ def test_runtime_safety_gate_rejects_unknown_event_fields() -> None:
         assert str(exc) == "unknown runtime safety event field: legacy_note"
     else:  # pragma: no cover - RED path until nested producer schema is hardened
         raise AssertionError("expected unknown runtime safety event field to be rejected")
+
+def test_runtime_safety_gate_rejects_padded_evidence_source_type() -> None:
+    try:
+        build_runtime_safety_gate(
+            {
+                "evidence_source": {"type": " paper_runtime_logs ", "run_id": "runtime-1"},
+                "events": [
+                    {"event_type": "kill_switch_dry_run", "passed": True},
+                    {"event_type": "order_position_reconciliation", "passed": True},
+                    {"event_type": "fail_closed", "passed": True},
+                    {"event_type": "live_dust_before_scale", "passed": True},
+                    {"event_type": "live_trade_ledger", "passed": True},
+                    {"event_type": "runtime_explainability", "passed": True},
+                    {"event_type": "drift_guard", "passed": True},
+                ],
+            }
+        )
+    except ValueError as exc:
+        assert "evidence_source type must be canonical" in str(exc)
+    else:
+        raise AssertionError("expected padded evidence_source type to be rejected")

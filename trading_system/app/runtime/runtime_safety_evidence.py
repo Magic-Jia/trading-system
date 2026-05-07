@@ -39,12 +39,16 @@ def build_runtime_safety_gate(manifest: Mapping[str, Any]) -> dict[str, Any]:
         raise ValueError("evidence_source type must be a string")
     if not source["type"].strip():
         raise ValueError("evidence_source type must be non-empty")
+    if source["type"] != source["type"].strip():
+        raise ValueError("evidence_source type must be canonical")
     for optional_field in ("run_id", "exported_at"):
         optional_value = source.get(optional_field)
         if optional_value is not None and not isinstance(optional_value, str):
             raise ValueError(f"evidence_source {optional_field} must be a string")
         if isinstance(optional_value, str) and not optional_value.strip():
             raise ValueError(f"evidence_source {optional_field} must be non-empty")
+        if isinstance(optional_value, str) and optional_value != optional_value.strip():
+            raise ValueError(f"evidence_source {optional_field} must be canonical")
     events = manifest.get("events", [])
     if not isinstance(events, list):
         raise ValueError("events must be a list")
