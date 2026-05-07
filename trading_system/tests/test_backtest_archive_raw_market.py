@@ -207,3 +207,13 @@ def test_importer_rejects_noncanonical_trade_side_payload() -> None:
 
     with pytest.raises(ValueError, match="trade side must be canonical"):
         _trade_payload(record, symbol="BTCUSDT")
+
+
+def test_importer_rejects_non_boolean_trade_maker_flag() -> None:
+    record = ImportedRawMarketRecord(
+        observed_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        payload={"symbol": "BTCUSDT", "price": 100.0, "quantity": 1.0, "m": "false"},
+    )
+
+    with pytest.raises(ValueError, match="trade maker flag must be boolean"):
+        _trade_payload(record, symbol="BTCUSDT")

@@ -618,7 +618,10 @@ def _trade_payload(record: ImportedRawMarketRecord, *, symbol: str) -> dict[str,
         else:
             raise ValueError(f"trade side must be buy or sell: {record.observed_at}")
     elif "m" in payload:
-        result["side"] = "sell" if bool(payload.get("m")) else "buy"
+        maker_flag = payload.get("m")
+        if not isinstance(maker_flag, bool):
+            raise ValueError(f"trade maker flag must be boolean: {record.observed_at}")
+        result["side"] = "sell" if maker_flag else "buy"
     return result
 
 
