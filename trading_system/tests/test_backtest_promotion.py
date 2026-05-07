@@ -207,6 +207,21 @@ def test_load_backtest_bundle_rejects_noncanonical_rollback_plan_fields(tmp_path
     with pytest.raises(ValueError, match="rollback_plan.rollback_target must be canonical"):
         promotion.load_backtest_bundle(bundle)
 
+
+def test_load_backtest_bundle_rejects_noncanonical_manifest_identity_fields(tmp_path: Path) -> None:
+    bundle = _write_full_market_bundle(
+        tmp_path / "bundle",
+        baseline_name=" current_system ",
+        variant_name="baseline_policy",
+        total_return=0.10,
+        max_drawdown=-0.10,
+        sharpe=1.0,
+        cost_drag=0.02,
+    )
+
+    with pytest.raises(ValueError, match="manifest.json.baseline_name must be canonical"):
+        promotion.load_backtest_bundle(bundle)
+
 def test_compare_backtest_bundles_holds_when_out_of_sample_evidence_is_missing(tmp_path: Path) -> None:
     baseline_bundle = _write_full_market_bundle(
         tmp_path / "baseline",

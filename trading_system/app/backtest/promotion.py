@@ -153,8 +153,11 @@ def _first_mapping(variants: Mapping[str, Any], *, context: str) -> dict[str, An
 def _validate_manifest(bundle_dir: Path, manifest: Mapping[str, Any]) -> None:
     _require_keys(manifest, keys=_REQUIRED_MANIFEST_FIELDS, context=f"{bundle_dir}/manifest.json")
     for field_name in ("experiment_kind", "dataset_root", "baseline_name", "variant_name", "bundle_name"):
-        if not isinstance(manifest.get(field_name), str) or not manifest[field_name].strip():
+        field_value = manifest.get(field_name)
+        if not isinstance(field_value, str) or not field_value.strip():
             raise ValueError(f"{bundle_dir}/manifest.json.{field_name} must be a string")
+        if field_value != field_value.strip():
+            raise ValueError(f"{bundle_dir}/manifest.json.{field_name} must be canonical")
     _require_non_negative_int(manifest, "snapshot_count", context=f"{bundle_dir}/manifest.json")
     sample_period = _require_mapping(manifest, "sample_period", context=f"{bundle_dir}/manifest.json")
     _require_keys(sample_period, keys=("start", "end"), context=f"{bundle_dir}/manifest.json.sample_period")
