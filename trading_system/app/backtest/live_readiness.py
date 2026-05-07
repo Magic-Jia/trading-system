@@ -3332,14 +3332,14 @@ def render_live_readiness_markdown(report: Mapping[str, Any]) -> str:
                 "",
                 "## Passive Order Calibration Gate",
                 f"- schema_version: {passive_calibration.get('schema_version')}",
-                f"- required: {str(bool(passive_calibration.get('required'))).lower()}",
-                f"- real_exchange_records: {str(bool(passive_calibration.get('real_exchange_records'))).lower()}",
-                f"- attempt_count: {int(passive_calibration.get('attempt_count') or 0)}",
-                f"- min_attempts: {int(passive_calibration.get('min_attempts') or 0)}",
-                f"- fill_rate: {float(passive_calibration.get('fill_rate') or 0.0):.2%}",
+                f"- required: {_format_strict_bool(passive_calibration, 'required')}",
+                f"- real_exchange_records: {_format_strict_bool(passive_calibration, 'real_exchange_records')}",
+                f"- attempt_count: {_strict_bucket_int(passive_calibration, 'attempt_count')}",
+                f"- min_attempts: {_strict_bucket_int(passive_calibration, 'min_attempts')}",
+                f"- fill_rate: {_strict_bucket_float(passive_calibration, 'fill_rate'):.2%}",
                 "- min_fill_rate: "
                 + (
-                    f"{float(passive_calibration.get('min_fill_rate')):.2%}"
+                    f"{_strict_bucket_float(passive_calibration, 'min_fill_rate'):.2%}"
                     if passive_calibration.get("min_fill_rate") is not None
                     else "disabled"
                 ),

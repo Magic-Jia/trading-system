@@ -163,6 +163,31 @@ def test_markdown_renderer_rejects_non_strict_microstructure_checks() -> None:
         render_live_readiness_markdown(report)
 
 
+def test_markdown_renderer_rejects_non_strict_passive_calibration() -> None:
+    report = {
+        "promotion_gate": {"decision": "hold", "reasons": [], "checks": {}},
+        "totals": {
+            "trade_count": 1,
+            "net_pnl": 1.0,
+            "evidence_coverage": 1.0,
+            "exit_evidence_coverage": 1.0,
+            "exit_path_ambiguity_rate": 0.0,
+        },
+        "passive_calibration": {
+            "required": False,
+            "real_exchange_records": "true",
+            "attempt_count": 1,
+            "min_attempts": 1,
+            "fill_rate": 1.0,
+            "min_fill_rate": 0.5,
+        },
+        "caveats": [],
+    }
+
+    with pytest.raises(ValueError, match="real_exchange_records must be a strict boolean"):
+        render_live_readiness_markdown(report)
+
+
 def test_markdown_renderer_rejects_non_strict_exit_reconciliation() -> None:
     report = {
         "promotion_gate": {"decision": "hold", "reasons": [], "checks": {}},
