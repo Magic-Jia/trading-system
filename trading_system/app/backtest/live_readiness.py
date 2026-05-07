@@ -3185,9 +3185,9 @@ def render_live_readiness_markdown(report: Mapping[str, Any]) -> str:
         for key, bucket in sorted(failure_buckets.items()):
             mapped_bucket = _as_mapping(bucket)
             lines.append(
-                f"- {key}: trades={int(mapped_bucket.get('trades') or 0)}, "
-                f"net={float(mapped_bucket.get('net') or 0.0):.2f}, "
-                f"win_rate={float(mapped_bucket.get('win_rate') or 0.0):.2%}"
+                    f"- {key}: trades={_strict_bucket_int(mapped_bucket, 'trades')}, "
+                    f"net={_strict_bucket_float(mapped_bucket, 'net'):.2f}, "
+                    f"win_rate={_strict_bucket_float(mapped_bucket, 'win_rate'):.2%}"
             )
         setup_buckets = _as_mapping(postmortem.get("by_setup_type"))
         if setup_buckets:
@@ -3195,9 +3195,9 @@ def render_live_readiness_markdown(report: Mapping[str, Any]) -> str:
             for key, bucket in sorted(setup_buckets.items()):
                 mapped_bucket = _as_mapping(bucket)
                 lines.append(
-                    f"- {key}: trades={int(mapped_bucket.get('trades') or 0)}, "
-                    f"net={float(mapped_bucket.get('net') or 0.0):.2f}, "
-                    f"win_rate={float(mapped_bucket.get('win_rate') or 0.0):.2%}"
+                    f"- {key}: trades={_strict_bucket_int(mapped_bucket, 'trades')}, "
+                    f"net={_strict_bucket_float(mapped_bucket, 'net'):.2f}, "
+                    f"win_rate={_strict_bucket_float(mapped_bucket, 'win_rate'):.2%}"
                 )
         symbol_buckets = _as_mapping(postmortem.get("by_symbol"))
         if symbol_buckets:
@@ -3205,9 +3205,9 @@ def render_live_readiness_markdown(report: Mapping[str, Any]) -> str:
             for key, bucket in sorted(symbol_buckets.items()):
                 mapped_bucket = _as_mapping(bucket)
                 lines.append(
-                    f"- {key}: trades={int(mapped_bucket.get('trades') or 0)}, "
-                    f"net={float(mapped_bucket.get('net') or 0.0):.2f}, "
-                    f"win_rate={float(mapped_bucket.get('win_rate') or 0.0):.2%}"
+                    f"- {key}: trades={_strict_bucket_int(mapped_bucket, 'trades')}, "
+                    f"net={_strict_bucket_float(mapped_bucket, 'net'):.2f}, "
+                    f"win_rate={_strict_bucket_float(mapped_bucket, 'win_rate'):.2%}"
                 )
     setup_quality = _as_mapping(report.get("setup_quality_gate"))
     promotion_bundle_integrity = _as_mapping(report.get("promotion_bundle_integrity"))
