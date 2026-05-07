@@ -11,6 +11,7 @@ from trading_system.app.backtest.archive.raw_market import (
     ImportedRawMarketRecord,
     load_phase1_raw_market_manifest,
 )
+from trading_system.app.backtest.archive.data_quality import _l2_tick_coverage
 from trading_system.app.backtest.archive.importer import (
     _funding_rate,
     _merged_execution_evidence_coverage,
@@ -127,6 +128,23 @@ def test_raw_market_data_quality_reports_provenance_completeness(tmp_path: Path)
     assert series_report["provenance"][0]["sha256"]
     assert report["summary"]["series_with_incomplete_provenance"] == 0
     assert report["promotion_gate"]["checks"]["raw_market_provenance_complete_met"] is True
+
+
+def test_l2_tick_coverage_rejects_string_coverage_ratio() -> None:
+    reports = {
+        "BTCUSDT:trades": {
+            "series_key": "BTCUSDT:trades",
+            "dataset": "trades",
+            "symbol": "BTCUSDT",
+            "timeframe": None,
+            "coverage_ratio": "1.0",
+            "has_missing_intervals": False,
+            "missing_intervals": [],
+        }
+    }
+
+    with pytest.raises(ValueError, match="l2 coverage ratio must be numeric"):
+        _l2_tick_coverage(reports, required_coverage=0.99)
 
 
 def test_load_raw_market_manifest_rejects_noncanonical_required_string_fields(tmp_path: Path) -> None:

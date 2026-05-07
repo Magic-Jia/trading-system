@@ -125,6 +125,20 @@ def _series_report(series: ImportedRawMarketSeries, expected_interval: timedelta
     }
 
 
+def _l2_coverage_ratio_value(report: Mapping[str, Any]) -> float:
+    value = report.get("coverage_ratio")
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError("l2 coverage ratio must be numeric")
+    return float(value)
+
+
+def _l2_missing_intervals_value(report: Mapping[str, Any]) -> bool:
+    value = report.get("has_missing_intervals")
+    if not isinstance(value, bool):
+        raise ValueError("l2 has_missing_intervals must be boolean")
+    return value
+
+
 def _l2_tick_coverage(series_reports: Mapping[str, Mapping[str, Any]], required_coverage: float) -> dict[str, Any]:
     l2_reports = [dict(report) for report in series_reports.values() if report.get("dataset") in {"order-book", "trades"}]
     if not l2_reports:
@@ -135,10 +149,11 @@ def _l2_tick_coverage(series_reports: Mapping[str, Mapping[str, Any]], required_
             "missing_by_symbol_timeframe": [],
             "series": [],
         }
-    coverage_ratio = min(float(report.get("coverage_ratio") or 0.0) for report in l2_reports)
+    coverage_ratio = min(_l2_coverage_ratio_value(report) for report in l2_reports)
     missing = []
     for report in l2_reports:
-        if float(report.get("coverage_ratio") or 0.0) < required_coverage or report.get("has_missing_intervals"):
+        report_coverage_ratio = _l2_coverage_ratio_value(report)
+        if report_coverage_ratio < required_coverage or _l2_missing_intervals_value(report):
             missing.append(
                 {
                     "symbol": report.get("symbol"),
