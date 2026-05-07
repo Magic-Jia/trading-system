@@ -115,6 +115,27 @@ def test_calibration_jsonl_summary_groups_passive_order_quality(tmp_path: Path) 
     assert summary["by_setup_type"]["FAILED_BOUNCE_SHORT"]["missed_fill_rate"] == 1.0
 
 
+def test_markdown_renderer_rejects_non_strict_concentration_bucket() -> None:
+    report = {
+        "promotion_gate": {"decision": "hold", "reasons": [], "checks": {}},
+        "totals": {
+            "trade_count": 1,
+            "net_pnl": 1.0,
+            "evidence_coverage": 1.0,
+            "exit_evidence_coverage": 1.0,
+            "exit_path_ambiguity_rate": 0.0,
+        },
+        "concentration": {
+            "max_setup_trade_share": 0.45,
+            "top_setup_by_trades": {"key": "TREND_PULLBACK", "trades": "1", "trade_share": 1.0},
+        },
+        "caveats": [],
+    }
+
+    with pytest.raises(ValueError, match="trades must be a strict integer"):
+        render_live_readiness_markdown(report)
+
+
 def test_dominance_helper_rejects_non_strict_bucket_counts() -> None:
     with pytest.raises(ValueError, match="trade_count must be a strict integer"):
         _dominance_from_gate_buckets(

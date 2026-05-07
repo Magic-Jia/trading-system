@@ -3388,12 +3388,12 @@ def render_live_readiness_markdown(report: Mapping[str, Any]) -> str:
             bucket = _as_mapping(concentration.get(label))
             if not bucket:
                 continue
-            share = float(bucket.get(share_key) or 0.0)
+            share = _strict_bucket_float(bucket, share_key)
             status = "disabled" if threshold is None else ("breach" if share > float(threshold) else "ok")
             threshold_text = "disabled" if threshold is None else f"{float(threshold):.2%}"
             lines.append(
                 f"- {label}: {bucket.get('key')}, "
-                f"trades={int(bucket.get('trades') or 0)}, "
+                f"trades={_strict_bucket_int(bucket, 'trades')}, "
                 f"{share_key}={share:.2%}, "
                 f"threshold={threshold_text}, "
                 f"status={status}"
