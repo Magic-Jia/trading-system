@@ -6006,6 +6006,52 @@ def test_live_readiness_gate_report_rejects_when_exit_path_ambiguity_rate_exceed
     assert report["promotion_gate"]["checks"]["exit_path_ambiguity_rate_met"] is False
 
 
+def test_live_readiness_gate_rejects_bool_passive_calibration_attempt_count(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    (chunk / "passive_order_calibration_summary.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "passive_order_calibration_summary.v1",
+                "evidence_source": {"type": "exchange_export", "run_id": "passive-bool-attempts"},
+                "overall": {"attempt_count": False, "fill_rate": 0.8},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    passive = report["passive_calibration"]
+    assert passive["chunks"][0]["parse_error"] == "invalid_numeric_field: attempt_count"
+    assert passive["chunks"][0]["schema_valid"] is False
+    assert passive["checks"]["passive_calibration_artifact_schema_valid"] is False
+    assert "passive_calibration_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
+
+
+def test_live_readiness_gate_rejects_bool_passive_calibration_fill_rate(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    (chunk / "passive_order_calibration_summary.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "passive_order_calibration_summary.v1",
+                "evidence_source": {"type": "exchange_export", "run_id": "passive-bool-fill"},
+                "overall": {"attempt_count": 10, "fill_rate": False},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    passive = report["passive_calibration"]
+    assert passive["chunks"][0]["parse_error"] == "invalid_numeric_field: fill_rate"
+    assert passive["chunks"][0]["schema_valid"] is False
+    assert passive["checks"]["passive_calibration_artifact_schema_valid"] is False
+    assert "passive_calibration_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
+
+
 def test_exit_path_replay_audit_does_not_use_non_string_symbol_for_market_context() -> None:
     report = audit_exit_path_replay(
         [
