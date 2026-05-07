@@ -2494,11 +2494,12 @@ def build_live_readiness_gate_report(
     if not setup_quality_checks.get("banned_setup_types_absent", True):
         reasons.append("banned_setup_type_present")
     runtime_safety_checks = _as_mapping(runtime_safety_gate.get("checks"))
-    if require_runtime_safety_evidence and int(runtime_safety_gate.get("artifact_count") or 0) == 0:
+    runtime_safety_artifact_present = int(runtime_safety_gate.get("artifact_count") or 0) > 0
+    if require_runtime_safety_evidence and not runtime_safety_artifact_present:
         reasons.append("runtime_safety_evidence_missing")
-    if int(runtime_safety_gate.get("artifact_count") or 0) > 0 and not runtime_safety_checks.get("runtime_safety_artifact_schema_valid", False):
+    if runtime_safety_artifact_present and not runtime_safety_checks.get("runtime_safety_artifact_schema_valid", False):
         reasons.append("runtime_safety_artifact_schema_invalid")
-    if int(runtime_safety_gate.get("artifact_count") or 0) > 0 and not runtime_safety_checks.get("runtime_safety_artifact_provenance_present", False):
+    if runtime_safety_artifact_present and not runtime_safety_checks.get("runtime_safety_artifact_provenance_present", False):
         reasons.append("runtime_safety_artifact_provenance_missing")
     runtime_safety_reason_by_check = {
         "kill_switch_dry_run_met": "kill_switch_dry_run_missing",
@@ -2509,35 +2510,37 @@ def build_live_readiness_gate_report(
         "runtime_explainability_met": "runtime_explainability_missing",
         "drift_guard_met": "drift_guard_missing",
     }
-    if require_runtime_safety_evidence or int(runtime_safety_gate.get("artifact_count") or 0) > 0:
+    if require_runtime_safety_evidence or runtime_safety_artifact_present:
         for check, reason in runtime_safety_reason_by_check.items():
             if not runtime_safety_checks.get(check, False):
                 reasons.append(reason)
     microstructure_checks = _as_mapping(microstructure_gate.get("checks"))
-    if require_microstructure_evidence and int(microstructure_gate.get("artifact_count") or 0) == 0:
+    microstructure_artifact_present = int(microstructure_gate.get("artifact_count") or 0) > 0
+    if require_microstructure_evidence and not microstructure_artifact_present:
         reasons.append("microstructure_evidence_missing")
-    if int(microstructure_gate.get("artifact_count") or 0) > 0 and not microstructure_checks.get("microstructure_artifact_schema_valid", False):
+    if microstructure_artifact_present and not microstructure_checks.get("microstructure_artifact_schema_valid", False):
         reasons.append("microstructure_artifact_schema_invalid")
-    if int(microstructure_gate.get("artifact_count") or 0) > 0 and not microstructure_checks.get("microstructure_artifact_provenance_present", False):
+    if microstructure_artifact_present and not microstructure_checks.get("microstructure_artifact_provenance_present", False):
         reasons.append("microstructure_artifact_provenance_missing")
-    if (require_microstructure_evidence or int(microstructure_gate.get("artifact_count") or 0) > 0) and not microstructure_checks.get("l2_tick_coverage_met", False):
+    if (require_microstructure_evidence or microstructure_artifact_present) and not microstructure_checks.get("l2_tick_coverage_met", False):
         reasons.append("l2_tick_coverage_below_threshold")
-    if (require_microstructure_evidence or int(microstructure_gate.get("artifact_count") or 0) > 0) and not microstructure_checks.get("depth_driven_taker_met", False):
+    if (require_microstructure_evidence or microstructure_artifact_present) and not microstructure_checks.get("depth_driven_taker_met", False):
         reasons.append("taker_depth_driven_missing")
     validation_checks = _as_mapping(validation_gate.get("checks"))
-    if require_validation_evidence and int(validation_gate.get("artifact_count") or 0) == 0:
+    validation_artifact_present = int(validation_gate.get("artifact_count") or 0) > 0
+    if require_validation_evidence and not validation_artifact_present:
         reasons.append("validation_evidence_missing")
-    if int(validation_gate.get("artifact_count") or 0) > 0 and not validation_checks.get("validation_artifact_schema_valid", False):
+    if validation_artifact_present and not validation_checks.get("validation_artifact_schema_valid", False):
         reasons.append("validation_artifact_schema_invalid")
-    if int(validation_gate.get("artifact_count") or 0) > 0 and not validation_checks.get("validation_artifact_provenance_present", False):
+    if validation_artifact_present and not validation_checks.get("validation_artifact_provenance_present", False):
         reasons.append("validation_artifact_provenance_missing")
-    if (require_validation_evidence or int(validation_gate.get("artifact_count") or 0) > 0) and not validation_checks.get("oos_non_degraded_met", False):
+    if (require_validation_evidence or validation_artifact_present) and not validation_checks.get("oos_non_degraded_met", False):
         reasons.append("oos_degraded")
-    if (require_validation_evidence or int(validation_gate.get("artifact_count") or 0) > 0) and not validation_checks.get("multi_regime_met", False):
+    if (require_validation_evidence or validation_artifact_present) and not validation_checks.get("multi_regime_met", False):
         reasons.append("regime_single_point_survivor")
-    if (require_validation_evidence or int(validation_gate.get("artifact_count") or 0) > 0) and not validation_checks.get("cost_stress_positive_met", False):
+    if (require_validation_evidence or validation_artifact_present) and not validation_checks.get("cost_stress_positive_met", False):
         reasons.append("cost_stress_not_positive")
-    if (require_validation_evidence or int(validation_gate.get("artifact_count") or 0) > 0) and not validation_checks.get("forward_contamination_absent_met", False):
+    if (require_validation_evidence or validation_artifact_present) and not validation_checks.get("forward_contamination_absent_met", False):
         reasons.append("forward_contamination_unproven")
 
     if not setup_concentration_met:
