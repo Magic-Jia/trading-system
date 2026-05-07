@@ -20,6 +20,14 @@ def _mapping(value: Any, name: str) -> Mapping[str, Any]:
     return value
 
 
+def _integer_count(value: Any, name: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"{name} must be an integer count")
+    if value < 0:
+        raise ValueError(f"{name} must be a non-negative count")
+    return value
+
+
 def build_validation_gate(manifest: Mapping[str, Any]) -> dict[str, Any]:
     raw_source = manifest.get("evidence_source")
     if raw_source is None:
@@ -50,7 +58,7 @@ def build_validation_gate(manifest: Mapping[str, Any]) -> dict[str, Any]:
     eligible_regime_count = 0
     for regime in regimes_raw:
         regime_mapping = _mapping(regime, "regime")
-        trade_count = int(regime_mapping.get("trade_count", 0) or 0)
+        trade_count = _integer_count(regime_mapping.get("trade_count", 0), "regime trade_count")
         net_pnl = _float_or_none(regime_mapping.get("net_pnl"))
         if trade_count > 0:
             eligible_regime_count += 1

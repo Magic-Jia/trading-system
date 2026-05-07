@@ -77,3 +77,18 @@ def test_validation_gate_rejects_non_object_evidence_source() -> None:
         assert str(exc) == "evidence_source must be an object"
     else:  # pragma: no cover - RED path until producer is hardened
         raise AssertionError("expected non-object evidence_source to be rejected")
+
+
+def test_validation_gate_rejects_boolean_regime_trade_count() -> None:
+    manifest = _passing_manifest()
+    manifest["regimes"] = [
+        {"name": "trend", "net_pnl": 40.0, "trade_count": True},
+        {"name": "chop", "net_pnl": 10.0, "trade_count": 12},
+    ]
+
+    try:
+        build_validation_gate(manifest)
+    except ValueError as exc:
+        assert str(exc) == "regime trade_count must be an integer count"
+    else:  # pragma: no cover - RED path until producer is hardened
+        raise AssertionError("expected boolean regime trade_count to be rejected")
