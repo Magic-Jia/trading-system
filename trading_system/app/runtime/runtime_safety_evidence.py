@@ -54,6 +54,9 @@ def build_runtime_safety_gate(manifest: Mapping[str, Any]) -> dict[str, Any]:
     for event in events:
         if not isinstance(event, Mapping):
             raise ValueError("runtime safety event must be a mapping")
+        unknown_event_fields = sorted(set(event) - {"type", "event_type", "passed"})
+        if unknown_event_fields:
+            raise ValueError("unknown runtime safety event field: " + ", ".join(unknown_event_fields))
         raw_event_type = event.get("type") if event.get("type") is not None else event.get("event_type")
         if raw_event_type is None:
             continue

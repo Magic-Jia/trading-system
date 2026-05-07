@@ -165,3 +165,14 @@ def test_runtime_safety_gate_rejects_unknown_manifest_fields() -> None:
         assert str(exc) == "unknown runtime safety manifest field: unexpected"
     else:  # pragma: no cover - RED path until producer is hardened
         raise AssertionError("expected unknown runtime safety manifest field to be rejected")
+
+def test_runtime_safety_gate_rejects_unknown_event_fields() -> None:
+    manifest = _passing_manifest()
+    manifest["events"][0]["legacy_note"] = "ignored-before-hardening"
+
+    try:
+        build_runtime_safety_gate(manifest)
+    except ValueError as exc:
+        assert str(exc) == "unknown runtime safety event field: legacy_note"
+    else:  # pragma: no cover - RED path until nested producer schema is hardened
+        raise AssertionError("expected unknown runtime safety event field to be rejected")
