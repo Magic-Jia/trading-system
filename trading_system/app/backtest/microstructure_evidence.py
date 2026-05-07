@@ -209,6 +209,27 @@ def build_microstructure_gate(
                     isinstance(numeric_value, bool) or not isinstance(numeric_value, (int, float))
                 ):
                     raise ValueError(f"depth_driven_taker_fills {numeric_field} must be a number")
+            consumed_levels = fill.get("consumed_levels")
+            if consumed_levels is not None:
+                if not isinstance(consumed_levels, list):
+                    raise ValueError("depth_driven_taker_fills consumed_levels must be a list")
+                for level in consumed_levels:
+                    if not isinstance(level, Mapping):
+                        raise ValueError("depth_driven_taker_fills consumed_levels entries must be mappings")
+                    unknown_level_fields = sorted(set(level) - {"price", "quantity"})
+                    if unknown_level_fields:
+                        raise ValueError(
+                            "unknown depth_driven_taker_fills consumed_levels field: "
+                            + ", ".join(unknown_level_fields)
+                        )
+                    for numeric_field in ("price", "quantity"):
+                        numeric_value = level.get(numeric_field)
+                        if numeric_value is None or isinstance(numeric_value, bool) or not isinstance(
+                            numeric_value, (int, float)
+                        ):
+                            raise ValueError(
+                                f"depth_driven_taker_fills consumed_levels {numeric_field} must be a number"
+                            )
             complete = fill.get("complete", False)
             if not isinstance(complete, bool):
                 raise ValueError("depth_driven_taker_fills complete must be a boolean")
