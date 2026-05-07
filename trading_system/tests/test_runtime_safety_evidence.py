@@ -197,3 +197,17 @@ def test_runtime_safety_gate_rejects_padded_evidence_source_type() -> None:
         assert "evidence_source type must be canonical" in str(exc)
     else:
         raise AssertionError("expected padded evidence_source type to be rejected")
+
+def test_runtime_safety_gate_rejects_padded_event_type() -> None:
+    try:
+        build_runtime_safety_gate(
+            {
+                "events": [
+                    {"event_type": " kill_switch_dry_run ", "passed": True},
+                ],
+            }
+        )
+    except ValueError as exc:
+        assert "runtime safety event type must be canonical" in str(exc)
+    else:
+        raise AssertionError("expected padded runtime safety event type to be rejected")

@@ -67,6 +67,8 @@ def build_runtime_safety_gate(manifest: Mapping[str, Any]) -> dict[str, Any]:
         if not isinstance(raw_event_type, str):
             raise ValueError("runtime safety event type must be a string")
         event_type = raw_event_type.strip()
+        if raw_event_type != event_type:
+            raise ValueError("runtime safety event type must be canonical")
         if not event_type:
             continue
         passed = event.get("passed", False)
