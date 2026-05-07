@@ -20,6 +20,7 @@ from trading_system.app.backtest.archive.importer import (
     _mark_price,
     _ohlcv_bar_lookup,
     _open_interest_units,
+    _ordered_timeframes,
     _order_book_payload,
     _trade_payload,
 )
@@ -368,3 +369,13 @@ def test_importer_rejects_noncanonical_ohlcv_timeframe_coverage_values() -> None
 def test_importer_rejects_non_string_ohlcv_not_materialized_reasons() -> None:
     with pytest.raises(ValueError, match=r"ohlcv_timeframes.not_materialized.5m must be a string"):
         _merged_ohlcv_timeframe_coverage([{"ohlcv_timeframes": {"not_materialized": {"5m": 123}}}])
+
+
+def test_importer_rejects_non_string_ordered_timeframes() -> None:
+    with pytest.raises(ValueError, match=r"ohlcv_timeframes.value\[0\] must be a string"):
+        _ordered_timeframes([123])
+
+
+def test_importer_rejects_noncanonical_ordered_timeframes() -> None:
+    with pytest.raises(ValueError, match=r"ohlcv_timeframes.value\[0\] must be canonical"):
+        _ordered_timeframes([" 1h "])

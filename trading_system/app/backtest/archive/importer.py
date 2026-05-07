@@ -1081,7 +1081,7 @@ def _latest_fresh_record_at_or_before(
 
 
 def _ordered_timeframes(values: Iterable[str]) -> list[str]:
-    present = {str(value) for value in values}
+    present = set(_require_canonical_string_items(tuple(values), field="ohlcv_timeframes.value"))
     ordered = [timeframe for timeframe in _PHASE1_IMPORTER_OHLCV_TIMEFRAME_ORDER if timeframe in present]
     ordered.extend(sorted(present.difference(ordered)))
     return ordered
