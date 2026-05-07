@@ -1780,6 +1780,21 @@ def test_live_readiness_markdown_shows_bundle_manifest_and_metadata_errors(tmp_p
     assert "- missing_artifact_metadata: trades.json" in markdown
 
 
+def test_live_readiness_gate_rejects_present_invalid_passive_calibration_artifact(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    (chunk / "passive_order_calibration_summary.json").write_text("{not-json\n", encoding="utf-8")
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    assert report["passive_calibration"]["checks"]["passive_calibration_artifact_schema_valid"] is False
+    assert report["passive_calibration"]["checks"]["passive_calibration_artifact_provenance_present"] is False
+    assert "passive_calibration_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
+    assert "passive_calibration_artifact_provenance_missing" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
+
 def test_live_readiness_gate_report_rejects_invalid_passive_calibration_schema_and_provenance(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     chunk.mkdir()

@@ -2154,8 +2154,8 @@ def _passive_calibration_diagnostic(
     attempts_met = (not invalid_config) and total_attempts >= int(min_attempts)
     fill_rate_met = (not invalid_config) and (min_fill_rate is None or fill_rate >= min_fill_rate)
     real_records_met = (not required) or real_exchange_records
-    schema_valid = (not required) or (bool(chunks) and all(bool(chunk.get("schema_valid")) for chunk in chunks))
-    provenance_present = (not required) or (bool(chunks) and all(bool(chunk.get("provenance_present")) for chunk in chunks))
+    schema_valid = (not chunks) or all(bool(chunk.get("schema_valid")) for chunk in chunks)
+    provenance_present = (not chunks) or all(bool(chunk.get("provenance_present")) for chunk in chunks)
     return {
         "schema_version": "passive_calibration_live_readiness.v1",
         "required": required,
@@ -2504,9 +2504,10 @@ def build_live_readiness_gate_report(
         reasons.append("passive_calibration_config_invalid")
     if not passive_checks.get("passive_calibration_present_met", True):
         reasons.append("passive_calibration_missing")
-    if require_passive_calibration and not passive_checks.get("passive_calibration_artifact_schema_valid", False):
+    passive_artifact_count = len(passive_calibration.get("chunks") or [])
+    if passive_artifact_count > 0 and not passive_checks.get("passive_calibration_artifact_schema_valid", False):
         reasons.append("passive_calibration_artifact_schema_invalid")
-    if require_passive_calibration and not passive_checks.get("passive_calibration_artifact_provenance_present", False):
+    if passive_artifact_count > 0 and not passive_checks.get("passive_calibration_artifact_provenance_present", False):
         reasons.append("passive_calibration_artifact_provenance_missing")
     if not passive_checks.get("passive_calibration_real_records_met", True):
         reasons.append("passive_calibration_missing_real_records")
