@@ -3459,12 +3459,19 @@ def _stdout_concentration_summary(report: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def _strict_report_bool(mapping: Mapping[str, Any], key: str) -> bool:
+    value = mapping.get(key)
+    if not isinstance(value, bool):
+        raise ValueError(f"{key} must be a strict boolean")
+    return value
+
+
 def _stdout_reconciliation_summary(report: Mapping[str, Any]) -> dict[str, Any]:
     reconciliation = _as_mapping(report.get("postmortem_reconciliation"))
     return {
-        "matched": bool(reconciliation.get("matched")),
-        "trade_count_delta": int(reconciliation.get("trade_count_delta") or 0),
-        "net_pnl_delta": float(reconciliation.get("net_pnl_delta") or 0.0),
+        "matched": _strict_report_bool(reconciliation, "matched"),
+        "trade_count_delta": _strict_bucket_int(reconciliation, "trade_count_delta"),
+        "net_pnl_delta": _strict_bucket_float(reconciliation, "net_pnl_delta"),
     }
 
 
