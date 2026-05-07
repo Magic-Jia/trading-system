@@ -200,3 +200,17 @@ def test_rejects_string_coverage_values() -> None:
                 }
             }
         )
+
+
+def test_rejects_non_object_depth_driven_fill_entries() -> None:
+    with pytest.raises(ValueError, match="depth_driven_taker_fills entries must be mappings"):
+        build_microstructure_gate(
+            {
+                "coverage": {
+                    "l2_snapshot_coverage": 1.0,
+                    "l2_update_coverage": 1.0,
+                    "tick_coverage": 1.0,
+                },
+                "depth_driven_taker_fills": ["not-a-fill"],
+            }
+        )

@@ -147,7 +147,15 @@ def build_microstructure_gate(
         depth_driven_taker_met = depth_driven_taker_override
     elif isinstance(depth_fills, list):
         fill_count = len(depth_fills)
-        complete_fill_count = sum(1 for fill in depth_fills if isinstance(fill, Mapping) and fill.get("complete") is True)
+        complete_fill_count = 0
+        for fill in depth_fills:
+            if not isinstance(fill, Mapping):
+                raise ValueError("depth_driven_taker_fills entries must be mappings")
+            complete = fill.get("complete", False)
+            if not isinstance(complete, bool):
+                raise ValueError("depth_driven_taker_fills complete must be a boolean")
+            if complete:
+                complete_fill_count += 1
         incomplete_fill_count = fill_count - complete_fill_count
         depth_driven_taker_met = fill_count > 0 and incomplete_fill_count == 0
     else:
