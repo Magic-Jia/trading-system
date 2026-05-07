@@ -228,11 +228,23 @@ def _hourly_ohlcv_bar(record: ImportedRawMarketRecord) -> _OhlcvBar:
         raise ValueError(f"ohlcv record payload must be a JSON object: {record.observed_at}")
     if close <= 0.0:
         raise ValueError(f"ohlcv close must be positive: {record.observed_at}")
+    if open_value <= 0.0:
+        raise ValueError(f"ohlcv open must be positive: {record.observed_at}")
+    if high < max(open_value, close):
+        raise ValueError(f"ohlcv high must cover open and close: {record.observed_at}")
+    if low > min(open_value, close):
+        raise ValueError(f"ohlcv low must cover open and close: {record.observed_at}")
+    if low <= 0.0 or high <= 0.0:
+        raise ValueError(f"ohlcv price bounds must be positive: {record.observed_at}")
+    if base_volume < 0.0:
+        raise ValueError(f"ohlcv volume must be non-negative: {record.observed_at}")
+    if quote_volume < 0.0:
+        raise ValueError(f"ohlcv quote volume must be non-negative: {record.observed_at}")
     return _OhlcvBar(
         observed_at=record.observed_at,
-        open=open_value or close,
-        high=max(high, open_value, close),
-        low=min(low, open_value, close),
+        open=open_value,
+        high=high,
+        low=low,
         close=close,
         base_volume=base_volume,
         quote_volume=quote_volume,
