@@ -48,6 +48,8 @@ def collect_promotion_evidence_bundle(
 ) -> Path:
     if not isinstance(candidate_id, str) or not candidate_id.strip():
         raise ValueError("candidate_id must be a non-empty string")
+    if not _CANDIDATE_ID_RE.fullmatch(candidate_id):
+        raise ValueError("candidate_id must be canonical")
     invalid_required_types = [index for index, name in enumerate(required_artifacts, start=1) if not isinstance(name, str)]
     if invalid_required_types:
         raise ValueError("required artifact path entries must be strings")
