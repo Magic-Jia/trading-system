@@ -1806,6 +1806,15 @@ def _json_object_field(value: Any, *, context: str) -> dict[str, Any]:
     return dict(value)
 
 
+def _materialized_bundle_canonical_string(payload: Mapping[str, Any], field: str, *, context: str) -> str:
+    value = payload.get(field)
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{context} {field} must be a string")
+    if value != value.strip():
+        raise ValueError(f"{context} {field} must be canonical")
+    return value
+
+
 def _materialized_dataset_row_source(rows: Sequence[Any]) -> dict[str, Any]:
     return _merged_import_trace(
         _json_object_field(row.meta.get("source") or {}, context="materialized dataset bundle metadata source")
@@ -1875,14 +1884,16 @@ def _validate_bundle_payloads(bundle_dir: Path, *, expected_timestamp: datetime)
         )
 
     metadata = _read_json_object(bundle_dir / "metadata.json")
-    loaded_schema_version = str(metadata.get("schema_version") or "")
+    loaded_schema_version = _materialized_bundle_canonical_string(
+        metadata, "schema_version", context="metadata"
+    )
     if loaded_schema_version != PHASE1_IMPORTER_BUNDLE_SCHEMA:
         raise ValueError(
             "materialized dataset bundle metadata schema_version is out of phase1 importer scope: "
             f"expected {PHASE1_IMPORTER_BUNDLE_SCHEMA}, loaded {loaded_schema_version}"
         )
     expected_run_id = _run_id(expected_timestamp)
-    loaded_run_id = str(metadata.get("run_id") or "")
+    loaded_run_id = _materialized_bundle_canonical_string(metadata, "run_id", context="metadata")
     if loaded_run_id != expected_run_id:
         raise ValueError(
             "materialized dataset bundle metadata run_id did not round-trip: "
@@ -1899,13 +1910,15 @@ def _validate_bundle_payloads(bundle_dir: Path, *, expected_timestamp: datetime)
     ):
         payload = _read_json_object(bundle_dir / file_name)
         loaded_payloads[file_name] = payload
-        loaded_schema = str(payload.get("schema_version") or "")
+        loaded_schema = _materialized_bundle_canonical_string(
+            payload, "schema_version", context=file_name
+        )
         if loaded_schema != expected_schema:
             raise ValueError(
                 "materialized dataset bundle payload schema_version is out of phase1 importer scope: "
                 f"expected {expected_schema}, loaded {loaded_schema}"
             )
-        loaded_as_of = str(payload.get("as_of") or "")
+        loaded_as_of = _materialized_bundle_canonical_string(payload, "as_of", context=file_name)
         if loaded_as_of != expected_as_of:
             raise ValueError(
                 "materialized dataset bundle payload as_of did not round-trip: "

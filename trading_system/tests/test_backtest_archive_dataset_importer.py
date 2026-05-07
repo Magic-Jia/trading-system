@@ -34,6 +34,80 @@ def test_archive_root_from_manifest_paths_rejects_non_string_path_entries() -> N
         archive_importer._archive_root_from_manifest_paths([123])
 
 
+
+def test_validate_bundle_payloads_rejects_non_string_metadata_identity(tmp_path: Path) -> None:
+    expected_timestamp = datetime(2024, 1, 1, tzinfo=UTC)
+    bundle_dir = tmp_path / f"{archive_importer._bundle_fragment(expected_timestamp)}__{archive_importer._run_id(expected_timestamp)}"
+    bundle_dir.mkdir()
+    expected_as_of = expected_timestamp.isoformat().replace("+00:00", "Z")
+    payloads = {
+        "metadata.json": {
+            "schema_version": archive_importer.PHASE1_IMPORTER_BUNDLE_SCHEMA,
+            "run_id": archive_importer._run_id(expected_timestamp),
+        },
+        "market_context.json": {
+            "schema_version": archive_importer.PHASE1_IMPORTER_MARKET_CONTEXT_SCHEMA,
+            "as_of": expected_as_of,
+            "instrument_rows": [],
+        },
+        "derivatives_snapshot.json": {
+            "schema_version": archive_importer.PHASE1_IMPORTER_DERIVATIVES_SCHEMA,
+            "as_of": expected_as_of,
+        },
+        "account_snapshot.json": {
+            "schema_version": archive_importer.PHASE1_IMPORTER_ACCOUNT_SCHEMA,
+            "as_of": expected_as_of,
+        },
+        "instrument_snapshot.json": {
+            "schema_version": archive_importer.PHASE1_IMPORTER_INSTRUMENT_SNAPSHOT_SCHEMA,
+            "as_of": expected_as_of,
+            "rows": [],
+        },
+    }
+    payloads["metadata.json"]["schema_version"] = 123
+    for name, payload in payloads.items():
+        (bundle_dir / name).write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="metadata schema_version must be a string"):
+        archive_importer._validate_bundle_payloads(bundle_dir, expected_timestamp=expected_timestamp)
+
+
+
+def test_validate_bundle_payloads_rejects_non_string_payload_identity(tmp_path: Path) -> None:
+    expected_timestamp = datetime(2024, 1, 1, tzinfo=UTC)
+    bundle_dir = tmp_path / f"{archive_importer._bundle_fragment(expected_timestamp)}__{archive_importer._run_id(expected_timestamp)}"
+    bundle_dir.mkdir()
+    expected_as_of = expected_timestamp.isoformat().replace("+00:00", "Z")
+    payloads = {
+        "metadata.json": {
+            "schema_version": archive_importer.PHASE1_IMPORTER_BUNDLE_SCHEMA,
+            "run_id": archive_importer._run_id(expected_timestamp),
+        },
+        "market_context.json": {
+            "schema_version": archive_importer.PHASE1_IMPORTER_MARKET_CONTEXT_SCHEMA,
+            "as_of": 123,
+            "instrument_rows": [],
+        },
+        "derivatives_snapshot.json": {
+            "schema_version": archive_importer.PHASE1_IMPORTER_DERIVATIVES_SCHEMA,
+            "as_of": expected_as_of,
+        },
+        "account_snapshot.json": {
+            "schema_version": archive_importer.PHASE1_IMPORTER_ACCOUNT_SCHEMA,
+            "as_of": expected_as_of,
+        },
+        "instrument_snapshot.json": {
+            "schema_version": archive_importer.PHASE1_IMPORTER_INSTRUMENT_SNAPSHOT_SCHEMA,
+            "as_of": expected_as_of,
+            "rows": [],
+        },
+    }
+    for name, payload in payloads.items():
+        (bundle_dir / name).write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match=r"market_context\.json as_of must be a string"):
+        archive_importer._validate_bundle_payloads(bundle_dir, expected_timestamp=expected_timestamp)
+
 def _timestamp_ms(value: datetime) -> int:
     return int(value.timestamp() * 1000)
 
