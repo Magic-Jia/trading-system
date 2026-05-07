@@ -93,6 +93,9 @@ def build_validation_gate(manifest: Mapping[str, Any]) -> dict[str, Any]:
     multi_regime_resilience_met = eligible_regime_count >= 2 and profitable_regime_count >= 2
 
     cost_stress = _mapping(manifest.get("cost_stress", {}), "cost_stress")
+    unknown_cost_stress_fields = sorted(set(cost_stress) - {"stressed_net_pnl"})
+    if unknown_cost_stress_fields:
+        raise ValueError("unknown validation cost_stress field: " + ", ".join(unknown_cost_stress_fields))
     stressed_net_pnl = _float_or_none(cost_stress.get("stressed_net_pnl"), "cost_stress stressed_net_pnl")
     cost_stress_positive_met = stressed_net_pnl is not None and stressed_net_pnl > 0
 
