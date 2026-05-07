@@ -2269,7 +2269,10 @@ def build_live_readiness_gate_report(
         ("exit_evidence_coverage_threshold", exit_evidence_coverage_threshold),
         ("max_exit_path_ambiguity_rate", max_exit_path_ambiguity_rate),
     ):
-        if not isinstance(value, bool) and isinstance(value, (int, float)) and math.isfinite(float(value)) and 0.0 <= float(value) <= 1.0:
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)):
+            policy_invalid_config.append({"field": field, "value": value, "error": "invalid_threshold"})
+            continue
+        if 0.0 <= float(value) <= 1.0:
             continue
         policy_invalid_config.append({"field": field, "value": value, "error": "out_of_range_threshold"})
     for field, value in (
@@ -2282,7 +2285,10 @@ def build_live_readiness_gate_report(
     ):
         if value is None:
             continue
-        if not isinstance(value, bool) and isinstance(value, (int, float)) and math.isfinite(float(value)) and 0.0 <= float(value) <= 1.0:
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)):
+            policy_invalid_config.append({"field": field, "value": value, "error": "invalid_threshold"})
+            continue
+        if 0.0 <= float(value) <= 1.0:
             continue
         policy_invalid_config.append({"field": field, "value": value, "error": "out_of_range_threshold"})
     all_trades: list[dict[str, Any]] = []

@@ -5568,6 +5568,20 @@ def test_live_readiness_gate_rejects_out_of_range_concentration_threshold(tmp_pa
 
 
 
+def test_live_readiness_gate_reports_bool_policy_threshold_as_invalid_type(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+
+    report = build_live_readiness_gate_report(tmp_path, evidence_coverage_threshold=True)
+
+    assert report["promotion_gate"]["checks"]["live_readiness_policy_config_valid"] is False
+    assert report["promotion_gate"]["invalid_config"] == [
+        {"field": "evidence_coverage_threshold", "value": True, "error": "invalid_threshold"}
+    ]
+    assert "live_readiness_policy_config_invalid" in report["promotion_gate"]["reasons"]
+
+
+
 def test_live_readiness_gate_rejects_out_of_range_exit_path_ambiguity_threshold(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     _write_profitable_trade_chunk(chunk)
