@@ -143,7 +143,10 @@ def build_microstructure_gate(
         fill_count = 0
         complete_fill_count = 0
         incomplete_fill_count = 0
-        depth_driven_taker_met = bool(manifest.get("depth_driven_taker_met", False))
+        depth_driven_taker_override = manifest.get("depth_driven_taker_met", False)
+        if not isinstance(depth_driven_taker_override, bool):
+            raise ValueError("depth_driven_taker_met must be a boolean")
+        depth_driven_taker_met = depth_driven_taker_override
     elif isinstance(depth_fills, list):
         fill_count = len(depth_fills)
         complete_fill_count = sum(1 for fill in depth_fills if isinstance(fill, Mapping) and fill.get("complete") is True)

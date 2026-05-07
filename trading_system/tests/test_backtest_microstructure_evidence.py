@@ -160,3 +160,17 @@ def test_complete_depth_fills_satisfy_depth_driven_taker_gate() -> None:
     assert gate["checks"] == {"l2_tick_coverage_met": True, "depth_driven_taker_met": True}
     assert gate["reasons"] == []
     assert gate["depth_driven_taker"] == {"fill_count": 1, "complete_fill_count": 1, "incomplete_fill_count": 0}
+
+
+def test_rejects_non_boolean_depth_driven_taker_override() -> None:
+    with pytest.raises(ValueError, match="depth_driven_taker_met must be a boolean"):
+        build_microstructure_gate(
+            {
+                "coverage": {
+                    "l2_snapshot_coverage": 1.0,
+                    "l2_update_coverage": 1.0,
+                    "tick_coverage": 1.0,
+                },
+                "depth_driven_taker_met": "false",
+            }
+        )
