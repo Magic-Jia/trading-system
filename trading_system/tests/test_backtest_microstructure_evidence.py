@@ -256,3 +256,17 @@ def test_microstructure_gate_rejects_unknown_evidence_source_fields() -> None:
                 },
             }
         )
+
+
+def test_microstructure_gate_rejects_unknown_manifest_fields() -> None:
+    with pytest.raises(ValueError, match="unknown microstructure manifest field: unexpected"):
+        build_microstructure_gate(
+            {
+                "unexpected": "not-allowed",
+                "coverage": {
+                    "l2_snapshot_coverage": 1.0,
+                    "l2_update_coverage": 1.0,
+                    "tick_coverage": 1.0,
+                },
+            }
+        )

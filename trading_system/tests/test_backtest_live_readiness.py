@@ -208,8 +208,12 @@ def test_live_readiness_smoke_report_consumes_producer_gate_artifacts(tmp_path: 
         json.dumps(
             build_microstructure_gate(
                 {
-                    "coverage": {"l2_tick_coverage": 0.995, "required_l2_tick_coverage": 0.99},
-                    "depth_driven_fills": [{"depth_sufficient": True, "slippage_bps": 1.5}],
+                    "coverage": {
+                        "l2_snapshot_coverage": 0.995,
+                        "l2_update_coverage": 0.995,
+                        "tick_coverage": 0.995,
+                    },
+                    "depth_driven_taker_fills": [{"complete": True}],
                 }
             )
         ),
@@ -219,13 +223,13 @@ def test_live_readiness_smoke_report_consumes_producer_gate_artifacts(tmp_path: 
         json.dumps(
             build_validation_gate(
                 {
-                    "oos": {"baseline_net_pnl": 100.0, "oos_net_pnl": 80.0, "min_oos_ratio": 0.5},
+                    "oos": {"baseline_net_pnl": 100.0, "oos_net_pnl": 80.0},
                     "regimes": [
-                        {"name": "trend", "net_pnl": 40.0},
-                        {"name": "chop", "net_pnl": 20.0},
+                        {"trade_count": 1, "net_pnl": 40.0},
+                        {"trade_count": 1, "net_pnl": 20.0},
                     ],
                     "cost_stress": {"stressed_net_pnl": 30.0},
-                    "forward_contamination": {"detected": False, "audit_complete": True},
+                    "forward_contamination": {"absent": True},
                 }
             )
         ),

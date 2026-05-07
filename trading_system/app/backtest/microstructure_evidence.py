@@ -113,6 +113,11 @@ def build_microstructure_gate(
     implementation stage, the taker-depth check remains false.
     """
 
+    unknown_manifest_fields = sorted(
+        set(manifest) - {"evidence_source", "coverage", "depth_driven_taker_fills", "depth_driven_taker_met"}
+    )
+    if unknown_manifest_fields:
+        raise ValueError("unknown microstructure manifest field: " + ", ".join(unknown_manifest_fields))
     min_required_coverage = _normalise_coverage_value("min_coverage", min_coverage)
     assert min_required_coverage is not None
 
