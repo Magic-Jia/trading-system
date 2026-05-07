@@ -1688,6 +1688,23 @@ def _runtime_safety_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
             payload, {"schema_version", "evidence_source", "checks", "summary", "reasons"}
         )
         checks = _as_mapping(checks_payload)
+        summary = _as_mapping(summary_payload)
+        summary_schema_error = ""
+        event_count = summary.get("event_count")
+        if event_count is not None and (isinstance(event_count, bool) or not isinstance(event_count, int)):
+            summary_schema_error = "summary_event_count_not_int"
+        counts_by_type = summary.get("counts_by_type")
+        if not summary_schema_error and counts_by_type is not None:
+            if not isinstance(counts_by_type, Mapping):
+                summary_schema_error = "summary_counts_by_type_not_object"
+            else:
+                for event_type, count in counts_by_type.items():
+                    if not isinstance(event_type, str) or not event_type.strip() or event_type != event_type.strip():
+                        summary_schema_error = "summary_counts_by_type_key_invalid"
+                        break
+                    if isinstance(count, bool) or not isinstance(count, int) or count < 0:
+                        summary_schema_error = "summary_counts_by_type_count_invalid"
+                        break
         unknown_check_fields = sorted(set(checks) - set(required_checks))
         chunk_schema_valid = (
             (not parse_error)
@@ -1697,6 +1714,7 @@ def _runtime_safety_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
             and not evidence_source_schema_error
             and not top_level_schema_error
             and summary_object_valid
+            and not summary_schema_error
             and not unknown_check_fields
         )
         chunk_provenance_present = (not parse_error) and _artifact_provenance_present(payload)
@@ -1712,6 +1730,8 @@ def _runtime_safety_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
                 parse_error_message = top_level_schema_error
             elif not summary_object_valid:
                 parse_error_message = "summary_not_object"
+            elif summary_schema_error:
+                parse_error_message = summary_schema_error
             elif unknown_check_fields:
                 parse_error_message = "unknown_check_field: " + ", ".join(unknown_check_fields)
         artifacts.append(
