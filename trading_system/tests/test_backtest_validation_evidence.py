@@ -65,3 +65,15 @@ def test_validation_gate_reports_each_failed_requirement() -> None:
         "cost_stress_not_positive",
         "forward_contamination_unproven",
     ]
+
+
+def test_validation_gate_rejects_non_object_evidence_source() -> None:
+    manifest = _passing_manifest()
+    manifest["evidence_source"] = [("type", "walk_forward_oos_report")]
+
+    try:
+        build_validation_gate(manifest)  # type: ignore[arg-type]
+    except ValueError as exc:
+        assert str(exc) == "evidence_source must be an object"
+    else:  # pragma: no cover - RED path until producer is hardened
+        raise AssertionError("expected non-object evidence_source to be rejected")

@@ -21,7 +21,13 @@ def _mapping(value: Any, name: str) -> Mapping[str, Any]:
 
 
 def build_validation_gate(manifest: Mapping[str, Any]) -> dict[str, Any]:
-    source = dict(manifest.get("evidence_source") or {"type": "unknown_offline_records"})
+    raw_source = manifest.get("evidence_source")
+    if raw_source is None:
+        source: dict[str, Any] = {"type": "unknown_offline_records"}
+    elif not isinstance(raw_source, Mapping):
+        raise ValueError("evidence_source must be an object")
+    else:
+        source = dict(raw_source)
     source.setdefault("type", "unknown_offline_records")
 
     oos = _mapping(manifest.get("oos", {}), "oos")
