@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections import defaultdict
+from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping
@@ -54,6 +54,13 @@ def _coverage_ratio(series: ImportedRawMarketSeries, expected_interval: timedelt
 def _series_report(series: ImportedRawMarketSeries, expected_interval: timedelta | None) -> dict[str, Any]:
     missing = _missing_intervals(series, expected_interval)
     files = list(series.files)
+    timestamp_counts = Counter(record.observed_at for record in series.records)
+    duplicate_observed_at = [
+        {"observed_at": _utc_timestamp(observed_at), "count": count}
+        for observed_at, count in sorted(timestamp_counts.items())
+        if count > 1
+    ]
+    observed_at_unique = not duplicate_observed_at
     return {
         "series_key": series.series_key,
         "exchange": series.exchange,
@@ -63,6 +70,9 @@ def _series_report(series: ImportedRawMarketSeries, expected_interval: timedelta
         "timeframe": series.timeframe,
         "record_count": len(series.records),
         "file_count": len(files),
+        "observed_at_unique": observed_at_unique,
+        "duplicate_observed_at_count": len(duplicate_observed_at),
+        "duplicate_observed_at": duplicate_observed_at,
         "coverage_start": _utc_timestamp(min(item.coverage_start for item in files)) if files else None,
         "coverage_end": _utc_timestamp(max(item.coverage_end for item in files)) if files else None,
         "expected_interval_seconds": int(expected_interval.total_seconds()) if expected_interval else None,
@@ -127,10 +137,13 @@ def build_raw_market_data_quality_report(
         for item in series
     }
     series_with_missing = sum(1 for report in reports.values() if report["has_missing_intervals"])
+    series_with_duplicate_observed_at = sum(1 for report in reports.values() if not report["observed_at_unique"])
     l2 = _l2_tick_coverage(reports, required_l2_coverage)
     reasons: list[str] = []
     if series_with_missing:
         reasons.append("raw_market_missing_intervals")
+    if series_with_duplicate_observed_at:
+        reasons.append("raw_market_duplicate_observed_at")
     if not l2["met"]:
         reasons.append("l2_coverage_below_threshold")
     decision = "ready_for_live_promotion_review" if not reasons else "reject_for_live_promotion"
@@ -140,6 +153,7 @@ def build_raw_market_data_quality_report(
         "summary": {
             "series_count": len(reports),
             "series_with_missing_intervals": series_with_missing,
+            "series_with_duplicate_observed_at": series_with_duplicate_observed_at,
             "l2_coverage_met": l2["met"],
         },
         "series": reports,
@@ -148,6 +162,7 @@ def build_raw_market_data_quality_report(
             "decision": decision,
             "checks": {
                 "raw_market_missing_intervals_met": series_with_missing == 0,
+                "raw_market_observed_at_unique_met": series_with_duplicate_observed_at == 0,
                 "l2_coverage_met": l2["met"],
             },
             "reasons": reasons,
