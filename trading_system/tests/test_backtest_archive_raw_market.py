@@ -175,6 +175,38 @@ def test_load_raw_market_manifest_rejects_unsafe_file_path(tmp_path: Path) -> No
         load_phase1_raw_market_manifest(archived.manifest_path)
 
 
+def test_load_raw_market_manifest_rejects_string_symbol_metadata_numerics(tmp_path: Path) -> None:
+    archived = archive_raw_market_payload(
+        archive_root=tmp_path / "archive",
+        exchange="binance",
+        market="futures",
+        dataset="ohlcv",
+        symbol="BTCUSDT",
+        timeframe="1h",
+        coverage_start="2026-01-01T00:00:00Z",
+        coverage_end="2026-01-01T02:00:00Z",
+        fetched_at="2026-01-01T02:01:00Z",
+        endpoint="/fapi/v1/klines",
+        symbol_metadata={
+            "listing_timestamp": "2025-01-01T00:00:00Z",
+            "quantity_step": 0.001,
+            "price_tick": 0.1,
+        },
+        payload={
+            "rows": [
+                {"open_time": "2026-01-01T00:00:00Z", "open": 100.0, "high": 101.0, "low": 99.0, "close": 100.5, "volume": 10.0},
+                {"open_time": "2026-01-01T01:00:00Z", "open": 100.5, "high": 102.0, "low": 100.0, "close": 101.0, "volume": 12.0},
+            ]
+        },
+    )
+    manifest = json.loads(archived.manifest_path.read_text(encoding="utf-8"))
+    manifest["symbol_metadata"]["quantity_step"] = "0.001"
+    archived.manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="raw-market symbol_metadata quantity_step must be numeric"):
+        load_phase1_raw_market_manifest(archived.manifest_path)
+
+
 def test_importer_rejects_invalid_ohlcv_numeric_fields() -> None:
     record = ImportedRawMarketRecord(
         observed_at=datetime(2026, 1, 1, tzinfo=timezone.utc),

@@ -115,6 +115,17 @@ def _payload_bytes(payload: Any) -> bytes:
     return json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
 
 
+def _strict_positive_float(value: Any, *, field: str, context: Path | str) -> float:
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        raise ValueError(f"raw-market symbol_metadata {field} must be numeric: {context}")
+    parsed = float(value)
+    if not parsed == parsed or parsed in {float("inf"), float("-inf")}:
+        raise ValueError(f"raw-market symbol_metadata {field} must be finite: {context}")
+    if parsed <= 0.0:
+        raise ValueError(f"raw-market symbol_metadata {field} must be positive: {context}")
+    return parsed
+
+
 def _normalized_symbol_metadata(payload: Any, *, context: Path | str) -> dict[str, Any] | None:
     if payload is None:
         return None
@@ -125,19 +136,8 @@ def _normalized_symbol_metadata(payload: Any, *, context: Path | str) -> dict[st
     if not isinstance(listing_timestamp, str) or not listing_timestamp.strip():
         raise ValueError(f"raw-market symbol_metadata listing_timestamp must be a non-empty string: {context}")
 
-    try:
-        quantity_step = float(payload.get("quantity_step"))
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"raw-market symbol_metadata quantity_step must be numeric: {context}") from exc
-    if quantity_step <= 0.0:
-        raise ValueError(f"raw-market symbol_metadata quantity_step must be positive: {context}")
-
-    try:
-        price_tick = float(payload.get("price_tick"))
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"raw-market symbol_metadata price_tick must be numeric: {context}") from exc
-    if price_tick <= 0.0:
-        raise ValueError(f"raw-market symbol_metadata price_tick must be positive: {context}")
+    quantity_step = _strict_positive_float(payload.get("quantity_step"), field="quantity_step", context=context)
+    price_tick = _strict_positive_float(payload.get("price_tick"), field="price_tick", context=context)
 
     return {
         "listing_timestamp": _utc_timestamp(listing_timestamp),
