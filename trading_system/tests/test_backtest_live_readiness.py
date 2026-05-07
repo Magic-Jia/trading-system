@@ -3690,12 +3690,6 @@ def test_live_readiness_gate_reports_non_object_trades_artifact_payload(tmp_path
             "chunk": "chunk_001",
             "artifact": "trades.json",
             "schema_version": None,
-            "error": "invalid_or_missing_schema_version",
-        },
-        {
-            "chunk": "chunk_001",
-            "artifact": "trades.json",
-            "schema_version": None,
             "error": "json_payload_not_object",
         },
     ]

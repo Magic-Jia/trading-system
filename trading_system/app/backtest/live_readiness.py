@@ -323,15 +323,6 @@ def _trades_artifact_integrity(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
                 }
             )
             continue
-        if schema_version != VALID_TRADES_ARTIFACT_SCHEMA_VERSION:
-            invalid_artifacts.append(
-                {
-                    "chunk": chunk_dir.name,
-                    "artifact": "trades.json",
-                    "schema_version": schema_version,
-                    "error": "invalid_or_missing_schema_version",
-                }
-            )
         if parse_error == "json_payload_not_object":
             invalid_artifacts.append(
                 {
@@ -342,6 +333,15 @@ def _trades_artifact_integrity(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
                 }
             )
             continue
+        if schema_version != VALID_TRADES_ARTIFACT_SCHEMA_VERSION:
+            invalid_artifacts.append(
+                {
+                    "chunk": chunk_dir.name,
+                    "artifact": "trades.json",
+                    "schema_version": schema_version,
+                    "error": "invalid_or_missing_schema_version",
+                }
+            )
         rows = payload.get("trades", [])
         unknown_top_level_fields = sorted(set(payload) - {"schema_version", "trades"})
         for field in unknown_top_level_fields:
