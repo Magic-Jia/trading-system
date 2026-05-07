@@ -214,3 +214,17 @@ def test_rejects_non_object_depth_driven_fill_entries() -> None:
                 "depth_driven_taker_fills": ["not-a-fill"],
             }
         )
+
+
+def test_microstructure_gate_rejects_non_string_evidence_source_type() -> None:
+    with pytest.raises(ValueError, match="evidence_source type must be a string"):
+        build_microstructure_gate(
+            {
+                "evidence_source": {"type": 123},
+                "coverage": {
+                    "l2_snapshot_coverage": 1.0,
+                    "l2_update_coverage": 1.0,
+                    "tick_coverage": 1.0,
+                },
+            }
+        )

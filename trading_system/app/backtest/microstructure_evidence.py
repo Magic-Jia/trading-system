@@ -128,9 +128,13 @@ def build_microstructure_gate(
 
     evidence_source = manifest.get("evidence_source") or {"type": "synthetic_fixture"}
     if not isinstance(evidence_source, Mapping):
-        raise ValueError("evidence_source must be a mapping")
+        raise ValueError("evidence_source must be an object")
     evidence_source = dict(evidence_source)
     evidence_source.setdefault("type", "synthetic_fixture")
+    if not isinstance(evidence_source.get("type"), str):
+        raise ValueError("evidence_source type must be a string")
+    if not evidence_source["type"].strip():
+        raise ValueError("evidence_source type must be non-empty")
 
     l2_tick_coverage_met = all(
         coverage[key] is not None and coverage[key] >= min_required_coverage
