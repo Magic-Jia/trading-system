@@ -7405,6 +7405,20 @@ def test_live_readiness_gate_rejects_negative_min_passive_fill_rate(tmp_path: Pa
 
 
 
+def test_live_readiness_gate_rejects_bool_min_passive_calibration_attempts(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+
+    report = build_live_readiness_gate_report(tmp_path, min_passive_calibration_attempts=True)
+
+    assert report["passive_calibration"]["invalid_config"] == [
+        {"field": "min_passive_calibration_attempts", "value": True, "error": "invalid_threshold"}
+    ]
+    assert "passive_calibration_config_invalid" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
+
 def test_live_readiness_gate_rejects_negative_min_passive_calibration_attempts(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     _write_profitable_trade_chunk(chunk)
