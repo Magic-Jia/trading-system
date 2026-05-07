@@ -79,9 +79,12 @@ def _require_non_negative_int(payload: Mapping[str, Any], key: str, *, context: 
 
 def _parse_iso_datetime(value: str, *, context: str) -> datetime:
     try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError as exc:
         raise ValueError(f"{context} must be an ISO datetime") from exc
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ValueError(f"{context} must be timezone-aware")
+    return parsed
 
 
 def _validate_runtime_observability_plan(payload: Mapping[str, Any], *, context: str) -> None:
