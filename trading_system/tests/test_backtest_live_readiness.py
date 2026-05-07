@@ -320,7 +320,7 @@ def test_live_readiness_smoke_report_rejects_tampered_promotion_bundle(tmp_path:
             {
                 "checks": {
                     "oos_non_degraded_met": True,
-                    "multi_regime_met": True,
+                    "multi_regime_resilience_met": True,
                     "cost_stress_positive_met": True,
                     "forward_contamination_absent_met": True,
                 }
@@ -334,8 +334,8 @@ def test_live_readiness_smoke_report_rejects_tampered_promotion_bundle(tmp_path:
                 "checks": {
                     "kill_switch_dry_run_met": True,
                     "order_position_reconciliation_met": True,
-                    "fail_closed_met": True,
-                    "dust_before_scale_met": True,
+                    "runtime_fail_closed_met": True,
+                    "live_dust_before_scale_met": True,
                     "live_trade_ledger_met": True,
                     "runtime_explainability_met": True,
                     "drift_guard_met": True,
@@ -1731,7 +1731,7 @@ def test_live_readiness_markdown_shows_bundle_manifest_and_metadata_errors(tmp_p
                 "evidence_source": {"type": "walk_forward_oos_report", "run_id": "validation-1"},
                 "checks": {
                     "oos_non_degraded_met": True,
-                    "multi_regime_met": True,
+                    "multi_regime_resilience_met": True,
                     "cost_stress_positive_met": True,
                     "forward_contamination_absent_met": True,
                 },
@@ -1747,8 +1747,8 @@ def test_live_readiness_markdown_shows_bundle_manifest_and_metadata_errors(tmp_p
                 "checks": {
                     "kill_switch_dry_run_met": True,
                     "order_position_reconciliation_met": True,
-                    "fail_closed_met": True,
-                    "dust_before_scale_met": True,
+                    "runtime_fail_closed_met": True,
+                    "live_dust_before_scale_met": True,
                     "live_trade_ledger_met": True,
                     "runtime_explainability_met": True,
                     "drift_guard_met": True,
@@ -1848,6 +1848,99 @@ def test_live_readiness_gate_report_rejects_invalid_passive_calibration_schema_a
     assert "passive_calibration_artifact_schema_invalid" in reasons
     assert "passive_calibration_artifact_provenance_missing" in reasons
     assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+def test_live_readiness_accepts_microstructure_producer_reasons_field(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    (chunk / "market_microstructure_gate.json").write_text(
+        json.dumps(
+            build_microstructure_gate(
+                {
+                    "evidence_source": {"type": "exchange_l2_capture", "run_id": "micro-1"},
+                    "coverage": {
+                        "l2_snapshot_coverage": 1.0,
+                        "l2_update_coverage": 1.0,
+                        "tick_coverage": 1.0,
+                    },
+                    "depth_driven_taker_fills": [{"complete": True}],
+                }
+            )
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_live_readiness_gate_report(tmp_path, require_microstructure_evidence=True)
+
+    micro_checks = report["microstructure_gate"]["checks"]
+    assert micro_checks["l2_tick_coverage_met"] is True
+    assert micro_checks["depth_driven_taker_met"] is True
+    assert micro_checks["microstructure_artifact_schema_valid"] is True
+    assert "microstructure_artifact_schema_invalid" not in report["promotion_gate"]["reasons"]
+
+
+def test_live_readiness_accepts_validation_producer_check_names(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    (chunk / "validation_gate.json").write_text(
+        json.dumps(
+            build_validation_gate(
+                {
+                    "evidence_source": {"type": "walk_forward_oos_report", "run_id": "validation-1"},
+                    "oos": {"baseline_net_pnl": 100.0, "oos_net_pnl": 90.0, "max_degradation_fraction": 0.2},
+                    "regimes": [
+                        {"name": "trend", "trade_count": 10, "net_pnl": 40.0},
+                        {"name": "chop", "trade_count": 8, "net_pnl": 20.0},
+                    ],
+                    "cost_stress": {"stressed_net_pnl": 30.0},
+                    "forward_contamination": {"absent": True, "audit_id": "fc-1"},
+                }
+            )
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_live_readiness_gate_report(tmp_path, require_validation_evidence=True)
+
+    validation_checks = report["validation_gate"]["checks"]
+    assert validation_checks["multi_regime_resilience_met"] is True
+    assert validation_checks["validation_artifact_schema_valid"] is True
+    reasons = set(report["promotion_gate"]["reasons"])
+    assert "validation_evidence_missing" not in reasons
+    assert "validation_artifact_schema_invalid" not in reasons
+
+
+def test_live_readiness_accepts_runtime_safety_producer_check_names(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    (chunk / "runtime_safety_gate.json").write_text(
+        json.dumps(
+            build_runtime_safety_gate(
+                {
+                    "evidence_source": {"type": "paper_runtime_logs", "run_id": "runtime-1"},
+                    "events": [
+                        {"type": "kill_switch_dry_run", "passed": True},
+                        {"type": "order_position_reconciliation", "passed": True},
+                        {"type": "runtime_fail_closed", "passed": True},
+                        {"type": "live_dust_before_scale", "passed": True},
+                        {"type": "live_trade_ledger", "passed": True},
+                        {"type": "runtime_explainability", "passed": True},
+                        {"type": "drift_guard", "passed": True},
+                    ],
+                }
+            )
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_live_readiness_gate_report(tmp_path, require_runtime_safety_evidence=True)
+
+    runtime_checks = report["runtime_safety_gate"]["checks"]
+    assert runtime_checks["runtime_fail_closed_met"] is True
+    assert runtime_checks["live_dust_before_scale_met"] is True
+    assert runtime_checks["runtime_safety_artifact_schema_valid"] is True
+    reasons = set(report["promotion_gate"]["reasons"])
+    assert "runtime_safety_missing" not in reasons
+    assert "runtime_safety_artifact_schema_invalid" not in reasons
 
 
 def test_live_readiness_gate_rejects_malformed_required_runtime_safety_artifact(tmp_path: Path) -> None:
@@ -2383,8 +2476,8 @@ def test_live_readiness_gate_rejects_present_runtime_safety_artifact_with_bad_sc
                 "checks": {
                     "kill_switch_dry_run_met": True,
                     "order_position_reconciliation_met": True,
-                    "fail_closed_met": True,
-                    "dust_before_scale_met": True,
+                    "runtime_fail_closed_met": True,
+                    "live_dust_before_scale_met": True,
                     "live_trade_ledger_met": True,
                     "runtime_explainability_met": True,
                     "drift_guard_met": True,
@@ -2729,8 +2822,8 @@ def test_live_readiness_gate_rejects_runtime_safety_string_false_checks(tmp_path
         "checks": {
             "kill_switch_dry_run_met": "false",
             "order_position_reconciliation_met": True,
-            "fail_closed_met": True,
-            "dust_before_scale_met": True,
+            "runtime_fail_closed_met": True,
+            "live_dust_before_scale_met": True,
             "live_trade_ledger_met": True,
             "runtime_explainability_met": True,
             "drift_guard_met": True,
@@ -3040,8 +3133,8 @@ def test_live_readiness_gate_rejects_runtime_safety_unknown_check_fields(tmp_pat
         "checks": {
             "kill_switch_dry_run_met": True,
             "order_position_reconciliation_met": True,
-            "fail_closed_met": True,
-            "dust_before_scale_met": True,
+            "runtime_fail_closed_met": True,
+            "live_dust_before_scale_met": True,
             "live_trade_ledger_met": True,
             "runtime_explainability_met": True,
             "drift_guard_met": True,
@@ -3092,7 +3185,7 @@ def test_live_readiness_gate_rejects_validation_unknown_check_fields(tmp_path: P
         "evidence_source": {"type": "exchange_export", "run_id": "validation-unknown-check"},
         "checks": {
             "oos_non_degraded_met": True,
-            "multi_regime_met": True,
+            "multi_regime_resilience_met": True,
             "cost_stress_positive_met": True,
             "forward_contamination_absent_met": True,
             "manual_walkforward_override_met": True,
@@ -3119,8 +3212,8 @@ def test_live_readiness_gate_rejects_runtime_safety_summary_not_object(tmp_path:
         "checks": {
             "kill_switch_dry_run_met": True,
             "order_position_reconciliation_met": True,
-            "fail_closed_met": True,
-            "dust_before_scale_met": True,
+            "runtime_fail_closed_met": True,
+            "live_dust_before_scale_met": True,
             "live_trade_ledger_met": True,
             "runtime_explainability_met": True,
             "drift_guard_met": True,
@@ -3169,7 +3262,7 @@ def test_live_readiness_gate_rejects_validation_summary_not_object(tmp_path: Pat
         "evidence_source": {"type": "exchange_export", "run_id": "validation-summary-not-object"},
         "checks": {
             "oos_non_degraded_met": True,
-            "multi_regime_met": True,
+            "multi_regime_resilience_met": True,
             "cost_stress_positive_met": True,
             "forward_contamination_absent_met": True,
         },
@@ -3196,8 +3289,8 @@ def test_live_readiness_gate_rejects_runtime_safety_unknown_top_level_field(tmp_
         "checks": {
             "kill_switch_dry_run_met": True,
             "order_position_reconciliation_met": True,
-            "fail_closed_met": True,
-            "dust_before_scale_met": True,
+            "runtime_fail_closed_met": True,
+            "live_dust_before_scale_met": True,
             "live_trade_ledger_met": True,
             "runtime_explainability_met": True,
             "drift_guard_met": True,
@@ -3268,7 +3361,7 @@ def test_live_readiness_gate_rejects_validation_unknown_top_level_field(tmp_path
         "evidence_source": {"type": "exchange_export", "run_id": "validation-unknown-top-level"},
         "checks": {
             "oos_non_degraded_met": True,
-            "multi_regime_met": True,
+            "multi_regime_resilience_met": True,
             "cost_stress_positive_met": True,
             "forward_contamination_absent_met": True,
         },
@@ -3334,7 +3427,7 @@ def test_live_readiness_gate_rejects_validation_evidence_source_not_object(tmp_p
         "evidence_source": ["exchange_export"],
         "checks": {
             "oos_non_degraded_met": True,
-            "multi_regime_met": True,
+            "multi_regime_resilience_met": True,
             "cost_stress_positive_met": True,
             "forward_contamination_absent_met": True,
         },
@@ -3359,7 +3452,7 @@ def test_live_readiness_gate_rejects_validation_evidence_source_type_not_string(
         "evidence_source": {"type": 123, "run_id": "validation-source-type-not-string"},
         "checks": {
             "oos_non_degraded_met": True,
-            "multi_regime_met": True,
+            "multi_regime_resilience_met": True,
             "cost_stress_positive_met": True,
             "forward_contamination_absent_met": True,
         },
@@ -3385,8 +3478,8 @@ def test_live_readiness_gate_rejects_runtime_safety_evidence_source_not_object(t
         "checks": {
             "kill_switch_dry_run_met": True,
             "order_position_reconciliation_met": True,
-            "fail_closed_met": True,
-            "dust_before_scale_met": True,
+            "runtime_fail_closed_met": True,
+            "live_dust_before_scale_met": True,
             "live_trade_ledger_met": True,
             "runtime_explainability_met": True,
             "drift_guard_met": True,
@@ -3413,8 +3506,8 @@ def test_live_readiness_gate_rejects_runtime_safety_evidence_source_type_not_str
         "checks": {
             "kill_switch_dry_run_met": True,
             "order_position_reconciliation_met": True,
-            "fail_closed_met": True,
-            "dust_before_scale_met": True,
+            "runtime_fail_closed_met": True,
+            "live_dust_before_scale_met": True,
             "live_trade_ledger_met": True,
             "runtime_explainability_met": True,
             "drift_guard_met": True,
@@ -3445,8 +3538,8 @@ def test_live_readiness_gate_rejects_runtime_safety_unknown_evidence_source_fiel
         "checks": {
             "kill_switch_dry_run_met": True,
             "order_position_reconciliation_met": True,
-            "fail_closed_met": True,
-            "dust_before_scale_met": True,
+            "runtime_fail_closed_met": True,
+            "live_dust_before_scale_met": True,
             "live_trade_ledger_met": True,
             "runtime_explainability_met": True,
             "drift_guard_met": True,
@@ -3473,8 +3566,8 @@ def test_live_readiness_gate_rejects_runtime_safety_evidence_source_run_id_blank
         "checks": {
             "kill_switch_dry_run_met": True,
             "order_position_reconciliation_met": True,
-            "fail_closed_met": True,
-            "dust_before_scale_met": True,
+            "runtime_fail_closed_met": True,
+            "live_dust_before_scale_met": True,
             "live_trade_ledger_met": True,
             "runtime_explainability_met": True,
             "drift_guard_met": True,
@@ -3501,8 +3594,8 @@ def test_live_readiness_gate_rejects_runtime_safety_evidence_source_run_id_not_s
         "checks": {
             "kill_switch_dry_run_met": True,
             "order_position_reconciliation_met": True,
-            "fail_closed_met": True,
-            "dust_before_scale_met": True,
+            "runtime_fail_closed_met": True,
+            "live_dust_before_scale_met": True,
             "live_trade_ledger_met": True,
             "runtime_explainability_met": True,
             "drift_guard_met": True,
@@ -5187,8 +5280,8 @@ def test_live_readiness_gate_report_rejects_missing_runtime_safety_evidence(tmp_
     for key in (
         "kill_switch_dry_run_met",
         "order_position_reconciliation_met",
-        "fail_closed_met",
-        "dust_before_scale_met",
+        "runtime_fail_closed_met",
+        "live_dust_before_scale_met",
         "live_trade_ledger_met",
         "runtime_explainability_met",
         "drift_guard_met",
@@ -5220,8 +5313,8 @@ def test_live_readiness_gate_rejects_present_failing_runtime_safety_checks(tmp_p
                 "checks": {
                     "kill_switch_dry_run_met": False,
                     "order_position_reconciliation_met": True,
-                    "fail_closed_met": True,
-                    "dust_before_scale_met": True,
+                    "runtime_fail_closed_met": True,
+                    "live_dust_before_scale_met": True,
                     "live_trade_ledger_met": True,
                     "runtime_explainability_met": True,
                     "drift_guard_met": True,
@@ -5249,8 +5342,8 @@ def test_live_readiness_gate_rejects_non_live_runtime_safety_provenance(tmp_path
                 "checks": {
                     "kill_switch_dry_run_met": True,
                     "order_position_reconciliation_met": True,
-                    "fail_closed_met": True,
-                    "dust_before_scale_met": True,
+                    "runtime_fail_closed_met": True,
+                    "live_dust_before_scale_met": True,
                     "live_trade_ledger_met": True,
                     "runtime_explainability_met": True,
                     "drift_guard_met": True,
@@ -5303,8 +5396,8 @@ def test_live_readiness_gate_report_accepts_runtime_safety_evidence_artifact(tmp
                 "checks": {
                     "kill_switch_dry_run_met": True,
                     "order_position_reconciliation_met": True,
-                    "fail_closed_met": True,
-                    "dust_before_scale_met": True,
+                    "runtime_fail_closed_met": True,
+                    "live_dust_before_scale_met": True,
                     "live_trade_ledger_met": True,
                     "runtime_explainability_met": True,
                     "drift_guard_met": True,
@@ -5411,7 +5504,7 @@ def test_live_readiness_gate_report_rejects_invalid_producer_artifact_schema_and
                 "schema_version": "unexpected_validation.v0",
                 "checks": {
                     "oos_non_degraded_met": True,
-                    "multi_regime_met": True,
+                    "multi_regime_resilience_met": True,
                     "cost_stress_positive_met": True,
                     "forward_contamination_absent_met": True,
                 },
@@ -5427,8 +5520,8 @@ def test_live_readiness_gate_report_rejects_invalid_producer_artifact_schema_and
                 "checks": {
                     "kill_switch_dry_run_met": True,
                     "order_position_reconciliation_met": True,
-                    "fail_closed_met": True,
-                    "dust_before_scale_met": True,
+                    "runtime_fail_closed_met": True,
+                    "live_dust_before_scale_met": True,
                     "live_trade_ledger_met": True,
                     "runtime_explainability_met": True,
                     "drift_guard_met": True,
@@ -5564,7 +5657,7 @@ def test_live_readiness_gate_report_rejects_missing_validation_evidence(tmp_path
     assert validation["required"] is True
     assert validation["artifact_count"] == 0
     assert validation["checks"]["oos_non_degraded_met"] is False
-    assert validation["checks"]["multi_regime_met"] is False
+    assert validation["checks"]["multi_regime_resilience_met"] is False
     assert validation["checks"]["cost_stress_positive_met"] is False
     assert validation["checks"]["forward_contamination_absent_met"] is False
     assert "validation_evidence_missing" in report["promotion_gate"]["reasons"]
@@ -5612,7 +5705,7 @@ def test_live_readiness_gate_report_accepts_validation_evidence_artifact(tmp_pat
                 "evidence_source": {"type": "walk_forward_oos_report", "run_id": "validation-1"},
                 "checks": {
                     "oos_non_degraded_met": True,
-                    "multi_regime_met": True,
+                    "multi_regime_resilience_met": True,
                     "cost_stress_positive_met": True,
                     "forward_contamination_absent_met": True,
                 },
@@ -5645,7 +5738,7 @@ def test_live_readiness_gate_rejects_present_failing_validation_checks(tmp_path:
                 "evidence_source": {"type": "walk_forward_oos_report", "run_id": "validation-1"},
                 "checks": {
                     "oos_non_degraded_met": False,
-                    "multi_regime_met": True,
+                    "multi_regime_resilience_met": True,
                     "cost_stress_positive_met": True,
                     "forward_contamination_absent_met": True,
                 },

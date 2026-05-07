@@ -68,3 +68,28 @@ def test_runtime_safety_gate_reports_missing_or_failed_events() -> None:
         "runtime_explainability_missing",
         "drift_guard_missing",
     ]
+
+
+def test_runtime_safety_gate_rejects_non_object_evidence_source() -> None:
+    manifest = _passing_manifest()
+    manifest["evidence_source"] = [("type", "paper_runtime_logs")]
+
+    try:
+        build_runtime_safety_gate(manifest)  # type: ignore[arg-type]
+    except ValueError as exc:
+        assert str(exc) == "evidence_source must be an object"
+    else:  # pragma: no cover - RED path until producer is hardened
+        raise AssertionError("expected non-object evidence_source to be rejected")
+
+
+def test_runtime_safety_gate_accepts_event_type_alias_from_runtime_logs() -> None:
+    manifest = _passing_manifest()
+    for event in manifest["events"]:
+        event["event_type"] = event.pop("type")
+
+    gate = build_runtime_safety_gate(manifest)
+
+    assert gate["reasons"] == []
+    assert gate["checks"]["runtime_fail_closed_met"] is True
+    assert gate["checks"]["live_dust_before_scale_met"] is True
+    assert gate["summary"]["counts_by_type"]["runtime_fail_closed"] == 1

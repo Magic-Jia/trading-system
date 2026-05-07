@@ -1595,6 +1595,7 @@ def _artifact_provenance_present(payload: Mapping[str, Any]) -> bool:
         "exchange_export",
         "real_exchange_records",
         "historical_l2_tick_archive",
+        "exchange_l2_capture",
         "trade_print_path_replay",
         "walk_forward_oos_report",
         "paper_runtime_logs",
@@ -1652,8 +1653,8 @@ def _runtime_safety_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
     required_checks = (
         "kill_switch_dry_run_met",
         "order_position_reconciliation_met",
-        "fail_closed_met",
-        "dust_before_scale_met",
+        "runtime_fail_closed_met",
+        "live_dust_before_scale_met",
         "live_trade_ledger_met",
         "runtime_explainability_met",
         "drift_guard_met",
@@ -1675,7 +1676,9 @@ def _runtime_safety_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
         checks_object_valid = isinstance(checks_payload, Mapping)
         evidence_source_object_valid = isinstance(evidence_source_payload, Mapping)
         evidence_source_schema_error = _artifact_provenance_schema_error(payload)
-        top_level_schema_error = _artifact_top_level_schema_error(payload, {"schema_version", "evidence_source", "checks", "summary"})
+        top_level_schema_error = _artifact_top_level_schema_error(
+            payload, {"schema_version", "evidence_source", "checks", "summary", "reasons"}
+        )
         checks = _as_mapping(checks_payload)
         unknown_check_fields = sorted(set(checks) - set(required_checks))
         chunk_schema_valid = (
@@ -1755,7 +1758,9 @@ def _microstructure_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
         checks_object_valid = isinstance(checks_payload, Mapping)
         evidence_source_object_valid = isinstance(evidence_source_payload, Mapping)
         evidence_source_schema_error = _artifact_provenance_schema_error(payload)
-        top_level_schema_error = _artifact_top_level_schema_error(payload, {"schema_version", "evidence_source", "checks", "summary"})
+        top_level_schema_error = _artifact_top_level_schema_error(
+            payload, {"schema_version", "evidence_source", "checks", "summary", "coverage", "depth_driven_taker", "reasons"}
+        )
         checks = _as_mapping(checks_payload)
         unknown_check_fields = sorted(set(checks) - set(required_checks))
         chunk_schema_valid = (
@@ -1820,7 +1825,7 @@ def _validation_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[str,
     artifacts: list[dict[str, Any]] = []
     required_checks = (
         "oos_non_degraded_met",
-        "multi_regime_met",
+        "multi_regime_resilience_met",
         "cost_stress_positive_met",
         "forward_contamination_absent_met",
     )
@@ -1840,7 +1845,9 @@ def _validation_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[str,
         checks_object_valid = isinstance(checks_payload, Mapping)
         evidence_source_object_valid = isinstance(evidence_source_payload, Mapping)
         evidence_source_schema_error = _artifact_provenance_schema_error(payload)
-        top_level_schema_error = _artifact_top_level_schema_error(payload, {"schema_version", "evidence_source", "checks", "summary"})
+        top_level_schema_error = _artifact_top_level_schema_error(
+            payload, {"schema_version", "evidence_source", "checks", "summary", "reasons"}
+        )
         checks = _as_mapping(checks_payload)
         unknown_check_fields = sorted(set(checks) - set(required_checks))
         chunk_schema_valid = (
@@ -2508,8 +2515,8 @@ def build_live_readiness_gate_report(
     runtime_safety_reason_by_check = {
         "kill_switch_dry_run_met": "kill_switch_dry_run_missing",
         "order_position_reconciliation_met": "order_position_reconciliation_missing",
-        "fail_closed_met": "runtime_fail_closed_missing",
-        "dust_before_scale_met": "live_dust_before_scale_missing",
+        "runtime_fail_closed_met": "runtime_fail_closed_missing",
+        "live_dust_before_scale_met": "live_dust_before_scale_missing",
         "live_trade_ledger_met": "live_trade_ledger_missing",
         "runtime_explainability_met": "runtime_explainability_missing",
         "drift_guard_met": "drift_guard_missing",
@@ -2540,7 +2547,7 @@ def build_live_readiness_gate_report(
         reasons.append("validation_artifact_provenance_missing")
     if (require_validation_evidence or validation_artifact_present) and not validation_checks.get("oos_non_degraded_met", False):
         reasons.append("oos_degraded")
-    if (require_validation_evidence or validation_artifact_present) and not validation_checks.get("multi_regime_met", False):
+    if (require_validation_evidence or validation_artifact_present) and not validation_checks.get("multi_regime_resilience_met", False):
         reasons.append("regime_single_point_survivor")
     if (require_validation_evidence or validation_artifact_present) and not validation_checks.get("cost_stress_positive_met", False):
         reasons.append("cost_stress_not_positive")

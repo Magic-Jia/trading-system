@@ -21,7 +21,13 @@ _REQUIRED_EVENTS = {
 
 
 def build_runtime_safety_gate(manifest: Mapping[str, Any]) -> dict[str, Any]:
-    source = dict(manifest.get("evidence_source") or {"type": "unknown_offline_records"})
+    raw_source = manifest.get("evidence_source")
+    if raw_source is None:
+        source: dict[str, Any] = {"type": "unknown_offline_records"}
+    elif not isinstance(raw_source, Mapping):
+        raise ValueError("evidence_source must be an object")
+    else:
+        source = dict(raw_source)
     source.setdefault("type", "unknown_offline_records")
     events = manifest.get("events", [])
     if not isinstance(events, list):
@@ -32,7 +38,7 @@ def build_runtime_safety_gate(manifest: Mapping[str, Any]) -> dict[str, Any]:
     for event in events:
         if not isinstance(event, Mapping):
             raise ValueError("runtime safety event must be a mapping")
-        event_type = str(event.get("type", "")).strip()
+        event_type = str(event.get("type") or event.get("event_type") or "").strip()
         if not event_type:
             continue
         counts_by_type[event_type] = counts_by_type.get(event_type, 0) + 1
