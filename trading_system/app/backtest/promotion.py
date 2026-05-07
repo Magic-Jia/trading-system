@@ -205,10 +205,21 @@ def _validate_walk_forward_bundle(bundle: BacktestBundle) -> None:
         keys=("total_return", "max_drawdown", "sharpe"),
         context=f"{bundle.root}/summary.json.robustness_summary.out_of_sample_scorecard",
     )
+    for numeric_key in ("total_return", "max_drawdown", "sharpe"):
+        _require_real_number(
+            out_of_sample_scorecard,
+            numeric_key,
+            context=f"{bundle.root}/summary.json.robustness_summary.out_of_sample_scorecard",
+        )
     performance_dispersion = _require_mapping(robustness_summary, "performance_dispersion", context=f"{bundle.root}/summary.json.robustness_summary")
     _require_keys(
         performance_dispersion,
         keys=("positive_window_ratio",),
+        context=f"{bundle.root}/summary.json.robustness_summary.performance_dispersion",
+    )
+    _require_real_number(
+        performance_dispersion,
+        "positive_window_ratio",
         context=f"{bundle.root}/summary.json.robustness_summary.performance_dispersion",
     )
     worst_window = _require_mapping(robustness_summary, "worst_window", context=f"{bundle.root}/summary.json.robustness_summary")
@@ -216,6 +227,11 @@ def _validate_walk_forward_bundle(bundle: BacktestBundle) -> None:
     _require_keys(
         worst_window_scorecard,
         keys=("total_return",),
+        context=f"{bundle.root}/summary.json.robustness_summary.worst_window.scorecard",
+    )
+    _require_real_number(
+        worst_window_scorecard,
+        "total_return",
         context=f"{bundle.root}/summary.json.robustness_summary.worst_window.scorecard",
     )
     _require_mapping(summary, "parameter_stability", context=f"{bundle.root}/summary.json")
@@ -227,6 +243,8 @@ def _validate_walk_forward_bundle(bundle: BacktestBundle) -> None:
         keys=("out_of_sample_total_return", "positive_window_ratio", "parameter_stability_score"),
         context=f"{bundle.root}/scorecard.json.key_metrics",
     )
+    for numeric_key in ("out_of_sample_total_return", "positive_window_ratio", "parameter_stability_score"):
+        _require_real_number(key_metrics, numeric_key, context=f"{bundle.root}/scorecard.json.key_metrics")
 
 
 

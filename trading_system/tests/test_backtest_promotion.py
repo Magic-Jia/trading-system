@@ -465,3 +465,21 @@ def test_load_backtest_bundle_rejects_numeric_strings_in_full_market_summary(tmp
 
     with pytest.raises(ValueError, match="summary.json.summary.total_return must be numeric"):
         promotion.load_backtest_bundle(bundle)
+
+def test_load_backtest_bundle_rejects_numeric_strings_in_walk_forward_oos(tmp_path: Path) -> None:
+    bundle = _write_walk_forward_bundle(
+        tmp_path / "bundle",
+        baseline_name="current_policy",
+        variant_name="candidate_walk_forward",
+        out_of_sample_total_return=0.08,
+        positive_window_ratio=0.9,
+        parameter_stability_score=0.9,
+        worst_window_return=0.02,
+    )
+    summary_path = bundle / "summary.json"
+    payload = json.loads(summary_path.read_text(encoding="utf-8"))
+    payload["robustness_summary"]["out_of_sample_scorecard"]["total_return"] = "0.08"
+    _write_json(summary_path, payload)
+
+    with pytest.raises(ValueError, match="out_of_sample_scorecard.total_return must be numeric"):
+        promotion.load_backtest_bundle(bundle)
