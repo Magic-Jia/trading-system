@@ -167,6 +167,9 @@ def _validate_manifest(bundle_dir: Path, manifest: Mapping[str, Any]) -> None:
             raise ValueError(f"{bundle_dir}/manifest.json.{field_name} must be a string")
         if field_value != field_value.strip():
             raise ValueError(f"{bundle_dir}/manifest.json.{field_name} must be canonical")
+    expected_bundle_name = f"{manifest['experiment_kind']}__{manifest['baseline_name']}__{manifest['variant_name']}"
+    if manifest["bundle_name"] != expected_bundle_name:
+        raise ValueError(f"{bundle_dir}/manifest.json.bundle_name must match experiment identity")
     _require_non_negative_int(manifest, "snapshot_count", context=f"{bundle_dir}/manifest.json")
     sample_period = _require_mapping(manifest, "sample_period", context=f"{bundle_dir}/manifest.json")
     _require_keys(sample_period, keys=("start", "end"), context=f"{bundle_dir}/manifest.json.sample_period")
