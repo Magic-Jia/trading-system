@@ -2149,8 +2149,10 @@ def _passive_calibration_diagnostic(
     invalid_config: list[dict[str, Any]] = []
     if int(min_attempts) < 0:
         invalid_config.append({"field": "min_passive_calibration_attempts", "value": min_attempts, "error": "negative_threshold"})
+    if min_fill_rate is not None and (min_fill_rate < 0.0 or min_fill_rate > 1.0):
+        invalid_config.append({"field": "min_passive_fill_rate", "value": min_fill_rate, "error": "out_of_range_threshold"})
     attempts_met = (not invalid_config) and total_attempts >= int(min_attempts)
-    fill_rate_met = min_fill_rate is None or fill_rate >= min_fill_rate
+    fill_rate_met = (not invalid_config) and (min_fill_rate is None or fill_rate >= min_fill_rate)
     real_records_met = (not required) or real_exchange_records
     schema_valid = (not required) or (bool(chunks) and all(bool(chunk.get("schema_valid")) for chunk in chunks))
     provenance_present = (not required) or (bool(chunks) and all(bool(chunk.get("provenance_present")) for chunk in chunks))
