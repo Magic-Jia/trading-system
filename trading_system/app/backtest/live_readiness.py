@@ -3221,9 +3221,9 @@ def render_live_readiness_markdown(report: Mapping[str, Any]) -> str:
                 "",
                 "## Promotion Bundle Integrity",
                 f"- schema_version: {promotion_bundle_integrity.get('schema_version')}",
-                f"- required: {str(bool(promotion_bundle_integrity.get('required'))).lower()}",
-                f"- verified: {str(bool(promotion_bundle_integrity.get('verified'))).lower()}",
-                f"- manifest_present: {str(bool(promotion_bundle_integrity.get('manifest_present'))).lower()}",
+                f"- required: {_format_strict_bool(promotion_bundle_integrity, 'required')}",
+                f"- verified: {_format_strict_bool(promotion_bundle_integrity, 'verified')}",
+                f"- manifest_present: {_format_strict_bool(promotion_bundle_integrity, 'manifest_present')}",
                 "- manifest_errors: "
                 + (", ".join(str(item) for item in promotion_bundle_integrity.get("manifest_errors", [])) or "none"),
                 "- missing_artifacts: "

@@ -163,6 +163,35 @@ def test_markdown_renderer_rejects_non_strict_microstructure_checks() -> None:
         render_live_readiness_markdown(report)
 
 
+def test_markdown_renderer_rejects_non_strict_promotion_bundle_integrity() -> None:
+    report = {
+        "promotion_gate": {"decision": "hold", "reasons": [], "checks": {}},
+        "totals": {
+            "trade_count": 1,
+            "net_pnl": 1.0,
+            "evidence_coverage": 1.0,
+            "exit_evidence_coverage": 1.0,
+            "exit_path_ambiguity_rate": 0.0,
+        },
+        "promotion_bundle_integrity": {
+            "required": False,
+            "verified": "true",
+            "manifest_present": True,
+            "manifest_errors": [],
+            "missing_artifacts": [],
+            "sha256_mismatches": [],
+            "byte_size_mismatches": [],
+            "missing_artifact_metadata": [],
+            "invalid_artifact_metadata": [],
+            "duplicate_artifact_paths": [],
+        },
+        "caveats": [],
+    }
+
+    with pytest.raises(ValueError, match="verified must be a strict boolean"):
+        render_live_readiness_markdown(report)
+
+
 def test_markdown_renderer_rejects_non_strict_passive_calibration() -> None:
     report = {
         "promotion_gate": {"decision": "hold", "reasons": [], "checks": {}},
