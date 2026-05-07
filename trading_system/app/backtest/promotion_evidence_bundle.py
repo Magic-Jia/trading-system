@@ -97,6 +97,8 @@ def collect_promotion_evidence_bundle(
         raise ValueError("evidence_source type must be a string")
     if not source_payload["type"].strip():
         raise ValueError("evidence_source type must be non-empty")
+    if source_payload["type"] != source_payload["type"].strip():
+        raise ValueError("evidence_source type must be canonical")
     if source_payload["type"].strip().lower() in {
         "synthetic",
         "synthetic_fixture",
@@ -240,6 +242,9 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
         if isinstance(evidence_source_type, str) and not evidence_source_type.strip():
             schema_valid = False
             manifest_errors.append("evidence_source_type_blank")
+        if isinstance(evidence_source_type, str) and evidence_source_type != evidence_source_type.strip():
+            schema_valid = False
+            manifest_errors.append("evidence_source_type_noncanonical")
         if isinstance(evidence_source_type, str) and evidence_source_type.strip().lower() in {
             "synthetic",
             "synthetic_fixture",

@@ -948,3 +948,17 @@ def test_collect_rejects_blank_required_artifact_entries(tmp_path: Path) -> None
             evidence_source={"type": "promotion_bundle_export", "run_id": "bundle-1"},
             required_artifacts=("   ",),
         )
+
+def test_collect_rejects_padded_evidence_source_type(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    for name in REQUIRED_ARTIFACTS:
+        _write_json(source / name, {"artifact": name})
+
+    with pytest.raises(ValueError, match="evidence_source type must be canonical"):
+        collect_promotion_evidence_bundle(
+            source,
+            tmp_path / "bundle",
+            candidate_id="candidate-1",
+            evidence_source={"type": " promotion_bundle_export ", "run_id": "bundle-1"},
+        )
