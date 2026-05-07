@@ -258,6 +258,24 @@ def test_load_backtest_bundle_rejects_noncanonical_manifest_artifacts(tmp_path: 
     with pytest.raises(ValueError, match=r"manifest.json.artifacts\[4\] must be canonical"):
         promotion.load_backtest_bundle(bundle)
 
+
+def test_load_backtest_bundle_rejects_noncanonical_window_count_keys(tmp_path: Path) -> None:
+    bundle = _write_full_market_bundle(
+        tmp_path / "bundle",
+        baseline_name="current_system",
+        variant_name="baseline_policy",
+        total_return=0.10,
+        max_drawdown=-0.10,
+        sharpe=1.0,
+        cost_drag=0.02,
+    )
+    manifest = json.loads((bundle / "manifest.json").read_text(encoding="utf-8"))
+    manifest["window_counts"] = {" full_history ": 4}
+    _write_json(bundle / "manifest.json", manifest)
+
+    with pytest.raises(ValueError, match="manifest.json.window_counts. full_history  key must be canonical"):
+        promotion.load_backtest_bundle(bundle)
+
 def test_compare_backtest_bundles_holds_when_out_of_sample_evidence_is_missing(tmp_path: Path) -> None:
     baseline_bundle = _write_full_market_bundle(
         tmp_path / "baseline",

@@ -173,6 +173,10 @@ def _validate_manifest(bundle_dir: Path, manifest: Mapping[str, Any]) -> None:
         raise ValueError(f"{bundle_dir}/manifest.json.sample_period start must be before end")
     window_counts = _require_mapping(manifest, "window_counts", context=f"{bundle_dir}/manifest.json")
     for count_name, count_value in window_counts.items():
+        if not isinstance(count_name, str) or not count_name.strip():
+            raise ValueError(f"{bundle_dir}/manifest.json.window_counts key must be a string")
+        if count_name != count_name.strip():
+            raise ValueError(f"{bundle_dir}/manifest.json.window_counts.{count_name} key must be canonical")
         if not isinstance(count_value, int) or isinstance(count_value, bool) or count_value < 0:
             raise ValueError(f"{bundle_dir}/manifest.json.window_counts.{count_name} must be a non-negative integer")
     artifacts = manifest.get("artifacts")
