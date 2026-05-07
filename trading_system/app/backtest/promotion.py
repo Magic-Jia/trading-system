@@ -136,6 +136,11 @@ def _require_rows(payload: Mapping[str, Any], *, context: str) -> list[dict[str,
     for index, item in enumerate(rows):
         if not isinstance(item, dict):
             raise ValueError(f"{context}.rows[{index}] must be an object")
+        for key in item:
+            if not isinstance(key, str) or not key.strip():
+                raise ValueError(f"{context}.rows[{index}] key must be a string")
+            if key != key.strip():
+                raise ValueError(f"{context}.rows[{index}] key must be canonical")
         normalized.append(dict(item))
     return normalized
 

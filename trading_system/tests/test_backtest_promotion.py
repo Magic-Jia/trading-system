@@ -623,6 +623,48 @@ def test_load_backtest_bundle_rejects_numeric_strings_in_walk_forward_oos(tmp_pa
     with pytest.raises(ValueError, match="out_of_sample_scorecard.total_return must be numeric"):
         promotion.load_backtest_bundle(bundle)
 
+def test_load_backtest_bundle_rejects_noncanonical_comparison_row_keys(tmp_path: Path) -> None:
+    bundle = tmp_path / "rotation_row_key"
+    bundle.mkdir()
+    artifacts = ["manifest.json", "summary.json", "comparison_rows.json", "scorecard.json"]
+    _write_json(
+        bundle / "manifest.json",
+        _manifest(
+            experiment_kind="rotation_suppression",
+            baseline_name="current_policy",
+            variant_name="soft_suppression",
+            artifacts=artifacts,
+        ),
+    )
+    _write_json(
+        bundle / "summary.json",
+        {
+            "metadata": {},
+            "policies": {
+                "current": {"bucket_level_pnl": 0.04, "trade_count": 5},
+                "soft_suppression": {"bucket_level_pnl": 0.08, "trade_count": 4},
+            },
+            "opportunity_kill_rate": 0.2,
+            "avoid_loss_rate": 0.6,
+        },
+    )
+    _write_json(bundle / "comparison_rows.json", {"rows": [{" market_type ": "spot"}]})
+    _write_json(
+        bundle / "scorecard.json",
+        {
+            "key_metrics": {
+                "current_bucket_level_pnl": 0.04,
+                "soft_suppression_bucket_level_pnl": 0.08,
+                "opportunity_kill_rate": 0.2,
+                "avoid_loss_rate": 0.6,
+            }
+        },
+    )
+
+    with pytest.raises(ValueError, match=r"comparison_rows.json.rows\[0\] key must be canonical"):
+        promotion.load_backtest_bundle(bundle)
+
+
 def test_load_backtest_bundle_rejects_numeric_strings_in_rotation_policy_metrics(tmp_path: Path) -> None:
     bundle = tmp_path / "rotation"
     bundle.mkdir()
