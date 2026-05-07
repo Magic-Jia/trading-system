@@ -239,6 +239,10 @@ def _validate_full_market_bundle(bundle: BacktestBundle) -> None:
     _require_non_negative_int(audit, "trade_count", context=f"{bundle.root}/audit.json.audit")
     rejection_reasons = _require_mapping(audit, "rejection_reasons", context=f"{bundle.root}/audit.json.audit")
     for reason, count in rejection_reasons.items():
+        if not isinstance(reason, str) or not reason.strip():
+            raise ValueError(f"{bundle.root}/audit.json.audit.rejection_reasons key must be a string")
+        if reason != reason.strip():
+            raise ValueError(f"{bundle.root}/audit.json.audit.rejection_reasons key must be canonical")
         if not isinstance(count, int) or isinstance(count, bool) or count < 0:
             raise ValueError(f"{bundle.root}/audit.json.audit.rejection_reasons.{reason} must be a non-negative integer")
 

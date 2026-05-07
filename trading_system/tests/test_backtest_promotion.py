@@ -294,6 +294,24 @@ def test_load_backtest_bundle_rejects_invalid_full_market_breakdown_identity(tmp
     with pytest.raises(ValueError, match=r"breakdowns.json.breakdowns.by_market\[0\].market_type must be canonical"):
         promotion.load_backtest_bundle(bundle)
 
+def test_load_backtest_bundle_rejects_noncanonical_audit_rejection_reasons(tmp_path: Path) -> None:
+    bundle = _write_full_market_bundle(
+        tmp_path / "bundle",
+        baseline_name="current_system",
+        variant_name="baseline_policy",
+        total_return=0.10,
+        max_drawdown=-0.10,
+        sharpe=1.0,
+        cost_drag=0.02,
+    )
+    audit = json.loads((bundle / "audit.json").read_text(encoding="utf-8"))
+    audit["audit"]["rejection_reasons"] = {" open_risk_limit_reached ": 1}
+    _write_json(bundle / "audit.json", audit)
+
+    with pytest.raises(ValueError, match="audit.json.audit.rejection_reasons key must be canonical"):
+        promotion.load_backtest_bundle(bundle)
+
+
 def test_compare_backtest_bundles_holds_when_out_of_sample_evidence_is_missing(tmp_path: Path) -> None:
     baseline_bundle = _write_full_market_bundle(
         tmp_path / "baseline",
