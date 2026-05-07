@@ -317,6 +317,14 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
     if noncanonical_declared_missing_artifacts:
         schema_valid = False
         manifest_errors.append("missing_artifact_path_noncanonical")
+    canonical_declared_missing_artifacts = [
+        item
+        for item in declared_missing_artifacts
+        if isinstance(item, str)
+        and item.strip()
+        and _artifact_path_is_safe(item)
+        and _artifact_path_is_canonical(item)
+    ]
     if declared_missing_artifacts:
         manifest_errors.append("manifest_declares_missing_artifacts")
     if artifacts_raw is None:
@@ -519,7 +527,7 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
         "schema_valid": schema_valid,
         "candidate_id_valid": candidate_id_valid,
         "candidate_id": candidate_id,
-        "declared_missing_artifacts": sorted(str(item) for item in declared_missing_artifacts),
+        "declared_missing_artifacts": sorted(canonical_declared_missing_artifacts),
         "invalid_declared_missing_artifacts": sorted(invalid_declared_missing_artifacts),
         "unsafe_declared_missing_artifacts": sorted(unsafe_declared_missing_artifacts),
         "noncanonical_declared_missing_artifacts": sorted(noncanonical_declared_missing_artifacts),

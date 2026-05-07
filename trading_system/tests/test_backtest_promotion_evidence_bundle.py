@@ -925,6 +925,7 @@ def test_bundle_verifier_marks_schema_invalid_for_non_string_declared_missing_ar
     assert result["verified"] is False
     assert result["schema_valid"] is False
     assert "missing_artifact_entry_not_string" in result["manifest_errors"]
+    assert result["declared_missing_artifacts"] == []
     assert result["invalid_declared_missing_artifacts"] == ["missing_artifacts[1]"]
 
 def test_bundle_verifier_marks_schema_invalid_for_blank_declared_missing_artifact(tmp_path: Path) -> None:
