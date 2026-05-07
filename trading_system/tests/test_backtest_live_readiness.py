@@ -141,6 +141,33 @@ def test_stdout_concentration_summary_rejects_non_strict_bucket() -> None:
         _stdout_concentration_summary(report)
 
 
+def test_markdown_renderer_rejects_non_strict_postmortem_reconciliation() -> None:
+    report = {
+        "promotion_gate": {"decision": "hold", "reasons": [], "checks": {}},
+        "totals": {
+            "trade_count": 1,
+            "net_pnl": 1.0,
+            "evidence_coverage": 1.0,
+            "exit_evidence_coverage": 1.0,
+            "exit_path_ambiguity_rate": 0.0,
+        },
+        "trade_postmortem_summary": {"summary": {"trades": 1, "net_pnl": 1.0, "cost_total": 0.0}},
+        "postmortem_reconciliation": {
+            "matched": "true",
+            "gate_trade_count": 1,
+            "postmortem_trade_count": 1,
+            "trade_count_delta": 0,
+            "gate_net_pnl": 1.0,
+            "postmortem_net_pnl": 1.0,
+            "net_pnl_delta": 0.0,
+        },
+        "caveats": [],
+    }
+
+    with pytest.raises(ValueError, match="matched must be a strict boolean"):
+        render_live_readiness_markdown(report)
+
+
 def test_markdown_renderer_rejects_non_strict_postmortem_summary() -> None:
     report = {
         "promotion_gate": {"decision": "hold", "reasons": [], "checks": {}},
