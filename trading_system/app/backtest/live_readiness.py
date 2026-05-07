@@ -1905,12 +1905,16 @@ def _setup_quality_gate(
     invalid_config: list[dict[str, Any]] = []
     under_sampled = []
     if min_setup_trade_count is not None:
-        threshold = int(min_setup_trade_count)
-        if threshold < 0:
+        if isinstance(min_setup_trade_count, bool) or not isinstance(min_setup_trade_count, int):
+            invalid_config.append(
+                {"field": "min_setup_trade_count", "value": min_setup_trade_count, "error": "invalid_threshold"}
+            )
+        elif min_setup_trade_count < 0:
             invalid_config.append(
                 {"field": "min_setup_trade_count", "value": min_setup_trade_count, "error": "negative_threshold"}
             )
         else:
+            threshold = min_setup_trade_count
             under_sampled = sorted(
                 key for key, bucket in by_setup.items() if int(bucket.get("trade_count") or 0) < threshold
             )
