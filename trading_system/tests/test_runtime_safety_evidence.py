@@ -117,3 +117,15 @@ def test_runtime_safety_gate_rejects_non_boolean_event_passed() -> None:
         assert str(exc) == "runtime safety event passed must be a boolean"
     else:  # pragma: no cover - RED path until producer is hardened
         raise AssertionError("expected non-boolean runtime safety event passed to be rejected")
+
+
+def test_runtime_safety_gate_rejects_non_string_evidence_source_type() -> None:
+    manifest = _passing_manifest()
+    manifest["evidence_source"] = {"type": 123}
+
+    try:
+        build_runtime_safety_gate(manifest)
+    except ValueError as exc:
+        assert str(exc) == "evidence_source type must be a string"
+    else:  # pragma: no cover - RED path until producer is hardened
+        raise AssertionError("expected non-string evidence_source type to be rejected")

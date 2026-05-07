@@ -29,6 +29,10 @@ def build_runtime_safety_gate(manifest: Mapping[str, Any]) -> dict[str, Any]:
     else:
         source = dict(raw_source)
     source.setdefault("type", "unknown_offline_records")
+    if not isinstance(source.get("type"), str):
+        raise ValueError("evidence_source type must be a string")
+    if not source["type"].strip():
+        raise ValueError("evidence_source type must be non-empty")
     events = manifest.get("events", [])
     if not isinstance(events, list):
         raise ValueError("events must be a list")
