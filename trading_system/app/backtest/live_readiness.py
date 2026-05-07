@@ -2509,7 +2509,7 @@ def build_live_readiness_gate_report(
         "runtime_explainability_met": "runtime_explainability_missing",
         "drift_guard_met": "drift_guard_missing",
     }
-    if require_runtime_safety_evidence:
+    if require_runtime_safety_evidence or int(runtime_safety_gate.get("artifact_count") or 0) > 0:
         for check, reason in runtime_safety_reason_by_check.items():
             if not runtime_safety_checks.get(check, False):
                 reasons.append(reason)

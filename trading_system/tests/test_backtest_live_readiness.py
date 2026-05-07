@@ -5209,6 +5209,35 @@ def test_live_readiness_gate_report_rejects_missing_runtime_safety_evidence(tmp_
     assert "drift_guard_met: false" in markdown
 
 
+def test_live_readiness_gate_rejects_present_failing_runtime_safety_checks(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    (chunk / "runtime_safety_gate.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "runtime_safety_gate_input.v1",
+                "evidence_source": {"type": "paper_runtime_logs"},
+                "checks": {
+                    "kill_switch_dry_run_met": False,
+                    "order_position_reconciliation_met": True,
+                    "fail_closed_met": True,
+                    "dust_before_scale_met": True,
+                    "live_trade_ledger_met": True,
+                    "runtime_explainability_met": True,
+                    "drift_guard_met": True,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_live_readiness_gate_report(tmp_path, require_runtime_safety_evidence=False)
+
+    assert report["runtime_safety_gate"]["checks"]["kill_switch_dry_run_met"] is False
+    assert "kill_switch_dry_run_missing" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
 def test_live_readiness_gate_rejects_non_live_runtime_safety_provenance(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     _write_profitable_trade_chunk(chunk)
