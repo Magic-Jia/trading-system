@@ -607,9 +607,16 @@ def _trade_payload(record: ImportedRawMarketRecord, *, symbol: str) -> dict[str,
         "price": price,
         "quantity": quantity,
     }
-    side = str(payload.get("side") or "").strip().lower()
-    if side in {"buy", "sell"}:
-        result["side"] = side
+    raw_side = payload.get("side")
+    if raw_side is not None:
+        if not isinstance(raw_side, str) or not raw_side.strip():
+            raise ValueError(f"trade side must be a non-empty string: {record.observed_at}")
+        if raw_side != raw_side.strip() or raw_side.lower() != raw_side:
+            raise ValueError(f"trade side must be canonical: {record.observed_at}")
+        if raw_side in {"buy", "sell"}:
+            result["side"] = raw_side
+        else:
+            raise ValueError(f"trade side must be buy or sell: {record.observed_at}")
     elif "m" in payload:
         result["side"] = "sell" if bool(payload.get("m")) else "buy"
     return result

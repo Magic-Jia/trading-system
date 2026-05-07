@@ -11,7 +11,7 @@ from trading_system.app.backtest.archive.raw_market import (
     ImportedRawMarketRecord,
     load_phase1_raw_market_manifest,
 )
-from trading_system.app.backtest.archive.importer import _ohlcv_bar_lookup
+from trading_system.app.backtest.archive.importer import _ohlcv_bar_lookup, _trade_payload
 
 
 def test_load_raw_market_manifest_fails_fast_on_duplicate_file_timestamps(tmp_path: Path) -> None:
@@ -197,3 +197,13 @@ def test_importer_rejects_invalid_ohlcv_quote_volume_when_present() -> None:
 
     with pytest.raises(ValueError, match="ohlcv quote volume must be numeric"):
         _ohlcv_bar_lookup([record])
+
+
+def test_importer_rejects_noncanonical_trade_side_payload() -> None:
+    record = ImportedRawMarketRecord(
+        observed_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        payload={"symbol": "BTCUSDT", "price": 100.0, "quantity": 1.0, "side": " buy "},
+    )
+
+    with pytest.raises(ValueError, match="trade side must be canonical"):
+        _trade_payload(record, symbol="BTCUSDT")
