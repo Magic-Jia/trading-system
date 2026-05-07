@@ -2018,6 +2018,13 @@ def inspect_phase1_imported_dataset_root(dataset_root: str | Path) -> dict[str, 
     }
 
 
+def _phase1_root_manifest_nonnegative_int(manifest: Mapping[str, Any], field: str, *, manifest_path: Path) -> int:
+    value = manifest.get(field)
+    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+        raise ValueError(f"materialized dataset root manifest {field} must be a non-negative integer: {manifest_path}")
+    return value
+
+
 def validate_phase1_imported_dataset_root(
     dataset_root: str | Path,
     *,
@@ -2098,7 +2105,11 @@ def validate_phase1_imported_dataset_root(
                 "materialized dataset root manifest scope is out of phase1 importer scope: "
                 f"expected {PHASE1_IMPORTER_SCOPE}, loaded {manifest_scope}"
             )
-        manifest_snapshot_count = root_manifest.get("snapshot_count")
+        manifest_snapshot_count = _phase1_root_manifest_nonnegative_int(
+            root_manifest,
+            "snapshot_count",
+            manifest_path=manifest_path,
+        )
         if manifest_snapshot_count != len(rows):
             raise ValueError(
                 "materialized dataset root manifest snapshot_count did not round-trip: "

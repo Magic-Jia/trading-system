@@ -1539,7 +1539,19 @@ def test_build_phase1_dataset_bundle_materials_treats_funding_and_open_interest_
         coverage_end=(start + timedelta(hours=80)).isoformat().replace("+00:00", "Z"),
         fetched_at="2026-04-01T07:33:00Z",
         endpoint="/fapi/v1/klines",
-        payload={"rows": [{"open_time": _timestamp_ms(start), "close": "50000.0"}]},
+        payload={
+            "rows": [
+                {
+                    "open_time": _timestamp_ms(start),
+                    "open": "49950.0",
+                    "high": "50100.0",
+                    "low": "49900.0",
+                    "close": "50000.0",
+                    "volume": "1000.0",
+                    "quote_asset_volume": "50000000.0",
+                }
+            ]
+        },
     )
     archive_raw_market_payload(
         archive_root=archive_root,
@@ -1660,6 +1672,30 @@ def test_validate_phase1_imported_dataset_root_rejects_manifest_dataset_root_dri
     manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
 
     with pytest.raises(ValueError, match="dataset root manifest dataset_root mismatch"):
+        validate_phase1_imported_dataset_root(dataset_root)
+
+
+def test_validate_phase1_imported_dataset_root_rejects_boolean_manifest_snapshot_count(tmp_path: Path) -> None:
+    archive_root = tmp_path / "archive"
+    dataset_root = tmp_path / "dataset"
+    _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT")
+
+    imported = load_phase1_raw_market_imports(archive_root)
+    material = build_phase1_dataset_bundle_materials(imported)[-1]
+    bundle_dir = write_phase1_dataset_bundle(material, dataset_root)
+    write_phase1_dataset_root_manifest(
+        archive_root,
+        dataset_root,
+        symbols=("BTCUSDT",),
+        materials=(material,),
+        bundle_dirs=(bundle_dir,),
+    )
+    manifest_path = dataset_root / "import_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["snapshot_count"] = True
+    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="root manifest snapshot_count must be a non-negative integer"):
         validate_phase1_imported_dataset_root(dataset_root)
 
 
