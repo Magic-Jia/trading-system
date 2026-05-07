@@ -222,3 +222,19 @@ def test_validation_gate_rejects_unknown_forward_contamination_fields() -> None:
         assert str(exc) == "unknown validation forward_contamination field: legacy_audit_complete"
     else:  # pragma: no cover - RED path until nested producer schema is hardened
         raise AssertionError("expected unknown validation forward_contamination field to be rejected")
+
+def test_validation_gate_rejects_padded_evidence_source_type() -> None:
+    try:
+        build_validation_gate(
+            {
+                "evidence_source": {"type": " walk_forward_oos_report ", "run_id": "validation-1"},
+                "oos": {"baseline_net_pnl": 100.0, "oos_net_pnl": 80.0},
+                "regimes": [{"trade_count": 1, "net_pnl": 20.0}],
+                "cost_stress": {"stressed_net_pnl": 10.0},
+                "forward_contamination": {"absent": True},
+            }
+        )
+    except ValueError as exc:
+        assert "evidence_source type must be canonical" in str(exc)
+    else:
+        raise AssertionError("expected padded evidence_source type to be rejected")
