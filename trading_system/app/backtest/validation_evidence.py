@@ -39,6 +39,9 @@ def build_validation_gate(manifest: Mapping[str, Any]) -> dict[str, Any]:
     else:
         source = dict(raw_source)
     source.setdefault("type", "unknown_offline_records")
+    unknown_source_fields = sorted(set(source) - {"type", "run_id", "exported_at"})
+    if unknown_source_fields:
+        raise ValueError("unknown evidence_source field: " + ", ".join(unknown_source_fields))
     if not isinstance(source.get("type"), str):
         raise ValueError("evidence_source type must be a string")
     if not source["type"].strip():

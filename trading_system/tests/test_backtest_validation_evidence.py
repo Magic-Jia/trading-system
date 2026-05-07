@@ -152,3 +152,15 @@ def test_validation_gate_rejects_non_string_evidence_source_run_id() -> None:
         assert str(exc) == "evidence_source run_id must be a string"
     else:  # pragma: no cover - RED path until producer is hardened
         raise AssertionError("expected non-string evidence_source run_id to be rejected")
+
+
+def test_validation_gate_rejects_unknown_evidence_source_fields() -> None:
+    manifest = _passing_manifest()
+    manifest["evidence_source"] = {"type": "walk_forward_oos_report", "extra": "not-allowed"}
+
+    try:
+        build_validation_gate(manifest)
+    except ValueError as exc:
+        assert str(exc) == "unknown evidence_source field: extra"
+    else:  # pragma: no cover - RED path until producer is hardened
+        raise AssertionError("expected unknown evidence_source field to be rejected")
