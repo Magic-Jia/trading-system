@@ -3130,6 +3130,17 @@ def _canonical_string_list(mapping: Mapping[str, Any], key: str) -> list[str]:
     return values
 
 
+def _optional_strict_report_float(mapping: Mapping[str, Any], key: str) -> float | None:
+    value = mapping.get(key)
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{key} must be a strict number")
+    if not math.isfinite(float(value)):
+        raise ValueError(f"{key} must be finite")
+    return float(value)
+
+
 def _format_strict_bool(mapping: Mapping[str, Any], key: str) -> str:
     return str(_strict_report_bool(mapping, key)).lower()
 
@@ -3366,12 +3377,12 @@ def render_live_readiness_markdown(report: Mapping[str, Any]) -> str:
     concentration = _as_mapping(report.get("concentration"))
     if concentration:
         lines.extend(["", "## Concentration Gate"])
-        max_setup_share = concentration.get("max_setup_trade_share")
-        max_symbol_share = concentration.get("max_symbol_trade_share")
-        max_setup_net_abs_share = concentration.get("max_setup_net_abs_share")
-        max_symbol_net_abs_share = concentration.get("max_symbol_net_abs_share")
-        max_setup_loss_abs_share = concentration.get("max_setup_loss_abs_share")
-        max_symbol_loss_abs_share = concentration.get("max_symbol_loss_abs_share")
+        max_setup_share = _optional_strict_report_float(concentration, "max_setup_trade_share")
+        max_symbol_share = _optional_strict_report_float(concentration, "max_symbol_trade_share")
+        max_setup_net_abs_share = _optional_strict_report_float(concentration, "max_setup_net_abs_share")
+        max_symbol_net_abs_share = _optional_strict_report_float(concentration, "max_symbol_net_abs_share")
+        max_setup_loss_abs_share = _optional_strict_report_float(concentration, "max_setup_loss_abs_share")
+        max_symbol_loss_abs_share = _optional_strict_report_float(concentration, "max_symbol_loss_abs_share")
         lines.append(
             "- max_setup_trade_share: "
             + (f"{float(max_setup_share):.2%}" if max_setup_share is not None else "disabled")
