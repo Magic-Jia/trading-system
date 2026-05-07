@@ -176,8 +176,13 @@ def _validate_manifest(bundle_dir: Path, manifest: Mapping[str, Any]) -> None:
         if not isinstance(count_value, int) or isinstance(count_value, bool) or count_value < 0:
             raise ValueError(f"{bundle_dir}/manifest.json.window_counts.{count_name} must be a non-negative integer")
     artifacts = manifest.get("artifacts")
-    if not isinstance(artifacts, list) or not all(isinstance(item, str) for item in artifacts):
+    if not isinstance(artifacts, list):
         raise ValueError(f"{bundle_dir}/manifest.json.artifacts must be a list of strings")
+    for index, artifact in enumerate(artifacts):
+        if not isinstance(artifact, str) or not artifact.strip():
+            raise ValueError(f"{bundle_dir}/manifest.json.artifacts must be a list of strings")
+        if artifact != artifact.strip():
+            raise ValueError(f"{bundle_dir}/manifest.json.artifacts[{index}] must be canonical")
 
     experiment_kind = str(manifest["experiment_kind"])
     required_artifacts = _REQUIRED_ARTIFACTS.get(experiment_kind)
