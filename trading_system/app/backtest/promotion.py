@@ -301,7 +301,12 @@ def _validate_walk_forward_bundle(bundle: BacktestBundle) -> None:
         "total_return",
         context=f"{bundle.root}/summary.json.robustness_summary.worst_window.scorecard",
     )
-    _require_mapping(summary, "parameter_stability", context=f"{bundle.root}/summary.json")
+    parameter_stability = _require_mapping(summary, "parameter_stability", context=f"{bundle.root}/summary.json")
+    _require_real_number(
+        parameter_stability,
+        "parameter_stability_score",
+        context=f"{bundle.root}/summary.json.parameter_stability",
+    )
     windows = _require_rows(bundle.artifacts["windows.json"], context=f"{bundle.root}/windows.json")
     for index, row in enumerate(windows):
         out_of_sample = _require_mapping(row, "out_of_sample", context=f"{bundle.root}/windows.json.rows[{index}]")

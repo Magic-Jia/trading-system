@@ -703,3 +703,21 @@ def test_load_backtest_bundle_rejects_numeric_strings_in_walk_forward_windows(tm
 
     with pytest.raises(ValueError, match=r"windows.json.rows\[0\].out_of_sample.scorecard.total_return must be numeric"):
         promotion.load_backtest_bundle(bundle)
+
+def test_load_backtest_bundle_rejects_numeric_strings_in_parameter_stability_summary(tmp_path: Path) -> None:
+    bundle = _write_walk_forward_bundle(
+        tmp_path / "bundle",
+        baseline_name="current_policy",
+        variant_name="candidate_walk_forward",
+        out_of_sample_total_return=0.08,
+        positive_window_ratio=0.9,
+        parameter_stability_score=0.9,
+        worst_window_return=0.02,
+    )
+    summary_path = bundle / "summary.json"
+    payload = json.loads(summary_path.read_text(encoding="utf-8"))
+    payload["parameter_stability"]["parameter_stability_score"] = "0.9"
+    _write_json(summary_path, payload)
+
+    with pytest.raises(ValueError, match="parameter_stability.parameter_stability_score must be numeric"):
+        promotion.load_backtest_bundle(bundle)
