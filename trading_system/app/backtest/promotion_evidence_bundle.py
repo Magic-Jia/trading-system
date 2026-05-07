@@ -287,17 +287,22 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
         if isinstance(item, str) and item and _artifact_path_is_safe(item) and not _artifact_path_is_canonical(item)
     ]
     if invalid_declared_missing_artifacts:
+        schema_valid = False
         manifest_errors.append("missing_artifact_entry_invalid")
     if any(
         not isinstance(item, str)
         for item in declared_missing_artifacts
     ):
+        schema_valid = False
         manifest_errors.append("missing_artifact_entry_not_string")
     if blank_declared_missing_artifacts:
+        schema_valid = False
         manifest_errors.append("missing_artifact_entry_blank")
     if unsafe_declared_missing_artifacts:
+        schema_valid = False
         manifest_errors.append("missing_artifact_path_unsafe")
     if noncanonical_declared_missing_artifacts:
+        schema_valid = False
         manifest_errors.append("missing_artifact_path_noncanonical")
     if declared_missing_artifacts:
         manifest_errors.append("manifest_declares_missing_artifacts")
