@@ -110,6 +110,14 @@ def build_validation_gate(manifest: Mapping[str, Any]) -> dict[str, Any]:
     forward_absent = forward.get("absent", False)
     if not isinstance(forward_absent, bool):
         raise ValueError("forward_contamination absent must be a boolean")
+    audit_id = forward.get("audit_id")
+    if audit_id is not None:
+        if not isinstance(audit_id, str):
+            raise ValueError("forward_contamination audit_id must be a string")
+        if not audit_id.strip():
+            raise ValueError("forward_contamination audit_id must be non-empty")
+        if audit_id != audit_id.strip():
+            raise ValueError("forward_contamination audit_id must be canonical")
     forward_contamination_absent_met = forward_absent
 
     checks = {

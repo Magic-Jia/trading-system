@@ -238,3 +238,18 @@ def test_validation_gate_rejects_padded_evidence_source_type() -> None:
         assert "evidence_source type must be canonical" in str(exc)
     else:
         raise AssertionError("expected padded evidence_source type to be rejected")
+
+def test_validation_gate_rejects_non_string_forward_contamination_audit_id() -> None:
+    try:
+        build_validation_gate(
+            {
+                "oos": {"baseline_net_pnl": 100.0, "oos_net_pnl": 80.0},
+                "regimes": [{"trade_count": 1, "net_pnl": 20.0}],
+                "cost_stress": {"stressed_net_pnl": 10.0},
+                "forward_contamination": {"absent": True, "audit_id": 123},
+            }
+        )
+    except ValueError as exc:
+        assert "forward_contamination audit_id must be a string" in str(exc)
+    else:
+        raise AssertionError("expected non-string forward contamination audit_id to be rejected")
