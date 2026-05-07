@@ -162,8 +162,11 @@ def _validate_manifest(bundle_dir: Path, manifest: Mapping[str, Any]) -> None:
     sample_period = _require_mapping(manifest, "sample_period", context=f"{bundle_dir}/manifest.json")
     _require_keys(sample_period, keys=("start", "end"), context=f"{bundle_dir}/manifest.json.sample_period")
     for boundary in ("start", "end"):
-        if not isinstance(sample_period.get(boundary), str) or not sample_period[boundary].strip():
+        boundary_value = sample_period.get(boundary)
+        if not isinstance(boundary_value, str) or not boundary_value.strip():
             raise ValueError(f"{bundle_dir}/manifest.json.sample_period.{boundary} must be a string")
+        if boundary_value != boundary_value.strip():
+            raise ValueError(f"{bundle_dir}/manifest.json.sample_period.{boundary} must be canonical")
     sample_start = _parse_iso_datetime(sample_period["start"], context=f"{bundle_dir}/manifest.json.sample_period.start")
     sample_end = _parse_iso_datetime(sample_period["end"], context=f"{bundle_dir}/manifest.json.sample_period.end")
     if sample_start >= sample_end:

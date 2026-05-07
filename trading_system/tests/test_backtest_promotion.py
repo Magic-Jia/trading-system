@@ -222,6 +222,24 @@ def test_load_backtest_bundle_rejects_noncanonical_manifest_identity_fields(tmp_
     with pytest.raises(ValueError, match="manifest.json.baseline_name must be canonical"):
         promotion.load_backtest_bundle(bundle)
 
+
+def test_load_backtest_bundle_rejects_noncanonical_sample_period_bounds(tmp_path: Path) -> None:
+    bundle = _write_full_market_bundle(
+        tmp_path / "bundle",
+        baseline_name="current_system",
+        variant_name="baseline_policy",
+        total_return=0.10,
+        max_drawdown=-0.10,
+        sharpe=1.0,
+        cost_drag=0.02,
+    )
+    manifest = json.loads((bundle / "manifest.json").read_text(encoding="utf-8"))
+    manifest["sample_period"]["start"] = " 2026-01-01T00:00:00+00:00"
+    _write_json(bundle / "manifest.json", manifest)
+
+    with pytest.raises(ValueError, match="manifest.json.sample_period.start must be canonical"):
+        promotion.load_backtest_bundle(bundle)
+
 def test_compare_backtest_bundles_holds_when_out_of_sample_evidence_is_missing(tmp_path: Path) -> None:
     baseline_bundle = _write_full_market_bundle(
         tmp_path / "baseline",
