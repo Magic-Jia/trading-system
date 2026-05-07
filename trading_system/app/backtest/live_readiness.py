@@ -1103,6 +1103,14 @@ def _trade_pnl_consistency(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
                 ("funding_paid", trade.get("funding_paid"), funding_valid),
             )
             invalid_numeric_fields = [item for item in numeric_fields if not item[2]]
+            negative_cost_fields = [
+                (field, value)
+                for field, value, _valid, parsed in (
+                    ("fee_paid", trade.get("fee_paid"), fee_valid, fee_paid),
+                    ("slippage_paid", trade.get("slippage_paid"), slippage_valid, slippage_paid),
+                )
+                if _valid and parsed < 0.0
+            ]
             if invalid_numeric_fields:
                 for field, value, _valid in invalid_numeric_fields:
                     invalid_fields.append(
@@ -1112,6 +1120,18 @@ def _trade_pnl_consistency(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
                             "field": field,
                             "value": value,
                             "error": "invalid_numeric_field",
+                        }
+                    )
+                continue
+            if negative_cost_fields:
+                for field, value in negative_cost_fields:
+                    invalid_fields.append(
+                        {
+                            "chunk": chunk_dir.name,
+                            "index": index,
+                            "field": field,
+                            "value": value,
+                            "error": "negative_numeric_field",
                         }
                     )
                 continue

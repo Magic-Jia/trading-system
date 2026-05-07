@@ -4023,6 +4023,35 @@ def test_live_readiness_gate_reports_bool_trade_notional_fields(tmp_path: Path) 
 
 
 
+def test_live_readiness_gate_reports_negative_trade_pnl_cost_fields(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    payload = json.loads((chunk / "trades.json").read_text(encoding="utf-8"))
+    payload["trades"][0]["fee_paid"] = -1.0
+    payload["trades"][0]["gross_pnl"] = 1.0
+    payload["trades"][0]["net_pnl"] = 2.0
+    (chunk / "trades.json").write_text(json.dumps(payload), encoding="utf-8")
+    summary_payload = json.loads((chunk / "summary.json").read_text(encoding="utf-8"))
+    summary_payload["summary"]["cost_breakdown"]["fees"] = -1.0
+    (chunk / "summary.json").write_text(json.dumps(summary_payload), encoding="utf-8")
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    assert report["trade_pnl_consistency"]["valid"] is False
+    assert report["trade_pnl_consistency"]["invalid_fields"] == [
+        {
+            "chunk": "chunk_001",
+            "index": 1,
+            "field": "fee_paid",
+            "value": -1.0,
+            "error": "negative_numeric_field",
+        }
+    ]
+    assert "trade_pnl_inconsistent" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
+
 def test_live_readiness_gate_reports_bool_trade_pnl_fields(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     _write_profitable_trade_chunk(chunk)
