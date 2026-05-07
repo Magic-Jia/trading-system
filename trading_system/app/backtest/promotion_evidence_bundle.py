@@ -200,8 +200,10 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
         manifest_errors.append("invalid_schema_version")
     manifest_decision = manifest.get("decision")
     if manifest_decision is None:
+        schema_valid = False
         manifest_errors.append("missing_manifest_decision")
     elif manifest_decision != "bundle_complete":
+        schema_valid = False
         manifest_errors.append("invalid_manifest_decision")
     candidate_id = manifest.get("candidate_id")
     candidate_id_present = isinstance(candidate_id, str) and bool(candidate_id.strip())
