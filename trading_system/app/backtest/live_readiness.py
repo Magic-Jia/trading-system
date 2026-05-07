@@ -1510,7 +1510,12 @@ def _setup_rewrite_diagnostic(chunk_dirs: Iterable[Path]) -> dict[str, Any] | No
                     parse_error = f"unknown_evaluation_row_field: evaluation_rows[{row_index}]." + ", ".join(unknown_row_fields)
                     break
                 for field in ("symbol", "setup_type", "evaluation_status", "evaluation_reason"):
-                    if field in row and not isinstance(row.get(field), str):
+                    value = row.get(field)
+                    if field in row and (
+                        not isinstance(value, str)
+                        or not value.strip()
+                        or value != value.strip()
+                    ):
                         parse_error = f"invalid_field_type: evaluation_rows[{row_index}].{field}"
                         break
                 if parse_error:
