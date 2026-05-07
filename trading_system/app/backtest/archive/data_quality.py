@@ -63,6 +63,19 @@ def _series_report(series: ImportedRawMarketSeries, expected_interval: timedelta
     observed_at_unique = not duplicate_observed_at
     first_observed_at = _utc_timestamp(series.records[0].observed_at) if series.records else None
     last_observed_at = _utc_timestamp(series.records[-1].observed_at) if series.records else None
+    coverage_start = min(item.coverage_start for item in files) if files else None
+    coverage_end = max(item.coverage_end for item in files) if files else None
+    first_record_at = series.records[0].observed_at if series.records else None
+    last_record_at = series.records[-1].observed_at if series.records else None
+    coverage_start_matches_first = bool(coverage_start is None or first_record_at is None or coverage_start == first_record_at)
+    if coverage_end is None or last_record_at is None or expected_interval is None:
+        coverage_end_matches_terminal = True
+    else:
+        coverage_end_matches_terminal = coverage_end == last_record_at + expected_interval
+    coverage_alignment = {
+        "coverage_start_matches_first_observed_at": coverage_start_matches_first,
+        "coverage_end_matches_expected_terminal_boundary": coverage_end_matches_terminal,
+    }
     return {
         "series_key": series.series_key,
         "exchange": series.exchange,
@@ -77,8 +90,9 @@ def _series_report(series: ImportedRawMarketSeries, expected_interval: timedelta
         "duplicate_observed_at": duplicate_observed_at,
         "first_observed_at": first_observed_at,
         "last_observed_at": last_observed_at,
-        "coverage_start": _utc_timestamp(min(item.coverage_start for item in files)) if files else None,
-        "coverage_end": _utc_timestamp(max(item.coverage_end for item in files)) if files else None,
+        "coverage_alignment": coverage_alignment,
+        "coverage_start": _utc_timestamp(coverage_start) if coverage_start else None,
+        "coverage_end": _utc_timestamp(coverage_end) if coverage_end else None,
         "expected_interval_seconds": int(expected_interval.total_seconds()) if expected_interval else None,
         "coverage_ratio": _coverage_ratio(series, expected_interval),
         "missing_intervals": missing,
@@ -142,12 +156,17 @@ def build_raw_market_data_quality_report(
     }
     series_with_missing = sum(1 for report in reports.values() if report["has_missing_intervals"])
     series_with_duplicate_observed_at = sum(1 for report in reports.values() if not report["observed_at_unique"])
+    series_with_coverage_alignment_issues = sum(
+        1 for report in reports.values() if not all(report["coverage_alignment"].values())
+    )
     l2 = _l2_tick_coverage(reports, required_l2_coverage)
     reasons: list[str] = []
     if series_with_missing:
         reasons.append("raw_market_missing_intervals")
     if series_with_duplicate_observed_at:
         reasons.append("raw_market_duplicate_observed_at")
+    if series_with_coverage_alignment_issues:
+        reasons.append("raw_market_coverage_alignment_mismatch")
     if not l2["met"]:
         reasons.append("l2_coverage_below_threshold")
     decision = "ready_for_live_promotion_review" if not reasons else "reject_for_live_promotion"
@@ -158,6 +177,7 @@ def build_raw_market_data_quality_report(
             "series_count": len(reports),
             "series_with_missing_intervals": series_with_missing,
             "series_with_duplicate_observed_at": series_with_duplicate_observed_at,
+            "series_with_coverage_alignment_issues": series_with_coverage_alignment_issues,
             "l2_coverage_met": l2["met"],
         },
         "series": reports,
@@ -167,6 +187,7 @@ def build_raw_market_data_quality_report(
             "checks": {
                 "raw_market_missing_intervals_met": series_with_missing == 0,
                 "raw_market_observed_at_unique_met": series_with_duplicate_observed_at == 0,
+                "raw_market_coverage_alignment_met": series_with_coverage_alignment_issues == 0,
                 "l2_coverage_met": l2["met"],
             },
             "reasons": reasons,

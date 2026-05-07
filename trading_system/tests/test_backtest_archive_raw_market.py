@@ -67,8 +67,14 @@ def test_raw_market_data_quality_reports_timestamp_uniqueness(tmp_path: Path) ->
     assert series_report["duplicate_observed_at"] == []
     assert series_report["first_observed_at"] == "2026-01-01T00:00:00Z"
     assert series_report["last_observed_at"] == "2026-01-01T02:00:00Z"
+    assert series_report["coverage_alignment"] == {
+        "coverage_start_matches_first_observed_at": True,
+        "coverage_end_matches_expected_terminal_boundary": True,
+    }
     assert report["summary"]["series_with_duplicate_observed_at"] == 0
+    assert report["summary"]["series_with_coverage_alignment_issues"] == 0
     assert report["promotion_gate"]["checks"]["raw_market_observed_at_unique_met"] is True
+    assert report["promotion_gate"]["checks"]["raw_market_coverage_alignment_met"] is True
 
 
 def test_load_raw_market_manifest_rejects_noncanonical_required_string_fields(tmp_path: Path) -> None:
