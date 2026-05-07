@@ -736,3 +736,24 @@ def test_promotion_bundle_cli_collect_accepts_live_grade_evidence_source(tmp_pat
     assert result.returncode == 0
     manifest = json.loads((bundle / "promotion_evidence_manifest.json").read_text())
     assert manifest["evidence_source"] == {"type": "promotion_bundle_export", "run_id": "bundle-1"}
+
+def test_bundle_verifier_rejects_missing_manifest_decision(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    for name in REQUIRED_ARTIFACTS:
+        _write_json(source / name, {"artifact": name})
+    bundle_dir = collect_promotion_evidence_bundle(
+        source,
+        tmp_path / "bundle",
+        candidate_id="candidate-1",
+        evidence_source={"type": "promotion_bundle_export", "run_id": "bundle-1"},
+    )
+    manifest_path = bundle_dir / "promotion_evidence_manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest.pop("decision")
+    manifest_path.write_text(json.dumps(manifest, sort_keys=True) + "\n")
+
+    result = verify_promotion_evidence_bundle(bundle_dir)
+
+    assert result["verified"] is False
+    assert "missing_manifest_decision" in result["manifest_errors"]
