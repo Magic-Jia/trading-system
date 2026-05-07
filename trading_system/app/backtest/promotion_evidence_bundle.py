@@ -209,8 +209,10 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
     candidate_id_present = isinstance(candidate_id, str) and bool(candidate_id.strip())
     candidate_id_valid = candidate_id_present and bool(_CANDIDATE_ID_RE.fullmatch(candidate_id))
     if not candidate_id_present:
+        schema_valid = False
         manifest_errors.append("missing_candidate_id")
     elif not candidate_id_valid:
+        schema_valid = False
         manifest_errors.append("invalid_candidate_id")
     evidence_source_raw = manifest.get("evidence_source")
     if evidence_source_raw is None:
