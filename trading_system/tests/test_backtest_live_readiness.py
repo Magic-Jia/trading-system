@@ -6006,6 +6006,40 @@ def test_live_readiness_gate_report_rejects_when_exit_path_ambiguity_rate_exceed
     assert report["promotion_gate"]["checks"]["exit_path_ambiguity_rate_met"] is False
 
 
+def test_live_readiness_gate_rejects_bool_setup_rewrite_summary_counts(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    (chunk / "setup_rewrite_experiment.json").write_text(
+        json.dumps(
+            {
+                "summary": {
+                    "total_rows": 1,
+                    "evaluated_count": False,
+                    "would_keep_count": 0,
+                    "would_filter_count": 1,
+                    "skipped_count": 0,
+                },
+                "evaluation_rows": [
+                    {
+                        "setup_type": "BREAKOUT_CONTINUATION",
+                        "evaluation_status": "evaluated",
+                        "evaluation_reason": "score_below_minimum",
+                        "would_keep": False,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    diagnostic = report["setup_rewrite_diagnostic"]
+    assert diagnostic["chunks"][0]["parse_error"] == "invalid_numeric_field: summary.evaluated_count"
+    assert diagnostic["checks"]["setup_rewrite_artifact_schema_valid"] is False
+    assert "setup_rewrite_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
+
+
 def test_live_readiness_gate_rejects_bool_passive_calibration_attempt_count(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     _write_profitable_trade_chunk(chunk)

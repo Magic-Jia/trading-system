@@ -1399,7 +1399,7 @@ def _setup_rewrite_counts(summary: Mapping[str, Any]) -> tuple[dict[str, int], s
     else:
         total_rows = None
     for field in SETUP_REWRITE_COUNT_FIELDS:
-        raw_value = summary.get(field) or 0
+        raw_value = summary.get(field, 0)
         parsed, valid = _strict_summary_int_value(raw_value)
         counts[field] = parsed if valid else 0
         if not valid and not parse_error:
