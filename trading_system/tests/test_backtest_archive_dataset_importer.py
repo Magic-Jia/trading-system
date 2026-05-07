@@ -2069,6 +2069,33 @@ def test_write_phase1_dataset_bundle_materializes_instrument_snapshot_file(tmp_p
     }
 
 
+def test_inspect_phase1_imported_dataset_root_rejects_non_string_row_symbol_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    dataset_root = tmp_path / "dataset"
+    dataset_root.mkdir()
+
+    class Row:
+        timestamp = datetime(2024, 3, 1, tzinfo=UTC)
+        source_path = tmp_path / "dataset" / "bundle"
+        meta = {
+            "source": {
+                "scope": archive_importer.PHASE1_IMPORTER_SCOPE,
+                "exchange": "binance",
+                "market": "futures",
+                "symbols": ["BTCUSDT"],
+                "series_keys": [],
+                "manifest_paths": [],
+            }
+        }
+        market = {"symbols": {123: {}}}
+
+    monkeypatch.setattr(archive_importer, "load_historical_dataset", lambda path: [Row()])
+
+    with pytest.raises(ValueError, match="materialized dataset row market symbols keys must be canonical strings"):
+        inspect_phase1_imported_dataset_root(dataset_root)
+
+
 def test_import_phase1_archive_dataset_root_rejects_non_string_material_symbol_key(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

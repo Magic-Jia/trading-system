@@ -1840,6 +1840,16 @@ def _material_market_context_symbol_keys(material: Phase1DatasetBundleMaterial) 
     return tuple(sorted(parsed))
 
 
+def _row_market_symbol_keys(row: Any) -> tuple[str, ...]:
+    symbols = dict(row.market.get("symbols") or {})
+    parsed: list[str] = []
+    for symbol in symbols:
+        if not isinstance(symbol, str) or not symbol.strip() or symbol != symbol.strip():
+            raise ValueError("materialized dataset row market symbols keys must be canonical strings")
+        parsed.append(symbol)
+    return tuple(sorted(parsed))
+
+
 def _materialized_dataset_row_source(rows: Sequence[Any]) -> dict[str, Any]:
     return _merged_import_trace(
         _json_object_field(row.meta.get("source") or {}, context="materialized dataset bundle metadata source")
@@ -2031,13 +2041,7 @@ def inspect_phase1_imported_dataset_root(dataset_root: str | Path) -> dict[str, 
     loaded_archive_root = _archive_root_from_manifest_paths(loaded_source.get("manifest_paths") or ())
     row_summary = {
         "snapshot_count": len(rows),
-        "symbols": sorted(
-            {
-                str(symbol)
-                for row in rows
-                for symbol in dict(row.market.get("symbols") or {}).keys()
-            }
-        ),
+        "symbols": sorted({symbol for row in rows for symbol in _row_market_symbol_keys(row)}),
         "archive_root": str(loaded_archive_root) if loaded_archive_root is not None else None,
         "bundle_dirs": [str(row.source_path) for row in rows],
         "bundle_timestamps": [_utc_timestamp(row.timestamp) for row in rows],
