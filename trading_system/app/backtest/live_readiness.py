@@ -3116,6 +3116,10 @@ def write_live_readiness_smoke_report(
     return report
 
 
+def _format_strict_bool(mapping: Mapping[str, Any], key: str) -> str:
+    return str(_strict_report_bool(mapping, key)).lower()
+
+
 def render_live_readiness_markdown(report: Mapping[str, Any]) -> str:
     def _parse_error_summary(artifacts: Any) -> str:
         entries = []
@@ -3259,13 +3263,13 @@ def render_live_readiness_markdown(report: Mapping[str, Any]) -> str:
                 f"- schema_version: {runtime_safety.get('schema_version')}",
                 f"- required: {str(bool(runtime_safety.get('required'))).lower()}",
                 f"- artifact_count: {int(runtime_safety.get('artifact_count') or 0)}",
-                f"- kill_switch_dry_run_met: {str(bool(checks.get('kill_switch_dry_run_met'))).lower()}",
-                f"- order_position_reconciliation_met: {str(bool(checks.get('order_position_reconciliation_met'))).lower()}",
-                f"- runtime_fail_closed_met: {str(bool(checks.get('runtime_fail_closed_met'))).lower()}",
-                f"- live_dust_before_scale_met: {str(bool(checks.get('live_dust_before_scale_met'))).lower()}",
-                f"- live_trade_ledger_met: {str(bool(checks.get('live_trade_ledger_met'))).lower()}",
-                f"- runtime_explainability_met: {str(bool(checks.get('runtime_explainability_met'))).lower()}",
-                f"- drift_guard_met: {str(bool(checks.get('drift_guard_met'))).lower()}",
+            f"- kill_switch_dry_run_met: {_format_strict_bool(checks, 'kill_switch_dry_run_met')}",
+            f"- order_position_reconciliation_met: {_format_strict_bool(checks, 'order_position_reconciliation_met')}",
+            f"- runtime_fail_closed_met: {_format_strict_bool(checks, 'runtime_fail_closed_met')}",
+            f"- live_dust_before_scale_met: {_format_strict_bool(checks, 'live_dust_before_scale_met')}",
+            f"- live_trade_ledger_met: {_format_strict_bool(checks, 'live_trade_ledger_met')}",
+            f"- runtime_explainability_met: {_format_strict_bool(checks, 'runtime_explainability_met')}",
+            f"- drift_guard_met: {_format_strict_bool(checks, 'drift_guard_met')}",
                 f"- runtime_safety_artifact_parse_errors: {_parse_error_summary(runtime_safety.get('artifacts'))}",
             ]
         )
@@ -3279,8 +3283,8 @@ def render_live_readiness_markdown(report: Mapping[str, Any]) -> str:
                 f"- schema_version: {microstructure.get('schema_version')}",
                 f"- required: {str(bool(microstructure.get('required'))).lower()}",
                 f"- artifact_count: {int(microstructure.get('artifact_count') or 0)}",
-                f"- l2_tick_coverage_met: {str(bool(checks.get('l2_tick_coverage_met'))).lower()}",
-                f"- depth_driven_taker_met: {str(bool(checks.get('depth_driven_taker_met'))).lower()}",
+                f"- l2_tick_coverage_met: {_format_strict_bool(checks, 'l2_tick_coverage_met')}",
+                f"- depth_driven_taker_met: {_format_strict_bool(checks, 'depth_driven_taker_met')}",
                 f"- microstructure_artifact_parse_errors: {_parse_error_summary(microstructure.get('artifacts'))}",
             ]
         )
@@ -3294,10 +3298,10 @@ def render_live_readiness_markdown(report: Mapping[str, Any]) -> str:
                 f"- schema_version: {validation.get('schema_version')}",
                 f"- required: {str(bool(validation.get('required'))).lower()}",
                 f"- artifact_count: {int(validation.get('artifact_count') or 0)}",
-                f"- oos_non_degraded_met: {str(bool(checks.get('oos_non_degraded_met'))).lower()}",
-                f"- multi_regime_resilience_met: {str(bool(checks.get('multi_regime_resilience_met'))).lower()}",
-                f"- cost_stress_positive_met: {str(bool(checks.get('cost_stress_positive_met'))).lower()}",
-                f"- forward_contamination_absent_met: {str(bool(checks.get('forward_contamination_absent_met'))).lower()}",
+                f"- oos_non_degraded_met: {_format_strict_bool(checks, 'oos_non_degraded_met')}",
+                f"- multi_regime_resilience_met: {_format_strict_bool(checks, 'multi_regime_resilience_met')}",
+                f"- cost_stress_positive_met: {_format_strict_bool(checks, 'cost_stress_positive_met')}",
+                f"- forward_contamination_absent_met: {_format_strict_bool(checks, 'forward_contamination_absent_met')}",
                 f"- validation_artifact_parse_errors: {_parse_error_summary(validation.get('artifacts'))}",
             ]
         )

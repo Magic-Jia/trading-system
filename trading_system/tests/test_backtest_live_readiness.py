@@ -141,6 +141,58 @@ def test_stdout_concentration_summary_rejects_non_strict_bucket() -> None:
         _stdout_concentration_summary(report)
 
 
+def test_markdown_renderer_rejects_non_strict_microstructure_checks() -> None:
+    report = {
+        "promotion_gate": {"decision": "hold", "reasons": [], "checks": {}},
+        "totals": {
+            "trade_count": 1,
+            "net_pnl": 1.0,
+            "evidence_coverage": 1.0,
+            "exit_evidence_coverage": 1.0,
+            "exit_path_ambiguity_rate": 0.0,
+        },
+        "microstructure_gate": {
+            "required": False,
+            "artifact_count": 1,
+            "checks": {"l2_tick_coverage_met": "true", "depth_driven_taker_met": True},
+        },
+        "caveats": [],
+    }
+
+    with pytest.raises(ValueError, match="l2_tick_coverage_met must be a strict boolean"):
+        render_live_readiness_markdown(report)
+
+
+def test_markdown_renderer_rejects_non_strict_runtime_checks() -> None:
+    report = {
+        "promotion_gate": {"decision": "hold", "reasons": [], "checks": {}},
+        "totals": {
+            "trade_count": 1,
+            "net_pnl": 1.0,
+            "evidence_coverage": 1.0,
+            "exit_evidence_coverage": 1.0,
+            "exit_path_ambiguity_rate": 0.0,
+        },
+        "runtime_safety_gate": {
+            "required": False,
+            "artifact_count": 1,
+            "checks": {
+                "kill_switch_dry_run_met": "false",
+                "order_position_reconciliation_met": True,
+                "runtime_fail_closed_met": True,
+                "live_dust_before_scale_met": True,
+                "live_trade_ledger_met": True,
+                "runtime_explainability_met": True,
+                "drift_guard_met": True,
+            },
+        },
+        "caveats": [],
+    }
+
+    with pytest.raises(ValueError, match="kill_switch_dry_run_met must be a strict boolean"):
+        render_live_readiness_markdown(report)
+
+
 def test_markdown_renderer_rejects_non_strict_postmortem_buckets() -> None:
     report = {
         "promotion_gate": {"decision": "hold", "reasons": [], "checks": {}},
