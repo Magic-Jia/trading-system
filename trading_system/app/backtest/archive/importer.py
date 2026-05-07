@@ -1822,6 +1822,12 @@ def _materialized_bundle_canonical_string(payload: Mapping[str, Any], field: str
     return value
 
 
+def _material_market_context_as_of(material: Phase1DatasetBundleMaterial) -> str:
+    return _materialized_bundle_canonical_string(
+        material.market_context, "as_of", context="market_context"
+    )
+
+
 def _materialized_dataset_row_source(rows: Sequence[Any]) -> dict[str, Any]:
     return _merged_import_trace(
         _json_object_field(row.meta.get("source") or {}, context="materialized dataset bundle metadata source")
@@ -1995,7 +2001,7 @@ def write_phase1_dataset_bundle(material: Phase1DatasetBundleMaterial, dataset_r
     _write_json(
         bundle_dir / "instrument_snapshot.json",
         _instrument_snapshot_payload(
-            as_of=str(material.market_context["as_of"]),
+            as_of=_material_market_context_as_of(material),
             instrument_rows=tuple(dict(row) for row in material.market_context.get("instrument_rows") or ()),
         ),
     )
