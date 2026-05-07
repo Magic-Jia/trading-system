@@ -260,6 +260,7 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
     elif isinstance(declared_missing_artifacts_raw, list):
         declared_missing_artifacts = declared_missing_artifacts_raw
     else:
+        schema_valid = False
         declared_missing_artifacts = []
         manifest_errors.append("missing_artifacts_not_list")
     invalid_declared_missing_artifacts = [
@@ -383,9 +384,11 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
     seen_required_artifacts: set[str] = set()
     duplicate_required_artifacts: list[str] = []
     if required_artifacts_raw is None:
+        schema_valid = False
         manifest_required = []
         manifest_errors.append("required_artifacts_not_list")
     elif not isinstance(required_artifacts_raw, list):
+        schema_valid = False
         manifest_required = []
         manifest_errors.append("required_artifacts_not_list")
     else:
