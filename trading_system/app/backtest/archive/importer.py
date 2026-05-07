@@ -2169,8 +2169,12 @@ def validate_phase1_imported_dataset_root(
                 f"expected {manifest_source}, loaded {loaded_source}"
             )
         manifest_bundle_dirs = tuple(
-            _resolved_phase1_imported_dataset_root_path(dataset_path, str(value))
-            for value in root_manifest.get("bundle_dirs") or ()
+            _resolved_phase1_imported_dataset_root_path(dataset_path, value)
+            for value in _phase1_root_manifest_canonical_strings(
+                root_manifest,
+                "bundle_dirs",
+                manifest_path=manifest_path,
+            )
         )
         if tuple(path.resolve() for path in loaded_bundle_dirs) != tuple(path.resolve() for path in manifest_bundle_dirs):
             raise ValueError(
