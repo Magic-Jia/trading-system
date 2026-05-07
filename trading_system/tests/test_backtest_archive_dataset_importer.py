@@ -1976,6 +1976,26 @@ def test_supplement_phase1_imported_dataset_root_instrument_snapshots_uses_recor
     assert [item.symbol for item in rows[0].instrument_rows] == ["BTCUSDT"]
 
 
+def test_supplement_phase1_imported_dataset_root_instrument_snapshots_rejects_padded_relative_dataset_root(
+    tmp_path: Path,
+) -> None:
+    repo_root = tmp_path / "repo"
+    archive_root = repo_root / "archive"
+    dataset_root = repo_root / "dataset"
+    _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT")
+    imported = import_phase1_archive_dataset_root(archive_root, dataset_root)
+    bundle_dir = imported.bundle_dirs[0]
+    (bundle_dir / "instrument_snapshot.json").unlink()
+
+    manifest_path = dataset_root / "import_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["dataset_root"] = f" {Path(manifest['dataset_root']).relative_to(repo_root)} "
+    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="root manifest dataset_root must be a canonical string"):
+        supplement_phase1_imported_dataset_root_instrument_snapshots(dataset_root)
+
+
 def test_supplement_phase1_imported_dataset_root_instrument_snapshots_resolves_relative_manifest_paths(
     tmp_path: Path,
 ) -> None:

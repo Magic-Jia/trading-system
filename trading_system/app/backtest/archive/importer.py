@@ -2233,9 +2233,11 @@ def _phase1_imported_dataset_root_relative_base_dir(dataset_path: Path) -> Path 
     if not manifest_path.exists():
         return None
     manifest = _read_json_object(manifest_path)
-    dataset_root_value = str(manifest.get("dataset_root") or "").strip()
-    if not dataset_root_value:
-        return None
+    dataset_root_value = _phase1_root_manifest_canonical_string(
+        manifest,
+        "dataset_root",
+        manifest_path=manifest_path,
+    )
     recorded_dataset_root = Path(dataset_root_value)
     if recorded_dataset_root.is_absolute():
         return None
