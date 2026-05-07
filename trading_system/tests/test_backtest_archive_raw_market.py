@@ -65,5 +65,7 @@ def test_raw_market_data_quality_reports_timestamp_uniqueness(tmp_path: Path) ->
     assert series_report["observed_at_unique"] is True
     assert series_report["duplicate_observed_at_count"] == 0
     assert series_report["duplicate_observed_at"] == []
+    assert series_report["first_observed_at"] == "2026-01-01T00:00:00Z"
+    assert series_report["last_observed_at"] == "2026-01-01T02:00:00Z"
     assert report["summary"]["series_with_duplicate_observed_at"] == 0
     assert report["promotion_gate"]["checks"]["raw_market_observed_at_unique_met"] is True

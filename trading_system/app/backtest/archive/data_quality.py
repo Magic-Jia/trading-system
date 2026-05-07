@@ -61,6 +61,8 @@ def _series_report(series: ImportedRawMarketSeries, expected_interval: timedelta
         if count > 1
     ]
     observed_at_unique = not duplicate_observed_at
+    first_observed_at = _utc_timestamp(series.records[0].observed_at) if series.records else None
+    last_observed_at = _utc_timestamp(series.records[-1].observed_at) if series.records else None
     return {
         "series_key": series.series_key,
         "exchange": series.exchange,
@@ -73,6 +75,8 @@ def _series_report(series: ImportedRawMarketSeries, expected_interval: timedelta
         "observed_at_unique": observed_at_unique,
         "duplicate_observed_at_count": len(duplicate_observed_at),
         "duplicate_observed_at": duplicate_observed_at,
+        "first_observed_at": first_observed_at,
+        "last_observed_at": last_observed_at,
         "coverage_start": _utc_timestamp(min(item.coverage_start for item in files)) if files else None,
         "coverage_end": _utc_timestamp(max(item.coverage_end for item in files)) if files else None,
         "expected_interval_seconds": int(expected_interval.total_seconds()) if expected_interval else None,
