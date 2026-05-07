@@ -2025,6 +2025,20 @@ def _phase1_root_manifest_nonnegative_int(manifest: Mapping[str, Any], field: st
     return value
 
 
+def _phase1_root_manifest_canonical_strings(manifest: Mapping[str, Any], field: str, *, manifest_path: Path) -> tuple[str, ...]:
+    values = manifest.get(field)
+    if not isinstance(values, list):
+        raise ValueError(f"materialized dataset root manifest {field} must be a list: {manifest_path}")
+    normalized: list[str] = []
+    for value in values:
+        if not isinstance(value, str) or not value or value != value.strip():
+            raise ValueError(
+                f"materialized dataset root manifest {field} entries must be canonical strings: {manifest_path}"
+            )
+        normalized.append(value)
+    return tuple(normalized)
+
+
 def validate_phase1_imported_dataset_root(
     dataset_root: str | Path,
     *,
@@ -2115,7 +2129,11 @@ def validate_phase1_imported_dataset_root(
                 "materialized dataset root manifest snapshot_count did not round-trip: "
                 f"expected {manifest_snapshot_count}, loaded {len(rows)}"
             )
-        manifest_symbols = tuple(str(value) for value in root_manifest.get("symbols") or ())
+        manifest_symbols = _phase1_root_manifest_canonical_strings(
+            root_manifest,
+            "symbols",
+            manifest_path=manifest_path,
+        )
         loaded_symbols = tuple(
             sorted(
                 {
