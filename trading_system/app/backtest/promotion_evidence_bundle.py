@@ -89,6 +89,12 @@ def collect_promotion_evidence_bundle(
         raise ValueError("evidence_source type must be a string")
     if not source_payload["type"].strip():
         raise ValueError("evidence_source type must be non-empty")
+    for optional_field in ("run_id", "exported_at"):
+        optional_value = source_payload.get(optional_field)
+        if optional_value is not None and not isinstance(optional_value, str):
+            raise ValueError(f"evidence_source {optional_field} must be a string")
+        if isinstance(optional_value, str) and not optional_value.strip():
+            raise ValueError(f"evidence_source {optional_field} must be non-empty")
     manifest = {
         "schema_version": SCHEMA_VERSION,
         "candidate_id": candidate_id,
