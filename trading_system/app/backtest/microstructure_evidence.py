@@ -189,6 +189,14 @@ def build_microstructure_gate(
             unknown_fill_fields = sorted(set(fill) - allowed_fill_fields)
             if unknown_fill_fields:
                 raise ValueError("unknown depth_driven_taker_fills field: " + ", ".join(unknown_fill_fields))
+            side = fill.get("side")
+            if side is not None:
+                if not isinstance(side, str):
+                    raise ValueError("depth_driven_taker_fills side must be a string")
+                if side != side.strip():
+                    raise ValueError("depth_driven_taker_fills side must be canonical")
+                if side not in {"buy", "sell"}:
+                    raise ValueError("depth_driven_taker_fills side must be buy or sell")
             complete = fill.get("complete", False)
             if not isinstance(complete, bool):
                 raise ValueError("depth_driven_taker_fills complete must be a boolean")
