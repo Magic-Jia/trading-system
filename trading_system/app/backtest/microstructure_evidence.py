@@ -16,6 +16,8 @@ _DEFAULT_COVERAGE_KEYS = (
 def _normalise_coverage_value(name: str, value: Any) -> float | None:
     if value is None:
         return None
+    if isinstance(value, bool):
+        raise ValueError(f"{name} must be a number between 0 and 1")
     try:
         coverage = float(value)
     except (TypeError, ValueError) as exc:
@@ -26,6 +28,8 @@ def _normalise_coverage_value(name: str, value: Any) -> float | None:
 
 
 def _normalise_positive_float(name: str, value: Any) -> float:
+    if isinstance(value, bool):
+        raise ValueError(f"{name} must be a positive number")
     try:
         number = float(value)
     except (TypeError, ValueError) as exc:

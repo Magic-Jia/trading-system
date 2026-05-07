@@ -174,3 +174,16 @@ def test_rejects_non_boolean_depth_driven_taker_override() -> None:
                 "depth_driven_taker_met": "false",
             }
         )
+
+
+def test_rejects_boolean_coverage_values() -> None:
+    with pytest.raises(ValueError, match="l2_snapshot_coverage must be a number between 0 and 1"):
+        build_microstructure_gate(
+            {
+                "coverage": {
+                    "l2_snapshot_coverage": True,
+                    "l2_update_coverage": 1.0,
+                    "tick_coverage": 1.0,
+                }
+            }
+        )
