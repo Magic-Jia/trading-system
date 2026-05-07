@@ -1771,13 +1771,21 @@ def _phase1_dataset_root_manifest(
 
 def _phase1_dataset_root_summary_fields(payload: Mapping[str, Any]) -> dict[str, Any]:
     return {
-        "snapshot_count": int(payload.get("snapshot_count") or 0),
-        "symbols": [str(value) for value in payload.get("symbols") or ()],
-        "archive_root": str(payload.get("archive_root") or "") or None,
-        "bundle_dirs": [str(value) for value in payload.get("bundle_dirs") or ()],
-        "bundle_timestamps": [str(value) for value in payload.get("bundle_timestamps") or ()],
-        "start_timestamp": str(payload.get("start_timestamp") or "") or None,
-        "end_timestamp": str(payload.get("end_timestamp") or "") or None,
+        "snapshot_count": _phase1_root_manifest_nonnegative_int(payload, "snapshot_count", manifest_path=Path("<phase1 dataset root summary>")),
+        "symbols": list(_canonical_string_sequence(payload.get("symbols") or [], field="symbols")),
+        "archive_root": _phase1_root_manifest_canonical_string(payload, "archive_root", manifest_path=Path("<phase1 dataset root summary>"))
+        if payload.get("archive_root") is not None
+        else None,
+        "bundle_dirs": list(_canonical_string_sequence(payload.get("bundle_dirs") or [], field="bundle_dirs")),
+        "bundle_timestamps": list(_canonical_string_sequence(payload.get("bundle_timestamps") or [], field="bundle_timestamps")),
+        "start_timestamp": _phase1_root_manifest_canonical_string(
+            payload, "start_timestamp", manifest_path=Path("<phase1 dataset root summary>")
+        )
+        if payload.get("start_timestamp") is not None
+        else None,
+        "end_timestamp": _phase1_root_manifest_canonical_string(payload, "end_timestamp", manifest_path=Path("<phase1 dataset root summary>"))
+        if payload.get("end_timestamp") is not None
+        else None,
         "source": _json_object_field(payload.get("source") or {}, context="phase1 dataset root summary source"),
     }
 

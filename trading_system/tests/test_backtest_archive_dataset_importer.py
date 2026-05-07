@@ -23,6 +23,11 @@ from trading_system.app.backtest.archive.raw_market import archive_raw_market_pa
 from trading_system.app.backtest.dataset import load_historical_dataset
 
 
+
+def test_phase1_dataset_root_summary_rejects_non_strict_snapshot_count() -> None:
+    with pytest.raises(ValueError, match="snapshot_count must be a non-negative integer"):
+        archive_importer._phase1_dataset_root_summary_fields({"snapshot_count": True})
+
 def _timestamp_ms(value: datetime) -> int:
     return int(value.timestamp() * 1000)
 
