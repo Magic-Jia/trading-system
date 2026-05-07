@@ -2254,6 +2254,15 @@ def build_live_readiness_gate_report(
             **verify_promotion_evidence_bundle(root),
         }
     chunk_dirs = sorted((path for path in root.iterdir() if _is_chunk_result_dir(path)), key=_natural_path_key)
+    policy_invalid_config: list[dict[str, Any]] = []
+    for field, value in (
+        ("evidence_coverage_threshold", evidence_coverage_threshold),
+        ("exit_evidence_coverage_threshold", exit_evidence_coverage_threshold),
+        ("max_exit_path_ambiguity_rate", max_exit_path_ambiguity_rate),
+    ):
+        if not isinstance(value, bool) and isinstance(value, (int, float)) and math.isfinite(float(value)) and 0.0 <= float(value) <= 1.0:
+            continue
+        policy_invalid_config.append({"field": field, "value": value, "error": "out_of_range_threshold"})
     all_trades: list[dict[str, Any]] = []
     chunk_performance: list[dict[str, Any]] = []
     for chunk_dir in chunk_dirs:
@@ -2384,6 +2393,8 @@ def build_live_readiness_gate_report(
     )
     if promotion_bundle_integrity_enforced and not bool(promotion_bundle_integrity.get("verified")):
         reasons.append("promotion_bundle_integrity_failed")
+    if policy_invalid_config:
+        reasons.append("live_readiness_policy_config_invalid")
     if net_pnl < 0.0:
         reasons.append("net_pnl_below_zero")
     if not bool(trade_financial_integrity.get("valid")):
@@ -2611,8 +2622,10 @@ def build_live_readiness_gate_report(
         "promotion_gate": {
             "decision": decision,
             "reasons": reasons,
+            "invalid_config": policy_invalid_config,
             "checks": {
                 "net_pnl_non_negative": net_pnl >= 0.0,
+                "live_readiness_policy_config_valid": not policy_invalid_config,
                 "evidence_coverage_met": evidence_coverage >= evidence_coverage_threshold,
                 "exit_evidence_coverage_met": exit_evidence_coverage >= exit_evidence_coverage_threshold,
                 "exit_path_ambiguity_rate_met": exit_path_ambiguity_rate <= max_exit_path_ambiguity_rate,

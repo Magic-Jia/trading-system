@@ -5553,6 +5553,21 @@ def test_live_readiness_gate_report_accepts_validation_evidence_artifact(tmp_pat
     assert "forward_contamination_unproven" not in report["promotion_gate"]["reasons"]
 
 
+def test_live_readiness_gate_rejects_out_of_range_exit_path_ambiguity_threshold(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+
+    report = build_live_readiness_gate_report(tmp_path, max_exit_path_ambiguity_rate=1.5)
+
+    assert report["promotion_gate"]["checks"]["live_readiness_policy_config_valid"] is False
+    assert report["promotion_gate"]["invalid_config"] == [
+        {"field": "max_exit_path_ambiguity_rate", "value": 1.5, "error": "out_of_range_threshold"}
+    ]
+    assert "live_readiness_policy_config_invalid" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
+
 def test_live_readiness_gate_rejects_negative_min_setup_trade_count(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     _write_profitable_trade_chunk(chunk)
