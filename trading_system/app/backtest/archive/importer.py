@@ -1229,6 +1229,18 @@ def _merged_ohlcv_timeframe_coverage(traces: Iterable[Mapping[str, Any]]) -> dic
     }
 
 
+def _require_bool_field(value: Any, *, field: str) -> bool:
+    if not isinstance(value, bool):
+        raise ValueError(f"{field} must be boolean")
+    return value
+
+
+def _require_non_negative_int_field(value: Any, *, field: str) -> int:
+    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+        raise ValueError(f"{field} must be a non-negative integer")
+    return value
+
+
 def _merged_execution_evidence_coverage(traces: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
     merged = _execution_coverage_template(
         available=False,
@@ -1239,19 +1251,24 @@ def _merged_execution_evidence_coverage(traces: Iterable[Mapping[str, Any]]) -> 
         coverage = trace.get("execution_evidence")
         if not isinstance(coverage, Mapping):
             continue
-        merged["available"] = bool(merged["available"]) or bool(coverage.get("available"))
-        try:
-            max_staleness_values.add(int(coverage.get("max_staleness_seconds") or 0))
-        except (TypeError, ValueError):
-            pass
+        merged["available"] = bool(merged["available"]) or _require_bool_field(
+            coverage.get("available", False), field="execution_evidence.available"
+        )
+        max_staleness_values.add(
+            _require_non_negative_int_field(
+                coverage.get("max_staleness_seconds", 0), field="execution_evidence.max_staleness_seconds"
+            )
+        )
         for bucket in ("materialized", "missing", "stale", "ambiguous"):
             raw_counts = coverage.get(bucket) or {}
             if not isinstance(raw_counts, Mapping):
                 continue
             for evidence_type in ("order_book", "trades"):
-                merged[bucket][evidence_type] = int(merged[bucket].get(evidence_type, 0)) + int(
-                    raw_counts.get(evidence_type) or 0
+                increment = _require_non_negative_int_field(
+                    raw_counts.get(evidence_type, 0),
+                    field=f"execution_evidence.{bucket}.{evidence_type}",
                 )
+                merged[bucket][evidence_type] = int(merged[bucket].get(evidence_type, 0)) + increment
     if len(max_staleness_values) == 1:
         merged["max_staleness_seconds"] = next(iter(max_staleness_values))
     return merged

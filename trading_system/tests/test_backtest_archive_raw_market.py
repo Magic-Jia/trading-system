@@ -13,6 +13,7 @@ from trading_system.app.backtest.archive.raw_market import (
 )
 from trading_system.app.backtest.archive.importer import (
     _funding_rate,
+    _merged_execution_evidence_coverage,
     _mark_price,
     _ohlcv_bar_lookup,
     _open_interest_units,
@@ -313,3 +314,15 @@ def test_importer_rejects_invalid_market_context_numeric_fields() -> None:
         _funding_rate(funding_record)
     with pytest.raises(ValueError, match="mark price must be numeric"):
         _mark_price(mark_price_record)
+
+
+def test_importer_rejects_non_boolean_execution_coverage_available() -> None:
+    with pytest.raises(ValueError, match="execution_evidence.available must be boolean"):
+        _merged_execution_evidence_coverage([{"execution_evidence": {"available": "false"}}])
+
+
+def test_importer_rejects_string_execution_coverage_counts() -> None:
+    with pytest.raises(ValueError, match="execution_evidence.materialized.order_book must be a non-negative integer"):
+        _merged_execution_evidence_coverage([
+            {"execution_evidence": {"materialized": {"order_book": "1"}}}
+        ])
