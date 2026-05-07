@@ -62,6 +62,20 @@ def _require_mapping(payload: Mapping[str, Any], key: str, *, context: str) -> d
     return dict(value)
 
 
+def _require_real_number(payload: Mapping[str, Any], key: str, *, context: str) -> float:
+    value = payload.get(key)
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        raise ValueError(f"{context}.{key} must be numeric")
+    return float(value)
+
+
+def _require_non_negative_int(payload: Mapping[str, Any], key: str, *, context: str) -> int:
+    value = payload.get(key)
+    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+        raise ValueError(f"{context}.{key} must be a non-negative integer")
+    return value
+
+
 
 def _require_rows(payload: Mapping[str, Any], *, context: str) -> list[dict[str, Any]]:
     rows = payload.get("rows")
@@ -112,6 +126,10 @@ def _validate_full_market_bundle(bundle: BacktestBundle) -> None:
         keys=("total_return", "max_drawdown", "sharpe", "turnover", "trade_count", "cost_drag", "cost_breakdown"),
         context=f"{bundle.root}/summary.json.summary",
     )
+
+    for numeric_key in ("total_return", "max_drawdown", "sharpe", "turnover", "cost_drag"):
+        _require_real_number(summary, numeric_key, context=f"{bundle.root}/summary.json.summary")
+    _require_non_negative_int(summary, "trade_count", context=f"{bundle.root}/summary.json.summary")
 
     breakdowns_json = bundle.artifacts["breakdowns.json"]
     breakdowns = _require_mapping(breakdowns_json, "breakdowns", context=f"{bundle.root}/breakdowns.json")

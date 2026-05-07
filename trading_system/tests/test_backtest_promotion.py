@@ -447,3 +447,21 @@ def test_backtest_cli_compare_writes_promotion_gate_and_decision_summary(tmp_pat
     assert decision_summary["decision"] == "hold"
     assert decision_summary["experiment_kind"] == "full_market_baseline"
     assert decision_summary["artifacts"] == ["promotion_gate.json", "decision_summary.json"]
+
+def test_load_backtest_bundle_rejects_numeric_strings_in_full_market_summary(tmp_path: Path) -> None:
+    bundle = _write_full_market_bundle(
+        tmp_path / "bundle",
+        baseline_name="current_system",
+        variant_name="candidate_policy",
+        total_return=0.10,
+        max_drawdown=-0.10,
+        sharpe=1.00,
+        cost_drag=0.020,
+    )
+    summary_path = bundle / "summary.json"
+    payload = json.loads(summary_path.read_text(encoding="utf-8"))
+    payload["summary"]["total_return"] = "0.10"
+    _write_json(summary_path, payload)
+
+    with pytest.raises(ValueError, match="summary.json.summary.total_return must be numeric"):
+        promotion.load_backtest_bundle(bundle)
