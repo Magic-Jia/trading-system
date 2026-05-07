@@ -524,3 +524,42 @@ def test_load_backtest_bundle_rejects_numeric_strings_in_rotation_policy_metrics
 
     with pytest.raises(ValueError, match="policies.soft_suppression.bucket_level_pnl must be numeric"):
         promotion.load_backtest_bundle(bundle)
+
+def test_load_backtest_bundle_rejects_numeric_strings_in_allocator_metrics(tmp_path: Path) -> None:
+    bundle = tmp_path / "allocator"
+    bundle.mkdir()
+    artifacts = ["manifest.json", "summary.json", "comparison_rows.json", "scorecard.json"]
+    _write_json(
+        bundle / "manifest.json",
+        _manifest(
+            experiment_kind="allocator_friction",
+            baseline_name="current_policy",
+            variant_name="allocator_variant",
+            artifacts=artifacts,
+        ),
+    )
+    _write_json(
+        bundle / "summary.json",
+        {
+            "variants": {
+                "current_allocator": {
+                    "allocation_summary": {"accepted_allocations": "4"},
+                    "frictions": {"base": {"net_bucket_pnl": 0.08, "cost_drag": 0.02, "trade_count": 4}},
+                }
+            }
+        },
+    )
+    _write_json(bundle / "comparison_rows.json", {"rows": []})
+    _write_json(
+        bundle / "scorecard.json",
+        {
+            "key_metrics": {
+                "best_base_net_bucket_pnl": 0.08,
+                "best_stressed_net_bucket_pnl": 0.05,
+                "current_allocator_base_cost_drag": 0.02,
+            }
+        },
+    )
+
+    with pytest.raises(ValueError, match="allocation_summary.accepted_allocations must be a non-negative integer"):
+        promotion.load_backtest_bundle(bundle)

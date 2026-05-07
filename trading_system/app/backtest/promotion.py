@@ -171,9 +171,17 @@ def _validate_allocator_bundle(bundle: BacktestBundle) -> None:
     variant = _require_mapping(variants, "current_allocator", context=f"{bundle.root}/summary.json.variants")
     allocation_summary = _require_mapping(variant, "allocation_summary", context=f"{bundle.root}/summary.json.variants.current_allocator")
     _require_keys(allocation_summary, keys=("accepted_allocations",), context=f"{bundle.root}/summary.json.variants.allocation_summary")
+    _require_non_negative_int(
+        allocation_summary,
+        "accepted_allocations",
+        context=f"{bundle.root}/summary.json.variants.allocation_summary",
+    )
     frictions = _require_mapping(variant, "frictions", context=f"{bundle.root}/summary.json.variants")
     base = _require_mapping(frictions, "base", context=f"{bundle.root}/summary.json.variants.frictions")
     _require_keys(base, keys=("net_bucket_pnl", "cost_drag", "trade_count"), context=f"{bundle.root}/summary.json.variants.frictions.base")
+    for numeric_key in ("net_bucket_pnl", "cost_drag"):
+        _require_real_number(base, numeric_key, context=f"{bundle.root}/summary.json.variants.frictions.base")
+    _require_non_negative_int(base, "trade_count", context=f"{bundle.root}/summary.json.variants.frictions.base")
     _require_rows(bundle.artifacts["comparison_rows.json"], context=f"{bundle.root}/comparison_rows.json")
     scorecard = bundle.artifacts["scorecard.json"]
     key_metrics = _require_mapping(scorecard, "key_metrics", context=f"{bundle.root}/scorecard.json")
@@ -182,6 +190,8 @@ def _validate_allocator_bundle(bundle: BacktestBundle) -> None:
         keys=("best_base_net_bucket_pnl", "best_stressed_net_bucket_pnl", "current_allocator_base_cost_drag"),
         context=f"{bundle.root}/scorecard.json.key_metrics",
     )
+    for numeric_key in ("best_base_net_bucket_pnl", "best_stressed_net_bucket_pnl", "current_allocator_base_cost_drag"):
+        _require_real_number(key_metrics, numeric_key, context=f"{bundle.root}/scorecard.json.key_metrics")
 
 
 
