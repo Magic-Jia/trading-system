@@ -1901,8 +1901,16 @@ def _setup_quality_gate(
     min_setup_trade_count: int | None,
     banned_setup_types: Sequence[str] | None,
 ) -> dict[str, Any]:
-    banned = sorted({str(item) for item in (banned_setup_types or []) if str(item)})
+    banned_values: set[str] = set()
     invalid_config: list[dict[str, Any]] = []
+    for index, item in enumerate(banned_setup_types or []):
+        if not isinstance(item, str):
+            invalid_config.append({"field": f"banned_setup_types[{index}]", "value": item, "error": "invalid_setup_type"})
+            continue
+        if not item:
+            continue
+        banned_values.add(item)
+    banned = sorted(banned_values)
     under_sampled = []
     if min_setup_trade_count is not None:
         if isinstance(min_setup_trade_count, bool) or not isinstance(min_setup_trade_count, int):

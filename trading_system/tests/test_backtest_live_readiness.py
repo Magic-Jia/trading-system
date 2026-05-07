@@ -5597,6 +5597,20 @@ def test_live_readiness_gate_rejects_out_of_range_exit_path_ambiguity_threshold(
 
 
 
+def test_live_readiness_gate_rejects_non_string_banned_setup_types(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+
+    report = build_live_readiness_gate_report(tmp_path, banned_setup_types=[True])
+
+    assert report["setup_quality_gate"]["invalid_config"] == [
+        {"field": "banned_setup_types[0]", "value": True, "error": "invalid_setup_type"}
+    ]
+    assert "setup_quality_config_invalid" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
+
 def test_live_readiness_gate_rejects_bool_min_setup_trade_count(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     _write_profitable_trade_chunk(chunk)
