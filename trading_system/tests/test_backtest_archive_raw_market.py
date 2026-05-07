@@ -16,6 +16,7 @@ from trading_system.app.backtest.archive.importer import (
     _merged_execution_evidence_coverage,
     _merged_futures_context_coverage,
     _merged_import_trace,
+    _merged_ohlcv_timeframe_coverage,
     _mark_price,
     _ohlcv_bar_lookup,
     _open_interest_units,
@@ -357,3 +358,13 @@ def test_importer_rejects_noncanonical_import_trace_manifest_paths() -> None:
         _merged_import_trace([
             {"scope": "phase1", "exchange": "binance", "market": "futures", "manifest_paths": [" manifests/a.json "]}
         ])
+
+
+def test_importer_rejects_noncanonical_ohlcv_timeframe_coverage_values() -> None:
+    with pytest.raises(ValueError, match=r"ohlcv_timeframes.available\[0\] must be canonical"):
+        _merged_ohlcv_timeframe_coverage([{"ohlcv_timeframes": {"available": [" 1h "]}}])
+
+
+def test_importer_rejects_non_string_ohlcv_not_materialized_reasons() -> None:
+    with pytest.raises(ValueError, match=r"ohlcv_timeframes.not_materialized.5m must be a string"):
+        _merged_ohlcv_timeframe_coverage([{"ohlcv_timeframes": {"not_materialized": {"5m": 123}}}])
