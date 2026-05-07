@@ -2897,10 +2897,8 @@ def write_live_readiness_smoke_report(
         gate = _as_mapping(report.get("promotion_gate"))
         reasons = list(gate.get("reasons", []))
         checks = dict(_as_mapping(gate.get("checks")))
-        checks["promotion_bundle_integrity_verified"] = (not require_promotion_bundle_integrity) or bool(
-            source_integrity.get("verified")
-        )
-        if require_promotion_bundle_integrity and not bool(source_integrity.get("verified")):
+        checks["promotion_bundle_integrity_verified"] = bool(source_integrity.get("verified"))
+        if not bool(source_integrity.get("verified")):
             reasons.append("promotion_bundle_integrity_failed")
         report["promotion_gate"] = {
             **dict(gate),

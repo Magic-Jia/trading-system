@@ -383,6 +383,71 @@ def test_live_readiness_smoke_report_rejects_tampered_promotion_bundle(tmp_path:
     assert "- sha256_mismatches: trades.json" in markdown
 
 
+def test_live_readiness_smoke_report_rejects_present_tampered_promotion_bundle(tmp_path: Path) -> None:
+    source = tmp_path / "source_present"
+    source.mkdir()
+    trade = {
+        "trade_id": "t1",
+        "symbol": "BTCUSDT",
+        "side": "long",
+        "setup_type": "BREAKOUT_CONTINUATION",
+        "entry_time": "2026-03-10T00:00:00Z",
+        "exit_time": "2026-03-10T01:00:00Z",
+        "entry_price": 100.0,
+        "exit_price": 101.0,
+        "quantity": 1.0,
+        "notional": 100.0,
+        "net_pnl": 1.0,
+        "gross_pnl": 1.0,
+        "fee_paid": 0.0,
+        "slippage_paid": 0.0,
+        "funding_paid": 0.0,
+        "fill_quality": "evidence_backed",
+        "execution_price_source": "trade_print",
+        "exit_fill_quality": "evidence_backed",
+        "exit_price_source": "trade_print",
+        "exit_reason": "fixed_horizon",
+    }
+    (source / "trades.json").write_text(json.dumps({"trades": [trade]}), encoding="utf-8")
+    (source / "summary.json").write_text(
+        json.dumps({"schema_version": "backtest_summary.v1", "summary": {"trade_count": 1, "cost_breakdown": {"fees": 0, "slippage": 0, "funding": 0}}}),
+        encoding="utf-8",
+    )
+    (source / "exit_path_replay.json").write_text(json.dumps({"trades": [{"trade_id": "t1"}]}), encoding="utf-8")
+    for name in (
+        "runtime_safety_gate.json",
+        "market_microstructure_gate.json",
+        "validation_gate.json",
+        "passive_order_calibration_summary.json",
+    ):
+        (source / name).write_text("{}", encoding="utf-8")
+    bundle_dir = collect_promotion_evidence_bundle(
+        source,
+        tmp_path / "bundle_present",
+        candidate_id="candidate-1",
+        evidence_source={"type": "testnet_exchange"},
+    )
+    (bundle_dir / "trades.json").write_text(json.dumps({"trades": [{**trade, "net_pnl": 2.0}]}), encoding="utf-8")
+
+    report = write_live_readiness_smoke_report(
+        bundle_dir,
+        tmp_path / "out_present",
+        require_promotion_bundle_integrity=False,
+        max_setup_trade_share=None,
+        max_symbol_trade_share=None,
+        max_setup_net_abs_share=None,
+        max_symbol_net_abs_share=None,
+        max_setup_loss_abs_share=None,
+        max_symbol_loss_abs_share=None,
+    )
+
+    assert report["promotion_bundle_integrity"]["verified"] is False
+    assert report["promotion_gate"]["checks"]["promotion_bundle_integrity_verified"] is False
+    assert "promotion_bundle_integrity_failed" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
+
 def test_promotion_bundle_verification_requires_evidence_source(tmp_path: Path) -> None:
     source = tmp_path / "source"
     source.mkdir()
