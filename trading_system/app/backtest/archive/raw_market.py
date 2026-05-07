@@ -242,6 +242,8 @@ def _manifest_timeframe(manifest: dict[str, Any]) -> str | None:
         return None
     if not isinstance(value, str) or not value.strip():
         raise ValueError("raw-market manifest timeframe must be a non-empty string when present")
+    if value != value.strip():
+        raise ValueError("raw-market manifest timeframe must be canonical")
     return value
 
 
