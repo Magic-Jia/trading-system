@@ -108,6 +108,37 @@ def test_validate_bundle_payloads_rejects_non_string_payload_identity(tmp_path: 
     with pytest.raises(ValueError, match=r"market_context\.json as_of must be a string"):
         archive_importer._validate_bundle_payloads(bundle_dir, expected_timestamp=expected_timestamp)
 
+
+def test_merged_execution_evidence_coverage_rejects_non_object_buckets() -> None:
+    with pytest.raises(ValueError, match="execution_evidence.materialized must be a JSON object"):
+        archive_importer._merged_execution_evidence_coverage(
+            [
+                {
+                    "execution_evidence": {
+                        "available": True,
+                        "max_staleness_seconds": 300,
+                        "materialized": ["order_book"],
+                    }
+                }
+            ]
+        )
+
+
+def test_merged_futures_context_coverage_rejects_non_object_buckets() -> None:
+    with pytest.raises(ValueError, match="futures_context.materialized must be a JSON object"):
+        archive_importer._merged_futures_context_coverage(
+            [
+                {
+                    "futures_context": {
+                        "available": True,
+                        "max_age_seconds": {"mark_price": 3660, "funding": 28860, "open_interest": 3660},
+                        "materialized": ["mark_price"],
+                    }
+                }
+            ]
+        )
+
+
 def _timestamp_ms(value: datetime) -> int:
     return int(value.timestamp() * 1000)
 

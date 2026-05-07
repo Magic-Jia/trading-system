@@ -1284,7 +1284,7 @@ def _merged_execution_evidence_coverage(traces: Iterable[Mapping[str, Any]]) -> 
         for bucket in ("materialized", "missing", "stale", "ambiguous"):
             raw_counts = coverage.get(bucket) or {}
             if not isinstance(raw_counts, Mapping):
-                continue
+                raise ValueError(f"execution_evidence.{bucket} must be a JSON object")
             for evidence_type in ("order_book", "trades"):
                 increment = _require_non_negative_int_field(
                     raw_counts.get(evidence_type, 0),
@@ -1322,7 +1322,7 @@ def _merged_futures_context_coverage(traces: Iterable[Mapping[str, Any]]) -> dic
         for bucket in ("materialized", "missing", "stale"):
             raw_counts = coverage.get(bucket) or {}
             if not isinstance(raw_counts, Mapping):
-                continue
+                raise ValueError(f"futures_context.{bucket} must be a JSON object")
             for evidence_type in ("mark_price", "funding", "open_interest"):
                 increment = _require_non_negative_int_field(
                     raw_counts.get(evidence_type, 0),
