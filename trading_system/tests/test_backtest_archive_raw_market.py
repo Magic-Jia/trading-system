@@ -11,7 +11,14 @@ from trading_system.app.backtest.archive.raw_market import (
     ImportedRawMarketRecord,
     load_phase1_raw_market_manifest,
 )
-from trading_system.app.backtest.archive.importer import _ohlcv_bar_lookup, _order_book_payload, _trade_payload
+from trading_system.app.backtest.archive.importer import (
+    _funding_rate,
+    _mark_price,
+    _ohlcv_bar_lookup,
+    _open_interest_units,
+    _order_book_payload,
+    _trade_payload,
+)
 
 
 def test_load_raw_market_manifest_fails_fast_on_duplicate_file_timestamps(tmp_path: Path) -> None:
@@ -283,3 +290,26 @@ def test_importer_rejects_non_string_execution_symbol() -> None:
 
     with pytest.raises(ValueError, match="execution symbol must be a string"):
         _trade_payload(record, symbol="BTCUSDT")
+
+
+def test_importer_rejects_invalid_market_context_numeric_fields() -> None:
+    observed_at = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    open_interest_record = ImportedRawMarketRecord(
+        observed_at=observed_at,
+        payload={"sumOpenInterest": "not-a-number"},
+    )
+    funding_record = ImportedRawMarketRecord(
+        observed_at=observed_at,
+        payload={"fundingRate": "not-a-number"},
+    )
+    mark_price_record = ImportedRawMarketRecord(
+        observed_at=observed_at,
+        payload={"markPrice": "not-a-number"},
+    )
+
+    with pytest.raises(ValueError, match="open interest must be numeric"):
+        _open_interest_units(open_interest_record)
+    with pytest.raises(ValueError, match="funding rate must be numeric"):
+        _funding_rate(funding_record)
+    with pytest.raises(ValueError, match="mark price must be numeric"):
+        _mark_price(mark_price_record)

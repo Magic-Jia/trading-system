@@ -977,15 +977,35 @@ def _next_ohlcv_bar_payload(
     }
 
 
+def _required_context_float(value: Any, *, field: str, observed_at: datetime) -> float:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{field} must be numeric: {observed_at}") from exc
+    if not parsed == parsed or parsed in {float("inf"), float("-inf")}:
+        raise ValueError(f"{field} must be finite: {observed_at}")
+    return parsed
+
+
 def _open_interest_units(record: ImportedRawMarketRecord) -> float:
     payload = record.payload
     if not isinstance(payload, Mapping):
         return 0.0
     if "sumOpenInterestValue" in payload:
-        return _to_float(payload.get("sumOpenInterestValue"))
-    if "openInterestUsd" in payload:
-        return _to_float(payload.get("openInterestUsd"))
-    return _to_float(payload.get("sumOpenInterest"))
+        value = _required_context_float(
+            payload.get("sumOpenInterestValue"), field="open interest", observed_at=record.observed_at
+        )
+    elif "openInterestUsd" in payload:
+        value = _required_context_float(
+            payload.get("openInterestUsd"), field="open interest", observed_at=record.observed_at
+        )
+    else:
+        value = _required_context_float(
+            payload.get("sumOpenInterest"), field="open interest", observed_at=record.observed_at
+        )
+    if value < 0.0:
+        raise ValueError(f"open interest must be non-negative: {record.observed_at}")
+    return value
 
 
 def _open_interest_is_quote_value(record: ImportedRawMarketRecord) -> bool:
@@ -999,14 +1019,19 @@ def _funding_rate(record: ImportedRawMarketRecord) -> float:
     payload = record.payload
     if not isinstance(payload, Mapping):
         return 0.0
-    return _to_float(payload.get("fundingRate"))
+    return _required_context_float(payload.get("fundingRate"), field="funding rate", observed_at=record.observed_at)
 
 
 def _mark_price(record: ImportedRawMarketRecord) -> float:
     payload = record.payload
     if not isinstance(payload, Mapping):
         return 0.0
-    return _to_float(payload.get("markPrice", payload.get("mark_price")))
+    value = _required_context_float(
+        payload.get("markPrice", payload.get("mark_price")), field="mark price", observed_at=record.observed_at
+    )
+    if value <= 0.0:
+        raise ValueError(f"mark price must be positive: {record.observed_at}")
+    return value
 
 
 def _context_coverage_template(
