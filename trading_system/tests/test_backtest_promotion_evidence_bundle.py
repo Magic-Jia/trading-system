@@ -662,3 +662,16 @@ def test_bundle_collector_rejects_noncanonical_required_artifact_paths(tmp_path:
             evidence_source={"type": "promotion_bundle_export", "run_id": "bundle-1"},
             required_artifacts=("nested//artifact.json",),
         )
+
+def test_collect_requires_explicit_evidence_source(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    for name in REQUIRED_ARTIFACTS:
+        _write_json(source / name, {"artifact": name})
+
+    with pytest.raises(ValueError, match="evidence_source is required"):
+        collect_promotion_evidence_bundle(
+            source,
+            tmp_path / "bundle",
+            candidate_id="candidate-1",
+        )

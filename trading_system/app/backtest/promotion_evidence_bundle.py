@@ -81,9 +81,11 @@ def collect_promotion_evidence_bundle(
             }
         )
 
-    if evidence_source is not None and not isinstance(evidence_source, Mapping):
+    if evidence_source is None:
+        raise ValueError("evidence_source is required")
+    if not isinstance(evidence_source, Mapping):
         raise ValueError("evidence_source must be an object")
-    source_payload = dict(evidence_source) if evidence_source is not None else {"type": "unknown_offline_records"}
+    source_payload = dict(evidence_source)
     source_payload.setdefault("type", "unknown_offline_records")
     unknown_source_fields = sorted(set(source_payload) - {"type", "run_id", "exported_at"})
     if unknown_source_fields:
