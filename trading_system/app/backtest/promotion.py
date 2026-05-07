@@ -76,6 +76,42 @@ def _require_non_negative_int(payload: Mapping[str, Any], key: str, *, context: 
     return value
 
 
+def _validate_runtime_observability_plan(payload: Mapping[str, Any], *, context: str) -> None:
+    for field_name in ("runtime_observability", "runtime_observability_plan"):
+        if field_name not in payload:
+            continue
+        plan = payload.get(field_name)
+        if not isinstance(plan, Mapping):
+            raise ValueError(f"{context}.{field_name} must be an object")
+        runtime_fields = plan.get("runtime_fields")
+        if not (
+            isinstance(runtime_fields, list)
+            and runtime_fields
+            and all(isinstance(item, str) and item.strip() for item in runtime_fields)
+        ):
+            raise ValueError(f"{context}.{field_name}.runtime_fields must be a list of strings")
+
+
+def _validate_rollback_plan(payload: Mapping[str, Any], *, context: str) -> None:
+    if "rollback_plan" not in payload:
+        return
+    rollback_plan = payload.get("rollback_plan")
+    if not isinstance(rollback_plan, Mapping):
+        raise ValueError(f"{context}.rollback_plan must be an object")
+    for field_name in ("rollback_target", "rollback_trigger", "observation_window"):
+        if not isinstance(rollback_plan.get(field_name), str) or not rollback_plan[field_name].strip():
+            raise ValueError(f"{context}.rollback_plan.{field_name} must be a string")
+
+
+def _validate_optional_readiness_plans(bundle: BacktestBundle) -> None:
+    payloads: list[tuple[Mapping[str, Any], str]] = [(bundle.manifest, f"{bundle.root}/manifest.json")]
+    for artifact_name, payload in bundle.artifacts.items():
+        payloads.append((payload, f"{bundle.root}/{artifact_name}"))
+    for payload, context in payloads:
+        _validate_runtime_observability_plan(payload, context=context)
+        _validate_rollback_plan(payload, context=context)
+
+
 
 def _require_rows(payload: Mapping[str, Any], *, context: str) -> list[dict[str, Any]]:
     rows = payload.get("rows")
@@ -298,6 +334,7 @@ def load_backtest_bundle(path: str | Path) -> BacktestBundle:
         "walk_forward_validation": _validate_walk_forward_bundle,
     }
     validators[experiment_kind](bundle)
+    _validate_optional_readiness_plans(bundle)
     return bundle
 
 

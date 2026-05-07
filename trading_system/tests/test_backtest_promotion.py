@@ -650,3 +650,38 @@ def test_load_backtest_bundle_rejects_non_object_manifest_sample_period(tmp_path
 
     with pytest.raises(ValueError, match="manifest.json.sample_period must be an object"):
         promotion.load_backtest_bundle(bundle)
+
+def test_compare_backtest_bundles_rejects_string_runtime_fields_plan(tmp_path: Path) -> None:
+    baseline_bundle = _write_walk_forward_bundle(
+        tmp_path / "baseline",
+        baseline_name="current_policy",
+        variant_name="baseline_walk_forward",
+        out_of_sample_total_return=0.03,
+        positive_window_ratio=0.75,
+        parameter_stability_score=0.7,
+        worst_window_return=0.01,
+        runtime_fields=["regime", "allocator_decision_reason"],
+        rollback_target="baseline_walk_forward",
+        rollback_trigger="oos_total_return_below_zero",
+        observation_window="14d",
+    )
+    variant_bundle = _write_walk_forward_bundle(
+        tmp_path / "variant",
+        baseline_name="current_policy",
+        variant_name="candidate_walk_forward",
+        out_of_sample_total_return=0.08,
+        positive_window_ratio=0.9,
+        parameter_stability_score=0.9,
+        worst_window_return=0.02,
+        runtime_fields=["regime", "allocator_decision_reason"],
+        rollback_target="baseline_walk_forward",
+        rollback_trigger="oos_total_return_below_zero",
+        observation_window="14d",
+    )
+    summary_path = variant_bundle / "summary.json"
+    payload = json.loads(summary_path.read_text(encoding="utf-8"))
+    payload["runtime_observability"]["runtime_fields"] = "regime"
+    _write_json(summary_path, payload)
+
+    with pytest.raises(ValueError, match="runtime_observability.runtime_fields must be a list of strings"):
+        promotion.compare_backtest_bundles(baseline_bundle=baseline_bundle, variant_bundle=variant_bundle)
