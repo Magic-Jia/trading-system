@@ -912,3 +912,26 @@ def test_bundle_verifier_marks_schema_invalid_for_non_string_declared_missing_ar
     assert result["schema_valid"] is False
     assert "missing_artifact_entry_not_string" in result["manifest_errors"]
     assert result["invalid_declared_missing_artifacts"] == ["missing_artifacts[1]"]
+
+def test_bundle_verifier_marks_schema_invalid_for_blank_declared_missing_artifact(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    for name in REQUIRED_ARTIFACTS:
+        _write_json(source / name, {"artifact": name})
+    bundle_dir = collect_promotion_evidence_bundle(
+        source,
+        tmp_path / "bundle",
+        candidate_id="candidate-1",
+        evidence_source={"type": "promotion_bundle_export", "run_id": "bundle-1"},
+    )
+    manifest_path = bundle_dir / "promotion_evidence_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["missing_artifacts"] = ["   "]
+    _write_json(manifest_path, manifest)
+
+    result = verify_promotion_evidence_bundle(bundle_dir)
+
+    assert result["verified"] is False
+    assert result["schema_valid"] is False
+    assert "missing_artifact_entry_blank" in result["manifest_errors"]
+    assert result["invalid_declared_missing_artifacts"] == ["missing_artifacts[1]"]

@@ -273,7 +273,7 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
     blank_declared_missing_artifacts = [
         f"missing_artifacts[{index}]"
         for index, item in enumerate(declared_missing_artifacts, start=1)
-        if isinstance(item, str) and not item
+        if isinstance(item, str) and not item.strip()
     ]
     invalid_declared_missing_artifacts.extend(blank_declared_missing_artifacts)
     unsafe_declared_missing_artifacts = [
