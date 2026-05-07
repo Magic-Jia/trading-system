@@ -15,6 +15,7 @@ from trading_system.app.backtest.archive.importer import (
     _funding_rate,
     _merged_execution_evidence_coverage,
     _merged_futures_context_coverage,
+    _merged_import_trace,
     _mark_price,
     _ohlcv_bar_lookup,
     _open_interest_units,
@@ -338,4 +339,21 @@ def test_importer_rejects_string_futures_context_counts() -> None:
     with pytest.raises(ValueError, match="futures_context.materialized.mark_price must be a non-negative integer"):
         _merged_futures_context_coverage([
             {"futures_context": {"materialized": {"mark_price": "1"}}}
+        ])
+
+
+def test_importer_rejects_noncanonical_import_trace_identity_fields() -> None:
+    with pytest.raises(ValueError, match="import_trace.scope must be canonical"):
+        _merged_import_trace([{"scope": " phase1 ", "exchange": "binance", "market": "futures"}])
+
+
+def test_importer_rejects_non_string_import_trace_symbols() -> None:
+    with pytest.raises(ValueError, match=r"import_trace.symbols\[0\] must be a string"):
+        _merged_import_trace([{"scope": "phase1", "exchange": "binance", "market": "futures", "symbols": [123]}])
+
+
+def test_importer_rejects_noncanonical_import_trace_manifest_paths() -> None:
+    with pytest.raises(ValueError, match=r"import_trace.manifest_paths\[0\] must be canonical"):
+        _merged_import_trace([
+            {"scope": "phase1", "exchange": "binance", "market": "futures", "manifest_paths": [" manifests/a.json "]}
         ])

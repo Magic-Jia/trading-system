@@ -1164,6 +1164,25 @@ def _import_trace(
     }
 
 
+def _require_canonical_string(value: Any, *, field: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{field} must be a string")
+    if value != value.strip():
+        raise ValueError(f"{field} must be canonical")
+    return value
+
+
+def _require_canonical_string_items(values: Any, *, field: str) -> tuple[str, ...]:
+    if values is None:
+        return ()
+    if not isinstance(values, Iterable) or isinstance(values, (str, bytes)):
+        raise ValueError(f"{field} must be a list")
+    parsed: list[str] = []
+    for index, value in enumerate(values):
+        parsed.append(_require_canonical_string(value, field=f"{field}[{index}]"))
+    return tuple(parsed)
+
+
 def _merged_import_trace(traces: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
     scope: str | None = None
     exchange: str | None = None
@@ -1174,9 +1193,9 @@ def _merged_import_trace(traces: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
 
     for trace in traces:
         normalized = dict(trace)
-        current_scope = str(normalized.get("scope") or "")
-        current_exchange = str(normalized.get("exchange") or "")
-        current_market = str(normalized.get("market") or "")
+        current_scope = _require_canonical_string(normalized.get("scope", ""), field="import_trace.scope")
+        current_exchange = _require_canonical_string(normalized.get("exchange", ""), field="import_trace.exchange")
+        current_market = _require_canonical_string(normalized.get("market", ""), field="import_trace.market")
         if scope is None:
             scope = current_scope
             exchange = current_exchange
@@ -1186,9 +1205,9 @@ def _merged_import_trace(traces: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
                 "phase1 importer source trace scope/exchange/market must stay aligned across bundles: "
                 f"expected {(scope, exchange, market)}, loaded {(current_scope, current_exchange, current_market)}"
             )
-        symbols.update(str(value) for value in normalized.get("symbols") or ())
-        series_keys.update(str(value) for value in normalized.get("series_keys") or ())
-        manifest_paths.update(str(value) for value in normalized.get("manifest_paths") or ())
+        symbols.update(_require_canonical_string_items(normalized.get("symbols"), field="import_trace.symbols"))
+        series_keys.update(_require_canonical_string_items(normalized.get("series_keys"), field="import_trace.series_keys"))
+        manifest_paths.update(_require_canonical_string_items(normalized.get("manifest_paths"), field="import_trace.manifest_paths"))
 
     if scope is None or exchange is None or market is None:
         return {}
