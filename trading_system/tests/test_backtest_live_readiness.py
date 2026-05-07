@@ -3670,12 +3670,6 @@ def test_live_readiness_gate_rejects_invalid_json_trades_artifact(tmp_path: Path
             "chunk": "chunk_001",
             "artifact": "trades.json",
             "schema_version": None,
-            "error": "invalid_or_missing_schema_version",
-        },
-        {
-            "chunk": "chunk_001",
-            "artifact": "trades.json",
-            "schema_version": None,
             "error": "invalid_json",
         },
     ]
