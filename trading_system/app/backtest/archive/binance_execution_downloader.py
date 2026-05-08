@@ -152,8 +152,15 @@ def _top_of_book_row(*, symbol: str, fetched_at: str, payload: Mapping[str, Any]
     return row
 
 
+def _buyer_was_maker(payload: Mapping[str, Any]) -> bool:
+    maker_flag = payload.get("m")
+    if not isinstance(maker_flag, bool):
+        raise BinanceExecutionDownloadError("aggTrades row maker flag must be boolean")
+    return maker_flag
+
+
 def _maker_side(payload: Mapping[str, Any]) -> str:
-    return "sell" if bool(payload.get("m")) else "buy"
+    return "sell" if _buyer_was_maker(payload) else "buy"
 
 
 def _trade_id(payload: Mapping[str, Any]) -> int:
@@ -165,7 +172,7 @@ def _trade_time_ms(payload: Mapping[str, Any]) -> int:
 
 
 def _trade_row(*, symbol: str, payload: Mapping[str, Any]) -> dict[str, Any]:
-    buyer_was_maker = bool(payload.get("m"))
+    buyer_was_maker = _buyer_was_maker(payload)
     return {
         "timestamp": _trade_time_ms(payload),
         "symbol": symbol,
