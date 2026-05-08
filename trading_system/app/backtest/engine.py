@@ -1259,7 +1259,7 @@ def _replay_full_market_baseline_rows(
             quarantined_short_setup_types=quarantined_short_setup_types,
             entry_profile=entry_profile,
         ):
-            symbol = str(candidate_row.get("symbol", ""))
+            symbol = _candidate_canonical_string(candidate_row, "symbol")
             instrument = included_by_symbol.get(symbol)
             if instrument is None:
                 continue
