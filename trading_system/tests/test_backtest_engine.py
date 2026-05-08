@@ -90,6 +90,29 @@ def test_engine_rejects_coerced_portfolio_candidate_fields(fixture_dir: Path) ->
         backtest_engine._portfolio_candidate(bad_take_profit, instrument=instrument, row=row)
 
 
+def test_full_market_replay_rejects_coerced_candidate_ledger_fields(
+    fixture_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = load_backtest_config(fixture_dir / "backtest" / "full_market_baseline.json")
+    rows = load_historical_dataset(fixture_dir / "backtest" / "full_market_baseline_dataset")
+    symbol = rows[0].instrument_rows[0].symbol
+    candidate = {
+        "symbol": symbol,
+        "side": "LONG",
+        "stop_loss": 1.0,
+        "take_profit": 2.0,
+        "score": True,
+        "engine": "trend",
+        "setup_type": "BREAKOUT",
+    }
+
+    monkeypatch.setattr(backtest_engine, "_raw_full_market_candidates", lambda *args, **kwargs: [candidate])
+
+    with pytest.raises(ValueError, match="candidate score must be a finite number"):
+        backtest_engine._replay_full_market_baseline_rows(config, rows)
+
+
 def test_replay_snapshot_records_layer_artifacts(fixture_dir: Path) -> None:
     rows = load_historical_dataset(fixture_dir / "backtest" / "sample_dataset")
 

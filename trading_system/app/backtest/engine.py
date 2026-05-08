@@ -795,6 +795,13 @@ def _entry_execution_fill(
     )
 
 
+def _candidate_canonical_string(candidate_row: Mapping[str, Any], key: str) -> str:
+    value = candidate_row.get(key)
+    if not isinstance(value, str) or not value or value != value.strip():
+        raise ValueError(f"candidate {key} must be a canonical string")
+    return value
+
+
 def _candidate_finite_number(candidate_row: Mapping[str, Any], key: str) -> float:
     value = candidate_row.get(key)
     if isinstance(value, bool) or not isinstance(value, (int, float)):
@@ -1336,9 +1343,9 @@ def _replay_full_market_baseline_rows(
                     position_notional=decision.position_notional,
                     liquidity_tier=instrument.liquidity_tier,
                     funding_rate=funding_rate if funding_rate is not None else _funding_rate(row, candidate.symbol),
-                    engine=str(candidate_row.get("engine", "")),
-                    setup_type=str(candidate_row.get("setup_type", "")),
-                    score=float(candidate_row.get("score", 0.0) or 0.0),
+                    engine=_candidate_canonical_string(candidate_row, "engine"),
+                    setup_type=_candidate_canonical_string(candidate_row, "setup_type"),
+                    score=_candidate_finite_number(candidate_row, "score"),
                     stop_loss=candidate.stop_loss,
                     take_profit=candidate.take_profit,
                     cost_coverage_ratio=cost_coverage_ratio,
