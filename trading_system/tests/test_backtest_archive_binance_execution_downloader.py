@@ -82,6 +82,44 @@ def test_mocked_depth_response_writes_order_book_archive_with_endpoint_metadata(
     assert transport.calls == [("/fapi/v1/depth", {"symbol": "BTCUSDT", "limit": 5})]
 
 
+@pytest.mark.parametrize(
+    ("side", "index", "value", "expected_message"),
+    [
+        ("bids", 0, 64389.50, "depth payload top bid price must be a non-empty string"),
+        ("asks", 0, True, "depth payload top ask price must be a non-empty string"),
+        ("bids", 1, ["3.25"], "depth payload top bid quantity must be a non-empty string"),
+        ("asks", 1, "", "depth payload top ask quantity must be a non-empty string"),
+    ],
+)
+def test_depth_rejects_non_string_or_empty_top_of_book_values_without_partial_archive(
+    tmp_path: Path,
+    side: str,
+    index: int,
+    value: object,
+    expected_message: str,
+) -> None:
+    payload = {
+        "lastUpdateId": 123,
+        "bids": [["64389.50", "3.25"]],
+        "asks": [["64390.50", "2.75"]],
+    }
+    payload[side][0][index] = value
+    transport = _FakeTransport([payload])
+
+    with pytest.raises(BinanceExecutionDownloadError, match=expected_message):
+        download_binance_execution_evidence(
+            archive_root=tmp_path / "archive",
+            symbol="BTCUSDT",
+            start_time="2024-02-29T23:00:00Z",
+            end_time="2024-02-29T23:05:00Z",
+            include_trades=False,
+            fetch_json=transport,
+            now=lambda: "2026-04-01T07:33:00Z",
+        )
+
+    assert not (tmp_path / "archive" / "raw-market").exists()
+
+
 def test_mocked_agg_trades_response_writes_trade_rows_with_conservative_side(tmp_path: Path) -> None:
     transport = _FakeTransport(
         [

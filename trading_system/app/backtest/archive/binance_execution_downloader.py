@@ -127,6 +127,12 @@ def _require_list(payload: object, *, endpoint: str) -> list[Any]:
     return payload
 
 
+def _top_of_book_string_field(value: Any, *, side: str, label: str) -> str:
+    if not isinstance(value, str) or not value:
+        raise BinanceExecutionDownloadError(f"depth payload top {side} {label} must be a non-empty string")
+    return value
+
+
 def _top_of_book_row(*, symbol: str, fetched_at: str, payload: Mapping[str, Any]) -> dict[str, Any]:
     bids = payload.get("bids")
     asks = payload.get("asks")
@@ -141,10 +147,10 @@ def _top_of_book_row(*, symbol: str, fetched_at: str, payload: Mapping[str, Any]
     row: dict[str, Any] = {
         "timestamp": fetched_at,
         "symbol": symbol,
-        "bid": str(best_bid[0]),
-        "ask": str(best_ask[0]),
-        "bid_size": str(best_bid[1]),
-        "ask_size": str(best_ask[1]),
+        "bid": _top_of_book_string_field(best_bid[0], side="bid", label="price"),
+        "ask": _top_of_book_string_field(best_ask[0], side="ask", label="price"),
+        "bid_size": _top_of_book_string_field(best_bid[1], side="bid", label="quantity"),
+        "ask_size": _top_of_book_string_field(best_ask[1], side="ask", label="quantity"),
         "evidence_time_semantics": "point_in_time_fetch",
     }
     if payload.get("lastUpdateId") is not None:
