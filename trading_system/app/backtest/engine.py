@@ -570,8 +570,11 @@ def _simulate_intraday_exit(
 
 def _funding_rate(row: DatasetSnapshotRow, symbol: str) -> float:
     for item in row.derivatives:
-        if str(item.get("symbol", "")) == symbol:
-            return float(item.get("funding_rate", 0.0) or 0.0)
+        if not isinstance(item, Mapping):
+            raise ValueError("derivative row must be an object")
+        derivative_symbol = _canonical_string(item.get("symbol"), field_name="derivative symbol")
+        if derivative_symbol == symbol:
+            return _optional_futures_float(item.get("funding_rate", 0.0), "funding_rate") or 0.0
     return 0.0
 
 

@@ -19,6 +19,7 @@ from trading_system.app.backtest.types import (
     BacktestConfig,
     BacktestCosts,
     CapitalModelConfig,
+    DatasetSnapshotRow,
     ExperimentParams,
     InstrumentSnapshotRow,
     SampleWindow,
@@ -67,6 +68,26 @@ def test_suppression_payload_rejects_coerced_regime_fields() -> None:
         backtest_engine._suppression_payload({"suppression_rules": ["rotation", True]})
     with pytest.raises(ValueError, match="execution_policy must be a canonical string"):
         backtest_engine._suppression_payload({"suppression_rules": [], "execution_policy": True})
+
+
+def test_engine_funding_rate_rejects_coerced_derivative_fields() -> None:
+    row = DatasetSnapshotRow(
+        timestamp=backtest_engine._datetime_or_none("2026-03-10T00:00:00Z"),
+        run_id="run-1",
+        market={},
+        derivatives=[{"symbol": True, "funding_rate": 0.001}],
+    )
+    with pytest.raises(ValueError, match="derivative symbol must be a canonical string"):
+        backtest_engine._funding_rate(row, "BTCUSDT")
+
+    row = DatasetSnapshotRow(
+        timestamp=backtest_engine._datetime_or_none("2026-03-10T00:00:00Z"),
+        run_id="run-1",
+        market={},
+        derivatives=[{"symbol": "BTCUSDT", "funding_rate": True}],
+    )
+    with pytest.raises(ValueError, match="invalid futures context numeric field funding_rate"):
+        backtest_engine._funding_rate(row, "BTCUSDT")
 
 
 def test_engine_rejects_coerced_portfolio_candidate_fields(fixture_dir: Path) -> None:
