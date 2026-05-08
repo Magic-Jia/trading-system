@@ -153,6 +153,30 @@ def test_load_dataset_root_metadata_surfaces_imported_manifest_summary(tmp_path:
     }
 
 
+def test_load_dataset_root_metadata_rejects_non_object_manifest_source(tmp_path: Path) -> None:
+    dataset_root = tmp_path / "imported_dataset"
+    dataset_root.mkdir()
+    (dataset_root / "import_manifest.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "phase1_imported_dataset_root.v1",
+                "scope": "phase1_binance_futures",
+                "archive_root": "/tmp/archive",
+                "dataset_root": "/tmp/imported_dataset",
+                "snapshot_count": 0,
+                "symbols": [],
+                "bundle_dirs": [],
+                "source": [],
+                "coverage": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="import manifest source must be an object"):
+        load_dataset_root_metadata(dataset_root)
+
+
 def test_load_backtest_config(fixture_dir: Path) -> None:
     config = load_backtest_config(fixture_dir / "backtest" / "minimal_config.json")
 

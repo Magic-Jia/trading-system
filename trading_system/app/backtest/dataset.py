@@ -115,6 +115,15 @@ def load_historical_dataset(dataset_root: str | Path) -> list[DatasetSnapshotRow
     return sorted(rows, key=lambda row: (row.timestamp, row.run_id))
 
 
+def _manifest_object_field(manifest: dict[str, object], key: str) -> dict[str, object]:
+    value = manifest.get(key)
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ValueError(f"import manifest {key} must be an object")
+    return dict(value)
+
+
 def load_dataset_root_metadata(dataset_root: str | Path) -> dict[str, object]:
     root = Path(dataset_root)
     manifest_path = root / _IMPORT_MANIFEST_FILENAME
@@ -135,8 +144,8 @@ def load_dataset_root_metadata(dataset_root: str | Path) -> dict[str, object]:
             "start_timestamp": manifest.get("start_timestamp"),
             "end_timestamp": manifest.get("end_timestamp"),
             "bundle_count": len(manifest.get("bundle_dirs") or ()),
-            "source": dict(manifest.get("source") or {}),
-            "coverage": dict(manifest.get("coverage") or {}),
+            "source": _manifest_object_field(manifest, "source"),
+            "coverage": _manifest_object_field(manifest, "coverage"),
         },
     }
 
