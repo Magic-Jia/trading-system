@@ -15,11 +15,11 @@ from trading_system.app.backtest.archive.raw_market import (
 from trading_system.app.backtest.archive.data_quality import _l2_tick_coverage, _series_report
 from trading_system.app.backtest.archive.importer import (
     _funding_rate,
+    _mark_price,
     _merged_execution_evidence_coverage,
     _merged_futures_context_coverage,
     _merged_import_trace,
     _merged_ohlcv_timeframe_coverage,
-    _mark_price,
     _ohlcv_bar_lookup,
     _open_interest_units,
     _ordered_timeframes,
@@ -434,6 +434,32 @@ def test_series_report_rejects_non_object_provenance_file_metadata(tmp_path: Pat
 
     with pytest.raises(ValueError, match="raw-market provenance file metadata must be an object"):
         _series_report(bad_series, expected_interval=None)
+
+
+def test_load_raw_market_manifest_rejects_boolean_ohlcv_close(tmp_path: Path) -> None:
+    archived = archive_raw_market_payload(
+        archive_root=tmp_path / "archive",
+        exchange="binance",
+        market="futures",
+        dataset="ohlcv",
+        symbol="BTCUSDT",
+        timeframe="1h",
+        coverage_start="2026-01-01T00:00:00Z",
+        coverage_end="2026-01-01T02:00:00Z",
+        fetched_at="2026-01-01T02:01:00Z",
+        endpoint="/fapi/v1/klines",
+        payload={
+            "rows": [
+                {"open_time": "2026-01-01T00:00:00Z", "open": 100.0, "high": 101.0, "low": 99.0, "close": True, "volume": 10.0},
+                {"open_time": "2026-01-01T01:00:00Z", "open": 100.5, "high": 102.0, "low": 100.0, "close": 101.0, "volume": 12.0},
+            ]
+        },
+    )
+    series = load_phase1_raw_market_manifest(archived.manifest_path)
+
+    with pytest.raises(ValueError, match="ohlcv close must be numeric"):
+        _ohlcv_bar_lookup(series.records)
+
 
 
 def test_order_book_payload_rejects_boolean_bid() -> None:

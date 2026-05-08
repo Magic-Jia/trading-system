@@ -197,6 +197,8 @@ def _to_float(value: Any, *, default: float = 0.0) -> float:
 
 
 def _required_ohlcv_float(value: Any, *, field: str, observed_at: datetime) -> float:
+    if isinstance(value, bool):
+        raise ValueError(f"ohlcv {field} must be numeric: {observed_at}")
     try:
         parsed = float(value)
     except (TypeError, ValueError) as exc:
