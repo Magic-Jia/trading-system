@@ -906,7 +906,10 @@ def _portfolio_candidate(
         candidate_row=candidate_row,
         entry_reference_timeframe=entry_reference_timeframe,
     )
-    executed_entry_price = float(entry_fill.fill_price if entry_fill.fill_price is not None else entry_price)
+    executed_entry_price = _positive_float(
+        entry_fill.fill_price if entry_fill.fill_price is not None else entry_price,
+        field_name="fill_price",
+    )
     take_profit = _optional_candidate_finite_number(candidate_row, "take_profit")
     if take_profit is None or take_profit <= 0:
         take_profit = _candidate_take_profit_price(entry_price, stop_loss, side)
@@ -951,7 +954,10 @@ def _portfolio_candidate(
 def _candidate_with_execution_fill(candidate: PortfolioCandidate, fill: ExecutionFill) -> PortfolioCandidate:
     return replace(
         candidate,
-        entry_price=float(fill.fill_price if fill.fill_price is not None else candidate.entry_price),
+        entry_price=_positive_float(
+            fill.fill_price if fill.fill_price is not None else candidate.entry_price,
+            field_name="fill_price",
+        ),
         execution_price_source=fill.execution_price_source,
         fill_model=fill.fill_model,
         fill_quality=fill.fill_quality,

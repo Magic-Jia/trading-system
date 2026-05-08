@@ -307,6 +307,31 @@ def test_candidate_take_profit_rejects_coerced_prices() -> None:
         backtest_engine._candidate_take_profit_price(100.0, "90", "long")
 
 
+def test_candidate_execution_fill_rejects_coerced_fill_price() -> None:
+    candidate = PortfolioCandidate(
+        symbol="BTCUSDT",
+        market_type="futures",
+        base_asset="BTC",
+        side="long",
+        entry_price=100.0,
+        stop_loss=90.0,
+    )
+    fill = backtest_engine.ExecutionFill(
+        symbol="BTCUSDT",
+        side="buy",
+        quantity=1.0,
+        filled=True,
+        fill_price="101",
+        fill_model="taker_orderbook_depth",
+        execution_price_source="ask_depth",
+        fill_quality="evidence_backed",
+        outcome="filled",
+    )
+
+    with pytest.raises(ValueError, match="fill_price must be a positive number"):
+        backtest_engine._candidate_with_execution_fill(candidate, fill)
+
+
 def test_engine_rejects_coerced_portfolio_candidate_fields(fixture_dir: Path) -> None:
     row = load_historical_dataset(fixture_dir / "backtest" / "sample_dataset")[0]
     instrument = InstrumentSnapshotRow(
