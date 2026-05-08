@@ -1,3 +1,7 @@
+import math
+
+import pytest
+
 from trading_system.app.signals.scoring import score_short_candidate
 from trading_system.app.signals.short_engine import generate_short_candidates
 
@@ -285,6 +289,45 @@ def test_short_term_short_candidates_expose_intraday_entry_reference_metadata():
     assert candidate.timeframe_meta["trigger_timeframes"] == ["30m", "15m"]
     assert candidate.timeframe_meta["entry_reference_timeframes"] == ["15m", "30m", "1h", "4h", "daily"]
     assert candidate.timeframe_meta["stop_reference_timeframe"] == "15m"
+
+
+@pytest.mark.parametrize("bad_value", [True, math.nan, math.inf, -math.inf])
+def test_short_term_candidates_reject_present_invalid_required_numeric(bad_value):
+    market = _defensive_market()
+    market["symbols"]["BTCUSDT"]["30m"] = {
+        "close": 95600.0,
+        "ema_20": 95800.0,
+        "ema_50": 96000.0,
+    }
+    market["symbols"]["BTCUSDT"]["15m"] = {
+        "close": 95500.0,
+        "ema_20": 95650.0,
+        "ema_50": 95800.0,
+    }
+    short_universe = [
+        {"symbol": "BTCUSDT", "sector": "majors", "liquidity_meta": {"rolling_notional": 12_500_000_000.0}},
+    ]
+    regime = {"label": "HIGH_VOL_DEFENSIVE", "bucket_targets": {"trend": 0.2, "rotation": 0.0, "short": 0.8}}
+
+    valid_candidates = generate_short_candidates(
+        market,
+        short_universe=short_universe,
+        regime=regime,
+        entry_profile="short_term",
+    )
+    assert {candidate.symbol for candidate in valid_candidates} == {"BTCUSDT"}
+
+    market["symbols"]["BTCUSDT"]["daily"]["close"] = bad_value
+
+    assert (
+        generate_short_candidates(
+            market,
+            short_universe=short_universe,
+            regime=regime,
+            entry_profile="short_term",
+        )
+        == []
+    )
 
 
 def test_generate_short_candidates_respects_regime_gate_and_suppression():
