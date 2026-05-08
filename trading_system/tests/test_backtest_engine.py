@@ -20,6 +20,7 @@ from trading_system.app.backtest.types import (
     BacktestCosts,
     CapitalModelConfig,
     ExperimentParams,
+    InstrumentSnapshotRow,
     SampleWindow,
     UniverseFilterConfig,
     WalkForwardConfig,
@@ -48,6 +49,40 @@ def test_engine_rejects_coerced_timeframe_and_execution_policy_fields() -> None:
 
     with pytest.raises(ValueError, match="execution_policy must be a string"):
         backtest_engine._entry_execution_policy({"execution_policy": True})
+
+
+def test_engine_rejects_coerced_portfolio_candidate_fields(fixture_dir: Path) -> None:
+    row = load_historical_dataset(fixture_dir / "backtest" / "sample_dataset")[0]
+    instrument = InstrumentSnapshotRow(
+        symbol="BTCUSDT",
+        market_type="futures",
+        base_asset="BTC",
+        listing_timestamp=row.timestamp,
+        quote_volume_usdt_24h=1_000_000.0,
+        liquidity_tier="high",
+        quantity_step=0.001,
+        price_tick=0.1,
+        has_complete_funding=True,
+    )
+    base_candidate = {
+        "symbol": instrument.symbol,
+        "side": "LONG",
+        "stop_loss": 1.0,
+        "take_profit": 2.0,
+        "score": 0.7,
+        "engine": "trend",
+        "setup_type": "BREAKOUT",
+    }
+
+    bad_side = dict(base_candidate)
+    bad_side["side"] = True
+    with pytest.raises(ValueError, match="candidate side must be LONG or SHORT"):
+        backtest_engine._portfolio_candidate(bad_side, instrument=instrument, row=row)
+
+    bad_stop = dict(base_candidate)
+    bad_stop["stop_loss"] = True
+    with pytest.raises(ValueError, match="candidate stop_loss must be a finite number"):
+        backtest_engine._portfolio_candidate(bad_stop, instrument=instrument, row=row)
 
 
 def test_replay_snapshot_records_layer_artifacts(fixture_dir: Path) -> None:

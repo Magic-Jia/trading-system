@@ -795,6 +795,23 @@ def _entry_execution_fill(
     )
 
 
+def _candidate_finite_number(candidate_row: Mapping[str, Any], key: str) -> float:
+    value = candidate_row.get(key)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"candidate {key} must be a finite number")
+    parsed = float(value)
+    if not math.isfinite(parsed):
+        raise ValueError(f"candidate {key} must be a finite number")
+    return parsed
+
+
+def _candidate_side(candidate_row: Mapping[str, Any]) -> str:
+    value = candidate_row.get("side")
+    if not isinstance(value, str) or value not in {"LONG", "SHORT"}:
+        raise ValueError("candidate side must be LONG or SHORT")
+    return value
+
+
 def _portfolio_candidate(
     candidate_row: Mapping[str, Any],
     *,
@@ -806,8 +823,8 @@ def _portfolio_candidate(
         instrument.symbol,
         timeframes=_entry_reference_timeframes(candidate_row),
     )
-    stop_loss = float(candidate_row.get("stop_loss", 0.0) or 0.0)
-    side = str(candidate_row.get("side", "")).upper()
+    stop_loss = _candidate_finite_number(candidate_row, "stop_loss")
+    side = _candidate_side(candidate_row)
     order_side = "sell" if side == "SHORT" else "buy"
     entry_fill = _entry_execution_fill(
         row=row,
