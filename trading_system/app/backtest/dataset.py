@@ -153,6 +153,9 @@ def _row_from_bundle(bundle_path: Path, *, fallback_account: dict | None) -> Dat
         raise FileNotFoundError(
             f"dataset bundle missing account snapshot and no baseline provided: {bundle_path / 'account_snapshot.json'}"
         )
+    if not isinstance(account, dict):
+        raise ValueError(f"dataset bundle has invalid account snapshot: {bundle_path / 'account_snapshot.json'}")
+    account_snapshot = dict(account)
     instrument_rows = _instrument_rows(bundle_path)
 
     forward_returns = _metadata_metric_map(metadata, "forward_returns")
@@ -167,7 +170,7 @@ def _row_from_bundle(bundle_path: Path, *, fallback_account: dict | None) -> Dat
         run_id=_metadata_canonical_string(metadata, "run_id"),
         market=market,
         derivatives=derivative_rows,
-        account=dict(account),
+        account=account_snapshot,
         instrument_rows=instrument_rows,
         forward_returns=forward_returns,
         forward_drawdowns=forward_drawdowns,
