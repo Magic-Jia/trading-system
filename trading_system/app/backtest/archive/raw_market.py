@@ -352,6 +352,34 @@ def _timestamp_value_for_row(*, dataset: str, row: Any, data_path: Path, index: 
     return value
 
 
+def _validate_raw_numeric_field(value: Any, *, dataset: str, field: str, data_path: Path, index: int) -> None:
+    if isinstance(value, bool):
+        raise ValueError(f"{dataset} row {field} must be numeric: {data_path} rows[{index}]")
+    if isinstance(value, str):
+        if not value.strip() or value != value.strip() or "_" in value:
+            raise ValueError(f"{dataset} row {field} must be canonical: {data_path} rows[{index}]")
+    elif not isinstance(value, (int, float)):
+        raise ValueError(f"{dataset} row {field} must be numeric: {data_path} rows[{index}]")
+    try:
+        parsed = float(value)
+    except ValueError as exc:
+        raise ValueError(f"{dataset} row {field} must be numeric: {data_path} rows[{index}]") from exc
+    if not parsed == parsed or parsed in {float("inf"), float("-inf")}:
+        raise ValueError(f"{dataset} row {field} must be finite: {data_path} rows[{index}]")
+    if parsed < 0.0:
+        raise ValueError(f"{dataset} row {field} must be non-negative: {data_path} rows[{index}]")
+
+
+def _validate_raw_context_row(*, dataset: str, row: Any, data_path: Path, index: int) -> None:
+    if dataset != "open-interest":
+        return
+    if not isinstance(row, dict):
+        return
+    for field in ("sumOpenInterest", "sumOpenInterestValue", "openInterestUsd"):
+        if field in row:
+            _validate_raw_numeric_field(row[field], dataset=dataset, field=field, data_path=data_path, index=index)
+
+
 def _validated_import_scope(manifest: dict[str, Any], *, manifest_path: Path) -> tuple[str, str, str, str, str | None, str]:
     schema_version = _required_manifest_value(manifest, "schema_version", manifest_path=manifest_path)
     if schema_version != RAW_MARKET_MANIFEST_SCHEMA_VERSION:
@@ -405,6 +433,7 @@ def _load_import_file(
     materialized_records: list[ImportedRawMarketRecord] = []
     last_index = len(rows) - 1
     for index, row in enumerate(rows):
+        _validate_raw_context_row(dataset=canonical_dataset, row=row, data_path=data_path, index=index)
         observed_at = _utc_datetime(
             _timestamp_value_for_row(dataset=canonical_dataset, row=row, data_path=data_path, index=index)
         )

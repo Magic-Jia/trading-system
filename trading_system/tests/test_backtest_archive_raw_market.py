@@ -723,6 +723,32 @@ def test_open_interest_rejects_boolean_value() -> None:
         _open_interest_units(record)
 
 
+def test_load_raw_market_manifest_rejects_invalid_open_interest_optional_quote_value(tmp_path: Path) -> None:
+    archived = archive_raw_market_payload(
+        archive_root=tmp_path / "archive",
+        exchange="binance",
+        market="futures",
+        dataset="open-interest",
+        symbol="BTCUSDT",
+        timeframe=None,
+        coverage_start="2026-01-01T00:00:00Z",
+        coverage_end="2026-01-01T05:00:00Z",
+        fetched_at="2026-01-01T05:01:00Z",
+        endpoint="/futures/data/openInterestHist",
+        payload={
+            "rows": [
+                {
+                    "timestamp": "2026-01-01T00:00:00Z",
+                    "sumOpenInterest": "100.0",
+                    "sumOpenInterestValue": "1_000.0",
+                }
+            ]
+        },
+    )
+
+    with pytest.raises(ValueError, match="open-interest row sumOpenInterestValue must be canonical"):
+        load_phase1_raw_market_manifest(archived.manifest_path)
+
 
 def test_load_raw_market_manifest_rejects_boolean_ohlcv_close(tmp_path: Path) -> None:
     archived = archive_raw_market_payload(
