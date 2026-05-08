@@ -156,10 +156,10 @@ def _load_capital(raw: Any) -> CapitalModelConfig:
     if not isinstance(raw, dict):
         raise ValueError("capital must be an object")
     return CapitalModelConfig(
-        model=str(_require(raw, "model")),
-        initial_equity=float(_require(raw, "initial_equity")),
-        risk_per_trade=float(_require(raw, "risk_per_trade")),
-        max_open_risk=float(_require(raw, "max_open_risk")),
+        model=_canonical_string(_require(raw, "model"), field_name="capital.model"),
+        initial_equity=_finite_number(_require(raw, "initial_equity"), field_name="capital.initial_equity"),
+        risk_per_trade=_finite_number(_require(raw, "risk_per_trade"), field_name="capital.risk_per_trade"),
+        max_open_risk=_finite_number(_require(raw, "max_open_risk"), field_name="capital.max_open_risk"),
     )
 
 

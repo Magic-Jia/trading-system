@@ -641,6 +641,48 @@ def test_load_backtest_config_rejects_non_boolean_universe_funding_flag(tmp_path
         load_backtest_config(config_path)
 
 
+def test_load_backtest_config_rejects_boolean_capital_numerics(tmp_path: Path) -> None:
+    config_path = tmp_path / "broken_capital_numeric_config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "dataset_root": "sample_dataset",
+                "experiment_kind": "full_market_baseline",
+                "sample_windows": [
+                    {
+                        "name": "train",
+                        "start": "2026-01-01T00:00:00Z",
+                        "end": "2026-02-01T00:00:00Z",
+                    }
+                ],
+                "forward_return_windows": [],
+                "universe": {
+                    "listing_age_days": 45,
+                    "min_quote_volume_usdt_24h": {"spot": 1000000.0, "futures": 5000000.0},
+                    "require_complete_funding": True,
+                },
+                "capital": {
+                    "model": "shared_pool",
+                    "initial_equity": 250000.0,
+                    "risk_per_trade": True,
+                    "max_open_risk": 0.05,
+                },
+                "costs": {
+                    "fee_bps": {"spot": 10.0, "futures": 5.0},
+                    "slippage_tiers": {"deep": 2.5},
+                    "funding_mode": "historical_series",
+                },
+                "baseline_name": "market-wide",
+                "variant_name": "baseline-v1",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="capital.risk_per_trade must be a finite number"):
+        load_backtest_config(config_path)
+
+
 def test_load_backtest_config_parses_full_market_baseline_contract(tmp_path: Path) -> None:
     dataset_root = tmp_path / "sample_dataset"
     config_path = tmp_path / "full_market_config.json"
