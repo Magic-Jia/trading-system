@@ -244,6 +244,15 @@ def test_validated_source_trace_against_manifests_rejects_noncanonical_manifest_
         )
 
 
+def test_ohlcv_timeframe_coverage_rejects_present_invalid_not_materialized() -> None:
+    with pytest.raises(ValueError, match="ohlcv_timeframes.not_materialized must contain a JSON object"):
+        archive_importer._ohlcv_timeframe_coverage(
+            [],
+            materialized_timeframes=["1h"],
+            not_materialized=[],
+        )
+
+
 def _timestamp_ms(value: datetime) -> int:
     return int(value.timestamp() * 1000)
 

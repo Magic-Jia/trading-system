@@ -1147,7 +1147,14 @@ def _ohlcv_timeframe_coverage(
         "available": _ordered_timeframes(available),
         "materialized": _ordered_timeframes(materialized),
         "missing_optional": list(missing_optional),
-        "not_materialized": dict(sorted((not_materialized or {}).items())),
+        "not_materialized": dict(
+            sorted(
+                _json_object_field(
+                    {} if not_materialized is None else not_materialized,
+                    context="ohlcv_timeframes.not_materialized",
+                ).items()
+            )
+        ),
     }
 
 
