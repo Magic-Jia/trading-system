@@ -299,6 +299,8 @@ def _validate_manifest_file_metadata(
     expected_size = file_payload.get("size_bytes")
     if not isinstance(expected_sha, str) or not expected_sha.strip() or expected_sha != expected_sha.strip():
         raise ValueError(f"raw-market manifest file.sha256 must be canonical: {manifest_path}")
+    if len(expected_sha) != 64 or any(character not in "0123456789abcdef" for character in expected_sha):
+        raise ValueError(f"raw-market manifest file.sha256 must be canonical: {manifest_path}")
     if not isinstance(expected_size, int) or isinstance(expected_size, bool) or expected_size < 0:
         raise ValueError(f"raw-market manifest file.size_bytes must be a non-negative integer: {manifest_path}")
     actual_sha = hashlib.sha256(raw_bytes).hexdigest()
