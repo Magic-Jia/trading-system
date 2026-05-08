@@ -18,6 +18,15 @@ def _strict_mapping_object(value: Any, field: str, *, optional: bool = False) ->
     raise ValueError(f"{field} must be mapping or dataclass")
 
 
+def _strict_mapping_rows(values: Sequence[Any], field: str) -> list[Mapping[str, Any]]:
+    rows: list[Mapping[str, Any]] = []
+    for value in values:
+        if not isinstance(value, Mapping):
+            raise ValueError(f"{field} rows must be mapping")
+        rows.append(value)
+    return rows
+
+
 def _strict_sequence_field(row: Mapping[str, Any], field: str) -> Sequence[Any]:
     value = row.get(field, [])
     if value is None:
@@ -46,12 +55,25 @@ def _strict_string_sequence(row: Mapping[str, Any], field: str) -> list[str]:
     return [_strict_string_value(value, field, required=True) for value in values]
 
 
-def _strict_optional_number(row: Mapping[str, Any], field: str) -> float | None:
+def _strict_string_field(
+    row: Mapping[str, Any],
+    field: str,
+    *,
+    default: str | None = "",
+    required: bool = False,
+    error_field: str | None = None,
+) -> str | None:
+    if field not in row:
+        return default
+    return _strict_string_value(row[field], error_field or field, required=required)
+
+
+def _strict_optional_number(row: Mapping[str, Any], field: str, *, error_field: str | None = None) -> float | None:
     if field not in row:
         return None
     value = row[field]
     if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
-        raise ValueError(f"{field} must be a finite int or float")
+        raise ValueError(f"{error_field or field} must be a finite int or float")
     return float(value)
 
 
@@ -60,6 +82,10 @@ def _strict_number_with_default(row: Mapping[str, Any], field: str, default: flo
     if value is None:
         return default
     return value
+
+
+def _candidate_engine(row: Mapping[str, Any]) -> str:
+    return _strict_string_value(row.get("engine"), "candidates.engine", required=True)
 
 
 def build_regime_summary(
@@ -77,6 +103,8 @@ def build_regime_summary(
     trend_row = _strict_mapping_object(trend_report, "trend_report", optional=True)
     rotation_row = _strict_mapping_object(rotation_report, "rotation_report", optional=True)
     short_row = _strict_mapping_object(short_report, "short_report", optional=True)
+    candidate_rows = _strict_mapping_rows(candidates, "candidates")
+    execution_rows = _strict_mapping_rows(executions, "executions")
     accepted = [row for row in allocations if row.get("status") in {"ACCEPTED", "DOWNSIZED"}]
     rejected = [row for row in allocations if row.get("status") == "REJECTED"]
     total_allocated_risk = round(sum(_strict_number_with_default(row, "final_risk_budget", 0.0) for row in accepted), 6)
@@ -102,13 +130,13 @@ def build_regime_summary(
 
     return {
         "regime": {
-            "label": regime_row.get("label"),
-            "confidence": regime_row.get("confidence"),
-            "risk_multiplier": regime_row.get("risk_multiplier"),
-            "execution_policy": regime_row.get("execution_policy"),
+            "label": _strict_string_field(regime_row, "label", default=None, error_field="regime.label"),
+            "confidence": _strict_optional_number(regime_row, "confidence", error_field="regime.confidence"),
+            "risk_multiplier": _strict_optional_number(regime_row, "risk_multiplier", error_field="regime.risk_multiplier"),
+            "execution_policy": _strict_string_field(regime_row, "execution_policy", default=None, error_field="regime.execution_policy"),
             "suppression_rules": list(_strict_sequence_field(regime_row, "suppression_rules")),
-            "late_stage_heat": regime_row.get("late_stage_heat", "none"),
-            "execution_hazard": regime_row.get("execution_hazard", "none"),
+            "late_stage_heat": _strict_string_field(regime_row, "late_stage_heat", default="none", error_field="regime.late_stage_heat"),
+            "execution_hazard": _strict_string_field(regime_row, "execution_hazard", default="none", error_field="regime.execution_hazard"),
         },
         "universes": {
             "major_count": len(_strict_sequence_field(universes, "major_universe")),
@@ -116,10 +144,10 @@ def build_regime_summary(
             "short_count": len(_strict_sequence_field(universes, "short_universe")),
         },
         "candidates": {
-            "total": len(candidates),
-            "trend": len([row for row in candidates if row.get("engine") == "trend"]),
-            "rotation": len([row for row in candidates if row.get("engine") == "rotation"]),
-            "short": len([row for row in candidates if row.get("engine") == "short"]),
+            "total": len(candidate_rows),
+            "trend": len([row for row in candidate_rows if _candidate_engine(row) == "trend"]),
+            "rotation": len([row for row in candidate_rows if _candidate_engine(row) == "rotation"]),
+            "short": len([row for row in candidate_rows if _candidate_engine(row) == "short"]),
         },
         "allocations": {
             "total": len(allocations),
@@ -133,11 +161,11 @@ def build_regime_summary(
             "late_stage_heat_compressed_count": compression_reason_counts.get("late_stage_heat", 0),
         },
         "executions": {
-            "count": len(executions),
+            "count": len(execution_rows),
             "symbols": sorted(
                 {
                     _strict_string_value(row.get("symbol"), "symbol", required=True)
-                    for row in executions
+                    for row in execution_rows
                     if row.get("symbol") is not None
                 }
             ),

@@ -497,6 +497,88 @@ def test_build_regime_summary_surfaces_allocation_aggressiveness_stats():
     assert summary["allocations"]["late_stage_heat_compressed_count"] == 1
 
 
+@pytest.mark.parametrize(
+    ("field", "invalid_value"),
+    [
+        ("label", " RISK_ON_TREND"),
+        ("execution_policy", " normal"),
+    ],
+)
+def test_build_regime_summary_rejects_present_non_canonical_regime_strings(field, invalid_value):
+    regime = {"label": "RISK_ON_TREND", "confidence": 0.88, "risk_multiplier": 0.95, "execution_policy": "normal"}
+    regime[field] = invalid_value
+
+    with pytest.raises(ValueError, match=f"regime.{field}"):
+        build_regime_summary(
+            regime=regime,
+            universes={"major_universe": [], "rotation_universe": [], "short_universe": []},
+            candidates=[],
+            allocations=[],
+            executions=[],
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "invalid_value"),
+    [
+        ("confidence", True),
+        ("confidence", "0.88"),
+        ("confidence", float("nan")),
+        ("risk_multiplier", False),
+        ("risk_multiplier", "0.95"),
+        ("risk_multiplier", float("inf")),
+    ],
+)
+def test_build_regime_summary_rejects_present_invalid_regime_numbers(field, invalid_value):
+    regime = {"label": "RISK_ON_TREND", "confidence": 0.88, "risk_multiplier": 0.95, "execution_policy": "normal"}
+    regime[field] = invalid_value
+
+    with pytest.raises(ValueError, match=f"regime.{field}"):
+        build_regime_summary(
+            regime=regime,
+            universes={"major_universe": [], "rotation_universe": [], "short_universe": []},
+            candidates=[],
+            allocations=[],
+            executions=[],
+        )
+
+
+@pytest.mark.parametrize("candidate", [object(), [("engine", "trend")]])
+def test_build_regime_summary_rejects_non_mapping_candidate_rows(candidate):
+    with pytest.raises(ValueError, match="candidates"):
+        build_regime_summary(
+            regime={"label": "RISK_ON_TREND", "confidence": 0.88, "risk_multiplier": 0.95, "execution_policy": "normal"},
+            universes={"major_universe": [], "rotation_universe": [], "short_universe": []},
+            candidates=[candidate],
+            allocations=[],
+            executions=[],
+        )
+
+
+@pytest.mark.parametrize("invalid_engine", [123, "", " rotation"])
+def test_build_regime_summary_rejects_present_invalid_candidate_engine(invalid_engine):
+    with pytest.raises(ValueError, match="candidates.engine"):
+        build_regime_summary(
+            regime={"label": "RISK_ON_TREND", "confidence": 0.88, "risk_multiplier": 0.95, "execution_policy": "normal"},
+            universes={"major_universe": [], "rotation_universe": [], "short_universe": []},
+            candidates=[{"engine": invalid_engine, "symbol": "SOLUSDT"}],
+            allocations=[],
+            executions=[],
+        )
+
+
+@pytest.mark.parametrize("execution", [object(), [("symbol", "SOLUSDT")]])
+def test_build_regime_summary_rejects_non_mapping_execution_rows(execution):
+    with pytest.raises(ValueError, match="executions"):
+        build_regime_summary(
+            regime={"label": "RISK_ON_TREND", "confidence": 0.88, "risk_multiplier": 0.95, "execution_policy": "normal"},
+            universes={"major_universe": [], "rotation_universe": [], "short_universe": []},
+            candidates=[],
+            allocations=[],
+            executions=[execution],
+        )
+
+
 @pytest.mark.parametrize("invalid_value", [True, False, "0.006"])
 def test_build_regime_summary_rejects_non_numeric_final_risk_budget(invalid_value):
     with pytest.raises(ValueError, match="final_risk_budget"):
