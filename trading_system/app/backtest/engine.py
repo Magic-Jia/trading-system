@@ -1025,8 +1025,8 @@ def _decision_with_depth_fill(
     candidate: PortfolioCandidate,
     equity: float,
 ) -> PortfolioDecision:
-    filled_quantity = float(fill.filled_quantity or 0.0)
-    filled_notional = float(fill.filled_notional or 0.0)
+    filled_quantity = _positive_float(fill.filled_quantity, field_name="filled_quantity")
+    filled_notional = _positive_float(fill.filled_notional, field_name="filled_notional")
     if filled_quantity <= 0.0 or filled_notional <= 0.0:
         return PortfolioDecision(
             status="rejected",

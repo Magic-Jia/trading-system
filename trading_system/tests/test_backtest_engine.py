@@ -22,6 +22,8 @@ from trading_system.app.backtest.types import (
     DatasetSnapshotRow,
     ExperimentParams,
     InstrumentSnapshotRow,
+    PortfolioCandidate,
+    PortfolioDecision,
     SampleWindow,
     UniverseFilterConfig,
     WalkForwardConfig,
@@ -256,6 +258,45 @@ def test_futures_context_rejects_coerced_derivative_symbol_fields() -> None:
 def test_candidate_setup_type_rejects_coerced_fields() -> None:
     with pytest.raises(ValueError, match="candidate setup_type must be a canonical string"):
         backtest_engine._candidate_setup_type({"setup_type": True})
+
+
+def test_depth_fill_adjustment_rejects_coerced_fill_fields() -> None:
+    decision = PortfolioDecision(
+        status="accepted",
+        reasons=(),
+        final_risk_budget=0.02,
+        position_notional=100.0,
+        qty=1.0,
+    )
+    fill = backtest_engine.ExecutionFill(
+        symbol="BTCUSDT",
+        side="buy",
+        quantity=1.0,
+        filled=True,
+        fill_price=100.0,
+        fill_model="taker_orderbook_depth",
+        execution_price_source="ask_depth",
+        fill_quality="partial_evidence_backed",
+        outcome="filled",
+        filled_quantity="1",
+        filled_notional=100.0,
+    )
+    candidate = PortfolioCandidate(
+        symbol="BTCUSDT",
+        market_type="futures",
+        base_asset="BTC",
+        side="long",
+        entry_price=100.0,
+        stop_loss=90.0,
+    )
+
+    with pytest.raises(ValueError, match="filled_quantity must be a positive number"):
+        backtest_engine._decision_with_depth_fill(
+            decision=decision,
+            fill=fill,
+            candidate=candidate,
+            equity=10_000.0,
+        )
 
 
 def test_engine_rejects_coerced_portfolio_candidate_fields(fixture_dir: Path) -> None:
