@@ -749,6 +749,38 @@ def test_load_raw_market_manifest_rejects_boolean_ohlcv_close(tmp_path: Path) ->
         _ohlcv_bar_lookup(series.records)
 
 
+def test_importer_rejects_imported_ohlcv_rows_missing_explicit_price_bounds(tmp_path: Path) -> None:
+    archived = archive_raw_market_payload(
+        archive_root=tmp_path / "archive",
+        exchange="binance",
+        market="futures",
+        dataset="ohlcv",
+        symbol="BTCUSDT",
+        timeframe="1h",
+        coverage_start="2026-01-01T00:00:00Z",
+        coverage_end="2026-01-01T02:00:00Z",
+        fetched_at="2026-01-01T02:01:00Z",
+        endpoint="/fapi/v1/klines",
+        payload={
+            "rows": [
+                {"open_time": "2026-01-01T00:00:00Z", "close": 100.5, "volume": 10.0},
+                {
+                    "open_time": "2026-01-01T01:00:00Z",
+                    "open": 100.5,
+                    "high": 102.0,
+                    "low": 100.0,
+                    "close": 101.0,
+                    "volume": 12.0,
+                },
+            ]
+        },
+    )
+    series = load_phase1_raw_market_manifest(archived.manifest_path)
+
+    with pytest.raises(ValueError, match="ohlcv open must be present"):
+        _ohlcv_bar_lookup(series.records)
+
+
 
 def test_order_book_payload_rejects_boolean_bid() -> None:
     record = ImportedRawMarketRecord(

@@ -212,9 +212,15 @@ def _hourly_ohlcv_bar(record: ImportedRawMarketRecord) -> _OhlcvBar:
     payload = record.payload
     if isinstance(payload, Mapping):
         close = _required_ohlcv_float(payload.get("close"), field="close", observed_at=record.observed_at)
-        open_value = _required_ohlcv_float(payload.get("open", close), field="open", observed_at=record.observed_at)
-        high = _required_ohlcv_float(payload.get("high", max(open_value, close)), field="high", observed_at=record.observed_at)
-        low = _required_ohlcv_float(payload.get("low", min(open_value, close)), field="low", observed_at=record.observed_at)
+        if "open" not in payload:
+            raise ValueError(f"ohlcv open must be present: {record.observed_at}")
+        if "high" not in payload:
+            raise ValueError(f"ohlcv high must be present: {record.observed_at}")
+        if "low" not in payload:
+            raise ValueError(f"ohlcv low must be present: {record.observed_at}")
+        open_value = _required_ohlcv_float(payload.get("open"), field="open", observed_at=record.observed_at)
+        high = _required_ohlcv_float(payload.get("high"), field="high", observed_at=record.observed_at)
+        low = _required_ohlcv_float(payload.get("low"), field="low", observed_at=record.observed_at)
         base_volume = _required_ohlcv_float(payload.get("volume"), field="volume", observed_at=record.observed_at)
         if "quote_asset_volume" in payload:
             quote_volume = _required_ohlcv_float(
