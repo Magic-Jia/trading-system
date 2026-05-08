@@ -688,11 +688,20 @@ def _candidate_take_profit_price(entry_price: float, stop_loss: float, side: str
 
 
 def _string_tuple(value: Any) -> tuple[str, ...]:
+    if value is None:
+        return ()
     if isinstance(value, str):
+        if not value or value != value.strip():
+            raise ValueError("timeframe metadata must contain only canonical strings")
         return (value,)
     if isinstance(value, (list, tuple)):
-        return tuple(str(item) for item in value if item is not None and str(item))
-    return ()
+        parsed: list[str] = []
+        for item in value:
+            if not isinstance(item, str) or not item or item != item.strip():
+                raise ValueError("timeframe metadata must contain only strings")
+            parsed.append(item)
+        return tuple(parsed)
+    raise ValueError("timeframe metadata must be a string or list of strings")
 
 
 def _candidate_timeframe_meta(candidate_row: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -729,7 +738,11 @@ def _entry_execution_policy(candidate_row: Mapping[str, Any]) -> str:
     raw_policy = candidate_row.get("execution_policy")
     if raw_policy is None:
         raw_policy = _candidate_timeframe_meta(candidate_row).get("execution_policy")
-    return str(raw_policy or "taker").strip().lower()
+    if raw_policy is None:
+        return "taker"
+    if not isinstance(raw_policy, str) or not raw_policy or raw_policy != raw_policy.strip():
+        raise ValueError("execution_policy must be a string")
+    return raw_policy.lower()
 
 
 def _entry_execution_fill(

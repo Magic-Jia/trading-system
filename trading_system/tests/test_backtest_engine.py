@@ -40,6 +40,16 @@ def test_engine_rejects_coerced_futures_context_fields() -> None:
         backtest_engine._optional_futures_int(1.5, "funding_age_seconds")
 
 
+def test_engine_rejects_coerced_timeframe_and_execution_policy_fields() -> None:
+    with pytest.raises(ValueError, match="timeframe metadata must contain only strings"):
+        backtest_engine._entry_reference_timeframes(
+            {"timeframe_meta": {"entry_reference_timeframes": ["1h", True]}}
+        )
+
+    with pytest.raises(ValueError, match="execution_policy must be a string"):
+        backtest_engine._entry_execution_policy({"execution_policy": True})
+
+
 def test_replay_snapshot_records_layer_artifacts(fixture_dir: Path) -> None:
     rows = load_historical_dataset(fixture_dir / "backtest" / "sample_dataset")
 
