@@ -3567,9 +3567,9 @@ def render_live_readiness_markdown(report: Mapping[str, Any]) -> str:
                 f"- exit_path_replay_artifact_parse_errors: {_parse_error_summary(exit_reconciliation.get('artifacts'))}",
             ]
         )
-        missing_ids = exit_reconciliation.get("missing_trade_ids") or []
+        missing_ids = _canonical_string_list(exit_reconciliation, "missing_trade_ids")
         if missing_ids:
-            lines.append("- missing_trade_ids: " + ", ".join(_canonical_string_list(exit_reconciliation, "missing_trade_ids")[:10]))
+            lines.append("- missing_trade_ids: " + ", ".join(missing_ids[:10]))
     passive_calibration = _as_mapping(report.get("passive_calibration"))
     if passive_calibration:
         lines.extend(

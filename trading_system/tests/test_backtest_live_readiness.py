@@ -366,6 +366,34 @@ def test_markdown_renderer_rejects_non_strict_exit_reconciliation() -> None:
         render_live_readiness_markdown(report)
 
 
+def test_markdown_renderer_rejects_invalid_missing_trade_ids_shape() -> None:
+    report = {
+        "promotion_gate": {"decision": "hold", "reasons": [], "checks": {}},
+        "totals": {
+            "trade_count": 1,
+            "net_pnl": 1.0,
+            "evidence_coverage": 1.0,
+            "exit_evidence_coverage": 1.0,
+            "exit_path_ambiguity_rate": 0.0,
+        },
+        "exit_path_replay": {
+            "reconciliation": {
+                "required": False,
+                "matched": True,
+                "trade_count": 1,
+                "path_trade_count": 1,
+                "missing_trade_count": 0,
+                "extra_path_trade_count": 0,
+                "missing_trade_ids": False,
+            }
+        },
+        "caveats": [],
+    }
+
+    with pytest.raises(ValueError, match="missing_trade_ids must be a list"):
+        render_live_readiness_markdown(report)
+
+
 def test_markdown_renderer_rejects_non_strict_runtime_gate_metadata() -> None:
     report = {
         "promotion_gate": {"decision": "hold", "reasons": [], "checks": {}},
