@@ -162,9 +162,8 @@ def _lifecycle_leader_row(symbol: str, payload: Mapping[str, Any]) -> dict[str, 
         row["runner_stop_price"] = round(_strict_number_value(runner_stop_price, "runner_stop_price"), 8)
     if "scale_out_plan" in payload:
         row["scale_out_plan"] = dict(_strict_mapping_field(payload, "scale_out_plan"))
-    second_target_source = payload.get("second_target_source")
-    if second_target_source:
-        row["second_target_source"] = _strict_string_value(second_target_source, "second_target_source", required=True)
+    if "second_target_source" in payload:
+        row["second_target_source"] = _strict_string_value(payload.get("second_target_source"), "second_target_source", required=True)
     return row
 
 

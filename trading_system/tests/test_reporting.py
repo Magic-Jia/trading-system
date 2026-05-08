@@ -1057,6 +1057,22 @@ def test_build_lifecycle_report_surfaces_b_view_target_runner_fields():
     }
 
 
+@pytest.mark.parametrize("second_target_source", ["", " fixed_2r"])
+def test_build_lifecycle_report_rejects_present_invalid_second_target_source(second_target_source):
+    with pytest.raises(ValueError, match="second_target_source"):
+        build_lifecycle_report(
+            lifecycle_updates={
+                "BTCUSDT": {
+                    "state": "PROTECT",
+                    "reason_codes": ["payload_to_protect_trend_mature"],
+                    "r_multiple": 2.0,
+                    "second_target_source": second_target_source,
+                }
+            },
+            management_suggestions=[],
+        )
+
+
 @pytest.mark.parametrize("flag", ["first_target_hit", "second_target_hit", "runner_protected"])
 def test_build_lifecycle_report_rejects_non_bool_target_runner_flags(flag):
     with pytest.raises(ValueError, match=flag):
