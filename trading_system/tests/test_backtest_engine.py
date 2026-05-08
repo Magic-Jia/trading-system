@@ -299,6 +299,14 @@ def test_depth_fill_adjustment_rejects_coerced_fill_fields() -> None:
         )
 
 
+def test_candidate_take_profit_rejects_coerced_prices() -> None:
+    with pytest.raises(ValueError, match="entry_price must be a positive number"):
+        backtest_engine._candidate_take_profit_price("100", 90.0, "long")
+
+    with pytest.raises(ValueError, match="stop_loss must be a positive number"):
+        backtest_engine._candidate_take_profit_price(100.0, "90", "long")
+
+
 def test_engine_rejects_coerced_portfolio_candidate_fields(fixture_dir: Path) -> None:
     row = load_historical_dataset(fixture_dir / "backtest" / "sample_dataset")[0]
     instrument = InstrumentSnapshotRow(

@@ -733,13 +733,15 @@ def _candidate_setup_type(candidate: Mapping[str, Any]) -> str:
 
 
 def _candidate_take_profit_price(entry_price: float, stop_loss: float, side: str, r_multiple: float = 1.5) -> float | None:
-    risk_per_unit = abs(float(entry_price) - float(stop_loss))
-    if entry_price <= 0.0 or stop_loss <= 0.0 or risk_per_unit <= 0.0:
+    entry_price_value = _positive_float(entry_price, field_name="entry_price")
+    stop_loss_value = _positive_float(stop_loss, field_name="stop_loss")
+    risk_per_unit = abs(entry_price_value - stop_loss_value)
+    if risk_per_unit <= 0.0:
         return None
     if side.upper() == "LONG":
-        return float(entry_price) + risk_per_unit * r_multiple
+        return entry_price_value + risk_per_unit * r_multiple
     if side.upper() == "SHORT":
-        return float(entry_price) - risk_per_unit * r_multiple
+        return entry_price_value - risk_per_unit * r_multiple
     return None
 
 
