@@ -243,6 +243,29 @@ def test_load_historical_dataset_rejects_non_object_forward_returns(tmp_path: Pa
         load_historical_dataset(dataset_root)
 
 
+def test_load_historical_dataset_rejects_noncanonical_forward_return_keys(tmp_path: Path) -> None:
+    dataset_root = tmp_path / "sample_dataset"
+    bundle = dataset_root / "2026-03-10T00-00-00Z__sample-001"
+    bundle.mkdir(parents=True)
+    (bundle / "metadata.json").write_text(
+        json.dumps(
+            {
+                "timestamp": "2026-03-10T00:00:00Z",
+                "run_id": "sample-001",
+                "forward_returns": {" 1d": 0.02},
+                "forward_drawdowns": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    (bundle / "market_context.json").write_text('{"symbols": {"BTCUSDT": {}}}', encoding="utf-8")
+    (bundle / "derivatives_snapshot.json").write_text('{"rows": []}', encoding="utf-8")
+    (bundle / "account_snapshot.json").write_text('{"equity": 100000.0}', encoding="utf-8")
+
+    with pytest.raises(ValueError, match="metadata.forward_returns key must be a canonical string"):
+        load_historical_dataset(dataset_root)
+
+
 def test_load_dataset_root_metadata_surfaces_imported_manifest_summary(tmp_path: Path) -> None:
     dataset_root = tmp_path / "imported_dataset"
     dataset_root.mkdir()

@@ -112,6 +112,21 @@ def _metadata_mapping(metadata: dict, key: str) -> dict[str, object]:
     return dict(value)
 
 
+def _metadata_metric_map(metadata: dict, key: str) -> dict[str, float]:
+    values = _metadata_mapping(metadata, key)
+    result: dict[str, float] = {}
+    for raw_key, raw_value in values.items():
+        if not isinstance(raw_key, str) or not raw_key or raw_key != raw_key.strip():
+            raise ValueError(f"metadata.{key} key must be a canonical string")
+        if isinstance(raw_value, bool) or not isinstance(raw_value, (int, float)):
+            raise ValueError(f"metadata.{key}.{raw_key} must be a finite numeric value")
+        number = float(raw_value)
+        if not math.isfinite(number):
+            raise ValueError(f"metadata.{key}.{raw_key} must be a finite numeric value")
+        result[raw_key] = number
+    return result
+
+
 def _row_from_bundle(bundle_path: Path, *, fallback_account: dict | None) -> DatasetSnapshotRow:
     for filename in _REQUIRED_BUNDLE_FILES:
         file_path = bundle_path / filename
@@ -133,8 +148,8 @@ def _row_from_bundle(bundle_path: Path, *, fallback_account: dict | None) -> Dat
         )
     instrument_rows = _instrument_rows(bundle_path)
 
-    forward_returns = _metadata_mapping(metadata, "forward_returns")
-    forward_drawdowns = _metadata_mapping(metadata, "forward_drawdowns")
+    forward_returns = _metadata_metric_map(metadata, "forward_returns")
+    forward_drawdowns = _metadata_metric_map(metadata, "forward_drawdowns")
     meta = {
         key: value
         for key, value in metadata.items()
@@ -147,8 +162,8 @@ def _row_from_bundle(bundle_path: Path, *, fallback_account: dict | None) -> Dat
         derivatives=[dict(row) for row in derivatives],
         account=dict(account),
         instrument_rows=instrument_rows,
-        forward_returns={str(key): float(value) for key, value in forward_returns.items()},
-        forward_drawdowns={str(key): float(value) for key, value in forward_drawdowns.items()},
+        forward_returns=forward_returns,
+        forward_drawdowns=forward_drawdowns,
         meta=meta,
         source_path=bundle_path,
     )
