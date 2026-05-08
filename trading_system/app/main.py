@@ -771,7 +771,18 @@ def _candidate_signal(
 
 
 def _order_qty(account: AccountSnapshot, signal: TradeSignal, allocation: Mapping[str, Any]) -> float:
-    final_risk_budget = float(allocation.get("execution_risk_budget", allocation.get("final_risk_budget", 0.0)) or 0.0)
+    if "execution_risk_budget" in allocation:
+        final_risk_budget = _finite_numeric_or_default(
+            allocation.get("execution_risk_budget"),
+            "execution_risk_budget",
+            default=0.0,
+        )
+    else:
+        final_risk_budget = _finite_numeric_or_default(
+            allocation.get("final_risk_budget"),
+            "final_risk_budget",
+            default=0.0,
+        )
     risk_per_unit = abs(signal.entry_price - signal.stop_loss)
     if final_risk_budget <= 0 or risk_per_unit <= 0:
         return 0.0
@@ -819,17 +830,80 @@ def _default_take_profit_price(order: OrderIntent, r_multiple: float) -> float |
     return float(order.entry_price) - risk_per_unit * r_multiple
 
 
+def _finite_numeric_or_default(value: Any, field: str, *, default: float) -> float:
+    if value is None:
+        return default
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise TypeError(f"{field} must be a finite numeric value")
+    numeric = float(value)
+    if not math.isfinite(numeric):
+        raise ValueError(f"{field} must be a finite numeric value")
+    return numeric
+
+
+def _mapping_copy(value: Any, field: str) -> dict[str, Any]:
+    if not isinstance(value, Mapping):
+        raise TypeError(f"{field} must be a mapping")
+    return dict(value)
+
+
+def _canonical_string_allowlist(value: Any, field: str) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        raise TypeError(f"{field} must be a sequence of canonical strings")
+    try:
+        iterator = iter(value)
+    except TypeError as exc:
+        raise TypeError(f"{field} must be a sequence of canonical strings") from exc
+
+    allowlist: list[str] = []
+    for entry in iterator:
+        if not isinstance(entry, str):
+            raise TypeError(f"{field} entries must be canonical strings")
+        if not entry or entry != entry.strip() or entry != entry.upper():
+            raise ValueError(f"{field} entries must be canonical strings")
+        allowlist.append(entry)
+    return allowlist
+
+
+def _strict_bool_or_default(value: Any, field: str, *, default: bool) -> bool:
+    if value is None:
+        return default
+    if not isinstance(value, bool):
+        raise TypeError(f"{field} must be a bool")
+    return value
+
+
+def _testnet_preview_inputs(config: Any) -> tuple[list[str], bool]:
+    execution = config.execution
+    allowlist = _canonical_string_allowlist(
+        getattr(execution, "testnet_allowed_symbols", ()),
+        "testnet_allowed_symbols",
+    )
+    submission_enabled = _strict_bool_or_default(
+        getattr(execution, "testnet_order_submission_enabled", False),
+        "testnet_order_submission_enabled",
+        default=False,
+    )
+    return allowlist, submission_enabled
+
+
 def _align_testnet_order_to_exchange_filters(
     order: OrderIntent,
     symbol_metadata: Mapping[str, Any],
     *,
     max_notional_usdt: float,
 ) -> OrderIntent:
-    tick_size = float(symbol_metadata.get("price_tick_size", 0.0) or 0.0)
-    step_size = float(symbol_metadata.get("quantity_step_size", 0.0) or 0.0)
+    tick_size = _finite_numeric_or_default(symbol_metadata.get("price_tick_size"), "price_tick_size", default=0.0)
+    step_size = _finite_numeric_or_default(
+        symbol_metadata.get("quantity_step_size"),
+        "quantity_step_size",
+        default=0.0,
+    )
     entry_price = _floor_to_increment(float(order.entry_price), tick_size)
     stop_loss = _floor_to_increment(float(order.stop_loss), tick_size)
-    meta = dict(order.meta)
+    meta = _mapping_copy(order.meta, "meta")
     take_profit = order.take_profit
     if take_profit is None:
         primary_take_profit = _default_take_profit_price(replace(order, entry_price=entry_price, stop_loss=stop_loss), 1.5)
@@ -848,13 +922,14 @@ def _align_testnet_order_to_exchange_filters(
 
 
 def _build_testnet_order_preview(order: OrderIntent, config: Any) -> dict[str, Any]:
-    metadata = load_testnet_exchange_metadata(config.execution.testnet_allowed_symbols)
+    allowlist, submission_enabled = _testnet_preview_inputs(config)
+    metadata = load_testnet_exchange_metadata(allowlist)
     return build_validated_order_preview(
         order,
         exchange_metadata=metadata,
-        allowlist=list(config.execution.testnet_allowed_symbols),
+        allowlist=allowlist,
         max_order_notional_usdt=float(config.execution.testnet_max_order_notional_usdt),
-        submission_enabled=bool(config.execution.testnet_order_submission_enabled),
+        submission_enabled=submission_enabled,
         preview_source="accepted_signal",
         entry_order_policy=config.execution.entry_order_policy,
         maker_entry_timeout_seconds=config.execution.maker_entry_timeout_seconds,

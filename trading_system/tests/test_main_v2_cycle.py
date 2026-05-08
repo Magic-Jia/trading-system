@@ -3440,6 +3440,30 @@ def test_testnet_order_qty_keeps_smaller_risk_sized_position_below_notional_cap(
     assert qty * signal.entry_price == pytest.approx(200.0)
 
 
+@pytest.mark.parametrize(
+    "allocation",
+    [
+        {"execution_risk_budget": True},
+        {"execution_risk_budget": "0.01"},
+        {"final_risk_budget": True},
+        {"final_risk_budget": "0.01"},
+    ],
+)
+def test_order_qty_rejects_present_non_numeric_risk_budget(allocation):
+    account = AccountSnapshot(equity=100000.0, available_balance=100000.0, futures_wallet_balance=100000.0)
+    signal = main_module.TradeSignal(
+        signal_id="signal-risk-budget-boundary",
+        symbol="BTCUSDT",
+        side="LONG",
+        entry_price=80000.0,
+        stop_loss=79000.0,
+        take_profit=None,
+    )
+
+    with pytest.raises((TypeError, ValueError), match="execution_risk_budget|final_risk_budget"):
+        main_module._order_qty(account, signal, allocation)
+
+
 def test_cap_order_qty_by_notional_limits_testnet_probe_size():
     qty = main_module._cap_order_qty_by_notional(qty=0.4931058, entry_price=77938.38, max_notional_usdt=2000.0)
 
@@ -3507,6 +3531,108 @@ def test_align_testnet_order_to_exchange_filters_preserves_structure_take_profit
 
     assert aligned.take_profit == pytest.approx(81234.5)
     assert "default_take_profit_generated" not in aligned.meta
+
+
+@pytest.mark.parametrize(
+    ("metadata", "field_name"),
+    [
+        ({"quantity_step_size": 0.0001, "price_tick_size": True}, "price_tick_size"),
+        ({"quantity_step_size": 0.0001, "price_tick_size": "0.1"}, "price_tick_size"),
+        ({"quantity_step_size": False, "price_tick_size": 0.1}, "quantity_step_size"),
+        ({"quantity_step_size": "0.0001", "price_tick_size": 0.1}, "quantity_step_size"),
+    ],
+)
+def test_align_testnet_order_to_exchange_filters_rejects_present_invalid_filter_numbers(metadata, field_name):
+    order = OrderIntent(
+        intent_id="intent-btc-invalid-filter",
+        signal_id="signal-btc-invalid-filter",
+        symbol="BTCUSDT",
+        side="LONG",
+        qty=0.05,
+        entry_price=80000.0,
+        stop_loss=79000.0,
+        take_profit=81234.56,
+    )
+
+    with pytest.raises((TypeError, ValueError), match=field_name):
+        main_module._align_testnet_order_to_exchange_filters(order, metadata, max_notional_usdt=5000.0)
+
+
+def test_align_testnet_order_to_exchange_filters_rejects_non_mapping_meta():
+    order = OrderIntent(
+        intent_id="intent-btc-invalid-meta",
+        signal_id="signal-btc-invalid-meta",
+        symbol="BTCUSDT",
+        side="LONG",
+        qty=0.05,
+        entry_price=80000.0,
+        stop_loss=79000.0,
+        take_profit=81234.56,
+        meta=["not", "mapping"],  # type: ignore[arg-type]
+    )
+    metadata = {"quantity_step_size": 0.0001, "price_tick_size": 0.1, "min_notional": 100.0}
+
+    with pytest.raises(TypeError, match="meta"):
+        main_module._align_testnet_order_to_exchange_filters(order, metadata, max_notional_usdt=5000.0)
+
+
+@pytest.mark.parametrize("allowed_symbols", [("BTCUSDT", 123), ("btcusdt",), (" BTCUSDT ",)])
+def test_build_testnet_order_preview_rejects_invalid_allowlist_entries(monkeypatch, allowed_symbols):
+    order = OrderIntent(
+        intent_id="intent-btc-preview",
+        signal_id="signal-btc-preview",
+        symbol="BTCUSDT",
+        side="LONG",
+        qty=0.01,
+        entry_price=65000.0,
+        stop_loss=64000.0,
+        take_profit=67000.0,
+    )
+
+    class Execution:
+        testnet_allowed_symbols = allowed_symbols
+        testnet_max_order_notional_usdt = 1000.0
+        testnet_order_submission_enabled = False
+        entry_order_policy = "maker_only"
+        maker_entry_timeout_seconds = 15
+
+    class Config:
+        execution = Execution()
+
+    monkeypatch.setattr(main_module, "load_testnet_exchange_metadata", lambda symbols: {})
+    monkeypatch.setattr(main_module, "build_validated_order_preview", lambda *args, **kwargs: {"unexpected": True})
+
+    with pytest.raises((TypeError, ValueError), match="testnet_allowed_symbols"):
+        main_module._build_testnet_order_preview(order, Config())
+
+
+def test_build_testnet_order_preview_rejects_present_non_bool_submission_flag(monkeypatch):
+    order = OrderIntent(
+        intent_id="intent-btc-preview-flag",
+        signal_id="signal-btc-preview-flag",
+        symbol="BTCUSDT",
+        side="LONG",
+        qty=0.01,
+        entry_price=65000.0,
+        stop_loss=64000.0,
+        take_profit=67000.0,
+    )
+
+    class Execution:
+        testnet_allowed_symbols = ("BTCUSDT",)
+        testnet_max_order_notional_usdt = 1000.0
+        testnet_order_submission_enabled = "false"
+        entry_order_policy = "maker_only"
+        maker_entry_timeout_seconds = 15
+
+    class Config:
+        execution = Execution()
+
+    monkeypatch.setattr(main_module, "load_testnet_exchange_metadata", lambda symbols: {})
+    monkeypatch.setattr(main_module, "build_validated_order_preview", lambda *args, **kwargs: {"unexpected": True})
+
+    with pytest.raises(TypeError, match="testnet_order_submission_enabled"):
+        main_module._build_testnet_order_preview(order, Config())
 
 
 def test_notify_testnet_position_close_events_sends_once_and_marks_notified():
