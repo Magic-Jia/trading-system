@@ -185,9 +185,9 @@ def _load_walk_forward(raw: Any) -> WalkForwardConfig:
     if not isinstance(raw, dict):
         raise ValueError("experiment_params.walk_forward must be an object")
     return WalkForwardConfig(
-        in_sample_size=int(_require(raw, "in_sample_size")),
-        out_of_sample_size=int(_require(raw, "out_of_sample_size")),
-        step_size=int(raw["step_size"]) if "step_size" in raw else None,
+        in_sample_size=_positive_int(_require(raw, "in_sample_size"), field_name="experiment_params.walk_forward.in_sample_size"),
+        out_of_sample_size=_positive_int(_require(raw, "out_of_sample_size"), field_name="experiment_params.walk_forward.out_of_sample_size"),
+        step_size=_positive_int(raw["step_size"], field_name="experiment_params.walk_forward.step_size") if "step_size" in raw else None,
     )
 
 

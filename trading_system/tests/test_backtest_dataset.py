@@ -641,6 +641,39 @@ def test_load_backtest_config_rejects_non_boolean_universe_funding_flag(tmp_path
         load_backtest_config(config_path)
 
 
+def test_load_backtest_config_rejects_boolean_walk_forward_sizes(tmp_path: Path) -> None:
+    config_path = tmp_path / "broken_walk_forward_config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "dataset_root": "sample_dataset",
+                "experiment_kind": "walk_forward_validation",
+                "sample_windows": [
+                    {
+                        "name": "train",
+                        "start": "2026-01-01T00:00:00Z",
+                        "end": "2026-02-01T00:00:00Z",
+                    }
+                ],
+                "costs": {"fee_bps": 4.0, "slippage_bps": 6.0},
+                "baseline_name": "baseline",
+                "variant_name": "variant",
+                "experiment_params": {
+                    "evaluation_window": "forward",
+                    "walk_forward": {
+                        "in_sample_size": True,
+                        "out_of_sample_size": 20,
+                    },
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="experiment_params.walk_forward.in_sample_size must be a positive integer"):
+        load_backtest_config(config_path)
+
+
 def test_load_backtest_config_rejects_boolean_cost_numerics(tmp_path: Path) -> None:
     config_path = tmp_path / "broken_cost_numeric_config.json"
     config_path.write_text(
