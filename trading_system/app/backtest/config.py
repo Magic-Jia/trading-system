@@ -29,6 +29,12 @@ def _require(raw: dict[str, Any], field_name: str) -> Any:
     return raw[field_name]
 
 
+def _strict_bool(value: Any, *, field_name: str) -> bool:
+    if not isinstance(value, bool):
+        raise ValueError(f"{field_name} must be a boolean")
+    return value
+
+
 def _finite_number(value: Any, *, field_name: str) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError(f"{field_name} must be a finite number")
@@ -134,12 +140,15 @@ def _load_universe(raw: Any) -> UniverseFilterConfig:
     if not isinstance(raw, dict):
         raise ValueError("universe must be an object")
     return UniverseFilterConfig(
-        listing_age_days=int(_require(raw, "listing_age_days")),
+        listing_age_days=_positive_int(_require(raw, "listing_age_days"), field_name="universe.listing_age_days"),
         min_quote_volume_usdt_24h=_load_float_map(
             _require(raw, "min_quote_volume_usdt_24h"),
             field_name="universe.min_quote_volume_usdt_24h",
         ),
-        require_complete_funding=bool(raw.get("require_complete_funding", True)),
+        require_complete_funding=_strict_bool(
+            raw.get("require_complete_funding", True),
+            field_name="universe.require_complete_funding",
+        ),
     )
 
 
