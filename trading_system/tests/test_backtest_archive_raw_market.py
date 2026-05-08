@@ -693,6 +693,26 @@ def test_imported_funding_rate_rejects_padded_numeric_string(tmp_path: Path) -> 
         _funding_rate(imported_file.records[0])
 
 
+def test_imported_mark_price_rejects_underscored_numeric_string(tmp_path: Path) -> None:
+    archived = archive_raw_market_payload(
+        archive_root=tmp_path / "archive",
+        exchange="binance",
+        market="futures",
+        dataset="mark-price",
+        symbol="BTCUSDT",
+        timeframe=None,
+        coverage_start="2026-01-01T00:00:00Z",
+        coverage_end="2026-01-01T01:00:00Z",
+        fetched_at="2026-01-01T01:01:00Z",
+        endpoint="/fapi/v1/premiumIndex",
+        payload={"rows": [{"timestamp": "2026-01-01T00:00:00Z", "markPrice": "70_000.5"}]},
+    )
+    imported_file = load_phase1_raw_market_manifest(archived.manifest_path)
+
+    with pytest.raises(ValueError, match="mark price must be canonical"):
+        _mark_price(imported_file.records[0])
+
+
 def test_open_interest_rejects_boolean_value() -> None:
     record = ImportedRawMarketRecord(
         observed_at=datetime(2026, 1, 1, tzinfo=timezone.utc),

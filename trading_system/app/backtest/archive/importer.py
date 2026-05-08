@@ -1007,8 +1007,9 @@ def _next_ohlcv_bar_payload(
 def _required_context_float(value: Any, *, field: str, observed_at: datetime) -> float:
     if isinstance(value, bool):
         raise ValueError(f"{field} must be numeric: {observed_at}")
-    if isinstance(value, str) and (not value.strip() or value != value.strip()):
-        raise ValueError(f"{field} must be canonical: {observed_at}")
+    if isinstance(value, str):
+        if not value.strip() or value != value.strip() or "_" in value:
+            raise ValueError(f"{field} must be canonical: {observed_at}")
     try:
         parsed = float(value)
     except (TypeError, ValueError) as exc:
