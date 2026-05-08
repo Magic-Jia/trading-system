@@ -312,6 +312,33 @@ def test_ohlcv_timeframe_coverage_rejects_present_invalid_not_materialized() -> 
         )
 
 
+def test_merged_import_trace_rejects_non_string_keys_before_merge() -> None:
+    with pytest.raises(ValueError, match="import_trace entry keys must be strings"):
+        archive_importer._merged_import_trace(
+            [
+                {
+                    123: "x",
+                    "scope": archive_importer.PHASE1_IMPORTER_SCOPE,
+                    "exchange": "binance",
+                    "market": "futures",
+                }
+            ]
+        )
+
+
+def test_merged_import_trace_rejects_padded_keys_before_merge() -> None:
+    with pytest.raises(ValueError, match="import_trace entry keys must be canonical"):
+        archive_importer._merged_import_trace(
+            [
+                {
+                    " scope ": archive_importer.PHASE1_IMPORTER_SCOPE,
+                    "exchange": "binance",
+                    "market": "futures",
+                }
+            ]
+        )
+
+
 def _timestamp_ms(value: datetime) -> int:
     return int(value.timestamp() * 1000)
 

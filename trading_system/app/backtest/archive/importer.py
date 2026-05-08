@@ -1231,6 +1231,14 @@ def _require_canonical_string_items(values: Any, *, field: str) -> tuple[str, ..
     return tuple(parsed)
 
 
+def _require_canonical_json_object_keys(value: Mapping[Any, Any], *, field: str) -> None:
+    for key in value.keys():
+        if not isinstance(key, str):
+            raise ValueError(f"{field} keys must be strings")
+        if key != key.strip():
+            raise ValueError(f"{field} keys must be canonical")
+
+
 def _material_row_symbol(row: Mapping[str, Any], *, context: str) -> str:
     return _require_canonical_string(row.get("symbol"), field=f"{context} row symbol")
 
@@ -1246,6 +1254,7 @@ def _merged_import_trace(traces: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
     for trace in traces:
         if not isinstance(trace, Mapping):
             raise ValueError("import_trace entry must be a JSON object")
+        _require_canonical_json_object_keys(trace, field="import_trace entry")
         normalized = dict(trace)
         current_scope = _require_canonical_string(normalized.get("scope", ""), field="import_trace.scope")
         current_exchange = _require_canonical_string(normalized.get("exchange", ""), field="import_trace.exchange")
