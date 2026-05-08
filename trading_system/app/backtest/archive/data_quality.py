@@ -28,6 +28,15 @@ def _expected_interval(value: Any, key: str) -> timedelta | None:
     return value
 
 
+def _expected_intervals(values: Mapping[str, timedelta] | None) -> dict[str, timedelta]:
+    parsed: dict[str, timedelta] = {}
+    for key, value in dict(values or {}).items():
+        if not isinstance(key, str) or not key.strip() or key != key.strip():
+            raise ValueError("expected interval key must be canonical")
+        parsed[key] = value
+    return parsed
+
+
 def _canonical_series_string(value: Any, field: str) -> str:
     if not isinstance(value, str) or not value.strip() or value != value.strip():
         raise ValueError(f"raw-market {field} must be canonical")
@@ -267,7 +276,7 @@ def build_raw_market_data_quality_report(
     expected_intervals: Mapping[str, timedelta] | None = None,
     required_l2_coverage: float = 0.99,
 ) -> dict[str, Any]:
-    intervals = dict(expected_intervals or {})
+    intervals = _expected_intervals(expected_intervals)
     series = load_phase1_raw_market_imports(archive_root)
     reports = {
         item.series_key: _series_report(item, _expected_interval(intervals.get(_interval_key(item)), _interval_key(item)))
