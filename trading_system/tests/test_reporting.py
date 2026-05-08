@@ -439,6 +439,101 @@ def test_build_regime_summary_rejects_non_numeric_compression_multipliers(field,
         )
 
 
+@pytest.mark.parametrize("invalid_regime", [object(), [("label", "RISK_ON_TREND")]])
+def test_build_regime_summary_rejects_non_mapping_regime_payloads(invalid_regime):
+    with pytest.raises(ValueError, match="regime"):
+        build_regime_summary(
+            regime=invalid_regime,
+            universes={"major_universe": [], "rotation_universe": [], "short_universe": []},
+            candidates=[],
+            allocations=[],
+            executions=[],
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "invalid_value"),
+    [
+        ("major_universe", "BTCUSDT"),
+        ("major_universe", 1),
+        ("rotation_universe", "SOLUSDT"),
+        ("rotation_universe", 2),
+        ("short_universe", "ETHUSDT"),
+        ("short_universe", 3),
+    ],
+)
+def test_build_regime_summary_rejects_non_sequence_universe_values(field, invalid_value):
+    universes = {"major_universe": [], "rotation_universe": [], "short_universe": []}
+    universes[field] = invalid_value
+
+    with pytest.raises(ValueError, match=field):
+        build_regime_summary(
+            regime={"label": "RISK_ON_TREND", "confidence": 0.88, "risk_multiplier": 0.95, "execution_policy": "normal"},
+            universes=universes,
+            candidates=[],
+            allocations=[],
+            executions=[],
+        )
+
+
+@pytest.mark.parametrize("compression_reasons", ["regime_hazard", [123], ["regime_hazard", " late_stage_heat"]])
+def test_build_regime_summary_rejects_non_canonical_compression_reasons(compression_reasons):
+    with pytest.raises(ValueError, match="compression_reasons"):
+        build_regime_summary(
+            regime={"label": "RISK_ON_TREND", "confidence": 0.88, "risk_multiplier": 0.95, "execution_policy": "normal"},
+            universes={"major_universe": [], "rotation_universe": [], "short_universe": []},
+            candidates=[],
+            allocations=[
+                {
+                    "engine": "rotation",
+                    "symbol": "SOLUSDT",
+                    "status": "DOWNSIZED",
+                    "final_risk_budget": 0.004,
+                    "aggressiveness_multiplier": 0.82,
+                    "compression_reasons": compression_reasons,
+                }
+            ],
+            executions=[],
+        )
+
+
+@pytest.mark.parametrize("invalid_symbol", [123, " SOLUSDT"])
+def test_build_regime_summary_rejects_non_canonical_execution_symbol(invalid_symbol):
+    with pytest.raises(ValueError, match="symbol"):
+        build_regime_summary(
+            regime={"label": "RISK_ON_TREND", "confidence": 0.88, "risk_multiplier": 0.95, "execution_policy": "normal"},
+            universes={"major_universe": [], "rotation_universe": [], "short_universe": []},
+            candidates=[],
+            allocations=[],
+            executions=[{"symbol": invalid_symbol, "status": "FILLED"}],
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "invalid_value"),
+    [
+        ("trend_report", object()),
+        ("trend_report", [("candidate_count", 1)]),
+        ("rotation_report", object()),
+        ("rotation_report", [("candidate_count", 1)]),
+        ("short_report", object()),
+        ("short_report", [("candidate_count", 1)]),
+    ],
+)
+def test_build_regime_summary_rejects_non_mapping_optional_reports(field, invalid_value):
+    kwargs = {
+        "regime": {"label": "RISK_ON_TREND", "confidence": 0.88, "risk_multiplier": 0.95, "execution_policy": "normal"},
+        "universes": {"major_universe": [], "rotation_universe": [], "short_universe": []},
+        "candidates": [],
+        "allocations": [],
+        "executions": [],
+    }
+    kwargs[field] = invalid_value
+
+    with pytest.raises(ValueError, match=field):
+        build_regime_summary(**kwargs)
+
+
 def test_build_lifecycle_report_returns_compact_deterministic_state_surface():
     summary = build_lifecycle_report(
         lifecycle_updates={
