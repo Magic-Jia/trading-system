@@ -1903,7 +1903,9 @@ def _material_market_context_as_of(material: Phase1DatasetBundleMaterial) -> str
 
 
 def _material_market_context_symbol_keys(material: Phase1DatasetBundleMaterial) -> tuple[str, ...]:
-    symbols = material.market_context.get("symbols") or {}
+    symbols = material.market_context.get("symbols") if "symbols" in material.market_context else {}
+    if symbols is None:
+        symbols = {}
     if not isinstance(symbols, Mapping):
         raise ValueError("market_context symbols must be an object")
     parsed: list[str] = []

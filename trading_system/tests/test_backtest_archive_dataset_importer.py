@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -9,6 +10,7 @@ import pytest
 
 from trading_system.app.backtest.archive import importer as archive_importer
 from trading_system.app.backtest.archive.importer import (
+    _material_market_context_symbol_keys,
     build_phase1_dataset_bundle_materials,
     import_phase1_archive_dataset_root,
     inspect_phase1_imported_dataset_root,
@@ -2060,6 +2062,16 @@ def test_write_phase1_dataset_root_manifest_rejects_non_string_symbols(tmp_path:
             materials=[materials[-1]],
             bundle_dirs=bundle_dirs,
         )
+
+
+def test_material_market_context_symbol_keys_rejects_empty_list_symbols(tmp_path: Path) -> None:
+    archive_root = tmp_path / "archive"
+    _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT")
+    materials = list(build_phase1_dataset_bundle_materials(load_phase1_raw_market_imports(archive_root)))
+    bad_material = replace(materials[-1], market_context={**materials[-1].market_context, "symbols": []})
+
+    with pytest.raises(ValueError, match="market_context symbols must be an object"):
+        _material_market_context_symbol_keys(bad_material)
 
 
 def test_validate_phase1_imported_dataset_root_rejects_manifest_symbols_drift(tmp_path: Path) -> None:
