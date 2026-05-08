@@ -253,6 +253,11 @@ def test_futures_context_rejects_coerced_derivative_symbol_fields() -> None:
         backtest_engine._futures_context(row, "BTCUSDT")
 
 
+def test_candidate_setup_type_rejects_coerced_fields() -> None:
+    with pytest.raises(ValueError, match="candidate setup_type must be a canonical string"):
+        backtest_engine._candidate_setup_type({"setup_type": True})
+
+
 def test_engine_rejects_coerced_portfolio_candidate_fields(fixture_dir: Path) -> None:
     row = load_historical_dataset(fixture_dir / "backtest" / "sample_dataset")[0]
     instrument = InstrumentSnapshotRow(

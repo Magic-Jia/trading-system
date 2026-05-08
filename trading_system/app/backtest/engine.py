@@ -710,22 +710,26 @@ def _raw_full_market_candidates(
             short_candidates = [
                 candidate
                 for candidate in short_candidates
-                if str(candidate.get("setup_type", "")).strip().upper() in allowed_short_setups
+                if _candidate_setup_type(candidate) in allowed_short_setups
             ]
         if quarantined_short_setups:
             short_candidates = [
                 candidate
                 for candidate in short_candidates
-                if str(candidate.get("setup_type", "")).strip().upper() not in quarantined_short_setups
+                if _candidate_setup_type(candidate) not in quarantined_short_setups
             ]
         raw_candidates.extend(short_candidates)
     if quarantined_setups:
         raw_candidates = [
             candidate
             for candidate in raw_candidates
-            if str(candidate.get("setup_type", "")).strip().upper() not in quarantined_setups
+            if _candidate_setup_type(candidate) not in quarantined_setups
         ]
     return sorted(raw_candidates, key=_rank_key)
+
+
+def _candidate_setup_type(candidate: Mapping[str, Any]) -> str:
+    return _canonical_string(candidate.get("setup_type"), field_name="candidate setup_type").upper()
 
 
 def _candidate_take_profit_price(entry_price: float, stop_loss: float, side: str, r_multiple: float = 1.5) -> float | None:
