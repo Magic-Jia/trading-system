@@ -92,7 +92,9 @@ def _utc_datetime(value: str | int | float) -> datetime:
         if not parsed == parsed or parsed in {float("inf"), float("-inf")}:
             raise ValueError("timestamp value must be finite")
         return datetime.fromtimestamp(parsed / 1000.0, tz=timezone.utc)
-    normalized = str(value).strip()
+    if not isinstance(value, str):
+        raise ValueError("timestamp value must be a string or numeric milliseconds")
+    normalized = value.strip()
     if not normalized:
         raise ValueError("timestamp value must not be empty")
     if normalized.isdigit():
