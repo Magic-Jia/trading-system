@@ -20,6 +20,20 @@ def _interval_key(series: ImportedRawMarketSeries) -> str:
     return series.dataset
 
 
+def _canonical_series_string(value: Any, field: str) -> str:
+    if not isinstance(value, str) or not value.strip() or value != value.strip():
+        raise ValueError(f"raw-market {field} must be canonical")
+    return value
+
+
+def _optional_canonical_series_string(value: Any, field: str) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip() or value != value.strip():
+        raise ValueError(f"raw-market {field} must be canonical")
+    return value
+
+
 def _missing_intervals(series: ImportedRawMarketSeries, expected_interval: timedelta | None) -> list[dict[str, Any]]:
     if expected_interval is None or expected_interval.total_seconds() <= 0 or not series.records:
         return []
@@ -96,12 +110,12 @@ def _series_report(series: ImportedRawMarketSeries, expected_interval: timedelta
         and provenance_missing_manifest_path_count == 0
     )
     return {
-        "series_key": series.series_key,
-        "exchange": series.exchange,
-        "market": series.market,
-        "dataset": series.dataset,
-        "symbol": series.symbol,
-        "timeframe": series.timeframe,
+        "series_key": _canonical_series_string(series.series_key, "series_key"),
+        "exchange": _canonical_series_string(series.exchange, "exchange"),
+        "market": _canonical_series_string(series.market, "market"),
+        "dataset": _canonical_series_string(series.dataset, "dataset"),
+        "symbol": _canonical_series_string(series.symbol, "symbol"),
+        "timeframe": _optional_canonical_series_string(series.timeframe, "timeframe"),
         "record_count": len(series.records),
         "file_count": len(files),
         "observed_at_unique": observed_at_unique,

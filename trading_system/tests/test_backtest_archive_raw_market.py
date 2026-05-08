@@ -9,9 +9,10 @@ import pytest
 from trading_system.app.backtest.archive.raw_market import (
     archive_raw_market_payload,
     ImportedRawMarketRecord,
+    ImportedRawMarketSeries,
     load_phase1_raw_market_manifest,
 )
-from trading_system.app.backtest.archive.data_quality import _l2_tick_coverage
+from trading_system.app.backtest.archive.data_quality import _l2_tick_coverage, _series_report
 from trading_system.app.backtest.archive.importer import (
     _funding_rate,
     _merged_execution_evidence_coverage,
@@ -215,6 +216,28 @@ def test_l2_tick_coverage_rejects_boolean_required_coverage() -> None:
 
     with pytest.raises(ValueError, match="l2 required_coverage must be numeric"):
         _l2_tick_coverage(reports, required_coverage=True)
+
+
+def test_series_report_rejects_noncanonical_series_identity() -> None:
+    series = ImportedRawMarketSeries(
+        series_key=" BTCUSDT:ohlcv:1h ",
+        exchange="binance",
+        market="futures",
+        dataset="ohlcv",
+        symbol="BTCUSDT",
+        timeframe="1h",
+        symbol_metadata=None,
+        files=(),
+        records=(
+            ImportedRawMarketRecord(
+                observed_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                payload={"open": 100.0, "high": 101.0, "low": 99.0, "close": 100.5, "volume": 10.0},
+            ),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="raw-market series_key must be canonical"):
+        _series_report(series, expected_interval=None)
 
 
 def test_load_raw_market_manifest_rejects_noncanonical_required_string_fields(tmp_path: Path) -> None:
