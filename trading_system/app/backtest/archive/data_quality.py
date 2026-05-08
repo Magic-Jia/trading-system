@@ -20,6 +20,14 @@ def _interval_key(series: ImportedRawMarketSeries) -> str:
     return series.dataset
 
 
+def _expected_interval(value: Any, key: str) -> timedelta | None:
+    if value is None:
+        return None
+    if not isinstance(value, timedelta):
+        raise ValueError(f"expected interval for {key} must be a timedelta")
+    return value
+
+
 def _canonical_series_string(value: Any, field: str) -> str:
     if not isinstance(value, str) or not value.strip() or value != value.strip():
         raise ValueError(f"raw-market {field} must be canonical")
@@ -262,7 +270,7 @@ def build_raw_market_data_quality_report(
     intervals = dict(expected_intervals or {})
     series = load_phase1_raw_market_imports(archive_root)
     reports = {
-        item.series_key: _series_report(item, intervals.get(_interval_key(item)))
+        item.series_key: _series_report(item, _expected_interval(intervals.get(_interval_key(item)), _interval_key(item)))
         for item in series
     }
     series_with_missing = sum(1 for report in reports.values() if report["has_missing_intervals"])
