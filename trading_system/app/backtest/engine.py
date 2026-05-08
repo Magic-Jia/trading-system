@@ -410,6 +410,15 @@ def _positive_float(value: Any, *, field_name: str) -> float:
     return result
 
 
+def _non_negative_float(value: Any, *, field_name: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{field_name} must be a finite number")
+    result = float(value)
+    if not math.isfinite(result) or result < 0.0:
+        raise ValueError(f"{field_name} must be a finite number")
+    return result
+
+
 def _optional_positive_float(value: Any, *, field_name: str) -> float | None:
     if value is None:
         return None
@@ -1049,12 +1058,16 @@ def _decision_with_depth_fill(
         status = "resized"
         limited_reason = "maker_queue_limited" if fill.fill_model == "maker_post_only_queue" else "depth_liquidity_limited"
         reasons = tuple(dict.fromkeys((*reasons, limited_reason)))
-    stop_distance = abs(float(candidate.entry_price) - float(candidate.stop_loss))
-    risk_budget = (filled_quantity * stop_distance / equity) if equity > 0.0 and stop_distance > 0.0 else decision.final_risk_budget
+    entry_price = _positive_float(candidate.entry_price, field_name="entry_price")
+    stop_loss = _positive_float(candidate.stop_loss, field_name="stop_loss")
+    final_risk_budget = _non_negative_float(decision.final_risk_budget, field_name="final_risk_budget")
+    equity_value = _positive_float(equity, field_name="equity")
+    stop_distance = abs(entry_price - stop_loss)
+    risk_budget = (filled_quantity * stop_distance / equity_value) if stop_distance > 0.0 else final_risk_budget
     return PortfolioDecision(
         status=status,
         reasons=reasons,
-        final_risk_budget=round(min(float(decision.final_risk_budget), risk_budget), 10),
+        final_risk_budget=round(min(final_risk_budget, risk_budget), 10),
         position_notional=round(filled_notional, 8),
         qty=round(filled_quantity, 8),
     )

@@ -399,6 +399,45 @@ def test_exit_slippage_rejects_coerced_prices() -> None:
         backtest_engine._exit_slippage_vs_reference_bps(side="short", fill_price=99.0, reference_price="100")
 
 
+def test_depth_fill_adjustment_rejects_coerced_risk_fields() -> None:
+    decision = PortfolioDecision(
+        status="accepted",
+        reasons=(),
+        final_risk_budget="0.02",
+        position_notional=1000.0,
+        qty=1.0,
+    )
+    fill = backtest_engine.ExecutionFill(
+        symbol="BTCUSDT",
+        side="buy",
+        quantity=1.0,
+        filled=True,
+        fill_price=100.0,
+        fill_model="taker_orderbook_depth",
+        execution_price_source="ask_depth",
+        fill_quality="partial_evidence_backed",
+        outcome="filled",
+        filled_quantity=1.0,
+        filled_notional=100.0,
+    )
+    candidate = PortfolioCandidate(
+        symbol="BTCUSDT",
+        market_type="futures",
+        base_asset="BTC",
+        side="long",
+        entry_price="100",
+        stop_loss=90.0,
+    )
+
+    with pytest.raises(ValueError, match="entry_price must be a positive number"):
+        backtest_engine._decision_with_depth_fill(
+            decision=decision,
+            fill=fill,
+            candidate=candidate,
+            equity=10_000.0,
+        )
+
+
 def test_engine_rejects_coerced_portfolio_candidate_fields(fixture_dir: Path) -> None:
     row = load_historical_dataset(fixture_dir / "backtest" / "sample_dataset")[0]
     instrument = InstrumentSnapshotRow(
