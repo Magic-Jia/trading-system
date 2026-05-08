@@ -24,6 +24,27 @@ from trading_system.app.backtest.dataset import load_historical_dataset
 
 
 
+def test_dataset_root_manifest_payload_rejects_empty_list_material_source(tmp_path: Path) -> None:
+    material = archive_importer.Phase1DatasetBundleMaterial(
+        timestamp=datetime(2026, 1, 1, tzinfo=UTC),
+        run_id="phase1-20260101T000000Z",
+        metadata={"source": []},
+        market_context={"as_of": "2026-01-01T00:00:00Z", "symbols": {"BTCUSDT": {}}},
+        derivatives_snapshot={},
+        account_snapshot={},
+    )
+
+    with pytest.raises(ValueError, match="materialized dataset bundle metadata source must contain a JSON object"):
+        archive_importer._phase1_dataset_root_manifest(
+            archive_root=tmp_path / "archive",
+            dataset_root=tmp_path / "dataset",
+            symbols=["BTCUSDT"],
+            materials=[material],
+            bundle_dirs=[tmp_path / "bundle"],
+        )
+
+
+
 def test_materialized_dataset_row_source_rejects_empty_list_source() -> None:
     row = type("Row", (), {"meta": {"source": []}})()
 

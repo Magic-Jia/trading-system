@@ -1757,6 +1757,13 @@ def _phase1_dataset_root_manifest_path(dataset_root: str | Path) -> Path:
     return Path(dataset_root) / PHASE1_IMPORTER_ROOT_MANIFEST
 
 
+def _material_metadata_source(material: Phase1DatasetBundleMaterial) -> dict[str, Any]:
+    source = material.metadata.get("source")
+    if source is None:
+        source = {}
+    return _json_object_field(source, context="materialized dataset bundle metadata source")
+
+
 def _phase1_dataset_root_manifest(
     *,
     archive_root: Path,
@@ -1789,17 +1796,17 @@ def _phase1_dataset_root_manifest(
         "end_timestamp": bundle_timestamps[-1],
         "bundle_dirs": [str(bundle_dir) for bundle_dir in bundle_dirs],
         "bundle_timestamps": bundle_timestamps,
-        "source": _merged_import_trace(material.metadata.get("source") or {} for material in materials),
+        "source": _merged_import_trace(_material_metadata_source(material) for material in materials),
         "data_quality_report": data_quality_report,
         "coverage": {
             "ohlcv_timeframes": _merged_ohlcv_timeframe_coverage(
-                material.metadata.get("source") or {} for material in materials
+                _material_metadata_source(material) for material in materials
             ),
             "execution_evidence": _merged_execution_evidence_coverage(
-                material.metadata.get("source") or {} for material in materials
+                _material_metadata_source(material) for material in materials
             ),
             "futures_context": _merged_futures_context_coverage(
-                material.metadata.get("source") or {} for material in materials
+                _material_metadata_source(material) for material in materials
             ),
         },
     }
