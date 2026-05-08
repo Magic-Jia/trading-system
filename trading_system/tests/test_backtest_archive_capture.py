@@ -26,7 +26,7 @@ def _bundle_state_payload() -> dict:
     }
 
 
-def _prepare_runtime_bucket(runtime_root: Path, *, runtime_env: str, snapshot_as_of: str, finished_at: str) -> Path:
+def _prepare_runtime_bucket(runtime_root: Path, *, runtime_env: str, snapshot_as_of: str, finished_at: object) -> Path:
     paths = build_runtime_paths("paper", runtime_root=runtime_root, runtime_env=runtime_env)
     paths.bucket_dir.mkdir(parents=True, exist_ok=True)
 
@@ -172,6 +172,25 @@ def test_capture_runtime_env_reuses_exact_existing_bundle_dir_when_input_timesta
     assert first.bundle_dir.name.startswith("2026-04-04T13-05-01.222222Z")
     assert second.status == "already_archived"
     assert second.bundle_dir == first.bundle_dir
+
+
+@pytest.mark.parametrize("finished_at", [123, " 2026-04-04T13:05:09.875678Z "])
+def test_capture_runtime_env_rejects_invalid_latest_finished_at_before_writing_archive(
+    tmp_path: Path,
+    finished_at: object,
+) -> None:
+    runtime_root = tmp_path / "runtime"
+    paths = _prepare_runtime_bucket(
+        runtime_root,
+        runtime_env="prod",
+        snapshot_as_of="2026-04-04T13:05:01.856498Z",
+        finished_at=finished_at,
+    )
+
+    with pytest.raises(ValueError, match="latest summary finished_at must be a non-empty timestamp string without whitespace"):
+        capture_runtime_env(runtime_root=runtime_root, mode="paper", runtime_env="prod")
+
+    assert not paths.archive_runtime_bundles_dir.exists()
 
 
 def test_capture_runtime_envs_and_main_emit_structured_results(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

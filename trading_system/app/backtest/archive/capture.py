@@ -10,6 +10,13 @@ from ...runtime_paths import build_runtime_paths
 from .runtime_bundle import RuntimeBundleSourcePaths, archive_runtime_bundle
 
 
+def _latest_finished_at(latest: dict) -> str:
+    value = latest.get("finished_at")
+    if not isinstance(value, str) or not value or value != value.strip():
+        raise ValueError("latest summary finished_at must be a non-empty timestamp string without whitespace")
+    return value
+
+
 @dataclass(frozen=True, slots=True)
 class RuntimeCaptureResult:
     mode: str
@@ -32,7 +39,7 @@ def capture_runtime_env(
 ) -> RuntimeCaptureResult:
     paths = build_runtime_paths(mode, runtime_root=runtime_root, runtime_env=runtime_env)
     latest = json.loads(paths.latest_summary_file.read_text(encoding="utf-8"))
-    archived_at = str(latest["finished_at"])
+    archived_at = _latest_finished_at(latest)
     try:
         archived = archive_runtime_bundle(
             paths,
