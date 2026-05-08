@@ -162,6 +162,30 @@ def test_agg_trades_rejects_non_boolean_maker_flag_without_partial_archive(tmp_p
     assert not (tmp_path / "archive" / "raw-market").exists()
 
 
+def test_agg_trades_rejects_boolean_trade_id_without_partial_archive(tmp_path: Path) -> None:
+    transport = _FakeTransport(
+        [
+            [
+                {"a": True, "p": "64391.00", "q": "0.20", "T": 1709247602000, "m": False},
+            ],
+        ]
+    )
+
+    with pytest.raises(BinanceExecutionDownloadError, match="aggTrades row trade id must be integer"):
+        download_binance_execution_evidence(
+            archive_root=tmp_path / "archive",
+            symbol="BTCUSDT",
+            start_time="2024-02-29T23:00:00Z",
+            end_time="2024-02-29T23:05:00Z",
+            include_order_book=False,
+            fetch_json=transport,
+            sleep=lambda _: None,
+            now=lambda: "2026-04-01T07:33:00Z",
+        )
+
+    assert not (tmp_path / "archive" / "raw-market").exists()
+
+
 def test_agg_trades_pagination_handles_multiple_pages_without_duplicate_rows(tmp_path: Path) -> None:
     transport = _FakeTransport(
         [

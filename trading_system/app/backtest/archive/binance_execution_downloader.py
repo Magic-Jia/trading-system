@@ -164,7 +164,10 @@ def _maker_side(payload: Mapping[str, Any]) -> str:
 
 
 def _trade_id(payload: Mapping[str, Any]) -> int:
-    return int(payload["a"])
+    trade_id = payload["a"]
+    if isinstance(trade_id, bool) or not isinstance(trade_id, int):
+        raise BinanceExecutionDownloadError("aggTrades row trade id must be integer")
+    return trade_id
 
 
 def _trade_time_ms(payload: Mapping[str, Any]) -> int:
