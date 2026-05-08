@@ -172,12 +172,12 @@ def _load_costs(raw: Any, *, experiment_kind: str) -> BacktestCosts:
         return BacktestCosts(
             fee_bps_by_market=_load_float_map(_require(raw, "fee_bps"), field_name="costs.fee_bps"),
             slippage_bps_by_tier=_load_float_map(_require(raw, "slippage_tiers"), field_name="costs.slippage_tiers"),
-            funding_mode=str(_require(raw, "funding_mode")),
+            funding_mode=_canonical_string(_require(raw, "funding_mode"), field_name="costs.funding_mode"),
         )
     return BacktestCosts(
-        fee_bps=float(_require(raw, "fee_bps")),
-        slippage_bps=float(_require(raw, "slippage_bps")),
-        funding_bps_per_day=float(raw.get("funding_bps_per_day", 0.0)),
+        fee_bps=_finite_number(_require(raw, "fee_bps"), field_name="costs.fee_bps"),
+        slippage_bps=_finite_number(_require(raw, "slippage_bps"), field_name="costs.slippage_bps"),
+        funding_bps_per_day=_finite_number(raw.get("funding_bps_per_day", 0.0), field_name="costs.funding_bps_per_day"),
     )
 
 
