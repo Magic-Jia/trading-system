@@ -139,6 +139,13 @@ def _row_from_bundle(bundle_path: Path, *, fallback_account: dict | None) -> Dat
     derivatives = derivatives_payload.get("rows", derivatives_payload)
     if not isinstance(derivatives, list):
         raise ValueError(f"dataset bundle has invalid derivatives rows: {bundle_path / 'derivatives_snapshot.json'}")
+    derivative_rows: list[dict] = []
+    for row in derivatives:
+        if not isinstance(row, dict):
+            raise ValueError(
+                f"dataset bundle has invalid derivatives row payload: {bundle_path / 'derivatives_snapshot.json'}"
+            )
+        derivative_rows.append(dict(row))
 
     account_path = bundle_path / "account_snapshot.json"
     account = _load_json(account_path) if account_path.exists() else fallback_account
@@ -159,7 +166,7 @@ def _row_from_bundle(bundle_path: Path, *, fallback_account: dict | None) -> Dat
         timestamp=_parse_timestamp(_metadata_canonical_string(metadata, "timestamp")),
         run_id=_metadata_canonical_string(metadata, "run_id"),
         market=market,
-        derivatives=[dict(row) for row in derivatives],
+        derivatives=derivative_rows,
         account=dict(account),
         instrument_rows=instrument_rows,
         forward_returns=forward_returns,

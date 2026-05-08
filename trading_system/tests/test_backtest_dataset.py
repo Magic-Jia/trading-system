@@ -220,6 +220,24 @@ def test_load_historical_dataset_rejects_boolean_instrument_numeric_fields(tmp_p
         load_historical_dataset(dataset_root)
 
 
+def test_load_historical_dataset_rejects_non_object_derivatives_rows(tmp_path: Path) -> None:
+    dataset_root = tmp_path / "sample_dataset"
+    bundle = dataset_root / "2026-03-10T00-00-00Z__sample-001"
+    bundle.mkdir(parents=True)
+    (bundle / "metadata.json").write_text(
+        '{"timestamp": "2026-03-10T00:00:00Z", "run_id": "sample-001"}',
+        encoding="utf-8",
+    )
+    (bundle / "market_context.json").write_text('{"symbols": {"BTCUSDT": {}}}', encoding="utf-8")
+    (bundle / "derivatives_snapshot.json").write_text(
+        json.dumps({"rows": [[("symbol", "BTCUSDT")]]}), encoding="utf-8"
+    )
+    (bundle / "account_snapshot.json").write_text('{"equity": 100000.0}', encoding="utf-8")
+
+    with pytest.raises(ValueError, match="dataset bundle has invalid derivatives row payload"):
+        load_historical_dataset(dataset_root)
+
+
 def test_load_historical_dataset_rejects_non_object_forward_returns(tmp_path: Path) -> None:
     dataset_root = tmp_path / "sample_dataset"
     bundle = dataset_root / "2026-03-10T00-00-00Z__sample-001"
