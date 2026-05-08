@@ -258,6 +258,30 @@ def test_microstructure_gate_rejects_unknown_evidence_source_fields() -> None:
         )
 
 
+@pytest.mark.parametrize(
+    "invalid_key",
+    [
+        123,
+        "",
+        " ",
+        " type",
+        "type ",
+    ],
+)
+def test_microstructure_gate_rejects_noncanonical_evidence_source_keys(invalid_key: object) -> None:
+    with pytest.raises(ValueError, match="evidence_source keys must be canonical strings"):
+        build_microstructure_gate(
+            {
+                "evidence_source": {"type": "historical_l2_tick_archive", invalid_key: "bad-key"},
+                "coverage": {
+                    "l2_snapshot_coverage": 1.0,
+                    "l2_update_coverage": 1.0,
+                    "tick_coverage": 1.0,
+                },
+            }
+        )
+
+
 def test_microstructure_gate_rejects_unknown_manifest_fields() -> None:
     with pytest.raises(ValueError, match="unknown microstructure manifest field: unexpected"):
         build_microstructure_gate(
