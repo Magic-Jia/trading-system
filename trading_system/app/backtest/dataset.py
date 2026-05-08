@@ -21,6 +21,12 @@ def _load_json(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _instrument_bool(value: object, *, field: str, path: Path) -> bool:
+    if not isinstance(value, bool):
+        raise ValueError(f"instrument {field} must be a boolean: {path}")
+    return value
+
+
 def _instrument_rows(bundle_path: Path) -> tuple[InstrumentSnapshotRow, ...]:
     path = bundle_path / _INSTRUMENT_SNAPSHOT_FILENAME
     if not path.exists():
@@ -48,7 +54,9 @@ def _instrument_rows(bundle_path: Path) -> tuple[InstrumentSnapshotRow, ...]:
                 liquidity_tier=str(raw_row["liquidity_tier"]),
                 quantity_step=float(raw_row["quantity_step"]),
                 price_tick=float(raw_row["price_tick"]),
-                has_complete_funding=bool(raw_row["has_complete_funding"]),
+                has_complete_funding=_instrument_bool(
+                    raw_row["has_complete_funding"], field="has_complete_funding", path=path
+                ),
             )
         )
 
