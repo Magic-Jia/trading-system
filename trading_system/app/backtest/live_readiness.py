@@ -1670,6 +1670,10 @@ def _strict_check_bool(value: Any) -> bool:
     return value is True
 
 
+def _strict_valid_flag(report: Mapping[str, Any]) -> bool:
+    return report.get("valid") is True
+
+
 def _optional_gate_artifact_count(gate: Mapping[str, Any]) -> tuple[int, bool]:
     if "artifact_count" not in gate:
         return 0, True
@@ -2609,31 +2613,31 @@ def build_live_readiness_gate_report(
         reasons.append("live_readiness_policy_config_invalid")
     if net_pnl < 0.0:
         reasons.append("net_pnl_below_zero")
-    if not bool(trade_financial_integrity.get("valid")):
+    if not _strict_valid_flag(trade_financial_integrity):
         reasons.append("trade_financial_metric_invalid")
-    if not bool(trades_artifact_integrity.get("valid")):
+    if not _strict_valid_flag(trades_artifact_integrity):
         reasons.append("trades_artifact_schema_invalid")
-    if not bool(summary_artifact_integrity.get("valid")):
+    if not _strict_valid_flag(summary_artifact_integrity):
         reasons.append("summary_artifact_schema_invalid")
-    if not bool(trade_identity_integrity.get("valid")):
+    if not _strict_valid_flag(trade_identity_integrity):
         reasons.append("trade_identity_invalid")
-    if not bool(trade_dimension_integrity.get("valid")):
+    if not _strict_valid_flag(trade_dimension_integrity):
         reasons.append("trade_dimension_invalid")
-    if not bool(trade_time_integrity.get("valid")):
+    if not _strict_valid_flag(trade_time_integrity):
         reasons.append("trade_time_invalid")
-    if not bool(trade_price_integrity.get("valid")):
+    if not _strict_valid_flag(trade_price_integrity):
         reasons.append("trade_price_invalid")
-    if not bool(trade_size_integrity.get("valid")):
+    if not _strict_valid_flag(trade_size_integrity):
         reasons.append("trade_size_invalid")
-    if not bool(trade_notional_consistency.get("valid")):
+    if not _strict_valid_flag(trade_notional_consistency):
         reasons.append("trade_notional_inconsistent")
-    if not bool(trade_cost_sign_integrity.get("valid")):
+    if not _strict_valid_flag(trade_cost_sign_integrity):
         reasons.append("trade_cost_sign_invalid")
-    if not bool(trade_pnl_consistency.get("valid")):
+    if not _strict_valid_flag(trade_pnl_consistency):
         reasons.append("trade_pnl_inconsistent")
-    if not bool(trade_side_price_pnl_consistency.get("valid")):
+    if not _strict_valid_flag(trade_side_price_pnl_consistency):
         reasons.append("trade_side_price_pnl_inconsistent")
-    if not bool(trade_exit_reason_integrity.get("valid")):
+    if not _strict_valid_flag(trade_exit_reason_integrity):
         reasons.append("trade_exit_reason_invalid")
     if evidence_coverage < evidence_coverage_threshold:
         reasons.append("evidence_coverage_below_threshold")
@@ -2832,19 +2836,19 @@ def build_live_readiness_gate_report(
         if setup_rewrite_totals_valid and not setup_rewrite_checks["setup_rewrite_evidence_complete"]:
             reasons.append("setup_rewrite_missing_evidence")
     trade_integrity_checks = {
-        "trade_financial_integrity_valid": bool(trade_financial_integrity.get("valid")),
-        "trades_artifact_integrity_valid": bool(trades_artifact_integrity.get("valid")),
-        "summary_artifact_integrity_valid": bool(summary_artifact_integrity.get("valid")),
-        "trade_identity_integrity_valid": bool(trade_identity_integrity.get("valid")),
-        "trade_dimension_integrity_valid": bool(trade_dimension_integrity.get("valid")),
-        "trade_time_integrity_valid": bool(trade_time_integrity.get("valid")),
-        "trade_price_integrity_valid": bool(trade_price_integrity.get("valid")),
-        "trade_size_integrity_valid": bool(trade_size_integrity.get("valid")),
-        "trade_notional_consistency_valid": bool(trade_notional_consistency.get("valid")),
-        "trade_cost_sign_integrity_valid": bool(trade_cost_sign_integrity.get("valid")),
-        "trade_pnl_consistency_valid": bool(trade_pnl_consistency.get("valid")),
-        "trade_side_price_pnl_consistency_valid": bool(trade_side_price_pnl_consistency.get("valid")),
-        "trade_exit_reason_integrity_valid": bool(trade_exit_reason_integrity.get("valid")),
+        "trade_financial_integrity_valid": _strict_valid_flag(trade_financial_integrity),
+        "trades_artifact_integrity_valid": _strict_valid_flag(trades_artifact_integrity),
+        "summary_artifact_integrity_valid": _strict_valid_flag(summary_artifact_integrity),
+        "trade_identity_integrity_valid": _strict_valid_flag(trade_identity_integrity),
+        "trade_dimension_integrity_valid": _strict_valid_flag(trade_dimension_integrity),
+        "trade_time_integrity_valid": _strict_valid_flag(trade_time_integrity),
+        "trade_price_integrity_valid": _strict_valid_flag(trade_price_integrity),
+        "trade_size_integrity_valid": _strict_valid_flag(trade_size_integrity),
+        "trade_notional_consistency_valid": _strict_valid_flag(trade_notional_consistency),
+        "trade_cost_sign_integrity_valid": _strict_valid_flag(trade_cost_sign_integrity),
+        "trade_pnl_consistency_valid": _strict_valid_flag(trade_pnl_consistency),
+        "trade_side_price_pnl_consistency_valid": _strict_valid_flag(trade_side_price_pnl_consistency),
+        "trade_exit_reason_integrity_valid": _strict_valid_flag(trade_exit_reason_integrity),
     }
     decision = "reject_for_live_promotion" if reasons else "candidate_for_promotion"
 

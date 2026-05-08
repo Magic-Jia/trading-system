@@ -3191,6 +3191,58 @@ def test_live_readiness_gate_checks_expose_trade_integrity_results(tmp_path: Pat
     assert rejected_report["promotion_gate"]["decision"] == "reject_for_live_promotion"
 
 
+@pytest.mark.parametrize(
+    ("helper_name", "report_key", "check_key", "reason", "valid_value"),
+    [
+        (
+            "_trade_financial_integrity",
+            "trade_financial_integrity",
+            "trade_financial_integrity_valid",
+            "trade_financial_metric_invalid",
+            "false",
+        ),
+        (
+            "_trades_artifact_integrity",
+            "trades_artifact_integrity",
+            "trades_artifact_integrity_valid",
+            "trades_artifact_schema_invalid",
+            [True],
+        ),
+        (
+            "_summary_artifact_integrity",
+            "summary_artifact_integrity",
+            "summary_artifact_integrity_valid",
+            "summary_artifact_schema_invalid",
+            {"valid": True},
+        ),
+    ],
+)
+def test_live_readiness_gate_rejects_truthy_non_bool_trade_integrity_valid_flags(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    helper_name: str,
+    report_key: str,
+    check_key: str,
+    reason: str,
+    valid_value: object,
+) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+
+    monkeypatch.setattr(
+        live_readiness,
+        helper_name,
+        lambda _chunk_dirs: {"schema_version": "test.v1", "valid": valid_value},
+    )
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    assert report[report_key]["valid"] == valid_value
+    assert report["promotion_gate"]["checks"][check_key] is False
+    assert reason in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
 def test_live_readiness_gate_rejects_present_runtime_safety_artifact_with_bad_schema(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     _write_profitable_trade_chunk(chunk)
