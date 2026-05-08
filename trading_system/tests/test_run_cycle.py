@@ -13,8 +13,23 @@ from trading_system.app.risk.validator import ValidationResult
 from trading_system.app.types import AllocationDecision
 
 
-def _run_cycle_with_runtime_state(monkeypatch, tmp_path, runtime_state: dict[str, object]) -> None:
+@pytest.fixture(autouse=True)
+def _block_unmocked_binance_public_get(monkeypatch):
+    def fail_unmocked_public_get(base: str, path: str, params: dict[str, object] | None = None):
+        raise AssertionError(
+            "run_cycle unit tests must not call Binance HTTP; "
+            "monkeypatch paper_snapshots_module.public_get or prepare_paper_runtime_inputs"
+        )
+
+    monkeypatch.setattr(paper_snapshots_module, "public_get", fail_unmocked_public_get)
+
+
+def _disable_paper_runtime_input_preparation(monkeypatch) -> None:
     monkeypatch.setattr(run_cycle_module, "prepare_paper_runtime_inputs", lambda paths: None)
+
+
+def _run_cycle_with_runtime_state(monkeypatch, tmp_path, runtime_state: dict[str, object]) -> None:
+    _disable_paper_runtime_input_preparation(monkeypatch)
 
     def fake_main() -> None:
         Path(os.environ["TRADING_STATE_FILE"]).write_text(json.dumps(runtime_state), encoding="utf-8")
@@ -44,6 +59,7 @@ def test_run_cycle_prepares_runtime_bucket_calls_main_and_writes_latest_summary(
             encoding="utf-8",
         )
 
+    _disable_paper_runtime_input_preparation(monkeypatch)
     monkeypatch.setattr(run_cycle_module, "run_main", fake_main)
 
     summary = run_cycle_module.run_cycle("paper", runtime_root=runtime_root, runtime_env="testnet")
@@ -78,6 +94,7 @@ def test_run_cycle_latest_summary_includes_disabled_setup_types(monkeypatch, tmp
     def fake_main() -> None:
         return None
 
+    _disable_paper_runtime_input_preparation(monkeypatch)
     monkeypatch.setattr(run_cycle_module, "run_main", fake_main)
     monkeypatch.setenv("TRADING_DISABLED_SETUP_TYPES", "rs_pullback, breakdown_short")
 
@@ -109,6 +126,7 @@ def test_run_cycle_latest_summary_includes_entry_profile_from_state(monkeypatch,
             encoding="utf-8",
         )
 
+    _disable_paper_runtime_input_preparation(monkeypatch)
     monkeypatch.setattr(run_cycle_module, "run_main", fake_main)
 
     summary = run_cycle_module.run_cycle("paper", runtime_root=runtime_root, runtime_env="prod")
@@ -327,7 +345,7 @@ def test_run_cycle_latest_summary_defaults_missing_execution_mode(monkeypatch, t
             encoding="utf-8",
         )
 
-    monkeypatch.setattr(run_cycle_module, "prepare_paper_runtime_inputs", lambda paths: None)
+    _disable_paper_runtime_input_preparation(monkeypatch)
     monkeypatch.setattr(run_cycle_module, "run_main", fake_main)
 
     summary = run_cycle_module.run_cycle("paper", runtime_root=runtime_root, runtime_env="prod")
@@ -407,6 +425,7 @@ def test_run_cycle_latest_summary_mirrors_disabled_setup_type_filtered_candidate
             encoding="utf-8",
         )
 
+    _disable_paper_runtime_input_preparation(monkeypatch)
     monkeypatch.setattr(run_cycle_module, "run_main", fake_main)
 
     summary = run_cycle_module.run_cycle("paper", runtime_root=runtime_root, runtime_env="prod")
@@ -440,6 +459,7 @@ def test_run_cycle_defaults_paper_mode_to_paper_runtime_bucket(monkeypatch, tmp_
             encoding="utf-8",
         )
 
+    _disable_paper_runtime_input_preparation(monkeypatch)
     monkeypatch.setattr(run_cycle_module, "run_main", fake_main)
     monkeypatch.delenv("TRADING_RUNTIME_ENV", raising=False)
 
@@ -1162,6 +1182,7 @@ def test_run_cycle_writes_error_summary_and_latest_on_failure(monkeypatch, tmp_p
     def fake_main() -> None:
         raise RuntimeError("boom")
 
+    _disable_paper_runtime_input_preparation(monkeypatch)
     monkeypatch.setattr(run_cycle_module, "run_main", fake_main)
 
     with pytest.raises(RuntimeError, match="boom"):
