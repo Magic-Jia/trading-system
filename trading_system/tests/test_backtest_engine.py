@@ -332,6 +332,33 @@ def test_candidate_execution_fill_rejects_coerced_fill_price() -> None:
         backtest_engine._candidate_with_execution_fill(candidate, fill)
 
 
+def test_candidate_cost_coverage_rejects_coerced_prices() -> None:
+    candidate = PortfolioCandidate(
+        symbol="BTCUSDT",
+        market_type="futures",
+        base_asset="BTC",
+        side="long",
+        entry_price=100.0,
+        stop_loss=90.0,
+        take_profit="110",
+    )
+    instrument = InstrumentSnapshotRow(
+        symbol="BTCUSDT",
+        market_type="futures",
+        base_asset="BTC",
+        listing_timestamp=_ts("2026-03-01T00:00:00Z"),
+        quote_volume_usdt_24h=1_000_000.0,
+        liquidity_tier="tier1",
+        quantity_step=0.001,
+        price_tick=0.1,
+        has_complete_funding=True,
+    )
+    costs = BacktestCosts(fee_bps_by_market={"futures": 1.0}, slippage_bps_by_tier={"tier1": 1.0})
+
+    with pytest.raises(ValueError, match="take_profit must be a positive number"):
+        backtest_engine._candidate_cost_coverage_ratio(candidate, instrument=instrument, costs=costs)
+
+
 def test_engine_rejects_coerced_portfolio_candidate_fields(fixture_dir: Path) -> None:
     row = load_historical_dataset(fixture_dir / "backtest" / "sample_dataset")[0]
     instrument = InstrumentSnapshotRow(

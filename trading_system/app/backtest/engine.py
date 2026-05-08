@@ -1070,15 +1070,17 @@ def _candidate_cost_coverage_ratio(
     instrument: InstrumentSnapshotRow,
     costs: BacktestCosts,
 ) -> float | None:
-    if candidate.entry_price <= 0.0 or candidate.take_profit is None or candidate.take_profit <= 0.0:
+    entry_price = _positive_float(candidate.entry_price, field_name="entry_price")
+    if candidate.take_profit is None:
         return None
+    take_profit = _positive_float(candidate.take_profit, field_name="take_profit")
     if candidate.side == "long":
-        reward = float(candidate.take_profit) - float(candidate.entry_price)
+        reward = take_profit - entry_price
     else:
-        reward = float(candidate.entry_price) - float(candidate.take_profit)
+        reward = entry_price - take_profit
     if reward <= 0.0:
         return 0.0
-    expected_reward_pct = reward / float(candidate.entry_price)
+    expected_reward_pct = reward / entry_price
     roundtrip_cost_bps = 2.0 * (
         fee_bps_for_market(costs, candidate.market_type)
         + slippage_bps_for_tier(costs, instrument.liquidity_tier)
