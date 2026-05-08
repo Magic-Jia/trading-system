@@ -240,6 +240,75 @@ def test_build_regime_summary_surfaces_allocation_aggressiveness_stats():
     assert summary["allocations"]["late_stage_heat_compressed_count"] == 1
 
 
+@pytest.mark.parametrize("invalid_value", [True, False, "0.006"])
+def test_build_regime_summary_rejects_non_numeric_final_risk_budget(invalid_value):
+    with pytest.raises(ValueError, match="final_risk_budget"):
+        build_regime_summary(
+            regime={"label": "RISK_ON_TREND", "confidence": 0.88, "risk_multiplier": 0.95, "execution_policy": "normal"},
+            universes={"major_universe": [], "rotation_universe": [], "short_universe": []},
+            candidates=[],
+            allocations=[
+                {
+                    "engine": "rotation",
+                    "symbol": "SOLUSDT",
+                    "status": "ACCEPTED",
+                    "final_risk_budget": invalid_value,
+                }
+            ],
+            executions=[],
+        )
+
+
+@pytest.mark.parametrize("invalid_value", [True, False, "0.82"])
+def test_build_regime_summary_rejects_non_numeric_aggressiveness_multiplier(invalid_value):
+    with pytest.raises(ValueError, match="aggressiveness_multiplier"):
+        build_regime_summary(
+            regime={"label": "RISK_ON_TREND", "confidence": 0.88, "risk_multiplier": 0.95, "execution_policy": "normal"},
+            universes={"major_universe": [], "rotation_universe": [], "short_universe": []},
+            candidates=[],
+            allocations=[
+                {
+                    "engine": "rotation",
+                    "symbol": "SOLUSDT",
+                    "status": "ACCEPTED",
+                    "final_risk_budget": 0.006,
+                    "aggressiveness_multiplier": invalid_value,
+                }
+            ],
+            executions=[],
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "invalid_value"),
+    [
+        ("regime_hazard_multiplier", True),
+        ("regime_hazard_multiplier", False),
+        ("regime_hazard_multiplier", "0.84"),
+        ("late_stage_heat_multiplier", True),
+        ("late_stage_heat_multiplier", False),
+        ("late_stage_heat_multiplier", "0.8"),
+    ],
+)
+def test_build_regime_summary_rejects_non_numeric_compression_multipliers(field, invalid_value):
+    with pytest.raises(ValueError, match=field):
+        build_regime_summary(
+            regime={"label": "RISK_ON_TREND", "confidence": 0.88, "risk_multiplier": 0.95, "execution_policy": "normal"},
+            universes={"major_universe": [], "rotation_universe": [], "short_universe": []},
+            candidates=[],
+            allocations=[
+                {
+                    "engine": "rotation",
+                    "symbol": "SOLUSDT",
+                    "status": "ACCEPTED",
+                    "final_risk_budget": 0.006,
+                    field: invalid_value,
+                }
+            ],
+            executions=[],
+        )
+
+
 def test_build_lifecycle_report_returns_compact_deterministic_state_surface():
     summary = build_lifecycle_report(
         lifecycle_updates={

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import asdict, is_dataclass
+import math
 from typing import Any, Mapping, Sequence
 
 
@@ -13,6 +14,22 @@ def _as_dict(value: Any) -> dict[str, Any]:
     if is_dataclass(value):
         return asdict(value)
     return {}
+
+
+def _strict_optional_number(row: Mapping[str, Any], field: str) -> float | None:
+    if field not in row:
+        return None
+    value = row[field]
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+        raise ValueError(f"{field} must be a finite int or float")
+    return float(value)
+
+
+def _strict_number_with_default(row: Mapping[str, Any], field: str, default: float) -> float:
+    value = _strict_optional_number(row, field)
+    if value is None:
+        return default
+    return value
 
 
 def build_regime_summary(
@@ -29,23 +46,25 @@ def build_regime_summary(
     regime_row = _as_dict(regime)
     accepted = [row for row in allocations if row.get("status") in {"ACCEPTED", "DOWNSIZED"}]
     rejected = [row for row in allocations if row.get("status") == "REJECTED"]
-    total_allocated_risk = round(sum(float(row.get("final_risk_budget", 0.0) or 0.0) for row in accepted), 6)
+    total_allocated_risk = round(sum(_strict_number_with_default(row, "final_risk_budget", 0.0) for row in accepted), 6)
     aggressiveness_values = [
-        float(row.get("aggressiveness_multiplier", 0.0) or 0.0)
+        aggressiveness_multiplier
         for row in accepted
-        if row.get("aggressiveness_multiplier") is not None
+        if (aggressiveness_multiplier := _strict_optional_number(row, "aggressiveness_multiplier")) is not None
     ]
     avg_aggressiveness = round(sum(aggressiveness_values) / len(aggressiveness_values), 6) if aggressiveness_values else 0.0
     compressed_count = len([value for value in aggressiveness_values if value < 1.0])
     compression_reason_counts: Counter[str] = Counter()
     for row in accepted:
         reasons = row.get("compression_reasons")
+        regime_hazard_multiplier = _strict_number_with_default(row, "regime_hazard_multiplier", 1.0)
+        late_stage_heat_multiplier = _strict_number_with_default(row, "late_stage_heat_multiplier", 1.0)
         if isinstance(reasons, Sequence) and not isinstance(reasons, (str, bytes)):
             compression_reason_counts.update(str(reason) for reason in reasons if str(reason))
             continue
-        if float(row.get("regime_hazard_multiplier", 1.0) or 1.0) < 1.0:
+        if regime_hazard_multiplier < 1.0:
             compression_reason_counts["regime_hazard"] += 1
-        if float(row.get("late_stage_heat_multiplier", 1.0) or 1.0) < 1.0:
+        if late_stage_heat_multiplier < 1.0:
             compression_reason_counts["late_stage_heat"] += 1
 
     return {
@@ -77,8 +96,8 @@ def build_regime_summary(
             "avg_aggressiveness": avg_aggressiveness,
             "compressed_count": compressed_count,
             "compression_reason_counts": dict(compression_reason_counts),
-            "regime_hazard_compressed_count": int(compression_reason_counts.get("regime_hazard", 0)),
-            "late_stage_heat_compressed_count": int(compression_reason_counts.get("late_stage_heat", 0)),
+            "regime_hazard_compressed_count": compression_reason_counts.get("regime_hazard", 0),
+            "late_stage_heat_compressed_count": compression_reason_counts.get("late_stage_heat", 0),
         },
         "executions": {
             "count": len(executions),
