@@ -92,8 +92,19 @@ def _additional_slots(remaining_capacity: float, per_position_capacity: float) -
     return int(ceil((remaining_capacity - _EPSILON) / per_position_capacity))
 
 
+def _portfolio_side(value: object, *, field_name: str) -> str:
+    if not isinstance(value, str):
+        raise ValueError(f"{field_name} must be a portfolio side")
+    side = value.strip().lower()
+    if side not in {"long", "short"}:
+        raise ValueError(f"{field_name} must be a portfolio side")
+    return side
+
+
 def _same_direction(a: PortfolioPosition | PortfolioCandidate, b: PortfolioCandidate) -> bool:
-    return str(a.side).lower() == str(b.side).lower()
+    return _portfolio_side(a.side, field_name="position.side") == _portfolio_side(
+        b.side, field_name="candidate.side"
+    )
 
 
 def _has_base_asset_crowding(candidate: PortfolioCandidate, state: PortfolioState) -> bool:

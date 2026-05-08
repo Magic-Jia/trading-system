@@ -111,6 +111,26 @@ def test_position_size_from_risk_uses_stop_distance() -> None:
     assert sizing.position_notional == pytest.approx(20_000.0)
 
 
+def test_allocate_candidate_rejects_coerced_position_side() -> None:
+    state = make_portfolio_state(
+        initial_equity=100_000.0,
+        open_positions=[
+            make_position(symbol="BTCUSDT", market_type="spot", base_asset="BTC", side=True)
+        ],
+    )
+    candidate = make_candidate(
+        symbol="BTCUSDT_PERP",
+        market_type="futures",
+        base_asset="BTC",
+        entry_price=60_000.0,
+        stop_loss=57_000.0,
+        side=True,
+    )
+
+    with pytest.raises(ValueError, match="position.side must be a portfolio side"):
+        evaluate_candidate(candidate, state=state, capital=sample_capital_config())
+
+
 def test_allocate_candidate_respects_shared_capital_and_base_asset_crowding() -> None:
     state = make_portfolio_state(
         initial_equity=100_000.0,
