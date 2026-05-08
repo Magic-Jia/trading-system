@@ -37,6 +37,7 @@ EFFECTIVE_LOG_FILE_ENV = "TRADING_EFFECTIVE_LOG_FILE"
 LATEST_SUMMARY_NAME = "latest.json"
 ERROR_SUMMARY_NAME = "error.json"
 PAPER_RUNTIME_ENV = "paper"
+CANONICAL_EXECUTION_MODES = {"paper", "dry-run", "live", "testnet"}
 
 
 def _timestamp() -> str:
@@ -106,6 +107,8 @@ def _sequence_of_strings(
     for index, value in enumerate(values):
         if not isinstance(value, str):
             raise ValueError(f"{resolved_field_path}[{index}] must be a string")
+        if value != value.strip() or not value.strip():
+            raise ValueError(f"{resolved_field_path}[{index}] must be a canonical non-empty string")
         normalized.append(value)
     return normalized
 
@@ -144,6 +147,17 @@ def _entry_profile_name(state: ABCMapping[str, Any], *, env_entry_profile: str) 
     if resolved_name != name.strip():
         raise ValueError("runtime_state.latest_entry_profile.name must be a canonical entry profile name")
     return resolved_name
+
+
+def _execution_mode(state: ABCMapping[str, Any]) -> str | None:
+    if "execution_mode" not in state:
+        return None
+    execution_mode = state["execution_mode"]
+    if not isinstance(execution_mode, str) or execution_mode != execution_mode.strip() or not execution_mode.strip():
+        raise ValueError("runtime_state.execution_mode must be a canonical execution mode string")
+    if execution_mode not in CANONICAL_EXECUTION_MODES:
+        raise ValueError("runtime_state.execution_mode must be one of paper, dry-run, live, testnet")
+    return execution_mode
 
 
 def _state_summary(paths: RuntimePaths) -> dict[str, Any]:
@@ -194,7 +208,7 @@ def _state_summary(paths: RuntimePaths) -> dict[str, Any]:
 
     return {
         "state_written": True,
-        "execution_mode": state.get("execution_mode"),
+        "execution_mode": _execution_mode(state),
         "entry_profile": _entry_profile_name(state, env_entry_profile=env_entry_profile),
         "candidate_count": len(latest_candidates),
         "allocation_count": len(latest_allocations),

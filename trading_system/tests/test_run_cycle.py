@@ -185,9 +185,27 @@ def test_run_cycle_latest_summary_includes_entry_profile_from_state(monkeypatch,
                 "execution_mode": "paper",
                 "latest_candidates": [],
                 "latest_allocations": [],
+                "latest_regime": {"suppression_rules": ["risk_off", ""]},
+            },
+            r"runtime_state\.latest_regime\.suppression_rules\[1\] must be a canonical non-empty string",
+        ),
+        (
+            {
+                "execution_mode": "paper",
+                "latest_candidates": [],
+                "latest_allocations": [],
                 "short_summary": {"accepted_symbols": [{"symbol": "BTCUSDT"}]},
             },
             r"runtime_state\.short_summary\.accepted_symbols\[0\] must be a string",
+        ),
+        (
+            {
+                "execution_mode": "paper",
+                "latest_candidates": [],
+                "latest_allocations": [],
+                "short_summary": {"accepted_symbols": ["BTCUSDT", " "]},
+            },
+            r"runtime_state\.short_summary\.accepted_symbols\[1\] must be a canonical non-empty string",
         ),
         (
             {
@@ -251,6 +269,70 @@ def test_run_cycle_fails_closed_for_invalid_latest_summary_sequences(
 def test_run_cycle_fails_closed_for_invalid_candidate_counts(monkeypatch, tmp_path, runtime_state, error_message):
     with pytest.raises(ValueError, match=error_message):
         _run_cycle_with_runtime_state(monkeypatch, tmp_path, runtime_state)
+
+
+@pytest.mark.parametrize(
+    ("runtime_state", "error_message"),
+    [
+        (
+            {
+                "execution_mode": None,
+                "latest_candidates": [],
+                "latest_allocations": [],
+            },
+            r"runtime_state\.execution_mode must be a canonical execution mode string",
+        ),
+        (
+            {
+                "execution_mode": "",
+                "latest_candidates": [],
+                "latest_allocations": [],
+            },
+            r"runtime_state\.execution_mode must be a canonical execution mode string",
+        ),
+        (
+            {
+                "execution_mode": " paper ",
+                "latest_candidates": [],
+                "latest_allocations": [],
+            },
+            r"runtime_state\.execution_mode must be a canonical execution mode string",
+        ),
+        (
+            {
+                "execution_mode": "backtest",
+                "latest_candidates": [],
+                "latest_allocations": [],
+            },
+            r"runtime_state\.execution_mode must be one of paper, dry-run, live, testnet",
+        ),
+    ],
+)
+def test_run_cycle_fails_closed_for_invalid_execution_mode(monkeypatch, tmp_path, runtime_state, error_message):
+    with pytest.raises(ValueError, match=error_message):
+        _run_cycle_with_runtime_state(monkeypatch, tmp_path, runtime_state)
+
+
+def test_run_cycle_latest_summary_defaults_missing_execution_mode(monkeypatch, tmp_path):
+    runtime_root = tmp_path / "runtime"
+
+    def fake_main() -> None:
+        Path(os.environ["TRADING_STATE_FILE"]).write_text(
+            json.dumps(
+                {
+                    "latest_candidates": [],
+                    "latest_allocations": [],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    monkeypatch.setattr(run_cycle_module, "prepare_paper_runtime_inputs", lambda paths: None)
+    monkeypatch.setattr(run_cycle_module, "run_main", fake_main)
+
+    summary = run_cycle_module.run_cycle("paper", runtime_root=runtime_root, runtime_env="prod")
+
+    assert summary["execution_mode"] is None
 
 
 @pytest.mark.parametrize(
