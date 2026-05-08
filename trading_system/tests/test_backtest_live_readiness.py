@@ -6504,6 +6504,85 @@ def test_live_readiness_gate_rejects_present_failing_microstructure_checks(tmp_p
     assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
 
 
+def test_live_readiness_gate_rejects_non_bool_microstructure_artifact_schema_status(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    (chunk / "market_microstructure_gate.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "market_microstructure_gate_input.v1",
+                "evidence_source": {"type": "historical_l2_tick_archive", "run_id": "microstructure-1"},
+                "checks": {"l2_tick_coverage_met": True, "depth_driven_taker_met": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(live_readiness, "_artifact_schema_valid", lambda *_args, **_kwargs: "false")
+
+    report = build_live_readiness_gate_report(tmp_path, require_microstructure_evidence=True)
+
+    microstructure = report["microstructure_gate"]
+    assert microstructure["artifacts"][0]["schema_valid"] is False
+    assert microstructure["checks"]["microstructure_artifact_schema_valid"] is False
+    assert "microstructure_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
+    assert "l2_tick_coverage_below_threshold" not in report["promotion_gate"]["reasons"]
+    assert "taker_depth_driven_missing" not in report["promotion_gate"]["reasons"]
+
+
+def test_live_readiness_gate_rejects_non_bool_microstructure_artifact_provenance_status(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    (chunk / "market_microstructure_gate.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "market_microstructure_gate_input.v1",
+                "evidence_source": {"type": "historical_l2_tick_archive", "run_id": "microstructure-1"},
+                "checks": {"l2_tick_coverage_met": True, "depth_driven_taker_met": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(live_readiness, "_artifact_provenance_present", lambda *_args, **_kwargs: "yes")
+
+    report = build_live_readiness_gate_report(tmp_path, require_microstructure_evidence=True)
+
+    microstructure = report["microstructure_gate"]
+    assert microstructure["artifacts"][0]["provenance_present"] is False
+    assert microstructure["checks"]["microstructure_artifact_provenance_present"] is False
+    assert "microstructure_artifact_provenance_missing" in report["promotion_gate"]["reasons"]
+    assert "l2_tick_coverage_below_threshold" not in report["promotion_gate"]["reasons"]
+    assert "taker_depth_driven_missing" not in report["promotion_gate"]["reasons"]
+
+
+def test_live_readiness_gate_rejects_non_bool_microstructure_artifact_check_values(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    (chunk / "market_microstructure_gate.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "market_microstructure_gate_input.v1",
+                "evidence_source": {"type": "historical_l2_tick_archive", "run_id": "microstructure-1"},
+                "checks": {"l2_tick_coverage_met": "false", "depth_driven_taker_met": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_live_readiness_gate_report(tmp_path, require_microstructure_evidence=True)
+
+    microstructure = report["microstructure_gate"]
+    assert microstructure["artifacts"][0]["checks"]["l2_tick_coverage_met"] is False
+    assert microstructure["checks"]["l2_tick_coverage_met"] is False
+    assert "microstructure_artifact_schema_invalid" not in report["promotion_gate"]["reasons"]
+    assert "l2_tick_coverage_below_threshold" in report["promotion_gate"]["reasons"]
+
+
 def test_live_readiness_gate_report_rejects_missing_validation_evidence(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     chunk.mkdir()
@@ -6634,6 +6713,104 @@ def test_live_readiness_gate_rejects_present_failing_validation_checks(tmp_path:
     assert report["validation_gate"]["checks"]["oos_non_degraded_met"] is False
     assert "oos_degraded" in report["promotion_gate"]["reasons"]
     assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
+def test_live_readiness_gate_rejects_non_bool_validation_artifact_schema_status(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    (chunk / "validation_gate.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "validation_gate_input.v1",
+                "evidence_source": {"type": "walk_forward_oos_report", "run_id": "validation-1"},
+                "checks": {
+                    "oos_non_degraded_met": True,
+                    "multi_regime_resilience_met": True,
+                    "cost_stress_positive_met": True,
+                    "forward_contamination_absent_met": True,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(live_readiness, "_artifact_schema_valid", lambda *_args, **_kwargs: "false")
+
+    report = build_live_readiness_gate_report(tmp_path, require_validation_evidence=True)
+
+    validation = report["validation_gate"]
+    assert validation["artifacts"][0]["schema_valid"] is False
+    assert validation["checks"]["validation_artifact_schema_valid"] is False
+    assert "validation_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
+    assert "oos_degraded" not in report["promotion_gate"]["reasons"]
+    assert "regime_single_point_survivor" not in report["promotion_gate"]["reasons"]
+    assert "cost_stress_not_positive" not in report["promotion_gate"]["reasons"]
+    assert "forward_contamination_unproven" not in report["promotion_gate"]["reasons"]
+
+
+def test_live_readiness_gate_rejects_non_bool_validation_artifact_provenance_status(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    (chunk / "validation_gate.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "validation_gate_input.v1",
+                "evidence_source": {"type": "walk_forward_oos_report", "run_id": "validation-1"},
+                "checks": {
+                    "oos_non_degraded_met": True,
+                    "multi_regime_resilience_met": True,
+                    "cost_stress_positive_met": True,
+                    "forward_contamination_absent_met": True,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(live_readiness, "_artifact_provenance_present", lambda *_args, **_kwargs: "yes")
+
+    report = build_live_readiness_gate_report(tmp_path, require_validation_evidence=True)
+
+    validation = report["validation_gate"]
+    assert validation["artifacts"][0]["provenance_present"] is False
+    assert validation["checks"]["validation_artifact_provenance_present"] is False
+    assert "validation_artifact_provenance_missing" in report["promotion_gate"]["reasons"]
+    assert "oos_degraded" not in report["promotion_gate"]["reasons"]
+    assert "regime_single_point_survivor" not in report["promotion_gate"]["reasons"]
+    assert "cost_stress_not_positive" not in report["promotion_gate"]["reasons"]
+    assert "forward_contamination_unproven" not in report["promotion_gate"]["reasons"]
+
+
+def test_live_readiness_gate_rejects_non_bool_validation_artifact_check_values(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    (chunk / "validation_gate.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "validation_gate_input.v1",
+                "evidence_source": {"type": "walk_forward_oos_report", "run_id": "validation-1"},
+                "checks": {
+                    "oos_non_degraded_met": "false",
+                    "multi_regime_resilience_met": True,
+                    "cost_stress_positive_met": True,
+                    "forward_contamination_absent_met": True,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_live_readiness_gate_report(tmp_path, require_validation_evidence=True)
+
+    validation = report["validation_gate"]
+    assert validation["artifacts"][0]["checks"]["oos_non_degraded_met"] is False
+    assert validation["checks"]["oos_non_degraded_met"] is False
+    assert "validation_artifact_schema_invalid" not in report["promotion_gate"]["reasons"]
+    assert "oos_degraded" in report["promotion_gate"]["reasons"]
 
 
 def test_live_readiness_gate_rejects_out_of_range_concentration_threshold(tmp_path: Path) -> None:

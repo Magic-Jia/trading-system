@@ -1860,7 +1860,7 @@ def _microstructure_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
                 summary_schema_error = "summary_taker_fill_model_noncanonical"
         chunk_schema_valid = (
             (not parse_error)
-            and _artifact_schema_valid(payload, "market_microstructure_gate_input.v1")
+            and _artifact_schema_valid(payload, "market_microstructure_gate_input.v1") is True
             and checks_object_valid
             and evidence_source_object_valid
             and not evidence_source_schema_error
@@ -1869,7 +1869,7 @@ def _microstructure_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
             and not summary_schema_error
             and not unknown_check_fields
         )
-        chunk_provenance_present = (not parse_error) and _artifact_provenance_present(payload)
+        chunk_provenance_present = (not parse_error) and _artifact_provenance_present(payload) is True
         parse_error_message = str(parse_error or "")
         if not parse_error:
             if not checks_object_valid:
@@ -1900,10 +1900,10 @@ def _microstructure_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
             }
         )
     if artifacts:
-        schema_valid = all(bool(artifact.get("schema_valid")) for artifact in artifacts)
-        provenance_present = all(bool(artifact.get("provenance_present")) for artifact in artifacts)
+        schema_valid = all(artifact.get("schema_valid") is True for artifact in artifacts)
+        provenance_present = all(artifact.get("provenance_present") is True for artifact in artifacts)
         aggregate_checks = {
-            key: all(bool(_as_mapping(artifact.get("checks")).get(key)) for artifact in artifacts)
+            key: all(_as_mapping(artifact.get("checks")).get(key) is True for artifact in artifacts)
             for key in required_checks
         }
     return {
@@ -1972,7 +1972,7 @@ def _validation_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[str,
         unknown_check_fields = sorted(set(checks) - set(required_checks))
         chunk_schema_valid = (
             (not parse_error)
-            and _artifact_schema_valid(payload, "validation_gate_input.v1")
+            and _artifact_schema_valid(payload, "validation_gate_input.v1") is True
             and checks_object_valid
             and evidence_source_object_valid
             and not evidence_source_schema_error
@@ -1981,7 +1981,7 @@ def _validation_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[str,
             and not summary_schema_error
             and not unknown_check_fields
         )
-        chunk_provenance_present = (not parse_error) and _artifact_provenance_present(payload)
+        chunk_provenance_present = (not parse_error) and _artifact_provenance_present(payload) is True
         parse_error_message = str(parse_error or "")
         if not parse_error:
             if not checks_object_valid:
@@ -2012,10 +2012,10 @@ def _validation_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[str,
             }
         )
     if artifacts:
-        schema_valid = all(bool(artifact.get("schema_valid")) for artifact in artifacts)
-        provenance_present = all(bool(artifact.get("provenance_present")) for artifact in artifacts)
+        schema_valid = all(artifact.get("schema_valid") is True for artifact in artifacts)
+        provenance_present = all(artifact.get("provenance_present") is True for artifact in artifacts)
         aggregate_checks = {
-            key: all(bool(_as_mapping(artifact.get("checks")).get(key)) for artifact in artifacts)
+            key: all(_as_mapping(artifact.get("checks")).get(key) is True for artifact in artifacts)
             for key in required_checks
         }
     return {
