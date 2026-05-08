@@ -3320,14 +3320,15 @@ def _canonical_string_list(mapping: Mapping[str, Any], key: str) -> list[str]:
     return values
 
 
-def _optional_strict_report_float(mapping: Mapping[str, Any], key: str) -> float | None:
+def _optional_strict_report_float(mapping: Mapping[str, Any], key: str, *, field_path: str | None = None) -> float | None:
+    field = field_path or key
     value = mapping.get(key)
     if value is None:
         return None
     if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise ValueError(f"{key} must be a strict number")
+        raise ValueError(f"{field} must be a strict number")
     if not math.isfinite(float(value)):
-        raise ValueError(f"{key} must be finite")
+        raise ValueError(f"{field} must be finite")
     return float(value)
 
 
@@ -3567,35 +3568,47 @@ def render_live_readiness_markdown(report: Mapping[str, Any]) -> str:
     concentration = _as_mapping(report.get("concentration"))
     if concentration:
         lines.extend(["", "## Concentration Gate"])
-        max_setup_share = _optional_strict_report_float(concentration, "max_setup_trade_share")
-        max_symbol_share = _optional_strict_report_float(concentration, "max_symbol_trade_share")
-        max_setup_net_abs_share = _optional_strict_report_float(concentration, "max_setup_net_abs_share")
-        max_symbol_net_abs_share = _optional_strict_report_float(concentration, "max_symbol_net_abs_share")
-        max_setup_loss_abs_share = _optional_strict_report_float(concentration, "max_setup_loss_abs_share")
-        max_symbol_loss_abs_share = _optional_strict_report_float(concentration, "max_symbol_loss_abs_share")
+        max_setup_share = _optional_strict_report_float(
+            concentration, "max_setup_trade_share", field_path="concentration.max_setup_trade_share"
+        )
+        max_symbol_share = _optional_strict_report_float(
+            concentration, "max_symbol_trade_share", field_path="concentration.max_symbol_trade_share"
+        )
+        max_setup_net_abs_share = _optional_strict_report_float(
+            concentration, "max_setup_net_abs_share", field_path="concentration.max_setup_net_abs_share"
+        )
+        max_symbol_net_abs_share = _optional_strict_report_float(
+            concentration, "max_symbol_net_abs_share", field_path="concentration.max_symbol_net_abs_share"
+        )
+        max_setup_loss_abs_share = _optional_strict_report_float(
+            concentration, "max_setup_loss_abs_share", field_path="concentration.max_setup_loss_abs_share"
+        )
+        max_symbol_loss_abs_share = _optional_strict_report_float(
+            concentration, "max_symbol_loss_abs_share", field_path="concentration.max_symbol_loss_abs_share"
+        )
         lines.append(
             "- max_setup_trade_share: "
-            + (f"{float(max_setup_share):.2%}" if max_setup_share is not None else "disabled")
+            + (f"{max_setup_share:.2%}" if max_setup_share is not None else "disabled")
         )
         lines.append(
             "- max_symbol_trade_share: "
-            + (f"{float(max_symbol_share):.2%}" if max_symbol_share is not None else "disabled")
+            + (f"{max_symbol_share:.2%}" if max_symbol_share is not None else "disabled")
         )
         lines.append(
             "- max_setup_net_abs_share: "
-            + (f"{float(max_setup_net_abs_share):.2%}" if max_setup_net_abs_share is not None else "disabled")
+            + (f"{max_setup_net_abs_share:.2%}" if max_setup_net_abs_share is not None else "disabled")
         )
         lines.append(
             "- max_symbol_net_abs_share: "
-            + (f"{float(max_symbol_net_abs_share):.2%}" if max_symbol_net_abs_share is not None else "disabled")
+            + (f"{max_symbol_net_abs_share:.2%}" if max_symbol_net_abs_share is not None else "disabled")
         )
         lines.append(
             "- max_setup_loss_abs_share: "
-            + (f"{float(max_setup_loss_abs_share):.2%}" if max_setup_loss_abs_share is not None else "disabled")
+            + (f"{max_setup_loss_abs_share:.2%}" if max_setup_loss_abs_share is not None else "disabled")
         )
         lines.append(
             "- max_symbol_loss_abs_share: "
-            + (f"{float(max_symbol_loss_abs_share):.2%}" if max_symbol_loss_abs_share is not None else "disabled")
+            + (f"{max_symbol_loss_abs_share:.2%}" if max_symbol_loss_abs_share is not None else "disabled")
         )
         for label, threshold, share_key in (
             ("top_setup_by_trades", max_setup_share, "trade_share"),
@@ -3609,8 +3622,8 @@ def render_live_readiness_markdown(report: Mapping[str, Any]) -> str:
             if not bucket:
                 continue
             share = _strict_bucket_float(bucket, share_key)
-            status = "disabled" if threshold is None else ("breach" if share > float(threshold) else "ok")
-            threshold_text = "disabled" if threshold is None else f"{float(threshold):.2%}"
+            status = "disabled" if threshold is None else ("breach" if share > threshold else "ok")
+            threshold_text = "disabled" if threshold is None else f"{threshold:.2%}"
             lines.append(
                 f"- {label}: {bucket.get('key')}, "
                 f"trades={_strict_bucket_int(bucket, 'trades')}, "

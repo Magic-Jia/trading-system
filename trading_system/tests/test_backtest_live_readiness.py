@@ -183,7 +183,28 @@ def test_markdown_renderer_rejects_non_strict_concentration_limits() -> None:
         "caveats": [],
     }
 
-    with pytest.raises(ValueError, match="max_setup_trade_share must be a strict number"):
+    with pytest.raises(ValueError, match="concentration.max_setup_trade_share must be a strict number"):
+        render_live_readiness_markdown(report)
+
+
+def test_markdown_renderer_rejects_non_finite_concentration_limits_with_path() -> None:
+    report = {
+        "promotion_gate": {"decision": "hold", "reasons": [], "checks": {}},
+        "totals": {
+            "trade_count": 1,
+            "net_pnl": 1.0,
+            "evidence_coverage": 1.0,
+            "exit_evidence_coverage": 1.0,
+            "exit_path_ambiguity_rate": 0.0,
+        },
+        "concentration": {
+            "max_setup_trade_share": float("nan"),
+            "top_setup_by_trades": {"key": "BREAKOUT", "trades": 1, "trade_share": 0.25},
+        },
+        "caveats": [],
+    }
+
+    with pytest.raises(ValueError, match="concentration.max_setup_trade_share must be finite"):
         render_live_readiness_markdown(report)
 
 
