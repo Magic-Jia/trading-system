@@ -439,6 +439,48 @@ def _load_upper_unique_tuple(raw: Any, *, field_name: str) -> tuple[str, ...]:
     return tuple(normalized)
 
 
+def _load_lower_unique_tuple(raw: Any, *, field_name: str) -> tuple[str, ...]:
+    if raw is None:
+        return ()
+    if not isinstance(raw, list):
+        raise ValueError(f"experiment_params.{field_name} must be a list")
+    normalized: list[str] = []
+    for item in raw:
+        if not isinstance(item, str):
+            raise ValueError(f"experiment_params.{field_name} must contain only strings")
+        value = item.strip().lower()
+        if not value:
+            continue
+        if value not in normalized:
+            normalized.append(value)
+    return tuple(normalized)
+
+
+def _optional_canonical_string(raw: dict[str, Any], field_name: str) -> str | None:
+    value = raw.get(field_name)
+    if value is None:
+        return None
+    return _canonical_string(value, field_name=f"experiment_params.{field_name}")
+
+
+def _optional_finite_number(raw: dict[str, Any], field_name: str, default: float | None = None) -> float | None:
+    if field_name not in raw:
+        return default
+    return _finite_number(raw[field_name], field_name=f"experiment_params.{field_name}")
+
+
+def _optional_strict_bool(raw: dict[str, Any], field_name: str, default: bool) -> bool:
+    if field_name not in raw:
+        return default
+    return _strict_bool(raw[field_name], field_name=f"experiment_params.{field_name}")
+
+
+def _optional_non_negative_int(raw: dict[str, Any], field_name: str, default: int) -> int:
+    if field_name not in raw:
+        return default
+    return _non_negative_int(raw[field_name], field_name=f"experiment_params.{field_name}")
+
+
 def _load_experiment_params(raw: Any, *, experiment_kind: str) -> ExperimentParams | None:
     if raw is None:
         if experiment_kind in {
@@ -456,24 +498,31 @@ def _load_experiment_params(raw: Any, *, experiment_kind: str) -> ExperimentPara
         raise ValueError("experiment_params must be an object")
 
     params = ExperimentParams(
-        evaluation_window=str(raw["evaluation_window"]) if "evaluation_window" in raw else None,
-        soft_score_floor=float(raw["soft_score_floor"]) if "soft_score_floor" in raw else None,
+        evaluation_window=_optional_canonical_string(raw, "evaluation_window"),
+        soft_score_floor=_optional_finite_number(raw, "soft_score_floor"),
         walk_forward=_load_walk_forward(raw["walk_forward"]) if "walk_forward" in raw else None,
-        public_strategy_families=tuple(str(item) for item in raw.get("public_strategy_families", ())),
-        minimum_effectiveness_sample_count=int(raw.get("minimum_effectiveness_sample_count", 30)),
+        public_strategy_families=_load_lower_unique_tuple(
+            raw.get("public_strategy_families"),
+            field_name="public_strategy_families",
+        ),
+        minimum_effectiveness_sample_count=_optional_non_negative_int(
+            raw,
+            "minimum_effectiveness_sample_count",
+            30,
+        ),
         disabled_engines=_load_disabled_engines(raw.get("disabled_engines")),
         allowed_short_setup_types=_load_allowed_short_setup_types(raw.get("allowed_short_setup_types")),
         quarantined_setup_types=_load_upper_unique_tuple(raw.get("quarantined_setup_types"), field_name="quarantined_setup_types"),
         quarantined_short_setup_types=_load_quarantined_short_setup_types(raw.get("quarantined_short_setup_types")),
-        entry_profile=str(raw["entry_profile"]).strip() if raw.get("entry_profile") is not None else None,
-        llm_label_path=str(raw["llm_label_path"]).strip() if raw.get("llm_label_path") is not None else None,
-        require_llm_label=bool(raw.get("require_llm_label", True)),
+        entry_profile=_optional_canonical_string(raw, "entry_profile"),
+        llm_label_path=_optional_canonical_string(raw, "llm_label_path"),
+        require_llm_label=_optional_strict_bool(raw, "require_llm_label", True),
         symbols=_load_upper_unique_tuple(raw.get("symbols"), field_name="symbols"),
-        minimum_final_score=float(raw.get("minimum_final_score", 0.75)),
-        minimum_label_confidence=float(raw.get("minimum_label_confidence", 0.5)),
-        reject_high_fomo=bool(raw.get("reject_high_fomo", False)),
+        minimum_final_score=_optional_finite_number(raw, "minimum_final_score", 0.75),
+        minimum_label_confidence=_optional_finite_number(raw, "minimum_label_confidence", 0.5),
+        reject_high_fomo=_optional_strict_bool(raw, "reject_high_fomo", False),
         allowed_setup_types=_load_upper_unique_tuple(raw.get("allowed_setup_types"), field_name="allowed_setup_types"),
-        minimum_cost_coverage_ratio=float(raw.get("minimum_cost_coverage_ratio", 0.0)),
+        minimum_cost_coverage_ratio=_optional_finite_number(raw, "minimum_cost_coverage_ratio", 0.0),
         exit_policy=_load_exit_policy(raw.get("exit_policy")),
         setup_rewrite=_load_setup_rewrite(raw.get("setup_rewrite")),
     )
