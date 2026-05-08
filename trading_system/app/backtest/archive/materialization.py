@@ -141,18 +141,31 @@ def _materialize_dataset_root(
     }
 
 
+def _execution_evidence_count(value: Any, *, field: str) -> int:
+    if value is None:
+        return 0
+    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+        raise ValueError(f"{field} must be a non-negative integer")
+    return value
+
+
 def _execution_evidence_gap(coverage: Mapping[str, Any]) -> dict[str, Any]:
     execution = coverage.get("execution_evidence") if isinstance(coverage, Mapping) else {}
     if not isinstance(execution, Mapping):
         execution = {}
-    materialized = execution.get("materialized") or {}
-    if not isinstance(materialized, Mapping):
+    materialized = execution.get("materialized") if "materialized" in execution else {}
+    if materialized is None:
         materialized = {}
-    missing = [
-        evidence_type
-        for evidence_type in ("order_book", "trades")
-        if int(materialized.get(evidence_type) or 0) <= 0
-    ]
+    if not isinstance(materialized, Mapping):
+        raise ValueError("execution_evidence.materialized must be an object")
+    missing = []
+    for evidence_type in ("order_book", "trades"):
+        count = _execution_evidence_count(
+            materialized.get(evidence_type),
+            field=f"execution_evidence.materialized.{evidence_type}",
+        )
+        if count <= 0:
+            missing.append(evidence_type)
     return {"missing_execution_evidence": missing}
 
 

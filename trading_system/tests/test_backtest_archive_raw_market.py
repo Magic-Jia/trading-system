@@ -26,6 +26,7 @@ from trading_system.app.backtest.archive.importer import (
     _order_book_payload,
     _trade_payload,
 )
+from trading_system.app.backtest.archive.materialization import _execution_evidence_gap
 
 
 def test_load_raw_market_manifest_fails_fast_on_duplicate_file_timestamps(tmp_path: Path) -> None:
@@ -372,6 +373,13 @@ def test_l2_tick_coverage_rejects_boolean_required_coverage() -> None:
 
     with pytest.raises(ValueError, match="l2 required_coverage must be numeric"):
         _l2_tick_coverage(reports, required_coverage=True)
+
+
+def test_materialization_execution_gap_rejects_boolean_counts() -> None:
+    coverage = {"execution_evidence": {"materialized": {"order_book": True, "trades": 1}}}
+
+    with pytest.raises(ValueError, match="execution_evidence.materialized.order_book must be a non-negative integer"):
+        _execution_evidence_gap(coverage)
 
 
 def test_series_report_rejects_noncanonical_series_identity() -> None:
