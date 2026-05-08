@@ -786,6 +786,57 @@ def test_order_executor_testnet_does_not_submit_protection_when_maker_entry_expi
     assert submitted_algo_payloads == []
 
 
+def test_order_executor_testnet_rejects_bool_executed_qty_before_protection(monkeypatch, tmp_path):
+    from trading_system.app.execution import executor as executor_module
+
+    exec_log = tmp_path / "execution_log.jsonl"
+    monkeypatch.setattr(executor_module, "EXEC_LOG", exec_log)
+    config = build_testnet_config(tmp_path, monkeypatch)
+    config = replace(
+        config,
+        execution=replace(
+            config.execution,
+            testnet_order_submission_enabled=True,
+            feishu_notifications_enabled=False,
+            entry_order_policy="maker_only",
+            maker_entry_timeout_seconds=15,
+        ),
+    )
+    submitted_algo_payloads = []
+    monkeypatch.setattr(
+        executor_module,
+        "submit_futures_testnet_order",
+        lambda payload: {"orderId": 12345, "status": "NEW", "clientOrderId": payload["newClientOrderId"]},
+    )
+    monkeypatch.setattr(
+        executor_module,
+        "query_futures_testnet_order",
+        lambda *, symbol, orig_client_order_id: {
+            "orderId": 12345,
+            "status": "EXPIRED",
+            "executedQty": True,
+            "clientOrderId": orig_client_order_id,
+        },
+    )
+    monkeypatch.setattr(
+        executor_module,
+        "submit_futures_testnet_conditional_algo_order",
+        lambda payload: submitted_algo_payloads.append(payload) or {"algoId": 1},
+    )
+    monkeypatch.setattr(executor_module.time, "sleep", lambda seconds: None)
+    order = _sample_order()
+    order.meta["validated_order_preview"] = {
+        "submission_prerequisites_passed": True,
+        "payloads": _testnet_preview_payloads(include_stop=True, include_take_profit=True),
+    }
+    executor = OrderExecutor(config)
+
+    with pytest.raises(Exception, match="invalid executedQty"):
+        executor.execute(order, RuntimeStateV2.empty())
+
+    assert submitted_algo_payloads == []
+
+
 def test_order_executor_testnet_cancels_partial_maker_entry_remainder_before_protection(monkeypatch, tmp_path):
     from trading_system.app.execution import executor as executor_module
 

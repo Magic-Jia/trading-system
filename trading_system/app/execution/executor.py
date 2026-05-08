@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import time
 from dataclasses import asdict
 from datetime import datetime, timezone
@@ -46,7 +47,18 @@ def _entry_payload_matches_policy(entry_payload: dict[str, Any], entry_order_pol
 
 
 def _entry_executed_qty(order_status: dict[str, Any]) -> float:
-    return float(order_status.get("executedQty") or 0.0)
+    value = order_status.get("executedQty")
+    if value is None or value == "":
+        return 0.0
+    if isinstance(value, bool):
+        raise ExecutionError("invalid executedQty in entry order status")
+    try:
+        executed_qty = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ExecutionError("invalid executedQty in entry order status") from exc
+    if not math.isfinite(executed_qty):
+        raise ExecutionError("invalid executedQty in entry order status")
+    return executed_qty
 
 
 def _entry_status(order_status: dict[str, Any]) -> str:
