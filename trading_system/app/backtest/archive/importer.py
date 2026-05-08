@@ -2479,9 +2479,18 @@ def _resolved_source_manifest_paths(dataset_path: Path, manifest_paths: Sequence
 
 def _phase1_imported_dataset_root_manifest_paths(dataset_path: Path, rows: Sequence[Any]) -> tuple[str, ...]:
     loaded_source = _materialized_dataset_row_source(rows)
-    manifest_paths = tuple(sorted(str(value) for value in loaded_source.get("manifest_paths") or ()))
-    if not manifest_paths:
+    if "manifest_paths" not in loaded_source:
         raise ValueError("phase1 imported dataset root does not declare source manifest_paths")
+    manifest_paths = tuple(
+        sorted(
+            _canonical_string_sequence(
+                loaded_source.get("manifest_paths"),
+                field="phase1 imported dataset root source manifest_paths",
+            )
+        )
+    )
+    if not manifest_paths:
+        raise ValueError("phase1 imported dataset root source manifest_paths must not be empty")
     return _resolved_source_manifest_paths(dataset_path, manifest_paths)
 
 

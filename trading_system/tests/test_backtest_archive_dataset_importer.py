@@ -328,6 +328,53 @@ def test_validated_source_trace_against_manifests_rejects_noncanonical_manifest_
         )
 
 
+def test_phase1_imported_dataset_root_manifest_paths_rejects_missing_manifest_paths(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        archive_importer,
+        "_materialized_dataset_row_source",
+        lambda rows: {"scope": archive_importer.PHASE1_IMPORTER_SCOPE},
+    )
+
+    with pytest.raises(ValueError, match="phase1 imported dataset root does not declare source manifest_paths"):
+        archive_importer._phase1_imported_dataset_root_manifest_paths(tmp_path, [object()])
+
+
+@pytest.mark.parametrize(
+    ("manifest_paths", "match"),
+    [
+        ("raw-market/BTCUSDT/manifest.json", "phase1 imported dataset root source manifest_paths must be a list"),
+        ([], "phase1 imported dataset root source manifest_paths must not be empty"),
+        ({}, "phase1 imported dataset root source manifest_paths must be a list"),
+        (False, "phase1 imported dataset root source manifest_paths must be a list"),
+        ([123], "phase1 imported dataset root source manifest_paths entries must be canonical strings"),
+        ([" raw-market/BTCUSDT/manifest.json "], "phase1 imported dataset root source manifest_paths entries must be canonical strings"),
+        ([""], "phase1 imported dataset root source manifest_paths entries must be canonical strings"),
+    ],
+)
+def test_phase1_imported_dataset_root_manifest_paths_rejects_present_invalid_values(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    manifest_paths: object,
+    match: str,
+) -> None:
+    monkeypatch.setattr(
+        archive_importer,
+        "_materialized_dataset_row_source",
+        lambda rows: {
+            "scope": archive_importer.PHASE1_IMPORTER_SCOPE,
+            "exchange": "binance",
+            "market": "futures",
+            "manifest_paths": manifest_paths,
+        },
+    )
+
+    with pytest.raises(ValueError, match=match):
+        archive_importer._phase1_imported_dataset_root_manifest_paths(tmp_path, [object()])
+
+
 def test_ohlcv_timeframe_coverage_rejects_present_invalid_not_materialized() -> None:
     with pytest.raises(ValueError, match="ohlcv_timeframes.not_materialized must contain a JSON object"):
         archive_importer._ohlcv_timeframe_coverage(
