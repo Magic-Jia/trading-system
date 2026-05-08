@@ -544,6 +544,20 @@ def test_merged_import_trace_rejects_non_object_trace() -> None:
         )
 
 
+def test_merged_import_trace_rejects_object_symbols_list() -> None:
+    with pytest.raises(ValueError, match="import_trace.symbols must be a list"):
+        _merged_import_trace(
+            [
+                {
+                    "scope": "phase1_binance_futures",
+                    "exchange": "binance",
+                    "market": "futures",
+                    "symbols": {"BTCUSDT": True},
+                }
+            ]
+        )
+
+
 
 def test_merged_execution_evidence_rejects_empty_list_bucket() -> None:
     with pytest.raises(ValueError, match="execution_evidence.materialized must be a JSON object"):

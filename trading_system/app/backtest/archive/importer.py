@@ -1201,7 +1201,7 @@ def _require_canonical_string(value: Any, *, field: str) -> str:
 def _require_canonical_string_items(values: Any, *, field: str) -> tuple[str, ...]:
     if values is None:
         return ()
-    if not isinstance(values, Iterable) or isinstance(values, (str, bytes)):
+    if not isinstance(values, Iterable) or isinstance(values, (str, bytes, Mapping)):
         raise ValueError(f"{field} must be a list")
     parsed: list[str] = []
     for index, value in enumerate(values):
