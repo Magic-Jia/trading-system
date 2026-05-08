@@ -1661,6 +1661,15 @@ def _strict_check_bool(value: Any) -> bool:
     return value is True
 
 
+def _optional_gate_artifact_count(gate: Mapping[str, Any]) -> tuple[int, bool]:
+    if "artifact_count" not in gate:
+        return 0, True
+    value = gate.get("artifact_count")
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        return 0, False
+    return value, True
+
+
 
 def _runtime_safety_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[str, Any]:
     required_checks = (
@@ -2606,7 +2615,10 @@ def build_live_readiness_gate_report(
     if not setup_quality_checks.get("banned_setup_types_absent", True):
         reasons.append("banned_setup_type_present")
     runtime_safety_checks = _as_mapping(runtime_safety_gate.get("checks"))
-    runtime_safety_artifact_present = int(runtime_safety_gate.get("artifact_count") or 0) > 0
+    runtime_safety_artifact_count, runtime_safety_artifact_count_valid = _optional_gate_artifact_count(runtime_safety_gate)
+    runtime_safety_artifact_present = runtime_safety_artifact_count > 0
+    if not runtime_safety_artifact_count_valid:
+        reasons.append("runtime_safety_artifact_count_invalid")
     if require_runtime_safety_evidence and not runtime_safety_artifact_present:
         reasons.append("runtime_safety_evidence_missing")
     if runtime_safety_artifact_present and not runtime_safety_checks.get("runtime_safety_artifact_schema_valid", False):
@@ -2627,7 +2639,10 @@ def build_live_readiness_gate_report(
             if not runtime_safety_checks.get(check, False):
                 reasons.append(reason)
     microstructure_checks = _as_mapping(microstructure_gate.get("checks"))
-    microstructure_artifact_present = int(microstructure_gate.get("artifact_count") or 0) > 0
+    microstructure_artifact_count, microstructure_artifact_count_valid = _optional_gate_artifact_count(microstructure_gate)
+    microstructure_artifact_present = microstructure_artifact_count > 0
+    if not microstructure_artifact_count_valid:
+        reasons.append("microstructure_artifact_count_invalid")
     if require_microstructure_evidence and not microstructure_artifact_present:
         reasons.append("microstructure_evidence_missing")
     if microstructure_artifact_present and not microstructure_checks.get("microstructure_artifact_schema_valid", False):
@@ -2639,7 +2654,10 @@ def build_live_readiness_gate_report(
     if (require_microstructure_evidence or microstructure_artifact_present) and not microstructure_checks.get("depth_driven_taker_met", False):
         reasons.append("taker_depth_driven_missing")
     validation_checks = _as_mapping(validation_gate.get("checks"))
-    validation_artifact_present = int(validation_gate.get("artifact_count") or 0) > 0
+    validation_artifact_count, validation_artifact_count_valid = _optional_gate_artifact_count(validation_gate)
+    validation_artifact_present = validation_artifact_count > 0
+    if not validation_artifact_count_valid:
+        reasons.append("validation_artifact_count_invalid")
     if require_validation_evidence and not validation_artifact_present:
         reasons.append("validation_evidence_missing")
     if validation_artifact_present and not validation_checks.get("validation_artifact_schema_valid", False):

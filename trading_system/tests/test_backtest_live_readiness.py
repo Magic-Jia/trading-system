@@ -11,6 +11,7 @@ from typing import Any
 import pytest
 
 from trading_system.app.backtest import engine as backtest_engine
+from trading_system.app.backtest import live_readiness
 from trading_system.app.backtest.config import load_backtest_config
 from trading_system.app.backtest.live_readiness import (
     _dominance_from_gate_buckets,
@@ -5892,6 +5893,83 @@ def test_live_readiness_gate_report_accepts_runtime_safety_evidence_artifact(tmp
     assert all(gate["checks"].values())
     assert "runtime_safety_evidence_missing" not in report["promotion_gate"]["reasons"]
     assert "drift_guard_missing" not in report["promotion_gate"]["reasons"]
+
+
+@pytest.mark.parametrize("invalid_artifact_count", [True, "1", 1.0, -1])
+@pytest.mark.parametrize(
+    ("factory_name", "gate_key", "checks", "reason"),
+    [
+        (
+            "_runtime_safety_gate",
+            "runtime_safety_gate",
+            {
+                "kill_switch_dry_run_met": True,
+                "order_position_reconciliation_met": True,
+                "runtime_fail_closed_met": True,
+                "live_dust_before_scale_met": True,
+                "live_trade_ledger_met": True,
+                "runtime_explainability_met": True,
+                "drift_guard_met": True,
+                "runtime_safety_artifact_schema_valid": True,
+                "runtime_safety_artifact_provenance_present": True,
+            },
+            "runtime_safety_artifact_count_invalid",
+        ),
+        (
+            "_microstructure_gate",
+            "microstructure_gate",
+            {
+                "l2_tick_coverage_met": True,
+                "depth_driven_taker_met": True,
+                "microstructure_artifact_schema_valid": True,
+                "microstructure_artifact_provenance_present": True,
+            },
+            "microstructure_artifact_count_invalid",
+        ),
+        (
+            "_validation_gate",
+            "validation_gate",
+            {
+                "oos_non_degraded_met": True,
+                "multi_regime_resilience_met": True,
+                "cost_stress_positive_met": True,
+                "forward_contamination_absent_met": True,
+                "validation_artifact_schema_valid": True,
+                "validation_artifact_provenance_present": True,
+            },
+            "validation_artifact_count_invalid",
+        ),
+    ],
+)
+def test_live_readiness_optional_gate_rejects_present_invalid_artifact_count(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    invalid_artifact_count: Any,
+    factory_name: str,
+    gate_key: str,
+    checks: dict[str, bool],
+    reason: str,
+) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+
+    def gate_with_invalid_artifact_count(chunk_dirs: Any, *, required: bool) -> dict[str, Any]:
+        return {
+            "schema_version": f"{gate_key}.v1",
+            "required": required,
+            "artifact_count": invalid_artifact_count,
+            "artifacts": [],
+            "checks": checks,
+        }
+
+    monkeypatch.setattr(live_readiness, factory_name, gate_with_invalid_artifact_count)
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    assert report[gate_key]["artifact_count"] == invalid_artifact_count
+    assert reason in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
 
 def test_live_readiness_gate_report_rejects_missing_microstructure_evidence(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
