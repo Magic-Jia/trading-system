@@ -12,6 +12,7 @@ from trading_system.app.backtest.archive.runtime_bundle import (
     RuntimeBundleSourcePaths,
     archive_runtime_bundle,
 )
+from trading_system.app.backtest.archive.types import RuntimeBundleMetadata
 from trading_system.app.backtest.dataset import load_historical_dataset
 from trading_system.app.backtest.engine import replay_snapshot
 from trading_system.app.runtime_paths import build_runtime_paths
@@ -38,6 +39,62 @@ def _bundle_state_payload() -> dict:
         "latest_allocations": [{"symbol": "BTCUSDT", "status": "ACCEPTED"}],
         "paper_trading": {"mode": "paper", "emitted_count": 1},
     }
+
+
+def _runtime_bundle_metadata(
+    *,
+    source: object | None = None,
+    input_timestamps: object | None = None,
+) -> RuntimeBundleMetadata:
+    return RuntimeBundleMetadata(
+        timestamp="2026-03-15T00:00:00Z",
+        run_id="paper-testnet-2026-04-01t01-02-03z",
+        archived_at="2026-04-01T01:02:03Z",
+        schema_version="runtime_bundle.v1",
+        bundle_kind="runtime_cycle",
+        mode="paper",
+        runtime_env="testnet",
+        source=source
+        if source is not None
+        else {
+            "bucket_dir": "/runtime/paper/testnet",
+            "account_snapshot": "/runtime/paper/testnet/account_snapshot.json",
+        },
+        input_timestamps=input_timestamps
+        if input_timestamps is not None
+        else {
+            "account_as_of": "2026-03-15T00:00:00Z",
+            "runtime_state_updated_at_bj": "2026-04-01T09:00:00+08:00",
+        },
+    )
+
+
+@pytest.mark.parametrize(
+    ("field_name", "invalid_value", "expected_message"),
+    [
+        ("source", [("bucket_dir", "/runtime/paper/testnet")], "runtime bundle metadata source must be a mapping"),
+        (
+            "input_timestamps",
+            [("account_as_of", "2026-03-15T00:00:00Z")],
+            "runtime bundle metadata input_timestamps must be a mapping",
+        ),
+        ("source", {"bucket_dir": Path("/runtime/paper/testnet")}, "runtime bundle metadata source.bucket_dir must be a string"),
+        (
+            "input_timestamps",
+            {"account_as_of": 123},
+            "runtime bundle metadata input_timestamps.account_as_of must be a string",
+        ),
+    ],
+)
+def test_runtime_bundle_metadata_as_dict_rejects_non_canonical_dict_fields(
+    field_name: str,
+    invalid_value: object,
+    expected_message: str,
+) -> None:
+    metadata = _runtime_bundle_metadata(**{field_name: invalid_value})
+
+    with pytest.raises(ValueError, match=expected_message):
+        metadata.as_dict()
 
 
 def test_build_runtime_paths_exposes_archive_bundle_root(tmp_path: Path) -> None:
