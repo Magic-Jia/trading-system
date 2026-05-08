@@ -75,6 +75,51 @@ def test_validate_candidate_for_allocation_blocks_excess_major_coin_correlation(
     assert result.metrics["correlated_positions"] == 3
 
 
+@pytest.mark.parametrize(
+    ("field", "value", "expected_reason"),
+    [
+        ("engine", 123, "candidate engine 必须是非空字符串"),
+        ("engine", "", "candidate engine 缺失"),
+        ("symbol", 123, "candidate symbol 必须是非空字符串"),
+        ("symbol", "BTC-PERP", "candidate symbol 必须为 USDT 计价"),
+        ("side", 123, "candidate side 必须是非空字符串"),
+        ("side", "BUY", "candidate side 必须是 LONG 或 SHORT"),
+    ],
+)
+def test_validate_candidate_for_allocation_rejects_invalid_string_fields(field, value, expected_reason):
+    candidate = {
+        "engine": "trend",
+        "symbol": "BTCUSDT",
+        "side": "LONG",
+        "score": 0.76,
+        field: value,
+    }
+    account = AccountSnapshot(equity=100000.0, available_balance=50000.0, futures_wallet_balance=100000.0)
+
+    result = validate_candidate_for_allocation(candidate, account)
+
+    assert result.allowed is False
+    assert result.severity == "BLOCK"
+    assert expected_reason in result.reasons
+
+
+@pytest.mark.parametrize("score", [True, False])
+def test_validate_candidate_for_allocation_rejects_bool_score(score):
+    candidate = {
+        "engine": "trend",
+        "symbol": "BTCUSDT",
+        "side": "LONG",
+        "score": score,
+    }
+    account = AccountSnapshot(equity=100000.0, available_balance=50000.0, futures_wallet_balance=100000.0)
+
+    result = validate_candidate_for_allocation(candidate, account)
+
+    assert result.allowed is False
+    assert result.severity == "BLOCK"
+    assert "candidate score 必须是大于 0 的数字" in result.reasons
+
+
 def test_validate_candidate_for_execution_blocks_missing_explicit_stop_and_invalidation_source():
     candidate = {
         "engine": "trend",

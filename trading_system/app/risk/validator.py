@@ -133,6 +133,30 @@ def _allocator_correlated_positions(
     return peers
 
 
+def _optional_canonical_non_empty_string(value: Any, *, case: str) -> str | None:
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        return None
+    canonical = value.strip()
+    if not canonical:
+        return ""
+    if case == "upper":
+        return canonical.upper()
+    if case == "lower":
+        return canonical.lower()
+    return canonical
+
+
+def _positive_numeric_score(value: Any) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    score = float(value)
+    if score <= 0:
+        return None
+    return score
+
+
 def validate_candidate_for_allocation(
     candidate: Mapping[str, Any],
     account: AccountSnapshot | Mapping[str, Any],
@@ -140,19 +164,25 @@ def validate_candidate_for_allocation(
     reasons: list[str] = []
     metrics: dict[str, Any] = {"conflict_checked": True}
 
-    engine = str(candidate.get("engine", "")).strip().lower()
-    symbol = str(candidate.get("symbol", "")).strip().upper()
-    side = str(candidate.get("side", "")).strip().upper()
-    score = float(candidate.get("score", 0.0) or 0.0)
+    engine = _optional_canonical_non_empty_string(candidate.get("engine"), case="lower")
+    symbol = _optional_canonical_non_empty_string(candidate.get("symbol"), case="upper")
+    side = _optional_canonical_non_empty_string(candidate.get("side"), case="upper")
+    score = _positive_numeric_score(candidate.get("score"))
 
-    if not engine:
+    if engine is None:
+        reasons.append("candidate engine 必须是非空字符串")
+    elif not engine:
         reasons.append("candidate engine 缺失")
-    if not symbol.endswith("USDT"):
+    if symbol is None:
+        reasons.append("candidate symbol 必须是非空字符串")
+    elif not symbol.endswith("USDT"):
         reasons.append("candidate symbol 必须为 USDT 计价")
-    if side not in {"LONG", "SHORT"}:
+    if side is None:
+        reasons.append("candidate side 必须是非空字符串")
+    elif side not in {"LONG", "SHORT"}:
         reasons.append("candidate side 必须是 LONG 或 SHORT")
-    if score <= 0:
-        reasons.append("candidate score 必须大于 0")
+    if score is None:
+        reasons.append("candidate score 必须是大于 0 的数字")
 
     equity = float(_get_account_value(account, "equity", 0.0) or 0.0)
     if equity <= 0:
@@ -162,7 +192,7 @@ def validate_candidate_for_allocation(
     if not isinstance(positions, list):
         positions = []
     has_existing_symbol_exposure = any(_position_symbol(position) == symbol for position in positions)
-    correlated_positions = _allocator_correlated_positions(symbol, positions)
+    correlated_positions = _allocator_correlated_positions(symbol, positions) if symbol else []
     metrics["has_existing_symbol_exposure"] = has_existing_symbol_exposure
     metrics["correlated_positions"] = len(correlated_positions)
 
