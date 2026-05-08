@@ -218,6 +218,26 @@ def test_calculate_dynamic_position_cap_uses_open_risk_capital_usage_and_active_
     assert cap == 4
 
 
+def test_decision_ledger_rejects_coerced_identity_and_status_fields() -> None:
+    candidate = make_candidate(
+        symbol=True,
+        market_type="spot",
+        base_asset="SOL",
+        entry_price=200.0,
+        stop_loss=190.0,
+    )
+    decision = PortfolioDecision(
+        status="accepted",
+        reasons=(),
+        final_risk_budget=0.005,
+        position_notional=10_000.0,
+        qty=50.0,
+    )
+
+    with pytest.raises(ValueError, match="candidate.symbol must be a canonical string"):
+        decision_to_ledger_row(candidate, decision)
+
+
 def test_decision_ledgers_capture_accept_resize_and_reject_statuses() -> None:
     accepted = PortfolioDecision(
         status="accepted",

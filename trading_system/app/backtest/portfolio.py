@@ -100,6 +100,19 @@ def _canonical_string(value: object, *, field_name: str) -> str:
     return value
 
 
+def _decision_status(value: object) -> str:
+    status = _canonical_string(value, field_name="decision.status")
+    if status not in {"accepted", "resized", "rejected"}:
+        raise ValueError("decision.status must be a portfolio decision status")
+    return status
+
+
+def _decision_reasons(value: object) -> tuple[str, ...]:
+    if not isinstance(value, tuple):
+        raise ValueError("decision.reasons must be a tuple")
+    return tuple(_canonical_string(item, field_name="decision.reasons[]") for item in value)
+
+
 def _portfolio_side(value: object, *, field_name: str) -> str:
     if not isinstance(value, str):
         raise ValueError(f"{field_name} must be a portfolio side")
@@ -280,12 +293,12 @@ def decision_to_ledger_row(
     decision: PortfolioDecision,
 ) -> PortfolioDecisionLedgerRow:
     return PortfolioDecisionLedgerRow(
-        symbol=candidate.symbol,
-        market_type=candidate.market_type,
-        base_asset=candidate.base_asset,
-        status=decision.status,
-        reasons=decision.reasons,
-        final_risk_budget=decision.final_risk_budget,
-        position_notional=decision.position_notional,
-        qty=decision.qty,
+        symbol=_canonical_string(candidate.symbol, field_name="candidate.symbol"),
+        market_type=_canonical_string(candidate.market_type, field_name="candidate.market_type"),
+        base_asset=_canonical_string(candidate.base_asset, field_name="candidate.base_asset"),
+        status=_decision_status(decision.status),
+        reasons=_decision_reasons(decision.reasons),
+        final_risk_budget=_non_negative_number(decision.final_risk_budget, field_name="decision.final_risk_budget"),
+        position_notional=_non_negative_number(decision.position_notional, field_name="decision.position_notional"),
+        qty=_non_negative_number(decision.qty, field_name="decision.qty"),
     )
