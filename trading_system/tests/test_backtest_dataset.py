@@ -406,6 +406,32 @@ def test_load_dataset_root_metadata_surfaces_imported_manifest_summary(tmp_path:
     }
 
 
+def test_load_dataset_root_metadata_rejects_noncanonical_manifest_identity_fields(tmp_path: Path) -> None:
+    dataset_root = tmp_path / "imported_dataset"
+    dataset_root.mkdir()
+    (dataset_root / "import_manifest.json").write_text(
+        json.dumps(
+            {
+                "schema_version": True,
+                "scope": "phase1_binance_futures",
+                "archive_root": "/tmp/archive",
+                "dataset_root": "/tmp/imported_dataset",
+                "snapshot_count": 0,
+                "symbols": [],
+                "start_timestamp": "2025-01-01T00:00:00Z",
+                "end_timestamp": "2025-02-11T00:00:00Z",
+                "bundle_dirs": [],
+                "source": {},
+                "coverage": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="import manifest schema_version must be a canonical string"):
+        load_dataset_root_metadata(dataset_root)
+
+
 def test_load_dataset_root_metadata_rejects_non_object_manifest_source(tmp_path: Path) -> None:
     dataset_root = tmp_path / "imported_dataset"
     dataset_root.mkdir()

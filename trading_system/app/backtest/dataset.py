@@ -193,6 +193,15 @@ def load_historical_dataset(dataset_root: str | Path) -> list[DatasetSnapshotRow
     return sorted(rows, key=lambda row: (row.timestamp, row.run_id))
 
 
+def _manifest_canonical_string(manifest: dict[str, object], key: str) -> str | None:
+    value = manifest.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value or value != value.strip():
+        raise ValueError(f"import manifest {key} must be a canonical string")
+    return value
+
+
 def _manifest_object_field(manifest: dict[str, object], key: str) -> dict[str, object]:
     value = manifest.get(key)
     if value is None:
@@ -243,14 +252,14 @@ def load_dataset_root_metadata(dataset_root: str | Path) -> dict[str, object]:
         "dataset_root_type": "imported_archive",
         "import_manifest_path": str(manifest_path),
         "import_manifest": {
-            "schema_version": manifest.get("schema_version"),
-            "scope": manifest.get("scope"),
-            "archive_root": manifest.get("archive_root"),
-            "dataset_root": manifest.get("dataset_root"),
+            "schema_version": _manifest_canonical_string(manifest, "schema_version"),
+            "scope": _manifest_canonical_string(manifest, "scope"),
+            "archive_root": _manifest_canonical_string(manifest, "archive_root"),
+            "dataset_root": _manifest_canonical_string(manifest, "dataset_root"),
             "manifest_snapshot_count": _manifest_non_negative_int(manifest, "snapshot_count"),
             "symbols": _manifest_string_list(manifest, "symbols"),
-            "start_timestamp": manifest.get("start_timestamp"),
-            "end_timestamp": manifest.get("end_timestamp"),
+            "start_timestamp": _manifest_canonical_string(manifest, "start_timestamp"),
+            "end_timestamp": _manifest_canonical_string(manifest, "end_timestamp"),
             "bundle_count": _manifest_list_count(manifest, "bundle_dirs"),
             "source": _manifest_object_field(manifest, "source"),
             "coverage": _manifest_object_field(manifest, "coverage"),
