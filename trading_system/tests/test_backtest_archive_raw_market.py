@@ -356,6 +356,32 @@ def test_l2_tick_coverage_rejects_non_object_series_reports_before_filtering() -
         _l2_tick_coverage(reports, required_coverage=0.99)
 
 
+def test_l2_tick_coverage_rejects_noncanonical_series_report_keys() -> None:
+    reports = {
+        " BTCUSDT:trades ": {
+            "series_key": "BTCUSDT:trades",
+            "dataset": "trades",
+            "symbol": "BTCUSDT",
+            "timeframe": None,
+            "coverage_ratio": 1.0,
+            "has_missing_intervals": False,
+            "missing_intervals": [],
+        },
+        123: {
+            "series_key": "ETHUSDT:trades",
+            "dataset": "trades",
+            "symbol": "ETHUSDT",
+            "timeframe": None,
+            "coverage_ratio": 1.0,
+            "has_missing_intervals": False,
+            "missing_intervals": [],
+        },
+    }
+
+    with pytest.raises(ValueError, match="l2 series report key must be canonical"):
+        _l2_tick_coverage(reports, required_coverage=0.99)
+
+
 def test_l2_tick_coverage_rejects_non_object_missing_interval_entries() -> None:
     reports = {
         "BTCUSDT:trades": {
