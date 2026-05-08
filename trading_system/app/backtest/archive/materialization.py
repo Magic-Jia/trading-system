@@ -29,6 +29,15 @@ def _read_manifest(path: Path) -> dict[str, Any]:
     return payload
 
 
+def _manifest_string(manifest: Mapping[str, Any], field: str) -> str:
+    value = manifest.get(field)
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"raw-market manifest field '{field}' must be a string")
+    if value != value.strip():
+        raise ValueError(f"raw-market manifest field '{field}' must be canonical")
+    return value
+
+
 def _archive_root_from_input(path: str | Path) -> Path:
     current = Path(path)
     parts = current.parts
@@ -45,14 +54,14 @@ def _manifest_is_selected(
     *,
     symbols: set[str] | None,
 ) -> bool:
-    if str(manifest.get("exchange") or "") != "binance" or str(manifest.get("market") or "") != "futures":
+    if _manifest_string(manifest, "exchange") != "binance" or _manifest_string(manifest, "market") != "futures":
         return False
-    symbol = str(manifest.get("symbol") or "").upper()
+    symbol = _manifest_string(manifest, "symbol").upper()
     if symbols is not None and symbol not in symbols:
         return False
-    dataset = str(manifest.get("dataset") or "")
+    dataset = _manifest_string(manifest, "dataset")
     if dataset == "ohlcv":
-        return str(manifest.get("timeframe") or "") in _OHLCV_TIMEFRAMES
+        return _manifest_string(manifest, "timeframe") in _OHLCV_TIMEFRAMES
     return dataset in _OPTIONAL_CONTEXT_DATASETS or dataset in _EXECUTION_DATASETS
 
 

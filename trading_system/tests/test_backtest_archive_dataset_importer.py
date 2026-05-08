@@ -932,6 +932,24 @@ def test_materialize_phase1_evidence_windows_selects_intraday_layers_and_reports
         assert window["evidence_gap"]["missing_execution_evidence"] == ["order_book", "trades"]
 
 
+def test_materialize_phase1_evidence_windows_rejects_non_string_manifest_symbol(tmp_path: Path) -> None:
+    archive_root = tmp_path / "archive"
+    output_root = tmp_path / "materialized"
+    _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT", total_hours=50 * 24)
+    manifest_path = next((archive_root / "raw-market").rglob("*.manifest.json"))
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["symbol"] = 123
+    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="raw-market manifest field 'symbol' must be a string"):
+        materialize_phase1_evidence_windows(
+            archive_root / "raw-market" / "binance" / "futures",
+            output_root,
+            symbols=("BTCUSDT",),
+            windows_days=(30,),
+        )
+
+
 def test_materialize_phase1_evidence_windows_streams_windows_and_reports_progress(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
