@@ -66,6 +66,15 @@ def _baseline_account(dataset_root: Path) -> dict | None:
     return _load_json(path)
 
 
+def _metadata_mapping(metadata: dict, key: str) -> dict[str, object]:
+    value = metadata.get(key)
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ValueError(f"metadata.{key} must be an object")
+    return dict(value)
+
+
 def _row_from_bundle(bundle_path: Path, *, fallback_account: dict | None) -> DatasetSnapshotRow:
     for filename in _REQUIRED_BUNDLE_FILES:
         file_path = bundle_path / filename
@@ -87,8 +96,8 @@ def _row_from_bundle(bundle_path: Path, *, fallback_account: dict | None) -> Dat
         )
     instrument_rows = _instrument_rows(bundle_path)
 
-    forward_returns = dict(metadata.get("forward_returns") or {})
-    forward_drawdowns = dict(metadata.get("forward_drawdowns") or {})
+    forward_returns = _metadata_mapping(metadata, "forward_returns")
+    forward_drawdowns = _metadata_mapping(metadata, "forward_drawdowns")
     meta = {
         key: value
         for key, value in metadata.items()
