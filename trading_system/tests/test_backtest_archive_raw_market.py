@@ -436,6 +436,22 @@ def test_series_report_rejects_non_object_provenance_file_metadata(tmp_path: Pat
         _series_report(bad_series, expected_interval=None)
 
 
+def test_merged_ohlcv_timeframe_coverage_rejects_empty_list_not_materialized() -> None:
+    with pytest.raises(ValueError, match="ohlcv_timeframes.not_materialized must be a JSON object"):
+        _merged_ohlcv_timeframe_coverage(
+            [
+                {
+                    "ohlcv_timeframes": {
+                        "available": ["1h"],
+                        "materialized": ["1h"],
+                        "not_materialized": [],
+                    }
+                }
+            ]
+        )
+
+
+
 def test_merged_ohlcv_timeframe_coverage_rejects_non_object_trace() -> None:
     with pytest.raises(ValueError, match="ohlcv_timeframes trace entry must be a JSON object"):
         _merged_ohlcv_timeframe_coverage([[('ohlcv_timeframes', {"available": ["1h"]})]])

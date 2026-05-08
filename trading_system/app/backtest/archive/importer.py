@@ -1253,13 +1253,16 @@ def _merged_ohlcv_timeframe_coverage(traces: Iterable[Mapping[str, Any]]) -> dic
             continue
         available.update(_require_canonical_string_items(coverage.get("available"), field="ohlcv_timeframes.available"))
         materialized.update(_require_canonical_string_items(coverage.get("materialized"), field="ohlcv_timeframes.materialized"))
-        raw_not_materialized = coverage.get("not_materialized") or {}
-        if isinstance(raw_not_materialized, Mapping):
-            for timeframe, reason in raw_not_materialized.items():
-                timeframe_key = _require_canonical_string(timeframe, field="ohlcv_timeframes.not_materialized key")
-                not_materialized[timeframe_key] = _require_canonical_string(
-                    reason, field=f"ohlcv_timeframes.not_materialized.{timeframe_key}"
-                )
+        raw_not_materialized = coverage.get("not_materialized")
+        if raw_not_materialized is None:
+            raw_not_materialized = {}
+        if not isinstance(raw_not_materialized, Mapping):
+            raise ValueError("ohlcv_timeframes.not_materialized must be a JSON object")
+        for timeframe, reason in raw_not_materialized.items():
+            timeframe_key = _require_canonical_string(timeframe, field="ohlcv_timeframes.not_materialized key")
+            not_materialized[timeframe_key] = _require_canonical_string(
+                reason, field=f"ohlcv_timeframes.not_materialized.{timeframe_key}"
+            )
     missing_optional = [
         timeframe
         for timeframe in PHASE1_IMPORTER_OPTIONAL_INTRADAY_OHLCV_TIMEFRAMES
