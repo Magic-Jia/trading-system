@@ -133,8 +133,12 @@ def _normalized_symbol_metadata(payload: Any, *, context: Path | str) -> dict[st
         raise ValueError(f"raw-market symbol_metadata must be an object: {context}")
 
     listing_timestamp = payload.get("listing_timestamp")
-    if not isinstance(listing_timestamp, str) or not listing_timestamp.strip():
-        raise ValueError(f"raw-market symbol_metadata listing_timestamp must be a non-empty string: {context}")
+    if (
+        not isinstance(listing_timestamp, str)
+        or not listing_timestamp.strip()
+        or listing_timestamp != listing_timestamp.strip()
+    ):
+        raise ValueError(f"raw-market symbol_metadata listing_timestamp must be canonical: {context}")
 
     quantity_step = _strict_positive_float(payload.get("quantity_step"), field="quantity_step", context=context)
     price_tick = _strict_positive_float(payload.get("price_tick"), field="price_tick", context=context)
