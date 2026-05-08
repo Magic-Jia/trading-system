@@ -1019,7 +1019,7 @@ def _required_context_float(value: Any, *, field: str, observed_at: datetime) ->
 def _open_interest_units(record: ImportedRawMarketRecord) -> float:
     payload = record.payload
     if not isinstance(payload, Mapping):
-        return 0.0
+        raise ValueError(f"open interest payload must be an object: {record.observed_at}")
     if "sumOpenInterestValue" in payload:
         value = _required_context_float(
             payload.get("sumOpenInterestValue"), field="open interest", observed_at=record.observed_at
@@ -1040,21 +1040,21 @@ def _open_interest_units(record: ImportedRawMarketRecord) -> float:
 def _open_interest_is_quote_value(record: ImportedRawMarketRecord) -> bool:
     payload = record.payload
     if not isinstance(payload, Mapping):
-        return False
+        raise ValueError(f"open interest payload must be an object: {record.observed_at}")
     return "sumOpenInterestValue" in payload or "openInterestUsd" in payload
 
 
 def _funding_rate(record: ImportedRawMarketRecord) -> float:
     payload = record.payload
     if not isinstance(payload, Mapping):
-        return 0.0
+        raise ValueError(f"funding rate payload must be an object: {record.observed_at}")
     return _required_context_float(payload.get("fundingRate"), field="funding rate", observed_at=record.observed_at)
 
 
 def _mark_price(record: ImportedRawMarketRecord) -> float:
     payload = record.payload
     if not isinstance(payload, Mapping):
-        return 0.0
+        raise ValueError(f"mark price payload must be an object: {record.observed_at}")
     value = _required_context_float(
         payload.get("markPrice", payload.get("mark_price")), field="mark price", observed_at=record.observed_at
     )

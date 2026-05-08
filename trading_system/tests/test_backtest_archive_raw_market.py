@@ -1173,6 +1173,17 @@ def test_importer_rejects_invalid_market_context_numeric_fields() -> None:
         _mark_price(mark_price_record)
 
 
+def test_importer_rejects_non_object_market_context_payloads() -> None:
+    observed_at = datetime(2026, 1, 1, tzinfo=timezone.utc)
+
+    with pytest.raises(ValueError, match="open interest payload must be an object"):
+        _open_interest_units(ImportedRawMarketRecord(observed_at=observed_at, payload=[]))
+    with pytest.raises(ValueError, match="funding rate payload must be an object"):
+        _funding_rate(ImportedRawMarketRecord(observed_at=observed_at, payload=[]))
+    with pytest.raises(ValueError, match="mark price payload must be an object"):
+        _mark_price(ImportedRawMarketRecord(observed_at=observed_at, payload=[]))
+
+
 def test_importer_rejects_non_boolean_execution_coverage_available() -> None:
     with pytest.raises(ValueError, match="execution_evidence.available must be boolean"):
         _merged_execution_evidence_coverage([{"execution_evidence": {"available": "false"}}])
