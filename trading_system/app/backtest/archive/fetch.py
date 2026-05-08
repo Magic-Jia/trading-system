@@ -86,26 +86,38 @@ def _millis_to_utc_iso(value: int) -> str:
     return datetime.fromtimestamp(value / 1000.0, tz=timezone.utc).isoformat().replace("+00:00", "Z")
 
 
+def _strict_timestamp_ms(*, dataset: str, field: str, value: object) -> int:
+    if isinstance(value, bool):
+        raise ValueError(f"{dataset} {field} must be an integer millisecond timestamp")
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        if value == "0" or (value and value[0] != "0" and value.isdecimal()):
+            return int(value)
+        raise ValueError(f"{dataset} {field} must be an integer millisecond timestamp")
+    raise ValueError(f"{dataset} {field} must be an integer millisecond timestamp")
+
+
 def _row_timestamp_ms(*, dataset: str, row: object) -> int:
     if dataset == "ohlcv":
         if isinstance(row, (list, tuple)) and row:
-            return int(row[0])
+            return _strict_timestamp_ms(dataset=dataset, field="openTime", value=row[0])
         if isinstance(row, dict) and row.get("open_time") is not None:
-            return int(row["open_time"])
+            return _strict_timestamp_ms(dataset=dataset, field="open_time", value=row["open_time"])
         if isinstance(row, dict) and row.get("openTime") is not None:
-            return int(row["openTime"])
+            return _strict_timestamp_ms(dataset=dataset, field="openTime", value=row["openTime"])
         raise ValueError("ohlcv row missing open time")
     if not isinstance(row, dict):
         raise ValueError(f"{dataset} rows must be JSON objects")
     if dataset == "funding":
-        return int(row["fundingTime"])
+        return _strict_timestamp_ms(dataset=dataset, field="fundingTime", value=row.get("fundingTime"))
     if dataset == "trades":
         if row.get("timestamp") is not None:
-            return int(row["timestamp"])
+            return _strict_timestamp_ms(dataset=dataset, field="timestamp", value=row["timestamp"])
         if row.get("time") is not None:
-            return int(row["time"])
-        return int(row["T"])
-    return int(row["timestamp"])
+            return _strict_timestamp_ms(dataset=dataset, field="time", value=row["time"])
+        return _strict_timestamp_ms(dataset=dataset, field="T", value=row.get("T"))
+    return _strict_timestamp_ms(dataset=dataset, field="timestamp", value=row.get("timestamp"))
 
 
 def _next_cursor_ms(*, dataset: str, last_timestamp_ms: int, timeframe: str | None) -> int:

@@ -137,6 +137,30 @@ def test_fetch_phase1_raw_market_coverage_uses_dataset_specific_endpoint_default
     assert open_interest_fetcher.calls[0][1]["limit"] == PHASE1_BINANCE_FUTURES_ENDPOINTS["open-interest"].max_limit
 
 
+def test_fetch_phase1_raw_market_coverage_rejects_boolean_funding_timestamp(tmp_path: Path) -> None:
+    archive_root = tmp_path / "archive"
+    fetcher = _FakeFetcher(
+        {
+            (
+                "/fapi/v1/fundingRate",
+                1711929600000,
+            ): [
+                {"symbol": "BTCUSDT", "fundingTime": True, "fundingRate": "0.0001"},
+            ],
+        }
+    )
+
+    with pytest.raises(ValueError, match="funding fundingTime must be an integer millisecond timestamp"):
+        fetch_phase1_raw_market_coverage(
+            archive_root=archive_root,
+            dataset="funding",
+            symbol="BTCUSDT",
+            coverage_start="2024-04-01T00:00:00Z",
+            coverage_end="2024-04-01T08:00:00Z",
+            fetch_json=fetcher,
+        )
+
+
 def test_fetch_phase1_raw_market_coverage_archives_binance_agg_trades(tmp_path: Path) -> None:
     archive_root = tmp_path / "archive"
     fetcher = _FakeFetcher(
