@@ -893,6 +893,127 @@ def test_live_readiness_smoke_report_rejects_present_tampered_promotion_bundle(t
     assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
 
 
+def _write_minimal_smoke_source(source: Path) -> None:
+    source.mkdir()
+    (source / "trades.json").write_text(
+        json.dumps(
+            {
+                "trades": [
+                    {
+                        "trade_id": "t1",
+                        "symbol": "BTCUSDT",
+                        "side": "long",
+                        "setup_type": "BREAKOUT_CONTINUATION",
+                        "entry_time": "2026-03-10T00:00:00Z",
+                        "exit_time": "2026-03-10T01:00:00Z",
+                        "entry_price": 100.0,
+                        "exit_price": 101.0,
+                        "quantity": 1.0,
+                        "notional": 100.0,
+                        "net_pnl": 1.0,
+                        "gross_pnl": 1.0,
+                        "fee_paid": 0.0,
+                        "slippage_paid": 0.0,
+                        "funding_paid": 0.0,
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    (source / "promotion_evidence_manifest.json").write_text("{}", encoding="utf-8")
+
+
+def _minimal_gate_report(promotion_gate: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "schema_version": "live_readiness_gate_report.v1",
+        "totals": {"trade_count": 1, "net_pnl": 1.0},
+        "promotion_gate": promotion_gate,
+        "caveats": [],
+    }
+
+
+def test_live_readiness_smoke_report_rejects_string_promotion_gate_reasons(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "source"
+    _write_minimal_smoke_source(source)
+    monkeypatch.setattr(
+        live_readiness,
+        "build_live_readiness_gate_report",
+        lambda *_args, **_kwargs: _minimal_gate_report(
+            {"decision": "candidate_for_promotion", "reasons": "promotion_bundle_integrity_failed", "checks": {}}
+        ),
+    )
+    monkeypatch.setattr(
+        live_readiness,
+        "verify_promotion_evidence_bundle",
+        lambda *_args, **_kwargs: {"verified": True, "manifest_present": True},
+    )
+
+    report = write_live_readiness_smoke_report(source, tmp_path / "out")
+
+    reasons = report["promotion_gate"]["reasons"]
+    assert "promotion_gate_reasons_invalid" in reasons
+    assert "promotion_bundle_integrity_failed" not in reasons
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
+def test_live_readiness_smoke_report_rejects_pair_list_promotion_gate_checks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "source"
+    _write_minimal_smoke_source(source)
+    monkeypatch.setattr(
+        live_readiness,
+        "build_live_readiness_gate_report",
+        lambda *_args, **_kwargs: _minimal_gate_report(
+            {
+                "decision": "candidate_for_promotion",
+                "reasons": [],
+                "checks": [("net_pnl_non_negative", True)],
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        live_readiness,
+        "verify_promotion_evidence_bundle",
+        lambda *_args, **_kwargs: {"verified": True, "manifest_present": True},
+    )
+
+    report = write_live_readiness_smoke_report(source, tmp_path / "out")
+
+    assert "promotion_gate_checks_invalid" in report["promotion_gate"]["reasons"]
+    assert "net_pnl_non_negative" not in report["promotion_gate"]["checks"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
+def test_live_readiness_smoke_report_rejects_string_promotion_bundle_verified(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "source"
+    _write_minimal_smoke_source(source)
+    monkeypatch.setattr(
+        live_readiness,
+        "build_live_readiness_gate_report",
+        lambda *_args, **_kwargs: _minimal_gate_report(
+            {"decision": "candidate_for_promotion", "reasons": [], "checks": {"net_pnl_non_negative": True}}
+        ),
+    )
+    monkeypatch.setattr(
+        live_readiness,
+        "verify_promotion_evidence_bundle",
+        lambda *_args, **_kwargs: {"verified": "false", "manifest_present": True},
+    )
+
+    report = write_live_readiness_smoke_report(source, tmp_path / "out")
+
+    assert report["promotion_bundle_integrity"]["verified"] is False
+    assert report["promotion_gate"]["checks"]["promotion_bundle_integrity_verified"] is False
+    assert "promotion_bundle_integrity_verified_invalid" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
 
 def test_promotion_bundle_verification_requires_evidence_source(tmp_path: Path) -> None:
     source = tmp_path / "source"

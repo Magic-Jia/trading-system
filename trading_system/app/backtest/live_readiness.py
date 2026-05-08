@@ -3125,6 +3125,47 @@ def _postmortem_reconciliation(report: Mapping[str, Any], postmortem_summary: Ma
     }
 
 
+def _is_canonical_report_string(value: Any) -> bool:
+    return isinstance(value, str) and bool(value.strip()) and value == value.strip()
+
+
+def _strict_promotion_gate_reasons(value: Any) -> tuple[list[str], list[str]]:
+    if value is None:
+        return [], []
+    if isinstance(value, str) or not isinstance(value, Sequence):
+        return [], ["promotion_gate_reasons_invalid"]
+    reasons: list[str] = []
+    invalid_reasons: list[str] = []
+    for reason in value:
+        if not _is_canonical_report_string(reason):
+            invalid_reasons.append("promotion_gate_reasons_invalid")
+            continue
+        reasons.append(reason)
+    return reasons, invalid_reasons
+
+
+def _strict_promotion_gate_checks(value: Any) -> tuple[dict[str, bool], list[str]]:
+    if value is None:
+        return {}, []
+    if not isinstance(value, Mapping):
+        return {}, ["promotion_gate_checks_invalid"]
+    checks: dict[str, bool] = {}
+    invalid_reasons: list[str] = []
+    for key, check_value in value.items():
+        if not _is_canonical_report_string(key) or not isinstance(check_value, bool):
+            invalid_reasons.append("promotion_gate_checks_invalid")
+            continue
+        checks[key] = check_value
+    return checks, invalid_reasons
+
+
+def _strict_source_integrity_verified(source_integrity: Mapping[str, Any]) -> tuple[bool, list[str]]:
+    verified = source_integrity.get("verified")
+    if isinstance(verified, bool):
+        return verified, []
+    return False, ["promotion_bundle_integrity_verified_invalid"]
+
+
 def write_live_readiness_smoke_report(
     input_root: str | Path,
     output_dir: str | Path,
@@ -3211,11 +3252,17 @@ def write_live_readiness_smoke_report(
         }
         report["promotion_bundle_integrity"] = source_integrity
         gate = _as_mapping(report.get("promotion_gate"))
-        reasons = list(gate.get("reasons", []))
-        checks = dict(_as_mapping(gate.get("checks")))
-        checks["promotion_bundle_integrity_verified"] = bool(source_integrity.get("verified"))
-        if not bool(source_integrity.get("verified")):
+        reasons, invalid_reasons = _strict_promotion_gate_reasons(gate.get("reasons", []))
+        checks, invalid_check_reasons = _strict_promotion_gate_checks(gate.get("checks"))
+        source_verified, invalid_verified_reasons = _strict_source_integrity_verified(source_integrity)
+        source_integrity["verified"] = source_verified
+        checks["promotion_bundle_integrity_verified"] = source_verified
+        if not source_verified:
             reasons.append("promotion_bundle_integrity_failed")
+        reasons.extend(invalid_reasons)
+        reasons.extend(invalid_check_reasons)
+        reasons.extend(invalid_verified_reasons)
+        reasons = list(dict.fromkeys(reasons))
         report["promotion_gate"] = {
             **dict(gate),
             "decision": "reject_for_live_promotion" if reasons else "candidate_for_promotion",
