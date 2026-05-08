@@ -15,6 +15,7 @@ from trading_system.app.backtest.archive.raw_market import (
 from trading_system.app.backtest.archive.data_quality import _expected_intervals, _l2_tick_coverage, _series_report
 from trading_system.app.backtest.archive.importer import (
     _funding_rate,
+    _increment_execution_coverage,
     _mark_price,
     _merged_execution_evidence_coverage,
     _merged_futures_context_coverage,
@@ -572,6 +573,13 @@ def test_merged_execution_evidence_rejects_empty_list_bucket() -> None:
                 }
             ]
         )
+
+
+def test_increment_execution_coverage_rejects_present_invalid_counter() -> None:
+    coverage = {"materialized": {"order_book": "0"}}
+
+    with pytest.raises(ValueError, match="execution_evidence.materialized.order_book must be a non-negative integer"):
+        _increment_execution_coverage(coverage, "materialized", "order_book")
 
 
 def test_merged_futures_context_rejects_empty_list_bucket() -> None:

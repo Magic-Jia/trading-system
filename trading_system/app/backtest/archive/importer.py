@@ -574,7 +574,10 @@ def _execution_coverage_template(*, available: bool, max_staleness: timedelta) -
 
 def _increment_execution_coverage(coverage: dict[str, Any], bucket: str, evidence_type: str) -> None:
     current = coverage.setdefault(bucket, {}).setdefault(evidence_type, 0)
-    coverage[bucket][evidence_type] = int(current) + 1
+    coverage[bucket][evidence_type] = _require_non_negative_int_field(
+        current,
+        field=f"execution_evidence.{bucket}.{evidence_type}",
+    ) + 1
 
 
 def _positive_execution_float(value: Any) -> float | None:
