@@ -1775,10 +1775,15 @@ def build_phase1_dataset_bundle_materials(
 
 
 def _instrument_snapshot_payload(*, as_of: str, instrument_rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    rows: list[dict[str, Any]] = []
+    for index, row in enumerate(instrument_rows):
+        if not isinstance(row, Mapping):
+            raise ValueError(f"instrument_snapshot rows[{index}] must be an object")
+        rows.append(dict(row))
     return {
         "as_of": as_of,
         "schema_version": PHASE1_IMPORTER_INSTRUMENT_SNAPSHOT_SCHEMA,
-        "rows": [dict(row) for row in instrument_rows],
+        "rows": rows,
     }
 
 

@@ -2311,6 +2311,17 @@ def test_write_phase1_dataset_bundle_materializes_instrument_snapshot_file(tmp_p
     }
 
 
+def test_instrument_snapshot_payload_rejects_non_object_rows() -> None:
+    with pytest.raises(ValueError, match=r"instrument_snapshot rows\[1\] must be an object"):
+        archive_importer._instrument_snapshot_payload(
+            as_of="2024-01-01T00:00:00Z",
+            instrument_rows=[
+                {"symbol": "BTCUSDT", "base_asset": "BTC"},
+                [("symbol", "ETHUSDT")],
+            ],
+        )
+
+
 def test_symbol_metadata_float_rejects_numeric_strings() -> None:
     with pytest.raises(ValueError, match="symbol_metadata quantity_step must be numeric"):
         archive_importer._symbol_metadata_float(
