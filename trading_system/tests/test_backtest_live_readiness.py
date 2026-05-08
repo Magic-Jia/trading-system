@@ -16,6 +16,7 @@ from trading_system.app.backtest import live_readiness
 from trading_system.app.backtest.config import load_backtest_config
 from trading_system.app.backtest.live_readiness import (
     _dominance_from_gate_buckets,
+    _postmortem_dominance_bucket,
     _stdout_concentration_summary,
     _stdout_reconciliation_summary,
     audit_execution_depth,
@@ -522,6 +523,29 @@ def test_dominance_helper_rejects_non_strict_bucket_counts() -> None:
     with pytest.raises(ValueError, match="trade_count must be a strict integer"):
         _dominance_from_gate_buckets(
             {"TREND_PULLBACK": {"trade_count": "2", "net_pnl": 10.0}},
+            total_trades=2,
+            total_abs_net=10.0,
+        )
+
+
+@pytest.mark.parametrize(
+    "trade",
+    [
+        [("symbol", "BTCUSDT"), ("setup_type", "TREND_PULLBACK"), ("net_pnl", 1.0)],
+        (("symbol", "BTCUSDT"), ("setup_type", "TREND_PULLBACK"), ("net_pnl", 1.0)),
+        1,
+    ],
+)
+def test_postmortem_summary_rejects_non_mapping_trade_rows(trade: Any) -> None:
+    with pytest.raises(ValueError, match="postmortem trade rows must be Mapping objects"):
+        summarize_trade_postmortem([trade])
+
+
+@pytest.mark.parametrize("trades", [True, "2", 2.0, None, -1])
+def test_postmortem_dominance_rejects_non_strict_bucket_trade_counts(trades: Any) -> None:
+    with pytest.raises(ValueError, match="postmortem bucket trades must be a non-negative integer"):
+        _postmortem_dominance_bucket(
+            {"TREND_PULLBACK": {"trades": trades, "net": 10.0}},
             total_trades=2,
             total_abs_net=10.0,
         )

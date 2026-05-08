@@ -2975,14 +2975,20 @@ def _postmortem_dominance_bucket(
 ) -> dict[str, Any] | None:
     if not buckets or total_trades <= 0:
         return None
+    def bucket_trades(bucket: Mapping[str, Any]) -> int:
+        value = bucket.get("trades", 0)
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise ValueError("postmortem bucket trades must be a non-negative integer")
+        return value
+
     if sort_by == "loss_abs":
-        sort_key = lambda item: (abs(min(_float_value(item[1].get("net")), 0.0)), int(item[1].get("trades", 0)), item[0])
+        sort_key = lambda item: (abs(min(_float_value(item[1].get("net")), 0.0)), bucket_trades(item[1]), item[0])
     elif sort_by == "net_abs":
-        sort_key = lambda item: (abs(_float_value(item[1].get("net"))), int(item[1].get("trades", 0)), item[0])
+        sort_key = lambda item: (abs(_float_value(item[1].get("net"))), bucket_trades(item[1]), item[0])
     else:
-        sort_key = lambda item: (int(item[1].get("trades", 0)), abs(_float_value(item[1].get("net"))), item[0])
+        sort_key = lambda item: (bucket_trades(item[1]), abs(_float_value(item[1].get("net"))), item[0])
     key, bucket = max(buckets.items(), key=sort_key)
-    trades = int(bucket.get("trades", 0))
+    trades = bucket_trades(bucket)
     net = _float_value(bucket.get("net"))
     loss_abs = abs(min(net, 0.0))
     return {
@@ -2996,7 +3002,11 @@ def _postmortem_dominance_bucket(
 
 
 def summarize_trade_postmortem(trades: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
-    rows = [dict(trade) for trade in trades]
+    rows: list[Mapping[str, Any]] = []
+    for trade in trades:
+        if not isinstance(trade, Mapping):
+            raise ValueError("postmortem trade rows must be Mapping objects")
+        rows.append(trade)
     by_failure: dict[str, dict[str, Any]] = {}
     by_setup: dict[str, dict[str, Any]] = {}
     by_symbol: dict[str, dict[str, Any]] = {}
