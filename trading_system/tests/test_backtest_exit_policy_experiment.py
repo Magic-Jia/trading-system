@@ -11,6 +11,41 @@ def _policy() -> ExitPolicyParams:
     return ExitPolicyParams(name="after_cost_breakeven_stop", after_cost_buffer_bps=2.0)
 
 
+def _valid_trade() -> dict[str, object]:
+    return {
+        "symbol": "BTCUSDT",
+        "market_type": "spot",
+        "base_asset": "BTC",
+        "side": "long",
+        "status": "accepted",
+        "entry_timestamp": "2026-03-10T00:00:00Z",
+        "exit_timestamp": "2026-03-10T00:10:00Z",
+        "entry_price": 100.0,
+        "exit_price": 99.0,
+        "qty": 10.0,
+        "position_notional": 1_000.0,
+        "fee_paid": 0.5,
+        "slippage_paid": 0.5,
+        "funding_paid": 0.0,
+        "trade_prints": [
+            {"timestamp": "2026-03-10T00:01:00Z", "price": 100.11},
+            {"timestamp": "2026-03-10T00:02:00Z", "price": 100.13},
+            {"timestamp": "2026-03-10T00:03:00Z", "price": 100.25},
+        ],
+    }
+
+
+@pytest.mark.parametrize("field", ("symbol", "side", "status", "market_type", "base_asset"))
+@pytest.mark.parametrize("invalid_value", (123, "", "   "))
+def test_exit_policy_experiment_rejects_present_invalid_trade_string_fields(field: str, invalid_value: object) -> None:
+    module = importlib.import_module("trading_system.app.backtest.exit_policy_experiment")
+    trade = _valid_trade()
+    trade[field] = invalid_value
+
+    with pytest.raises(ValueError, match=rf"trades\[1\]\.{field}"):
+        module.build_exit_policy_experiment(trades=[trade], policy=_policy())
+
+
 def test_exit_policy_experiment_records_evidence_backed_trigger_and_diagnostic_pnl() -> None:
     module = importlib.import_module("trading_system.app.backtest.exit_policy_experiment")
 

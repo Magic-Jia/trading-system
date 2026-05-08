@@ -60,11 +60,11 @@ def build_exit_policy_experiment(
 def _evaluate_trade(*, index: int, trade: Mapping[str, Any], policy: ExitPolicyParams) -> dict[str, Any]:
     identity = {
         "trade_index": index,
-        "symbol": str(trade.get("symbol", "")),
-        "market_type": str(trade.get("market_type", "")),
-        "base_asset": str(trade.get("base_asset", "")),
-        "side": str(trade.get("side", "")),
-        "status": str(trade.get("status", "")),
+        "symbol": _optional_present_string(trade, field="symbol", index=index),
+        "market_type": _optional_present_string(trade, field="market_type", index=index),
+        "base_asset": _optional_present_string(trade, field="base_asset", index=index),
+        "side": _optional_present_string(trade, field="side", index=index),
+        "status": _optional_present_string(trade, field="status", index=index),
         "entry_timestamp": _iso_or_none(_parse_timestamp(trade.get("entry_timestamp"))),
         "baseline_exit_timestamp": _iso_or_none(_parse_timestamp(trade.get("exit_timestamp"))),
         "entry_price": _float_or_none(trade.get("entry_price")),
@@ -172,6 +172,15 @@ def _trade_print_points(raw_trade_prints: Any) -> tuple[_TradePrintPoint, ...]:
             continue
         points.append(_TradePrintPoint(timestamp=timestamp, price=price))
     return tuple(points)
+
+
+def _optional_present_string(trade: Mapping[str, Any], *, field: str, index: int) -> str:
+    if field not in trade:
+        return ""
+    value = trade[field]
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"trades[{index}].{field} must be a non-blank string when present")
+    return value
 
 
 def _parse_timestamp(value: Any) -> datetime | None:
