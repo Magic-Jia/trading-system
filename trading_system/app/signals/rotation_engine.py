@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -36,6 +37,31 @@ def _tf_row(payload: Mapping[str, Any], timeframe: str) -> Mapping[str, Any]:
     if isinstance(row, Mapping):
         return row
     return {}
+
+
+def _has_finite_present_numeric(row: Mapping[str, Any], field: str) -> bool:
+    if field not in row:
+        return True
+    value = row.get(field)
+    if isinstance(value, bool):
+        return False
+    try:
+        return math.isfinite(float(value))
+    except (TypeError, ValueError):
+        return False
+
+
+def _has_required_rotation_timeframe_numerics(payload: Mapping[str, Any]) -> bool:
+    required_fields = {
+        "daily": ("close", "ema_20", "ema_50", "atr_pct", "return_pct_7d", "volume_usdt_24h"),
+        "4h": ("close", "ema_20", "ema_50", "return_pct_3d"),
+        "1h": ("close", "ema_20", "ema_50", "return_pct_24h"),
+    }
+    return all(
+        _has_finite_present_numeric(_tf_row(payload, timeframe), field)
+        for timeframe, fields in required_fields.items()
+        for field in fields
+    )
 
 
 def _regime_value(regime: RegimeSnapshot | Mapping[str, Any] | None, key: str, default: Any = None) -> Any:
@@ -401,6 +427,8 @@ def generate_rotation_candidates(
             continue
         payload = payload_value
         if str(payload.get("sector", "")).lower() == "majors":
+            continue
+        if not _has_required_rotation_timeframe_numerics(payload):
             continue
         active_paper_soft_reclaim = _active_paper_soft_reclaim_trend_intact(payload, regime, profile)
         scout_intraday_recovery = _scout_intraday_recovery_trend_intact(payload, profile)
