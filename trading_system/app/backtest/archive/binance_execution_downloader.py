@@ -177,13 +177,20 @@ def _trade_time_ms(payload: Mapping[str, Any]) -> int:
     return trade_time
 
 
+def _trade_string_field(payload: Mapping[str, Any], *, field: str, label: str) -> str:
+    value = payload[field]
+    if not isinstance(value, str):
+        raise BinanceExecutionDownloadError(f"aggTrades row {label} must be a string")
+    return value
+
+
 def _trade_row(*, symbol: str, payload: Mapping[str, Any]) -> dict[str, Any]:
     buyer_was_maker = _buyer_was_maker(payload)
     return {
         "timestamp": _trade_time_ms(payload),
         "symbol": symbol,
-        "price": str(payload["p"]),
-        "quantity": str(payload["q"]),
+        "price": _trade_string_field(payload, field="p", label="price"),
+        "quantity": _trade_string_field(payload, field="q", label="quantity"),
         "side": _maker_side(payload),
         "agg_trade_id": _trade_id(payload),
         "is_buyer_maker": buyer_was_maker,
