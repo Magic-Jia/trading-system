@@ -178,6 +178,43 @@ def test_validate_candidate_for_allocation_rejects_bool_score(score):
     assert "candidate score 必须是大于 0 的数字" in result.reasons
 
 
+@pytest.mark.parametrize("score", [float("nan"), float("inf")])
+def test_validate_candidate_for_allocation_rejects_non_finite_score(score):
+    candidate = {
+        "engine": "trend",
+        "symbol": "BTCUSDT",
+        "side": "LONG",
+        "score": score,
+    }
+    account = AccountSnapshot(equity=100000.0, available_balance=50000.0, futures_wallet_balance=100000.0)
+
+    result = validate_candidate_for_allocation(candidate, account)
+
+    assert result.allowed is False
+    assert result.severity == "BLOCK"
+    assert "candidate score 必须是大于 0 的数字" in result.reasons
+
+
+@pytest.mark.parametrize("equity", [float("nan"), float("inf")])
+def test_validate_candidate_for_allocation_rejects_non_finite_account_equity(equity):
+    candidate = {
+        "engine": "trend",
+        "symbol": "BTCUSDT",
+        "side": "LONG",
+        "score": 0.76,
+    }
+    account = {
+        "equity": equity,
+        "open_positions": [],
+    }
+
+    result = validate_candidate_for_allocation(candidate, account)
+
+    assert result.allowed is False
+    assert result.severity == "BLOCK"
+    assert "账户权益必须是大于 0 的数字，无法进行 allocator 风控" in result.reasons
+
+
 def test_validate_candidate_for_execution_blocks_missing_explicit_stop_and_invalidation_source():
     candidate = {
         "engine": "trend",
@@ -237,6 +274,8 @@ def test_validate_candidate_for_execution_rejects_bool_and_string_stop_loss(stop
     ("invalidation_source", "expected_reason"),
     [
         (123, "候选 invalidation_source 必须是非空字符串"),
+        (["ema_50"], "候选 invalidation_source 必须是非空字符串"),
+        ({"source": "ema_50"}, "候选 invalidation_source 必须是非空字符串"),
         ("   ", "候选缺少 invalidation_source，拒绝执行"),
     ],
 )

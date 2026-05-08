@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping
 from typing import Any
 
@@ -161,7 +162,7 @@ def _positive_numeric_score(value: Any) -> float | None:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
     score = float(value)
-    if score <= 0:
+    if not math.isfinite(score) or score <= 0:
         return None
     return score
 
@@ -170,7 +171,7 @@ def _positive_numeric(value: Any) -> float | None:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
     numeric = float(value)
-    if numeric <= 0:
+    if not math.isfinite(numeric) or numeric <= 0:
         return None
     return numeric
 
