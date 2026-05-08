@@ -1509,6 +1509,37 @@ def test_render_llm_trend_breakout_report_builds_summary_candidate_rows_and_scor
     assert report["scorecard"]["decision_summary"]["decision"] == "keep_researching"
 
 
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("accepted_candidate_count", True),
+        ("accepted_candidate_count", float("nan")),
+        ("accepted_candidate_count", float("inf")),
+        ("acceptance_rate", True),
+        ("acceptance_rate", float("nan")),
+        ("acceptance_rate", float("inf")),
+    ],
+)
+def test_render_llm_trend_breakout_report_rejects_invalid_present_summary_numerics(
+    field: str,
+    value: object,
+) -> None:
+    summary = {
+        "technical_candidate_count": 2,
+        "accepted_candidate_count": 1,
+        "rejected_candidate_count": 1,
+        "acceptance_rate": 0.5,
+    }
+    summary[field] = value
+
+    with pytest.raises(ValueError, match=rf"summary\.{field}"):
+        reporting.render_llm_trend_breakout_report(
+            experiment_name="llm_trend_breakout",
+            experiment={"summary": summary, "candidate_rows": []},
+            metadata={"snapshot_count": 2},
+        )
+
+
 def test_backtest_cli_writes_llm_trend_breakout_bundle(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr(cli, "load_historical_dataset", lambda _dataset_root: _sample_dataset_rows(), raising=False)
     captured: dict[str, object] = {}

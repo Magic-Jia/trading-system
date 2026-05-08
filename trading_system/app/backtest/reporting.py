@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter
+import math
 from typing import Any, Callable, Mapping
 
 from .metrics import cost_drag
@@ -284,6 +285,33 @@ def _promotion_metadata_sections(metadata: Mapping[str, Any]) -> dict[str, Any]:
 
 
 _ALLOWED_DECISIONS = {"keep_researching", "candidate_for_promotion", "reject"}
+
+
+def _summary_int(summary_payload: Mapping[str, Any], field: str, default: int = 0) -> int:
+    if field not in summary_payload:
+        return default
+    raw_value = summary_payload[field]
+    if isinstance(raw_value, bool):
+        raise ValueError(f"summary.{field} must be a finite number")
+    try:
+        return int(raw_value)
+    except (OverflowError, TypeError, ValueError) as exc:
+        raise ValueError(f"summary.{field} must be a finite number") from exc
+
+
+def _summary_float(summary_payload: Mapping[str, Any], field: str, default: float = 0.0) -> float:
+    if field not in summary_payload:
+        return default
+    raw_value = summary_payload[field]
+    if isinstance(raw_value, bool):
+        raise ValueError(f"summary.{field} must be a finite number")
+    try:
+        value = float(raw_value)
+    except (OverflowError, TypeError, ValueError) as exc:
+        raise ValueError(f"summary.{field} must be a finite number") from exc
+    if not math.isfinite(value):
+        raise ValueError(f"summary.{field} must be a finite number")
+    return value
 
 
 def _public_strategy_factor_minimum_sample_count(
@@ -727,10 +755,10 @@ def render_llm_trend_breakout_report(
 ) -> dict[str, dict[str, Any]]:
     summary_payload = dict(experiment.get("summary", {}))
     candidate_rows = list(experiment.get("candidate_rows", []))
-    technical_candidate_count = int(summary_payload.get("technical_candidate_count", 0))
-    accepted_candidate_count = int(summary_payload.get("accepted_candidate_count", 0))
-    rejected_candidate_count = int(summary_payload.get("rejected_candidate_count", 0))
-    acceptance_rate = float(summary_payload.get("acceptance_rate", 0.0))
+    technical_candidate_count = _summary_int(summary_payload, "technical_candidate_count")
+    accepted_candidate_count = _summary_int(summary_payload, "accepted_candidate_count")
+    rejected_candidate_count = _summary_int(summary_payload, "rejected_candidate_count")
+    acceptance_rate = _summary_float(summary_payload, "acceptance_rate")
     if accepted_candidate_count > 0 and acceptance_rate >= 0.25:
         decision = "keep_researching"
         summary = "LLM trend-breakout filter preserved some technical candidate flow; keep researching before any promotion"
