@@ -651,6 +651,8 @@ def archive_raw_market_payload(
     if normalized_symbol_metadata is not None:
         manifest["symbol_metadata"] = normalized_symbol_metadata
     if metadata is not None:
+        if not isinstance(metadata, Mapping):
+            raise ValueError(f"raw-market metadata must be a JSON object: {storage_dir}")
         manifest["metadata"] = dict(metadata)
     if normalized_timeframe:
         manifest["timeframe"] = normalized_timeframe
