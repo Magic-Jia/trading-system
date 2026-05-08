@@ -19,6 +19,15 @@ def _float(value: Any) -> float | None:
         return None
 
 
+def _optional_bool(payload: Mapping[str, Any], field: str, default: bool = False) -> bool:
+    if field not in payload or payload.get(field) is None:
+        return default
+    value = payload.get(field)
+    if isinstance(value, bool):
+        return value
+    raise ValueError(f"{field} must be a bool when present")
+
+
 def _round_qty(value: float) -> float:
     return round(float(value), 8)
 
@@ -154,8 +163,7 @@ def _with_default_target_state(payload: dict[str, Any]) -> dict[str, Any]:
         payload["second_target_hit"] = False
     if payload.get("second_target_filled_qty") is None:
         payload["second_target_filled_qty"] = 0.0
-    if payload.get("runner_protected") is None:
-        payload["runner_protected"] = False
+    payload["runner_protected"] = _optional_bool(payload, "runner_protected")
     if "runner_stop_price" not in payload:
         payload["runner_stop_price"] = None
     if payload.get("second_target_source") is None:
@@ -164,7 +172,7 @@ def _with_default_target_state(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def _normalize_runner_state(payload: dict[str, Any]) -> dict[str, Any]:
-    if not bool(payload.get("runner_protected")):
+    if not payload.get("runner_protected"):
         return payload
 
     if str(payload.get("second_target_status") or TARGET_STATUS_PENDING) != TARGET_STATUS_FILLED:

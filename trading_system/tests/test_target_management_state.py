@@ -254,6 +254,33 @@ def test_ensure_target_management_state_normalizes_null_frozen_stage_fields():
     assert position["runner_stop_price"] is None
 
 
+def test_ensure_target_management_state_rejects_present_non_bool_runner_protected():
+    with pytest.raises(ValueError, match="runner_protected"):
+        ensure_target_management_state(
+            {
+                "symbol": "BTCUSDT",
+                "side": "LONG",
+                "entry_price": 100.0,
+                "stop_loss": 95.0,
+                "qty": 0.5,
+                "first_target_price": 105.0,
+                "first_target_source": "fallback_1r",
+                "second_target_price": 110.0,
+                "second_target_source": "fixed_2r",
+                "first_target_status": "filled",
+                "first_target_hit": True,
+                "first_target_filled_qty": 1.0,
+                "second_target_status": "filled",
+                "second_target_hit": True,
+                "second_target_filled_qty": 0.5,
+                "runner_protected": "false",
+                "runner_stop_price": 105.0,
+                "original_position_qty": 2.0,
+                "remaining_position_qty": 0.5,
+            }
+        )
+
+
 def test_ensure_target_management_state_maps_legacy_take_profit_and_completed_partial():
     position = ensure_target_management_state(
         {
