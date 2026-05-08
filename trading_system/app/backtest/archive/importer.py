@@ -2383,7 +2383,7 @@ def validate_phase1_imported_dataset_root(
             )
         manifest_source = _normalized_phase1_source_trace(
             dataset_path,
-            root_manifest.get("source") or {},
+            root_manifest.get("source") if root_manifest.get("source") is not None else {},
             context="materialized dataset root manifest source",
         )
         if manifest_source != loaded_source:

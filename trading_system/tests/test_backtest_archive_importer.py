@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import subprocess
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -33,6 +36,57 @@ def test_hourly_ohlcv_bar_rejects_boolean_required_ohlcv_fields(field: str) -> N
 
     with pytest.raises(ValueError, match=rf"ohlcv {field} must be numeric: 2024-04-01 00:00:00\+00:00"):
         archive_importer._hourly_ohlcv_bar(record)
+
+
+def test_phase1_root_manifest_rejects_present_invalid_falsy_source(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    dataset_root = tmp_path / "dataset"
+    dataset_root.mkdir()
+    bundle_dir = tmp_path / "bundle"
+    bundle_dir.mkdir()
+    timestamp = datetime(2024, 4, 1, tzinfo=UTC)
+    manifest_path = dataset_root / archive_importer.PHASE1_IMPORTER_ROOT_MANIFEST
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "schema_version": archive_importer.PHASE1_IMPORTER_ROOT_SCHEMA,
+                "scope": archive_importer.PHASE1_IMPORTER_SCOPE,
+                "dataset_root": str(dataset_root),
+                "snapshot_count": 1,
+                "symbols": ["BTCUSDT"],
+                "archive_root": str(tmp_path / "archive"),
+                "bundle_dirs": [str(bundle_dir)],
+                "bundle_timestamps": ["2024-04-01T00:00:00Z"],
+                "source": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    source_trace = {
+        "scope": archive_importer.PHASE1_IMPORTER_SCOPE,
+        "exchange": "binance",
+        "market": "futures",
+        "symbols": ["BTCUSDT"],
+        "series_keys": ["binance:futures:ohlcv:BTCUSDT:1h"],
+        "manifest_paths": [str(tmp_path / "archive/raw-market/binance/futures/ohlcv/BTCUSDT/1h/a.manifest.json")],
+    }
+    row = SimpleNamespace(
+        timestamp=timestamp,
+        source_path=bundle_dir,
+        meta={"source": source_trace},
+        market={"symbols": {"BTCUSDT": {}}},
+    )
+    monkeypatch.setattr(archive_importer, "load_historical_dataset", lambda _dataset_path: [row])
+    monkeypatch.setattr(archive_importer, "_validate_bundle_payloads", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        archive_importer,
+        "_validated_source_trace_against_manifests",
+        lambda source, *, context: dict(source),
+    )
+
+    with pytest.raises(ValueError, match="materialized dataset root manifest source must contain a JSON object"):
+        archive_importer.validate_phase1_imported_dataset_root(dataset_root)
 
 
 def test_archive_raw_market_payload_writes_manifest_and_canonical_futures_ohlcv_path(tmp_path: Path) -> None:
