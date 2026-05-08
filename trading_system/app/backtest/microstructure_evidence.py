@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -19,7 +20,7 @@ def _normalise_coverage_value(name: str, value: Any) -> float | None:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError(f"{name} must be a number between 0 and 1")
     coverage = float(value)
-    if coverage < 0 or coverage > 1:
+    if not math.isfinite(coverage) or coverage < 0 or coverage > 1:
         raise ValueError(f"{name} must be between 0 and 1")
     return coverage
 
@@ -28,8 +29,17 @@ def _normalise_positive_float(name: str, value: Any) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError(f"{name} must be a positive number")
     number = float(value)
-    if number <= 0:
+    if not math.isfinite(number) or number <= 0:
         raise ValueError(f"{name} must be a positive number")
+    return number
+
+
+def _normalise_finite_float(name: str, value: Any) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{name} must be a number")
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError(f"{name} must be a finite number")
     return number
 
 
@@ -208,10 +218,8 @@ def build_microstructure_gate(
                 "slippage_bps",
             ):
                 numeric_value = fill.get(numeric_field)
-                if numeric_value is not None and (
-                    isinstance(numeric_value, bool) or not isinstance(numeric_value, (int, float))
-                ):
-                    raise ValueError(f"depth_driven_taker_fills {numeric_field} must be a number")
+                if numeric_value is not None:
+                    _normalise_finite_float(f"depth_driven_taker_fills {numeric_field}", numeric_value)
             consumed_levels = fill.get("consumed_levels")
             if consumed_levels is not None:
                 if not isinstance(consumed_levels, list):
@@ -227,12 +235,13 @@ def build_microstructure_gate(
                         )
                     for numeric_field in ("price", "quantity"):
                         numeric_value = level.get(numeric_field)
-                        if numeric_value is None or isinstance(numeric_value, bool) or not isinstance(
-                            numeric_value, (int, float)
-                        ):
+                        if numeric_value is None:
                             raise ValueError(
                                 f"depth_driven_taker_fills consumed_levels {numeric_field} must be a number"
                             )
+                        _normalise_finite_float(
+                            f"depth_driven_taker_fills consumed_levels {numeric_field}", numeric_value
+                        )
             complete = fill.get("complete", False)
             if not isinstance(complete, bool):
                 raise ValueError("depth_driven_taker_fills complete must be a boolean")

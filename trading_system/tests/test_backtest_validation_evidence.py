@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 
 import pytest
@@ -118,6 +119,38 @@ def test_validation_gate_rejects_string_oos_numeric_fields() -> None:
         assert str(exc) == "oos baseline_net_pnl must be a number"
     else:  # pragma: no cover - RED path until producer is hardened
         raise AssertionError("expected string oos numeric field to be rejected")
+
+
+@pytest.mark.parametrize(
+    ("section", "field_name", "error_name"),
+    [
+        ("oos", "baseline_net_pnl", "oos baseline_net_pnl"),
+        ("oos", "oos_net_pnl", "oos oos_net_pnl"),
+        ("oos", "max_degradation_fraction", "oos max_degradation_fraction"),
+        ("cost_stress", "stressed_net_pnl", "cost_stress stressed_net_pnl"),
+    ],
+)
+@pytest.mark.parametrize("non_finite", [math.nan, math.inf, -math.inf])
+def test_validation_gate_rejects_non_finite_oos_and_cost_stress_numerics(
+    section: str, field_name: str, error_name: str, non_finite: float
+) -> None:
+    manifest = _passing_manifest()
+    manifest[section][field_name] = non_finite
+
+    with pytest.raises(ValueError, match=f"^{error_name} must be a finite number$"):
+        build_validation_gate(manifest)
+
+
+@pytest.mark.parametrize("non_finite", [math.nan, math.inf, -math.inf])
+def test_validation_gate_rejects_non_finite_regime_net_pnl(non_finite: float) -> None:
+    manifest = _passing_manifest()
+    manifest["regimes"] = [
+        {"net_pnl": non_finite, "trade_count": 20},
+        {"net_pnl": 10.0, "trade_count": 12},
+    ]
+
+    with pytest.raises(ValueError, match="^regime net_pnl must be a finite number$"):
+        build_validation_gate(manifest)
 
 
 def test_validation_gate_rejects_non_boolean_forward_contamination_absent() -> None:

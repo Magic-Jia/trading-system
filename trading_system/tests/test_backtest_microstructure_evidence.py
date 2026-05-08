@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 
 import pytest
@@ -69,6 +70,35 @@ def test_rejects_invalid_coverage_values() -> None:
         )
 
 
+@pytest.mark.parametrize("non_finite", [math.nan, math.inf, -math.inf])
+def test_rejects_non_finite_coverage_values(non_finite: float) -> None:
+    with pytest.raises(ValueError, match="l2_snapshot_coverage must be between 0 and 1"):
+        build_microstructure_gate(
+            {
+                "coverage": {
+                    "l2_snapshot_coverage": non_finite,
+                    "l2_update_coverage": 1.0,
+                    "tick_coverage": 1.0,
+                }
+            }
+        )
+
+
+@pytest.mark.parametrize("non_finite", [math.nan, math.inf, -math.inf])
+def test_rejects_non_finite_min_coverage(non_finite: float) -> None:
+    with pytest.raises(ValueError, match="min_coverage must be between 0 and 1"):
+        build_microstructure_gate(
+            {
+                "coverage": {
+                    "l2_snapshot_coverage": 1.0,
+                    "l2_update_coverage": 1.0,
+                    "tick_coverage": 1.0,
+                }
+            },
+            min_coverage=non_finite,
+        )
+
+
 def test_depth_driven_buy_fill_consumes_asks_and_reports_vwap() -> None:
     fill = simulate_depth_driven_taker_fill(
         side="buy",
@@ -111,6 +141,51 @@ def test_depth_driven_sell_fill_consumes_bids_and_reports_vwap() -> None:
         {"price": 99.9, "quantity": 1.0},
         {"price": 99.7, "quantity": 1.5},
     ]
+
+
+@pytest.mark.parametrize(
+    ("field_name", "kwargs"),
+    [
+        ("quantity", {"quantity": math.nan, "reference_price": 100.0}),
+        ("quantity", {"quantity": math.inf, "reference_price": 100.0}),
+        ("quantity", {"quantity": -math.inf, "reference_price": 100.0}),
+        ("reference_price", {"quantity": 1.0, "reference_price": math.nan}),
+        ("reference_price", {"quantity": 1.0, "reference_price": math.inf}),
+        ("reference_price", {"quantity": 1.0, "reference_price": -math.inf}),
+    ],
+)
+def test_depth_fill_rejects_non_finite_request_numerics(field_name: str, kwargs: dict[str, float]) -> None:
+    with pytest.raises(ValueError, match=f"{field_name} must be a positive number"):
+        simulate_depth_driven_taker_fill(
+            side="buy",
+            bids=[],
+            asks=[{"price": 100.0, "quantity": 1.0}],
+            **kwargs,
+        )
+
+
+@pytest.mark.parametrize(
+    ("field_name", "level"),
+    [
+        ("price", {"price": math.nan, "quantity": 1.0}),
+        ("price", {"price": math.inf, "quantity": 1.0}),
+        ("price", {"price": -math.inf, "quantity": 1.0}),
+        ("quantity", {"price": 100.0, "quantity": math.nan}),
+        ("quantity", {"price": 100.0, "quantity": math.inf}),
+        ("quantity", {"price": 100.0, "quantity": -math.inf}),
+    ],
+)
+def test_depth_fill_rejects_non_finite_book_level_numerics(
+    field_name: str, level: dict[str, float]
+) -> None:
+    with pytest.raises(ValueError, match=f"book level 0 {field_name} must be a positive number"):
+        simulate_depth_driven_taker_fill(
+            side="buy",
+            quantity=1.0,
+            reference_price=100.0,
+            bids=[],
+            asks=[level],
+        )
 
 
 def test_incomplete_depth_fill_keeps_gate_conservative() -> None:
@@ -375,6 +450,25 @@ def test_microstructure_gate_rejects_string_depth_fill_quantity() -> None:
     else:
         raise AssertionError("expected string depth fill quantity to be rejected")
 
+@pytest.mark.parametrize("non_finite", [math.nan, math.inf, -math.inf])
+def test_microstructure_gate_rejects_non_finite_depth_fill_quantity(non_finite: float) -> None:
+    with pytest.raises(
+        ValueError,
+        match="depth_driven_taker_fills requested_quantity must be a finite number",
+    ):
+        build_microstructure_gate(
+            {
+                "coverage": {
+                    "l2_snapshot_coverage": 0.99,
+                    "l2_update_coverage": 0.99,
+                    "tick_coverage": 0.99,
+                },
+                "depth_driven_taker_fills": [
+                    {"complete": True, "side": "buy", "requested_quantity": non_finite}
+                ],
+            }
+        )
+
 def test_microstructure_gate_rejects_string_consumed_level_price() -> None:
     try:
         build_microstructure_gate(
@@ -397,3 +491,26 @@ def test_microstructure_gate_rejects_string_consumed_level_price() -> None:
         assert "depth_driven_taker_fills consumed_levels price must be a number" in str(exc)
     else:
         raise AssertionError("expected string consumed level price to be rejected")
+
+@pytest.mark.parametrize("non_finite", [math.nan, math.inf, -math.inf])
+def test_microstructure_gate_rejects_non_finite_consumed_level_price(non_finite: float) -> None:
+    with pytest.raises(
+        ValueError,
+        match="depth_driven_taker_fills consumed_levels price must be a finite number",
+    ):
+        build_microstructure_gate(
+            {
+                "coverage": {
+                    "l2_snapshot_coverage": 0.99,
+                    "l2_update_coverage": 0.99,
+                    "tick_coverage": 0.99,
+                },
+                "depth_driven_taker_fills": [
+                    {
+                        "complete": True,
+                        "side": "buy",
+                        "consumed_levels": [{"price": non_finite, "quantity": 1.0}],
+                    }
+                ],
+            }
+        )
