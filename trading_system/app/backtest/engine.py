@@ -1098,12 +1098,19 @@ def _candidate_cost_coverage_ok(
     costs: BacktestCosts,
     minimum_cost_coverage_ratio: float,
 ) -> bool:
-    if minimum_cost_coverage_ratio <= 0.0:
+    if isinstance(minimum_cost_coverage_ratio, bool) or not isinstance(minimum_cost_coverage_ratio, (int, float)):
+        raise ValueError("minimum_cost_coverage_ratio must be a finite number")
+    minimum_ratio = float(minimum_cost_coverage_ratio)
+    if not math.isfinite(minimum_ratio):
+        raise ValueError("minimum_cost_coverage_ratio must be a finite number")
+    if minimum_ratio <= 0.0:
         return True
-    if candidate.entry_price <= 0.0 or candidate.take_profit is None or candidate.take_profit <= 0.0:
+    if candidate.take_profit is None:
         return True
+    _positive_float(candidate.entry_price, field_name="entry_price")
+    _positive_float(candidate.take_profit, field_name="take_profit")
     coverage_ratio = _candidate_cost_coverage_ratio(candidate, instrument=instrument, costs=costs)
-    return coverage_ratio is None or coverage_ratio >= float(minimum_cost_coverage_ratio)
+    return coverage_ratio is None or coverage_ratio >= minimum_ratio
 
 
 def _trade_row(
