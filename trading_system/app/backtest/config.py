@@ -28,6 +28,12 @@ def _require(raw: dict[str, Any], field_name: str) -> Any:
     return raw[field_name]
 
 
+def _canonical_string(value: Any, *, field_name: str) -> str:
+    if not isinstance(value, str) or not value or value != value.strip():
+        raise ValueError(f"{field_name} must be a canonical string")
+    return value
+
+
 def _parse_timestamp(value: str, *, field_name: str) -> datetime:
     try:
         return datetime.fromisoformat(value.replace("Z", "+00:00"))
@@ -58,10 +64,16 @@ def _load_sample_windows(raw: list[dict[str, Any]]) -> tuple[SampleWindow, ...]:
             raise ValueError(f"sample_windows[{index}] must be an object")
         windows.append(
             SampleWindow(
-                name=str(_require(item, "name")),
-                start=_parse_timestamp(str(_require(item, "start")), field_name=f"sample_windows[{index}].start"),
-                end=_parse_timestamp(str(_require(item, "end")), field_name=f"sample_windows[{index}].end"),
-                split=str(item.get("split", "in_sample")),
+                name=_canonical_string(_require(item, "name"), field_name=f"sample_windows[{index}].name"),
+                start=_parse_timestamp(
+                    _canonical_string(_require(item, "start"), field_name=f"sample_windows[{index}].start"),
+                    field_name=f"sample_windows[{index}].start",
+                ),
+                end=_parse_timestamp(
+                    _canonical_string(_require(item, "end"), field_name=f"sample_windows[{index}].end"),
+                    field_name=f"sample_windows[{index}].end",
+                ),
+                split=_canonical_string(item.get("split", "in_sample"), field_name=f"sample_windows[{index}].split"),
             )
         )
     return tuple(windows)
