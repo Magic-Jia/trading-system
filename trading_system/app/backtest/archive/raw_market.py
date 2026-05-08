@@ -363,6 +363,9 @@ def _validated_import_scope(manifest: dict[str, Any], *, manifest_path: Path) ->
         symbol=_required_manifest_value(manifest, "symbol", manifest_path=manifest_path),
         timeframe=_manifest_timeframe(manifest),
     )
+    source = _required_manifest_value(manifest, "source", manifest_path=manifest_path)
+    if source != normalized_exchange:
+        raise ValueError(f"raw-market manifest source must match exchange: {manifest_path}")
     series_key = raw_market_series_key(
         exchange=normalized_exchange,
         market=normalized_market,
