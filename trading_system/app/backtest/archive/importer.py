@@ -1805,15 +1805,22 @@ def _phase1_dataset_root_manifest(
     }
 
 
+def _phase1_dataset_root_summary_list(payload: Mapping[str, Any], field: str) -> tuple[str, ...]:
+    value = payload.get(field)
+    if value is None:
+        value = []
+    return _canonical_string_sequence(value, field=field)
+
+
 def _phase1_dataset_root_summary_fields(payload: Mapping[str, Any]) -> dict[str, Any]:
     return {
         "snapshot_count": _phase1_root_manifest_nonnegative_int(payload, "snapshot_count", manifest_path=Path("<phase1 dataset root summary>")),
-        "symbols": list(_canonical_string_sequence(payload.get("symbols") or [], field="symbols")),
+        "symbols": list(_phase1_dataset_root_summary_list(payload, "symbols")),
         "archive_root": _phase1_root_manifest_canonical_string(payload, "archive_root", manifest_path=Path("<phase1 dataset root summary>"))
         if payload.get("archive_root") is not None
         else None,
-        "bundle_dirs": list(_canonical_string_sequence(payload.get("bundle_dirs") or [], field="bundle_dirs")),
-        "bundle_timestamps": list(_canonical_string_sequence(payload.get("bundle_timestamps") or [], field="bundle_timestamps")),
+        "bundle_dirs": list(_phase1_dataset_root_summary_list(payload, "bundle_dirs")),
+        "bundle_timestamps": list(_phase1_dataset_root_summary_list(payload, "bundle_timestamps")),
         "start_timestamp": _phase1_root_manifest_canonical_string(
             payload, "start_timestamp", manifest_path=Path("<phase1 dataset root summary>")
         )

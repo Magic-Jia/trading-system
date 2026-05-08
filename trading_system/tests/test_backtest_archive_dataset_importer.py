@@ -32,6 +32,18 @@ def test_row_market_symbol_keys_rejects_pair_list_symbols() -> None:
 
 
 
+def test_phase1_dataset_root_summary_rejects_empty_string_bundle_dirs() -> None:
+    with pytest.raises(ValueError, match="bundle_dirs must be a list"):
+        archive_importer._phase1_dataset_root_summary_fields({"snapshot_count": 0, "bundle_dirs": ""})
+
+
+
+def test_phase1_dataset_root_summary_rejects_empty_string_symbols() -> None:
+    with pytest.raises(ValueError, match="symbols must be a list"):
+        archive_importer._phase1_dataset_root_summary_fields({"snapshot_count": 0, "symbols": ""})
+
+
+
 def test_phase1_dataset_root_summary_rejects_non_strict_snapshot_count() -> None:
     with pytest.raises(ValueError, match="snapshot_count must be a non-negative integer"):
         archive_importer._phase1_dataset_root_summary_fields({"snapshot_count": True})
