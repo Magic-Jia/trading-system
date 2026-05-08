@@ -25,6 +25,23 @@ def _to_float(value: Any, fallback: float = 0.0) -> float:
         return fallback
 
 
+def _strict_exposure_risk_map(exposure: Mapping[str, Any], key: str) -> dict[str, float]:
+    raw_map = exposure.get(key, {})
+    if raw_map is None:
+        raw_map = {}
+    if not isinstance(raw_map, Mapping):
+        raise ValueError(f"exposure.{key} must be a mapping")
+
+    risk_map: dict[str, float] = {}
+    for raw_key, raw_risk in raw_map.items():
+        if not isinstance(raw_key, str) or not raw_key or raw_key.strip() != raw_key:
+            raise ValueError(f"exposure.{key} keys must be canonical non-empty strings")
+        if isinstance(raw_risk, bool):
+            raise ValueError(f"exposure.{key}.{raw_key} risk must be numeric, not boolean")
+        risk_map[raw_key] = _to_float(raw_risk)
+    return risk_map
+
+
 def _clamp(value: float, minimum: float, maximum: float) -> float:
     return max(minimum, min(value, maximum))
 
@@ -283,19 +300,13 @@ def allocate_candidates(
     exposure = exposure_snapshot(account)
     current_active_risk_pct = _to_float(exposure.get("active_risk_pct", 0.0))
     net_exposure_pct = _to_float(exposure.get("net_exposure_pct", 0.0))
-    major_risk = _to_float(exposure.get("sector_risk", {}).get("majors", 0.0))
-    alt_risk = sum(
-        _to_float(risk)
-        for sector, risk in dict(exposure.get("sector_risk", {})).items()
-        if str(sector).lower() != "majors"
-    )
+    sector_risk = _strict_exposure_risk_map(exposure, "sector_risk")
+    symbol_risk = _strict_exposure_risk_map(exposure, "symbol_risk")
+    major_risk = sector_risk.get("majors", 0.0)
+    alt_risk = sum(risk for sector, risk in sector_risk.items() if sector.lower() != "majors")
 
-    cycle_symbol_risk: dict[str, float] = defaultdict(float, {
-        str(symbol): _to_float(risk) for symbol, risk in dict(exposure.get("symbol_risk", {})).items()
-    })
-    cycle_sector_risk: dict[str, float] = defaultdict(float, {
-        str(sector): _to_float(risk) for sector, risk in dict(exposure.get("sector_risk", {})).items()
-    })
+    cycle_symbol_risk: dict[str, float] = defaultdict(float, symbol_risk)
+    cycle_sector_risk: dict[str, float] = defaultdict(float, sector_risk)
     duplicate_counts: dict[tuple[str, str, str], int] = defaultdict(int)
 
     symbol_cap_pct = max(float(app_config.risk.max_symbol_risk_pct), 0.0)

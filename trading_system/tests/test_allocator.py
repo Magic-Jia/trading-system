@@ -1,6 +1,7 @@
 from dataclasses import replace
 
 from trading_system.app.config import DEFAULT_CONFIG
+import trading_system.app.portfolio.allocator as allocator_module
 from trading_system.app.risk.regime_risk import scaled_risk_budget
 from trading_system.app.portfolio.exposure import exposure_snapshot
 from trading_system.app.portfolio.allocator import allocate_candidates
@@ -175,6 +176,43 @@ def test_allocator_enforces_symbol_and_sector_caps(load_fixture, sample_trend_ca
     assert any(d.meta.get("symbol_cap_checked") for d in decisions)
     assert any(d.meta.get("sector_cap_checked") for d in decisions)
     assert any(d.status == "REJECTED" and (d.meta.get("symbol_cap_hit") or d.meta.get("sector_cap_hit")) for d in decisions)
+
+
+@pytest.mark.parametrize(
+    ("map_name", "bad_map", "message"),
+    [
+        ("sector_risk", [("majors", 0.01)], "exposure.sector_risk must be a mapping"),
+        ("symbol_risk", [("BTCUSDT", 0.01)], "exposure.symbol_risk must be a mapping"),
+        ("sector_risk", {1: 0.01}, "exposure.sector_risk keys must be canonical non-empty strings"),
+        ("symbol_risk", {" BTCUSDT": 0.01}, "exposure.symbol_risk keys must be canonical non-empty strings"),
+        ("sector_risk", {"": 0.01}, "exposure.sector_risk keys must be canonical non-empty strings"),
+        ("symbol_risk", {"BTCUSDT": True}, "exposure.symbol_risk.BTCUSDT risk must be numeric, not boolean"),
+    ],
+)
+def test_allocator_fails_closed_on_noncanonical_exposure_maps(monkeypatch, map_name, bad_map, message):
+    exposure = {
+        "active_risk_pct": 0.0,
+        "net_exposure_pct": 0.0,
+        "sector_risk": {"majors": 0.0},
+        "symbol_risk": {"BTCUSDT": 0.0},
+    }
+    exposure[map_name] = bad_map
+    monkeypatch.setattr(allocator_module, "exposure_snapshot", lambda account: exposure)
+
+    with pytest.raises(ValueError, match=message):
+        allocate_candidates(
+            account={"equity": 100000.0, "open_positions": []},
+            candidates=[
+                {
+                    "engine": "trend",
+                    "setup_type": "BREAKOUT",
+                    "symbol": "BTCUSDT",
+                    "side": "LONG",
+                    "score": 0.9,
+                    "sector": "majors",
+                }
+            ],
+        )
 
 
 def test_allocator_checks_conflict_against_existing_exposure(load_fixture, sample_trend_candidates):
