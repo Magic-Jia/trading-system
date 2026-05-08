@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 from typing import Any, Mapping
 
 
@@ -25,6 +26,23 @@ def _tf_row(payload: Mapping[str, Any], timeframe: str) -> Mapping[str, Any]:
     if isinstance(row, Mapping):
         return row
     return {}
+
+
+def _reject_invalid_timeframe_numeric(payload: Mapping[str, Any]) -> None:
+    for timeframe in ("daily", "4h", "1h"):
+        row = _tf_row(payload, timeframe)
+        for field in ("close", "ema_20", "ema_50", "atr_pct"):
+            if field not in row:
+                continue
+            value = row[field]
+            if isinstance(value, bool):
+                raise ValueError(f"{timeframe}.{field} must be a finite numeric value")
+            try:
+                parsed = float(value)
+            except (TypeError, ValueError):
+                continue
+            if not math.isfinite(parsed):
+                raise ValueError(f"{timeframe}.{field} must be a finite numeric value")
 
 
 def _regime_label(regime: Mapping[str, Any] | None) -> str:
@@ -104,6 +122,8 @@ def build_stop_policy(
     side: str,
     regime: Mapping[str, Any] | None = None,
 ) -> StopPolicy | None:
+    _reject_invalid_timeframe_numeric(payload)
+
     engine_key = str(engine).strip().lower()
     setup_key = str(setup_type).strip().upper()
     side_key = str(side).strip().upper()

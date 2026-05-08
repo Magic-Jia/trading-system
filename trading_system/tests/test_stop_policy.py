@@ -1,3 +1,5 @@
+import math
+
 import pytest
 
 from trading_system.app.risk.stop_policy import StopPolicy, build_stop_policy
@@ -118,3 +120,32 @@ def test_build_stop_policy_tightens_longs_under_crash_defensive_regime():
         invalidation_reason="crash-defensive regime keeps long exposure on a tight squeeze stop",
     )
     assert defensive.stop_loss > base.stop_loss
+
+
+@pytest.mark.parametrize(
+    ("timeframe", "field"),
+    [
+        ("daily", "close"),
+        ("daily", "atr_pct"),
+        ("4h", "close"),
+        ("4h", "ema_20"),
+        ("4h", "ema_50"),
+        ("1h", "ema_20"),
+        ("1h", "ema_50"),
+    ],
+)
+@pytest.mark.parametrize("invalid_value", [True, False, math.nan, math.inf, -math.inf])
+def test_build_stop_policy_rejects_present_invalid_timeframe_numerics(
+    timeframe: str, field: str, invalid_value: object
+) -> None:
+    payload = _trend_payload()
+    payload[timeframe][field] = invalid_value
+
+    with pytest.raises(ValueError, match="must be a finite numeric value"):
+        build_stop_policy(
+            payload,
+            engine="trend",
+            setup_type="BREAKOUT_CONTINUATION",
+            side="LONG",
+            regime={"label": "CRASH_DEFENSIVE"},
+        )
