@@ -291,12 +291,11 @@ def _summary_int(summary_payload: Mapping[str, Any], field: str, default: int = 
     if field not in summary_payload:
         return default
     raw_value = summary_payload[field]
-    if isinstance(raw_value, bool):
-        raise ValueError(f"summary.{field} must be a finite number")
-    try:
-        return int(raw_value)
-    except (OverflowError, TypeError, ValueError) as exc:
-        raise ValueError(f"summary.{field} must be a finite number") from exc
+    if isinstance(raw_value, bool) or not isinstance(raw_value, int):
+        raise ValueError(f"summary.{field} must be a non-negative integer")
+    if raw_value < 0:
+        raise ValueError(f"summary.{field} must be a non-negative integer")
+    return raw_value
 
 
 def _summary_float(summary_payload: Mapping[str, Any], field: str, default: float = 0.0) -> float:
@@ -692,9 +691,9 @@ def render_public_strategy_factor_report(
     summary_payload = dict(experiment.get("summary", {}))
     raw_factors = [dict(factor) for factor in list(experiment.get("factors", []))]
     factors = [_flatten_public_strategy_factor(factor) for factor in raw_factors]
-    supported_factor_count = int(summary_payload.get("supported_factor_count", 0))
-    unsupported_factor_count = int(summary_payload.get("unsupported_factor_count", 0))
-    effective_factor_count = int(summary_payload.get("effective_factor_count", 0))
+    supported_factor_count = _summary_int(summary_payload, "supported_factor_count")
+    unsupported_factor_count = _summary_int(summary_payload, "unsupported_factor_count")
+    effective_factor_count = _summary_int(summary_payload, "effective_factor_count")
     minimum_sample_count = _public_strategy_factor_minimum_sample_count(
         summary_payload=summary_payload,
         factors=raw_factors,
@@ -735,11 +734,11 @@ def render_public_strategy_factor_report(
         "scorecard": {
             "metadata": _scorecard_metadata(experiment_name=experiment_name, metadata=metadata),
             "key_metrics": {
-                "snapshot_count": int(metadata.get("snapshot_count", 0)),
+                "snapshot_count": _summary_int(metadata, "snapshot_count"),
                 "supported_factor_count": supported_factor_count,
                 "unsupported_factor_count": unsupported_factor_count,
-                "data_gap_count": int(summary_payload.get("data_gap_count", 0)),
-                "evaluated_factor_count": int(summary_payload.get("evaluated_factor_count", 0)),
+                "data_gap_count": _summary_int(summary_payload, "data_gap_count"),
+                "evaluated_factor_count": _summary_int(summary_payload, "evaluated_factor_count"),
                 "effective_factor_count": effective_factor_count,
             },
             "decision_summary": _decision_summary(decision=decision, summary=summary),

@@ -1237,6 +1237,34 @@ def test_backtest_cli_writes_walk_forward_validation_bundle(monkeypatch: pytest.
         "reject",
     }
 
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("supported_factor_count", True),
+        ("unsupported_factor_count", "1"),
+        ("effective_factor_count", 1.5),
+        ("data_gap_count", -1),
+        ("evaluated_factor_count", float("nan")),
+    ],
+)
+def test_public_strategy_factor_report_rejects_invalid_summary_counts(field: str, value: object) -> None:
+    summary = {
+        "supported_factor_count": 2,
+        "unsupported_factor_count": 1,
+        "data_gap_count": 1,
+        "evaluated_factor_count": 2,
+        "effective_factor_count": 1,
+    }
+    summary[field] = value
+
+    with pytest.raises(ValueError, match=rf"summary\.{field}"):
+        reporting.render_public_strategy_factor_report(
+            experiment_name="public_strategy_factors",
+            experiment={"summary": summary, "factors": []},
+            metadata={"snapshot_count": 8},
+        )
+
+
 def test_public_strategy_factor_report_surfaces_effectiveness_counts() -> None:
     report = reporting.render_public_strategy_factor_report(
         experiment_name="public_strategy_factors",
