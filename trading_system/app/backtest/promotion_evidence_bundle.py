@@ -68,26 +68,15 @@ def collect_promotion_evidence_bundle(
     if missing:
         raise FileNotFoundError("missing required promotion evidence artifact(s): " + ", ".join(missing))
 
-    destination.mkdir(parents=True, exist_ok=True)
-    artifacts: list[dict[str, Any]] = []
-    for name in required_artifacts:
-        src = source / name
-        dst = destination / name
-        dst.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(src, dst)
-        artifacts.append(
-            {
-                "path": name,
-                "source_path": str(src),
-                "bytes": src.stat().st_size,
-                "sha256": _sha256(src),
-            }
-        )
-
     if evidence_source is None:
         raise ValueError("evidence_source is required")
     if not isinstance(evidence_source, Mapping):
         raise ValueError("evidence_source must be an object")
+    invalid_source_keys = [
+        key for key in evidence_source if not isinstance(key, str) or not key.strip() or key != key.strip()
+    ]
+    if invalid_source_keys:
+        raise ValueError("evidence_source keys must be canonical strings")
     source_payload = dict(evidence_source)
     source_payload.setdefault("type", "unknown_offline_records")
     unknown_source_fields = sorted(set(source_payload) - {"type", "run_id", "exported_at"})
@@ -116,6 +105,23 @@ def collect_promotion_evidence_bundle(
             raise ValueError(f"evidence_source {optional_field} must be non-empty")
         if isinstance(optional_value, str) and optional_value != optional_value.strip():
             raise ValueError(f"evidence_source {optional_field} must be canonical")
+
+    destination.mkdir(parents=True, exist_ok=True)
+    artifacts: list[dict[str, Any]] = []
+    for name in required_artifacts:
+        src = source / name
+        dst = destination / name
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, dst)
+        artifacts.append(
+            {
+                "path": name,
+                "source_path": str(src),
+                "bytes": src.stat().st_size,
+                "sha256": _sha256(src),
+            }
+        )
+
     manifest = {
         "schema_version": SCHEMA_VERSION,
         "candidate_id": candidate_id,

@@ -607,6 +607,40 @@ def test_collect_rejects_unknown_evidence_source_fields(tmp_path: Path) -> None:
             evidence_source={"type": "promotion_bundle_export", "run_id": "bundle-1", "label": "legacy-alias"},
         )
 
+def test_collect_rejects_non_string_evidence_source_keys_before_copying(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    for name in REQUIRED_ARTIFACTS:
+        _write_json(source / name, {"artifact": name})
+    bundle = tmp_path / "bundle"
+
+    with pytest.raises(ValueError, match="evidence_source keys must be canonical strings"):
+        collect_promotion_evidence_bundle(
+            source,
+            bundle,
+            candidate_id="candidate-1",
+            evidence_source={123: "x", "type": "promotion_bundle_export"},  # type: ignore[dict-item]
+        )
+
+    assert not bundle.exists()
+
+def test_collect_rejects_padded_evidence_source_keys_before_copying(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    for name in REQUIRED_ARTIFACTS:
+        _write_json(source / name, {"artifact": name})
+    bundle = tmp_path / "bundle"
+
+    with pytest.raises(ValueError, match="evidence_source keys must be canonical strings"):
+        collect_promotion_evidence_bundle(
+            source,
+            bundle,
+            candidate_id="candidate-1",
+            evidence_source={" type ": "promotion_bundle_export"},
+        )
+
+    assert not bundle.exists()
+
 def test_collect_rejects_non_string_evidence_source_type(tmp_path: Path) -> None:
     source = tmp_path / "source"
     source.mkdir()
