@@ -2663,10 +2663,12 @@ def build_live_readiness_gate_report(
     if exit_path_ambiguity_rate > max_exit_path_ambiguity_rate:
         reasons.append("exit_path_ambiguity_rate_above_threshold")
     exit_path_artifacts = exit_path_reconciliation.get("artifacts")
+    exit_path_artifacts_valid = exit_path_artifacts is None or isinstance(exit_path_artifacts, list)
+    exit_path_artifact_count_default = len(exit_path_artifacts) if isinstance(exit_path_artifacts, list) else 0
     exit_path_artifact_count, exit_path_artifact_count_valid = _strict_optional_non_negative_int(
         exit_path_reconciliation,
         "artifact_count",
-        len(exit_path_artifacts or []),
+        exit_path_artifact_count_default,
     )
     exit_path_duplicate_count, exit_path_duplicate_count_valid = _strict_optional_non_negative_int(
         exit_path_reconciliation,
@@ -2698,7 +2700,8 @@ def build_live_readiness_gate_report(
         False,
     )
     exit_path_reconciliation_types_valid = (
-        exit_path_artifact_count_valid
+        exit_path_artifacts_valid
+        and exit_path_artifact_count_valid
         and exit_path_duplicate_count_valid
         and exit_path_source_duplicate_count_valid
         and exit_path_invalid_source_trade_id_count_valid
@@ -2937,6 +2940,7 @@ def build_live_readiness_gate_report(
                 "exit_evidence_coverage_met": exit_evidence_coverage >= exit_evidence_coverage_threshold,
                 "exit_path_ambiguity_rate_met": exit_path_ambiguity_rate <= max_exit_path_ambiguity_rate,
                 "exit_path_replay_rows_met": exit_path_replay_rows_met,
+                "exit_path_reconciliation_counters_valid": exit_path_reconciliation_types_valid,
                 "major_setup_buckets_non_negative": not major_negative,
                 "promotion_bundle_integrity_verified": (not promotion_bundle_integrity_enforced)
                 or bool(promotion_bundle_integrity.get("verified")),

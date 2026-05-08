@@ -1166,6 +1166,29 @@ def test_live_readiness_gate_rejects_invalid_exit_path_count_types(
         build_live_readiness_gate_report(tmp_path)
 
 
+def test_live_readiness_gate_rejects_invalid_exit_path_artifacts_type(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    monkeypatch.setattr(
+        live_readiness,
+        "_exit_path_replay_reconciliation",
+        lambda _chunk_dirs, *, required: {
+            "artifacts": False,
+            "matched": True,
+            "schema_valid": True,
+            "provenance_present": True,
+        },
+    )
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    assert "exit_path_replay_counter_invalid" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["checks"]["exit_path_reconciliation_counters_valid"] is False
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
 def test_live_readiness_gate_rejects_malformed_present_promotion_manifest(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     _write_profitable_trade_chunk(chunk)
