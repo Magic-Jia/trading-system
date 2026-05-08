@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
+from numbers import Real
 from typing import Any, Mapping, Sequence
 
 from trading_system.app.config import DEFAULT_CONFIG
@@ -44,6 +46,16 @@ def _to_float(value: Any, fallback: float = 0.0) -> float:
         return fallback
 
 
+def _strict_finite_float(value: Any, *, field: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, Real):
+        raise ValueError(f"{field} must be a finite number when present")
+
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError(f"{field} must be a finite number when present")
+    return number
+
+
 def _canonical_string(value: Any, *, field: str) -> str:
     if not isinstance(value, str):
         raise ValueError(f"{field} must be a string when present")
@@ -73,16 +85,18 @@ def _extract_rows(market: Mapping[str, Any]) -> list[tuple[str, Mapping[str, Any
 
 
 def _volume_usdt_24h(payload: Mapping[str, Any]) -> float:
-    daily = payload.get("daily")
-    four_hour = payload.get("4h")
-    one_hour = payload.get("1h")
+    volumes: dict[str, float] = {}
+    for interval in ("daily", "4h", "1h"):
+        interval_payload = payload.get(interval)
+        if isinstance(interval_payload, Mapping) and "volume_usdt_24h" in interval_payload:
+            volumes[interval] = _strict_finite_float(
+                interval_payload.get("volume_usdt_24h"),
+                field=f"{interval}.volume_usdt_24h",
+            )
 
-    if isinstance(daily, Mapping) and "volume_usdt_24h" in daily:
-        return _to_float(daily.get("volume_usdt_24h"))
-    if isinstance(four_hour, Mapping) and "volume_usdt_24h" in four_hour:
-        return _to_float(four_hour.get("volume_usdt_24h"))
-    if isinstance(one_hour, Mapping) and "volume_usdt_24h" in one_hour:
-        return _to_float(one_hour.get("volume_usdt_24h"))
+    for interval in ("daily", "4h", "1h"):
+        if interval in volumes:
+            return volumes[interval]
     return 0.0
 
 
@@ -106,7 +120,11 @@ def _liquidity_inputs(payload: Mapping[str, Any], *, rolling_notional: float | N
     listing_age_days = _TIER_TO_LISTING_AGE_DAYS.get(tier, 90.0)
 
     daily = payload.get("daily")
-    atr_pct = _to_float(daily.get("atr_pct")) if isinstance(daily, Mapping) else 0.0
+    atr_pct = (
+        _strict_finite_float(daily.get("atr_pct"), field="daily.atr_pct")
+        if isinstance(daily, Mapping) and "atr_pct" in daily
+        else 0.0
+    )
 
     return {
         "rolling_notional": resolved_rolling_notional,
@@ -118,7 +136,13 @@ def _liquidity_inputs(payload: Mapping[str, Any], *, rolling_notional: float | N
 
 
 def _sort_universe(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return sorted(rows, key=lambda row: (-_to_float(row["liquidity_meta"]["rolling_notional"]), row["symbol"]))
+    return sorted(
+        rows,
+        key=lambda row: (
+            -_strict_finite_float(row["liquidity_meta"]["rolling_notional"], field="rolling_notional"),
+            row["symbol"],
+        ),
+    )
 
 
 def _sector_for_payload(symbol: str, payload: Mapping[str, Any]) -> str:
@@ -159,7 +183,11 @@ def build_universes(
         sector = _sector_for_payload(symbol, payload)
         spot_volume = _volume_usdt_24h(payload)
         derivatives_row = derivatives_rows.get(symbol)
-        open_interest_usdt = _to_float(derivatives_row.get("open_interest_usdt")) if derivatives_row else 0.0
+        open_interest_usdt = (
+            _strict_finite_float(derivatives_row.get("open_interest_usdt"), field="open_interest_usdt")
+            if derivatives_row and "open_interest_usdt" in derivatives_row
+            else 0.0
+        )
         rotation_notional = max(spot_volume, open_interest_usdt)
         liquidity_inputs = _liquidity_inputs(
             payload,
@@ -187,7 +215,10 @@ def build_universes(
             continue
 
         if row["passes_liquidity"] and row["listing_age_ok"] and sector != "majors":
-            if _to_float(liquidity["rolling_notional"]) >= DEFAULT_CONFIG.universe.min_liquidity_usdt_24h:
+            if (
+                _strict_finite_float(liquidity["rolling_notional"], field="rolling_notional")
+                >= DEFAULT_CONFIG.universe.min_liquidity_usdt_24h
+            ):
                 rotation.append(row)
 
     return UniverseBuildResult(

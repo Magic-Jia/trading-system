@@ -172,6 +172,89 @@ def test_build_universes_rejects_present_non_string_liquidity_tier():
         build_universes(market)
 
 
+@pytest.mark.parametrize(
+    ("interval", "bad_value"),
+    [
+        ("daily", True),
+        ("daily", "900000000"),
+        ("daily", float("nan")),
+        ("4h", False),
+        ("4h", "900000000"),
+        ("4h", float("inf")),
+        ("1h", True),
+        ("1h", "900000000"),
+        ("1h", float("-inf")),
+    ],
+)
+def test_build_universes_rejects_present_invalid_volume_usdt_24h(interval, bad_value):
+    market = {
+        "symbols": {
+            "BTCUSDT": {
+                **_market_symbol(sector="majors", liquidity_tier="top", volume_usdt_24h=19_800_000_000),
+                interval: {
+                    **_market_symbol(sector="majors", liquidity_tier="top", volume_usdt_24h=19_800_000_000)[interval],
+                    "volume_usdt_24h": bad_value,
+                },
+            },
+        }
+    }
+
+    with pytest.raises(ValueError, match=rf"{interval}\.volume_usdt_24h"):
+        build_universes(market)
+
+
+@pytest.mark.parametrize("bad_value", [True, "0.03", float("nan"), float("inf"), float("-inf")])
+def test_build_universes_rejects_present_invalid_daily_atr_pct(bad_value):
+    market = {
+        "symbols": {
+            "BTCUSDT": {
+                **_market_symbol(sector="majors", liquidity_tier="top", volume_usdt_24h=19_800_000_000),
+                "daily": {
+                    **_market_symbol(sector="majors", liquidity_tier="top", volume_usdt_24h=19_800_000_000)["daily"],
+                    "atr_pct": bad_value,
+                },
+            },
+        }
+    }
+
+    with pytest.raises(ValueError, match=r"daily\.atr_pct"):
+        build_universes(market)
+
+
+@pytest.mark.parametrize("bad_value", [True, "900000000", float("nan"), float("inf"), float("-inf")])
+def test_build_universes_rejects_present_invalid_derivatives_open_interest_usdt(bad_value):
+    market = {
+        "symbols": {
+            "SEIUSDT": _market_symbol(sector="alt_l1", liquidity_tier="high", volume_usdt_24h=150_000_000),
+        }
+    }
+    derivatives = [{"symbol": "SEIUSDT", "open_interest_usdt": bad_value}]
+
+    with pytest.raises(ValueError, match="open_interest_usdt"):
+        build_universes(market, derivatives=derivatives)
+
+
+@pytest.mark.parametrize("bad_value", [True, "900000000", float("nan"), float("inf"), float("-inf")])
+def test_build_universes_rejects_present_invalid_liquidity_meta_rolling_notional(monkeypatch, bad_value):
+    market = {
+        "symbols": {
+            "AVAXUSDT": _market_symbol(sector="alt_l1", liquidity_tier="high", volume_usdt_24h=900_000_000),
+        }
+    }
+    monkeypatch.setattr(
+        builder_module,
+        "evaluate_liquidity",
+        lambda _inputs: {
+            "passes_liquidity": True,
+            "listing_age_ok": True,
+            "rolling_notional": bad_value,
+        },
+    )
+
+    with pytest.raises(ValueError, match="rolling_notional"):
+        build_universes(market)
+
+
 @pytest.mark.parametrize("sector", [123, "", "   "])
 def test_build_universes_rejects_present_invalid_sector(sector):
     market = {
