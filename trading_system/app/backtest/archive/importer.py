@@ -1353,7 +1353,11 @@ def _merged_execution_evidence_coverage(traces: Iterable[Mapping[str, Any]]) -> 
                     raw_counts.get(evidence_type, 0),
                     field=f"execution_evidence.{bucket}.{evidence_type}",
                 )
-                merged[bucket][evidence_type] = int(merged[bucket].get(evidence_type, 0)) + increment
+                current = _require_non_negative_int_field(
+                    merged[bucket].get(evidence_type, 0),
+                    field=f"execution_evidence.{bucket}.{evidence_type}",
+                )
+                merged[bucket][evidence_type] = current + increment
     if len(max_staleness_values) == 1:
         merged["max_staleness_seconds"] = next(iter(max_staleness_values))
     return merged
@@ -1398,7 +1402,11 @@ def _merged_futures_context_coverage(traces: Iterable[Mapping[str, Any]]) -> dic
                     raw_counts.get(evidence_type, 0),
                     field=f"futures_context.{bucket}.{evidence_type}",
                 )
-                merged[bucket][evidence_type] = int(merged[bucket].get(evidence_type, 0)) + increment
+                current = _require_non_negative_int_field(
+                    merged[bucket].get(evidence_type, 0),
+                    field=f"futures_context.{bucket}.{evidence_type}",
+                )
+                merged[bucket][evidence_type] = current + increment
     for evidence_type, values in max_age_values.items():
         if len(values) == 1:
             merged["max_age_seconds"][evidence_type] = next(iter(values))

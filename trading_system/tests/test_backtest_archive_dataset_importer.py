@@ -191,6 +191,34 @@ def test_merged_execution_evidence_coverage_rejects_non_object_buckets() -> None
         )
 
 
+@pytest.mark.parametrize("contaminated_counter", [True, "1"])
+def test_merged_execution_evidence_coverage_rejects_contaminated_existing_counter(
+    monkeypatch: pytest.MonkeyPatch,
+    contaminated_counter: object,
+) -> None:
+    original_template = archive_importer._execution_coverage_template
+
+    def contaminated_template(**kwargs: object) -> dict[str, object]:
+        template = original_template(**kwargs)
+        template["materialized"]["order_book"] = contaminated_counter
+        return template
+
+    monkeypatch.setattr(archive_importer, "_execution_coverage_template", contaminated_template)
+
+    with pytest.raises(ValueError, match="execution_evidence.materialized.order_book must be a non-negative integer"):
+        archive_importer._merged_execution_evidence_coverage(
+            [
+                {
+                    "execution_evidence": {
+                        "available": True,
+                        "max_staleness_seconds": 300,
+                        "materialized": {"order_book": 1},
+                    }
+                }
+            ]
+        )
+
+
 def test_merged_futures_context_coverage_rejects_non_object_buckets() -> None:
     with pytest.raises(ValueError, match="futures_context.materialized must be a JSON object"):
         archive_importer._merged_futures_context_coverage(
@@ -200,6 +228,34 @@ def test_merged_futures_context_coverage_rejects_non_object_buckets() -> None:
                         "available": True,
                         "max_age_seconds": {"mark_price": 3660, "funding": 28860, "open_interest": 3660},
                         "materialized": ["mark_price"],
+                    }
+                }
+            ]
+        )
+
+
+@pytest.mark.parametrize("contaminated_counter", [True, "1"])
+def test_merged_futures_context_coverage_rejects_contaminated_existing_counter(
+    monkeypatch: pytest.MonkeyPatch,
+    contaminated_counter: object,
+) -> None:
+    original_template = archive_importer._context_coverage_template
+
+    def contaminated_template(**kwargs: object) -> dict[str, object]:
+        template = original_template(**kwargs)
+        template["materialized"]["mark_price"] = contaminated_counter
+        return template
+
+    monkeypatch.setattr(archive_importer, "_context_coverage_template", contaminated_template)
+
+    with pytest.raises(ValueError, match="futures_context.materialized.mark_price must be a non-negative integer"):
+        archive_importer._merged_futures_context_coverage(
+            [
+                {
+                    "futures_context": {
+                        "available": True,
+                        "max_age_seconds": {"mark_price": 3660, "funding": 28860, "open_interest": 3660},
+                        "materialized": {"mark_price": 1},
                     }
                 }
             ]
