@@ -54,7 +54,11 @@ def _candidate_row(candidate: Any) -> dict[str, Any]:
 
 
 def _rank_key(row: Mapping[str, Any]) -> tuple[float, str, str]:
-    return (-float(row.get("score", 0.0) or 0.0), str(row.get("symbol", "")), str(row.get("engine", "")))
+    return (
+        -_candidate_finite_number(row, "score"),
+        _candidate_canonical_string(row, "symbol"),
+        _candidate_canonical_string(row, "engine"),
+    )
 
 
 def _regime_dict(row: DatasetSnapshotRow, *, disabled_engines: frozenset[str] | None = None) -> dict[str, Any]:

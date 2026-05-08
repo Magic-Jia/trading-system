@@ -51,6 +51,15 @@ def test_engine_rejects_coerced_timeframe_and_execution_policy_fields() -> None:
         backtest_engine._entry_execution_policy({"execution_policy": True})
 
 
+def test_engine_rank_key_rejects_coerced_candidate_fields() -> None:
+    with pytest.raises(ValueError, match="candidate score must be a finite number"):
+        backtest_engine._rank_key({"score": True, "symbol": "BTCUSDT", "engine": "trend"})
+    with pytest.raises(ValueError, match="candidate symbol must be a canonical string"):
+        backtest_engine._rank_key({"score": 0.7, "symbol": True, "engine": "trend"})
+    with pytest.raises(ValueError, match="candidate engine must be a canonical string"):
+        backtest_engine._rank_key({"score": 0.7, "symbol": "BTCUSDT", "engine": True})
+
+
 def test_engine_rejects_coerced_portfolio_candidate_fields(fixture_dir: Path) -> None:
     row = load_historical_dataset(fixture_dir / "backtest" / "sample_dataset")[0]
     instrument = InstrumentSnapshotRow(
