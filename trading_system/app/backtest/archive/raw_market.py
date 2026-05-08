@@ -85,6 +85,8 @@ def _timestamp_fragment(value: str) -> str:
 
 
 def _utc_datetime(value: str | int | float) -> datetime:
+    if isinstance(value, bool):
+        raise ValueError("timestamp value must not be boolean")
     if isinstance(value, (int, float)):
         return datetime.fromtimestamp(float(value) / 1000.0, tz=timezone.utc)
     normalized = str(value).strip()
