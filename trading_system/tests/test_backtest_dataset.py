@@ -641,6 +641,33 @@ def test_load_backtest_config_rejects_non_boolean_universe_funding_flag(tmp_path
         load_backtest_config(config_path)
 
 
+def test_load_backtest_config_rejects_non_string_promotion_runtime_fields(tmp_path: Path) -> None:
+    config_path = tmp_path / "broken_promotion_metadata_config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "dataset_root": "sample_dataset",
+                "experiment_kind": "regime_research",
+                "sample_windows": [
+                    {
+                        "name": "train",
+                        "start": "2026-01-01T00:00:00Z",
+                        "end": "2026-02-01T00:00:00Z",
+                    }
+                ],
+                "costs": {"fee_bps": 4.0, "slippage_bps": 6.0},
+                "baseline_name": "baseline",
+                "variant_name": "variant",
+                "promotion_metadata": {"runtime_fields": [True]},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="promotion_metadata.runtime_fields must contain only strings"):
+        load_backtest_config(config_path)
+
+
 def test_load_backtest_config_rejects_non_boolean_llm_label_flag(tmp_path: Path) -> None:
     config_path = tmp_path / "broken_llm_flag_config.json"
     config_path.write_text(

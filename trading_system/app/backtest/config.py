@@ -344,7 +344,7 @@ def _load_setup_rewrite_setup_types(
     for item in raw:
         if not isinstance(item, str):
             raise ValueError(f"{field_name} must contain only strings")
-        setup_type = str(item).strip().upper()
+        setup_type = item.strip().upper()
         if not setup_type:
             continue
         if setup_type not in normalized:
@@ -555,6 +555,26 @@ def _load_experiment_params(raw: Any, *, experiment_kind: str) -> ExperimentPara
 
 
 
+def _optional_canonical_string_for_scope(raw: dict[str, Any], field_name: str, *, scope: str) -> str | None:
+    value = raw.get(field_name)
+    if value is None:
+        return None
+    return _canonical_string(value, field_name=f"{scope}.{field_name}")
+
+
+def _load_canonical_tuple(raw: Any, *, field_name: str) -> tuple[str, ...]:
+    if not isinstance(raw, list):
+        raise ValueError(f"{field_name} must be a list")
+    values: list[str] = []
+    for item in raw:
+        if not isinstance(item, str):
+            raise ValueError(f"{field_name} must contain only strings")
+        value = _canonical_string(item, field_name=f"{field_name}[]")
+        if value not in values:
+            values.append(value)
+    return tuple(values)
+
+
 def _load_promotion_metadata(raw: Any) -> PromotionMetadata | None:
     if raw is None:
         return None
@@ -563,12 +583,15 @@ def _load_promotion_metadata(raw: Any) -> PromotionMetadata | None:
     runtime_fields_raw = raw.get("runtime_fields", [])
     if not isinstance(runtime_fields_raw, list):
         raise ValueError("promotion_metadata.runtime_fields must be a list")
-    runtime_fields = tuple(str(item) for item in runtime_fields_raw)
+    runtime_fields = _load_canonical_tuple(
+        runtime_fields_raw,
+        field_name="promotion_metadata.runtime_fields",
+    )
     return PromotionMetadata(
         runtime_fields=runtime_fields,
-        rollback_target=str(raw["rollback_target"]) if raw.get("rollback_target") is not None else None,
-        rollback_trigger=str(raw["rollback_trigger"]) if raw.get("rollback_trigger") is not None else None,
-        observation_window=str(raw["observation_window"]) if raw.get("observation_window") is not None else None,
+        rollback_target=_optional_canonical_string_for_scope(raw, "rollback_target", scope="promotion_metadata"),
+        rollback_trigger=_optional_canonical_string_for_scope(raw, "rollback_trigger", scope="promotion_metadata"),
+        observation_window=_optional_canonical_string_for_scope(raw, "observation_window", scope="promotion_metadata"),
     )
 
 
