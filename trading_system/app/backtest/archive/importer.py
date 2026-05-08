@@ -1085,7 +1085,10 @@ def _context_coverage_template(
 
 def _increment_context_coverage(coverage: dict[str, Any], bucket: str, evidence_type: str) -> None:
     current = coverage.setdefault(bucket, {}).setdefault(evidence_type, 0)
-    coverage[bucket][evidence_type] = int(current) + 1
+    coverage[bucket][evidence_type] = _require_non_negative_int_field(
+        current,
+        field=f"futures_context.{bucket}.{evidence_type}",
+    ) + 1
 
 
 def _latest_fresh_record_at_or_before(
