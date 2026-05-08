@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import math
 
 import pytest
 
@@ -216,3 +217,22 @@ def test_setup_rewrite_experiment_applies_setup_scoped_allowed_symbols_filter() 
         (None, "no_evidence", "missing_symbol", False),
         ("DOGEUSDT", "evaluated", "passed_all_rules", True),
     ]
+
+
+@pytest.mark.parametrize("net_pnl", [True, math.nan, math.inf])
+def test_setup_rewrite_experiment_rejects_invalid_net_pnl_with_field_path(net_pnl: object) -> None:
+    module = importlib.import_module("trading_system.app.backtest.setup_rewrite_experiment")
+
+    with pytest.raises(ValueError, match=r"rows\[1\]\.net_pnl"):
+        module.build_setup_rewrite_experiment(
+            rows=[
+                {
+                    "symbol": "BTCUSDT",
+                    "setup_type": "TREND_PULLBACK",
+                    "score": 0.82,
+                    "net_pnl": net_pnl,
+                    "cost_coverage_ratio": 1.4,
+                }
+            ],
+            setup_rewrite=_params(),
+        )

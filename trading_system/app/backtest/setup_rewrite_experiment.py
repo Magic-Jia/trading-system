@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+import math
 from typing import Any, Mapping, Sequence
 
 from .types import SetupRewriteParams, SetupRewriteRule
@@ -71,7 +72,7 @@ def _evaluate_row(*, index: int, row: Mapping[str, Any], params: SetupRewritePar
         "side": _string_or_none(row.get("side")),
         "entry_timestamp": _string_or_none(row.get("entry_timestamp")),
         "score": _float_or_none(row.get("score")),
-        "net_pnl": _float_or_none(row.get("net_pnl")),
+        "net_pnl": _net_pnl_or_none(row.get("net_pnl"), field_path=f"rows[{index}].net_pnl"),
         "source_chunk": _source_chunk(row),
     }
     for rule in params.rules:
@@ -205,6 +206,20 @@ def _float_or_none(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _net_pnl_or_none(value: Any, *, field_path: str) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        raise ValueError(f"{field_path} must be a finite number")
+    try:
+        result = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{field_path} must be a finite number") from exc
+    if not math.isfinite(result):
+        raise ValueError(f"{field_path} must be a finite number")
+    return result
 
 
 def _string_or_none(value: Any) -> str | None:
