@@ -141,7 +141,9 @@ def _row_from_bundle(bundle_path: Path, *, fallback_account: dict | None) -> Dat
         raise ValueError(f"dataset bundle has invalid market context: {bundle_path / 'market_context.json'}")
     market_context = dict(market)
     derivatives_payload = _load_json(bundle_path / "derivatives_snapshot.json")
-    derivatives = derivatives_payload.get("rows", derivatives_payload)
+    if not isinstance(derivatives_payload, dict):
+        raise ValueError(f"dataset bundle has invalid derivatives snapshot: {bundle_path / 'derivatives_snapshot.json'}")
+    derivatives = derivatives_payload.get("rows", [])
     if not isinstance(derivatives, list):
         raise ValueError(f"dataset bundle has invalid derivatives rows: {bundle_path / 'derivatives_snapshot.json'}")
     derivative_rows: list[dict] = []
