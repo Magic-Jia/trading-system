@@ -24,6 +24,14 @@ from trading_system.app.backtest.dataset import load_historical_dataset
 
 
 
+def test_materialized_dataset_row_source_rejects_empty_list_source() -> None:
+    row = type("Row", (), {"meta": {"source": []}})()
+
+    with pytest.raises(ValueError, match="materialized dataset bundle metadata source must contain a JSON object"):
+        archive_importer._materialized_dataset_row_source([row])
+
+
+
 def test_row_market_symbol_keys_rejects_pair_list_symbols() -> None:
     row = type("Row", (), {"market": {"symbols": [("BTCUSDT", {})]}})()
 

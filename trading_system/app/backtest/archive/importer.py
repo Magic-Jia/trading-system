@@ -1912,7 +1912,10 @@ def _material_market_context_instrument_rows(material: Phase1DatasetBundleMateri
 
 def _materialized_dataset_row_source(rows: Sequence[Any]) -> dict[str, Any]:
     return _merged_import_trace(
-        _json_object_field(row.meta.get("source") or {}, context="materialized dataset bundle metadata source")
+        _json_object_field(
+            row.meta.get("source") if row.meta.get("source") is not None else {},
+            context="materialized dataset bundle metadata source",
+        )
         for row in rows
     )
 
