@@ -90,6 +90,26 @@ def test_engine_funding_rate_rejects_coerced_derivative_fields() -> None:
         backtest_engine._funding_rate(row, "BTCUSDT")
 
 
+def test_execution_evidence_rejects_coerced_order_book_fields() -> None:
+    row = DatasetSnapshotRow(
+        timestamp=backtest_engine._datetime_or_none("2026-03-10T00:00:00Z"),
+        run_id="run-1",
+        market={
+            "symbols": {
+                "BTCUSDT": {
+                    "execution": {
+                        "order_book": {"timestamp": "2026-03-10T00:00:00Z", "bid": "1", "ask": 2.0}
+                    }
+                }
+            }
+        },
+        derivatives=[],
+    )
+
+    with pytest.raises(ValueError, match="order_book.bid must be a positive number"):
+        backtest_engine._execution_evidence(row, "BTCUSDT")
+
+
 def test_engine_rejects_coerced_portfolio_candidate_fields(fixture_dir: Path) -> None:
     row = load_historical_dataset(fixture_dir / "backtest" / "sample_dataset")[0]
     instrument = InstrumentSnapshotRow(

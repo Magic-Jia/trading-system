@@ -402,6 +402,21 @@ def _float_or_none(value: Any) -> float | None:
     return result if result > 0.0 else None
 
 
+def _positive_float(value: Any, *, field_name: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{field_name} must be a positive number")
+    result = float(value)
+    if not math.isfinite(result) or result <= 0.0:
+        raise ValueError(f"{field_name} must be a positive number")
+    return result
+
+
+def _optional_positive_float(value: Any, *, field_name: str) -> float | None:
+    if value is None:
+        return None
+    return _positive_float(value, field_name=field_name)
+
+
 def _datetime_or_none(value: Any):
     if hasattr(value, "isoformat"):
         return value
@@ -434,10 +449,8 @@ def _execution_evidence(
     for item in book_rows:
         if not isinstance(item, Mapping):
             continue
-        bid = _float_or_none(item.get("bid"))
-        ask = _float_or_none(item.get("ask"))
-        if bid is None or ask is None:
-            continue
+        bid = _positive_float(item.get("bid"), field_name="order_book.bid")
+        ask = _positive_float(item.get("ask"), field_name="order_book.ask")
         timestamp = _datetime_or_none(item.get("timestamp")) or row.timestamp
         order_books.append(
             OrderBookSnapshot(
@@ -445,8 +458,8 @@ def _execution_evidence(
                 symbol=symbol,
                 bid=bid,
                 ask=ask,
-                bid_size=_float_or_none(item.get("bid_size", item.get("bidSize"))),
-                ask_size=_float_or_none(item.get("ask_size", item.get("askSize"))),
+                bid_size=_optional_positive_float(item.get("bid_size", item.get("bidSize")), field_name="order_book.bid_size"),
+                ask_size=_optional_positive_float(item.get("ask_size", item.get("askSize")), field_name="order_book.ask_size"),
                 bid_levels=_depth_levels(item.get("bids")),
                 ask_levels=_depth_levels(item.get("asks")),
             )
