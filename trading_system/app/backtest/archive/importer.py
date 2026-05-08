@@ -1774,9 +1774,10 @@ def _phase1_dataset_root_manifest_path(dataset_root: str | Path) -> Path:
 
 
 def _material_metadata_source(material: Phase1DatasetBundleMaterial) -> dict[str, Any]:
-    source = material.metadata.get("source")
-    if source is None:
+    if "source" not in material.metadata:
         source = {}
+    else:
+        source = material.metadata.get("source")
     return _json_object_field(source, context="materialized dataset bundle metadata source")
 
 

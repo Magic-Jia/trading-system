@@ -14,10 +14,12 @@ from trading_system.app.backtest.archive.raw_market import (
 )
 from trading_system.app.backtest.archive.data_quality import _expected_intervals, _l2_tick_coverage, _series_report
 from trading_system.app.backtest.archive.importer import (
+    Phase1DatasetBundleMaterial,
     _funding_rate,
     _increment_execution_coverage,
     _increment_context_coverage,
     _mark_price,
+    _material_metadata_source,
     _merged_execution_evidence_coverage,
     _merged_futures_context_coverage,
     _merged_import_trace,
@@ -30,6 +32,20 @@ from trading_system.app.backtest.archive.importer import (
 )
 from trading_system.app.backtest.archive.materialization import _execution_evidence_gap
 from trading_system.app.backtest.archive.materialization import _manifest_coverage_bounds
+
+
+def test_material_metadata_source_rejects_present_null_source() -> None:
+    material = Phase1DatasetBundleMaterial(
+        timestamp=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        run_id="phase1-import-2026-01-01T00-00-00Z",
+        metadata={"source": None},
+        market_context={},
+        derivatives_snapshot={},
+        account_snapshot={},
+    )
+
+    with pytest.raises(ValueError, match="materialized dataset bundle metadata source must contain a JSON object"):
+        _material_metadata_source(material)
 
 
 def test_load_raw_market_manifest_fails_fast_on_duplicate_file_timestamps(tmp_path: Path) -> None:
