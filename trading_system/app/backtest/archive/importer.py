@@ -2023,7 +2023,15 @@ def _validated_source_trace_against_manifests(source: Mapping[str, Any], *, cont
         "scope": PHASE1_IMPORTER_SCOPE,
         "exchange": "binance",
         "market": "futures",
-        "symbols": sorted({str(imported_file.manifest.get("symbol") or "") for imported_file in referenced_files}),
+        "symbols": sorted(
+            {
+                _require_canonical_string(
+                    imported_file.manifest.get("symbol"),
+                    field="referenced raw-market manifest symbol",
+                )
+                for imported_file in referenced_files
+            }
+        ),
         "series_keys": sorted({imported_file.series_key for imported_file in referenced_files}),
         "manifest_paths": sorted(str(imported_file.manifest_path) for imported_file in referenced_files),
     }

@@ -2227,6 +2227,27 @@ def test_validate_phase1_imported_dataset_root_rejects_non_string_root_source_ma
         validate_phase1_imported_dataset_root(dataset_root)
 
 
+def test_validate_phase1_imported_dataset_root_rejects_invalid_referenced_source_manifest_symbol(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    archive_root = tmp_path / "archive"
+    dataset_root = tmp_path / "dataset"
+    _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT")
+
+    import_phase1_archive_dataset_root(archive_root, dataset_root)
+    original_load_manifest = archive_importer.load_phase1_raw_market_manifest
+
+    def load_manifest_with_invalid_symbol(manifest_path: str | Path) -> object:
+        imported_file = original_load_manifest(manifest_path)
+        return replace(imported_file, manifest={**imported_file.manifest, "symbol": None})
+
+    monkeypatch.setattr(archive_importer, "load_phase1_raw_market_manifest", load_manifest_with_invalid_symbol)
+
+    with pytest.raises(ValueError, match="referenced raw-market manifest symbol must be a string"):
+        validate_phase1_imported_dataset_root(dataset_root)
+
+
 def test_validate_phase1_imported_dataset_root_rejects_manifest_source_drift(tmp_path: Path) -> None:
     archive_root = tmp_path / "archive"
     dataset_root = tmp_path / "dataset"
