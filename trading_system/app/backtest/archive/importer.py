@@ -1210,6 +1210,8 @@ def _merged_import_trace(traces: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
     manifest_paths: set[str] = set()
 
     for trace in traces:
+        if not isinstance(trace, Mapping):
+            raise ValueError("import_trace entry must be a JSON object")
         normalized = dict(trace)
         current_scope = _require_canonical_string(normalized.get("scope", ""), field="import_trace.scope")
         current_exchange = _require_canonical_string(normalized.get("exchange", ""), field="import_trace.exchange")
@@ -1244,6 +1246,8 @@ def _merged_ohlcv_timeframe_coverage(traces: Iterable[Mapping[str, Any]]) -> dic
     materialized: set[str] = set()
     not_materialized: dict[str, str] = {}
     for trace in traces:
+        if not isinstance(trace, Mapping):
+            raise ValueError("ohlcv_timeframes trace entry must be a JSON object")
         coverage = trace.get("ohlcv_timeframes")
         if not isinstance(coverage, Mapping):
             continue
@@ -1288,6 +1292,8 @@ def _merged_execution_evidence_coverage(traces: Iterable[Mapping[str, Any]]) -> 
     )
     max_staleness_values: set[int] = set()
     for trace in traces:
+        if not isinstance(trace, Mapping):
+            raise ValueError("execution_evidence trace entry must be a JSON object")
         coverage = trace.get("execution_evidence")
         if not isinstance(coverage, Mapping):
             continue
@@ -1325,6 +1331,8 @@ def _merged_futures_context_coverage(traces: Iterable[Mapping[str, Any]]) -> dic
     )
     max_age_values: dict[str, set[int]] = {"mark_price": set(), "funding": set(), "open_interest": set()}
     for trace in traces:
+        if not isinstance(trace, Mapping):
+            raise ValueError("futures_context trace entry must be a JSON object")
         coverage = trace.get("futures_context")
         if not isinstance(coverage, Mapping):
             continue

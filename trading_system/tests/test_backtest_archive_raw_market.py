@@ -436,6 +436,37 @@ def test_series_report_rejects_non_object_provenance_file_metadata(tmp_path: Pat
         _series_report(bad_series, expected_interval=None)
 
 
+def test_merged_ohlcv_timeframe_coverage_rejects_non_object_trace() -> None:
+    with pytest.raises(ValueError, match="ohlcv_timeframes trace entry must be a JSON object"):
+        _merged_ohlcv_timeframe_coverage([[('ohlcv_timeframes', {"available": ["1h"]})]])
+
+
+def test_merged_execution_evidence_rejects_non_object_trace() -> None:
+    with pytest.raises(ValueError, match="execution_evidence trace entry must be a JSON object"):
+        _merged_execution_evidence_coverage([[('execution_evidence', {"available": False})]])
+
+
+def test_merged_futures_context_rejects_non_object_trace() -> None:
+    with pytest.raises(ValueError, match="futures_context trace entry must be a JSON object"):
+        _merged_futures_context_coverage([[('futures_context', {"available": False})]])
+
+
+
+def test_merged_import_trace_rejects_non_object_trace() -> None:
+    with pytest.raises(ValueError, match="import_trace entry must be a JSON object"):
+        _merged_import_trace(
+            [
+                [
+                    ("scope", "phase1_archive_import"),
+                    ("exchange", "binance"),
+                    ("market", "futures"),
+                    ("symbols", ["BTCUSDT"]),
+                ]
+            ]
+        )
+
+
+
 def test_merged_execution_evidence_rejects_empty_list_bucket() -> None:
     with pytest.raises(ValueError, match="execution_evidence.materialized must be a JSON object"):
         _merged_execution_evidence_coverage(
