@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from typing import Any, Mapping
 
 from trading_system.app.market_regime.derivatives import is_late_stage_long_blowoff, symbol_derivatives_features
@@ -18,13 +19,40 @@ _TREND_H1_EXTENSION_OVERHEAT_PCT = 0.01
 _SUPPORTIVE_NON_MAJOR_SOFT_PRETREND_REGIMES = {"MIXED", "RISK_ON_ROTATION"}
 _SUPPORTIVE_NON_MAJOR_SOFT_PRETREND_MAX_RECLAIM_GAP_PCT = 0.02
 _ACTIVE_PAPER_H1_PULLBACK_EMA50_TOLERANCE_PCT = 0.005
+_REQUIRED_TREND_NUMERIC_FIELDS = {
+    "daily": ("close", "ema_20", "ema_50", "return_pct_7d", "volume_usdt_24h"),
+    "4h": ("close", "ema_20", "ema_50", "return_pct_3d"),
+    "1h": ("close", "ema_20", "ema_50", "return_pct_24h"),
+}
 
 
 def _to_float(value: Any) -> float:
+    if isinstance(value, bool):
+        return 0.0
     try:
-        return float(value)
+        converted = float(value)
     except (TypeError, ValueError):
         return 0.0
+    if not math.isfinite(converted):
+        return 0.0
+    return converted
+
+
+def _is_finite_number(value: Any) -> bool:
+    if isinstance(value, bool):
+        return False
+    try:
+        return math.isfinite(float(value))
+    except (TypeError, ValueError):
+        return False
+
+
+def _has_required_trend_numerics(payload: Mapping[str, Any]) -> bool:
+    for timeframe, fields in _REQUIRED_TREND_NUMERIC_FIELDS.items():
+        row = _tf_row(payload, timeframe)
+        if not all(_is_finite_number(row.get(field)) for field in fields):
+            return False
+    return True
 
 
 def _tf_row(payload: Mapping[str, Any], timeframe: str) -> Mapping[str, Any]:
@@ -294,6 +322,8 @@ def generate_trend_candidates(
         if not isinstance(payload_value, Mapping):
             continue
         payload = payload_value
+        if not _has_required_trend_numerics(payload):
+            continue
         sector = str(payload.get("sector", ""))
         is_major = sector == _MAJOR_SECTOR
         soft_non_major_pretrend = False

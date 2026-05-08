@@ -1,3 +1,5 @@
+import math
+
 from trading_system.app.signals.entry_profile import ACTIVE_PAPER_ENTRY_PROFILE
 from trading_system.app.signals.scoring import score_trend_candidate
 from trading_system.app.signals.trend_engine import generate_trend_candidates
@@ -238,6 +240,33 @@ def test_generate_trend_candidates_active_paper_profile_allows_modest_positive_m
 
     assert [candidate.symbol for candidate in candidates] == ["BTCUSDT"]
     assert candidates[0].stop_loss > 0
+
+
+def test_generate_trend_candidates_rejects_invalid_required_numeric_boundaries():
+    valid_candidates = generate_trend_candidates(
+        _modest_positive_trend_market(),
+        include_high_liquidity_strong_names=False,
+        entry_profile=ACTIVE_PAPER_ENTRY_PROFILE,
+    )
+    assert [candidate.symbol for candidate in valid_candidates] == ["BTCUSDT"]
+
+    invalid_cases = [
+        ("daily", "return_pct_7d", True),
+        ("4h", "return_pct_3d", math.inf),
+        ("1h", "return_pct_24h", -math.inf),
+        ("daily", "volume_usdt_24h", math.nan),
+    ]
+    for timeframe, field, invalid_value in invalid_cases:
+        market = _modest_positive_trend_market()
+        market["symbols"]["BTCUSDT"][timeframe][field] = invalid_value
+
+        candidates = generate_trend_candidates(
+            market,
+            include_high_liquidity_strong_names=False,
+            entry_profile=ACTIVE_PAPER_ENTRY_PROFILE,
+        )
+
+        assert candidates == []
 
 
 def _active_paper_shallow_h1_pullback_trend_market() -> dict[str, object]:
