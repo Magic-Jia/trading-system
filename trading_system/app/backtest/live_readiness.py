@@ -1688,6 +1688,15 @@ def _strict_optional_non_negative_int(mapping: Mapping[str, Any], key: str, defa
     return value, True
 
 
+def _strict_absent_or_non_negative_int(mapping: Mapping[str, Any], key: str, default: int = 0) -> tuple[int, bool]:
+    if key not in mapping:
+        return default, True
+    value = mapping.get(key)
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        return default, False
+    return value, True
+
+
 def _strict_optional_bool(mapping: Mapping[str, Any], key: str, default: bool) -> tuple[bool, bool]:
     if key not in mapping or mapping.get(key) is None:
         return default, True
@@ -2778,21 +2787,34 @@ def build_live_readiness_gate_report(
     setup_rewrite_checks: dict[str, bool] = {}
     if setup_rewrite_diagnostic is not None:
         setup_rewrite_totals = _as_mapping(setup_rewrite_diagnostic.get("totals"))
-        setup_rewrite_evaluated = int(setup_rewrite_totals.get("evaluated_count") or 0)
-        setup_rewrite_would_keep = int(setup_rewrite_totals.get("would_keep_count") or 0)
-        setup_rewrite_skipped = int(setup_rewrite_totals.get("skipped_count") or 0)
+        setup_rewrite_evaluated, setup_rewrite_evaluated_valid = _strict_absent_or_non_negative_int(
+            setup_rewrite_totals, "evaluated_count"
+        )
+        setup_rewrite_would_keep, setup_rewrite_would_keep_valid = _strict_absent_or_non_negative_int(
+            setup_rewrite_totals, "would_keep_count"
+        )
+        setup_rewrite_skipped, setup_rewrite_skipped_valid = _strict_absent_or_non_negative_int(
+            setup_rewrite_totals, "skipped_count"
+        )
+        setup_rewrite_totals_valid = (
+            setup_rewrite_evaluated_valid
+            and setup_rewrite_would_keep_valid
+            and setup_rewrite_skipped_valid
+        )
         setup_rewrite_checks = {
             **_as_mapping(setup_rewrite_diagnostic.get("checks")),
-            "setup_rewrite_has_surviving_candidates": not (
-                setup_rewrite_evaluated > 0 and setup_rewrite_would_keep == 0
-            ),
-            "setup_rewrite_evidence_complete": setup_rewrite_skipped == 0,
+            "setup_rewrite_totals_valid": setup_rewrite_totals_valid,
+            "setup_rewrite_has_surviving_candidates": setup_rewrite_totals_valid
+            and not (setup_rewrite_evaluated > 0 and setup_rewrite_would_keep == 0),
+            "setup_rewrite_evidence_complete": setup_rewrite_totals_valid and setup_rewrite_skipped == 0,
         }
         if not setup_rewrite_checks.get("setup_rewrite_artifact_schema_valid", True):
             reasons.append("setup_rewrite_artifact_schema_invalid")
-        if not setup_rewrite_checks["setup_rewrite_has_surviving_candidates"]:
+        if not setup_rewrite_checks["setup_rewrite_totals_valid"]:
+            reasons.append("setup_rewrite_totals_invalid")
+        elif not setup_rewrite_checks["setup_rewrite_has_surviving_candidates"]:
             reasons.append("setup_rewrite_no_surviving_candidates")
-        if not setup_rewrite_checks["setup_rewrite_evidence_complete"]:
+        if setup_rewrite_totals_valid and not setup_rewrite_checks["setup_rewrite_evidence_complete"]:
             reasons.append("setup_rewrite_missing_evidence")
     trade_integrity_checks = {
         "trade_financial_integrity_valid": bool(trade_financial_integrity.get("valid")),

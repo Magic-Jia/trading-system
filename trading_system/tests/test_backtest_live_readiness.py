@@ -6837,6 +6837,39 @@ def test_live_readiness_gate_rejects_bool_setup_rewrite_summary_counts(tmp_path:
     assert "setup_rewrite_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
 
 
+def test_live_readiness_gate_rejects_invalid_setup_rewrite_diagnostic_totals(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+
+    def invalid_setup_rewrite_diagnostic(_chunk_dirs: Any) -> dict[str, Any]:
+        return {
+            "schema_version": "setup_rewrite_live_readiness_diagnostic.v1",
+            "chunks": [],
+            "totals": {
+                "evaluated_count": "1",
+                "would_keep_count": False,
+                "would_filter_count": 1,
+                "skipped_count": "0",
+                "keep_rate": 0.0,
+            },
+            "reasons": {},
+            "by_setup": {},
+            "checks": {"setup_rewrite_artifact_schema_valid": True},
+        }
+
+    monkeypatch.setattr(live_readiness, "_setup_rewrite_diagnostic", invalid_setup_rewrite_diagnostic)
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+    assert "setup_rewrite_totals_invalid" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["checks"]["setup_rewrite_totals_valid"] is False
+    assert "setup_rewrite_no_surviving_candidates" not in report["promotion_gate"]["reasons"]
+    assert "setup_rewrite_missing_evidence" not in report["promotion_gate"]["reasons"]
+
+
 def test_live_readiness_gate_rejects_bool_passive_calibration_attempt_count(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     _write_profitable_trade_chunk(chunk)
