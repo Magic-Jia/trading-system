@@ -83,6 +83,19 @@ def make_portfolio_state(
     )
 
 
+def test_position_size_from_risk_rejects_coerced_candidate_prices() -> None:
+    candidate = make_candidate(
+        symbol="BTCUSDT",
+        market_type="spot",
+        base_asset="BTC",
+        entry_price="50000",
+        stop_loss=47_500.0,
+    )
+
+    with pytest.raises(ValueError, match="candidate.entry_price must be a finite number"):
+        position_size_from_risk(candidate, equity=100_000.0, risk_budget=0.01)
+
+
 def test_position_size_from_risk_uses_stop_distance() -> None:
     candidate = make_candidate(
         symbol="BTCUSDT",
