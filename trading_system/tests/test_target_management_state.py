@@ -738,6 +738,106 @@ def test_apply_executed_intent_rejects_present_non_mapping_order_meta_before_sta
     assert state.positions == {}
 
 
+@pytest.mark.parametrize("taxonomy_stop_loss", [True, "95.0", float("nan")])
+def test_apply_executed_intent_rejects_present_invalid_taxonomy_stop_loss_without_mutating_state(taxonomy_stop_loss):
+    original_position = {
+        "symbol": "BTCUSDT",
+        "side": "LONG",
+        "qty": 1.0,
+        "entry_price": 100.0,
+        "tracked_from_snapshot": False,
+    }
+    state = RuntimeStateV2(
+        updated_at_bj="2026-04-09T12:00:00+08:00",
+        positions={"BTCUSDT": dict(original_position)},
+    )
+
+    with pytest.raises((TypeError, ValueError), match="taxonomy_stop_loss"):
+        apply_executed_intent(
+            state,
+            OrderIntent(
+                intent_id="intent-invalid-taxonomy-stop",
+                signal_id="signal-invalid-taxonomy-stop",
+                symbol="BTCUSDT",
+                side="LONG",
+                qty=0.5,
+                entry_price=102.0,
+                stop_loss=95.0,
+                take_profit=107.0,
+                status="FILLED",
+                meta={"taxonomy_stop_loss": taxonomy_stop_loss},
+            ),
+        )
+
+    assert state.positions["BTCUSDT"] == original_position
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "exception"),
+    [
+        ("invalidation_source", 123, TypeError),
+        ("invalidation_reason", "", ValueError),
+        ("stop_family", True, TypeError),
+        ("stop_reference", "   ", ValueError),
+        ("stop_policy_source", 123, TypeError),
+    ],
+)
+def test_apply_executed_intent_rejects_present_invalid_taxonomy_string_fields_without_mutating_state(
+    field, value, exception
+):
+    state = RuntimeStateV2(updated_at_bj="2026-04-09T12:00:00+08:00")
+
+    with pytest.raises(exception, match=field):
+        apply_executed_intent(
+            state,
+            OrderIntent(
+                intent_id=f"intent-invalid-{field}",
+                signal_id=f"signal-invalid-{field}",
+                symbol="BTCUSDT",
+                side="LONG",
+                qty=0.5,
+                entry_price=102.0,
+                stop_loss=95.0,
+                take_profit=107.0,
+                status="FILLED",
+                meta={field: value},
+            ),
+        )
+
+    assert state.positions == {}
+
+
+@pytest.mark.parametrize("field", ["first_target_filled_qty", "second_target_filled_qty"])
+@pytest.mark.parametrize("filled_qty", [True, "0.25", float("inf")])
+def test_apply_executed_intent_rejects_present_invalid_target_filled_qty_without_mutating_state(field, filled_qty):
+    state = RuntimeStateV2(updated_at_bj="2026-04-09T12:00:00+08:00")
+
+    with pytest.raises((TypeError, ValueError), match=field):
+        apply_executed_intent(
+            state,
+            OrderIntent(
+                intent_id=f"intent-invalid-{field}",
+                signal_id=f"signal-invalid-{field}",
+                symbol="BTCUSDT",
+                side="LONG",
+                qty=0.5,
+                entry_price=102.0,
+                stop_loss=95.0,
+                take_profit=107.0,
+                status="FILLED",
+                meta={
+                    "first_target_price": 107.0,
+                    "first_target_source": "legacy_take_profit_mapped",
+                    "second_target_price": 110.0,
+                    "second_target_source": "fixed_2r",
+                    field: filled_qty,
+                },
+            ),
+        )
+
+    assert state.positions == {}
+
+
 def test_apply_executed_intent_rejects_invalid_same_side_existing_qty_without_mutating_state():
     original_position = {
         "symbol": "BTCUSDT",

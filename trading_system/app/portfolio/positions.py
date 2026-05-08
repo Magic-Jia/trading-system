@@ -52,6 +52,36 @@ _EXPLICIT_TARGET_MANAGEMENT_STATE_KEYS = (
     "remaining_position_qty",
     "legacy_partial_filled_qty",
 )
+_TARGET_MANAGEMENT_NUMBER_KEYS = frozenset(
+    {
+        "structure_target_price",
+        "first_target_price",
+        "first_target_filled_qty",
+        "second_target_price",
+        "second_target_filled_qty",
+        "runner_stop_price",
+        "original_position_qty",
+        "remaining_position_qty",
+        "symbol_step_size",
+        "min_order_qty",
+        "legacy_partial_filled_qty",
+    }
+)
+_TARGET_MANAGEMENT_STRING_KEYS = frozenset(
+    {
+        "first_target_source",
+        "first_target_status",
+        "second_target_source",
+        "second_target_status",
+    }
+)
+_TARGET_MANAGEMENT_BOOL_KEYS = frozenset(
+    {
+        "first_target_hit",
+        "second_target_hit",
+        "runner_protected",
+    }
+)
 
 
 def _now_bj() -> str:
@@ -135,6 +165,13 @@ def _strict_optional_bool(payload: Mapping[str, Any], field: str, default: bool 
     raise ValueError(f"{field} must be a bool when present")
 
 
+def _strict_present_optional_number(payload: Mapping[str, Any], key: str, field: str | None = None) -> float | None:
+    label = field or key
+    if key not in payload or payload.get(key) is None:
+        return None
+    return _strict_finite_number(payload.get(key), label)
+
+
 def _strict_non_negative_quantity(payload: Mapping[str, Any], field: str, default: float | None = None) -> float:
     if field not in payload or payload.get(field) is None:
         if default is None:
@@ -170,18 +207,28 @@ def _taxonomy_fields(existing: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
+def _strict_taxonomy_string(payload: Mapping[str, Any], key: str, field: str | None = None) -> str | None:
+    label = field or key
+    if key not in payload or payload.get(key) is None:
+        return None
+    value = payload.get(key)
+    if not isinstance(value, str):
+        raise TypeError(f"{label} must be a string when present")
+    normalized = value.strip()
+    if not normalized:
+        raise ValueError(f"{label} must not be blank when present")
+    return normalized
+
+
 def _order_taxonomy_fields(order: OrderIntent, existing: dict[str, Any]) -> dict[str, Any]:
     meta = _strict_mapping(order.meta, "order.meta")
     payload = _taxonomy_fields(existing)
-    taxonomy_stop_loss = meta.get("taxonomy_stop_loss")
+    taxonomy_stop_loss = _strict_present_optional_number(meta, "taxonomy_stop_loss")
     if taxonomy_stop_loss is None:
         taxonomy_stop_loss = order.stop_loss
-    try:
-        payload["taxonomy_stop_loss"] = round(float(taxonomy_stop_loss), 8)
-    except (TypeError, ValueError):
-        pass
+    payload["taxonomy_stop_loss"] = round(_strict_finite_number(taxonomy_stop_loss, "taxonomy_stop_loss"), 8)
     for key in _POSITION_TAXONOMY_KEYS[1:]:
-        value = meta.get(key)
+        value = _strict_taxonomy_string(meta, key)
         if value is not None:
             payload[key] = value
     return payload
@@ -200,7 +247,14 @@ def _order_target_management_fields(order: OrderIntent) -> dict[str, Any]:
     meta = _strict_mapping(order.meta, "order.meta")
     for key in _TARGET_MANAGEMENT_KEYS:
         if key in meta:
-            payload[key] = meta.get(key)
+            if key in _TARGET_MANAGEMENT_NUMBER_KEYS:
+                payload[key] = _strict_present_optional_number(meta, key)
+            elif key in _TARGET_MANAGEMENT_STRING_KEYS:
+                payload[key] = _strict_taxonomy_string(meta, key)
+            elif key in _TARGET_MANAGEMENT_BOOL_KEYS:
+                payload[key] = _strict_optional_bool(meta, key)
+            else:
+                payload[key] = meta.get(key)
     return payload
 
 
