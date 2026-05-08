@@ -3139,8 +3139,8 @@ def _normalized_chunk_name(index: int, bundle_dir: Path, input_root: Path) -> st
 def _postmortem_reconciliation(report: Mapping[str, Any], postmortem_summary: Mapping[str, Any]) -> dict[str, Any]:
     totals = _as_mapping(report.get("totals"))
     summary = _as_mapping(postmortem_summary.get("summary"))
-    gate_trade_count = int(totals.get("trade_count") or 0)
-    postmortem_trade_count = int(summary.get("trades") or 0)
+    gate_trade_count = _strict_count_int(totals, "trade_count", field_path="totals.trade_count")
+    postmortem_trade_count = _strict_count_int(summary, "trades", field_path="postmortem.summary.trades")
     gate_net_pnl = _float_value(totals.get("net_pnl"))
     postmortem_net_pnl = _float_value(summary.get("net_pnl", summary.get("net")))
     trade_count_delta = postmortem_trade_count - gate_trade_count

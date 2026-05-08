@@ -133,6 +133,14 @@ def test_stdout_reconciliation_summary_rejects_non_strict_fields() -> None:
         _stdout_reconciliation_summary(report)
 
 
+def test_postmortem_reconciliation_rejects_non_strict_trade_counts() -> None:
+    report = {"totals": {"trade_count": True, "net_pnl": 0.0}}
+    postmortem_summary = {"summary": {"trades": 1, "net_pnl": 0.0}}
+
+    with pytest.raises(ValueError, match="totals.trade_count must be a strict integer"):
+        live_readiness._postmortem_reconciliation(report, postmortem_summary)
+
+
 def test_stdout_concentration_summary_rejects_non_strict_bucket() -> None:
     report = {
         "concentration": {
