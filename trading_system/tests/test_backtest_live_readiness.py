@@ -2683,6 +2683,82 @@ def test_live_readiness_gate_rejects_passive_calibration_legacy_provenance_sourc
     assert "passive_calibration_missing_real_records" in report["promotion_gate"]["reasons"]
 
 
+@pytest.mark.parametrize(
+    ("real_exchange_records", "expected_parse_error"),
+    [
+        ("false", "provenance_real_exchange_records_not_bool"),
+        (1, "provenance_real_exchange_records_not_bool"),
+    ],
+)
+def test_live_readiness_gate_rejects_non_bool_passive_calibration_real_exchange_records(
+    tmp_path: Path,
+    real_exchange_records: Any,
+    expected_parse_error: str,
+) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    (chunk / "passive_order_calibration_summary.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "passive_order_calibration_summary.v1",
+                "provenance": {"source": "exchange_export", "real_exchange_records": real_exchange_records},
+                "overall": {"attempt_count": 10, "fill_rate": 0.75},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_live_readiness_gate_report(tmp_path, require_passive_calibration=True)
+
+    passive = report["passive_calibration"]
+    assert passive["checks"]["passive_calibration_artifact_schema_valid"] is False
+    assert passive["chunks"][0]["parse_error"] == expected_parse_error
+    assert passive["chunks"][0]["real_exchange_records"] is False
+    assert passive["real_exchange_records"] is False
+    assert "passive_calibration_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
+    assert "passive_calibration_missing_real_records" in report["promotion_gate"]["reasons"]
+
+
+@pytest.mark.parametrize(
+    ("evidence_source", "legacy_provenance", "expected_parse_error"),
+    [
+        ({"type": " exchange_export "}, None, "evidence_source_type_noncanonical"),
+        ({"type": "Exchange_Export"}, None, "evidence_source_type_noncanonical"),
+        ({"type": 1}, None, "evidence_source_type_not_string"),
+        (None, {"source": " exchange_export "}, "provenance_source_noncanonical"),
+        (None, {"source": "Exchange_Export"}, "provenance_source_noncanonical"),
+        (None, {"source": 1}, "provenance_source_not_string"),
+    ],
+)
+def test_live_readiness_gate_rejects_noncanonical_passive_calibration_live_grade_source_fields(
+    tmp_path: Path,
+    evidence_source: dict[str, Any] | None,
+    legacy_provenance: dict[str, Any] | None,
+    expected_parse_error: str,
+) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    payload: dict[str, Any] = {
+        "schema_version": "passive_order_calibration_summary.v1",
+        "overall": {"attempt_count": 10, "fill_rate": 0.75},
+    }
+    if evidence_source is not None:
+        payload["evidence_source"] = evidence_source
+    if legacy_provenance is not None:
+        payload["provenance"] = {**legacy_provenance, "real_exchange_records": False}
+    (chunk / "passive_order_calibration_summary.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    report = build_live_readiness_gate_report(tmp_path, require_passive_calibration=True)
+
+    passive = report["passive_calibration"]
+    assert passive["checks"]["passive_calibration_artifact_schema_valid"] is False
+    assert passive["chunks"][0]["parse_error"] == expected_parse_error
+    assert passive["chunks"][0]["real_exchange_records"] is False
+    assert passive["real_exchange_records"] is False
+    assert "passive_calibration_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
+    assert "passive_calibration_missing_real_records" in report["promotion_gate"]["reasons"]
+
+
 
 def test_live_readiness_gate_rejects_unknown_passive_calibration_top_level_field(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"

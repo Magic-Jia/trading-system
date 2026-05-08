@@ -1601,8 +1601,7 @@ def _artifact_provenance_present(payload: Mapping[str, Any]) -> bool:
         return False
     if source_type != source_type.strip():
         return False
-    normalized_source_type = source_type.strip().lower()
-    return normalized_source_type in {
+    return source_type in {
         "live_exchange",
         "testnet_exchange",
         "exchange_export",
@@ -1632,6 +1631,8 @@ def _artifact_provenance_schema_error(payload: Mapping[str, Any]) -> str:
         return "evidence_source_type_blank"
     if source_type != source_type.strip():
         return "evidence_source_type_noncanonical"
+    if source_type != source_type.lower():
+        return "evidence_source_type_noncanonical"
     for optional_field in ("run_id", "exported_at"):
         optional_value = source.get(optional_field)
         if optional_value is not None and not isinstance(optional_value, str):
@@ -1657,6 +1658,8 @@ def _legacy_provenance_schema_error(payload: Mapping[str, Any]) -> str:
     if isinstance(source, str) and not source.strip():
         return "provenance_source_blank"
     if isinstance(source, str) and source != source.strip():
+        return "provenance_source_noncanonical"
+    if isinstance(source, str) and source != source.lower():
         return "provenance_source_noncanonical"
     real_records = legacy.get("real_exchange_records")
     if real_records is not None and not isinstance(real_records, bool):
