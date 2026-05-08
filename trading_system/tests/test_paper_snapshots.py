@@ -30,6 +30,91 @@ def test_paper_symbols_rejects_blank_and_noncanonical_entries(monkeypatch):
         paper_snapshots._paper_symbols()
 
 
+@pytest.mark.parametrize("raw_value", ["nan", "inf", "-inf", "", "   ", "0", "-1", "false"])
+def test_paper_account_equity_rejects_invalid_values(monkeypatch, raw_value):
+    monkeypatch.setenv(paper_snapshots.PAPER_ACCOUNT_EQUITY_ENV, raw_value)
+
+    with pytest.raises(RuntimeError, match=paper_snapshots.PAPER_ACCOUNT_EQUITY_ENV):
+        paper_snapshots._paper_account_equity()
+
+
+def test_paper_account_equity_accepts_positive_numeric_string(monkeypatch):
+    monkeypatch.setenv(paper_snapshots.PAPER_ACCOUNT_EQUITY_ENV, "12345.67")
+
+    assert paper_snapshots._paper_account_equity() == pytest.approx(12345.67)
+
+
+def _kline_rows(*, close: object = "100", high: object = "110", low: object = "90") -> list[list[object]]:
+    return [[0, "95", high, low, close, "1"] for _ in range(15)]
+
+
+@pytest.mark.parametrize("last_close", ["0", "-1"])
+def test_atr_pct_rejects_non_positive_last_close(last_close):
+    rows = _kline_rows()
+    rows[-1][4] = last_close
+
+    with pytest.raises(RuntimeError, match="close must be greater than zero"):
+        paper_snapshots._atr_pct(rows)
+
+
+@pytest.mark.parametrize(
+    ("high", "low", "close"),
+    [
+        ("89", "90", "95"),
+        ("110", "90", "111"),
+        ("110", "90", "89"),
+    ],
+)
+def test_atr_pct_rejects_impossible_ohlc_rows(high, low, close):
+    rows = _kline_rows(high=high, low=low, close=close)
+
+    with pytest.raises(RuntimeError, match="invalid OHLC row"):
+        paper_snapshots._atr_pct(rows)
+
+
+@pytest.mark.parametrize("first_value", ["0", "-1"])
+def test_open_interest_change_24h_pct_rejects_non_positive_first_value(monkeypatch, first_value):
+    def fake_public_get(base, path, params=None):
+        assert path == "/futures/data/openInterestHist"
+        return [
+            {"sumOpenInterestValue": first_value},
+            {"sumOpenInterestValue": "120"},
+        ]
+
+    monkeypatch.setattr(paper_snapshots, "public_get", fake_public_get)
+
+    with pytest.raises(RuntimeError, match="sumOpenInterestValue must be greater than zero"):
+        paper_snapshots._open_interest_change_24h_pct("BTCUSDT")
+
+
+def test_open_interest_change_24h_pct_accepts_binance_numeric_strings(monkeypatch):
+    def fake_public_get(base, path, params=None):
+        assert path == "/futures/data/openInterestHist"
+        return [
+            {"sumOpenInterestValue": "100.0"},
+            {"sumOpenInterestValue": "125.0"},
+        ]
+
+    monkeypatch.setattr(paper_snapshots, "public_get", fake_public_get)
+
+    assert paper_snapshots._open_interest_change_24h_pct("BTCUSDT") == pytest.approx(0.25)
+
+
+def test_derivatives_snapshot_rejects_non_positive_index_price_for_basis(monkeypatch):
+    monkeypatch.setattr(
+        paper_snapshots,
+        "_futures_premium_index",
+        lambda symbol: {"markPrice": "100", "indexPrice": "0", "lastFundingRate": "0.0001"},
+    )
+    monkeypatch.setattr(paper_snapshots, "_futures_ticker", lambda symbol: {"priceChangePercent": "1.5"})
+    monkeypatch.setattr(paper_snapshots, "_open_interest_payload", lambda symbol: {"openInterest": "10"})
+    monkeypatch.setattr(paper_snapshots, "_open_interest_change_24h_pct", lambda symbol: 0.1)
+    monkeypatch.setattr(paper_snapshots, "_taker_buy_sell_ratio", lambda symbol: 1.2)
+
+    with pytest.raises(RuntimeError, match="indexPrice must be greater than zero"):
+        paper_snapshots._derivatives_snapshot_payload(["BTCUSDT"])
+
+
 def test_testnet_account_snapshot_payload_rejects_invalid_symbol_and_position_side(monkeypatch):
     def fake_signed_get(base, path, params=None):
         if path == "/fapi/v2/account":

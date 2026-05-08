@@ -58,10 +58,7 @@ def _paper_symbols() -> tuple[str, ...]:
 
 def _paper_account_equity() -> float:
     raw_value = os.environ.get(PAPER_ACCOUNT_EQUITY_ENV, "100000")
-    try:
-        equity = float(raw_value)
-    except ValueError as exc:
-        raise RuntimeError(f"{PAPER_ACCOUNT_EQUITY_ENV} must be numeric, got: {raw_value}") from exc
+    equity = _to_float(raw_value, field=PAPER_ACCOUNT_EQUITY_ENV)
     if equity <= 0:
         raise RuntimeError(f"{PAPER_ACCOUNT_EQUITY_ENV} must be greater than zero, got: {raw_value}")
     return equity
@@ -125,19 +122,23 @@ def _rsi(values: list[float], period: int = 14) -> float:
 def _atr_pct(rows: list[list[Any]], period: int = 14) -> float:
     if len(rows) < period + 1:
         raise RuntimeError(f"need at least {period + 1} rows to compute ATR, got {len(rows)}")
+    last_close = _to_float(rows[-1][4], field="close")
+    if last_close <= 0:
+        raise RuntimeError(f"close must be greater than zero, got: {rows[-1][4]!r}")
     true_ranges: list[float] = []
     previous_close: float | None = None
     for row in rows[-period:]:
         high = _to_float(row[2], field="high")
         low = _to_float(row[3], field="low")
         close = _to_float(row[4], field="close")
+        if low > high or close < low or close > high:
+            raise RuntimeError(f"invalid OHLC row: high={high}, low={low}, close={close}")
         if previous_close is None:
             true_range = high - low
         else:
             true_range = max(high - low, abs(high - previous_close), abs(low - previous_close))
         true_ranges.append(true_range)
         previous_close = close
-    last_close = _to_float(rows[-1][4], field="close")
     return _safe_div(sum(true_ranges) / len(true_ranges), last_close)
 
 
@@ -223,6 +224,8 @@ def _open_interest_change_24h_pct(symbol: str) -> float:
         raise RuntimeError(f"open interest history returned invalid rows for {symbol}")
     first_value = _to_float(first.get("sumOpenInterestValue", first.get("sumOpenInterest")), field="sumOpenInterestValue")
     last_value = _to_float(last.get("sumOpenInterestValue", last.get("sumOpenInterest")), field="sumOpenInterestValue")
+    if first_value <= 0:
+        raise RuntimeError(f"sumOpenInterestValue must be greater than zero, got: {first_value}")
     return round(_safe_div(last_value - first_value, first_value), 6)
 
 
@@ -271,6 +274,8 @@ def _derivatives_snapshot_payload(symbols: Iterable[str]) -> dict[str, Any]:
             premium_index.get("indexPrice", premium_index.get("estimatedSettlePrice", premium_index.get("markPrice"))),
             field="indexPrice",
         )
+        if index_price <= 0:
+            raise RuntimeError(f"indexPrice must be greater than zero, got: {index_price}")
         funding_rate = _to_float(premium_index.get("lastFundingRate"), field="lastFundingRate")
         open_interest_contracts = _to_float(open_interest.get("openInterest"), field="openInterest")
         rows.append(
