@@ -149,7 +149,9 @@ def build_microstructure_gate(
         raise ValueError("evidence_source must be an object")
     for source_key in evidence_source:
         if not isinstance(source_key, str) or not source_key.strip() or source_key != source_key.strip():
-            raise ValueError("evidence_source keys must be canonical strings")
+            raise ValueError(
+                f"evidence_source key {source_key!r} must be a canonical non-empty string"
+            )
     evidence_source = dict(evidence_source)
     evidence_source.setdefault("type", "synthetic_fixture")
     unknown_source_fields = sorted(set(evidence_source) - {"type", "run_id", "exported_at"})
