@@ -1,7 +1,9 @@
+import pytest
+
 from trading_system.app.config import AppConfig
 import trading_system.app.universe.builder as builder_module
 from trading_system.app.universe.sector_map import sector_for_symbol
-from trading_system.app.universe.liquidity_filter import passes_liquidity_filter
+from trading_system.app.universe.liquidity_filter import evaluate_liquidity, passes_liquidity_filter
 from trading_system.app.universe.builder import build_universes
 from trading_system.paper_snapshots import _paper_symbols
 
@@ -40,6 +42,33 @@ def test_passes_liquidity_filter_rejects_thin_symbols():
             "wick_risk_flag": False,
         }
     )
+
+
+def test_liquidity_filter_rejects_present_non_bool_wick_risk_flag():
+    with pytest.raises(ValueError, match="wick_risk_flag"):
+        evaluate_liquidity(
+            {
+                "rolling_notional": 5_000_000,
+                "depth_proxy_notional": 500_000,
+                "slippage_bps": 8,
+                "listing_age_days": 365,
+                "wick_risk_flag": "false",
+            }
+        )
+
+
+def test_liquidity_filter_preserves_wick_risk_bool_and_flags_behavior():
+    liquid_metrics = {
+        "rolling_notional": 5_000_000,
+        "depth_proxy_notional": 500_000,
+        "slippage_bps": 8,
+        "listing_age_days": 365,
+    }
+
+    assert evaluate_liquidity(liquid_metrics)["wick_risk_ok"] is True
+    assert evaluate_liquidity({**liquid_metrics, "wick_risk_flag": False})["wick_risk_ok"] is True
+    assert evaluate_liquidity({**liquid_metrics, "wick_risk_flag": True})["wick_risk_ok"] is False
+    assert evaluate_liquidity({**liquid_metrics, "wick_risk_flags": ["long_upper_wick"]})["wick_risk_ok"] is False
 
 
 def test_build_universes_returns_major_rotation_and_short_pools(load_fixture):

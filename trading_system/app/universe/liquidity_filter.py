@@ -20,6 +20,15 @@ def _to_float(value: Any, fallback: float) -> float:
         return fallback
 
 
+def _optional_bool(metrics: Mapping[str, Any], field: str, default: bool = False) -> bool:
+    if field not in metrics:
+        return default
+    value = metrics[field]
+    if isinstance(value, bool):
+        return value
+    raise ValueError(f"{field} must be a bool when present")
+
+
 @dataclass(frozen=True, slots=True)
 class LiquidityFilterConfig:
     min_rolling_notional: float = field(
@@ -46,7 +55,7 @@ def evaluate_liquidity(
     listing_age_days = _to_float(metrics.get("listing_age_days"), float("inf"))
 
     wick_risk_flags = metrics.get("wick_risk_flags")
-    has_wick_risk = bool(metrics.get("wick_risk_flag", False))
+    has_wick_risk = _optional_bool(metrics, "wick_risk_flag")
     if isinstance(wick_risk_flags, (list, tuple, set)):
         has_wick_risk = has_wick_risk or len(wick_risk_flags) > 0
 
