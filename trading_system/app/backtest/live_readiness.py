@@ -2397,6 +2397,8 @@ def _dominance_from_gate_buckets(
             item[0],
         )
     key, bucket = max(buckets.items(), key=sort_key)
+    if not isinstance(key, str) or not key.strip() or key != key.strip():
+        raise ValueError("bucket key must be a canonical string")
     trades = _strict_bucket_int(bucket, trade_count_key)
     net = _strict_bucket_float(bucket, net_key)
     loss_abs = abs(min(net, 0.0))

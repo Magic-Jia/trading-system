@@ -144,6 +144,15 @@ def test_stdout_concentration_summary_rejects_non_strict_bucket() -> None:
         _stdout_concentration_summary(report)
 
 
+def test_dominance_bucket_rejects_noncanonical_identity_keys() -> None:
+    with pytest.raises(ValueError, match="bucket key must be a canonical string"):
+        _dominance_from_gate_buckets(
+            {123: {"trade_count": 1, "net_pnl": 1.0}},  # type: ignore[dict-item]
+            total_trades=1,
+            total_abs_net=1.0,
+        )
+
+
 def test_markdown_renderer_rejects_non_strict_microstructure_checks() -> None:
     report = {
         "promotion_gate": {"decision": "hold", "reasons": [], "checks": {}},
