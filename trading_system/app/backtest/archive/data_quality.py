@@ -155,6 +155,18 @@ def _l2_optional_canonical_string(report: Mapping[str, Any], field: str) -> str 
     return value
 
 
+def _l2_missing_intervals(report: Mapping[str, Any]) -> list[dict[str, Any]]:
+    value = report.get("missing_intervals", [])
+    if not isinstance(value, list):
+        raise ValueError("l2 missing_intervals must be a list")
+    parsed: list[dict[str, Any]] = []
+    for index, item in enumerate(value, start=1):
+        if not isinstance(item, Mapping):
+            raise ValueError(f"l2 missing_intervals[{index}] must be an object")
+        parsed.append(dict(item))
+    return parsed
+
+
 def _l2_tick_coverage(series_reports: Mapping[str, Mapping[str, Any]], required_coverage: float) -> dict[str, Any]:
     l2_reports = [dict(report) for report in series_reports.values() if report.get("dataset") in {"order-book", "trades"}]
     if not l2_reports:
@@ -177,7 +189,7 @@ def _l2_tick_coverage(series_reports: Mapping[str, Mapping[str, Any]], required_
                     "dataset": _l2_canonical_string(report, "dataset"),
                     "timeframe": _l2_optional_canonical_string(report, "timeframe"),
                     "coverage_ratio": report_coverage_ratio,
-                    "missing_intervals": report.get("missing_intervals", []),
+                    "missing_intervals": _l2_missing_intervals(report),
                 }
             )
     return {
