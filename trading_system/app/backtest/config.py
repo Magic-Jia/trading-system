@@ -265,12 +265,12 @@ def _load_setup_rewrite_rule(raw: Any, *, index: int) -> SetupRewriteRule:
     field_name = f"experiment_params.setup_rewrite.rules[{index}]"
     if not isinstance(raw, dict):
         raise ValueError(f"{field_name} must be an object")
-    name = str(_require(raw, "name")).strip()
+    name = _canonical_string(_require(raw, "name"), field_name=f"{field_name}.name")
     if name == "require_min_score":
         unknown_fields = set(raw) - {"name", "min_score"}
         if unknown_fields:
             raise ValueError(f"{field_name} has unknown fields: {sorted(unknown_fields)}")
-        min_score = float(_require(raw, "min_score"))
+        min_score = _finite_number(_require(raw, "min_score"), field_name=f"{field_name}.min_score")
         if min_score < 0:
             raise ValueError(f"{field_name}.min_score must be non-negative")
         return SetupRewriteRule(name=name, min_score=min_score)
@@ -289,7 +289,7 @@ def _load_setup_rewrite_rule(raw: Any, *, index: int) -> SetupRewriteRule:
             field_name=f"{field_name}.setup_types",
             require_non_empty=True,
         )
-        min_score = float(_require(raw, "min_score"))
+        min_score = _finite_number(_require(raw, "min_score"), field_name=f"{field_name}.min_score")
         if min_score < 0:
             raise ValueError(f"{field_name}.min_score must be non-negative")
         return SetupRewriteRule(name=name, setup_types=setup_types, min_score=min_score)
@@ -302,7 +302,10 @@ def _load_setup_rewrite_rule(raw: Any, *, index: int) -> SetupRewriteRule:
             field_name=f"{field_name}.setup_types",
             require_non_empty=True,
         )
-        min_cost_coverage_ratio = float(_require(raw, "min_cost_coverage_ratio"))
+        min_cost_coverage_ratio = _finite_number(
+            _require(raw, "min_cost_coverage_ratio"),
+            field_name=f"{field_name}.min_cost_coverage_ratio",
+        )
         if min_cost_coverage_ratio < 0:
             raise ValueError(f"{field_name}.min_cost_coverage_ratio must be non-negative")
         return SetupRewriteRule(
