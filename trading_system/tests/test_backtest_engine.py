@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -544,6 +545,16 @@ def test_full_market_replay_rejects_coerced_candidate_symbol(
     monkeypatch.setattr(backtest_engine, "_raw_full_market_candidates", lambda *args, **kwargs: [candidate])
 
     with pytest.raises(ValueError, match="candidate symbol must be a canonical string"):
+        backtest_engine._replay_full_market_baseline_rows(config, rows)
+
+
+def test_full_market_replay_rejects_coerced_initial_equity(fixture_dir: Path) -> None:
+    config = load_backtest_config(fixture_dir / "backtest" / "full_market_baseline.json")
+    rows = load_historical_dataset(fixture_dir / "backtest" / "full_market_baseline_dataset")
+    assert config.capital is not None
+    config = replace(config, capital=replace(config.capital, initial_equity="100000"))
+
+    with pytest.raises(ValueError, match="initial_equity must be a positive number"):
         backtest_engine._replay_full_market_baseline_rows(config, rows)
 
 

@@ -1314,7 +1314,7 @@ def _replay_full_market_baseline_rows(
         config.experiment_params.minimum_cost_coverage_ratio if config.experiment_params is not None else 0.0
     )
 
-    equity = float(config.capital.initial_equity)
+    equity = _positive_float(config.capital.initial_equity, field_name="initial_equity")
     open_trades: list[_OpenTrade] = []
     trade_ledger: list[TradeLedgerRow] = []
     rejection_ledger = []
