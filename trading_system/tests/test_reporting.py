@@ -450,6 +450,40 @@ def test_build_lifecycle_report_surfaces_b_view_target_runner_fields():
     }
 
 
+@pytest.mark.parametrize("flag", ["first_target_hit", "second_target_hit", "runner_protected"])
+def test_build_lifecycle_report_rejects_non_bool_target_runner_flags(flag):
+    with pytest.raises(ValueError, match=flag):
+        build_lifecycle_report(
+            lifecycle_updates={
+                "BTCUSDT": {
+                    "state": "PROTECT",
+                    "reason_codes": ["payload_to_protect_trend_mature"],
+                    "r_multiple": 2.0,
+                    flag: "false",
+                }
+            },
+            management_suggestions=[],
+        )
+
+
+def test_build_lifecycle_report_keeps_missing_target_runner_flags_absent():
+    summary = build_lifecycle_report(
+        lifecycle_updates={
+            "BTCUSDT": {
+                "state": "PROTECT",
+                "reason_codes": ["payload_to_protect_trend_mature"],
+                "r_multiple": 2.0,
+            }
+        },
+        management_suggestions=[],
+    )
+
+    leader = summary["leaders"][0]
+    assert "first_target_hit" not in leader
+    assert "second_target_hit" not in leader
+    assert "runner_protected" not in leader
+
+
 def test_build_lifecycle_report_keeps_target_stage_review_rows_without_stop_taxonomy_meta():
     summary = build_lifecycle_report(
         lifecycle_updates={

@@ -15,6 +15,13 @@ def _float(value: Any) -> float:
         return 0.0
 
 
+def _strict_bool_field(payload: Mapping[str, Any], key: str) -> bool:
+    value = payload.get(key)
+    if not isinstance(value, bool):
+        raise ValueError(f"{key} must be bool")
+    return value
+
+
 def _rotation_leader_row(candidate: Mapping[str, Any]) -> dict[str, Any]:
     timeframe_meta = dict(candidate.get("timeframe_meta") or {})
     relative_strength = dict(timeframe_meta.get("relative_strength") or {})
@@ -85,7 +92,7 @@ def _lifecycle_leader_row(symbol: str, payload: Mapping[str, Any]) -> dict[str, 
             row[key] = str(value)
     for key in ("first_target_hit", "second_target_hit", "runner_protected"):
         if key in payload:
-            row[key] = bool(payload.get(key))
+            row[key] = _strict_bool_field(payload, key)
     runner_stop_price = payload.get("runner_stop_price")
     if runner_stop_price is not None:
         row["runner_stop_price"] = round(_float(runner_stop_price), 8)
