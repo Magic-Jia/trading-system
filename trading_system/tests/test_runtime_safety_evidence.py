@@ -162,7 +162,7 @@ def test_runtime_safety_gate_rejects_non_string_evidence_source_keys() -> None:
     try:
         build_runtime_safety_gate(manifest)
     except ValueError as exc:
-        assert str(exc) == "evidence_source keys must be canonical strings"
+        assert str(exc) == "evidence_source.<key> must be a string"
     else:  # pragma: no cover - RED path until producer is hardened
         raise AssertionError("expected non-string evidence_source key to be rejected")
 
@@ -174,7 +174,7 @@ def test_runtime_safety_gate_rejects_padded_evidence_source_keys() -> None:
     try:
         build_runtime_safety_gate(manifest)
     except ValueError as exc:
-        assert str(exc) == "evidence_source keys must be canonical strings"
+        assert str(exc) == "evidence_source.<key> must be canonical"
     else:  # pragma: no cover - RED path until producer is hardened
         raise AssertionError("expected padded evidence_source key to be rejected")
 
@@ -186,9 +186,24 @@ def test_runtime_safety_gate_rejects_blank_evidence_source_keys() -> None:
     try:
         build_runtime_safety_gate(manifest)
     except ValueError as exc:
-        assert str(exc) == "evidence_source keys must be canonical strings"
+        assert str(exc) == "evidence_source.<key> must be non-empty"
     else:  # pragma: no cover - RED path until producer is hardened
         raise AssertionError("expected blank evidence_source key to be rejected")
+
+
+def test_runtime_safety_gate_copies_valid_evidence_source_payload() -> None:
+    manifest = _passing_manifest()
+    source = {
+        "type": "paper_runtime_logs",
+        "run_id": "runtime-1",
+        "exported_at": "2026-05-08T12:00:00Z",
+    }
+    manifest["evidence_source"] = source
+
+    gate = build_runtime_safety_gate(manifest)
+
+    assert gate["evidence_source"] == source
+    assert gate["evidence_source"] is not source
 
 
 def test_runtime_safety_gate_rejects_unknown_manifest_fields() -> None:

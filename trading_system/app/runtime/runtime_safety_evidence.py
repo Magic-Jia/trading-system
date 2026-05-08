@@ -31,8 +31,12 @@ def build_runtime_safety_gate(manifest: Mapping[str, Any]) -> dict[str, Any]:
         raise ValueError("evidence_source must be an object")
     else:
         for key in raw_source:
-            if not isinstance(key, str) or not key.strip() or key != key.strip():
-                raise ValueError("evidence_source keys must be canonical strings")
+            if not isinstance(key, str):
+                raise ValueError("evidence_source.<key> must be a string")
+            if not key.strip():
+                raise ValueError("evidence_source.<key> must be non-empty")
+            if key != key.strip():
+                raise ValueError("evidence_source.<key> must be canonical")
         source = dict(raw_source)
     source.setdefault("type", "unknown_offline_records")
     unknown_source_fields = sorted(set(source) - {"type", "run_id", "exported_at"})
