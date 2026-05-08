@@ -29,6 +29,7 @@ from trading_system.app.backtest.archive.importer import (
     _trade_payload,
 )
 from trading_system.app.backtest.archive.materialization import _execution_evidence_gap
+from trading_system.app.backtest.archive.materialization import _manifest_coverage_bounds
 
 
 def test_load_raw_market_manifest_fails_fast_on_duplicate_file_timestamps(tmp_path: Path) -> None:
@@ -249,6 +250,16 @@ def test_raw_market_data_quality_reports_provenance_completeness(tmp_path: Path)
     assert series_report["provenance"][0]["sha256"]
     assert report["summary"]["series_with_incomplete_provenance"] == 0
     assert report["promotion_gate"]["checks"]["raw_market_provenance_complete_met"] is True
+
+
+def test_materialization_manifest_coverage_bounds_reject_object_boundary_values() -> None:
+    with pytest.raises(ValueError, match="coverage_start must be a string or numeric milliseconds"):
+        _manifest_coverage_bounds(
+            {
+                "coverage_start": {"timestamp": "2026-01-01T00:00:00Z"},
+                "coverage_end": "2026-01-01T01:00:00Z",
+            }
+        )
 
 
 def test_l2_tick_coverage_rejects_string_coverage_ratio() -> None:

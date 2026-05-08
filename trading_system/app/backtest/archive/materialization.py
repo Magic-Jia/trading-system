@@ -70,7 +70,16 @@ def _manifest_coverage_bounds(manifest: Mapping[str, Any]) -> tuple[datetime, da
     end = manifest.get("coverage_end")
     if start is None or end is None:
         return None
-    return _utc_datetime(str(start)), _utc_datetime(str(end))
+    return _manifest_coverage_timestamp(start, field="coverage_start"), _manifest_coverage_timestamp(end, field="coverage_end")
+
+
+def _manifest_coverage_timestamp(value: Any, *, field: str) -> datetime:
+    if isinstance(value, bool) or not isinstance(value, (str, int, float)):
+        raise ValueError(f"{field} must be a string or numeric milliseconds")
+    try:
+        return _utc_datetime(value)
+    except ValueError as exc:
+        raise ValueError(f"{field} must be a valid timestamp") from exc
 
 
 def _selected_manifest_paths(
