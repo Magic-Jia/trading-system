@@ -442,9 +442,13 @@ def _execution_evidence(
     raw_book = execution.get("order_book")
     raw_books = execution.get("order_books")
     book_rows: list[Any] = []
-    if isinstance(raw_book, Mapping):
+    if raw_book is not None:
+        if not isinstance(raw_book, Mapping):
+            raise ValueError("execution.order_book must be an object when present")
         book_rows.append(raw_book)
-    if isinstance(raw_books, list):
+    if raw_books is not None:
+        if not isinstance(raw_books, list):
+            raise ValueError("execution.order_books must be a list when present")
         book_rows.extend(raw_books)
     for item in book_rows:
         if not isinstance(item, Mapping):
@@ -467,7 +471,9 @@ def _execution_evidence(
 
     trades: list[TradePrint] = []
     raw_trades = execution.get("trades")
-    if isinstance(raw_trades, list):
+    if raw_trades is not None:
+        if not isinstance(raw_trades, list):
+            raise ValueError("execution.trades must be a list when present")
         for item in raw_trades:
             if not isinstance(item, Mapping):
                 continue
