@@ -22,6 +22,12 @@ def _load_json(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _instrument_canonical_string(value: object, *, field: str, path: Path) -> str:
+    if not isinstance(value, str) or not value or value != value.strip():
+        raise ValueError(f"instrument {field} must be a canonical string: {path}")
+    return value
+
+
 def _instrument_bool(value: object, *, field: str, path: Path) -> bool:
     if not isinstance(value, bool):
         raise ValueError(f"instrument {field} must be a boolean: {path}")
@@ -51,19 +57,23 @@ def _instrument_rows(bundle_path: Path) -> tuple[InstrumentSnapshotRow, ...]:
     for raw_row in raw_rows:
         if not isinstance(raw_row, dict):
             raise ValueError(f"dataset bundle has invalid instrument row payload: {path}")
-        market_type = str(raw_row["market_type"])
+        market_type = _instrument_canonical_string(raw_row["market_type"], field="market_type", path=path)
         if market_type not in {"spot", "futures"}:
             raise ValueError(f"dataset bundle has invalid instrument market_type: {path}")
         rows.append(
             InstrumentSnapshotRow(
-                symbol=str(raw_row["symbol"]),
+                symbol=_instrument_canonical_string(raw_row["symbol"], field="symbol", path=path),
                 market_type=market_type,
-                base_asset=str(raw_row["base_asset"]),
-                listing_timestamp=_parse_timestamp(str(raw_row["listing_timestamp"])),
+                base_asset=_instrument_canonical_string(raw_row["base_asset"], field="base_asset", path=path),
+                listing_timestamp=_parse_timestamp(
+                    _instrument_canonical_string(raw_row["listing_timestamp"], field="listing_timestamp", path=path)
+                ),
                 quote_volume_usdt_24h=_instrument_positive_float(
                     raw_row["quote_volume_usdt_24h"], field="quote_volume_usdt_24h", path=path
                 ),
-                liquidity_tier=str(raw_row["liquidity_tier"]),
+                liquidity_tier=_instrument_canonical_string(
+                    raw_row["liquidity_tier"], field="liquidity_tier", path=path
+                ),
                 quantity_step=_instrument_positive_float(raw_row["quantity_step"], field="quantity_step", path=path),
                 price_tick=_instrument_positive_float(raw_row["price_tick"], field="price_tick", path=path),
                 has_complete_funding=_instrument_bool(
