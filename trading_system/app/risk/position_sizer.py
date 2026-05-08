@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+
 from ..config import RiskConfig
 from ..types import AccountSnapshot, SizingResult, TradeSignal
 from .regime_risk import scaled_risk_budget
@@ -68,7 +70,32 @@ def size_signal(
             engine_tier_multiplier=engine_tier_multiplier,
         )
     else:
-        risk_pct = max(float(risk_pct_override), 0.0)
+        if isinstance(risk_pct_override, bool) or not isinstance(risk_pct_override, (int, float)):
+            return SizingResult(
+                allowed=False,
+                qty=0.0,
+                risk_budget_usdt=0.0,
+                planned_loss_usdt=0.0,
+                planned_notional_usdt=0.0,
+                stop_distance=round(stop_distance, 6),
+                risk_pct_of_equity=0.0,
+                max_notional_cap_usdt=0.0,
+                notes=["执行分配风险预算无效，拒绝 sizing"],
+            )
+        risk_pct = float(risk_pct_override)
+        if not math.isfinite(risk_pct):
+            return SizingResult(
+                allowed=False,
+                qty=0.0,
+                risk_budget_usdt=0.0,
+                planned_loss_usdt=0.0,
+                planned_notional_usdt=0.0,
+                stop_distance=round(stop_distance, 6),
+                risk_pct_of_equity=0.0,
+                max_notional_cap_usdt=0.0,
+                notes=["执行分配风险预算无效，拒绝 sizing"],
+            )
+        risk_pct = max(risk_pct, 0.0)
         notes = [f"使用执行分配风险预算 {risk_pct:.2%}"]
     equity = max(account.equity, 0.0)
     risk_budget = equity * risk_pct
