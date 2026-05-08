@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+import math
 from typing import Any
 
 from trading_system.app.universe.sector_map import sector_for_symbol
+
+_MISSING = object()
 
 
 def _get_value(row: Mapping[str, Any] | Any, key: str, default: Any = None) -> Any:
@@ -19,18 +22,40 @@ def _to_float(value: Any) -> float:
         return 0.0
 
 
+def _to_boundary_float(value: Any, field: str) -> float:
+    if isinstance(value, bool):
+        raise ValueError(f"{field} must be numeric, not boolean")
+
+    converted = _to_float(value)
+    if not math.isfinite(converted):
+        raise ValueError(f"{field} must be finite")
+
+    return converted
+
+
+def _optional_boundary_float(row: Mapping[str, Any] | Any, key: str, field: str, default: float = 0.0) -> float:
+    value = _get_value(row, key, _MISSING)
+    if value is _MISSING:
+        return default
+    return _to_boundary_float(value, field)
+
+
 def _position_notional(position: Mapping[str, Any] | Any) -> float:
-    notional = _to_float(_get_value(position, "notional", 0.0))
+    symbol = str(_get_value(position, "symbol", "")).upper() or "UNKNOWN"
+    field_prefix = f"position.{symbol}"
+    notional = _optional_boundary_float(position, "notional", f"{field_prefix}.notional")
     if notional > 0:
         return notional
 
-    qty = abs(_to_float(_get_value(position, "qty", 0.0)))
-    price = _to_float(_get_value(position, "mark_price", 0.0)) or _to_float(_get_value(position, "entry_price", 0.0))
+    qty = abs(_optional_boundary_float(position, "qty", f"{field_prefix}.qty"))
+    price = _optional_boundary_float(position, "mark_price", f"{field_prefix}.mark_price") or _optional_boundary_float(
+        position, "entry_price", f"{field_prefix}.entry_price"
+    )
     return qty * price
 
 
 def exposure_snapshot(account: Mapping[str, Any] | Any) -> dict[str, Any]:
-    equity = max(_to_float(_get_value(account, "equity", 0.0)), 0.0)
+    equity = max(_optional_boundary_float(account, "equity", "account.equity"), 0.0)
     positions = _get_value(account, "open_positions", [])
     if not isinstance(positions, list):
         positions = []
