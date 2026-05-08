@@ -334,10 +334,13 @@ def _exit_execution_fill(row: DatasetSnapshotRow, open_trade: _OpenTrade, refere
     """
     exit_side = "sell" if open_trade.side == "long" else "buy"
     _order_books, trades = _execution_evidence(row, open_trade.symbol)
-    symbol_trades = sorted(
-        (trade for trade in trades if trade.symbol == open_trade.symbol and trade.price > 0.0),
-        key=lambda trade: trade.timestamp,
-    )
+    symbol_trades = []
+    for trade in trades:
+        if trade.symbol != open_trade.symbol:
+            continue
+        trade_price = _positive_float(trade.price, field_name="trade.price")
+        symbol_trades.append(replace(trade, price=trade_price))
+    symbol_trades = sorted(symbol_trades, key=lambda trade: trade.timestamp)
     post_exit_trades = [trade for trade in symbol_trades if trade.timestamp >= row.timestamp]
     if post_exit_trades:
         trade = post_exit_trades[0]

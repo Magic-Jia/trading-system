@@ -558,6 +558,39 @@ def test_full_market_replay_rejects_coerced_initial_equity(fixture_dir: Path) ->
         backtest_engine._replay_full_market_baseline_rows(config, rows)
 
 
+def test_exit_execution_fill_rejects_coerced_trade_print_price(monkeypatch: pytest.MonkeyPatch) -> None:
+    row = DatasetSnapshotRow(
+        timestamp=_ts("2026-03-10T00:01:00Z"),
+        run_id="run-1",
+        market={},
+        derivatives=[],
+    )
+    open_trade = backtest_engine._OpenTrade(
+        symbol="BTCUSDT",
+        market_type="futures",
+        base_asset="BTC",
+        side="long",
+        status="accepted",
+        entry_timestamp=_ts("2026-03-10T00:00:00Z"),
+        entry_price=100.0,
+        qty=1.0,
+        position_notional=100.0,
+        liquidity_tier="high",
+        funding_rate=0.0,
+    )
+    trade = backtest_engine.TradePrint(
+        timestamp=row.timestamp,
+        symbol="BTCUSDT",
+        price="101",
+        quantity=1.0,
+        side="sell",
+    )
+    monkeypatch.setattr(backtest_engine, "_execution_evidence", lambda *_args, **_kwargs: ((), (trade,)))
+
+    with pytest.raises(ValueError, match="trade.price must be a positive number"):
+        backtest_engine._exit_execution_fill(row, open_trade, 100.0)
+
+
 def test_replay_snapshot_records_layer_artifacts(fixture_dir: Path) -> None:
     rows = load_historical_dataset(fixture_dir / "backtest" / "sample_dataset")
 
