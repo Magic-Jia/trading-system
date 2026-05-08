@@ -28,6 +28,18 @@ def _require(raw: dict[str, Any], field_name: str) -> Any:
     return raw[field_name]
 
 
+def _positive_int(value: Any, *, field_name: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        raise ValueError(f"{field_name} must be a positive integer")
+    return value
+
+
+def _non_negative_int(value: Any, *, field_name: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ValueError(f"{field_name} must be a non-negative integer")
+    return value
+
+
 def _canonical_string(value: Any, *, field_name: str) -> str:
     if not isinstance(value, str) or not value or value != value.strip():
         raise ValueError(f"{field_name} must be a canonical string")
@@ -88,7 +100,12 @@ def _load_forward_windows(raw: Any) -> tuple[ForwardReturnWindow, ...]:
     for index, item in enumerate(raw):
         if not isinstance(item, dict):
             raise ValueError(f"forward_return_windows[{index}] must be an object")
-        windows.append(ForwardReturnWindow(name=str(_require(item, "name")), hours=int(_require(item, "hours"))))
+        windows.append(
+            ForwardReturnWindow(
+                name=_canonical_string(_require(item, "name"), field_name=f"forward_return_windows[{index}].name"),
+                hours=_positive_int(_require(item, "hours"), field_name=f"forward_return_windows[{index}].hours"),
+            )
+        )
     return tuple(windows)
 
 

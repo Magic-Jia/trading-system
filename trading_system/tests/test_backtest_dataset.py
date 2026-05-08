@@ -530,6 +530,33 @@ def test_load_backtest_config_requires_dataset_root(tmp_path: Path) -> None:
         load_backtest_config(config_path)
 
 
+def test_load_backtest_config_rejects_non_strict_forward_return_window_hours(tmp_path: Path) -> None:
+    config_path = tmp_path / "broken_forward_window_config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "dataset_root": "sample_dataset",
+                "experiment_kind": "regime_research",
+                "sample_windows": [
+                    {
+                        "name": "train",
+                        "start": "2026-01-01T00:00:00Z",
+                        "end": "2026-02-01T00:00:00Z",
+                    }
+                ],
+                "forward_return_windows": [{"name": "1d", "hours": True}],
+                "costs": {"fee_bps": 4.0, "slippage_bps": 6.0},
+                "baseline_name": "baseline",
+                "variant_name": "variant",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match=r"forward_return_windows\[0\]\.hours must be a positive integer"):
+        load_backtest_config(config_path)
+
+
 def test_load_backtest_config_parses_full_market_baseline_contract(tmp_path: Path) -> None:
     dataset_root = tmp_path / "sample_dataset"
     config_path = tmp_path / "full_market_config.json"
