@@ -805,6 +805,13 @@ def _candidate_finite_number(candidate_row: Mapping[str, Any], key: str) -> floa
     return parsed
 
 
+def _optional_candidate_finite_number(candidate_row: Mapping[str, Any], key: str) -> float | None:
+    value = candidate_row.get(key)
+    if value is None:
+        return None
+    return _candidate_finite_number(candidate_row, key)
+
+
 def _candidate_side(candidate_row: Mapping[str, Any]) -> str:
     value = candidate_row.get("side")
     if not isinstance(value, str) or value not in {"LONG", "SHORT"}:
@@ -835,8 +842,7 @@ def _portfolio_candidate(
         entry_reference_timeframe=entry_reference_timeframe,
     )
     executed_entry_price = float(entry_fill.fill_price if entry_fill.fill_price is not None else entry_price)
-    take_profit_raw = candidate_row.get("take_profit")
-    take_profit = float(take_profit_raw) if take_profit_raw is not None else None
+    take_profit = _optional_candidate_finite_number(candidate_row, "take_profit")
     if take_profit is None or take_profit <= 0:
         take_profit = _candidate_take_profit_price(entry_price, stop_loss, side)
     if entry_price <= 0.0 or stop_loss <= 0.0:

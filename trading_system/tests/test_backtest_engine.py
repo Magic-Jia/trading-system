@@ -84,6 +84,11 @@ def test_engine_rejects_coerced_portfolio_candidate_fields(fixture_dir: Path) ->
     with pytest.raises(ValueError, match="candidate stop_loss must be a finite number"):
         backtest_engine._portfolio_candidate(bad_stop, instrument=instrument, row=row)
 
+    bad_take_profit = dict(base_candidate)
+    bad_take_profit["take_profit"] = True
+    with pytest.raises(ValueError, match="candidate take_profit must be a finite number"):
+        backtest_engine._portfolio_candidate(bad_take_profit, instrument=instrument, row=row)
+
 
 def test_replay_snapshot_records_layer_artifacts(fixture_dir: Path) -> None:
     rows = load_historical_dataset(fixture_dir / "backtest" / "sample_dataset")
