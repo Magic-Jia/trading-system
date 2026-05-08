@@ -1151,6 +1151,34 @@ def test_promotion_bundle_verification_error_reports_keep_stable_audit_fields(tm
             assert report[field] == []
 
 
+def test_live_readiness_gate_rejects_invalid_passive_calibration_chunks_type(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    monkeypatch.setattr(
+        live_readiness,
+        "_passive_calibration_diagnostic",
+        lambda *_args, **_kwargs: {
+            "chunks": False,
+            "checks": {
+                "passive_calibration_present_met": True,
+                "passive_calibration_artifact_schema_valid": True,
+                "passive_calibration_artifact_provenance_present": True,
+                "passive_calibration_real_records_met": True,
+                "passive_calibration_attempts_met": True,
+                "passive_calibration_fill_rate_met": True,
+            },
+        },
+    )
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    assert "passive_calibration_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["checks"]["passive_calibration_chunks_valid"] is False
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
 def test_live_readiness_gate_rejects_invalid_exit_path_count_types(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

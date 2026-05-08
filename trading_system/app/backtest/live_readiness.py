@@ -2812,7 +2812,11 @@ def build_live_readiness_gate_report(
         reasons.append("passive_calibration_config_invalid")
     if not passive_checks.get("passive_calibration_present_met", True):
         reasons.append("passive_calibration_missing")
-    passive_artifact_count = len(passive_calibration.get("chunks") or [])
+    passive_chunks = passive_calibration.get("chunks")
+    passive_chunks_valid = passive_chunks is None or isinstance(passive_chunks, list)
+    passive_artifact_count = len(passive_chunks) if isinstance(passive_chunks, list) else 0
+    if not passive_chunks_valid:
+        reasons.append("passive_calibration_artifact_schema_invalid")
     if passive_artifact_count > 0 and not passive_checks.get("passive_calibration_artifact_schema_valid", False):
         reasons.append("passive_calibration_artifact_schema_invalid")
     if passive_artifact_count > 0 and not passive_checks.get("passive_calibration_artifact_provenance_present", False):
@@ -2956,6 +2960,7 @@ def build_live_readiness_gate_report(
                 "setup_loss_abs_concentration_met": setup_loss_abs_concentration_met,
                 "symbol_loss_abs_concentration_met": symbol_loss_abs_concentration_met,
                 **passive_checks,
+                "passive_calibration_chunks_valid": passive_chunks_valid,
                 **setup_rewrite_checks,
             },
         },
