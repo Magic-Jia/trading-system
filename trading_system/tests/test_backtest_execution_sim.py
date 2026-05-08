@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from datetime import datetime, timezone
 
 import pytest
@@ -403,6 +404,57 @@ def test_taker_depth_returns_no_fill_without_side_liquidity() -> None:
     assert fill.filled_quantity == pytest.approx(0.0)
     assert fill.unfilled_quantity == pytest.approx(1.0)
     assert fill.depth_levels_consumed == 0
+
+
+@pytest.mark.parametrize("quantity", [True, False, math.nan, math.inf, -math.inf])
+def test_taker_depth_rejects_bool_and_non_finite_requested_quantity(quantity: float | bool) -> None:
+    with pytest.raises(ValueError, match="quantity must be a finite number"):
+        simulate_taker_depth_fill(
+            symbol="BTCUSDT",
+            side="buy",
+            quantity=quantity,
+            reference_price=100.0,
+            order_book=OrderBookSnapshot(
+                timestamp=_ts("2026-03-10T00:00:01Z"),
+                symbol="BTCUSDT",
+                bid=99.9,
+                ask=100.0,
+                ask_levels=(DepthLevel(price=100.0, quantity=1.0),),
+            ),
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("price", True),
+        ("price", math.nan),
+        ("price", math.inf),
+        ("price", -math.inf),
+        ("quantity", True),
+        ("quantity", math.nan),
+        ("quantity", math.inf),
+        ("quantity", -math.inf),
+    ],
+)
+def test_taker_depth_rejects_bool_and_non_finite_depth_level_values(field: str, value: float | bool) -> None:
+    level_kwargs = {"price": 100.0, "quantity": 1.0}
+    level_kwargs[field] = value
+
+    with pytest.raises(ValueError, match=f"depth level {field} must be a finite number"):
+        simulate_taker_depth_fill(
+            symbol="BTCUSDT",
+            side="buy",
+            quantity=1.0,
+            reference_price=100.0,
+            order_book=OrderBookSnapshot(
+                timestamp=_ts("2026-03-10T00:00:01Z"),
+                symbol="BTCUSDT",
+                bid=99.9,
+                ask=100.0,
+                ask_levels=(DepthLevel(**level_kwargs),),
+            ),
+        )
 
 
 def test_taker_without_orderbook_keeps_ohlcv_approximation_label() -> None:

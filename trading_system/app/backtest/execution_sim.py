@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+import math
 from typing import Any, Literal, Mapping
 
 OrderSide = Literal["buy", "sell"]
@@ -212,7 +213,7 @@ def simulate_taker_depth_fill(
     order_book: OrderBookSnapshot,
 ) -> ExecutionFill:
     notional_request = _positive_float(requested_notional)
-    requested_quantity = max(float(quantity or 0.0), 0.0)
+    requested_quantity = 0.0 if quantity is None else max(_finite_float("quantity", quantity), 0.0)
     levels = _side_levels(order_book, side=side)
     source: ExecutionPriceSource = "ask_depth" if side == "buy" else "bid_depth"
     if not levels:
@@ -586,11 +587,12 @@ def _first_symbol_book(symbol: str, order_books: tuple[OrderBookSnapshot, ...]) 
 
 def _side_levels(order_book: OrderBookSnapshot, *, side: OrderSide) -> tuple[DepthLevel, ...]:
     raw_levels = order_book.ask_levels if side == "buy" else order_book.bid_levels
-    valid_levels = tuple(
-        DepthLevel(price=float(level.price), quantity=float(level.quantity))
-        for level in raw_levels
-        if float(level.price) > 0.0 and float(level.quantity) > 0.0
-    )
+    valid_levels = []
+    for level in raw_levels:
+        price = _finite_float("depth level price", level.price)
+        quantity = _finite_float("depth level quantity", level.quantity)
+        if price > 0.0 and quantity > 0.0:
+            valid_levels.append(DepthLevel(price=price, quantity=quantity))
     if side == "buy":
         return tuple(sorted(valid_levels, key=lambda level: level.price))
     return tuple(sorted(valid_levels, key=lambda level: level.price, reverse=True))
@@ -635,6 +637,18 @@ def _positive_float(value: Any) -> float | None:
     except (TypeError, ValueError):
         return None
     return result if result > 0.0 else None
+
+
+def _finite_float(name: str, value: Any) -> float:
+    if isinstance(value, bool):
+        raise ValueError(f"{name} must be a finite number")
+    try:
+        result = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} must be a finite number") from exc
+    if not math.isfinite(result):
+        raise ValueError(f"{name} must be a finite number")
+    return result
 
 
 def _datetime_or_none(value: Any) -> datetime | None:
