@@ -217,6 +217,18 @@ def test_execution_evidence_rejects_invalid_evidence_rows() -> None:
         backtest_engine._execution_evidence(row, "BTCUSDT")
 
 
+def test_intraday_path_rejects_coerced_high_low_fields() -> None:
+    row = DatasetSnapshotRow(
+        timestamp=backtest_engine._datetime_or_none("2026-03-10T00:00:00Z"),
+        run_id="run-1",
+        market={"symbols": {"BTCUSDT": {"1m": {"high": "2", "low": 1.0}}}},
+        derivatives=[],
+    )
+
+    with pytest.raises(ValueError, match="path.1m.high must be a positive number"):
+        backtest_engine._path_high_low(row, "BTCUSDT")
+
+
 def test_engine_rejects_coerced_portfolio_candidate_fields(fixture_dir: Path) -> None:
     row = load_historical_dataset(fixture_dir / "backtest" / "sample_dataset")[0]
     instrument = InstrumentSnapshotRow(

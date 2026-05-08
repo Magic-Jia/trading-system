@@ -514,10 +514,13 @@ def _path_high_low(row: DatasetSnapshotRow, symbol: str) -> tuple[float | None, 
         timeframe_row = payload.get(timeframe)
         if not isinstance(timeframe_row, Mapping):
             continue
-        high = _float_or_none(timeframe_row.get("high"))
-        low = _float_or_none(timeframe_row.get("low"))
-        if high is not None and low is not None:
-            return high, low
+        if "high" not in timeframe_row and "low" not in timeframe_row:
+            continue
+        if "high" not in timeframe_row or "low" not in timeframe_row:
+            raise ValueError(f"path.{timeframe} high/low must both be present")
+        high = _positive_float(timeframe_row.get("high"), field_name=f"path.{timeframe}.high")
+        low = _positive_float(timeframe_row.get("low"), field_name=f"path.{timeframe}.low")
+        return high, low
     return None, None
 
 
