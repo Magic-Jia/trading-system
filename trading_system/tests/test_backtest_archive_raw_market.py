@@ -144,6 +144,40 @@ def test_archive_raw_market_payload_rejects_noncanonical_metadata_keys_before_ar
     assert not archive_root.exists()
 
 
+def test_archive_raw_market_payload_rejects_boolean_coverage_start_before_archive_side_effects(
+    tmp_path: Path,
+) -> None:
+    archive_root = tmp_path / "archive"
+
+    with pytest.raises(ValueError, match="raw-market coverage_start must be a string timestamp"):
+        archive_raw_market_payload(
+            archive_root=archive_root,
+            exchange="binance",
+            market="futures",
+            dataset="ohlcv",
+            symbol="BTCUSDT",
+            timeframe="1h",
+            coverage_start=True,
+            coverage_end="2026-01-01T01:00:00Z",
+            fetched_at="2026-01-01T01:01:00Z",
+            endpoint="/fapi/v1/klines",
+            payload={
+                "rows": [
+                    {
+                        "open_time": "2026-01-01T00:00:00Z",
+                        "open": 100.0,
+                        "high": 101.0,
+                        "low": 99.0,
+                        "close": 100.5,
+                        "volume": 10.0,
+                    },
+                ]
+            },
+        )
+
+    assert not archive_root.exists()
+
+
 def test_raw_market_data_quality_reports_timestamp_uniqueness(tmp_path: Path) -> None:
     from trading_system.app.backtest.archive.data_quality import build_raw_market_data_quality_report
 

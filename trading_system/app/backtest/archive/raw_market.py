@@ -84,6 +84,12 @@ def _timestamp_fragment(value: str) -> str:
     return _utc_timestamp(value).replace(":", "-")
 
 
+def _archive_timestamp(value: Any, *, field: str) -> str:
+    if not isinstance(value, str):
+        raise ValueError(f"raw-market {field} must be a string timestamp")
+    return _utc_timestamp(value)
+
+
 def _utc_datetime(value: str | int | float) -> datetime:
     if isinstance(value, bool):
         raise ValueError("timestamp value must not be boolean")
@@ -632,9 +638,9 @@ def archive_raw_market_payload(
         symbol=symbol,
         timeframe=timeframe,
     )
-    normalized_coverage_start = _utc_timestamp(coverage_start)
-    normalized_coverage_end = _utc_timestamp(coverage_end)
-    normalized_fetched_at = _utc_timestamp(fetched_at)
+    normalized_coverage_start = _archive_timestamp(coverage_start, field="coverage_start")
+    normalized_coverage_end = _archive_timestamp(coverage_end, field="coverage_end")
+    normalized_fetched_at = _archive_timestamp(fetched_at, field="fetched_at")
     storage_dir = raw_market_storage_dir(
         archive_root,
         exchange=normalized_exchange,
