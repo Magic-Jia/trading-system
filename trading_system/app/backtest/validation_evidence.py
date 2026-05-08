@@ -36,8 +36,12 @@ def _integer_count(value: Any, name: str) -> int:
 
 def _validate_canonical_keys(value: Mapping[Any, Any], name: str) -> None:
     for key in value:
-        if not isinstance(key, str) or not key.strip() or key != key.strip():
-            raise ValueError(f"{name} keys must be canonical strings")
+        if not isinstance(key, str):
+            raise ValueError(f"{name}.<key> must be a string")
+        if not key.strip():
+            raise ValueError(f"{name}.<key> must be non-empty")
+        if key != key.strip():
+            raise ValueError(f"{name}.<key> must be canonical")
 
 
 def build_validation_gate(manifest: Mapping[str, Any]) -> dict[str, Any]:

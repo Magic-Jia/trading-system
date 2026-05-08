@@ -45,6 +45,19 @@ def test_builds_validation_gate_when_all_checks_pass(tmp_path: Path) -> None:
     assert json.loads(output.read_text()) == gate
 
 
+def test_validation_gate_preserves_valid_evidence_source_payload() -> None:
+    manifest = _passing_manifest()
+    manifest["evidence_source"] = {
+        "type": "walk_forward_oos_report",
+        "run_id": "validation-1",
+        "exported_at": "2026-05-08T12:00:00Z",
+    }
+
+    gate = build_validation_gate(manifest)
+
+    assert gate["evidence_source"] == manifest["evidence_source"]
+
+
 def test_validation_gate_reports_each_failed_requirement() -> None:
     gate = build_validation_gate(
         {
@@ -205,16 +218,25 @@ def test_validation_gate_rejects_non_string_evidence_source_keys(bad_key: object
     manifest = _passing_manifest()
     manifest["evidence_source"] = {"type": "walk_forward_oos_report", bad_key: "not-allowed"}
 
-    with pytest.raises(ValueError, match="^evidence_source keys must be canonical strings$"):
+    with pytest.raises(ValueError, match=r"^evidence_source\.<key> must be a string$"):
         build_validation_gate(manifest)
 
 
-@pytest.mark.parametrize("bad_key", ["", " ", " type", "type "])
-def test_validation_gate_rejects_noncanonical_evidence_source_keys(bad_key: str) -> None:
+@pytest.mark.parametrize("bad_key", ["", " "])
+def test_validation_gate_rejects_blank_evidence_source_keys(bad_key: str) -> None:
     manifest = _passing_manifest()
     manifest["evidence_source"] = {"type": "walk_forward_oos_report", bad_key: "not-allowed"}
 
-    with pytest.raises(ValueError, match="^evidence_source keys must be canonical strings$"):
+    with pytest.raises(ValueError, match=r"^evidence_source\.<key> must be non-empty$"):
+        build_validation_gate(manifest)
+
+
+@pytest.mark.parametrize("bad_key", [" type", "type "])
+def test_validation_gate_rejects_padded_evidence_source_keys(bad_key: str) -> None:
+    manifest = _passing_manifest()
+    manifest["evidence_source"] = {"type": "walk_forward_oos_report", bad_key: "not-allowed"}
+
+    with pytest.raises(ValueError, match=r"^evidence_source\.<key> must be canonical$"):
         build_validation_gate(manifest)
 
 
