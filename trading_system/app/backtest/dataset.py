@@ -96,6 +96,13 @@ def _baseline_account(dataset_root: Path) -> dict | None:
     return _load_json(path)
 
 
+def _metadata_canonical_string(metadata: dict, key: str) -> str:
+    value = metadata[key]
+    if not isinstance(value, str) or not value or value != value.strip():
+        raise ValueError(f"metadata.{key} must be a canonical string")
+    return value
+
+
 def _metadata_mapping(metadata: dict, key: str) -> dict[str, object]:
     value = metadata.get(key)
     if value is None:
@@ -134,8 +141,8 @@ def _row_from_bundle(bundle_path: Path, *, fallback_account: dict | None) -> Dat
         if key not in {"timestamp", "run_id", "forward_returns", "forward_drawdowns"}
     }
     return DatasetSnapshotRow(
-        timestamp=_parse_timestamp(str(metadata["timestamp"])),
-        run_id=str(metadata["run_id"]),
+        timestamp=_parse_timestamp(_metadata_canonical_string(metadata, "timestamp")),
+        run_id=_metadata_canonical_string(metadata, "run_id"),
         market=market,
         derivatives=[dict(row) for row in derivatives],
         account=dict(account),
