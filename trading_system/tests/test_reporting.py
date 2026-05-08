@@ -825,6 +825,15 @@ def test_build_lifecycle_report_rejects_non_mapping_lifecycle_updates(payload):
         )
 
 
+@pytest.mark.parametrize("symbol", [123, " BTCUSDT", ""])
+def test_build_lifecycle_report_rejects_non_canonical_lifecycle_update_symbol(symbol):
+    with pytest.raises(ValueError, match="symbol"):
+        build_lifecycle_report(
+            lifecycle_updates={symbol: {"state": "PROTECT", "r_multiple": 1.0}},
+            management_suggestions=[],
+        )
+
+
 @pytest.mark.parametrize("reason_codes", [[123], ["valid", " invalid"]])
 def test_build_lifecycle_report_rejects_present_non_canonical_reason_codes(reason_codes):
     with pytest.raises(ValueError, match="reason_codes"):
@@ -1080,6 +1089,24 @@ def test_build_lifecycle_report_keeps_missing_target_runner_flags_absent():
     assert "first_target_hit" not in leader
     assert "second_target_hit" not in leader
     assert "runner_protected" not in leader
+
+
+@pytest.mark.parametrize("field", ["first_target_status", "second_target_status"])
+def test_build_lifecycle_report_rejects_present_invalid_target_status_fields(field):
+    payload = {
+        "state": "PAYLOAD",
+        "reason_codes": ["payload_waiting_second_stage"],
+        "r_multiple": 1.6,
+        "first_target_status": "filled",
+        "second_target_status": "pending",
+    }
+    payload[field] = None
+
+    with pytest.raises(ValueError, match=field):
+        build_lifecycle_report(
+            lifecycle_updates={"BTCUSDT": payload},
+            management_suggestions=[],
+        )
 
 
 def test_build_lifecycle_report_keeps_target_stage_review_rows_without_stop_taxonomy_meta():

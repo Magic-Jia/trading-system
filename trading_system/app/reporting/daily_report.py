@@ -9,13 +9,6 @@ _REVIEW_ACTION_CAP = 5
 _TARGET_REVIEW_KEYS = ("target_price", "target_stage", "fraction_basis", "runner_stop_price")
 
 
-def _float(value: Any) -> float:
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return 0.0
-
-
 def _strict_mapping_row(value: Any, field: str) -> Mapping[str, Any]:
     if not isinstance(value, Mapping):
         raise ValueError(f"{field} rows must be mapping")
@@ -76,6 +69,12 @@ def _strict_string_value(value: Any, key: str, *, default: str = "", required: b
 
 def _strict_string_field(payload: Mapping[str, Any], key: str, *, default: str = "", required: bool = False) -> str:
     return _strict_string_value(payload.get(key), key, default=default, required=required)
+
+
+def _strict_optional_string_field(payload: Mapping[str, Any], key: str, *, default: str = "") -> str:
+    if key not in payload:
+        return default
+    return _strict_string_value(payload.get(key), key, required=True)
 
 
 def _strict_reason_codes(payload: Mapping[str, Any]) -> list[str]:
@@ -256,8 +255,15 @@ def build_lifecycle_report(
     protected_symbols: list[str] = []
     exit_symbols: list[str] = []
 
-    for symbol, payload in sorted(lifecycle_updates.items()):
-        payload = _strict_mapping_row(payload, "lifecycle_updates")
+    lifecycle_rows = sorted(
+        (
+            (_strict_string_value(symbol, "symbol", required=True), _strict_mapping_row(payload, "lifecycle_updates"))
+            for symbol, payload in lifecycle_updates.items()
+        ),
+        key=lambda row: row[0],
+    )
+
+    for symbol, payload in lifecycle_rows:
         state = _strict_string_field(payload, "state", default="INIT", required=True).upper()
         if state in state_counts:
             state_counts[state] += 1
@@ -270,7 +276,9 @@ def build_lifecycle_report(
         elif state == "EXIT":
             exit_symbols.append(symbol)
 
-    leaders.sort(key=lambda row: (-_float(row.get("r_multiple")), str(row.get("symbol", ""))))
+    leaders.sort(
+        key=lambda row: (-_strict_number_field(row, "r_multiple", required=True), _strict_string_field(row, "symbol", required=True))
+    )
     attention_symbols = sorted(
         {
             _strict_string_field(row, "symbol", required=True)
@@ -289,14 +297,14 @@ def build_lifecycle_report(
         review_row = _review_action_row(row)
         if review_row is not None:
             review_actions.append(review_row)
-    for symbol, payload in sorted(lifecycle_updates.items()):
+    for symbol, payload in lifecycle_rows:
         if "first_target_status" not in payload and "second_target_status" not in payload:
             continue
         audit_target_states.append(
             {
                 "symbol": symbol,
-                "first_target_status": _strict_string_field(payload, "first_target_status"),
-                "second_target_status": _strict_string_field(payload, "second_target_status"),
+                "first_target_status": _strict_optional_string_field(payload, "first_target_status"),
+                "second_target_status": _strict_optional_string_field(payload, "second_target_status"),
             }
         )
     return {
