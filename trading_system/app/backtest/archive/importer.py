@@ -1300,7 +1300,9 @@ def _merged_execution_evidence_coverage(traces: Iterable[Mapping[str, Any]]) -> 
             )
         )
         for bucket in ("materialized", "missing", "stale", "ambiguous"):
-            raw_counts = coverage.get(bucket) or {}
+            raw_counts = coverage.get(bucket)
+            if raw_counts is None:
+                raw_counts = {}
             if not isinstance(raw_counts, Mapping):
                 raise ValueError(f"execution_evidence.{bucket} must be a JSON object")
             for evidence_type in ("order_book", "trades"):
@@ -1329,16 +1331,21 @@ def _merged_futures_context_coverage(traces: Iterable[Mapping[str, Any]]) -> dic
         merged["available"] = bool(merged["available"]) or _require_bool_field(
             coverage.get("available", False), field="futures_context.available"
         )
-        raw_max_age = coverage.get("max_age_seconds") or {}
-        if isinstance(raw_max_age, Mapping):
-            for evidence_type in max_age_values:
-                max_age_values[evidence_type].add(
-                    _require_non_negative_int_field(
-                        raw_max_age.get(evidence_type, 0), field=f"futures_context.max_age_seconds.{evidence_type}"
-                    )
+        raw_max_age = coverage.get("max_age_seconds")
+        if raw_max_age is None:
+            raw_max_age = {}
+        if not isinstance(raw_max_age, Mapping):
+            raise ValueError("futures_context.max_age_seconds must be a JSON object")
+        for evidence_type in max_age_values:
+            max_age_values[evidence_type].add(
+                _require_non_negative_int_field(
+                    raw_max_age.get(evidence_type, 0), field=f"futures_context.max_age_seconds.{evidence_type}"
                 )
+            )
         for bucket in ("materialized", "missing", "stale"):
-            raw_counts = coverage.get(bucket) or {}
+            raw_counts = coverage.get(bucket)
+            if raw_counts is None:
+                raw_counts = {}
             if not isinstance(raw_counts, Mapping):
                 raise ValueError(f"futures_context.{bucket} must be a JSON object")
             for evidence_type in ("mark_price", "funding", "open_interest"):

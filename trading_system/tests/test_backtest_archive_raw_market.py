@@ -436,6 +436,52 @@ def test_series_report_rejects_non_object_provenance_file_metadata(tmp_path: Pat
         _series_report(bad_series, expected_interval=None)
 
 
+def test_merged_execution_evidence_rejects_empty_list_bucket() -> None:
+    with pytest.raises(ValueError, match="execution_evidence.materialized must be a JSON object"):
+        _merged_execution_evidence_coverage(
+            [
+                {
+                    "execution_evidence": {
+                        "available": False,
+                        "max_staleness_seconds": 300,
+                        "materialized": [],
+                    }
+                }
+            ]
+        )
+
+
+def test_merged_futures_context_rejects_empty_list_bucket() -> None:
+    with pytest.raises(ValueError, match="futures_context.materialized must be a JSON object"):
+        _merged_futures_context_coverage(
+            [
+                {
+                    "futures_context": {
+                        "available": False,
+                        "max_age_seconds": {"mark_price": 300, "funding": 3600, "open_interest": 3600},
+                        "materialized": [],
+                    }
+                }
+            ]
+        )
+
+
+
+def test_merged_futures_context_rejects_empty_list_max_age_seconds() -> None:
+    with pytest.raises(ValueError, match="futures_context.max_age_seconds must be a JSON object"):
+        _merged_futures_context_coverage(
+            [
+                {
+                    "futures_context": {
+                        "available": False,
+                        "max_age_seconds": [],
+                    }
+                }
+            ]
+        )
+
+
+
 def test_mark_price_rejects_boolean_value() -> None:
     record = ImportedRawMarketRecord(
         observed_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
