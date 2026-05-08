@@ -215,6 +215,160 @@ def test_allocator_fails_closed_on_noncanonical_exposure_maps(monkeypatch, map_n
         )
 
 
+def _valid_boundary_candidate(**overrides):
+    candidate = {
+        "engine": "trend",
+        "setup_type": "BREAKOUT",
+        "symbol": "BTCUSDT",
+        "side": "LONG",
+        "score": 0.9,
+        "sector": "majors",
+        "timeframe_meta": {
+            "derivatives": {
+                "crowding_bias": "balanced",
+                "crowding_score": 0.0,
+                "basis_bps": 0.0,
+                "funding_rate": 0.0,
+            }
+        },
+        "liquidity_meta": {"spread_bps": 0.0, "slippage_bps": 0.0, "volume_usdt_24h": 1_500_000_000.0},
+    }
+    candidate.update(overrides)
+    return candidate
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("engine", 1, "candidate.engine must be a string"),
+        ("engine", " Trend", "candidate.engine must be a canonical string"),
+        ("setup_type", 1, "candidate.setup_type must be a string"),
+        ("setup_type", "breakout", "candidate.setup_type must be uppercase"),
+        ("symbol", 1, "candidate.symbol must be a string"),
+        ("symbol", " btcusdt", "candidate.symbol must be a canonical string"),
+        ("side", 1, "candidate.side must be a string"),
+        ("side", "long", "candidate.side must be uppercase"),
+        ("sector", 1, "candidate.sector must be a string"),
+        ("sector", " majors", "candidate.sector must be a canonical string"),
+    ],
+)
+def test_allocator_fails_closed_on_invalid_candidate_strings(load_fixture, field, value, message):
+    with pytest.raises(ValueError, match=message):
+        allocate_candidates(
+            account=_flat_account(load_fixture),
+            candidates=[_valid_boundary_candidate(**{field: value})],
+        )
+
+
+@pytest.mark.parametrize(
+    ("score", "message"),
+    [
+        (True, "candidate.score must be numeric, not boolean"),
+        ("0.9", "candidate.score must be numeric, not string"),
+    ],
+)
+def test_allocator_fails_closed_on_invalid_candidate_score(load_fixture, score, message):
+    with pytest.raises(ValueError, match=message):
+        allocate_candidates(
+            account=_flat_account(load_fixture),
+            candidates=[_valid_boundary_candidate(score=score)],
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("timeframe_meta", [("derivatives", {})], "candidate.timeframe_meta must be a mapping"),
+        ("liquidity_meta", [("spread_bps", 1.0)], "candidate.liquidity_meta must be a mapping"),
+    ],
+)
+def test_allocator_fails_closed_on_invalid_candidate_metadata(load_fixture, field, value, message):
+    with pytest.raises(ValueError, match=message):
+        allocate_candidates(
+            account=_flat_account(load_fixture),
+            candidates=[_valid_boundary_candidate(**{field: value})],
+        )
+
+
+@pytest.mark.parametrize(
+    ("derivatives", "message"),
+    [
+        ([("crowding_bias", "balanced")], "candidate.timeframe_meta.derivatives must be a mapping"),
+        ({"crowding_bias": 1}, "candidate.timeframe_meta.derivatives.crowding_bias must be a string"),
+        ({"crowding_bias": " crowded_long"}, "candidate.timeframe_meta.derivatives.crowding_bias must be a canonical string"),
+        (
+            {"crowding_bias": "balanced", "crowding_score": True},
+            "candidate.timeframe_meta.derivatives.crowding_score must be numeric, not boolean",
+        ),
+        (
+            {"crowding_bias": "balanced", "basis_bps": "6.0"},
+            "candidate.timeframe_meta.derivatives.basis_bps must be numeric, not string",
+        ),
+        (
+            {"crowding_bias": "balanced", "funding_rate": "0.0001"},
+            "candidate.timeframe_meta.derivatives.funding_rate must be numeric, not string",
+        ),
+    ],
+)
+def test_allocator_fails_closed_on_invalid_derivatives(load_fixture, derivatives, message):
+    candidate = _valid_boundary_candidate(timeframe_meta={"derivatives": derivatives})
+
+    with pytest.raises(ValueError, match=message):
+        allocate_candidates(account=_flat_account(load_fixture), candidates=[candidate])
+
+
+@pytest.mark.parametrize(
+    ("liquidity_meta", "message"),
+    [
+        ({"spread_bps": True}, "candidate.liquidity_meta.spread_bps must be numeric, not boolean"),
+        ({"slippage_bps": "5.0"}, "candidate.liquidity_meta.slippage_bps must be numeric, not string"),
+        ({"volume_usdt_24h": "1500000000"}, "candidate.liquidity_meta.volume_usdt_24h must be numeric, not string"),
+    ],
+)
+def test_allocator_fails_closed_on_invalid_liquidity_fields(load_fixture, liquidity_meta, message):
+    candidate = _valid_boundary_candidate(liquidity_meta=liquidity_meta)
+
+    with pytest.raises(ValueError, match=message):
+        allocate_candidates(account=_flat_account(load_fixture), candidates=[candidate])
+
+
+@pytest.mark.parametrize(
+    ("bucket_targets", "message"),
+    [
+        ({1: 0.5}, "regime.bucket_targets keys must be canonical strings"),
+        ({"trend": True}, "regime.bucket_targets.trend must be numeric, not boolean"),
+        ({"trend": "0.5"}, "regime.bucket_targets.trend must be numeric, not string"),
+    ],
+)
+def test_allocator_fails_closed_on_invalid_bucket_targets(load_fixture, bucket_targets, message):
+    regime = {"bucket_targets": bucket_targets, "suppressed_engines": []}
+
+    with pytest.raises(ValueError, match=message):
+        allocate_candidates(
+            account=_flat_account(load_fixture),
+            candidates=[_valid_boundary_candidate()],
+            regime=regime,
+        )
+
+
+@pytest.mark.parametrize(
+    ("suppressed_engines", "message"),
+    [
+        ([1], "regime.suppressed_engines entries must be canonical strings"),
+        ([" Trend"], "regime.suppressed_engines entries must be canonical strings"),
+    ],
+)
+def test_allocator_fails_closed_on_invalid_suppressed_engines(load_fixture, suppressed_engines, message):
+    regime = {"bucket_targets": {"trend": 1.0, "rotation": 0.0, "short": 0.0}, "suppressed_engines": suppressed_engines}
+
+    with pytest.raises(ValueError, match=message):
+        allocate_candidates(
+            account=_flat_account(load_fixture),
+            candidates=[_valid_boundary_candidate()],
+            regime=regime,
+        )
+
+
 def test_allocator_checks_conflict_against_existing_exposure(load_fixture, sample_trend_candidates):
     account = load_fixture("account_snapshot_v2.json")
     decisions = allocate_candidates(account=account, candidates=sample_trend_candidates)

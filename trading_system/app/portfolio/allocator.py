@@ -16,6 +16,7 @@ from .exposure import exposure_snapshot
 _ENGINE_BASE_RISK_PCT: dict[str, float] = {"trend": 0.008, "rotation": 0.005, "short": 0.004}
 _MIN_RISK_BUDGET = 1e-8
 _DEFAULT_NET_EXPOSURE_CAP_PCT = 0.85
+_MISSING = object()
 
 
 def _to_float(value: Any, fallback: float = 0.0) -> float:
@@ -23,6 +24,56 @@ def _to_float(value: Any, fallback: float = 0.0) -> float:
         return float(value)
     except (TypeError, ValueError):
         return fallback
+
+
+def _strict_float(value: Any, field: str, *, default: float | None = None) -> float:
+    if value is _MISSING or value is None:
+        if default is None:
+            raise ValueError(f"{field} must be numeric")
+        return default
+    if isinstance(value, bool):
+        raise ValueError(f"{field} must be numeric, not boolean")
+    if isinstance(value, str):
+        raise ValueError(f"{field} must be numeric, not string")
+    try:
+        return float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{field} must be numeric") from exc
+
+
+def _strict_mapping(value: Any, field: str, *, default_empty: bool = True) -> dict[str, Any]:
+    if value is _MISSING or value is None:
+        if default_empty:
+            return {}
+        raise ValueError(f"{field} must be a mapping")
+    if not isinstance(value, Mapping):
+        raise ValueError(f"{field} must be a mapping")
+    return dict(value)
+
+
+def _strict_canonical_string(
+    value: Any,
+    field: str,
+    *,
+    default: str | None = None,
+    case: str | None = None,
+    allow_empty: bool = False,
+) -> str:
+    if value is _MISSING or value is None:
+        if default is not None:
+            return default
+        if allow_empty:
+            return ""
+        raise ValueError(f"{field} must be a string")
+    if not isinstance(value, str):
+        raise ValueError(f"{field} must be a string")
+    if value.strip() != value or (not value and not allow_empty):
+        raise ValueError(f"{field} must be a canonical string")
+    if case == "lower" and value.lower() != value:
+        raise ValueError(f"{field} must be lowercase")
+    if case == "upper" and value.upper() != value:
+        raise ValueError(f"{field} must be uppercase")
+    return value
 
 
 def _strict_exposure_risk_map(exposure: Mapping[str, Any], key: str) -> dict[str, float]:
@@ -53,18 +104,26 @@ def _candidate_value(candidate: EngineCandidate | Mapping[str, Any], key: str, d
 
 
 def _normalize_candidate(candidate: EngineCandidate | Mapping[str, Any]) -> dict[str, Any]:
-    symbol = str(_candidate_value(candidate, "symbol", "")).upper().strip()
-    timeframe_meta = _candidate_value(candidate, "timeframe_meta", {})
-    liquidity_meta = _candidate_value(candidate, "liquidity_meta", {})
+    engine = _strict_canonical_string(_candidate_value(candidate, "engine", _MISSING), "candidate.engine", case="lower")
+    setup_type = _strict_canonical_string(
+        _candidate_value(candidate, "setup_type", _MISSING), "candidate.setup_type", case="upper"
+    )
+    symbol = _strict_canonical_string(_candidate_value(candidate, "symbol", _MISSING), "candidate.symbol", case="upper")
+    side = _strict_canonical_string(_candidate_value(candidate, "side", _MISSING), "candidate.side", default="LONG", case="upper")
+    score = _strict_float(_candidate_value(candidate, "score", _MISSING), "candidate.score", default=0.0)
+    raw_sector = _candidate_value(candidate, "sector", _MISSING)
+    sector = _strict_canonical_string(raw_sector, "candidate.sector", allow_empty=True) if raw_sector is not _MISSING else ""
+    timeframe_meta = _strict_mapping(_candidate_value(candidate, "timeframe_meta", _MISSING), "candidate.timeframe_meta")
+    liquidity_meta = _strict_mapping(_candidate_value(candidate, "liquidity_meta", _MISSING), "candidate.liquidity_meta")
     return {
-        "engine": str(_candidate_value(candidate, "engine", "")).lower().strip(),
-        "setup_type": str(_candidate_value(candidate, "setup_type", "")).upper().strip(),
+        "engine": engine,
+        "setup_type": setup_type,
         "symbol": symbol,
-        "side": str(_candidate_value(candidate, "side", "LONG")).upper().strip(),
-        "score": _to_float(_candidate_value(candidate, "score", 0.0)),
-        "sector": str(_candidate_value(candidate, "sector", "")).strip() or sector_for_symbol(symbol),
-        "timeframe_meta": dict(timeframe_meta) if isinstance(timeframe_meta, Mapping) else {},
-        "liquidity_meta": dict(liquidity_meta) if isinstance(liquidity_meta, Mapping) else {},
+        "side": side,
+        "score": score,
+        "sector": sector or sector_for_symbol(symbol),
+        "timeframe_meta": timeframe_meta,
+        "liquidity_meta": liquidity_meta,
     }
 
 
@@ -88,7 +147,9 @@ def _bucket_targets(config: AppConfig, regime: RegimeSnapshot | Mapping[str, Any
 
     merged = dict(defaults)
     for key, value in raw_targets.items():
-        merged[str(key).lower()] = max(_to_float(value), 0.0)
+        if not isinstance(key, str) or not key or key.strip() != key or key.lower() != key:
+            raise ValueError("regime.bucket_targets keys must be canonical strings")
+        merged[key] = max(_strict_float(value, f"regime.bucket_targets.{key}"), 0.0)
     return merged
 
 
@@ -97,7 +158,10 @@ def _suppressed_engines(regime: RegimeSnapshot | Mapping[str, Any] | None) -> se
     for key in ("suppressed_engines", "suppression_rules"):
         rows = _regime_value(regime, key, [])
         if isinstance(rows, list):
-            suppressed.update(str(row).lower().strip() for row in rows if str(row).strip())
+            for row in rows:
+                if not isinstance(row, str) or not row or row.strip() != row or row.lower() != row:
+                    raise ValueError(f"regime.{key} entries must be canonical strings")
+                suppressed.add(row)
     return suppressed
 
 
@@ -170,13 +234,30 @@ def _quality_multiplier(score: float) -> float:
 
 
 def _crowding_multiplier(candidate: Mapping[str, Any]) -> float:
-    timeframe_meta = dict(candidate.get("timeframe_meta") or {})
-    derivatives = dict(timeframe_meta.get("derivatives") or {})
-    side = str(candidate.get("side", "LONG")).upper()
-    crowding_bias = str(derivatives.get("crowding_bias", "balanced")).lower()
-    crowding_score = abs(_to_float(derivatives.get("crowding_score"), 0.0))
-    basis_bps = _to_float(derivatives.get("basis_bps"), 0.0)
-    funding_rate = _to_float(derivatives.get("funding_rate"), 0.0)
+    timeframe_meta = _strict_mapping(candidate.get("timeframe_meta", _MISSING), "candidate.timeframe_meta")
+    derivatives = _strict_mapping(
+        timeframe_meta.get("derivatives", _MISSING), "candidate.timeframe_meta.derivatives"
+    )
+    side = _strict_canonical_string(candidate.get("side", _MISSING), "candidate.side", default="LONG", case="upper")
+    crowding_bias = _strict_canonical_string(
+        derivatives.get("crowding_bias", _MISSING),
+        "candidate.timeframe_meta.derivatives.crowding_bias",
+        default="balanced",
+        case="lower",
+    )
+    crowding_score = abs(
+        _strict_float(
+            derivatives.get("crowding_score", _MISSING),
+            "candidate.timeframe_meta.derivatives.crowding_score",
+            default=0.0,
+        )
+    )
+    basis_bps = _strict_float(
+        derivatives.get("basis_bps", _MISSING), "candidate.timeframe_meta.derivatives.basis_bps", default=0.0
+    )
+    funding_rate = _strict_float(
+        derivatives.get("funding_rate", _MISSING), "candidate.timeframe_meta.derivatives.funding_rate", default=0.0
+    )
 
     multiplier = 1.0
     same_side_crowding = (side == "LONG" and crowding_bias == "crowded_long") or (
@@ -215,10 +296,14 @@ def _crowding_multiplier(candidate: Mapping[str, Any]) -> float:
 
 
 def _execution_friction_multiplier(candidate: Mapping[str, Any]) -> float:
-    liquidity_meta = dict(candidate.get("liquidity_meta") or {})
-    spread_bps = _to_float(liquidity_meta.get("spread_bps"), 0.0)
-    slippage_bps = _to_float(liquidity_meta.get("slippage_bps"), 0.0)
-    volume_usdt_24h = _to_float(liquidity_meta.get("volume_usdt_24h"), 0.0)
+    liquidity_meta = _strict_mapping(candidate.get("liquidity_meta", _MISSING), "candidate.liquidity_meta")
+    spread_bps = _strict_float(liquidity_meta.get("spread_bps", _MISSING), "candidate.liquidity_meta.spread_bps", default=0.0)
+    slippage_bps = _strict_float(
+        liquidity_meta.get("slippage_bps", _MISSING), "candidate.liquidity_meta.slippage_bps", default=0.0
+    )
+    volume_usdt_24h = _strict_float(
+        liquidity_meta.get("volume_usdt_24h", _MISSING), "candidate.liquidity_meta.volume_usdt_24h", default=0.0
+    )
 
     multiplier = 1.0
     if spread_bps > 5.0:

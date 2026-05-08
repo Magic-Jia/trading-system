@@ -48,7 +48,7 @@ def sample_trend_candidates() -> list[dict[str, Any]]:
     return [
         {
             "engine": "trend",
-            "setup_type": "breakout",
+            "setup_type": "BREAKOUT",
             "symbol": "BTCUSDT",
             "side": "LONG",
             "score": 0.88,
@@ -58,7 +58,7 @@ def sample_trend_candidates() -> list[dict[str, Any]]:
         },
         {
             "engine": "trend",
-            "setup_type": "pullback",
+            "setup_type": "PULLBACK",
             "symbol": "ETHUSDT",
             "side": "LONG",
             "score": 0.83,
@@ -68,7 +68,7 @@ def sample_trend_candidates() -> list[dict[str, Any]]:
         },
         {
             "engine": "trend",
-            "setup_type": "breakout",
+            "setup_type": "BREAKOUT",
             "symbol": "SOLUSDT",
             "side": "LONG",
             "score": 0.79,
@@ -84,7 +84,7 @@ def sample_rotation_candidates() -> list[dict[str, Any]]:
     return [
         {
             "engine": "rotation",
-            "setup_type": "strength_rotation",
+            "setup_type": "STRENGTH_ROTATION",
             "symbol": "LINKUSDT",
             "side": "LONG",
             "score": 0.74,
@@ -94,7 +94,7 @@ def sample_rotation_candidates() -> list[dict[str, Any]]:
         },
         {
             "engine": "rotation",
-            "setup_type": "strength_rotation",
+            "setup_type": "STRENGTH_ROTATION",
             "symbol": "ADAUSDT",
             "side": "LONG",
             "score": 0.69,
