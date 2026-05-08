@@ -3021,6 +3021,106 @@ def test_allocation_summary_surfaces_aggressiveness_metrics():
     assert summary["compression_reasons"] == ["regime_hazard", "late_stage_heat"]
 
 
+def test_allocation_summary_rejects_non_mapping_decision_payload() -> None:
+    candidate = {
+        "engine": "rotation",
+        "setup_type": "RS_REACCELERATION",
+        "symbol": "SOLUSDT",
+        "side": "LONG",
+        "score": 0.84,
+    }
+
+    with pytest.raises(ValueError, match="decision must be a mapping or dataclass"):
+        main_module._allocation_summary("bad-decision", candidate)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("symbol", 123),
+        ("symbol", " solusdt "),
+        ("side", True),
+        ("side", "long"),
+        ("setup_type", 5),
+        ("setup_type", "rs_reacceleration"),
+    ],
+)
+def test_allocation_summary_rejects_present_invalid_candidate_strings(field: str, value: object) -> None:
+    decision = AllocationDecision(status="ACCEPTED", engine="rotation", final_risk_budget=0.01, rank=1)
+    candidate = {
+        "engine": "rotation",
+        "setup_type": "RS_REACCELERATION",
+        "symbol": "SOLUSDT",
+        "side": "LONG",
+        "score": 0.84,
+    }
+    candidate[field] = value
+
+    with pytest.raises(ValueError, match=field):
+        main_module._allocation_summary(decision, candidate)
+
+
+@pytest.mark.parametrize("score", [True, "0.84"])
+def test_allocation_summary_rejects_present_invalid_candidate_score(score: object) -> None:
+    decision = AllocationDecision(status="ACCEPTED", engine="rotation", final_risk_budget=0.01, rank=1)
+    candidate = {
+        "engine": "rotation",
+        "setup_type": "RS_REACCELERATION",
+        "symbol": "SOLUSDT",
+        "side": "LONG",
+        "score": score,
+    }
+
+    with pytest.raises(ValueError, match="score"):
+        main_module._allocation_summary(decision, candidate)
+
+
+def test_allocation_summary_rejects_present_invalid_timeframe_meta() -> None:
+    decision = AllocationDecision(status="ACCEPTED", engine="rotation", final_risk_budget=0.01, rank=1)
+    candidate = {
+        "engine": "rotation",
+        "setup_type": "RS_REACCELERATION",
+        "symbol": "SOLUSDT",
+        "side": "LONG",
+        "score": 0.84,
+        "timeframe_meta": [("1h", "uptrend")],
+    }
+
+    with pytest.raises(ValueError, match="timeframe_meta"):
+        main_module._allocation_summary(decision, candidate)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("aggressiveness_multiplier", True),
+        ("quality_multiplier", "1.08"),
+        ("crowding_multiplier", True),
+        ("execution_friction_multiplier", "0.85"),
+        ("regime_hazard_multiplier", True),
+        ("late_stage_heat_multiplier", "0.78"),
+    ],
+)
+def test_allocation_summary_rejects_present_invalid_meta_multipliers(field: str, value: object) -> None:
+    decision = AllocationDecision(
+        status="DOWNSIZED",
+        engine="rotation",
+        final_risk_budget=0.0042,
+        rank=1,
+        meta={field: value},
+    )
+    candidate = {
+        "engine": "rotation",
+        "setup_type": "RS_REACCELERATION",
+        "symbol": "SOLUSDT",
+        "side": "LONG",
+        "score": 0.84,
+    }
+
+    with pytest.raises(ValueError, match=field):
+        main_module._allocation_summary(decision, candidate)
+
+
 def test_main_v2_blocks_too_wide_stop_before_execution(monkeypatch, tmp_path, load_fixture):
     output_path = tmp_path / "runtime_state.json"
     account_path = tmp_path / "account_snapshot.json"

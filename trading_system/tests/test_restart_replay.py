@@ -33,12 +33,12 @@ def test_main_persists_execution_recovery_state_before_post_execution_crash(
         main_module,
         "generate_trend_candidates",
         lambda *args, **kwargs: [
-            EngineCandidate(
-                engine="trend",
-                setup_type="breakout",
-                symbol="BTCUSDT",
-                side="LONG",
-                score=0.95,
+                EngineCandidate(
+                    engine="trend",
+                    setup_type="BREAKOUT",
+                    symbol="BTCUSDT",
+                    side="LONG",
+                    score=0.95,
                 stop_loss=90_000.0,
                 timeframe_meta={"entry_tf": "4h", "confirm_tf": "1h"},
                 liquidity_meta={"adv_usdt": 18_000_000_000.0},
@@ -137,12 +137,12 @@ def test_main_replays_checkpointed_execution_after_crash_inside_execute_before_s
         main_module,
         "generate_trend_candidates",
         lambda *args, **kwargs: [
-            EngineCandidate(
-                engine="trend",
-                setup_type="breakout",
-                symbol="BTCUSDT",
-                side="LONG",
-                score=0.95,
+                EngineCandidate(
+                    engine="trend",
+                    setup_type="BREAKOUT",
+                    symbol="BTCUSDT",
+                    side="LONG",
+                    score=0.95,
                 stop_loss=90_000.0,
                 timeframe_meta={"entry_tf": "4h", "confirm_tf": "1h"},
                 liquidity_meta={"adv_usdt": 18_000_000_000.0},
@@ -241,12 +241,12 @@ def test_main_replays_logged_execution_after_persist_state_crash_inside_execute(
         main_module,
         "generate_trend_candidates",
         lambda *args, **kwargs: [
-            EngineCandidate(
-                engine="trend",
-                setup_type="breakout",
-                symbol="BTCUSDT",
-                side="LONG",
-                score=0.95,
+                EngineCandidate(
+                    engine="trend",
+                    setup_type="BREAKOUT",
+                    symbol="BTCUSDT",
+                    side="LONG",
+                    score=0.95,
                 stop_loss=90_000.0,
                 timeframe_meta={"entry_tf": "4h", "confirm_tf": "1h"},
                 liquidity_meta={"adv_usdt": 18_000_000_000.0},

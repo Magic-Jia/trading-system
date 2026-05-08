@@ -914,17 +914,68 @@ def resolve_runtime_input_paths(config: Any | None = None) -> RuntimeInputPaths:
     )
 
 
-def _allocation_summary(decision: Any, candidate: Mapping[str, Any]) -> dict[str, Any]:
+def _allocation_summary_payload(decision: Any) -> dict[str, Any]:
     if is_dataclass(decision):
-        payload = asdict(decision)
+        return asdict(decision)
+    if isinstance(decision, Mapping):
+        return dict(decision)
+    raise ValueError("decision must be a mapping or dataclass")
+
+
+def _allocation_summary_required_canonical_string(
+    candidate: Mapping[str, Any],
+    field: str,
+    *,
+    transform: str = "identity",
+    allowed: set[str] | None = None,
+) -> str:
+    value = candidate.get(field)
+    if value is None:
+        return "LONG" if field == "side" else ""
+    if not isinstance(value, str):
+        raise ValueError(f"{field} must be a canonical string")
+    canonical = value.strip()
+    if not canonical:
+        return ""
+    if transform == "upper":
+        normalized = canonical.upper()
+    elif transform == "lower":
+        normalized = canonical.lower()
     else:
-        payload = dict(decision)
+        normalized = canonical
+    if canonical != normalized:
+        raise ValueError(f"{field} must be canonical")
+    if allowed is not None and normalized not in allowed:
+        raise ValueError(f"{field} must be one of {sorted(allowed)}")
+    return normalized
+
+
+def _allocation_summary_numeric(value: Any, field: str, *, default: float | None = None) -> float:
+    if value is None:
+        if default is None:
+            raise ValueError(f"{field} must be numeric")
+        return default
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{field} must be numeric")
+    return float(value)
+
+
+def _allocation_summary(decision: Any, candidate: Mapping[str, Any]) -> dict[str, Any]:
+    payload = _allocation_summary_payload(decision)
     decision_meta = payload.get("meta") if isinstance(payload.get("meta"), Mapping) else {}
-    payload["symbol"] = str(candidate.get("symbol", ""))
-    payload["side"] = str(candidate.get("side", "LONG"))
-    payload["setup_type"] = str(candidate.get("setup_type", ""))
-    payload["score"] = float(candidate.get("score", 0.0) or 0.0)
-    payload["timeframe_meta"] = dict(candidate.get("timeframe_meta") or {})
+    payload["symbol"] = _allocation_summary_required_canonical_string(candidate, "symbol", transform="upper")
+    payload["side"] = _allocation_summary_required_canonical_string(
+        candidate, "side", transform="upper", allowed={"LONG", "SHORT"}
+    )
+    payload["setup_type"] = _allocation_summary_required_canonical_string(candidate, "setup_type", transform="upper")
+    payload["score"] = _allocation_summary_numeric(candidate.get("score"), "score", default=0.0)
+    timeframe_meta = candidate.get("timeframe_meta")
+    if timeframe_meta is None:
+        payload["timeframe_meta"] = {}
+    elif not isinstance(timeframe_meta, Mapping):
+        raise ValueError("timeframe_meta must be a mapping")
+    else:
+        payload["timeframe_meta"] = dict(timeframe_meta)
     for key in (
         "aggressiveness_multiplier",
         "quality_multiplier",
@@ -935,11 +986,11 @@ def _allocation_summary(decision: Any, candidate: Mapping[str, Any]) -> dict[str
     ):
         value = decision_meta.get(key)
         if value is not None:
-            payload[key] = value
+            payload[key] = _allocation_summary_numeric(value, key)
     compression_reasons: list[str] = []
-    if float(decision_meta.get("regime_hazard_multiplier", 1.0) or 1.0) < 1.0:
+    if _allocation_summary_numeric(decision_meta.get("regime_hazard_multiplier"), "regime_hazard_multiplier", default=1.0) < 1.0:
         compression_reasons.append("regime_hazard")
-    if float(decision_meta.get("late_stage_heat_multiplier", 1.0) or 1.0) < 1.0:
+    if _allocation_summary_numeric(decision_meta.get("late_stage_heat_multiplier"), "late_stage_heat_multiplier", default=1.0) < 1.0:
         compression_reasons.append("late_stage_heat")
     if compression_reasons:
         payload["compression_reasons"] = compression_reasons
