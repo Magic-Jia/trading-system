@@ -7,6 +7,163 @@ import pytest
 from trading_system import paper_snapshots
 
 
+def test_to_float_rejects_bool_and_non_finite_values():
+    with pytest.raises(RuntimeError, match="expected numeric test_field"):
+        paper_snapshots._to_float(True, field="test_field")
+
+    with pytest.raises(RuntimeError, match="expected finite numeric test_field"):
+        paper_snapshots._to_float("nan", field="test_field")
+
+    with pytest.raises(RuntimeError, match="expected finite numeric test_field"):
+        paper_snapshots._to_float("inf", field="test_field")
+
+    assert paper_snapshots._to_float("123.45", field="test_field") == pytest.approx(123.45)
+
+
+def test_paper_symbols_rejects_blank_and_noncanonical_entries(monkeypatch):
+    monkeypatch.setenv(paper_snapshots.PAPER_SYMBOLS_ENV, "BTCUSDT,   ")
+    with pytest.raises(RuntimeError, match=paper_snapshots.PAPER_SYMBOLS_ENV):
+        paper_snapshots._paper_symbols()
+
+    monkeypatch.setenv(paper_snapshots.PAPER_SYMBOLS_ENV, "btcusdt")
+    with pytest.raises(RuntimeError, match=paper_snapshots.PAPER_SYMBOLS_ENV):
+        paper_snapshots._paper_symbols()
+
+
+def test_testnet_account_snapshot_payload_rejects_invalid_symbol_and_position_side(monkeypatch):
+    def fake_signed_get(base, path, params=None):
+        if path == "/fapi/v2/account":
+            return {
+                "totalWalletBalance": "1000.5",
+                "availableBalance": "900.25",
+                "totalMarginBalance": "1012.84",
+            }
+        if path == "/fapi/v2/positionRisk":
+            return [
+                {
+                    "symbol": " btcusdt ",
+                    "positionSide": "HEDGE",
+                    "positionAmt": "0.0256",
+                    "entryPrice": "77971.95639649",
+                    "markPrice": "78065.28472332",
+                    "unRealizedProfit": "2.3892",
+                    "notional": "1998.471",
+                    "leverage": "20",
+                }
+            ]
+        raise AssertionError(path)
+
+    monkeypatch.setattr(paper_snapshots, "FUTURES_BASE", "https://testnet.binancefuture.com")
+    monkeypatch.setattr(paper_snapshots, "signed_get", fake_signed_get)
+    monkeypatch.setattr(paper_snapshots, "_futures_testnet_signed_params", lambda: {"timestamp": 123, "recvWindow": 5000})
+
+    with pytest.raises(RuntimeError, match="symbol"):
+        paper_snapshots._testnet_account_snapshot_payload()
+
+
+def test_testnet_account_snapshot_payload_rejects_invalid_position_side(monkeypatch):
+    def fake_signed_get(base, path, params=None):
+        if path == "/fapi/v2/account":
+            return {
+                "totalWalletBalance": "1000.5",
+                "availableBalance": "900.25",
+                "totalMarginBalance": "1012.84",
+            }
+        if path == "/fapi/v2/positionRisk":
+            return [
+                {
+                    "symbol": "BTCUSDT",
+                    "positionSide": "HEDGE",
+                    "positionAmt": "0.0256",
+                    "entryPrice": "77971.95639649",
+                    "markPrice": "78065.28472332",
+                    "unRealizedProfit": "2.3892",
+                    "notional": "1998.471",
+                    "leverage": "20",
+                }
+            ]
+        raise AssertionError(path)
+
+    monkeypatch.setattr(paper_snapshots, "FUTURES_BASE", "https://testnet.binancefuture.com")
+    monkeypatch.setattr(paper_snapshots, "signed_get", fake_signed_get)
+    monkeypatch.setattr(paper_snapshots, "_futures_testnet_signed_params", lambda: {"timestamp": 123, "recvWindow": 5000})
+
+    with pytest.raises(RuntimeError, match="positionSide"):
+        paper_snapshots._testnet_account_snapshot_payload()
+
+
+def test_testnet_account_snapshot_payload_rejects_nonzero_row_with_bad_numeric_value(monkeypatch):
+    def fake_signed_get(base, path, params=None):
+        if path == "/fapi/v2/account":
+            return {
+                "totalWalletBalance": "1000.5",
+                "availableBalance": "900.25",
+                "totalMarginBalance": "1012.84",
+            }
+        if path == "/fapi/v2/positionRisk":
+            return [
+                {
+                    "symbol": "BTCUSDT",
+                    "positionSide": "BOTH",
+                    "positionAmt": "0.0256",
+                    "entryPrice": "nan",
+                    "markPrice": "78065.28472332",
+                    "unRealizedProfit": "2.3892",
+                    "notional": "1998.471",
+                    "leverage": "20",
+                }
+            ]
+        raise AssertionError(path)
+
+    monkeypatch.setattr(paper_snapshots, "FUTURES_BASE", "https://testnet.binancefuture.com")
+    monkeypatch.setattr(paper_snapshots, "signed_get", fake_signed_get)
+    monkeypatch.setattr(paper_snapshots, "_futures_testnet_signed_params", lambda: {"timestamp": 123, "recvWindow": 5000})
+
+    with pytest.raises(RuntimeError, match="expected finite numeric entryPrice"):
+        paper_snapshots._testnet_account_snapshot_payload()
+
+
+def test_testnet_account_snapshot_payload_skips_zero_qty_rows_but_not_invalid_nonzero_rows(monkeypatch):
+    def fake_signed_get(base, path, params=None):
+        if path == "/fapi/v2/account":
+            return {
+                "totalWalletBalance": "1000.5",
+                "availableBalance": "900.25",
+                "totalMarginBalance": "1012.84",
+            }
+        if path == "/fapi/v2/positionRisk":
+            return [
+                {
+                    "symbol": "BTCUSDT",
+                    "positionSide": "BOTH",
+                    "positionAmt": "0",
+                    "entryPrice": True,
+                    "markPrice": "78065.28472332",
+                    "unRealizedProfit": "2.3892",
+                    "notional": "1998.471",
+                    "leverage": "20",
+                },
+                {
+                    "symbol": "ETHUSDT",
+                    "positionSide": "BOTH",
+                    "positionAmt": "1",
+                    "entryPrice": "2300.0",
+                    "markPrice": "2310.0",
+                    "unRealizedProfit": "1.5",
+                    "notional": True,
+                    "leverage": "20",
+                },
+            ]
+        raise AssertionError(path)
+
+    monkeypatch.setattr(paper_snapshots, "FUTURES_BASE", "https://testnet.binancefuture.com")
+    monkeypatch.setattr(paper_snapshots, "signed_get", fake_signed_get)
+    monkeypatch.setattr(paper_snapshots, "_futures_testnet_signed_params", lambda: {"timestamp": 123, "recvWindow": 5000})
+
+    with pytest.raises(RuntimeError, match="expected numeric notional"):
+        paper_snapshots._testnet_account_snapshot_payload()
+
+
 def test_testnet_account_snapshot_payload_reads_real_futures_positions(monkeypatch):
     calls = []
 

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import math
 import os
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable
@@ -18,6 +20,7 @@ FUTURES_DATA_BASE_ENV = "TRADING_FUTURES_DATA_BASE_URL"
 FUTURES_DATA_BASE = os.environ.get(FUTURES_DATA_BASE_ENV, "https://fapi.binance.com")
 
 _DEFAULT_PAPER_SYMBOLS = ("BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT", "LINKUSDT")
+_CANONICAL_SYMBOL_RE = re.compile(r"^[A-Z0-9]+USDT$")
 _SYMBOL_METADATA: dict[str, dict[str, str]] = {
     "BTCUSDT": {"sector": "majors", "liquidity_tier": "top"},
     "ETHUSDT": {"sector": "majors", "liquidity_tier": "top"},
@@ -43,10 +46,14 @@ def _paper_symbols() -> tuple[str, ...]:
     if not raw_value.strip():
         return _DEFAULT_PAPER_SYMBOLS
 
-    symbols = tuple(dict.fromkeys(part.strip().upper() for part in raw_value.split(",") if part.strip()))
+    symbols: list[str] = []
+    for part in raw_value.split(","):
+        symbol = _canonical_symbol(part, field=PAPER_SYMBOLS_ENV)
+        if symbol not in symbols:
+            symbols.append(symbol)
     if not symbols:
         raise RuntimeError(f"{PAPER_SYMBOLS_ENV} must contain at least one symbol")
-    return symbols
+    return tuple(symbols)
 
 
 def _paper_account_equity() -> float:
@@ -67,10 +74,23 @@ def _safe_div(numerator: float, denominator: float) -> float:
 
 
 def _to_float(value: Any, *, field: str) -> float:
+    if isinstance(value, bool):
+        raise RuntimeError(f"expected numeric {field}, got: {value!r}")
     try:
-        return float(value)
+        result = float(value)
     except (TypeError, ValueError) as exc:
         raise RuntimeError(f"expected numeric {field}, got: {value!r}") from exc
+    if not math.isfinite(result):
+        raise RuntimeError(f"expected finite numeric {field}, got: {value!r}")
+    return result
+
+
+def _canonical_symbol(value: Any, *, field: str) -> str:
+    if not isinstance(value, str) or value != value.strip() or not value:
+        raise RuntimeError(f"expected canonical {field}, got: {value!r}")
+    if not _CANONICAL_SYMBOL_RE.fullmatch(value):
+        raise RuntimeError(f"expected canonical {field}, got: {value!r}")
+    return value
 
 
 def _ema(values: list[float], period: int) -> float:
@@ -290,11 +310,17 @@ def _paper_account_snapshot_payload() -> dict[str, Any]:
     }
 
 
-def _testnet_position_side(position_amt: float, position_side: str | None) -> str:
-    side = str(position_side or "").upper()
+def _testnet_position_side(position_amt: float, position_side: Any) -> str:
+    if position_side is None or position_side == "":
+        return "SHORT" if position_amt < 0 else "LONG"
+    if not isinstance(position_side, str) or position_side != position_side.strip():
+        raise RuntimeError(f"expected canonical positionSide, got: {position_side!r}")
+    side = position_side.upper()
     if side in {"LONG", "SHORT"}:
         return side
-    return "SHORT" if position_amt < 0 else "LONG"
+    if side == "BOTH":
+        return "SHORT" if position_amt < 0 else "LONG"
+    raise RuntimeError(f"expected canonical positionSide, got: {position_side!r}")
 
 
 def _testnet_account_snapshot_payload() -> dict[str, Any]:
@@ -314,9 +340,10 @@ def _testnet_account_snapshot_payload() -> dict[str, Any]:
         qty_signed = _to_float(row.get("positionAmt"), field="positionAmt")
         if abs(qty_signed) <= 0.0:
             continue
+        symbol = _canonical_symbol(row.get("symbol"), field="symbol")
         open_positions.append(
             {
-                "symbol": str(row.get("symbol")),
+                "symbol": symbol,
                 "side": _testnet_position_side(qty_signed, row.get("positionSide")),
                 "qty": abs(qty_signed),
                 "entry_price": _to_float(row.get("entryPrice"), field="entryPrice"),
