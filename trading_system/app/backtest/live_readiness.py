@@ -1670,6 +1670,22 @@ def _optional_gate_artifact_count(gate: Mapping[str, Any]) -> tuple[int, bool]:
     return value, True
 
 
+def _strict_optional_non_negative_int(mapping: Mapping[str, Any], key: str, default: int = 0) -> tuple[int, bool]:
+    if key not in mapping or mapping.get(key) is None:
+        return default, True
+    value = mapping.get(key)
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        return default, False
+    return value, True
+
+
+def _strict_optional_bool(mapping: Mapping[str, Any], key: str, default: bool) -> tuple[bool, bool]:
+    if key not in mapping or mapping.get(key) is None:
+        return default, True
+    value = mapping.get(key)
+    if not isinstance(value, bool):
+        return default, False
+    return value, True
 
 def _runtime_safety_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[str, Any]:
     required_checks = (
@@ -2592,18 +2608,67 @@ def build_live_readiness_gate_report(
         reasons.append("exit_evidence_coverage_below_threshold")
     if exit_path_ambiguity_rate > max_exit_path_ambiguity_rate:
         reasons.append("exit_path_ambiguity_rate_above_threshold")
-    exit_path_replay_rows_met = bool(exit_path_reconciliation.get("matched")) if exit_path_reconciliation.get("artifacts") else not require_exit_path_replay_rows
+    exit_path_artifacts = exit_path_reconciliation.get("artifacts")
+    exit_path_artifact_count, exit_path_artifact_count_valid = _strict_optional_non_negative_int(
+        exit_path_reconciliation,
+        "artifact_count",
+        len(exit_path_artifacts or []),
+    )
+    exit_path_duplicate_count, exit_path_duplicate_count_valid = _strict_optional_non_negative_int(
+        exit_path_reconciliation,
+        "duplicate_path_trade_count",
+    )
+    exit_path_source_duplicate_count, exit_path_source_duplicate_count_valid = _strict_optional_non_negative_int(
+        exit_path_reconciliation,
+        "duplicate_source_trade_count",
+    )
+    exit_path_invalid_source_trade_id_count, exit_path_invalid_source_trade_id_count_valid = (
+        _strict_optional_non_negative_int(
+            exit_path_reconciliation,
+            "invalid_source_trade_id_count",
+        )
+    )
+    exit_path_matched, exit_path_matched_valid = _strict_optional_bool(
+        exit_path_reconciliation,
+        "matched",
+        False,
+    )
+    exit_path_schema_valid, exit_path_schema_valid_type_valid = _strict_optional_bool(
+        exit_path_reconciliation,
+        "schema_valid",
+        False,
+    )
+    exit_path_provenance_present, exit_path_provenance_present_type_valid = _strict_optional_bool(
+        exit_path_reconciliation,
+        "provenance_present",
+        False,
+    )
+    exit_path_reconciliation_types_valid = (
+        exit_path_artifact_count_valid
+        and exit_path_duplicate_count_valid
+        and exit_path_source_duplicate_count_valid
+        and exit_path_invalid_source_trade_id_count_valid
+        and exit_path_matched_valid
+        and exit_path_schema_valid_type_valid
+        and exit_path_provenance_present_type_valid
+    )
+    exit_path_replay_rows_met = (
+        exit_path_matched if exit_path_artifacts and exit_path_reconciliation_types_valid else not require_exit_path_replay_rows
+    )
+    if not exit_path_reconciliation_types_valid:
+        exit_path_replay_rows_met = False
+        reasons.append("exit_path_replay_counter_invalid")
     if not exit_path_replay_rows_met:
         reasons.append("exit_path_replay_missing_trades")
-    if int(exit_path_reconciliation.get("duplicate_path_trade_count") or 0) > 0:
+    if exit_path_duplicate_count > 0:
         reasons.append("exit_path_replay_duplicate_trades")
-    if int(exit_path_reconciliation.get("duplicate_source_trade_count") or 0) > 0:
+    if exit_path_source_duplicate_count > 0:
         reasons.append("exit_path_replay_source_trade_id_duplicate")
-    if int(exit_path_reconciliation.get("invalid_source_trade_id_count") or 0) > 0:
+    if exit_path_invalid_source_trade_id_count > 0:
         reasons.append("exit_path_replay_source_trade_id_invalid")
-    if int(exit_path_reconciliation.get("artifact_count") or len(exit_path_reconciliation.get("artifacts") or [])) > 0 and not bool(exit_path_reconciliation.get("schema_valid")):
+    if exit_path_artifact_count > 0 and not exit_path_schema_valid:
         reasons.append("exit_path_replay_artifact_schema_invalid")
-    if int(exit_path_reconciliation.get("artifact_count") or len(exit_path_reconciliation.get("artifacts") or [])) > 0 and not bool(exit_path_reconciliation.get("provenance_present")):
+    if exit_path_artifact_count > 0 and not exit_path_provenance_present:
         reasons.append("exit_path_replay_artifact_provenance_missing")
     if major_negative:
         reasons.append("major_setup_bucket_negative")

@@ -10,6 +10,7 @@ from typing import Any
 
 import pytest
 
+from trading_system.app.backtest import live_readiness
 from trading_system.app.backtest import engine as backtest_engine
 from trading_system.app.backtest import live_readiness
 from trading_system.app.backtest.config import load_backtest_config
@@ -6597,6 +6598,78 @@ def test_live_readiness_gate_report_rejects_exit_path_replay_invalid_schema_and_
     assert report["promotion_gate"]["checks"]["exit_path_replay_rows_met"] is False
     assert "exit_path_replay_artifact_schema_invalid" in reasons
     assert "exit_path_replay_artifact_provenance_missing" in reasons
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("duplicate_path_trade_count", "0"),
+        ("duplicate_source_trade_count", "0"),
+        ("invalid_source_trade_id_count", "0"),
+        ("artifact_count", True),
+        ("matched", "true"),
+        ("schema_valid", "false"),
+        ("provenance_present", "true"),
+    ],
+)
+def test_live_readiness_gate_report_rejects_non_strict_exit_path_reconciliation_fields(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    field: str,
+    value: object,
+) -> None:
+    chunk = tmp_path / "chunk_001"
+    chunk.mkdir()
+    trades = [
+        {
+            "trade_id": "t1",
+            "symbol": "BTCUSDT",
+            "side": "long",
+            "setup_type": "BREAKOUT_CONTINUATION",
+            "net_pnl": 100.0,
+            "gross_pnl": 120.0,
+            "fee_paid": 5.0,
+            "slippage_paid": 5.0,
+            "fill_quality": "evidence_backed",
+            "execution_price_source": "trade_print",
+            "exit_fill_quality": "evidence_backed",
+            "exit_price_source": "trade_print",
+            "simulated_exit_reason": "take_profit",
+        }
+    ]
+    (chunk / "trades.json").write_text(json.dumps({"trades": trades}), encoding="utf-8")
+
+    reconciliation = {
+        "schema_version": "exit_path_replay_reconciliation.v1",
+        "required": True,
+        "matched": True,
+        "schema_valid": True,
+        "provenance_present": True,
+        "artifact_count": 1,
+        "artifacts": [{"chunk": "chunk_001"}],
+        "trade_count": 1,
+        "path_trade_count": 1,
+        "duplicate_path_trade_count": 0,
+        "duplicate_source_trade_count": 0,
+        "invalid_source_trade_id_count": 0,
+        "missing_trade_count": 0,
+        "extra_path_trade_count": 0,
+        "chunks_missing_artifact": [],
+        "missing_trade_ids": [],
+        "extra_path_trade_ids": [],
+        "duplicate_path_trade_ids": [],
+        "duplicate_source_trade_ids": [],
+        "invalid_source_trade_ids": [],
+    }
+    reconciliation[field] = value
+
+    monkeypatch.setattr(live_readiness, "_exit_path_replay_reconciliation", lambda *_args, **_kwargs: reconciliation)
+
+    report = build_live_readiness_gate_report(tmp_path, require_exit_path_replay_rows=True)
+
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+    assert report["promotion_gate"]["checks"]["exit_path_replay_rows_met"] is False
+    assert "exit_path_replay_counter_invalid" in report["promotion_gate"]["reasons"]
 
 
 
