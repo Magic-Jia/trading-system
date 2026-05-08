@@ -171,7 +171,10 @@ def _trade_id(payload: Mapping[str, Any]) -> int:
 
 
 def _trade_time_ms(payload: Mapping[str, Any]) -> int:
-    return int(payload["T"])
+    trade_time = payload["T"]
+    if isinstance(trade_time, bool) or not isinstance(trade_time, int):
+        raise BinanceExecutionDownloadError("aggTrades row trade timestamp must be integer")
+    return trade_time
 
 
 def _trade_row(*, symbol: str, payload: Mapping[str, Any]) -> dict[str, Any]:
