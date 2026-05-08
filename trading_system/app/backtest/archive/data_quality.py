@@ -139,6 +139,22 @@ def _l2_missing_intervals_value(report: Mapping[str, Any]) -> bool:
     return value
 
 
+def _l2_canonical_string(report: Mapping[str, Any], field: str) -> str:
+    value = report.get(field)
+    if not isinstance(value, str) or not value.strip() or value != value.strip():
+        raise ValueError(f"l2 {field} must be canonical")
+    return value
+
+
+def _l2_optional_canonical_string(report: Mapping[str, Any], field: str) -> str | None:
+    value = report.get(field)
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip() or value != value.strip():
+        raise ValueError(f"l2 {field} must be canonical")
+    return value
+
+
 def _l2_tick_coverage(series_reports: Mapping[str, Mapping[str, Any]], required_coverage: float) -> dict[str, Any]:
     l2_reports = [dict(report) for report in series_reports.values() if report.get("dataset") in {"order-book", "trades"}]
     if not l2_reports:
@@ -150,16 +166,17 @@ def _l2_tick_coverage(series_reports: Mapping[str, Mapping[str, Any]], required_
             "series": [],
         }
     coverage_ratio = min(_l2_coverage_ratio_value(report) for report in l2_reports)
+    validated_series = [_l2_canonical_string(report, "series_key") for report in l2_reports]
     missing = []
     for report in l2_reports:
         report_coverage_ratio = _l2_coverage_ratio_value(report)
         if report_coverage_ratio < required_coverage or _l2_missing_intervals_value(report):
             missing.append(
                 {
-                    "symbol": report.get("symbol"),
-                    "dataset": report.get("dataset"),
-                    "timeframe": report.get("timeframe"),
-                    "coverage_ratio": report.get("coverage_ratio"),
+                    "symbol": _l2_canonical_string(report, "symbol"),
+                    "dataset": _l2_canonical_string(report, "dataset"),
+                    "timeframe": _l2_optional_canonical_string(report, "timeframe"),
+                    "coverage_ratio": report_coverage_ratio,
                     "missing_intervals": report.get("missing_intervals", []),
                 }
             )
@@ -168,7 +185,7 @@ def _l2_tick_coverage(series_reports: Mapping[str, Mapping[str, Any]], required_
         "coverage_ratio": coverage_ratio,
         "met": coverage_ratio >= required_coverage and not missing,
         "missing_by_symbol_timeframe": missing,
-        "series": [report["series_key"] for report in l2_reports],
+        "series": validated_series,
     }
 
 
