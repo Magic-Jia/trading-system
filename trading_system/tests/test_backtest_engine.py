@@ -391,6 +391,14 @@ def test_candidate_cost_coverage_ok_rejects_coerced_threshold() -> None:
         )
 
 
+def test_exit_slippage_rejects_coerced_prices() -> None:
+    with pytest.raises(ValueError, match="fill_price must be a positive number"):
+        backtest_engine._exit_slippage_vs_reference_bps(side="long", fill_price="101", reference_price=100.0)
+
+    with pytest.raises(ValueError, match="reference_price must be a positive number"):
+        backtest_engine._exit_slippage_vs_reference_bps(side="short", fill_price=99.0, reference_price="100")
+
+
 def test_engine_rejects_coerced_portfolio_candidate_fields(fixture_dir: Path) -> None:
     row = load_historical_dataset(fixture_dir / "backtest" / "sample_dataset")[0]
     instrument = InstrumentSnapshotRow(

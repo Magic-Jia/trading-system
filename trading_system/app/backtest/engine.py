@@ -377,11 +377,11 @@ def _exit_execution_fill(row: DatasetSnapshotRow, open_trade: _OpenTrade, refere
 
 
 def _exit_slippage_vs_reference_bps(*, side: str, fill_price: float, reference_price: float) -> float | None:
-    if fill_price <= 0.0 or reference_price <= 0.0:
-        return None
+    fill_price_value = _positive_float(fill_price, field_name="fill_price")
+    reference_price_value = _positive_float(reference_price, field_name="reference_price")
     if side == "long":
-        return ((float(fill_price) - float(reference_price)) / float(reference_price)) * 10_000.0
-    return ((float(reference_price) - float(fill_price)) / float(reference_price)) * 10_000.0
+        return ((fill_price_value - reference_price_value) / reference_price_value) * 10_000.0
+    return ((reference_price_value - fill_price_value) / reference_price_value) * 10_000.0
 
 
 def _reference_close_execution(row: DatasetSnapshotRow, symbol: str, side: str):
