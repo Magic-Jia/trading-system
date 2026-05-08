@@ -587,7 +587,11 @@ def _increment_execution_coverage(coverage: dict[str, Any], bucket: str, evidenc
 
 
 def _positive_execution_float(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
     parsed = _to_float(value, default=-1.0)
+    if not parsed == parsed or parsed in {float("inf"), float("-inf")}:
+        return None
     return parsed if parsed > 0.0 else None
 
 

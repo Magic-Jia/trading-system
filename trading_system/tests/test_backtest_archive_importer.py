@@ -609,6 +609,71 @@ def test_load_phase1_raw_market_series_accepts_multiple_terminal_trades_at_cover
     assert [record.payload["agg_trade_id"] for record in imported.records] == [1, 2, 3]
 
 
+@pytest.mark.parametrize(
+    ("field", "bad_value", "message"),
+    [
+        ("bid", True, "order book bid must be numeric"),
+        ("ask", float("nan"), "order book ask must be finite"),
+        ("bid_size", float("inf"), "order book bid_size must be finite"),
+        ("askSize", float("-inf"), "order book askSize must be finite"),
+    ],
+)
+def test_order_book_execution_payload_rejects_invalid_numeric_boundaries(
+    field: str,
+    bad_value: object,
+    message: str,
+) -> None:
+    observed_at = datetime(2024, 4, 1, tzinfo=UTC)
+    payload: dict[str, object] = {
+        "symbol": "BTCUSDT",
+        "bid": "70000.0",
+        "ask": "70001.0",
+        "bid_size": "1.25",
+        "askSize": "1.5",
+    }
+    payload[field] = bad_value
+
+    record = ImportedRawMarketRecord(observed_at=observed_at, payload=payload)
+
+    with pytest.raises(ValueError, match=rf"{message}: 2024-04-01 00:00:00\+00:00"):
+        archive_importer._order_book_payload(record, symbol="BTCUSDT")
+
+
+@pytest.mark.parametrize(
+    ("field", "bad_value", "message"),
+    [
+        ("price", False, "trade price must be numeric"),
+        ("p", True, "trade price must be numeric"),
+        ("quantity", float("nan"), "trade quantity must be finite"),
+        ("q", float("inf"), "trade quantity must be finite"),
+    ],
+)
+def test_trade_execution_payload_rejects_invalid_numeric_boundaries(
+    field: str,
+    bad_value: object,
+    message: str,
+) -> None:
+    observed_at = datetime(2024, 4, 1, tzinfo=UTC)
+    payload: dict[str, object] = {
+        "symbol": "BTCUSDT",
+        "price": "70000.0",
+        "quantity": "0.25",
+    }
+    if field in {"p", "q"}:
+        payload.pop("price" if field == "p" else "quantity")
+    payload[field] = bad_value
+
+    record = ImportedRawMarketRecord(observed_at=observed_at, payload=payload)
+
+    with pytest.raises(ValueError, match=rf"{message}: 2024-04-01 00:00:00\+00:00"):
+        archive_importer._trade_payload(record, symbol="BTCUSDT")
+
+
+def test_positive_execution_float_rejects_boolean_boundaries() -> None:
+    assert archive_importer._positive_execution_float(True) is None
+    assert archive_importer._positive_execution_float(False) is None
+
+
 def test_load_phase1_raw_market_series_reads_manifest_backed_files_into_importer_structures(
     tmp_path: Path,
 ) -> None:
