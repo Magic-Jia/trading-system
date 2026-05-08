@@ -39,6 +39,23 @@ def test_has_explicit_target_management_state_rejects_non_bool_runner_protected(
         _has_explicit_target_management_state({"runner_protected": "false"})
 
 
+def test_has_explicit_target_management_state_rejects_non_string_target_status():
+    with pytest.raises(TypeError, match="first_target_status"):
+        _has_explicit_target_management_state({"first_target_status": 123})
+
+
+def test_has_explicit_target_management_state_rejects_non_string_target_source():
+    with pytest.raises(TypeError, match="first_target_source"):
+        _has_explicit_target_management_state(
+            {
+                "first_target_status": "pending",
+                "second_target_status": "pending",
+                "first_target_source": 123,
+                "second_target_source": "fixed_2r",
+            }
+        )
+
+
 def test_derive_target_management_fields_prefers_structure_target_between_1r_and_2r():
     payload = derive_target_management_fields(
         side="LONG",
@@ -698,6 +715,95 @@ def test_apply_executed_intent_rejects_non_bool_tracked_from_snapshot():
         )
 
 
+def test_apply_executed_intent_rejects_present_non_mapping_order_meta_before_state_mutation():
+    state = RuntimeStateV2(updated_at_bj="2026-04-09T12:00:00+08:00")
+
+    with pytest.raises(TypeError, match="order.meta"):
+        apply_executed_intent(
+            state,
+            OrderIntent(
+                intent_id="intent-invalid-meta",
+                signal_id="signal-invalid-meta",
+                symbol="BTCUSDT",
+                side="LONG",
+                qty=0.5,
+                entry_price=102.0,
+                stop_loss=95.0,
+                take_profit=107.0,
+                status="FILLED",
+                meta=[("first_target_price", 107.0)],
+            ),
+        )
+
+    assert state.positions == {}
+
+
+def test_apply_executed_intent_rejects_invalid_same_side_existing_qty_without_mutating_state():
+    original_position = {
+        "symbol": "BTCUSDT",
+        "side": "LONG",
+        "qty": True,
+        "entry_price": 100.0,
+        "tracked_from_snapshot": False,
+    }
+    state = RuntimeStateV2(
+        updated_at_bj="2026-04-09T12:00:00+08:00",
+        positions={"BTCUSDT": dict(original_position)},
+    )
+
+    with pytest.raises(TypeError, match="positions\\[BTCUSDT\\]\\.qty"):
+        apply_executed_intent(
+            state,
+            OrderIntent(
+                intent_id="intent-bad-qty",
+                signal_id="signal-bad-qty",
+                symbol="BTCUSDT",
+                side="LONG",
+                qty=0.5,
+                entry_price=102.0,
+                stop_loss=95.0,
+                take_profit=107.0,
+                status="FILLED",
+                meta={},
+            ),
+        )
+
+    assert state.positions["BTCUSDT"] == original_position
+
+
+def test_apply_executed_intent_rejects_invalid_same_side_existing_entry_price_without_mutating_state():
+    original_position = {
+        "symbol": "BTCUSDT",
+        "side": "LONG",
+        "qty": 1.0,
+        "entry_price": "100.0",
+        "tracked_from_snapshot": False,
+    }
+    state = RuntimeStateV2(
+        updated_at_bj="2026-04-09T12:00:00+08:00",
+        positions={"BTCUSDT": dict(original_position)},
+    )
+
+    with pytest.raises(TypeError, match="positions\\[BTCUSDT\\]\\.entry_price"):
+        apply_executed_intent(
+            state,
+            OrderIntent(
+                intent_id="intent-bad-entry",
+                signal_id="signal-bad-entry",
+                symbol="BTCUSDT",
+                side="LONG",
+                qty=0.5,
+                entry_price=102.0,
+                stop_loss=95.0,
+                take_profit=107.0,
+                status="FILLED",
+                meta={},
+            ),
+        )
+
+    assert state.positions["BTCUSDT"] == original_position
+
+
 def test_apply_executed_intent_keeps_frozen_first_target_when_only_second_target_is_missing():
     state = RuntimeStateV2(
         updated_at_bj="2026-04-09T12:00:00+08:00",
@@ -846,6 +952,72 @@ def test_sync_positions_from_account_refreshes_remaining_qty_for_external_reduct
     assert position["remaining_position_qty"] == pytest.approx(0.4)
     assert position["first_target_status"] == "pending"
     assert position["second_target_status"] == "pending"
+
+
+def test_sync_positions_from_account_rejects_present_non_mapping_account_meta():
+    state = RuntimeStateV2(updated_at_bj="2026-04-09T12:00:00+08:00")
+
+    with pytest.raises(TypeError, match="account.meta"):
+        sync_positions_from_account(
+            state,
+            AccountSnapshot(
+                equity=1000.0,
+                available_balance=1000.0,
+                futures_wallet_balance=1000.0,
+                open_positions=[PositionSnapshot(symbol="BTCUSDT", side="LONG", qty=0.4, entry_price=100.0, mark_price=106.0)],
+                meta=[("snapshot_source", "manual")],
+            ),
+        )
+
+    assert state.positions == {}
+
+
+def test_sync_positions_from_account_rejects_present_non_string_snapshot_source():
+    state = RuntimeStateV2(updated_at_bj="2026-04-09T12:00:00+08:00")
+
+    with pytest.raises(TypeError, match="account.meta.snapshot_source"):
+        sync_positions_from_account(
+            state,
+            AccountSnapshot(
+                equity=1000.0,
+                available_balance=1000.0,
+                futures_wallet_balance=1000.0,
+                open_positions=[PositionSnapshot(symbol="BTCUSDT", side="LONG", qty=0.4, entry_price=100.0, mark_price=106.0)],
+                meta={"snapshot_source": 123},
+            ),
+        )
+
+    assert state.positions == {}
+
+
+def test_sync_positions_from_account_rejects_invalid_preserved_paper_position_qty_without_mutating_state():
+    original_position = {
+        "symbol": "BTCUSDT",
+        "side": "LONG",
+        "qty": "1.25",
+        "entry_price": 100.0,
+        "mark_price": 101.0,
+        "tracked_from_intent": True,
+        "tracked_from_snapshot": False,
+    }
+    state = RuntimeStateV2(
+        updated_at_bj="2026-04-09T12:00:00+08:00",
+        positions={"BTCUSDT": dict(original_position)},
+    )
+
+    with pytest.raises(TypeError, match="positions\\[BTCUSDT\\]\\.qty"):
+        sync_positions_from_account(
+            state,
+            AccountSnapshot(
+                equity=1000.0,
+                available_balance=1000.0,
+                futures_wallet_balance=1000.0,
+                open_positions=[PositionSnapshot(symbol="BTCUSDT", side="LONG", qty=0.4, entry_price=100.0, mark_price=106.0)],
+                meta={"snapshot_source": "manual"},
+            ),
+        )
+
+    assert state.positions["BTCUSDT"] == original_position
 
 
 def test_sync_positions_from_account_marks_tracked_intent_position_closed_when_exchange_position_disappears(monkeypatch):
