@@ -7,11 +7,32 @@ from pathlib import Path
 
 import pytest
 
+from trading_system.app.backtest.archive import importer as archive_importer
 from trading_system.app.backtest.archive.raw_market import (
+    ImportedRawMarketRecord,
     archive_raw_market_payload,
     load_phase1_raw_market_imports,
     load_phase1_raw_market_series,
 )
+
+
+@pytest.mark.parametrize("field", ["open", "high", "low", "close", "volume"])
+def test_hourly_ohlcv_bar_rejects_boolean_required_ohlcv_fields(field: str) -> None:
+    observed_at = datetime(2024, 4, 1, tzinfo=UTC)
+    payload: dict[str, object] = {
+        "open": "100.0",
+        "high": 110.0,
+        "low": "90.0",
+        "close": 105.0,
+        "volume": "123.45",
+        "quote_asset_volume": "12962.25",
+    }
+    payload[field] = True
+
+    record = ImportedRawMarketRecord(observed_at=observed_at, payload=payload)
+
+    with pytest.raises(ValueError, match=rf"ohlcv {field} must be numeric: 2024-04-01 00:00:00\+00:00"):
+        archive_importer._hourly_ohlcv_bar(record)
 
 
 def test_archive_raw_market_payload_writes_manifest_and_canonical_futures_ohlcv_path(tmp_path: Path) -> None:
