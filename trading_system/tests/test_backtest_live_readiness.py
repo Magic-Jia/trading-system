@@ -2425,6 +2425,80 @@ def test_live_readiness_gate_report_rejects_invalid_passive_calibration_schema_a
     assert "passive_calibration_artifact_provenance_missing" in reasons
     assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
 
+
+def test_passive_calibration_artifact_checks_reject_non_bool_chunk_statuses() -> None:
+    checks = live_readiness._passive_calibration_artifact_checks(
+        [
+            {"schema_valid": "false", "provenance_present": True},
+            {"schema_valid": True, "provenance_present": "false"},
+        ]
+    )
+
+    assert checks == {
+        "passive_calibration_artifact_schema_valid": False,
+        "passive_calibration_artifact_provenance_present": False,
+    }
+
+
+def test_live_readiness_gate_rejects_non_bool_passive_calibration_artifact_checks(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+
+    def polluted_passive_calibration_diagnostic(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        return {
+            "schema_version": "passive_calibration_live_readiness.v1",
+            "required": True,
+            "chunks": [
+                {
+                    "chunk": "chunk_001",
+                    "path": str(chunk / "passive_order_calibration_summary.json"),
+                    "parse_error": "",
+                    "attempt_count": 10,
+                    "fill_rate": 0.7,
+                    "real_exchange_records": True,
+                    "schema_valid": "false",
+                    "provenance_present": "false",
+                    "evidence_source": {"type": "testnet_exchange"},
+                    "provenance": {"source": "testnet_exchange", "real_exchange_records": True},
+                }
+            ],
+            "attempt_count": 10,
+            "min_attempts": 0,
+            "fill_rate": 0.7,
+            "min_fill_rate": None,
+            "invalid_config": [],
+            "real_exchange_records": True,
+            "checks": live_readiness._passive_calibration_artifact_checks(
+                [{"schema_valid": "false", "provenance_present": "false"}]
+            )
+            | {
+                "passive_calibration_present_met": True,
+                "passive_calibration_real_records_met": True,
+                "passive_calibration_attempts_met": True,
+                "passive_calibration_fill_rate_met": True,
+            },
+        }
+
+    monkeypatch.setattr(
+        live_readiness,
+        "_passive_calibration_diagnostic",
+        polluted_passive_calibration_diagnostic,
+    )
+
+    report = build_live_readiness_gate_report(tmp_path, require_passive_calibration=True)
+
+    passive_checks = report["passive_calibration"]["checks"]
+    reasons = set(report["promotion_gate"]["reasons"])
+    assert passive_checks["passive_calibration_artifact_schema_valid"] is False
+    assert passive_checks["passive_calibration_artifact_provenance_present"] is False
+    assert "passive_calibration_artifact_schema_invalid" in reasons
+    assert "passive_calibration_artifact_provenance_missing" in reasons
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
 def test_live_readiness_accepts_microstructure_producer_reasons_field(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     _write_profitable_trade_chunk(chunk)

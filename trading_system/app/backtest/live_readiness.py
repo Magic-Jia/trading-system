@@ -2315,8 +2315,7 @@ def _passive_calibration_diagnostic(
     attempts_met = (not invalid_config) and total_attempts >= min_attempts
     fill_rate_met = (not invalid_config) and (min_fill_rate is None or fill_rate >= min_fill_rate)
     real_records_met = (not required) or real_exchange_records
-    schema_valid = (not chunks) or all(bool(chunk.get("schema_valid")) for chunk in chunks)
-    provenance_present = (not chunks) or all(bool(chunk.get("provenance_present")) for chunk in chunks)
+    artifact_checks = _passive_calibration_artifact_checks(chunks)
     return {
         "schema_version": "passive_calibration_live_readiness.v1",
         "required": required,
@@ -2329,12 +2328,20 @@ def _passive_calibration_diagnostic(
         "real_exchange_records": real_exchange_records,
         "checks": {
             "passive_calibration_present_met": (not required) or bool(chunks),
-            "passive_calibration_artifact_schema_valid": schema_valid,
-            "passive_calibration_artifact_provenance_present": provenance_present,
+            **artifact_checks,
             "passive_calibration_real_records_met": real_records_met,
             "passive_calibration_attempts_met": attempts_met,
             "passive_calibration_fill_rate_met": fill_rate_met,
         },
+    }
+
+
+def _passive_calibration_artifact_checks(chunks: Sequence[Mapping[str, Any]]) -> dict[str, bool]:
+    return {
+        "passive_calibration_artifact_schema_valid": (not chunks)
+        or all(chunk.get("schema_valid") is True for chunk in chunks),
+        "passive_calibration_artifact_provenance_present": (not chunks)
+        or all(chunk.get("provenance_present") is True for chunk in chunks),
     }
 
 
