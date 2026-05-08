@@ -734,6 +734,27 @@ def test_allocator_and_friction_comparisons() -> None:
     assert result["comparison_rows"]
 
 
+@pytest.mark.parametrize("invalid_budget", [True, float("nan"), float("inf")])
+def test_allocator_friction_experiment_rejects_invalid_present_final_risk_budget(
+    monkeypatch: pytest.MonkeyPatch,
+    invalid_budget: object,
+) -> None:
+    def invalid_allocation_rows(_account, _validated_candidates, _regime, *, app_config=None):
+        return [
+            {
+                "symbol": "BTCUSDT",
+                "engine": "trend",
+                "status": "ACCEPTED",
+                "final_risk_budget": invalid_budget,
+            }
+        ]
+
+    monkeypatch.setattr(backtest_experiments, "_allocation_rows", invalid_allocation_rows)
+
+    with pytest.raises(ValueError, match=r"allocations\[0\]\.final_risk_budget"):
+        run_allocator_friction_experiment([_bullish_ablation_row()], evaluation_window="3d")
+
+
 def _walk_forward_rows() -> list[DatasetSnapshotRow]:
     return [
         _suppressed_rotation_row(2, link_return=0.04, ada_return=-0.01, forward_return_3d=0.04),

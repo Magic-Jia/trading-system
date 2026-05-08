@@ -719,12 +719,28 @@ def _run_candidate_pipeline(
 
 
 def _accepted_allocations(allocations: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return [
-        allocation
-        for allocation in allocations
-        if str(allocation.get("status", "")).upper() != "REJECTED"
-        and float(allocation.get("final_risk_budget", 0.0) or 0.0) > 0.0
-    ]
+    accepted: list[dict[str, Any]] = []
+    for index, allocation in enumerate(allocations):
+        if str(allocation.get("status", "")).upper() == "REJECTED":
+            continue
+        if _allocation_final_risk_budget(allocation, path=f"allocations[{index}].final_risk_budget") > 0.0:
+            accepted.append(allocation)
+    return accepted
+
+
+def _allocation_final_risk_budget(allocation: Mapping[str, Any], *, path: str) -> float:
+    if "final_risk_budget" not in allocation or allocation.get("final_risk_budget") is None:
+        return 0.0
+    value = allocation["final_risk_budget"]
+    if isinstance(value, bool):
+        raise ValueError(f"{path} must be a finite number")
+    try:
+        budget = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{path} must be a finite number") from exc
+    if not math.isfinite(budget):
+        raise ValueError(f"{path} must be a finite number")
+    return budget
 
 
 def _baseline_allocation_row(
