@@ -1829,7 +1829,10 @@ def _phase1_dataset_root_summary_fields(payload: Mapping[str, Any]) -> dict[str,
         "end_timestamp": _phase1_root_manifest_canonical_string(payload, "end_timestamp", manifest_path=Path("<phase1 dataset root summary>"))
         if payload.get("end_timestamp") is not None
         else None,
-        "source": _json_object_field(payload.get("source") or {}, context="phase1 dataset root summary source"),
+        "source": _json_object_field(
+            payload.get("source") if payload.get("source") is not None else {},
+            context="phase1 dataset root summary source",
+        ),
     }
 
 

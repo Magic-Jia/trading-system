@@ -32,6 +32,12 @@ def test_row_market_symbol_keys_rejects_pair_list_symbols() -> None:
 
 
 
+def test_phase1_dataset_root_summary_rejects_empty_list_source() -> None:
+    with pytest.raises(ValueError, match="phase1 dataset root summary source must contain a JSON object"):
+        archive_importer._phase1_dataset_root_summary_fields({"snapshot_count": 0, "source": []})
+
+
+
 def test_phase1_dataset_root_summary_rejects_empty_string_bundle_dirs() -> None:
     with pytest.raises(ValueError, match="bundle_dirs must be a list"):
         archive_importer._phase1_dataset_root_summary_fields({"snapshot_count": 0, "bundle_dirs": ""})
