@@ -13,6 +13,16 @@ from trading_system.app.risk.validator import ValidationResult
 from trading_system.app.types import AllocationDecision
 
 
+def _run_cycle_with_runtime_state(monkeypatch, tmp_path, runtime_state: dict[str, object]) -> None:
+    monkeypatch.setattr(run_cycle_module, "prepare_paper_runtime_inputs", lambda paths: None)
+
+    def fake_main() -> None:
+        Path(os.environ["TRADING_STATE_FILE"]).write_text(json.dumps(runtime_state), encoding="utf-8")
+
+    monkeypatch.setattr(run_cycle_module, "run_main", fake_main)
+    run_cycle_module.run_cycle("paper", runtime_root=tmp_path / "runtime", runtime_env="prod")
+
+
 def test_run_cycle_prepares_runtime_bucket_calls_main_and_writes_latest_summary(monkeypatch, tmp_path):
     runtime_root = tmp_path / "runtime"
     expected_bucket = runtime_root / "paper" / "testnet"
@@ -106,6 +116,187 @@ def test_run_cycle_latest_summary_includes_entry_profile_from_state(monkeypatch,
     latest = json.loads((expected_bucket / "latest.json").read_text(encoding="utf-8"))
     assert summary == latest
     assert latest["entry_profile"] == "active_paper"
+
+
+@pytest.mark.parametrize(
+    ("runtime_state", "error_message"),
+    [
+        (
+            {
+                "execution_mode": "paper",
+                "latest_candidates": None,
+                "latest_allocations": [],
+            },
+            r"runtime_state\.latest_candidates must be a sequence of mappings",
+        ),
+        (
+            {
+                "execution_mode": "paper",
+                "latest_candidates": "BTCUSDT",
+                "latest_allocations": [],
+            },
+            r"runtime_state\.latest_candidates must be a sequence of mappings",
+        ),
+        (
+            {
+                "execution_mode": "paper",
+                "latest_candidates": ["BTCUSDT"],
+                "latest_allocations": [],
+            },
+            r"runtime_state\.latest_candidates\[0\] must be a mapping",
+        ),
+        (
+            {
+                "execution_mode": "paper",
+                "latest_candidates": [],
+                "latest_allocations": "BTCUSDT",
+            },
+            r"runtime_state\.latest_allocations must be a sequence of mappings",
+        ),
+        (
+            {
+                "execution_mode": "paper",
+                "latest_candidates": [],
+                "latest_allocations": [{"symbol": "BTCUSDT"}],
+                "disabled_setup_type_filtered_candidates": ["BTCUSDT"],
+            },
+            r"runtime_state\.disabled_setup_type_filtered_candidates\[0\] must be a mapping",
+        ),
+        (
+            {
+                "execution_mode": "paper",
+                "latest_candidates": [],
+                "latest_allocations": [],
+                "latest_regime": {"suppression_rules": None},
+            },
+            r"runtime_state\.latest_regime\.suppression_rules must be a sequence of strings",
+        ),
+        (
+            {
+                "execution_mode": "paper",
+                "latest_candidates": [],
+                "latest_allocations": [],
+                "latest_regime": {"suppression_rules": [{"rule": "risk_off"}]},
+            },
+            r"runtime_state\.latest_regime\.suppression_rules\[0\] must be a string",
+        ),
+        (
+            {
+                "execution_mode": "paper",
+                "latest_candidates": [],
+                "latest_allocations": [],
+                "short_summary": {"accepted_symbols": [{"symbol": "BTCUSDT"}]},
+            },
+            r"runtime_state\.short_summary\.accepted_symbols\[0\] must be a string",
+        ),
+        (
+            {
+                "execution_mode": "paper",
+                "latest_candidates": [],
+                "latest_allocations": [],
+                "short_summary": {"deferred_execution_symbols": {"BTCUSDT": "later"}},
+            },
+            r"runtime_state\.short_summary\.deferred_execution_symbols must be a sequence of strings",
+        ),
+    ],
+)
+def test_run_cycle_fails_closed_for_invalid_latest_summary_sequences(
+    monkeypatch, tmp_path, runtime_state, error_message
+):
+    with pytest.raises(ValueError, match=error_message):
+        _run_cycle_with_runtime_state(monkeypatch, tmp_path, runtime_state)
+
+
+@pytest.mark.parametrize(
+    ("runtime_state", "error_message"),
+    [
+        (
+            {
+                "execution_mode": "paper",
+                "latest_candidates": [],
+                "latest_allocations": [],
+                "trend_summary": {"candidate_count": None},
+            },
+            r"runtime_state\.trend_summary\.candidate_count must be a non-negative int",
+        ),
+        (
+            {
+                "execution_mode": "paper",
+                "latest_candidates": [],
+                "latest_allocations": [],
+                "trend_summary": {"candidate_count": True},
+            },
+            r"runtime_state\.trend_summary\.candidate_count must be a non-negative int",
+        ),
+        (
+            {
+                "execution_mode": "paper",
+                "latest_candidates": [],
+                "latest_allocations": [],
+                "rotation_summary": {"candidate_count": "2"},
+            },
+            r"runtime_state\.rotation_summary\.candidate_count must be a non-negative int",
+        ),
+        (
+            {
+                "execution_mode": "paper",
+                "latest_candidates": [],
+                "latest_allocations": [],
+                "short_summary": {"candidate_count": -1},
+            },
+            r"runtime_state\.short_summary\.candidate_count must be a non-negative int",
+        ),
+    ],
+)
+def test_run_cycle_fails_closed_for_invalid_candidate_counts(monkeypatch, tmp_path, runtime_state, error_message):
+    with pytest.raises(ValueError, match=error_message):
+        _run_cycle_with_runtime_state(monkeypatch, tmp_path, runtime_state)
+
+
+@pytest.mark.parametrize(
+    ("runtime_state", "error_message"),
+    [
+        (
+            {
+                "execution_mode": "paper",
+                "latest_candidates": [],
+                "latest_allocations": [],
+                "latest_entry_profile": None,
+            },
+            r"runtime_state\.latest_entry_profile must be a mapping",
+        ),
+        (
+            {
+                "execution_mode": "paper",
+                "latest_candidates": [],
+                "latest_allocations": [],
+                "latest_entry_profile": [],
+            },
+            r"runtime_state\.latest_entry_profile must be a mapping",
+        ),
+        (
+            {
+                "execution_mode": "paper",
+                "latest_candidates": [],
+                "latest_allocations": [],
+                "latest_entry_profile": {"name": ""},
+            },
+            r"runtime_state\.latest_entry_profile\.name must be a canonical non-empty string",
+        ),
+        (
+            {
+                "execution_mode": "paper",
+                "latest_candidates": [],
+                "latest_allocations": [],
+                "latest_entry_profile": {"name": "exploratory_paper"},
+            },
+            r"runtime_state\.latest_entry_profile\.name must be a canonical entry profile name",
+        ),
+    ],
+)
+def test_run_cycle_fails_closed_for_invalid_latest_entry_profile(monkeypatch, tmp_path, runtime_state, error_message):
+    with pytest.raises(ValueError, match=error_message):
+        _run_cycle_with_runtime_state(monkeypatch, tmp_path, runtime_state)
 
 
 def test_run_cycle_latest_summary_mirrors_disabled_setup_type_filtered_candidates(monkeypatch, tmp_path):

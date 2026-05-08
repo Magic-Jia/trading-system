@@ -3,6 +3,8 @@ from __future__ import annotations
 import argparse
 import json
 import os
+from collections.abc import Mapping as ABCMapping
+from collections.abc import Sequence
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -74,6 +76,76 @@ def _base_summary(paths: RuntimePaths, *, status: str, finished_at: str) -> dict
     }
 
 
+def _sequence_field(state: ABCMapping[str, Any], field_name: str, *, item_kind: str, field_path: str | None = None) -> list[Any]:
+    resolved_field_path = field_path or f"runtime_state.{field_name}"
+    if field_name not in state:
+        return []
+    value = state[field_name]
+    if isinstance(value, (str, bytes)) or not isinstance(value, Sequence):
+        raise ValueError(f"{resolved_field_path} must be a sequence of {item_kind}")
+    return list(value)
+
+
+def _sequence_of_mappings(
+    state: ABCMapping[str, Any], field_name: str, *, field_path: str | None = None
+) -> list[ABCMapping[str, Any]]:
+    resolved_field_path = field_path or f"runtime_state.{field_name}"
+    values = _sequence_field(state, field_name, item_kind="mappings", field_path=resolved_field_path)
+    for index, value in enumerate(values):
+        if not isinstance(value, ABCMapping):
+            raise ValueError(f"{resolved_field_path}[{index}] must be a mapping")
+    return values
+
+
+def _sequence_of_strings(
+    state: ABCMapping[str, Any], field_name: str, *, field_path: str | None = None
+) -> list[str]:
+    resolved_field_path = field_path or f"runtime_state.{field_name}"
+    values = _sequence_field(state, field_name, item_kind="strings", field_path=resolved_field_path)
+    normalized: list[str] = []
+    for index, value in enumerate(values):
+        if not isinstance(value, str):
+            raise ValueError(f"{resolved_field_path}[{index}] must be a string")
+        normalized.append(value)
+    return normalized
+
+
+def _mapping_field(state: ABCMapping[str, Any], field_name: str) -> dict[str, Any]:
+    if field_name not in state:
+        return {}
+    value = state[field_name]
+    if not isinstance(value, ABCMapping):
+        raise ValueError(f"runtime_state.{field_name} must be a mapping")
+    return dict(value)
+
+
+def _non_negative_int(summary: ABCMapping[str, Any], field_path: str) -> int:
+    if "candidate_count" not in summary:
+        return 0
+    value = summary["candidate_count"]
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ValueError(f"{field_path} must be a non-negative int")
+    return value
+
+
+def _entry_profile_name(state: ABCMapping[str, Any], *, env_entry_profile: str) -> str:
+    if "latest_entry_profile" not in state:
+        return env_entry_profile
+    latest_entry_profile = _mapping_field(state, "latest_entry_profile")
+    if "name" not in latest_entry_profile:
+        return env_entry_profile
+    name = latest_entry_profile["name"]
+    if not isinstance(name, str) or not name.strip():
+        raise ValueError("runtime_state.latest_entry_profile.name must be a canonical non-empty string")
+    try:
+        resolved_name = resolve_entry_profile(name).name
+    except ValueError as exc:
+        raise ValueError("runtime_state.latest_entry_profile.name must be a canonical entry profile name") from exc
+    if resolved_name != name.strip():
+        raise ValueError("runtime_state.latest_entry_profile.name must be a canonical entry profile name")
+    return resolved_name
+
+
 def _state_summary(paths: RuntimePaths) -> dict[str, Any]:
     env_entry_profile = resolve_entry_profile(os.environ.get(ENTRY_PROFILE_ENV)).name
     if not paths.state_file.exists():
@@ -97,35 +169,47 @@ def _state_summary(paths: RuntimePaths) -> dict[str, Any]:
         }
 
     state = json.loads(paths.state_file.read_text(encoding="utf-8"))
-    regime = state.get("latest_regime") if isinstance(state.get("latest_regime"), dict) else {}
-    trend_summary = state.get("trend_summary") if isinstance(state.get("trend_summary"), dict) else {}
-    rotation_summary = state.get("rotation_summary") if isinstance(state.get("rotation_summary"), dict) else {}
-    short_summary = state.get("short_summary") if isinstance(state.get("short_summary"), dict) else {}
-    disabled_setup_type_filtered_candidates = state.get("disabled_setup_type_filtered_candidates")
-    if not isinstance(disabled_setup_type_filtered_candidates, list):
-        disabled_setup_type_filtered_candidates = []
-    paper_trading = state.get("paper_trading")
-    if not isinstance(paper_trading, dict):
-        paper_trading = {}
-    latest_entry_profile = state.get("latest_entry_profile")
-    if not isinstance(latest_entry_profile, dict):
-        latest_entry_profile = {}
+    if not isinstance(state, ABCMapping):
+        raise ValueError("runtime_state must be a mapping")
+
+    latest_candidates = _sequence_of_mappings(state, "latest_candidates")
+    latest_allocations = _sequence_of_mappings(state, "latest_allocations")
+    disabled_setup_type_filtered_candidates = _sequence_of_mappings(state, "disabled_setup_type_filtered_candidates")
+    regime = _mapping_field(state, "latest_regime")
+    trend_summary = _mapping_field(state, "trend_summary")
+    rotation_summary = _mapping_field(state, "rotation_summary")
+    short_summary = _mapping_field(state, "short_summary")
+    paper_trading = _mapping_field(state, "paper_trading")
+    suppression_rules = _sequence_of_strings(
+        regime, "suppression_rules", field_path="runtime_state.latest_regime.suppression_rules"
+    )
+    short_accepted_symbols = _sequence_of_strings(
+        short_summary, "accepted_symbols", field_path="runtime_state.short_summary.accepted_symbols"
+    )
+    short_deferred_execution_symbols = _sequence_of_strings(
+        short_summary,
+        "deferred_execution_symbols",
+        field_path="runtime_state.short_summary.deferred_execution_symbols",
+    )
+
     return {
         "state_written": True,
         "execution_mode": state.get("execution_mode"),
-        "entry_profile": str(latest_entry_profile.get("name") or env_entry_profile),
-        "candidate_count": len(state.get("latest_candidates") or []),
-        "allocation_count": len(state.get("latest_allocations") or []),
+        "entry_profile": _entry_profile_name(state, env_entry_profile=env_entry_profile),
+        "candidate_count": len(latest_candidates),
+        "allocation_count": len(latest_allocations),
         "disabled_setup_type_filtered_count": len(disabled_setup_type_filtered_candidates),
         "disabled_setup_type_filtered_candidates": disabled_setup_type_filtered_candidates,
-        "suppression_rules": list(regime.get("suppression_rules") or []),
+        "suppression_rules": suppression_rules,
         "disabled_engines": list(normalize_engine_names(os.environ.get("TRADING_DISABLED_ENGINES"))),
         "disabled_setup_types": list(normalize_setup_types(os.environ.get("TRADING_DISABLED_SETUP_TYPES"))),
-        "trend_candidate_count": int(trend_summary.get("candidate_count") or 0),
-        "rotation_candidate_count": int(rotation_summary.get("candidate_count") or 0),
-        "short_candidate_count": int(short_summary.get("candidate_count") or 0),
-        "short_accepted_symbols": list(short_summary.get("accepted_symbols") or []),
-        "short_deferred_execution_symbols": list(short_summary.get("deferred_execution_symbols") or []),
+        "trend_candidate_count": _non_negative_int(trend_summary, "runtime_state.trend_summary.candidate_count"),
+        "rotation_candidate_count": _non_negative_int(
+            rotation_summary, "runtime_state.rotation_summary.candidate_count"
+        ),
+        "short_candidate_count": _non_negative_int(short_summary, "runtime_state.short_summary.candidate_count"),
+        "short_accepted_symbols": short_accepted_symbols,
+        "short_deferred_execution_symbols": short_deferred_execution_symbols,
         "paper_trading": paper_trading,
     }
 
