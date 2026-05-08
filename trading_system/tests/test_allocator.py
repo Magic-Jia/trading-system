@@ -187,6 +187,8 @@ def test_allocator_enforces_symbol_and_sector_caps(load_fixture, sample_trend_ca
         ("symbol_risk", {" BTCUSDT": 0.01}, "exposure.symbol_risk keys must be canonical non-empty strings"),
         ("sector_risk", {"": 0.01}, "exposure.sector_risk keys must be canonical non-empty strings"),
         ("symbol_risk", {"BTCUSDT": True}, "exposure.symbol_risk.BTCUSDT risk must be numeric, not boolean"),
+        ("sector_risk", {"majors": "0.01"}, "exposure.sector_risk.majors risk must be numeric, not string"),
+        ("symbol_risk", {"BTCUSDT": float("inf")}, "exposure.symbol_risk.BTCUSDT risk must be finite"),
     ],
 )
 def test_allocator_fails_closed_on_noncanonical_exposure_maps(monkeypatch, map_name, bad_map, message):
@@ -212,6 +214,34 @@ def test_allocator_fails_closed_on_noncanonical_exposure_maps(monkeypatch, map_n
                     "sector": "majors",
                 }
             ],
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("active_risk_pct", True, "exposure.active_risk_pct must be numeric, not boolean"),
+        ("active_risk_pct", "0.01", "exposure.active_risk_pct must be numeric, not string"),
+        ("active_risk_pct", float("nan"), "exposure.active_risk_pct must be finite"),
+        ("net_exposure_pct", False, "exposure.net_exposure_pct must be numeric, not boolean"),
+        ("net_exposure_pct", "0.10", "exposure.net_exposure_pct must be numeric, not string"),
+        ("net_exposure_pct", float("inf"), "exposure.net_exposure_pct must be finite"),
+    ],
+)
+def test_allocator_fails_closed_on_invalid_exposure_scalar_risk(monkeypatch, field, value, message):
+    exposure = {
+        "active_risk_pct": 0.0,
+        "net_exposure_pct": 0.0,
+        "sector_risk": {"majors": 0.0},
+        "symbol_risk": {"BTCUSDT": 0.0},
+    }
+    exposure[field] = value
+    monkeypatch.setattr(allocator_module, "exposure_snapshot", lambda account: exposure)
+
+    with pytest.raises(ValueError, match=message):
+        allocate_candidates(
+            account={"equity": 100000.0, "open_positions": []},
+            candidates=[_valid_boundary_candidate()],
         )
 
 
@@ -360,6 +390,70 @@ def test_allocator_fails_closed_on_invalid_bucket_targets(load_fixture, bucket_t
 )
 def test_allocator_fails_closed_on_invalid_suppressed_engines(load_fixture, suppressed_engines, message):
     regime = {"bucket_targets": {"trend": 1.0, "rotation": 0.0, "short": 0.0}, "suppressed_engines": suppressed_engines}
+
+    with pytest.raises(ValueError, match=message):
+        allocate_candidates(
+            account=_flat_account(load_fixture),
+            candidates=[_valid_boundary_candidate()],
+            regime=regime,
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("execution_hazard", 1, "regime.execution_hazard must be a string"),
+        ("execution_hazard", "Compress_Risk", "regime.execution_hazard must be lowercase"),
+        ("execution_hazard", " compress_risk", "regime.execution_hazard must be a canonical string"),
+        ("execution_hazard", "panic", "regime.execution_hazard must be one of"),
+        ("execution_policy", True, "regime.execution_policy must be a string"),
+        ("execution_policy", "Downsize", "regime.execution_policy must be lowercase"),
+        ("execution_policy", " downsize", "regime.execution_policy must be a canonical string"),
+        ("execution_policy", "pause", "regime.execution_policy must be one of"),
+        ("late_stage_heat", False, "regime.late_stage_heat must be a string"),
+        ("late_stage_heat", "Squeeze", "regime.late_stage_heat must be lowercase"),
+        ("late_stage_heat", " squeeze", "regime.late_stage_heat must be a canonical string"),
+        ("late_stage_heat", "hot", "regime.late_stage_heat must be one of"),
+    ],
+)
+def test_allocator_fails_closed_on_invalid_regime_execution_fields(load_fixture, field, value, message):
+    regime = {
+        "bucket_targets": {"trend": 1.0, "rotation": 0.0, "short": 0.0},
+        "suppressed_engines": [],
+        "execution_hazard": "none",
+        "execution_policy": "normal",
+        "late_stage_heat": "none",
+        field: value,
+    }
+
+    with pytest.raises(ValueError, match=message):
+        allocate_candidates(
+            account=_flat_account(load_fixture),
+            candidates=[_valid_boundary_candidate()],
+            regime=regime,
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("risk_multiplier", True, "regime.risk_multiplier must be numeric, not boolean"),
+        ("risk_multiplier", "0.8", "regime.risk_multiplier must be numeric, not string"),
+        ("risk_multiplier", float("inf"), "regime.risk_multiplier must be finite"),
+        ("confidence", False, "regime.confidence must be numeric, not boolean"),
+        ("confidence", "0.7", "regime.confidence must be numeric, not string"),
+        ("confidence", float("nan"), "regime.confidence must be finite"),
+        ("net_exposure_cap_pct", True, "regime.net_exposure_cap_pct must be numeric, not boolean"),
+        ("net_exposure_cap_pct", "0.85", "regime.net_exposure_cap_pct must be numeric, not string"),
+        ("net_exposure_cap_pct", float("-inf"), "regime.net_exposure_cap_pct must be finite"),
+    ],
+)
+def test_allocator_fails_closed_on_invalid_regime_numeric_fields(load_fixture, field, value, message):
+    regime = {
+        "bucket_targets": {"trend": 1.0, "rotation": 0.0, "short": 0.0},
+        "suppressed_engines": [],
+        field: value,
+    }
 
     with pytest.raises(ValueError, match=message):
         allocate_candidates(

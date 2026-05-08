@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
+import math
 from typing import Any
 
 from trading_system.app.config import AppConfig, DEFAULT_CONFIG
@@ -36,9 +37,12 @@ def _strict_float(value: Any, field: str, *, default: float | None = None) -> fl
     if isinstance(value, str):
         raise ValueError(f"{field} must be numeric, not string")
     try:
-        return float(value)
+        parsed = float(value)
     except (TypeError, ValueError) as exc:
         raise ValueError(f"{field} must be numeric") from exc
+    if not math.isfinite(parsed):
+        raise ValueError(f"{field} must be finite")
+    return parsed
 
 
 def _strict_mapping(value: Any, field: str, *, default_empty: bool = True) -> dict[str, Any]:
@@ -76,6 +80,13 @@ def _strict_canonical_string(
     return value
 
 
+def _strict_choice(value: Any, field: str, *, default: str, allowed: set[str]) -> str:
+    normalized = _strict_canonical_string(value, field, default=default, case="lower")
+    if normalized not in allowed:
+        raise ValueError(f"{field} must be one of {sorted(allowed)}")
+    return normalized
+
+
 def _strict_exposure_risk_map(exposure: Mapping[str, Any], key: str) -> dict[str, float]:
     raw_map = exposure.get(key, {})
     if raw_map is None:
@@ -87,9 +98,7 @@ def _strict_exposure_risk_map(exposure: Mapping[str, Any], key: str) -> dict[str
     for raw_key, raw_risk in raw_map.items():
         if not isinstance(raw_key, str) or not raw_key or raw_key.strip() != raw_key:
             raise ValueError(f"exposure.{key} keys must be canonical non-empty strings")
-        if isinstance(raw_risk, bool):
-            raise ValueError(f"exposure.{key}.{raw_key} risk must be numeric, not boolean")
-        risk_map[raw_key] = _to_float(raw_risk)
+        risk_map[raw_key] = _strict_float(raw_risk, f"exposure.{key}.{raw_key} risk")
     return risk_map
 
 
@@ -329,8 +338,18 @@ def _execution_friction_multiplier(candidate: Mapping[str, Any]) -> float:
 
 
 def _regime_hazard_multiplier(regime: RegimeSnapshot | Mapping[str, Any] | None) -> float:
-    execution_hazard = str(_regime_value(regime, "execution_hazard", "none")).lower()
-    execution_policy = str(_regime_value(regime, "execution_policy", "normal")).lower()
+    execution_hazard = _strict_choice(
+        _regime_value(regime, "execution_hazard", _MISSING),
+        "regime.execution_hazard",
+        default="none",
+        allowed={"none", "compress_risk"},
+    )
+    execution_policy = _strict_choice(
+        _regime_value(regime, "execution_policy", _MISSING),
+        "regime.execution_policy",
+        default="normal",
+        allowed={"normal", "downsize", "suppress"},
+    )
 
     multiplier = 1.0
     if execution_hazard == "compress_risk":
@@ -348,7 +367,12 @@ def _late_stage_heat_multiplier(
     *,
     side: str,
 ) -> float:
-    late_stage_heat = str(_regime_value(regime, "late_stage_heat", "none")).lower()
+    late_stage_heat = _strict_choice(
+        _regime_value(regime, "late_stage_heat", _MISSING),
+        "regime.late_stage_heat",
+        default="none",
+        allowed={"none", "squeeze", "cascade"},
+    )
     if late_stage_heat == "none":
         return 1.0
     if side.upper() != "LONG":
@@ -368,9 +392,22 @@ def allocate_candidates(
         return []
 
     total_risk_cap = max(float(app_config.risk.max_total_risk_pct), 0.0)
-    regime_multiplier = max(_to_float(_regime_value(regime, "risk_multiplier", 1.0), 1.0), 0.0)
-    confidence = max(min(_to_float(_regime_value(regime, "confidence", 1.0), 1.0), 1.0), 0.0)
-    net_exposure_cap = max(_to_float(_regime_value(regime, "net_exposure_cap_pct", _DEFAULT_NET_EXPOSURE_CAP_PCT)), 0.0)
+    regime_multiplier = max(
+        _strict_float(_regime_value(regime, "risk_multiplier", _MISSING), "regime.risk_multiplier", default=1.0),
+        0.0,
+    )
+    confidence = max(
+        min(_strict_float(_regime_value(regime, "confidence", _MISSING), "regime.confidence", default=1.0), 1.0),
+        0.0,
+    )
+    net_exposure_cap = max(
+        _strict_float(
+            _regime_value(regime, "net_exposure_cap_pct", _MISSING),
+            "regime.net_exposure_cap_pct",
+            default=_DEFAULT_NET_EXPOSURE_CAP_PCT,
+        ),
+        0.0,
+    )
     bucket_targets = _bucket_targets(app_config, regime)
     suppressed_engines = _suppressed_engines(regime)
 
@@ -383,8 +420,10 @@ def allocate_candidates(
     max_open_positions = int(app_config.risk.max_open_positions)
 
     exposure = exposure_snapshot(account)
-    current_active_risk_pct = _to_float(exposure.get("active_risk_pct", 0.0))
-    net_exposure_pct = _to_float(exposure.get("net_exposure_pct", 0.0))
+    current_active_risk_pct = _strict_float(
+        exposure.get("active_risk_pct", _MISSING), "exposure.active_risk_pct", default=0.0
+    )
+    net_exposure_pct = _strict_float(exposure.get("net_exposure_pct", _MISSING), "exposure.net_exposure_pct", default=0.0)
     sector_risk = _strict_exposure_risk_map(exposure, "sector_risk")
     symbol_risk = _strict_exposure_risk_map(exposure, "symbol_risk")
     major_risk = sector_risk.get("majors", 0.0)
