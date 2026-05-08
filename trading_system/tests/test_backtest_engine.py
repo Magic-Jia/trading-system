@@ -241,6 +241,18 @@ def test_reference_price_rejects_coerced_close_fields() -> None:
         backtest_engine._reference_price_with_timeframe(row, "BTCUSDT")
 
 
+def test_futures_context_rejects_coerced_derivative_symbol_fields() -> None:
+    row = DatasetSnapshotRow(
+        timestamp=backtest_engine._datetime_or_none("2026-03-10T00:00:00Z"),
+        run_id="run-1",
+        market={"symbols": {"BTCUSDT": {}}},
+        derivatives=[{"symbol": True, "funding_rate": 0.001}],
+    )
+
+    with pytest.raises(ValueError, match="derivative.symbol must be a canonical string"):
+        backtest_engine._futures_context(row, "BTCUSDT")
+
+
 def test_engine_rejects_coerced_portfolio_candidate_fields(fixture_dir: Path) -> None:
     row = load_historical_dataset(fixture_dir / "backtest" / "sample_dataset")[0]
     instrument = InstrumentSnapshotRow(

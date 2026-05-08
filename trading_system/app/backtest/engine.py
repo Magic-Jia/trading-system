@@ -634,7 +634,10 @@ def _futures_context(row: DatasetSnapshotRow, symbol: str) -> dict[str, Any]:
     if isinstance(symbol_context, Mapping):
         context.update(symbol_context)
     for derivative in row.derivatives:
-        if str(derivative.get("symbol", "")) == symbol:
+        if not isinstance(derivative, Mapping):
+            raise ValueError("derivative row must be an object")
+        derivative_symbol = _canonical_string(derivative.get("symbol"), field_name="derivative.symbol")
+        if derivative_symbol == symbol:
             for key in (
                 "mark_price",
                 "mark_price_timestamp",
