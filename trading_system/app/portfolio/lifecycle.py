@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import asdict
 from datetime import datetime, timezone
+import math
 from typing import Any
 
 from .exit_policy import ExitDecision, evaluate_exit_policy
@@ -33,6 +34,31 @@ def _valid_stop(side: str, entry_price: float, stop_loss: float | None) -> bool:
     if side == "LONG":
         return stop_loss < entry_price
     return stop_loss > entry_price
+
+
+def _position_side(position: dict[str, Any]) -> str:
+    raw_side = position.get("side", "LONG")
+    if not isinstance(raw_side, str):
+        raise ValueError("side must be LONG or SHORT")
+    side = raw_side.strip().upper()
+    if side not in {"LONG", "SHORT"}:
+        raise ValueError("side must be LONG or SHORT")
+    return side
+
+
+def _position_float(position: dict[str, Any], field: str, *, default: float | None = None) -> float | None:
+    if field not in position or position.get(field) is None:
+        return default
+    raw_value = position[field]
+    if isinstance(raw_value, bool):
+        raise ValueError(f"{field} must be a finite number")
+    try:
+        value = float(raw_value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{field} must be a finite number") from exc
+    if not math.isfinite(value):
+        raise ValueError(f"{field} must be a finite number")
+    return value
 
 
 def _suggest_protective_stop(side: str, entry_price: float, mark_price: float | None) -> float:
@@ -96,10 +122,10 @@ def evaluate_position(position: dict[str, Any], *, regime: dict[str, Any] | None
         return []
 
     symbol = str(position.get("symbol", ""))
-    side = str(position.get("side", "LONG"))
-    entry_price = float(position.get("entry_price", 0.0) or 0.0)
-    mark_price = position.get("mark_price")
-    stop_loss = position.get("stop_loss")
+    side = _position_side(position)
+    entry_price = _position_float(position, "entry_price", default=0.0)
+    mark_price = _position_float(position, "mark_price", default=None)
+    stop_loss = _position_float(position, "stop_loss", default=None)
     take_profit = position.get("take_profit")
 
     if entry_price <= 0:
@@ -110,7 +136,7 @@ def evaluate_position(position: dict[str, Any], *, regime: dict[str, Any] | None
     invalidation_source = str(position.get("invalidation_source") or "").strip()
     invalidation_reason = str(position.get("invalidation_reason") or "").strip()
     if not _valid_stop(side, entry_price, stop_loss):
-        reference_price = float(mark_price) if mark_price is not None else entry_price
+        reference_price = mark_price if mark_price is not None else entry_price
         taxonomy_stop_loss = _taxonomy_stop(side, entry_price, position)
         if taxonomy_stop_loss is not None:
             suggested_stop_loss = taxonomy_stop_loss
@@ -145,14 +171,12 @@ def evaluate_position(position: dict[str, Any], *, regime: dict[str, Any] | None
         )
         return [asdict(item) for item in suggestions]
 
-    stop_loss = float(stop_loss)
     risk_unit = abs(entry_price - stop_loss)
     if risk_unit <= 0:
         return []
 
     if mark_price is None:
         return []
-    mark_price = float(mark_price)
 
     break_even_trigger = entry_price + risk_unit if side == "LONG" else entry_price - risk_unit
     if _in_favor(side, mark_price, break_even_trigger) and stop_loss != entry_price:

@@ -5,11 +5,56 @@ from dataclasses import replace
 from trading_system.app import main as main_module
 from trading_system.app.config import DEFAULT_CONFIG
 from trading_system.app.execution.executor import OrderExecutor
-from trading_system.app.portfolio.lifecycle import build_management_action_intents
+from trading_system.app.portfolio.lifecycle import build_management_action_intents, evaluate_position
 from trading_system.app.portfolio.positions import apply_management_action_fill
 from trading_system.app.portfolio.target_management import terminalize_all_unreachable_stages
 from trading_system.app.storage.state_store import RuntimeStateV2
 from trading_system.app.types import ManagementActionIntent
+
+
+def _manageable_position(**overrides):
+    position = {
+        "symbol": "BTCUSDT",
+        "side": "LONG",
+        "qty": 1.0,
+        "entry_price": 100.0,
+        "mark_price": 106.0,
+        "stop_loss": 95.0,
+        "status": "OPEN",
+    }
+    position.update(overrides)
+    return position
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("side", "HEDGE"),
+        ("entry_price", True),
+        ("entry_price", float("inf")),
+        ("mark_price", False),
+        ("mark_price", float("nan")),
+        ("stop_loss", True),
+        ("stop_loss", float("-inf")),
+    ],
+)
+def test_evaluate_position_rejects_present_invalid_position_boundaries(field, value):
+    with pytest.raises(ValueError, match=field):
+        evaluate_position(_manageable_position(**{field: value}))
+
+
+def test_evaluate_position_preserves_missing_mark_price_no_suggestion_behavior():
+    position = _manageable_position()
+    position.pop("mark_price")
+
+    assert evaluate_position(position) == []
+
+
+def test_evaluate_position_preserves_valid_break_even_suggestion():
+    suggestions = evaluate_position(_manageable_position(mark_price=106.0))
+
+    assert [row["action"] for row in suggestions] == ["BREAK_EVEN"]
+    assert suggestions[0]["suggested_stop_loss"] == pytest.approx(100.0)
 
 
 def test_build_management_action_intents_uses_original_position_basis_and_stage_fill_progress():
