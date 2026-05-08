@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+import trading_system.app.backtest.promotion_evidence_bundle as promotion_bundle
 from trading_system.app.backtest.promotion_evidence_bundle import (
     REQUIRED_ARTIFACTS,
     collect_promotion_evidence_bundle,
@@ -1048,3 +1049,14 @@ def test_bundle_verifier_marks_schema_invalid_for_padded_artifact_source_path(tm
     assert result["schema_valid"] is False
     assert "artifact_source_path_noncanonical" in result["manifest_errors"]
     assert result["invalid_artifact_metadata"] == [f"{REQUIRED_ARTIFACTS[0]}:source_path"]
+
+
+def test_bundle_verifier_reports_non_string_metadata_reason_entries() -> None:
+    class NonStringReason:
+        def __str__(self) -> str:
+            return f"{REQUIRED_ARTIFACTS[0]}:sha256"
+
+    reasons = promotion_bundle._promotion_artifact_metadata_reason_keys([NonStringReason()])
+
+    assert "artifact_metadata_reason_entry_not_string" in reasons
+    assert "artifact_sha256_invalid_format" not in reasons

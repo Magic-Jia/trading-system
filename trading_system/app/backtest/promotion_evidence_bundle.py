@@ -160,6 +160,22 @@ def _empty_promotion_bundle_audit_fields() -> dict[str, list[Any]]:
     }
 
 
+def _promotion_artifact_metadata_reason_keys(metadata_entries: list[Any]) -> list[str]:
+    reasons: list[str] = []
+    if any(not isinstance(item, str) for item in metadata_entries):
+        reasons.append("artifact_metadata_reason_entry_not_string")
+    string_entries = [item for item in metadata_entries if isinstance(item, str)]
+    if any(item.endswith(".path") for item in string_entries):
+        reasons.append("artifact_path_not_string")
+    if any(item.endswith(":sha256") for item in string_entries):
+        reasons.append("artifact_sha256_invalid_format")
+    if any(item.endswith(":source_path") for item in string_entries):
+        reasons.append("artifact_source_path_not_string")
+    if any(item.startswith("artifacts[") and not item.endswith(".path") for item in string_entries):
+        reasons.append("artifact_entry_not_object")
+    return reasons
+
+
 def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
     bundle = Path(bundle_dir)
     manifest_path = bundle / "promotion_evidence_manifest.json"
@@ -479,26 +495,24 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
     if invalid_metadata:
         schema_valid = False
         manifest_errors.append("artifact_metadata_invalid")
-    if any(str(item).endswith(".path") for item in invalid_metadata):
+    metadata_reason_keys = _promotion_artifact_metadata_reason_keys(invalid_metadata)
+    if metadata_reason_keys:
         schema_valid = False
-        manifest_errors.append("artifact_path_not_string")
-    if any(str(item).endswith(":sha256") for item in invalid_metadata):
-        schema_valid = False
-        manifest_errors.append("artifact_sha256_invalid_format")
-    if any(str(item).endswith(":source_path") for item in invalid_metadata):
-        schema_valid = False
-        manifest_errors.append("artifact_source_path_not_string")
+        manifest_errors.extend(metadata_reason_keys)
     if source_path_blank_metadata:
         schema_valid = False
         manifest_errors.append("artifact_source_path_blank")
     if source_path_noncanonical_metadata:
         schema_valid = False
         manifest_errors.append("artifact_source_path_noncanonical")
-    if any(str(item).startswith("artifacts[") and not str(item).endswith(".path") for item in invalid_metadata):
-        schema_valid = False
-        manifest_errors.append("artifact_entry_not_object")
     unknown_artifact_field_names = sorted(
-        {str(item).split(":", 1)[1] for item in invalid_metadata if ":" in str(item) and str(item).rsplit(":", 1)[1] not in {"sha256", "source_path", "bytes"}}
+        {
+            item.split(":", 1)[1]
+            for item in invalid_metadata
+            if isinstance(item, str)
+            and ":" in item
+            and item.rsplit(":", 1)[1] not in {"sha256", "source_path", "bytes"}
+        }
     )
     for field in unknown_artifact_field_names:
         manifest_errors.append(f"unknown_artifact_field: {field}")
