@@ -313,7 +313,9 @@ def _execution_metadata(
         "rows": rows,
         "evidence_time_semantics": evidence_time_semantics,
     }
-    if extra:
+    if extra is not None:
+        if not isinstance(extra, Mapping):
+            raise BinanceExecutionDownloadError("execution metadata extra must be a mapping")
         metadata.update(dict(extra))
     return metadata
 

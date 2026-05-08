@@ -8,6 +8,7 @@ import pytest
 from trading_system.app.backtest.archive.binance_execution_downloader import (
     BinanceExecutionDownloadError,
     BinanceExecutionHttpError,
+    _execution_metadata,
     download_binance_execution_evidence,
     main,
 )
@@ -240,6 +241,20 @@ def test_agg_trades_rejects_boolean_trade_timestamp_without_partial_archive(tmp_
         )
 
     assert not (tmp_path / "archive" / "raw-market").exists()
+
+
+def test_execution_metadata_rejects_present_non_mapping_extra() -> None:
+    with pytest.raises(BinanceExecutionDownloadError, match="execution metadata extra must be a mapping"):
+        _execution_metadata(
+            endpoint="/fapi/v1/depth",
+            symbol="BTCUSDT",
+            requested_start_time="2024-02-29T23:00:00Z",
+            requested_end_time="2024-02-29T23:05:00Z",
+            fetched_at="2026-04-01T07:33:00Z",
+            rows=1,
+            evidence_time_semantics="point_in_time_fetch_not_historical",
+            extra=[("x", "y")],
+        )
 
 
 def test_agg_trades_pagination_handles_multiple_pages_without_duplicate_rows(tmp_path: Path) -> None:
