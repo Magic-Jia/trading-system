@@ -181,6 +181,25 @@ def test_l2_tick_coverage_rejects_non_object_missing_interval_entries() -> None:
         _l2_tick_coverage(reports, required_coverage=0.99)
 
 
+def test_l2_tick_coverage_rejects_noncanonical_missing_interval_fields() -> None:
+    reports = {
+        "BTCUSDT:trades": {
+            "series_key": "BTCUSDT:trades",
+            "dataset": "trades",
+            "symbol": "BTCUSDT",
+            "timeframe": None,
+            "coverage_ratio": 0.5,
+            "has_missing_intervals": True,
+            "missing_intervals": [
+                {"start": " 2026-01-01T00:00:00Z ", "end": "2026-01-01T01:00:00Z", "missing_records": 1}
+            ],
+        }
+    }
+
+    with pytest.raises(ValueError, match=r"l2 missing_intervals\[1\].start must be canonical"):
+        _l2_tick_coverage(reports, required_coverage=0.99)
+
+
 def test_load_raw_market_manifest_rejects_noncanonical_required_string_fields(tmp_path: Path) -> None:
     archived = archive_raw_market_payload(
         archive_root=tmp_path / "archive",

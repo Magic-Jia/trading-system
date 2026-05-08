@@ -163,7 +163,16 @@ def _l2_missing_intervals(report: Mapping[str, Any]) -> list[dict[str, Any]]:
     for index, item in enumerate(value, start=1):
         if not isinstance(item, Mapping):
             raise ValueError(f"l2 missing_intervals[{index}] must be an object")
-        parsed.append(dict(item))
+        start = item.get("start")
+        if not isinstance(start, str) or not start.strip() or start != start.strip():
+            raise ValueError(f"l2 missing_intervals[{index}].start must be canonical")
+        end = item.get("end")
+        if not isinstance(end, str) or not end.strip() or end != end.strip():
+            raise ValueError(f"l2 missing_intervals[{index}].end must be canonical")
+        missing_records = item.get("missing_records")
+        if not isinstance(missing_records, int) or isinstance(missing_records, bool) or missing_records <= 0:
+            raise ValueError(f"l2 missing_intervals[{index}].missing_records must be a positive integer")
+        parsed.append({"start": start, "end": end, "missing_records": missing_records})
     return parsed
 
 
