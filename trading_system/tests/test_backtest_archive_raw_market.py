@@ -243,6 +243,23 @@ def test_l2_tick_coverage_rejects_noncanonical_identity_fields() -> None:
         _l2_tick_coverage(reports, required_coverage=0.99)
 
 
+def test_l2_tick_coverage_rejects_noncanonical_dataset_before_filtering() -> None:
+    reports = {
+        "BTCUSDT:trades": {
+            "series_key": "BTCUSDT:trades",
+            "dataset": " trades ",
+            "symbol": "BTCUSDT",
+            "timeframe": None,
+            "coverage_ratio": 0.5,
+            "has_missing_intervals": False,
+            "missing_intervals": [],
+        }
+    }
+
+    with pytest.raises(ValueError, match="l2 dataset must be canonical"):
+        _l2_tick_coverage(reports, required_coverage=0.99)
+
+
 def test_l2_tick_coverage_rejects_non_object_missing_interval_entries() -> None:
     reports = {
         "BTCUSDT:trades": {
