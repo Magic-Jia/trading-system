@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import math
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -26,6 +27,15 @@ def _require(raw: dict[str, Any], field_name: str) -> Any:
     if field_name not in raw:
         raise ValueError(f"missing required field: {field_name}")
     return raw[field_name]
+
+
+def _finite_number(value: Any, *, field_name: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{field_name} must be a finite number")
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError(f"{field_name} must be a finite number")
+    return number
 
 
 def _positive_int(value: Any, *, field_name: str) -> int:
@@ -114,7 +124,9 @@ def _load_float_map(raw: Any, *, field_name: str) -> dict[str, float]:
         raise ValueError(f"{field_name} must be an object")
     parsed: dict[str, float] = {}
     for key, value in raw.items():
-        parsed[str(key)] = float(value)
+        parsed[
+            _canonical_string(key, field_name=f"{field_name} key")
+        ] = _finite_number(value, field_name=f"{field_name}.{key}")
     return parsed
 
 
