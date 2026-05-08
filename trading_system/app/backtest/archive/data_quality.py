@@ -214,6 +214,8 @@ def _l2_dataset(report: Mapping[str, Any]) -> str:
 
 
 def _l2_series_reports(series_reports: Mapping[str, Mapping[str, Any]]) -> list[dict[str, Any]]:
+    if not isinstance(series_reports, Mapping):
+        raise ValueError("l2 series reports must be an object")
     parsed: list[dict[str, Any]] = []
     for key, report in series_reports.items():
         if not isinstance(report, Mapping):
