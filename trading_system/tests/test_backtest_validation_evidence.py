@@ -149,7 +149,18 @@ def test_validation_gate_rejects_non_finite_regime_net_pnl(non_finite: float) ->
         {"net_pnl": 10.0, "trade_count": 12},
     ]
 
-    with pytest.raises(ValueError, match="^regime net_pnl must be a finite number$"):
+    with pytest.raises(ValueError, match=r"^regimes\[0\]\.net_pnl must be a finite number$"):
+        build_validation_gate(manifest)
+
+
+def test_validation_gate_rejects_boolean_regime_net_pnl_with_field_path() -> None:
+    manifest = _passing_manifest()
+    manifest["regimes"] = [
+        {"net_pnl": 40.0, "trade_count": 20},
+        {"net_pnl": True, "trade_count": 12},
+    ]
+
+    with pytest.raises(ValueError, match=r"^regimes\[1\]\.net_pnl must be a number$"):
         build_validation_gate(manifest)
 
 
