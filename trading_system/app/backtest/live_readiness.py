@@ -2356,6 +2356,15 @@ def _strict_bucket_int(bucket: Mapping[str, Any], key: str) -> int:
     return value
 
 
+def _strict_count_int(bucket: Mapping[str, Any], key: str, *, field_path: str) -> int:
+    value = bucket.get(key, 0)
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"{field_path} must be a strict integer")
+    if value < 0:
+        raise ValueError(f"{field_path} must be non-negative")
+    return value
+
+
 def _strict_bucket_float(bucket: Mapping[str, Any], key: str) -> float:
     value = bucket.get(key, 0.0)
     if isinstance(value, bool) or not isinstance(value, (int, float)):
@@ -2537,8 +2546,14 @@ def build_live_readiness_gate_report(
     exit_path_replay = audit_exit_path_replay(all_trades)
     exit_path_reconciliation = _exit_path_replay_reconciliation(chunk_dirs, required=require_exit_path_replay_rows)
     exit_path_counts = _as_mapping(exit_path_replay.get("counts"))
-    exit_path_ambiguous_count = int(exit_path_counts.get("fixed_horizon_only") or 0) + int(
-        exit_path_counts.get("ambiguous_intrabar_order") or 0
+    exit_path_ambiguous_count = _strict_count_int(
+        exit_path_counts,
+        "fixed_horizon_only",
+        field_path="exit_path_counts.fixed_horizon_only",
+    ) + _strict_count_int(
+        exit_path_counts,
+        "ambiguous_intrabar_order",
+        field_path="exit_path_counts.ambiguous_intrabar_order",
     )
     exit_path_ambiguity_rate = exit_path_ambiguous_count / trade_count if trade_count else 0.0
 

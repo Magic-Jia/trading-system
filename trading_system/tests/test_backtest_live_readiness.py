@@ -1143,6 +1143,21 @@ def test_promotion_bundle_verification_error_reports_keep_stable_audit_fields(tm
             assert report[field] == []
 
 
+def test_live_readiness_gate_rejects_invalid_exit_path_count_types(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    monkeypatch.setattr(
+        live_readiness,
+        "audit_exit_path_replay",
+        lambda _trades: {"counts": {"fixed_horizon_only": True, "ambiguous_intrabar_order": 0}},
+    )
+
+    with pytest.raises(ValueError, match="exit_path_counts.fixed_horizon_only must be a strict integer"):
+        build_live_readiness_gate_report(tmp_path)
+
+
 def test_live_readiness_gate_rejects_malformed_present_promotion_manifest(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     _write_profitable_trade_chunk(chunk)
