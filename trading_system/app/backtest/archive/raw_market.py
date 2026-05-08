@@ -97,6 +97,8 @@ def _utc_datetime(value: str | int | float) -> datetime:
     normalized = value.strip()
     if not normalized:
         raise ValueError("timestamp value must not be empty")
+    if normalized != value:
+        raise ValueError("timestamp value must be canonical")
     if normalized.isdigit():
         return datetime.fromtimestamp(int(normalized) / 1000.0, tz=timezone.utc)
     parsed = datetime.fromisoformat(normalized.replace("Z", "+00:00"))
