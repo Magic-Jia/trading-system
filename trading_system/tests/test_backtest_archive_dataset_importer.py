@@ -24,6 +24,14 @@ from trading_system.app.backtest.dataset import load_historical_dataset
 
 
 
+def test_row_market_symbol_keys_rejects_pair_list_symbols() -> None:
+    row = type("Row", (), {"market": {"symbols": [("BTCUSDT", {})]}})()
+
+    with pytest.raises(ValueError, match="materialized dataset row market symbols must be an object"):
+        archive_importer._row_market_symbol_keys(row)
+
+
+
 def test_phase1_dataset_root_summary_rejects_non_strict_snapshot_count() -> None:
     with pytest.raises(ValueError, match="snapshot_count must be a non-negative integer"):
         archive_importer._phase1_dataset_root_summary_fields({"snapshot_count": True})

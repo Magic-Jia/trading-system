@@ -1877,7 +1877,9 @@ def _material_market_context_symbol_keys(material: Phase1DatasetBundleMaterial) 
 
 
 def _row_market_symbol_keys(row: Any) -> tuple[str, ...]:
-    symbols = dict(row.market.get("symbols") or {})
+    symbols = row.market.get("symbols") or {}
+    if not isinstance(symbols, Mapping):
+        raise ValueError("materialized dataset row market symbols must be an object")
     parsed: list[str] = []
     for symbol in symbols:
         if not isinstance(symbol, str) or not symbol.strip() or symbol != symbol.strip():
