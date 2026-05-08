@@ -4,6 +4,59 @@ from trading_system.app.storage.state_store import RuntimeStateV2
 from trading_system.app.types import LifecycleState
 
 
+def test_lifecycle_ignores_present_non_bool_boolean_signals():
+    cases = [
+        (LifecycleState.INIT, {"r_multiple": 0.8, "confirmed": "true"}, LifecycleState.INIT, ["init_waiting_confirmation"]),
+        (LifecycleState.CONFIRM, {"payload_ready": "true"}, LifecycleState.CONFIRM, ["confirm_waiting_payload"]),
+        (
+            LifecycleState.PAYLOAD,
+            {"r_multiple": 2.2, "trend_mature": "true"},
+            LifecycleState.PAYLOAD,
+            ["payload_active"],
+        ),
+        (LifecycleState.PAYLOAD, {"stop_hit": "true"}, LifecycleState.PAYLOAD, ["payload_active"]),
+        (LifecycleState.PAYLOAD, {"exit_requested": "true"}, LifecycleState.PAYLOAD, ["payload_active"]),
+        (LifecycleState.PROTECT, {"force_exit": "true"}, LifecycleState.PROTECT, ["protect_active"]),
+        (LifecycleState.PROTECT, {"protect_breached": "true"}, LifecycleState.PROTECT, ["protect_active"]),
+        (
+            LifecycleState.PROTECT,
+            {"r_multiple": 2.2, "target_hit": "true"},
+            LifecycleState.PROTECT,
+            ["protect_active"],
+        ),
+    ]
+
+    for current_state, signals, expected_state, expected_reasons in cases:
+        next_state, reason_codes = advance_lifecycle_transition(current_state, signals)
+
+        assert next_state == expected_state
+        assert reason_codes == expected_reasons
+
+
+def test_lifecycle_ignores_bool_and_non_finite_r_multiple():
+    cases = [
+        (LifecycleState.INIT, {"r_multiple": True, "confirmed": True}, LifecycleState.INIT, ["init_waiting_confirmation"]),
+        (
+            LifecycleState.PAYLOAD,
+            {"r_multiple": float("inf"), "trend_mature": True},
+            LifecycleState.PAYLOAD,
+            ["payload_active"],
+        ),
+        (
+            LifecycleState.PROTECT,
+            {"r_multiple": float("nan"), "target_hit": True},
+            LifecycleState.PROTECT,
+            ["protect_active"],
+        ),
+    ]
+
+    for current_state, signals, expected_state, expected_reasons in cases:
+        next_state, reason_codes = advance_lifecycle_transition(current_state, signals)
+
+        assert next_state == expected_state
+        assert reason_codes == expected_reasons
+
+
 def test_lifecycle_moves_from_init_to_confirm_on_confirmation_signal():
     state = advance_lifecycle_state(LifecycleState.INIT, {"r_multiple": 0.8, "confirmed": True})
     assert state == LifecycleState.CONFIRM

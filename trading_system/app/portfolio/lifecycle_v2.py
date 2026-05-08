@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from math import isfinite
 from typing import Any, Mapping
 
 from trading_system.app.types import LifecycleState
@@ -14,10 +15,15 @@ class LifecycleThresholds:
 
 
 def _as_float(value: Any, default: float) -> float:
+    if isinstance(value, bool):
+        return default
     try:
-        return float(value)
+        candidate = float(value)
     except (TypeError, ValueError):
         return default
+    if not isfinite(candidate):
+        return default
+    return candidate
 
 
 def _state(value: LifecycleState | str) -> LifecycleState:
@@ -27,6 +33,12 @@ def _state(value: LifecycleState | str) -> LifecycleState:
         return LifecycleState(str(value))
     except ValueError:
         return LifecycleState.INIT
+
+
+def _as_bool(value: Any, default: bool) -> bool:
+    if isinstance(value, bool):
+        return value
+    return default
 
 
 def _thresholds(config: Mapping[str, Any] | Any | None) -> LifecycleThresholds:
@@ -57,14 +69,14 @@ def advance_lifecycle_transition(
     state = _state(current_state)
 
     r_multiple = _as_float(context.get("r_multiple"), 0.0)
-    confirmed = bool(context.get("confirmed", False))
-    payload_ready = bool(context.get("payload_ready", confirmed))
-    trend_mature = bool(context.get("trend_mature", False))
-    stop_hit = bool(context.get("stop_hit", False))
-    exit_requested = bool(context.get("exit_requested", False))
-    force_exit = bool(context.get("force_exit", False))
-    protect_breached = bool(context.get("protect_breached", False))
-    target_hit = bool(context.get("target_hit", False))
+    confirmed = _as_bool(context.get("confirmed", False), False)
+    payload_ready = _as_bool(context.get("payload_ready", confirmed), confirmed)
+    trend_mature = _as_bool(context.get("trend_mature", False), False)
+    stop_hit = _as_bool(context.get("stop_hit", False), False)
+    exit_requested = _as_bool(context.get("exit_requested", False), False)
+    force_exit = _as_bool(context.get("force_exit", False), False)
+    protect_breached = _as_bool(context.get("protect_breached", False), False)
+    target_hit = _as_bool(context.get("target_hit", False), False)
 
     if force_exit:
         return LifecycleState.EXIT, ["force_exit_requested"]
