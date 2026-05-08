@@ -200,6 +200,23 @@ def test_l2_tick_coverage_rejects_noncanonical_missing_interval_fields() -> None
         _l2_tick_coverage(reports, required_coverage=0.99)
 
 
+def test_l2_tick_coverage_rejects_boolean_required_coverage() -> None:
+    reports = {
+        "BTCUSDT:trades": {
+            "series_key": "BTCUSDT:trades",
+            "dataset": "trades",
+            "symbol": "BTCUSDT",
+            "timeframe": None,
+            "coverage_ratio": 1.0,
+            "has_missing_intervals": False,
+            "missing_intervals": [],
+        }
+    }
+
+    with pytest.raises(ValueError, match="l2 required_coverage must be numeric"):
+        _l2_tick_coverage(reports, required_coverage=True)
+
+
 def test_load_raw_market_manifest_rejects_noncanonical_required_string_fields(tmp_path: Path) -> None:
     archived = archive_raw_market_payload(
         archive_root=tmp_path / "archive",

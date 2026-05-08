@@ -176,11 +176,23 @@ def _l2_missing_intervals(report: Mapping[str, Any]) -> list[dict[str, Any]]:
     return parsed
 
 
+def _l2_required_coverage(value: Any) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError("l2 required_coverage must be numeric")
+    parsed = float(value)
+    if not parsed == parsed or parsed in {float("inf"), float("-inf")}:
+        raise ValueError("l2 required_coverage must be finite")
+    if parsed < 0.0 or parsed > 1.0:
+        raise ValueError("l2 required_coverage must be between 0 and 1")
+    return parsed
+
+
 def _l2_tick_coverage(series_reports: Mapping[str, Mapping[str, Any]], required_coverage: float) -> dict[str, Any]:
+    required_coverage_value = _l2_required_coverage(required_coverage)
     l2_reports = [dict(report) for report in series_reports.values() if report.get("dataset") in {"order-book", "trades"}]
     if not l2_reports:
         return {
-            "required_coverage": required_coverage,
+            "required_coverage": required_coverage_value,
             "coverage_ratio": 0.0,
             "met": False,
             "missing_by_symbol_timeframe": [],
@@ -191,7 +203,7 @@ def _l2_tick_coverage(series_reports: Mapping[str, Mapping[str, Any]], required_
     missing = []
     for report in l2_reports:
         report_coverage_ratio = _l2_coverage_ratio_value(report)
-        if report_coverage_ratio < required_coverage or _l2_missing_intervals_value(report):
+        if report_coverage_ratio < required_coverage_value or _l2_missing_intervals_value(report):
             missing.append(
                 {
                     "symbol": _l2_canonical_string(report, "symbol"),
@@ -202,9 +214,9 @@ def _l2_tick_coverage(series_reports: Mapping[str, Mapping[str, Any]], required_
                 }
             )
     return {
-        "required_coverage": required_coverage,
+        "required_coverage": required_coverage_value,
         "coverage_ratio": coverage_ratio,
-        "met": coverage_ratio >= required_coverage and not missing,
+        "met": coverage_ratio >= required_coverage_value and not missing,
         "missing_by_symbol_timeframe": missing,
         "series": validated_series,
     }
