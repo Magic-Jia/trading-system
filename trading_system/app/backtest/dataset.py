@@ -49,7 +49,9 @@ def _instrument_rows(bundle_path: Path) -> tuple[InstrumentSnapshotRow, ...]:
         return ()
 
     payload = _load_json(path)
-    raw_rows = payload.get("rows", payload)
+    if not isinstance(payload, dict):
+        raise ValueError(f"dataset bundle has invalid instrument snapshot: {path}")
+    raw_rows = payload.get("rows", [])
     if not isinstance(raw_rows, list):
         raise ValueError(f"dataset bundle has invalid instrument rows: {path}")
 
