@@ -1231,6 +1231,10 @@ def _require_canonical_string_items(values: Any, *, field: str) -> tuple[str, ..
     return tuple(parsed)
 
 
+def _material_row_symbol(row: Mapping[str, Any], *, context: str) -> str:
+    return _require_canonical_string(row.get("symbol"), field=f"{context} row symbol")
+
+
 def _merged_import_trace(traces: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
     scope: str | None = None
     exchange: str | None = None
@@ -1740,12 +1744,18 @@ def build_phase1_dataset_bundle_materials(
                     "as_of": timestamp_iso,
                     "schema_version": PHASE1_IMPORTER_MARKET_CONTEXT_SCHEMA,
                     "symbols": market_symbols,
-                    "instrument_rows": sorted(instrument_rows, key=lambda row: str(row["symbol"])),
+                    "instrument_rows": sorted(
+                        instrument_rows,
+                        key=lambda row: _material_row_symbol(row, context="market_context instrument_rows"),
+                    ),
                 },
                 derivatives_snapshot={
                     "as_of": timestamp_iso,
                     "schema_version": PHASE1_IMPORTER_DERIVATIVES_SCHEMA,
-                    "rows": sorted(derivatives_rows, key=lambda row: str(row["symbol"])),
+                    "rows": sorted(
+                        derivatives_rows,
+                        key=lambda row: _material_row_symbol(row, context="derivatives_snapshot rows"),
+                    ),
                 },
                 account_snapshot={
                     "as_of": timestamp_iso,

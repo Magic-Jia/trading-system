@@ -1725,6 +1725,15 @@ def test_build_phase1_dataset_bundle_materials_rejects_cross_dataset_symbol_meta
         build_phase1_dataset_bundle_materials(imported)
 
 
+def test_build_phase1_dataset_bundle_materials_rejects_non_string_generated_row_symbol(tmp_path: Path) -> None:
+    archive_root = tmp_path / "archive"
+    _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT")
+    imported = tuple(replace(series, symbol=123) for series in load_phase1_raw_market_imports(archive_root))
+
+    with pytest.raises(ValueError, match="market_context instrument_rows row symbol must be a string"):
+        build_phase1_dataset_bundle_materials(imported)
+
+
 def test_build_phase1_dataset_bundle_materials_keeps_eligible_symbol_subsets_per_timestamp(tmp_path: Path) -> None:
     archive_root = tmp_path / "archive"
     dataset_root = tmp_path / "dataset"
