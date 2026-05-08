@@ -2152,8 +2152,12 @@ def _exit_path_replay_reconciliation(chunk_dirs: Sequence[Path], *, required: bo
                 if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}", trade_id):
                     parse_error = f"invalid_trade_id: trades[{row_index}]"
                     break
-        chunk_schema_valid = (not parse_error) and _artifact_schema_valid(payload, "exit_path_replay.v1")
-        chunk_provenance_present = (not parse_error) and _artifact_provenance_present(payload)
+        raw_chunk_schema_valid = (not parse_error) and _artifact_schema_valid(payload, "exit_path_replay.v1")
+        raw_chunk_provenance_present = (not parse_error) and _artifact_provenance_present(payload)
+        chunk_schema_valid = raw_chunk_schema_valid if isinstance(raw_chunk_schema_valid, bool) else False
+        chunk_provenance_present = (
+            raw_chunk_provenance_present if isinstance(raw_chunk_provenance_present, bool) else False
+        )
         artifacts.append(
             {
                 "chunk": chunk_dir.name,
@@ -2179,8 +2183,8 @@ def _exit_path_replay_reconciliation(chunk_dirs: Sequence[Path], *, required: bo
     duplicate_source_trade_ids = sorted(trade_id for trade_id, count in source_trade_id_counts.items() if count > 1)
     missing = [trade_id for trade_id in trade_ids if trade_id not in path_trade_ids]
     extra = sorted(path_trade_ids - set(trade_ids))
-    schema_valid = bool(artifacts) and all(bool(artifact.get("schema_valid")) for artifact in artifacts)
-    provenance_present = bool(artifacts) and all(bool(artifact.get("provenance_present")) for artifact in artifacts)
+    schema_valid = bool(artifacts) and all(artifact.get("schema_valid") is True for artifact in artifacts)
+    provenance_present = bool(artifacts) and all(artifact.get("provenance_present") is True for artifact in artifacts)
     matched = (
         not missing
         and not extra

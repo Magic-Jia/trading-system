@@ -6700,6 +6700,98 @@ def test_live_readiness_gate_report_rejects_exit_path_replay_invalid_schema_and_
     assert "exit_path_replay_artifact_provenance_missing" in reasons
 
 
+def test_live_readiness_gate_report_rejects_non_bool_exit_path_artifact_schema_status(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    chunk = tmp_path / "chunk_001"
+    chunk.mkdir()
+    trades = [
+        {
+            "trade_id": "t1",
+            "symbol": "BTCUSDT",
+            "side": "long",
+            "setup_type": "BREAKOUT_CONTINUATION",
+            "net_pnl": 100.0,
+            "gross_pnl": 120.0,
+            "fee_paid": 5.0,
+            "slippage_paid": 5.0,
+            "fill_quality": "evidence_backed",
+            "execution_price_source": "trade_print",
+            "exit_fill_quality": "evidence_backed",
+            "exit_price_source": "trade_print",
+            "simulated_exit_reason": "take_profit",
+        }
+    ]
+    (chunk / "trades.json").write_text(json.dumps({"trades": trades}), encoding="utf-8")
+    (chunk / "exit_path_replay.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "exit_path_replay.v1",
+                "evidence_source": {"type": "trade_print_path_replay"},
+                "trades": [{"trade_id": "t1"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(live_readiness, "_artifact_schema_valid", lambda *_args, **_kwargs: "false")
+
+    report = build_live_readiness_gate_report(tmp_path, require_exit_path_replay_rows=True)
+
+    reconciliation = report["exit_path_replay"]["reconciliation"]
+    assert reconciliation["matched"] is False
+    assert reconciliation["schema_valid"] is False
+    assert reconciliation["artifacts"][0]["schema_valid"] is False
+    assert report["promotion_gate"]["checks"]["exit_path_replay_rows_met"] is False
+    assert "exit_path_replay_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
+
+
+def test_live_readiness_gate_report_rejects_non_bool_exit_path_artifact_provenance_status(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    chunk = tmp_path / "chunk_001"
+    chunk.mkdir()
+    trades = [
+        {
+            "trade_id": "t1",
+            "symbol": "BTCUSDT",
+            "side": "long",
+            "setup_type": "BREAKOUT_CONTINUATION",
+            "net_pnl": 100.0,
+            "gross_pnl": 120.0,
+            "fee_paid": 5.0,
+            "slippage_paid": 5.0,
+            "fill_quality": "evidence_backed",
+            "execution_price_source": "trade_print",
+            "exit_fill_quality": "evidence_backed",
+            "exit_price_source": "trade_print",
+            "simulated_exit_reason": "take_profit",
+        }
+    ]
+    (chunk / "trades.json").write_text(json.dumps({"trades": trades}), encoding="utf-8")
+    (chunk / "exit_path_replay.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "exit_path_replay.v1",
+                "evidence_source": {"type": "trade_print_path_replay"},
+                "trades": [{"trade_id": "t1"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(live_readiness, "_artifact_provenance_present", lambda *_args, **_kwargs: "yes")
+
+    report = build_live_readiness_gate_report(tmp_path, require_exit_path_replay_rows=True)
+
+    reconciliation = report["exit_path_replay"]["reconciliation"]
+    assert reconciliation["matched"] is False
+    assert reconciliation["provenance_present"] is False
+    assert reconciliation["artifacts"][0]["provenance_present"] is False
+    assert report["promotion_gate"]["checks"]["exit_path_replay_rows_met"] is False
+    assert "exit_path_replay_artifact_provenance_missing" in report["promotion_gate"]["reasons"]
+
+
 @pytest.mark.parametrize(
     ("field", "value"),
     [
