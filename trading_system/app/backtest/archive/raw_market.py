@@ -108,11 +108,15 @@ def _utc_datetime(value: str | int | float) -> datetime:
 
 
 def _normalized_segment(value: str, *, lowercase: bool = True) -> str:
+    if not isinstance(value, str):
+        raise ValueError("archive path segment must be a string")
     normalized = value.strip()
     if lowercase:
         normalized = normalized.lower()
     if not normalized:
         raise ValueError("archive path segment must not be empty")
+    if normalized in {".", ".."} or any(separator in normalized for separator in ("/", "\\")):
+        raise ValueError("archive path segment must be safe")
     return normalized
 
 

@@ -246,6 +246,23 @@ def test_archive_raw_market_payload_rejects_out_of_scope_phase1_inputs(tmp_path:
         )
 
 
+def test_archive_raw_market_payload_rejects_unsafe_symbol_path_segment(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="archive path segment must be safe"):
+        archive_raw_market_payload(
+            archive_root=tmp_path / "archive",
+            exchange="binance",
+            market="futures",
+            dataset="ohlcv",
+            symbol="../BTCUSDT",
+            timeframe="1h",
+            coverage_start="2024-04-01T00:00:00Z",
+            coverage_end="2024-04-01T01:00:00Z",
+            fetched_at="2026-04-01T01:02:03Z",
+            endpoint="/fapi/v1/klines",
+            payload=[],
+        )
+
+
 def test_archive_raw_market_payload_rejects_duplicate_coverage_window_even_with_new_fetch_timestamp(
     tmp_path: Path,
 ) -> None:
