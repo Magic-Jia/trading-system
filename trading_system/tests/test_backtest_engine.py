@@ -438,6 +438,19 @@ def test_depth_fill_adjustment_rejects_coerced_risk_fields() -> None:
         )
 
 
+def test_intraday_exit_rejects_coerced_take_profit() -> None:
+    with pytest.raises(ValueError, match="take_profit must be a positive number"):
+        backtest_engine._simulate_intraday_exit(
+            side="long",
+            entry_price=100.0,
+            fixed_exit_price=101.0,
+            stop_loss=90.0,
+            take_profit="110",
+            path_high=111.0,
+            path_low=95.0,
+        )
+
+
 def test_engine_rejects_coerced_portfolio_candidate_fields(fixture_dir: Path) -> None:
     row = load_historical_dataset(fixture_dir / "backtest" / "sample_dataset")[0]
     instrument = InstrumentSnapshotRow(

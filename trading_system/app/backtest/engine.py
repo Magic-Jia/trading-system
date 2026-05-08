@@ -562,40 +562,46 @@ def _simulate_intraday_exit(
     path_high: float,
     path_low: float,
 ) -> tuple[str, float, float, str]:
-    if entry_price <= 0.0:
-        return "fixed_horizon", fixed_exit_price, 0.0, "no_intraday_ordering"
+    entry_price_value = _positive_float(entry_price, field_name="entry_price")
+    fixed_exit_price_value = _positive_float(fixed_exit_price, field_name="fixed_exit_price")
+    stop_loss_value = _non_negative_float(stop_loss, field_name="stop_loss")
+    take_profit_value = _optional_positive_float(take_profit, field_name="take_profit")
+    path_high_value = _positive_float(path_high, field_name="path_high")
+    path_low_value = _positive_float(path_low, field_name="path_low")
+    if entry_price_value <= 0.0:
+        return "fixed_horizon", fixed_exit_price_value, 0.0, "no_intraday_ordering"
     if side == "long":
-        stop_hit = stop_loss > 0.0 and path_low <= stop_loss
-        take_profit_hit = take_profit is not None and take_profit > 0.0 and path_high >= take_profit
+        stop_hit = stop_loss_value > 0.0 and path_low_value <= stop_loss_value
+        take_profit_hit = take_profit_value is not None and path_high_value >= take_profit_value
         if stop_hit:
             exit_reason = "stop_loss"
-            simulated_exit_price = stop_loss
+            simulated_exit_price = stop_loss_value
             ordering = "ambiguous_conservative_stop" if take_profit_hit else "stop_only"
         elif take_profit_hit:
             exit_reason = "take_profit"
-            simulated_exit_price = float(take_profit)
+            simulated_exit_price = take_profit_value
             ordering = "target_only"
         else:
             exit_reason = "fixed_horizon"
-            simulated_exit_price = fixed_exit_price
+            simulated_exit_price = fixed_exit_price_value
             ordering = "neither_hit"
-        simulated_exit_move_pct = (simulated_exit_price - entry_price) / entry_price
+        simulated_exit_move_pct = (simulated_exit_price - entry_price_value) / entry_price_value
     else:
-        stop_hit = stop_loss > 0.0 and path_high >= stop_loss
-        take_profit_hit = take_profit is not None and take_profit > 0.0 and path_low <= take_profit
+        stop_hit = stop_loss_value > 0.0 and path_high_value >= stop_loss_value
+        take_profit_hit = take_profit_value is not None and path_low_value <= take_profit_value
         if stop_hit:
             exit_reason = "stop_loss"
-            simulated_exit_price = stop_loss
+            simulated_exit_price = stop_loss_value
             ordering = "ambiguous_conservative_stop" if take_profit_hit else "stop_only"
         elif take_profit_hit:
             exit_reason = "take_profit"
-            simulated_exit_price = float(take_profit)
+            simulated_exit_price = take_profit_value
             ordering = "target_only"
         else:
             exit_reason = "fixed_horizon"
-            simulated_exit_price = fixed_exit_price
+            simulated_exit_price = fixed_exit_price_value
             ordering = "neither_hit"
-        simulated_exit_move_pct = (entry_price - simulated_exit_price) / entry_price
+        simulated_exit_move_pct = (entry_price_value - simulated_exit_price) / entry_price_value
     return exit_reason, simulated_exit_price, simulated_exit_move_pct, ordering
 
 
