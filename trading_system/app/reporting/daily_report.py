@@ -22,12 +22,46 @@ def _strict_bool_field(payload: Mapping[str, Any], key: str) -> bool:
     return value
 
 
+def _strict_mapping_field(payload: Mapping[str, Any], key: str) -> Mapping[str, Any]:
+    value = payload.get(key)
+    if value is None:
+        return {}
+    if not isinstance(value, Mapping):
+        raise ValueError(f"{key} must be mapping")
+    return value
+
+
+def _strict_string_value(value: Any, key: str, *, default: str = "", required: bool = False) -> str:
+    if value is None:
+        return default
+    if not isinstance(value, str):
+        raise ValueError(f"{key} must be string")
+    if value != value.strip():
+        raise ValueError(f"{key} must be canonical string")
+    if required and not value:
+        raise ValueError(f"{key} must be non-empty string")
+    return value
+
+
+def _strict_string_field(payload: Mapping[str, Any], key: str, *, default: str = "", required: bool = False) -> str:
+    return _strict_string_value(payload.get(key), key, default=default, required=required)
+
+
+def _strict_reason_codes(payload: Mapping[str, Any]) -> list[str]:
+    raw_codes = payload.get("reason_codes", [])
+    if raw_codes is None:
+        return []
+    if isinstance(raw_codes, (str, bytes)) or not isinstance(raw_codes, Sequence):
+        raise ValueError("reason_codes must be a sequence of strings")
+    return [_strict_string_value(code, "reason_codes", required=True) for code in raw_codes]
+
+
 def _rotation_leader_row(candidate: Mapping[str, Any]) -> dict[str, Any]:
-    timeframe_meta = dict(candidate.get("timeframe_meta") or {})
-    relative_strength = dict(timeframe_meta.get("relative_strength") or {})
-    liquidity_meta = dict(candidate.get("liquidity_meta") or {})
+    timeframe_meta = _strict_mapping_field(candidate, "timeframe_meta")
+    relative_strength = _strict_mapping_field(timeframe_meta, "relative_strength")
+    liquidity_meta = _strict_mapping_field(candidate, "liquidity_meta")
     return {
-        "symbol": str(candidate.get("symbol", "")),
+        "symbol": _strict_string_field(candidate, "symbol", required=True),
         "score": round(_float(candidate.get("score")), 6),
         "daily_spread": round(_float(relative_strength.get("daily_spread")), 6),
         "h4_spread": round(_float(relative_strength.get("h4_spread")), 6),
@@ -38,58 +72,58 @@ def _rotation_leader_row(candidate: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _short_leader_row(candidate: Mapping[str, Any]) -> dict[str, Any]:
-    timeframe_meta = dict(candidate.get("timeframe_meta") or {})
-    liquidity_meta = dict(candidate.get("liquidity_meta") or {})
+    timeframe_meta = _strict_mapping_field(candidate, "timeframe_meta")
+    liquidity_meta = _strict_mapping_field(candidate, "liquidity_meta")
     row = {
-        "symbol": str(candidate.get("symbol", "")),
-        "setup_type": str(candidate.get("setup_type", "")),
+        "symbol": _strict_string_field(candidate, "symbol", required=True),
+        "setup_type": _strict_string_field(candidate, "setup_type", required=True),
         "score": round(_float(candidate.get("score")), 6),
-        "daily_bias": str(timeframe_meta.get("daily_bias", "")),
-        "h4_structure": str(timeframe_meta.get("h4_structure", "")),
-        "h1_trigger": str(timeframe_meta.get("h1_trigger", "")),
-        "derivatives": dict(timeframe_meta.get("derivatives") or {}),
+        "daily_bias": _strict_string_field(timeframe_meta, "daily_bias"),
+        "h4_structure": _strict_string_field(timeframe_meta, "h4_structure"),
+        "h1_trigger": _strict_string_field(timeframe_meta, "h1_trigger"),
+        "derivatives": dict(_strict_mapping_field(timeframe_meta, "derivatives")),
         "volume_usdt_24h": _float(liquidity_meta.get("volume_usdt_24h")),
-        "liquidity_tier": str(liquidity_meta.get("liquidity_tier", "")),
+        "liquidity_tier": _strict_string_field(liquidity_meta, "liquidity_tier"),
     }
     for key in ("stop_family", "stop_reference", "invalidation_source", "invalidation_reason", "stop_policy_source"):
         value = candidate.get(key)
         if value:
-            row[key] = str(value)
+            row[key] = _strict_string_value(value, key, required=True)
     return row
 
 
 def _trend_leader_row(candidate: Mapping[str, Any]) -> dict[str, Any]:
-    timeframe_meta = dict(candidate.get("timeframe_meta") or {})
-    liquidity_meta = dict(candidate.get("liquidity_meta") or {})
+    timeframe_meta = _strict_mapping_field(candidate, "timeframe_meta")
+    liquidity_meta = _strict_mapping_field(candidate, "liquidity_meta")
     row = {
-        "symbol": str(candidate.get("symbol", "")),
-        "setup_type": str(candidate.get("setup_type", "")),
+        "symbol": _strict_string_field(candidate, "symbol", required=True),
+        "setup_type": _strict_string_field(candidate, "setup_type", required=True),
         "score": round(_float(candidate.get("score")), 6),
-        "daily_bias": str(timeframe_meta.get("daily_bias", "")),
-        "h4_structure": str(timeframe_meta.get("h4_structure", "")),
-        "h1_trigger": str(timeframe_meta.get("h1_trigger", "")),
-        "derivatives": dict(timeframe_meta.get("derivatives") or {}),
+        "daily_bias": _strict_string_field(timeframe_meta, "daily_bias"),
+        "h4_structure": _strict_string_field(timeframe_meta, "h4_structure"),
+        "h1_trigger": _strict_string_field(timeframe_meta, "h1_trigger"),
+        "derivatives": dict(_strict_mapping_field(timeframe_meta, "derivatives")),
         "volume_usdt_24h": _float(liquidity_meta.get("volume_usdt_24h")),
-        "liquidity_tier": str(liquidity_meta.get("liquidity_tier", "")),
+        "liquidity_tier": _strict_string_field(liquidity_meta, "liquidity_tier"),
     }
     for key in ("stop_family", "stop_reference", "invalidation_source", "invalidation_reason", "stop_policy_source"):
         value = candidate.get(key)
         if value:
-            row[key] = str(value)
+            row[key] = _strict_string_value(value, key, required=True)
     return row
 
 
 def _lifecycle_leader_row(symbol: str, payload: Mapping[str, Any]) -> dict[str, Any]:
     row = {
         "symbol": symbol,
-        "state": str(payload.get("state", "INIT")).upper(),
+        "state": _strict_string_field(payload, "state", default="INIT", required=True).upper(),
         "r_multiple": round(_float(payload.get("r_multiple")), 6),
-        "reason_codes": [str(code) for code in payload.get("reason_codes", [])],
+        "reason_codes": _strict_reason_codes(payload),
     }
     for key in ("stop_family", "stop_reference", "invalidation_source", "invalidation_reason", "stop_policy_source"):
         value = payload.get(key)
         if value:
-            row[key] = str(value)
+            row[key] = _strict_string_value(value, key, required=True)
     for key in ("first_target_hit", "second_target_hit", "runner_protected"):
         if key in payload:
             row[key] = _strict_bool_field(payload, key)
@@ -97,15 +131,15 @@ def _lifecycle_leader_row(symbol: str, payload: Mapping[str, Any]) -> dict[str, 
     if runner_stop_price is not None:
         row["runner_stop_price"] = round(_float(runner_stop_price), 8)
     if "scale_out_plan" in payload:
-        row["scale_out_plan"] = dict(payload.get("scale_out_plan") or {})
+        row["scale_out_plan"] = dict(_strict_mapping_field(payload, "scale_out_plan"))
     second_target_source = payload.get("second_target_source")
     if second_target_source:
-        row["second_target_source"] = str(second_target_source)
+        row["second_target_source"] = _strict_string_value(second_target_source, "second_target_source", required=True)
     return row
 
 
 def _review_action_row(row: Mapping[str, Any]) -> dict[str, Any] | None:
-    meta = dict(row.get("meta") or {})
+    meta = _strict_mapping_field(row, "meta")
     stop_semantics_keys = ("stop_family", "stop_reference", "invalidation_source", "invalidation_reason", "stop_policy_source")
     has_stop_semantics = any(meta.get(key) for key in stop_semantics_keys)
 
@@ -122,18 +156,18 @@ def _review_action_row(row: Mapping[str, Any]) -> dict[str, Any] | None:
         return None
 
     payload = {
-        "symbol": str(row.get("symbol", "")),
-        "action": str(row.get("action", "")),
-        "priority": str(row.get("priority", "MEDIUM")),
+        "symbol": _strict_string_field(row, "symbol", required=True),
+        "action": _strict_string_field(row, "action", required=True),
+        "priority": _strict_string_field(row, "priority", default="MEDIUM", required=True),
     }
     if has_stop_semantics:
         payload.update(
             {
-                "stop_family": str(meta.get("stop_family", "")),
-                "stop_reference": str(meta.get("stop_reference", "")),
-                "invalidation_source": str(meta.get("invalidation_source", "")),
-                "invalidation_reason": str(meta.get("invalidation_reason", "")),
-                "stop_policy_source": str(meta.get("stop_policy_source", "")),
+                "stop_family": _strict_string_field(meta, "stop_family"),
+                "stop_reference": _strict_string_field(meta, "stop_reference"),
+                "invalidation_source": _strict_string_field(meta, "invalidation_source"),
+                "invalidation_reason": _strict_string_field(meta, "invalidation_reason"),
+                "stop_policy_source": _strict_string_field(meta, "stop_policy_source"),
             }
         )
     suggested_stop_loss = row.get("suggested_stop_loss")
@@ -144,9 +178,9 @@ def _review_action_row(row: Mapping[str, Any]) -> dict[str, Any] | None:
     if target_price is not None:
         payload["target_price"] = round(_float(target_price), 8)
     if target_stage is not None:
-        payload["target_stage"] = str(target_stage)
+        payload["target_stage"] = _strict_string_value(target_stage, "target_stage", required=True)
     if fraction_basis is not None:
-        payload["fraction_basis"] = str(fraction_basis)
+        payload["fraction_basis"] = _strict_string_value(fraction_basis, "fraction_basis", required=True)
     if runner_stop_price is not None:
         payload["runner_stop_price"] = round(_float(runner_stop_price), 8)
     return payload
@@ -191,7 +225,7 @@ def build_lifecycle_report(
     exit_symbols: list[str] = []
 
     for symbol, payload in sorted(lifecycle_updates.items()):
-        state = str(payload.get("state", "INIT")).upper()
+        state = _strict_string_field(payload, "state", default="INIT", required=True).upper()
         if state in state_counts:
             state_counts[state] += 1
         leader = _lifecycle_leader_row(symbol, payload)
@@ -216,7 +250,7 @@ def build_lifecycle_report(
     review_actions: list[dict[str, Any]] = []
     audit_target_states: list[dict[str, Any]] = []
     for row in management_suggestions:
-        action = str(row.get("action", "")).upper()
+        action = _strict_string_field(row, "action").upper()
         if action:
             management_action_counts[action] = management_action_counts.get(action, 0) + 1
         review_row = _review_action_row(row)
@@ -228,8 +262,8 @@ def build_lifecycle_report(
         audit_target_states.append(
             {
                 "symbol": symbol,
-                "first_target_status": str(payload.get("first_target_status", "")),
-                "second_target_status": str(payload.get("second_target_status", "")),
+                "first_target_status": _strict_string_field(payload, "first_target_status"),
+                "second_target_status": _strict_string_field(payload, "second_target_status"),
             }
         )
     return {
@@ -252,15 +286,17 @@ def build_trend_report(
     allocations: Sequence[Mapping[str, Any]],
     major_universe: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
+    candidate_rows = [dict(row) for row in trend_candidates if _strict_string_field(row, "symbol")]
     ranked = sorted(
-        [dict(row) for row in trend_candidates if str(row.get("symbol", ""))],
-        key=lambda row: (-_float(row.get("score")), str(row.get("symbol", ""))),
+        candidate_rows,
+        key=lambda row: (-_float(row.get("score")), _strict_string_field(row, "symbol")),
     )
     accepted_symbols = sorted(
         {
-            str(row.get("symbol", ""))
+            _strict_string_field(row, "symbol")
             for row in allocations
-            if str(row.get("engine", "")).lower() == "trend" and row.get("status") in {"ACCEPTED", "DOWNSIZED"}
+            if _strict_string_field(row, "engine").lower() == "trend"
+            and _strict_string_field(row, "status") in {"ACCEPTED", "DOWNSIZED"}
         }
     )
     leaders = [_trend_leader_row(row) for row in ranked[:3]]
@@ -279,23 +315,25 @@ def build_rotation_report(
     executions: Sequence[Mapping[str, Any]],
     rotation_universe: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
+    candidate_rows = [dict(row) for row in rotation_candidates if _strict_string_field(row, "symbol")]
     ranked = sorted(
-        [dict(row) for row in rotation_candidates if str(row.get("symbol", ""))],
-        key=lambda row: (-_float(row.get("score")), str(row.get("symbol", ""))),
+        candidate_rows,
+        key=lambda row: (-_float(row.get("score")), _strict_string_field(row, "symbol")),
     )
-    rotation_symbols = {str(row.get("symbol", "")) for row in ranked if row.get("symbol")}
+    rotation_symbols = {_strict_string_field(row, "symbol") for row in ranked if row.get("symbol")}
     accepted_symbols = sorted(
         {
-            str(row.get("symbol", ""))
+            _strict_string_field(row, "symbol")
             for row in allocations
-            if str(row.get("engine", "")).lower() == "rotation" and row.get("status") in {"ACCEPTED", "DOWNSIZED"}
+            if _strict_string_field(row, "engine").lower() == "rotation"
+            and _strict_string_field(row, "status") in {"ACCEPTED", "DOWNSIZED"}
         }
     )
     executed_symbols = sorted(
         {
-            str(row.get("symbol", ""))
+            _strict_string_field(row, "symbol")
             for row in executions
-            if str(row.get("symbol", "")) in rotation_symbols and row.get("status") == "FILLED"
+            if _strict_string_field(row, "symbol") in rotation_symbols and _strict_string_field(row, "status") == "FILLED"
         }
     )
     leaders = [_rotation_leader_row(row) for row in ranked[:3]]
@@ -314,23 +352,25 @@ def build_short_report(
     allocations: Sequence[Mapping[str, Any]],
     short_universe: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
+    candidate_rows = [dict(row) for row in short_candidates if _strict_string_field(row, "symbol")]
     ranked = sorted(
-        [dict(row) for row in short_candidates if str(row.get("symbol", ""))],
-        key=lambda row: (-_float(row.get("score")), str(row.get("symbol", ""))),
+        candidate_rows,
+        key=lambda row: (-_float(row.get("score")), _strict_string_field(row, "symbol")),
     )
     accepted_symbols = sorted(
         {
-            str(row.get("symbol", ""))
+            _strict_string_field(row, "symbol")
             for row in allocations
-            if str(row.get("engine", "")).lower() == "short" and row.get("status") in {"ACCEPTED", "DOWNSIZED"}
+            if _strict_string_field(row, "engine").lower() == "short"
+            and _strict_string_field(row, "status") in {"ACCEPTED", "DOWNSIZED"}
         }
     )
     deferred_execution_symbols = sorted(
         {
-            str(row.get("symbol", ""))
+            _strict_string_field(row, "symbol")
             for row in allocations
-            if str(row.get("engine", "")).lower() == "short"
-            and dict(row.get("execution") or {}).get("reason") == "short_execution_not_enabled"
+            if _strict_string_field(row, "engine").lower() == "short"
+            and _strict_mapping_field(row, "execution").get("reason") == "short_execution_not_enabled"
         }
     )
     leaders = [_short_leader_row(row) for row in ranked[:3]]

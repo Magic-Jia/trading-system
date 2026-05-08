@@ -1,6 +1,11 @@
 import pytest
 
-from trading_system.app.reporting.daily_report import build_lifecycle_report, build_rotation_report, build_short_report
+from trading_system.app.reporting.daily_report import (
+    build_lifecycle_report,
+    build_rotation_report,
+    build_short_report,
+    build_trend_report,
+)
 from trading_system.app.reporting.regime_report import build_regime_summary
 
 
@@ -66,6 +71,80 @@ def test_build_rotation_report_returns_compact_deterministic_rotation_surface():
             },
         ],
     }
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("timeframe_meta", [("relative_strength", {"daily_spread": 0.017})]),
+        ("liquidity_meta", [("volume_usdt_24h", 3900000000.0)]),
+    ],
+)
+def test_build_rotation_report_rejects_present_non_mapping_candidate_metadata(field, value):
+    candidate = {
+        "engine": "rotation",
+        "symbol": "SOLUSDT",
+        "score": 0.83,
+        "timeframe_meta": {"relative_strength": {"daily_spread": 0.017}},
+        "liquidity_meta": {"volume_usdt_24h": 3900000000.0},
+    }
+    candidate[field] = value
+
+    with pytest.raises(ValueError, match=field):
+        build_rotation_report(
+            rotation_candidates=[candidate],
+            allocations=[],
+            executions=[],
+            rotation_universe=[],
+        )
+
+
+def test_build_rotation_report_rejects_present_non_mapping_relative_strength():
+    with pytest.raises(ValueError, match="relative_strength"):
+        build_rotation_report(
+            rotation_candidates=[
+                {
+                    "engine": "rotation",
+                    "symbol": "SOLUSDT",
+                    "score": 0.83,
+                    "timeframe_meta": {"relative_strength": [("daily_spread", 0.017)]},
+                    "liquidity_meta": {"volume_usdt_24h": 3900000000.0},
+                }
+            ],
+            allocations=[],
+            executions=[],
+            rotation_universe=[],
+        )
+
+
+@pytest.mark.parametrize("invalid_symbol", [123, " SOLUSDT"])
+def test_build_rotation_report_rejects_present_non_canonical_candidate_symbol(invalid_symbol):
+    with pytest.raises(ValueError, match="symbol"):
+        build_rotation_report(
+            rotation_candidates=[
+                {
+                    "engine": "rotation",
+                    "symbol": invalid_symbol,
+                    "score": 0.83,
+                }
+            ],
+            allocations=[],
+            executions=[],
+            rotation_universe=[],
+        )
+
+
+@pytest.mark.parametrize(("field", "value"), [("status", 7), ("status", " ACCEPTED")])
+def test_build_rotation_report_rejects_present_non_canonical_allocation_status(field, value):
+    allocation = {"engine": "rotation", "symbol": "SOLUSDT", "status": value}
+
+    with pytest.raises(ValueError, match=field):
+        build_rotation_report(
+            rotation_candidates=[],
+            allocations=[allocation],
+            executions=[],
+            rotation_universe=[],
+        )
 
 
 def test_build_regime_summary_includes_rotation_report_when_provided():
@@ -202,6 +281,57 @@ def test_build_regime_summary_includes_short_report_when_provided():
         },
     )
     assert summary["short"]["review_notes"][0]["reason"] == "crowded_short_squeeze_risk"
+
+
+def test_build_short_report_rejects_present_non_mapping_derivatives():
+    with pytest.raises(ValueError, match="derivatives"):
+        build_short_report(
+            short_candidates=[
+                {
+                    "engine": "short",
+                    "symbol": "BTCUSDT",
+                    "setup_type": "BREAKDOWN_SHORT",
+                    "score": 0.81,
+                    "timeframe_meta": {"derivatives": [("crowding_bias", "balanced")]},
+                }
+            ],
+            allocations=[],
+            short_universe=[],
+        )
+
+
+@pytest.mark.parametrize("invalid_setup_type", [7, " BREAKDOWN_SHORT"])
+def test_build_short_report_rejects_present_non_canonical_setup_type(invalid_setup_type):
+    with pytest.raises(ValueError, match="setup_type"):
+        build_short_report(
+            short_candidates=[
+                {
+                    "engine": "short",
+                    "symbol": "BTCUSDT",
+                    "setup_type": invalid_setup_type,
+                    "score": 0.81,
+                }
+            ],
+            allocations=[],
+            short_universe=[],
+        )
+
+
+def test_build_trend_report_rejects_present_non_mapping_timeframe_meta():
+    with pytest.raises(ValueError, match="timeframe_meta"):
+        build_trend_report(
+            trend_candidates=[
+                {
+                    "engine": "trend",
+                    "symbol": "ETHUSDT",
+                    "setup_type": "BREAKOUT_LONG",
+                    "score": 0.72,
+                    "timeframe_meta": [("daily_bias", "up")],
+                }
+            ],
+            allocations=[],
+            major_universe=[],
+        )
 
 
 def test_build_regime_summary_surfaces_allocation_aggressiveness_stats():
@@ -371,6 +501,52 @@ def test_build_lifecycle_report_returns_compact_deterministic_state_surface():
             },
         ],
     }
+
+
+@pytest.mark.parametrize("invalid_state", [3, " PROTECT"])
+def test_build_lifecycle_report_rejects_present_non_canonical_state(invalid_state):
+    with pytest.raises(ValueError, match="state"):
+        build_lifecycle_report(
+            lifecycle_updates={"BTCUSDT": {"state": invalid_state, "reason_codes": ["payload_to_protect_trend_mature"]}},
+            management_suggestions=[],
+        )
+
+
+@pytest.mark.parametrize("reason_codes", [[123], ["valid", " invalid"]])
+def test_build_lifecycle_report_rejects_present_non_canonical_reason_codes(reason_codes):
+    with pytest.raises(ValueError, match="reason_codes"):
+        build_lifecycle_report(
+            lifecycle_updates={"BTCUSDT": {"state": "PROTECT", "reason_codes": reason_codes}},
+            management_suggestions=[],
+        )
+
+
+def test_build_lifecycle_report_rejects_present_non_mapping_review_meta():
+    with pytest.raises(ValueError, match="meta"):
+        build_lifecycle_report(
+            lifecycle_updates={},
+            management_suggestions=[
+                {
+                    "symbol": "BTCUSDT",
+                    "action": "BREAK_EVEN",
+                    "meta": [("stop_family", "structure_stop")],
+                }
+            ],
+        )
+
+
+@pytest.mark.parametrize(("field", "value"), [("symbol", 123), ("action", " BREAK_EVEN"), ("priority", 5)])
+def test_build_lifecycle_report_rejects_present_non_canonical_review_strings(field, value):
+    row = {
+        "symbol": "BTCUSDT",
+        "action": "BREAK_EVEN",
+        "priority": "MEDIUM",
+        "meta": {"stop_family": "structure_stop"},
+    }
+    row[field] = value
+
+    with pytest.raises(ValueError, match=field):
+        build_lifecycle_report(lifecycle_updates={}, management_suggestions=[row])
 
 
 def test_build_lifecycle_report_surfaces_review_ready_taxonomy_semantics():
