@@ -436,6 +436,37 @@ def test_series_report_rejects_non_object_provenance_file_metadata(tmp_path: Pat
         _series_report(bad_series, expected_interval=None)
 
 
+def test_mark_price_rejects_boolean_value() -> None:
+    record = ImportedRawMarketRecord(
+        observed_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        payload={"markPrice": True},
+    )
+
+    with pytest.raises(ValueError, match="mark price must be numeric"):
+        _mark_price(record)
+
+
+def test_funding_rate_rejects_boolean_value() -> None:
+    record = ImportedRawMarketRecord(
+        observed_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        payload={"fundingRate": True},
+    )
+
+    with pytest.raises(ValueError, match="funding rate must be numeric"):
+        _funding_rate(record)
+
+
+def test_open_interest_rejects_boolean_value() -> None:
+    record = ImportedRawMarketRecord(
+        observed_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        payload={"sumOpenInterestValue": True},
+    )
+
+    with pytest.raises(ValueError, match="open interest must be numeric"):
+        _open_interest_units(record)
+
+
+
 def test_load_raw_market_manifest_rejects_boolean_ohlcv_close(tmp_path: Path) -> None:
     archived = archive_raw_market_payload(
         archive_root=tmp_path / "archive",
