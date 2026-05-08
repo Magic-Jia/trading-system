@@ -1343,7 +1343,9 @@ def _merged_execution_evidence_coverage(traces: Iterable[Mapping[str, Any]]) -> 
         coverage = trace.get("execution_evidence")
         if not isinstance(coverage, Mapping):
             continue
-        merged["available"] = bool(merged["available"]) or _require_bool_field(
+        merged["available"] = _require_bool_field(
+            merged["available"], field="execution_evidence.available"
+        ) or _require_bool_field(
             coverage.get("available", False), field="execution_evidence.available"
         )
         max_staleness_values.add(
@@ -1386,7 +1388,9 @@ def _merged_futures_context_coverage(traces: Iterable[Mapping[str, Any]]) -> dic
         coverage = trace.get("futures_context")
         if not isinstance(coverage, Mapping):
             continue
-        merged["available"] = bool(merged["available"]) or _require_bool_field(
+        merged["available"] = _require_bool_field(
+            merged["available"], field="futures_context.available"
+        ) or _require_bool_field(
             coverage.get("available", False), field="futures_context.available"
         )
         raw_max_age = coverage.get("max_age_seconds")
