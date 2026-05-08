@@ -62,6 +62,13 @@ def test_row_market_symbol_keys_rejects_pair_list_symbols() -> None:
         archive_importer._row_market_symbol_keys(row)
 
 
+def test_row_market_symbol_keys_rejects_empty_symbol_list() -> None:
+    row = type("Row", (), {"market": {"symbols": []}})()
+
+    with pytest.raises(ValueError, match="materialized dataset row market symbols must be an object"):
+        archive_importer._row_market_symbol_keys(row)
+
+
 
 def test_phase1_dataset_root_summary_rejects_empty_list_source() -> None:
     with pytest.raises(ValueError, match="phase1 dataset root summary source must contain a JSON object"):
