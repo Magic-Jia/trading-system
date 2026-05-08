@@ -229,6 +229,18 @@ def test_intraday_path_rejects_coerced_high_low_fields() -> None:
         backtest_engine._path_high_low(row, "BTCUSDT")
 
 
+def test_reference_price_rejects_coerced_close_fields() -> None:
+    row = DatasetSnapshotRow(
+        timestamp=backtest_engine._datetime_or_none("2026-03-10T00:00:00Z"),
+        run_id="run-1",
+        market={"symbols": {"BTCUSDT": {"daily": {"close": "123"}}}},
+        derivatives=[],
+    )
+
+    with pytest.raises(ValueError, match="reference_price.daily.close must be a positive number"):
+        backtest_engine._reference_price_with_timeframe(row, "BTCUSDT")
+
+
 def test_engine_rejects_coerced_portfolio_candidate_fields(fixture_dir: Path) -> None:
     row = load_historical_dataset(fixture_dir / "backtest" / "sample_dataset")[0]
     instrument = InstrumentSnapshotRow(

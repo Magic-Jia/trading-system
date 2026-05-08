@@ -313,10 +313,9 @@ def _reference_price_with_timeframe(
     payload = _symbol_payload(row, symbol)
     for timeframe in timeframes:
         timeframe_row = payload.get(timeframe)
-        if isinstance(timeframe_row, Mapping):
-            price = float(timeframe_row.get("close", 0.0) or 0.0)
-            if price > 0.0:
-                return price, timeframe
+        if isinstance(timeframe_row, Mapping) and "close" in timeframe_row:
+            price = _positive_float(timeframe_row.get("close"), field_name=f"reference_price.{timeframe}.close")
+            return price, timeframe
     return 0.0, ""
 
 
