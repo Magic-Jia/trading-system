@@ -1807,7 +1807,12 @@ def _phase1_dataset_root_manifest(
         "archive_root": str(archive_root),
         "dataset_root": str(dataset_root),
         "snapshot_count": len(bundle_dirs),
-        "symbols": list(symbols),
+        "symbols": list(
+            _canonical_string_sequence(
+                list(symbols),
+                field="materialized dataset root manifest symbols",
+            )
+        ),
         "start_timestamp": bundle_timestamps[0],
         "end_timestamp": bundle_timestamps[-1],
         "bundle_dirs": [str(bundle_dir) for bundle_dir in bundle_dirs],

@@ -2045,6 +2045,23 @@ def test_validate_phase1_imported_dataset_root_rejects_non_string_manifest_symbo
         validate_phase1_imported_dataset_root(dataset_root)
 
 
+def test_write_phase1_dataset_root_manifest_rejects_non_string_symbols(tmp_path: Path) -> None:
+    archive_root = tmp_path / "archive"
+    dataset_root = tmp_path / "dataset"
+    _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT")
+    materials = build_phase1_dataset_bundle_materials(load_phase1_raw_market_imports(archive_root))
+    bundle_dirs = [write_phase1_dataset_bundle(materials[-1], dataset_root)]
+
+    with pytest.raises(ValueError, match="materialized dataset root manifest symbols entries must be canonical strings"):
+        write_phase1_dataset_root_manifest(
+            archive_root,
+            dataset_root,
+            symbols=[123],
+            materials=[materials[-1]],
+            bundle_dirs=bundle_dirs,
+        )
+
+
 def test_validate_phase1_imported_dataset_root_rejects_manifest_symbols_drift(tmp_path: Path) -> None:
     archive_root = tmp_path / "archive"
     dataset_root = tmp_path / "dataset"
