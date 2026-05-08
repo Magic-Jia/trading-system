@@ -120,6 +120,32 @@ def test_raw_market_data_quality_rejects_invalid_expected_interval(tmp_path: Pat
         build_raw_market_data_quality_report(tmp_path / "archive", expected_intervals={"ohlcv:1h": True})
 
 
+def test_raw_market_data_quality_rejects_non_positive_expected_interval(tmp_path: Path) -> None:
+    from trading_system.app.backtest.archive.data_quality import build_raw_market_data_quality_report
+
+    archive_raw_market_payload(
+        archive_root=tmp_path / "archive",
+        exchange="binance",
+        market="futures",
+        dataset="ohlcv",
+        symbol="BTCUSDT",
+        timeframe="1h",
+        coverage_start="2026-01-01T00:00:00Z",
+        coverage_end="2026-01-01T02:00:00Z",
+        fetched_at="2026-01-01T02:01:00Z",
+        endpoint="/fapi/v1/klines",
+        payload={
+            "rows": [
+                {"open_time": "2026-01-01T00:00:00Z", "open": 100.0, "high": 101.0, "low": 99.0, "close": 100.5, "volume": 10.0},
+                {"open_time": "2026-01-01T01:00:00Z", "open": 100.5, "high": 102.0, "low": 100.0, "close": 101.0, "volume": 12.0},
+            ]
+        },
+    )
+
+    with pytest.raises(ValueError, match="expected interval for ohlcv:1h must be positive"):
+        build_raw_market_data_quality_report(tmp_path / "archive", expected_intervals={"ohlcv:1h": timedelta(0)})
+
+
 def test_raw_market_data_quality_rejects_noncanonical_expected_interval_key(tmp_path: Path) -> None:
     from trading_system.app.backtest.archive.data_quality import build_raw_market_data_quality_report
 

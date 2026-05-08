@@ -25,6 +25,8 @@ def _expected_interval(value: Any, key: str) -> timedelta | None:
         return None
     if not isinstance(value, timedelta):
         raise ValueError(f"expected interval for {key} must be a timedelta")
+    if value.total_seconds() <= 0:
+        raise ValueError(f"expected interval for {key} must be positive")
     return value
 
 
