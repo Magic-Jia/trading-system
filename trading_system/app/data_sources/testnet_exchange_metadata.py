@@ -38,10 +38,33 @@ def _canonical_string(value: Any, *, label: str) -> str:
     return value.strip().upper()
 
 
-def _optional_canonical_string(row: dict[str, Any], key: str, *, label: str) -> str:
+def _required_exchange_string(row: dict[str, Any], key: str, *, label: str, transform: str = "upper") -> str:
+    if key not in row:
+        raise RuntimeError(f"unsupported exchange metadata field: {label}")
+    value = row[key]
+    if not isinstance(value, str):
+        raise RuntimeError(f"unsupported exchange metadata field: {label}")
+    if not value or value != value.strip():
+        raise RuntimeError(f"unsupported exchange metadata field: {label}")
+    if transform == "upper":
+        return value.upper()
+    if transform == "strict_upper" and value == value.upper():
+        return value
+    raise RuntimeError(f"unsupported exchange metadata field: {label}")
+
+
+def _optional_exchange_string(row: dict[str, Any], key: str, *, label: str, transform: str = "upper") -> str:
     if key not in row:
         return ""
-    return _canonical_string(row[key], label=label)
+    return _required_exchange_string(row, key, label=label, transform=transform)
+
+
+def _required_exchange_order_type(value: Any, *, symbol: str) -> str:
+    if not isinstance(value, str):
+        raise RuntimeError(f"unsupported exchange metadata field: {symbol}.orderTypes")
+    if not value or value != value.strip() or value != value.upper():
+        raise RuntimeError(f"unsupported exchange metadata field: {symbol}.orderTypes")
+    return value
 
 
 def _filter_index(symbol_row: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -53,9 +76,8 @@ def _filter_index(symbol_row: dict[str, Any]) -> dict[str, dict[str, Any]]:
     for row in filters:
         if not isinstance(row, dict):
             raise RuntimeError("unsupported futures symbol filter row")
-        filter_type = _optional_canonical_string(row, "filterType", label="filterType")
-        if filter_type:
-            indexed[filter_type] = row
+        filter_type = _required_exchange_string(row, "filterType", label="filterType", transform="strict_upper")
+        indexed[filter_type] = row
     return indexed
 
 
@@ -72,9 +94,7 @@ def _min_notional(filter_rows: dict[str, dict[str, Any]]) -> float:
 
 
 def _normalize_symbol_metadata(symbol_row: dict[str, Any]) -> dict[str, Any]:
-    symbol = _optional_canonical_string(symbol_row, "symbol", label="symbol")
-    if not symbol:
-        raise RuntimeError("unsupported futures symbol metadata")
+    symbol = _required_exchange_string(symbol_row, "symbol", label="symbol")
 
     filter_rows = _filter_index(symbol_row)
     missing_filters = sorted(REQUIRED_FILTERS - set(filter_rows))
@@ -90,9 +110,8 @@ def _normalize_symbol_metadata(symbol_row: dict[str, Any]) -> dict[str, Any]:
         "price_tick_size": _float_value(filter_rows["PRICE_FILTER"].get("tickSize"), label=f"{symbol}.tickSize"),
         "min_notional": _min_notional(filter_rows),
         "allowed_order_types": [
-            canonical_order_type
+            _required_exchange_order_type(order_type, symbol=symbol)
             for order_type in order_types
-            if (canonical_order_type := _canonical_string(order_type, label=f"{symbol}.orderTypes"))
         ],
     }
 
@@ -115,7 +134,7 @@ def load_testnet_exchange_metadata(symbols: Iterable[str] | None = None) -> dict
     for row in symbol_rows:
         if not isinstance(row, dict):
             raise RuntimeError("unsupported futures exchange symbol row")
-        symbol = _optional_canonical_string(row, "symbol", label="symbol")
+        symbol = _optional_exchange_string(row, "symbol", label="symbol")
         if not symbol:
             continue
         if requested_symbols is not None and symbol not in requested_symbols:

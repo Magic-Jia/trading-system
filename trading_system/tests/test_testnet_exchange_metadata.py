@@ -65,6 +65,18 @@ def test_load_testnet_exchange_metadata_rejects_present_non_string_symbol_row(mo
         metadata_module.load_testnet_exchange_metadata()
 
 
+@pytest.mark.parametrize("symbol", ["", "   ", " btcusdt ", "btcusdt "])
+def test_load_testnet_exchange_metadata_rejects_present_non_canonical_symbol_row(monkeypatch, symbol):
+    monkeypatch.setattr(
+        metadata_module,
+        "fetch_futures_testnet_exchange_info",
+        lambda: _exchange_info(_valid_symbol_row(symbol=symbol)),
+    )
+
+    with pytest.raises(RuntimeError, match="symbol"):
+        metadata_module.load_testnet_exchange_metadata()
+
+
 @pytest.mark.parametrize("filter_type", [123, True])
 def test_load_testnet_exchange_metadata_rejects_present_non_string_filter_type(monkeypatch, filter_type):
     row = _valid_symbol_row(
@@ -79,8 +91,34 @@ def test_load_testnet_exchange_metadata_rejects_present_non_string_filter_type(m
         metadata_module.load_testnet_exchange_metadata()
 
 
+@pytest.mark.parametrize("filter_type", ["", "   ", " PRICE_FILTER", "PRICE_FILTER "])
+def test_load_testnet_exchange_metadata_rejects_present_non_canonical_filter_type(monkeypatch, filter_type):
+    row = _valid_symbol_row(
+        filters=[
+            {"filterType": filter_type, "tickSize": "0.1"},
+            {"filterType": "LOT_SIZE", "stepSize": "0.001"},
+        ]
+    )
+    monkeypatch.setattr(metadata_module, "fetch_futures_testnet_exchange_info", lambda: _exchange_info(row))
+
+    with pytest.raises(RuntimeError, match="filterType"):
+        metadata_module.load_testnet_exchange_metadata()
+
+
 @pytest.mark.parametrize("order_type", [123, True])
 def test_load_testnet_exchange_metadata_rejects_present_non_string_order_type(monkeypatch, order_type):
+    monkeypatch.setattr(
+        metadata_module,
+        "fetch_futures_testnet_exchange_info",
+        lambda: _exchange_info(_valid_symbol_row(orderTypes=["LIMIT", order_type])),
+    )
+
+    with pytest.raises(RuntimeError, match="orderTypes"):
+        metadata_module.load_testnet_exchange_metadata()
+
+
+@pytest.mark.parametrize("order_type", ["", "   ", " LIMIT", "LIMIT "])
+def test_load_testnet_exchange_metadata_rejects_present_non_canonical_order_type(monkeypatch, order_type):
     monkeypatch.setattr(
         metadata_module,
         "fetch_futures_testnet_exchange_info",
