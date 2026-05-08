@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import dataclasses
 from datetime import datetime, timedelta, timezone
 
 import pytest
 
 from trading_system.app.backtest.evaluation import (
     CostStressScenario,
+    _ledger_metrics,
     build_evaluation_report,
     build_walk_forward_evaluation,
     build_walk_forward_windows,
@@ -180,3 +182,38 @@ def test_evaluation_report_labels_walk_forward_regimes_and_cost_stress() -> None
     assert report["regimes"]["buckets"]
     assert report["cost_stress"]["scenarios"][0]["scenario"]["name"] == "fees_2x"
     assert report["cost_stress"]["scenarios"][0]["label"] == "cost_stress:fees_2x"
+
+
+@pytest.mark.parametrize(
+    ("field_name", "bad_value"),
+    (
+        ("net_pnl", True),
+        ("net_return_pct", float("nan")),
+        ("gross_return_pct", float("inf")),
+        ("fee_paid", float("-inf")),
+    ),
+)
+def test_ledger_metrics_rejects_invalid_trade_metric_numbers(field_name: str, bad_value: object) -> None:
+    trade = _trade("BTCUSDT", "2026-01-01T12:00:00Z", net_pnl=10.0)
+    corrupted_trade = dataclasses.replace(trade, **{field_name: bad_value})
+
+    with pytest.raises(ValueError, match=rf"trades\[0\]\.{field_name}"):
+        _ledger_metrics((corrupted_trade,))
+
+
+@pytest.mark.parametrize(
+    ("override_name", "override_values", "expected_path"),
+    (
+        ("net_pnls", (10.0, True), r"net_pnls\[1\]"),
+        ("net_returns", (0.10, float("nan")), r"net_returns\[1\]"),
+    ),
+)
+def test_ledger_metrics_rejects_invalid_override_metric_numbers(
+    override_name: str,
+    override_values: tuple[object, ...],
+    expected_path: str,
+) -> None:
+    trade = _trade("BTCUSDT", "2026-01-01T12:00:00Z", net_pnl=10.0)
+
+    with pytest.raises(ValueError, match=expected_path):
+        _ledger_metrics((trade,), **{override_name: override_values})

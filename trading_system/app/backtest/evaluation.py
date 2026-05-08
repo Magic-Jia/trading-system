@@ -3,6 +3,7 @@ from __future__ import annotations
 from bisect import bisect_right
 from dataclasses import dataclass
 from datetime import timedelta
+import math
 from statistics import median
 from typing import Any, Iterable, Literal, Mapping, Sequence
 
@@ -226,22 +227,54 @@ def _trades_in_period(
     )
 
 
+def _metric_number(value: Any, path: str) -> float:
+    if isinstance(value, bool):
+        raise ValueError(f"{path} must be a finite number")
+    try:
+        number = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{path} must be a finite number") from exc
+    if not math.isfinite(number):
+        raise ValueError(f"{path} must be a finite number")
+    return number
+
+
 def _ledger_metrics(
     trades: Sequence[TradeLedgerRow],
     *,
     net_pnls: Sequence[float] | None = None,
     net_returns: Sequence[float] | None = None,
 ) -> dict[str, float | int]:
-    effective_net_pnls = [float(value) for value in net_pnls] if net_pnls is not None else [float(trade.net_pnl) for trade in trades]
-    effective_net_returns = [float(value) for value in net_returns] if net_returns is not None else [float(trade.net_return_pct) for trade in trades]
-    gross_returns = [float(trade.gross_return_pct) for trade in trades]
+    effective_net_pnls = (
+        [_metric_number(value, f"net_pnls[{index}]") for index, value in enumerate(net_pnls)]
+        if net_pnls is not None
+        else [_metric_number(trade.net_pnl, f"trades[{index}].net_pnl") for index, trade in enumerate(trades)]
+    )
+    effective_net_returns = (
+        [_metric_number(value, f"net_returns[{index}]") for index, value in enumerate(net_returns)]
+        if net_returns is not None
+        else [
+            _metric_number(trade.net_return_pct, f"trades[{index}].net_return_pct")
+            for index, trade in enumerate(trades)
+        ]
+    )
+    gross_returns = [
+        _metric_number(trade.gross_return_pct, f"trades[{index}].gross_return_pct")
+        for index, trade in enumerate(trades)
+    ]
     return {
         "trade_count": len(trades),
-        "gross_pnl": round(sum(float(trade.gross_pnl) for trade in trades), 6),
+        "gross_pnl": round(sum(_metric_number(trade.gross_pnl, f"trades[{index}].gross_pnl") for index, trade in enumerate(trades)), 6),
         "net_pnl": round(sum(effective_net_pnls), 6),
-        "fees": round(sum(float(trade.fee_paid) for trade in trades), 6),
-        "slippage": round(sum(float(trade.slippage_paid) for trade in trades), 6),
-        "funding": round(sum(float(trade.funding_paid) for trade in trades), 6),
+        "fees": round(sum(_metric_number(trade.fee_paid, f"trades[{index}].fee_paid") for index, trade in enumerate(trades)), 6),
+        "slippage": round(
+            sum(_metric_number(trade.slippage_paid, f"trades[{index}].slippage_paid") for index, trade in enumerate(trades)),
+            6,
+        ),
+        "funding": round(
+            sum(_metric_number(trade.funding_paid, f"trades[{index}].funding_paid") for index, trade in enumerate(trades)),
+            6,
+        ),
         "total_gross_return": round(total_return(gross_returns), 6),
         "total_net_return": round(total_return(effective_net_returns), 6),
         "max_drawdown": round(max_drawdown(effective_net_returns), 6),
