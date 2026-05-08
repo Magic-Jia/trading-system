@@ -599,6 +599,11 @@ def archive_raw_market_payload(
         timeframe=normalized_timeframe,
     )
     normalized_symbol_metadata = _normalized_symbol_metadata(symbol_metadata, context=storage_dir)
+    normalized_metadata: dict[str, Any] | None = None
+    if metadata is not None:
+        if not isinstance(metadata, Mapping):
+            raise ValueError(f"raw-market metadata must be a JSON object: {storage_dir}")
+        normalized_metadata = dict(metadata)
     storage_dir.mkdir(parents=True, exist_ok=True)
     duplicate_manifest = _existing_manifest_for_coverage(
         storage_dir,
@@ -654,10 +659,8 @@ def archive_raw_market_payload(
     }
     if normalized_symbol_metadata is not None:
         manifest["symbol_metadata"] = normalized_symbol_metadata
-    if metadata is not None:
-        if not isinstance(metadata, Mapping):
-            raise ValueError(f"raw-market metadata must be a JSON object: {storage_dir}")
-        manifest["metadata"] = dict(metadata)
+    if normalized_metadata is not None:
+        manifest["metadata"] = normalized_metadata
     if normalized_timeframe:
         manifest["timeframe"] = normalized_timeframe
     manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")

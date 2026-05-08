@@ -57,9 +57,12 @@ def test_load_raw_market_manifest_fails_fast_on_duplicate_file_timestamps(tmp_pa
 
 
 def test_archive_raw_market_payload_rejects_empty_list_metadata(tmp_path: Path) -> None:
+    archive_root = tmp_path / "archive"
+    expected_dir = archive_root / "raw-market" / "binance" / "futures" / "ohlcv" / "BTCUSDT" / "1h"
+
     with pytest.raises(ValueError, match="raw-market metadata must be a JSON object"):
         archive_raw_market_payload(
-            archive_root=tmp_path / "archive",
+            archive_root=archive_root,
             exchange="binance",
             market="futures",
             dataset="ohlcv",
@@ -83,6 +86,8 @@ def test_archive_raw_market_payload_rejects_empty_list_metadata(tmp_path: Path) 
             },
             metadata=[],
         )
+
+    assert not expected_dir.exists() or list(expected_dir.iterdir()) == []
 
 
 def test_raw_market_data_quality_reports_timestamp_uniqueness(tmp_path: Path) -> None:
