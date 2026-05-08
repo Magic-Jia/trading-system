@@ -260,6 +260,13 @@ def test_l2_tick_coverage_rejects_noncanonical_dataset_before_filtering() -> Non
         _l2_tick_coverage(reports, required_coverage=0.99)
 
 
+def test_l2_tick_coverage_rejects_non_object_series_reports_before_filtering() -> None:
+    reports = {"BTCUSDT:trades": [("dataset", "trades")]}
+
+    with pytest.raises(ValueError, match=r"l2 series report BTCUSDT:trades must be an object"):
+        _l2_tick_coverage(reports, required_coverage=0.99)
+
+
 def test_l2_tick_coverage_rejects_non_object_missing_interval_entries() -> None:
     reports = {
         "BTCUSDT:trades": {
