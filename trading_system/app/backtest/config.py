@@ -378,7 +378,9 @@ def _load_disabled_engines(raw: Any) -> tuple[str, ...]:
         raise ValueError("experiment_params.disabled_engines must be a list")
     normalized: list[str] = []
     for item in raw:
-        engine = str(item).strip().lower()
+        if not isinstance(item, str):
+            raise ValueError("experiment_params.disabled_engines must contain only strings")
+        engine = item.strip().lower()
         if not engine:
             continue
         if engine not in normalized:
@@ -393,7 +395,9 @@ def _load_allowed_short_setup_types(raw: Any) -> tuple[str, ...]:
         raise ValueError("experiment_params.allowed_short_setup_types must be a list")
     normalized: list[str] = []
     for item in raw:
-        setup_type = str(item).strip().upper()
+        if not isinstance(item, str):
+            raise ValueError("experiment_params.allowed_short_setup_types must contain only strings")
+        setup_type = item.strip().upper()
         if not setup_type:
             continue
         if setup_type not in normalized:
@@ -408,7 +412,9 @@ def _load_quarantined_short_setup_types(raw: Any) -> tuple[str, ...]:
         raise ValueError("experiment_params.quarantined_short_setup_types must be a list")
     normalized: list[str] = []
     for item in raw:
-        setup_type = str(item).strip().upper()
+        if not isinstance(item, str):
+            raise ValueError("experiment_params.quarantined_short_setup_types must contain only strings")
+        setup_type = item.strip().upper()
         if not setup_type:
             continue
         if setup_type not in normalized:
@@ -423,7 +429,9 @@ def _load_upper_unique_tuple(raw: Any, *, field_name: str) -> tuple[str, ...]:
         raise ValueError(f"experiment_params.{field_name} must be a list")
     normalized: list[str] = []
     for item in raw:
-        value = str(item).strip().upper()
+        if not isinstance(item, str):
+            raise ValueError(f"experiment_params.{field_name} must contain only strings")
+        value = item.strip().upper()
         if not value:
             continue
         if value not in normalized:
