@@ -60,6 +60,15 @@ def test_engine_rank_key_rejects_coerced_candidate_fields() -> None:
         backtest_engine._rank_key({"score": 0.7, "symbol": "BTCUSDT", "engine": True})
 
 
+def test_suppression_payload_rejects_coerced_regime_fields() -> None:
+    with pytest.raises(ValueError, match="suppression_rules must be a list"):
+        backtest_engine._suppression_payload({"suppression_rules": "rotation"})
+    with pytest.raises(ValueError, match="suppression_rules entries must be canonical strings"):
+        backtest_engine._suppression_payload({"suppression_rules": ["rotation", True]})
+    with pytest.raises(ValueError, match="execution_policy must be a canonical string"):
+        backtest_engine._suppression_payload({"suppression_rules": [], "execution_policy": True})
+
+
 def test_engine_rejects_coerced_portfolio_candidate_fields(fixture_dir: Path) -> None:
     row = load_historical_dataset(fixture_dir / "backtest" / "sample_dataset")[0]
     instrument = InstrumentSnapshotRow(

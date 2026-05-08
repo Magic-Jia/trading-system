@@ -79,14 +79,34 @@ def _universes_payload(universes: UniverseBuildResult) -> dict[str, Any]:
     }
 
 
+def _canonical_string(value: Any, *, field_name: str) -> str:
+    if not isinstance(value, str) or not value or value != value.strip():
+        raise ValueError(f"{field_name} must be a canonical string")
+    return value
+
+
+def _canonical_string_list(value: Any, *, field_name: str) -> list[str]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValueError(f"{field_name} must be a list")
+    items: list[str] = []
+    for item in value:
+        if not isinstance(item, str) or not item or item != item.strip():
+            raise ValueError(f"{field_name} entries must be canonical strings")
+        items.append(item)
+    return items
+
+
 def _suppression_payload(regime: Mapping[str, Any]) -> dict[str, Any]:
-    rules = {str(rule).lower() for rule in list(regime.get("suppression_rules", []))}
+    rules = {rule.lower() for rule in _canonical_string_list(regime.get("suppression_rules"), field_name="suppression_rules")}
+    execution_policy = _canonical_string(regime.get("execution_policy", "normal"), field_name="execution_policy")
     return {
         "rules": sorted(rules),
         "rotation_suppressed": "rotation" in rules,
         "trend_suppressed": "trend" in rules,
         "short_suppressed": "short" in rules,
-        "execution_policy": regime.get("execution_policy", "normal"),
+        "execution_policy": execution_policy,
     }
 
 
