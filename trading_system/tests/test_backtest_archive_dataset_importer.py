@@ -1025,6 +1025,27 @@ def test_materialize_phase1_evidence_windows_rejects_non_string_manifest_symbol(
         )
 
 
+@pytest.mark.parametrize("invalid_window_day", [True, "30", 30.5, 0, -1])
+def test_materialize_phase1_evidence_windows_rejects_invalid_window_days_before_output_side_effects(
+    tmp_path: Path,
+    invalid_window_day: object,
+) -> None:
+    archive_root = tmp_path / "archive"
+    output_root = tmp_path / "materialized"
+    _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT", total_hours=50 * 24)
+
+    with pytest.raises(ValueError, match="windows_days must contain positive integer window days"):
+        materialize_phase1_evidence_windows(
+            archive_root / "raw-market" / "binance" / "futures",
+            output_root,
+            symbols=("BTCUSDT",),
+            windows_days=(invalid_window_day,),
+        )
+
+    assert not output_root.exists()
+    assert not (output_root / "coverage_report.json").exists()
+
+
 def test_materialize_phase1_evidence_windows_streams_windows_and_reports_progress(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

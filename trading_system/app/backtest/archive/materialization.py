@@ -50,6 +50,17 @@ def _archive_root_from_input(path: str | Path) -> Path:
     return Path(*parts[:raw_index])
 
 
+def _validated_window_days(windows_days: Iterable[int]) -> tuple[int, ...]:
+    resolved: list[int] = []
+    for days in windows_days:
+        if isinstance(days, bool) or not isinstance(days, int) or days <= 0:
+            raise ValueError("windows_days must contain positive integer window days")
+        resolved.append(days)
+    if not resolved:
+        raise ValueError("windows_days must contain at least one window")
+    return tuple(resolved)
+
+
 def _manifest_is_selected(
     manifest: Mapping[str, Any],
     *,
@@ -197,9 +208,7 @@ def materialize_phase1_evidence_windows(
     progress_stream: TextIO | None = None,
 ) -> dict[str, Any]:
     resolved_archive_root = _archive_root_from_input(archive_root)
-    resolved_windows_days = tuple(int(days) for days in windows_days)
-    if not resolved_windows_days:
-        raise ValueError("windows_days must contain at least one window")
+    resolved_windows_days = _validated_window_days(windows_days)
 
     def emit_progress(message: str) -> None:
         print(message, file=progress_stream or sys.stderr)
@@ -236,8 +245,8 @@ def materialize_phase1_evidence_windows(
 
     for days in resolved_windows_days:
         started_at = time.perf_counter()
-        window_name = f"{int(days)}d"
-        start = end_exclusive - timedelta(days=int(days))
+        window_name = f"{days}d"
+        start = end_exclusive - timedelta(days=days)
         import_start = start - _WINDOW_IMPORT_HISTORY_WARMUP
         emit_progress(
             f"window {window_name} start start={start.isoformat().replace('+00:00', 'Z')} "
