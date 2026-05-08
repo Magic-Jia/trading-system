@@ -658,14 +658,13 @@ def test_order_book_payload_rejects_boolean_bid() -> None:
         _order_book_payload(record, symbol="BTCUSDT")
 
 
-def test_order_book_payload_rejects_string_ask() -> None:
+def test_order_book_payload_accepts_string_encoded_ask() -> None:
     record = ImportedRawMarketRecord(
         observed_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
         payload={"symbol": "BTCUSDT", "bid": 100.0, "ask": "101.0"},
     )
 
-    with pytest.raises(ValueError, match="order book ask must be numeric"):
-        _order_book_payload(record, symbol="BTCUSDT")
+    assert _order_book_payload(record, symbol="BTCUSDT")["ask"] == pytest.approx(101.0)
 
 
 

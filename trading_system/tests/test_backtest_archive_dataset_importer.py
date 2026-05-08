@@ -1123,6 +1123,80 @@ def test_build_phase1_dataset_bundle_materials_materializes_fresh_order_book_exe
     assert latest.metadata["source"]["execution_evidence"]["missing"]["order_book"] == 0
 
 
+def test_build_phase1_dataset_bundle_materials_materializes_string_encoded_execution_evidence(
+    tmp_path: Path,
+) -> None:
+    archive_root = tmp_path / "archive"
+    _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT")
+    signal_time = datetime(2024, 2, 29, 23, tzinfo=UTC)
+    evidence_time = signal_time + timedelta(seconds=5)
+    archive_raw_market_payload(
+        archive_root=archive_root,
+        exchange="binance",
+        market="futures",
+        dataset="order_book",
+        symbol="BTCUSDT",
+        coverage_start=signal_time.isoformat().replace("+00:00", "Z"),
+        coverage_end=(signal_time + timedelta(minutes=1)).isoformat().replace("+00:00", "Z"),
+        fetched_at="2026-04-01T07:33:00Z",
+        endpoint="/fapi/v1/depth",
+        payload={
+            "rows": [
+                {
+                    "timestamp": _timestamp_ms(evidence_time),
+                    "symbol": "BTCUSDT",
+                    "bid": "64389.50",
+                    "ask": "64390.50",
+                    "bid_size": "3.25",
+                    "ask_size": "2.75",
+                }
+            ]
+        },
+    )
+    archive_raw_market_payload(
+        archive_root=archive_root,
+        exchange="binance",
+        market="futures",
+        dataset="trades",
+        symbol="BTCUSDT",
+        coverage_start=signal_time.isoformat().replace("+00:00", "Z"),
+        coverage_end=(signal_time + timedelta(minutes=5)).isoformat().replace("+00:00", "Z"),
+        fetched_at="2026-04-01T07:33:01Z",
+        endpoint="/fapi/v1/aggTrades",
+        payload={
+            "rows": [
+                {
+                    "timestamp": _timestamp_ms(signal_time + timedelta(seconds=2)),
+                    "symbol": "BTCUSDT",
+                    "price": "64391.00",
+                    "quantity": "0.20",
+                    "side": "buy",
+                }
+            ]
+        },
+    )
+
+    latest = build_phase1_dataset_bundle_materials(
+        load_phase1_raw_market_imports(archive_root),
+        execution_evidence_max_staleness=timedelta(minutes=5),
+    )[-1]
+
+    execution = latest.market_context["symbols"]["BTCUSDT"]["execution"]
+    assert execution["order_book"]["bid"] == pytest.approx(64389.5)
+    assert execution["order_book"]["ask"] == pytest.approx(64390.5)
+    assert execution["order_book"]["bid_size"] == pytest.approx(3.25)
+    assert execution["order_book"]["ask_size"] == pytest.approx(2.75)
+    assert execution["trades"] == [
+        {
+            "timestamp": "2024-02-29T23:00:02Z",
+            "symbol": "BTCUSDT",
+            "price": pytest.approx(64391.0),
+            "quantity": pytest.approx(0.2),
+            "side": "buy",
+        }
+    ]
+
+
 def test_build_phase1_dataset_bundle_materials_materializes_only_fresh_trades_at_or_after_signal_time(
     tmp_path: Path,
 ) -> None:
