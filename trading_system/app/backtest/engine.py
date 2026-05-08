@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, is_dataclass, replace
 from datetime import timedelta
+import math
 from typing import Any, Mapping
 
 from trading_system.app.config import DEFAULT_CONFIG, AppConfig, normalize_engine_names
@@ -550,16 +551,30 @@ def _funding_rate(row: DatasetSnapshotRow, symbol: str) -> float:
     return 0.0
 
 
-def _optional_positive_float(value: Any) -> float | None:
-    parsed = _float_or_none(value)
+def _optional_futures_float(value: Any, field: str, *, positive: bool = False) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        raise ValueError(f"invalid futures context numeric field {field}: bool is not supported")
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"invalid futures context numeric field {field}: {value!r}") from exc
+    if not math.isfinite(parsed):
+        raise ValueError(f"invalid futures context numeric field {field}: non-finite value")
+    if positive and parsed <= 0.0:
+        return None
     return parsed
 
 
-def _optional_float(value: Any) -> float | None:
-    try:
-        return float(value)
-    except (TypeError, ValueError):
+def _optional_futures_int(value: Any, field: str) -> int | None:
+    if value is None:
         return None
+    _optional_futures_float(value, field)
+    try:
+        return int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"invalid futures context numeric field {field}: {value!r}") from exc
 
 
 def _optional_int(value: Any) -> int | None:
@@ -1276,7 +1291,7 @@ def _replay_full_market_baseline_rows(
                 )
             )
             futures_context = _futures_context(row, candidate.symbol)
-            funding_rate = _optional_float(futures_context.get("funding_rate"))
+            funding_rate = _optional_futures_float(futures_context.get("funding_rate"), "funding_rate")
             open_trades.append(
                 _OpenTrade(
                     symbol=candidate.symbol,
@@ -1320,14 +1335,27 @@ def _replay_full_market_baseline_rows(
                     queue_ahead_remaining=candidate.queue_ahead_remaining,
                     maker_wait_seconds=candidate.maker_wait_seconds,
                     maker_reasons=candidate.maker_reasons,
-                    mark_price=_optional_positive_float(futures_context.get("mark_price")),
+                    mark_price=_optional_futures_float(futures_context.get("mark_price"), "mark_price", positive=True),
                     mark_price_timestamp=_datetime_or_none(futures_context.get("mark_price_timestamp")),
-                    mark_price_age_seconds=_optional_int(futures_context.get("mark_price_age_seconds")),
+                    mark_price_age_seconds=_optional_futures_int(
+                        futures_context.get("mark_price_age_seconds"),
+                        "mark_price_age_seconds",
+                    ),
                     funding_timestamp=_datetime_or_none(futures_context.get("funding_timestamp")),
-                    funding_age_seconds=_optional_int(futures_context.get("funding_age_seconds")),
-                    open_interest_usdt=_optional_positive_float(futures_context.get("open_interest_usdt")),
+                    funding_age_seconds=_optional_futures_int(
+                        futures_context.get("funding_age_seconds"),
+                        "funding_age_seconds",
+                    ),
+                    open_interest_usdt=_optional_futures_float(
+                        futures_context.get("open_interest_usdt"),
+                        "open_interest_usdt",
+                        positive=True,
+                    ),
                     open_interest_timestamp=_datetime_or_none(futures_context.get("open_interest_timestamp")),
-                    open_interest_age_seconds=_optional_int(futures_context.get("open_interest_age_seconds")),
+                    open_interest_age_seconds=_optional_futures_int(
+                        futures_context.get("open_interest_age_seconds"),
+                        "open_interest_age_seconds",
+                    ),
                 )
             )
 

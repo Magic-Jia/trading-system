@@ -192,6 +192,22 @@ def test_full_market_baseline_ledger_exposes_entry_futures_context(
     assert futures_trade.open_interest_age_seconds == 0
 
 
+def test_full_market_baseline_rejects_invalid_futures_context_numeric(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    config_path = _baseline_config_path(tmp_path)
+    market_path = config_path.parent / "baseline_dataset" / "2026-03-11T00-00-00Z__row-002" / "market_context.json"
+    market_payload = json.loads(market_path.read_text(encoding="utf-8"))
+    market_payload["symbols"]["SOLUSDTPERP"]["futures_context"]["mark_price_age_seconds"] = True
+    market_path.write_text(json.dumps(market_payload), encoding="utf-8")
+    config = load_backtest_config(config_path)
+    _install_replay_candidates(monkeypatch)
+
+    with pytest.raises(ValueError, match="mark_price_age_seconds"):
+        backtest_engine.replay_full_market_baseline(config)
+
+
 def test_full_market_baseline_uses_trade_print_execution_evidence_for_entry_fill(
     tmp_path: Path,
     monkeypatch: Any,
