@@ -656,3 +656,52 @@ def test_apply_management_action_fill_keeps_runner_unprotected_on_partial_second
     assert updated["second_target_hit"] is False
     assert updated["runner_protected"] is False
     assert updated["runner_stop_price"] is None
+
+
+def test_apply_management_action_fill_rejects_non_bool_runner_protected_on_completed_second_stage():
+    state = RuntimeStateV2(
+        updated_at_bj="2026-04-09T20:00:00+08:00",
+        positions={
+            "BTCUSDT": {
+                "symbol": "BTCUSDT",
+                "side": "LONG",
+                "qty": 1.0,
+                "remaining_position_qty": 1.0,
+                "entry_price": 100.0,
+                "mark_price": 110.5,
+                "stop_loss": 95.0,
+                "first_target_price": 105.0,
+                "second_target_price": 110.0,
+                "original_position_qty": 2.0,
+                "first_target_status": "filled",
+                "first_target_hit": True,
+                "first_target_filled_qty": 1.0,
+                "second_target_status": "pending",
+                "second_target_hit": False,
+                "second_target_filled_qty": 0.0,
+                "runner_protected": False,
+                "runner_stop_price": None,
+            }
+        },
+    )
+
+    with pytest.raises(ValueError, match="runner_protected"):
+        apply_management_action_fill(
+            state,
+            ManagementActionIntent(
+                intent_id="mgmt-btcusdt-complete-second",
+                symbol="BTCUSDT",
+                action="PARTIAL_TAKE_PROFIT",
+                side="LONG",
+                position_qty=1.0,
+                qty=0.5,
+                reference_price=110.5,
+                meta={
+                    "target_stage": "second",
+                    "exit_trigger": "second_target_hit",
+                    "fraction_basis": "original_position",
+                    "runner_protected": "false",
+                    "runner_stop_price": 105.0,
+                },
+            ),
+        )

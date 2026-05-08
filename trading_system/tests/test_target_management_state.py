@@ -34,6 +34,11 @@ def test_has_explicit_target_management_state_detects_persisted_target_fields():
     assert _has_explicit_target_management_state({"qty": 1.0}) is False
 
 
+def test_has_explicit_target_management_state_rejects_non_bool_runner_protected():
+    with pytest.raises(ValueError, match="runner_protected"):
+        _has_explicit_target_management_state({"runner_protected": "false"})
+
+
 def test_derive_target_management_fields_prefers_structure_target_between_1r_and_2r():
     payload = derive_target_management_fields(
         side="LONG",
@@ -381,6 +386,34 @@ def test_sync_positions_from_account_preserves_existing_target_management_state(
     assert state.positions["BTCUSDT"]["remaining_position_qty"] == pytest.approx(0.5)
 
 
+def test_sync_positions_from_account_rejects_non_bool_tracked_from_intent(monkeypatch):
+    monkeypatch.setattr("trading_system.app.portfolio.positions._now_bj", lambda: "2026-04-09T18:00:00+08:00")
+    state = RuntimeStateV2(
+        updated_at_bj="2026-04-09T12:00:00+08:00",
+        positions={
+            "BTCUSDT": {
+                "symbol": "BTCUSDT",
+                "side": "LONG",
+                "qty": 0.5,
+                "entry_price": 100.0,
+                "status": "OPEN",
+                "tracked_from_intent": "false",
+            }
+        },
+    )
+
+    with pytest.raises(ValueError, match="tracked_from_intent"):
+        sync_positions_from_account(
+            state,
+            AccountSnapshot(
+                equity=1000.0,
+                available_balance=1000.0,
+                futures_wallet_balance=1000.0,
+                open_positions=[PositionSnapshot(symbol="BTCUSDT", side="LONG", qty=0.5, entry_price=100.0, mark_price=101.0)],
+            ),
+        )
+
+
 def test_sync_positions_from_account_clears_runner_protection_until_second_stage_is_filled(monkeypatch):
     monkeypatch.setattr("trading_system.app.portfolio.positions._now_bj", lambda: "2026-04-09T18:00:00+08:00")
     state = RuntimeStateV2(
@@ -631,6 +664,38 @@ def test_apply_executed_intent_refreshes_remaining_qty_when_position_is_topped_u
     assert position["remaining_position_qty"] == pytest.approx(1.5)
     assert position["first_target_price"] == pytest.approx(107.0)
     assert position["second_target_price"] == pytest.approx(110.0)
+
+
+def test_apply_executed_intent_rejects_non_bool_tracked_from_snapshot():
+    state = RuntimeStateV2(
+        updated_at_bj="2026-04-09T12:00:00+08:00",
+        positions={
+            "BTCUSDT": {
+                "symbol": "BTCUSDT",
+                "side": "LONG",
+                "qty": 1.0,
+                "entry_price": 100.0,
+                "tracked_from_snapshot": "false",
+            }
+        },
+    )
+
+    with pytest.raises(ValueError, match="tracked_from_snapshot"):
+        apply_executed_intent(
+            state,
+            OrderIntent(
+                intent_id="intent-2",
+                signal_id="signal-2",
+                symbol="BTCUSDT",
+                side="LONG",
+                qty=0.5,
+                entry_price=102.0,
+                stop_loss=95.0,
+                take_profit=107.0,
+                status="FILLED",
+                meta={},
+            ),
+        )
 
 
 def test_apply_executed_intent_keeps_frozen_first_target_when_only_second_target_is_missing():

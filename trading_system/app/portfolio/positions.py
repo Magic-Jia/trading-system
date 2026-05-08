@@ -85,6 +85,15 @@ def _source(existing: dict[str, Any], from_snapshot: bool, from_intent: bool) ->
     return existing.get("source", "account_snapshot")
 
 
+def _strict_optional_bool(payload: dict[str, Any], field: str, default: bool = False) -> bool:
+    if field not in payload or payload.get(field) is None:
+        return default
+    value = payload.get(field)
+    if isinstance(value, bool):
+        return value
+    raise ValueError(f"{field} must be a bool when present")
+
+
 def _taxonomy_fields(existing: dict[str, Any]) -> dict[str, Any]:
     payload: dict[str, Any] = {}
     for key in _POSITION_TAXONOMY_KEYS:
@@ -147,7 +156,7 @@ def _has_explicit_target_management_state(existing: dict[str, Any]) -> bool:
 
     if _positive(existing.get("first_target_filled_qty")) or _positive(existing.get("second_target_filled_qty")):
         return True
-    if bool(existing.get("runner_protected")) or existing.get("runner_stop_price") is not None:
+    if _strict_optional_bool(existing, "runner_protected") or existing.get("runner_stop_price") is not None:
         return True
     if _positive(existing.get("legacy_partial_filled_qty")):
         return True
@@ -202,7 +211,7 @@ def sync_positions_from_account(state: RuntimeState, account: AccountSnapshot) -
 
         existing = state.positions.get(snapshot.symbol, {})
         carry_existing = existing if existing.get("side") == snapshot.side else {}
-        tracked_from_intent = bool(carry_existing.get("tracked_from_intent"))
+        tracked_from_intent = _strict_optional_bool(carry_existing, "tracked_from_intent")
         seen_symbols.add(snapshot.symbol)
 
         snapshot_source = str((account.meta or {}).get("snapshot_source") or (account.meta or {}).get("source") or "").lower()
@@ -283,7 +292,7 @@ def sync_positions_from_account(state: RuntimeState, account: AccountSnapshot) -
 def apply_executed_intent(state: RuntimeState, order: OrderIntent) -> dict[str, Any]:
     now_bj = _now_bj()
     existing = state.positions.get(order.symbol, {})
-    tracked_from_snapshot = bool(existing.get("tracked_from_snapshot"))
+    tracked_from_snapshot = _strict_optional_bool(existing, "tracked_from_snapshot")
     same_side = existing.get("side") == order.side
     carry_existing = existing if same_side else {}
 
@@ -382,7 +391,7 @@ def apply_management_action_fill(state: RuntimeState, intent: ManagementActionIn
             position[f"{stage}_target_status"] = "filled"
             position[f"{stage}_target_hit"] = True
             if stage == "second" and remaining_qty > 0:
-                position["runner_protected"] = bool((intent.meta or {}).get("runner_protected"))
+                position["runner_protected"] = _strict_optional_bool(intent.meta or {}, "runner_protected")
                 position["runner_stop_price"] = (intent.meta or {}).get("runner_stop_price")
             elif stage == "second":
                 position["runner_protected"] = False
