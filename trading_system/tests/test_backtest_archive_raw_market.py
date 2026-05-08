@@ -749,6 +749,30 @@ def test_load_raw_market_manifest_rejects_boolean_ohlcv_close(tmp_path: Path) ->
         _ohlcv_bar_lookup(series.records)
 
 
+def test_load_raw_market_manifest_rejects_short_ohlcv_array_rows(tmp_path: Path) -> None:
+    archived = archive_raw_market_payload(
+        archive_root=tmp_path / "archive",
+        exchange="binance",
+        market="futures",
+        dataset="ohlcv",
+        symbol="BTCUSDT",
+        timeframe="1h",
+        coverage_start="2026-01-01T00:00:00Z",
+        coverage_end="2026-01-01T02:00:00Z",
+        fetched_at="2026-01-01T02:01:00Z",
+        endpoint="/fapi/v1/klines",
+        payload={
+            "rows": [
+                [1767225600000, "100.0", "101.0", "99.0", "100.5"],
+                [1767229200000, "100.5", "102.0", "100.0", "101.0", "12.0"],
+            ]
+        },
+    )
+
+    with pytest.raises(ValueError, match="ohlcv array payload must match Binance kline layout"):
+        load_phase1_raw_market_manifest(archived.manifest_path)
+
+
 def test_importer_rejects_imported_ohlcv_rows_missing_explicit_price_bounds(tmp_path: Path) -> None:
     archived = archive_raw_market_payload(
         archive_root=tmp_path / "archive",

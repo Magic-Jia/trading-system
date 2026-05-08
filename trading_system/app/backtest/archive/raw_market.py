@@ -331,6 +331,8 @@ def _timestamp_value_for_row(*, dataset: str, row: Any, data_path: Path, index: 
         if isinstance(row, dict):
             value = row.get("open_time", row.get("openTime"))
         elif isinstance(row, (list, tuple)) and row:
+            if len(row) < 6:
+                raise ValueError(f"ohlcv array payload must match Binance kline layout: {data_path} rows[{index}]")
             value = row[0]
         else:
             value = None
