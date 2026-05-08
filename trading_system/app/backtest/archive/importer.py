@@ -1931,6 +1931,9 @@ def _resolved_phase1_imported_dataset_root_path(dataset_path: Path, value: str |
 def _json_object_field(value: Any, *, context: str) -> dict[str, Any]:
     if not isinstance(value, Mapping):
         raise ValueError(f"{context} must contain a JSON object")
+    for key in value:
+        if not isinstance(key, str) or not key.strip() or key != key.strip():
+            raise ValueError(f"{context} keys must be canonical strings")
     return dict(value)
 
 

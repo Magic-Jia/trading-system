@@ -57,6 +57,31 @@ def test_materialized_dataset_row_source_rejects_empty_list_source() -> None:
         archive_importer._materialized_dataset_row_source([row])
 
 
+@pytest.mark.parametrize("source", [{123: "x"}, {" bad ": "x"}])
+def test_materialized_dataset_row_source_rejects_noncanonical_source_canonical_keys(source: object) -> None:
+    row = type("Row", (), {"meta": {"source": source}})()
+
+    with pytest.raises(
+        ValueError,
+        match="materialized dataset bundle metadata source keys must be canonical strings",
+    ):
+        archive_importer._materialized_dataset_row_source([row])
+
+
+def test_materialized_dataset_row_source_preserves_valid_mapping_with_canonical_keys() -> None:
+    source = {
+        "scope": archive_importer.PHASE1_IMPORTER_SCOPE,
+        "exchange": "binance",
+        "market": "futures",
+        "symbols": ["BTCUSDT"],
+        "series_keys": ["binance:futures:ohlcv:BTCUSDT:1h"],
+        "manifest_paths": ["/tmp/archive/raw-market/BTCUSDT/manifest.json"],
+    }
+    row = type("Row", (), {"meta": {"source": source}})()
+
+    assert archive_importer._materialized_dataset_row_source([row]) == source
+
+
 
 def test_row_market_symbol_keys_rejects_pair_list_symbols() -> None:
     row = type("Row", (), {"market": {"symbols": [("BTCUSDT", {})]}})()
