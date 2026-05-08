@@ -7561,6 +7561,89 @@ def test_live_readiness_gate_rejects_setup_rewrite_by_setup_numeric_strings(tmp_
     assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
 
 
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("total_rows", False),
+        ("evaluated_count", True),
+        ("would_keep_count", "1"),
+        ("would_filter_count", 1.0),
+        ("skipped_count", None),
+    ],
+)
+def test_live_readiness_gate_rejects_present_invalid_setup_rewrite_by_setup_counters(
+    tmp_path: Path, field: str, value: object
+) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    bucket = {
+        "total_rows": 1,
+        "evaluated_count": 1,
+        "would_keep_count": 1,
+        "would_filter_count": 0,
+        "skipped_count": 0,
+        "net_pnl": 10.0,
+    }
+    bucket[field] = value
+    (chunk / "setup_rewrite_experiment.json").write_text(
+        json.dumps(
+            {
+                "summary": {
+                    "total_rows": 1,
+                    "evaluated_count": 1,
+                    "would_keep_count": 1,
+                    "would_filter_count": 0,
+                    "skipped_count": 0,
+                    "by_setup": {"TREND_PULLBACK": bucket},
+                },
+                "evaluation_rows": [
+                    {
+                        "symbol": "BTCUSDT",
+                        "setup_type": "TREND_PULLBACK",
+                        "evaluation_status": "evaluated",
+                        "evaluation_reason": "kept",
+                        "would_keep": True,
+                        "net_pnl": 10.0,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    diagnostic = report["setup_rewrite_diagnostic"]
+    assert diagnostic["checks"]["setup_rewrite_artifact_schema_valid"] is False
+    assert diagnostic["chunks"][0]["parse_error"] == f"invalid_numeric_field: summary.by_setup.TREND_PULLBACK.{field}"
+    assert "setup_rewrite_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["checks"]["setup_rewrite_artifact_schema_valid"] is False
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
+@pytest.mark.parametrize("value", [False, True, "1", 1.0, None])
+def test_setup_rewrite_by_setup_bucket_aggregation_rejects_present_invalid_counters(value: object) -> None:
+    target = {
+        "total_rows": 0,
+        "evaluated_count": 0,
+        "would_keep_count": 0,
+        "would_filter_count": 0,
+        "skipped_count": 0,
+        "net_pnl": 0.0,
+    }
+    source = {
+        "total_rows": value,
+        "evaluated_count": 0,
+        "would_keep_count": 0,
+        "would_filter_count": 0,
+        "skipped_count": 0,
+        "net_pnl": 0.0,
+    }
+
+    with pytest.raises(ValueError, match="invalid_numeric_field: summary.by_setup.total_rows"):
+        live_readiness._add_setup_rewrite_bucket(target, source)
+
+
 
 def test_live_readiness_gate_rejects_setup_rewrite_noncanonical_by_setup_key(tmp_path: Path) -> None:
     source = tmp_path / "source"

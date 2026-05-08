@@ -1440,7 +1440,13 @@ def _setup_rewrite_by_setup_schema_error(summary: Mapping[str, Any]) -> str:
 
 def _add_setup_rewrite_bucket(target: dict[str, Any], source: Mapping[str, Any]) -> None:
     for key in ("total_rows", "evaluated_count", "would_keep_count", "would_filter_count", "skipped_count"):
-        target[key] += int(source.get(key) or 0)
+        if key not in source:
+            value = 0
+        else:
+            value, valid = _strict_summary_int_value(source.get(key))
+            if not valid:
+                raise ValueError(f"invalid_numeric_field: summary.by_setup.{key}")
+        target[key] += value
     target["net_pnl"] += _float_value(source.get("net_pnl"))
 
 
