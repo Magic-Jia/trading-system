@@ -152,6 +152,31 @@ def test_execution_evidence_rejects_coerced_trade_fields() -> None:
         backtest_engine._execution_evidence(row, "BTCUSDT")
 
 
+def test_execution_evidence_rejects_coerced_depth_level_fields() -> None:
+    row = DatasetSnapshotRow(
+        timestamp=backtest_engine._datetime_or_none("2026-03-10T00:00:00Z"),
+        run_id="run-1",
+        market={
+            "symbols": {
+                "BTCUSDT": {
+                    "execution": {
+                        "order_book": {
+                            "timestamp": "2026-03-10T00:00:00Z",
+                            "bid": 1.0,
+                            "ask": 2.0,
+                            "bids": [["1", 2.0]],
+                        }
+                    }
+                }
+            }
+        },
+        derivatives=[],
+    )
+
+    with pytest.raises(ValueError, match="depth_level.price must be a positive number"):
+        backtest_engine._execution_evidence(row, "BTCUSDT")
+
+
 def test_engine_rejects_coerced_portfolio_candidate_fields(fixture_dir: Path) -> None:
     row = load_historical_dataset(fixture_dir / "backtest" / "sample_dataset")[0]
     instrument = InstrumentSnapshotRow(

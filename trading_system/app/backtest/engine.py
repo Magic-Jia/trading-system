@@ -491,15 +491,13 @@ def _depth_levels(value: Any) -> tuple[DepthLevel, ...]:
     levels: list[DepthLevel] = []
     for item in value:
         if isinstance(item, Mapping):
-            price = _float_or_none(item.get("price"))
-            quantity = _float_or_none(item.get("quantity", item.get("qty", item.get("size"))))
+            price = _positive_float(item.get("price"), field_name="depth_level.price")
+            quantity = _positive_float(item.get("quantity", item.get("qty", item.get("size"))), field_name="depth_level.quantity")
         elif isinstance(item, (list, tuple)) and len(item) >= 2:
-            price = _float_or_none(item[0])
-            quantity = _float_or_none(item[1])
+            price = _positive_float(item[0], field_name="depth_level.price")
+            quantity = _positive_float(item[1], field_name="depth_level.quantity")
         else:
-            continue
-        if price is None or quantity is None:
-            continue
+            raise ValueError("depth_level row must be an object or pair")
         levels.append(DepthLevel(price=price, quantity=quantity))
     return tuple(levels)
 
