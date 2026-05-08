@@ -197,6 +197,26 @@ def test_execution_evidence_rejects_invalid_evidence_containers() -> None:
         backtest_engine._execution_evidence(row, "BTCUSDT")
 
 
+def test_execution_evidence_rejects_invalid_evidence_rows() -> None:
+    row = DatasetSnapshotRow(
+        timestamp=backtest_engine._datetime_or_none("2026-03-10T00:00:00Z"),
+        run_id="run-1",
+        market={"symbols": {"BTCUSDT": {"execution": {"order_books": [True]}}}},
+        derivatives=[],
+    )
+    with pytest.raises(ValueError, match="execution.order_books entries must be objects"):
+        backtest_engine._execution_evidence(row, "BTCUSDT")
+
+    row = DatasetSnapshotRow(
+        timestamp=backtest_engine._datetime_or_none("2026-03-10T00:00:00Z"),
+        run_id="run-1",
+        market={"symbols": {"BTCUSDT": {"execution": {"trades": [True]}}}},
+        derivatives=[],
+    )
+    with pytest.raises(ValueError, match="execution.trades entries must be objects"):
+        backtest_engine._execution_evidence(row, "BTCUSDT")
+
+
 def test_engine_rejects_coerced_portfolio_candidate_fields(fixture_dir: Path) -> None:
     row = load_historical_dataset(fixture_dir / "backtest" / "sample_dataset")[0]
     instrument = InstrumentSnapshotRow(

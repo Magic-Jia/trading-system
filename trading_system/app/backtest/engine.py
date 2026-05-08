@@ -452,7 +452,7 @@ def _execution_evidence(
         book_rows.extend(raw_books)
     for item in book_rows:
         if not isinstance(item, Mapping):
-            continue
+            raise ValueError("execution.order_books entries must be objects")
         bid = _positive_float(item.get("bid"), field_name="order_book.bid")
         ask = _positive_float(item.get("ask"), field_name="order_book.ask")
         timestamp = _datetime_or_none(item.get("timestamp")) or row.timestamp
@@ -476,7 +476,7 @@ def _execution_evidence(
             raise ValueError("execution.trades must be a list when present")
         for item in raw_trades:
             if not isinstance(item, Mapping):
-                continue
+                raise ValueError("execution.trades entries must be objects")
             price = _positive_float(item.get("price"), field_name="trade.price")
             quantity = _positive_float(item.get("quantity"), field_name="trade.quantity")
             timestamp = _datetime_or_none(item.get("timestamp")) or row.timestamp
