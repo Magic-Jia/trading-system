@@ -135,6 +135,9 @@ def _row_from_bundle(bundle_path: Path, *, fallback_account: dict | None) -> Dat
 
     metadata = _load_json(bundle_path / "metadata.json")
     market = _load_json(bundle_path / "market_context.json")
+    if not isinstance(market, dict):
+        raise ValueError(f"dataset bundle has invalid market context: {bundle_path / 'market_context.json'}")
+    market_context = dict(market)
     derivatives_payload = _load_json(bundle_path / "derivatives_snapshot.json")
     derivatives = derivatives_payload.get("rows", derivatives_payload)
     if not isinstance(derivatives, list):
@@ -168,7 +171,7 @@ def _row_from_bundle(bundle_path: Path, *, fallback_account: dict | None) -> Dat
     return DatasetSnapshotRow(
         timestamp=_parse_timestamp(_metadata_canonical_string(metadata, "timestamp")),
         run_id=_metadata_canonical_string(metadata, "run_id"),
-        market=market,
+        market=market_context,
         derivatives=derivative_rows,
         account=account_snapshot,
         instrument_rows=instrument_rows,
