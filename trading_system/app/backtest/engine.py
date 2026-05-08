@@ -471,13 +471,16 @@ def _execution_evidence(
         for item in raw_trades:
             if not isinstance(item, Mapping):
                 continue
-            price = _float_or_none(item.get("price"))
-            quantity = _float_or_none(item.get("quantity"))
-            if price is None or quantity is None:
-                continue
+            price = _positive_float(item.get("price"), field_name="trade.price")
+            quantity = _positive_float(item.get("quantity"), field_name="trade.quantity")
             timestamp = _datetime_or_none(item.get("timestamp")) or row.timestamp
-            raw_side = str(item.get("side", "")).strip().lower()
-            side = raw_side if raw_side in {"buy", "sell"} else None
+            raw_side = item.get("side")
+            if raw_side is None:
+                side = None
+            elif isinstance(raw_side, str) and raw_side.strip().lower() in {"buy", "sell"}:
+                side = raw_side.strip().lower()
+            else:
+                raise ValueError("trade.side must be buy or sell when present")
             trades.append(TradePrint(timestamp=timestamp, symbol=symbol, price=price, quantity=quantity, side=side))
     return tuple(order_books), tuple(trades)
 

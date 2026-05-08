@@ -110,6 +110,48 @@ def test_execution_evidence_rejects_coerced_order_book_fields() -> None:
         backtest_engine._execution_evidence(row, "BTCUSDT")
 
 
+def test_execution_evidence_rejects_coerced_trade_fields() -> None:
+    row = DatasetSnapshotRow(
+        timestamp=backtest_engine._datetime_or_none("2026-03-10T00:00:00Z"),
+        run_id="run-1",
+        market={
+            "symbols": {
+                "BTCUSDT": {
+                    "execution": {
+                        "trades": [
+                            {"timestamp": "2026-03-10T00:00:00Z", "price": "1", "quantity": 2.0, "side": "buy"}
+                        ]
+                    }
+                }
+            }
+        },
+        derivatives=[],
+    )
+
+    with pytest.raises(ValueError, match="trade.price must be a positive number"):
+        backtest_engine._execution_evidence(row, "BTCUSDT")
+
+    row = DatasetSnapshotRow(
+        timestamp=backtest_engine._datetime_or_none("2026-03-10T00:00:00Z"),
+        run_id="run-1",
+        market={
+            "symbols": {
+                "BTCUSDT": {
+                    "execution": {
+                        "trades": [
+                            {"timestamp": "2026-03-10T00:00:00Z", "price": 1.0, "quantity": 2.0, "side": True}
+                        ]
+                    }
+                }
+            }
+        },
+        derivatives=[],
+    )
+
+    with pytest.raises(ValueError, match="trade.side must be buy or sell when present"):
+        backtest_engine._execution_evidence(row, "BTCUSDT")
+
+
 def test_engine_rejects_coerced_portfolio_candidate_fields(fixture_dir: Path) -> None:
     row = load_historical_dataset(fixture_dir / "backtest" / "sample_dataset")[0]
     instrument = InstrumentSnapshotRow(
