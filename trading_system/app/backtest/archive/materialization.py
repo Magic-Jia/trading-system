@@ -10,6 +10,7 @@ from typing import Any, Iterable, Mapping, Sequence, TextIO
 
 from .importer import (
     build_phase1_dataset_bundle_materials,
+    _material_market_context_symbol_keys,
     validate_phase1_imported_dataset_root,
     write_phase1_dataset_bundle,
     write_phase1_dataset_root_manifest,
@@ -126,9 +127,9 @@ def _materialize_dataset_root(
         symbols = tuple(
             sorted(
                 {
-                    str(symbol)
+                    symbol
                     for material in materials
-                    for symbol in dict(material.market_context.get("symbols") or {}).keys()
+                    for symbol in _material_market_context_symbol_keys(material)
                 }
             )
         )

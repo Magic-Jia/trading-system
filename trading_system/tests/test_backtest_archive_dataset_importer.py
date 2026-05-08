@@ -20,7 +20,10 @@ from trading_system.app.backtest.archive.importer import (
     write_phase1_dataset_root_manifest,
 )
 from trading_system.app.backtest.archive.data_quality import build_raw_market_data_quality_report
-from trading_system.app.backtest.archive.materialization import materialize_phase1_evidence_windows
+from trading_system.app.backtest.archive.materialization import (
+    _materialize_dataset_root,
+    materialize_phase1_evidence_windows,
+)
 from trading_system.app.backtest.archive.raw_market import archive_raw_market_payload, load_phase1_raw_market_imports
 from trading_system.app.backtest.dataset import load_historical_dataset
 
@@ -2106,6 +2109,23 @@ def test_material_market_context_symbol_keys_rejects_empty_list_symbols(tmp_path
 
     with pytest.raises(ValueError, match="market_context symbols must be an object"):
         _material_market_context_symbol_keys(bad_material)
+
+
+def test_materialize_dataset_root_rejects_non_string_material_symbol_key_and_cleans_root(tmp_path: Path) -> None:
+    archive_root = tmp_path / "archive"
+    dataset_root = tmp_path / "dataset"
+    _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT")
+    materials = list(build_phase1_dataset_bundle_materials(load_phase1_raw_market_imports(archive_root)))
+    bad_material = replace(materials[-1], market_context={**materials[-1].market_context, "symbols": {123: {}}})
+
+    with pytest.raises(ValueError, match="market_context symbols keys must be canonical strings"):
+        _materialize_dataset_root(
+            archive_root=archive_root,
+            dataset_root=dataset_root,
+            materials=[bad_material],
+        )
+
+    assert not dataset_root.exists()
 
 
 def test_validate_phase1_imported_dataset_root_rejects_manifest_symbols_drift(tmp_path: Path) -> None:
