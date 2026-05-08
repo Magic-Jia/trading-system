@@ -44,13 +44,29 @@ def _to_float(value: Any, fallback: float = 0.0) -> float:
         return fallback
 
 
+def _canonical_string(value: Any, *, field: str) -> str:
+    if not isinstance(value, str):
+        raise ValueError(f"{field} must be a string when present")
+    canonical = value.strip()
+    if not canonical:
+        raise ValueError(f"{field} must not be blank when present")
+    return canonical
+
+
+def _optional_canonical_string(payload: Mapping[str, Any], field: str) -> str | None:
+    if field not in payload or payload[field] is None:
+        return None
+    return _canonical_string(payload[field], field=field)
+
+
 def _extract_rows(market: Mapping[str, Any]) -> list[tuple[str, Mapping[str, Any]]]:
     symbols = market.get("symbols")
     if isinstance(symbols, Mapping):
         rows: list[tuple[str, Mapping[str, Any]]] = []
         for symbol, payload in symbols.items():
+            symbol = _canonical_string(symbol, field="symbol")
             if isinstance(payload, Mapping):
-                rows.append((str(symbol), payload))
+                rows.append((symbol, payload))
         return rows
 
     return []
@@ -83,7 +99,7 @@ def _derivatives_by_symbol(derivatives: Sequence[Mapping[str, Any]] | None) -> d
 
 
 def _liquidity_inputs(payload: Mapping[str, Any], *, rolling_notional: float | None = None) -> dict[str, Any]:
-    tier = str(payload.get("liquidity_tier", "")).lower()
+    tier = (_optional_canonical_string(payload, "liquidity_tier") or "").lower()
     resolved_rolling_notional = _volume_usdt_24h(payload) if rolling_notional is None else rolling_notional
     depth_multiplier = _TIER_TO_DEPTH_MULTIPLIER.get(tier, 0.05)
     slippage_bps = _TIER_TO_SLIPPAGE_BPS.get(tier, 25.0)
@@ -105,6 +121,31 @@ def _sort_universe(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return sorted(rows, key=lambda row: (-_to_float(row["liquidity_meta"]["rolling_notional"]), row["symbol"]))
 
 
+def _sector_for_payload(symbol: str, payload: Mapping[str, Any]) -> str:
+    sector = _optional_canonical_string(payload, "sector")
+    return sector if sector is not None else sector_for_symbol(symbol)
+
+
+def _canonical_liquidity_result(value: Any) -> dict[str, Any]:
+    if not isinstance(value, Mapping):
+        raise ValueError("evaluate_liquidity must return a mapping")
+
+    liquidity: dict[str, Any] = {}
+    for key, result_value in value.items():
+        try:
+            canonical_key = _canonical_string(key, field="evaluate_liquidity key")
+        except ValueError as exc:
+            raise ValueError("evaluate_liquidity must return a mapping with canonical string keys") from exc
+        liquidity[canonical_key] = result_value
+    return liquidity
+
+
+def _strict_bool(value: Any, *, field: str) -> bool:
+    if isinstance(value, bool):
+        return value
+    raise ValueError(f"{field} must be a bool")
+
+
 def build_universes(
     market: Mapping[str, Any],
     derivatives: Sequence[Mapping[str, Any]] | None = None,
@@ -115,7 +156,7 @@ def build_universes(
     derivatives_rows = _derivatives_by_symbol(derivatives)
 
     for symbol, payload in _extract_rows(market):
-        sector = str(payload.get("sector") or sector_for_symbol(symbol))
+        sector = _sector_for_payload(symbol, payload)
         spot_volume = _volume_usdt_24h(payload)
         derivatives_row = derivatives_rows.get(symbol)
         open_interest_usdt = _to_float(derivatives_row.get("open_interest_usdt")) if derivatives_row else 0.0
@@ -124,7 +165,7 @@ def build_universes(
             payload,
             rolling_notional=rotation_notional if sector != "majors" else None,
         )
-        liquidity = dict(evaluate_liquidity(liquidity_inputs))
+        liquidity = _canonical_liquidity_result(evaluate_liquidity(liquidity_inputs))
         liquidity["spot_volume_usdt_24h"] = spot_volume
         liquidity["open_interest_usdt"] = open_interest_usdt
         liquidity["liquidity_source"] = (
@@ -134,9 +175,9 @@ def build_universes(
         row: dict[str, Any] = {
             "symbol": symbol,
             "sector": sector,
-            "liquidity_tier": payload.get("liquidity_tier"),
-            "passes_liquidity": bool(liquidity["passes_liquidity"]),
-            "listing_age_ok": bool(liquidity["listing_age_ok"]),
+            "liquidity_tier": _optional_canonical_string(payload, "liquidity_tier"),
+            "passes_liquidity": _strict_bool(liquidity["passes_liquidity"], field="passes_liquidity"),
+            "listing_age_ok": _strict_bool(liquidity["listing_age_ok"], field="listing_age_ok"),
             "liquidity_meta": liquidity,
         }
 

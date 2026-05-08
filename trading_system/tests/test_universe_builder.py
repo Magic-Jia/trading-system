@@ -150,6 +150,116 @@ def test_default_rotation_universe_includes_symbols_above_200m_spot_volume(monke
     assert {row["symbol"] for row in universes.rotation_universe} == {"AVAXUSDT"}
 
 
+def test_build_universes_rejects_non_string_market_symbol_keys():
+    market = {
+        "symbols": {
+            123: _market_symbol(sector="majors", liquidity_tier="top", volume_usdt_24h=19_800_000_000),
+        }
+    }
+
+    with pytest.raises(ValueError, match="symbol"):
+        build_universes(market)
+
+
+def test_build_universes_rejects_present_non_string_liquidity_tier():
+    market = {
+        "symbols": {
+            "BTCUSDT": _market_symbol(sector="majors", liquidity_tier=123, volume_usdt_24h=19_800_000_000),
+        }
+    }
+
+    with pytest.raises(ValueError, match="liquidity_tier"):
+        build_universes(market)
+
+
+@pytest.mark.parametrize("sector", [123, "", "   "])
+def test_build_universes_rejects_present_invalid_sector(sector):
+    market = {
+        "symbols": {
+            "BTCUSDT": _market_symbol(sector=sector, liquidity_tier="top", volume_usdt_24h=19_800_000_000),
+        }
+    }
+
+    with pytest.raises(ValueError, match="sector"):
+        build_universes(market)
+
+
+def test_build_universes_rejects_non_mapping_liquidity_result(monkeypatch):
+    market = {
+        "symbols": {
+            "BTCUSDT": _market_symbol(sector="majors", liquidity_tier="top", volume_usdt_24h=19_800_000_000),
+        }
+    }
+    monkeypatch.setattr(builder_module, "evaluate_liquidity", lambda _inputs: ["passes_liquidity", True])
+
+    with pytest.raises(ValueError, match="evaluate_liquidity"):
+        build_universes(market)
+
+
+def test_build_universes_rejects_liquidity_result_with_non_string_keys(monkeypatch):
+    market = {
+        "symbols": {
+            "BTCUSDT": _market_symbol(sector="majors", liquidity_tier="top", volume_usdt_24h=19_800_000_000),
+        }
+    }
+    monkeypatch.setattr(
+        builder_module,
+        "evaluate_liquidity",
+        lambda _inputs: {
+            1: "unexpected",
+            "passes_liquidity": True,
+            "listing_age_ok": True,
+            "rolling_notional": 19_800_000_000,
+        },
+    )
+
+    with pytest.raises(ValueError, match="evaluate_liquidity"):
+        build_universes(market)
+
+
+def test_build_universes_canonicalizes_liquidity_result_keys(monkeypatch):
+    market = {
+        "symbols": {
+            "BTCUSDT": _market_symbol(sector="majors", liquidity_tier="top", volume_usdt_24h=19_800_000_000),
+        }
+    }
+    monkeypatch.setattr(
+        builder_module,
+        "evaluate_liquidity",
+        lambda _inputs: {
+            " passes_liquidity ": True,
+            " listing_age_ok ": True,
+            " rolling_notional ": 19_800_000_000,
+        },
+    )
+
+    universes = build_universes(market)
+
+    liquidity_meta = universes.major_universe[0]["liquidity_meta"]
+    assert liquidity_meta["passes_liquidity"] is True
+    assert liquidity_meta["listing_age_ok"] is True
+    assert liquidity_meta["rolling_notional"] == 19_800_000_000
+
+
+@pytest.mark.parametrize("field", ["passes_liquidity", "listing_age_ok"])
+def test_build_universes_rejects_non_bool_liquidity_flags(monkeypatch, field):
+    market = {
+        "symbols": {
+            "AVAXUSDT": _market_symbol(sector="alt_l1", liquidity_tier="high", volume_usdt_24h=900_000_000),
+        }
+    }
+    liquidity = {
+        "passes_liquidity": True,
+        "listing_age_ok": True,
+        "rolling_notional": 900_000_000,
+    }
+    liquidity[field] = "false"
+    monkeypatch.setattr(builder_module, "evaluate_liquidity", lambda _inputs: liquidity)
+
+    with pytest.raises(ValueError, match=field):
+        build_universes(market)
+
+
 def test_rotation_universe_can_use_derivatives_liquidity_not_just_spot_volume():
     market = {
         "symbols": {
