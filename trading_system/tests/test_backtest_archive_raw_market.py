@@ -12,7 +12,7 @@ from trading_system.app.backtest.archive.raw_market import (
     ImportedRawMarketSeries,
     load_phase1_raw_market_manifest,
 )
-from trading_system.app.backtest.archive.data_quality import _l2_tick_coverage, _series_report
+from trading_system.app.backtest.archive.data_quality import _expected_intervals, _l2_tick_coverage, _series_report
 from trading_system.app.backtest.archive.importer import (
     _funding_rate,
     _mark_price,
@@ -199,6 +199,11 @@ def test_raw_market_data_quality_rejects_noncanonical_expected_interval_key(tmp_
 
     with pytest.raises(ValueError, match="expected interval key must be canonical"):
         build_raw_market_data_quality_report(tmp_path / "archive", expected_intervals={" ohlcv:1h ": timedelta(hours=1)})
+
+
+def test_raw_market_data_quality_rejects_non_object_expected_intervals() -> None:
+    with pytest.raises(ValueError, match="expected_intervals must be an object"):
+        _expected_intervals([("ohlcv:1h", timedelta(hours=1))])
 
 
 def test_raw_market_data_quality_reports_provenance_completeness(tmp_path: Path) -> None:

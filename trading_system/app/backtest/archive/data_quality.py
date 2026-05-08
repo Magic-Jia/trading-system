@@ -31,8 +31,12 @@ def _expected_interval(value: Any, key: str) -> timedelta | None:
 
 
 def _expected_intervals(values: Mapping[str, timedelta] | None) -> dict[str, timedelta]:
+    if values is None:
+        return {}
+    if not isinstance(values, Mapping):
+        raise ValueError("expected_intervals must be an object")
     parsed: dict[str, timedelta] = {}
-    for key, value in dict(values or {}).items():
+    for key, value in values.items():
         if not isinstance(key, str) or not key.strip() or key != key.strip():
             raise ValueError("expected interval key must be canonical")
         parsed[key] = value
