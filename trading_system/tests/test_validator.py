@@ -75,6 +75,64 @@ def test_validate_candidate_for_allocation_blocks_excess_major_coin_correlation(
     assert result.metrics["correlated_positions"] == 3
 
 
+@pytest.mark.parametrize("equity", [True, "1000"])
+def test_validate_candidate_for_allocation_rejects_invalid_present_account_equity(equity):
+    candidate = {
+        "engine": "trend",
+        "symbol": "BTCUSDT",
+        "side": "LONG",
+        "score": 0.76,
+    }
+    account = {
+        "equity": equity,
+        "open_positions": [],
+    }
+
+    result = validate_candidate_for_allocation(candidate, account)
+
+    assert result.allowed is False
+    assert result.severity == "BLOCK"
+    assert "账户权益必须是大于 0 的数字，无法进行 allocator 风控" in result.reasons
+
+
+def test_validate_candidate_for_allocation_rejects_present_non_list_open_positions():
+    candidate = {
+        "engine": "trend",
+        "symbol": "BTCUSDT",
+        "side": "LONG",
+        "score": 0.76,
+    }
+    account = {
+        "equity": 100000.0,
+        "open_positions": {"symbol": "ETHUSDT"},
+    }
+
+    result = validate_candidate_for_allocation(candidate, account)
+
+    assert result.allowed is False
+    assert result.severity == "BLOCK"
+    assert "account open_positions 必须是列表" in result.reasons
+
+
+def test_validate_candidate_for_allocation_rejects_open_position_non_string_symbol():
+    candidate = {
+        "engine": "trend",
+        "symbol": "BTCUSDT",
+        "side": "LONG",
+        "score": 0.76,
+    }
+    account = {
+        "equity": 100000.0,
+        "open_positions": [{"symbol": True}],
+    }
+
+    result = validate_candidate_for_allocation(candidate, account)
+
+    assert result.allowed is False
+    assert result.severity == "BLOCK"
+    assert "open position symbol 必须是非空字符串" in result.reasons
+
+
 @pytest.mark.parametrize(
     ("field", "value", "expected_reason"),
     [
@@ -153,6 +211,54 @@ def test_validate_candidate_for_execution_allows_without_take_profit():
     assert result.allowed is True
     assert result.metrics["has_explicit_stop_loss"] is True
     assert result.metrics["has_invalidation_source"] is True
+
+
+@pytest.mark.parametrize("stop_loss", [True, "99.0"])
+def test_validate_candidate_for_execution_rejects_bool_and_string_stop_loss(stop_loss):
+    candidate = {
+        "engine": "trend",
+        "symbol": "BTCUSDT",
+        "side": "LONG",
+        "score": 0.82,
+        "stop_loss": stop_loss,
+        "invalidation_source": "ema_50",
+    }
+
+    result = validate_candidate_for_execution(candidate)
+
+    assert result.allowed is False
+    assert result.severity == "BLOCK"
+    assert "候选 stop_loss 必须是大于 0 的数字" in result.reasons
+    assert result.metrics["has_explicit_stop_loss"] is False
+    assert result.metrics["has_invalidation_source"] is True
+
+
+@pytest.mark.parametrize(
+    ("invalidation_source", "expected_reason"),
+    [
+        (123, "候选 invalidation_source 必须是非空字符串"),
+        ("   ", "候选缺少 invalidation_source，拒绝执行"),
+    ],
+)
+def test_validate_candidate_for_execution_rejects_invalid_invalidation_source(
+    invalidation_source, expected_reason
+):
+    candidate = {
+        "engine": "trend",
+        "symbol": "BTCUSDT",
+        "side": "LONG",
+        "score": 0.82,
+        "stop_loss": 99.0,
+        "invalidation_source": invalidation_source,
+    }
+
+    result = validate_candidate_for_execution(candidate)
+
+    assert result.allowed is False
+    assert result.severity == "BLOCK"
+    assert expected_reason in result.reasons
+    assert result.metrics["has_explicit_stop_loss"] is True
+    assert result.metrics["has_invalidation_source"] is False
 
 
 def test_validate_signal_blocks_when_cost_gate_enabled_without_take_profit():

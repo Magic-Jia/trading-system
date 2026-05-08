@@ -110,10 +110,17 @@ def _get_account_value(account: AccountSnapshot | Mapping[str, Any], key: str, d
     return getattr(account, key, default)
 
 
-def _position_symbol(position: Any) -> str:
+def _position_symbol(position: Any) -> str | None:
     if isinstance(position, Mapping):
-        return str(position.get("symbol", "")).upper()
-    return str(getattr(position, "symbol", "")).upper()
+        symbol = position.get("symbol", "")
+    else:
+        symbol = getattr(position, "symbol", "")
+    if not isinstance(symbol, str):
+        return None
+    canonical = symbol.strip()
+    if not canonical:
+        return None
+    return canonical.upper()
 
 
 def _allocator_correlated_positions(
@@ -124,6 +131,8 @@ def _allocator_correlated_positions(
     peers: list[Any] = []
     for position in positions:
         pos_symbol = _position_symbol(position)
+        if pos_symbol is None:
+            continue
         if pos_symbol == symbol:
             peers.append(position)
             continue
@@ -157,6 +166,15 @@ def _positive_numeric_score(value: Any) -> float | None:
     return score
 
 
+def _positive_numeric(value: Any) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    numeric = float(value)
+    if numeric <= 0:
+        return None
+    return numeric
+
+
 def validate_candidate_for_allocation(
     candidate: Mapping[str, Any],
     account: AccountSnapshot | Mapping[str, Any],
@@ -184,13 +202,18 @@ def validate_candidate_for_allocation(
     if score is None:
         reasons.append("candidate score 必须是大于 0 的数字")
 
-    equity = float(_get_account_value(account, "equity", 0.0) or 0.0)
-    if equity <= 0:
-        reasons.append("账户权益无效，无法进行 allocator 风控")
+    equity = _positive_numeric(_get_account_value(account, "equity", 0.0))
+    if equity is None:
+        reasons.append("账户权益必须是大于 0 的数字，无法进行 allocator 风控")
 
     positions = _get_account_value(account, "open_positions", [])
     if not isinstance(positions, list):
+        reasons.append("account open_positions 必须是列表")
         positions = []
+    for position in positions:
+        if _position_symbol(position) is None:
+            reasons.append("open position symbol 必须是非空字符串")
+            break
     has_existing_symbol_exposure = any(_position_symbol(position) == symbol for position in positions)
     correlated_positions = _allocator_correlated_positions(symbol, positions) if symbol else []
     metrics["has_existing_symbol_exposure"] = has_existing_symbol_exposure
@@ -223,19 +246,26 @@ def validate_candidate_for_execution(candidate: Mapping[str, Any]) -> Validation
     stop_loss_raw = candidate.get("stop_loss", candidate_meta.get("stop_loss"))
     invalidation_source_raw = candidate.get("invalidation_source", candidate_meta.get("invalidation_source"))
 
-    try:
-        stop_loss = float(stop_loss_raw) if stop_loss_raw is not None else 0.0
-    except (TypeError, ValueError):
-        stop_loss = 0.0
+    stop_loss = _positive_numeric(stop_loss_raw) if stop_loss_raw is not None else None
 
-    invalidation_source = str(invalidation_source_raw or "").strip()
+    if invalidation_source_raw is None:
+        invalidation_source = ""
+    elif isinstance(invalidation_source_raw, str):
+        invalidation_source = invalidation_source_raw.strip()
+    else:
+        invalidation_source = None
 
-    metrics["has_explicit_stop_loss"] = stop_loss > 0
+    metrics["has_explicit_stop_loss"] = stop_loss is not None
     metrics["has_invalidation_source"] = bool(invalidation_source)
 
-    if stop_loss <= 0:
-        reasons.append("候选缺少显式止损 stop_loss，拒绝执行")
-    if not invalidation_source:
+    if stop_loss is None:
+        if stop_loss_raw is None:
+            reasons.append("候选缺少显式止损 stop_loss，拒绝执行")
+        else:
+            reasons.append("候选 stop_loss 必须是大于 0 的数字")
+    if invalidation_source is None:
+        reasons.append("候选 invalidation_source 必须是非空字符串")
+    elif not invalidation_source:
         reasons.append("候选缺少 invalidation_source，拒绝执行")
 
     return ValidationResult(
