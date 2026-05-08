@@ -117,6 +117,17 @@ def test_build_rotation_report_rejects_present_non_mapping_relative_strength():
         )
 
 
+@pytest.mark.parametrize("candidate", [object(), [("symbol", "SOLUSDT")]])
+def test_build_rotation_report_rejects_non_mapping_candidate_rows(candidate):
+    with pytest.raises(ValueError, match="rotation_candidates"):
+        build_rotation_report(
+            rotation_candidates=[candidate],
+            allocations=[],
+            executions=[],
+            rotation_universe=[],
+        )
+
+
 @pytest.mark.parametrize("invalid_symbol", [123, " SOLUSDT"])
 def test_build_rotation_report_rejects_present_non_canonical_candidate_symbol(invalid_symbol):
     with pytest.raises(ValueError, match="symbol"):
@@ -134,11 +145,56 @@ def test_build_rotation_report_rejects_present_non_canonical_candidate_symbol(in
         )
 
 
+@pytest.mark.parametrize("invalid_symbol", [None, ""])
+def test_build_rotation_report_rejects_missing_candidate_symbol(invalid_symbol):
+    with pytest.raises(ValueError, match="symbol"):
+        build_rotation_report(
+            rotation_candidates=[
+                {
+                    "engine": "rotation",
+                    "symbol": invalid_symbol,
+                    "score": 0.83,
+                }
+            ],
+            allocations=[],
+            executions=[],
+            rotation_universe=[],
+        )
+
+
+@pytest.mark.parametrize("invalid_score", [None, "0.83", True])
+def test_build_rotation_report_rejects_missing_or_invalid_candidate_score(invalid_score):
+    with pytest.raises(ValueError, match="score"):
+        build_rotation_report(
+            rotation_candidates=[
+                {
+                    "engine": "rotation",
+                    "symbol": "SOLUSDT",
+                    "score": invalid_score,
+                }
+            ],
+            allocations=[],
+            executions=[],
+            rotation_universe=[],
+        )
+
+
 @pytest.mark.parametrize(("field", "value"), [("status", 7), ("status", " ACCEPTED")])
 def test_build_rotation_report_rejects_present_non_canonical_allocation_status(field, value):
     allocation = {"engine": "rotation", "symbol": "SOLUSDT", "status": value}
 
     with pytest.raises(ValueError, match=field):
+        build_rotation_report(
+            rotation_candidates=[],
+            allocations=[allocation],
+            executions=[],
+            rotation_universe=[],
+        )
+
+
+@pytest.mark.parametrize("allocation", [object(), [("symbol", "SOLUSDT")]])
+def test_build_rotation_report_rejects_non_mapping_allocation_rows(allocation):
+    with pytest.raises(ValueError, match="allocations"):
         build_rotation_report(
             rotation_candidates=[],
             allocations=[allocation],
@@ -300,6 +356,16 @@ def test_build_short_report_rejects_present_non_mapping_derivatives():
         )
 
 
+@pytest.mark.parametrize("candidate", [object(), [("symbol", "BTCUSDT")]])
+def test_build_short_report_rejects_non_mapping_candidate_rows(candidate):
+    with pytest.raises(ValueError, match="short_candidates"):
+        build_short_report(
+            short_candidates=[candidate],
+            allocations=[],
+            short_universe=[],
+        )
+
+
 @pytest.mark.parametrize("invalid_setup_type", [7, " BREAKDOWN_SHORT"])
 def test_build_short_report_rejects_present_non_canonical_setup_type(invalid_setup_type):
     with pytest.raises(ValueError, match="setup_type"):
@@ -317,6 +383,23 @@ def test_build_short_report_rejects_present_non_canonical_setup_type(invalid_set
         )
 
 
+@pytest.mark.parametrize("invalid_score", [None, "0.81", False])
+def test_build_short_report_rejects_missing_or_invalid_candidate_score(invalid_score):
+    with pytest.raises(ValueError, match="score"):
+        build_short_report(
+            short_candidates=[
+                {
+                    "engine": "short",
+                    "symbol": "BTCUSDT",
+                    "setup_type": "BREAKDOWN_SHORT",
+                    "score": invalid_score,
+                }
+            ],
+            allocations=[],
+            short_universe=[],
+        )
+
+
 def test_build_trend_report_rejects_present_non_mapping_timeframe_meta():
     with pytest.raises(ValueError, match="timeframe_meta"):
         build_trend_report(
@@ -327,6 +410,50 @@ def test_build_trend_report_rejects_present_non_mapping_timeframe_meta():
                     "setup_type": "BREAKOUT_LONG",
                     "score": 0.72,
                     "timeframe_meta": [("daily_bias", "up")],
+                }
+            ],
+            allocations=[],
+            major_universe=[],
+        )
+
+
+@pytest.mark.parametrize("candidate", [object(), [("symbol", "ETHUSDT")]])
+def test_build_trend_report_rejects_non_mapping_candidate_rows(candidate):
+    with pytest.raises(ValueError, match="trend_candidates"):
+        build_trend_report(
+            trend_candidates=[candidate],
+            allocations=[],
+            major_universe=[],
+        )
+
+
+@pytest.mark.parametrize("invalid_symbol", [None, "", 123, " ETHUSDT"])
+def test_build_trend_report_rejects_invalid_candidate_symbol(invalid_symbol):
+    with pytest.raises(ValueError, match="symbol"):
+        build_trend_report(
+            trend_candidates=[
+                {
+                    "engine": "trend",
+                    "symbol": invalid_symbol,
+                    "setup_type": "BREAKOUT_LONG",
+                    "score": 0.72,
+                }
+            ],
+            allocations=[],
+            major_universe=[],
+        )
+
+
+@pytest.mark.parametrize("invalid_score", [None, "0.72", True])
+def test_build_trend_report_rejects_missing_or_invalid_candidate_score(invalid_score):
+    with pytest.raises(ValueError, match="score"):
+        build_trend_report(
+            trend_candidates=[
+                {
+                    "engine": "trend",
+                    "symbol": "ETHUSDT",
+                    "setup_type": "BREAKOUT_LONG",
+                    "score": invalid_score,
                 }
             ],
             allocations=[],
@@ -607,6 +734,15 @@ def test_build_lifecycle_report_rejects_present_non_canonical_state(invalid_stat
         )
 
 
+@pytest.mark.parametrize("payload", [object(), [("state", "PROTECT")]])
+def test_build_lifecycle_report_rejects_non_mapping_lifecycle_updates(payload):
+    with pytest.raises(ValueError, match="lifecycle_updates"):
+        build_lifecycle_report(
+            lifecycle_updates={"BTCUSDT": payload},
+            management_suggestions=[],
+        )
+
+
 @pytest.mark.parametrize("reason_codes", [[123], ["valid", " invalid"]])
 def test_build_lifecycle_report_rejects_present_non_canonical_reason_codes(reason_codes):
     with pytest.raises(ValueError, match="reason_codes"):
@@ -625,6 +761,46 @@ def test_build_lifecycle_report_rejects_present_non_mapping_review_meta():
                     "symbol": "BTCUSDT",
                     "action": "BREAK_EVEN",
                     "meta": [("stop_family", "structure_stop")],
+                }
+            ],
+        )
+
+
+@pytest.mark.parametrize("suggestion", [object(), [("symbol", "BTCUSDT")]])
+def test_build_lifecycle_report_rejects_non_mapping_management_suggestions(suggestion):
+    with pytest.raises(ValueError, match="management_suggestions"):
+        build_lifecycle_report(lifecycle_updates={}, management_suggestions=[suggestion])
+
+
+@pytest.mark.parametrize("symbol", [123, " BTCUSDT"])
+def test_build_lifecycle_report_rejects_non_canonical_attention_symbol(symbol):
+    with pytest.raises(ValueError, match="symbol"):
+        build_lifecycle_report(
+            lifecycle_updates={},
+            management_suggestions=[{"symbol": symbol, "action": "EXIT"}],
+        )
+
+
+@pytest.mark.parametrize("r_multiple", [None, "2.0", True])
+def test_build_lifecycle_report_rejects_present_invalid_r_multiple(r_multiple):
+    with pytest.raises(ValueError, match="r_multiple"):
+        build_lifecycle_report(
+            lifecycle_updates={"BTCUSDT": {"state": "PROTECT", "r_multiple": r_multiple}},
+            management_suggestions=[],
+        )
+
+
+@pytest.mark.parametrize("suggested_stop_loss", ["100.0", False])
+def test_build_lifecycle_report_rejects_present_invalid_review_numeric_fields(suggested_stop_loss):
+    with pytest.raises(ValueError, match="suggested_stop_loss"):
+        build_lifecycle_report(
+            lifecycle_updates={},
+            management_suggestions=[
+                {
+                    "symbol": "BTCUSDT",
+                    "action": "BREAK_EVEN",
+                    "suggested_stop_loss": suggested_stop_loss,
+                    "meta": {"stop_family": "structure_stop"},
                 }
             ],
         )
