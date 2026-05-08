@@ -1939,7 +1939,9 @@ def _row_market_symbol_keys(row: Any) -> tuple[str, ...]:
 
 
 def _material_market_context_instrument_rows(material: Phase1DatasetBundleMaterial) -> tuple[dict[str, Any], ...]:
-    rows = material.market_context.get("instrument_rows") or ()
+    rows = material.market_context.get("instrument_rows") if "instrument_rows" in material.market_context else ()
+    if rows is None:
+        rows = ()
     if not isinstance(rows, (list, tuple)):
         raise ValueError("market_context instrument_rows must be a list")
     parsed: list[dict[str, Any]] = []
