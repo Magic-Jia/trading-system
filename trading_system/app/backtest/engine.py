@@ -611,7 +611,12 @@ def _funding_rate(row: DatasetSnapshotRow, symbol: str) -> float:
             raise ValueError("derivative row must be an object")
         derivative_symbol = _canonical_string(item.get("symbol"), field_name="derivative symbol")
         if derivative_symbol == symbol:
-            return _optional_futures_float(item.get("funding_rate", 0.0), "funding_rate") or 0.0
+            if "funding_rate" not in item:
+                return 0.0
+            funding_rate = _optional_futures_float(item.get("funding_rate"), "funding_rate")
+            if funding_rate is None:
+                raise ValueError("invalid futures context numeric field funding_rate: None")
+            return funding_rate
     return 0.0
 
 

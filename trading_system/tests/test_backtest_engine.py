@@ -451,6 +451,18 @@ def test_intraday_exit_rejects_coerced_take_profit() -> None:
         )
 
 
+def test_funding_rate_rejects_present_null_derivative_field() -> None:
+    row = DatasetSnapshotRow(
+        timestamp=_ts("2026-03-10T00:00:00Z"),
+        run_id="run-1",
+        market={},
+        derivatives=[{"symbol": "BTCUSDT", "funding_rate": None}],
+    )
+
+    with pytest.raises(ValueError, match="invalid futures context numeric field funding_rate"):
+        backtest_engine._funding_rate(row, "BTCUSDT")
+
+
 def test_engine_rejects_coerced_portfolio_candidate_fields(fixture_dir: Path) -> None:
     row = load_historical_dataset(fixture_dir / "backtest" / "sample_dataset")[0]
     instrument = InstrumentSnapshotRow(
