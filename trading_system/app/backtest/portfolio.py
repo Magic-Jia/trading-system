@@ -92,6 +92,14 @@ def _additional_slots(remaining_capacity: float, per_position_capacity: float) -
     return int(ceil((remaining_capacity - _EPSILON) / per_position_capacity))
 
 
+def _canonical_string(value: object, *, field_name: str) -> str:
+    if not isinstance(value, str):
+        raise ValueError(f"{field_name} must be a canonical string")
+    if not value or value.strip() != value:
+        raise ValueError(f"{field_name} must be a canonical string")
+    return value
+
+
 def _portfolio_side(value: object, *, field_name: str) -> str:
     if not isinstance(value, str):
         raise ValueError(f"{field_name} must be a portfolio side")
@@ -108,10 +116,14 @@ def _same_direction(a: PortfolioPosition | PortfolioCandidate, b: PortfolioCandi
 
 
 def _has_base_asset_crowding(candidate: PortfolioCandidate, state: PortfolioState) -> bool:
+    candidate_base_asset = _canonical_string(candidate.base_asset, field_name="candidate.base_asset")
+    candidate_market_type = _canonical_string(candidate.market_type, field_name="candidate.market_type")
     for position in state.open_positions:
-        if position.base_asset != candidate.base_asset:
+        position_base_asset = _canonical_string(position.base_asset, field_name="position.base_asset")
+        position_market_type = _canonical_string(position.market_type, field_name="position.market_type")
+        if position_base_asset != candidate_base_asset:
             continue
-        if position.market_type == candidate.market_type:
+        if position_market_type == candidate_market_type:
             continue
         if _same_direction(position, candidate):
             return True
