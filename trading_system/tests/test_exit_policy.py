@@ -73,6 +73,17 @@ def test_evaluate_exit_policy_emits_fail_fast_exit_when_invalidation_triggers_be
     ]
 
 
+def test_evaluate_exit_policy_rejects_non_bool_invalidation_flag():
+    with pytest.raises(ValueError, match="invalidation_triggered must be a bool"):
+        evaluate_exit_policy(
+            _position(
+                mark_price=99.0,
+                stop_loss=95.0,
+                invalidation_triggered="false",
+            )
+        )
+
+
 def test_evaluate_exit_policy_emits_defensive_regime_de_risking_when_trade_is_in_profit():
     decisions = evaluate_exit_policy(
         _position(
@@ -153,6 +164,21 @@ def test_evaluate_exit_policy_emits_runner_exit_after_second_target_protection()
             },
         )
     ]
+
+
+def test_evaluate_exit_policy_rejects_non_bool_runner_protected_flag():
+    with pytest.raises(ValueError, match="runner_protected must be a bool"):
+        evaluate_exit_policy(
+            _position(
+                mark_price=104.5,
+                first_target_price=105.0,
+                second_target_price=110.0,
+                first_target_status="filled",
+                second_target_status="filled",
+                runner_protected="false",
+                runner_stop_price=105.0,
+            )
+        )
 
 
 def test_evaluate_exit_policy_skips_invalid_runner_state_without_guessing_stop():

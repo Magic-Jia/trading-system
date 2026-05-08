@@ -31,6 +31,15 @@ def _float(value: Any) -> float | None:
         return None
 
 
+def _optional_bool(position: Mapping[str, Any], field_name: str) -> bool:
+    if field_name not in position:
+        return False
+    value = position[field_name]
+    if isinstance(value, bool):
+        return value
+    raise ValueError(f"{field_name} must be a bool when present")
+
+
 def _in_favor(side: str, mark_price: float, reference_price: float) -> bool:
     if side == "LONG":
         return mark_price >= reference_price
@@ -86,7 +95,7 @@ def _target_fields(position: Mapping[str, Any]) -> dict[str, Any]:
         "second_target_price": _float(position.get("second_target_price")),
         "first_target_status": str(position.get("first_target_status") or "pending"),
         "second_target_status": str(position.get("second_target_status") or "pending"),
-        "runner_protected": bool(position.get("runner_protected")),
+        "runner_protected": _optional_bool(position, "runner_protected"),
         "runner_stop_price": _float(position.get("runner_stop_price")),
     }
 
@@ -191,7 +200,7 @@ def evaluate_exit_policy(
     invalidation_context = _invalidation_reason_with_context(position)
     decisions: list[ExitDecision] = []
 
-    if bool(position.get("invalidation_triggered")):
+    if _optional_bool(position, "invalidation_triggered"):
         reason = "当前 thesis invalidation 已触发，建议先于硬止损执行 fail-fast 退出。"
         if invalidation_context:
             reason = f"{invalidation_context}已触发 thesis invalidation，建议先于硬止损执行 fail-fast 退出。"
