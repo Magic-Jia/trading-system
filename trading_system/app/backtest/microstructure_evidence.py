@@ -239,9 +239,14 @@ def build_microstructure_gate(
                             raise ValueError(
                                 f"depth_driven_taker_fills consumed_levels {numeric_field} must be a number"
                             )
-                        _normalise_finite_float(
+                        normalised_value = _normalise_finite_float(
                             f"depth_driven_taker_fills consumed_levels {numeric_field}", numeric_value
                         )
+                        if normalised_value <= 0:
+                            raise ValueError(
+                                f"depth_driven_taker_fills consumed_levels {numeric_field} "
+                                "must be a positive number"
+                            )
             complete = fill.get("complete", False)
             if not isinstance(complete, bool):
                 raise ValueError("depth_driven_taker_fills complete must be a boolean")

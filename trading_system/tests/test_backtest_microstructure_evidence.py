@@ -514,3 +514,36 @@ def test_microstructure_gate_rejects_non_finite_consumed_level_price(non_finite:
                 ],
             }
         )
+
+@pytest.mark.parametrize(
+    ("field_name", "level"),
+    [
+        ("price", {"price": 0.0, "quantity": 1.0}),
+        ("price", {"price": -100.0, "quantity": 1.0}),
+        ("quantity", {"price": 100.0, "quantity": 0.0}),
+        ("quantity", {"price": 100.0, "quantity": -1.0}),
+    ],
+)
+def test_microstructure_gate_rejects_non_positive_consumed_level_numerics(
+    field_name: str, level: dict[str, float]
+) -> None:
+    with pytest.raises(
+        ValueError,
+        match=f"depth_driven_taker_fills consumed_levels {field_name} must be a positive number",
+    ):
+        build_microstructure_gate(
+            {
+                "coverage": {
+                    "l2_snapshot_coverage": 0.99,
+                    "l2_update_coverage": 0.99,
+                    "tick_coverage": 0.99,
+                },
+                "depth_driven_taker_fills": [
+                    {
+                        "complete": True,
+                        "side": "buy",
+                        "consumed_levels": [level],
+                    }
+                ],
+            }
+        )
