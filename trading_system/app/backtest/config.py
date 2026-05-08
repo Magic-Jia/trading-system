@@ -192,11 +192,11 @@ def _load_walk_forward(raw: Any) -> WalkForwardConfig:
 
 
 def _optional_float(raw: dict[str, Any], field_name: str) -> float | None:
-    return float(raw[field_name]) if field_name in raw else None
+    return _finite_number(raw[field_name], field_name=f"experiment_params.exit_policy.{field_name}") if field_name in raw else None
 
 
 def _optional_int(raw: dict[str, Any], field_name: str) -> int | None:
-    return int(raw[field_name]) if field_name in raw else None
+    return _non_negative_int(raw[field_name], field_name=f"experiment_params.exit_policy.{field_name}") if field_name in raw else None
 
 
 def _require_non_negative(value: float | int | None, *, field_name: str) -> None:
@@ -210,12 +210,18 @@ def _load_exit_policy(raw: Any) -> ExitPolicyParams | None:
     if not isinstance(raw, dict):
         raise ValueError("experiment_params.exit_policy must be an object")
 
-    name = str(_require(raw, "name")).strip()
+    name = _canonical_string(_require(raw, "name"), field_name="experiment_params.exit_policy.name")
     if name not in {"after_cost_breakeven_stop", "mfe_giveback_cut", "no_breakeven_time_stop"}:
         raise ValueError(f"unknown exit policy: {name}")
 
-    after_cost_buffer_bps = float(raw.get("after_cost_buffer_bps", 0.0))
-    activation_minute = int(raw.get("activation_minute", 0))
+    after_cost_buffer_bps = _finite_number(
+        raw.get("after_cost_buffer_bps", 0.0),
+        field_name="experiment_params.exit_policy.after_cost_buffer_bps",
+    )
+    activation_minute = _non_negative_int(
+        raw.get("activation_minute", 0),
+        field_name="experiment_params.exit_policy.activation_minute",
+    )
     giveback_fraction = _optional_float(raw, "giveback_fraction")
     giveback_min_bps = _optional_float(raw, "giveback_min_bps")
     no_breakeven_time_stop_minute = _optional_int(raw, "no_breakeven_time_stop_minute")

@@ -641,6 +641,40 @@ def test_load_backtest_config_rejects_non_boolean_universe_funding_flag(tmp_path
         load_backtest_config(config_path)
 
 
+def test_load_backtest_config_rejects_boolean_exit_policy_minutes(tmp_path: Path) -> None:
+    config_path = tmp_path / "broken_exit_policy_config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "dataset_root": "sample_dataset",
+                "experiment_kind": "llm_trend_breakout",
+                "sample_windows": [
+                    {
+                        "name": "train",
+                        "start": "2026-01-01T00:00:00Z",
+                        "end": "2026-02-01T00:00:00Z",
+                    }
+                ],
+                "costs": {"fee_bps": 4.0, "slippage_bps": 6.0},
+                "baseline_name": "baseline",
+                "variant_name": "variant",
+                "experiment_params": {
+                    "evaluation_window": "forward",
+                    "llm_label_path": "labels.jsonl",
+                    "exit_policy": {
+                        "name": "after_cost_breakeven_stop",
+                        "activation_minute": True,
+                    },
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="experiment_params.exit_policy.activation_minute must be a non-negative integer"):
+        load_backtest_config(config_path)
+
+
 def test_load_backtest_config_rejects_boolean_walk_forward_sizes(tmp_path: Path) -> None:
     config_path = tmp_path / "broken_walk_forward_config.json"
     config_path.write_text(
