@@ -42,6 +42,15 @@ def _provenance_sha256(value: Any) -> str | None:
     return value
 
 
+def _provenance_file_metadata(manifest: Mapping[str, Any]) -> Mapping[str, Any]:
+    value = manifest.get("file", {})
+    if value is None:
+        return {}
+    if not isinstance(value, Mapping):
+        raise ValueError("raw-market provenance file metadata must be an object")
+    return value
+
+
 def _missing_intervals(series: ImportedRawMarketSeries, expected_interval: timedelta | None) -> list[dict[str, Any]]:
     if expected_interval is None or expected_interval.total_seconds() <= 0 or not series.records:
         return []
@@ -104,7 +113,7 @@ def _series_report(series: ImportedRawMarketSeries, expected_interval: timedelta
             "data_path": str(item.data_path),
             "coverage_start": _utc_timestamp(item.coverage_start),
             "coverage_end": _utc_timestamp(item.coverage_end),
-            "sha256": _provenance_sha256(item.manifest.get("file", {}).get("sha256")),
+            "sha256": _provenance_sha256(_provenance_file_metadata(item.manifest).get("sha256")),
         }
         for item in files
     ]
