@@ -2272,15 +2272,7 @@ def validate_phase1_imported_dataset_root(
             "symbols",
             manifest_path=manifest_path,
         )
-        loaded_symbols = tuple(
-            sorted(
-                {
-                    str(symbol)
-                    for row in rows
-                    for symbol in dict(row.market.get("symbols") or {}).keys()
-                }
-            )
-        )
+        loaded_symbols = tuple(sorted({symbol for row in rows for symbol in _row_market_symbol_keys(row)}))
         if manifest_symbols != loaded_symbols:
             raise ValueError(
                 "materialized dataset root manifest symbols did not round-trip: "
