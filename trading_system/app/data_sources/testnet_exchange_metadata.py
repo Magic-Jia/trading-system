@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from typing import Any, Iterable
 
 from ...binance_client import FUTURES_BASE, public_get
@@ -20,10 +21,15 @@ def fetch_futures_testnet_exchange_info() -> dict[str, Any]:
 
 
 def _float_value(value: Any, *, label: str) -> float:
+    if isinstance(value, bool):
+        raise RuntimeError(f"unsupported exchange metadata field: {label}")
     try:
-        return float(value)
+        numeric_value = float(value)
     except (TypeError, ValueError) as exc:
         raise RuntimeError(f"unsupported exchange metadata field: {label}") from exc
+    if not math.isfinite(numeric_value) or numeric_value <= 0:
+        raise RuntimeError(f"unsupported exchange metadata field: {label}")
+    return numeric_value
 
 
 def _canonical_string(value: Any, *, label: str) -> str:
@@ -58,10 +64,10 @@ def _min_notional(filter_rows: dict[str, dict[str, Any]]) -> float:
         row = filter_rows.get(filter_type)
         if not row:
             continue
-        raw_value = row.get("notional", row.get("minNotional"))
-        if raw_value is None:
+        field_name = "notional" if "notional" in row else "minNotional"
+        if field_name not in row:
             continue
-        return _float_value(raw_value, label=f"{filter_type}.min_notional")
+        return _float_value(row[field_name], label=f"{filter_type}.{field_name}")
     return 0.0
 
 
