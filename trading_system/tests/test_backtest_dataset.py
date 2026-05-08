@@ -132,6 +132,42 @@ def test_load_historical_dataset_rejects_non_boolean_instrument_funding_flag(tmp
         load_historical_dataset(dataset_root)
 
 
+def test_load_historical_dataset_rejects_boolean_instrument_numeric_fields(tmp_path: Path) -> None:
+    dataset_root = tmp_path / "sample_dataset"
+    bundle = dataset_root / "2026-03-10T00-00-00Z__sample-001"
+    bundle.mkdir(parents=True)
+    (bundle / "metadata.json").write_text(
+        '{"timestamp": "2026-03-10T00:00:00Z", "run_id": "sample-001"}',
+        encoding="utf-8",
+    )
+    (bundle / "market_context.json").write_text('{"symbols": {"BTCUSDT": {}}}', encoding="utf-8")
+    (bundle / "derivatives_snapshot.json").write_text('{"rows": []}', encoding="utf-8")
+    (bundle / "account_snapshot.json").write_text('{"equity": 100000.0}', encoding="utf-8")
+    (bundle / "instrument_snapshot.json").write_text(
+        json.dumps(
+            {
+                "rows": [
+                    {
+                        "symbol": "BTCUSDT",
+                        "market_type": "futures",
+                        "base_asset": "BTC",
+                        "listing_timestamp": "2020-01-01T00:00:00Z",
+                        "quote_volume_usdt_24h": 250000000.0,
+                        "liquidity_tier": "high",
+                        "quantity_step": True,
+                        "price_tick": 0.1,
+                        "has_complete_funding": True,
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="instrument quantity_step must be a positive finite number"):
+        load_historical_dataset(dataset_root)
+
+
 def test_load_historical_dataset_rejects_non_object_forward_returns(tmp_path: Path) -> None:
     dataset_root = tmp_path / "sample_dataset"
     bundle = dataset_root / "2026-03-10T00-00-00Z__sample-001"

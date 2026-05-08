@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from datetime import datetime
 from pathlib import Path
 from typing import Iterable
@@ -27,6 +28,15 @@ def _instrument_bool(value: object, *, field: str, path: Path) -> bool:
     return value
 
 
+def _instrument_positive_float(value: object, *, field: str, path: Path) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"instrument {field} must be a positive finite number: {path}")
+    number = float(value)
+    if not math.isfinite(number) or number <= 0.0:
+        raise ValueError(f"instrument {field} must be a positive finite number: {path}")
+    return number
+
+
 def _instrument_rows(bundle_path: Path) -> tuple[InstrumentSnapshotRow, ...]:
     path = bundle_path / _INSTRUMENT_SNAPSHOT_FILENAME
     if not path.exists():
@@ -50,10 +60,12 @@ def _instrument_rows(bundle_path: Path) -> tuple[InstrumentSnapshotRow, ...]:
                 market_type=market_type,
                 base_asset=str(raw_row["base_asset"]),
                 listing_timestamp=_parse_timestamp(str(raw_row["listing_timestamp"])),
-                quote_volume_usdt_24h=float(raw_row["quote_volume_usdt_24h"]),
+                quote_volume_usdt_24h=_instrument_positive_float(
+                    raw_row["quote_volume_usdt_24h"], field="quote_volume_usdt_24h", path=path
+                ),
                 liquidity_tier=str(raw_row["liquidity_tier"]),
-                quantity_step=float(raw_row["quantity_step"]),
-                price_tick=float(raw_row["price_tick"]),
+                quantity_step=_instrument_positive_float(raw_row["quantity_step"], field="quantity_step", path=path),
+                price_tick=_instrument_positive_float(raw_row["price_tick"], field="price_tick", path=path),
                 has_complete_funding=_instrument_bool(
                     raw_row["has_complete_funding"], field="has_complete_funding", path=path
                 ),
