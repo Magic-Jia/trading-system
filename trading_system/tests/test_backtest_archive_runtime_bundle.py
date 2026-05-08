@@ -116,6 +116,61 @@ def test_archive_runtime_bundle_copies_inputs_into_immutable_strategy_bundle(
         )
 
 
+@pytest.mark.parametrize(
+    ("payload_name", "field_name", "expected_message"),
+    [
+        ("account", "as_of", "account_snapshot.json as_of must be a string"),
+        ("market", "as_of", "market_context.json as_of must be a string"),
+        ("derivatives", "as_of", "derivatives_snapshot.json as_of must be a string"),
+        ("state", "updated_at_bj", "runtime_state.json updated_at_bj must be a string"),
+    ],
+)
+def test_archive_runtime_bundle_rejects_present_non_string_input_timestamps_before_writing_metadata(
+    tmp_path: Path,
+    account_snapshot_v2: dict,
+    market_context_v2: dict,
+    derivatives_snapshot_v2: dict,
+    payload_name: str,
+    field_name: str,
+    expected_message: str,
+) -> None:
+    runtime_root = tmp_path / "runtime"
+    paths = build_runtime_paths("paper", runtime_root=runtime_root, runtime_env="testnet")
+    paths.bucket_dir.mkdir(parents=True, exist_ok=True)
+
+    payloads = {
+        "account": dict(account_snapshot_v2),
+        "market": dict(market_context_v2),
+        "derivatives": dict(derivatives_snapshot_v2),
+        "state": _bundle_state_payload(),
+    }
+    payloads[payload_name][field_name] = 123
+
+    account_path = paths.bucket_dir / "account_snapshot.json"
+    market_path = paths.bucket_dir / "market_context.json"
+    derivatives_path = paths.bucket_dir / "derivatives_snapshot.json"
+    state_path = paths.state_file
+
+    _write_json(account_path, payloads["account"])
+    _write_json(market_path, payloads["market"])
+    _write_json(derivatives_path, payloads["derivatives"])
+    _write_json(state_path, payloads["state"])
+
+    with pytest.raises(ValueError, match=expected_message):
+        archive_runtime_bundle(
+            paths,
+            RuntimeBundleSourcePaths(
+                account_snapshot=account_path,
+                market_context=market_path,
+                derivatives_snapshot=derivatives_path,
+                runtime_state=state_path,
+            ),
+            archived_at="2026-04-01T01:02:03Z",
+        )
+
+    assert not paths.archive_runtime_bundles_dir.exists()
+
+
 def test_run_cycle_archive_hook_is_opt_in(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     runtime_root = tmp_path / "runtime"
     archive_root = tmp_path / "archive"

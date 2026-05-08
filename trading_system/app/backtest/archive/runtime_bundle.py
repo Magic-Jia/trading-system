@@ -40,6 +40,15 @@ def _utc_timestamp(value: str | None = None) -> str:
     return _parse_timestamp(value).isoformat().replace("+00:00", "Z")
 
 
+def _optional_timestamp_string(payload: dict[str, Any], key: str, *, source_name: str) -> str:
+    if key not in payload or payload[key] is None:
+        return ""
+    value = payload[key]
+    if not isinstance(value, str):
+        raise ValueError(f"{source_name} {key} must be a string")
+    return value
+
+
 def _bundle_timestamp(
     *,
     account_payload: dict[str, Any],
@@ -47,10 +56,14 @@ def _bundle_timestamp(
     derivatives_payload: dict[str, Any],
     archived_at: str,
 ) -> str:
-    for payload in (market_payload, derivatives_payload, account_payload):
-        raw_value = payload.get("as_of")
+    for payload, source_name in (
+        (market_payload, "market_context.json"),
+        (derivatives_payload, "derivatives_snapshot.json"),
+        (account_payload, "account_snapshot.json"),
+    ):
+        raw_value = _optional_timestamp_string(payload, "as_of", source_name=source_name)
         if raw_value:
-            return _utc_timestamp(str(raw_value))
+            return _utc_timestamp(raw_value)
     return archived_at
 
 
@@ -105,10 +118,18 @@ def archive_runtime_bundle(
             "runtime_state": str(source_paths.runtime_state),
         },
         input_timestamps={
-            "account_as_of": str(account_payload.get("as_of") or ""),
-            "market_as_of": str(market_payload.get("as_of") or ""),
-            "derivatives_as_of": str(derivatives_payload.get("as_of") or ""),
-            "runtime_state_updated_at_bj": str(state_payload.get("updated_at_bj") or ""),
+            "account_as_of": _optional_timestamp_string(account_payload, "as_of", source_name="account_snapshot.json"),
+            "market_as_of": _optional_timestamp_string(market_payload, "as_of", source_name="market_context.json"),
+            "derivatives_as_of": _optional_timestamp_string(
+                derivatives_payload,
+                "as_of",
+                source_name="derivatives_snapshot.json",
+            ),
+            "runtime_state_updated_at_bj": _optional_timestamp_string(
+                state_payload,
+                "updated_at_bj",
+                source_name="runtime_state.json",
+            ),
         },
     )
     bundle_dir = runtime_bundle_dir(paths.archive_runtime_bundles_dir, timestamp=metadata.timestamp, run_id=metadata.run_id)
