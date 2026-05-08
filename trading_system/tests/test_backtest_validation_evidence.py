@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from trading_system.app.backtest.validation_evidence import (
     build_validation_gate,
     write_validation_gate,
@@ -152,6 +154,24 @@ def test_validation_gate_rejects_non_string_evidence_source_run_id() -> None:
         assert str(exc) == "evidence_source run_id must be a string"
     else:  # pragma: no cover - RED path until producer is hardened
         raise AssertionError("expected non-string evidence_source run_id to be rejected")
+
+
+@pytest.mark.parametrize("bad_key", [123, None])
+def test_validation_gate_rejects_non_string_evidence_source_keys(bad_key: object) -> None:
+    manifest = _passing_manifest()
+    manifest["evidence_source"] = {"type": "walk_forward_oos_report", bad_key: "not-allowed"}
+
+    with pytest.raises(ValueError, match="^evidence_source keys must be canonical strings$"):
+        build_validation_gate(manifest)
+
+
+@pytest.mark.parametrize("bad_key", ["", " ", " type", "type "])
+def test_validation_gate_rejects_noncanonical_evidence_source_keys(bad_key: str) -> None:
+    manifest = _passing_manifest()
+    manifest["evidence_source"] = {"type": "walk_forward_oos_report", bad_key: "not-allowed"}
+
+    with pytest.raises(ValueError, match="^evidence_source keys must be canonical strings$"):
+        build_validation_gate(manifest)
 
 
 def test_validation_gate_rejects_unknown_evidence_source_fields() -> None:

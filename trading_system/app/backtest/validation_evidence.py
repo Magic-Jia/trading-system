@@ -30,6 +30,12 @@ def _integer_count(value: Any, name: str) -> int:
     return value
 
 
+def _validate_canonical_keys(value: Mapping[Any, Any], name: str) -> None:
+    for key in value:
+        if not isinstance(key, str) or not key.strip() or key != key.strip():
+            raise ValueError(f"{name} keys must be canonical strings")
+
+
 def build_validation_gate(manifest: Mapping[str, Any]) -> dict[str, Any]:
     unknown_manifest_fields = sorted(
         set(manifest) - {"evidence_source", "oos", "regimes", "cost_stress", "forward_contamination"}
@@ -42,6 +48,7 @@ def build_validation_gate(manifest: Mapping[str, Any]) -> dict[str, Any]:
     elif not isinstance(raw_source, Mapping):
         raise ValueError("evidence_source must be an object")
     else:
+        _validate_canonical_keys(raw_source, "evidence_source")
         source = dict(raw_source)
     source.setdefault("type", "unknown_offline_records")
     unknown_source_fields = sorted(set(source) - {"type", "run_id", "exported_at"})
