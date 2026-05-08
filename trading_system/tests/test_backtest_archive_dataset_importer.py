@@ -1042,10 +1042,10 @@ def test_build_phase1_dataset_bundle_materials_materializes_fresh_order_book_exe
                 {
                     "timestamp": _timestamp_ms(evidence_time),
                     "symbol": "BTCUSDT",
-                    "bid": "64389.50",
-                    "ask": "64390.50",
-                    "bid_size": "3.25",
-                    "ask_size": "2.75",
+                    "bid": 64389.50,
+                    "ask": 64390.50,
+                    "bid_size": 3.25,
+                    "ask_size": 2.75,
                 }
             ]
         },
@@ -1089,29 +1089,29 @@ def test_build_phase1_dataset_bundle_materials_materializes_only_fresh_trades_at
                 {
                     "timestamp": _timestamp_ms(signal_time - timedelta(seconds=1)),
                     "symbol": "BTCUSDT",
-                    "price": "64380.00",
-                    "quantity": "0.10",
+                    "price": 64380.00,
+                    "quantity": 0.10,
                     "side": "sell",
                 },
                 {
                     "timestamp": _timestamp_ms(signal_time + timedelta(seconds=2)),
                     "symbol": "BTCUSDT",
-                    "price": "64391.00",
-                    "quantity": "0.20",
+                    "price": 64391.00,
+                    "quantity": 0.20,
                     "side": "buy",
                 },
                 {
                     "timestamp": _timestamp_ms(signal_time + timedelta(minutes=4)),
                     "symbol": "BTCUSDT",
-                    "price": "64392.00",
-                    "quantity": "0.30",
+                    "price": 64392.00,
+                    "quantity": 0.30,
                     "side": "buy",
                 },
                 {
                     "timestamp": _timestamp_ms(signal_time + timedelta(minutes=6)),
                     "symbol": "BTCUSDT",
-                    "price": "64395.00",
-                    "quantity": "0.40",
+                    "price": 64395.00,
+                    "quantity": 0.40,
                     "side": "buy",
                 },
             ]
@@ -1162,8 +1162,8 @@ def test_build_phase1_dataset_bundle_materials_materializes_binance_agg_trades_r
         endpoint="/fapi/v1/aggTrades",
         payload={
             "rows": [
-                {"a": 10, "p": "64391.00", "q": "0.20", "T": _timestamp_ms(signal_time + timedelta(seconds=2)), "m": False},
-                {"a": 11, "p": "64392.00", "q": "0.30", "T": _timestamp_ms(signal_time + timedelta(minutes=4)), "m": True},
+                {"a": 10, "p": 64391.00, "q": 0.20, "T": _timestamp_ms(signal_time + timedelta(seconds=2)), "m": False},
+                {"a": 11, "p": 64392.00, "q": 0.30, "T": _timestamp_ms(signal_time + timedelta(minutes=4)), "m": True},
             ]
         },
     )
@@ -1214,10 +1214,10 @@ def test_import_phase1_archive_dataset_root_reports_stale_execution_evidence_wit
                 {
                     "timestamp": _timestamp_ms(signal_time + timedelta(minutes=10)),
                     "symbol": "BTCUSDT",
-                    "bid": "64389.50",
-                    "ask": "64390.50",
-                    "bid_size": "3.25",
-                    "ask_size": "2.75",
+                    "bid": 64389.50,
+                    "ask": 64390.50,
+                    "bid_size": 3.25,
+                    "ask_size": 2.75,
                 }
             ]
         },

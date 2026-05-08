@@ -581,10 +581,9 @@ def _positive_execution_float(value: Any) -> float | None:
 
 
 def _required_positive_execution_float(value: Any, *, field: str, observed_at: datetime) -> float:
-    try:
-        parsed = float(value)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"{field} must be numeric: {observed_at}") from exc
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{field} must be numeric: {observed_at}")
+    parsed = float(value)
     if not parsed == parsed or parsed in {float("inf"), float("-inf")}:
         raise ValueError(f"{field} must be finite: {observed_at}")
     if parsed <= 0.0:

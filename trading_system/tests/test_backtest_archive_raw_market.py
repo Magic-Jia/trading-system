@@ -436,6 +436,27 @@ def test_series_report_rejects_non_object_provenance_file_metadata(tmp_path: Pat
         _series_report(bad_series, expected_interval=None)
 
 
+def test_order_book_payload_rejects_boolean_bid() -> None:
+    record = ImportedRawMarketRecord(
+        observed_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        payload={"symbol": "BTCUSDT", "bid": True, "ask": 101.0},
+    )
+
+    with pytest.raises(ValueError, match="order book bid must be numeric"):
+        _order_book_payload(record, symbol="BTCUSDT")
+
+
+def test_order_book_payload_rejects_string_ask() -> None:
+    record = ImportedRawMarketRecord(
+        observed_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        payload={"symbol": "BTCUSDT", "bid": 100.0, "ask": "101.0"},
+    )
+
+    with pytest.raises(ValueError, match="order book ask must be numeric"):
+        _order_book_payload(record, symbol="BTCUSDT")
+
+
+
 def test_load_raw_market_manifest_rejects_noncanonical_file_sha256(tmp_path: Path) -> None:
     archived = archive_raw_market_payload(
         archive_root=tmp_path / "archive",
