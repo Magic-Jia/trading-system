@@ -349,12 +349,13 @@ def _exit_execution_fill(row: DatasetSnapshotRow, open_trade: _OpenTrade, refere
         pre_exit_trades = [trade for trade in symbol_trades if pre_exit_floor <= trade.timestamp < row.timestamp]
         trade = pre_exit_trades[-1] if pre_exit_trades else None
     if trade is not None:
+        trade_price = trade.price
         return ExecutionFill(
             symbol=open_trade.symbol,
             side=exit_side,
             quantity=open_trade.qty,
             filled=True,
-            fill_price=float(trade.price),
+            fill_price=trade_price,
             fill_model="taker_trade_print",
             execution_price_source="trade_print",
             fill_quality="evidence_backed",
@@ -363,11 +364,11 @@ def _exit_execution_fill(row: DatasetSnapshotRow, open_trade: _OpenTrade, refere
             requested_quantity=open_trade.qty,
             requested_notional=open_trade.position_notional,
             filled_quantity=open_trade.qty,
-            filled_notional=open_trade.qty * float(trade.price),
+            filled_notional=open_trade.qty * trade_price,
             unfilled_quantity=0.0,
             slippage_bps=_exit_slippage_vs_reference_bps(
                 side=open_trade.side,
-                fill_price=float(trade.price),
+                fill_price=trade_price,
                 reference_price=reference_price,
             ),
         )
