@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
+import math
 
 import pytest
 
@@ -143,6 +144,37 @@ def test_public_strategy_factor_experiment_requires_minimum_sample_count_before_
     assert momentum["effectiveness"]["minimum_sample_count"] == 30
     assert momentum["effectiveness"]["effectiveness_status"] == "insufficient_sample"
     assert result["summary"]["effective_factor_count"] == 0
+
+
+def test_public_strategy_factor_experiment_skips_non_finite_factor_values() -> None:
+    rows = [
+        _suppressed_rotation_row(0, link_return=0.06, ada_return=-0.03, forward_return_3d=0.01),
+        _suppressed_rotation_row(1, link_return=0.04, ada_return=-0.02, forward_return_3d=0.02),
+    ]
+    for row in rows:
+        for symbol in row.market["symbols"].values():
+            symbol["daily"]["return_pct_7d"] = math.nan
+
+    result = run_public_strategy_factor_experiment(rows, evaluation_window="3d", strategy_families=("momentum",))
+
+    momentum = result["factors"][0]
+    assert momentum["supported"] is True
+    assert "effectiveness" not in momentum
+    assert result["summary"]["evaluated_factor_count"] == 0
+
+
+@pytest.mark.parametrize("invalid_forward_return", [True, math.nan, math.inf, -math.inf])
+def test_public_strategy_factor_experiment_rejects_invalid_effectiveness_forward_returns(
+    invalid_forward_return: object,
+) -> None:
+    rows = [
+        _suppressed_rotation_row(0, link_return=0.06, ada_return=-0.03, forward_return_3d=0.01),
+        _suppressed_rotation_row(1, link_return=0.04, ada_return=-0.02, forward_return_3d=0.02),
+    ]
+    rows[1].forward_returns["3d"] = invalid_forward_return
+
+    with pytest.raises(ValueError, match=r"^forward_returns\.3d must be a finite number$"):
+        run_public_strategy_factor_experiment(rows, evaluation_window="3d", strategy_families=("momentum",))
 
 
 def test_suppression_policy_comparison() -> None:

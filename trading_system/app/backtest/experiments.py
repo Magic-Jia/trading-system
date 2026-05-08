@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import asdict
+import math
 from statistics import mean
 from typing import Any, Iterable, Mapping
 
@@ -89,6 +90,18 @@ _FRICTION_SCENARIOS: dict[str, BacktestCosts] = {
 }
 
 
+def _finite_number(value: Any, *, field_name: str) -> float:
+    if isinstance(value, bool):
+        raise ValueError(f"{field_name} must be a finite number")
+    try:
+        number = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{field_name} must be a finite number") from exc
+    if not math.isfinite(number):
+        raise ValueError(f"{field_name} must be a finite number")
+    return number
+
+
 def _has_forward_window(rows: list[DatasetSnapshotRow], evaluation_window: str) -> bool:
     return any(evaluation_window in row.forward_returns for row in rows)
 
@@ -110,7 +123,14 @@ def _has_funding_or_basis_fields(rows: list[DatasetSnapshotRow]) -> bool:
 
 
 def _mean_numeric(values: list[float]) -> float | None:
-    cleaned = [float(value) for value in values if value is not None]
+    cleaned = []
+    for value in values:
+        if value is None:
+            continue
+        try:
+            cleaned.append(_finite_number(value, field_name="factor_value"))
+        except ValueError:
+            continue
     if not cleaned:
         return None
     return mean(cleaned)
@@ -196,7 +216,15 @@ def _public_strategy_factor_effectiveness(
         factor_value = _public_strategy_factor_value(row, family)
         if factor_value is None:
             continue
-        pairs.append((float(factor_value), float(row.forward_returns[evaluation_window])))
+        try:
+            finite_factor_value = _finite_number(factor_value, field_name="factor_value")
+        except ValueError:
+            continue
+        forward_return = _finite_number(
+            row.forward_returns[evaluation_window],
+            field_name=f"forward_returns.{evaluation_window}",
+        )
+        pairs.append((finite_factor_value, forward_return))
 
     if not pairs:
         return None
