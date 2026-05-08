@@ -705,3 +705,105 @@ def test_apply_management_action_fill_rejects_non_bool_runner_protected_on_compl
                 },
             ),
         )
+
+
+def _management_fill_state(**position_overrides):
+    position = {
+        "symbol": "BTCUSDT",
+        "side": "LONG",
+        "qty": 1.0,
+        "remaining_position_qty": 1.0,
+        "entry_price": 100.0,
+        "mark_price": 105.5,
+        "stop_loss": 95.0,
+        "first_target_price": 105.0,
+        "second_target_price": 110.0,
+        "original_position_qty": 2.0,
+        "first_target_status": "pending",
+        "first_target_hit": False,
+        "first_target_filled_qty": 0.0,
+        "second_target_status": "pending",
+        "second_target_hit": False,
+        "second_target_filled_qty": 0.0,
+        "runner_protected": False,
+        "runner_stop_price": None,
+    }
+    position.update(position_overrides)
+    return RuntimeStateV2(updated_at_bj="2026-04-09T20:00:00+08:00", positions={"BTCUSDT": position})
+
+
+def _partial_take_profit_intent(**overrides):
+    payload = {
+        "intent_id": "mgmt-btcusdt-partial-first",
+        "symbol": "BTCUSDT",
+        "action": "PARTIAL_TAKE_PROFIT",
+        "side": "LONG",
+        "position_qty": 1.0,
+        "qty": 0.25,
+        "reference_price": 105.5,
+        "meta": {"target_stage": "first", "exit_trigger": "first_target_hit", "fraction_basis": "original_position"},
+    }
+    payload.update(overrides)
+    return ManagementActionIntent(**payload)
+
+
+@pytest.mark.parametrize("qty", [True, "1.0"])
+def test_apply_management_action_fill_rejects_coerced_existing_position_qty(qty):
+    state = _management_fill_state(qty=qty)
+
+    with pytest.raises(ValueError, match="qty"):
+        apply_management_action_fill(state, _partial_take_profit_intent())
+
+    assert state.positions["BTCUSDT"]["qty"] == qty
+    assert state.positions["BTCUSDT"]["first_target_filled_qty"] == 0.0
+
+
+@pytest.mark.parametrize("qty", [True, "0.25"])
+def test_apply_management_action_fill_rejects_coerced_intent_qty(qty):
+    state = _management_fill_state()
+
+    with pytest.raises(ValueError, match="qty"):
+        apply_management_action_fill(state, _partial_take_profit_intent(qty=qty))
+
+    assert state.positions["BTCUSDT"]["qty"] == 1.0
+    assert state.positions["BTCUSDT"]["first_target_filled_qty"] == 0.0
+
+
+@pytest.mark.parametrize("target_stage", [1, True])
+def test_apply_management_action_fill_rejects_non_string_target_stage(target_stage):
+    state = _management_fill_state()
+
+    with pytest.raises(ValueError, match="target_stage"):
+        apply_management_action_fill(
+            state,
+            _partial_take_profit_intent(
+                meta={"target_stage": target_stage, "exit_trigger": "first_target_hit", "fraction_basis": "original_position"}
+            ),
+        )
+
+    assert state.positions["BTCUSDT"]["qty"] == 1.0
+    assert state.positions["BTCUSDT"]["first_target_filled_qty"] == 0.0
+
+
+@pytest.mark.parametrize(
+    ("stage", "field", "filled_qty"),
+    [
+        ("first", "first_target_filled_qty", True),
+        ("first", "first_target_filled_qty", "0.25"),
+        ("second", "second_target_filled_qty", True),
+        ("second", "second_target_filled_qty", "0.25"),
+    ],
+)
+def test_apply_management_action_fill_rejects_coerced_existing_stage_filled_qty(stage, field, filled_qty):
+    state = _management_fill_state(**{field: filled_qty})
+
+    with pytest.raises(ValueError, match=field):
+        apply_management_action_fill(
+            state,
+            _partial_take_profit_intent(
+                intent_id=f"mgmt-btcusdt-partial-{stage}",
+                meta={"target_stage": stage, "exit_trigger": f"{stage}_target_hit", "fraction_basis": "original_position"},
+            ),
+        )
+
+    assert state.positions["BTCUSDT"][field] == filled_qty

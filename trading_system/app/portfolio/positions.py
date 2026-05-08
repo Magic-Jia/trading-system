@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import math
 from typing import Any
 
 from .target_management import ensure_target_management_state, stage_completed, terminalize_all_unreachable_stages
@@ -92,6 +93,32 @@ def _strict_optional_bool(payload: dict[str, Any], field: str, default: bool = F
     if isinstance(value, bool):
         return value
     raise ValueError(f"{field} must be a bool when present")
+
+
+def _strict_non_negative_quantity(payload: dict[str, Any], field: str, default: float | None = None) -> float:
+    if field not in payload or payload.get(field) is None:
+        if default is None:
+            raise ValueError(f"{field} must be present")
+        return default
+    value = payload.get(field)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{field} must be an int or float")
+    qty = float(value)
+    if not math.isfinite(qty) or qty < 0:
+        raise ValueError(f"{field} must be finite and non-negative")
+    return qty
+
+
+def _partial_take_profit_stage(intent: ManagementActionIntent) -> str:
+    if intent.action != "PARTIAL_TAKE_PROFIT":
+        return ""
+    meta = intent.meta or {}
+    if "target_stage" not in meta or meta.get("target_stage") is None:
+        return ""
+    stage = meta.get("target_stage")
+    if not isinstance(stage, str) or stage not in {"first", "second"}:
+        raise ValueError("target_stage must be absent or one of: first, second")
+    return stage
 
 
 def _taxonomy_fields(existing: dict[str, Any]) -> dict[str, Any]:
@@ -377,16 +404,24 @@ def apply_management_action_fill(state: RuntimeState, intent: ManagementActionIn
         return {}
 
     position = dict(existing)
-    current_qty = float(position.get("qty", 0.0) or 0.0)
-    filled_qty = round(float(intent.qty or 0.0), 8)
+    current_qty = _strict_non_negative_quantity(position, "qty", default=0.0)
+    filled_qty = round(
+        _strict_non_negative_quantity(
+            {"qty": intent.qty} if intent.qty is not None else {},
+            "qty",
+            default=0.0,
+        ),
+        8,
+    )
     remaining_qty = max(round(current_qty - filled_qty, 8), 0.0)
     position["qty"] = remaining_qty
     position["remaining_position_qty"] = remaining_qty
 
-    stage = str((intent.meta or {}).get("target_stage") or "")
+    stage = _partial_take_profit_stage(intent)
     if intent.action == "PARTIAL_TAKE_PROFIT" and stage in {"first", "second"}:
         key = f"{stage}_target_filled_qty"
-        position[key] = round(float(position.get(key, 0.0) or 0.0) + filled_qty, 8)
+        stage_filled_qty = _strict_non_negative_quantity(position, key, default=0.0)
+        position[key] = round(stage_filled_qty + filled_qty, 8)
         if stage_completed(position, stage=stage):
             position[f"{stage}_target_status"] = "filled"
             position[f"{stage}_target_hit"] = True
