@@ -596,13 +596,28 @@ def _load_promotion_metadata(raw: Any) -> PromotionMetadata | None:
 
 
 
+def _load_optional_metadata(raw: dict[str, Any]) -> dict[str, Any]:
+    if "metadata" not in raw or raw["metadata"] is None:
+        return {}
+    metadata = raw["metadata"]
+    if not isinstance(metadata, dict):
+        raise ValueError("metadata must be an object")
+    return dict(metadata)
+
+
 def load_backtest_config(path: str | Path) -> BacktestConfig:
     config_path = Path(path)
     raw = json.loads(config_path.read_text(encoding="utf-8"))
 
-    dataset_root = _resolve_dataset_root(config_path, str(_require(raw, "dataset_root")))
-    experiment_kind = str(_require(raw, "experiment_kind"))
-    sample_windows = _load_sample_windows(list(_require(raw, "sample_windows")))
+    dataset_root = _resolve_dataset_root(
+        config_path,
+        _canonical_string(_require(raw, "dataset_root"), field_name="dataset_root"),
+    )
+    experiment_kind = _canonical_string(_require(raw, "experiment_kind"), field_name="experiment_kind")
+    sample_windows_raw = _require(raw, "sample_windows")
+    if not isinstance(sample_windows_raw, list):
+        raise ValueError("sample_windows must be a list")
+    sample_windows = _load_sample_windows(sample_windows_raw)
     costs = _load_costs(_require(raw, "costs"), experiment_kind=experiment_kind)
 
     experiment_params = _load_experiment_params(raw.get("experiment_params"), experiment_kind=experiment_kind)
@@ -618,11 +633,11 @@ def load_backtest_config(path: str | Path) -> BacktestConfig:
         sample_windows=sample_windows,
         forward_return_windows=_load_forward_windows(raw.get("forward_return_windows")),
         costs=costs,
-        baseline_name=str(_require(raw, "baseline_name")),
-        variant_name=str(_require(raw, "variant_name")),
+        baseline_name=_canonical_string(_require(raw, "baseline_name"), field_name="baseline_name"),
+        variant_name=_canonical_string(_require(raw, "variant_name"), field_name="variant_name"),
         universe=_load_universe(raw["universe"]) if raw.get("universe") is not None else None,
         capital=_load_capital(raw["capital"]) if raw.get("capital") is not None else None,
         experiment_params=experiment_params,
         promotion_metadata=_load_promotion_metadata(raw.get("promotion_metadata")),
-        metadata=dict(raw.get("metadata") or {}),
+        metadata=_load_optional_metadata(raw),
     )
