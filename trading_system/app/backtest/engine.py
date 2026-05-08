@@ -554,12 +554,9 @@ def _funding_rate(row: DatasetSnapshotRow, symbol: str) -> float:
 def _optional_futures_float(value: Any, field: str, *, positive: bool = False) -> float | None:
     if value is None:
         return None
-    if isinstance(value, bool):
-        raise ValueError(f"invalid futures context numeric field {field}: bool is not supported")
-    try:
-        parsed = float(value)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"invalid futures context numeric field {field}: {value!r}") from exc
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"invalid futures context numeric field {field}: {value!r}")
+    parsed = float(value)
     if not math.isfinite(parsed):
         raise ValueError(f"invalid futures context numeric field {field}: non-finite value")
     if positive and parsed <= 0.0:
@@ -570,11 +567,9 @@ def _optional_futures_float(value: Any, field: str, *, positive: bool = False) -
 def _optional_futures_int(value: Any, field: str) -> int | None:
     if value is None:
         return None
-    _optional_futures_float(value, field)
-    try:
-        return int(value)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"invalid futures context numeric field {field}: {value!r}") from exc
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"invalid futures context integer field {field}: {value!r}")
+    return value
 
 
 def _optional_int(value: Any) -> int | None:

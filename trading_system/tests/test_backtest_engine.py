@@ -32,6 +32,14 @@ def _ts(value: str) -> Any:
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
+def test_engine_rejects_coerced_futures_context_fields() -> None:
+    with pytest.raises(ValueError, match="invalid futures context numeric field funding_rate"):
+        backtest_engine._optional_futures_float("0.001", "funding_rate")
+
+    with pytest.raises(ValueError, match="invalid futures context integer field funding_age_seconds"):
+        backtest_engine._optional_futures_int(1.5, "funding_age_seconds")
+
+
 def test_replay_snapshot_records_layer_artifacts(fixture_dir: Path) -> None:
     rows = load_historical_dataset(fixture_dir / "backtest" / "sample_dataset")
 
