@@ -124,6 +124,36 @@ def _manifest_object_field(manifest: dict[str, object], key: str) -> dict[str, o
     return dict(value)
 
 
+def _manifest_non_negative_int(manifest: dict[str, object], key: str) -> int:
+    value = manifest.get(key, 0)
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ValueError(f"import manifest {key} must be a non-negative integer")
+    return value
+
+
+def _manifest_string_list(manifest: dict[str, object], key: str) -> list[str]:
+    value = manifest.get(key)
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValueError(f"import manifest {key} must be a list")
+    values: list[str] = []
+    for index, item in enumerate(value):
+        if not isinstance(item, str) or not item.strip() or item != item.strip():
+            raise ValueError(f"import manifest {key}[{index}] must be a canonical string")
+        values.append(item)
+    return values
+
+
+def _manifest_list_count(manifest: dict[str, object], key: str) -> int:
+    value = manifest.get(key)
+    if value is None:
+        return 0
+    if not isinstance(value, list):
+        raise ValueError(f"import manifest {key} must be a list")
+    return len(value)
+
+
 def load_dataset_root_metadata(dataset_root: str | Path) -> dict[str, object]:
     root = Path(dataset_root)
     manifest_path = root / _IMPORT_MANIFEST_FILENAME
@@ -139,11 +169,11 @@ def load_dataset_root_metadata(dataset_root: str | Path) -> dict[str, object]:
             "scope": manifest.get("scope"),
             "archive_root": manifest.get("archive_root"),
             "dataset_root": manifest.get("dataset_root"),
-            "manifest_snapshot_count": int(manifest.get("snapshot_count") or 0),
-            "symbols": [str(value) for value in manifest.get("symbols") or ()],
+            "manifest_snapshot_count": _manifest_non_negative_int(manifest, "snapshot_count"),
+            "symbols": _manifest_string_list(manifest, "symbols"),
             "start_timestamp": manifest.get("start_timestamp"),
             "end_timestamp": manifest.get("end_timestamp"),
-            "bundle_count": len(manifest.get("bundle_dirs") or ()),
+            "bundle_count": _manifest_list_count(manifest, "bundle_dirs"),
             "source": _manifest_object_field(manifest, "source"),
             "coverage": _manifest_object_field(manifest, "coverage"),
         },
