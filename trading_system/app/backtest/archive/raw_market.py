@@ -163,6 +163,15 @@ def _normalized_symbol_metadata(payload: Any, *, context: Path | str) -> dict[st
     }
 
 
+def _normalized_metadata(payload: Mapping[str, Any], *, context: Path | str) -> dict[str, Any]:
+    normalized: dict[str, Any] = {}
+    for key, value in payload.items():
+        if not isinstance(key, str) or not key.strip() or key != key.strip():
+            raise ValueError(f"raw-market metadata keys must be canonical strings: {context}")
+        normalized[key] = value
+    return normalized
+
+
 def _canonical_dataset(value: str) -> str:
     normalized = _normalized_segment(value)
     canonical = PHASE1_RAW_MARKET_DATASET_ALIASES.get(normalized)
@@ -639,7 +648,7 @@ def archive_raw_market_payload(
     if metadata is not None:
         if not isinstance(metadata, Mapping):
             raise ValueError(f"raw-market metadata must be a JSON object: {storage_dir}")
-        normalized_metadata = dict(metadata)
+        normalized_metadata = _normalized_metadata(metadata, context=storage_dir)
     storage_dir.mkdir(parents=True, exist_ok=True)
     duplicate_manifest = _existing_manifest_for_coverage(
         storage_dir,
