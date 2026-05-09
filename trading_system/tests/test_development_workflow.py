@@ -169,6 +169,7 @@ def test_verify_lists_available_suites_as_json() -> None:
     assert payload["suites"]["workflow-meta"]["count"] == 4
     assert "trading_system/tests/test_development_workflow.py" in payload["suites"]["workflow-meta"]["tests"]
     for suite in payload["suites"].values():
+        assert set(suite) == {"count", "tests"}
         for test_path in suite["tests"]:
             assert (ROOT / test_path).exists(), test_path
     assert payload["suites"]["full"] == {"count": "full pytest suite", "tests": []}
