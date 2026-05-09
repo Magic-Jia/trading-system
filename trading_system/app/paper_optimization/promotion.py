@@ -189,6 +189,8 @@ def build_promotion_decision(
         baseline_bundle=baseline_bundle,
         variant_bundle=variant_bundle,
     )
+    if not isinstance(comparison, Mapping):
+        raise ValueError("comparison result must be an object")
     promotion_gate = _object_section(comparison, "promotion_gate")
     decision_summary = _object_section(comparison, "decision_summary")
     payload["status"] = (

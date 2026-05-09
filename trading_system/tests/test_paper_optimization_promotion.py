@@ -372,3 +372,18 @@ def test_build_promotion_decision_rejects_non_string_compare_decisions() -> None
             compare_backtest_bundles_fn=fake_compare,
             recorded_at_bj="2026-04-24T12:05:00+08:00",
         )
+
+def test_build_promotion_decision_rejects_non_object_compare_result() -> None:
+    import pytest
+
+    def fake_compare(*, baseline_bundle, variant_bundle):
+        return "not-an-object"
+
+    with pytest.raises(ValueError, match="comparison result must be an object"):
+        build_promotion_decision(
+            recommendations_payload={"recommendations": [{"id": "rec", "overlay_ops": []}]},
+            baseline_bundle="/tmp/baseline",
+            variant_bundle="/tmp/variant",
+            compare_backtest_bundles_fn=fake_compare,
+            recorded_at_bj="2026-04-24T12:05:00+08:00",
+        )
