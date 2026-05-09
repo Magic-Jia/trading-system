@@ -219,6 +219,7 @@ def test_ci_verify_dry_run_json_reports_commands() -> None:
 
     payload = json.loads(result.stdout)
     assert payload["entrypoint"] == "ci_verify"
+    assert payload["strict_changed_verification"] is True
     assert payload["commands"] == [
         "python3 scripts/verify.py --dry-run --strict-auto-changed",
         "python3 scripts/verify.py --suite workflow-meta",

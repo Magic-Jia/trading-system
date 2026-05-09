@@ -32,7 +32,11 @@ def main() -> int:
         print("--json requires --dry-run", file=sys.stderr)
         return 2
     if args.dry_run:
-        payload = {"entrypoint": "ci_verify", "commands": DISPLAY_COMMANDS}
+        payload = {
+            "entrypoint": "ci_verify",
+            "commands": DISPLAY_COMMANDS,
+            "strict_changed_verification": True,
+        }
         if args.json:
             print(json.dumps(payload, indent=2, sort_keys=True))
         else:
