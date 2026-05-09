@@ -1179,6 +1179,69 @@ def test_allocator_and_friction_comparisons() -> None:
     assert result["comparison_rows"]
 
 
+@pytest.mark.parametrize("input_universe", [True, "1", 1.5])
+def test_allocator_friction_experiment_rejects_invalid_engine_only_input_universe(
+    monkeypatch: pytest.MonkeyPatch,
+    input_universe: object,
+) -> None:
+    def invalid_engine_only_candidates(_row, *, engine: str):
+        return {
+            "regime": _bullish_ablation_row().meta["regime_override"],
+            "input_universe": input_universe,
+            "candidates": [],
+            "filter_counts": {},
+        }
+
+    monkeypatch.setattr(backtest_experiments, "_engine_only_candidates", invalid_engine_only_candidates)
+
+    with pytest.raises(ValueError, match=r"^engine_only\.input_universe must be an integer$"):
+        run_allocator_friction_experiment([_bullish_ablation_row()], evaluation_window="3d")
+
+
+@pytest.mark.parametrize(
+    ("candidates", "match"),
+    [
+        ("BTCUSDT", r"^engine_only\.candidates must be a list$"),
+        ([object()], r"^engine_only\.candidates\[0\] must be an object$"),
+    ],
+)
+def test_allocator_friction_experiment_rejects_invalid_engine_only_candidate_shape(
+    monkeypatch: pytest.MonkeyPatch,
+    candidates: object,
+    match: str,
+) -> None:
+    def invalid_engine_only_candidates(_row, *, engine: str):
+        return {
+            "regime": _bullish_ablation_row().meta["regime_override"],
+            "input_universe": 1,
+            "candidates": candidates,
+            "filter_counts": {},
+        }
+
+    monkeypatch.setattr(backtest_experiments, "_engine_only_candidates", invalid_engine_only_candidates)
+
+    with pytest.raises(ValueError, match=match):
+        run_allocator_friction_experiment([_bullish_ablation_row()], evaluation_window="3d")
+
+
+@pytest.mark.parametrize("regime", [[("label", "RISK_ON_TREND")], "RISK_ON_TREND"])
+def test_allocator_friction_experiment_rejects_invalid_candidate_bundle_regime(
+    monkeypatch: pytest.MonkeyPatch,
+    regime: object,
+) -> None:
+    def invalid_all_engine_candidates(_row):
+        return {
+            "regime": regime,
+            "input_universe": 0,
+            "candidates": [],
+        }
+
+    monkeypatch.setattr(backtest_experiments, "_all_engine_candidates", invalid_all_engine_candidates)
+
+    with pytest.raises(ValueError, match=r"^candidate_bundle\.regime must be an object$"):
+        run_allocator_friction_experiment([_bullish_ablation_row()], evaluation_window="3d")
+
+
 @pytest.mark.parametrize("invalid_budget", [True, float("nan"), float("inf")])
 def test_allocator_friction_experiment_rejects_invalid_present_final_risk_budget(
     monkeypatch: pytest.MonkeyPatch,

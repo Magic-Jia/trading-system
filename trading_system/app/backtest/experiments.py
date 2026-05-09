@@ -778,6 +778,32 @@ def _trace_input_universe(payload: Mapping[str, Any]) -> int:
     return value
 
 
+def _strict_input_universe(payload: Mapping[str, Any], *, path: str) -> int:
+    value = payload["input_universe"]
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"{path}.input_universe must be an integer")
+    return value
+
+
+def _strict_candidate_rows(payload: Mapping[str, Any], *, path: str) -> list[dict[str, Any]]:
+    value = payload["candidates"]
+    if not isinstance(value, list):
+        raise ValueError(f"{path}.candidates must be a list")
+    rows: list[dict[str, Any]] = []
+    for index, candidate in enumerate(value):
+        if not isinstance(candidate, Mapping):
+            raise ValueError(f"{path}.candidates[{index}] must be an object")
+        rows.append(dict(candidate))
+    return rows
+
+
+def _strict_mapping_field(payload: Mapping[str, Any], field: str, *, path: str) -> dict[str, Any]:
+    value = payload[field]
+    if not isinstance(value, Mapping):
+        raise ValueError(f"{path}.{field} must be an object")
+    return dict(value)
+
+
 def _telemetry_integer_counter(value: Any, *, path: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int):
         raise ValueError(f"{path} must be an integer")
@@ -1564,8 +1590,8 @@ def _all_engine_candidates(row: DatasetSnapshotRow) -> dict[str, Any]:
     candidates: list[dict[str, Any]] = []
     for engine in ("trend", "rotation", "short"):
         engine_only = _engine_only_candidates(row, engine=engine)
-        input_universe += int(engine_only["input_universe"])
-        candidates.extend(list(engine_only["candidates"]))
+        input_universe += _strict_input_universe(engine_only, path="engine_only")
+        candidates.extend(_strict_candidate_rows(engine_only, path="engine_only"))
     return {
         "regime": regime,
         "input_universe": input_universe,
@@ -1594,9 +1620,12 @@ def run_allocator_friction_experiment(
 
     for row in ordered_rows:
         candidate_bundle = _all_engine_candidates(row)
-        regime = dict(candidate_bundle["regime"])
+        regime = _strict_mapping_field(candidate_bundle, "regime", path="candidate_bundle")
         account = _account_context(row)
-        validated_candidates = _validated_candidates(list(candidate_bundle["candidates"]), account)
+        validated_candidates = _validated_candidates(
+            _strict_candidate_rows(candidate_bundle, path="candidate_bundle"),
+            account,
+        )
 
         for variant_name, builder in variant_builders.items():
             allocations = builder(account, validated_candidates, regime)
@@ -1633,9 +1662,12 @@ def run_allocator_friction_experiment(
             all_performance_rows: list[dict[str, Any]] = []
             for row in ordered_rows:
                 candidate_bundle = _all_engine_candidates(row)
-                regime = dict(candidate_bundle["regime"])
+                regime = _strict_mapping_field(candidate_bundle, "regime", path="candidate_bundle")
                 account = _account_context(row)
-                validated_candidates = _validated_candidates(list(candidate_bundle["candidates"]), account)
+                validated_candidates = _validated_candidates(
+                    _strict_candidate_rows(candidate_bundle, path="candidate_bundle"),
+                    account,
+                )
                 allocations_for_row = variant_builders[variant_name](account, validated_candidates, regime)
                 all_performance_rows.extend(
                     _allocation_performance_rows(
