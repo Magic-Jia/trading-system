@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 import importlib.util
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -56,6 +58,13 @@ def run_verify(*args: str) -> subprocess.CompletedProcess[str]:
         stderr=subprocess.PIPE,
         check=False,
     )
+
+
+def expected_plan_fingerprint(payload: dict[str, object]) -> str:
+    payload_without_fingerprint = dict(payload)
+    payload_without_fingerprint.pop("plan_fingerprint")
+    canonical = json.dumps(payload_without_fingerprint, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 def test_verify_dry_run_maps_main_changes_to_runtime_regression() -> None:
@@ -207,6 +216,11 @@ def test_verify_json_dry_run_emits_machine_readable_plan() -> None:
     assert payload["plan_kind"] == "verification_plan"
     assert len(payload["plan_fingerprint"]) == 64
     assert all(char in "0123456789abcdef" for char in payload["plan_fingerprint"])
+    assert payload["plan_fingerprint"] == expected_plan_fingerprint(payload)
+    alternate = run_verify("--dry-run", "--json", "--changed", "trading_system/app/universe/liquidity_filter.py")
+    assert alternate.returncode == 0, alternate.stderr
+    alternate_payload = json.loads(alternate.stdout)
+    assert alternate_payload["plan_fingerprint"] != payload["plan_fingerprint"]
     repeat = run_verify("--dry-run", "--json", "--changed", "trading_system/app/main.py")
     assert repeat.returncode == 0, repeat.stderr
     repeat_payload = json.loads(repeat.stdout)
@@ -450,6 +464,7 @@ def test_ci_verify_dry_run_json_reports_commands() -> None:
     assert payload["plan_version"] == 1
     assert payload["plan_kind"] == "ci_verification_plan"
     assert len(payload["plan_fingerprint"]) == 64
+    assert payload["plan_fingerprint"] == expected_plan_fingerprint(payload)
     repeat = subprocess.run(
         [sys.executable, str(ROOT / "scripts" / "ci_verify.py"), "--dry-run", "--json"],
         cwd=ROOT,
@@ -561,6 +576,7 @@ def test_nightly_verify_dry_run_json_reports_clean_env_full_command() -> None:
     assert payload["plan_version"] == 1
     assert payload["plan_kind"] == "nightly_verification_plan"
     assert len(payload["plan_fingerprint"]) == 64
+    assert payload["plan_fingerprint"] == expected_plan_fingerprint(payload)
     repeat = subprocess.run(
         [sys.executable, str(ROOT / "scripts" / "nightly_verify.py"), "--dry-run", "--json"],
         cwd=ROOT,
