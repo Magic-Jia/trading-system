@@ -220,3 +220,34 @@ def test_generate_recommendations_rejects_invalid_status_and_timestamp_fields() 
             health_report={"status": "ok", "warnings": "bad"},
             recorded_at_bj="2026-04-24T12:05:00+08:00",
         )
+
+
+def test_generate_recommendations_rejects_invalid_engine_breakdowns() -> None:
+    import pytest
+
+    base_metrics = {
+        "recorded_at_bj": "2026-04-24T12:00:00+08:00",
+        "trade_outcome_count": 8,
+        "unrealized_pnl_total": -0.8,
+    }
+
+    with pytest.raises(ValueError, match="daily_metrics.by_engine must be an object"):
+        generate_recommendations(
+            daily_metrics={**base_metrics, "by_engine": []},
+            health_report={"status": "ok", "warnings": []},
+            recorded_at_bj="2026-04-24T12:05:00+08:00",
+        )
+
+    with pytest.raises(ValueError, match="daily_metrics.by_engine keys must be strings"):
+        generate_recommendations(
+            daily_metrics={**base_metrics, "by_engine": {123: {"trade_outcome_count": 4, "unrealized_pnl_total": -0.35}}},
+            health_report={"status": "ok", "warnings": []},
+            recorded_at_bj="2026-04-24T12:05:00+08:00",
+        )
+
+    with pytest.raises(ValueError, match="daily_metrics.by_engine.trend must be an object"):
+        generate_recommendations(
+            daily_metrics={**base_metrics, "by_engine": {"trend": []}},
+            health_report={"status": "ok", "warnings": []},
+            recorded_at_bj="2026-04-24T12:05:00+08:00",
+        )

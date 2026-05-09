@@ -243,10 +243,14 @@ def generate_recommendations(
             )
 
         by_engine = daily_metrics.get("by_engine")
-        if isinstance(by_engine, Mapping):
+        if by_engine is not None:
+            if not isinstance(by_engine, Mapping):
+                raise ValueError("daily_metrics.by_engine must be an object")
             for engine_name, raw_bucket in by_engine.items():
+                if not isinstance(engine_name, str):
+                    raise ValueError("daily_metrics.by_engine keys must be strings")
                 if not isinstance(raw_bucket, Mapping):
-                    continue
+                    raise ValueError(f"daily_metrics.by_engine.{engine_name} must be an object")
                 engine_trade_outcome_count = _int(raw_bucket.get("trade_outcome_count"), field_name=f"by_engine.{engine_name}.trade_outcome_count")
                 engine_unrealized_pnl_total = _float(raw_bucket.get("unrealized_pnl_total"), field_name=f"by_engine.{engine_name}.unrealized_pnl_total")
                 if engine_trade_outcome_count < _DEFAULT_MIN_ENGINE_TRADE_OUTCOMES:
@@ -254,7 +258,7 @@ def generate_recommendations(
                 if engine_unrealized_pnl_total > _DEFAULT_ENGINE_LOSS_THRESHOLD:
                     continue
                 recommendation = _engine_weight_recommendation(
-                    engine=str(engine_name),
+                    engine=engine_name,
                     bucket=raw_bucket,
                     metrics_recorded_at_bj=metrics_recorded_at_bj,
                 )
