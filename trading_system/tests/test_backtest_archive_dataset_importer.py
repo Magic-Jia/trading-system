@@ -386,6 +386,45 @@ def test_materialize_dataset_root_rejects_fractional_futures_context_age_before_
     assert not dataset_root.exists()
 
 
+@pytest.mark.parametrize(
+    ("field_name", "malformed_value"),
+    [
+        ("execution_latency_ms", True),
+        ("execution_latency_ms", "1"),
+        ("execution_latency_ms", 1.5),
+        ("execution_latency_ms", float("nan")),
+        ("execution_latency_ms", float("inf")),
+        ("execution_latency_ms", -1),
+        ("sample_count", True),
+        ("sample_count", "1"),
+        ("sample_count", 1.5),
+        ("sample_count", float("nan")),
+        ("sample_count", float("inf")),
+        ("sample_count", -1),
+    ],
+)
+def test_write_phase1_dataset_bundle_rejects_derivatives_snapshot_latency_and_count_fields_before_write(
+    tmp_path: Path,
+    field_name: str,
+    malformed_value: object,
+) -> None:
+    archive_root = tmp_path / "archive"
+    _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT")
+    latest = build_phase1_dataset_bundle_materials(load_phase1_raw_market_imports(archive_root))[-1]
+    derivatives_snapshot = json.loads(json.dumps(latest.derivatives_snapshot))
+    derivatives_snapshot["rows"][0][field_name] = malformed_value
+    material = replace(latest, derivatives_snapshot=derivatives_snapshot)
+    dataset_root = tmp_path / "dataset"
+
+    with pytest.raises(
+        ValueError,
+        match=rf"derivatives_snapshot rows\[0\]\.{field_name} must be a non-negative integer",
+    ):
+        write_phase1_dataset_bundle(material, dataset_root)
+
+    assert not dataset_root.exists()
+
+
 
 def test_resolved_phase1_imported_dataset_root_path_rejects_non_string_relative_value(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="phase1 imported dataset root path value must be a string"):

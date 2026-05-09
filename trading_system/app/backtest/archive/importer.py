@@ -2038,7 +2038,13 @@ def _validate_material_derivatives_snapshot_numeric_evidence(derivatives_snapsho
     for index, row in enumerate(rows):
         if not isinstance(row, Mapping):
             continue
-        for field_name in ("mark_price_age_seconds", "funding_age_seconds", "open_interest_age_seconds"):
+        for field_name in row:
+            if not (
+                field_name.endswith("_age_seconds")
+                or field_name.endswith("_latency_ms")
+                or field_name.endswith("_count")
+            ):
+                continue
             if field_name not in row:
                 continue
             _require_non_negative_int_field(
