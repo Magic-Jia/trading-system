@@ -109,7 +109,7 @@ def _latest_rows_by_symbol(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def _group_breakdown(rows: list[dict[str, Any]], key: str) -> dict[str, dict[str, Any]]:
     grouped: dict[str, dict[str, Any]] = {}
     for row in rows:
-        name = str(row.get(key) or "")
+        name = _optional_str(row.get(key), field_name=f"trade_outcome.{key}") or ""
         if not name:
             continue
         bucket = grouped.setdefault(name, _blank_bucket())
