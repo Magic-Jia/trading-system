@@ -80,6 +80,8 @@ def test_workflow_doc_records_json_plan_and_full_checkpoint_policy() -> None:
     assert "clean_env: true" in text
     assert "forbidden changed file" in text
     assert "explicit --changed" in text
+    assert "registered suite test files" in text
+    assert "owning verification suite" in text
     assert "--slice-count" in text
     assert "full_checkpoint_reason" in text
     assert "exact top-level field set" in text
