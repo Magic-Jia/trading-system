@@ -642,8 +642,18 @@ def render_allocator_friction_report(
         raise ValueError("variants.current_allocator.frictions.base must be an object")
     best_stressed_net_bucket_pnl = 0.0
     if best_variant is not None:
-        best_stressed_net_bucket_pnl = float(
-            dict(dict(variants.get(best_variant, {})).get("frictions", {})).get("stressed", {}).get("net_bucket_pnl", 0.0)
+        best_payload = variants.get(best_variant, {})
+        if not isinstance(best_payload, Mapping):
+            raise ValueError(f"variants.{best_variant} must be an object")
+        best_frictions = best_payload.get("frictions", {})
+        if not isinstance(best_frictions, Mapping):
+            raise ValueError(f"variants.{best_variant}.frictions must be an object")
+        best_stressed = best_frictions.get("stressed", {})
+        if not isinstance(best_stressed, Mapping):
+            raise ValueError(f"variants.{best_variant}.frictions.stressed must be an object")
+        best_stressed_net_bucket_pnl = _report_finite_float(
+            best_stressed.get("net_bucket_pnl", 0.0),
+            field_name=f"variants.{best_variant}.frictions.stressed.net_bucket_pnl",
         )
     current_base_net_bucket_pnl = _report_finite_float(
         current_base.get("net_bucket_pnl", 0.0),
