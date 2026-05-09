@@ -103,7 +103,9 @@ def render_backtest_evaluation_report(
                 "evaluation_layer": "walk_forward_oos_regime_cost_stress",
             },
             "walk_forward_status": walk_forward.get("status"),
-            "walk_forward_window_count": int(dict(walk_forward.get("metadata", {})).get("window_count", 0)),
+            "walk_forward_window_count": _non_negative_int_field(
+                dict(walk_forward.get("metadata", {})), "window_count", label="walk_forward.metadata"
+            ),
             "regime_bucket_count": len(list(regimes.get("buckets", []))),
             "cost_stress_scenarios": stress_scenarios,
         },

@@ -30,6 +30,19 @@ def _ts(value: str) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(timezone.utc)
 
 
+def test_backtest_evaluation_report_rejects_invalid_walk_forward_window_count() -> None:
+    with pytest.raises(ValueError, match="walk_forward.metadata.window_count must be a non-negative integer"):
+        reporting.render_backtest_evaluation_report(
+            experiment_name="evaluation",
+            evaluation={
+                "walk_forward": {"metadata": {"window_count": True}},
+                "regimes": {"buckets": []},
+                "cost_stress": {"scenarios": []},
+            },
+            metadata={"dataset_root": "dataset"},
+        )
+
+
 def test_regime_scorecard_rejects_invalid_forward_return_metric() -> None:
     with pytest.raises(ValueError, match="by_regime.bull.forward_return_by_window.3d must be a finite number"):
         reporting.render_regime_scorecard(
