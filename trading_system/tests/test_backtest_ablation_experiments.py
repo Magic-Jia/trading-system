@@ -971,6 +971,65 @@ def test_long_gate_telemetry_rejects_non_string_validated_candidate_symbol(
         run_long_gate_telemetry_experiment([_bullish_ablation_row()], evaluation_window="3d")
 
 
+@pytest.mark.parametrize("funnel", [[("raw_candidates", 1)], object()])
+def test_long_gate_telemetry_rejects_non_mapping_pipeline_funnel(
+    monkeypatch: pytest.MonkeyPatch,
+    funnel: object,
+) -> None:
+    def pipeline_with_invalid_funnel(*_args, **_kwargs):
+        return {
+            "funnel": funnel,
+            "validated_candidates": [],
+            "allocation_rows": [],
+            "returns": [],
+        }
+
+    monkeypatch.setattr(backtest_experiments, "_run_candidate_pipeline", pipeline_with_invalid_funnel)
+
+    with pytest.raises(ValueError, match=r"^pipeline\.funnel must be an object$"):
+        run_long_gate_telemetry_experiment([_bullish_ablation_row()], evaluation_window="3d")
+
+
+@pytest.mark.parametrize(
+    ("counter", "value", "match"),
+    [
+        ("raw_candidates", True, r"^pipeline\.funnel\.raw_candidates must be an integer$"),
+        ("raw_candidates", "1", r"^pipeline\.funnel\.raw_candidates must be an integer$"),
+        ("raw_candidates", 1.0, r"^pipeline\.funnel\.raw_candidates must be an integer$"),
+        ("accepted_allocations", True, r"^pipeline\.funnel\.accepted_allocations must be an integer$"),
+        ("accepted_allocations", "1", r"^pipeline\.funnel\.accepted_allocations must be an integer$"),
+        ("accepted_allocations", 1.0, r"^pipeline\.funnel\.accepted_allocations must be an integer$"),
+    ],
+)
+def test_long_gate_telemetry_rejects_invalid_pipeline_funnel_counter(
+    monkeypatch: pytest.MonkeyPatch,
+    counter: str,
+    value: object,
+    match: str,
+) -> None:
+    funnel = {
+        "input_universe": 1,
+        "raw_candidates": 1,
+        "validated_candidates": 0,
+        "allocation_decisions": 0,
+        "accepted_allocations": 0,
+        counter: value,
+    }
+
+    def pipeline_with_invalid_funnel_counter(*_args, **_kwargs):
+        return {
+            "funnel": funnel,
+            "validated_candidates": [],
+            "allocation_rows": [],
+            "returns": [],
+        }
+
+    monkeypatch.setattr(backtest_experiments, "_run_candidate_pipeline", pipeline_with_invalid_funnel_counter)
+
+    with pytest.raises(ValueError, match=match):
+        run_long_gate_telemetry_experiment([_bullish_ablation_row()], evaluation_window="3d")
+
+
 def test_long_gate_telemetry_rejects_non_string_trend_symbol_key() -> None:
     row = _bullish_ablation_row()
     row.market["symbols"] = {123: row.market["symbols"]["BTCUSDT"]}

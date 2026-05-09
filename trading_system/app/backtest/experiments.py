@@ -778,6 +778,23 @@ def _trace_input_universe(payload: Mapping[str, Any]) -> int:
     return value
 
 
+def _telemetry_integer_counter(value: Any, *, path: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"{path} must be an integer")
+    return value
+
+
+def _pipeline_funnel_counts(pipeline: Mapping[str, Any]) -> dict[str, int]:
+    funnel = pipeline["funnel"]
+    if not isinstance(funnel, Mapping):
+        raise ValueError("pipeline.funnel must be an object")
+    counts: dict[str, int] = {}
+    for key in _FUNNEL_KEYS:
+        if key in funnel:
+            counts[key] = _telemetry_integer_counter(funnel[key], path=f"pipeline.funnel.{key}")
+    return _with_zero_defaults(counts, _FUNNEL_KEYS)
+
+
 def _validated_candidate_symbol(candidate: Mapping[str, Any], *, index: int) -> str:
     symbol = candidate.get("symbol", "")
     if not isinstance(symbol, str):
@@ -1825,13 +1842,14 @@ def run_long_gate_telemetry_experiment(
                 candidates=_trace_candidate_rows(traced),
                 evaluation_window=evaluation_window,
             )
+            funnel = _pipeline_funnel_counts(pipeline)
             aggregate = aggregates[engine_name]
-            _merge_counts(aggregate["funnel_counts"], pipeline["funnel"])
+            _merge_counts(aggregate["funnel_counts"], funnel)
             _merge_counts(aggregate["filter_counts"], traced_filter_counts)
             aggregate["accepted_returns"].extend(pipeline["returns"])
 
             regime_engine_bucket = regime_bucket["engines"][engine_name]
-            _merge_counts(regime_engine_bucket["funnel_counts"], pipeline["funnel"])
+            _merge_counts(regime_engine_bucket["funnel_counts"], funnel)
             _merge_counts(regime_engine_bucket["filter_counts"], traced_filter_counts)
             regime_engine_bucket["accepted_returns"].extend(pipeline["returns"])
 
@@ -1849,7 +1867,6 @@ def run_long_gate_telemetry_experiment(
                     _bump_symbol_funnel(symbol_rows, symbol, "accepted_allocations")
             _merge_symbol_breakdown(symbol_breakdown_aggregates[engine_name], symbol_rows)
 
-            funnel = _with_zero_defaults(dict(pipeline["funnel"]), _FUNNEL_KEYS)
             filter_counts = _with_zero_defaults(traced_filter_counts, tuple(spec["filter_keys"]))
             total_raw_candidates += int(funnel["raw_candidates"])
             total_accepted_allocations += int(funnel["accepted_allocations"])
