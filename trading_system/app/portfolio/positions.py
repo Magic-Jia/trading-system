@@ -621,7 +621,10 @@ def apply_management_action_fill(state: RuntimeState, intent: ManagementActionIn
             position[f"{stage}_target_hit"] = True
             if stage == "second" and remaining_qty > 0:
                 position["runner_protected"] = _strict_optional_bool(intent.meta or {}, "runner_protected")
-                position["runner_stop_price"] = (intent.meta or {}).get("runner_stop_price")
+                position["runner_stop_price"] = _strict_present_optional_number(
+                    intent.meta or {},
+                    "runner_stop_price",
+                )
             elif stage == "second":
                 position["runner_protected"] = False
                 position["runner_stop_price"] = None

@@ -852,3 +852,37 @@ def test_apply_management_action_fill_rejects_coerced_existing_stage_filled_qty(
         )
 
     assert state.positions["BTCUSDT"][field] == filled_qty
+
+
+@pytest.mark.parametrize("runner_stop_price", [True, "105.0", float("nan")])
+def test_apply_management_action_fill_rejects_coerced_runner_stop_price_writeback(runner_stop_price):
+    state = _management_fill_state(
+        qty=0.75,
+        remaining_position_qty=0.75,
+        first_target_status="filled",
+        first_target_hit=True,
+        first_target_filled_qty=1.0,
+        second_target_status="pending",
+        second_target_hit=False,
+        second_target_filled_qty=0.0,
+    )
+
+    with pytest.raises((TypeError, ValueError), match="runner_stop_price"):
+        apply_management_action_fill(
+            state,
+            _partial_take_profit_intent(
+                intent_id="mgmt-btcusdt-partial-second",
+                qty=0.5,
+                meta={
+                    "target_stage": "second",
+                    "exit_trigger": "second_target_hit",
+                    "fraction_basis": "original_position",
+                    "runner_protected": True,
+                    "runner_stop_price": runner_stop_price,
+                },
+            ),
+        )
+
+    assert state.positions["BTCUSDT"]["second_target_status"] == "pending"
+    assert state.positions["BTCUSDT"]["runner_protected"] is False
+    assert state.positions["BTCUSDT"]["runner_stop_price"] is None
