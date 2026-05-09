@@ -197,6 +197,80 @@ def test_public_strategy_factor_experiment_rejects_invalid_present_daily_atr_fac
         )
 
 
+@pytest.mark.parametrize(
+    ("field", "invalid_factor_value", "match"),
+    [
+        ("close", True, r"^BTCUSDT\.daily\.close must be a finite number$"),
+        ("close", "101", r"^BTCUSDT\.daily\.close must be a finite number$"),
+        ("close", math.nan, r"^BTCUSDT\.daily\.close must be a finite number$"),
+        ("close", math.inf, r"^BTCUSDT\.daily\.close must be a finite number$"),
+        ("ema_50", True, r"^BTCUSDT\.daily\.ema_50 must be a finite number$"),
+        ("ema_50", "100", r"^BTCUSDT\.daily\.ema_50 must be a finite number$"),
+        ("ema_50", math.nan, r"^BTCUSDT\.daily\.ema_50 must be a finite number$"),
+        ("ema_50", math.inf, r"^BTCUSDT\.daily\.ema_50 must be a finite number$"),
+    ],
+)
+def test_public_strategy_factor_experiment_rejects_invalid_present_trend_daily_factor_fields(
+    field: str,
+    invalid_factor_value: object,
+    match: str,
+) -> None:
+    rows = [
+        _suppressed_rotation_row(0, link_return=0.06, ada_return=-0.03, forward_return_3d=0.01),
+        _suppressed_rotation_row(1, link_return=0.04, ada_return=-0.02, forward_return_3d=0.02),
+    ]
+    rows[0].market["symbols"]["BTCUSDT"]["daily"][field] = invalid_factor_value
+
+    with pytest.raises(ValueError, match=match):
+        run_public_strategy_factor_experiment(
+            rows,
+            evaluation_window="3d",
+            strategy_families=("trend_following",),
+        )
+
+
+@pytest.mark.parametrize("field", ["close", "ema_50"])
+def test_public_strategy_factor_experiment_skips_missing_trend_daily_factor_fields(field: str) -> None:
+    rows = [
+        _suppressed_rotation_row(0, link_return=0.06, ada_return=-0.03, forward_return_3d=0.01),
+        _suppressed_rotation_row(1, link_return=0.04, ada_return=-0.02, forward_return_3d=0.02),
+    ]
+    for row in rows:
+        for symbol in row.market["symbols"].values():
+            del symbol["daily"][field]
+
+    result = run_public_strategy_factor_experiment(
+        rows,
+        evaluation_window="3d",
+        strategy_families=("trend_following",),
+    )
+
+    trend = result["factors"][0]
+    assert trend["supported"] is True
+    assert "effectiveness" not in trend
+    assert result["summary"]["evaluated_factor_count"] == 0
+
+
+def test_public_strategy_factor_experiment_preserves_valid_trend_daily_factor_numbers() -> None:
+    rows = [
+        _suppressed_rotation_row(0, link_return=0.06, ada_return=-0.03, forward_return_3d=0.01),
+        _suppressed_rotation_row(1, link_return=0.04, ada_return=-0.02, forward_return_3d=0.02),
+    ]
+    rows[0].market["symbols"]["BTCUSDT"]["daily"]["close"] = 101
+    rows[0].market["symbols"]["BTCUSDT"]["daily"]["ema_50"] = 100
+    rows[1].market["symbols"]["BTCUSDT"]["daily"]["close"] = 102.0
+    rows[1].market["symbols"]["BTCUSDT"]["daily"]["ema_50"] = 100.0
+
+    result = run_public_strategy_factor_experiment(
+        rows,
+        evaluation_window="3d",
+        strategy_families=("trend_following",),
+    )
+
+    trend = result["factors"][0]
+    assert trend["effectiveness"]["sample_count"] == 2
+
+
 def test_public_strategy_factor_experiment_preserves_valid_daily_factor_numbers() -> None:
     rows = [
         _suppressed_rotation_row(0, link_return=0.06, ada_return=-0.03, forward_return_3d=0.01),

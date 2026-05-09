@@ -240,17 +240,16 @@ def _trend_factor_value(row: DatasetSnapshotRow) -> float | None:
     if not isinstance(symbols, Mapping):
         return None
     values: list[float] = []
-    for payload in symbols.values():
+    for symbol, payload in symbols.items():
         if not isinstance(payload, Mapping):
             continue
         daily = payload.get("daily")
         if not isinstance(daily, Mapping):
             continue
-        try:
-            close = float(daily.get("close"))
-            ema50 = float(daily.get("ema_50"))
-        except (TypeError, ValueError):
+        if daily.get("close") is None or daily.get("ema_50") is None:
             continue
+        close = _strict_finite_number(daily["close"], field_name=f"{symbol}.daily.close")
+        ema50 = _strict_finite_number(daily["ema_50"], field_name=f"{symbol}.daily.ema_50")
         if ema50 == 0:
             continue
         values.append((close / ema50) - 1.0)
