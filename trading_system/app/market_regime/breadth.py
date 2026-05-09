@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+from numbers import Real
 from typing import Any
 
 
@@ -19,6 +21,18 @@ def _ratio(part: int, total: int) -> float:
     return part / total
 
 
+def _strict_finite_float(row: dict[str, Any], field: str, *, symbol: str) -> float:
+    if field not in row:
+        raise ValueError(f"missing required market breadth field: {symbol}.4h.{field}")
+    value = row[field]
+    if isinstance(value, bool) or not isinstance(value, Real):
+        raise ValueError(f"market breadth field must be a finite number: {symbol}.4h.{field}")
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError(f"market breadth field must be finite: {symbol}.4h.{field}")
+    return number
+
+
 def compute_breadth_metrics(market: dict[str, Any] | list[dict[str, Any]]) -> dict[str, float]:
     rows = _coerce_rows(market)
     total = len(rows)
@@ -28,11 +42,16 @@ def compute_breadth_metrics(market: dict[str, Any] | list[dict[str, Any]]) -> di
     positive_momentum = 0
 
     for row in rows:
-        tf_4h = row.get("4h", {})
-        close = float(tf_4h.get("close", 0.0))
-        ema20 = float(tf_4h.get("ema_20", 0.0))
-        ema50 = float(tf_4h.get("ema_50", 0.0))
-        momentum = float(tf_4h.get("return_pct_3d", 0.0))
+        symbol = row.get("symbol")
+        if not isinstance(symbol, str) or not symbol:
+            raise ValueError("market breadth row symbol must be a non-empty string")
+        tf_4h = row.get("4h")
+        if not isinstance(tf_4h, dict):
+            raise ValueError(f"market breadth timeframe must be an object: {symbol}.4h")
+        close = _strict_finite_float(tf_4h, "close", symbol=symbol)
+        ema20 = _strict_finite_float(tf_4h, "ema_20", symbol=symbol)
+        ema50 = _strict_finite_float(tf_4h, "ema_50", symbol=symbol)
+        momentum = _strict_finite_float(tf_4h, "return_pct_3d", symbol=symbol)
 
         if close > ema20:
             above_4h_ema20 += 1

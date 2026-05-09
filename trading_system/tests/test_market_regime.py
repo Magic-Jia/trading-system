@@ -182,6 +182,23 @@ def test_compute_breadth_metrics_counts_positive_participation(load_fixture):
     assert metrics["positive_momentum_share"] == 1.0
 
 
+def test_compute_breadth_metrics_rejects_string_4h_close():
+    market = [
+        {
+            "symbol": "BTCUSDT",
+            "4h": {
+                "close": "101.0",
+                "ema_20": 100.0,
+                "ema_50": 99.0,
+                "return_pct_3d": 0.03,
+            },
+        }
+    ]
+
+    with pytest.raises(ValueError, match="BTCUSDT.4h.close"):
+        compute_breadth_metrics(market)
+
+
 def test_summarize_derivatives_risk_detects_crowding(load_fixture):
     derivatives = load_fixture("derivatives_snapshot_v2.json")
 
