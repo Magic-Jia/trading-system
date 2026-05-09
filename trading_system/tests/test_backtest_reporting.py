@@ -1320,6 +1320,23 @@ def test_render_long_gate_telemetry_prefers_specific_eligibility_blocker_in_scor
 
 
 
+def test_walk_forward_validation_report_rejects_invalid_scorecard_numerics() -> None:
+    with pytest.raises(ValueError, match="out_of_sample_scorecard.total_return must be a finite number"):
+        cli.render_walk_forward_validation_report(
+            experiment_name="walk_forward_validation",
+            metadata={"snapshot_count": 1, "window_count": 1},
+            experiment={
+                "windows": [],
+                "robustness_summary": {
+                    "out_of_sample_scorecard": {"total_return": True},
+                    "performance_dispersion": {"positive_window_ratio": 1.0},
+                },
+                "parameter_stability": {"parameter_stability_score": 0.8},
+            },
+        )
+
+
+
 def test_backtest_cli_writes_walk_forward_validation_bundle(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr(cli, "load_historical_dataset", lambda _dataset_root: _sample_dataset_rows(), raising=False)
     monkeypatch.setattr(

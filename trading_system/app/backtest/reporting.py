@@ -941,9 +941,18 @@ def render_walk_forward_validation_report(
     performance_dispersion = dict(robustness_summary.get("performance_dispersion", {}))
     out_of_sample_scorecard = dict(robustness_summary.get("out_of_sample_scorecard", {}))
 
-    out_of_sample_total_return = float(out_of_sample_scorecard.get("total_return", 0.0))
-    positive_window_ratio = float(performance_dispersion.get("positive_window_ratio", 0.0))
-    parameter_stability_score = float(parameter_stability.get("parameter_stability_score", 0.0))
+    out_of_sample_total_return = _report_finite_float(
+        out_of_sample_scorecard.get("total_return", 0.0),
+        field_name="out_of_sample_scorecard.total_return",
+    )
+    positive_window_ratio = _report_finite_float(
+        performance_dispersion.get("positive_window_ratio", 0.0),
+        field_name="performance_dispersion.positive_window_ratio",
+    )
+    parameter_stability_score = _report_finite_float(
+        parameter_stability.get("parameter_stability_score", 0.0),
+        field_name="parameter_stability.parameter_stability_score",
+    )
 
     if out_of_sample_total_return > 0.0 and positive_window_ratio >= 0.6 and parameter_stability_score >= 0.5:
         decision = "candidate_for_promotion"
