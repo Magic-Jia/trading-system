@@ -35,21 +35,25 @@ def _read_json(path: Path) -> dict[str, Any]:
 
 
 def _float(value: Any, default: float = 0.0, *, field_name: str = "metric") -> float:
+    if value is None:
+        return default
     if isinstance(value, bool):
         raise ValueError(f"{field_name} must be numeric")
     try:
         return float(value)
-    except (TypeError, ValueError):
-        return default
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{field_name} must be numeric") from exc
 
 
 def _int(value: Any, default: int = 0, *, field_name: str = "metric") -> int:
+    if value is None:
+        return default
     if isinstance(value, bool):
         raise ValueError(f"{field_name} must be numeric")
     try:
         return int(value)
-    except (TypeError, ValueError):
-        return default
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{field_name} must be numeric") from exc
 
 
 def _engine_weight_recommendation(

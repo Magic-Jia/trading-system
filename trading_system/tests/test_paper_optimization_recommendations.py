@@ -161,3 +161,18 @@ def test_generate_recommendations_rejects_boolean_trade_outcome_count() -> None:
             health_report={"status": "ok", "warnings": []},
             recorded_at_bj="2026-04-24T12:05:00+08:00",
         )
+
+
+def test_generate_recommendations_rejects_invalid_numeric_strings() -> None:
+    import pytest
+
+    with pytest.raises(ValueError, match="daily_metrics.unrealized_pnl_total must be numeric"):
+        generate_recommendations(
+            daily_metrics={
+                "recorded_at_bj": "2026-04-24T12:00:00+08:00",
+                "trade_outcome_count": 8,
+                "unrealized_pnl_total": "not-a-number",
+            },
+            health_report={"status": "ok", "warnings": []},
+            recorded_at_bj="2026-04-24T12:05:00+08:00",
+        )
