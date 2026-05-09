@@ -149,3 +149,42 @@ def test_build_stop_policy_rejects_present_invalid_timeframe_numerics(
             side="LONG",
             regime={"label": "CRASH_DEFENSIVE"},
         )
+
+
+def test_build_stop_policy_rejects_present_invalid_daily_close_string() -> None:
+    payload = _trend_payload()
+    payload["daily"]["close"] = "bad"
+
+    with pytest.raises(ValueError, match=r"daily\.close must be a finite numeric value"):
+        build_stop_policy(
+            payload,
+            engine="trend",
+            setup_type="BREAKOUT_CONTINUATION",
+            side="LONG",
+        )
+
+
+def test_build_stop_policy_rejects_present_invalid_4h_ema_20_string_for_short() -> None:
+    payload = _short_payload()
+    payload["4h"]["ema_20"] = "bad"
+
+    with pytest.raises(ValueError, match=r"4h\.ema_20 must be a finite numeric value"):
+        build_stop_policy(
+            payload,
+            engine="short",
+            setup_type="BREAKDOWN_SHORT",
+            side="SHORT",
+        )
+
+
+def test_build_stop_policy_rejects_present_invalid_1h_ema_50_string_for_rotation() -> None:
+    payload = _rotation_payload()
+    payload["1h"]["ema_50"] = "bad"
+
+    with pytest.raises(ValueError, match=r"1h\.ema_50 must be a finite numeric value"):
+        build_stop_policy(
+            payload,
+            engine="rotation",
+            setup_type="RS_REACCELERATION",
+            side="LONG",
+        )

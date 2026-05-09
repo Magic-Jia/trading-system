@@ -40,7 +40,7 @@ def _reject_invalid_timeframe_numeric(payload: Mapping[str, Any]) -> None:
             try:
                 parsed = float(value)
             except (TypeError, ValueError):
-                continue
+                raise ValueError(f"{timeframe}.{field} must be a finite numeric value")
             if not math.isfinite(parsed):
                 raise ValueError(f"{timeframe}.{field} must be a finite numeric value")
 
