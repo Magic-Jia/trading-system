@@ -436,6 +436,28 @@ def test_classify_label_rejects_present_invalid_derivatives_summary_category():
         _classify_label(breadth, derivatives_summary, trend_strength=1.0, avg_daily_atr_pct=0.02)
 
 
+@pytest.mark.parametrize("crowding_score", ["0.4", True])
+def test_classify_regime_rejects_present_invalid_derivatives_summary_crowding_score(
+    load_fixture, monkeypatch, crowding_score
+):
+    market = load_fixture("market_context_v2.json")
+    derivatives = load_fixture("derivatives_snapshot_v2.json")
+    invalid_summary = {
+        "crowding_score": crowding_score,
+        "crowding_bias": "balanced",
+        "oi_trend": "flat",
+        "late_stage_heat": "none",
+    }
+
+    monkeypatch.setattr(
+        "trading_system.app.market_regime.classifier.summarize_derivatives_risk",
+        lambda _: invalid_summary,
+    )
+
+    with pytest.raises(ValueError, match="derivatives summary crowding_score"):
+        classify_regime(market, derivatives)
+
+
 def test_low_confidence_regime_reduces_aggression(load_fixture):
     market = load_fixture("market_context_v2.json")
     derivatives = load_fixture("derivatives_snapshot_v2.json")

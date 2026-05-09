@@ -89,6 +89,20 @@ def _strict_derivatives_summary_category(
     return value
 
 
+def _strict_derivatives_summary_finite_float(
+    summary: dict[str, Any], field: str, *, default: float
+) -> float:
+    value = summary.get(field, _MISSING)
+    if value is _MISSING or value is None:
+        return default
+    if isinstance(value, bool) or not isinstance(value, Real):
+        raise ValueError(f"derivatives summary {field} must be a finite number")
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError(f"derivatives summary {field} must be finite")
+    return number
+
+
 def _major_trend_strength(market_rows: list[dict[str, Any]]) -> float:
     majors = [row for row in market_rows if row.get("symbol") in MAJOR_SYMBOLS]
     if not majors:
@@ -211,7 +225,9 @@ def classify_regime(
 
     confidence += (breadth["pct_above_4h_ema20"] - 0.5) * 0.2
     confidence += (trend_strength - 0.5) * 0.15
-    crowding_score = float(derivatives_summary.get("crowding_score", 0.0))
+    crowding_score = _strict_derivatives_summary_finite_float(
+        derivatives_summary, "crowding_score", default=0.0
+    )
     confidence -= max(crowding_score, 0.0) * 0.02
     confidence = max(0.05, min(confidence, 0.98))
 
