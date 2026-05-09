@@ -652,6 +652,12 @@ def _walk_forward_window_rows(rows: list[Any]) -> list[dict[str, Any]]:
         if not isinstance(window, Mapping):
             raise ValueError(f"windows[{index}] must be an object")
         validated = dict(window)
+        if "window_index" in validated and validated["window_index"] is not None:
+            validated["window_index"] = _non_negative_int_field(
+                validated,
+                "window_index",
+                label=f"windows[{index}]",
+            )
         for segment_name in ("in_sample", "out_of_sample"):
             segment = validated.get(segment_name)
             if segment is None:
