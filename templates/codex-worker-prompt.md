@@ -76,6 +76,16 @@ python3 scripts/verify.py --suite evidence-chain
 
 For a narrow slice, also run the owning test file directly before committing.
 
+## Controller audit command
+
+After the worker commits, the controller should run:
+
+```bash
+python3 scripts/audit_worker_commit.py --commit <worker-commit>
+```
+
+The worker must not treat this as proof of merge readiness; it is a controller preflight for changed files and impacted verification plan.
+
 ## Commit behavior
 
 Commit only if focused verification passes. Keep the commit focused. Do not include `memory/dev-status.md` or unrelated files.

@@ -60,3 +60,11 @@ def test_codex_worker_template_requires_json_plan_report() -> None:
 
     assert "Verification plan JSON" in text
     assert "--dry-run --json" in text
+
+
+def test_workflow_docs_and_codex_template_reference_worker_audit() -> None:
+    doc = WORKFLOW_DOC.read_text()
+    template = CODEX_TEMPLATE.read_text()
+
+    assert "scripts/audit_worker_commit.py" in doc
+    assert "scripts/audit_worker_commit.py" in template

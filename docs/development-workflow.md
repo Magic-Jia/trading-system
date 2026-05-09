@@ -75,6 +75,16 @@ During offline development and hardening:
 - Evidence/live-readiness slice: `python3 scripts/verify.py --suite evidence-chain`.
 - Multiple integrated slices or broad refactor: full suite.
 
+## Worker commit audit
+
+Before cherry-picking or trusting an isolated Codex worker commit, run controller-side audit:
+
+```bash
+python3 scripts/audit_worker_commit.py --commit <worker-commit>
+```
+
+The audit emits JSON with changed files and the impacted verification plan. It rejects forbidden files such as `memory/dev-status.md`. The audit output is not a replacement for controller-side pytest; it is the preflight that tells the controller which tests to rerun.
+
 ## Failure classification
 
 - Missing test path or malformed `pytest -k`: verification-command failure, not product failure.
