@@ -152,9 +152,9 @@ def build_promotion_decision(
     compare_backtest_bundles_fn: CompareBacktestBundlesFn = compare_backtest_bundles,
     recorded_at_bj: str | None = None,
 ) -> dict[str, Any]:
-    recommendations = recommendations_payload.get("recommendations")
+    recommendations = recommendations_payload.get("recommendations", [])
     if not isinstance(recommendations, list):
-        recommendations = []
+        raise ValueError("recommendations must be a list")
 
     env_overrides = materialize_env_overrides(
         recommendations_payload,
