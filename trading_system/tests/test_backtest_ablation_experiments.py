@@ -721,6 +721,38 @@ def test_engine_filter_ablation_rejects_invalid_trace_input_universe(
         run_engine_filter_ablation_experiment([row], evaluation_window="3d")
 
 
+@pytest.mark.parametrize(
+    ("allocation_rows", "match"),
+    [
+        ("BTCUSDT", r"^pipeline\.allocation_rows must be a list$"),
+        ([object()], r"^pipeline\.allocation_rows\[0\] must be an object$"),
+    ],
+)
+def test_engine_filter_ablation_rejects_invalid_pipeline_allocation_rows(
+    monkeypatch: pytest.MonkeyPatch,
+    allocation_rows: object,
+    match: str,
+) -> None:
+    def pipeline_with_invalid_allocation_rows(*_args, **_kwargs):
+        return {
+            "funnel": {
+                "input_universe": 1,
+                "raw_candidates": 1,
+                "validated_candidates": 0,
+                "allocation_decisions": 1,
+                "accepted_allocations": 0,
+            },
+            "validated_candidates": [],
+            "allocation_rows": allocation_rows,
+            "returns": [],
+        }
+
+    monkeypatch.setattr(backtest_experiments, "_run_candidate_pipeline", pipeline_with_invalid_allocation_rows)
+
+    with pytest.raises(ValueError, match=match):
+        run_engine_filter_ablation_experiment([_bullish_ablation_row()], evaluation_window="3d")
+
+
 
 def test_long_gate_telemetry_outputs_engine_blockers_and_snapshot_rows() -> None:
     rows = [_bullish_ablation_row(), _bearish_short_row()]

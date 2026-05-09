@@ -1898,7 +1898,7 @@ def run_engine_filter_ablation_experiment(
             accepted_returns.extend(pipeline["returns"])
             accepted_symbols.update(
                 symbol
-                for index, allocation in enumerate(list(pipeline["allocation_rows"]))
+                for index, allocation in enumerate(_pipeline_row_mappings(pipeline, "allocation_rows"))
                 if _allocation_status(allocation, index=index).upper() != "REJECTED"
                 and _allocation_final_risk_budget(allocation, path=f"allocations[{index}].final_risk_budget") > 0.0
                 if (symbol := _allocation_string_field(allocation, "symbol", index=index))
