@@ -489,6 +489,33 @@ def test_engine_ablation_outputs_funnel_metrics() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    "derivatives_update,match",
+    [
+        ({"crowding_bias": True}, r"BTCUSDT\.derivatives\.crowding_bias"),
+        ({"basis_bps": "25"}, r"BTCUSDT\.derivatives\.basis_bps"),
+    ],
+)
+def test_engine_ablation_rejects_invalid_trend_derivatives_metadata(monkeypatch, derivatives_update, match) -> None:
+    row = _bullish_ablation_row()
+    original = backtest_experiments.trend_signals.symbol_derivatives_features
+
+    def patched_symbol_derivatives_features(derivatives, symbol):
+        features = original(derivatives, symbol)
+        if symbol == "BTCUSDT":
+            return {**features, **derivatives_update}
+        return features
+
+    monkeypatch.setattr(
+        backtest_experiments.trend_signals,
+        "symbol_derivatives_features",
+        patched_symbol_derivatives_features,
+    )
+
+    with pytest.raises(ValueError, match=match):
+        run_engine_filter_ablation_experiment([row], evaluation_window="3d")
+
+
 def test_majors_soft_trend_relaxes_daily_structure_only_for_majors() -> None:
     result = run_engine_filter_ablation_experiment([_majors_soft_trend_row()], evaluation_window="3d")
 

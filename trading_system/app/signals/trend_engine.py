@@ -44,6 +44,40 @@ def _is_finite_number(value: Any) -> bool:
     return math.isfinite(value)
 
 
+def _strict_present_derivatives_number(features: Mapping[str, Any], field: str, field_path: str) -> float:
+    if field not in features:
+        return 0.0
+    value = features.get(field)
+    if not _is_finite_number(value):
+        raise ValueError(f"{field_path} must be a finite non-bool number")
+    return float(value)
+
+
+def _strict_present_derivatives_string(features: Mapping[str, Any], field: str, field_path: str, default: str) -> str:
+    if field not in features:
+        return default
+    value = features.get(field)
+    if not isinstance(value, str):
+        raise ValueError(f"{field_path} must be a string when present")
+    return value
+
+
+def _strict_derivatives_trend_features(symbol: str, features: Mapping[str, Any]) -> dict[str, Any]:
+    normalized = dict(features)
+    normalized["crowding_bias"] = _strict_present_derivatives_string(
+        features,
+        "crowding_bias",
+        f"{symbol}.derivatives.crowding_bias",
+        default="balanced",
+    )
+    normalized["basis_bps"] = _strict_present_derivatives_number(
+        features,
+        "basis_bps",
+        f"{symbol}.derivatives.basis_bps",
+    )
+    return normalized
+
+
 def _validate_required_trend_numerics(symbol: str, payload: Mapping[str, Any]) -> bool:
     complete = True
     for timeframe, fields in _REQUIRED_TREND_NUMERIC_FIELDS.items():
@@ -339,8 +373,8 @@ def _reject_crowded_long(features: Mapping[str, Any], payload: Mapping[str, Any]
             h1_extension_pct=_extension_pct(h1),
         )
         or (
-            str(features.get("crowding_bias", "balanced")) == "crowded_long"
-            and _to_float(features.get("basis_bps")) >= _CROWDED_LONG_BASIS_BPS
+            features["crowding_bias"] == "crowded_long"
+            and features["basis_bps"] >= _CROWDED_LONG_BASIS_BPS
         )
     )
 
@@ -403,7 +437,10 @@ def generate_trend_candidates(
         if _reject_price_extension_overheat(payload):
             continue
 
-        derivatives_features = symbol_derivatives_features(derivatives, str(symbol))
+        derivatives_features = _strict_derivatives_trend_features(
+            str(symbol),
+            symbol_derivatives_features(derivatives, str(symbol)),
+        )
         if _reject_crowded_long(derivatives_features, payload):
             continue
 
@@ -446,8 +483,8 @@ def generate_trend_candidates(
             )
         if derivatives is not None:
             timeframe_meta["derivatives"] = {
-                "crowding_bias": str(derivatives_features.get("crowding_bias", "balanced")),
-                "basis_bps": _to_float(derivatives_features.get("basis_bps")),
+                "crowding_bias": derivatives_features["crowding_bias"],
+                "basis_bps": derivatives_features["basis_bps"],
             }
 
         candidates.append(

@@ -4,6 +4,7 @@ import pytest
 
 from trading_system.app.signals.entry_profile import ACTIVE_PAPER_ENTRY_PROFILE
 from trading_system.app.signals.scoring import score_trend_candidate
+from trading_system.app.signals import trend_engine
 from trading_system.app.signals.trend_engine import generate_trend_candidates
 
 
@@ -414,6 +415,43 @@ def test_generate_trend_candidates_attach_derivatives_meta(load_fixture):
     candidate = next(item for item in candidates if item.symbol == "BTCUSDT")
 
     assert candidate.timeframe_meta["derivatives"]["crowding_bias"] == "balanced"
+
+
+@pytest.mark.parametrize("bad_basis_bps", ["25", True, math.inf])
+def test_generate_trend_candidates_rejects_present_invalid_derivatives_basis_bps(monkeypatch, bad_basis_bps):
+    monkeypatch.setattr(
+        trend_engine,
+        "symbol_derivatives_features",
+        lambda _derivatives, _symbol: {"crowding_bias": "balanced", "basis_bps": bad_basis_bps},
+    )
+
+    with pytest.raises(ValueError, match=r"BTCUSDT\.derivatives\.basis_bps"):
+        generate_trend_candidates(
+            _modest_positive_trend_market(),
+            derivatives={"rows": []},
+            include_high_liquidity_strong_names=False,
+            entry_profile=ACTIVE_PAPER_ENTRY_PROFILE,
+        )
+
+
+@pytest.mark.parametrize("bad_crowding_bias", [True, 1])
+def test_generate_trend_candidates_rejects_present_non_string_derivatives_crowding_bias(
+    monkeypatch,
+    bad_crowding_bias,
+):
+    monkeypatch.setattr(
+        trend_engine,
+        "symbol_derivatives_features",
+        lambda _derivatives, _symbol: {"crowding_bias": bad_crowding_bias, "basis_bps": 0.0},
+    )
+
+    with pytest.raises(ValueError, match=r"BTCUSDT\.derivatives\.crowding_bias"):
+        generate_trend_candidates(
+            _modest_positive_trend_market(),
+            derivatives={"rows": []},
+            include_high_liquidity_strong_names=False,
+            entry_profile=ACTIVE_PAPER_ENTRY_PROFILE,
+        )
 
 
 def _soft_non_major_trend_market(*, daily_close: float = 100.0, daily_ema50: float = 101.0) -> dict[str, object]:

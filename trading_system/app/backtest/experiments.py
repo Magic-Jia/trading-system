@@ -1230,7 +1230,10 @@ def _trend_candidates_with_trace(
             _bump_symbol_filter(symbol_rows, symbol_name, "overheat_filtered")
             continue
 
-        derivatives_features = trend_signals.symbol_derivatives_features(row.derivatives, str(symbol))
+        derivatives_features = trend_signals._strict_derivatives_trend_features(
+            str(symbol),
+            trend_signals.symbol_derivatives_features(row.derivatives, str(symbol)),
+        )
         if trend_signals._reject_crowded_long(derivatives_features, payload):
             filter_counts["crowding_filtered"] += 1
             _bump_symbol_filter(symbol_rows, symbol_name, "crowding_filtered")
@@ -1263,8 +1266,8 @@ def _trend_candidates_with_trace(
         }
         if row.derivatives is not None:
             timeframe_meta["derivatives"] = {
-                "crowding_bias": str(derivatives_features.get("crowding_bias", "balanced")),
-                "basis_bps": trend_signals._to_float(derivatives_features.get("basis_bps")),
+                "crowding_bias": derivatives_features["crowding_bias"],
+                "basis_bps": derivatives_features["basis_bps"],
             }
 
         candidates.append(
