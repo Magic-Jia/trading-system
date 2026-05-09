@@ -36,6 +36,7 @@ def test_audit_worker_commit_outputs_json_for_head() -> None:
         "run verification_plan.commands in controller workspace",
         "only integrate after controller verification passes",
     ]
+    assert isinstance(payload["worktree_dirty"], bool)
     assert payload["verification_plan"]["commands"][-1] == "git diff --check HEAD"
 
 

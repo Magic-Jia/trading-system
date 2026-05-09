@@ -32,6 +32,10 @@ def commit_changed_files(commit: str) -> list[str]:
     return git_lines(["git", "diff-tree", "--no-commit-id", "--name-only", "-r", resolved])
 
 
+def worktree_dirty() -> bool:
+    return bool(git_lines(["git", "status", "--short"]))
+
+
 def verification_plan(changed_files: list[str]) -> dict[str, object]:
     command = [sys.executable, "scripts/verify.py", "--dry-run", "--json"]
     for path in changed_files:
@@ -86,6 +90,7 @@ def main(argv: list[str] | None = None) -> int:
                 ],
                 "commit": commit,
                 "changed_files": changed_files,
+                "worktree_dirty": worktree_dirty(),
                 "verification_plan": plan,
             },
             indent=2,
