@@ -30,3 +30,14 @@ def test_core_app_python_files_have_impact_mapping() -> None:
             missing.append(relative)
 
     assert missing == []
+
+
+def test_workflow_scripts_have_impact_mapping() -> None:
+    verify = load_verify_module()
+    missing: list[str] = []
+    for path in sorted((ROOT / "scripts").glob("*.py")):
+        relative = path.relative_to(ROOT).as_posix()
+        if not verify.tests_for_changed([relative]):
+            missing.append(relative)
+
+    assert missing == []
