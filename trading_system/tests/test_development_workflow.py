@@ -74,6 +74,15 @@ def expected_inventory_fingerprint(payload: dict[str, object]) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
+def load_module(name: str, path: Path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def test_verify_dry_run_maps_main_changes_to_runtime_regression() -> None:
     result = run_verify("--dry-run", "--changed", "trading_system/app/main.py")
 
@@ -458,6 +467,24 @@ def test_ci_verify_entrypoint_runs_strict_workflow_and_evidence_chain() -> None:
     assert "trading_system/tests/test_development_workflow_docs.py" in result.stdout
 
 
+def test_ci_verify_fingerprint_excludes_existing_fingerprint_field() -> None:
+    module = load_module("ci_verify", ROOT / "scripts" / "ci_verify.py")
+    payload = {
+        "plan_version": 1,
+        "plan_kind": "ci_verification_plan",
+        "entrypoint": "ci_verify",
+        "commands": ["python3 scripts/verify.py --suite workflow-meta"],
+        "command_argv": [["python3", "scripts/verify.py", "--suite", "workflow-meta"]],
+        "suites": ["workflow-meta"],
+        "strict_changed_verification": True,
+    }
+
+    digest = module.plan_fingerprint(payload)
+    payload["plan_fingerprint"] = digest
+
+    assert module.plan_fingerprint(payload) == digest
+
+
 def test_ci_verify_dry_run_json_reports_commands() -> None:
     result = subprocess.run(
         [sys.executable, str(ROOT / "scripts" / "ci_verify.py"), "--dry-run", "--json"],
@@ -568,6 +595,25 @@ def test_nightly_verify_entrypoint_runs_full_suite() -> None:
     assert "--suite full" in text
     assert "TRADING_RUNTIME_ENV" in text
     assert "TRADING_ENTRY_PROFILE" in text
+
+
+def test_nightly_verify_fingerprint_excludes_existing_fingerprint_field() -> None:
+    module = load_module("nightly_verify", ROOT / "scripts" / "nightly_verify.py")
+    payload = {
+        "plan_version": 1,
+        "plan_kind": "nightly_verification_plan",
+        "entrypoint": "nightly_verify",
+        "clean_env": True,
+        "commands": ["python3 scripts/verify.py --suite full"],
+        "command_argv": [["python3", "scripts/verify.py", "--suite", "full"]],
+        "suites": ["full"],
+        "unset_env": ["TRADING_RUNTIME_ENV"],
+    }
+
+    digest = module.plan_fingerprint(payload)
+    payload["plan_fingerprint"] = digest
+
+    assert module.plan_fingerprint(payload) == digest
 
 
 def test_nightly_verify_dry_run_json_reports_clean_env_full_command() -> None:

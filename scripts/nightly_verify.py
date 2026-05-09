@@ -33,7 +33,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def plan_fingerprint(payload: dict[str, object]) -> str:
-    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    canonical_payload = dict(payload)
+    canonical_payload.pop("plan_fingerprint", None)
+    canonical = json.dumps(canonical_payload, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
