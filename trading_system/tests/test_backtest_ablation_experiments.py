@@ -1543,6 +1543,67 @@ def test_long_gate_telemetry_rejects_non_string_rotation_candidate_symbol(monkey
         backtest_experiments._rotation_candidates_with_trace(row, disabled_filters=frozenset())
 
 
+@pytest.mark.parametrize("invalid_return", [True, "0.05", math.nan, math.inf])
+def test_long_gate_telemetry_rejects_invalid_present_trend_daily_return(
+    invalid_return: object,
+) -> None:
+    row = _bullish_ablation_row()
+    row.market["symbols"]["LINKUSDT"]["liquidity_tier"] = "medium"
+    row.market["symbols"]["LINKUSDT"]["daily"]["return_pct_7d"] = invalid_return
+
+    with pytest.raises(ValueError, match=r"^LINKUSDT\.daily\.return_pct_7d must be a finite number$"):
+        backtest_experiments._trend_candidates_with_trace(row)
+
+
+@pytest.mark.parametrize("invalid_return", [True, "0.05", math.nan, math.inf])
+def test_long_gate_telemetry_rejects_invalid_present_trend_h4_return(
+    invalid_return: object,
+) -> None:
+    row = _bullish_ablation_row()
+    row.market["symbols"]["LINKUSDT"]["liquidity_tier"] = "medium"
+    row.market["symbols"]["LINKUSDT"]["4h"]["return_pct_3d"] = invalid_return
+
+    with pytest.raises(ValueError, match=r"^LINKUSDT\.4h\.return_pct_3d must be a finite number$"):
+        backtest_experiments._trend_candidates_with_trace(row)
+
+
+def test_long_gate_telemetry_preserves_valid_trend_eligibility_return_numbers() -> None:
+    row = _bullish_ablation_row()
+    row.market["symbols"]["LINKUSDT"]["liquidity_tier"] = "medium"
+    row.market["symbols"]["LINKUSDT"]["daily"]["return_pct_7d"] = 1
+    row.market["symbols"]["LINKUSDT"]["4h"]["return_pct_3d"] = 0.03
+
+    result = backtest_experiments._trend_candidates_with_trace(row)
+
+    link_filters = result["symbol_rows"]["LINKUSDT"]["filter_counts"]
+    assert link_filters["eligibility_filtered"] == 1
+    assert link_filters.get("eligibility_daily_return_filtered", 0) == 0
+    assert link_filters.get("eligibility_h4_return_filtered", 0) == 0
+
+
+@pytest.mark.parametrize(
+    ("timeframe", "field", "reason"),
+    [
+        ("daily", "return_pct_7d", "eligibility_daily_return_filtered"),
+        ("4h", "return_pct_3d", "eligibility_h4_return_filtered"),
+    ],
+)
+def test_long_gate_telemetry_preserves_missing_trend_eligibility_return_default(
+    timeframe: str,
+    field: str,
+    reason: str,
+) -> None:
+    row = _bullish_ablation_row()
+    row.market["symbols"]["LINKUSDT"]["liquidity_tier"] = "medium"
+    del row.market["symbols"]["LINKUSDT"][timeframe][field]
+
+    result = backtest_experiments._trend_candidates_with_trace(row)
+
+    link_filters = result["symbol_rows"]["LINKUSDT"]["filter_counts"]
+    assert link_filters["eligibility_filtered"] == 1
+    assert link_filters[reason] == 1
+
+
 def _preserve_trace_score(monkeypatch: pytest.MonkeyPatch, engine_module: object, invalid_score: object) -> None:
     original_to_float = engine_module._to_float
     original_strict_finite_number = backtest_experiments._strict_finite_number

@@ -150,6 +150,20 @@ def _strict_daily_finite_number(
     return _strict_finite_number(daily[field], field_name=f"{symbol}.daily.{field}")
 
 
+def _strict_timeframe_finite_number(
+    payload: Mapping[str, Any],
+    symbol: str,
+    timeframe: str,
+    field: str,
+    *,
+    default: float = 0.0,
+) -> float:
+    row = trend_signals._tf_row(payload, timeframe)
+    if field not in row:
+        return default
+    return _strict_finite_number(row[field], field_name=f"{symbol}.{timeframe}.{field}")
+
+
 def _trace_candidate_sort_score(candidate: Mapping[str, Any], *, index: int, engine: str) -> float:
     if "score" not in candidate or candidate.get("score") is None:
         return 0.0
@@ -1649,6 +1663,8 @@ def _rotation_candidates_with_trace(
 
 def _trend_eligibility_reasons(
     payload: Mapping[str, Any],
+    *,
+    symbol: str = "trend_payload",
     regime: Mapping[str, Any] | None = None,
     liquidity_tier: str | None = None,
 ) -> tuple[str, ...]:
@@ -1667,9 +1683,9 @@ def _trend_eligibility_reasons(
         liquidity_tier,
     ):
         reasons.append("eligibility_pretrend_filtered")
-    if trend_signals._to_float(daily.get("return_pct_7d")) <= 0.0:
+    if _strict_timeframe_finite_number(payload, symbol, "daily", "return_pct_7d") <= 0.0:
         reasons.append("eligibility_daily_return_filtered")
-    if trend_signals._to_float(h4.get("return_pct_3d")) <= 0.0:
+    if _strict_timeframe_finite_number(payload, symbol, "4h", "return_pct_3d") <= 0.0:
         reasons.append("eligibility_h4_return_filtered")
     return tuple(reasons)
 
@@ -1758,7 +1774,7 @@ def _trend_candidates_with_trace(
         if not is_major and not trend_signals._is_high_liquidity_strong_name(payload, liquidity_tier) and not soft_non_major_pretrend:
             filter_counts["eligibility_filtered"] += 1
             _bump_symbol_filter(symbol_rows, symbol_name, "eligibility_filtered")
-            for reason in _trend_eligibility_reasons(payload, regime, liquidity_tier):
+            for reason in _trend_eligibility_reasons(payload, symbol=symbol_name, regime=regime, liquidity_tier=liquidity_tier):
                 filter_counts[reason] += 1
                 _bump_symbol_filter(symbol_rows, symbol_name, reason)
             continue
