@@ -146,6 +146,34 @@ def test_public_strategy_factor_experiment_requires_minimum_sample_count_before_
     assert result["summary"]["effective_factor_count"] == 0
 
 
+@pytest.mark.parametrize("strategy_family", [123, True])
+def test_public_strategy_factor_experiment_rejects_non_string_strategy_families(strategy_family: object) -> None:
+    rows = [_suppressed_rotation_row(0, link_return=0.06, ada_return=-0.03, forward_return_3d=0.01)]
+
+    with pytest.raises(ValueError, match=r"^strategy_families\[0\] must be a string$"):
+        run_public_strategy_factor_experiment(
+            rows,
+            evaluation_window="3d",
+            strategy_families=(strategy_family,),
+        )
+
+
+def test_public_strategy_factor_experiment_preserves_unknown_string_strategy_family_identity() -> None:
+    rows = [_suppressed_rotation_row(0, link_return=0.06, ada_return=-0.03, forward_return_3d=0.01)]
+
+    result = run_public_strategy_factor_experiment(
+        rows,
+        evaluation_window="3d",
+        strategy_families=("custom_family",),
+    )
+
+    factor = result["factors"][0]
+    assert factor["source_strategy_family"] == "custom_family"
+    assert factor["factor_name"] == "custom_family"
+    assert factor["supported"] is False
+    assert factor["unsupported_reason"] == "unknown_strategy_family"
+
+
 def test_public_strategy_factor_experiment_skips_missing_daily_factor_fields() -> None:
     rows = [
         _suppressed_rotation_row(0, link_return=0.06, ada_return=-0.03, forward_return_3d=0.01),

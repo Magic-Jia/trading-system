@@ -412,17 +412,19 @@ def run_public_strategy_factor_experiment(
     }
 
     factors = []
-    for family in families:
+    for index, family in enumerate(families):
+        if not isinstance(family, str):
+            raise ValueError(f"strategy_families[{index}] must be a string")
         spec = dict(family_specs.get(family, {}))
         if not spec:
             spec = {
-                "factor_name": str(family),
+                "factor_name": family,
                 "required_fields": [],
                 "supported": False,
                 "unsupported_reason": "unknown_strategy_family",
             }
         factor = {
-            "source_strategy_family": str(family),
+            "source_strategy_family": family,
             "factor_name": spec["factor_name"],
             "required_fields": list(spec["required_fields"]),
             "supported": bool(spec["supported"]),
@@ -433,7 +435,7 @@ def run_public_strategy_factor_experiment(
         if factor["supported"]:
             effectiveness = _public_strategy_factor_effectiveness(
                 ordered_rows,
-                family=str(family),
+                family=family,
                 evaluation_window=evaluation_window,
                 minimum_sample_count=minimum_effectiveness_sample_count,
             )
