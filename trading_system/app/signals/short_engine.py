@@ -143,7 +143,7 @@ def _validate_required_short_timeframe_numerics(symbol: str, payload: Mapping[st
             if field not in row:
                 continue
             if not _is_finite_number(row[field]):
-                raise ValueError(f"{symbol}.{timeframe}.{field} must be a finite non-bool number")
+                raise ValueError(f"{symbol}.{timeframe}.{field} must be a finite non-bool number when present")
     return True
 
 
@@ -271,15 +271,32 @@ def _setup_type(payload: Mapping[str, Any]) -> str | None:
     return None
 
 
-def _short_stop_loss(payload: Mapping[str, Any], entry_profile: EntryProfile | None = None) -> float:
+def _entry_reference_close(symbol: str, row: Mapping[str, Any], timeframe: str) -> float | None:
+    if "close" not in row or row.get("close") is None:
+        return None
+    value = row["close"]
+    if not _is_finite_number(value):
+        raise ValueError(f"{symbol}.{timeframe}.close must be a finite non-bool number when present")
+    return float(value)
+
+
+def _short_stop_loss(
+    symbol: str,
+    payload: Mapping[str, Any],
+    entry_profile: EntryProfile | None = None,
+) -> float:
     h4 = _tf_row(payload, "4h")
     daily = _tf_row(payload, "daily")
     m15 = _tf_row(payload, "15m")
     if entry_profile is not None and _is_short_term_profile(entry_profile):
-        entry_reference = _to_float(m15.get("close")) or _to_float(h4.get("close"))
+        entry_reference = _entry_reference_close(symbol, m15, "15m")
+        if entry_reference is None:
+            entry_reference = _to_float(h4.get("close"))
         stop_loss = _to_float(m15.get("ema_50"))
     else:
-        entry_reference = _to_float(daily.get("close")) or _to_float(h4.get("close"))
+        entry_reference = _entry_reference_close(symbol, daily, "daily")
+        if entry_reference is None:
+            entry_reference = _to_float(h4.get("close"))
         stop_loss = _to_float(h4.get("ema_50"))
     if entry_reference <= 0 or stop_loss <= 0 or stop_loss <= entry_reference:
         return 0.0
@@ -356,7 +373,7 @@ def generate_short_candidates(
         if total_score < _SHORT_SCORE_FLOOR:
             continue
 
-        stop_loss = _short_stop_loss(payload, profile)
+        stop_loss = _short_stop_loss(canonical_symbol, payload, profile)
         if stop_loss <= 0.0:
             continue
 

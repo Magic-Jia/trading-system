@@ -447,6 +447,60 @@ def test_short_term_short_candidates_expose_intraday_entry_reference_metadata():
     assert candidate.timeframe_meta["stop_reference_timeframe"] == "15m"
 
 
+@pytest.mark.parametrize("bad_close", ["bad", True, math.nan, math.inf])
+def test_short_term_short_candidates_reject_present_invalid_primary_15m_entry_reference(bad_close):
+    market = _defensive_market()
+    market["symbols"]["BTCUSDT"]["30m"] = {
+        "close": 95600.0,
+        "ema_20": 95800.0,
+        "ema_50": 96000.0,
+    }
+    market["symbols"]["BTCUSDT"]["15m"] = {
+        "close": bad_close,
+        "ema_20": 95650.0,
+        "ema_50": 95800.0,
+    }
+
+    with pytest.raises(
+        ValueError,
+        match=r"BTCUSDT\.15m\.close must be a finite non-bool number when present",
+    ):
+        generate_short_candidates(
+            market,
+            short_universe=[
+                {
+                    "symbol": "BTCUSDT",
+                    "sector": "majors",
+                    "liquidity_meta": {"rolling_notional": 12_500_000_000.0},
+                },
+            ],
+            regime={"label": "HIGH_VOL_DEFENSIVE", "bucket_targets": {"trend": 0.2, "rotation": 0.0, "short": 0.8}},
+            entry_profile="short_term",
+        )
+
+
+@pytest.mark.parametrize("bad_close", ["bad", True, math.nan, math.inf])
+def test_generate_short_candidates_reject_present_invalid_primary_daily_entry_reference(bad_close):
+    market = _defensive_market()
+    market["symbols"]["BTCUSDT"]["daily"]["close"] = bad_close
+
+    with pytest.raises(
+        ValueError,
+        match=r"BTCUSDT\.daily\.close must be a finite non-bool number when present",
+    ):
+        generate_short_candidates(
+            market,
+            short_universe=[
+                {
+                    "symbol": "BTCUSDT",
+                    "sector": "majors",
+                    "liquidity_meta": {"rolling_notional": 12_500_000_000.0},
+                },
+            ],
+            regime={"label": "HIGH_VOL_DEFENSIVE", "bucket_targets": {"trend": 0.2, "rotation": 0.0, "short": 0.8}},
+        )
+
+
 def test_generate_short_candidates_rejects_present_string_numeric_required_timeframe_field():
     market = _defensive_market()
     short_universe = [
