@@ -823,7 +823,10 @@ def render_allocator_friction_report(
     experiment: Mapping[str, Any],
     metadata: Mapping[str, Any],
 ) -> dict[str, dict[str, Any]]:
-    variants = dict(experiment.get("variants", {}))
+    raw_variants = experiment.get("variants", {})
+    if not isinstance(raw_variants, Mapping):
+        raise ValueError("variants must be an object")
+    variants = dict(raw_variants)
 
     def base_net_bucket_pnl(variant_name: str, payload: Mapping[str, Any]) -> float:
         frictions = payload.get("frictions", {})
