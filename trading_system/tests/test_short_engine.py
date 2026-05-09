@@ -350,6 +350,24 @@ def test_generate_short_candidates_rejects_present_non_object_liquidity_meta():
         )
 
 
+def test_generate_short_candidates_rejects_present_non_string_short_universe_symbol():
+    market = _defensive_market()
+    regime = {"label": "HIGH_VOL_DEFENSIVE", "bucket_targets": {"trend": 0.2, "rotation": 0.0, "short": 0.8}}
+
+    with pytest.raises(ValueError, match="short_universe.symbol"):
+        generate_short_candidates(
+            market,
+            short_universe=[
+                {
+                    "symbol": True,
+                    "sector": "majors",
+                    "liquidity_meta": {"rolling_notional": 12_500_000_000.0},
+                },
+            ],
+            regime=regime,
+        )
+
+
 @pytest.mark.parametrize("bad_value", [True, math.nan, math.inf, -math.inf])
 def test_short_term_candidates_reject_present_invalid_required_numeric(bad_value):
     market = _defensive_market()

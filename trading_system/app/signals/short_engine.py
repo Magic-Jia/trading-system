@@ -103,7 +103,12 @@ def _short_symbols(short_universe: Sequence[Mapping[str, Any]] | None) -> dict[s
     if short_universe is None:
         return rows
     for row in short_universe:
-        symbol = str(row.get("symbol", "")).upper().strip()
+        if "symbol" not in row:
+            continue
+        symbol_value = row.get("symbol")
+        if not isinstance(symbol_value, str):
+            raise ValueError("short_universe.symbol must be a string when present")
+        symbol = symbol_value.upper().strip()
         if symbol:
             rows[symbol] = row
     return rows
