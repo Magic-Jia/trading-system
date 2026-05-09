@@ -13,6 +13,12 @@ _LATE_STAGE_LONG_ACCELERATION_OI_CHANGE_PCT = 0.04
 _LATE_STAGE_LONG_ACCELERATION_MARK_PRICE_CHANGE_PCT = 0.02
 
 
+def _canonical_symbol_identity(value: Any) -> str:
+    if not isinstance(value, str) or not value or value != value.upper() or value != value.strip():
+        raise ValueError("invalid derivatives symbol identity")
+    return value
+
+
 def _coerce_all_rows(derivatives: dict[str, Any] | list[dict[str, Any]]) -> list[dict[str, Any]]:
     if isinstance(derivatives, list):
         rows = derivatives
@@ -27,7 +33,8 @@ def _coerce_all_rows(derivatives: dict[str, Any] | list[dict[str, Any]]) -> list
     for idx, row in enumerate(rows):
         if not isinstance(row, dict):
             raise ValueError(f"derivatives rows[{idx}] must be an object")
-        if row.get("symbol"):
+        if "symbol" in row:
+            _canonical_symbol_identity(row["symbol"])
             normalized.append(row)
     return normalized
 
@@ -145,8 +152,8 @@ def symbol_derivatives_features(
     else:
         rows = _coerce_all_rows(derivatives)
 
-    normalized_symbol = str(symbol).upper()
-    row = next((item for item in rows if str(item.get("symbol", "")).upper() == normalized_symbol), None)
+    normalized_symbol = _canonical_symbol_identity(symbol)
+    row = next((item for item in rows if item.get("symbol") == normalized_symbol), None)
 
     if row is None:
         funding_rate = 0.0
