@@ -219,6 +219,24 @@ def test_setup_rewrite_experiment_applies_setup_scoped_allowed_symbols_filter() 
     ]
 
 
+def test_setup_rewrite_experiment_rejects_string_score_with_field_path() -> None:
+    module = importlib.import_module("trading_system.app.backtest.setup_rewrite_experiment")
+
+    with pytest.raises(ValueError, match=r"rows\[1\]\.score"):
+        module.build_setup_rewrite_experiment(
+            rows=[
+                {
+                    "symbol": "BTCUSDT",
+                    "setup_type": "TREND_PULLBACK",
+                    "score": "0.82",
+                    "net_pnl": 12.5,
+                    "cost_coverage_ratio": 1.4,
+                }
+            ],
+            setup_rewrite=_params(),
+        )
+
+
 @pytest.mark.parametrize("net_pnl", [True, math.nan, math.inf])
 def test_setup_rewrite_experiment_rejects_invalid_net_pnl_with_field_path(net_pnl: object) -> None:
     module = importlib.import_module("trading_system.app.backtest.setup_rewrite_experiment")

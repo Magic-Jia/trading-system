@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 import math
+from numbers import Real
 from typing import Any, Mapping, Sequence
 
 from .types import SetupRewriteParams, SetupRewriteRule
@@ -71,7 +72,7 @@ def _evaluate_row(*, index: int, row: Mapping[str, Any], params: SetupRewritePar
         "setup_type": _string_or_none(row.get("setup_type")),
         "side": _string_or_none(row.get("side")),
         "entry_timestamp": _string_or_none(row.get("entry_timestamp")),
-        "score": _float_or_none(row.get("score")),
+        "score": _float_or_none(row.get("score"), field_path=f"rows[{index}].score"),
         "net_pnl": _net_pnl_or_none(row.get("net_pnl"), field_path=f"rows[{index}].net_pnl"),
         "source_chunk": _source_chunk(row),
     }
@@ -131,7 +132,10 @@ def _evaluate_rule(
     if rule.name == "require_setup_min_cost_coverage_ratio":
         if not _setup_type_matches(identity=identity, rule=rule):
             return "evaluated", "setup_type_out_of_scope", True
-        cost_coverage_ratio = _float_or_none(raw_row.get("cost_coverage_ratio"))
+        cost_coverage_ratio = _float_or_none(
+            raw_row.get("cost_coverage_ratio"),
+            field_path=f"rows[{identity['row_index']}].cost_coverage_ratio",
+        )
         if cost_coverage_ratio is None:
             return "no_evidence", "missing_cost_coverage_ratio", False
         if rule.min_cost_coverage_ratio is None:
@@ -151,7 +155,10 @@ def _evaluate_rule(
         return "evaluated", "setup_symbol_allowed", True
 
     if rule.name == "require_after_cost_breakeven_evidence":
-        cost_coverage_ratio = _float_or_none(raw_row.get("cost_coverage_ratio"))
+        cost_coverage_ratio = _float_or_none(
+            raw_row.get("cost_coverage_ratio"),
+            field_path=f"rows[{identity['row_index']}].cost_coverage_ratio",
+        )
         if cost_coverage_ratio is None:
             return "no_evidence", "missing_cost_coverage_ratio", False
         if cost_coverage_ratio < 1.0:
@@ -199,13 +206,15 @@ def _empty_bucket() -> dict[str, Any]:
     }
 
 
-def _float_or_none(value: Any) -> float | None:
+def _float_or_none(value: Any, *, field_path: str) -> float | None:
     if value is None:
         return None
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
+    if isinstance(value, bool) or not isinstance(value, Real):
+        raise ValueError(f"{field_path} must be a finite number")
+    result = float(value)
+    if not math.isfinite(result):
+        raise ValueError(f"{field_path} must be a finite number")
+    return result
 
 
 def _net_pnl_or_none(value: Any, *, field_path: str) -> float | None:
