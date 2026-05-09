@@ -10,6 +10,20 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 AUDIT = ROOT / "scripts" / "audit_worker_commit.py"
 
+WORKER_AUDIT_JSON_KEYS = {
+    "audit_kind",
+    "audit_version",
+    "changed_files",
+    "commit",
+    "controller_next_steps",
+    "final_merge_proof",
+    "status",
+    "strict_changed_verification",
+    "verification_plan",
+    "worktree_dirty",
+    "worktree_dirty_paths",
+}
+
 
 def load_audit_module():
     spec = importlib.util.spec_from_file_location("audit_worker_commit", AUDIT)
@@ -37,19 +51,7 @@ def test_audit_worker_commit_outputs_json_for_head() -> None:
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
     assert payload["commit"]
-    assert set(payload) == {
-        "audit_kind",
-        "audit_version",
-        "changed_files",
-        "commit",
-        "controller_next_steps",
-        "final_merge_proof",
-        "status",
-        "strict_changed_verification",
-        "verification_plan",
-        "worktree_dirty",
-        "worktree_dirty_paths",
-    }
+    assert set(payload) == WORKER_AUDIT_JSON_KEYS
     assert payload["changed_files"]
     assert payload["status"] == "ok"
     assert payload["audit_version"] == 1
