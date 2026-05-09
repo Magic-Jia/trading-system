@@ -70,6 +70,15 @@ def _strict_optional_sector(row: Mapping[str, Any], field_path: str) -> str:
     return value.strip()
 
 
+def _strict_optional_liquidity_tier(row: Mapping[str, Any], field_path: str) -> str:
+    if "liquidity_tier" not in row:
+        return ""
+    value = row.get("liquidity_tier")
+    if not isinstance(value, str):
+        raise ValueError(f"{field_path} must be a string when present")
+    return value.strip()
+
+
 def _strict_present_derivatives_number(features: Mapping[str, Any], field: str, field_path: str) -> float:
     if field not in features:
         return 0.0
@@ -96,6 +105,10 @@ def _market_symbol_key(symbol: Any) -> str:
 
 def _payload_sector(symbol: str, payload: Mapping[str, Any]) -> str:
     return _strict_optional_sector(payload, f"{symbol}.sector")
+
+
+def _payload_liquidity_tier(symbol: str, payload: Mapping[str, Any]) -> str:
+    return _strict_optional_liquidity_tier(payload, f"{symbol}.liquidity_tier")
 
 
 def _candidate_sector(symbol: str, payload: Mapping[str, Any], universe_row: Mapping[str, Any]) -> str:
@@ -268,7 +281,7 @@ def _active_paper_soft_reclaim_trend_intact(
         return False
     if _payload_sector("", payload).lower() == "majors":
         return False
-    if str(payload.get("liquidity_tier", "")).lower() not in _HIGH_LIQUIDITY_TIERS:
+    if _payload_liquidity_tier("", payload).lower() not in _HIGH_LIQUIDITY_TIERS:
         return False
 
     daily = _tf_row(payload, "daily")
@@ -299,7 +312,7 @@ def _scout_intraday_recovery_trend_intact(payload: Mapping[str, Any], profile: E
         return False
     if _payload_sector("", payload).lower() == "majors":
         return False
-    if str(payload.get("liquidity_tier", "")).lower() not in _HIGH_LIQUIDITY_TIERS:
+    if _payload_liquidity_tier("", payload).lower() not in _HIGH_LIQUIDITY_TIERS:
         return False
 
     daily = _tf_row(payload, "daily")
@@ -528,6 +541,7 @@ def generate_rotation_candidates(
         payload = payload_value
         if _payload_sector(symbol, payload).lower() == "majors":
             continue
+        _payload_liquidity_tier(symbol, payload)
         _validate_required_rotation_timeframe_numerics(symbol, payload)
         active_paper_soft_reclaim = _active_paper_soft_reclaim_trend_intact(payload, regime, profile)
         scout_intraday_recovery = _scout_intraday_recovery_trend_intact(payload, profile)
@@ -573,7 +587,8 @@ def generate_rotation_candidates(
 
         daily = _tf_row(payload, "daily")
         liquidity_meta = _liquidity_meta(universe_row)
-        liquidity_meta.setdefault("liquidity_tier", payload.get("liquidity_tier"))
+        liquidity_tier = _payload_liquidity_tier(symbol, payload)
+        liquidity_meta.setdefault("liquidity_tier", liquidity_tier)
         liquidity_meta["volume_usdt_24h"] = _to_float(daily.get("volume_usdt_24h"))
         invalidation_source = "rotation_pullback_failure_below_1h_ema50"
         trigger_timeframes = None
