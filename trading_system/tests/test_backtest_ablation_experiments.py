@@ -1456,13 +1456,20 @@ def test_long_gate_telemetry_rejects_non_string_rotation_candidate_symbol(monkey
 
 def _preserve_trace_score(monkeypatch: pytest.MonkeyPatch, engine_module: object, invalid_score: object) -> None:
     original_to_float = engine_module._to_float
+    original_strict_finite_number = backtest_experiments._strict_finite_number
 
     def patched_to_float(value: object) -> object:
         if value is invalid_score:
             return value
         return original_to_float(value)
 
+    def patched_strict_finite_number(value: object, *, field_name: str) -> float:
+        if field_name == "rotation score total" and value is invalid_score:
+            return invalid_score
+        return original_strict_finite_number(value, field_name=field_name)
+
     monkeypatch.setattr(engine_module, "_to_float", patched_to_float)
+    monkeypatch.setattr(backtest_experiments, "_strict_finite_number", patched_strict_finite_number)
 
 
 @pytest.mark.parametrize(
@@ -1513,6 +1520,42 @@ def test_long_gate_telemetry_rejects_invalid_rotation_candidate_sort_score(
 
     with pytest.raises(ValueError, match=match):
         backtest_experiments._rotation_candidates_with_trace(row, disabled_filters=frozenset())
+
+
+@pytest.mark.parametrize("invalid_total", [True, "0.9", float("nan"), float("inf")])
+def test_long_gate_telemetry_rejects_invalid_rotation_scorer_total(
+    monkeypatch: pytest.MonkeyPatch,
+    invalid_total: object,
+) -> None:
+    row = _supportive_soft_long_gate_row()
+    monkeypatch.setattr(
+        backtest_experiments.rotation_signals,
+        "score_rotation_candidate",
+        lambda _features: {"total": invalid_total, "components": {}},
+    )
+    monkeypatch.setattr(backtest_experiments.rotation_signals, "symbol_derivatives_features", lambda *_args: {})
+
+    with pytest.raises(ValueError, match=r"^rotation score total must be a finite number$"):
+        backtest_experiments._rotation_candidates_with_trace(row, disabled_filters=frozenset())
+
+
+@pytest.mark.parametrize("valid_total", [1, 0.9])
+def test_long_gate_telemetry_accepts_valid_rotation_scorer_total(
+    monkeypatch: pytest.MonkeyPatch,
+    valid_total: int | float,
+) -> None:
+    row = _supportive_soft_long_gate_row()
+    monkeypatch.setattr(
+        backtest_experiments.rotation_signals,
+        "score_rotation_candidate",
+        lambda _features: {"total": valid_total, "components": {}},
+    )
+    monkeypatch.setattr(backtest_experiments.rotation_signals, "symbol_derivatives_features", lambda *_args: {})
+
+    trace = backtest_experiments._rotation_candidates_with_trace(row, disabled_filters=frozenset())
+
+    assert trace["candidates"]
+    assert {candidate["score"] for candidate in trace["candidates"]} == {float(valid_total)}
 
 
 @pytest.mark.parametrize("invalid_liquidity_meta", [[("liquidity_tier", "high")], "not-object"])

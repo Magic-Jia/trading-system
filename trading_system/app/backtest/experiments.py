@@ -1489,7 +1489,7 @@ def _rotation_candidates_with_trace(
                 "volatility_quality": rotation_signals._volatility_quality(payload),
             }
         )
-        total_score = rotation_signals._to_float(scored.get("total"))
+        total_score = _strict_finite_number(scored.get("total"), field_name="rotation score total")
         score_components = _trace_score_components(
             scored.get("components"),
             engine="rotation",
