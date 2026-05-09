@@ -978,8 +978,8 @@ def render_walk_forward_validation_report(
         "scorecard": {
             "metadata": _scorecard_metadata(experiment_name=experiment_name, metadata=metadata),
             "key_metrics": {
-                "snapshot_count": int(metadata.get("snapshot_count", 0)),
-                "window_count": int(metadata.get("window_count", 0)),
+                "snapshot_count": _metadata_int(metadata, "snapshot_count"),
+                "window_count": _metadata_int(metadata, "window_count"),
                 "out_of_sample_total_return": out_of_sample_total_return,
                 "positive_window_ratio": positive_window_ratio,
                 "parameter_stability_score": parameter_stability_score,

@@ -1337,6 +1337,23 @@ def test_walk_forward_validation_report_rejects_invalid_scorecard_numerics() -> 
 
 
 
+def test_walk_forward_validation_report_rejects_invalid_metadata_counts() -> None:
+    with pytest.raises(ValueError, match="metadata.snapshot_count must be a non-negative integer"):
+        cli.render_walk_forward_validation_report(
+            experiment_name="walk_forward_validation",
+            metadata={"snapshot_count": True, "window_count": 1},
+            experiment={
+                "windows": [],
+                "robustness_summary": {
+                    "out_of_sample_scorecard": {"total_return": 0.03},
+                    "performance_dispersion": {"positive_window_ratio": 1.0},
+                },
+                "parameter_stability": {"parameter_stability_score": 0.8},
+            },
+        )
+
+
+
 def test_backtest_cli_writes_walk_forward_validation_bundle(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr(cli, "load_historical_dataset", lambda _dataset_root: _sample_dataset_rows(), raising=False)
     monkeypatch.setattr(
