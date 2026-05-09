@@ -119,3 +119,14 @@ def test_verify_json_dry_run_emits_machine_readable_plan() -> None:
     assert payload["changed"] == ["trading_system/app/main.py"]
     assert "trading_system/tests/test_main_v2_cycle.py" in payload["tests"]
     assert payload["commands"][-1] == "git diff --check HEAD"
+
+
+def test_verify_requires_full_after_slice_threshold() -> None:
+    result = run_verify("--dry-run", "--json", "--require-full-after", "3", "--slice-count", "3", "--changed", "trading_system/app/main.py")
+
+    assert result.returncode == 0, result.stderr
+    import json
+
+    payload = json.loads(result.stdout)
+    assert payload["full"] is True
+    assert payload["commands"][0] == "python3 -m pytest -q"

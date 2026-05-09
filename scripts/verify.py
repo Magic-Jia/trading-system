@@ -191,6 +191,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--auto-changed", action="store_true", help="include paths from git diff --name-only HEAD")
     parser.add_argument("--dry-run", action="store_true", help="print commands without executing")
     parser.add_argument("--json", action="store_true", help="with --dry-run, emit the verification plan as JSON")
+    parser.add_argument("--require-full-after", type=int, default=None, help="force full suite when --slice-count reaches this threshold")
+    parser.add_argument("--slice-count", type=int, default=0, help="number of completed slices since the last full-suite checkpoint")
     parser.add_argument("--list-suites", action="store_true", help="list fixed verification suites")
     args = parser.parse_args(argv)
 
@@ -208,8 +210,14 @@ def main(argv: list[str] | None = None) -> int:
             print(str(exc), file=sys.stderr)
             return 2
 
+    suites = list(args.suite)
+    full_checkpoint_reason = None
+    if args.require_full_after is not None and args.slice_count >= args.require_full_after:
+        suites.append("full")
+        full_checkpoint_reason = f"slice_count {args.slice_count} reached threshold {args.require_full_after}"
+
     try:
-        commands = build_commands(suites=args.suite, changed=changed, explicit_tests=args.test)
+        commands = build_commands(suites=suites, changed=changed, explicit_tests=args.test)
         validate_test_paths(commands)
     except ValueError as exc:
         print(str(exc), file=sys.stderr)
@@ -217,12 +225,13 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.dry_run:
         if args.json:
-            tests, full = build_tests(suites=args.suite, changed=changed, explicit_tests=args.test)
+            tests, full = build_tests(suites=suites, changed=changed, explicit_tests=args.test)
             payload = {
-                "suites": args.suite,
+                "suites": suites,
                 "changed": changed,
                 "explicit_tests": args.test,
                 "full": full,
+                "full_checkpoint_reason": full_checkpoint_reason,
                 "tests": tests,
                 "commands": commands,
             }
