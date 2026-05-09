@@ -833,6 +833,64 @@ def test_allocator_friction_experiment_rejects_invalid_present_final_risk_budget
         run_allocator_friction_experiment([_bullish_ablation_row()], evaluation_window="3d")
 
 
+@pytest.mark.parametrize(
+    "field,invalid_value",
+    [
+        ("engine", 123),
+        ("symbol", True),
+        ("status", True),
+    ],
+)
+def test_allocator_friction_experiment_rejects_non_string_allocation_identity_status(
+    monkeypatch: pytest.MonkeyPatch,
+    field: str,
+    invalid_value: object,
+) -> None:
+    def invalid_allocation_rows(_account, _validated_candidates, _regime, *, app_config=None):
+        allocation = {
+            "symbol": "BTCUSDT",
+            "engine": "trend",
+            "status": "ACCEPTED",
+            "final_risk_budget": 10.0,
+        }
+        allocation[field] = invalid_value
+        return [allocation]
+
+    monkeypatch.setattr(backtest_experiments, "_allocation_rows", invalid_allocation_rows)
+
+    with pytest.raises(ValueError, match=rf"allocations\[0\]\.{field} must be a string"):
+        run_allocator_friction_experiment([_bullish_ablation_row()], evaluation_window="3d")
+
+
+@pytest.mark.parametrize(
+    "field,invalid_value",
+    [
+        ("engine", 123),
+        ("symbol", True),
+        ("status", True),
+    ],
+)
+def test_engine_filter_ablation_rejects_non_string_allocation_identity_status(
+    monkeypatch: pytest.MonkeyPatch,
+    field: str,
+    invalid_value: object,
+) -> None:
+    def invalid_allocation_rows(_account, _validated_candidates, _regime, *, app_config=None):
+        allocation = {
+            "symbol": "BTCUSDT",
+            "engine": "trend",
+            "status": "ACCEPTED",
+            "final_risk_budget": 10.0,
+        }
+        allocation[field] = invalid_value
+        return [allocation]
+
+    monkeypatch.setattr(backtest_experiments, "_allocation_rows", invalid_allocation_rows)
+
+    with pytest.raises(ValueError, match=rf"allocations\[0\]\.{field} must be a string"):
+        run_engine_filter_ablation_experiment([_bullish_ablation_row()], evaluation_window="3d")
+
+
 def _walk_forward_rows() -> list[DatasetSnapshotRow]:
     return [
         _suppressed_rotation_row(2, link_return=0.04, ada_return=-0.01, forward_return_3d=0.04),

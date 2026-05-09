@@ -664,16 +664,19 @@ def _accepted_allocation_returns(
     *,
     evaluation_window: str,
 ) -> list[float]:
-    return [
-        _candidate_forward_return(
-            row,
-            engine=str(allocation.get("engine", "")),
-            symbol=str(allocation.get("symbol", "")),
-            evaluation_window=evaluation_window,
+    returns: list[float] = []
+    for index, allocation in enumerate(allocations):
+        if _allocation_status(allocation, index=index).upper() == "REJECTED":
+            continue
+        returns.append(
+            _candidate_forward_return(
+                row,
+                engine=_allocation_string_field(allocation, "engine", index=index),
+                symbol=_allocation_string_field(allocation, "symbol", index=index),
+                evaluation_window=evaluation_window,
+            )
         )
-        for allocation in allocations
-        if str(allocation.get("status", "")).upper() != "REJECTED"
-    ]
+    return returns
 
 
 def _merge_counts(target: dict[str, int], source: Mapping[str, int]) -> None:
@@ -730,7 +733,11 @@ def _run_candidate_pipeline(
             "raw_candidates": len(candidates),
             "validated_candidates": len(validated_candidates),
             "allocation_decisions": len(allocations),
-            "accepted_allocations": sum(1 for row in allocations if str(row.get("status", "")).upper() != "REJECTED"),
+            "accepted_allocations": sum(
+                1
+                for index, allocation in enumerate(allocations)
+                if _allocation_status(allocation, index=index).upper() != "REJECTED"
+            ),
         },
         "validated_candidates": validated_candidates,
         "allocation_rows": allocations,
@@ -741,11 +748,24 @@ def _run_candidate_pipeline(
 def _accepted_allocations(allocations: list[dict[str, Any]]) -> list[dict[str, Any]]:
     accepted: list[dict[str, Any]] = []
     for index, allocation in enumerate(allocations):
-        if str(allocation.get("status", "")).upper() == "REJECTED":
+        if _allocation_status(allocation, index=index).upper() == "REJECTED":
             continue
         if _allocation_final_risk_budget(allocation, path=f"allocations[{index}].final_risk_budget") > 0.0:
             accepted.append(allocation)
     return accepted
+
+
+def _allocation_string_field(allocation: Mapping[str, Any], field: str, *, index: int) -> str:
+    if field not in allocation:
+        return ""
+    value = allocation[field]
+    if not isinstance(value, str):
+        raise ValueError(f"allocations[{index}].{field} must be a string")
+    return value
+
+
+def _allocation_status(allocation: Mapping[str, Any], *, index: int) -> str:
+    return _allocation_string_field(allocation, "status", index=index)
 
 
 def _allocation_final_risk_budget(allocation: Mapping[str, Any], *, path: str) -> float:
@@ -917,12 +937,19 @@ def _allocation_performance_rows(
 ) -> list[dict[str, Any]]:
     holding_days = _window_holding_days(evaluation_window)
     performance_rows: list[dict[str, Any]] = []
-    for allocation in _accepted_allocations(allocations):
-        risk_budget = float(allocation.get("final_risk_budget", 0.0) or 0.0)
+    for allocation_index, allocation in enumerate(allocations):
+        if _allocation_status(allocation, index=allocation_index).upper() == "REJECTED":
+            continue
+        risk_budget = _allocation_final_risk_budget(
+            allocation,
+            path=f"allocations[{allocation_index}].final_risk_budget",
+        )
+        if risk_budget <= 0.0:
+            continue
         gross_return = _candidate_forward_return(
             row,
-            engine=str(allocation.get("engine", "")),
-            symbol=str(allocation.get("symbol", "")),
+            engine=_allocation_string_field(allocation, "engine", index=allocation_index),
+            symbol=_allocation_string_field(allocation, "symbol", index=allocation_index),
             evaluation_window=evaluation_window,
         )
         gross_pnl = risk_budget * gross_return
@@ -950,9 +977,21 @@ def _allocation_summary(allocations: list[dict[str, Any]]) -> dict[str, Any]:
     accepted = _accepted_allocations(allocations)
     budgets = [float(allocation.get("final_risk_budget", 0.0) or 0.0) for allocation in accepted]
     status_breakdown = {
-        "accepted": sum(1 for allocation in allocations if str(allocation.get("status", "")).upper() == "ACCEPTED"),
-        "downsized": sum(1 for allocation in allocations if str(allocation.get("status", "")).upper() == "DOWNSIZED"),
-        "rejected": sum(1 for allocation in allocations if str(allocation.get("status", "")).upper() == "REJECTED"),
+        "accepted": sum(
+            1
+            for index, allocation in enumerate(allocations)
+            if _allocation_status(allocation, index=index).upper() == "ACCEPTED"
+        ),
+        "downsized": sum(
+            1
+            for index, allocation in enumerate(allocations)
+            if _allocation_status(allocation, index=index).upper() == "DOWNSIZED"
+        ),
+        "rejected": sum(
+            1
+            for index, allocation in enumerate(allocations)
+            if _allocation_status(allocation, index=index).upper() == "REJECTED"
+        ),
     }
     return {
         "accepted_allocations": len(accepted),
@@ -1570,9 +1609,11 @@ def run_engine_filter_ablation_experiment(
             _merge_counts(funnel_counts, pipeline["funnel"])
             accepted_returns.extend(pipeline["returns"])
             accepted_symbols.update(
-                str(allocation.get("symbol", ""))
-                for allocation in _accepted_allocations(list(pipeline["allocation_rows"]))
-                if str(allocation.get("symbol", ""))
+                symbol
+                for index, allocation in enumerate(list(pipeline["allocation_rows"]))
+                if _allocation_status(allocation, index=index).upper() != "REJECTED"
+                and _allocation_final_risk_budget(allocation, path=f"allocations[{index}].final_risk_budget") > 0.0
+                if (symbol := _allocation_string_field(allocation, "symbol", index=index))
             )
 
         results[variant_name] = {
@@ -1670,12 +1711,12 @@ def run_long_gate_telemetry_experiment(
                 symbol = str(candidate.get("symbol", ""))
                 if symbol:
                     _bump_symbol_funnel(symbol_rows, symbol, "validated_candidates")
-            for allocation in list(pipeline.get("allocation_rows", [])):
-                symbol = str(allocation.get("symbol", ""))
+            for allocation_index, allocation in enumerate(list(pipeline.get("allocation_rows", []))):
+                symbol = _allocation_string_field(allocation, "symbol", index=allocation_index)
                 if not symbol:
                     continue
                 _bump_symbol_funnel(symbol_rows, symbol, "allocation_decisions")
-                if str(allocation.get("status", "")).upper() != "REJECTED":
+                if _allocation_status(allocation, index=allocation_index).upper() != "REJECTED":
                     _bump_symbol_funnel(symbol_rows, symbol, "accepted_allocations")
             _merge_symbol_breakdown(symbol_breakdown_aggregates[engine_name], symbol_rows)
 
