@@ -143,3 +143,22 @@ def test_build_optimization_summary_rejects_boolean_daily_metric_counts(tmp_path
             recommendations_path=tmp_path / "recommendations.json",
             promotion_decision_path=tmp_path / "promotion_decision.json",
         )
+
+def test_build_optimization_summary_rejects_non_list_health_warnings(tmp_path) -> None:
+    import pytest
+
+    health_report_path = tmp_path / "health_report.json"
+    health_report_path.write_text(
+        json.dumps({"status": "warn", "warnings": "not-a-list"}),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="health_report.warnings must be a list"):
+        build_optimization_summary(
+            signal_facts_path=tmp_path / "signal_facts.jsonl",
+            trade_outcomes_path=tmp_path / "trade_outcomes.jsonl",
+            daily_metrics_path=tmp_path / "daily_metrics.json",
+            health_report_path=health_report_path,
+            recommendations_path=tmp_path / "recommendations.json",
+            promotion_decision_path=tmp_path / "promotion_decision.json",
+        )

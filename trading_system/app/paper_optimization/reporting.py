@@ -34,6 +34,15 @@ def _optional_int(payload: dict[str, Any], field_name: str, *, default: int) -> 
     return value
 
 
+def _optional_list(payload: dict[str, Any], field_name: str, *, source_name: str) -> list[Any]:
+    value = payload.get(field_name)
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValueError(f"{source_name}.{field_name} must be a list")
+    return value
+
+
 def build_optimization_summary(
     *,
     signal_facts_path: Path,
@@ -58,9 +67,11 @@ def build_optimization_summary(
         "trade_outcome_count",
         default=_count_jsonl(trade_outcomes_path),
     )
-    warning_count = len(health_report.get("warnings") or []) if isinstance(health_report.get("warnings"), list) else 0
-    recommendation_count = len(recommendations.get("recommendations") or []) if isinstance(recommendations.get("recommendations"), list) else 0
-    optimization_alerts = list(recommendations.get("alerts") or []) if isinstance(recommendations.get("alerts"), list) else []
+    warnings = _optional_list(health_report, "warnings", source_name="health_report")
+    recommendation_items = _optional_list(recommendations, "recommendations", source_name="recommendations")
+    optimization_alerts = _optional_list(recommendations, "alerts", source_name="recommendations")
+    warning_count = len(warnings)
+    recommendation_count = len(recommendation_items)
 
     return {
         "signal_fact_count": signal_fact_count,
