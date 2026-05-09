@@ -723,6 +723,34 @@ def _telemetry_symbol_row_key(symbol: Any) -> str:
     return symbol
 
 
+def _telemetry_mapping(value: Any, *, path: str) -> Mapping[str, Any]:
+    if not isinstance(value, Mapping):
+        raise ValueError(f"{path} must be an object")
+    return value
+
+
+def _telemetry_optional_mapping(payload: Mapping[str, Any], key: str, *, path: str) -> Mapping[str, Any]:
+    value = payload.get(key, {})
+    if not isinstance(value, Mapping):
+        raise ValueError(f"{path}.{key} must be an object")
+    return value
+
+
+def _normalize_symbol_rows(symbol_rows: Any) -> dict[str, dict[str, Any]]:
+    rows = _telemetry_mapping(symbol_rows, path="symbol_rows")
+    normalized: dict[str, dict[str, Any]] = {}
+    for symbol, payload in rows.items():
+        symbol_key = _telemetry_symbol_row_key(symbol)
+        row_path = f"symbol_rows.{symbol_key}"
+        row_payload = _telemetry_mapping(payload, path=row_path)
+        normalized[symbol_key] = {
+            "snapshot_count": int(row_payload.get("snapshot_count", 0)),
+            "funnel": dict(_telemetry_optional_mapping(row_payload, "funnel", path=row_path)),
+            "filter_counts": dict(_telemetry_optional_mapping(row_payload, "filter_counts", path=row_path)),
+        }
+    return normalized
+
+
 def _validated_candidate_symbol(candidate: Mapping[str, Any], *, index: int) -> str:
     symbol = candidate.get("symbol", "")
     if not isinstance(symbol, str):
@@ -1773,14 +1801,7 @@ def run_long_gate_telemetry_experiment(
             _merge_counts(regime_engine_bucket["filter_counts"], traced["filter_counts"])
             regime_engine_bucket["accepted_returns"].extend(pipeline["returns"])
 
-            symbol_rows = {
-                _telemetry_symbol_row_key(symbol): {
-                    "snapshot_count": int(dict(payload).get("snapshot_count", 0)),
-                    "funnel": dict(dict(payload).get("funnel", {})),
-                    "filter_counts": dict(dict(payload).get("filter_counts", {})),
-                }
-                for symbol, payload in dict(traced.get("symbol_rows", {})).items()
-            }
+            symbol_rows = _normalize_symbol_rows(traced.get("symbol_rows", {}))
             for candidate_index, candidate in enumerate(list(pipeline.get("validated_candidates", []))):
                 symbol = _validated_candidate_symbol(candidate, index=candidate_index)
                 if symbol:

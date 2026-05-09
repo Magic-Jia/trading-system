@@ -767,6 +767,34 @@ def test_long_gate_telemetry_rejects_non_string_symbol_rows_key(monkeypatch: pyt
         run_long_gate_telemetry_experiment([_bullish_ablation_row()], evaluation_window="3d")
 
 
+@pytest.mark.parametrize(
+    ("symbol_rows", "match"),
+    [
+        ([("BTCUSDT", {"snapshot_count": 1, "funnel": {}, "filter_counts": {}})], r"^symbol_rows must be an object$"),
+        ({"BTCUSDT": [("snapshot_count", 1), ("funnel", {}), ("filter_counts", {})]}, r"^symbol_rows\.BTCUSDT must be an object$"),
+        ({"BTCUSDT": {"snapshot_count": 1, "funnel": [("raw_candidates", 1)], "filter_counts": {}}}, r"^symbol_rows\.BTCUSDT\.funnel must be an object$"),
+        ({"BTCUSDT": {"snapshot_count": 1, "funnel": {}, "filter_counts": [("selected", 1)]}}, r"^symbol_rows\.BTCUSDT\.filter_counts must be an object$"),
+    ],
+)
+def test_long_gate_telemetry_rejects_non_mapping_symbol_row_shapes(
+    monkeypatch: pytest.MonkeyPatch,
+    symbol_rows: object,
+    match: str,
+) -> None:
+    def traced_with_invalid_symbol_rows(_row):
+        return {
+            "input_universe": 1,
+            "candidates": [],
+            "filter_counts": {},
+            "symbol_rows": symbol_rows,
+        }
+
+    monkeypatch.setattr(backtest_experiments, "_trend_candidates_with_trace", traced_with_invalid_symbol_rows)
+
+    with pytest.raises(ValueError, match=match):
+        run_long_gate_telemetry_experiment([_bullish_ablation_row()], evaluation_window="3d")
+
+
 def test_long_gate_telemetry_rejects_non_string_validated_candidate_symbol(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
