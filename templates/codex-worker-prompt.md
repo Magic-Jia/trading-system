@@ -60,6 +60,8 @@ Report these fields exactly:
 - Focused verification:
 - Impacted verification:
 - Verification plan JSON:
+  - Include `plan_version` and `plan_kind` from `scripts/verify.py --dry-run --json` / `scripts/ci_verify.py --dry-run --json` output.
+  - If reporting suite inventory, include `inventory_version` and `inventory_kind` from `scripts/verify.py --list-suites --json` output.
 - Changed files:
 - Commit hash:
 - Known limitations:

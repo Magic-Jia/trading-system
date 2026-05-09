@@ -85,6 +85,8 @@ def test_codex_worker_template_requires_json_plan_report() -> None:
     text = CODEX_TEMPLATE.read_text()
 
     assert "Verification plan JSON" in text
+    assert "plan_kind" in text
+    assert "inventory_version" in text
     assert "--dry-run --json" in text
     assert "scripts/ci_verify.py --dry-run --json" in text
 
