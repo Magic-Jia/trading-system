@@ -205,12 +205,11 @@ def _strict_position_side(payload: Mapping[str, Any], key: str, field: str | Non
     value = payload.get(key)
     if not isinstance(value, str):
         raise TypeError(f"{label} must be a string when present")
-    side = value.strip().upper()
-    if not side:
+    if value != value.strip() or not value:
         raise ValueError(f"{label} must not be blank when present")
-    if side not in _POSITION_SIDE_VALUES:
+    if value not in _POSITION_SIDE_VALUES:
         raise ValueError(f"{label} must be one of {sorted(_POSITION_SIDE_VALUES)} when present")
-    return side
+    return value
 
 
 def _strict_optional_bool(payload: Mapping[str, Any], field: str, default: bool = False) -> bool:
