@@ -2092,6 +2092,24 @@ def test_render_llm_trend_breakout_report_rejects_invalid_present_summary_numeri
         )
 
 
+def test_render_llm_trend_breakout_report_rejects_non_object_rejection_reasons() -> None:
+    with pytest.raises(ValueError, match="summary.rejection_reasons must be an object"):
+        reporting.render_llm_trend_breakout_report(
+            experiment_name="llm_trend_breakout",
+            experiment={
+                "summary": {
+                    "technical_candidate_count": 2,
+                    "accepted_candidate_count": 1,
+                    "rejected_candidate_count": 1,
+                    "acceptance_rate": 0.5,
+                    "rejection_reasons": [("llm_low_confidence", 1)],
+                },
+                "candidate_rows": [],
+            },
+            metadata={"snapshot_count": 2},
+        )
+
+
 def test_backtest_cli_writes_llm_trend_breakout_bundle(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr(cli, "load_historical_dataset", lambda _dataset_root: _sample_dataset_rows(), raising=False)
     captured: dict[str, object] = {}

@@ -947,6 +947,10 @@ def render_llm_trend_breakout_report(
     accepted_candidate_count = _summary_int(summary_payload, "accepted_candidate_count")
     rejected_candidate_count = _summary_int(summary_payload, "rejected_candidate_count")
     acceptance_rate = _summary_float(summary_payload, "acceptance_rate")
+    raw_rejection_reasons = summary_payload.get("rejection_reasons", {})
+    if not isinstance(raw_rejection_reasons, Mapping):
+        raise ValueError("summary.rejection_reasons must be an object")
+    rejection_reasons = dict(raw_rejection_reasons)
     if accepted_candidate_count > 0 and acceptance_rate >= 0.25:
         decision = "keep_researching"
         summary = "LLM trend-breakout filter preserved some technical candidate flow; keep researching before any promotion"
@@ -977,7 +981,7 @@ def render_llm_trend_breakout_report(
                 "acceptance_rate": acceptance_rate,
             },
             "decision_summary": _decision_summary(decision=decision, summary=summary),
-            "rejection_reasons": dict(summary_payload.get("rejection_reasons", {})),
+            "rejection_reasons": rejection_reasons,
             **_promotion_metadata_sections(metadata),
         },
     }
