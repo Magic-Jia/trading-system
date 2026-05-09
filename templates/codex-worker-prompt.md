@@ -61,6 +61,7 @@ Report these fields exactly:
 - Impacted verification:
 - Verification plan JSON:
   - Include `plan_version` and `plan_kind` from `scripts/verify.py --dry-run --json` / `scripts/ci_verify.py --dry-run --json` output.
+  - Include entrypoint JSON `suites` from CI/nightly dry-run JSON when applicable so the controller does not infer suite names from command strings.
   - If reporting suite inventory, include `inventory_version` and `inventory_kind` from `scripts/verify.py --list-suites --json` output.
 - Changed files:
 - Commit hash:
