@@ -194,7 +194,11 @@ def _momentum_quality(payload: Mapping[str, Any]) -> float:
 def _liquidity_quality(payload: Mapping[str, Any], universe_row: Mapping[str, Any]) -> float:
     daily = _tf_row(payload, "daily")
     volume = _to_float(daily.get("volume_usdt_24h"))
-    rolling_notional = _to_float(_liquidity_meta(universe_row, str(universe_row.get("symbol", ""))).get("rolling_notional"))
+    symbol = str(universe_row.get("symbol", ""))
+    liquidity_meta = _liquidity_meta(universe_row, symbol)
+    if "rolling_notional" in liquidity_meta and not _is_finite_number(liquidity_meta["rolling_notional"]):
+        raise ValueError(f"{symbol}.liquidity_meta.rolling_notional must be a finite non-bool number")
+    rolling_notional = _to_float(liquidity_meta.get("rolling_notional"))
     return min(max(volume, rolling_notional) / 10_000_000_000.0, 1.0)
 
 

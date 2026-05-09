@@ -372,6 +372,40 @@ def test_generate_short_candidates_rejects_present_non_object_liquidity_meta():
         )
 
 
+@pytest.mark.parametrize("bad_rolling_notional", ["12500000000", True])
+def test_generate_short_candidates_rejects_present_invalid_liquidity_rolling_notional(bad_rolling_notional):
+    market = _defensive_market()
+    regime = {"label": "HIGH_VOL_DEFENSIVE", "bucket_targets": {"trend": 0.2, "rotation": 0.0, "short": 0.8}}
+
+    assert [
+        candidate.symbol
+        for candidate in generate_short_candidates(
+            market,
+            short_universe=[
+                {
+                    "symbol": "BTCUSDT",
+                    "sector": "majors",
+                    "liquidity_meta": {"rolling_notional": 12_500_000_000.0},
+                },
+            ],
+            regime=regime,
+        )
+    ] == ["BTCUSDT"]
+
+    with pytest.raises(ValueError, match=r"BTCUSDT\.liquidity_meta\.rolling_notional"):
+        generate_short_candidates(
+            market,
+            short_universe=[
+                {
+                    "symbol": "BTCUSDT",
+                    "sector": "majors",
+                    "liquidity_meta": {"rolling_notional": bad_rolling_notional},
+                },
+            ],
+            regime=regime,
+        )
+
+
 def test_generate_short_candidates_rejects_present_non_string_short_universe_symbol():
     market = _defensive_market()
     regime = {"label": "HIGH_VOL_DEFENSIVE", "bucket_targets": {"trend": 0.2, "rotation": 0.0, "short": 0.8}}
