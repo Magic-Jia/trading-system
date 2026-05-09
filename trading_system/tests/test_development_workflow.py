@@ -293,6 +293,20 @@ def test_verify_strict_auto_changed_rejects_forbidden_memory_noise() -> None:
     assert "memory/dev-status.md" in result.stderr
 
 
+def test_verify_rejects_blank_changed_path() -> None:
+    result = run_verify("--dry-run", "--changed", "")
+
+    assert result.returncode == 2
+    assert "changed path must be non-empty" in result.stderr
+
+
+def test_verify_rejects_duplicate_changed_path() -> None:
+    result = run_verify("--dry-run", "--changed", "AGENTS.md", "--changed", "AGENTS.md")
+
+    assert result.returncode == 2
+    assert "duplicate changed path" in result.stderr
+
+
 def test_verify_strict_auto_changed_implies_auto_changed(tmp_path: Path) -> None:
     probe = ROOT / "UNTRACKED_STRICT_AUTO_CHANGED.txt"
     try:

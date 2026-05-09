@@ -131,6 +131,16 @@ def unique(items: list[str]) -> list[str]:
     return list(OrderedDict.fromkeys(items))
 
 
+def validate_changed_paths(paths: list[str], *, label: str = "changed path") -> None:
+    seen: set[str] = set()
+    for path in paths:
+        if not path:
+            raise ValueError(f"{label} must be non-empty")
+        if path in seen:
+            raise ValueError(f"duplicate {label}: {path}")
+        seen.add(path)
+
+
 def suites_for_test_path(path: str) -> list[str]:
     selected: list[str] = []
     for tests in SUITES.values():
@@ -159,24 +169,23 @@ def unmapped_changed_paths(paths: list[str]) -> list[str]:
     return unique(unmapped)
 
 
-def _git_lines(command: str) -> list[str]:
+def _git_lines(command: list[str]) -> list[str]:
     completed = subprocess.run(
         command,
-        shell=True,
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         check=False,
     )
     if completed.returncode != 0:
-        raise RuntimeError(completed.stderr.strip() or f"{command} failed")
+        raise RuntimeError(completed.stderr.strip() or f"{' '.join(command)} failed")
     return [line.strip() for line in completed.stdout.splitlines() if line.strip()]
 
 
 def git_changed_paths() -> list[str]:
     return unique(
-        _git_lines("git diff --name-only HEAD")
-        + _git_lines("git ls-files --others --exclude-standard")
+        _git_lines(["git", "diff", "--name-only", "HEAD"])
+        + _git_lines(["git", "ls-files", "--others", "--exclude-standard"])
     )
 
 
@@ -233,10 +242,6 @@ def run_command_argv(commands: list[list[str]]) -> int:
     return 0
 
 
-def run_commands(commands: list[str]) -> int:
-    return run_command_argv([command.split() for command in commands])
-
-
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Deterministic trading-system verification entrypoint")
     parser.add_argument("--suite", action="append", default=[], help="fixed suite: evidence-chain, runtime-main, universe, full")
@@ -283,6 +288,11 @@ def main(argv: list[str] | None = None) -> int:
         except RuntimeError as exc:
             print(str(exc), file=sys.stderr)
             return 2
+    try:
+        validate_changed_paths(changed)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
 
     suites = list(args.suite)
     full_checkpoint_reason = None

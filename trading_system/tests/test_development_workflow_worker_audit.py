@@ -100,6 +100,20 @@ def test_audit_worker_commit_rejects_empty_input() -> None:
     assert "no changed files" in result.stderr
 
 
+def test_audit_worker_commit_rejects_blank_changed_file() -> None:
+    result = run_audit("--changed-file", "")
+
+    assert result.returncode == 2
+    assert "changed file must be non-empty" in result.stderr
+
+
+def test_audit_worker_commit_rejects_duplicate_changed_file() -> None:
+    result = run_audit("--changed-file", "AGENTS.md", "--changed-file", "AGENTS.md")
+
+    assert result.returncode == 2
+    assert "duplicate changed file" in result.stderr
+
+
 def test_audit_worker_commit_rejects_changed_files_without_impacted_tests() -> None:
     result = run_audit("--changed-file", "UNKNOWN_UNMAPPED_FILE.txt")
 

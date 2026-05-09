@@ -60,6 +60,16 @@ def worktree_dirty() -> bool:
     return bool(worktree_dirty_paths())
 
 
+def validate_changed_files(paths: list[str]) -> None:
+    seen: set[str] = set()
+    for path in paths:
+        if not path:
+            raise ValueError("changed file must be non-empty")
+        if path in seen:
+            raise ValueError(f"duplicate changed file: {path}")
+        seen.add(path)
+
+
 def verification_plan(changed_files: list[str]) -> dict[str, object]:
     command_argv = [
         [sys.executable, "scripts/verify.py", "--dry-run", "--json", "--strict-auto-changed", *sum((["--changed", path] for path in changed_files), [])]
@@ -90,6 +100,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.commit:
             commit = git_lines(["git", "rev-parse", "--verify", args.commit])[0]
             changed_files.extend(commit_changed_files(commit))
+        validate_changed_files(changed_files)
         changed_files = list(dict.fromkeys(changed_files))
         if not changed_files:
             print("no changed files to audit", file=sys.stderr)
@@ -102,7 +113,7 @@ def main(argv: list[str] | None = None) -> int:
         if not plan.get("full") and not plan.get("tests"):
             print("no impacted verification tests for changed files", file=sys.stderr)
             return 2
-    except (RuntimeError, json.JSONDecodeError) as exc:
+    except (RuntimeError, ValueError, json.JSONDecodeError) as exc:
         print(str(exc), file=sys.stderr)
         return 2
 
