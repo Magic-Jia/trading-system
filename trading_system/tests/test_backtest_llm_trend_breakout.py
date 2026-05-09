@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -48,6 +49,27 @@ def _params(**overrides: object) -> ExperimentParams:
     }
     values.update(overrides)
     return ExperimentParams(**values)
+
+
+def _write_llm_labels_payload(tmp_path: Path, payload: object) -> Path:
+    path = tmp_path / "labels.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return path
+
+
+def _valid_raw_llm_label(**overrides: object) -> dict[str, object]:
+    values: dict[str, object] = {
+        "timestamp": "2026-01-15T10:00:00Z",
+        "symbol": "SOLUSDT",
+        "sentiment_score": 0.1,
+        "event_risk": "low",
+        "fomo_risk": "medium",
+        "allow_long": True,
+        "confidence": 0.8,
+        "reason": "usable label",
+    }
+    values.update(overrides)
+    return values
 
 
 def test_apply_llm_filter_rejects_missing_required_label() -> None:
@@ -211,6 +233,90 @@ def test_load_llm_event_labels_defaults_missing_reason_to_empty_string(fixture_d
     assert label.reason == ""
 
 
+@pytest.mark.parametrize("payload", [[], "not an object", 7, None])
+def test_load_llm_event_labels_rejects_non_object_root(tmp_path: Path, payload: object) -> None:
+    from trading_system.app.backtest.llm_labels import load_llm_event_labels
+
+    path = _write_llm_labels_payload(tmp_path, payload)
+
+    with pytest.raises(ValueError, match="root payload must be an object"):
+        load_llm_event_labels(path)
+
+
+def test_load_llm_event_labels_rejects_non_string_timestamp(tmp_path: Path) -> None:
+    from trading_system.app.backtest.llm_labels import load_llm_event_labels
+
+    path = _write_llm_labels_payload(tmp_path, {"labels": [_valid_raw_llm_label(timestamp=123)]})
+
+    with pytest.raises(ValueError, match=r"labels\[0\]\.timestamp must be a string"):
+        load_llm_event_labels(path)
+
+
+@pytest.mark.parametrize("symbol", [123, "", "   "])
+def test_load_llm_event_labels_rejects_invalid_symbol(tmp_path: Path, symbol: object) -> None:
+    from trading_system.app.backtest.llm_labels import load_llm_event_labels
+
+    path = _write_llm_labels_payload(tmp_path, {"labels": [_valid_raw_llm_label(symbol=symbol)]})
+
+    with pytest.raises(ValueError, match=r"labels\[0\]\.symbol must be a non-empty string"):
+        load_llm_event_labels(path)
+
+
+@pytest.mark.parametrize(
+    ("field_name", "value"),
+    [
+        ("sentiment_score", "0.1"),
+        ("sentiment_score", True),
+        ("sentiment_score", float("nan")),
+        ("sentiment_score", float("inf")),
+        ("confidence", "0.8"),
+        ("confidence", False),
+        ("confidence", float("nan")),
+        ("confidence", float("-inf")),
+    ],
+)
+def test_load_llm_event_labels_rejects_invalid_numeric_fields(
+    tmp_path: Path, field_name: str, value: object
+) -> None:
+    from trading_system.app.backtest.llm_labels import load_llm_event_labels
+
+    path = _write_llm_labels_payload(tmp_path, {"labels": [_valid_raw_llm_label(**{field_name: value})]})
+
+    with pytest.raises(ValueError, match=rf"labels\[0\]\.{field_name} must be a finite number"):
+        load_llm_event_labels(path)
+
+
+@pytest.mark.parametrize(("field_name", "value"), [("event_risk", 1), ("fomo_risk", True)])
+def test_load_llm_event_labels_rejects_non_string_risk_levels(
+    tmp_path: Path, field_name: str, value: object
+) -> None:
+    from trading_system.app.backtest.llm_labels import load_llm_event_labels
+
+    path = _write_llm_labels_payload(tmp_path, {"labels": [_valid_raw_llm_label(**{field_name: value})]})
+
+    with pytest.raises(ValueError, match=rf"labels\[0\]\.{field_name} must be one of"):
+        load_llm_event_labels(path)
+
+
+@pytest.mark.parametrize("allow_long", ["true", 1, 0])
+def test_load_llm_event_labels_rejects_non_bool_allow_long(tmp_path: Path, allow_long: object) -> None:
+    from trading_system.app.backtest.llm_labels import load_llm_event_labels
+
+    path = _write_llm_labels_payload(tmp_path, {"labels": [_valid_raw_llm_label(allow_long=allow_long)]})
+
+    with pytest.raises(ValueError, match=r"labels\[0\]\.allow_long must be a bool"):
+        load_llm_event_labels(path)
+
+
+def test_load_llm_event_labels_rejects_non_string_reason(tmp_path: Path) -> None:
+    from trading_system.app.backtest.llm_labels import load_llm_event_labels
+
+    path = _write_llm_labels_payload(tmp_path, {"labels": [_valid_raw_llm_label(reason=123)]})
+
+    with pytest.raises(ValueError, match=r"labels\[0\]\.reason must be a string"):
+        load_llm_event_labels(path)
+
+
 def test_load_llm_event_labels_rejects_invalid_event_risk(tmp_path: Path) -> None:
     from trading_system.app.backtest.llm_labels import load_llm_event_labels
 
@@ -362,4 +468,3 @@ def test_run_llm_trend_breakout_experiment_counts_rejection_reasons(monkeypatch:
     assert result["summary"]["acceptance_rate"] == 0.0
     assert result["summary"]["rejection_reasons"] == {"missing_llm_label": 1}
     assert result["candidate_rows"][0]["decision"] == "rejected"
-
