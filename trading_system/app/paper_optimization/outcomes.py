@@ -42,13 +42,15 @@ def _str_value(value: Any) -> str:
     return str(value)
 
 
-def _float_or_none(value: Any) -> float | None:
+def _float_or_none(value: Any, *, field_name: str) -> float | None:
     if value is None:
         return None
+    if isinstance(value, bool):
+        raise ValueError(f"{field_name} must be numeric")
     try:
         return float(value)
-    except (TypeError, ValueError):
-        return None
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{field_name} must be numeric") from exc
 
 
 def _mapping(value: Any) -> Mapping[str, Any]:
@@ -91,7 +93,7 @@ def _outcome_status(execution_status: str | None, position: Mapping[str, Any]) -
     if normalized in _NOT_EXECUTED_STATUSES:
         return "NOT_EXECUTED"
     if normalized in _EXECUTED_STATUSES:
-        qty = _float_or_none(position.get("qty"))
+        qty = _float_or_none(position.get("qty"), field_name="position.qty")
         if qty is not None and qty > 0:
             return "OPEN"
         return "POSITION_NOT_TRACKED"
@@ -137,7 +139,7 @@ def collect_trade_outcomes(
         elif outcome_status == "POSITION_NOT_TRACKED":
             position_not_tracked_count += 1
 
-        unrealized_pnl = _float_or_none(position.get("unrealized_pnl"))
+        unrealized_pnl = _float_or_none(position.get("unrealized_pnl"), field_name="position.unrealized_pnl")
         outcomes.append(
             PaperTradeOutcome(
                 fact_type="trade_outcome",
@@ -159,31 +161,31 @@ def collect_trade_outcomes(
                 execution_status=execution_status,
                 outcome_status=outcome_status,
                 position_status=_str_or_none(position.get("status")),
-                score=_float_or_none(fact.get("score")),
-                final_risk_budget=_float_or_none(fact.get("final_risk_budget")),
+                score=_float_or_none(fact.get("score"), field_name="fact.score"),
+                final_risk_budget=_float_or_none(fact.get("final_risk_budget"), field_name="fact.final_risk_budget"),
                 filled_qty=(
-                    _float_or_none(result.get("filled_qty"))
-                    or _float_or_none(order.get("qty"))
-                    or _float_or_none(position_update.get("qty"))
+                    _float_or_none(result.get("filled_qty"), field_name="result.filled_qty")
+                    or _float_or_none(order.get("qty"), field_name="order.qty")
+                    or _float_or_none(position_update.get("qty"), field_name="position_update.qty")
                 ),
-                open_qty=_float_or_none(position.get("qty")),
+                open_qty=_float_or_none(position.get("qty"), field_name="position.qty"),
                 entry_price=(
-                    _float_or_none(position.get("entry_price"))
-                    or _float_or_none(position_update.get("entry_price"))
-                    or _float_or_none(order.get("entry_price"))
-                    or _float_or_none(result.get("avg_price"))
+                    _float_or_none(position.get("entry_price"), field_name="position.entry_price")
+                    or _float_or_none(position_update.get("entry_price"), field_name="position_update.entry_price")
+                    or _float_or_none(order.get("entry_price"), field_name="order.entry_price")
+                    or _float_or_none(result.get("avg_price"), field_name="result.avg_price")
                 ),
-                mark_price=_float_or_none(position.get("mark_price")) or _float_or_none(position_update.get("mark_price")),
+                mark_price=_float_or_none(position.get("mark_price"), field_name="position.mark_price") or _float_or_none(position_update.get("mark_price"), field_name="position_update.mark_price"),
                 stop_loss=(
-                    _float_or_none(position.get("stop_loss"))
-                    or _float_or_none(position_update.get("stop_loss"))
-                    or _float_or_none(order.get("stop_loss"))
-                    or _float_or_none(fact.get("stop_loss"))
+                    _float_or_none(position.get("stop_loss"), field_name="position.stop_loss")
+                    or _float_or_none(position_update.get("stop_loss"), field_name="position_update.stop_loss")
+                    or _float_or_none(order.get("stop_loss"), field_name="order.stop_loss")
+                    or _float_or_none(fact.get("stop_loss"), field_name="fact.stop_loss")
                 ),
                 take_profit=(
-                    _float_or_none(position.get("take_profit"))
-                    or _float_or_none(position_update.get("take_profit"))
-                    or _float_or_none(order.get("take_profit"))
+                    _float_or_none(position.get("take_profit"), field_name="position.take_profit")
+                    or _float_or_none(position_update.get("take_profit"), field_name="position_update.take_profit")
+                    or _float_or_none(order.get("take_profit"), field_name="order.take_profit")
                 ),
                 unrealized_pnl=unrealized_pnl,
                 realized_pnl=None,
