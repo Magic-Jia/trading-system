@@ -547,7 +547,7 @@ def _variant_with_best_metric(
             raise ValueError("variant names must be canonical strings")
         if not isinstance(payload, Mapping):
             raise ValueError(f"variants.{variant_name} must be an object")
-        value = float(metric_fn(variant_name, dict(payload)))
+        value = _report_finite_float(metric_fn(variant_name, dict(payload)), field_name=f"variants.{variant_name}.metric")
         if best_name is None or value > best_value:
             best_name = variant_name
             best_value = value
