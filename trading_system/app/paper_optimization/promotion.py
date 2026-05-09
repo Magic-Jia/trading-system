@@ -69,6 +69,13 @@ def _recommendation_ids(recommendations: list[Any]) -> list[str]:
     return ids
 
 
+def _object_section(payload: Mapping[str, Any], key: str) -> dict[str, Any]:
+    value = payload.get(key, {})
+    if not isinstance(value, Mapping):
+        raise ValueError(f"{key} must be an object")
+    return dict(value)
+
+
 def materialize_env_overrides(
     recommendations_payload: Mapping[str, Any],
     *,
@@ -173,8 +180,8 @@ def build_promotion_decision(
         baseline_bundle=baseline_bundle,
         variant_bundle=variant_bundle,
     )
-    promotion_gate = dict(comparison.get("promotion_gate", {}))
-    decision_summary = dict(comparison.get("decision_summary", {}))
+    promotion_gate = _object_section(comparison, "promotion_gate")
+    decision_summary = _object_section(comparison, "decision_summary")
     payload["status"] = str(promotion_gate.get("decision") or decision_summary.get("decision") or "hold")
     payload["decision"] = payload["status"]
     payload["baseline_bundle"] = str(baseline_bundle)
