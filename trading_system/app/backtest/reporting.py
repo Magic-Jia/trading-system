@@ -100,9 +100,9 @@ def render_backtest_evaluation_report(
 ) -> dict[str, Any]:
     if not isinstance(metadata, Mapping):
         raise ValueError("metadata must be an object")
-    walk_forward = dict(evaluation.get("walk_forward", {}))
-    regimes = dict(evaluation.get("regimes", {}))
-    cost_stress = dict(evaluation.get("cost_stress", {}))
+    walk_forward = _mapping_field(evaluation, "walk_forward")
+    regimes = _mapping_field(evaluation, "regimes")
+    cost_stress = _mapping_field(evaluation, "cost_stress")
     raw_walk_forward_metadata = walk_forward.get("metadata", {})
     if not isinstance(raw_walk_forward_metadata, Mapping):
         raise ValueError("walk_forward.metadata must be an object")
@@ -379,6 +379,15 @@ def _list_field(
     if not isinstance(raw_value, list):
         raise ValueError(f"{field_label} must be a list")
     return list(raw_value)
+
+
+def _mapping_field(payload: Mapping[str, Any], field: str, *, default: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    if field not in payload:
+        return dict(default or {})
+    raw_value = payload[field]
+    if not isinstance(raw_value, Mapping):
+        raise ValueError(f"{field} must be an object")
+    return dict(raw_value)
 
 
 _ALLOWED_DECISIONS = {"keep_researching", "candidate_for_promotion", "reject"}
