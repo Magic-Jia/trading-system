@@ -645,6 +645,25 @@ def test_engine_filter_ablation_rejects_non_string_selected_candidate_symbol(mon
         run_engine_filter_ablation_experiment([row], evaluation_window="3d")
 
 
+def test_engine_filter_ablation_rejects_non_mapping_traced_filter_counts(monkeypatch: pytest.MonkeyPatch) -> None:
+    def traced_with_invalid_filter_counts(_row, **_kwargs):
+        return {
+            "regime": _bullish_ablation_row().meta["regime_override"],
+            "input_universe": 0,
+            "candidates": [],
+            "filter_counts": [("selected", 1)],
+        }
+
+    monkeypatch.setattr(
+        backtest_experiments,
+        "_trend_candidates_with_trace",
+        traced_with_invalid_filter_counts,
+    )
+
+    with pytest.raises(ValueError, match=r"^traced\.filter_counts must be an object$"):
+        run_engine_filter_ablation_experiment([_bullish_ablation_row()], evaluation_window="3d")
+
+
 
 def test_long_gate_telemetry_outputs_engine_blockers_and_snapshot_rows() -> None:
     rows = [_bullish_ablation_row(), _bearish_short_row()]
@@ -764,6 +783,21 @@ def test_long_gate_telemetry_rejects_non_string_symbol_rows_key(monkeypatch: pyt
     monkeypatch.setattr(backtest_experiments, "_trend_candidates_with_trace", traced_with_invalid_symbol_key)
 
     with pytest.raises(ValueError, match=r"^symbol_rows key must be a string$"):
+        run_long_gate_telemetry_experiment([_bullish_ablation_row()], evaluation_window="3d")
+
+
+def test_long_gate_telemetry_rejects_non_mapping_traced_filter_counts(monkeypatch: pytest.MonkeyPatch) -> None:
+    def traced_with_invalid_filter_counts(_row):
+        return {
+            "input_universe": 0,
+            "candidates": [],
+            "filter_counts": [("selected", 1)],
+            "symbol_rows": {},
+        }
+
+    monkeypatch.setattr(backtest_experiments, "_trend_candidates_with_trace", traced_with_invalid_filter_counts)
+
+    with pytest.raises(ValueError, match=r"^traced\.filter_counts must be an object$"):
         run_long_gate_telemetry_experiment([_bullish_ablation_row()], evaluation_window="3d")
 
 

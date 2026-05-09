@@ -736,6 +736,13 @@ def _telemetry_optional_mapping(payload: Mapping[str, Any], key: str, *, path: s
     return value
 
 
+def _traced_filter_counts(traced: Mapping[str, Any]) -> Mapping[str, Any]:
+    filter_counts = traced.get("filter_counts", {})
+    if not isinstance(filter_counts, Mapping):
+        raise ValueError("traced.filter_counts must be an object")
+    return filter_counts
+
+
 def _normalize_symbol_rows(symbol_rows: Any) -> dict[str, dict[str, Any]]:
     rows = _telemetry_mapping(symbol_rows, path="symbol_rows")
     normalized: dict[str, dict[str, Any]] = {}
@@ -1694,7 +1701,7 @@ def run_engine_filter_ablation_experiment(
             regime = traced.get("regime", regime)
             candidate_rows = list(traced.get("candidates", []))
             input_universe = int(traced.get("input_universe", 0))
-            _merge_counts(filter_counts, dict(traced.get("filter_counts", {})))
+            _merge_counts(filter_counts, _traced_filter_counts(traced))
             selected_symbols.update(
                 symbol
                 for index, candidate in enumerate(candidate_rows)
@@ -1784,6 +1791,7 @@ def run_long_gate_telemetry_experiment(
 
         for engine_name, spec in engines.items():
             traced = spec["builder"](row)
+            traced_filter_counts = _traced_filter_counts(traced)
             pipeline = _run_candidate_pipeline(
                 row,
                 regime=regime,
@@ -1793,12 +1801,12 @@ def run_long_gate_telemetry_experiment(
             )
             aggregate = aggregates[engine_name]
             _merge_counts(aggregate["funnel_counts"], pipeline["funnel"])
-            _merge_counts(aggregate["filter_counts"], traced["filter_counts"])
+            _merge_counts(aggregate["filter_counts"], traced_filter_counts)
             aggregate["accepted_returns"].extend(pipeline["returns"])
 
             regime_engine_bucket = regime_bucket["engines"][engine_name]
             _merge_counts(regime_engine_bucket["funnel_counts"], pipeline["funnel"])
-            _merge_counts(regime_engine_bucket["filter_counts"], traced["filter_counts"])
+            _merge_counts(regime_engine_bucket["filter_counts"], traced_filter_counts)
             regime_engine_bucket["accepted_returns"].extend(pipeline["returns"])
 
             symbol_rows = _normalize_symbol_rows(traced.get("symbol_rows", {}))
@@ -1816,7 +1824,7 @@ def run_long_gate_telemetry_experiment(
             _merge_symbol_breakdown(symbol_breakdown_aggregates[engine_name], symbol_rows)
 
             funnel = _with_zero_defaults(dict(pipeline["funnel"]), _FUNNEL_KEYS)
-            filter_counts = _with_zero_defaults(dict(traced["filter_counts"]), tuple(spec["filter_keys"]))
+            filter_counts = _with_zero_defaults(traced_filter_counts, tuple(spec["filter_keys"]))
             total_raw_candidates += int(funnel["raw_candidates"])
             total_accepted_allocations += int(funnel["accepted_allocations"])
             engine_rows[engine_name] = {
