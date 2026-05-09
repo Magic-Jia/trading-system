@@ -89,7 +89,12 @@ def _short_enabled(regime: RegimeSnapshot | Mapping[str, Any] | None) -> bool:
         return True
     bucket_targets = _regime_value(regime, "bucket_targets", {})
     if isinstance(bucket_targets, Mapping):
-        return _to_float(bucket_targets.get("short")) >= 0.2
+        if "short" not in bucket_targets:
+            return False
+        short_target = bucket_targets.get("short")
+        if not _is_finite_number(short_target):
+            raise ValueError("regime.bucket_targets.short must be a finite non-bool number")
+        return short_target >= 0.2
     return False
 
 

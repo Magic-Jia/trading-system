@@ -413,6 +413,19 @@ def test_generate_short_candidates_respects_regime_gate_and_suppression():
     )
 
 
+@pytest.mark.parametrize("bad_short_target", ["0.8", True])
+def test_generate_short_candidates_rejects_present_invalid_short_bucket_target(bad_short_target):
+    market = _defensive_market()
+    short_universe = [{"symbol": "BTCUSDT", "sector": "majors", "liquidity_meta": {"rolling_notional": 12_500_000_000.0}}]
+
+    with pytest.raises(ValueError, match=r"regime\.bucket_targets\.short"):
+        generate_short_candidates(
+            market,
+            short_universe=short_universe,
+            regime={"label": "RISK_ON_TREND", "bucket_targets": {"short": bad_short_target}},
+        )
+
+
 def test_generate_short_candidates_rejects_present_non_string_regime_label():
     market = _defensive_market()
     short_universe = [{"symbol": "BTCUSDT", "sector": "majors", "liquidity_meta": {"rolling_notional": 12_500_000_000.0}}]
