@@ -8,6 +8,18 @@ from .metrics import cost_drag
 from .types import BaselineReplayResult, PromotionMetadata, TradeLedgerRow
 
 
+def _report_finite_float(value: Any, *, field_name: str) -> float:
+    if isinstance(value, bool):
+        raise ValueError(f"{field_name} must be a finite number")
+    try:
+        parsed = float(value)
+    except (OverflowError, TypeError, ValueError) as exc:
+        raise ValueError(f"{field_name} must be a finite number") from exc
+    if not math.isfinite(parsed):
+        raise ValueError(f"{field_name} must be a finite number")
+    return parsed
+
+
 def render_regime_scorecard(
     *,
     experiment_name: str,
@@ -20,7 +32,10 @@ def render_regime_scorecard(
     worst_regime = None
     worst_return = None
     for label, payload in by_regime.items():
-        current = float(dict(payload.get("forward_return_by_window", {})).get("3d", 0.0))
+        current = _report_finite_float(
+            dict(payload.get("forward_return_by_window", {})).get("3d", 0.0),
+            field_name=f"by_regime.{label}.forward_return_by_window.3d",
+        )
         if best_return is None or current > best_return:
             best_regime, best_return = label, current
         if worst_return is None or current < worst_return:

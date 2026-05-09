@@ -30,6 +30,21 @@ def _ts(value: str) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(timezone.utc)
 
 
+def test_regime_scorecard_rejects_invalid_forward_return_metric() -> None:
+    with pytest.raises(ValueError, match="by_regime.bull.forward_return_by_window.3d must be a finite number"):
+        reporting.render_regime_scorecard(
+            experiment_name="regime_dispersion",
+            experiment={
+                "metadata": {"snapshot_count": 2},
+                "by_regime": {
+                    "bull": {"forward_return_by_window": {"3d": True}},
+                    "bear": {"forward_return_by_window": {"3d": -0.01}},
+                },
+            },
+            metadata={"dataset_root": "dataset"},
+        )
+
+
 def sample_baseline_result() -> BaselineReplayResult:
     return BaselineReplayResult(
         portfolio_summary=PortfolioScorecardRow(
