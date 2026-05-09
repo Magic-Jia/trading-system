@@ -202,7 +202,7 @@ def _trade_ledger_payload(trade_ledger: tuple[TradeLedgerRow, ...]) -> list[dict
             "fee_paid": row.fee_paid,
             "slippage_paid": row.slippage_paid,
             "funding_paid": row.funding_paid,
-            "engine": row.engine,
+            "engine": _canonical_optional_empty_report_string(row.engine, field_name=f"trades[{index}].engine"),
             "setup_type": _canonical_optional_empty_report_string(
                 row.setup_type, field_name=f"trades[{index}].setup_type"
             ),
