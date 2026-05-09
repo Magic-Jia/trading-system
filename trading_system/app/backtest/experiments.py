@@ -781,6 +781,9 @@ def _account_context(row: DatasetSnapshotRow) -> dict[str, Any]:
         return default_account
     if not isinstance(row.account, Mapping):
         raise ValueError("row.account must be an object")
+    for key in row.account:
+        if not isinstance(key, str):
+            raise ValueError("row.account key must be a string")
     account = dict(row.account)
     account.setdefault("open_positions", [])
     return account
@@ -815,6 +818,8 @@ def _telemetry_counter(value: Any, *, path: str) -> int:
 
 def _merge_counts(target: dict[str, int], source: Mapping[str, int], *, path: str) -> None:
     for key, value in source.items():
+        if not isinstance(key, str):
+            raise ValueError(f"{path} key must be a string")
         source_count = _telemetry_counter(value, path=f"{path}.{key}")
         target_count = _telemetry_counter(target.get(key, 0), path=f"{path}.{key}")
         target[key] = target_count + source_count
@@ -865,6 +870,17 @@ def _telemetry_optional_mapping(payload: Mapping[str, Any], key: str, *, path: s
     return value
 
 
+def _telemetry_optional_count_mapping(payload: Mapping[str, Any], key: str, *, path: str) -> dict[str, int]:
+    value = _telemetry_optional_mapping(payload, key, path=path)
+    result: dict[str, int] = {}
+    count_path = f"{path}.{key}"
+    for count_key, count_value in value.items():
+        if not isinstance(count_key, str):
+            raise ValueError(f"{count_path} key must be a string")
+        result[count_key] = _telemetry_counter(count_value, path=f"{count_path}.{count_key}")
+    return result
+
+
 def _traced_filter_counts(traced: Mapping[str, Any]) -> Mapping[str, Any]:
     filter_counts = traced.get("filter_counts", {})
     if not isinstance(filter_counts, Mapping):
@@ -887,8 +903,8 @@ def _normalize_symbol_rows(symbol_rows: Any) -> dict[str, dict[str, Any]]:
             )
         normalized[symbol_key] = {
             "snapshot_count": snapshot_count,
-            "funnel": dict(_telemetry_optional_mapping(row_payload, "funnel", path=row_path)),
-            "filter_counts": dict(_telemetry_optional_mapping(row_payload, "filter_counts", path=row_path)),
+            "funnel": _telemetry_optional_count_mapping(row_payload, "funnel", path=row_path),
+            "filter_counts": _telemetry_optional_count_mapping(row_payload, "filter_counts", path=row_path),
         }
     return normalized
 
@@ -901,6 +917,9 @@ def _trace_candidate_rows(payload: Mapping[str, Any]) -> list[dict[str, Any]]:
     for index, candidate in enumerate(value):
         if not isinstance(candidate, Mapping):
             raise ValueError(f"candidates[{index}] must be an object")
+        for key in candidate:
+            if not isinstance(key, str):
+                raise ValueError(f"candidates[{index}] key must be a string")
         rows.append(dict(candidate))
     return rows
 

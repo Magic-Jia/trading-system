@@ -1414,6 +1414,35 @@ def test_long_gate_telemetry_rejects_non_mapping_traced_filter_counts(monkeypatc
 @pytest.mark.parametrize(
     ("symbol_rows", "match"),
     [
+        (
+            {"BTCUSDT": {"snapshot_count": 1, "funnel": {123: 1}, "filter_counts": {}}},
+            r"^symbol_rows\.BTCUSDT\.funnel key must be a string$",
+        ),
+        (
+            {"BTCUSDT": {"snapshot_count": 1, "funnel": {"raw_candidates": True}, "filter_counts": {}}},
+            r"^symbol_rows\.BTCUSDT\.funnel\.raw_candidates must be an integer counter$",
+        ),
+        (
+            {"BTCUSDT": {"snapshot_count": 1, "funnel": {}, "filter_counts": {123: 1}}},
+            r"^symbol_rows\.BTCUSDT\.filter_counts key must be a string$",
+        ),
+        (
+            {"BTCUSDT": {"snapshot_count": 1, "funnel": {}, "filter_counts": {"selected": 1.0}}},
+            r"^symbol_rows\.BTCUSDT\.filter_counts\.selected must be an integer counter$",
+        ),
+    ],
+)
+def test_long_gate_telemetry_rejects_invalid_symbol_row_count_maps(
+    symbol_rows: object,
+    match: str,
+) -> None:
+    with pytest.raises(ValueError, match=match):
+        backtest_experiments._normalize_symbol_rows(symbol_rows)
+
+
+@pytest.mark.parametrize(
+    ("symbol_rows", "match"),
+    [
         ([("BTCUSDT", {"snapshot_count": 1, "funnel": {}, "filter_counts": {}})], r"^symbol_rows must be an object$"),
         ({"BTCUSDT": [("snapshot_count", 1), ("funnel", {}), ("filter_counts", {})]}, r"^symbol_rows\.BTCUSDT must be an object$"),
         ({"BTCUSDT": {"snapshot_count": 1, "funnel": [("raw_candidates", 1)], "filter_counts": {}}}, r"^symbol_rows\.BTCUSDT\.funnel must be an object$"),
@@ -1488,6 +1517,11 @@ def test_long_gate_telemetry_rejects_invalid_trace_candidate_shape(
 
     with pytest.raises(ValueError, match=match):
         run_long_gate_telemetry_experiment([_bullish_ablation_row()], evaluation_window="3d")
+
+
+def test_long_gate_telemetry_rejects_non_string_trace_candidate_key() -> None:
+    with pytest.raises(ValueError, match=r"^candidates\[0\] key must be a string$"):
+        backtest_experiments._trace_candidate_rows({"candidates": [{123: "bad", "symbol": "BTCUSDT"}]})
 
 
 @pytest.mark.parametrize("input_universe", [True, "1", 1.5])
@@ -2682,6 +2716,18 @@ def test_allocator_friction_experiment_rejects_list_of_pairs_row_account() -> No
 
     with pytest.raises(ValueError, match=r"^row\.account must be an object$"):
         run_allocator_friction_experiment([row], evaluation_window="3d")
+
+
+def test_allocator_friction_experiment_rejects_non_string_row_account_key() -> None:
+    row = replace(_bullish_ablation_row(), account={123: "bad", "equity": 100_000.0})  # type: ignore[dict-item]
+
+    with pytest.raises(ValueError, match=r"^row\.account key must be a string$"):
+        run_allocator_friction_experiment([row], evaluation_window="3d")
+
+
+def test_experiment_count_merge_rejects_non_string_source_key() -> None:
+    with pytest.raises(ValueError, match=r"^filter_counts key must be a string$"):
+        backtest_experiments._merge_counts({}, {123: 1}, path="filter_counts")  # type: ignore[dict-item]
 
 
 @pytest.mark.parametrize("invalid_budget", [True, float("nan"), float("inf")])
