@@ -48,7 +48,12 @@ def _reject_invalid_timeframe_numeric(payload: Mapping[str, Any]) -> None:
 def _regime_label(regime: Mapping[str, Any] | None) -> str:
     if not isinstance(regime, Mapping):
         return ""
-    return str(regime.get("label", "")).strip().upper()
+    label = regime.get("label")
+    if label is None:
+        return ""
+    if not isinstance(label, str):
+        raise ValueError("regime.label must be a string when present")
+    return label.strip().upper()
 
 
 def _long_policy(

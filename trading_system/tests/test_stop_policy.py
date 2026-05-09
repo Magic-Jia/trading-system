@@ -157,6 +157,37 @@ def test_build_stop_policy_rejects_non_string_side_identity(invalid_side: object
         )
 
 
+@pytest.mark.parametrize("label", [True, 123, object(), ["CRASH_DEFENSIVE"]])
+def test_build_stop_policy_rejects_present_non_string_regime_label(label: object) -> None:
+    with pytest.raises(ValueError, match="regime.label must be a string when present"):
+        build_stop_policy(
+            _trend_payload(),
+            engine="trend",
+            setup_type="BREAKOUT_CONTINUATION",
+            side="LONG",
+            regime={"label": label},
+        )
+
+
+@pytest.mark.parametrize("regime", [None, {}, {"label": None}])
+def test_build_stop_policy_treats_missing_or_none_regime_label_as_empty(regime: object) -> None:
+    policy = build_stop_policy(
+        _trend_payload(),
+        engine="trend",
+        setup_type="BREAKOUT_CONTINUATION",
+        side="LONG",
+        regime=regime,
+    )
+
+    assert policy == StopPolicy(
+        stop_loss=pytest.approx(98.0),
+        stop_family="structure_stop",
+        stop_reference="4h_ema20",
+        invalidation_source="trend_breakout_failure_below_4h_ema20",
+        invalidation_reason="breakout continuation lost 4h breakout support",
+    )
+
+
 @pytest.mark.parametrize(
     ("timeframe", "field"),
     [
