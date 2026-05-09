@@ -105,6 +105,17 @@ def _float(row: dict, *keys: str) -> float:
     return 0.0
 
 
+def _strict_position_float(row: Mapping[str, Any], keys: tuple[str, ...], *, field_path: str, default: float = 0.0) -> float:
+    for key in keys:
+        if key not in row or row[key] is None:
+            continue
+        value = row[key]
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError(f"{field_path}.{key} must be a number when present")
+        return float(value)
+    return default
+
+
 def _resolve_default_data_file(config: Any, filename: str, legacy_path: Path) -> Path:
     if runtime_path_defaults_enabled() and hasattr(config, "state_file"):
         runtime_default = Path(config.state_file).parent / filename
@@ -162,21 +173,32 @@ def _resolve_derivatives_snapshot_path(*, config: Any | None = None) -> Path:
 
 
 def _positions_from_rows(rows: list[dict[str, Any]]) -> list[PositionSnapshot]:
-    return [
-        PositionSnapshot(
-            symbol=str(row["symbol"]),
-            side=str(row.get("side", row.get("positionSide", "LONG"))),
-            qty=abs(_float(row, "qty", "position_amt", "positionAmt", "amt")),
-            entry_price=_float(row, "entry_price", "entryPrice", "entry"),
-            mark_price=_float(row, "mark_price", "markPrice", "mark"),
-            unrealized_pnl=_float(row, "unrealized_pnl", "upl", "unRealizedProfit"),
-            notional=_float(row, "notional"),
-            leverage=_float(row, "leverage") if row.get("leverage") is not None else None,
-            strategy_tag=row.get("strategy_tag"),
+    positions: list[PositionSnapshot] = []
+    for index, row in enumerate(rows):
+        field_path = f"open_positions[{index}]"
+        if not isinstance(row, Mapping):
+            raise ValueError(f"{field_path} must be an object")
+        qty = abs(_strict_position_float(row, ("qty", "position_amt", "positionAmt", "amt"), field_path=field_path))
+        if qty <= 0:
+            continue
+        positions.append(
+            PositionSnapshot(
+                symbol=str(row["symbol"]),
+                side=str(row.get("side", row.get("positionSide", "LONG"))),
+                qty=qty,
+                entry_price=_strict_position_float(row, ("entry_price", "entryPrice", "entry"), field_path=field_path),
+                mark_price=_strict_position_float(row, ("mark_price", "markPrice", "mark"), field_path=field_path),
+                unrealized_pnl=_strict_position_float(
+                    row, ("unrealized_pnl", "upl", "unRealizedProfit"), field_path=field_path
+                ),
+                notional=_strict_position_float(row, ("notional",), field_path=field_path),
+                leverage=_strict_position_float(row, ("leverage",), field_path=field_path)
+                if row.get("leverage") is not None
+                else None,
+                strategy_tag=row.get("strategy_tag"),
+            )
         )
-        for row in rows
-        if abs(_float(row, "qty", "position_amt", "positionAmt", "amt")) > 0
-    ]
+    return positions
 
 
 def _load_v1_account_snapshot(raw: dict[str, Any]) -> AccountSnapshot:

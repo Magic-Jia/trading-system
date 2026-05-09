@@ -4738,3 +4738,27 @@ def test_load_account_snapshot_rejects_non_object_meta(tmp_path):
 
     with pytest.raises(ValueError, match="meta must be an object"):
         main_module.load_account_snapshot(account_path)
+
+def test_load_account_snapshot_rejects_invalid_open_position_qty(tmp_path):
+    account_path = tmp_path / "account_snapshot.json"
+    account_path.write_text(
+        json.dumps(
+            {
+                "equity": 1000.0,
+                "available_balance": 900.0,
+                "futures_wallet_balance": 1000.0,
+                "open_positions": [
+                    {
+                        "symbol": "BTCUSDT",
+                        "side": "LONG",
+                        "qty": "not-a-number",
+                        "entry_price": 100.0,
+                    }
+                ],
+                "open_orders": [],
+            }
+        )
+    )
+
+    with pytest.raises(ValueError, match=r"open_positions\[0\]\.qty"):
+        main_module.load_account_snapshot(account_path)
