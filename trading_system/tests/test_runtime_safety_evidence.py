@@ -107,6 +107,30 @@ def test_runtime_safety_gate_rejects_non_string_event_type() -> None:
         raise AssertionError("expected non-string runtime safety event type to be rejected")
 
 
+def test_runtime_safety_gate_rejects_blank_event_type() -> None:
+    manifest = _passing_manifest()
+    manifest["events"][0]["type"] = " "
+
+    try:
+        build_runtime_safety_gate(manifest)
+    except ValueError as exc:
+        assert str(exc) == "runtime safety event type must be non-empty"
+    else:  # pragma: no cover - RED path until producer is hardened
+        raise AssertionError("expected blank runtime safety event type to be rejected")
+
+
+def test_runtime_safety_gate_rejects_missing_event_type() -> None:
+    manifest = _passing_manifest()
+    del manifest["events"][0]["type"]
+
+    try:
+        build_runtime_safety_gate(manifest)
+    except ValueError as exc:
+        assert str(exc) == "runtime safety event type must be present"
+    else:  # pragma: no cover - RED path until producer is hardened
+        raise AssertionError("expected missing runtime safety event type to be rejected")
+
+
 def test_runtime_safety_gate_rejects_non_boolean_event_passed() -> None:
     manifest = _passing_manifest()
     manifest["events"][0]["passed"] = "true"
