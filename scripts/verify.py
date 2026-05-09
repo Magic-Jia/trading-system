@@ -229,6 +229,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.json:
             payload = {
                 "plan_version": 1,
+                "inventory_version": 1,
                 "inventory_kind": "suite_inventory",
                 "suites": {
                     name: {
