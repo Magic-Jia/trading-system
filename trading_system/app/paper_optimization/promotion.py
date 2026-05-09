@@ -31,6 +31,30 @@ def _format_float(value: float, precision: int) -> str:
     return rendered.rstrip("0").rstrip(".") if "." in rendered else rendered
 
 
+def _numeric(value: Any, *, field_name: str, default: float | None = None) -> float:
+    if value is None:
+        if default is None:
+            raise ValueError(f"{field_name} must be numeric")
+        return default
+    if isinstance(value, bool):
+        raise ValueError(f"{field_name} must be numeric")
+    try:
+        return float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{field_name} must be numeric") from exc
+
+
+def _integer(value: Any, *, field_name: str, default: int) -> int:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        raise ValueError(f"{field_name} must be an integer")
+    try:
+        return int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{field_name} must be an integer") from exc
+
+
 def materialize_env_overrides(
     recommendations_payload: Mapping[str, Any],
     *,
@@ -66,11 +90,14 @@ def materialize_env_overrides(
             if op != "multiply":
                 raise ValueError(f"unsupported overlay op: {op}")
 
-            precision = int(raw_op.get("precision", 4))
-            factor = float(raw_op.get("factor", 1.0))
-            minimum = float(raw_op.get("minimum", float("-inf")))
-            maximum = float(raw_op.get("maximum", float("inf")))
-            base_value = float(env_values.get(env_name, raw_op.get("default", 0.0)))
+            precision = _integer(raw_op.get("precision"), field_name="overlay_ops.precision", default=4)
+            factor = _numeric(raw_op.get("factor"), field_name="overlay_ops.factor", default=1.0)
+            minimum = _numeric(raw_op.get("minimum"), field_name="overlay_ops.minimum", default=float("-inf"))
+            maximum = _numeric(raw_op.get("maximum"), field_name="overlay_ops.maximum", default=float("inf"))
+            base_value = _numeric(
+                env_values.get(env_name, raw_op.get("default", 0.0)),
+                field_name="overlay_ops.base_value",
+            )
             proposed = max(minimum, min(maximum, base_value * factor))
             env_values[env_name] = _format_float(round(proposed, precision), precision)
 

@@ -209,3 +209,26 @@ def test_materialize_env_overrides_rejects_non_string_env_name() -> None:
 
     with pytest.raises(ValueError, match="overlay_ops.env must be a string"):
         materialize_env_overrides(payload, baseline_env={})
+
+def test_materialize_env_overrides_rejects_boolean_numeric_overlay_values() -> None:
+    payload = {
+        "recommendations": [
+            {
+                "id": "bad-factor",
+                "overlay_ops": [
+                    {
+                        "env": "TRADING_MAX_TOTAL_RISK_PCT",
+                        "op": "multiply",
+                        "factor": True,
+                        "default": 0.03,
+                        "precision": 4,
+                    }
+                ],
+            }
+        ]
+    }
+
+    import pytest
+
+    with pytest.raises(ValueError, match="overlay_ops.factor must be numeric"):
+        materialize_env_overrides(payload, baseline_env={})
