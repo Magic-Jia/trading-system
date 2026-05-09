@@ -83,6 +83,9 @@ SUITES: dict[str, list[str]] = {
     "full": [],
 }
 
+FORBIDDEN_CHANGED_FILES = {"memory/dev-status.md"}
+
+
 IMPACT_RULES: tuple[tuple[str, list[str]], ...] = (
     ("trading_system/app/main.py", SUITES["runtime-main"]),
     ("trading_system/app/universe/", SUITES["universe"]),
@@ -244,6 +247,10 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         tests, full = build_tests(suites=suites, changed=changed, explicit_tests=args.test)
+        forbidden = [path for path in changed if path in FORBIDDEN_CHANGED_FILES]
+        if args.strict_auto_changed and forbidden:
+            print(f"forbidden changed file: {', '.join(forbidden)}", file=sys.stderr)
+            return 2
         unmapped = unmapped_changed_paths(changed)
         if args.strict_auto_changed and changed and unmapped:
             print(f"no impacted verification tests for changed files: {', '.join(unmapped)}", file=sys.stderr)

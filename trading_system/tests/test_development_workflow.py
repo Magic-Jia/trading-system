@@ -177,6 +177,14 @@ def test_verify_strict_auto_changed_rejects_unmapped_paths() -> None:
     assert "no impacted verification tests" in result.stderr
 
 
+def test_verify_strict_auto_changed_rejects_forbidden_memory_noise() -> None:
+    result = run_verify("--dry-run", "--strict-auto-changed", "--changed", "memory/dev-status.md")
+
+    assert result.returncode == 2
+    assert "forbidden changed file" in result.stderr
+    assert "memory/dev-status.md" in result.stderr
+
+
 def test_verify_strict_auto_changed_implies_auto_changed(tmp_path: Path) -> None:
     probe = ROOT / "UNTRACKED_STRICT_AUTO_CHANGED.txt"
     try:
@@ -186,7 +194,10 @@ def test_verify_strict_auto_changed_implies_auto_changed(tmp_path: Path) -> None
         probe.unlink(missing_ok=True)
 
     assert result.returncode == 2
-    assert "no impacted verification tests" in result.stderr
+    assert (
+        "UNTRACKED_STRICT_AUTO_CHANGED.txt" in result.stderr
+        or "memory/dev-status.md" in result.stderr
+    )
 
 
 def test_ci_verify_entrypoint_runs_strict_workflow_and_evidence_chain() -> None:
