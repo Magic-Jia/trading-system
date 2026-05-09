@@ -547,6 +547,35 @@ def test_engine_ablation_rejects_invalid_trend_derivatives_metadata(monkeypatch,
         run_engine_filter_ablation_experiment([row], evaluation_window="3d")
 
 
+@pytest.mark.parametrize(
+    "source,match",
+    [
+        ("payload", r"^LINKUSDT\.sector must be a string when present$"),
+        ("universe", r"^LINKUSDT\.rotation_universe\.sector must be a string when present$"),
+    ],
+)
+def test_engine_ablation_rejects_non_string_rotation_candidate_sector(monkeypatch, source, match) -> None:
+    row = _bullish_ablation_row()
+
+    if source == "payload":
+        row.market["symbols"]["LINKUSDT"]["sector"] = 123
+    else:
+        original_build_universes = backtest_experiments.build_universes
+
+        def patched_build_universes(market, derivatives=None):
+            universes = original_build_universes(market, derivatives=derivatives)
+            for universe_row in universes.rotation_universe:
+                if universe_row["symbol"] == "LINKUSDT":
+                    universe_row["sector"] = 123
+            return universes
+
+        row.market["symbols"]["LINKUSDT"].pop("sector")
+        monkeypatch.setattr(backtest_experiments, "build_universes", patched_build_universes)
+
+    with pytest.raises(ValueError, match=match):
+        backtest_experiments._rotation_candidates_with_trace(row, disabled_filters=frozenset())
+
+
 def test_majors_soft_trend_relaxes_daily_structure_only_for_majors() -> None:
     result = run_engine_filter_ablation_experiment([_majors_soft_trend_row()], evaluation_window="3d")
 

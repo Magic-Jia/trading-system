@@ -1027,6 +1027,37 @@ def _friction_summary(
     }
 
 
+def _rotation_candidate_sector(
+    symbol: str,
+    payload: Mapping[str, Any],
+    universe_row: Mapping[str, Any],
+) -> str:
+    payload_sector = payload.get("sector")
+    if payload_sector is not None:
+        if not isinstance(payload_sector, str):
+            raise ValueError(f"{symbol}.sector must be a string when present")
+        if payload_sector.strip():
+            return payload_sector.strip()
+
+    universe_sector = universe_row.get("sector")
+    if universe_sector is not None:
+        if not isinstance(universe_sector, str):
+            raise ValueError(f"{symbol}.rotation_universe.sector must be a string when present")
+        if universe_sector.strip():
+            return universe_sector.strip()
+
+    return ""
+
+
+def _validate_rotation_payload_sectors(symbols: Mapping[Any, Any]) -> None:
+    for symbol, payload in symbols.items():
+        symbol_name = rotation_signals._market_symbol_key(symbol)
+        if not isinstance(payload, Mapping) or "sector" not in payload or payload.get("sector") is None:
+            continue
+        if not isinstance(payload.get("sector"), str):
+            raise ValueError(f"{symbol_name}.sector must be a string when present")
+
+
 def _rotation_candidates_with_trace(
     row: DatasetSnapshotRow,
     *,
@@ -1041,6 +1072,7 @@ def _rotation_candidates_with_trace(
         return {"input_universe": 0, "candidates": [], "filter_counts": {}}
     for symbol in symbols:
         rotation_signals._market_symbol_key(symbol)
+    _validate_rotation_payload_sectors(symbols)
 
     universes = build_universes(row.market, derivatives=row.derivatives)
     eligible = rotation_signals._rotation_symbols(universes.rotation_universe)
@@ -1057,7 +1089,8 @@ def _rotation_candidates_with_trace(
             continue
 
         payload = payload_value
-        if str(payload.get("sector", "")).lower() == "majors":
+        sector = _rotation_candidate_sector(symbol_name, payload, universe_row)
+        if sector.lower() == "majors":
             filter_counts["major_filtered"] += 1
             _bump_symbol_filter(symbol_rows, symbol_name, "major_filtered")
             continue
@@ -1140,7 +1173,7 @@ def _rotation_candidates_with_trace(
                     },
                     "score_components": scored.get("components", {}),
                 },
-                "sector": str(payload.get("sector") or universe_row.get("sector") or ""),
+                "sector": sector,
                 "liquidity_meta": liquidity_meta,
             }
         )
