@@ -1914,6 +1914,24 @@ def test_rotation_suppression_report_rejects_non_list_comparison_rows() -> None:
         )
 
 
+def test_rotation_suppression_report_rejects_non_object_comparison_row() -> None:
+    with pytest.raises(ValueError, match=r"rotation_comparison_rows\[0\] must be an object"):
+        cli.render_rotation_suppression_report(
+            experiment_name="rotation_suppression",
+            metadata={"snapshot_count": 1},
+            experiment={
+                "policies": {
+                    "current": {"bucket_level_pnl": 0.01},
+                    "soft_suppression": {"bucket_level_pnl": 0.02},
+                    "no_suppression": {"bucket_level_pnl": 0.0},
+                },
+                "opportunity_kill_rate": 0.1,
+                "avoid_loss_rate": 0.2,
+                "rotation_comparison_rows": ["accepted"],
+            },
+        )
+
+
 def test_allocator_friction_report_rejects_boolean_current_base_cost_drag() -> None:
     with pytest.raises(ValueError, match="variants.current_allocator.frictions.base.cost_drag must be a finite number"):
         cli.render_allocator_friction_report(

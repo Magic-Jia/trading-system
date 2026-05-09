@@ -732,6 +732,15 @@ def _walk_forward_window_rows(rows: list[Any]) -> list[dict[str, Any]]:
     return validated_rows
 
 
+def _rotation_comparison_rows(rows: list[Any]) -> list[dict[str, Any]]:
+    validated_rows: list[dict[str, Any]] = []
+    for index, row in enumerate(rows):
+        if not isinstance(row, Mapping):
+            raise ValueError(f"rotation_comparison_rows[{index}] must be an object")
+        validated_rows.append(dict(row))
+    return validated_rows
+
+
 def _variant_with_best_metric(
     variants: Mapping[str, Any],
     *,
@@ -799,7 +808,9 @@ def render_rotation_suppression_report(
         },
         "comparison_rows": {
             "metadata": dict(metadata),
-            "rows": _list_field(experiment, "rotation_comparison_rows", label="rotation_comparison_rows"),
+            "rows": _rotation_comparison_rows(
+                _list_field(experiment, "rotation_comparison_rows", label="rotation_comparison_rows")
+            ),
         },
         "scorecard": {
             "metadata": _scorecard_metadata(experiment_name=experiment_name, metadata=metadata),
