@@ -269,6 +269,24 @@ def test_generate_rotation_candidates_active_paper_profile_allows_modest_relativ
     assert candidates[0].stop_loss > 0
 
 
+def test_generate_rotation_candidates_rejects_non_string_liquidity_meta_key():
+    market = _modest_relative_strength_rotation_market()
+
+    with pytest.raises(ValueError, match=r"rotation_universe\.liquidity_meta key must be a string"):
+        generate_rotation_candidates(
+            market,
+            rotation_universe=[
+                {
+                    "symbol": "LINKUSDT",
+                    "sector": "oracle",
+                    "liquidity_tier": "high",
+                    "liquidity_meta": {123: "bad", "volume_usdt_24h": 1_000_000},
+                }
+            ],
+            entry_profile=ACTIVE_PAPER_ENTRY_PROFILE,
+        )
+
+
 def _active_paper_soft_relative_strength_rotation_market() -> dict[str, object]:
     return {
         "symbols": {

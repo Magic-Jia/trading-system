@@ -170,6 +170,9 @@ def _liquidity_meta(universe_row: Mapping[str, Any]) -> dict[str, Any]:
     value = universe_row.get("liquidity_meta")
     if not isinstance(value, Mapping):
         raise ValueError("rotation_universe.liquidity_meta must be an object when present")
+    for key in value:
+        if not isinstance(key, str):
+            raise ValueError("rotation_universe.liquidity_meta key must be a string")
     return dict(value)
 
 
