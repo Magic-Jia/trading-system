@@ -624,6 +624,27 @@ def test_majors_reclaim_band_variants_keep_soft_major_entries_near_daily_ema50()
     assert "LINKUSDT" not in reclaim_2["selected_symbols"]
 
 
+def test_engine_filter_ablation_rejects_non_string_selected_candidate_symbol(monkeypatch) -> None:
+    row = _bullish_ablation_row()
+
+    def invalid_trend_candidates_with_trace(_row, **_kwargs):
+        return {
+            "regime": row.meta["regime_override"],
+            "input_universe": 1,
+            "candidates": [{"symbol": 123, "score": 1.0}],
+            "filter_counts": {"selected": 1},
+        }
+
+    monkeypatch.setattr(
+        backtest_experiments,
+        "_trend_candidates_with_trace",
+        invalid_trend_candidates_with_trace,
+    )
+
+    with pytest.raises(ValueError, match=r"^candidates\[0\]\.symbol must be a string$"):
+        run_engine_filter_ablation_experiment([row], evaluation_window="3d")
+
+
 
 def test_long_gate_telemetry_outputs_engine_blockers_and_snapshot_rows() -> None:
     rows = [_bullish_ablation_row(), _bearish_short_row()]

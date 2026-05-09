@@ -1409,6 +1409,13 @@ def _validate_trend_candidate_symbols(candidates: Iterable[Mapping[str, Any]]) -
             raise ValueError(f"candidates[{index}].symbol must be a string")
 
 
+def _candidate_symbol(candidate: Mapping[str, Any], *, index: int) -> str:
+    symbol = candidate.get("symbol", "")
+    if not isinstance(symbol, str):
+        raise ValueError(f"candidates[{index}].symbol must be a string")
+    return symbol
+
+
 def _engine_only_candidates(row: DatasetSnapshotRow, *, engine: str) -> dict[str, Any]:
     regime = _regime_for_row(row)
     universes = build_universes(row.market, derivatives=row.derivatives)
@@ -1639,9 +1646,9 @@ def run_engine_filter_ablation_experiment(
             input_universe = int(traced.get("input_universe", 0))
             _merge_counts(filter_counts, dict(traced.get("filter_counts", {})))
             selected_symbols.update(
-                str(candidate.get("symbol", ""))
-                for candidate in candidate_rows
-                if str(candidate.get("symbol", ""))
+                symbol
+                for index, candidate in enumerate(candidate_rows)
+                if (symbol := _candidate_symbol(candidate, index=index))
             )
 
             pipeline = _run_candidate_pipeline(
