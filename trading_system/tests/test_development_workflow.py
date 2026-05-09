@@ -279,6 +279,13 @@ def test_ci_verify_dry_run_json_reports_commands() -> None:
     import json
 
     payload = json.loads(result.stdout)
+    assert set(payload) == {
+        "commands",
+        "entrypoint",
+        "plan_kind",
+        "plan_version",
+        "strict_changed_verification",
+    }
     assert payload["plan_version"] == 1
     assert payload["plan_kind"] == "ci_verification_plan"
     assert payload["entrypoint"] == "ci_verify"
@@ -331,6 +338,14 @@ def test_nightly_verify_dry_run_json_reports_clean_env_full_command() -> None:
     import json
 
     payload = json.loads(result.stdout)
+    assert set(payload) == {
+        "clean_env",
+        "commands",
+        "entrypoint",
+        "plan_kind",
+        "plan_version",
+        "unset_env",
+    }
     assert payload["plan_version"] == 1
     assert payload["plan_kind"] == "nightly_verification_plan"
     assert payload["entrypoint"] == "nightly_verify"
