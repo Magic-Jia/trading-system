@@ -34,6 +34,7 @@ python3 scripts/verify.py --suite app-smoke
 python3 scripts/verify.py --suite workflow-meta
 python3 scripts/verify.py --suite full
 python3 scripts/verify.py --list-suites
+python3 scripts/verify.py --list-suites --json
 ```
 
 `--dry-run` prints the commands without executing them. Add `--json` to emit a machine-readable plan for CI/controller auditing:

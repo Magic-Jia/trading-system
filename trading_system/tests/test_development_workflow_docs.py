@@ -50,6 +50,8 @@ def test_workflow_doc_lists_every_non_full_suite() -> None:
 def test_workflow_doc_records_json_plan_and_full_checkpoint_policy() -> None:
     text = WORKFLOW_DOC.read_text()
 
+    assert "--list-suites" in text
+    assert "--list-suites --json" in text
     assert "--json" in text
     assert "--dry-run --json" in text
     assert "--json requires --dry-run" in text
