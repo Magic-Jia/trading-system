@@ -36,7 +36,12 @@ def main() -> int:
         print("--json requires --dry-run", file=sys.stderr)
         return 2
     if args.dry_run:
-        payload = {"entrypoint": "nightly_verify", "commands": DISPLAY_COMMANDS, "unset_env": UNSET_ENV}
+        payload = {
+            "entrypoint": "nightly_verify",
+            "clean_env": True,
+            "commands": DISPLAY_COMMANDS,
+            "unset_env": UNSET_ENV,
+        }
         if args.json:
             print(json.dumps(payload, indent=2, sort_keys=True))
         else:

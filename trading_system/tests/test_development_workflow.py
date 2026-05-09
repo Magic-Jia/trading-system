@@ -252,5 +252,6 @@ def test_nightly_verify_dry_run_json_reports_clean_env_full_command() -> None:
 
     payload = json.loads(result.stdout)
     assert payload["entrypoint"] == "nightly_verify"
+    assert payload["clean_env"] is True
     assert payload["commands"] == ["python3 scripts/verify.py --suite full"]
     assert "TRADING_RUNTIME_ENV" in payload["unset_env"]
