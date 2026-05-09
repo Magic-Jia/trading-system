@@ -89,3 +89,10 @@ def test_verify_auto_changed_includes_untracked_files() -> None:
 
     assert result.returncode == 0, result.stderr
     assert "trading_system/tests/test_development_workflow_docs.py" in result.stdout
+
+
+def test_verify_rejects_missing_explicit_test_path_before_pytest() -> None:
+    result = run_verify("--dry-run", "--test", "trading_system/tests/does_not_exist.py")
+
+    assert result.returncode == 2
+    assert "missing verification path" in result.stderr

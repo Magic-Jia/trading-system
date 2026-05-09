@@ -89,7 +89,7 @@ def git_changed_paths() -> list[str]:
     )
 
 
-def build_commands(*, suites: list[str], changed: list[str]) -> list[str]:
+def build_commands(*, suites: list[str], changed: list[str], explicit_tests: list[str] | None = None) -> list[str]:
     tests: list[str] = []
     full = False
     for suite in suites:
@@ -100,6 +100,7 @@ def build_commands(*, suites: list[str], changed: list[str]) -> list[str]:
         else:
             tests.extend(SUITES[suite])
     tests.extend(tests_for_changed(changed))
+    tests.extend(explicit_tests or [])
     commands: list[str] = []
     if full:
         commands.append(TEST)
@@ -109,6 +110,18 @@ def build_commands(*, suites: list[str], changed: list[str]) -> list[str]:
         commands.append(f"{TEST} trading_system/tests/test_development_workflow.py")
     commands.append(DIFF_CHECK)
     return commands
+
+
+def validate_test_paths(commands: list[str]) -> None:
+    for command in commands:
+        if not command.startswith(TEST + " "):
+            continue
+        for token in command[len(TEST) :].strip().split():
+            if token.startswith("-"):
+                continue
+            path = Path(token)
+            if not path.exists():
+                raise ValueError(f"missing verification path: {token}")
 
 
 def run_commands(commands: list[str]) -> int:
@@ -124,6 +137,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Deterministic trading-system verification entrypoint")
     parser.add_argument("--suite", action="append", default=[], help="fixed suite: evidence-chain, runtime-main, universe, full")
     parser.add_argument("--changed", action="append", default=[], help="changed repository path for impact-based tests")
+    parser.add_argument("--test", action="append", default=[], help="explicit test path to include")
     parser.add_argument("--auto-changed", action="store_true", help="include paths from git diff --name-only HEAD")
     parser.add_argument("--dry-run", action="store_true", help="print commands without executing")
     args = parser.parse_args(argv)
@@ -137,7 +151,8 @@ def main(argv: list[str] | None = None) -> int:
             return 2
 
     try:
-        commands = build_commands(suites=args.suite, changed=changed)
+        commands = build_commands(suites=args.suite, changed=changed, explicit_tests=args.test)
+        validate_test_paths(commands)
     except ValueError as exc:
         print(str(exc), file=sys.stderr)
         return 2
