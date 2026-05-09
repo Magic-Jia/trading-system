@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
 from trading_system.app.backtest.promotion_evidence_bundle import verify_promotion_evidence_bundle
+from trading_system.app.backtest.types import ExecutionFillModel
 
 
 DEPTH_CLASSIFICATIONS = (
@@ -78,6 +79,7 @@ VALID_EXECUTION_PRICE_SOURCES = (
     "book_cross",
     "no_crossing_evidence",
 )
+VALID_FILL_MODELS = tuple(ExecutionFillModel.__args__)
 NOTIONAL_CONSISTENCY_ABS_TOLERANCE = 1e-9
 NOTIONAL_CONSISTENCY_REL_TOLERANCE = 1e-6
 PNL_CONSISTENCY_ABS_TOLERANCE = 1e-9
@@ -3088,6 +3090,11 @@ def _validate_postmortem_trade_execution_fields(trade: Mapping[str, Any], index:
     value = trade.get("fill_quality")
     if value is not None and (not isinstance(value, str) or not value.strip() or value != value.strip()):
         raise ValueError(f"postmortem.trades[{index}].fill_quality must be a canonical string")
+    value = trade.get("fill_model")
+    if value is not None and (
+        not isinstance(value, str) or not value.strip() or value != value.strip() or value not in VALID_FILL_MODELS
+    ):
+        raise ValueError(f"postmortem.trades[{index}].fill_model must be a supported canonical string")
     value = trade.get("execution_price_source")
     if value is None:
         return
