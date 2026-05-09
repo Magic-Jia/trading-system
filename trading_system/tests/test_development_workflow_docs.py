@@ -59,6 +59,8 @@ def test_workflow_doc_records_json_plan_and_full_checkpoint_policy() -> None:
     assert "--json" in text
     assert "--dry-run --json" in text
     assert "--json requires --dry-run" in text
+    assert "scripts/ci_verify.py --json" in text
+    assert "scripts/nightly_verify.py --json" in text
     assert "--require-full-after" in text
     assert "--strict-auto-changed" in text
     assert "scripts/ci_verify.py" in text
