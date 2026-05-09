@@ -4814,3 +4814,39 @@ def test_load_v1_account_snapshot_rejects_non_object_futures(tmp_path):
 
     with pytest.raises(ValueError, match="futures must be an object"):
         main_module.load_account_snapshot(account_path)
+
+def test_load_v1_account_snapshot_rejects_boolean_wallet_balance(tmp_path):
+    account_path = tmp_path / "account_snapshot.json"
+    account_path.write_text(
+        json.dumps(
+            {
+                "futures": {
+                    "total_wallet_balance": True,
+                    "available_balance": 900.0,
+                    "positions": [],
+                    "open_orders": [],
+                }
+            }
+        )
+    )
+
+    with pytest.raises(ValueError, match="futures.total_wallet_balance must be a number"):
+        main_module.load_account_snapshot(account_path)
+
+
+def test_load_v2_account_snapshot_rejects_boolean_equity(tmp_path):
+    account_path = tmp_path / "account_snapshot.json"
+    account_path.write_text(
+        json.dumps(
+            {
+                "equity": True,
+                "available_balance": 900.0,
+                "futures_wallet_balance": 1000.0,
+                "open_positions": [],
+                "open_orders": [],
+            }
+        )
+    )
+
+    with pytest.raises(ValueError, match="equity must be a number"):
+        main_module.load_account_snapshot(account_path)

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import json
-import os
 import math
+import os
 from dataclasses import asdict, dataclass, is_dataclass, replace
 from decimal import Decimal, ROUND_FLOOR
 from pathlib import Path
@@ -103,6 +103,22 @@ def _float(row: dict, *keys: str) -> float:
         except (TypeError, ValueError):
             continue
     return 0.0
+
+
+def _strict_account_float(row: Mapping[str, Any], keys: tuple[str, ...], *, field_path: str, default: float | None = None) -> float:
+    for key in keys:
+        if key not in row or row[key] is None:
+            continue
+        value = row[key]
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError(f"{field_path}.{key} must be a number")
+        number = float(value)
+        if not math.isfinite(number):
+            raise ValueError(f"{field_path}.{key} must be finite")
+        return number
+    if default is not None:
+        return default
+    raise ValueError(f"{field_path}.{keys[0]} is required")
 
 
 def _strict_position_float(row: Mapping[str, Any], keys: tuple[str, ...], *, field_path: str, default: float = 0.0) -> float:
@@ -213,9 +229,14 @@ def _load_v1_account_snapshot(raw: dict[str, Any]) -> AccountSnapshot:
         raise ValueError("futures.positions must be a list")
     positions = _positions_from_rows(raw_positions)
     return AccountSnapshot(
-        equity=float(futures["total_wallet_balance"]),
-        available_balance=float(futures.get("available_balance", futures["total_wallet_balance"])),
-        futures_wallet_balance=float(futures["total_wallet_balance"]),
+        equity=_strict_account_float(futures, ("total_wallet_balance",), field_path="futures"),
+        available_balance=_strict_account_float(
+            futures,
+            ("available_balance",),
+            field_path="futures",
+            default=_strict_account_float(futures, ("total_wallet_balance",), field_path="futures"),
+        ),
+        futures_wallet_balance=_strict_account_float(futures, ("total_wallet_balance",), field_path="futures"),
         open_positions=positions,
         open_orders=open_orders,
         meta={"source": "account_snapshot.json"},
@@ -236,11 +257,13 @@ def _load_v2_account_snapshot(raw: dict[str, Any]) -> AccountSnapshot:
     if not isinstance(meta, Mapping):
         raise ValueError("meta must be an object")
 
-    equity = _float(raw, "equity", "total_wallet_balance")
-    available_balance = _float(raw, "available_balance")
+    equity = _strict_account_float(raw, ("equity", "total_wallet_balance"), field_path="account")
+    available_balance = _strict_account_float(raw, ("available_balance",), field_path="account", default=equity)
     if available_balance <= 0:
         available_balance = equity
-    futures_wallet_balance = _float(raw, "futures_wallet_balance", "total_wallet_balance")
+    futures_wallet_balance = _strict_account_float(
+        raw, ("futures_wallet_balance", "total_wallet_balance"), field_path="account", default=equity
+    )
     if futures_wallet_balance <= 0:
         futures_wallet_balance = equity
 
