@@ -89,11 +89,18 @@ def render_backtest_evaluation_report(
     walk_forward = dict(evaluation.get("walk_forward", {}))
     regimes = dict(evaluation.get("regimes", {}))
     cost_stress = dict(evaluation.get("cost_stress", {}))
-    stress_scenarios = [
-        str(dict(scenario_payload.get("scenario", {})).get("name", ""))
-        for scenario_payload in cost_stress.get("scenarios", [])
-    ]
-    stress_scenarios = [name for name in stress_scenarios if name]
+    stress_scenarios = []
+    for index, scenario_payload in enumerate(_list_field(cost_stress, "scenarios", label="cost_stress.scenarios")):
+        if not isinstance(scenario_payload, Mapping):
+            raise ValueError(f"cost_stress.scenarios[{index}] must be an object")
+        scenario = scenario_payload.get("scenario", {})
+        if not isinstance(scenario, Mapping):
+            raise ValueError(f"cost_stress.scenarios[{index}].scenario must be an object")
+        name = scenario.get("name", "")
+        if name:
+            stress_scenarios.append(
+                _canonical_report_string(name, field_name=f"cost_stress.scenarios[{index}].scenario.name")
+            )
 
     return {
         "summary": {

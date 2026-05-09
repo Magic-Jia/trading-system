@@ -30,6 +30,19 @@ def _ts(value: str) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(timezone.utc)
 
 
+def test_backtest_evaluation_report_rejects_invalid_cost_stress_scenario_name() -> None:
+    with pytest.raises(ValueError, match=r"cost_stress.scenarios\[0\].scenario.name must be a canonical string"):
+        reporting.render_backtest_evaluation_report(
+            experiment_name="evaluation",
+            evaluation={
+                "walk_forward": {"metadata": {"window_count": 1}},
+                "regimes": {"buckets": []},
+                "cost_stress": {"scenarios": [{"scenario": {"name": True}}]},
+            },
+            metadata={"dataset_root": "dataset"},
+        )
+
+
 def test_backtest_evaluation_report_rejects_invalid_regime_buckets_shape() -> None:
     with pytest.raises(ValueError, match="regimes.buckets must be a list"):
         reporting.render_backtest_evaluation_report(
