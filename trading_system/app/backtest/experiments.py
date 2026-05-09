@@ -827,6 +827,18 @@ def _pipeline_funnel_counts(pipeline: Mapping[str, Any]) -> dict[str, int]:
     return _with_zero_defaults(counts, _FUNNEL_KEYS)
 
 
+def _pipeline_row_mappings(pipeline: Mapping[str, Any], field: str) -> list[Mapping[str, Any]]:
+    if field not in pipeline:
+        return []
+    rows = pipeline[field]
+    if not isinstance(rows, list):
+        raise ValueError(f"pipeline.{field} must be a list")
+    for index, row in enumerate(rows):
+        if not isinstance(row, Mapping):
+            raise ValueError(f"pipeline.{field}[{index}] must be an object")
+    return rows
+
+
 def _validated_candidate_symbol(candidate: Mapping[str, Any], *, index: int) -> str:
     symbol = candidate.get("symbol", "")
     if not isinstance(symbol, str):
@@ -1902,11 +1914,11 @@ def run_long_gate_telemetry_experiment(
             regime_engine_bucket["accepted_returns"].extend(pipeline["returns"])
 
             symbol_rows = _normalize_symbol_rows(traced.get("symbol_rows", {}))
-            for candidate_index, candidate in enumerate(list(pipeline.get("validated_candidates", []))):
+            for candidate_index, candidate in enumerate(_pipeline_row_mappings(pipeline, "validated_candidates")):
                 symbol = _validated_candidate_symbol(candidate, index=candidate_index)
                 if symbol:
                     _bump_symbol_funnel(symbol_rows, symbol, "validated_candidates")
-            for allocation_index, allocation in enumerate(list(pipeline.get("allocation_rows", []))):
+            for allocation_index, allocation in enumerate(_pipeline_row_mappings(pipeline, "allocation_rows")):
                 symbol = _allocation_string_field(allocation, "symbol", index=allocation_index)
                 if not symbol:
                     continue

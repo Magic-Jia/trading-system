@@ -1004,6 +1004,70 @@ def test_long_gate_telemetry_rejects_non_string_validated_candidate_symbol(
         run_long_gate_telemetry_experiment([_bullish_ablation_row()], evaluation_window="3d")
 
 
+@pytest.mark.parametrize(
+    ("validated_candidates", "match"),
+    [
+        ("BTCUSDT", r"^pipeline\.validated_candidates must be a list$"),
+        ([object()], r"^pipeline\.validated_candidates\[0\] must be an object$"),
+    ],
+)
+def test_long_gate_telemetry_rejects_invalid_pipeline_validated_candidate_rows(
+    monkeypatch: pytest.MonkeyPatch,
+    validated_candidates: object,
+    match: str,
+) -> None:
+    def pipeline_with_invalid_validated_candidates(*_args, **_kwargs):
+        return {
+            "funnel": {
+                "input_universe": 1,
+                "raw_candidates": 1,
+                "validated_candidates": 1,
+                "allocation_decisions": 0,
+                "accepted_allocations": 0,
+            },
+            "validated_candidates": validated_candidates,
+            "allocation_rows": [],
+            "returns": [],
+        }
+
+    monkeypatch.setattr(backtest_experiments, "_run_candidate_pipeline", pipeline_with_invalid_validated_candidates)
+
+    with pytest.raises(ValueError, match=match):
+        run_long_gate_telemetry_experiment([_bullish_ablation_row()], evaluation_window="3d")
+
+
+@pytest.mark.parametrize(
+    ("allocation_rows", "match"),
+    [
+        ("BTCUSDT", r"^pipeline\.allocation_rows must be a list$"),
+        ([object()], r"^pipeline\.allocation_rows\[0\] must be an object$"),
+    ],
+)
+def test_long_gate_telemetry_rejects_invalid_pipeline_allocation_rows(
+    monkeypatch: pytest.MonkeyPatch,
+    allocation_rows: object,
+    match: str,
+) -> None:
+    def pipeline_with_invalid_allocation_rows(*_args, **_kwargs):
+        return {
+            "funnel": {
+                "input_universe": 1,
+                "raw_candidates": 1,
+                "validated_candidates": 0,
+                "allocation_decisions": 1,
+                "accepted_allocations": 0,
+            },
+            "validated_candidates": [],
+            "allocation_rows": allocation_rows,
+            "returns": [],
+        }
+
+    monkeypatch.setattr(backtest_experiments, "_run_candidate_pipeline", pipeline_with_invalid_allocation_rows)
+
+    with pytest.raises(ValueError, match=match):
+        run_long_gate_telemetry_experiment([_bullish_ablation_row()], evaluation_window="3d")
+
+
 @pytest.mark.parametrize("funnel", [[("raw_candidates", 1)], object()])
 def test_long_gate_telemetry_rejects_non_mapping_pipeline_funnel(
     monkeypatch: pytest.MonkeyPatch,
