@@ -783,7 +783,9 @@ def render_rotation_suppression_report(
     policies = dict(raw_policies)
 
     def policy_payload(name: str) -> dict[str, Any]:
-        raw_policy = policies.get(name, {})
+        if name not in policies:
+            raise ValueError(f"policies.{name} must be an object")
+        raw_policy = policies[name]
         if not isinstance(raw_policy, Mapping):
             raise ValueError(f"policies.{name} must be an object")
         return dict(raw_policy)
