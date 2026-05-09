@@ -82,7 +82,7 @@ def _signal_facts(signal_facts: list[dict[str, Any]] | None, signal_facts_path: 
 def _ledger_index(paper_ledger_path: Path | None) -> dict[str, dict[str, Any]]:
     index: dict[str, dict[str, Any]] = {}
     for row in _jsonl(paper_ledger_path):
-        intent_id = _str_or_none(row.get("intent_id"))
+        intent_id = _optional_str(row.get("intent_id"), field_name="ledger.intent_id")
         if intent_id:
             index[intent_id] = row
     return index
