@@ -61,6 +61,31 @@ def _is_finite_number(value: Any) -> bool:
     return math.isfinite(value)
 
 
+def _optional_strict_feature_number(features: Mapping[str, Any], field: str, *, default: float) -> float:
+    if field not in features:
+        return default
+    value = features[field]
+    if not _is_finite_number(value):
+        raise ValueError(f"derivatives.{field} must be a finite non-bool number when present")
+    return float(value)
+
+
+def _optional_strict_feature_string(features: Mapping[str, Any], field: str, *, default: str) -> str:
+    if field not in features:
+        return default
+    value = features[field]
+    if not isinstance(value, str):
+        raise ValueError(f"derivatives.{field} must be a string when present")
+    return value
+
+
+def _strict_derivatives_short_features(features: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "crowding_bias": _optional_strict_feature_string(features, "crowding_bias", default="balanced"),
+        "basis_bps": _optional_strict_feature_number(features, "basis_bps", default=0.0),
+    }
+
+
 def _validate_required_short_timeframe_numerics(symbol: str, payload: Mapping[str, Any]) -> bool:
     for timeframe, fields in _REQUIRED_SHORT_TIMEFRAME_NUMERIC_FIELDS.items():
         row = _tf_row(payload, timeframe)
@@ -204,8 +229,8 @@ def _short_stop_loss(payload: Mapping[str, Any], entry_profile: EntryProfile | N
 
 def _reject_crowded_short_squeeze_risk(features: Mapping[str, Any]) -> bool:
     return (
-        str(features.get("crowding_bias", "balanced")) == "crowded_short"
-        and _to_float(features.get("basis_bps")) <= _CROWDED_SHORT_BASIS_BPS
+        features["crowding_bias"] == "crowded_short"
+        and features["basis_bps"] <= _CROWDED_SHORT_BASIS_BPS
     )
 
 
@@ -249,7 +274,7 @@ def generate_short_candidates(
         if setup_type is None:
             continue
 
-        derivatives_features = symbol_derivatives_features(derivatives, str(symbol))
+        derivatives_features = _strict_derivatives_short_features(symbol_derivatives_features(derivatives, str(symbol)))
         if _reject_crowded_short_squeeze_risk(derivatives_features):
             continue
 
@@ -286,8 +311,8 @@ def generate_short_candidates(
             invalidation_source = "short_term_short_reclaim_above_15m_ema50"
         if derivatives is not None:
             timeframe_meta["derivatives"] = {
-                "crowding_bias": str(derivatives_features.get("crowding_bias", "balanced")),
-                "basis_bps": _to_float(derivatives_features.get("basis_bps")),
+                "crowding_bias": derivatives_features["crowding_bias"],
+                "basis_bps": derivatives_features["basis_bps"],
             }
 
         liquidity_meta = dict(_liquidity_meta(universe_row, symbol))

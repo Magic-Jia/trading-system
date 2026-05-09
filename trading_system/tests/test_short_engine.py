@@ -2,6 +2,7 @@ import math
 
 import pytest
 
+from trading_system.app.signals import short_engine
 from trading_system.app.signals.scoring import score_short_candidate
 from trading_system.app.signals.short_engine import generate_short_candidates
 
@@ -259,6 +260,27 @@ def test_generate_short_candidates_attach_derivatives_meta():
 
     assert candidate.timeframe_meta["derivatives"]["crowding_bias"] == "balanced"
     assert candidate.timeframe_meta["derivatives"]["basis_bps"] == -8.0
+
+
+@pytest.mark.parametrize("bad_basis_bps", ["-25", True])
+def test_generate_short_candidates_rejects_present_invalid_derivatives_basis_bps(monkeypatch, bad_basis_bps):
+    market = _defensive_market()
+    short_universe = [
+        {"symbol": "BTCUSDT", "sector": "majors", "liquidity_meta": {"rolling_notional": 12_500_000_000.0}},
+    ]
+    monkeypatch.setattr(
+        short_engine,
+        "symbol_derivatives_features",
+        lambda _derivatives, _symbol: {"crowding_bias": "balanced", "basis_bps": bad_basis_bps},
+    )
+
+    with pytest.raises(ValueError, match="basis_bps"):
+        generate_short_candidates(
+            market,
+            short_universe=short_universe,
+            derivatives={"rows": [{"symbol": "BTCUSDT"}]},
+            regime={"label": "HIGH_VOL_DEFENSIVE", "bucket_targets": {"trend": 0.2, "rotation": 0.0, "short": 0.8}},
+        )
 
 
 def test_short_term_short_candidates_expose_intraday_entry_reference_metadata():
