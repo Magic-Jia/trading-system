@@ -700,3 +700,30 @@ def test_collect_trade_outcomes_rejects_non_string_mode(tmp_path: Path) -> None:
             runtime_positions={},
             paper_ledger_path=None,
         )
+
+
+def test_collect_trade_outcomes_rejects_non_string_fact_type(tmp_path: Path) -> None:
+    paths = build_runtime_paths("paper", runtime_root=tmp_path / "runtime", runtime_env="research")
+    module = _outcomes_module()
+
+    with pytest.raises(ValueError, match="fact.fact_type must be a string"):
+        module.collect_trade_outcomes(
+            trade_outcomes_path=paths.trade_outcomes_file,
+            signal_facts=[
+                {
+                    "fact_type": 123,
+                    "mode": "paper",
+                    "runtime_env": "research",
+                    "regime_label": "RISK_ON_TREND",
+                    "symbol": "BTCUSDT",
+                    "side": "LONG",
+                    "engine": "trend",
+                    "setup_type": "BREAKOUT_CONTINUATION",
+                    "score": 0.91,
+                    "execution_status": "BLOCKED",
+                    "intent_id": "intent-btc",
+                }
+            ],
+            runtime_positions={},
+            paper_ledger_path=None,
+        )

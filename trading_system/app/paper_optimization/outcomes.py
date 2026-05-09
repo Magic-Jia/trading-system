@@ -30,11 +30,8 @@ def _jsonl(path: Path | None) -> list[dict[str, Any]]:
     return rows
 
 
-def _str_or_none(value: Any) -> str | None:
-    if value is None:
-        return None
-    text = str(value)
-    return text if text else None
+def _str_or_none(value: Any, *, field_name: str) -> str | None:
+    return _optional_str(value, field_name=field_name)
 
 
 def _optional_str(value: Any, *, field_name: str) -> str | None:
@@ -45,10 +42,12 @@ def _optional_str(value: Any, *, field_name: str) -> str | None:
     return value if value else None
 
 
-def _str_value(value: Any) -> str:
+def _str_value(value: Any, *, field_name: str) -> str:
     if value is None:
         return ""
-    return str(value)
+    if not isinstance(value, str):
+        raise ValueError(f"{field_name} must be a string")
+    return value
 
 
 def _required_str(value: Any, *, field_name: str) -> str:
@@ -100,7 +99,7 @@ def _position_indexes(runtime_positions: Mapping[str, Mapping[str, Any]]) -> tup
         if not isinstance(raw, Mapping):
             raise ValueError(f"runtime_positions.{symbol} must be an object")
         row = dict(raw)
-        normalized_symbol = _str_value(row.get("symbol") or symbol).upper()
+        normalized_symbol = _str_value(row.get("symbol") or symbol, field_name="position.symbol").upper()
         if normalized_symbol:
             by_symbol[normalized_symbol] = row
         intent_id = _optional_str(row.get("intent_id"), field_name="position.intent_id")
@@ -110,7 +109,7 @@ def _position_indexes(runtime_positions: Mapping[str, Mapping[str, Any]]) -> tup
 
 
 def _outcome_status(execution_status: str | None, position: Mapping[str, Any]) -> str:
-    normalized = _str_value(execution_status).upper()
+    normalized = _str_value(execution_status, field_name="fact.execution_status").upper()
     if normalized in _NOT_EXECUTED_STATUSES:
         return "NOT_EXECUTED"
     if normalized in _EXECUTED_STATUSES:
@@ -140,7 +139,7 @@ def collect_trade_outcomes(
     position_not_tracked_count = 0
 
     for fact in facts:
-        if _str_value(fact.get("fact_type")) and _str_value(fact.get("fact_type")) != "signal":
+        if (fact_type := _str_or_none(fact.get("fact_type"), field_name="fact.fact_type")) and fact_type != "signal":
             continue
 
         intent_id = _optional_str(fact.get("intent_id"), field_name="fact.intent_id")
