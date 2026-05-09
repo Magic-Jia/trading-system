@@ -141,6 +141,28 @@ def test_postmortem_reconciliation_rejects_non_strict_trade_counts() -> None:
         live_readiness._postmortem_reconciliation(report, postmortem_summary)
 
 
+@pytest.mark.parametrize("execution_lag_bars", ["1", True, -1])
+def test_trade_postmortem_rejects_invalid_execution_lag_bars(execution_lag_bars: object) -> None:
+    trade = {
+        "symbol": "BTCUSDT",
+        "setup_type": "TREND_PULLBACK",
+        "net_pnl": -1.0,
+        "gross_pnl": -1.0,
+        "fee_paid": 0.0,
+        "slippage_paid": 0.0,
+        "funding_paid": 0.0,
+        "mfe_pct": 0.0,
+        "mae_pct": 0.0,
+        "execution_lag_bars": execution_lag_bars,
+    }
+
+    with pytest.raises(
+        ValueError,
+        match=r"postmortem\.trades\[1\]\.execution_lag_bars must be a non-negative strict integer",
+    ):
+        summarize_trade_postmortem([trade])
+
+
 def test_stdout_concentration_summary_rejects_non_strict_bucket() -> None:
     report = {
         "concentration": {

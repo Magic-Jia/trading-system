@@ -3066,6 +3066,16 @@ def _postmortem_failure_bucket(trade: Mapping[str, Any]) -> str:
     return "净亏损_需逐单复核"
 
 
+def _validate_postmortem_trade_execution_fields(trade: Mapping[str, Any], index: int) -> None:
+    if "execution_lag_bars" not in trade or trade.get("execution_lag_bars") is None:
+        return
+    value = trade.get("execution_lag_bars")
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ValueError(
+            f"postmortem.trades[{index}].execution_lag_bars must be a non-negative strict integer"
+        )
+
+
 def _postmortem_dominance_bucket(
     buckets: Mapping[str, Mapping[str, Any]],
     *,
@@ -3112,7 +3122,8 @@ def summarize_trade_postmortem(trades: Iterable[Mapping[str, Any]]) -> dict[str,
     by_setup: dict[str, dict[str, Any]] = {}
     by_symbol: dict[str, dict[str, Any]] = {}
     summary = _empty_postmortem_bucket()
-    for trade in rows:
+    for index, trade in enumerate(rows, start=1):
+        _validate_postmortem_trade_execution_fields(trade, index)
         _add_postmortem_bucket(summary, trade)
         failure_key = _postmortem_failure_bucket(trade)
         _add_postmortem_bucket(by_failure.setdefault(failure_key, _empty_postmortem_bucket()), trade)
