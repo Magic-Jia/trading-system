@@ -842,6 +842,35 @@ def test_apply_management_action_fill_rejects_non_string_target_stage(target_sta
     assert state.positions["BTCUSDT"]["first_target_filled_qty"] == 0.0
 
 
+@pytest.mark.parametrize("target_stage", ["", " first ", "second "])
+def test_apply_management_action_fill_rejects_non_canonical_target_stage_before_state_mutation(target_stage):
+    state = _management_fill_state()
+
+    with pytest.raises(ValueError, match="target_stage"):
+        apply_management_action_fill(
+            state,
+            _partial_take_profit_intent(
+                meta={"target_stage": target_stage, "exit_trigger": "first_target_hit", "fraction_basis": "original_position"}
+            ),
+        )
+
+    assert state.positions["BTCUSDT"]["qty"] == 1.0
+    assert state.positions["BTCUSDT"]["remaining_position_qty"] == 1.0
+    assert state.positions["BTCUSDT"]["first_target_filled_qty"] == 0.0
+
+
+@pytest.mark.parametrize("action", [1, "", " PARTIAL_TAKE_PROFIT "])
+def test_apply_management_action_fill_rejects_non_canonical_action_before_state_mutation(action):
+    state = _management_fill_state()
+
+    with pytest.raises(ValueError, match="action"):
+        apply_management_action_fill(state, _partial_take_profit_intent(action=action))
+
+    assert state.positions["BTCUSDT"]["qty"] == 1.0
+    assert state.positions["BTCUSDT"]["remaining_position_qty"] == 1.0
+    assert state.positions["BTCUSDT"]["first_target_filled_qty"] == 0.0
+
+
 @pytest.mark.parametrize(
     ("stage", "field", "filled_qty"),
     [

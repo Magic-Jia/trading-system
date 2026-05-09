@@ -95,6 +95,15 @@ _POSITION_STATUS_VALUES = frozenset(
         "CANCELED",
     }
 )
+_MANAGEMENT_ACTION_VALUES = frozenset(
+    {
+        "BREAK_EVEN",
+        "ADD_PROTECTIVE_STOP",
+        "PARTIAL_TAKE_PROFIT",
+        "DE_RISK",
+        "EXIT",
+    }
+)
 
 
 def _now_bj() -> str:
@@ -226,6 +235,15 @@ def _partial_take_profit_stage(intent: ManagementActionIntent) -> str:
     if not isinstance(stage, str) or stage not in {"first", "second"}:
         raise ValueError("target_stage must be absent or one of: first, second")
     return stage
+
+
+def _management_action(intent: ManagementActionIntent) -> str:
+    action = intent.action
+    if not isinstance(action, str) or action != action.strip() or not action:
+        raise ValueError("management action must be a canonical string")
+    if action not in _MANAGEMENT_ACTION_VALUES:
+        raise ValueError("management action must be a canonical management action")
+    return action
 
 
 def _taxonomy_fields(existing: dict[str, Any], field_prefix: str = "") -> dict[str, Any]:
@@ -597,6 +615,7 @@ def apply_management_action_fill(state: RuntimeState, intent: ManagementActionIn
     if not existing:
         return {}
 
+    action = _management_action(intent)
     position = dict(existing)
     current_qty = _strict_non_negative_quantity(position, "qty", default=0.0)
     _strict_non_negative_quantity(position, "remaining_position_qty", default=current_qty)
@@ -613,7 +632,7 @@ def apply_management_action_fill(state: RuntimeState, intent: ManagementActionIn
     position["remaining_position_qty"] = remaining_qty
 
     stage = _partial_take_profit_stage(intent)
-    if intent.action == "PARTIAL_TAKE_PROFIT" and stage in {"first", "second"}:
+    if action == "PARTIAL_TAKE_PROFIT" and stage in {"first", "second"}:
         key = f"{stage}_target_filled_qty"
         stage_filled_qty = _strict_non_negative_quantity(position, key, default=0.0)
         position[key] = round(stage_filled_qty + filled_qty, 8)
@@ -635,7 +654,7 @@ def apply_management_action_fill(state: RuntimeState, intent: ManagementActionIn
             if stage == "second":
                 position["runner_protected"] = False
                 position["runner_stop_price"] = None
-    elif intent.action == "EXIT":
+    elif action == "EXIT":
         position["qty"] = 0.0
         position["remaining_position_qty"] = 0.0
         position["runner_protected"] = False
