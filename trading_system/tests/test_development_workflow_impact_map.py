@@ -41,3 +41,17 @@ def test_workflow_scripts_have_impact_mapping() -> None:
             missing.append(relative)
 
     assert missing == []
+
+
+def test_workflow_docs_and_templates_have_impact_mapping() -> None:
+    verify = load_verify_module()
+    required_paths = [ROOT / "docs" / "development-workflow.md"]
+    required_paths.extend(sorted((ROOT / "templates").glob("*.md")))
+
+    missing = [
+        path.relative_to(ROOT).as_posix()
+        for path in required_paths
+        if not verify.tests_for_changed([path.relative_to(ROOT).as_posix()])
+    ]
+
+    assert missing == []
