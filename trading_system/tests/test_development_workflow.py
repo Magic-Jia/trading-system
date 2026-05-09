@@ -247,6 +247,14 @@ def test_verify_maps_workflow_tool_changes_to_workflow_meta_suite() -> None:
     assert "trading_system/tests/test_development_workflow_worker_audit.py" in result.stdout
 
 
+def test_verify_strict_auto_changed_accepts_agent_rule_changes() -> None:
+    result = run_verify("--dry-run", "--strict-auto-changed", "--changed", "AGENTS.md")
+
+    assert result.returncode == 0, result.stderr
+    assert "trading_system/tests/test_development_workflow_docs.py" in result.stdout
+    assert "git diff --check HEAD" in result.stdout
+
+
 def test_verify_strict_auto_changed_rejects_unmapped_paths() -> None:
     result = run_verify("--dry-run", "--strict-auto-changed", "--changed", "UNKNOWN_UNMAPPED_FILE.txt")
 
