@@ -23,6 +23,18 @@ WORKER_AUDIT_JSON_KEYS = {
     "worktree_dirty",
     "worktree_dirty_paths",
 }
+WORKER_AUDIT_VERIFICATION_PLAN_JSON_KEYS = {
+    "changed",
+    "commands",
+    "explicit_tests",
+    "full",
+    "full_checkpoint_reason",
+    "plan_kind",
+    "plan_version",
+    "strict_changed_verification",
+    "suites",
+    "tests",
+}
 
 
 def load_audit_module():
@@ -65,6 +77,7 @@ def test_audit_worker_commit_outputs_json_for_head() -> None:
     assert payload["worktree_dirty"] is True
     assert "memory/dev-status.md" in payload["worktree_dirty_paths"]
     assert payload["strict_changed_verification"] is True
+    assert set(payload["verification_plan"]) == WORKER_AUDIT_VERIFICATION_PLAN_JSON_KEYS
     assert payload["verification_plan"]["plan_version"] == 1
     assert payload["verification_plan"]["plan_kind"] == "verification_plan"
     assert payload["verification_plan"]["strict_changed_verification"] is True
