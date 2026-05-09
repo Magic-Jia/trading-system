@@ -105,6 +105,7 @@ _MANAGEMENT_ACTION_VALUES = frozenset(
     }
 )
 _FRACTION_BASIS_VALUES = frozenset({"original_position"})
+_EXIT_TRIGGER_VALUES = frozenset({"first_target_hit", "second_target_hit", "runner_stop_hit"})
 
 
 def _now_bj() -> str:
@@ -252,6 +253,20 @@ def _partial_take_profit_fraction_basis(intent: ManagementActionIntent) -> str:
     if fraction_basis not in _FRACTION_BASIS_VALUES:
         raise ValueError("fraction_basis must be one of: original_position")
     return fraction_basis
+
+
+def _management_exit_trigger(intent: ManagementActionIntent) -> str:
+    meta = intent.meta or {}
+    if "exit_trigger" not in meta or meta.get("exit_trigger") is None:
+        return ""
+    exit_trigger = meta.get("exit_trigger")
+    if not isinstance(exit_trigger, str):
+        raise ValueError("exit_trigger must be a string when present")
+    if not exit_trigger or exit_trigger != exit_trigger.strip():
+        raise ValueError("exit_trigger must be a canonical string when present")
+    if exit_trigger not in _EXIT_TRIGGER_VALUES:
+        raise ValueError("exit_trigger must be one of: first_target_hit, second_target_hit, runner_stop_hit")
+    return exit_trigger
 
 
 def _management_action(intent: ManagementActionIntent) -> str:
@@ -633,6 +648,7 @@ def apply_management_action_fill(state: RuntimeState, intent: ManagementActionIn
         return {}
 
     action = _management_action(intent)
+    _management_exit_trigger(intent)
     _partial_take_profit_fraction_basis(intent)
     position = dict(existing)
     current_qty = _strict_non_negative_quantity(position, "qty", default=0.0)

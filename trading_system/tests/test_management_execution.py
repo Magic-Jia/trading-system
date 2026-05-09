@@ -876,6 +876,23 @@ def test_apply_management_action_fill_rejects_invalid_fraction_basis_before_stat
     assert state.positions["BTCUSDT"]["first_target_filled_qty"] == 0.0
 
 
+@pytest.mark.parametrize("exit_trigger", [1, True, "", " first_target_hit", "defensive_regime_de_risk"])
+def test_apply_management_action_fill_rejects_invalid_exit_trigger_before_state_mutation(exit_trigger):
+    state = _management_fill_state()
+
+    with pytest.raises(ValueError, match="exit_trigger"):
+        apply_management_action_fill(
+            state,
+            _partial_take_profit_intent(
+                meta={"target_stage": "first", "exit_trigger": exit_trigger, "fraction_basis": "original_position"}
+            ),
+        )
+
+    assert state.positions["BTCUSDT"]["qty"] == 1.0
+    assert state.positions["BTCUSDT"]["remaining_position_qty"] == 1.0
+    assert state.positions["BTCUSDT"]["first_target_filled_qty"] == 0.0
+
+
 @pytest.mark.parametrize("action", [1, "", " PARTIAL_TAKE_PROFIT "])
 def test_apply_management_action_fill_rejects_non_canonical_action_before_state_mutation(action):
     state = _management_fill_state()
