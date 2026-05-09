@@ -1838,7 +1838,11 @@ def _microstructure_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
         checks_payload = payload.get("checks")
         evidence_source_payload = payload.get("evidence_source")
         summary_payload = payload.get("summary")
+        coverage_payload = payload.get("coverage")
+        depth_payload = payload.get("depth_driven_taker")
         summary_object_valid = summary_payload is None or isinstance(summary_payload, Mapping)
+        coverage_object_valid = coverage_payload is None or isinstance(coverage_payload, Mapping)
+        depth_object_valid = depth_payload is None or isinstance(depth_payload, Mapping)
         checks_object_valid = isinstance(checks_payload, Mapping)
         evidence_source_object_valid = isinstance(evidence_source_payload, Mapping)
         evidence_source_schema_error = _artifact_provenance_schema_error(payload)
@@ -1848,6 +1852,8 @@ def _microstructure_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
         checks = _as_mapping(checks_payload)
         unknown_check_fields = sorted(set(checks) - set(required_checks))
         summary = _as_mapping(summary_payload)
+        coverage = _as_mapping(coverage_payload)
+        depth = _as_mapping(depth_payload)
         summary_schema_error = ""
         min_l2_tick_coverage = summary.get("min_l2_tick_coverage")
         if min_l2_tick_coverage is not None:
@@ -1862,6 +1868,44 @@ def _microstructure_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
                 summary_schema_error = "summary_taker_fill_model_blank"
             elif taker_fill_model != taker_fill_model.strip():
                 summary_schema_error = "summary_taker_fill_model_noncanonical"
+        coverage_schema_error = ""
+        unknown_coverage_fields = sorted(
+            set(coverage)
+            - {"l2_snapshot_coverage", "l2_update_coverage", "tick_coverage", "min_required_coverage"}
+        )
+        if unknown_coverage_fields:
+            coverage_schema_error = "unknown_coverage_field: " + ", ".join(unknown_coverage_fields)
+        for coverage_field in (
+            "l2_snapshot_coverage",
+            "l2_update_coverage",
+            "tick_coverage",
+            "min_required_coverage",
+        ):
+            if coverage_schema_error:
+                break
+            coverage_value = coverage.get(coverage_field)
+            if coverage_value is not None:
+                parsed_coverage, coverage_valid = _strict_float_value(coverage_value)
+                if not coverage_valid:
+                    coverage_schema_error = f"coverage_{coverage_field}_not_number"
+                elif parsed_coverage < 0.0 or parsed_coverage > 1.0:
+                    coverage_schema_error = f"coverage_{coverage_field}_out_of_range"
+        depth_schema_error = ""
+        unknown_depth_fields = sorted(
+            set(depth) - {"fill_count", "complete_fill_count", "incomplete_fill_count"}
+        )
+        if unknown_depth_fields:
+            depth_schema_error = "unknown_depth_driven_taker_field: " + ", ".join(unknown_depth_fields)
+        for depth_field in ("fill_count", "complete_fill_count", "incomplete_fill_count"):
+            if depth_schema_error:
+                break
+            depth_value = depth.get(depth_field)
+            if depth_value is not None:
+                parsed_depth, depth_valid = _strict_summary_int_value(depth_value)
+                if not depth_valid:
+                    depth_schema_error = f"depth_driven_taker_{depth_field}_not_int"
+                elif parsed_depth < 0:
+                    depth_schema_error = f"depth_driven_taker_{depth_field}_negative"
         chunk_schema_valid = (
             (not parse_error)
             and _artifact_schema_valid(payload, "market_microstructure_gate_input.v1") is True
@@ -1871,6 +1915,10 @@ def _microstructure_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
             and not top_level_schema_error
             and summary_object_valid
             and not summary_schema_error
+            and coverage_object_valid
+            and not coverage_schema_error
+            and depth_object_valid
+            and not depth_schema_error
             and not unknown_check_fields
         )
         chunk_provenance_present = (not parse_error) and _artifact_provenance_present(payload) is True
@@ -1888,6 +1936,14 @@ def _microstructure_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
                 parse_error_message = "summary_not_object"
             elif summary_schema_error:
                 parse_error_message = summary_schema_error
+            elif not coverage_object_valid:
+                parse_error_message = "coverage_not_object"
+            elif coverage_schema_error:
+                parse_error_message = coverage_schema_error
+            elif not depth_object_valid:
+                parse_error_message = "depth_driven_taker_not_object"
+            elif depth_schema_error:
+                parse_error_message = depth_schema_error
             elif unknown_check_fields:
                 parse_error_message = "unknown_check_field: " + ", ".join(unknown_check_fields)
         artifacts.append(
