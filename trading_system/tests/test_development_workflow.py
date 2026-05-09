@@ -8,6 +8,35 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 VERIFY = ROOT / "scripts" / "verify.py"
 
+SUITE_INVENTORY_JSON_KEYS = {"inventory_kind", "inventory_version", "plan_version", "suites"}
+VERIFICATION_PLAN_JSON_KEYS = {
+    "changed",
+    "commands",
+    "explicit_tests",
+    "full",
+    "full_checkpoint_reason",
+    "plan_kind",
+    "plan_version",
+    "strict_changed_verification",
+    "suites",
+    "tests",
+}
+CI_PLAN_JSON_KEYS = {
+    "commands",
+    "entrypoint",
+    "plan_kind",
+    "plan_version",
+    "strict_changed_verification",
+}
+NIGHTLY_PLAN_JSON_KEYS = {
+    "clean_env",
+    "commands",
+    "entrypoint",
+    "plan_kind",
+    "plan_version",
+    "unset_env",
+}
+
 
 def run_verify(*args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
@@ -122,7 +151,7 @@ def test_verify_lists_available_suites_as_json() -> None:
     import json
 
     payload = json.loads(result.stdout)
-    assert set(payload) == {"inventory_kind", "inventory_version", "plan_version", "suites"}
+    assert set(payload) == SUITE_INVENTORY_JSON_KEYS
     assert payload["plan_version"] == 1
     assert payload["inventory_version"] == 1
     assert payload["inventory_kind"] == "suite_inventory"
@@ -141,18 +170,7 @@ def test_verify_json_dry_run_emits_machine_readable_plan() -> None:
     import json
 
     payload = json.loads(result.stdout)
-    assert set(payload) == {
-        "changed",
-        "commands",
-        "explicit_tests",
-        "full",
-        "full_checkpoint_reason",
-        "plan_kind",
-        "plan_version",
-        "strict_changed_verification",
-        "suites",
-        "tests",
-    }
+    assert set(payload) == VERIFICATION_PLAN_JSON_KEYS
     assert payload["plan_version"] == 1
     assert payload["plan_kind"] == "verification_plan"
     assert payload["suites"] == []
@@ -279,13 +297,7 @@ def test_ci_verify_dry_run_json_reports_commands() -> None:
     import json
 
     payload = json.loads(result.stdout)
-    assert set(payload) == {
-        "commands",
-        "entrypoint",
-        "plan_kind",
-        "plan_version",
-        "strict_changed_verification",
-    }
+    assert set(payload) == CI_PLAN_JSON_KEYS
     assert payload["plan_version"] == 1
     assert payload["plan_kind"] == "ci_verification_plan"
     assert payload["entrypoint"] == "ci_verify"
@@ -352,14 +364,7 @@ def test_nightly_verify_dry_run_json_reports_clean_env_full_command() -> None:
     import json
 
     payload = json.loads(result.stdout)
-    assert set(payload) == {
-        "clean_env",
-        "commands",
-        "entrypoint",
-        "plan_kind",
-        "plan_version",
-        "unset_env",
-    }
+    assert set(payload) == NIGHTLY_PLAN_JSON_KEYS
     assert payload["plan_version"] == 1
     assert payload["plan_kind"] == "nightly_verification_plan"
     assert payload["entrypoint"] == "nightly_verify"
