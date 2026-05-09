@@ -173,7 +173,7 @@ def _trade_breakdown_rows(
 def _trade_ledger_payload(trade_ledger: tuple[TradeLedgerRow, ...]) -> list[dict[str, Any]]:
     return [
         {
-            "symbol": row.symbol,
+            "symbol": _canonical_report_string(row.symbol, field_name=f"trades[{index}].symbol"),
             "market_type": row.market_type,
             "base_asset": row.base_asset,
             "side": row.side,
@@ -244,7 +244,7 @@ def _trade_ledger_payload(trade_ledger: tuple[TradeLedgerRow, ...]) -> list[dict
             "execution_impact_bps": row.execution_impact_bps,
             "slippage_bps": row.slippage_bps,
         }
-        for row in trade_ledger
+        for index, row in enumerate(trade_ledger)
     ]
 
 
