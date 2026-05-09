@@ -13,6 +13,16 @@ def _str_or_none(value: Any) -> str | None:
     return str(value)
 
 
+def _optional_str(value: Any, *, field_name: str) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError(f"{field_name} must be a string")
+    if value == "":
+        return None
+    return value
+
+
 def _str_value(value: Any) -> str:
     if value is None:
         return ""
@@ -64,7 +74,7 @@ def _execution_index(execution_rows: list[dict[str, Any]]) -> tuple[dict[str, di
     for row in execution_rows:
         if not isinstance(row, Mapping):
             raise ValueError("execution rows must be objects")
-        intent_id = _str_or_none(row.get("intent_id"))
+        intent_id = _optional_str(row.get("intent_id"), field_name="execution.intent_id")
         if intent_id:
             by_intent_id[intent_id] = dict(row)
         symbol = _str_value(row.get("symbol")).upper()
@@ -111,7 +121,12 @@ def collect_signal_facts(
             raise ValueError("candidate rows must be objects")
         allocation = allocations.get(_key(candidate), {})
         allocation_execution = _allocation_execution(allocation)
-        intent_id = _str_or_none(allocation_execution.get("intent_id") or allocation.get("intent_id"))
+        allocation_execution_intent_id = _optional_str(
+            allocation_execution.get("intent_id"),
+            field_name="allocation.execution.intent_id",
+        )
+        allocation_intent_id = _optional_str(allocation.get("intent_id"), field_name="allocation.intent_id")
+        intent_id = allocation_execution_intent_id if allocation_execution_intent_id is not None else allocation_intent_id
         execution = executions_by_intent_id.get(intent_id or "") or executions_by_symbol.get(_str_value(candidate.get("symbol")).upper()) or {}
         execution_status = execution.get("status") or allocation_execution.get("status")
 
@@ -134,7 +149,7 @@ def collect_signal_facts(
                 allocation_rank=_int_or_none(allocation.get("rank"), field_name="allocation.rank"),
                 final_risk_budget=_float_or_none(allocation.get("final_risk_budget"), field_name="allocation.final_risk_budget"),
                 execution_status=_str_or_none(execution_status),
-                intent_id=intent_id or _str_or_none(execution.get("intent_id")),
+                intent_id=intent_id if intent_id is not None else _optional_str(execution.get("intent_id"), field_name="execution.intent_id"),
             )
         )
 

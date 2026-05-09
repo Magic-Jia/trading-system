@@ -150,3 +150,34 @@ def test_collect_signal_facts_rejects_non_object_candidate_rows(tmp_path: Path) 
             mode="paper",
             runtime_env="research",
         )
+
+def test_collect_signal_facts_rejects_non_string_intent_ids(tmp_path: Path) -> None:
+    paths = build_runtime_paths("paper", runtime_root=tmp_path / "runtime", runtime_env="research")
+    collector = _collector_module()
+
+    with pytest.raises(ValueError, match="allocation.execution.intent_id must be a string"):
+        collector.collect_signal_facts(
+            signal_facts_path=paths.signal_facts_file,
+            candidate_rows=[
+                {
+                    "engine": "trend",
+                    "setup_type": "BREAKOUT_CONTINUATION",
+                    "symbol": "BTCUSDT",
+                    "side": "LONG",
+                    "score": 0.91,
+                    "validation": {"allowed": True},
+                }
+            ],
+            allocation_rows=[
+                {
+                    "engine": "trend",
+                    "setup_type": "BREAKOUT_CONTINUATION",
+                    "symbol": "BTCUSDT",
+                    "execution": {"intent_id": 123, "status": "FILLED"},
+                }
+            ],
+            execution_rows=[],
+            regime={"label": "RISK_ON_TREND", "confidence": 0.82},
+            mode="paper",
+            runtime_env="research",
+        )
