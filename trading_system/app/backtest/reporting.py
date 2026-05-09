@@ -285,7 +285,7 @@ def _promotion_metadata_sections(metadata: Mapping[str, Any]) -> dict[str, Any]:
             raw.get("observation_window"), field_name="promotion_metadata.observation_window"
         )
     else:
-        return {}
+        raise ValueError("promotion_metadata must be an object")
 
     sections: dict[str, Any] = {}
     if runtime_fields:
