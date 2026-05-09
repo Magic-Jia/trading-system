@@ -7,10 +7,8 @@ from typing import Any, Mapping
 from .models import PaperSignalFact
 
 
-def _str_or_none(value: Any) -> str | None:
-    if value is None:
-        return None
-    return str(value)
+def _str_or_none(value: Any, *, field_name: str) -> str | None:
+    return _optional_str(value, field_name=field_name)
 
 
 def _optional_str(value: Any, *, field_name: str) -> str | None:
@@ -23,10 +21,18 @@ def _optional_str(value: Any, *, field_name: str) -> str | None:
     return value
 
 
-def _str_value(value: Any) -> str:
+def _required_str(value: Any, *, field_name: str) -> str:
+    if not isinstance(value, str) or value == "":
+        raise ValueError(f"{field_name} must be a string")
+    return value
+
+
+def _str_value(value: Any, *, field_name: str) -> str:
     if value is None:
         return ""
-    return str(value)
+    if not isinstance(value, str):
+        raise ValueError(f"{field_name} must be a string")
+    return value
 
 
 def _float_or_none(value: Any, *, field_name: str) -> float | None:
@@ -53,9 +59,9 @@ def _int_or_none(value: Any, *, field_name: str) -> int | None:
 
 def _key(row: Mapping[str, Any]) -> tuple[str, str, str]:
     return (
-        _str_value(row.get("symbol")).upper(),
-        _str_value(row.get("engine")).lower(),
-        _str_value(row.get("setup_type")).upper(),
+        _required_str(row.get("symbol"), field_name="candidate.symbol" if "side" in row or "validation" in row else "allocation.symbol").upper(),
+        _required_str(row.get("engine"), field_name="candidate.engine" if "side" in row or "validation" in row else "allocation.engine").lower(),
+        _required_str(row.get("setup_type"), field_name="candidate.setup_type" if "side" in row or "validation" in row else "allocation.setup_type").upper(),
     )
 
 
@@ -77,7 +83,7 @@ def _execution_index(execution_rows: list[dict[str, Any]]) -> tuple[dict[str, di
         intent_id = _optional_str(row.get("intent_id"), field_name="execution.intent_id")
         if intent_id:
             by_intent_id[intent_id] = dict(row)
-        symbol = _str_value(row.get("symbol")).upper()
+        symbol = _str_value(row.get("symbol"), field_name="execution.symbol").upper()
         if symbol:
             by_symbol[symbol] = dict(row)
     return by_intent_id, by_symbol
@@ -127,28 +133,28 @@ def collect_signal_facts(
         )
         allocation_intent_id = _optional_str(allocation.get("intent_id"), field_name="allocation.intent_id")
         intent_id = allocation_execution_intent_id if allocation_execution_intent_id is not None else allocation_intent_id
-        execution = executions_by_intent_id.get(intent_id or "") or executions_by_symbol.get(_str_value(candidate.get("symbol")).upper()) or {}
+        execution = executions_by_intent_id.get(intent_id or "") or executions_by_symbol.get(_required_str(candidate.get("symbol"), field_name="candidate.symbol").upper()) or {}
         execution_status = execution.get("status") or allocation_execution.get("status")
 
         facts.append(
             PaperSignalFact(
                 fact_type="signal",
-                mode=_str_value(mode),
-                runtime_env=_str_value(runtime_env),
-                regime_label=_str_value(regime.get("label")),
+                mode=_required_str(mode, field_name="mode"),
+                runtime_env=_required_str(runtime_env, field_name="runtime_env"),
+                regime_label=_required_str(regime.get("label"), field_name="regime.label"),
                 regime_confidence=_float_or_none(regime.get("confidence"), field_name="regime.confidence"),
-                symbol=_str_value(candidate.get("symbol")).upper(),
-                side=_str_value(candidate.get("side")),
-                engine=_str_value(candidate.get("engine")),
-                setup_type=_str_value(candidate.get("setup_type")),
+                symbol=_required_str(candidate.get("symbol"), field_name="candidate.symbol").upper(),
+                side=_required_str(candidate.get("side"), field_name="candidate.side"),
+                engine=_required_str(candidate.get("engine"), field_name="candidate.engine"),
+                setup_type=_required_str(candidate.get("setup_type"), field_name="candidate.setup_type"),
                 score=_float_or_none(candidate.get("score"), field_name="candidate.score"),
                 stop_loss=_float_or_none(candidate.get("stop_loss"), field_name="candidate.stop_loss"),
-                invalidation_source=_str_value(candidate.get("invalidation_source")),
+                invalidation_source=_str_value(candidate.get("invalidation_source"), field_name="candidate.invalidation_source"),
                 validation_allowed=_validation_allowed(candidate),
-                allocation_status=_str_or_none(allocation.get("status")),
+                allocation_status=_str_or_none(allocation.get("status"), field_name="allocation.status"),
                 allocation_rank=_int_or_none(allocation.get("rank"), field_name="allocation.rank"),
                 final_risk_budget=_float_or_none(allocation.get("final_risk_budget"), field_name="allocation.final_risk_budget"),
-                execution_status=_str_or_none(execution_status),
+                execution_status=_str_or_none(execution_status, field_name="execution.status"),
                 intent_id=intent_id if intent_id is not None else _optional_str(execution.get("intent_id"), field_name="execution.intent_id"),
             )
         )
