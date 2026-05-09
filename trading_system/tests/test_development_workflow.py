@@ -140,6 +140,7 @@ def test_verify_json_dry_run_emits_machine_readable_plan() -> None:
 
     payload = json.loads(result.stdout)
     assert payload["plan_version"] == 1
+    assert payload["plan_kind"] == "verification_plan"
     assert payload["suites"] == []
     assert payload["changed"] == ["trading_system/app/main.py"]
     assert payload["strict_changed_verification"] is False
