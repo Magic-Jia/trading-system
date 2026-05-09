@@ -445,6 +445,21 @@ def test_full_market_report_rejects_invalid_cost_breakdown_fields() -> None:
         reporting.render_full_market_baseline_report(bad_result)
 
 
+def test_full_market_report_rejects_string_cost_breakdown_value() -> None:
+    result = sample_baseline_result()
+    bad_result = BaselineReplayResult(
+        portfolio_summary=result.portfolio_summary,
+        trade_ledger=result.trade_ledger,
+        rejection_ledger=result.rejection_ledger,
+        cost_breakdown={"fees": "3.0"},  # type: ignore[dict-item]
+        gross_period_returns=result.gross_period_returns,
+        net_period_returns=result.net_period_returns,
+    )
+
+    with pytest.raises(ValueError, match="cost_breakdown.fees must be a finite number"):
+        reporting.render_full_market_baseline_report(bad_result)
+
+
 def test_full_market_report_rejects_string_cost_drag_return_metric() -> None:
     result = sample_baseline_result()
     bad_result = BaselineReplayResult(

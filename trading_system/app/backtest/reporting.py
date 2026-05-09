@@ -275,7 +275,10 @@ def render_full_market_baseline_report(result: BaselineReplayResult) -> dict[str
     cost_breakdown_payload: dict[str, float] = {}
     for key, value in result.cost_breakdown.items():
         cost_key = _canonical_report_string(key, field_name="cost_breakdown key")
-        cost_breakdown_payload[cost_key] = _report_finite_float(value, field_name=f"cost_breakdown.{cost_key}")
+        cost_breakdown_payload[cost_key] = _strict_present_finite_float(
+            value,
+            field_name=f"cost_breakdown.{cost_key}",
+        )
 
     gross_period_returns = _strict_finite_float_sequence(
         result.gross_period_returns,
