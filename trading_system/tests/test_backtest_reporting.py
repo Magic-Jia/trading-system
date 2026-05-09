@@ -2116,6 +2116,30 @@ def test_render_llm_trend_breakout_report_rejects_invalid_candidate_rows_shape()
         )
 
 
+def test_render_llm_trend_breakout_report_rejects_string_candidate_row_score() -> None:
+    with pytest.raises(ValueError, match=r"candidate_rows\[0\]\.final_score must be a finite number"):
+        reporting.render_llm_trend_breakout_report(
+            experiment_name="llm_trend_breakout",
+            experiment={
+                "summary": {
+                    "technical_candidate_count": 1,
+                    "accepted_candidate_count": 1,
+                    "rejected_candidate_count": 0,
+                    "acceptance_rate": 1.0,
+                },
+                "candidate_rows": [
+                    {
+                        "symbol": "SOLUSDT",
+                        "decision": "accepted",
+                        "reasons": ["llm_filter_passed"],
+                        "final_score": "0.9",
+                    }
+                ],
+            },
+            metadata={"snapshot_count": 1},
+        )
+
+
 def test_render_llm_trend_breakout_report_rejects_invalid_metadata_snapshot_count() -> None:
     with pytest.raises(ValueError, match="metadata.snapshot_count must be a non-negative integer"):
         reporting.render_llm_trend_breakout_report(

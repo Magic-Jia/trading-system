@@ -551,6 +551,33 @@ def _flatten_public_strategy_factor(factor: Mapping[str, Any]) -> dict[str, Any]
     return flattened
 
 
+def _strict_present_finite_float(value: Any, *, field_name: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise ValueError(f"{field_name} must be a finite number")
+    parsed = float(value)
+    if not math.isfinite(parsed):
+        raise ValueError(f"{field_name} must be a finite number")
+    return parsed
+
+
+def _llm_trend_candidate_rows(rows: list[Any]) -> list[dict[str, Any]]:
+    numeric_fields = ("technical_score", "sentiment_score", "final_score", "label_confidence")
+    validated_rows: list[dict[str, Any]] = []
+    for index, row in enumerate(rows):
+        if not isinstance(row, Mapping):
+            raise ValueError(f"candidate_rows[{index}] must be an object")
+        validated = dict(row)
+        for field in numeric_fields:
+            if field not in validated or validated[field] is None:
+                continue
+            validated[field] = _strict_present_finite_float(
+                validated[field],
+                field_name=f"candidate_rows[{index}].{field}",
+            )
+        validated_rows.append(validated)
+    return validated_rows
+
+
 def _variant_with_best_metric(
     variants: Mapping[str, Any],
     *,
@@ -984,7 +1011,7 @@ def render_llm_trend_breakout_report(
     metadata: Mapping[str, Any],
 ) -> dict[str, dict[str, Any]]:
     summary_payload = dict(experiment.get("summary", {}))
-    candidate_rows = _list_field(experiment, "candidate_rows")
+    candidate_rows = _llm_trend_candidate_rows(_list_field(experiment, "candidate_rows"))
     technical_candidate_count = _summary_int(summary_payload, "technical_candidate_count")
     accepted_candidate_count = _summary_int(summary_payload, "accepted_candidate_count")
     rejected_candidate_count = _summary_int(summary_payload, "rejected_candidate_count")
