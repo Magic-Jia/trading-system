@@ -190,6 +190,28 @@ def test_advance_lifecycle_positions_rejects_present_non_mapping_scale_out_plan(
         advance_lifecycle_positions(state, {"protect_r_multiple": 1.2})
 
 
+def test_advance_lifecycle_positions_rejects_scale_out_plan_non_string_keys():
+    state = RuntimeStateV2(
+        updated_at_bj="2026-04-09T20:00:00+08:00",
+        positions={
+            "BTCUSDT": {
+                "symbol": "BTCUSDT",
+                "side": "LONG",
+                "qty": 1.0,
+                "entry_price": 100.0,
+                "mark_price": 106.0,
+                "stop_loss": 95.0,
+                "status": "OPEN",
+                "first_target_status": "pending",
+                "scale_out_plan": {1: 0.5},
+            }
+        },
+    )
+
+    with pytest.raises(TypeError, match="scale_out_plan keys must be strings"):
+        advance_lifecycle_positions(state, {"protect_r_multiple": 1.2})
+
+
 @pytest.mark.parametrize(
     ("field", "value"),
     [
@@ -274,6 +296,34 @@ def test_evaluate_position_rejects_non_mapping_exit_decision_meta(monkeypatch):
         evaluate_position(position)
 
 
+def test_evaluate_position_rejects_exit_decision_meta_non_string_keys(monkeypatch):
+    def fake_exit_policy(position, *, regime=None):
+        return [
+            ExitDecision(
+                action="DE_RISK",
+                qty_fraction=0.25,
+                priority="HIGH",
+                reason="risk reduction",
+                reference_price=104.0,
+                meta={1: "defensive_regime_de_risk"},
+            )
+        ]
+
+    monkeypatch.setattr(lifecycle, "evaluate_exit_policy", fake_exit_policy)
+    position = {
+        "symbol": "BTCUSDT",
+        "side": "LONG",
+        "qty": 1.0,
+        "entry_price": 100.0,
+        "mark_price": 104.0,
+        "stop_loss": 95.0,
+        "status": "OPEN",
+    }
+
+    with pytest.raises(TypeError, match="decision.meta keys must be strings"):
+        evaluate_position(position)
+
+
 @pytest.mark.parametrize("taxonomy_stop_loss", ["95.0", True, float("nan")])
 def test_evaluate_position_rejects_present_invalid_taxonomy_stop_loss(taxonomy_stop_loss):
     position = {
@@ -343,6 +393,26 @@ def test_advance_lifecycle_positions_rejects_present_invalid_numeric_config_fiel
 
     with pytest.raises(ValueError, match=f"{field} must be a finite non-bool number when present"):
         advance_lifecycle_positions(state, {field: value})
+
+
+def test_advance_lifecycle_positions_rejects_config_non_string_keys():
+    state = RuntimeStateV2(
+        updated_at_bj="2026-04-09T20:00:00+08:00",
+        positions={
+            "BTCUSDT": {
+                "symbol": "BTCUSDT",
+                "side": "LONG",
+                "qty": 1.0,
+                "entry_price": 100.0,
+                "mark_price": 106.0,
+                "stop_loss": 95.0,
+                "status": "OPEN",
+            }
+        },
+    )
+
+    with pytest.raises(TypeError, match="lifecycle_config keys must be strings"):
+        advance_lifecycle_positions(state, {1: 1.2})
 
 
 @pytest.mark.parametrize(("field", "value"), [("entry_profile", 123), ("strategy_profile", True)])
@@ -425,6 +495,91 @@ def test_build_management_action_intents_rejects_present_invalid_quantities(posi
                     "qty_fraction": qty_fraction,
                     "reference_price": 106.0,
                     "meta": {},
+                }
+            ],
+        )
+
+
+def test_build_management_action_intents_rejects_non_mapping_suggestion_row():
+    state = RuntimeStateV2(updated_at_bj="2026-04-09T20:00:00+08:00", positions={})
+
+    with pytest.raises(TypeError, match="management suggestion row must be a mapping"):
+        build_management_action_intents(state, [["symbol", "BTCUSDT"]])
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("symbol", 123, "management suggestion symbol must be a canonical string"),
+        ("symbol", " btcusdt", "management suggestion symbol must be a canonical string"),
+        ("action", 123, "management suggestion action must be a canonical action"),
+        ("action", " break_even", "management suggestion action must be a canonical action"),
+    ],
+)
+def test_build_management_action_intents_rejects_non_string_or_noncanonical_row_identity(field, value, message):
+    state = RuntimeStateV2(
+        updated_at_bj="2026-04-09T20:00:00+08:00",
+        positions={
+            "BTCUSDT": {
+                "symbol": "BTCUSDT",
+                "side": "LONG",
+                "qty": 1.0,
+                "entry_price": 100.0,
+                "mark_price": 106.0,
+                "stop_loss": 95.0,
+                "status": "OPEN",
+            }
+        },
+    )
+    row = {
+        "symbol": "BTCUSDT",
+        "side": "LONG",
+        "action": "DE_RISK",
+        "qty_fraction": 0.25,
+        "reference_price": 106.0,
+        "meta": {},
+        field: value,
+    }
+
+    with pytest.raises(ValueError, match=message):
+        build_management_action_intents(state, [row])
+
+
+@pytest.mark.parametrize(
+    ("meta", "message"),
+    [
+        ([("target_stage", "first")], "management suggestion meta must be a mapping when present"),
+        ({1: "first"}, "management suggestion meta keys must be strings"),
+        ({"target_stage": 1}, "management suggestion meta.target_stage must be a string when present"),
+    ],
+)
+def test_build_management_action_intents_rejects_invalid_row_meta_contract(meta, message):
+    state = RuntimeStateV2(
+        updated_at_bj="2026-04-09T20:00:00+08:00",
+        positions={
+            "BTCUSDT": {
+                "symbol": "BTCUSDT",
+                "side": "LONG",
+                "qty": 1.0,
+                "entry_price": 100.0,
+                "mark_price": 106.0,
+                "stop_loss": 95.0,
+                "status": "OPEN",
+            }
+        },
+    )
+
+    with pytest.raises((TypeError, ValueError), match=message):
+        build_management_action_intents(
+            state,
+            [
+                {
+                    "symbol": "BTCUSDT",
+                    "side": "LONG",
+                    "action": "DE_RISK",
+                    "qty_fraction": 0.25,
+                    "reference_price": 106.0,
+                    "meta": meta,
                 }
             ],
         )

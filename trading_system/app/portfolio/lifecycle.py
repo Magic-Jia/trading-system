@@ -12,6 +12,8 @@ from .target_management import reconciled_stage_qty, stage_requested_qty
 from .lifecycle_v2 import advance_lifecycle_transition
 from ..types import ManagementActionIntent, ManagementSuggestion, RuntimeState
 
+_MANAGEMENT_ACTIONS = {"BREAK_EVEN", "PARTIAL_TAKE_PROFIT", "EXIT", "ADD_PROTECTIVE_STOP", "DE_RISK"}
+
 
 def _is_open(position: dict[str, Any]) -> bool:
     return position.get("status") in {None, "OPEN", "FILLED", "SENT"}
@@ -83,11 +85,19 @@ def _present_string(payload: Mapping[str, Any], field: str) -> str | None:
     return value
 
 
+def _mapping_with_string_keys(value: Mapping[Any, Any], label: str) -> dict[str, Any]:
+    for key in value:
+        if not isinstance(key, str):
+            raise TypeError(f"{label} keys must be strings")
+    return dict(value)
+
+
 def _present_config_finite_number(config: Any, field: str, default: float) -> float:
     if isinstance(config, Mapping):
+        config = _mapping_with_string_keys(config, "lifecycle_config")
         if field not in config or config.get(field) is None:
             return default
-        return _present_finite_number(dict(config), field) or default
+        return _present_finite_number(config, field) or default
     if not hasattr(config, field):
         return default
     value = getattr(config, field)
@@ -148,6 +158,7 @@ def _exit_decision_to_suggestion(position: dict[str, Any], decision: ExitDecisio
     decision_meta = decision.meta or {}
     if not isinstance(decision_meta, Mapping):
         raise TypeError("decision.meta must be a mapping when present")
+    decision_meta = _mapping_with_string_keys(decision_meta, "decision.meta")
     return ManagementSuggestion(
         symbol=_present_string(position, "symbol") or "",
         action=decision.action,
@@ -156,7 +167,7 @@ def _exit_decision_to_suggestion(position: dict[str, Any], decision: ExitDecisio
         qty_fraction=decision.qty_fraction,
         reason=decision.reason,
         reference_price=decision.reference_price,
-        meta={**_position_taxonomy_meta(position), **dict(decision_meta)},
+        meta={**_position_taxonomy_meta(position), **decision_meta},
     )
 
 
@@ -256,6 +267,7 @@ def evaluate_position(position: dict[str, Any], *, regime: dict[str, Any] | None
         decision_meta = decision.meta or {}
         if not isinstance(decision_meta, Mapping):
             raise TypeError("decision.meta must be a mapping when present")
+        decision_meta = _mapping_with_string_keys(decision_meta, "decision.meta")
         trigger_value = decision_meta.get("exit_trigger")
         if trigger_value is not None and not isinstance(trigger_value, str):
             raise ValueError("decision.meta.exit_trigger must be a string when present")
@@ -375,7 +387,7 @@ def _target_management_lifecycle_projection(position: dict[str, Any]) -> dict[st
     if scale_out_plan is not None:
         if not isinstance(scale_out_plan, Mapping):
             raise TypeError("scale_out_plan must be a mapping when present")
-        payload["scale_out_plan"] = dict(scale_out_plan)
+        payload["scale_out_plan"] = _mapping_with_string_keys(scale_out_plan, "scale_out_plan")
 
     second_target_source = position.get("second_target_source")
     if second_target_source:
@@ -470,6 +482,22 @@ def _position_qty(position: dict[str, Any]) -> float:
     return round(qty or 0.0, 8)
 
 
+def _management_row_symbol(row: Mapping[str, Any]) -> str:
+    value = row.get("symbol", "")
+    if value is None or value == "":
+        return ""
+    if not isinstance(value, str) or value != value.strip().upper() or not value:
+        raise ValueError("management suggestion symbol must be a canonical string")
+    return value
+
+
+def _management_row_action(row: Mapping[str, Any]) -> str:
+    value = row.get("action", "")
+    if not isinstance(value, str) or value not in _MANAGEMENT_ACTIONS:
+        raise ValueError("management suggestion action must be a canonical action")
+    return value
+
+
 def build_management_action_intents(
     state: RuntimeState,
     suggestions: list[dict[str, Any]] | None = None,
@@ -477,8 +505,11 @@ def build_management_action_intents(
     rows = suggestions if suggestions is not None else evaluate_portfolio(state)
     intents: list[ManagementActionIntent] = []
     for row in rows:
-        symbol = str(row.get("symbol", ""))
-        action = str(row.get("action", ""))
+        if not isinstance(row, Mapping):
+            raise TypeError("management suggestion row must be a mapping")
+        row = _mapping_with_string_keys(row, "management suggestion row")
+        symbol = _management_row_symbol(row)
+        action = _management_row_action(row)
         position = state.positions.get(symbol)
         if not symbol or position is None:
             continue
@@ -487,8 +518,17 @@ def build_management_action_intents(
         qty_fraction = _present_finite_number(row, "qty_fraction") or 0.0
         qty = None
         stop_loss = None
-        row_meta = dict(row.get("meta") or {})
-        target_stage = str(row_meta.get("target_stage") or "")
+        raw_meta = row.get("meta")
+        if raw_meta is None:
+            row_meta = {}
+        elif not isinstance(raw_meta, Mapping):
+            raise TypeError("management suggestion meta must be a mapping when present")
+        else:
+            row_meta = _mapping_with_string_keys(raw_meta, "management suggestion meta")
+        target_stage_value = row_meta.get("target_stage")
+        if target_stage_value is not None and not isinstance(target_stage_value, str):
+            raise ValueError("management suggestion meta.target_stage must be a string when present")
+        target_stage = target_stage_value or ""
 
         if action in {"BREAK_EVEN", "ADD_PROTECTIVE_STOP"}:
             stop_loss = row.get("suggested_stop_loss")
