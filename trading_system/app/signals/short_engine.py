@@ -37,6 +37,15 @@ def _liquidity_meta(universe_row: Mapping[str, Any], symbol: str) -> Mapping[str
     raise ValueError(f"{symbol}.liquidity_meta must be an object")
 
 
+def _payload_sector(payload: Mapping[str, Any], symbol: str) -> str:
+    if "sector" not in payload:
+        return ""
+    value = payload.get("sector")
+    if not isinstance(value, str):
+        raise ValueError(f"{symbol}.sector must be a string when present")
+    return value
+
+
 _REQUIRED_SHORT_TIMEFRAME_NUMERIC_FIELDS = {
     "daily": ("close", "ema_20", "ema_50", "return_pct_7d", "volume_usdt_24h"),
     "4h": ("close", "ema_20", "ema_50", "return_pct_3d"),
@@ -226,7 +235,8 @@ def generate_short_candidates(
         if not isinstance(payload_value, Mapping):
             continue
         payload = payload_value
-        if str(payload.get("sector", "")).lower() != "majors":
+        payload_sector = _payload_sector(payload, symbol)
+        if payload_sector.lower() != "majors":
             continue
         if not _validate_required_short_timeframe_numerics(str(symbol), payload):
             continue
@@ -294,7 +304,7 @@ def generate_short_candidates(
                 stop_loss=stop_loss,
                 invalidation_source=invalidation_source,
                 timeframe_meta=timeframe_meta,
-                sector=str(payload.get("sector") or universe_row.get("sector") or ""),
+                sector=payload_sector or str(universe_row.get("sector") or ""),
                 liquidity_meta=liquidity_meta,
             )
         )
