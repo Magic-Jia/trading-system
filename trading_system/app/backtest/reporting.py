@@ -631,12 +631,28 @@ def render_allocator_friction_report(
         variants,
         metric_fn=lambda _name, payload: dict(dict(payload.get("frictions", {})).get("base", {})).get("net_bucket_pnl", 0.0),
     )
-    current_base = dict(dict(variants.get("current_allocator", {})).get("frictions", {})).get("base", {})
+    current_allocator = variants.get("current_allocator", {})
+    if not isinstance(current_allocator, Mapping):
+        raise ValueError("variants.current_allocator must be an object")
+    current_frictions = current_allocator.get("frictions", {})
+    if not isinstance(current_frictions, Mapping):
+        raise ValueError("variants.current_allocator.frictions must be an object")
+    current_base = current_frictions.get("base", {})
+    if not isinstance(current_base, Mapping):
+        raise ValueError("variants.current_allocator.frictions.base must be an object")
     best_stressed_net_bucket_pnl = 0.0
     if best_variant is not None:
         best_stressed_net_bucket_pnl = float(
             dict(dict(variants.get(best_variant, {})).get("frictions", {})).get("stressed", {}).get("net_bucket_pnl", 0.0)
         )
+    current_base_net_bucket_pnl = _report_finite_float(
+        current_base.get("net_bucket_pnl", 0.0),
+        field_name="variants.current_allocator.frictions.base.net_bucket_pnl",
+    )
+    current_base_cost_drag = _report_finite_float(
+        current_base.get("cost_drag", 0.0),
+        field_name="variants.current_allocator.frictions.base.cost_drag",
+    )
 
     if best_base_net_bucket_pnl > 0.0 and best_stressed_net_bucket_pnl > 0.0:
         decision = "candidate_for_promotion"
@@ -665,8 +681,8 @@ def render_allocator_friction_report(
                 "best_variant": best_variant,
                 "best_base_net_bucket_pnl": best_base_net_bucket_pnl,
                 "best_stressed_net_bucket_pnl": best_stressed_net_bucket_pnl,
-                "current_allocator_base_net_bucket_pnl": float(dict(current_base).get("net_bucket_pnl", 0.0)),
-                "current_allocator_base_cost_drag": float(dict(current_base).get("cost_drag", 0.0)),
+                "current_allocator_base_net_bucket_pnl": current_base_net_bucket_pnl,
+                "current_allocator_base_cost_drag": current_base_cost_drag,
             },
             "decision_summary": _decision_summary(decision=decision, summary=summary),
             **_promotion_metadata_sections(metadata),
