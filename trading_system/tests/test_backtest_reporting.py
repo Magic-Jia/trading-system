@@ -520,6 +520,21 @@ def test_full_market_report_rejects_non_string_trade_base_asset() -> None:
         reporting.render_full_market_baseline_report(bad_result)
 
 
+def test_full_market_report_rejects_non_string_trade_side() -> None:
+    result = sample_baseline_result()
+    bad_result = BaselineReplayResult(
+        portfolio_summary=result.portfolio_summary,
+        trade_ledger=(replace(result.trade_ledger[0], side=True),),  # type: ignore[arg-type]
+        rejection_ledger=result.rejection_ledger,
+        cost_breakdown=result.cost_breakdown,
+        gross_period_returns=result.gross_period_returns,
+        net_period_returns=result.net_period_returns,
+    )
+
+    with pytest.raises(ValueError, match=r"trades\[0\]\.side must be a canonical string"):
+        reporting.render_full_market_baseline_report(bad_result)
+
+
 @pytest.mark.parametrize("setup_type", [" TREND_PULLBACK ", True])
 def test_full_market_report_rejects_invalid_trade_setup_type(setup_type: object) -> None:
     result = sample_baseline_result()
