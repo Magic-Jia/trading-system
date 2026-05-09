@@ -348,6 +348,25 @@ def test_load_backtest_bundle_rejects_invalid_full_market_breakdown_identity(tmp
     with pytest.raises(ValueError, match=r"breakdowns.json.breakdowns.by_market\[0\].market_type must be canonical"):
         promotion.load_backtest_bundle(bundle)
 
+
+def test_load_backtest_bundle_rejects_noncanonical_full_market_breakdown_row_keys(tmp_path: Path) -> None:
+    bundle = _write_full_market_bundle(
+        tmp_path / "bundle",
+        baseline_name="current_system",
+        variant_name="baseline_policy",
+        total_return=0.10,
+        max_drawdown=-0.10,
+        sharpe=1.0,
+        cost_drag=0.02,
+    )
+    breakdowns = json.loads((bundle / "breakdowns.json").read_text(encoding="utf-8"))
+    breakdowns["breakdowns"]["by_market"][0][" net_pnl "] = 0.08
+    _write_json(bundle / "breakdowns.json", breakdowns)
+
+    with pytest.raises(ValueError, match=r"breakdowns.json.breakdowns.by_market\[0\] key must be canonical"):
+        promotion.load_backtest_bundle(bundle)
+
+
 def test_load_backtest_bundle_rejects_noncanonical_audit_rejection_reasons(tmp_path: Path) -> None:
     bundle = _write_full_market_bundle(
         tmp_path / "bundle",

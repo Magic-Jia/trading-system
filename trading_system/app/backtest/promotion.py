@@ -242,6 +242,11 @@ def _validate_full_market_bundle(bundle: BacktestBundle) -> None:
         for index, row in enumerate(rows):
             if not isinstance(row, Mapping):
                 raise ValueError(f"{bundle.root}/breakdowns.json.breakdowns.{group_name}[{index}] must be an object")
+            for row_key in row:
+                if not isinstance(row_key, str) or not row_key.strip():
+                    raise ValueError(f"{bundle.root}/breakdowns.json.breakdowns.{group_name}[{index}] key must be a string")
+                if row_key != row_key.strip():
+                    raise ValueError(f"{bundle.root}/breakdowns.json.breakdowns.{group_name}[{index}] key must be canonical")
             identity_value = row.get(identity_key)
             if not isinstance(identity_value, str) or not identity_value.strip():
                 raise ValueError(f"{bundle.root}/breakdowns.json.breakdowns.{group_name}[{index}].{identity_key} must be a string")
