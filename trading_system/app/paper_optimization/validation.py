@@ -68,7 +68,11 @@ def _baseline_env_snapshot(baseline_env: Mapping[str, str] | None = None) -> dic
 
 
 def _repo_root(repo_root: Path | None = None) -> Path:
-    return repo_root if repo_root is not None else Path(__file__).resolve().parents[2]
+    if repo_root is None:
+        return Path(__file__).resolve().parents[2]
+    if not isinstance(repo_root, Path):
+        raise ValueError("repo_root must be a path")
+    return repo_root
 
 
 def resolve_validation_dataset_root(

@@ -343,3 +343,11 @@ def test_resolve_validation_dataset_root_rejects_invalid_dataset_root_type(tmp_p
 
     with pytest.raises(ValueError, match="dataset_root must be a path string"):
         resolve_validation_dataset_root(dataset_root=123, repo_root=tmp_path)
+
+def test_resolve_validation_dataset_root_rejects_invalid_repo_root_type() -> None:
+    from trading_system.app.paper_optimization.validation import resolve_validation_dataset_root
+
+    import pytest
+
+    with pytest.raises(ValueError, match="repo_root must be a path"):
+        resolve_validation_dataset_root(repo_root=123)
