@@ -118,6 +118,42 @@ def test_generate_short_candidates_emit_explicit_stop_loss_and_invalidation_sour
         assert candidate.invalidation_source == "short_structure_reclaim_above_4h_ema50"
 
 
+def test_generate_short_candidates_accepts_numeric_score_total(monkeypatch):
+    market = _defensive_market()
+    short_universe = [
+        {"symbol": "BTCUSDT", "sector": "majors", "liquidity_meta": {"rolling_notional": 12_500_000_000.0}},
+    ]
+    regime = {"label": "HIGH_VOL_DEFENSIVE", "bucket_targets": {"trend": 0.2, "rotation": 0.0, "short": 0.8}}
+
+    monkeypatch.setattr(
+        short_engine,
+        "score_short_candidate",
+        lambda _features: {"total": 0.9, "components": {"test": 0.9}},
+    )
+
+    candidates = generate_short_candidates(market, short_universe=short_universe, regime=regime)
+
+    assert [(candidate.symbol, candidate.score) for candidate in candidates] == [("BTCUSDT", 0.9)]
+
+
+@pytest.mark.parametrize("bad_total", ["0.9", True, math.nan, math.inf])
+def test_generate_short_candidates_rejects_present_invalid_score_total(monkeypatch, bad_total):
+    market = _defensive_market()
+    short_universe = [
+        {"symbol": "BTCUSDT", "sector": "majors", "liquidity_meta": {"rolling_notional": 12_500_000_000.0}},
+    ]
+    regime = {"label": "HIGH_VOL_DEFENSIVE", "bucket_targets": {"trend": 0.2, "rotation": 0.0, "short": 0.8}}
+
+    monkeypatch.setattr(
+        short_engine,
+        "score_short_candidate",
+        lambda _features: {"total": bad_total, "components": {"test": 0.9}},
+    )
+
+    with pytest.raises(ValueError, match=r"short score\.total must be a finite non-bool number"):
+        generate_short_candidates(market, short_universe=short_universe, regime=regime)
+
+
 def test_generate_short_candidates_emits_major_short_setups_in_defensive_regime():
     candidates = generate_short_candidates(
         _defensive_market(),

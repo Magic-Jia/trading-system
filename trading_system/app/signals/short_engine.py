@@ -21,6 +21,15 @@ def _to_float(value: Any) -> float:
         return 0.0
 
 
+def _score_total(scored: Mapping[str, Any]) -> float:
+    if "total" not in scored:
+        return 0.0
+    value = scored.get("total")
+    if not _is_finite_number(value):
+        raise ValueError("short score.total must be a finite non-bool number")
+    return float(value)
+
+
 def _tf_row(payload: Mapping[str, Any], timeframe: str) -> Mapping[str, Any]:
     row = payload.get(timeframe)
     if isinstance(row, Mapping):
@@ -320,7 +329,7 @@ def generate_short_candidates(
                 "liquidity_quality": _liquidity_quality(payload, universe_row, canonical_symbol),
             }
         )
-        total_score = _to_float(scored.get("total"))
+        total_score = _score_total(scored)
         if total_score < _SHORT_SCORE_FLOOR:
             continue
 

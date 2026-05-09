@@ -1,3 +1,5 @@
+import math
+
 import pytest
 
 from trading_system.app.signals.entry_profile import ACTIVE_PAPER_ENTRY_PROFILE
@@ -60,6 +62,42 @@ def test_generate_rotation_candidates_emit_explicit_stop_loss_and_invalidation_s
         assert candidate.stop_loss > 0
         assert candidate.stop_loss < market["symbols"][candidate.symbol]["daily"]["close"]
         assert candidate.invalidation_source == "rotation_pullback_failure_below_1h_ema50"
+
+
+def test_generate_rotation_candidates_accepts_numeric_score_total(monkeypatch, load_fixture):
+    market = load_fixture("market_context_v2.json")
+    rotation_universe = [
+        {"symbol": "SOLUSDT", "sector": "alt_l1", "liquidity_tier": "high"},
+    ]
+    _set_h1_extension(market, "SOLUSDT", 0.007459)
+
+    monkeypatch.setattr(
+        rotation_engine,
+        "score_rotation_candidate",
+        lambda _features: {"total": 0.9, "components": {"test": 0.9}},
+    )
+
+    candidates = generate_rotation_candidates(market, rotation_universe=rotation_universe)
+
+    assert [(candidate.symbol, candidate.score) for candidate in candidates] == [("SOLUSDT", 0.9)]
+
+
+@pytest.mark.parametrize("bad_total", ["0.9", True, math.nan, math.inf])
+def test_generate_rotation_candidates_rejects_present_invalid_score_total(monkeypatch, load_fixture, bad_total):
+    market = load_fixture("market_context_v2.json")
+    rotation_universe = [
+        {"symbol": "SOLUSDT", "sector": "alt_l1", "liquidity_tier": "high"},
+    ]
+    _set_h1_extension(market, "SOLUSDT", 0.007459)
+
+    monkeypatch.setattr(
+        rotation_engine,
+        "score_rotation_candidate",
+        lambda _features: {"total": bad_total, "components": {"test": 0.9}},
+    )
+
+    with pytest.raises(ValueError, match=r"rotation score\.total must be a finite non-bool number"):
+        generate_rotation_candidates(market, rotation_universe=rotation_universe)
 
 
 def test_generate_rotation_candidates_rejects_overheated_crowded_leader(load_fixture):

@@ -32,6 +32,15 @@ def _to_float(value: Any) -> float:
         return 0.0
 
 
+def _score_total(scored: Mapping[str, Any]) -> float:
+    if "total" not in scored:
+        return 0.0
+    value = scored.get("total")
+    if isinstance(value, bool) or not isinstance(value, int | float) or not math.isfinite(value):
+        raise ValueError("rotation score.total must be a finite non-bool number")
+    return float(value)
+
+
 def _tf_row(payload: Mapping[str, Any], timeframe: str) -> Mapping[str, Any]:
     row = payload.get(timeframe)
     if isinstance(row, Mapping):
@@ -588,7 +597,7 @@ def generate_rotation_candidates(
                 "volatility_quality": _volatility_quality(payload),
             }
         )
-        total_score = _to_float(scored.get("total"))
+        total_score = _score_total(scored)
         score_floor = _SCOUT_ROTATION_SCORE_FLOOR if _is_scout_profile(profile) else _ROTATION_SCORE_FLOOR
         if total_score < score_floor:
             continue
