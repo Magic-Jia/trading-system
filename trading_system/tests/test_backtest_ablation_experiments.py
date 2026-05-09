@@ -146,14 +146,14 @@ def test_public_strategy_factor_experiment_requires_minimum_sample_count_before_
     assert result["summary"]["effective_factor_count"] == 0
 
 
-def test_public_strategy_factor_experiment_skips_non_finite_factor_values() -> None:
+def test_public_strategy_factor_experiment_skips_missing_daily_factor_fields() -> None:
     rows = [
         _suppressed_rotation_row(0, link_return=0.06, ada_return=-0.03, forward_return_3d=0.01),
         _suppressed_rotation_row(1, link_return=0.04, ada_return=-0.02, forward_return_3d=0.02),
     ]
     for row in rows:
         for symbol in row.market["symbols"].values():
-            symbol["daily"]["return_pct_7d"] = math.nan
+            del symbol["daily"]["return_pct_7d"]
 
     result = run_public_strategy_factor_experiment(rows, evaluation_window="3d", strategy_families=("momentum",))
 
@@ -161,6 +161,54 @@ def test_public_strategy_factor_experiment_skips_non_finite_factor_values() -> N
     assert momentum["supported"] is True
     assert "effectiveness" not in momentum
     assert result["summary"]["evaluated_factor_count"] == 0
+
+
+@pytest.mark.parametrize("invalid_factor_value", [True, "0.05", math.nan, math.inf, -math.inf])
+def test_public_strategy_factor_experiment_rejects_invalid_present_daily_return_factor_fields(
+    invalid_factor_value: object,
+) -> None:
+    rows = [
+        _suppressed_rotation_row(0, link_return=0.06, ada_return=-0.03, forward_return_3d=0.01),
+        _suppressed_rotation_row(1, link_return=0.04, ada_return=-0.02, forward_return_3d=0.02),
+    ]
+    rows[0].market["symbols"]["BTCUSDT"]["daily"]["return_pct_7d"] = invalid_factor_value
+
+    with pytest.raises(ValueError, match=r"^BTCUSDT\.daily\.return_pct_7d must be a finite number$"):
+        run_public_strategy_factor_experiment(rows, evaluation_window="3d", strategy_families=("momentum",))
+
+
+@pytest.mark.parametrize("invalid_factor_value", [True, "0.05", math.nan, math.inf, -math.inf])
+def test_public_strategy_factor_experiment_rejects_invalid_present_daily_atr_factor_fields(
+    invalid_factor_value: object,
+) -> None:
+    rows = [
+        _suppressed_rotation_row(0, link_return=0.06, ada_return=-0.03, forward_return_3d=0.01),
+        _suppressed_rotation_row(1, link_return=0.04, ada_return=-0.02, forward_return_3d=0.02),
+    ]
+    for row in rows:
+        row.forward_drawdowns["3d"] = -0.01
+    rows[0].market["symbols"]["BTCUSDT"]["daily"]["atr_pct"] = invalid_factor_value
+
+    with pytest.raises(ValueError, match=r"^BTCUSDT\.daily\.atr_pct must be a finite number$"):
+        run_public_strategy_factor_experiment(
+            rows,
+            evaluation_window="3d",
+            strategy_families=("volatility_breakout",),
+        )
+
+
+def test_public_strategy_factor_experiment_preserves_valid_daily_factor_numbers() -> None:
+    rows = [
+        _suppressed_rotation_row(0, link_return=0.06, ada_return=-0.03, forward_return_3d=0.01),
+        _suppressed_rotation_row(1, link_return=0.04, ada_return=-0.02, forward_return_3d=0.02),
+    ]
+    rows[0].market["symbols"]["BTCUSDT"]["daily"]["return_pct_7d"] = 1
+    rows[1].market["symbols"]["BTCUSDT"]["daily"]["return_pct_7d"] = 0.05
+
+    result = run_public_strategy_factor_experiment(rows, evaluation_window="3d", strategy_families=("momentum",))
+
+    momentum = result["factors"][0]
+    assert momentum["effectiveness"]["sample_count"] == 2
 
 
 @pytest.mark.parametrize("invalid_forward_return", [True, math.nan, math.inf, -math.inf])

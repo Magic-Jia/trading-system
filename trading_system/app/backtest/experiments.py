@@ -225,16 +225,13 @@ def _daily_symbol_values(row: DatasetSnapshotRow, key: str) -> list[float]:
     if not isinstance(symbols, Mapping):
         return []
     values: list[float] = []
-    for payload in symbols.values():
+    for symbol, payload in symbols.items():
         if not isinstance(payload, Mapping):
             continue
         daily = payload.get("daily")
-        if not isinstance(daily, Mapping) or daily.get(key) is None:
+        if not isinstance(daily, Mapping) or key not in daily or daily[key] is None:
             continue
-        try:
-            values.append(float(daily[key]))
-        except (TypeError, ValueError):
-            continue
+        values.append(_strict_finite_number(daily[key], field_name=f"{symbol}.daily.{key}"))
     return values
 
 
