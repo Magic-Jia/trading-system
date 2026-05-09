@@ -592,3 +592,62 @@ def test_collect_trade_outcomes_rejects_non_string_symbol(tmp_path: Path) -> Non
             runtime_positions={},
             paper_ledger_path=None,
         )
+
+def test_collect_trade_outcomes_rejects_non_string_engine(tmp_path: Path) -> None:
+    paths = build_runtime_paths("paper", runtime_root=tmp_path / "runtime", runtime_env="research")
+    module = _outcomes_module()
+
+    with pytest.raises(ValueError, match="fact.engine must be a string"):
+        module.collect_trade_outcomes(
+            trade_outcomes_path=paths.trade_outcomes_file,
+            signal_facts=[
+                {
+                    "fact_type": "signal",
+                    "mode": "paper",
+                    "runtime_env": "research",
+                    "regime_label": "RISK_ON_TREND",
+                    "symbol": "BTCUSDT",
+                    "side": "LONG",
+                    "engine": 123,
+                    "setup_type": "BREAKOUT_CONTINUATION",
+                    "score": 0.91,
+                    "stop_loss": 62830.0,
+                    "allocation_status": "ACCEPTED",
+                    "final_risk_budget": 0.01,
+                    "execution_status": "BLOCKED",
+                    "intent_id": "intent-btc",
+                }
+            ],
+            runtime_positions={},
+            paper_ledger_path=None,
+        )
+
+
+def test_collect_trade_outcomes_rejects_non_string_mode(tmp_path: Path) -> None:
+    paths = build_runtime_paths("paper", runtime_root=tmp_path / "runtime", runtime_env="research")
+    module = _outcomes_module()
+
+    with pytest.raises(ValueError, match="fact.mode must be a string"):
+        module.collect_trade_outcomes(
+            trade_outcomes_path=paths.trade_outcomes_file,
+            signal_facts=[
+                {
+                    "fact_type": "signal",
+                    "mode": 123,
+                    "runtime_env": "research",
+                    "regime_label": "RISK_ON_TREND",
+                    "symbol": "BTCUSDT",
+                    "side": "LONG",
+                    "engine": "trend",
+                    "setup_type": "BREAKOUT_CONTINUATION",
+                    "score": 0.91,
+                    "stop_loss": 62830.0,
+                    "allocation_status": "ACCEPTED",
+                    "final_risk_budget": 0.01,
+                    "execution_status": "BLOCKED",
+                    "intent_id": "intent-btc",
+                }
+            ],
+            runtime_positions={},
+            paper_ledger_path=None,
+        )

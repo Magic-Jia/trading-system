@@ -167,13 +167,13 @@ def collect_trade_outcomes(
         outcomes.append(
             PaperTradeOutcome(
                 fact_type="trade_outcome",
-                mode=_str_value(fact.get("mode")),
-                runtime_env=_str_value(fact.get("runtime_env")),
-                regime_label=_str_value(fact.get("regime_label")),
+                mode=_required_str(fact.get("mode"), field_name="fact.mode"),
+                runtime_env=_required_str(fact.get("runtime_env"), field_name="fact.runtime_env"),
+                regime_label=_required_str(fact.get("regime_label"), field_name="fact.regime_label"),
                 symbol=symbol,
-                side=_str_value(fact.get("side")),
-                engine=_str_value(fact.get("engine")),
-                setup_type=_str_value(fact.get("setup_type")),
+                side=_required_str(fact.get("side"), field_name="fact.side"),
+                engine=_required_str(fact.get("engine"), field_name="fact.engine"),
+                setup_type=_required_str(fact.get("setup_type"), field_name="fact.setup_type"),
                 intent_id=intent_id,
                 signal_id=(
                     _optional_str(position.get("signal_id"), field_name="position.signal_id")
