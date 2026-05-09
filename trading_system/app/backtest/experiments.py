@@ -1019,7 +1019,7 @@ def _rotation_candidates_with_trace(
             _bump_symbol_filter(symbol_rows, symbol_name, "overheat_bypassed")
 
         derivatives_features = rotation_signals.symbol_derivatives_features(row.derivatives, str(symbol))
-        if rotation_signals._reject_overheated_crowded_leader(derivatives_features, payload):
+        if rotation_signals._reject_overheated_crowded_leader(symbol_name, derivatives_features, payload):
             filter_counts["crowding_filtered"] += 1
             _bump_symbol_filter(symbol_rows, symbol_name, "crowding_filtered")
             continue
