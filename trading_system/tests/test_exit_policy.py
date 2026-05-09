@@ -181,6 +181,110 @@ def test_evaluate_exit_policy_rejects_non_bool_runner_protected_flag():
         )
 
 
+@pytest.mark.parametrize("side", [True, 123])
+def test_evaluate_exit_policy_rejects_present_non_string_side(side):
+    with pytest.raises(ValueError, match="side must be a string when present"):
+        evaluate_exit_policy(_position(side=side))
+
+
+@pytest.mark.parametrize(
+    ("field_name", "regime"),
+    [
+        ("label", {"label": 123}),
+        ("execution_hazard", {"execution_hazard": True}),
+    ],
+)
+def test_evaluate_exit_policy_rejects_present_non_string_regime_identity_fields(field_name, regime):
+    with pytest.raises(ValueError, match=f"regime.{field_name} must be a string when present"):
+        evaluate_exit_policy(
+            _position(mark_price=104.0),
+            regime=regime,
+        )
+
+
+def test_evaluate_exit_policy_allows_missing_or_none_regime_identity_fields():
+    assert evaluate_exit_policy(
+        _position(mark_price=104.0),
+        regime={"label": None, "execution_hazard": None, "risk_multiplier": 1.0},
+    ) == []
+
+
+@pytest.mark.parametrize("risk_multiplier", [True, float("nan"), float("inf"), "bad"])
+def test_evaluate_exit_policy_rejects_present_invalid_regime_risk_multiplier(risk_multiplier):
+    with pytest.raises(
+        ValueError,
+        match="regime.risk_multiplier must be a finite non-bool number when present",
+    ):
+        evaluate_exit_policy(
+            _position(mark_price=104.0),
+            regime={"execution_hazard": "compress_risk", "risk_multiplier": risk_multiplier},
+        )
+
+
+@pytest.mark.parametrize(
+    ("field_name", "value"),
+    [
+        ("first_target_status", True),
+        ("second_target_status", 123),
+    ],
+)
+def test_evaluate_exit_policy_rejects_present_non_string_target_status_fields(field_name, value):
+    with pytest.raises(ValueError, match=f"{field_name} must be a string when present"):
+        evaluate_exit_policy(
+            _position(
+                first_target_price=105.0,
+                second_target_price=110.0,
+                **{field_name: value},
+            )
+        )
+
+
+@pytest.mark.parametrize(
+    ("field_name", "value"),
+    [
+        ("entry_price", "bad"),
+        ("entry_price", True),
+        ("entry_price", float("nan")),
+        ("entry_price", float("inf")),
+        ("mark_price", "bad"),
+        ("mark_price", False),
+        ("mark_price", float("nan")),
+        ("mark_price", float("inf")),
+        ("stop_loss", "bad"),
+        ("stop_loss", True),
+        ("stop_loss", float("nan")),
+        ("stop_loss", float("inf")),
+        ("take_profit", "bad"),
+        ("take_profit", False),
+        ("take_profit", float("nan")),
+        ("take_profit", float("inf")),
+        ("first_target_price", "bad"),
+        ("first_target_price", True),
+        ("first_target_price", float("nan")),
+        ("first_target_price", float("inf")),
+        ("second_target_price", "bad"),
+        ("second_target_price", False),
+        ("second_target_price", float("nan")),
+        ("second_target_price", float("inf")),
+        ("runner_stop_price", "bad"),
+        ("runner_stop_price", True),
+        ("runner_stop_price", float("nan")),
+        ("runner_stop_price", float("inf")),
+    ],
+)
+def test_evaluate_exit_policy_rejects_present_invalid_core_numeric_fields(field_name, value):
+    position = _position(
+        first_target_price=105.0,
+        second_target_price=110.0,
+        runner_protected=True,
+        runner_stop_price=105.0,
+    )
+    position[field_name] = value
+
+    with pytest.raises(ValueError, match=f"{field_name} must be a finite non-bool number when present"):
+        evaluate_exit_policy(position)
+
+
 def test_evaluate_exit_policy_skips_invalid_runner_state_without_guessing_stop():
     decisions = evaluate_exit_policy(
         _position(

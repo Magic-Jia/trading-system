@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import math
 from typing import Any, Literal, Mapping
 
 ExitAction = Literal["PARTIAL_TAKE_PROFIT", "EXIT", "DE_RISK"]
@@ -24,11 +25,28 @@ def _is_open(position: Mapping[str, Any]) -> bool:
     return position.get("status") in _OPEN_STATUSES
 
 
-def _float(value: Any) -> float | None:
-    try:
-        return float(value)
-    except (TypeError, ValueError):
+def _optional_string(payload: Mapping[str, Any], field_name: str, *, prefix: str = "") -> str:
+    if field_name not in payload or payload[field_name] is None:
+        return ""
+    value = payload[field_name]
+    if isinstance(value, str):
+        return value
+    raise ValueError(f"{prefix}{field_name} must be a string when present")
+
+
+def _optional_number(payload: Mapping[str, Any], field_name: str, *, prefix: str = "") -> float | None:
+    if field_name not in payload or payload[field_name] is None:
         return None
+    value = payload[field_name]
+    if isinstance(value, bool):
+        raise ValueError(f"{prefix}{field_name} must be a finite non-bool number when present")
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{prefix}{field_name} must be a finite non-bool number when present") from exc
+    if not math.isfinite(parsed):
+        raise ValueError(f"{prefix}{field_name} must be a finite non-bool number when present")
+    return parsed
 
 
 def _optional_bool(position: Mapping[str, Any], field_name: str) -> bool:
@@ -81,22 +99,24 @@ def _invalidation_reason_with_context(position: Mapping[str, Any]) -> str | None
 def _defensive_regime(regime: Mapping[str, Any] | None) -> bool:
     if not regime:
         return False
-    label = str(regime.get("label") or "").upper()
-    execution_hazard = str(regime.get("execution_hazard") or "").lower()
-    risk_multiplier = _float(regime.get("risk_multiplier"))
+    label = _optional_string(regime, "label", prefix="regime.").upper()
+    execution_hazard = _optional_string(regime, "execution_hazard", prefix="regime.").lower()
+    risk_multiplier = _optional_number(regime, "risk_multiplier", prefix="regime.")
     if "DEFENSIVE" in label:
         return True
     return execution_hazard == "compress_risk" and (risk_multiplier is not None and risk_multiplier <= 0.5)
 
 
 def _target_fields(position: Mapping[str, Any]) -> dict[str, Any]:
+    first_target_status = _optional_string(position, "first_target_status") or "pending"
+    second_target_status = _optional_string(position, "second_target_status") or "pending"
     return {
-        "first_target_price": _float(position.get("first_target_price")),
-        "second_target_price": _float(position.get("second_target_price")),
-        "first_target_status": str(position.get("first_target_status") or "pending"),
-        "second_target_status": str(position.get("second_target_status") or "pending"),
+        "first_target_price": _optional_number(position, "first_target_price"),
+        "second_target_price": _optional_number(position, "second_target_price"),
+        "first_target_status": first_target_status,
+        "second_target_status": second_target_status,
         "runner_protected": _optional_bool(position, "runner_protected"),
-        "runner_stop_price": _float(position.get("runner_stop_price")),
+        "runner_stop_price": _optional_number(position, "runner_stop_price"),
     }
 
 
@@ -188,11 +208,11 @@ def evaluate_exit_policy(
     if not _is_open(position):
         return []
 
-    side = str(position.get("side") or "LONG").upper()
-    entry_price = _float(position.get("entry_price"))
-    mark_price = _float(position.get("mark_price"))
-    stop_loss = _float(position.get("stop_loss"))
-    take_profit = _float(position.get("take_profit"))
+    side = (_optional_string(position, "side") or "LONG").upper()
+    entry_price = _optional_number(position, "entry_price")
+    mark_price = _optional_number(position, "mark_price")
+    stop_loss = _optional_number(position, "stop_loss")
+    take_profit = _optional_number(position, "take_profit")
     if entry_price is None or entry_price <= 0 or mark_price is None or mark_price <= 0:
         return []
 
@@ -274,9 +294,9 @@ def evaluate_exit_policy(
         )
     )
     if _defensive_regime(regime) and in_profit and sufficiently_in_profit and not has_triggerable_pending_target_stage:
-        label = str((regime or {}).get("label") or "")
+        label = _optional_string(regime or {}, "label", prefix="regime.")
         execution_policy = str((regime or {}).get("execution_policy") or "")
-        risk_multiplier = _float((regime or {}).get("risk_multiplier"))
+        risk_multiplier = _optional_number(regime or {}, "risk_multiplier", prefix="regime.")
         decisions.append(
             ExitDecision(
                 action="DE_RISK",
