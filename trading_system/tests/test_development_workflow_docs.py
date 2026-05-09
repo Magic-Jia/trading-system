@@ -95,6 +95,7 @@ def test_codex_worker_template_requires_json_plan_report() -> None:
     assert "entrypoint JSON `suites`" in text
     assert "--dry-run --json" in text
     assert "scripts/ci_verify.py --dry-run --json" in text
+    assert "git diff --check HEAD" in text
 
 
 def test_workflow_docs_and_codex_template_reference_worker_audit() -> None:

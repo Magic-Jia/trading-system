@@ -76,6 +76,7 @@ python3 scripts/verify.py --auto-changed
 python3 scripts/verify.py --dry-run --json --auto-changed
 python3 scripts/ci_verify.py --dry-run --json
 python3 scripts/verify.py --suite evidence-chain
+git diff --check HEAD
 ```
 
 For a narrow slice, also run the owning test file directly before committing.
