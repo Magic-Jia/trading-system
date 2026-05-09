@@ -158,10 +158,10 @@ def _strict_timeframe_finite_number(
     *,
     default: float = 0.0,
 ) -> float:
-    row = trend_signals._tf_row(payload, timeframe)
-    if field not in row:
+    timeframe_row = trend_signals._tf_row(payload, timeframe)
+    if field not in timeframe_row:
         return default
-    return _strict_finite_number(row[field], field_name=f"{symbol}.{timeframe}.{field}")
+    return _strict_finite_number(timeframe_row[field], field_name=f"{symbol}.{timeframe}.{field}")
 
 
 def _trace_candidate_sort_score(candidate: Mapping[str, Any], *, index: int, engine: str) -> float:
@@ -1690,14 +1690,12 @@ def _trend_eligibility_reasons(
     return tuple(reasons)
 
 
-def _trend_daily_reclaim_gap_pct(payload: Mapping[str, Any]) -> float | None:
-    daily = trend_signals._tf_row(payload, "daily")
-    daily_close = trend_signals._to_float(daily.get("close"))
-    daily_ema50 = trend_signals._to_float(daily.get("ema_50"))
+def _trend_daily_reclaim_gap_pct(payload: Mapping[str, Any], *, symbol: str = "trend_payload") -> float | None:
+    daily_close = _strict_timeframe_finite_number(payload, symbol, "daily", "close")
+    daily_ema50 = _strict_timeframe_finite_number(payload, symbol, "daily", "ema_50")
     if daily_close <= 0.0 or daily_ema50 <= 0.0:
         return None
     return (daily_close / daily_ema50) - 1.0
-
 
 
 def _trend_structure_intact(
@@ -1708,22 +1706,23 @@ def _trend_structure_intact(
     soft_daily_for_majors: bool = False,
     majors_reclaim_max_gap_pct: float | None = None,
 ) -> bool:
-    daily = trend_signals._tf_row(payload, "daily")
-    h4 = trend_signals._tf_row(payload, "4h")
-    h1 = trend_signals._tf_row(payload, "1h")
-    daily_close = trend_signals._to_float(daily.get("close"))
-    daily_ema20 = trend_signals._to_float(daily.get("ema_20"))
-    daily_ema50 = trend_signals._to_float(daily.get("ema_50"))
+    daily_close = _strict_timeframe_finite_number(payload, symbol, "daily", "close")
+    daily_ema20 = _strict_timeframe_finite_number(payload, symbol, "daily", "ema_20")
+    daily_ema50 = _strict_timeframe_finite_number(payload, symbol, "daily", "ema_50")
     h4_intact = (
-        trend_signals._to_float(h4.get("close")) >= trend_signals._to_float(h4.get("ema_20")) >= trend_signals._to_float(h4.get("ema_50"))
+        _strict_timeframe_finite_number(payload, symbol, "4h", "close")
+        >= _strict_timeframe_finite_number(payload, symbol, "4h", "ema_20")
+        >= _strict_timeframe_finite_number(payload, symbol, "4h", "ema_50")
     )
     h1_intact = (
-        trend_signals._to_float(h1.get("close")) >= trend_signals._to_float(h1.get("ema_20")) >= trend_signals._to_float(h1.get("ema_50"))
+        _strict_timeframe_finite_number(payload, symbol, "1h", "close")
+        >= _strict_timeframe_finite_number(payload, symbol, "1h", "ema_20")
+        >= _strict_timeframe_finite_number(payload, symbol, "1h", "ema_50")
     )
     if sector is None:
         sector, _ = trend_signals._payload_categories(symbol, payload)
     if majors_reclaim_max_gap_pct is not None and sector == trend_signals._MAJOR_SECTOR:
-        reclaim_gap_pct = _trend_daily_reclaim_gap_pct(payload)
+        reclaim_gap_pct = _trend_daily_reclaim_gap_pct(payload, symbol=symbol)
         daily_intact = (
             daily_close > daily_ema20
             and reclaim_gap_pct is not None

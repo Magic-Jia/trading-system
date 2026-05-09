@@ -1724,6 +1724,78 @@ def test_long_gate_telemetry_preserves_missing_selected_trend_daily_volume_defau
 
 
 @pytest.mark.parametrize(
+    ("timeframe", "field", "invalid_value", "match"),
+    [
+        ("daily", "close", True, r"^BTCUSDT\.daily\.close must be a finite number$"),
+        ("daily", "ema_20", "101", r"^BTCUSDT\.daily\.ema_20 must be a finite number$"),
+        ("4h", "ema_50", math.nan, r"^BTCUSDT\.4h\.ema_50 must be a finite number$"),
+        ("1h", "ema_20", math.inf, r"^BTCUSDT\.1h\.ema_20 must be a finite number$"),
+    ],
+)
+def test_long_gate_telemetry_rejects_invalid_selected_trend_structure_fields(
+    monkeypatch: pytest.MonkeyPatch,
+    timeframe: str,
+    field: str,
+    invalid_value: object,
+    match: str,
+) -> None:
+    row = _bullish_ablation_row()
+    row.market["symbols"]["BTCUSDT"][timeframe][field] = invalid_value
+    monkeypatch.setattr(backtest_experiments.trend_signals, "symbol_derivatives_features", lambda *_args: {})
+
+    with pytest.raises(ValueError, match=match):
+        backtest_experiments._trend_candidates_with_trace(row)
+
+
+@pytest.mark.parametrize(
+    ("timeframe", "field", "valid_value"),
+    [
+        ("daily", "close", 101),
+        ("daily", "ema_20", 100),
+        ("4h", "ema_50", 99),
+        ("1h", "ema_20", 100),
+    ],
+)
+def test_long_gate_telemetry_preserves_valid_selected_trend_structure_fields(
+    monkeypatch: pytest.MonkeyPatch,
+    timeframe: str,
+    field: str,
+    valid_value: int,
+) -> None:
+    row = _bullish_ablation_row()
+    row.market["symbols"]["BTCUSDT"][timeframe][field] = valid_value
+    monkeypatch.setattr(backtest_experiments.trend_signals, "symbol_derivatives_features", lambda *_args: {})
+
+    result = backtest_experiments._trend_candidates_with_trace(row)
+
+    assert any(candidate["symbol"] == "BTCUSDT" for candidate in result["candidates"])
+
+
+@pytest.mark.parametrize(
+    ("timeframe", "field"),
+    [
+        ("daily", "close"),
+        ("daily", "ema_20"),
+        ("4h", "ema_50"),
+        ("1h", "ema_20"),
+    ],
+)
+def test_long_gate_telemetry_preserves_missing_selected_trend_structure_field_filtering(
+    monkeypatch: pytest.MonkeyPatch,
+    timeframe: str,
+    field: str,
+) -> None:
+    row = _bullish_ablation_row()
+    del row.market["symbols"]["BTCUSDT"][timeframe][field]
+    monkeypatch.setattr(backtest_experiments.trend_signals, "symbol_derivatives_features", lambda *_args: {})
+
+    result = backtest_experiments._trend_candidates_with_trace(row)
+
+    assert "BTCUSDT" not in {candidate["symbol"] for candidate in result["candidates"]}
+    assert sum(result["symbol_rows"]["BTCUSDT"]["filter_counts"].values()) == 1
+
+
+@pytest.mark.parametrize(
     ("invalid_score", "match"),
     [
         (True, r"^rotation candidates\[0\]\.score must be numeric$"),
