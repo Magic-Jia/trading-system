@@ -446,6 +446,15 @@ def test_generate_trend_candidates_allows_non_major_soft_pretrend_in_supportive_
     assert [candidate.symbol for candidate in candidates] == ["LINKUSDT"]
 
 
+def test_generate_trend_candidates_rejects_non_string_suppression_rule_entries():
+    with pytest.raises(ValueError, match="regime.suppression_rules"):
+        generate_trend_candidates(
+            _soft_non_major_trend_market(),
+            include_high_liquidity_strong_names=False,
+            regime={"label": "RISK_ON_ROTATION", "suppression_rules": [True]},
+        )
+
+
 def test_generate_trend_candidates_allows_non_major_soft_pretrend_when_daily_close_is_just_above_ema50():
     candidates = generate_trend_candidates(
         _soft_non_major_trend_market(daily_close=102.0, daily_ema50=101.0),

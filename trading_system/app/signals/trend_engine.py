@@ -88,7 +88,12 @@ def _has_suppression_rule(regime: Any, rule_name: str) -> bool:
     rules = _regime_value(regime, "suppression_rules", [])
     if not isinstance(rules, list):
         return False
-    return rule_name.lower() in {str(rule).lower().strip() for rule in rules}
+    normalized_rules: set[str] = set()
+    for rule in rules:
+        if not isinstance(rule, str):
+            raise ValueError("regime.suppression_rules entries must be strings")
+        normalized_rules.add(rule.lower().strip())
+    return rule_name.lower() in normalized_rules
 
 
 def _is_uptrend(daily: Mapping[str, Any], h4: Mapping[str, Any], h1: Mapping[str, Any]) -> bool:
