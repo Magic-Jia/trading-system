@@ -171,6 +171,8 @@ def test_verify_lists_available_suites_as_json() -> None:
     for suite_name, suite in payload["suites"].items():
         assert set(suite) == {"count", "tests"}
         assert len(suite["tests"]) == len(set(suite["tests"])), suite_name
+        if suite_name != "full":
+            assert suite["count"] == len(suite["tests"])
         for test_path in suite["tests"]:
             assert (ROOT / test_path).exists(), test_path
     assert payload["suites"]["full"] == {"count": "full pytest suite", "tests": []}
