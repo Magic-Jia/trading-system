@@ -238,6 +238,21 @@ def test_ci_verify_dry_run_json_reports_commands() -> None:
     ]
 
 
+def test_ci_verify_text_dry_run_reports_strict_changed_verification() -> None:
+    result = subprocess.run(
+        [sys.executable, str(ROOT / "scripts" / "ci_verify.py"), "--dry-run"],
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "strict_changed_verification: true" in result.stdout
+    assert "python3 scripts/verify.py --dry-run --strict-auto-changed" in result.stdout
+
+
 def test_nightly_verify_entrypoint_runs_full_suite() -> None:
     script = ROOT / "scripts" / "nightly_verify.py"
 
@@ -266,3 +281,19 @@ def test_nightly_verify_dry_run_json_reports_clean_env_full_command() -> None:
     assert payload["clean_env"] is True
     assert payload["commands"] == ["python3 scripts/verify.py --suite full"]
     assert "TRADING_RUNTIME_ENV" in payload["unset_env"]
+
+
+def test_nightly_verify_text_dry_run_reports_clean_env() -> None:
+    result = subprocess.run(
+        [sys.executable, str(ROOT / "scripts" / "nightly_verify.py"), "--dry-run"],
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "clean_env: true" in result.stdout
+    assert "TRADING_RUNTIME_ENV" in result.stdout
+    assert "python3 scripts/verify.py --suite full" in result.stdout

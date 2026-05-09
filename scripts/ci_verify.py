@@ -40,6 +40,7 @@ def main() -> int:
         if args.json:
             print(json.dumps(payload, indent=2, sort_keys=True))
         else:
+            print("strict_changed_verification: true")
             print("\n".join(DISPLAY_COMMANDS))
         return 0
     for command in COMMANDS:
