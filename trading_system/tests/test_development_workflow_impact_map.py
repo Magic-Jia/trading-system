@@ -70,3 +70,14 @@ def test_agent_rule_files_have_impact_mapping() -> None:
     ]
 
     assert missing == []
+
+
+def test_evidence_chain_test_files_have_impact_mapping() -> None:
+    verify = load_verify_module()
+    missing = [
+        test_path
+        for test_path in verify.SUITES["evidence-chain"]
+        if not verify.tests_for_changed([test_path])
+    ]
+
+    assert missing == []

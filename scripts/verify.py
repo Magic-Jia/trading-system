@@ -121,9 +121,18 @@ def unique(items: list[str]) -> list[str]:
     return list(OrderedDict.fromkeys(items))
 
 
+def suites_for_test_path(path: str) -> list[str]:
+    selected: list[str] = []
+    for tests in SUITES.values():
+        if path in tests:
+            selected.extend(tests)
+    return unique(selected)
+
+
 def tests_for_changed(paths: list[str]) -> list[str]:
     selected: list[str] = []
     for changed in paths:
+        selected.extend(suites_for_test_path(changed))
         for prefix, tests in IMPACT_RULES:
             if changed == prefix or changed.startswith(prefix):
                 selected.extend(tests)
@@ -133,6 +142,8 @@ def tests_for_changed(paths: list[str]) -> list[str]:
 def unmapped_changed_paths(paths: list[str]) -> list[str]:
     unmapped: list[str] = []
     for changed in paths:
+        if suites_for_test_path(changed):
+            continue
         if not any(changed == prefix or changed.startswith(prefix) for prefix, _tests in IMPACT_RULES):
             unmapped.append(changed)
     return unique(unmapped)
