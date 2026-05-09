@@ -85,4 +85,5 @@ def test_workflow_docs_and_codex_template_reference_worker_audit() -> None:
     assert "final_merge_proof" in doc
     assert "controller_next_steps" in doc
     assert "worktree_dirty" in doc
+    assert "worktree_dirty_paths" in doc
     assert "no impacted verification tests" in doc

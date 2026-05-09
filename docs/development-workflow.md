@@ -89,7 +89,7 @@ Before cherry-picking or trusting an isolated Codex worker commit, run controlle
 python3 scripts/audit_worker_commit.py --commit <worker-commit>
 ```
 
-The audit emits JSON with changed files and the impacted verification plan. It rejects forbidden files such as `memory/dev-status.md` and fails fast with `no impacted verification tests` when changed files do not map to any verification path. The audit output is not a replacement for controller-side pytest; it is the preflight that tells the controller which tests to rerun. The JSON explicitly includes `final_merge_proof=false`, `controller_next_steps`, and `worktree_dirty` so agents cannot mistake preflight for merge approval or ignore local controller dirtiness.
+The audit emits JSON with changed files and the impacted verification plan. It rejects forbidden files such as `memory/dev-status.md` and fails fast with `no impacted verification tests` when changed files do not map to any verification path. The audit output is not a replacement for controller-side pytest; it is the preflight that tells the controller which tests to rerun. The JSON explicitly includes `final_merge_proof=false`, `controller_next_steps`, `worktree_dirty`, and `worktree_dirty_paths` so agents cannot mistake preflight for merge approval or ignore local controller dirtiness and its exact dirty files.
 
 ## Failure classification
 
