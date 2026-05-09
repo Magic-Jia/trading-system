@@ -19,22 +19,26 @@ def _str_value(value: Any) -> str:
     return str(value)
 
 
-def _float_or_none(value: Any) -> float | None:
+def _float_or_none(value: Any, *, field_name: str) -> float | None:
     if value is None:
         return None
+    if isinstance(value, bool):
+        raise ValueError(f"{field_name} must be numeric")
     try:
         return float(value)
-    except (TypeError, ValueError):
-        return None
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{field_name} must be numeric") from exc
 
 
-def _int_or_none(value: Any) -> int | None:
+def _int_or_none(value: Any, *, field_name: str) -> int | None:
     if value is None:
         return None
+    if isinstance(value, bool):
+        raise ValueError(f"{field_name} must be numeric")
     try:
         return int(value)
-    except (TypeError, ValueError):
-        return None
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{field_name} must be numeric") from exc
 
 
 def _key(row: Mapping[str, Any]) -> tuple[str, str, str]:
@@ -108,18 +112,18 @@ def collect_signal_facts(
                 mode=_str_value(mode),
                 runtime_env=_str_value(runtime_env),
                 regime_label=_str_value(regime.get("label")),
-                regime_confidence=_float_or_none(regime.get("confidence")),
+                regime_confidence=_float_or_none(regime.get("confidence"), field_name="regime.confidence"),
                 symbol=_str_value(candidate.get("symbol")).upper(),
                 side=_str_value(candidate.get("side")),
                 engine=_str_value(candidate.get("engine")),
                 setup_type=_str_value(candidate.get("setup_type")),
-                score=_float_or_none(candidate.get("score")),
-                stop_loss=_float_or_none(candidate.get("stop_loss")),
+                score=_float_or_none(candidate.get("score"), field_name="candidate.score"),
+                stop_loss=_float_or_none(candidate.get("stop_loss"), field_name="candidate.stop_loss"),
                 invalidation_source=_str_value(candidate.get("invalidation_source")),
                 validation_allowed=_validation_allowed(candidate),
                 allocation_status=_str_or_none(allocation.get("status")),
-                allocation_rank=_int_or_none(allocation.get("rank")),
-                final_risk_budget=_float_or_none(allocation.get("final_risk_budget")),
+                allocation_rank=_int_or_none(allocation.get("rank"), field_name="allocation.rank"),
+                final_risk_budget=_float_or_none(allocation.get("final_risk_budget"), field_name="allocation.final_risk_budget"),
                 execution_status=_str_or_none(execution_status),
                 intent_id=intent_id or _str_or_none(execution.get("intent_id")),
             )
