@@ -52,6 +52,7 @@ def test_workflow_doc_records_json_plan_and_full_checkpoint_policy() -> None:
 
     assert "--list-suites" in text
     assert "--list-suites --json" in text
+    assert "inventory_kind" in text
     assert "--json" in text
     assert "--dry-run --json" in text
     assert "--json requires --dry-run" in text
