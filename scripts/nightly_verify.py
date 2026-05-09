@@ -48,6 +48,7 @@ def main() -> int:
             print(json.dumps(payload, indent=2, sort_keys=True))
         else:
             print("plan_version: 1")
+            print("plan_kind: nightly_verification_plan")
             print("clean_env: true")
             print("unset " + " ".join(UNSET_ENV))
             print("\n".join(DISPLAY_COMMANDS))

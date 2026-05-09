@@ -43,6 +43,7 @@ def main() -> int:
             print(json.dumps(payload, indent=2, sort_keys=True))
         else:
             print("plan_version: 1")
+            print("plan_kind: ci_verification_plan")
             print("strict_changed_verification: true")
             print("\n".join(DISPLAY_COMMANDS))
         return 0
