@@ -114,6 +114,15 @@ def _rotation_symbols(rotation_universe: Sequence[Mapping[str, Any]] | None) -> 
     return rows
 
 
+def _liquidity_meta(universe_row: Mapping[str, Any]) -> dict[str, Any]:
+    if "liquidity_meta" not in universe_row:
+        return {}
+    value = universe_row.get("liquidity_meta")
+    if not isinstance(value, Mapping):
+        raise ValueError("rotation_universe.liquidity_meta must be an object when present")
+    return dict(value)
+
+
 def _major_proxy_returns(market_context: Mapping[str, Any]) -> dict[str, float]:
     symbols = market_context.get("symbols")
     if not isinstance(symbols, Mapping):
@@ -334,9 +343,10 @@ def _pullback_quality(payload: Mapping[str, Any]) -> float:
 def _liquidity_quality(payload: Mapping[str, Any], universe_row: Mapping[str, Any]) -> float:
     daily = _tf_row(payload, "daily")
     volume = _to_float(daily.get("volume_usdt_24h"))
-    rolling_notional = _to_float(dict(universe_row.get("liquidity_meta", {})).get("rolling_notional"))
+    liquidity_meta = _liquidity_meta(universe_row)
+    rolling_notional = _to_float(liquidity_meta.get("rolling_notional"))
     normalized_volume = min(max(volume, rolling_notional) / 1_200_000_000.0, 1.0)
-    slippage_bps = _to_float(dict(universe_row.get("liquidity_meta", {})).get("slippage_bps"),)
+    slippage_bps = _to_float(liquidity_meta.get("slippage_bps"),)
     slippage_quality = 1.0 - min(slippage_bps / 25.0, 1.0)
     return max(min((normalized_volume * 0.8) + (slippage_quality * 0.2), 1.0), 0.0)
 
@@ -504,7 +514,7 @@ def generate_rotation_candidates(
             continue
 
         daily = _tf_row(payload, "daily")
-        liquidity_meta = dict(universe_row.get("liquidity_meta", {})) if isinstance(universe_row, Mapping) else {}
+        liquidity_meta = _liquidity_meta(universe_row)
         liquidity_meta.setdefault("liquidity_tier", payload.get("liquidity_tier"))
         liquidity_meta["volume_usdt_24h"] = _to_float(daily.get("volume_usdt_24h"))
         invalidation_source = "rotation_pullback_failure_below_1h_ema50"

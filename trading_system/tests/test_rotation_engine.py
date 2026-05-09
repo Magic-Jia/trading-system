@@ -480,6 +480,22 @@ def test_generate_rotation_candidates_rejects_present_non_string_payload_sector(
         )
 
 
+def test_generate_rotation_candidates_rejects_present_non_object_liquidity_meta():
+    with pytest.raises(ValueError, match=r"rotation_universe\.liquidity_meta"):
+        generate_rotation_candidates(
+            _soft_rotation_reclaim_market(),
+            rotation_universe=[
+                {
+                    "symbol": "SOLUSDT",
+                    "sector": "alt_l1",
+                    "liquidity_tier": "high",
+                    "liquidity_meta": [("rolling_notional", 2_000_000_000.0)],
+                }
+            ],
+            regime={"label": "RISK_ON_ROTATION", "suppression_rules": []},
+        )
+
+
 def test_generate_rotation_candidates_rejects_present_string_numeric_required_timeframe_field():
     market = _soft_rotation_reclaim_market()
     universe = [{"symbol": "SOLUSDT", "sector": "alt_l1", "liquidity_tier": "high"}]
