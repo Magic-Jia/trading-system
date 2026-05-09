@@ -123,6 +123,7 @@ def test_verify_lists_available_suites_as_json() -> None:
 
     payload = json.loads(result.stdout)
     assert payload["plan_version"] == 1
+    assert payload["inventory_kind"] == "suite_inventory"
     assert payload["suites"]["workflow-meta"] == 4
     assert payload["suites"]["full"] == "full pytest suite"
 
