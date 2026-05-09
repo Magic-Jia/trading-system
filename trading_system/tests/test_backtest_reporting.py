@@ -1397,6 +1397,16 @@ def test_engine_filter_ablation_report_rejects_invalid_metadata_counts() -> None
         )
 
 
+
+def test_engine_filter_ablation_report_rejects_non_object_variants() -> None:
+    with pytest.raises(ValueError, match="variants must be an object"):
+        cli.render_engine_filter_ablation_report(
+            experiment_name="engine_filter_ablation",
+            metadata={"snapshot_count": 1},
+            experiment={"variants": []},
+        )
+
+
 def test_backtest_cli_writes_walk_forward_validation_bundle(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr(cli, "load_historical_dataset", lambda _dataset_root: _sample_dataset_rows(), raising=False)
     monkeypatch.setattr(

@@ -666,7 +666,10 @@ def render_engine_filter_ablation_report(
     experiment: Mapping[str, Any],
     metadata: Mapping[str, Any],
 ) -> dict[str, dict[str, Any]]:
-    variants = dict(experiment.get("variants", {}))
+    raw_variants = experiment.get("variants", {})
+    if not isinstance(raw_variants, Mapping):
+        raise ValueError("variants must be an object")
+    variants = dict(raw_variants)
     best_variant, best_bucket_pnl = _variant_with_best_metric(
         variants,
         metric_fn=lambda _name, payload: dict(payload.get("performance", {})).get("bucket_level_pnl", 0.0),
