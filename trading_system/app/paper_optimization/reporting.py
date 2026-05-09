@@ -43,6 +43,15 @@ def _optional_list(payload: dict[str, Any], field_name: str, *, source_name: str
     return value
 
 
+def _optional_str(payload: dict[str, Any], field_name: str, *, source_name: str) -> str | None:
+    value = payload.get(field_name)
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError(f"{source_name}.{field_name} must be a string")
+    return value
+
+
 def build_optimization_summary(
     *,
     signal_facts_path: Path,
@@ -76,15 +85,15 @@ def build_optimization_summary(
     return {
         "signal_fact_count": signal_fact_count,
         "trade_outcome_count": trade_outcome_count,
-        "last_metrics_at": daily_metrics.get("recorded_at_bj"),
-        "last_recommendation_at": recommendations.get("recorded_at_bj"),
-        "health_status": health_report.get("status"),
+        "last_metrics_at": _optional_str(daily_metrics, "recorded_at_bj", source_name="daily_metrics"),
+        "last_recommendation_at": _optional_str(recommendations, "recorded_at_bj", source_name="recommendations"),
+        "health_status": _optional_str(health_report, "status", source_name="health_report"),
         "warning_count": warning_count,
         "recommendation_count": recommendation_count,
         "optimization_alert_count": len(optimization_alerts),
         "optimization_alerts": optimization_alerts,
-        "promotion_status": promotion_decision.get("status"),
-        "promotion_decision": promotion_decision.get("decision"),
+        "promotion_status": _optional_str(promotion_decision, "status", source_name="promotion_decision"),
+        "promotion_decision": _optional_str(promotion_decision, "decision", source_name="promotion_decision"),
     }
 
 

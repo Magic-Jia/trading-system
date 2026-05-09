@@ -162,3 +162,22 @@ def test_build_optimization_summary_rejects_non_list_health_warnings(tmp_path) -
             recommendations_path=tmp_path / "recommendations.json",
             promotion_decision_path=tmp_path / "promotion_decision.json",
         )
+
+def test_build_optimization_summary_rejects_non_string_status_fields(tmp_path) -> None:
+    import pytest
+
+    health_report_path = tmp_path / "health_report.json"
+    health_report_path.write_text(
+        json.dumps({"status": 123, "warnings": []}),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="health_report.status must be a string"):
+        build_optimization_summary(
+            signal_facts_path=tmp_path / "signal_facts.jsonl",
+            trade_outcomes_path=tmp_path / "trade_outcomes.jsonl",
+            daily_metrics_path=tmp_path / "daily_metrics.json",
+            health_report_path=health_report_path,
+            recommendations_path=tmp_path / "recommendations.json",
+            promotion_decision_path=tmp_path / "promotion_decision.json",
+        )
