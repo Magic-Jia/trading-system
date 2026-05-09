@@ -91,6 +91,12 @@ def _validate_required_trend_numerics(symbol: str, payload: Mapping[str, Any]) -
     return complete
 
 
+def _market_symbol_key(symbol: Any) -> str:
+    if not isinstance(symbol, str):
+        raise ValueError("market.symbols key must be a string")
+    return symbol
+
+
 def _optional_string_field(symbol: str, payload: Mapping[str, Any], field: str) -> str:
     value = payload.get(field, "")
     if value is None:
@@ -396,10 +402,11 @@ def generate_trend_candidates(
     for symbol, payload_value in symbols.items():
         if not isinstance(payload_value, Mapping):
             continue
+        symbol_name = _market_symbol_key(symbol)
         payload = payload_value
-        if not _validate_required_trend_numerics(str(symbol), payload):
+        if not _validate_required_trend_numerics(symbol_name, payload):
             continue
-        sector, liquidity_tier = _payload_categories(str(symbol), payload)
+        sector, liquidity_tier = _payload_categories(symbol_name, payload)
         is_major = sector == _MAJOR_SECTOR
         soft_non_major_pretrend = False
         active_paper_shallow_pullback = _is_active_paper_major_shallow_h1_pullback(
@@ -438,8 +445,8 @@ def generate_trend_candidates(
             continue
 
         derivatives_features = _strict_derivatives_trend_features(
-            str(symbol),
-            symbol_derivatives_features(derivatives, str(symbol)),
+            symbol_name,
+            symbol_derivatives_features(derivatives, symbol_name),
         )
         if _reject_crowded_long(derivatives_features, payload):
             continue
@@ -491,7 +498,7 @@ def generate_trend_candidates(
             EngineCandidate(
                 engine="trend",
                 setup_type=_setup_type(payload),
-                symbol=str(symbol),
+                symbol=symbol_name,
                 side="LONG",
                 score=total_score,
                 stop_loss=stop_loss,

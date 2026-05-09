@@ -648,6 +648,14 @@ def test_long_gate_telemetry_outputs_symbol_and_regime_breakdowns() -> None:
     assert trend_symbols["BTCUSDT"]["funnel"]["raw_candidates"] > 0
 
 
+def test_long_gate_telemetry_rejects_non_string_trend_symbol_key() -> None:
+    row = _bullish_ablation_row()
+    row.market["symbols"] = {123: row.market["symbols"]["BTCUSDT"]}
+
+    with pytest.raises(ValueError, match=r"market\.symbols key must be a string"):
+        backtest_experiments._trend_candidates_with_trace(row)
+
+
 def _supportive_soft_long_gate_row(regime_label: str = "RISK_ON_ROTATION") -> DatasetSnapshotRow:
     market = {
         "symbols": {

@@ -1186,12 +1186,13 @@ def _trend_candidates_with_trace(
     symbol_rows: dict[str, dict[str, Any]] = {}
     input_universe = 0
     for symbol, payload_value in symbols.items():
-        symbol_name = str(symbol)
         if not isinstance(payload_value, Mapping):
+            symbol_name = trend_signals._market_symbol_key(symbol)
             filter_counts["missing_payload"] += 1
             _bump_symbol_filter(symbol_rows, symbol_name, "missing_payload")
             continue
 
+        symbol_name = trend_signals._market_symbol_key(symbol)
         payload = payload_value
         sector, liquidity_tier = trend_signals._payload_categories(symbol_name, payload)
         is_major = sector == trend_signals._MAJOR_SECTOR
@@ -1231,8 +1232,8 @@ def _trend_candidates_with_trace(
             continue
 
         derivatives_features = trend_signals._strict_derivatives_trend_features(
-            str(symbol),
-            trend_signals.symbol_derivatives_features(row.derivatives, str(symbol)),
+            symbol_name,
+            trend_signals.symbol_derivatives_features(row.derivatives, symbol_name),
         )
         if trend_signals._reject_crowded_long(derivatives_features, payload):
             filter_counts["crowding_filtered"] += 1
@@ -1274,7 +1275,7 @@ def _trend_candidates_with_trace(
             {
                 "engine": "trend",
                 "setup_type": trend_signals._setup_type(payload),
-                "symbol": str(symbol),
+                "symbol": symbol_name,
                 "side": "LONG",
                 "score": total_score,
                 "stop_loss": stop_loss,
