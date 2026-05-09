@@ -1319,6 +1319,24 @@ def test_render_long_gate_telemetry_prefers_specific_eligibility_blocker_in_scor
     assert report["scorecard"]["key_metrics"]["dominant_blocker_gate"] == "eligibility_daily_return_filtered"
 
 
+def test_render_long_gate_telemetry_rejects_non_object_filter_counts() -> None:
+    with pytest.raises(ValueError, match="engines.trend_long.filter_counts must be an object"):
+        cli.render_long_gate_telemetry_report(
+            experiment_name="long_gate_telemetry",
+            metadata={"snapshot_count": 1, "evaluation_window": "3d"},
+            experiment={
+                "engines": {
+                    "trend_long": {
+                        "funnel": {"raw_candidates": 0, "accepted_allocations": 0},
+                        "filter_counts": [],
+                        "performance": {"bucket_level_pnl": 0.0, "trade_count": 0},
+                    },
+                },
+                "snapshot_rows": [],
+            },
+        )
+
+
 
 def test_walk_forward_validation_report_rejects_invalid_scorecard_numerics() -> None:
     with pytest.raises(ValueError, match="out_of_sample_scorecard.total_return must be a finite number"):

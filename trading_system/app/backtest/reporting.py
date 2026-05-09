@@ -788,7 +788,11 @@ def render_long_gate_telemetry_report(
     experiment: Mapping[str, Any],
     metadata: Mapping[str, Any],
 ) -> dict[str, dict[str, Any]]:
-    engines = dict(experiment.get("engines", {}))
+    raw_engines = experiment.get("engines", {})
+    if not isinstance(raw_engines, Mapping):
+        raise ValueError("engines must be an object")
+    engines = dict(raw_engines)
+    engine_funnels: dict[str, Mapping[str, Any]] = {}
     best_engine = None
     best_accept_count = -1
     dominant_blocker_engine = None
@@ -796,23 +800,32 @@ def render_long_gate_telemetry_report(
     dominant_blocker_count = 0
 
     for engine_name, payload in engines.items():
-        funnel = dict(payload.get("funnel", {}))
+        if not isinstance(payload, Mapping):
+            raise ValueError(f"engines.{engine_name} must be an object")
+        raw_funnel = payload.get("funnel", {})
+        if not isinstance(raw_funnel, Mapping):
+            raise ValueError(f"engines.{engine_name}.funnel must be an object")
+        funnel = dict(raw_funnel)
+        engine_funnels[str(engine_name)] = funnel
         accept_count = int(funnel.get("accepted_allocations", 0))
         if accept_count > best_accept_count:
             best_engine = str(engine_name)
             best_accept_count = accept_count
 
-        blocker_gate, blocker_count = _dominant_long_gate_blocker(dict(payload.get("filter_counts", {})))
+        raw_filter_counts = payload.get("filter_counts", {})
+        if not isinstance(raw_filter_counts, Mapping):
+            raise ValueError(f"engines.{engine_name}.filter_counts must be an object")
+        blocker_gate, blocker_count = _dominant_long_gate_blocker(dict(raw_filter_counts))
         if blocker_count > dominant_blocker_count:
             dominant_blocker_engine = str(engine_name)
             dominant_blocker_gate = blocker_gate
             dominant_blocker_count = blocker_count
 
     total_long_accepted_allocations = sum(
-        int(dict(payload.get("funnel", {})).get("accepted_allocations", 0)) for payload in engines.values()
+        int(funnel.get("accepted_allocations", 0)) for funnel in engine_funnels.values()
     )
     engines_with_candidate_flow = sum(
-        1 for payload in engines.values() if int(dict(payload.get("funnel", {})).get("raw_candidates", 0)) > 0
+        1 for funnel in engine_funnels.values() if int(funnel.get("raw_candidates", 0)) > 0
     )
 
     if total_long_accepted_allocations > 0:
