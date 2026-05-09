@@ -115,9 +115,19 @@ def render_backtest_evaluation_report(
         raise ValueError("walk_forward.metadata must be an object")
     walk_forward_metadata = dict(raw_walk_forward_metadata)
     regime_buckets = _list_field(regimes, "buckets", label="regimes.buckets")
+    validated_regime_buckets = []
     for index, bucket in enumerate(regime_buckets):
         if not isinstance(bucket, Mapping):
             raise ValueError(f"regimes.buckets[{index}] must be an object")
+        validated_bucket = dict(bucket)
+        if "label" in validated_bucket:
+            validated_bucket["label"] = _canonical_report_string(
+                validated_bucket["label"],
+                field_name=f"regimes.buckets[{index}].label",
+            )
+        validated_regime_buckets.append(validated_bucket)
+    validated_regimes = dict(regimes)
+    validated_regimes["buckets"] = validated_regime_buckets
     stress_scenarios = []
     validated_cost_scenarios = []
     for index, scenario_payload in enumerate(_list_field(cost_stress, "scenarios", label="cost_stress.scenarios")):
@@ -168,7 +178,7 @@ def render_backtest_evaluation_report(
             "cost_stress_scenarios": stress_scenarios,
         },
         "walk_forward": walk_forward,
-        "regimes": regimes,
+        "regimes": validated_regimes,
         "cost_stress": validated_cost_stress,
     }
 
