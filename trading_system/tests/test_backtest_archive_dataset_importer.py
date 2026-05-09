@@ -341,6 +341,33 @@ def test_merged_futures_context_coverage_rejects_contaminated_existing_counter(
         )
 
 
+def test_materialize_dataset_root_rejects_negative_futures_context_age_before_write(tmp_path: Path) -> None:
+    archive_root = tmp_path / "archive"
+    _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT", total_hours=60 * 24)
+    start = datetime(2024, 2, 29, 23, tzinfo=UTC)
+    end = start + timedelta(hours=1)
+    _archive_mark_price_history(
+        archive_root,
+        symbol="BTCUSDT",
+        start=start,
+        end=end,
+        rows=[{"timestamp": _timestamp_ms(start), "markPrice": "64395.5"}],
+    )
+    latest = build_phase1_dataset_bundle_materials(load_phase1_raw_market_imports(archive_root))[-1]
+    market_context = json.loads(json.dumps(latest.market_context))
+    market_context["symbols"]["BTCUSDT"]["futures_context"]["mark_price_age_seconds"] = -1
+    material = replace(latest, market_context=market_context)
+    dataset_root = tmp_path / "dataset"
+
+    with pytest.raises(
+        ValueError,
+        match=r"market_context symbols\.BTCUSDT\.futures_context\.mark_price_age_seconds must be non-negative",
+    ):
+        _materialize_dataset_root(archive_root=archive_root, dataset_root=dataset_root, materials=[material])
+
+    assert not dataset_root.exists()
+
+
 
 def test_resolved_phase1_imported_dataset_root_path_rejects_non_string_relative_value(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="phase1 imported dataset root path value must be a string"):
