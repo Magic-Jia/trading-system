@@ -37,6 +37,13 @@ def _float_or_zero(value: Any) -> float:
         return 0.0
 
 
+def _optional_str(value: Any, *, field_name: str) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError(f"{field_name} must be a string")
+    return value
+
 
 def _runtime_position_rows(runtime_positions: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
     out: dict[str, dict[str, Any]] = {}
@@ -47,10 +54,10 @@ def _runtime_position_rows(runtime_positions: dict[str, Any] | None) -> dict[str
     for symbol, raw in runtime_positions.items():
         if not isinstance(raw, dict):
             raise ValueError("runtime position rows must be objects")
-        status = str(raw.get("status") or "").upper()
+        status = (_optional_str(raw.get("status"), field_name="runtime_position.status") or "").upper()
         qty = _float_or_zero(raw.get("qty"))
         if status in {"OPEN", "PENDING"} and qty > 0:
-            normalized = str(raw.get("symbol") or symbol).upper()
+            normalized = (_optional_str(raw.get("symbol"), field_name="runtime_position.symbol") or symbol).upper()
             out[normalized] = {
                 "status": status,
                 "qty": qty,
