@@ -63,6 +63,9 @@ def _strict_present_derivatives_string(features: Mapping[str, Any], field: str, 
 
 
 def _strict_derivatives_trend_features(symbol: str, features: Mapping[str, Any]) -> dict[str, Any]:
+    for key in features:
+        if not isinstance(key, str):
+            raise ValueError(f"{symbol}.derivatives key must be a string")
     normalized = dict(features)
     normalized["crowding_bias"] = _strict_present_derivatives_string(
         features,

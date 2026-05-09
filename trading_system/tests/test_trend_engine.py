@@ -429,6 +429,22 @@ def test_generate_trend_candidates_attach_derivatives_meta(load_fixture):
     assert candidate.timeframe_meta["derivatives"]["crowding_bias"] == "balanced"
 
 
+def test_generate_trend_candidates_rejects_non_string_derivatives_feature_key(monkeypatch):
+    monkeypatch.setattr(
+        trend_engine,
+        "symbol_derivatives_features",
+        lambda _derivatives, _symbol: {123: "bad", "crowding_bias": "balanced"},
+    )
+
+    with pytest.raises(ValueError, match=r"BTCUSDT\.derivatives key must be a string"):
+        generate_trend_candidates(
+            _modest_positive_trend_market(),
+            derivatives={"rows": []},
+            include_high_liquidity_strong_names=False,
+            entry_profile=ACTIVE_PAPER_ENTRY_PROFILE,
+        )
+
+
 @pytest.mark.parametrize("bad_basis_bps", ["25", True, math.inf])
 def test_generate_trend_candidates_rejects_present_invalid_derivatives_basis_bps(monkeypatch, bad_basis_bps):
     monkeypatch.setattr(
