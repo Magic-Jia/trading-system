@@ -195,17 +195,21 @@ def build_tests(*, suites: list[str], changed: list[str], explicit_tests: list[s
     return unique(tests), full
 
 
-def build_commands(*, suites: list[str], changed: list[str], explicit_tests: list[str] | None = None) -> list[str]:
+def build_command_argv(*, suites: list[str], changed: list[str], explicit_tests: list[str] | None = None) -> list[list[str]]:
     tests, full = build_tests(suites=suites, changed=changed, explicit_tests=explicit_tests)
-    commands: list[str] = []
+    commands: list[list[str]] = []
     if full:
-        commands.append(TEST)
+        commands.append(["python3", "-m", "pytest", "-q"])
     elif tests:
-        commands.append(f"{TEST} {' '.join(tests)}")
+        commands.append(["python3", "-m", "pytest", "-q", *tests])
     else:
-        commands.append(f"{TEST} trading_system/tests/test_development_workflow.py")
-    commands.append(DIFF_CHECK)
+        commands.append(["python3", "-m", "pytest", "-q", "trading_system/tests/test_development_workflow.py"])
+    commands.append(["git", "diff", "--check", "HEAD"])
     return commands
+
+
+def build_commands(*, suites: list[str], changed: list[str], explicit_tests: list[str] | None = None) -> list[str]:
+    return [" ".join(argv) for argv in build_command_argv(suites=suites, changed=changed, explicit_tests=explicit_tests)]
 
 
 def validate_test_paths(commands: list[str]) -> None:
@@ -293,6 +297,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"no impacted verification tests for changed files: {', '.join(unmapped)}", file=sys.stderr)
             return 2
         commands = build_commands(suites=suites, changed=changed, explicit_tests=args.test)
+        command_argv = build_command_argv(suites=suites, changed=changed, explicit_tests=args.test)
         validate_test_paths(commands)
     except ValueError as exc:
         print(str(exc), file=sys.stderr)
@@ -311,6 +316,7 @@ def main(argv: list[str] | None = None) -> int:
                 "full_checkpoint_reason": full_checkpoint_reason,
                 "tests": tests,
                 "commands": commands,
+                "command_argv": command_argv,
             }
             print(json.dumps(payload, indent=2, sort_keys=True))
         else:

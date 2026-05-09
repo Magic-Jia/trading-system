@@ -25,6 +25,7 @@ WORKER_AUDIT_JSON_KEYS = {
 }
 WORKER_AUDIT_VERIFICATION_PLAN_JSON_KEYS = {
     "changed",
+    "command_argv",
     "commands",
     "explicit_tests",
     "full",
@@ -82,6 +83,7 @@ def test_audit_worker_commit_outputs_json_for_head() -> None:
     assert payload["verification_plan"]["plan_kind"] == "verification_plan"
     assert payload["verification_plan"]["strict_changed_verification"] is True
     assert payload["verification_plan"]["commands"][-1] == "git diff --check HEAD"
+    assert payload["verification_plan"]["command_argv"][-1] == ["git", "diff", "--check", "HEAD"]
 
 
 def test_audit_worker_commit_rejects_dev_status_file() -> None:
