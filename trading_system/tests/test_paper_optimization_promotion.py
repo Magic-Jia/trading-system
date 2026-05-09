@@ -436,3 +436,9 @@ def test_materialize_env_overrides_rejects_non_string_baseline_env_values() -> N
             {"recommendations": []},
             baseline_env={"TRADING_MAX_TOTAL_RISK_PCT": 0.03},
         )
+
+def test_build_promotion_decision_rejects_non_object_recommendations_payload() -> None:
+    import pytest
+
+    with pytest.raises(ValueError, match="recommendations payload must be an object"):
+        build_promotion_decision(recommendations_payload=[("recommendations", [])])

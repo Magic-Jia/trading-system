@@ -102,6 +102,8 @@ def materialize_env_overrides(
     *,
     baseline_env: Mapping[str, str] | None = None,
 ) -> dict[str, str]:
+    if not isinstance(recommendations_payload, Mapping):
+        raise ValueError("recommendations payload must be an object")
     baseline_snapshot: dict[str, str] = {}
     if baseline_env is not None:
         if not isinstance(baseline_env, Mapping):
@@ -174,6 +176,8 @@ def build_promotion_decision(
     compare_backtest_bundles_fn: CompareBacktestBundlesFn = compare_backtest_bundles,
     recorded_at_bj: str | None = None,
 ) -> dict[str, Any]:
+    if not isinstance(recommendations_payload, Mapping):
+        raise ValueError("recommendations payload must be an object")
     recommendations = recommendations_payload.get("recommendations", [])
     if not isinstance(recommendations, list):
         raise ValueError("recommendations must be a list")
