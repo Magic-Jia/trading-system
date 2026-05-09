@@ -1265,6 +1265,38 @@ def test_public_strategy_factor_report_rejects_invalid_summary_counts(field: str
         )
 
 
+def test_public_strategy_factor_report_rejects_invalid_effectiveness_sample_counts() -> None:
+    with pytest.raises(ValueError, match="effectiveness.sample_count must be a non-negative integer"):
+        reporting.render_public_strategy_factor_report(
+            experiment_name="public_strategy_factors",
+            experiment={
+                "summary": {
+                    "supported_factor_count": 1,
+                    "unsupported_factor_count": 0,
+                    "data_gap_count": 0,
+                    "evaluated_factor_count": 1,
+                    "effective_factor_count": 1,
+                },
+                "factors": [
+                    {
+                        "source_strategy_family": "momentum",
+                        "factor_name": "momentum_3d",
+                        "supported": True,
+                        "effectiveness": {
+                            "effectiveness_status": "promising_research",
+                            "sample_count": True,
+                            "minimum_sample_count": 1,
+                            "information_coefficient": 0.3,
+                            "top_minus_bottom_forward_return": 0.02,
+                            "top_bucket_hit_rate": 0.6,
+                        },
+                    }
+                ],
+            },
+            metadata={"snapshot_count": 1},
+        )
+
+
 def test_public_strategy_factor_report_surfaces_effectiveness_counts() -> None:
     report = reporting.render_public_strategy_factor_report(
         experiment_name="public_strategy_factors",

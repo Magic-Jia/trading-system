@@ -332,7 +332,9 @@ def _list_field(payload: Mapping[str, Any], field: str, *, default: list[Any] | 
 _ALLOWED_DECISIONS = {"keep_researching", "candidate_for_promotion", "reject"}
 
 
-def _non_negative_int_field(payload: Mapping[str, Any], field: str, *, label: str, default: int = 0) -> int:
+def _non_negative_int_field(
+    payload: Mapping[str, Any], field: str, *, label: str = "summary", default: int = 0
+) -> int:
     if field not in payload:
         return default
     raw_value = payload[field]
@@ -379,7 +381,9 @@ def _public_strategy_factor_minimum_sample_count(
             raw_value = effectiveness.get("minimum_sample_count")
             if raw_value is not None:
                 break
-    return int(raw_value or 0)
+    if raw_value is None:
+        return 0
+    return _non_negative_int_field({"minimum_sample_count": raw_value}, "minimum_sample_count", label="effectiveness")
 
 
 def _public_strategy_factor_sample_count(
@@ -394,7 +398,11 @@ def _public_strategy_factor_sample_count(
             continue
         sample_count = effectiveness.get("sample_count")
         if sample_count is not None:
-            evaluated_sample_counts.append(int(sample_count))
+            evaluated_sample_counts.append(
+                _non_negative_int_field(
+                    {"sample_count": sample_count}, "sample_count", label="effectiveness"
+                )
+            )
     if evaluated_sample_counts:
         return min(evaluated_sample_counts)
     return int(metadata.get("snapshot_count", 0))
@@ -407,8 +415,8 @@ def _public_strategy_factor_directionally_supported(factor: Mapping[str, Any]) -
     if effectiveness.get("effectiveness_status") != "promising_research":
         return False
 
-    sample_count = int(effectiveness.get("sample_count", 0) or 0)
-    minimum_sample_count = int(effectiveness.get("minimum_sample_count", 0) or 0)
+    sample_count = _non_negative_int_field(effectiveness, "sample_count")
+    minimum_sample_count = _non_negative_int_field(effectiveness, "minimum_sample_count")
     if minimum_sample_count > 0 and sample_count < minimum_sample_count:
         return False
 
@@ -432,7 +440,9 @@ def _flatten_public_strategy_factor(factor: Mapping[str, Any]) -> dict[str, Any]
 
     effectiveness_payload = dict(effectiveness)
     if "sample_count" in effectiveness_payload:
-        flattened["sample_count"] = int(effectiveness_payload["sample_count"])
+        effectiveness_payload["sample_count"] = _non_negative_int_field(
+            effectiveness_payload, "sample_count", label="effectiveness"
+        )
     for key in (
         "minimum_sample_count",
         "information_coefficient",
