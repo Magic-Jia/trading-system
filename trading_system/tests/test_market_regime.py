@@ -199,6 +199,33 @@ def test_compute_breadth_metrics_rejects_string_4h_close():
         compute_breadth_metrics(market)
 
 
+def test_compute_breadth_metrics_preserves_legacy_missing_4h_as_neutral():
+    market = [
+        {
+            "symbol": "BTCUSDT",
+            "daily": {
+                "close": 101.0,
+                "ema_20": 100.0,
+                "ema_50": 99.0,
+                "return_pct_7d": 0.03,
+            },
+        }
+    ]
+
+    metrics = compute_breadth_metrics(market)
+
+    assert metrics["pct_above_4h_ema20"] == 0.0
+    assert metrics["pct_4h_ema20_above_ema50"] == 0.0
+    assert metrics["positive_momentum_share"] == 0.0
+
+
+def test_compute_breadth_metrics_rejects_present_invalid_4h_timeframe():
+    market = [{"symbol": "BTCUSDT", "4h": []}]
+
+    with pytest.raises(ValueError, match="BTCUSDT.4h"):
+        compute_breadth_metrics(market)
+
+
 def test_summarize_derivatives_risk_detects_crowding(load_fixture):
     derivatives = load_fixture("derivatives_snapshot_v2.json")
 

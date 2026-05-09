@@ -21,16 +21,25 @@ def _ratio(part: int, total: int) -> float:
     return part / total
 
 
-def _strict_finite_float(row: dict[str, Any], field: str, *, symbol: str) -> float:
+def _strict_finite_float(row: dict[str, Any], field: str, *, symbol: str, timeframe: str) -> float:
     if field not in row:
-        raise ValueError(f"missing required market breadth field: {symbol}.4h.{field}")
+        raise ValueError(f"missing required market breadth field: {symbol}.{timeframe}.{field}")
     value = row[field]
     if isinstance(value, bool) or not isinstance(value, Real):
-        raise ValueError(f"market breadth field must be a finite number: {symbol}.4h.{field}")
+        raise ValueError(f"market breadth field must be a finite number: {symbol}.{timeframe}.{field}")
     number = float(value)
     if not math.isfinite(number):
-        raise ValueError(f"market breadth field must be finite: {symbol}.4h.{field}")
+        raise ValueError(f"market breadth field must be finite: {symbol}.{timeframe}.{field}")
     return number
+
+
+def _breadth_timeframe(row: dict[str, Any], *, symbol: str) -> tuple[str, dict[str, Any], str] | None:
+    if "4h" not in row:
+        return None
+    tf_4h = row["4h"]
+    if not isinstance(tf_4h, dict):
+        raise ValueError(f"market breadth timeframe must be an object: {symbol}.4h")
+    return "4h", tf_4h, "return_pct_3d"
 
 
 def compute_breadth_metrics(market: dict[str, Any] | list[dict[str, Any]]) -> dict[str, float]:
@@ -45,13 +54,14 @@ def compute_breadth_metrics(market: dict[str, Any] | list[dict[str, Any]]) -> di
         symbol = row.get("symbol")
         if not isinstance(symbol, str) or not symbol:
             raise ValueError("market breadth row symbol must be a non-empty string")
-        tf_4h = row.get("4h")
-        if not isinstance(tf_4h, dict):
-            raise ValueError(f"market breadth timeframe must be an object: {symbol}.4h")
-        close = _strict_finite_float(tf_4h, "close", symbol=symbol)
-        ema20 = _strict_finite_float(tf_4h, "ema_20", symbol=symbol)
-        ema50 = _strict_finite_float(tf_4h, "ema_50", symbol=symbol)
-        momentum = _strict_finite_float(tf_4h, "return_pct_3d", symbol=symbol)
+        timeframe_data = _breadth_timeframe(row, symbol=symbol)
+        if timeframe_data is None:
+            continue
+        timeframe, timeframe_payload, momentum_field = timeframe_data
+        close = _strict_finite_float(timeframe_payload, "close", symbol=symbol, timeframe=timeframe)
+        ema20 = _strict_finite_float(timeframe_payload, "ema_20", symbol=symbol, timeframe=timeframe)
+        ema50 = _strict_finite_float(timeframe_payload, "ema_50", symbol=symbol, timeframe=timeframe)
+        momentum = _strict_finite_float(timeframe_payload, momentum_field, symbol=symbol, timeframe=timeframe)
 
         if close > ema20:
             above_4h_ema20 += 1
