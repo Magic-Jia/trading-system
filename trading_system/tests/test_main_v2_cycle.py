@@ -3699,6 +3699,32 @@ def test_candidate_signal_rejects_present_non_mapping_candidate_meta() -> None:
         main_module._candidate_signal(allocation, _near_stop_rotation_market(), regime={"label": "MIXED"})
 
 
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("timeframe_meta", [("entry_tf", "4h")]),
+        ("liquidity_meta", "high_liquidity"),
+    ],
+)
+def test_candidate_signal_rejects_present_non_mapping_object_candidate_metadata(field: str, value: object) -> None:
+    class ObjectCandidate:
+        engine = "trend"
+        setup_type = "BREAKOUT_CONTINUATION"
+        symbol = "BNBUSDT"
+        side = "LONG"
+        score = 0.78
+        stop_loss = 0.0
+        invalidation_source = ""
+        sector = "exchange"
+        timeframe_meta = {"entry_tf": "4h"}
+        liquidity_meta = {"volume_usdt_24h": 1_000_000_000.0}
+
+    setattr(ObjectCandidate, field, value)
+
+    with pytest.raises(ValueError, match=field):
+        main_module._candidate_signal(ObjectCandidate(), _near_stop_rotation_market(), regime={"label": "MIXED"})
+
+
 def test_main_v2_active_paper_first_rotation_probe_uses_valid_stop_and_tiny_execution_budget():
     account = AccountSnapshot(equity=1000.0, available_balance=1000.0, futures_wallet_balance=1000.0)
     allocation = _active_paper_first_rotation_probe_allocation()

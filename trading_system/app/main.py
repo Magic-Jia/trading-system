@@ -291,10 +291,14 @@ def _market_payload(market_rows: list[dict[str, Any]]) -> dict[str, Any]:
 
 def _candidate_row(candidate: Any) -> dict[str, Any]:
     if isinstance(candidate, Mapping):
-        return dict(candidate)
+        row = dict(candidate)
+        _validate_candidate_metadata(row)
+        return row
     if is_dataclass(candidate):
-        return asdict(candidate)
-    return {
+        row = asdict(candidate)
+        _validate_candidate_metadata(row)
+        return row
+    row = {
         "engine": str(getattr(candidate, "engine", "")),
         "setup_type": str(getattr(candidate, "setup_type", "")),
         "symbol": str(getattr(candidate, "symbol", "")),
@@ -303,9 +307,20 @@ def _candidate_row(candidate: Any) -> dict[str, Any]:
         "stop_loss": _float({"stop_loss": getattr(candidate, "stop_loss", 0.0)}, "stop_loss"),
         "invalidation_source": str(getattr(candidate, "invalidation_source", "") or ""),
         "sector": getattr(candidate, "sector", None),
-        "timeframe_meta": dict(getattr(candidate, "timeframe_meta", {}) or {}),
-        "liquidity_meta": dict(getattr(candidate, "liquidity_meta", {}) or {}),
     }
+    for field in ("meta", "timeframe_meta", "liquidity_meta"):
+        if hasattr(candidate, field):
+            row[field] = getattr(candidate, field)
+    _validate_candidate_metadata(row)
+    return row
+
+
+def _validate_candidate_metadata(row: dict[str, Any]) -> None:
+    for field in ("meta", "timeframe_meta", "liquidity_meta"):
+        if field in row and row[field] is not None and not isinstance(row[field], Mapping):
+            raise ValueError(f"candidate.{field} must be a mapping when present")
+        if isinstance(row.get(field), Mapping):
+            row[field] = dict(row[field])
 
 
 def _candidate_sort_key(row: Mapping[str, Any]) -> tuple[float, str, str]:
