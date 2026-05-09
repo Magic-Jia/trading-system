@@ -123,3 +123,6 @@ def test_workflow_docs_and_codex_template_reference_worker_audit() -> None:
     assert "worktree_dirty" in doc
     assert "worktree_dirty_paths" in doc
     assert "no impacted verification tests" in doc
+    assert "changed file must be non-empty" in doc
+    assert "duplicate changed file" in doc
+    assert "verification_plan.command_argv" in doc
