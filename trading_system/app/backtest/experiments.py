@@ -1098,15 +1098,25 @@ def _rotation_candidates_with_trace(
     }
 
 
-def _trend_eligibility_reasons(payload: Mapping[str, Any], regime: Mapping[str, Any] | None = None) -> tuple[str, ...]:
+def _trend_eligibility_reasons(
+    payload: Mapping[str, Any],
+    regime: Mapping[str, Any] | None = None,
+    liquidity_tier: str | None = None,
+) -> tuple[str, ...]:
     reasons: list[str] = []
-    tier = str(payload.get("liquidity_tier", "")).lower()
+    if liquidity_tier is None:
+        _, liquidity_tier = trend_signals._payload_categories("trend_payload", payload)
+    tier = liquidity_tier.lower()
     daily = trend_signals._tf_row(payload, "daily")
     h4 = trend_signals._tf_row(payload, "4h")
     h1 = trend_signals._tf_row(payload, "1h")
     if tier not in trend_signals._HIGH_LIQUIDITY_TIERS:
         reasons.append("eligibility_liquidity_tier_filtered")
-    if not trend_signals._is_uptrend(daily, h4, h1) and not trend_signals._is_supportive_non_major_soft_pretrend(payload, regime):
+    if not trend_signals._is_uptrend(daily, h4, h1) and not trend_signals._is_supportive_non_major_soft_pretrend(
+        payload,
+        regime,
+        liquidity_tier,
+    ):
         reasons.append("eligibility_pretrend_filtered")
     if trend_signals._to_float(daily.get("return_pct_7d")) <= 0.0:
         reasons.append("eligibility_daily_return_filtered")
@@ -1183,19 +1193,19 @@ def _trend_candidates_with_trace(
             continue
 
         payload = payload_value
-        sector = str(payload.get("sector", ""))
+        sector, liquidity_tier = trend_signals._payload_categories(symbol_name, payload)
         is_major = sector == trend_signals._MAJOR_SECTOR
         if majors_only and not is_major:
             continue
 
         input_universe += 1
         soft_non_major_pretrend = (
-            not is_major and trend_signals._is_supportive_non_major_soft_pretrend(payload, regime)
+            not is_major and trend_signals._is_supportive_non_major_soft_pretrend(payload, regime, liquidity_tier)
         )
-        if not is_major and not trend_signals._is_high_liquidity_strong_name(payload) and not soft_non_major_pretrend:
+        if not is_major and not trend_signals._is_high_liquidity_strong_name(payload, liquidity_tier) and not soft_non_major_pretrend:
             filter_counts["eligibility_filtered"] += 1
             _bump_symbol_filter(symbol_rows, symbol_name, "eligibility_filtered")
-            for reason in _trend_eligibility_reasons(payload, regime):
+            for reason in _trend_eligibility_reasons(payload, regime, liquidity_tier):
                 filter_counts[reason] += 1
                 _bump_symbol_filter(symbol_rows, symbol_name, reason)
             continue
