@@ -326,7 +326,11 @@ def main(argv: list[str] | None = None) -> int:
         else:
             print("\n".join(commands))
         return 0
-    return run_commands(commands)
+    return run_commands(commands, command_argv)
+
+
+def run_commands(commands: list[str], command_argv: list[list[str]]) -> int:
+    return run_command_argv(command_argv)
 
 
 if __name__ == "__main__":
