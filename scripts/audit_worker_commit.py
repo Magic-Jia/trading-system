@@ -32,6 +32,14 @@ def commit_changed_files(commit: str) -> list[str]:
     return git_lines(["git", "diff-tree", "--no-commit-id", "--name-only", "-r", resolved])
 
 
+def parse_status_path(line: str) -> list[str]:
+    raw_path = line[3:] if len(line) > 3 else ""
+    if " -> " in raw_path:
+        old_path, new_path = raw_path.split(" -> ", 1)
+        return [old_path, new_path]
+    return [raw_path] if raw_path else []
+
+
 def worktree_dirty_paths() -> list[str]:
     completed = subprocess.run(
         ["git", "status", "--short"],
@@ -44,8 +52,7 @@ def worktree_dirty_paths() -> list[str]:
         raise RuntimeError(completed.stderr.strip() or "git status failed")
     paths: list[str] = []
     for line in completed.stdout.splitlines():
-        if len(line) > 3:
-            paths.append(line[3:])
+        paths.extend(parse_status_path(line))
     return list(dict.fromkeys(paths))
 
 

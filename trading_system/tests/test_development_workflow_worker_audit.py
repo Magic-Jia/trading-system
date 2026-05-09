@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 import subprocess
 import sys
@@ -8,6 +9,15 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 AUDIT = ROOT / "scripts" / "audit_worker_commit.py"
+
+
+def load_audit_module():
+    spec = importlib.util.spec_from_file_location("audit_worker_commit", AUDIT)
+    assert spec is not None
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
 
 
 def run_audit(*args: str) -> subprocess.CompletedProcess[str]:
@@ -83,3 +93,12 @@ def test_audit_worker_commit_rejects_partially_unmapped_changed_files() -> None:
     assert result.returncode == 2
     assert "no impacted verification tests" in result.stderr
     assert "UNKNOWN_UNMAPPED_FILE.txt" in result.stderr
+
+
+def test_parse_status_path_expands_renames() -> None:
+    audit = load_audit_module()
+
+    assert audit.parse_status_path("R  old/name.py -> new/name.py") == [
+        "old/name.py",
+        "new/name.py",
+    ]
