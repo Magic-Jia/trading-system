@@ -287,6 +287,49 @@ def _short_term_trend_market() -> dict[str, object]:
     return market
 
 
+@pytest.mark.parametrize(
+    "timeframe,field,invalid_value",
+    [
+        ("30m", "close", "bad"),
+        ("30m", "close", True),
+        ("30m", "close", math.nan),
+        ("30m", "close", math.inf),
+        ("30m", "ema_20", "bad"),
+        ("30m", "ema_20", True),
+        ("30m", "ema_20", math.nan),
+        ("30m", "ema_20", math.inf),
+        ("15m", "ema_50", "bad"),
+        ("15m", "ema_50", True),
+        ("15m", "ema_50", math.nan),
+        ("15m", "ema_50", math.inf),
+    ],
+)
+def test_generate_trend_candidates_rejects_present_invalid_short_term_intraday_trigger_numeric(
+    timeframe,
+    field,
+    invalid_value,
+):
+    valid_candidates = generate_trend_candidates(
+        _short_term_trend_market(),
+        include_high_liquidity_strong_names=False,
+        entry_profile=SHORT_TERM_ENTRY_PROFILE,
+    )
+    assert [candidate.symbol for candidate in valid_candidates] == ["BTCUSDT"]
+
+    market = _short_term_trend_market()
+    market["symbols"]["BTCUSDT"][timeframe][field] = invalid_value
+
+    with pytest.raises(
+        ValueError,
+        match=rf"BTCUSDT\.{timeframe}\.{field} must be a finite non-bool number when present",
+    ):
+        generate_trend_candidates(
+            market,
+            include_high_liquidity_strong_names=False,
+            entry_profile=SHORT_TERM_ENTRY_PROFILE,
+        )
+
+
 @pytest.mark.parametrize("bad_close", ["bad", True, math.nan, math.inf])
 def test_generate_trend_candidates_rejects_present_invalid_short_term_primary_entry_reference(bad_close):
     market = _short_term_trend_market()

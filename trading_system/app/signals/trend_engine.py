@@ -71,6 +71,15 @@ def _strict_present_primary_close(row: Mapping[str, Any], field_path: str) -> fl
     return float(value)
 
 
+def _strict_present_numeric_or_zero(row: Mapping[str, Any], field: str, field_path: str) -> float:
+    if field not in row or row.get(field) is None:
+        return 0.0
+    value = row.get(field)
+    if not _is_finite_number(value):
+        raise ValueError(f"{field_path} must be a finite non-bool number when present")
+    return float(value)
+
+
 def _strict_present_derivatives_string(features: Mapping[str, Any], field: str, field_path: str, default: str) -> str:
     if field not in features:
         return default
@@ -206,7 +215,7 @@ def _uses_intraday_long_trigger(profile: EntryProfile) -> bool:
     return _is_short_term_profile(profile) or _is_scout_profile(profile) or _is_intraday_multi_profile(profile)
 
 
-def _short_term_long_trigger(payload: Mapping[str, Any], profile: EntryProfile) -> bool:
+def _short_term_long_trigger(symbol: str, payload: Mapping[str, Any], profile: EntryProfile) -> bool:
     if not _uses_intraday_long_trigger(profile):
         return True
     h4 = _tf_row(payload, "4h")
@@ -214,8 +223,12 @@ def _short_term_long_trigger(payload: Mapping[str, Any], profile: EntryProfile) 
     m30 = _tf_row(payload, "30m")
     m15 = _tf_row(payload, "15m")
     intraday_trigger = (
-        _to_float(m30.get("close")) >= _to_float(m30.get("ema_20")) >= _to_float(m30.get("ema_50"))
-        and _to_float(m15.get("close")) >= _to_float(m15.get("ema_20")) >= _to_float(m15.get("ema_50"))
+        _strict_present_numeric_or_zero(m30, "close", f"{symbol}.30m.close")
+        >= _strict_present_numeric_or_zero(m30, "ema_20", f"{symbol}.30m.ema_20")
+        >= _strict_present_numeric_or_zero(m30, "ema_50", f"{symbol}.30m.ema_50")
+        and _strict_present_numeric_or_zero(m15, "close", f"{symbol}.15m.close")
+        >= _strict_present_numeric_or_zero(m15, "ema_20", f"{symbol}.15m.ema_20")
+        >= _strict_present_numeric_or_zero(m15, "ema_50", f"{symbol}.15m.ema_50")
     )
     if _is_scout_profile(profile):
         return intraday_trigger
@@ -258,6 +271,7 @@ def _is_active_paper_major_shallow_h1_pullback(
 
 
 def _is_scout_major_intraday_recovery(
+    symbol: str,
     payload: Mapping[str, Any],
     profile: EntryProfile,
     sector: str,
@@ -276,7 +290,12 @@ def _is_scout_major_intraday_recovery(
     daily_constructive = _to_float(daily.get("close")) > _to_float(daily.get("ema_20")) > _to_float(daily.get("ema_50"))
     h4_reclaimed_ema20 = _to_float(h4.get("close")) >= _to_float(h4.get("ema_20")) > 0.0
     h1_reclaimed_ema20 = _to_float(h1.get("close")) >= _to_float(h1.get("ema_20")) > 0.0
-    return daily_constructive and h4_reclaimed_ema20 and h1_reclaimed_ema20 and _short_term_long_trigger(payload, profile)
+    return (
+        daily_constructive
+        and h4_reclaimed_ema20
+        and h1_reclaimed_ema20
+        and _short_term_long_trigger(symbol, payload, profile)
+    )
 
 
 def _is_high_liquidity_strong_name(payload: Mapping[str, Any], liquidity_tier: str) -> bool:
@@ -458,7 +477,7 @@ def generate_trend_candidates(
             sector,
             liquidity_tier,
         )
-        scout_intraday_recovery = _is_scout_major_intraday_recovery(payload, profile, sector, liquidity_tier)
+        scout_intraday_recovery = _is_scout_major_intraday_recovery(symbol_name, payload, profile, sector, liquidity_tier)
         if not is_major:
             soft_non_major_pretrend = _is_supportive_non_major_soft_pretrend(payload, regime, liquidity_tier)
             if not include_high_liquidity_strong_names and not soft_non_major_pretrend:
@@ -480,7 +499,7 @@ def generate_trend_candidates(
             and not scout_intraday_recovery
         ):
             continue
-        if not _short_term_long_trigger(payload, profile):
+        if not _short_term_long_trigger(symbol_name, payload, profile):
             continue
         if not _passes_absolute_strength_gate(payload, profile):
             continue
