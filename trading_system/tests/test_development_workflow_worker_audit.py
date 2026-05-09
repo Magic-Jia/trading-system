@@ -55,7 +55,16 @@ def test_audit_worker_commit_rejects_empty_input() -> None:
 
 
 def test_audit_worker_commit_rejects_changed_files_without_impacted_tests() -> None:
-    result = run_audit("--changed-file", "README.md")
+    result = run_audit("--changed-file", "UNKNOWN_UNMAPPED_FILE.txt")
 
     assert result.returncode == 2
     assert "no impacted verification tests" in result.stderr
+
+
+def test_audit_worker_commit_maps_readme_changes_to_workflow_meta() -> None:
+    result = run_audit("--changed-file", "README.md")
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert "trading_system/tests/test_development_workflow_docs.py" in payload["verification_plan"]["tests"]
+    assert "trading_system/tests/test_development_workflow.py" in payload["verification_plan"]["tests"]
