@@ -138,10 +138,19 @@ def _validation_metadata(
     runtime_env_overrides: Mapping[str, str],
     recorded_at_bj: str | None,
 ) -> dict[str, Any]:
+    if not isinstance(runtime_env_overrides, Mapping):
+        raise ValueError("runtime_env_overrides must be an object")
+    env_snapshot: dict[str, str] = {}
+    for key, value in runtime_env_overrides.items():
+        if not isinstance(key, str):
+            raise ValueError("runtime_env_overrides keys must be strings")
+        if not isinstance(value, str):
+            raise ValueError(f"runtime_env_overrides.{key} must be a string")
+        env_snapshot[key] = value
     return {
         "generated_by": "paper_optimization.validation",
         "recommendation_ids": recommendation_ids,
-        "runtime_env_overrides": dict(runtime_env_overrides),
+        "runtime_env_overrides": env_snapshot,
         "runtime_observability": {
             "runtime_fields": [
                 "optimization_summary",
