@@ -869,7 +869,40 @@ def _merge_symbol_breakdown(target: dict[str, dict[str, Any]], source: Mapping[s
 def _finalize_returns(value: Any, *, path: str) -> list[float]:
     if not isinstance(value, list):
         raise ValueError(f"{path} must be a list")
-    return [float(item) for item in value]
+    returns: list[float] = []
+    for index, item in enumerate(value):
+        try:
+            returns.append(float(item))
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"{path}[{index}] must be numeric") from exc
+    return returns
+
+
+def _finalize_engine_results(
+    aggregates: Mapping[str, Any],
+    engines: Mapping[str, Mapping[str, Any]],
+) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for engine_name, spec in engines.items():
+        engine_path = f"engines.{engine_name}"
+        aggregate = _telemetry_mapping(aggregates[engine_name], path=engine_path)
+        result[engine_name] = {
+            "funnel": _with_zero_defaults(
+                _telemetry_optional_mapping(aggregate, "funnel_counts", path=engine_path),
+                _FUNNEL_KEYS,
+            ),
+            "filter_counts": _with_zero_defaults(
+                _telemetry_optional_mapping(aggregate, "filter_counts", path=engine_path),
+                tuple(spec["filter_keys"]),
+            ),
+            "performance": _policy_summary(
+                _finalize_returns(
+                    aggregate.get("accepted_returns", []),
+                    path=f"{engine_path}.accepted_returns",
+                )
+            ),
+        }
+    return result
 
 
 def _finalize_symbol_breakdown(symbols: Mapping[str, Any], *, filter_keys: tuple[str, ...]) -> dict[str, dict[str, Any]]:
@@ -2022,14 +2055,7 @@ def run_long_gate_telemetry_experiment(
             }
         )
 
-    engine_results: dict[str, Any] = {}
-    for engine_name, spec in engines.items():
-        aggregate = aggregates[engine_name]
-        engine_results[engine_name] = {
-            "funnel": _with_zero_defaults(dict(aggregate["funnel_counts"]), _FUNNEL_KEYS),
-            "filter_counts": _with_zero_defaults(dict(aggregate["filter_counts"]), tuple(spec["filter_keys"])),
-            "performance": _policy_summary(list(aggregate["accepted_returns"])),
-        }
+    engine_results = _finalize_engine_results(aggregates, engines)
 
     symbol_breakdown = {
         engine_name: _finalize_symbol_breakdown(

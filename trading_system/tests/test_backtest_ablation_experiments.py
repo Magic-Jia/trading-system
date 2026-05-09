@@ -868,6 +868,62 @@ def test_long_gate_telemetry_finalizes_symbol_breakdown_output() -> None:
     assert result["BTCUSDT"]["filter_counts"] == {"selected": 1, "trend_filtered": 0}
 
 
+def test_long_gate_telemetry_finalizes_engine_results_output() -> None:
+    result = backtest_experiments._finalize_engine_results(
+        {
+            "trend_long": {
+                "funnel_counts": {"raw_candidates": 3},
+                "filter_counts": {"selected": 1},
+                "accepted_returns": [0.1, -0.02],
+            }
+        },
+        {
+            "trend_long": {"filter_keys": ("selected", "trend_filtered")},
+        },
+    )
+
+    assert result["trend_long"]["funnel"]["raw_candidates"] == 3
+    assert result["trend_long"]["funnel"]["accepted_allocations"] == 0
+    assert result["trend_long"]["filter_counts"] == {"selected": 1, "trend_filtered": 0}
+    assert result["trend_long"]["performance"]["trade_count"] == 2
+
+
+@pytest.mark.parametrize(
+    ("engine_payload", "match"),
+    [
+        (
+            {"funnel_counts": [("raw_candidates", 1)], "filter_counts": {}, "accepted_returns": []},
+            r"^engines\.trend_long\.funnel_counts must be an object$",
+        ),
+        (
+            {"funnel_counts": {}, "filter_counts": [("selected", 1)], "accepted_returns": []},
+            r"^engines\.trend_long\.filter_counts must be an object$",
+        ),
+        (
+            {"funnel_counts": {}, "filter_counts": {}, "accepted_returns": "0.1"},
+            r"^engines\.trend_long\.accepted_returns must be a list$",
+        ),
+        (
+            {"funnel_counts": {}, "filter_counts": {}, "accepted_returns": ["not-a-number"]},
+            r"^engines\.trend_long\.accepted_returns\[0\] must be numeric$",
+        ),
+    ],
+)
+def test_long_gate_telemetry_rejects_invalid_final_engine_results_aggregates(
+    engine_payload: object,
+    match: str,
+) -> None:
+    with pytest.raises(ValueError, match=match):
+        backtest_experiments._finalize_engine_results(
+            {
+                "trend_long": engine_payload,
+            },
+            {
+                "trend_long": {"filter_keys": ("selected",)},
+            },
+        )
+
+
 @pytest.mark.parametrize("snapshot_count", [True, "1", 1.5])
 def test_long_gate_telemetry_rejects_invalid_final_symbol_breakdown_snapshot_count(
     snapshot_count: object,
