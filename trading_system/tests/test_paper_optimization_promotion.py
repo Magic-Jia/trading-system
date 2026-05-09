@@ -396,3 +396,12 @@ def test_build_promotion_decision_rejects_non_list_recommendations() -> None:
             recommendations_payload={"recommendations": "not-a-list"},
             recorded_at_bj="2026-04-24T12:05:00+08:00",
         )
+
+def test_build_promotion_decision_rejects_non_string_recorded_at() -> None:
+    import pytest
+
+    with pytest.raises(ValueError, match="recorded_at_bj must be a string"):
+        build_promotion_decision(
+            recommendations_payload={"recommendations": []},
+            recorded_at_bj=123,
+        )
