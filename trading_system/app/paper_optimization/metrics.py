@@ -30,11 +30,15 @@ def _jsonl(path: Path) -> list[dict[str, Any]]:
 
 
 
-def _float_or_zero(value: Any) -> float:
+def _float_or_zero(value: Any, *, field_name: str) -> float:
+    if value is None:
+        return 0.0
+    if isinstance(value, bool):
+        raise ValueError(f"{field_name} must be numeric")
     try:
         return float(value)
-    except (TypeError, ValueError):
-        return 0.0
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{field_name} must be numeric") from exc
 
 
 def _optional_str(value: Any, *, field_name: str) -> str | None:
@@ -55,13 +59,13 @@ def _runtime_position_rows(runtime_positions: dict[str, Any] | None) -> dict[str
         if not isinstance(raw, dict):
             raise ValueError("runtime position rows must be objects")
         status = (_optional_str(raw.get("status"), field_name="runtime_position.status") or "").upper()
-        qty = _float_or_zero(raw.get("qty"))
+        qty = _float_or_zero(raw.get("qty"), field_name="runtime_position.qty")
         if status in {"OPEN", "PENDING"} and qty > 0:
             normalized = (_optional_str(raw.get("symbol"), field_name="runtime_position.symbol") or symbol).upper()
             out[normalized] = {
                 "status": status,
                 "qty": qty,
-                "unrealized_pnl": round(_float_or_zero(raw.get("unrealized_pnl")), 4),
+                "unrealized_pnl": round(_float_or_zero(raw.get("unrealized_pnl"), field_name="runtime_position.unrealized_pnl"), 4),
             }
     return out
 
@@ -109,7 +113,7 @@ def _group_breakdown(rows: list[dict[str, Any]], key: str) -> dict[str, dict[str
             bucket["open_count"] += 1
         if row.get("outcome_status") == "POSITION_NOT_TRACKED":
             bucket["position_not_tracked_count"] += 1
-        bucket["unrealized_pnl_total"] = round(bucket["unrealized_pnl_total"] + _float_or_zero(row.get("unrealized_pnl")), 10)
+        bucket["unrealized_pnl_total"] = round(bucket["unrealized_pnl_total"] + _float_or_zero(row.get("unrealized_pnl"), field_name="trade_outcome.unrealized_pnl"), 10)
     for bucket in grouped.values():
         bucket["unrealized_pnl_total"] = round(float(bucket["unrealized_pnl_total"]), 4)
     return grouped
@@ -135,13 +139,13 @@ def write_daily_metrics_and_health_report(
     open_count = sum(1 for row in rows if row.get("outcome_status") == "OPEN")
     not_executed_count = sum(1 for row in rows if row.get("outcome_status") == "NOT_EXECUTED")
     position_not_tracked_count = sum(1 for row in rows if row.get("outcome_status") == "POSITION_NOT_TRACKED")
-    unrealized_pnl_total = round(sum(_float_or_zero(row.get("unrealized_pnl")) for row in rows), 4)
+    unrealized_pnl_total = round(sum(_float_or_zero(row.get("unrealized_pnl"), field_name="trade_outcome.unrealized_pnl") for row in rows), 4)
     current_positions = _runtime_position_rows(runtime_positions)
     scope = "current_runtime_latest_by_symbol"
     if current_positions:
         scope = "current_runtime_positions"
         open_count = len(current_positions)
-        unrealized_pnl_total = round(sum(_float_or_zero(row.get("unrealized_pnl")) for row in current_positions.values()), 4)
+        unrealized_pnl_total = round(sum(_float_or_zero(row.get("unrealized_pnl"), field_name="trade_outcome.unrealized_pnl") for row in current_positions.values()), 4)
         position_not_tracked_count = 0
     recorded_at = _recorded_at_bj(recorded_at_bj)
 
