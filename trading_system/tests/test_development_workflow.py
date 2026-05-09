@@ -99,7 +99,8 @@ def test_verify_auto_detects_git_changed_paths() -> None:
     result = run_verify("--dry-run", "--auto-changed")
 
     assert result.returncode == 0, result.stderr
-    assert "trading_system/tests/test_development_workflow.py" in result.stdout
+    assert "python3 -m pytest -q" in result.stdout
+    assert "git diff --check HEAD" in result.stdout
 
 
 def test_verify_maps_docs_and_templates_to_workflow_doc_tests() -> None:
