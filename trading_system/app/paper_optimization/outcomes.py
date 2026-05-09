@@ -84,6 +84,8 @@ def _position_indexes(runtime_positions: Mapping[str, Mapping[str, Any]]) -> tup
     by_intent_id: dict[str, dict[str, Any]] = {}
     by_symbol: dict[str, dict[str, Any]] = {}
     for symbol, raw in runtime_positions.items():
+        if not isinstance(raw, Mapping):
+            raise ValueError(f"runtime_positions.{symbol} must be an object")
         row = dict(raw)
         normalized_symbol = _str_value(row.get("symbol") or symbol).upper()
         if normalized_symbol:

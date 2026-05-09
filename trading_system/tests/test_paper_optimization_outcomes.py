@@ -315,3 +315,15 @@ def test_collect_trade_outcomes_rejects_non_object_signal_fact_rows(tmp_path: Pa
             signal_facts=["not-an-object"],
             paper_ledger_path=None,
         )
+
+def test_collect_trade_outcomes_rejects_non_object_runtime_positions(tmp_path: Path) -> None:
+    paths = build_runtime_paths("paper", runtime_root=tmp_path / "runtime", runtime_env="research")
+    module = _outcomes_module()
+
+    with pytest.raises(ValueError, match="runtime_positions.BTCUSDT must be an object"):
+        module.collect_trade_outcomes(
+            trade_outcomes_path=paths.trade_outcomes_file,
+            signal_facts=[],
+            runtime_positions={"BTCUSDT": "not-an-object"},
+            paper_ledger_path=None,
+        )
