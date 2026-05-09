@@ -124,3 +124,22 @@ def test_build_optimization_summary_falls_back_to_jsonl_counts_when_metrics_are_
         "promotion_status": None,
         "promotion_decision": None,
     }
+
+def test_build_optimization_summary_rejects_boolean_daily_metric_counts(tmp_path) -> None:
+    import pytest
+
+    daily_metrics_path = tmp_path / "daily_metrics.json"
+    daily_metrics_path.write_text(
+        json.dumps({"signal_fact_count": True, "trade_outcome_count": 1}),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="daily_metrics.signal_fact_count must be an integer"):
+        build_optimization_summary(
+            signal_facts_path=tmp_path / "signal_facts.jsonl",
+            trade_outcomes_path=tmp_path / "trade_outcomes.jsonl",
+            daily_metrics_path=daily_metrics_path,
+            health_report_path=tmp_path / "health_report.json",
+            recommendations_path=tmp_path / "recommendations.json",
+            promotion_decision_path=tmp_path / "promotion_decision.json",
+        )

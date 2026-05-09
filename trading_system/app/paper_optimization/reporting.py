@@ -25,6 +25,15 @@ def _count_jsonl(path: Path) -> int:
     return count
 
 
+def _optional_int(payload: dict[str, Any], field_name: str, *, default: int) -> int:
+    value = payload.get(field_name)
+    if value is None:
+        return default
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"daily_metrics.{field_name} must be an integer")
+    return value
+
+
 def build_optimization_summary(
     *,
     signal_facts_path: Path,
@@ -39,8 +48,16 @@ def build_optimization_summary(
     recommendations = _read_json(recommendations_path) if recommendations_path is not None and recommendations_path.exists() else {}
     promotion_decision = _read_json(promotion_decision_path) if promotion_decision_path is not None and promotion_decision_path.exists() else {}
 
-    signal_fact_count = int(daily_metrics.get("signal_fact_count") or _count_jsonl(signal_facts_path))
-    trade_outcome_count = int(daily_metrics.get("trade_outcome_count") or _count_jsonl(trade_outcomes_path))
+    signal_fact_count = _optional_int(
+        daily_metrics,
+        "signal_fact_count",
+        default=_count_jsonl(signal_facts_path),
+    )
+    trade_outcome_count = _optional_int(
+        daily_metrics,
+        "trade_outcome_count",
+        default=_count_jsonl(trade_outcomes_path),
+    )
     warning_count = len(health_report.get("warnings") or []) if isinstance(health_report.get("warnings"), list) else 0
     recommendation_count = len(recommendations.get("recommendations") or []) if isinstance(recommendations.get("recommendations"), list) else 0
     optimization_alerts = list(recommendations.get("alerts") or []) if isinstance(recommendations.get("alerts"), list) else []
