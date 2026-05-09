@@ -928,6 +928,69 @@ def test_long_gate_telemetry_finalizes_engine_results_output() -> None:
     assert result["trend_long"]["performance"]["trade_count"] == 2
 
 
+def test_long_gate_telemetry_defaults_missing_counters_and_preserves_valid_ints() -> None:
+    result = backtest_experiments._with_zero_defaults(
+        {"selected": 1},
+        ("selected", "trend_filtered"),
+        path="filter_counts",
+    )
+
+    assert result == {"selected": 1, "trend_filtered": 0}
+
+
+@pytest.mark.parametrize("invalid_counter", [True, "1", 1.0])
+def test_long_gate_telemetry_rejects_invalid_zero_default_counter(invalid_counter: object) -> None:
+    with pytest.raises(ValueError, match=r"^filter_counts\.score_filtered must be an integer counter$"):
+        backtest_experiments._with_zero_defaults(
+            {"score_filtered": invalid_counter},
+            ("score_filtered",),
+            path="filter_counts",
+        )
+
+
+@pytest.mark.parametrize("invalid_counter", [True, "1", 1.0])
+def test_long_gate_telemetry_rejects_invalid_merge_counter(invalid_counter: object) -> None:
+    target = {"raw_candidates": 1}
+
+    with pytest.raises(ValueError, match=r"^funnel\.raw_candidates must be an integer counter$"):
+        backtest_experiments._merge_counts(
+            target,
+            {"raw_candidates": invalid_counter},
+            path="funnel",
+        )
+
+
+@pytest.mark.parametrize("invalid_counter", [True, "1", 1.0])
+def test_long_gate_telemetry_rejects_invalid_existing_symbol_funnel_counter(invalid_counter: object) -> None:
+    symbol_rows = {
+        "BTCUSDT": {
+            "snapshot_count": 1,
+            "funnel": {"raw_candidates": invalid_counter},
+            "filter_counts": {},
+        }
+    }
+
+    with pytest.raises(ValueError, match=r"^symbol_rows\.BTCUSDT\.funnel\.raw_candidates must be an integer counter$"):
+        backtest_experiments._bump_symbol_funnel(symbol_rows, "BTCUSDT", "raw_candidates")
+
+
+@pytest.mark.parametrize("invalid_counter", [True, "1", 1.0])
+def test_long_gate_telemetry_rejects_invalid_existing_symbol_filter_counter(invalid_counter: object) -> None:
+    symbol_rows = {
+        "BTCUSDT": {
+            "snapshot_count": 1,
+            "funnel": {},
+            "filter_counts": {"score_filtered": invalid_counter},
+        }
+    }
+
+    with pytest.raises(
+        ValueError,
+        match=r"^symbol_rows\.BTCUSDT\.filter_counts\.score_filtered must be an integer counter$",
+    ):
+        backtest_experiments._bump_symbol_filter(symbol_rows, "BTCUSDT", "score_filtered")
+
+
 def test_long_gate_telemetry_finalizes_valid_accepted_returns() -> None:
     assert backtest_experiments._finalize_returns(
         [0, 0.1, -0.02],

@@ -718,13 +718,21 @@ def _accepted_allocation_returns(
     return returns
 
 
-def _merge_counts(target: dict[str, int], source: Mapping[str, int]) -> None:
+def _telemetry_counter(value: Any, *, path: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"{path} must be an integer counter")
+    return value
+
+
+def _merge_counts(target: dict[str, int], source: Mapping[str, int], *, path: str) -> None:
     for key, value in source.items():
-        target[key] = target.get(key, 0) + int(value)
+        source_count = _telemetry_counter(value, path=f"{path}.{key}")
+        target_count = _telemetry_counter(target.get(key, 0), path=f"{path}.{key}")
+        target[key] = target_count + source_count
 
 
-def _with_zero_defaults(counts: Mapping[str, int], keys: tuple[str, ...]) -> dict[str, int]:
-    return {key: int(counts.get(key, 0)) for key in keys}
+def _with_zero_defaults(counts: Mapping[str, int], keys: tuple[str, ...], *, path: str) -> dict[str, int]:
+    return {key: _telemetry_counter(counts.get(key, 0), path=f"{path}.{key}") for key in keys}
 
 
 def _symbol_telemetry_row(symbol_rows: dict[str, dict[str, Any]], symbol: str) -> dict[str, Any]:
@@ -738,13 +746,15 @@ def _symbol_telemetry_row(symbol_rows: dict[str, dict[str, Any]], symbol: str) -
 def _bump_symbol_filter(symbol_rows: dict[str, dict[str, Any]], symbol: str, key: str) -> None:
     telemetry = _symbol_telemetry_row(symbol_rows, symbol)
     filter_counts = telemetry["filter_counts"]
-    filter_counts[key] = int(filter_counts.get(key, 0)) + 1
+    field_path = f"symbol_rows.{symbol}.filter_counts.{key}"
+    filter_counts[key] = _telemetry_counter(filter_counts.get(key, 0), path=field_path) + 1
 
 
 def _bump_symbol_funnel(symbol_rows: dict[str, dict[str, Any]], symbol: str, key: str) -> None:
     telemetry = _symbol_telemetry_row(symbol_rows, symbol)
     funnel = telemetry["funnel"]
-    funnel[key] = int(funnel.get(key, 0)) + 1
+    field_path = f"symbol_rows.{symbol}.funnel.{key}"
+    funnel[key] = _telemetry_counter(funnel.get(key, 0), path=field_path) + 1
 
 
 def _telemetry_symbol_row_key(symbol: Any, *, path: str = "symbol_rows") -> str:
@@ -853,7 +863,7 @@ def _pipeline_funnel_counts(pipeline: Mapping[str, Any]) -> dict[str, int]:
     for key in _FUNNEL_KEYS:
         if key in funnel:
             counts[key] = _telemetry_integer_counter(funnel[key], path=f"pipeline.funnel.{key}")
-    return _with_zero_defaults(counts, _FUNNEL_KEYS)
+    return _with_zero_defaults(counts, _FUNNEL_KEYS, path="pipeline.funnel")
 
 
 def _pipeline_row_mappings(pipeline: Mapping[str, Any], field: str) -> list[Mapping[str, Any]]:
@@ -888,10 +898,15 @@ def _merge_symbol_breakdown(target: dict[str, dict[str, Any]], source: Mapping[s
                 path=f"{row_path}.snapshot_count",
             )
         target_row["snapshot_count"] += snapshot_count
-        _merge_counts(target_row["funnel"], _telemetry_optional_mapping(row_payload, "funnel", path=row_path))
+        _merge_counts(
+            target_row["funnel"],
+            _telemetry_optional_mapping(row_payload, "funnel", path=row_path),
+            path=f"{row_path}.funnel",
+        )
         _merge_counts(
             target_row["filter_counts"],
             _telemetry_optional_mapping(row_payload, "filter_counts", path=row_path),
+            path=f"{row_path}.filter_counts",
         )
 
 
@@ -922,10 +937,12 @@ def _finalize_engine_results(
             "funnel": _with_zero_defaults(
                 _telemetry_optional_mapping(aggregate, "funnel_counts", path=engine_path),
                 _FUNNEL_KEYS,
+                path=f"{engine_path}.funnel_counts",
             ),
             "filter_counts": _with_zero_defaults(
                 _telemetry_optional_mapping(aggregate, "filter_counts", path=engine_path),
                 tuple(spec["filter_keys"]),
+                path=f"{engine_path}.filter_counts",
             ),
             "performance": _policy_summary(
                 _finalize_returns(
@@ -954,10 +971,12 @@ def _finalize_symbol_breakdown(symbols: Mapping[str, Any], *, filter_keys: tuple
             "funnel": _with_zero_defaults(
                 _telemetry_optional_mapping(row_payload, "funnel", path=row_path),
                 _SYMBOL_FUNNEL_KEYS,
+                path=f"{row_path}.funnel",
             ),
             "filter_counts": _with_zero_defaults(
                 _telemetry_optional_mapping(row_payload, "filter_counts", path=row_path),
                 filter_keys,
+                path=f"{row_path}.filter_counts",
             ),
         }
     return result
@@ -988,10 +1007,12 @@ def _finalize_regime_breakdown(
                 "funnel": _with_zero_defaults(
                     _telemetry_optional_mapping(engine_payload, "funnel_counts", path=engine_path),
                     _FUNNEL_KEYS,
+                    path=f"{engine_path}.funnel_counts",
                 ),
                 "filter_counts": _with_zero_defaults(
                     _telemetry_optional_mapping(engine_payload, "filter_counts", path=engine_path),
                     tuple(spec["filter_keys"]),
+                    path=f"{engine_path}.filter_counts",
                 ),
                 "performance": _policy_summary(
                     _finalize_returns(
@@ -2024,7 +2045,7 @@ def run_engine_filter_ablation_experiment(
             regime = traced.get("regime", regime)
             candidate_rows = _trace_candidate_rows(traced)
             input_universe = _trace_input_universe(traced)
-            _merge_counts(filter_counts, _traced_filter_counts(traced))
+            _merge_counts(filter_counts, _traced_filter_counts(traced), path="traced.filter_counts")
             selected_symbols.update(
                 symbol
                 for index, candidate in enumerate(candidate_rows)
@@ -2038,7 +2059,7 @@ def run_engine_filter_ablation_experiment(
                 candidates=candidate_rows,
                 evaluation_window=evaluation_window,
             )
-            _merge_counts(funnel_counts, pipeline["funnel"])
+            _merge_counts(funnel_counts, pipeline["funnel"], path="pipeline.funnel")
             accepted_returns.extend(pipeline["returns"])
             accepted_symbols.update(
                 symbol
@@ -2049,8 +2070,12 @@ def run_engine_filter_ablation_experiment(
             )
 
         results[variant_name] = {
-            "funnel": _with_zero_defaults(funnel_counts, _FUNNEL_KEYS),
-            "filter_counts": _with_zero_defaults(filter_counts, tuple(variant["filter_keys"])),
+            "funnel": _with_zero_defaults(funnel_counts, _FUNNEL_KEYS, path=f"variants.{variant_name}.funnel"),
+            "filter_counts": _with_zero_defaults(
+                filter_counts,
+                tuple(variant["filter_keys"]),
+                path=f"variants.{variant_name}.filter_counts",
+            ),
             "performance": _policy_summary(accepted_returns),
             "selected_symbols": sorted(selected_symbols),
             "accepted_symbols": sorted(accepted_symbols),
@@ -2124,13 +2149,21 @@ def run_long_gate_telemetry_experiment(
             )
             funnel = _pipeline_funnel_counts(pipeline)
             aggregate = aggregates[engine_name]
-            _merge_counts(aggregate["funnel_counts"], funnel)
-            _merge_counts(aggregate["filter_counts"], traced_filter_counts)
+            _merge_counts(aggregate["funnel_counts"], funnel, path=f"engines.{engine_name}.funnel_counts")
+            _merge_counts(aggregate["filter_counts"], traced_filter_counts, path=f"engines.{engine_name}.filter_counts")
             aggregate["accepted_returns"].extend(pipeline["returns"])
 
             regime_engine_bucket = regime_bucket["engines"][engine_name]
-            _merge_counts(regime_engine_bucket["funnel_counts"], funnel)
-            _merge_counts(regime_engine_bucket["filter_counts"], traced_filter_counts)
+            _merge_counts(
+                regime_engine_bucket["funnel_counts"],
+                funnel,
+                path=f"regime_breakdown.{regime_label}.engines.{engine_name}.funnel_counts",
+            )
+            _merge_counts(
+                regime_engine_bucket["filter_counts"],
+                traced_filter_counts,
+                path=f"regime_breakdown.{regime_label}.engines.{engine_name}.filter_counts",
+            )
             regime_engine_bucket["accepted_returns"].extend(pipeline["returns"])
 
             symbol_rows = _normalize_symbol_rows(traced.get("symbol_rows", {}))
@@ -2147,7 +2180,11 @@ def run_long_gate_telemetry_experiment(
                     _bump_symbol_funnel(symbol_rows, symbol, "accepted_allocations")
             _merge_symbol_breakdown(symbol_breakdown_aggregates[engine_name], symbol_rows)
 
-            filter_counts = _with_zero_defaults(traced_filter_counts, tuple(spec["filter_keys"]))
+            filter_counts = _with_zero_defaults(
+                traced_filter_counts,
+                tuple(spec["filter_keys"]),
+                path=f"snapshot.engines.{engine_name}.filter_counts",
+            )
             total_raw_candidates += int(funnel["raw_candidates"])
             total_accepted_allocations += int(funnel["accepted_allocations"])
             engine_rows[engine_name] = {
