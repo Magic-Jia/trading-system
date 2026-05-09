@@ -231,7 +231,10 @@ def main(argv: list[str] | None = None) -> int:
                 "plan_version": 1,
                 "inventory_kind": "suite_inventory",
                 "suites": {
-                    name: ("full pytest suite" if name == "full" else len(tests))
+                    name: {
+                        "count": "full pytest suite" if name == "full" else len(tests),
+                        "tests": tests,
+                    }
                     for name, tests in SUITES.items()
                 },
             }

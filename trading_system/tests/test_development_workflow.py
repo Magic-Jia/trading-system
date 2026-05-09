@@ -124,8 +124,9 @@ def test_verify_lists_available_suites_as_json() -> None:
     payload = json.loads(result.stdout)
     assert payload["plan_version"] == 1
     assert payload["inventory_kind"] == "suite_inventory"
-    assert payload["suites"]["workflow-meta"] == 4
-    assert payload["suites"]["full"] == "full pytest suite"
+    assert payload["suites"]["workflow-meta"]["count"] == 4
+    assert "trading_system/tests/test_development_workflow.py" in payload["suites"]["workflow-meta"]["tests"]
+    assert payload["suites"]["full"] == {"count": "full pytest suite", "tests": []}
 
 
 def test_verify_json_dry_run_emits_machine_readable_plan() -> None:
