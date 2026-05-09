@@ -659,6 +659,11 @@ def _walk_forward_window_rows(rows: list[Any]) -> list[dict[str, Any]]:
             if not isinstance(segment, Mapping):
                 raise ValueError(f"windows[{index}].{segment_name} must be an object")
             validated_segment = dict(segment)
+            if "run_ids" in validated_segment:
+                validated_segment["run_ids"] = _canonical_report_string_list(
+                    validated_segment["run_ids"],
+                    field_name=f"windows[{index}].{segment_name}.run_ids",
+                )
             scorecard = validated_segment.get("scorecard")
             if scorecard is None:
                 validated[segment_name] = validated_segment
