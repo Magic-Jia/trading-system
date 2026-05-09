@@ -7,7 +7,11 @@ from trading_system.app.data_sources.derivatives_loader import load_derivatives_
 from trading_system.app.data_sources.market_loader import load_market_context
 from trading_system.app.market_regime.breadth import compute_breadth_metrics
 from trading_system.app.market_regime.classifier import _classify_label, classify_regime
-from trading_system.app.market_regime.derivatives import summarize_derivatives_risk, symbol_derivatives_features
+from trading_system.app.market_regime.derivatives import (
+    is_late_stage_long_blowoff,
+    summarize_derivatives_risk,
+    symbol_derivatives_features,
+)
 
 
 def _high_vol_mixed_market_context() -> dict[str, object]:
@@ -279,6 +283,17 @@ def test_symbol_derivatives_features_rejects_string_funding_rate_for_matching_sy
 
     with pytest.raises(ValueError, match="funding_rate"):
         symbol_derivatives_features(derivatives, "BTCUSDT")
+
+
+@pytest.mark.parametrize("invalid_funding_rate", ["0.00024", True])
+def test_late_stage_long_blowoff_rejects_present_invalid_feature_numeric(invalid_funding_rate: object):
+    features = {
+        "funding_rate": invalid_funding_rate,
+        "basis_bps": 30.0,
+    }
+
+    with pytest.raises(ValueError, match="funding_rate"):
+        is_late_stage_long_blowoff(features)
 
 
 def test_symbol_derivatives_features_defaults_missing_optional_numeric_fields_for_matching_symbol():

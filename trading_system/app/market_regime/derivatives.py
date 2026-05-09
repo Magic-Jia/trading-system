@@ -65,6 +65,12 @@ def _optional_strict_number_field(row: Mapping[str, Any], field: str, *, default
     return _strict_number_field(row, field)
 
 
+def _late_stage_feature_number(features: Mapping[str, Any], field: str, *, default: float) -> float:
+    if field not in features:
+        return default
+    return _strict_number_field(features, field)
+
+
 def _classify_funding_heat(avg_funding: float) -> str:
     if avg_funding >= 0.0002:
         return "hot"
@@ -202,15 +208,28 @@ def is_late_stage_long_blowoff(
     h4_extension_pct: float = 0.0,
     h1_extension_pct: float = 0.0,
 ) -> bool:
+    funding_rate = _late_stage_feature_number(features, "funding_rate", default=0.0)
+    basis_bps = _late_stage_feature_number(features, "basis_bps", default=0.0)
+    open_interest_change_24h_pct = _late_stage_feature_number(
+        features,
+        "open_interest_change_24h_pct",
+        default=0.0,
+    )
+    mark_price_change_24h_pct = _late_stage_feature_number(
+        features,
+        "mark_price_change_24h_pct",
+        default=0.0,
+    )
+
     funding_basis_blowoff = (
-        float(features.get("funding_rate", 0.0) or 0.0) >= _LATE_STAGE_LONG_BLOWOFF_FUNDING_RATE
-        and float(features.get("basis_bps", 0.0) or 0.0) >= _LATE_STAGE_LONG_BLOWOFF_BASIS_BPS
+        funding_rate >= _LATE_STAGE_LONG_BLOWOFF_FUNDING_RATE
+        and basis_bps >= _LATE_STAGE_LONG_BLOWOFF_BASIS_BPS
     )
     price_oi_acceleration_blowoff = (
         h4_extension_pct >= _LATE_STAGE_LONG_ACCELERATION_H4_EXTENSION_PCT
         and h1_extension_pct >= _LATE_STAGE_LONG_ACCELERATION_H1_EXTENSION_PCT
-        and float(features.get("open_interest_change_24h_pct", 0.0) or 0.0) >= _LATE_STAGE_LONG_ACCELERATION_OI_CHANGE_PCT
-        and float(features.get("mark_price_change_24h_pct", 0.0) or 0.0) >= _LATE_STAGE_LONG_ACCELERATION_MARK_PRICE_CHANGE_PCT
+        and open_interest_change_24h_pct >= _LATE_STAGE_LONG_ACCELERATION_OI_CHANGE_PCT
+        and mark_price_change_24h_pct >= _LATE_STAGE_LONG_ACCELERATION_MARK_PRICE_CHANGE_PCT
     )
     return funding_basis_blowoff or price_oi_acceleration_blowoff
 
