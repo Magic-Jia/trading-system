@@ -77,6 +77,8 @@ def main(argv: list[str] | None = None) -> int:
         json.dumps(
             {
                 "status": "ok",
+                "audit_kind": "worker_commit_preflight",
+                "final_merge_proof": False,
                 "commit": commit,
                 "changed_files": changed_files,
                 "verification_plan": plan,
