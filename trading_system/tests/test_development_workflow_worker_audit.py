@@ -49,6 +49,7 @@ def test_audit_worker_commit_outputs_json_for_head() -> None:
     assert payload["worktree_dirty"] is True
     assert "memory/dev-status.md" in payload["worktree_dirty_paths"]
     assert payload["strict_changed_verification"] is True
+    assert payload["verification_plan"]["strict_changed_verification"] is True
     assert payload["verification_plan"]["commands"][-1] == "git diff --check HEAD"
 
 
