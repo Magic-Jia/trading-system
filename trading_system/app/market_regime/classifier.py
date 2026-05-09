@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+from numbers import Real
 from typing import Any
 
 from trading_system.app.config import normalize_engine_names
@@ -54,6 +56,20 @@ def _coerce_rows(market: dict[str, Any] | list[dict[str, Any]]) -> list[dict[str
     return []
 
 
+def _strict_present_finite_float(
+    row: dict[str, Any], field: str, *, symbol: str, timeframe: str
+) -> float | None:
+    if field not in row:
+        return None
+    value = row[field]
+    if isinstance(value, bool) or not isinstance(value, Real):
+        raise ValueError(f"market regime field must be a finite number: {symbol}.{timeframe}.{field}")
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError(f"market regime field must be finite: {symbol}.{timeframe}.{field}")
+    return number
+
+
 def _major_trend_strength(market_rows: list[dict[str, Any]]) -> float:
     majors = [row for row in market_rows if row.get("symbol") in MAJOR_SYMBOLS]
     if not majors:
@@ -61,11 +77,14 @@ def _major_trend_strength(market_rows: list[dict[str, Any]]) -> float:
 
     positives = 0
     for row in majors:
+        symbol = row["symbol"]
         daily = row.get("daily", {})
-        close = float(daily.get("close", 0.0))
-        ema20 = float(daily.get("ema_20", 0.0))
-        ema50 = float(daily.get("ema_50", 0.0))
-        if close > ema20 > ema50:
+        if not isinstance(daily, dict):
+            raise ValueError(f"market regime timeframe must be an object: {symbol}.daily")
+        close = _strict_present_finite_float(daily, "close", symbol=symbol, timeframe="daily")
+        ema20 = _strict_present_finite_float(daily, "ema_20", symbol=symbol, timeframe="daily")
+        ema50 = _strict_present_finite_float(daily, "ema_50", symbol=symbol, timeframe="daily")
+        if close is not None and ema20 is not None and ema50 is not None and close > ema20 > ema50:
             positives += 1
     return positives / len(majors)
 

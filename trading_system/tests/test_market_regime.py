@@ -318,6 +318,15 @@ def test_classify_regime_fixture_maps_to_risk_on_trend(load_fixture):
     assert regime.label == "RISK_ON_TREND"
 
 
+def test_classify_regime_rejects_string_major_daily_close(load_fixture):
+    market = load_fixture("market_context_v2.json")
+    derivatives = load_fixture("derivatives_snapshot_v2.json")
+    market["symbols"]["BTCUSDT"]["daily"]["close"] = "101.0"
+
+    with pytest.raises(ValueError, match="BTCUSDT.daily.close"):
+        classify_regime(market, derivatives)
+
+
 def test_low_confidence_regime_reduces_aggression(load_fixture):
     market = load_fixture("market_context_v2.json")
     derivatives = load_fixture("derivatives_snapshot_v2.json")
