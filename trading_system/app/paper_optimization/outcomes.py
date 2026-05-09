@@ -37,6 +37,14 @@ def _str_or_none(value: Any) -> str | None:
     return text if text else None
 
 
+def _optional_str(value: Any, *, field_name: str) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError(f"{field_name} must be a string")
+    return value if value else None
+
+
 def _str_value(value: Any) -> str:
     if value is None:
         return ""
@@ -138,7 +146,7 @@ def collect_trade_outcomes(
         result = _mapping(ledger_event.get("result"))
         position_update = _mapping(ledger_event.get("position_update"))
 
-        execution_status = _str_or_none(fact.get("execution_status"))
+        execution_status = _optional_str(fact.get("execution_status"), field_name="fact.execution_status")
         outcome_status = _outcome_status(execution_status, position)
         if outcome_status == "OPEN":
             open_count += 1
