@@ -59,6 +59,12 @@ def _strict_number_field(row: Mapping[str, Any], field: str) -> float:
     return number
 
 
+def _optional_strict_number_field(row: Mapping[str, Any], field: str, *, default: float) -> float:
+    if field not in row:
+        return default
+    return _strict_number_field(row, field)
+
+
 def _classify_funding_heat(avg_funding: float) -> str:
     if avg_funding >= 0.0002:
         return "hot"
@@ -162,11 +168,11 @@ def symbol_derivatives_features(
         taker_buy_sell_ratio = 1.0
         basis_bps = 0.0
     else:
-        funding_rate = _strict_number_field(row, "funding_rate")
-        open_interest_change_24h_pct = _strict_number_field(row, "open_interest_change_24h_pct")
-        mark_price_change_24h_pct = _strict_number_field(row, "mark_price_change_24h_pct")
-        taker_buy_sell_ratio = _strict_number_field(row, "taker_buy_sell_ratio")
-        basis_bps = _strict_number_field(row, "basis_bps")
+        funding_rate = _optional_strict_number_field(row, "funding_rate", default=0.0)
+        open_interest_change_24h_pct = _optional_strict_number_field(row, "open_interest_change_24h_pct", default=0.0)
+        mark_price_change_24h_pct = _optional_strict_number_field(row, "mark_price_change_24h_pct", default=0.0)
+        taker_buy_sell_ratio = _optional_strict_number_field(row, "taker_buy_sell_ratio", default=1.0)
+        basis_bps = _optional_strict_number_field(row, "basis_bps", default=0.0)
     crowding_score = _crowding_score(
         funding_rate=funding_rate,
         open_interest_change_24h_pct=open_interest_change_24h_pct,

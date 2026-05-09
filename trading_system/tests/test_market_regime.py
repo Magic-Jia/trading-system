@@ -281,6 +281,25 @@ def test_symbol_derivatives_features_rejects_string_funding_rate_for_matching_sy
         symbol_derivatives_features(derivatives, "BTCUSDT")
 
 
+def test_symbol_derivatives_features_defaults_missing_optional_numeric_fields_for_matching_symbol():
+    derivatives = {
+        "rows": [
+            {
+                "symbol": "BTCUSDT",
+                "funding_rate": 0.00012,
+            }
+        ],
+    }
+
+    features = symbol_derivatives_features(derivatives, "BTCUSDT")
+
+    assert features["funding_rate"] == 0.00012
+    assert features["open_interest_change_24h_pct"] == 0.0
+    assert features["mark_price_change_24h_pct"] == 0.0
+    assert features["taker_buy_sell_ratio"] == 1.0
+    assert features["basis_bps"] == 0.0
+
+
 def test_summarize_derivatives_risk_rejects_non_object_row():
     derivatives = _majors_derivatives_snapshot(
         funding_rate=0.00012,
