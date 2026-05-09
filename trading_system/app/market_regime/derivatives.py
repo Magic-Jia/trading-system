@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+import math
 from typing import Any
 
 MAJOR_SYMBOLS = {"BTCUSDT", "ETHUSDT"}
@@ -33,6 +34,16 @@ def _avg(values: list[float]) -> float:
     if not values:
         return 0.0
     return sum(values) / len(values)
+
+
+def _strict_number_field(row: Mapping[str, Any], field: str) -> float:
+    value = row[field]
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"invalid derivatives numeric field {field}")
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError(f"invalid derivatives numeric field {field}")
+    return number
 
 
 def _classify_funding_heat(avg_funding: float) -> str:
@@ -197,11 +208,11 @@ def summarize_derivatives_risk(derivatives: dict[str, Any] | list[dict[str, Any]
             "execution_hazard": "none",
         }
 
-    funding_values = [float(row["funding_rate"]) for row in rows]
-    oi_change_values = [float(row["open_interest_change_24h_pct"]) for row in rows]
-    price_change_values = [float(row["mark_price_change_24h_pct"]) for row in rows]
-    taker_values = [float(row["taker_buy_sell_ratio"]) for row in rows]
-    basis_values = [float(row["basis_bps"]) for row in rows]
+    funding_values = [_strict_number_field(row, "funding_rate") for row in rows]
+    oi_change_values = [_strict_number_field(row, "open_interest_change_24h_pct") for row in rows]
+    price_change_values = [_strict_number_field(row, "mark_price_change_24h_pct") for row in rows]
+    taker_values = [_strict_number_field(row, "taker_buy_sell_ratio") for row in rows]
+    basis_values = [_strict_number_field(row, "basis_bps") for row in rows]
 
     avg_funding = _avg(funding_values)
     avg_oi_change = _avg(oi_change_values)
