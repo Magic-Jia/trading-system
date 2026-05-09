@@ -103,6 +103,10 @@ def render_backtest_evaluation_report(
     walk_forward = dict(evaluation.get("walk_forward", {}))
     regimes = dict(evaluation.get("regimes", {}))
     cost_stress = dict(evaluation.get("cost_stress", {}))
+    raw_walk_forward_metadata = walk_forward.get("metadata", {})
+    if not isinstance(raw_walk_forward_metadata, Mapping):
+        raise ValueError("walk_forward.metadata must be an object")
+    walk_forward_metadata = dict(raw_walk_forward_metadata)
     stress_scenarios = []
     for index, scenario_payload in enumerate(_list_field(cost_stress, "scenarios", label="cost_stress.scenarios")):
         if not isinstance(scenario_payload, Mapping):
@@ -125,7 +129,7 @@ def render_backtest_evaluation_report(
             },
             "walk_forward_status": walk_forward.get("status"),
             "walk_forward_window_count": _non_negative_int_field(
-                dict(walk_forward.get("metadata", {})), "window_count", label="walk_forward.metadata"
+                walk_forward_metadata, "window_count", label="walk_forward.metadata"
             ),
             "regime_bucket_count": len(_list_field(regimes, "buckets", label="regimes.buckets")),
             "cost_stress_scenarios": stress_scenarios,

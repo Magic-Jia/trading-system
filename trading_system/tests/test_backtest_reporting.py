@@ -82,6 +82,19 @@ def test_backtest_evaluation_report_rejects_invalid_walk_forward_window_count() 
         )
 
 
+def test_backtest_evaluation_report_rejects_list_pair_walk_forward_metadata() -> None:
+    with pytest.raises(ValueError, match="walk_forward.metadata must be an object"):
+        reporting.render_backtest_evaluation_report(
+            experiment_name="evaluation",
+            evaluation={
+                "walk_forward": {"metadata": [("window_count", 1)]},
+                "regimes": {"buckets": []},
+                "cost_stress": {"scenarios": []},
+            },
+            metadata={"dataset_root": "dataset"},
+        )
+
+
 def test_regime_scorecard_rejects_non_object_metadata_payload() -> None:
     with pytest.raises(ValueError, match="experiment.metadata must be an object"):
         reporting.render_regime_scorecard(
