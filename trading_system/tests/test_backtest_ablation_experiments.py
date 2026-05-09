@@ -1836,6 +1836,59 @@ def test_allocator_friction_experiment_rejects_invalid_present_final_risk_budget
         run_allocator_friction_experiment([_bullish_ablation_row()], evaluation_window="3d")
 
 
+def _valid_friction_performance_row() -> dict[str, object]:
+    return {
+        "gross_pnl": 2,
+        "net_pnl": 1.5,
+        "fee_drag": 0.1,
+        "slippage_drag": 0.2,
+        "funding_drag": 0.3,
+    }
+
+
+def test_friction_summary_preserves_valid_pnl_numbers() -> None:
+    summary = backtest_experiments._friction_summary([_valid_friction_performance_row()])
+
+    assert summary["gross_bucket_pnl"] == 2.0
+    assert summary["net_bucket_pnl"] == 1.5
+    assert summary["trade_count"] == 1
+    assert summary["cost_drag"] == 0.6
+
+
+@pytest.mark.parametrize(
+    ("field", "invalid_value"),
+    [
+        ("gross_pnl", True),
+        ("gross_pnl", "1.0"),
+        ("net_pnl", True),
+        ("net_pnl", "1.0"),
+    ],
+)
+def test_friction_summary_rejects_non_numeric_pnl_fields(field: str, invalid_value: object) -> None:
+    row = _valid_friction_performance_row()
+    row[field] = invalid_value
+
+    with pytest.raises(ValueError, match=rf"performance_rows\[0\]\.{field} must be a finite number"):
+        backtest_experiments._friction_summary([row])
+
+
+@pytest.mark.parametrize(
+    ("field", "invalid_value"),
+    [
+        ("gross_pnl", float("nan")),
+        ("gross_pnl", float("inf")),
+        ("net_pnl", float("nan")),
+        ("net_pnl", float("inf")),
+    ],
+)
+def test_friction_summary_rejects_non_finite_pnl_fields(field: str, invalid_value: float) -> None:
+    row = _valid_friction_performance_row()
+    row[field] = invalid_value
+
+    with pytest.raises(ValueError, match=rf"performance_rows\[0\]\.{field} must be a finite number"):
+        backtest_experiments._friction_summary([row])
+
+
 @pytest.mark.parametrize(
     "field,invalid_value",
     [

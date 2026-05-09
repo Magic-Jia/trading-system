@@ -1306,8 +1306,14 @@ def _allocation_summary(allocations: list[dict[str, Any]]) -> dict[str, Any]:
 def _friction_summary(
     performance_rows: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    gross_pnls = [float(row["gross_pnl"]) for row in performance_rows]
-    net_pnls = [float(row["net_pnl"]) for row in performance_rows]
+    gross_pnls = [
+        _performance_row_finite_number(row, "gross_pnl", index=index)
+        for index, row in enumerate(performance_rows)
+    ]
+    net_pnls = [
+        _performance_row_finite_number(row, "net_pnl", index=index)
+        for index, row in enumerate(performance_rows)
+    ]
     fee_drag = sum(float(row["fee_drag"]) for row in performance_rows)
     slippage_drag = sum(float(row["slippage_drag"]) for row in performance_rows)
     funding_drag = sum(float(row["funding_drag"]) for row in performance_rows)
@@ -1326,6 +1332,17 @@ def _friction_summary(
             "funding_drag": round(funding_drag, 6),
         },
     }
+
+
+def _performance_row_finite_number(row: Mapping[str, Any], field: str, *, index: int) -> float:
+    value = row[field]
+    path = f"performance_rows[{index}].{field}"
+    if isinstance(value, bool) or not isinstance(value, Real):
+        raise ValueError(f"{path} must be a finite number")
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError(f"{path} must be a finite number")
+    return number
 
 
 def _rotation_candidate_sector(
