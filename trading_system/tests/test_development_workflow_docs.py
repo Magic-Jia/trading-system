@@ -53,3 +53,10 @@ def test_workflow_doc_records_json_plan_and_full_checkpoint_policy() -> None:
     assert "--require-full-after" in text
     assert "--slice-count" in text
     assert "full_checkpoint_reason" in text
+
+
+def test_codex_worker_template_requires_json_plan_report() -> None:
+    text = CODEX_TEMPLATE.read_text()
+
+    assert "Verification plan JSON" in text
+    assert "--dry-run --json" in text

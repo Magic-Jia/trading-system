@@ -59,6 +59,7 @@ Report these fields exactly:
 - GREEN command:
 - Focused verification:
 - Impacted verification:
+- Verification plan JSON:
 - Changed files:
 - Commit hash:
 - Known limitations:
@@ -69,6 +70,7 @@ Prefer repository verification entrypoints when applicable:
 
 ```bash
 python3 scripts/verify.py --auto-changed
+python3 scripts/verify.py --dry-run --json --auto-changed
 python3 scripts/verify.py --suite evidence-chain
 ```
 
