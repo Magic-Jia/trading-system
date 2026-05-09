@@ -173,7 +173,7 @@ def collect_trade_outcomes(
                     or _optional_str(order.get("signal_id"), field_name="order.signal_id")
                     or _optional_str(ledger_event.get("signal_id"), field_name="ledger.signal_id")
                 ),
-                allocation_status=_str_or_none(fact.get("allocation_status")),
+                allocation_status=_optional_str(fact.get("allocation_status"), field_name="fact.allocation_status"),
                 execution_status=execution_status,
                 outcome_status=outcome_status,
                 position_status=_str_or_none(position.get("status")),
