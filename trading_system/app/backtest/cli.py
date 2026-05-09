@@ -435,7 +435,7 @@ def _render_trade_postmortem_markdown(trades: list[dict[str, Any]]) -> str:
                 exit=_optional_postmortem_float(trade, "exit_price", index=index - 1),
                 gross=_optional_postmortem_float(trade, "gross_pnl", index=index - 1),
                 net=_optional_postmortem_float(trade, "net_pnl", index=index - 1),
-                mfe=float(trade.get("mfe_pct") or 0.0),
+                mfe=_optional_postmortem_float(trade, "mfe_pct", index=index - 1),
                 mae=float(trade.get("mae_pct") or 0.0),
                 exit_reason=trade.get("exit_reason", ""),
                 fill_model=trade.get("fill_model", ""),
