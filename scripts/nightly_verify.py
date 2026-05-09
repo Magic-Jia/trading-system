@@ -20,6 +20,7 @@ UNSET_ENV = [
 ]
 
 DISPLAY_COMMANDS = ["python3 scripts/verify.py --suite full"]
+PLANNED_SUITES = ["full"]
 COMMAND = [sys.executable, "scripts/verify.py", "--suite", "full"]
 
 
@@ -42,6 +43,7 @@ def main() -> int:
             "entrypoint": "nightly_verify",
             "clean_env": True,
             "commands": DISPLAY_COMMANDS,
+            "suites": PLANNED_SUITES,
             "unset_env": UNSET_ENV,
         }
         if args.json:

@@ -12,6 +12,7 @@ DISPLAY_COMMANDS = [
     "python3 scripts/verify.py --suite workflow-meta",
     "python3 scripts/verify.py --suite evidence-chain",
 ]
+PLANNED_SUITES = ["workflow-meta", "evidence-chain"]
 COMMANDS = [
     [sys.executable, "scripts/verify.py", "--dry-run", "--strict-auto-changed"],
     [sys.executable, "scripts/verify.py", "--suite", "workflow-meta"],
@@ -37,6 +38,7 @@ def main() -> int:
             "plan_kind": "ci_verification_plan",
             "entrypoint": "ci_verify",
             "commands": DISPLAY_COMMANDS,
+            "suites": PLANNED_SUITES,
             "strict_changed_verification": True,
         }
         if args.json:
