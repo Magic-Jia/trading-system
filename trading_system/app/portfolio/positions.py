@@ -410,6 +410,7 @@ def _validate_existing_position_identities(positions: Mapping[str, dict[str, Any
     for symbol, position in positions.items():
         _strict_position_side(position, "side", f"positions[{symbol}].side")
         _strict_position_status(position, "status", f"positions[{symbol}].status")
+        _strict_optional_string(position, "source", f"positions[{symbol}].source")
 
 
 def _mark_intent_position_closed(state: RuntimeState, symbol: str, position: dict[str, Any], now_bj: str) -> None:
