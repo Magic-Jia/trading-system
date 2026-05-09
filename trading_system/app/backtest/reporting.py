@@ -602,7 +602,7 @@ def render_rotation_suppression_report(
         },
         "comparison_rows": {
             "metadata": dict(metadata),
-            "rows": list(experiment.get("rotation_comparison_rows", [])),
+            "rows": _list_field(experiment, "rotation_comparison_rows", label="rotation_comparison_rows"),
         },
         "scorecard": {
             "metadata": _scorecard_metadata(experiment_name=experiment_name, metadata=metadata),
