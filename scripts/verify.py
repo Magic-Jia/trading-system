@@ -259,9 +259,19 @@ def run_command_argv(commands: list[list[str]]) -> int:
     return 0
 
 
-def plan_fingerprint(payload: dict[str, object]) -> str:
-    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+def canonical_fingerprint(payload: dict[str, object], *, excluded_field: str) -> str:
+    canonical_payload = dict(payload)
+    canonical_payload.pop(excluded_field, None)
+    canonical = json.dumps(canonical_payload, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def plan_fingerprint(payload: dict[str, object]) -> str:
+    return canonical_fingerprint(payload, excluded_field="plan_fingerprint")
+
+
+def inventory_fingerprint(payload: dict[str, object]) -> str:
+    return canonical_fingerprint(payload, excluded_field="inventory_fingerprint")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -296,6 +306,7 @@ def main(argv: list[str] | None = None) -> int:
                     for name, tests in SUITES.items()
                 },
             }
+            payload["inventory_fingerprint"] = inventory_fingerprint(payload)
             print(json.dumps(payload, indent=2, sort_keys=True))
         else:
             for name, tests in SUITES.items():

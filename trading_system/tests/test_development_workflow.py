@@ -11,7 +11,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 VERIFY = ROOT / "scripts" / "verify.py"
 
-SUITE_INVENTORY_JSON_KEYS = {"inventory_kind", "inventory_version", "plan_version", "suites"}
+SUITE_INVENTORY_JSON_KEYS = {"inventory_fingerprint", "inventory_kind", "inventory_version", "plan_version", "suites"}
 VERIFICATION_PLAN_JSON_KEYS = {
     "changed",
     "command_argv",
@@ -63,6 +63,13 @@ def run_verify(*args: str) -> subprocess.CompletedProcess[str]:
 def expected_plan_fingerprint(payload: dict[str, object]) -> str:
     payload_without_fingerprint = dict(payload)
     payload_without_fingerprint.pop("plan_fingerprint")
+    canonical = json.dumps(payload_without_fingerprint, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def expected_inventory_fingerprint(payload: dict[str, object]) -> str:
+    payload_without_fingerprint = dict(payload)
+    payload_without_fingerprint.pop("inventory_fingerprint")
     canonical = json.dumps(payload_without_fingerprint, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
@@ -192,6 +199,11 @@ def test_verify_lists_available_suites_as_json() -> None:
     assert payload["plan_version"] == 1
     assert payload["inventory_version"] == 1
     assert payload["inventory_kind"] == "suite_inventory"
+    assert len(payload["inventory_fingerprint"]) == 64
+    assert payload["inventory_fingerprint"] == expected_inventory_fingerprint(payload)
+    repeat = run_verify("--list-suites", "--json")
+    assert repeat.returncode == 0, repeat.stderr
+    assert json.loads(repeat.stdout)["inventory_fingerprint"] == payload["inventory_fingerprint"]
     assert payload["suites"]["workflow-meta"]["count"] == 4
     assert "trading_system/tests/test_development_workflow.py" in payload["suites"]["workflow-meta"]["tests"]
     for suite_name, suite in payload["suites"].items():
