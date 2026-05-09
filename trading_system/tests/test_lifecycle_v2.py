@@ -1,6 +1,8 @@
 import pytest
 
+import trading_system.app.portfolio.lifecycle as lifecycle
 from trading_system.app.portfolio.lifecycle import advance_lifecycle_positions, build_management_action_intents, evaluate_position
+from trading_system.app.portfolio.exit_policy import ExitDecision
 from trading_system.app.portfolio.lifecycle_v2 import advance_lifecycle_state, advance_lifecycle_transition
 from trading_system.app.storage.state_store import RuntimeStateV2
 from trading_system.app.types import LifecycleState
@@ -188,6 +190,90 @@ def test_advance_lifecycle_positions_rejects_present_non_mapping_scale_out_plan(
         advance_lifecycle_positions(state, {"protect_r_multiple": 1.2})
 
 
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("symbol", 123),
+        ("invalidation_source", 123),
+        ("invalidation_reason", True),
+        ("stop_family", 123),
+        ("stop_reference", True),
+        ("stop_policy_source", 123),
+    ],
+)
+def test_evaluate_position_rejects_present_non_string_identity_and_taxonomy_fields(field, value):
+    position = {
+        "symbol": "BTCUSDT",
+        "side": "LONG",
+        "qty": 1.0,
+        "entry_price": 100.0,
+        "mark_price": 106.0,
+        "stop_loss": 95.0,
+        "status": "OPEN",
+        field: value,
+    }
+
+    with pytest.raises(ValueError, match=f"{field} must be a string when present"):
+        evaluate_position(position)
+
+
+def test_evaluate_position_rejects_present_non_bool_tracked_from_intent_before_target_exit(monkeypatch):
+    def fake_exit_policy(position, *, regime=None):
+        return [
+            ExitDecision(
+                action="PARTIAL_TAKE_PROFIT",
+                qty_fraction=0.5,
+                priority="MEDIUM",
+                reason="target hit",
+                reference_price=105.0,
+                meta={"exit_trigger": "first_target_hit"},
+            )
+        ]
+
+    monkeypatch.setattr(lifecycle, "evaluate_exit_policy", fake_exit_policy)
+    position = {
+        "symbol": "BTCUSDT",
+        "side": "LONG",
+        "qty": 1.0,
+        "entry_price": 100.0,
+        "mark_price": 106.0,
+        "stop_loss": 95.0,
+        "status": "OPEN",
+        "tracked_from_intent": "false",
+    }
+
+    with pytest.raises(ValueError, match="tracked_from_intent must be a bool when present"):
+        evaluate_position(position)
+
+
+def test_evaluate_position_rejects_non_mapping_exit_decision_meta(monkeypatch):
+    def fake_exit_policy(position, *, regime=None):
+        return [
+            ExitDecision(
+                action="DE_RISK",
+                qty_fraction=0.25,
+                priority="HIGH",
+                reason="risk reduction",
+                reference_price=104.0,
+                meta=[("exit_trigger", "defensive_regime_de_risk")],
+            )
+        ]
+
+    monkeypatch.setattr(lifecycle, "evaluate_exit_policy", fake_exit_policy)
+    position = {
+        "symbol": "BTCUSDT",
+        "side": "LONG",
+        "qty": 1.0,
+        "entry_price": 100.0,
+        "mark_price": 104.0,
+        "stop_loss": 95.0,
+        "status": "OPEN",
+    }
+
+    with pytest.raises(TypeError, match="decision.meta must be a mapping when present"):
+        evaluate_position(position)
+
+
 @pytest.mark.parametrize("taxonomy_stop_loss", ["95.0", True, float("nan")])
 def test_evaluate_position_rejects_present_invalid_taxonomy_stop_loss(taxonomy_stop_loss):
     position = {
@@ -202,6 +288,105 @@ def test_evaluate_position_rejects_present_invalid_taxonomy_stop_loss(taxonomy_s
 
     with pytest.raises(ValueError, match="taxonomy_stop_loss must be a finite non-bool number when present"):
         evaluate_position(position)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("runner_stop_price", "bad"),
+        ("runner_stop_price", True),
+        ("runner_stop_price", float("nan")),
+        ("take_profit", "110.0"),
+        ("take_profit", True),
+        ("take_profit", float("nan")),
+    ],
+)
+def test_advance_lifecycle_positions_rejects_present_invalid_numeric_position_fields(field, value):
+    state = RuntimeStateV2(
+        updated_at_bj="2026-04-09T20:00:00+08:00",
+        positions={
+            "BTCUSDT": {
+                "symbol": "BTCUSDT",
+                "side": "LONG",
+                "qty": 1.0,
+                "entry_price": 100.0,
+                "mark_price": 106.0,
+                "stop_loss": 95.0,
+                "status": "OPEN",
+                "first_target_status": "pending",
+                field: value,
+            }
+        },
+    )
+
+    with pytest.raises(ValueError, match=f"{field} must be a finite non-bool number when present"):
+        advance_lifecycle_positions(state, {"protect_r_multiple": 1.2})
+
+
+@pytest.mark.parametrize("field", ["protect_r_multiple", "max_holding_hours"])
+@pytest.mark.parametrize("value", ["bad", True, float("nan")])
+def test_advance_lifecycle_positions_rejects_present_invalid_numeric_config_fields(field, value):
+    state = RuntimeStateV2(
+        updated_at_bj="2026-04-09T20:00:00+08:00",
+        positions={
+            "BTCUSDT": {
+                "symbol": "BTCUSDT",
+                "side": "LONG",
+                "qty": 1.0,
+                "entry_price": 100.0,
+                "mark_price": 106.0,
+                "stop_loss": 95.0,
+                "status": "OPEN",
+            }
+        },
+    )
+
+    with pytest.raises(ValueError, match=f"{field} must be a finite non-bool number when present"):
+        advance_lifecycle_positions(state, {field: value})
+
+
+@pytest.mark.parametrize(("field", "value"), [("entry_profile", 123), ("strategy_profile", True)])
+def test_advance_lifecycle_positions_rejects_present_non_string_entry_profile_fields(field, value):
+    state = RuntimeStateV2(
+        updated_at_bj="2026-04-09T20:00:00+08:00",
+        positions={
+            "BTCUSDT": {
+                "symbol": "BTCUSDT",
+                "side": "LONG",
+                "qty": 1.0,
+                "entry_price": 100.0,
+                "mark_price": 106.0,
+                "stop_loss": 95.0,
+                "status": "OPEN",
+                field: value,
+            }
+        },
+    )
+
+    with pytest.raises(ValueError, match=f"{field} must be a string when present"):
+        advance_lifecycle_positions(state, {"max_holding_hours": 24.0})
+
+
+def test_advance_lifecycle_positions_rejects_non_mapping_latest_lifecycle_state_shape():
+    state = RuntimeStateV2(
+        updated_at_bj="2026-04-09T20:00:00+08:00",
+        positions={
+            "BTCUSDT": {
+                "symbol": "BTCUSDT",
+                "side": "LONG",
+                "qty": 1.0,
+                "entry_price": 100.0,
+                "mark_price": 106.0,
+                "stop_loss": 95.0,
+                "status": "OPEN",
+                "tracked_from_intent": True,
+            }
+        },
+        latest_lifecycle={"BTCUSDT": [("state", "PAYLOAD")]},
+    )
+
+    with pytest.raises(TypeError, match="latest_lifecycle.BTCUSDT must be a mapping when present"):
+        advance_lifecycle_positions(state, {"protect_r_multiple": 1.2})
 
 
 @pytest.mark.parametrize(

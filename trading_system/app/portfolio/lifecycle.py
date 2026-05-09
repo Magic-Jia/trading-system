@@ -74,6 +74,33 @@ def _present_finite_number(payload: dict[str, Any], field: str) -> float | None:
     return value
 
 
+def _present_string(payload: Mapping[str, Any], field: str) -> str | None:
+    if field not in payload or payload.get(field) is None:
+        return None
+    value = payload[field]
+    if not isinstance(value, str):
+        raise ValueError(f"{field} must be a string when present")
+    return value
+
+
+def _present_config_finite_number(config: Any, field: str, default: float) -> float:
+    if isinstance(config, Mapping):
+        if field not in config or config.get(field) is None:
+            return default
+        return _present_finite_number(dict(config), field) or default
+    if not hasattr(config, field):
+        return default
+    value = getattr(config, field)
+    if value is None:
+        return default
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{field} must be a finite non-bool number when present")
+    candidate = float(value)
+    if not math.isfinite(candidate):
+        raise ValueError(f"{field} must be a finite non-bool number when present")
+    return candidate
+
+
 def _present_bool(payload: dict[str, Any], field: str) -> bool | None:
     if field not in payload or payload.get(field) is None:
         return None
@@ -111,20 +138,25 @@ def _position_taxonomy_meta(position: dict[str, Any]) -> dict[str, Any]:
     ):
         value = position.get(key)
         if value is not None:
+            if key != "taxonomy_stop_loss":
+                _present_string(position, key)
             payload[key] = value
     return payload
 
 
 def _exit_decision_to_suggestion(position: dict[str, Any], decision: ExitDecision) -> ManagementSuggestion:
+    decision_meta = decision.meta or {}
+    if not isinstance(decision_meta, Mapping):
+        raise TypeError("decision.meta must be a mapping when present")
     return ManagementSuggestion(
-        symbol=str(position.get("symbol", "")),
+        symbol=_present_string(position, "symbol") or "",
         action=decision.action,
-        side=str(position.get("side", "LONG")),
+        side=_position_side(position),
         priority=decision.priority,
         qty_fraction=decision.qty_fraction,
         reason=decision.reason,
         reference_price=decision.reference_price,
-        meta={**_position_taxonomy_meta(position), **dict(decision.meta or {})},
+        meta={**_position_taxonomy_meta(position), **dict(decision_meta)},
     )
 
 
@@ -141,7 +173,7 @@ def evaluate_position(position: dict[str, Any], *, regime: dict[str, Any] | None
     if not _is_open(position):
         return []
 
-    symbol = str(position.get("symbol", ""))
+    symbol = _present_string(position, "symbol") or ""
     side = _position_side(position)
     entry_price = _position_float(position, "entry_price", default=0.0)
     mark_price = _position_float(position, "mark_price", default=None)
@@ -153,8 +185,8 @@ def evaluate_position(position: dict[str, Any], *, regime: dict[str, Any] | None
 
     suggestions: list[ManagementSuggestion] = []
     taxonomy_meta = _position_taxonomy_meta(position)
-    invalidation_source = str(position.get("invalidation_source") or "").strip()
-    invalidation_reason = str(position.get("invalidation_reason") or "").strip()
+    invalidation_source = (_present_string(position, "invalidation_source") or "").strip()
+    invalidation_reason = (_present_string(position, "invalidation_reason") or "").strip()
     if not _valid_stop(side, entry_price, stop_loss):
         reference_price = mark_price if mark_price is not None else entry_price
         taxonomy_stop_loss = _taxonomy_stop(side, entry_price, position)
@@ -218,9 +250,16 @@ def evaluate_position(position: dict[str, Any], *, regime: dict[str, Any] | None
             )
         )
 
-    allow_target_stage_exits = bool(position.get("tracked_from_intent")) or _has_explicit_target_management_state(position)
+    tracked_from_intent = _present_bool(position, "tracked_from_intent")
+    allow_target_stage_exits = bool(tracked_from_intent) or _has_explicit_target_management_state(position)
     for decision in evaluate_exit_policy(position, regime=regime):
-        trigger = str((decision.meta or {}).get("exit_trigger") or "")
+        decision_meta = decision.meta or {}
+        if not isinstance(decision_meta, Mapping):
+            raise TypeError("decision.meta must be a mapping when present")
+        trigger_value = decision_meta.get("exit_trigger")
+        if trigger_value is not None and not isinstance(trigger_value, str):
+            raise ValueError("decision.meta.exit_trigger must be a string when present")
+        trigger = (trigger_value or "").strip()
         if (
             not allow_target_stage_exits
             and (
@@ -269,7 +308,7 @@ def _float(value: Any) -> float:
 
 
 def _r_multiple(position: dict[str, Any]) -> float:
-    side = str(position.get("side", "LONG"))
+    side = _position_side(position)
     entry = _float(position.get("entry_price"))
     mark = _float(position.get("mark_price"))
     stop = position.get("stop_loss")
@@ -286,11 +325,14 @@ def _r_multiple(position: dict[str, Any]) -> float:
 
 
 def _position_entry_profile(position: dict[str, Any]) -> str:
-    profile = str(position.get("entry_profile") or position.get("strategy_profile") or "").strip().lower().replace("-", "_")
+    entry_profile = _present_string(position, "entry_profile")
+    strategy_profile = _present_string(position, "strategy_profile")
+    profile = (entry_profile or strategy_profile or "").strip().lower().replace("-", "_")
     if not profile:
         meta = position.get("meta")
         if isinstance(meta, dict):
-            profile = str(meta.get("entry_profile") or "").strip().lower().replace("-", "_")
+            meta_profile = _present_string(meta, "entry_profile")
+            profile = (meta_profile or "").strip().lower().replace("-", "_")
     return profile
 
 
@@ -326,7 +368,7 @@ def _target_management_lifecycle_projection(position: dict[str, Any]) -> dict[st
 
     runner_stop = position.get("runner_stop_price")
     if runner_stop is not None:
-        runner_stop_price = _float(runner_stop)
+        runner_stop_price = _present_finite_number(position, "runner_stop_price")
         payload["runner_stop_price"] = round(runner_stop_price, 8)
 
     scale_out_plan = position.get("scale_out_plan")
@@ -337,11 +379,11 @@ def _target_management_lifecycle_projection(position: dict[str, Any]) -> dict[st
 
     second_target_source = position.get("second_target_source")
     if second_target_source:
-        payload["second_target_source"] = str(second_target_source)
+        payload["second_target_source"] = _present_string(position, "second_target_source")
 
     for key in ("first_target_status", "second_target_status"):
         if key in position:
-            payload[key] = str(position.get(key) or "")
+            payload[key] = _present_string(position, key) or ""
 
     return payload
 
@@ -349,18 +391,25 @@ def _target_management_lifecycle_projection(position: dict[str, Any]) -> dict[st
 def advance_lifecycle_positions(state: RuntimeState, lifecycle_config: Any) -> dict[str, dict[str, Any]]:
     latest = dict(getattr(state, "latest_lifecycle", {}) or {})
     updates: dict[str, dict[str, Any]] = {}
-    protect_trigger = _float(getattr(lifecycle_config, "protect_r_multiple", 1.2)) or 1.2
+    protect_trigger = _present_config_finite_number(lifecycle_config, "protect_r_multiple", 1.2)
 
     for symbol, position in state.positions.items():
-        side = str(position.get("side", "LONG"))
+        side = _position_side(position)
         mark = _float(position.get("mark_price"))
         stop = position.get("stop_loss")
         stop_loss = _float(stop) if stop is not None else 0.0
         take_profit = position.get("take_profit")
+        if take_profit is not None:
+            take_profit = _present_finite_number(position, "take_profit")
         r_multiple = _r_multiple(position)
         tracked_from_intent = _present_bool(position, "tracked_from_intent")
         carries_persistent_lifecycle = bool(tracked_from_intent) or _has_explicit_target_management_state(position)
-        current_state = str((latest.get(symbol) or {}).get("state", "INIT")) if carries_persistent_lifecycle else "INIT"
+        current_state = "INIT"
+        if carries_persistent_lifecycle:
+            latest_entry = latest.get(symbol) or {}
+            if not isinstance(latest_entry, Mapping):
+                raise TypeError(f"latest_lifecycle.{symbol} must be a mapping when present")
+            current_state = _present_string(latest_entry, "state") or "INIT"
 
         stop_hit = False
         if mark > 0 and stop is not None and _valid_stop(side, _float(position.get("entry_price")), stop_loss):
@@ -368,9 +417,9 @@ def advance_lifecycle_positions(state: RuntimeState, lifecycle_config: Any) -> d
 
         target_hit = False
         if mark > 0 and take_profit is not None:
-            target_hit = _in_favor(side, mark, _float(take_profit))
+            target_hit = _in_favor(side, mark, take_profit)
 
-        max_holding_hours = _float(getattr(lifecycle_config, "max_holding_hours", 0.0))
+        max_holding_hours = _present_config_finite_number(lifecycle_config, "max_holding_hours", 0.0)
         holding_hours = _holding_hours(position)
         max_holding_elapsed = (
             _position_entry_profile(position) == "short_term"
