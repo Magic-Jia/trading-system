@@ -57,6 +57,10 @@ def render_regime_scorecard(
         else "regime separation is not yet strong enough for promotion"
     )
 
+    raw_metadata = experiment.get("metadata", {})
+    if not isinstance(raw_metadata, Mapping):
+        raise ValueError("experiment.metadata must be an object")
+    experiment_metadata = dict(raw_metadata)
     return {
         "metadata": {
             "experiment_name": experiment_name,
@@ -66,7 +70,7 @@ def render_regime_scorecard(
             "sample_period": metadata.get("sample_period"),
         },
         "key_metrics": {
-            "snapshot_count": dict(experiment.get("metadata", {})).get("snapshot_count", 0),
+            "snapshot_count": _non_negative_int_field(experiment_metadata, "snapshot_count", label="experiment.metadata"),
             "regimes_covered": regimes_with_samples,
             "best_regime_3d": best_regime,
             "best_regime_3d_return": best_return or 0.0,
