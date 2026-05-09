@@ -889,6 +889,9 @@ def _strict_mapping_field(payload: Mapping[str, Any], field: str, *, path: str) 
     value = payload[field]
     if not isinstance(value, Mapping):
         raise ValueError(f"{path}.{field} must be an object")
+    for key in value:
+        if not isinstance(key, str):
+            raise ValueError(f"{path}.{field} key must be a string")
     return dict(value)
 
 

@@ -2228,6 +2228,23 @@ def test_allocator_friction_experiment_rejects_non_string_candidate_bundle_key(
         run_allocator_friction_experiment([_bullish_ablation_row()], evaluation_window="3d")
 
 
+def test_allocator_friction_experiment_rejects_non_string_candidate_bundle_regime_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def invalid_all_engine_candidates(_row):
+        return {
+            "regime": {123: "bad"},
+            "input_universe": 1,
+            "candidates": [],
+            "filter_counts": {},
+        }
+
+    monkeypatch.setattr(backtest_experiments, "_all_engine_candidates", invalid_all_engine_candidates)
+
+    with pytest.raises(ValueError, match=r"^candidate_bundle\.regime key must be a string$"):
+        run_allocator_friction_experiment([_bullish_ablation_row()], evaluation_window="3d")
+
+
 @pytest.mark.parametrize("invalid_budget", [True, float("nan"), float("inf")])
 def test_allocator_friction_experiment_rejects_invalid_present_final_risk_budget(
     monkeypatch: pytest.MonkeyPatch,
