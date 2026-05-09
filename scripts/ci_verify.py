@@ -41,6 +41,7 @@ def main() -> int:
         if args.json:
             print(json.dumps(payload, indent=2, sort_keys=True))
         else:
+            print("plan_version: 1")
             print("strict_changed_verification: true")
             print("\n".join(DISPLAY_COMMANDS))
         return 0

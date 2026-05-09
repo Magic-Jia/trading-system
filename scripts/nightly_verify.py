@@ -46,6 +46,7 @@ def main() -> int:
         if args.json:
             print(json.dumps(payload, indent=2, sort_keys=True))
         else:
+            print("plan_version: 1")
             print("clean_env: true")
             print("unset " + " ".join(UNSET_ENV))
             print("\n".join(DISPLAY_COMMANDS))
