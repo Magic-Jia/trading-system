@@ -26,7 +26,10 @@ def render_regime_scorecard(
     experiment: Mapping[str, Any],
     metadata: Mapping[str, Any],
 ) -> dict[str, Any]:
-    by_regime = dict(experiment.get("by_regime", {}))
+    raw_by_regime = experiment.get("by_regime", {})
+    if not isinstance(raw_by_regime, Mapping):
+        raise ValueError("by_regime must be an object")
+    by_regime = dict(raw_by_regime)
     best_regime = None
     best_return = None
     worst_regime = None
