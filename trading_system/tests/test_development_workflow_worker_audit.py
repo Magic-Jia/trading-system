@@ -31,6 +31,11 @@ def test_audit_worker_commit_outputs_json_for_head() -> None:
     assert payload["status"] == "ok"
     assert payload["audit_kind"] == "worker_commit_preflight"
     assert payload["final_merge_proof"] is False
+    assert payload["controller_next_steps"] == [
+        "inspect changed_files",
+        "run verification_plan.commands in controller workspace",
+        "only integrate after controller verification passes",
+    ]
     assert payload["verification_plan"]["commands"][-1] == "git diff --check HEAD"
 
 

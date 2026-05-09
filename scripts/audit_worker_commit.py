@@ -79,6 +79,11 @@ def main(argv: list[str] | None = None) -> int:
                 "status": "ok",
                 "audit_kind": "worker_commit_preflight",
                 "final_merge_proof": False,
+                "controller_next_steps": [
+                    "inspect changed_files",
+                    "run verification_plan.commands in controller workspace",
+                    "only integrate after controller verification passes",
+                ],
                 "commit": commit,
                 "changed_files": changed_files,
                 "verification_plan": plan,
