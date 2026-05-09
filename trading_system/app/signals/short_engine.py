@@ -81,7 +81,10 @@ def _short_suppressed(regime: RegimeSnapshot | Mapping[str, Any] | None) -> bool
 def _short_enabled(regime: RegimeSnapshot | Mapping[str, Any] | None) -> bool:
     if regime is None:
         return False
-    label = str(_regime_value(regime, "label", "")).upper().strip()
+    label_value = _regime_value(regime, "label", None)
+    if label_value is not None and not isinstance(label_value, str):
+        raise ValueError("regime.label must be a string when present")
+    label = (label_value or "").upper().strip()
     if label in _DEFENSIVE_REGIMES:
         return True
     bucket_targets = _regime_value(regime, "bucket_targets", {})

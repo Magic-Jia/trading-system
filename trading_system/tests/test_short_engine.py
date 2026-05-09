@@ -411,3 +411,15 @@ def test_generate_short_candidates_respects_regime_gate_and_suppression():
         )
         == []
     )
+
+
+def test_generate_short_candidates_rejects_present_non_string_regime_label():
+    market = _defensive_market()
+    short_universe = [{"symbol": "BTCUSDT", "sector": "majors", "liquidity_meta": {"rolling_notional": 12_500_000_000.0}}]
+
+    with pytest.raises(ValueError, match="regime.label"):
+        generate_short_candidates(
+            market,
+            short_universe=short_universe,
+            regime={"label": True, "bucket_targets": {"short": 0.8}},
+        )
