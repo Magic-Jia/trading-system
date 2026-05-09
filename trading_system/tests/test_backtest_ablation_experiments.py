@@ -742,6 +742,14 @@ def test_long_gate_telemetry_outputs_symbol_and_regime_breakdowns() -> None:
     assert trend_symbols["BTCUSDT"]["funnel"]["raw_candidates"] > 0
 
 
+def test_long_gate_telemetry_rejects_present_non_string_regime_label() -> None:
+    row = _bullish_ablation_row()
+    row.meta["regime_override"]["label"] = True
+
+    with pytest.raises(ValueError, match=r"^regime\.label must be a string when present$"):
+        run_long_gate_telemetry_experiment([row], evaluation_window="3d")
+
+
 def test_long_gate_telemetry_rejects_non_string_symbol_rows_key(monkeypatch: pytest.MonkeyPatch) -> None:
     def traced_with_invalid_symbol_key(_row):
         return {

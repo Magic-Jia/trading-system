@@ -394,6 +394,15 @@ def _regime_for_row(row: DatasetSnapshotRow) -> dict[str, Any]:
     return asdict(classify_regime(row.market, row.derivatives))
 
 
+def _regime_label(regime: Mapping[str, Any], *, default: str) -> str:
+    label = regime.get("label")
+    if label is None:
+        return default
+    if not isinstance(label, str):
+        raise ValueError("regime.label must be a string when present")
+    return label
+
+
 def _aggression_from_regime(regime: Mapping[str, Any]) -> float:
     label = str(regime.get("label", ""))
     base = _REGIME_BASE_RISK_MULTIPLIERS.get(label)
@@ -1729,7 +1738,7 @@ def run_long_gate_telemetry_experiment(
 
     for row in ordered_rows:
         regime = _regime_for_row(row)
-        regime_label = str(regime.get("label", "UNKNOWN"))
+        regime_label = _regime_label(regime, default="UNKNOWN")
         regime_bucket = regime_breakdown_aggregates.setdefault(
             regime_label,
             {
@@ -1798,7 +1807,7 @@ def run_long_gate_telemetry_experiment(
             {
                 "timestamp": row.timestamp.isoformat(),
                 "run_id": row.run_id,
-                "regime_label": str(regime.get("label", "")),
+                "regime_label": regime_label,
                 "total_long_raw_candidates": total_raw_candidates,
                 "total_long_accepted_allocations": total_accepted_allocations,
                 "engines": engine_rows,
