@@ -45,6 +45,10 @@ def _strict_float(value: Any, field: str, *, default: float | None = None) -> fl
     return parsed
 
 
+def _config_float(config: AppConfig, section: str, field: str) -> float:
+    return _strict_float(getattr(getattr(config, section), field), f"config.{section}.{field}")
+
+
 def _strict_mapping(value: Any, field: str, *, default_empty: bool = True) -> dict[str, Any]:
     if value is _MISSING or value is None:
         if default_empty:
@@ -146,9 +150,9 @@ def _regime_value(regime: RegimeSnapshot | Mapping[str, Any] | None, key: str, d
 
 def _bucket_targets(config: AppConfig, regime: RegimeSnapshot | Mapping[str, Any] | None) -> dict[str, float]:
     defaults = {
-        "trend": float(config.allocator.trend_bucket_weight),
-        "rotation": float(config.allocator.rotation_bucket_weight),
-        "short": float(config.allocator.short_bucket_weight),
+        "trend": _config_float(config, "allocator", "trend_bucket_weight"),
+        "rotation": _config_float(config, "allocator", "rotation_bucket_weight"),
+        "short": _config_float(config, "allocator", "short_bucket_weight"),
     }
     raw_targets = _regime_value(regime, "bucket_targets", {})
     if not isinstance(raw_targets, Mapping):
@@ -391,7 +395,7 @@ def allocate_candidates(
     if not candidates:
         return []
 
-    total_risk_cap = max(float(app_config.risk.max_total_risk_pct), 0.0)
+    total_risk_cap = max(_config_float(app_config, "risk", "max_total_risk_pct"), 0.0)
     regime_multiplier = max(
         _strict_float(_regime_value(regime, "risk_multiplier", _MISSING), "regime.risk_multiplier", default=1.0),
         0.0,
@@ -416,7 +420,7 @@ def allocate_candidates(
     portfolio_risk_used = 0.0
     open_positions = account.get("open_positions", []) if isinstance(account, Mapping) else getattr(account, "open_positions", [])
     if not isinstance(open_positions, list):
-        open_positions = []
+        raise ValueError("account.open_positions must be a list when present")
     max_open_positions = int(app_config.risk.max_open_positions)
 
     exposure = exposure_snapshot(account)
@@ -433,9 +437,9 @@ def allocate_candidates(
     cycle_sector_risk: dict[str, float] = defaultdict(float, sector_risk)
     duplicate_counts: dict[tuple[str, str, str], int] = defaultdict(int)
 
-    symbol_cap_pct = max(float(app_config.risk.max_symbol_risk_pct), 0.0)
-    sector_cap_pct = max(total_risk_cap * float(app_config.allocator.sector_cap_pct), 0.0)
-    major_target = _to_float(bucket_targets.get("trend", 0.5), 0.5)
+    symbol_cap_pct = max(_config_float(app_config, "risk", "max_symbol_risk_pct"), 0.0)
+    sector_cap_pct = max(total_risk_cap * _config_float(app_config, "allocator", "sector_cap_pct"), 0.0)
+    major_target = _strict_float(bucket_targets.get("trend", _MISSING), "bucket_targets.trend", default=0.5)
 
     normalized = [_normalize_candidate(candidate) for candidate in candidates]
     ranked = sorted(normalized, key=lambda row: (-row["score"], row["symbol"], row["engine"]))
@@ -672,7 +676,11 @@ def allocate_candidates(
         cycle_sector_risk[sector] = cycle_sector_risk.get(sector, 0.0) + final_budget
         bucket_risk_used[engine] = bucket_risk_used.get(engine, 0.0) + final_budget
         portfolio_risk_used += final_budget
-        net_exposure_pct = _to_float(meta.get("net_exposure_after", net_exposure_pct), net_exposure_pct)
+        net_exposure_pct = _strict_float(
+            meta.get("net_exposure_after", _MISSING),
+            "guardrail.net_exposure_after",
+            default=net_exposure_pct,
+        )
         major_risk = projected_major_risk
         alt_risk = projected_alt_risk
         duplicate_counts[duplicate_key] = accepted_count + 1

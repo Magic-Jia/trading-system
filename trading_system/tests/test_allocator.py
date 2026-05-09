@@ -245,6 +245,57 @@ def test_allocator_fails_closed_on_invalid_exposure_scalar_risk(monkeypatch, fie
         )
 
 
+def test_allocator_rejects_non_list_open_positions_when_present(load_fixture):
+    account = _flat_account(load_fixture)
+    account["open_positions"] = {"symbol": "BTCUSDT"}
+
+    with pytest.raises(ValueError, match="account.open_positions must be a list when present"):
+        allocate_candidates(account=account, candidates=[_valid_boundary_candidate()])
+
+
+@pytest.mark.parametrize(
+    ("value", "message"),
+    [
+        (True, "guardrail.net_exposure_after must be numeric, not boolean"),
+        ("0.01", "guardrail.net_exposure_after must be numeric, not string"),
+        (float("nan"), "guardrail.net_exposure_after must be finite"),
+        (object(), "guardrail.net_exposure_after must be numeric"),
+    ],
+)
+def test_allocator_fails_closed_on_invalid_guardrail_net_exposure_after(monkeypatch, load_fixture, value, message):
+    def fake_guardrails(**kwargs):
+        return True, [], {"net_exposure_after": value}
+
+    monkeypatch.setattr(allocator_module, "evaluate_allocation_guardrails", fake_guardrails)
+
+    with pytest.raises(ValueError, match=message):
+        allocate_candidates(account=_flat_account(load_fixture), candidates=[_valid_boundary_candidate()])
+
+
+@pytest.mark.parametrize(
+    ("section", "field", "value", "message"),
+    [
+        ("risk", "max_total_risk_pct", True, "config.risk.max_total_risk_pct must be numeric, not boolean"),
+        ("risk", "max_total_risk_pct", "0.03", "config.risk.max_total_risk_pct must be numeric, not string"),
+        ("risk", "max_total_risk_pct", float("inf"), "config.risk.max_total_risk_pct must be finite"),
+        ("risk", "max_symbol_risk_pct", False, "config.risk.max_symbol_risk_pct must be numeric, not boolean"),
+        ("allocator", "sector_cap_pct", "0.35", "config.allocator.sector_cap_pct must be numeric, not string"),
+        (
+            "allocator",
+            "trend_bucket_weight",
+            float("nan"),
+            "config.allocator.trend_bucket_weight must be finite",
+        ),
+    ],
+)
+def test_allocator_fails_closed_on_invalid_custom_config_numeric_fields(load_fixture, section, field, value, message):
+    nested = getattr(DEFAULT_CONFIG, section)
+    config = replace(DEFAULT_CONFIG, **{section: replace(nested, **{field: value})})
+
+    with pytest.raises(ValueError, match=message):
+        allocate_candidates(account=_flat_account(load_fixture), candidates=[_valid_boundary_candidate()], config=config)
+
+
 def _valid_boundary_candidate(**overrides):
     candidate = {
         "engine": "trend",
