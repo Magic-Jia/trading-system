@@ -211,6 +211,8 @@ def _required_ohlcv_float(value: Any, *, field: str, observed_at: datetime) -> f
 def _hourly_ohlcv_bar(record: ImportedRawMarketRecord) -> _OhlcvBar:
     payload = record.payload
     if isinstance(payload, Mapping):
+        if "close" not in payload:
+            raise ValueError(f"ohlcv close must be present: {record.observed_at}")
         close = _required_ohlcv_float(payload.get("close"), field="close", observed_at=record.observed_at)
         if "open" not in payload:
             raise ValueError(f"ohlcv open must be present: {record.observed_at}")
@@ -218,6 +220,8 @@ def _hourly_ohlcv_bar(record: ImportedRawMarketRecord) -> _OhlcvBar:
             raise ValueError(f"ohlcv high must be present: {record.observed_at}")
         if "low" not in payload:
             raise ValueError(f"ohlcv low must be present: {record.observed_at}")
+        if "volume" not in payload:
+            raise ValueError(f"ohlcv volume must be present: {record.observed_at}")
         open_value = _required_ohlcv_float(payload.get("open"), field="open", observed_at=record.observed_at)
         high = _required_ohlcv_float(payload.get("high"), field="high", observed_at=record.observed_at)
         low = _required_ohlcv_float(payload.get("low"), field="low", observed_at=record.observed_at)

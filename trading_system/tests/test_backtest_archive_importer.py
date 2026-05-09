@@ -38,6 +38,24 @@ def test_hourly_ohlcv_bar_rejects_boolean_required_ohlcv_fields(field: str) -> N
         archive_importer._hourly_ohlcv_bar(record)
 
 
+@pytest.mark.parametrize("field", ["close", "volume"])
+def test_hourly_ohlcv_bar_rejects_missing_required_ohlcv_fields(field: str) -> None:
+    observed_at = datetime(2024, 4, 1, tzinfo=UTC)
+    payload: dict[str, object] = {
+        "open": 100.0,
+        "high": 110.0,
+        "low": 90.0,
+        "close": 105.0,
+        "volume": 123.45,
+    }
+    del payload[field]
+
+    record = ImportedRawMarketRecord(observed_at=observed_at, payload=payload)
+
+    with pytest.raises(ValueError, match=rf"ohlcv {field} must be present: 2024-04-01 00:00:00\+00:00"):
+        archive_importer._hourly_ohlcv_bar(record)
+
+
 def test_phase1_root_manifest_rejects_present_invalid_falsy_source(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
