@@ -1475,8 +1475,8 @@ def _preserve_trace_score(monkeypatch: pytest.MonkeyPatch, engine_module: object
 @pytest.mark.parametrize(
     ("invalid_score", "match"),
     [
-        (True, r"^trend candidates\[0\]\.score must be numeric$"),
-        (float("nan"), r"^trend candidates\[0\]\.score must be finite$"),
+        (True, r"^trend score total must be a finite number$"),
+        (float("nan"), r"^trend score total must be a finite number$"),
     ],
 )
 def test_long_gate_telemetry_rejects_invalid_trend_candidate_sort_score(
@@ -1495,6 +1495,41 @@ def test_long_gate_telemetry_rejects_invalid_trend_candidate_sort_score(
 
     with pytest.raises(ValueError, match=match):
         backtest_experiments._trend_candidates_with_trace(row)
+
+
+@pytest.mark.parametrize("invalid_total", [True, "0.9", float("nan"), float("inf")])
+def test_long_gate_telemetry_rejects_invalid_trend_scorer_total(
+    monkeypatch: pytest.MonkeyPatch,
+    invalid_total: object,
+) -> None:
+    row = _bullish_ablation_row()
+    monkeypatch.setattr(
+        backtest_experiments.trend_signals,
+        "score_trend_candidate",
+        lambda _features: {"total": invalid_total, "components": {}},
+    )
+    monkeypatch.setattr(backtest_experiments.trend_signals, "symbol_derivatives_features", lambda *_args: {})
+
+    with pytest.raises(ValueError, match=r"^trend score total must be a finite number$"):
+        backtest_experiments._trend_candidates_with_trace(row)
+
+
+@pytest.mark.parametrize("valid_total", [1, 0.9])
+def test_long_gate_telemetry_preserves_valid_trend_scorer_total(
+    monkeypatch: pytest.MonkeyPatch,
+    valid_total: object,
+) -> None:
+    row = _bullish_ablation_row()
+    monkeypatch.setattr(
+        backtest_experiments.trend_signals,
+        "score_trend_candidate",
+        lambda _features: {"total": valid_total, "components": {}},
+    )
+    monkeypatch.setattr(backtest_experiments.trend_signals, "symbol_derivatives_features", lambda *_args: {})
+
+    result = backtest_experiments._trend_candidates_with_trace(row)
+
+    assert result["candidates"][0]["score"] == float(valid_total)
 
 
 @pytest.mark.parametrize(

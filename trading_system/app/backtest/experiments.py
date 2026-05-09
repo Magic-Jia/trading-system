@@ -1715,7 +1715,7 @@ def _trend_candidates_with_trace(
                 "volume_quality": trend_signals._volume_quality(payload),
             }
         )
-        total_score = trend_signals._to_float(scored.get("total"))
+        total_score = _strict_finite_number(scored.get("total"), field_name="trend score total")
         if total_score <= 0.0:
             filter_counts["score_filtered"] += 1
             _bump_symbol_filter(symbol_rows, symbol_name, "score_filtered")
