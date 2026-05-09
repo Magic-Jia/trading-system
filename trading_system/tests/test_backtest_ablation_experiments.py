@@ -192,6 +192,32 @@ def test_suppression_policy_comparison() -> None:
     assert result["rotation_comparison_rows"]
 
 
+@pytest.mark.parametrize("invalid_forward_return", [True, "0.01", math.nan, math.inf, -math.inf])
+def test_rotation_suppression_experiment_rejects_invalid_candidate_forward_returns(
+    invalid_forward_return: object,
+) -> None:
+    row = _suppressed_rotation_row(0, link_return=0.06, ada_return=-0.03)
+    row.meta["candidate_forward_returns"]["rotation"]["LINKUSDT"] = invalid_forward_return
+
+    with pytest.raises(
+        ValueError,
+        match=r"^candidate_forward_returns\.rotation\.LINKUSDT must be a finite number$",
+    ):
+        run_rotation_suppression_experiment([row], evaluation_window="3d", soft_score_floor=0.72)
+
+
+@pytest.mark.parametrize("invalid_forward_return", [True, "0.01", math.nan, math.inf, -math.inf])
+def test_rotation_suppression_experiment_rejects_invalid_fallback_forward_returns(
+    invalid_forward_return: object,
+) -> None:
+    row = _suppressed_rotation_row(0, link_return=0.06, ada_return=-0.03)
+    del row.meta["candidate_forward_returns"]["rotation"]["LINKUSDT"]
+    row.forward_returns["3d"] = invalid_forward_return
+
+    with pytest.raises(ValueError, match=r"^forward_returns\.3d must be a finite number$"):
+        run_rotation_suppression_experiment([row], evaluation_window="3d", soft_score_floor=0.72)
+
+
 def test_rotation_suppression_experiment_rejects_non_string_regime_suppression_rules(monkeypatch) -> None:
     row = _suppressed_rotation_row(0, link_return=0.06, ada_return=-0.03)
     row.meta["regime_override"]["suppression_rules"] = [True]

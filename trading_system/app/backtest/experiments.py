@@ -590,8 +590,11 @@ def _rotation_forward_return(row: DatasetSnapshotRow, symbol: str, evaluation_wi
     if isinstance(candidate_returns, Mapping):
         rotation_returns = candidate_returns.get("rotation")
         if isinstance(rotation_returns, Mapping) and symbol in rotation_returns:
-            return float(rotation_returns[symbol])
-    return float(row.forward_returns.get(evaluation_window, 0.0))
+            return _strict_finite_number(
+                rotation_returns[symbol],
+                field_name=f"candidate_forward_returns.rotation.{symbol}",
+            )
+    return _strict_optional_mapping_number(row.forward_returns, evaluation_window, path="forward_returns")
 
 
 def _rotation_candidates_for_policy(
