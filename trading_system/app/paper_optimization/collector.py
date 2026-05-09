@@ -38,23 +38,17 @@ def _str_value(value: Any, *, field_name: str) -> str:
 def _float_or_none(value: Any, *, field_name: str) -> float | None:
     if value is None:
         return None
-    if isinstance(value, bool):
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError(f"{field_name} must be numeric")
-    try:
-        return float(value)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"{field_name} must be numeric") from exc
+    return float(value)
 
 
 def _int_or_none(value: Any, *, field_name: str) -> int | None:
     if value is None:
         return None
-    if isinstance(value, bool):
+    if isinstance(value, bool) or not isinstance(value, int):
         raise ValueError(f"{field_name} must be numeric")
-    try:
-        return int(value)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"{field_name} must be numeric") from exc
+    return value
 
 
 def _key(row: Mapping[str, Any]) -> tuple[str, str, str]:

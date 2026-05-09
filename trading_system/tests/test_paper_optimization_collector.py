@@ -136,6 +136,37 @@ def test_collect_signal_facts_rejects_invalid_candidate_numeric_fields(tmp_path:
             runtime_env="research",
         )
 
+    with pytest.raises(ValueError, match="candidate.score must be numeric"):
+        collector.collect_signal_facts(
+            signal_facts_path=paths.signal_facts_file,
+            candidate_rows=[
+                {
+                    "engine": "trend",
+                    "setup_type": "BREAKOUT_CONTINUATION",
+                    "symbol": "BTCUSDT",
+                    "side": "LONG",
+                    "score": "0.91",
+                    "validation": {"allowed": True},
+                }
+            ],
+            allocation_rows=[],
+            execution_rows=[],
+            regime={"label": "RISK_ON_TREND", "confidence": 0.82},
+            mode="paper",
+            runtime_env="research",
+        )
+
+    with pytest.raises(ValueError, match="allocation.rank must be numeric"):
+        collector.collect_signal_facts(
+            signal_facts_path=paths.signal_facts_file,
+            candidate_rows=[{"engine": "trend", "setup_type": "BREAKOUT_CONTINUATION", "symbol": "BTCUSDT", "side": "LONG"}],
+            allocation_rows=[{"engine": "trend", "setup_type": "BREAKOUT_CONTINUATION", "symbol": "BTCUSDT", "rank": "1"}],
+            execution_rows=[],
+            regime={"label": "RISK_ON_TREND", "confidence": 0.82},
+            mode="paper",
+            runtime_env="research",
+        )
+
 def test_collect_signal_facts_rejects_non_object_candidate_rows(tmp_path: Path) -> None:
     paths = build_runtime_paths("paper", runtime_root=tmp_path / "runtime", runtime_env="research")
     collector = _collector_module()
