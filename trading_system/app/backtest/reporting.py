@@ -894,7 +894,7 @@ def render_allocator_friction_report(
         current_base.get("net_bucket_pnl", 0.0),
         field_name="variants.current_allocator.frictions.base.net_bucket_pnl",
     )
-    current_base_cost_drag = _report_finite_float(
+    current_base_cost_drag = _strict_present_finite_float(
         current_base.get("cost_drag", 0.0),
         field_name="variants.current_allocator.frictions.base.cost_drag",
     )

@@ -1990,6 +1990,30 @@ def test_allocator_friction_report_rejects_boolean_current_base_cost_drag() -> N
         )
 
 
+def test_allocator_friction_report_rejects_string_current_base_cost_drag() -> None:
+    with pytest.raises(ValueError, match="variants.current_allocator.frictions.base.cost_drag must be a finite number"):
+        cli.render_allocator_friction_report(
+            experiment_name="allocator_friction",
+            metadata={"snapshot_count": 1},
+            experiment={
+                "variants": {
+                    "current_allocator": {
+                        "frictions": {
+                            "base": {"net_bucket_pnl": 0.01, "cost_drag": "0.005"},
+                            "stressed": {"net_bucket_pnl": 0.01},
+                        },
+                    },
+                    "low_friction": {
+                        "frictions": {
+                            "base": {"net_bucket_pnl": 0.02, "cost_drag": 0.005},
+                            "stressed": {"net_bucket_pnl": 0.01},
+                        },
+                    },
+                }
+            },
+        )
+
+
 def test_allocator_friction_report_rejects_boolean_best_stressed_net_bucket_pnl() -> None:
     with pytest.raises(
         ValueError,
