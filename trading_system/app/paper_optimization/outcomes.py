@@ -168,10 +168,10 @@ def collect_trade_outcomes(
                 setup_type=_str_value(fact.get("setup_type")),
                 intent_id=intent_id,
                 signal_id=(
-                    _str_or_none(position.get("signal_id"))
-                    or _str_or_none(position_update.get("signal_id"))
-                    or _str_or_none(order.get("signal_id"))
-                    or _str_or_none(ledger_event.get("signal_id"))
+                    _optional_str(position.get("signal_id"), field_name="position.signal_id")
+                    or _optional_str(position_update.get("signal_id"), field_name="position_update.signal_id")
+                    or _optional_str(order.get("signal_id"), field_name="order.signal_id")
+                    or _optional_str(ledger_event.get("signal_id"), field_name="ledger.signal_id")
                 ),
                 allocation_status=_str_or_none(fact.get("allocation_status")),
                 execution_status=execution_status,
