@@ -1981,6 +1981,35 @@ def _material_market_context_symbol_keys(material: Phase1DatasetBundleMaterial) 
     return tuple(sorted(parsed))
 
 
+def _material_context_numeric_field(value: Any, *, field: str) -> float:
+    if isinstance(value, bool) or isinstance(value, str) or not isinstance(value, (int, float)):
+        raise ValueError(f"{field} must be numeric")
+    parsed = float(value)
+    if not parsed == parsed or parsed in {float("inf"), float("-inf")}:
+        raise ValueError(f"{field} must be finite")
+    return parsed
+
+
+def _validate_material_market_context_funding_rate(market_context: Mapping[str, Any]) -> None:
+    symbols = market_context.get("symbols") if "symbols" in market_context else {}
+    if symbols is None:
+        return
+    if not isinstance(symbols, Mapping):
+        return
+    for symbol, symbol_context in symbols.items():
+        if not isinstance(symbol, str) or not symbol.strip() or symbol != symbol.strip():
+            continue
+        if not isinstance(symbol_context, Mapping):
+            continue
+        futures_context = symbol_context.get("futures_context")
+        if not isinstance(futures_context, Mapping) or "funding_rate" not in futures_context:
+            continue
+        _material_context_numeric_field(
+            futures_context.get("funding_rate"),
+            field=f"market_context symbols.{symbol}.futures_context.funding_rate",
+        )
+
+
 def _row_market_symbol_keys(row: Any) -> tuple[str, ...]:
     symbols = row.market.get("symbols") if "symbols" in row.market else {}
     if symbols is None:
@@ -2184,6 +2213,7 @@ def write_phase1_dataset_root_manifest(
 
 def write_phase1_dataset_bundle(material: Phase1DatasetBundleMaterial, dataset_root: str | Path) -> Path:
     root = Path(dataset_root)
+    _validate_material_market_context_funding_rate(material.market_context)
     bundle_dir = root / f"{_bundle_fragment(material.timestamp)}__{material.run_id}"
     bundle_dir.mkdir(parents=True, exist_ok=False)
     _write_json(bundle_dir / "metadata.json", material.metadata)
