@@ -1628,6 +1628,42 @@ def test_allocator_and_friction_comparisons() -> None:
     assert result["comparison_rows"]
 
 
+def test_friction_summary_preserves_valid_cost_attribution_outputs() -> None:
+    summary = backtest_experiments._friction_summary(
+        [
+            {"gross_pnl": 2, "net_pnl": 1.25, "fee_drag": 0.1, "slippage_drag": 0.2, "funding_drag": 0.05},
+            {"gross_pnl": -1.0, "net_pnl": -1.35, "fee_drag": 1, "slippage_drag": 0.25, "funding_drag": 0},
+        ]
+    )
+
+    assert summary["gross_bucket_pnl"] == 1.0
+    assert summary["net_bucket_pnl"] == -0.1
+    assert summary["cost_drag"] == 1.6
+    assert summary["cost_attribution"] == {
+        "fee_drag": 1.1,
+        "slippage_drag": 0.45,
+        "funding_drag": 0.05,
+    }
+
+
+@pytest.mark.parametrize("field", ["fee_drag", "slippage_drag", "funding_drag"])
+@pytest.mark.parametrize("invalid_drag", [True, "1.0", float("nan"), float("inf")])
+def test_friction_summary_rejects_invalid_cost_drag_fields(field: str, invalid_drag: object) -> None:
+    performance_rows = [
+        {
+            "gross_pnl": 1.0,
+            "net_pnl": 0.9,
+            "fee_drag": 0.05,
+            "slippage_drag": 0.03,
+            "funding_drag": 0.02,
+        }
+    ]
+    performance_rows[0][field] = invalid_drag
+
+    with pytest.raises(ValueError, match=rf"^performance_rows\[0\]\.{field} must be a finite number$"):
+        backtest_experiments._friction_summary(performance_rows)
+
+
 def test_allocation_summary_preserves_valid_accepted_budget_outputs() -> None:
     summary = backtest_experiments._allocation_summary(
         [

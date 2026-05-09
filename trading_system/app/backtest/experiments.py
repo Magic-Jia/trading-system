@@ -104,6 +104,15 @@ def _finite_number(value: Any, *, field_name: str) -> float:
     return number
 
 
+def _strict_finite_number(value: Any, *, field_name: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, Real):
+        raise ValueError(f"{field_name} must be a finite number")
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError(f"{field_name} must be a finite number")
+    return number
+
+
 def _trace_candidate_sort_score(candidate: Mapping[str, Any], *, index: int, engine: str) -> float:
     if "score" not in candidate or candidate.get("score") is None:
         return 0.0
@@ -1314,9 +1323,18 @@ def _friction_summary(
         _performance_row_finite_number(row, "net_pnl", index=index)
         for index, row in enumerate(performance_rows)
     ]
-    fee_drag = sum(float(row["fee_drag"]) for row in performance_rows)
-    slippage_drag = sum(float(row["slippage_drag"]) for row in performance_rows)
-    funding_drag = sum(float(row["funding_drag"]) for row in performance_rows)
+    fee_drag = sum(
+        _performance_row_finite_number(row, "fee_drag", index=index)
+        for index, row in enumerate(performance_rows)
+    )
+    slippage_drag = sum(
+        _performance_row_finite_number(row, "slippage_drag", index=index)
+        for index, row in enumerate(performance_rows)
+    )
+    funding_drag = sum(
+        _performance_row_finite_number(row, "funding_drag", index=index)
+        for index, row in enumerate(performance_rows)
+    )
     cost_drag = fee_drag + slippage_drag + funding_drag
     return {
         "gross_bucket_pnl": round(sum(gross_pnls), 6),
