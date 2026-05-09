@@ -121,8 +121,8 @@ def render_backtest_evaluation_report(
         scenario = scenario_payload.get("scenario", {})
         if not isinstance(scenario, Mapping):
             raise ValueError(f"cost_stress.scenarios[{index}].scenario must be an object")
-        name = scenario.get("name", "")
-        if name:
+        if "name" in scenario:
+            name = scenario["name"]
             stress_scenarios.append(
                 _canonical_report_string(name, field_name=f"cost_stress.scenarios[{index}].scenario.name")
             )
