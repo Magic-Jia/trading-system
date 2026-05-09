@@ -335,3 +335,11 @@ def test_run_paper_optimization_validation_rejects_non_string_recorded_at(tmp_pa
             baseline_env={},
             recorded_at_bj=123,
         )
+
+def test_resolve_validation_dataset_root_rejects_invalid_dataset_root_type(tmp_path: Path) -> None:
+    from trading_system.app.paper_optimization.validation import resolve_validation_dataset_root
+
+    import pytest
+
+    with pytest.raises(ValueError, match="dataset_root must be a path string"):
+        resolve_validation_dataset_root(dataset_root=123, repo_root=tmp_path)

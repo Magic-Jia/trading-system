@@ -77,6 +77,8 @@ def resolve_validation_dataset_root(
     repo_root: Path | None = None,
 ) -> Path | None:
     if dataset_root is not None:
+        if not isinstance(dataset_root, (str, Path)):
+            raise ValueError("dataset_root must be a path string")
         return Path(dataset_root)
 
     explicit_env = os.environ.get(VALIDATION_DATASET_ROOT_ENV)
