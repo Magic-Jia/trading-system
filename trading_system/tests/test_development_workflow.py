@@ -341,6 +341,20 @@ def test_verify_rejects_duplicate_explicit_test() -> None:
     assert "duplicate explicit test" in result.stderr
 
 
+def test_verify_rejects_negative_require_full_after() -> None:
+    result = run_verify("--dry-run", "--require-full-after", "-1")
+
+    assert result.returncode == 2
+    assert "require-full-after must be non-negative" in result.stderr
+
+
+def test_verify_rejects_negative_slice_count() -> None:
+    result = run_verify("--dry-run", "--slice-count", "-1")
+
+    assert result.returncode == 2
+    assert "slice-count must be non-negative" in result.stderr
+
+
 def test_verify_strict_auto_changed_implies_auto_changed(tmp_path: Path) -> None:
     probe = ROOT / "UNTRACKED_STRICT_AUTO_CHANGED.txt"
     try:

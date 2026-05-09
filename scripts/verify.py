@@ -151,6 +151,11 @@ def validate_repeated_args(values: list[str], *, label: str) -> None:
         seen.add(value)
 
 
+def validate_non_negative(value: int | None, *, label: str) -> None:
+    if value is not None and value < 0:
+        raise ValueError(f"{label} must be non-negative")
+
+
 def suites_for_test_path(path: str) -> list[str]:
     selected: list[str] = []
     for tests in SUITES.values():
@@ -303,6 +308,8 @@ def main(argv: list[str] | None = None) -> int:
         validate_changed_paths(changed)
         validate_repeated_args(list(args.suite), label="suite")
         validate_repeated_args(list(args.test), label="explicit test")
+        validate_non_negative(args.require_full_after, label="require-full-after")
+        validate_non_negative(args.slice_count, label="slice-count")
     except ValueError as exc:
         print(str(exc), file=sys.stderr)
         return 2
