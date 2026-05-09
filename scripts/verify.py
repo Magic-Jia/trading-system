@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import subprocess
 import sys
 from collections import OrderedDict
@@ -133,7 +134,7 @@ def git_changed_paths() -> list[str]:
     )
 
 
-def build_commands(*, suites: list[str], changed: list[str], explicit_tests: list[str] | None = None) -> list[str]:
+def build_tests(*, suites: list[str], changed: list[str], explicit_tests: list[str] | None = None) -> tuple[list[str], bool]:
     tests: list[str] = []
     full = False
     for suite in suites:
@@ -145,11 +146,16 @@ def build_commands(*, suites: list[str], changed: list[str], explicit_tests: lis
             tests.extend(SUITES[suite])
     tests.extend(tests_for_changed(changed))
     tests.extend(explicit_tests or [])
+    return unique(tests), full
+
+
+def build_commands(*, suites: list[str], changed: list[str], explicit_tests: list[str] | None = None) -> list[str]:
+    tests, full = build_tests(suites=suites, changed=changed, explicit_tests=explicit_tests)
     commands: list[str] = []
     if full:
         commands.append(TEST)
     elif tests:
-        commands.append(f"{TEST} {' '.join(unique(tests))}")
+        commands.append(f"{TEST} {' '.join(tests)}")
     else:
         commands.append(f"{TEST} trading_system/tests/test_development_workflow.py")
     commands.append(DIFF_CHECK)
@@ -184,6 +190,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--test", action="append", default=[], help="explicit test path to include")
     parser.add_argument("--auto-changed", action="store_true", help="include paths from git diff --name-only HEAD")
     parser.add_argument("--dry-run", action="store_true", help="print commands without executing")
+    parser.add_argument("--json", action="store_true", help="with --dry-run, emit the verification plan as JSON")
     parser.add_argument("--list-suites", action="store_true", help="list fixed verification suites")
     args = parser.parse_args(argv)
 
@@ -209,7 +216,19 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     if args.dry_run:
-        print("\n".join(commands))
+        if args.json:
+            tests, full = build_tests(suites=args.suite, changed=changed, explicit_tests=args.test)
+            payload = {
+                "suites": args.suite,
+                "changed": changed,
+                "explicit_tests": args.test,
+                "full": full,
+                "tests": tests,
+                "commands": commands,
+            }
+            print(json.dumps(payload, indent=2, sort_keys=True))
+        else:
+            print("\n".join(commands))
         return 0
     return run_commands(commands)
 
