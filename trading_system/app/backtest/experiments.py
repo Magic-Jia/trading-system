@@ -1385,6 +1385,15 @@ def _rotation_candidate_sector(
     return ""
 
 
+def _rotation_universe_liquidity_meta(symbol: str, universe_row: Mapping[str, Any]) -> dict[str, Any]:
+    liquidity_meta = universe_row.get("liquidity_meta")
+    if liquidity_meta is None:
+        return {}
+    if not isinstance(liquidity_meta, Mapping):
+        raise ValueError(f"{symbol}.rotation_universe.liquidity_meta must be an object")
+    return dict(liquidity_meta)
+
+
 def _validate_rotation_payload_sectors(symbols: Mapping[Any, Any]) -> None:
     for symbol, payload in symbols.items():
         symbol_name = rotation_signals._market_symbol_key(symbol)
@@ -1465,7 +1474,10 @@ def _rotation_candidates_with_trace(
                 "relative_strength_rank": rs_features["relative_strength_rank"],
                 "persistence": rs_features["persistence"],
                 "pullback_quality": rotation_signals._pullback_quality(payload),
-                "liquidity_quality": rotation_signals._liquidity_quality(payload, universe_row),
+                "liquidity_quality": rotation_signals._liquidity_quality(
+                    payload,
+                    {**universe_row, "liquidity_meta": _rotation_universe_liquidity_meta(symbol_name, universe_row)},
+                ),
                 "volatility_quality": rotation_signals._volatility_quality(payload),
             }
         )
@@ -1485,7 +1497,7 @@ def _rotation_candidates_with_trace(
             continue
 
         daily = rotation_signals._tf_row(payload, "daily")
-        liquidity_meta = dict(universe_row.get("liquidity_meta", {})) if isinstance(universe_row, Mapping) else {}
+        liquidity_meta = _rotation_universe_liquidity_meta(symbol_name, universe_row)
         liquidity_meta.setdefault("liquidity_tier", payload.get("liquidity_tier"))
         liquidity_meta["volume_usdt_24h"] = rotation_signals._to_float(daily.get("volume_usdt_24h"))
 

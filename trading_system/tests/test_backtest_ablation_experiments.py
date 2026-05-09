@@ -1515,6 +1515,60 @@ def test_long_gate_telemetry_rejects_invalid_rotation_candidate_sort_score(
         backtest_experiments._rotation_candidates_with_trace(row, disabled_filters=frozenset())
 
 
+@pytest.mark.parametrize("invalid_liquidity_meta", [[("liquidity_tier", "high")], "not-object"])
+def test_long_gate_telemetry_rejects_invalid_rotation_universe_liquidity_meta(
+    monkeypatch: pytest.MonkeyPatch,
+    invalid_liquidity_meta: object,
+) -> None:
+    row = _supportive_soft_long_gate_row()
+    original_build_universes = backtest_experiments.build_universes
+
+    def patched_build_universes(market, derivatives=None):
+        universes = original_build_universes(market, derivatives=derivatives)
+        for universe_row in universes.rotation_universe:
+            if universe_row["symbol"] == "LINKUSDT":
+                universe_row["liquidity_meta"] = invalid_liquidity_meta
+        return universes
+
+    monkeypatch.setattr(backtest_experiments, "build_universes", patched_build_universes)
+    monkeypatch.setattr(backtest_experiments.rotation_signals, "symbol_derivatives_features", lambda *_args: {})
+
+    with pytest.raises(
+        ValueError,
+        match=r"^LINKUSDT\.rotation_universe\.liquidity_meta must be an object$",
+    ):
+        backtest_experiments._rotation_candidates_with_trace(row, disabled_filters=frozenset())
+
+
+@pytest.mark.parametrize("liquidity_meta", [None, {}])
+def test_long_gate_telemetry_preserves_missing_rotation_universe_liquidity_meta(
+    monkeypatch: pytest.MonkeyPatch,
+    liquidity_meta: object,
+) -> None:
+    row = _supportive_soft_long_gate_row()
+    original_build_universes = backtest_experiments.build_universes
+
+    def patched_build_universes(market, derivatives=None):
+        universes = original_build_universes(market, derivatives=derivatives)
+        for universe_row in universes.rotation_universe:
+            if universe_row["symbol"] == "LINKUSDT":
+                if liquidity_meta is None:
+                    universe_row.pop("liquidity_meta", None)
+                else:
+                    universe_row["liquidity_meta"] = liquidity_meta
+        return universes
+
+    monkeypatch.setattr(backtest_experiments, "build_universes", patched_build_universes)
+    monkeypatch.setattr(backtest_experiments.rotation_signals, "symbol_derivatives_features", lambda *_args: {})
+
+    result = backtest_experiments._rotation_candidates_with_trace(row, disabled_filters=frozenset())
+
+    assert result["candidates"][0]["liquidity_meta"] == {
+        "liquidity_tier": "high",
+        "volume_usdt_24h": 1_450_000_000.0,
+    }
+
+
 def _supportive_soft_long_gate_row(regime_label: str = "RISK_ON_ROTATION") -> DatasetSnapshotRow:
     market = {
         "symbols": {
