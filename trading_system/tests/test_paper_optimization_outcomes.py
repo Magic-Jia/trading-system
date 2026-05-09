@@ -499,3 +499,38 @@ def test_collect_trade_outcomes_rejects_non_string_position_status(tmp_path: Pat
             runtime_positions={"BTCUSDT": {"symbol": "BTCUSDT", "qty": 0.02, "status": 123}},
             paper_ledger_path=None,
         )
+
+def test_collect_trade_outcomes_rejects_non_object_ledger_order(tmp_path: Path) -> None:
+    paths = build_runtime_paths("paper", runtime_root=tmp_path / "runtime", runtime_env="research")
+    module = _outcomes_module()
+    ledger_path = paths.paper_ledger_file
+    ledger_path.parent.mkdir(parents=True, exist_ok=True)
+    ledger_path.write_text(
+        json.dumps({"intent_id": "intent-btc", "order": "not-an-object"}) + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="ledger.order must be an object"):
+        module.collect_trade_outcomes(
+            trade_outcomes_path=paths.trade_outcomes_file,
+            signal_facts=[
+                {
+                    "fact_type": "signal",
+                    "mode": "paper",
+                    "runtime_env": "research",
+                    "regime_label": "RISK_ON_TREND",
+                    "symbol": "BTCUSDT",
+                    "side": "LONG",
+                    "engine": "trend",
+                    "setup_type": "BREAKOUT_CONTINUATION",
+                    "score": 0.91,
+                    "stop_loss": 62830.0,
+                    "allocation_status": "ACCEPTED",
+                    "final_risk_budget": 0.01,
+                    "execution_status": "BLOCKED",
+                    "intent_id": "intent-btc",
+                }
+            ],
+            runtime_positions={},
+            paper_ledger_path=ledger_path,
+        )

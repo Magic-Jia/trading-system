@@ -62,10 +62,12 @@ def _float_or_none(value: Any, *, field_name: str) -> float | None:
         raise ValueError(f"{field_name} must be numeric") from exc
 
 
-def _mapping(value: Any) -> Mapping[str, Any]:
-    if isinstance(value, Mapping):
-        return value
-    return {}
+def _mapping(value: Any, *, field_name: str) -> Mapping[str, Any]:
+    if value is None:
+        return {}
+    if not isinstance(value, Mapping):
+        raise ValueError(f"{field_name} must be an object")
+    return value
 
 
 def _signal_facts(signal_facts: list[dict[str, Any]] | None, signal_facts_path: Path | None) -> list[dict[str, Any]]:
@@ -142,9 +144,9 @@ def collect_trade_outcomes(
         symbol = _str_value(fact.get("symbol")).upper()
         position = positions_by_intent.get(intent_id or "") or positions_by_symbol.get(symbol) or {}
         ledger_event = ledger_by_intent.get(intent_id or "") or {}
-        order = _mapping(ledger_event.get("order"))
-        result = _mapping(ledger_event.get("result"))
-        position_update = _mapping(ledger_event.get("position_update"))
+        order = _mapping(ledger_event.get("order"), field_name="ledger.order")
+        result = _mapping(ledger_event.get("result"), field_name="ledger.result")
+        position_update = _mapping(ledger_event.get("position_update"), field_name="ledger.position_update")
 
         execution_status = _optional_str(fact.get("execution_status"), field_name="fact.execution_status")
         outcome_status = _outcome_status(execution_status, position)
