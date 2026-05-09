@@ -125,6 +125,14 @@ def test_verify_maps_worker_audit_script_to_worker_audit_tests() -> None:
     assert "trading_system/tests/test_development_workflow_worker_audit.py" in result.stdout
 
 
+def test_verify_maps_paper_optimization_changes_to_owning_regression() -> None:
+    result = run_verify("--dry-run", "--changed", "trading_system/app/paper_optimization/collector.py")
+
+    assert result.returncode == 0, result.stderr
+    assert "trading_system/tests/test_paper_optimization_collector.py" in result.stdout
+    assert "trading_system/tests/test_paper_optimization_recommendations.py" in result.stdout
+
+
 def test_verify_auto_changed_includes_untracked_files() -> None:
     marker = ROOT / "templates" / ".verify-untracked-marker.md"
     marker.parent.mkdir(exist_ok=True)
@@ -152,6 +160,7 @@ def test_verify_lists_available_suites() -> None:
     assert "evidence-chain" in result.stdout
     assert "runtime-main" in result.stdout
     assert "universe" in result.stdout
+    assert "paper-optimization" in result.stdout
     assert "full" in result.stdout
 
 

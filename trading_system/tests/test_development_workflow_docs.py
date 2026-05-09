@@ -41,6 +41,7 @@ def test_workflow_doc_lists_every_non_full_suite() -> None:
         "backtest-core",
         "archive-data",
         "runtime-support",
+        "paper-optimization",
         "app-smoke",
         "workflow-meta",
     ):

@@ -67,6 +67,15 @@ SUITES: dict[str, list[str]] = {
         "trading_system/tests/test_runtime_paths.py",
         "trading_system/tests/test_main_v2_cycle.py",
     ],
+    "paper-optimization": [
+        "trading_system/tests/test_paper_optimization_collector.py",
+        "trading_system/tests/test_paper_optimization_metrics.py",
+        "trading_system/tests/test_paper_optimization_outcomes.py",
+        "trading_system/tests/test_paper_optimization_promotion.py",
+        "trading_system/tests/test_paper_optimization_recommendations.py",
+        "trading_system/tests/test_paper_optimization_reporting.py",
+        "trading_system/tests/test_paper_optimization_validation.py",
+    ],
     "app-smoke": [
         "trading_system/tests/test_main_v2_cycle.py",
         "trading_system/tests/test_run_cycle.py",
@@ -92,6 +101,7 @@ IMPACT_RULES: tuple[tuple[str, list[str]], ...] = (
     ("trading_system/app/portfolio/", SUITES["portfolio"]),
     ("trading_system/app/runtime/runtime_safety_evidence.py", SUITES["evidence-chain"]),
     ("trading_system/app/runtime/", SUITES["runtime-support"]),
+    ("trading_system/app/paper_optimization/", SUITES["paper-optimization"]),
     ("trading_system/app/backtest/archive/", SUITES["archive-data"]),
     ("trading_system/app/backtest/live_readiness.py", SUITES["evidence-chain"]),
     ("trading_system/app/backtest/microstructure_evidence.py", SUITES["evidence-chain"]),
