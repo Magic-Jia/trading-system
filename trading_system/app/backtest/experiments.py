@@ -113,6 +113,13 @@ def _strict_finite_number(value: Any, *, field_name: str) -> float:
     return number
 
 
+def _optional_strict_finite_number(regime: Mapping[str, Any], field: str, *, default: float = 0.0) -> float:
+    value = regime.get(field)
+    if value is None:
+        return default
+    return _strict_finite_number(value, field_name=f"regime.{field}")
+
+
 def _trace_candidate_sort_score(candidate: Mapping[str, Any], *, index: int, engine: str) -> float:
     if "score" not in candidate or candidate.get("score") is None:
         return 0.0
@@ -438,7 +445,7 @@ def _aggression_from_regime(regime: Mapping[str, Any]) -> float:
     base = _REGIME_BASE_RISK_MULTIPLIERS.get(label)
     if not base:
         return 0.0
-    return round(float(regime.get("risk_multiplier", 0.0) or 0.0) / base, 6)
+    return round(_optional_strict_finite_number(regime, "risk_multiplier") / base, 6)
 
 
 def _confidence_bucket(confidence: float) -> str:
@@ -503,12 +510,13 @@ def run_regime_predictive_power_experiment(rows: Iterable[DatasetSnapshotRow]) -
         label = _regime_label(regime, default="UNKNOWN")
         labels.append(label)
         aggression = _aggression_from_regime(regime)
+        confidence = _optional_strict_finite_number(regime, "confidence")
         grouped[label]["returns"].append(dict(row.forward_returns))
         grouped[label]["drawdowns"].append(dict(row.forward_drawdowns))
-        grouped[label]["confidence"].append(float(regime.get("confidence", 0.0)))
+        grouped[label]["confidence"].append(confidence)
         grouped[label]["aggression"].append(aggression)
 
-        bucket_name = f"{_confidence_bucket(float(regime.get('confidence', 0.0)))}|{_aggression_bucket(aggression)}"
+        bucket_name = f"{_confidence_bucket(confidence)}|{_aggression_bucket(aggression)}"
         confidence_aggression_summary[bucket_name]["count"] += 1
         confidence_aggression_summary[bucket_name]["forward_return_3d"].append(float(row.forward_returns.get("3d", 0.0)))
 

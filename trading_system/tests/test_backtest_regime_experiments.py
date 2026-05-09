@@ -85,6 +85,12 @@ def _row(index: int, *, risk_on: bool, forward_1d: float, forward_3d: float, dra
     )
 
 
+def _override_row(index: int, regime_override: dict[str, object]) -> DatasetSnapshotRow:
+    row = _row(index, risk_on=True, forward_1d=0.018, forward_3d=0.042, drawdown_3d=-0.01)
+    row.meta["regime_override"] = regime_override
+    return row
+
+
 def test_regime_predictive_power_experiment_emits_expected_sections() -> None:
     rows = [
         _row(0, risk_on=True, forward_1d=0.018, forward_3d=0.042, drawdown_3d=-0.01),
@@ -122,6 +128,48 @@ def test_regime_predictive_power_experiment_defaults_missing_regime_label_to_unk
 
     assert set(result["by_regime"]) == {"UNKNOWN"}
     assert set(result["duration_stats"]) == {"UNKNOWN"}
+
+
+@pytest.mark.parametrize(
+    ("field", "invalid_value"),
+    [
+        ("confidence", True),
+        ("confidence", "0.8"),
+        ("confidence", float("nan")),
+        ("confidence", float("inf")),
+        ("risk_multiplier", True),
+        ("risk_multiplier", "0.8"),
+        ("risk_multiplier", float("nan")),
+        ("risk_multiplier", float("inf")),
+    ],
+)
+def test_regime_predictive_power_experiment_rejects_present_invalid_regime_numbers(
+    field: str,
+    invalid_value: object,
+) -> None:
+    regime = {"label": "RISK_ON_TREND", "confidence": 0.8, "risk_multiplier": 0.92}
+    regime[field] = invalid_value
+
+    with pytest.raises(ValueError, match=rf"regime\.{field} must be a finite number"):
+        run_regime_predictive_power_experiment([_override_row(0, regime)])
+
+
+@pytest.mark.parametrize(
+    "regime_override",
+    [
+        {"label": "RISK_ON_TREND", "confidence": 1, "risk_multiplier": 1},
+        {"label": "RISK_ON_TREND", "confidence": 0.8, "risk_multiplier": 0.92},
+        {"label": "RISK_ON_TREND"},
+        {"label": "RISK_ON_TREND", "confidence": None, "risk_multiplier": None},
+    ],
+)
+def test_regime_predictive_power_experiment_preserves_valid_and_default_regime_numbers(
+    regime_override: dict[str, object],
+) -> None:
+    result = run_regime_predictive_power_experiment([_override_row(0, regime_override)])
+
+    assert result["metadata"] == {"snapshot_count": 1, "regime_count": 1}
+
 
 
 def test_regime_scorecard_rendering(tmp_path: Path) -> None:
