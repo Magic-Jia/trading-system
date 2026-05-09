@@ -205,8 +205,11 @@ def _load_v1_account_snapshot(raw: dict[str, Any]) -> AccountSnapshot:
     futures = raw["futures"]
     open_orders = futures.get("open_orders", futures.get("openOrders", raw.get("open_orders", raw.get("openOrders", []))))
     if not isinstance(open_orders, list):
-        open_orders = []
-    positions = _positions_from_rows(list(futures.get("positions", [])))
+        raise ValueError("futures.open_orders must be a list")
+    raw_positions = futures.get("positions", [])
+    if not isinstance(raw_positions, list):
+        raise ValueError("futures.positions must be a list")
+    positions = _positions_from_rows(raw_positions)
     return AccountSnapshot(
         equity=float(futures["total_wallet_balance"]),
         available_balance=float(futures.get("available_balance", futures["total_wallet_balance"])),

@@ -4762,3 +4762,40 @@ def test_load_account_snapshot_rejects_invalid_open_position_qty(tmp_path):
 
     with pytest.raises(ValueError, match=r"open_positions\[0\]\.qty"):
         main_module.load_account_snapshot(account_path)
+
+def test_load_v1_account_snapshot_rejects_non_list_positions(tmp_path):
+    account_path = tmp_path / "account_snapshot.json"
+    account_path.write_text(
+        json.dumps(
+            {
+                "futures": {
+                    "total_wallet_balance": 1000.0,
+                    "available_balance": 900.0,
+                    "positions": {"symbol": "BTCUSDT", "qty": 1.0},
+                    "open_orders": [],
+                }
+            }
+        )
+    )
+
+    with pytest.raises(ValueError, match="futures.positions must be a list"):
+        main_module.load_account_snapshot(account_path)
+
+
+def test_load_v1_account_snapshot_rejects_non_list_open_orders(tmp_path):
+    account_path = tmp_path / "account_snapshot.json"
+    account_path.write_text(
+        json.dumps(
+            {
+                "futures": {
+                    "total_wallet_balance": 1000.0,
+                    "available_balance": 900.0,
+                    "positions": [],
+                    "open_orders": {"symbol": "BTCUSDT"},
+                }
+            }
+        )
+    )
+
+    with pytest.raises(ValueError, match="futures.open_orders must be a list"):
+        main_module.load_account_snapshot(account_path)
