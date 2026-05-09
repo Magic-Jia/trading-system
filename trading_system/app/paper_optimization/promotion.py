@@ -102,7 +102,17 @@ def materialize_env_overrides(
     *,
     baseline_env: Mapping[str, str] | None = None,
 ) -> dict[str, str]:
-    env_values: dict[str, str] = dict(baseline_env or {})
+    baseline_snapshot: dict[str, str] = {}
+    if baseline_env is not None:
+        if not isinstance(baseline_env, Mapping):
+            raise ValueError("baseline_env must be an object")
+        for key, value in baseline_env.items():
+            if not isinstance(key, str):
+                raise ValueError("baseline_env keys must be strings")
+            if not isinstance(value, str):
+                raise ValueError(f"baseline_env.{key} must be a string")
+            baseline_snapshot[key] = value
+    env_values: dict[str, str] = dict(baseline_snapshot)
     recommendations = recommendations_payload.get("recommendations")
     if not isinstance(recommendations, list):
         return {}
@@ -151,7 +161,7 @@ def materialize_env_overrides(
     return {
         key: value
         for key, value in env_values.items()
-        if baseline_env is None or baseline_env.get(key) != value or key not in baseline_env
+        if baseline_env is None or baseline_snapshot.get(key) != value or key not in baseline_snapshot
     }
 
 

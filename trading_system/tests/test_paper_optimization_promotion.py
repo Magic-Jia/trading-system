@@ -420,3 +420,19 @@ def test_build_promotion_decision_rejects_invalid_bundle_paths() -> None:
             },
             recorded_at_bj="2026-04-24T12:05:00+08:00",
         )
+
+def test_materialize_env_overrides_rejects_non_object_baseline_env() -> None:
+    import pytest
+
+    with pytest.raises(ValueError, match="baseline_env must be an object"):
+        materialize_env_overrides({"recommendations": []}, baseline_env=[("TRADING_MAX_TOTAL_RISK_PCT", "0.03")])
+
+
+def test_materialize_env_overrides_rejects_non_string_baseline_env_values() -> None:
+    import pytest
+
+    with pytest.raises(ValueError, match="baseline_env.TRADING_MAX_TOTAL_RISK_PCT must be a string"):
+        materialize_env_overrides(
+            {"recommendations": []},
+            baseline_env={"TRADING_MAX_TOTAL_RISK_PCT": 0.03},
+        )
