@@ -141,6 +141,18 @@ def test_verify_json_dry_run_emits_machine_readable_plan() -> None:
     import json
 
     payload = json.loads(result.stdout)
+    assert set(payload) == {
+        "changed",
+        "commands",
+        "explicit_tests",
+        "full",
+        "full_checkpoint_reason",
+        "plan_kind",
+        "plan_version",
+        "strict_changed_verification",
+        "suites",
+        "tests",
+    }
     assert payload["plan_version"] == 1
     assert payload["plan_kind"] == "verification_plan"
     assert payload["suites"] == []
