@@ -14,10 +14,10 @@ DISPLAY_COMMANDS = [
     "python3 scripts/verify.py --suite evidence-chain",
 ]
 PLANNED_SUITES = ["workflow-meta", "evidence-chain"]
-COMMANDS = [
-    [sys.executable, "scripts/verify.py", "--dry-run", "--strict-auto-changed"],
-    [sys.executable, "scripts/verify.py", "--suite", "workflow-meta"],
-    [sys.executable, "scripts/verify.py", "--suite", "evidence-chain"],
+PLAN_COMMAND_ARGV = [
+    ["python3", "scripts/verify.py", "--dry-run", "--strict-auto-changed"],
+    ["python3", "scripts/verify.py", "--suite", "workflow-meta"],
+    ["python3", "scripts/verify.py", "--suite", "evidence-chain"],
 ]
 
 
@@ -33,8 +33,8 @@ def plan_fingerprint(payload: dict[str, object]) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
-def main() -> int:
-    args = build_parser().parse_args()
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
     if args.json and not args.dry_run:
         print("--json requires --dry-run", file=sys.stderr)
         return 2
@@ -44,11 +44,7 @@ def main() -> int:
             "plan_kind": "ci_verification_plan",
             "entrypoint": "ci_verify",
             "commands": DISPLAY_COMMANDS,
-            "command_argv": [
-                ["python3", "scripts/verify.py", "--dry-run", "--strict-auto-changed"],
-                ["python3", "scripts/verify.py", "--suite", "workflow-meta"],
-                ["python3", "scripts/verify.py", "--suite", "evidence-chain"],
-            ],
+            "command_argv": PLAN_COMMAND_ARGV,
             "suites": PLANNED_SUITES,
             "strict_changed_verification": True,
         }
@@ -64,9 +60,9 @@ def main() -> int:
                 print(command)
         return 0
 
-    for command in COMMANDS:
+    for command in PLAN_COMMAND_ARGV:
         print("$ " + " ".join(command), flush=True)
-        completed = subprocess.run(command, text=True)
+        completed = subprocess.run(command, text=True, shell=False)
         if completed.returncode != 0:
             return completed.returncode
     return 0

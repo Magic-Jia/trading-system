@@ -507,6 +507,32 @@ def test_ci_verify_text_dry_run_reports_strict_changed_verification() -> None:
     assert "python3 scripts/verify.py --dry-run --strict-auto-changed" in result.stdout
 
 
+def test_ci_verify_executes_plan_argv_without_shell(monkeypatch) -> None:
+    spec = importlib.util.spec_from_file_location("ci_verify", ROOT / "scripts" / "ci_verify.py")
+    assert spec is not None
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+
+    calls: list[dict[str, object]] = []
+
+    class Completed:
+        returncode = 0
+
+    def fake_run(command, **kwargs):
+        calls.append({"command": command, **kwargs})
+        return Completed()
+
+    monkeypatch.setattr(module.subprocess, "run", fake_run)
+
+    assert module.main([]) == 0
+    assert calls == [
+        {"command": ["python3", "scripts/verify.py", "--dry-run", "--strict-auto-changed"], "text": True, "shell": False},
+        {"command": ["python3", "scripts/verify.py", "--suite", "workflow-meta"], "text": True, "shell": False},
+        {"command": ["python3", "scripts/verify.py", "--suite", "evidence-chain"], "text": True, "shell": False},
+    ]
+
+
 def test_nightly_verify_entrypoint_runs_full_suite() -> None:
     script = ROOT / "scripts" / "nightly_verify.py"
 
@@ -584,3 +610,31 @@ def test_nightly_verify_text_dry_run_reports_clean_env() -> None:
     assert "suites: full" in result.stdout
     assert "TRADING_RUNTIME_ENV" in result.stdout
     assert "python3 scripts/verify.py --suite full" in result.stdout
+
+
+def test_nightly_verify_executes_plan_argv_without_shell(monkeypatch) -> None:
+    spec = importlib.util.spec_from_file_location("nightly_verify", ROOT / "scripts" / "nightly_verify.py")
+    assert spec is not None
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+
+    calls: list[dict[str, object]] = []
+
+    class Completed:
+        returncode = 0
+
+    def fake_run(command, **kwargs):
+        calls.append({"command": command, **kwargs})
+        return Completed()
+
+    monkeypatch.setattr(module.subprocess, "run", fake_run)
+
+    assert module.main([]) == 0
+    assert len(calls) == 1
+    assert calls[0]["command"] == ["python3", "scripts/verify.py", "--suite", "full"]
+    assert calls[0]["text"] is True
+    assert calls[0]["shell"] is False
+    env = calls[0]["env"]
+    assert isinstance(env, dict)
+    assert "TRADING_RUNTIME_ENV" not in env

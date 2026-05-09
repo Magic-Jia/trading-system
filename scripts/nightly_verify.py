@@ -22,7 +22,7 @@ UNSET_ENV = [
 
 DISPLAY_COMMANDS = ["python3 scripts/verify.py --suite full"]
 PLANNED_SUITES = ["full"]
-COMMAND = [sys.executable, "scripts/verify.py", "--suite", "full"]
+PLAN_COMMAND_ARGV = [["python3", "scripts/verify.py", "--suite", "full"]]
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -37,8 +37,8 @@ def plan_fingerprint(payload: dict[str, object]) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
-def main() -> int:
-    args = build_parser().parse_args()
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
     if args.json and not args.dry_run:
         print("--json requires --dry-run", file=sys.stderr)
         return 2
@@ -49,7 +49,7 @@ def main() -> int:
             "entrypoint": "nightly_verify",
             "clean_env": True,
             "commands": DISPLAY_COMMANDS,
-            "command_argv": [["python3", "scripts/verify.py", "--suite", "full"]],
+            "command_argv": PLAN_COMMAND_ARGV,
             "suites": PLANNED_SUITES,
             "unset_env": UNSET_ENV,
         }
@@ -69,8 +69,8 @@ def main() -> int:
     for key in UNSET_ENV:
         env.pop(key, None)
     print("unset " + " ".join(UNSET_ENV), flush=True)
-    print("$ " + " ".join(COMMAND), flush=True)
-    completed = subprocess.run(COMMAND, text=True, env=env)
+    print("$ " + " ".join(PLAN_COMMAND_ARGV[0]), flush=True)
+    completed = subprocess.run(PLAN_COMMAND_ARGV[0], text=True, env=env, shell=False)
     return completed.returncode
 
 
