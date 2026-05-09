@@ -489,13 +489,31 @@ def _metric_snapshot(bundle: BacktestBundle) -> dict[str, float]:
         return snapshot
     if bundle.experiment_kind == "allocator_friction":
         variants = _require_mapping(bundle.artifacts["summary.json"], "variants", context=f"{bundle.root}/summary.json")
-        current_variant = dict(variants.get("current_allocator", {}))
-        allocation_summary = dict(current_variant.get("allocation_summary", {}))
+        current_variant = _require_mapping(variants, "current_allocator", context=f"{bundle.root}/summary.json.variants")
+        allocation_summary = _require_mapping(
+            current_variant,
+            "allocation_summary",
+            context=f"{bundle.root}/summary.json.variants.current_allocator",
+        )
         snapshot.update(
             {
-                "total_return": float(metrics.get("best_base_net_bucket_pnl", 0.0)),
-                "cost_drag": float(metrics.get("current_allocator_base_cost_drag", 0.0)),
-                "accepted_allocations": float(allocation_summary.get("accepted_allocations", 0.0)),
+                "total_return": _require_real_number(
+                    metrics,
+                    "best_base_net_bucket_pnl",
+                    context=f"{bundle.root}/scorecard.json.key_metrics",
+                ),
+                "cost_drag": _require_real_number(
+                    metrics,
+                    "current_allocator_base_cost_drag",
+                    context=f"{bundle.root}/scorecard.json.key_metrics",
+                ),
+                "accepted_allocations": float(
+                    _require_non_negative_int(
+                        allocation_summary,
+                        "accepted_allocations",
+                        context=f"{bundle.root}/summary.json.variants.allocation_summary",
+                    )
+                ),
             }
         )
         return snapshot

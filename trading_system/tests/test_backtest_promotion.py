@@ -818,6 +818,54 @@ def test_load_backtest_bundle_rejects_numeric_strings_in_allocator_metrics(tmp_p
     with pytest.raises(ValueError, match="allocation_summary.accepted_allocations must be a non-negative integer"):
         promotion.load_backtest_bundle(bundle)
 
+
+def test_metric_snapshot_rejects_mutated_allocator_missing_current_variant(tmp_path: Path) -> None:
+    bundle_dir = tmp_path / "allocator_compare"
+    bundle_dir.mkdir()
+    artifacts = ["manifest.json", "summary.json", "comparison_rows.json", "scorecard.json"]
+    _write_json(
+        bundle_dir / "manifest.json",
+        _manifest(
+            experiment_kind="allocator_friction",
+            baseline_name="current_policy",
+            variant_name="allocator_variant",
+            artifacts=artifacts,
+        ),
+    )
+    _write_json(
+        bundle_dir / "summary.json",
+        {
+            "variants": {
+                "current_allocator": {
+                    "allocation_summary": {"accepted_allocations": 4},
+                    "frictions": {"base": {"net_bucket_pnl": 0.08, "cost_drag": 0.02, "trade_count": 4}},
+                }
+            }
+        },
+    )
+    _write_json(bundle_dir / "comparison_rows.json", {"rows": []})
+    _write_json(
+        bundle_dir / "scorecard.json",
+        {
+            "key_metrics": {
+                "best_base_net_bucket_pnl": 0.08,
+                "best_stressed_net_bucket_pnl": 0.05,
+                "current_allocator_base_cost_drag": 0.02,
+            }
+        },
+    )
+    bundle = promotion.load_backtest_bundle(bundle_dir)
+    bundle.artifacts["summary.json"]["variants"] = {
+        "legacy_allocator": {
+            "allocation_summary": {"accepted_allocations": 4},
+            "frictions": {"base": {"net_bucket_pnl": 0.08, "cost_drag": 0.02, "trade_count": 4}},
+        }
+    }
+
+    with pytest.raises(ValueError, match="summary.json.variants.current_allocator must be an object"):
+        promotion._metric_snapshot(bundle)
+
+
 def test_load_backtest_bundle_rejects_numeric_strings_in_engine_metrics(tmp_path: Path) -> None:
     bundle = tmp_path / "engine"
     bundle.mkdir()
