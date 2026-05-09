@@ -856,7 +856,9 @@ def render_allocator_friction_report(
         frictions = payload.get("frictions", {})
         if not isinstance(frictions, Mapping):
             raise ValueError(f"variants.{variant_name}.frictions must be an object")
-        base = frictions.get("base", {})
+        if "base" not in frictions:
+            raise ValueError(f"variants.{variant_name}.frictions.base must be an object")
+        base = frictions["base"]
         if not isinstance(base, Mapping):
             raise ValueError(f"variants.{variant_name}.frictions.base must be an object")
         return _strict_present_finite_float(

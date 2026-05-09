@@ -2111,6 +2111,32 @@ def test_allocator_friction_report_rejects_string_best_base_net_bucket_pnl() -> 
         )
 
 
+def test_allocator_friction_report_rejects_missing_variant_base_frictions() -> None:
+    with pytest.raises(
+        ValueError,
+        match="variants.low_friction.frictions.base must be an object",
+    ):
+        cli.render_allocator_friction_report(
+            experiment_name="allocator_friction",
+            metadata={"snapshot_count": 1},
+            experiment={
+                "variants": {
+                    "current_allocator": {
+                        "frictions": {
+                            "base": {"net_bucket_pnl": 0.01, "cost_drag": 0.005},
+                            "stressed": {"net_bucket_pnl": 0.01},
+                        },
+                    },
+                    "low_friction": {
+                        "frictions": {
+                            "stressed": {"net_bucket_pnl": 0.01},
+                        },
+                    },
+                }
+            },
+        )
+
+
 def test_allocator_friction_report_rejects_list_coerced_variants_map() -> None:
     with pytest.raises(ValueError, match="variants must be an object"):
         cli.render_allocator_friction_report(
