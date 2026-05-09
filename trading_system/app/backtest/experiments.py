@@ -840,7 +840,13 @@ def _merge_symbol_breakdown(target: dict[str, dict[str, Any]], source: Mapping[s
         row_path = f"symbol_breakdown.{symbol_key}"
         row_payload = _telemetry_mapping(payload, path=row_path)
         target_row = target.setdefault(symbol_key, {"snapshot_count": 0, "funnel": {}, "filter_counts": {}})
-        target_row["snapshot_count"] += int(row_payload.get("snapshot_count", 0))
+        snapshot_count = 0
+        if "snapshot_count" in row_payload:
+            snapshot_count = _telemetry_integer_counter(
+                row_payload["snapshot_count"],
+                path=f"{row_path}.snapshot_count",
+            )
+        target_row["snapshot_count"] += snapshot_count
         _merge_counts(target_row["funnel"], _telemetry_optional_mapping(row_payload, "funnel", path=row_path))
         _merge_counts(
             target_row["filter_counts"],

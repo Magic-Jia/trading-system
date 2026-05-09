@@ -835,6 +835,14 @@ def test_long_gate_telemetry_rejects_non_mapping_symbol_breakdown_shapes(
         backtest_experiments._merge_symbol_breakdown({}, source)
 
 
+@pytest.mark.parametrize("snapshot_count", [True, "1", 1.5])
+def test_long_gate_telemetry_rejects_invalid_symbol_breakdown_snapshot_count(snapshot_count: object) -> None:
+    source = {"BTCUSDT": {"snapshot_count": snapshot_count, "funnel": {}, "filter_counts": {}}}
+
+    with pytest.raises(ValueError, match=r"^symbol_breakdown\.BTCUSDT\.snapshot_count must be an integer$"):
+        backtest_experiments._merge_symbol_breakdown({}, source)
+
+
 def test_long_gate_telemetry_rejects_present_non_string_regime_label() -> None:
     row = _bullish_ablation_row()
     row.meta["regime_override"]["label"] = True
