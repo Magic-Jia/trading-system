@@ -140,7 +140,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--test", action="append", default=[], help="explicit test path to include")
     parser.add_argument("--auto-changed", action="store_true", help="include paths from git diff --name-only HEAD")
     parser.add_argument("--dry-run", action="store_true", help="print commands without executing")
+    parser.add_argument("--list-suites", action="store_true", help="list fixed verification suites")
     args = parser.parse_args(argv)
+
+    if args.list_suites:
+        for name, tests in SUITES.items():
+            count = "full pytest suite" if name == "full" else f"{len(tests)} test paths"
+            print(f"{name}: {count}")
+        return 0
 
     changed = list(args.changed)
     if args.auto_changed:

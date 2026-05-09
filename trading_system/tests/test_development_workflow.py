@@ -96,3 +96,13 @@ def test_verify_rejects_missing_explicit_test_path_before_pytest() -> None:
 
     assert result.returncode == 2
     assert "missing verification path" in result.stderr
+
+
+def test_verify_lists_available_suites() -> None:
+    result = run_verify("--list-suites")
+
+    assert result.returncode == 0, result.stderr
+    assert "evidence-chain" in result.stdout
+    assert "runtime-main" in result.stdout
+    assert "universe" in result.stdout
+    assert "full" in result.stdout
