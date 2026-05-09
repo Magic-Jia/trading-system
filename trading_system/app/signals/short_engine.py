@@ -97,6 +97,12 @@ def _validate_required_short_timeframe_numerics(symbol: str, payload: Mapping[st
     return True
 
 
+def _market_symbol_key(symbol: Any) -> str:
+    if not isinstance(symbol, str):
+        raise ValueError("market.symbols key must be a string")
+    return symbol
+
+
 def _regime_value(regime: RegimeSnapshot | Mapping[str, Any] | None, key: str, default: Any = None) -> Any:
     if regime is None:
         return default
@@ -259,15 +265,17 @@ def generate_short_candidates(
 
     candidates: list[EngineCandidate] = []
     profile = resolve_entry_profile(entry_profile)
-    for symbol, universe_row in eligible.items():
-        payload_value = symbols.get(symbol)
+    for market_symbol in symbols:
+        _market_symbol_key(market_symbol)
+    for canonical_symbol, universe_row in eligible.items():
+        payload_value = symbols.get(canonical_symbol)
         if not isinstance(payload_value, Mapping):
             continue
         payload = payload_value
-        payload_sector = _payload_sector(payload, symbol)
+        payload_sector = _payload_sector(payload, canonical_symbol)
         if payload_sector.lower() != "majors":
             continue
-        if not _validate_required_short_timeframe_numerics(str(symbol), payload):
+        if not _validate_required_short_timeframe_numerics(canonical_symbol, payload):
             continue
         if not _trend_broken(payload):
             continue
@@ -278,7 +286,7 @@ def generate_short_candidates(
         if setup_type is None:
             continue
 
-        derivatives_features = _strict_derivatives_short_features(symbol_derivatives_features(derivatives, str(symbol)))
+        derivatives_features = _strict_derivatives_short_features(symbol_derivatives_features(derivatives, canonical_symbol))
         if _reject_crowded_short_squeeze_risk(derivatives_features):
             continue
 
@@ -319,7 +327,7 @@ def generate_short_candidates(
                 "basis_bps": derivatives_features["basis_bps"],
             }
 
-        liquidity_meta = dict(_liquidity_meta(universe_row, symbol))
+        liquidity_meta = dict(_liquidity_meta(universe_row, canonical_symbol))
         liquidity_meta.setdefault("liquidity_tier", payload.get("liquidity_tier"))
         liquidity_meta["volume_usdt_24h"] = _to_float(daily.get("volume_usdt_24h"))
 
@@ -327,7 +335,7 @@ def generate_short_candidates(
             EngineCandidate(
                 engine="short",
                 setup_type=setup_type,
-                symbol=symbol,
+                symbol=canonical_symbol,
                 side="SHORT",
                 score=total_score,
                 stop_loss=stop_loss,
