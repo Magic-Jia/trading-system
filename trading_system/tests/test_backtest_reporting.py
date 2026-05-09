@@ -352,6 +352,21 @@ def test_full_market_trade_postmortem_exposes_execution_source_and_quality() -> 
     assert "impact_bps" in markdown
 
 
+def test_full_market_report_rejects_non_object_cost_breakdown() -> None:
+    result = sample_baseline_result()
+    bad_result = BaselineReplayResult(
+        portfolio_summary=result.portfolio_summary,
+        trade_ledger=result.trade_ledger,
+        rejection_ledger=result.rejection_ledger,
+        cost_breakdown=[("fees", 1.0)],  # type: ignore[arg-type]
+        gross_period_returns=result.gross_period_returns,
+        net_period_returns=result.net_period_returns,
+    )
+
+    with pytest.raises(ValueError, match="cost_breakdown must be an object"):
+        reporting.render_full_market_baseline_report(bad_result)
+
+
 def test_full_market_report_exposes_depth_and_maker_fill_fields() -> None:
     report = reporting.render_full_market_baseline_report(sample_baseline_result())
 

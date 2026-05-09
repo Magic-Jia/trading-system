@@ -248,6 +248,10 @@ def render_full_market_baseline_report(result: BaselineReplayResult) -> dict[str
         for reason in row.reasons
     )
 
+    if not isinstance(result.cost_breakdown, Mapping):
+        raise ValueError("cost_breakdown must be an object")
+    cost_breakdown_payload = dict(result.cost_breakdown)
+
     return {
         "summary": {
             "experiment_name": result.portfolio_summary.experiment_name,
@@ -259,7 +263,7 @@ def render_full_market_baseline_report(result: BaselineReplayResult) -> dict[str
             "turnover": result.portfolio_summary.turnover,
             "trade_count": result.portfolio_summary.trade_count,
             "cost_drag": cost_drag(result.gross_period_returns, result.net_period_returns),
-            "cost_breakdown": dict(result.cost_breakdown),
+            "cost_breakdown": cost_breakdown_payload,
         },
         "breakdowns": {
             "by_market": _trade_breakdown_rows(result.trade_ledger, key_name="market_type", key_fn=lambda row: row.market_type),
