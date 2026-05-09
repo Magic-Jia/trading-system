@@ -168,3 +168,10 @@ def test_verify_maps_workflow_tool_changes_to_workflow_meta_suite() -> None:
     assert "trading_system/tests/test_development_workflow_docs.py" in result.stdout
     assert "trading_system/tests/test_development_workflow_impact_map.py" in result.stdout
     assert "trading_system/tests/test_development_workflow_worker_audit.py" in result.stdout
+
+
+def test_verify_strict_auto_changed_rejects_unmapped_paths() -> None:
+    result = run_verify("--dry-run", "--strict-auto-changed", "--changed", "UNKNOWN_UNMAPPED_FILE.txt")
+
+    assert result.returncode == 2
+    assert "no impacted verification tests" in result.stderr

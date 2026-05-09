@@ -199,6 +199,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--changed", action="append", default=[], help="changed repository path for impact-based tests")
     parser.add_argument("--test", action="append", default=[], help="explicit test path to include")
     parser.add_argument("--auto-changed", action="store_true", help="include paths from git diff --name-only HEAD")
+    parser.add_argument("--strict-auto-changed", action="store_true", help="fail if changed paths do not map to any tests and no explicit suite/test is selected")
     parser.add_argument("--dry-run", action="store_true", help="print commands without executing")
     parser.add_argument("--json", action="store_true", help="with --dry-run, emit the verification plan as JSON")
     parser.add_argument("--require-full-after", type=int, default=None, help="force full suite when --slice-count reaches this threshold")
@@ -231,6 +232,10 @@ def main(argv: list[str] | None = None) -> int:
         full_checkpoint_reason = f"slice_count {args.slice_count} reached threshold {args.require_full_after}"
 
     try:
+        tests, full = build_tests(suites=suites, changed=changed, explicit_tests=args.test)
+        if args.strict_auto_changed and changed and not suites and not args.test and not tests and not full:
+            print("no impacted verification tests for changed files", file=sys.stderr)
+            return 2
         commands = build_commands(suites=suites, changed=changed, explicit_tests=args.test)
         validate_test_paths(commands)
     except ValueError as exc:
@@ -239,7 +244,6 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.dry_run:
         if args.json:
-            tests, full = build_tests(suites=suites, changed=changed, explicit_tests=args.test)
             payload = {
                 "suites": suites,
                 "changed": changed,
