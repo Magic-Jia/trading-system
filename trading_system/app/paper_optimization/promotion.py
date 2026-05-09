@@ -85,7 +85,10 @@ def materialize_env_overrides(
                 raise ValueError("overlay_ops.op must be a string")
             op = raw_op_name.strip().lower()
             if op == "set":
-                env_values[env_name] = str(raw_op.get("value") or "")
+                raw_value = raw_op.get("value", "")
+                if not isinstance(raw_value, str):
+                    raise ValueError("overlay_ops.value must be a string")
+                env_values[env_name] = raw_value
                 continue
             if op != "multiply":
                 raise ValueError(f"unsupported overlay op: {op}")
