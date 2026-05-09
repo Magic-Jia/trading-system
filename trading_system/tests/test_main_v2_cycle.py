@@ -4702,3 +4702,39 @@ def test_main_v2_surfaces_defensive_regime_de_risk_action_path(monkeypatch, tmp_
     assert summary["management_action_counts"]["DE_RISK"] == 1
     assert summary["review_actions"][0]["action"] == "DE_RISK"
     assert summary["review_actions"][0]["qty_fraction"] == pytest.approx(0.25)
+
+def test_load_account_snapshot_rejects_non_list_open_positions(tmp_path):
+    account_path = tmp_path / "account_snapshot.json"
+    account_path.write_text(
+        json.dumps(
+            {
+                "equity": 1000.0,
+                "available_balance": 900.0,
+                "futures_wallet_balance": 1000.0,
+                "open_positions": {"symbol": "BTCUSDT", "qty": 1.0},
+                "open_orders": [],
+            }
+        )
+    )
+
+    with pytest.raises(ValueError, match="open_positions must be a list"):
+        main_module.load_account_snapshot(account_path)
+
+
+def test_load_account_snapshot_rejects_non_object_meta(tmp_path):
+    account_path = tmp_path / "account_snapshot.json"
+    account_path.write_text(
+        json.dumps(
+            {
+                "equity": 1000.0,
+                "available_balance": 900.0,
+                "futures_wallet_balance": 1000.0,
+                "open_positions": [],
+                "open_orders": [],
+                "meta": [["account_type", "paper"]],
+            }
+        )
+    )
+
+    with pytest.raises(ValueError, match="meta must be an object"):
+        main_module.load_account_snapshot(account_path)

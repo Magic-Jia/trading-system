@@ -198,10 +198,16 @@ def _load_v1_account_snapshot(raw: dict[str, Any]) -> AccountSnapshot:
 def _load_v2_account_snapshot(raw: dict[str, Any]) -> AccountSnapshot:
     open_positions = raw.get("open_positions", raw.get("positions", []))
     if not isinstance(open_positions, list):
-        open_positions = []
+        raise ValueError("open_positions must be a list")
     open_orders = raw.get("open_orders", raw.get("openOrders", []))
     if not isinstance(open_orders, list):
-        open_orders = []
+        raise ValueError("open_orders must be a list")
+
+    meta = raw.get("meta", {})
+    if meta is None:
+        meta = {}
+    if not isinstance(meta, Mapping):
+        raise ValueError("meta must be an object")
 
     equity = _float(raw, "equity", "total_wallet_balance")
     available_balance = _float(raw, "available_balance")
@@ -217,7 +223,7 @@ def _load_v2_account_snapshot(raw: dict[str, Any]) -> AccountSnapshot:
         futures_wallet_balance=futures_wallet_balance,
         open_positions=_positions_from_rows(open_positions),
         open_orders=open_orders,
-        meta=dict(raw.get("meta") or {}),
+        meta=dict(meta),
     )
 
 
