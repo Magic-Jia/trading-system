@@ -269,6 +269,40 @@ def test_generate_trend_candidates_active_paper_profile_allows_modest_positive_m
     assert candidates[0].stop_loss > 0
 
 
+@pytest.mark.parametrize("score_total", ["0.9", True, math.nan, math.inf])
+def test_generate_trend_candidates_rejects_present_invalid_score_total(monkeypatch, score_total):
+    monkeypatch.setattr(
+        trend_engine,
+        "score_trend_candidate",
+        lambda _candidate: {"total": score_total, "components": {}},
+    )
+
+    with pytest.raises(ValueError, match=r"trend score\.total must be a finite non-bool number"):
+        generate_trend_candidates(
+            _modest_positive_trend_market(),
+            include_high_liquidity_strong_names=False,
+            entry_profile=ACTIVE_PAPER_ENTRY_PROFILE,
+        )
+
+
+@pytest.mark.parametrize("score_total", [1, 0.9])
+def test_generate_trend_candidates_accepts_numeric_score_total(monkeypatch, score_total):
+    monkeypatch.setattr(
+        trend_engine,
+        "score_trend_candidate",
+        lambda _candidate: {"total": score_total, "components": {}},
+    )
+
+    candidates = generate_trend_candidates(
+        _modest_positive_trend_market(),
+        include_high_liquidity_strong_names=False,
+        entry_profile=ACTIVE_PAPER_ENTRY_PROFILE,
+    )
+
+    assert [candidate.symbol for candidate in candidates] == ["BTCUSDT"]
+    assert candidates[0].score == float(score_total)
+
+
 def test_generate_trend_candidates_rejects_invalid_required_numeric_boundaries():
     valid_candidates = generate_trend_candidates(
         _modest_positive_trend_market(),

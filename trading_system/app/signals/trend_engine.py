@@ -53,6 +53,15 @@ def _strict_present_derivatives_number(features: Mapping[str, Any], field: str, 
     return float(value)
 
 
+def _strict_present_score_total(score: Mapping[str, Any]) -> float:
+    if "total" not in score or score.get("total") is None:
+        return 0.0
+    value = score.get("total")
+    if not _is_finite_number(value):
+        raise ValueError("trend score.total must be a finite non-bool number")
+    return float(value)
+
+
 def _strict_present_derivatives_string(features: Mapping[str, Any], field: str, field_path: str, default: str) -> str:
     if field not in features:
         return default
@@ -467,7 +476,7 @@ def generate_trend_candidates(
                 "volume_quality": _volume_quality(payload),
             }
         )
-        total_score = _to_float(scored.get("total"))
+        total_score = _strict_present_score_total(scored)
         if total_score <= 0.0:
             continue
 
