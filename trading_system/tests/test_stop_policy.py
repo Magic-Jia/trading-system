@@ -122,6 +122,41 @@ def test_build_stop_policy_tightens_longs_under_crash_defensive_regime():
     assert defensive.stop_loss > base.stop_loss
 
 
+@pytest.mark.parametrize("invalid_engine", [True, 123, None])
+def test_build_stop_policy_rejects_non_string_engine_identity(invalid_engine: object) -> None:
+    with pytest.raises(ValueError, match="engine must be a string"):
+        build_stop_policy(
+            _trend_payload(),
+            engine=invalid_engine,
+            setup_type="BREAKOUT_CONTINUATION",
+            side="LONG",
+        )
+
+
+@pytest.mark.parametrize("invalid_setup_type", [True, 123, None])
+def test_build_stop_policy_rejects_non_string_setup_type_identity(
+    invalid_setup_type: object,
+) -> None:
+    with pytest.raises(ValueError, match="setup_type must be a string"):
+        build_stop_policy(
+            _trend_payload(),
+            engine="trend",
+            setup_type=invalid_setup_type,
+            side="LONG",
+        )
+
+
+@pytest.mark.parametrize("invalid_side", [True, 123, None])
+def test_build_stop_policy_rejects_non_string_side_identity(invalid_side: object) -> None:
+    with pytest.raises(ValueError, match="side must be a string"):
+        build_stop_policy(
+            _trend_payload(),
+            engine="trend",
+            setup_type="BREAKOUT_CONTINUATION",
+            side=invalid_side,
+        )
+
+
 @pytest.mark.parametrize(
     ("timeframe", "field"),
     [

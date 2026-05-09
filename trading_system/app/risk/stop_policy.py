@@ -124,9 +124,16 @@ def build_stop_policy(
 ) -> StopPolicy | None:
     _reject_invalid_timeframe_numeric(payload)
 
-    engine_key = str(engine).strip().lower()
-    setup_key = str(setup_type).strip().upper()
-    side_key = str(side).strip().upper()
+    if not isinstance(engine, str):
+        raise ValueError("engine must be a string")
+    if not isinstance(setup_type, str):
+        raise ValueError("setup_type must be a string")
+    if not isinstance(side, str):
+        raise ValueError("side must be a string")
+
+    engine_key = engine.strip().lower()
+    setup_key = setup_type.strip().upper()
+    side_key = side.strip().upper()
 
     if side_key == "LONG" and _regime_label(regime) == "CRASH_DEFENSIVE":
         return _crash_defensive_long_policy(payload)
