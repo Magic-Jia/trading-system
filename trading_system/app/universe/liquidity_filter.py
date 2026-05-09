@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import math
 from dataclasses import dataclass, field
 from typing import Any, Mapping
 
@@ -13,11 +14,16 @@ def _env_bool(name: str, default: str) -> bool:
     return os.environ.get(name, default).strip().lower() not in {"0", "false", "no"}
 
 
-def _to_float(value: Any, fallback: float) -> float:
-    try:
-        return float(value)
-    except (TypeError, ValueError):
+def _numeric_metric(metrics: Mapping[str, Any], field: str, fallback: float) -> float:
+    if field not in metrics or metrics[field] is None:
         return fallback
+    value = metrics[field]
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{field} must be a finite number when present")
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError(f"{field} must be a finite number when present")
+    return number
 
 
 def _optional_bool(metrics: Mapping[str, Any], field: str, default: bool = False) -> bool:
@@ -49,10 +55,10 @@ def evaluate_liquidity(
 ) -> dict[str, bool | float]:
     cfg = config or LiquidityFilterConfig()
 
-    rolling_notional = _to_float(metrics.get("rolling_notional"), 0.0)
-    depth_proxy_notional = _to_float(metrics.get("depth_proxy_notional"), rolling_notional)
-    slippage_bps = _to_float(metrics.get("slippage_bps"), float("inf"))
-    listing_age_days = _to_float(metrics.get("listing_age_days"), float("inf"))
+    rolling_notional = _numeric_metric(metrics, "rolling_notional", 0.0)
+    depth_proxy_notional = _numeric_metric(metrics, "depth_proxy_notional", rolling_notional)
+    slippage_bps = _numeric_metric(metrics, "slippage_bps", float("inf"))
+    listing_age_days = _numeric_metric(metrics, "listing_age_days", float("inf"))
 
     wick_risk_flags = metrics.get("wick_risk_flags")
     has_wick_risk = _optional_bool(metrics, "wick_risk_flag")
