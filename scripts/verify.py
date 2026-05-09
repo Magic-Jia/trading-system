@@ -221,14 +221,24 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--list-suites", action="store_true", help="list fixed verification suites")
     args = parser.parse_args(argv)
 
-    if args.json and not args.dry_run:
+    if args.json and not args.dry_run and not args.list_suites:
         print("--json requires --dry-run", file=sys.stderr)
         return 2
 
     if args.list_suites:
-        for name, tests in SUITES.items():
-            count = "full pytest suite" if name == "full" else f"{len(tests)} test paths"
-            print(f"{name}: {count}")
+        if args.json:
+            payload = {
+                "plan_version": 1,
+                "suites": {
+                    name: ("full pytest suite" if name == "full" else len(tests))
+                    for name, tests in SUITES.items()
+                },
+            }
+            print(json.dumps(payload, indent=2, sort_keys=True))
+        else:
+            for name, tests in SUITES.items():
+                count = "full pytest suite" if name == "full" else f"{len(tests)} test paths"
+                print(f"{name}: {count}")
         return 0
 
     changed = list(args.changed)

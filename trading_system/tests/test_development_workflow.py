@@ -115,6 +115,18 @@ def test_verify_lists_available_suites() -> None:
     assert "full" in result.stdout
 
 
+def test_verify_lists_available_suites_as_json() -> None:
+    result = run_verify("--list-suites", "--json")
+
+    assert result.returncode == 0, result.stderr
+    import json
+
+    payload = json.loads(result.stdout)
+    assert payload["plan_version"] == 1
+    assert payload["suites"]["workflow-meta"] == 4
+    assert payload["suites"]["full"] == "full pytest suite"
+
+
 def test_verify_json_dry_run_emits_machine_readable_plan() -> None:
     result = run_verify("--dry-run", "--json", "--changed", "trading_system/app/main.py")
 
