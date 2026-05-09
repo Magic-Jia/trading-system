@@ -878,6 +878,9 @@ def _strict_candidate_rows(payload: Mapping[str, Any], *, path: str) -> list[dic
     for index, candidate in enumerate(value):
         if not isinstance(candidate, Mapping):
             raise ValueError(f"{path}.candidates[{index}] must be an object")
+        for key in candidate:
+            if not isinstance(key, str):
+                raise ValueError(f"{path}.candidates[{index}] key must be a string")
         rows.append(dict(candidate))
     return rows
 

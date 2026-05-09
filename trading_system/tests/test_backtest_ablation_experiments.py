@@ -2177,6 +2177,23 @@ def test_allocator_friction_experiment_rejects_invalid_engine_only_candidate_sha
         run_allocator_friction_experiment([_bullish_ablation_row()], evaluation_window="3d")
 
 
+def test_allocator_friction_experiment_rejects_non_string_engine_only_candidate_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def invalid_engine_only_candidates(_row, *, engine: str):
+        return {
+            "regime": {},
+            "input_universe": 1,
+            "candidates": [{123: "bad", "symbol": "BTCUSDT"}],
+            "filter_counts": {},
+        }
+
+    monkeypatch.setattr(backtest_experiments, "_engine_only_candidates", invalid_engine_only_candidates)
+
+    with pytest.raises(ValueError, match=r"^engine_only\.candidates\[0\] key must be a string$"):
+        run_allocator_friction_experiment([_bullish_ablation_row()], evaluation_window="3d")
+
+
 @pytest.mark.parametrize("regime", [[("label", "RISK_ON_TREND")], "RISK_ON_TREND"])
 def test_allocator_friction_experiment_rejects_invalid_candidate_bundle_regime(
     monkeypatch: pytest.MonkeyPatch,
@@ -2192,6 +2209,22 @@ def test_allocator_friction_experiment_rejects_invalid_candidate_bundle_regime(
     monkeypatch.setattr(backtest_experiments, "_all_engine_candidates", invalid_all_engine_candidates)
 
     with pytest.raises(ValueError, match=r"^candidate_bundle\.regime must be an object$"):
+        run_allocator_friction_experiment([_bullish_ablation_row()], evaluation_window="3d")
+
+
+def test_allocator_friction_experiment_rejects_non_string_candidate_bundle_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def invalid_all_engine_candidates(_row):
+        return {
+            "regime": {},
+            "input_universe": 1,
+            "candidates": [{123: "bad", "symbol": "BTCUSDT"}],
+        }
+
+    monkeypatch.setattr(backtest_experiments, "_all_engine_candidates", invalid_all_engine_candidates)
+
+    with pytest.raises(ValueError, match=r"^candidate_bundle\.candidates\[0\] key must be a string$"):
         run_allocator_friction_experiment([_bullish_ablation_row()], evaluation_window="3d")
 
 
