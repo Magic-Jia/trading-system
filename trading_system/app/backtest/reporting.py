@@ -263,9 +263,9 @@ def _trade_ledger_payload(trade_ledger: tuple[TradeLedgerRow, ...]) -> list[dict
 
 def render_full_market_baseline_report(result: BaselineReplayResult) -> dict[str, Any]:
     reason_counts = Counter(
-        reason
-        for row in result.rejection_ledger
-        for reason in row.reasons
+        _canonical_report_string(reason, field_name=f"rejections[{row_index}].reasons[{reason_index}]")
+        for row_index, row in enumerate(result.rejection_ledger)
+        for reason_index, reason in enumerate(row.reasons)
     )
 
     if not isinstance(result.cost_breakdown, Mapping):
