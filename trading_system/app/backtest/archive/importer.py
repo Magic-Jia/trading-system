@@ -2053,6 +2053,31 @@ def _validate_material_derivatives_snapshot_numeric_evidence(derivatives_snapsho
             )
 
 
+def _validate_material_derivatives_snapshot_identity_fields(derivatives_snapshot: Mapping[str, Any]) -> None:
+    rows = derivatives_snapshot.get("rows") if "rows" in derivatives_snapshot else ()
+    if rows is None:
+        return
+    if not isinstance(rows, Sequence) or isinstance(rows, (str, bytes, bytearray)):
+        return
+
+    supported_values = {
+        "instrument": "perpetual",
+        "category": "futures",
+        "exchange": "binance",
+    }
+    for index, row in enumerate(rows):
+        if not isinstance(row, Mapping):
+            continue
+        for field_name in ("symbol", "instrument", "category", "exchange"):
+            if field_name not in row:
+                continue
+            field = f"derivatives_snapshot rows[{index}].{field_name}"
+            value = _require_canonical_string(row.get(field_name), field=field)
+            supported_value = supported_values.get(field_name)
+            if supported_value is not None and value != supported_value:
+                raise ValueError(f"{field} is unsupported: {value}")
+
+
 def _row_market_symbol_keys(row: Any) -> tuple[str, ...]:
     symbols = row.market.get("symbols") if "symbols" in row.market else {}
     if symbols is None:
@@ -2258,6 +2283,7 @@ def write_phase1_dataset_bundle(material: Phase1DatasetBundleMaterial, dataset_r
     root = Path(dataset_root)
     _validate_material_market_context_numeric_evidence(material.market_context)
     _validate_material_derivatives_snapshot_numeric_evidence(material.derivatives_snapshot)
+    _validate_material_derivatives_snapshot_identity_fields(material.derivatives_snapshot)
     bundle_dir = root / f"{_bundle_fragment(material.timestamp)}__{material.run_id}"
     bundle_dir.mkdir(parents=True, exist_ok=False)
     _write_json(bundle_dir / "metadata.json", material.metadata)

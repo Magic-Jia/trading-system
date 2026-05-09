@@ -2855,6 +2855,46 @@ def test_write_phase1_dataset_bundle_rejects_present_malformed_derivatives_age_s
         write_phase1_dataset_bundle(bad_material, dataset_root)
 
 
+@pytest.mark.parametrize(
+    ("field_name", "malformed_value"),
+    [
+        ("symbol", 123),
+        ("symbol", ""),
+        ("symbol", " BTCUSDT"),
+        ("instrument", "BTCUSDT"),
+        ("category", "spot"),
+        ("exchange", "coinbase"),
+    ],
+)
+def test_write_phase1_dataset_bundle_rejects_present_invalid_derivatives_identity_before_write(
+    tmp_path: Path,
+    field_name: str,
+    malformed_value: object,
+) -> None:
+    archive_root = tmp_path / "archive"
+    dataset_root = tmp_path / "dataset"
+    _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT")
+    imported = load_phase1_raw_market_imports(archive_root)
+    material = build_phase1_dataset_bundle_materials(imported)[-1]
+    derivatives_snapshot = dict(material.derivatives_snapshot)
+    rows = [dict(row) for row in derivatives_snapshot["rows"]]
+    rows[0][field_name] = malformed_value
+    derivatives_snapshot["rows"] = rows
+    bad_material = archive_importer.Phase1DatasetBundleMaterial(
+        timestamp=material.timestamp,
+        run_id=material.run_id,
+        metadata=material.metadata,
+        market_context=material.market_context,
+        derivatives_snapshot=derivatives_snapshot,
+        account_snapshot=material.account_snapshot,
+    )
+
+    with pytest.raises(ValueError, match=rf"derivatives_snapshot rows\[0\]\.{field_name}"):
+        write_phase1_dataset_bundle(bad_material, dataset_root)
+
+    assert not dataset_root.exists()
+
+
 def test_write_phase1_dataset_bundle_rejects_present_malformed_open_interest_usdt(
     tmp_path: Path,
 ) -> None:
