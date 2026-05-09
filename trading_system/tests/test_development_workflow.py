@@ -62,3 +62,10 @@ def test_verify_rejects_unknown_suite() -> None:
 
     assert result.returncode == 2
     assert "unknown suite" in result.stderr
+
+
+def test_verify_auto_detects_git_changed_paths() -> None:
+    result = run_verify("--dry-run", "--auto-changed")
+
+    assert result.returncode == 0, result.stderr
+    assert "trading_system/tests/test_development_workflow.py" in result.stdout

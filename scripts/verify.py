@@ -66,6 +66,20 @@ def tests_for_changed(paths: list[str]) -> list[str]:
     return unique(selected)
 
 
+def git_changed_paths() -> list[str]:
+    completed = subprocess.run(
+        "git diff --name-only HEAD",
+        shell=True,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise RuntimeError(completed.stderr.strip() or "git diff --name-only HEAD failed")
+    return [line.strip() for line in completed.stdout.splitlines() if line.strip()]
+
+
 def build_commands(*, suites: list[str], changed: list[str]) -> list[str]:
     tests: list[str] = []
     full = False
@@ -101,11 +115,20 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Deterministic trading-system verification entrypoint")
     parser.add_argument("--suite", action="append", default=[], help="fixed suite: evidence-chain, runtime-main, universe, full")
     parser.add_argument("--changed", action="append", default=[], help="changed repository path for impact-based tests")
+    parser.add_argument("--auto-changed", action="store_true", help="include paths from git diff --name-only HEAD")
     parser.add_argument("--dry-run", action="store_true", help="print commands without executing")
     args = parser.parse_args(argv)
 
+    changed = list(args.changed)
+    if args.auto_changed:
+        try:
+            changed.extend(git_changed_paths())
+        except RuntimeError as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
+
     try:
-        commands = build_commands(suites=args.suite, changed=args.changed)
+        commands = build_commands(suites=args.suite, changed=changed)
     except ValueError as exc:
         print(str(exc), file=sys.stderr)
         return 2
