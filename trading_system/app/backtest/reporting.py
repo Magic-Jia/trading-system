@@ -408,6 +408,21 @@ def _public_strategy_factor_sample_count(
     return int(metadata.get("snapshot_count", 0))
 
 
+def _effectiveness_float(effectiveness: Mapping[str, Any], field: str, *, default: float = 0.0) -> float:
+    if field not in effectiveness:
+        return default
+    raw_value = effectiveness[field]
+    if isinstance(raw_value, bool):
+        raise ValueError(f"effectiveness.{field} must be a finite number")
+    try:
+        value = float(raw_value)
+    except (OverflowError, TypeError, ValueError) as exc:
+        raise ValueError(f"effectiveness.{field} must be a finite number") from exc
+    if not math.isfinite(value):
+        raise ValueError(f"effectiveness.{field} must be a finite number")
+    return value
+
+
 def _public_strategy_factor_directionally_supported(factor: Mapping[str, Any]) -> bool:
     effectiveness = factor.get("effectiveness")
     if not isinstance(effectiveness, Mapping):
@@ -421,13 +436,15 @@ def _public_strategy_factor_directionally_supported(factor: Mapping[str, Any]) -
         return False
 
     correlation = effectiveness.get("information_coefficient")
+    correlation_field = "information_coefficient"
     if correlation is None:
         correlation = effectiveness.get("rank_correlation")
-    if correlation is None or float(correlation) < 0.2:
+        correlation_field = "rank_correlation"
+    if correlation is None or _effectiveness_float(effectiveness, correlation_field) < 0.2:
         return False
-    if float(effectiveness.get("top_minus_bottom_forward_return", 0.0) or 0.0) <= 0.0:
+    if _effectiveness_float(effectiveness, "top_minus_bottom_forward_return") <= 0.0:
         return False
-    if float(effectiveness.get("top_bucket_hit_rate", 0.0) or 0.0) < 0.5:
+    if _effectiveness_float(effectiveness, "top_bucket_hit_rate") < 0.5:
         return False
     return True
 
@@ -453,8 +470,16 @@ def _flatten_public_strategy_factor(factor: Mapping[str, Any]) -> dict[str, Any]
         "top_bucket_hit_rate",
         "effectiveness_status",
     ):
-        if key in effectiveness_payload:
+        if key not in effectiveness_payload:
+            continue
+        if key == "minimum_sample_count":
+            flattened[key] = _non_negative_int_field(
+                effectiveness_payload, "minimum_sample_count", label="effectiveness"
+            )
+        elif key == "effectiveness_status":
             flattened[key] = effectiveness_payload[key]
+        else:
+            flattened[key] = _effectiveness_float(effectiveness_payload, key)
     return flattened
 
 
