@@ -9896,6 +9896,37 @@ def test_trade_postmortem_summary_rejects_malformed_present_exit_reason(
         )
 
 
+@pytest.mark.parametrize(
+    ("order_type", "error"),
+    [
+        (123, "postmortem.trades\\[1\\].order_type must be a supported canonical string"),
+        ("", "postmortem.trades\\[1\\].order_type must be a supported canonical string"),
+        (" LIMIT ", "postmortem.trades\\[1\\].order_type must be a supported canonical string"),
+        ("ICEBERG", "postmortem.trades\\[1\\].order_type must be a supported canonical string"),
+    ],
+)
+def test_trade_postmortem_summary_rejects_malformed_present_order_type(
+    order_type: Any,
+    error: str,
+) -> None:
+    with pytest.raises(ValueError, match=error):
+        summarize_trade_postmortem(
+            [
+                {
+                    "symbol": "SOLUSDT",
+                    "setup_type": "RS_REACCELERATION",
+                    "order_type": order_type,
+                    "gross_pnl": 100.0,
+                    "net_pnl": 80.0,
+                    "fee_paid": 10.0,
+                    "slippage_paid": 10.0,
+                    "mfe_pct": 0.012,
+                    "mae_pct": 0.0,
+                }
+            ]
+        )
+
+
 class _Universes:
     major_universe = ()
     rotation_universe = ()
