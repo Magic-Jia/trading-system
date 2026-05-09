@@ -30,6 +30,19 @@ def _ts(value: str) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(timezone.utc)
 
 
+def test_backtest_evaluation_report_rejects_invalid_regime_buckets_shape() -> None:
+    with pytest.raises(ValueError, match="regimes.buckets must be a list"):
+        reporting.render_backtest_evaluation_report(
+            experiment_name="evaluation",
+            evaluation={
+                "walk_forward": {"metadata": {"window_count": 1}},
+                "regimes": {"buckets": "bull"},
+                "cost_stress": {"scenarios": []},
+            },
+            metadata={"dataset_root": "dataset"},
+        )
+
+
 def test_backtest_evaluation_report_rejects_invalid_walk_forward_window_count() -> None:
     with pytest.raises(ValueError, match="walk_forward.metadata.window_count must be a non-negative integer"):
         reporting.render_backtest_evaluation_report(

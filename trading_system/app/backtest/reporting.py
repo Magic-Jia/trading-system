@@ -106,7 +106,7 @@ def render_backtest_evaluation_report(
             "walk_forward_window_count": _non_negative_int_field(
                 dict(walk_forward.get("metadata", {})), "window_count", label="walk_forward.metadata"
             ),
-            "regime_bucket_count": len(list(regimes.get("buckets", []))),
+            "regime_bucket_count": len(_list_field(regimes, "buckets", label="regimes.buckets")),
             "cost_stress_scenarios": stress_scenarios,
         },
         "walk_forward": walk_forward,
@@ -337,12 +337,15 @@ def _canonical_report_string_list(value: object, *, field_name: str) -> list[str
     return [_canonical_report_string(item, field_name=f"{field_name}[]") for item in value]
 
 
-def _list_field(payload: Mapping[str, Any], field: str, *, default: list[Any] | None = None) -> list[Any]:
+def _list_field(
+    payload: Mapping[str, Any], field: str, *, default: list[Any] | None = None, label: str | None = None
+) -> list[Any]:
+    field_label = label or field
     if field not in payload:
         return list(default or [])
     raw_value = payload[field]
     if not isinstance(raw_value, list):
-        raise ValueError(f"{field} must be a list")
+        raise ValueError(f"{field_label} must be a list")
     return list(raw_value)
 
 
