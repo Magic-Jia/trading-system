@@ -104,6 +104,7 @@ _MANAGEMENT_ACTION_VALUES = frozenset(
         "EXIT",
     }
 )
+_FRACTION_BASIS_VALUES = frozenset({"original_position"})
 
 
 def _now_bj() -> str:
@@ -235,6 +236,22 @@ def _partial_take_profit_stage(intent: ManagementActionIntent) -> str:
     if not isinstance(stage, str) or stage not in {"first", "second"}:
         raise ValueError("target_stage must be absent or one of: first, second")
     return stage
+
+
+def _partial_take_profit_fraction_basis(intent: ManagementActionIntent) -> str:
+    if intent.action != "PARTIAL_TAKE_PROFIT":
+        return ""
+    meta = intent.meta or {}
+    if "fraction_basis" not in meta or meta.get("fraction_basis") is None:
+        return ""
+    fraction_basis = meta.get("fraction_basis")
+    if not isinstance(fraction_basis, str):
+        raise ValueError("fraction_basis must be a string when present")
+    if not fraction_basis or fraction_basis != fraction_basis.strip():
+        raise ValueError("fraction_basis must be a canonical string when present")
+    if fraction_basis not in _FRACTION_BASIS_VALUES:
+        raise ValueError("fraction_basis must be one of: original_position")
+    return fraction_basis
 
 
 def _management_action(intent: ManagementActionIntent) -> str:
@@ -616,6 +633,7 @@ def apply_management_action_fill(state: RuntimeState, intent: ManagementActionIn
         return {}
 
     action = _management_action(intent)
+    _partial_take_profit_fraction_basis(intent)
     position = dict(existing)
     current_qty = _strict_non_negative_quantity(position, "qty", default=0.0)
     _strict_non_negative_quantity(position, "remaining_position_qty", default=current_qty)
