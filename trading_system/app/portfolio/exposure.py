@@ -25,6 +25,8 @@ def _to_float(value: Any) -> float:
 def _to_boundary_float(value: Any, field: str) -> float:
     if isinstance(value, bool):
         raise ValueError(f"{field} must be numeric, not boolean")
+    if isinstance(value, str):
+        raise ValueError(f"{field} must be numeric")
 
     converted = _to_float(value)
     if not math.isfinite(converted):
@@ -41,7 +43,8 @@ def _optional_boundary_float(row: Mapping[str, Any] | Any, key: str, field: str,
 
 
 def _position_notional(position: Mapping[str, Any] | Any) -> float:
-    symbol = str(_get_value(position, "symbol", "")).upper() or "UNKNOWN"
+    symbol_value = _get_value(position, "symbol", _MISSING)
+    symbol = symbol_value.upper() if isinstance(symbol_value, str) and symbol_value else "UNKNOWN"
     field_prefix = f"position.{symbol}"
     notional = _optional_boundary_float(position, "notional", f"{field_prefix}.notional")
     if notional > 0:
@@ -56,9 +59,11 @@ def _position_notional(position: Mapping[str, Any] | Any) -> float:
 
 def exposure_snapshot(account: Mapping[str, Any] | Any) -> dict[str, Any]:
     equity = max(_optional_boundary_float(account, "equity", "account.equity"), 0.0)
-    positions = _get_value(account, "open_positions", [])
-    if not isinstance(positions, list):
+    positions = _get_value(account, "open_positions", _MISSING)
+    if positions is _MISSING:
         positions = []
+    if not isinstance(positions, list):
+        raise ValueError("open_positions must be a list when present")
 
     gross_notional = 0.0
     net_long_notional = 0.0
@@ -70,15 +75,32 @@ def exposure_snapshot(account: Mapping[str, Any] | Any) -> dict[str, Any]:
 
     for raw_position in positions:
         position = raw_position if isinstance(raw_position, Mapping) else raw_position
-        symbol = str(_get_value(position, "symbol", "")).upper()
+        symbol_value = _get_value(position, "symbol", _MISSING)
+        if symbol_value is not _MISSING and not isinstance(symbol_value, str):
+            raise ValueError("position.symbol must be a string when present")
+        symbol = symbol_value.upper() if isinstance(symbol_value, str) else ""
         if not symbol:
             continue
-        side = str(_get_value(position, "side", "LONG")).upper()
+        side_value = _get_value(position, "side", _MISSING)
+        if side_value is _MISSING:
+            side = "LONG"
+        else:
+            if not isinstance(side_value, str):
+                raise ValueError(f"position.{symbol}.side must be a string when present")
+            side = side_value.upper()
+            if side not in {"LONG", "SHORT"}:
+                raise ValueError(f"position.{symbol}.side must be LONG or SHORT")
         notional = abs(_position_notional(position))
         if notional <= 0:
             continue
 
-        sector = str(_get_value(position, "sector", "")).strip() or sector_for_symbol(symbol)
+        sector_value = _get_value(position, "sector", _MISSING)
+        if sector_value is _MISSING:
+            sector = sector_for_symbol(symbol)
+        else:
+            if not isinstance(sector_value, str):
+                raise ValueError(f"position.{symbol}.sector must be a string when present")
+            sector = sector_value.strip() or sector_for_symbol(symbol)
         gross_notional += notional
         symbol_notional[symbol] = symbol_notional.get(symbol, 0.0) + notional
         sector_notional[sector] = sector_notional.get(sector, 0.0) + notional
