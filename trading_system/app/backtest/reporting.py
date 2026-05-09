@@ -86,6 +86,8 @@ def render_backtest_evaluation_report(
     evaluation: Mapping[str, Any],
     metadata: Mapping[str, Any],
 ) -> dict[str, Any]:
+    if not isinstance(metadata, Mapping):
+        raise ValueError("metadata must be an object")
     walk_forward = dict(evaluation.get("walk_forward", {}))
     regimes = dict(evaluation.get("regimes", {}))
     cost_stress = dict(evaluation.get("cost_stress", {}))
