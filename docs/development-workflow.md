@@ -37,7 +37,7 @@ python3 scripts/verify.py --list-suites
 python3 scripts/verify.py --list-suites --json
 ```
 
-`--dry-run` prints the commands without executing them. Add `--json` to emit a machine-readable plan for CI/controller auditing. `--list-suites --json` emits a versioned suite inventory with `inventory_kind`, `count`, and `tests` for automation that should not parse human text:
+`--dry-run` prints the commands without executing them. Add `--json` to emit a machine-readable plan for CI/controller auditing. `--list-suites --json` emits a versioned suite inventory with `inventory_version`, `inventory_kind`, `count`, and `tests` for automation that should not parse human text:
 
 ```bash
 python3 scripts/verify.py --dry-run --json --auto-changed
