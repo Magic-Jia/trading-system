@@ -51,6 +51,12 @@ def _str_value(value: Any) -> str:
     return str(value)
 
 
+def _required_str(value: Any, *, field_name: str) -> str:
+    if not isinstance(value, str) or not value:
+        raise ValueError(f"{field_name} must be a string")
+    return value
+
+
 def _float_or_none(value: Any, *, field_name: str) -> float | None:
     if value is None:
         return None
@@ -141,7 +147,7 @@ def collect_trade_outcomes(
             continue
 
         intent_id = _optional_str(fact.get("intent_id"), field_name="fact.intent_id")
-        symbol = _str_value(fact.get("symbol")).upper()
+        symbol = _required_str(fact.get("symbol"), field_name="fact.symbol").upper()
         position = positions_by_intent.get(intent_id or "") or positions_by_symbol.get(symbol) or {}
         ledger_event = ledger_by_intent.get(intent_id or "") or {}
         order = _mapping(ledger_event.get("order"), field_name="ledger.order")
