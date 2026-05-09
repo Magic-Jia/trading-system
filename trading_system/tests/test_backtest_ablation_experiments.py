@@ -729,6 +729,22 @@ def test_long_gate_telemetry_rejects_non_string_trend_symbol_key() -> None:
         backtest_experiments._trend_candidates_with_trace(row)
 
 
+def test_long_gate_telemetry_rejects_non_string_trend_candidate_symbol(monkeypatch) -> None:
+    row = _bullish_ablation_row()
+    original_symbol_key = backtest_experiments.trend_signals._market_symbol_key
+
+    def patched_symbol_key(symbol):
+        if symbol == "BTCUSDT":
+            return 123
+        return original_symbol_key(symbol)
+
+    monkeypatch.setattr(backtest_experiments.trend_signals, "symbol_derivatives_features", lambda *_args: {})
+    monkeypatch.setattr(backtest_experiments.trend_signals, "_market_symbol_key", patched_symbol_key)
+
+    with pytest.raises(ValueError, match=r"^candidates\[0\]\.symbol must be a string$"):
+        backtest_experiments._trend_candidates_with_trace(row)
+
+
 def test_long_gate_telemetry_rejects_non_string_rotation_symbol_key() -> None:
     row = _supportive_soft_long_gate_row()
     row.market["symbols"] = {

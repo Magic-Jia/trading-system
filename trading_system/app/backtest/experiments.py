@@ -1391,15 +1391,22 @@ def _trend_candidates_with_trace(
         _bump_symbol_filter(symbol_rows, symbol_name, "selected")
         _bump_symbol_funnel(symbol_rows, symbol_name, "raw_candidates")
 
+    _validate_trend_candidate_symbols(candidates)
     return {
         "input_universe": input_universe,
         "candidates": sorted(
             candidates,
-            key=lambda row: (-float(row.get("score", 0.0) or 0.0), str(row.get("symbol", ""))),
+            key=lambda row: (-float(row.get("score", 0.0) or 0.0), row["symbol"]),
         ),
         "filter_counts": dict(filter_counts),
         "symbol_rows": symbol_rows,
     }
+
+
+def _validate_trend_candidate_symbols(candidates: Iterable[Mapping[str, Any]]) -> None:
+    for index, candidate in enumerate(candidates):
+        if not isinstance(candidate.get("symbol"), str):
+            raise ValueError(f"candidates[{index}].symbol must be a string")
 
 
 def _engine_only_candidates(row: DatasetSnapshotRow, *, engine: str) -> dict[str, Any]:
