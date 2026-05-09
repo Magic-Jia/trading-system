@@ -1537,6 +1537,23 @@ def test_render_llm_trend_breakout_report_builds_summary_candidate_rows_and_scor
     assert report["scorecard"]["decision_summary"]["decision"] == "keep_researching"
 
 
+def test_render_llm_trend_breakout_report_rejects_invalid_promotion_rollback_fields() -> None:
+    with pytest.raises(ValueError, match="promotion_metadata.rollback_target must be a canonical string"):
+        reporting.render_llm_trend_breakout_report(
+            experiment_name="llm_trend_breakout",
+            experiment={
+                "summary": {
+                    "technical_candidate_count": 2,
+                    "accepted_candidate_count": 1,
+                    "rejected_candidate_count": 1,
+                    "acceptance_rate": 0.5,
+                },
+                "candidate_rows": [],
+            },
+            metadata={"snapshot_count": 2, "promotion_metadata": {"rollback_target": True}},
+        )
+
+
 def test_render_llm_trend_breakout_report_rejects_invalid_promotion_runtime_fields() -> None:
     with pytest.raises(ValueError, match="promotion_metadata.runtime_fields\\[\\] must be a canonical string"):
         reporting.render_llm_trend_breakout_report(

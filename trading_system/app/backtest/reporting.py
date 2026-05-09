@@ -262,16 +262,28 @@ def _promotion_metadata_sections(metadata: Mapping[str, Any]) -> dict[str, Any]:
         runtime_fields = _canonical_report_string_list(
             list(raw.runtime_fields), field_name="promotion_metadata.runtime_fields"
         )
-        rollback_target = raw.rollback_target
-        rollback_trigger = raw.rollback_trigger
-        observation_window = raw.observation_window
+        rollback_target = _optional_canonical_report_string(
+            raw.rollback_target, field_name="promotion_metadata.rollback_target"
+        )
+        rollback_trigger = _optional_canonical_report_string(
+            raw.rollback_trigger, field_name="promotion_metadata.rollback_trigger"
+        )
+        observation_window = _optional_canonical_report_string(
+            raw.observation_window, field_name="promotion_metadata.observation_window"
+        )
     elif isinstance(raw, Mapping):
         runtime_fields = _canonical_report_string_list(
             raw.get("runtime_fields", []), field_name="promotion_metadata.runtime_fields"
         )
-        rollback_target = raw.get("rollback_target")
-        rollback_trigger = raw.get("rollback_trigger")
-        observation_window = raw.get("observation_window")
+        rollback_target = _optional_canonical_report_string(
+            raw.get("rollback_target"), field_name="promotion_metadata.rollback_target"
+        )
+        rollback_trigger = _optional_canonical_report_string(
+            raw.get("rollback_trigger"), field_name="promotion_metadata.rollback_trigger"
+        )
+        observation_window = _optional_canonical_report_string(
+            raw.get("observation_window"), field_name="promotion_metadata.observation_window"
+        )
     else:
         return {}
 
@@ -294,6 +306,12 @@ def _canonical_report_string(value: object, *, field_name: str) -> str:
     if not value or value.strip() != value:
         raise ValueError(f"{field_name} must be a canonical string")
     return value
+
+
+def _optional_canonical_report_string(value: object, *, field_name: str) -> str | None:
+    if value is None:
+        return None
+    return _canonical_report_string(value, field_name=field_name)
 
 
 def _canonical_report_string_list(value: object, *, field_name: str) -> list[str]:
