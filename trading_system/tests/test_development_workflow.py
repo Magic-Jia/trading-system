@@ -122,6 +122,7 @@ def test_verify_lists_available_suites_as_json() -> None:
     import json
 
     payload = json.loads(result.stdout)
+    assert set(payload) == {"inventory_kind", "inventory_version", "plan_version", "suites"}
     assert payload["plan_version"] == 1
     assert payload["inventory_version"] == 1
     assert payload["inventory_kind"] == "suite_inventory"
