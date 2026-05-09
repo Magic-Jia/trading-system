@@ -71,6 +71,7 @@ Prefer repository verification entrypoints when applicable:
 ```bash
 python3 scripts/verify.py --auto-changed
 python3 scripts/verify.py --dry-run --json --auto-changed
+python3 scripts/ci_verify.py --dry-run --json
 python3 scripts/verify.py --suite evidence-chain
 ```
 
