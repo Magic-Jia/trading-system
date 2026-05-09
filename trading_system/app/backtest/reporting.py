@@ -250,7 +250,10 @@ def render_full_market_baseline_report(result: BaselineReplayResult) -> dict[str
 
     if not isinstance(result.cost_breakdown, Mapping):
         raise ValueError("cost_breakdown must be an object")
-    cost_breakdown_payload = dict(result.cost_breakdown)
+    cost_breakdown_payload: dict[str, float] = {}
+    for key, value in result.cost_breakdown.items():
+        cost_key = _canonical_report_string(key, field_name="cost_breakdown key")
+        cost_breakdown_payload[cost_key] = _report_finite_float(value, field_name=f"cost_breakdown.{cost_key}")
 
     return {
         "summary": {

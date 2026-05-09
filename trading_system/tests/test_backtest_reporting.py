@@ -352,7 +352,7 @@ def test_full_market_trade_postmortem_exposes_execution_source_and_quality() -> 
     assert "impact_bps" in markdown
 
 
-def test_full_market_report_rejects_non_object_cost_breakdown() -> None:
+def test_full_market_report_rejects_invalid_cost_breakdown_fields() -> None:
     result = sample_baseline_result()
     bad_result = BaselineReplayResult(
         portfolio_summary=result.portfolio_summary,
@@ -364,6 +364,30 @@ def test_full_market_report_rejects_non_object_cost_breakdown() -> None:
     )
 
     with pytest.raises(ValueError, match="cost_breakdown must be an object"):
+        reporting.render_full_market_baseline_report(bad_result)
+
+    bad_result = BaselineReplayResult(
+        portfolio_summary=result.portfolio_summary,
+        trade_ledger=result.trade_ledger,
+        rejection_ledger=result.rejection_ledger,
+        cost_breakdown={True: 1.0},  # type: ignore[dict-item]
+        gross_period_returns=result.gross_period_returns,
+        net_period_returns=result.net_period_returns,
+    )
+
+    with pytest.raises(ValueError, match="cost_breakdown key must be a canonical string"):
+        reporting.render_full_market_baseline_report(bad_result)
+
+    bad_result = BaselineReplayResult(
+        portfolio_summary=result.portfolio_summary,
+        trade_ledger=result.trade_ledger,
+        rejection_ledger=result.rejection_ledger,
+        cost_breakdown={"fees": True},  # type: ignore[dict-item]
+        gross_period_returns=result.gross_period_returns,
+        net_period_returns=result.net_period_returns,
+    )
+
+    with pytest.raises(ValueError, match="cost_breakdown.fees must be a finite number"):
         reporting.render_full_market_baseline_report(bad_result)
 
 
