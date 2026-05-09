@@ -72,6 +72,7 @@ def test_workflow_doc_records_json_plan_and_full_checkpoint_policy() -> None:
     assert "plan_kind: verification_plan" in text
     assert "plan_kind: ci_verification_plan" in text
     assert "plan_kind: nightly_verification_plan" in text
+    assert "entrypoint JSON plans include `suites`" in text
     assert "plan_version: 1" in text
     assert "scripts/nightly_verify.py" in text
     assert "scripts/nightly_verify.py --dry-run --json" in text
