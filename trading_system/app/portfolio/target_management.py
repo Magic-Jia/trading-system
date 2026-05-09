@@ -336,7 +336,7 @@ def reconciled_stage_qty(position: Mapping[str, Any], *, stage: str) -> float | 
 
     remaining_qty = _present_finite_number(position, "remaining_position_qty")
     if remaining_qty is None:
-        remaining_qty = _float(position.get("qty")) or 0.0
+        remaining_qty = _present_finite_number(position, "qty") or 0.0
     raw_executable_qty = min(stage_remaining_qty, max(remaining_qty, 0.0))
     step = _present_finite_number(position, "symbol_step_size")
     executable_qty = _floor_to_step(raw_executable_qty, step)

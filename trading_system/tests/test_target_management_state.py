@@ -346,10 +346,23 @@ def test_reconciled_stage_qty_rejects_present_invalid_numeric_string(field):
         "remaining_position_qty": 1.0,
         "first_target_filled_qty": 0.25,
         "symbol_step_size": 0.01,
-        field: "bad",
+        field: "1.0",
     }
 
     with pytest.raises(ValueError, match=f"{field} must be a finite non-bool number when present"):
+        reconciled_stage_qty(payload, stage="first")
+
+
+@pytest.mark.parametrize(("qty", "exception_type"), [("1.0", ValueError), (True, TypeError)])
+def test_reconciled_stage_qty_rejects_masked_fallback_qty(qty, exception_type):
+    payload = {
+        "original_position_qty": 2.0,
+        "qty": qty,
+        "first_target_filled_qty": 0.25,
+        "symbol_step_size": 0.01,
+    }
+
+    with pytest.raises(exception_type, match="qty must be a finite non-bool number when present"):
         reconciled_stage_qty(payload, stage="first")
 
 
