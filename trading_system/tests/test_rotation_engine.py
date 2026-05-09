@@ -458,6 +458,16 @@ def test_generate_rotation_candidates_allows_soft_daily_reclaim_in_risk_on_rotat
     assert [candidate.symbol for candidate in candidates] == ["SOLUSDT"]
 
 
+@pytest.mark.parametrize("invalid_symbol", [True, 123])
+def test_generate_rotation_candidates_rejects_present_non_string_universe_symbol(invalid_symbol: object):
+    with pytest.raises(ValueError, match=r"rotation_universe\.symbol"):
+        generate_rotation_candidates(
+            _soft_rotation_reclaim_market(),
+            rotation_universe=[{"symbol": invalid_symbol, "sector": "alt_l1", "liquidity_tier": "high"}],
+            regime={"label": "RISK_ON_ROTATION", "suppression_rules": []},
+        )
+
+
 def test_generate_rotation_candidates_rejects_present_string_numeric_required_timeframe_field():
     market = _soft_rotation_reclaim_market()
     universe = [{"symbol": "SOLUSDT", "sector": "alt_l1", "liquidity_tier": "high"}]

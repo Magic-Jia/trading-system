@@ -85,7 +85,10 @@ def _rotation_symbols(rotation_universe: Sequence[Mapping[str, Any]] | None) -> 
     if rotation_universe is None:
         return rows
     for row in rotation_universe:
-        symbol = str(row.get("symbol", "")).upper().strip()
+        symbol_value = row.get("symbol", "")
+        if not isinstance(symbol_value, str):
+            raise ValueError("rotation_universe.symbol must be a string when present")
+        symbol = symbol_value.upper().strip()
         if symbol:
             rows[symbol] = row
     return rows
