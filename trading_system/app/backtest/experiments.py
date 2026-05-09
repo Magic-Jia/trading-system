@@ -507,12 +507,15 @@ def _aggression_bucket(aggression: float) -> str:
     return "defensive"
 
 
-def _mean_mapping(values: list[dict[str, float]]) -> dict[str, float]:
+def _mean_mapping(values: list[dict[str, Any]], *, path: str) -> dict[str, float]:
     if not values:
         return {}
     keys = sorted({key for item in values for key in item})
     return {
-        key: mean(float(item.get(key, 0.0)) for item in values)
+        key: mean(
+            _strict_finite_number(item[key], field_name=f"{path}.{key}") if key in item else 0.0
+            for item in values
+        )
         for key in keys
     }
 
@@ -570,8 +573,8 @@ def run_regime_predictive_power_experiment(rows: Iterable[DatasetSnapshotRow]) -
     by_regime = {
         label: {
             "count": len(values["returns"]),
-            "forward_return_by_window": _mean_mapping(values["returns"]),
-            "forward_drawdown_by_window": _mean_mapping(values["drawdowns"]),
+            "forward_return_by_window": _mean_mapping(values["returns"], path="forward_returns"),
+            "forward_drawdown_by_window": _mean_mapping(values["drawdowns"], path="forward_drawdowns"),
             "avg_confidence": mean(values["confidence"]) if values["confidence"] else 0.0,
             "avg_aggression": mean(values["aggression"]) if values["aggression"] else 0.0,
         }

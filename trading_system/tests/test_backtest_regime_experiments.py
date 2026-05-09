@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from trading_system.app.backtest.experiments import run_regime_predictive_power_experiment
+from trading_system.app.backtest.experiments import _mean_mapping, run_regime_predictive_power_experiment
 from trading_system.app.backtest.reporting import render_regime_scorecard
 from trading_system.app.backtest.types import DatasetSnapshotRow
 
@@ -182,6 +182,17 @@ def test_regime_predictive_power_experiment_rejects_invalid_forward_return_value
         run_regime_predictive_power_experiment([row])
 
 
+@pytest.mark.parametrize("invalid_value", [True, "0.02", float("nan"), float("inf")])
+def test_regime_predictive_power_experiment_rejects_invalid_aggregated_forward_return_value(
+    invalid_value: object,
+) -> None:
+    row = _row(0, risk_on=True, forward_1d=0.018, forward_3d=0.042, drawdown_3d=-0.01)
+    row.forward_returns["7d"] = invalid_value  # type: ignore[assignment]
+
+    with pytest.raises(ValueError, match=r"^forward_returns\.7d must be a finite number$"):
+        run_regime_predictive_power_experiment([row])
+
+
 @pytest.mark.parametrize("invalid_value", [True, "-0.01", float("nan"), float("inf")])
 def test_regime_predictive_power_experiment_rejects_invalid_forward_drawdown_value(
     invalid_value: object,
@@ -190,6 +201,17 @@ def test_regime_predictive_power_experiment_rejects_invalid_forward_drawdown_val
     row.forward_drawdowns["3d"] = invalid_value  # type: ignore[assignment]
 
     with pytest.raises(ValueError, match=r"^forward_drawdowns\.3d must be a finite number$"):
+        run_regime_predictive_power_experiment([row])
+
+
+@pytest.mark.parametrize("invalid_value", [True, "-0.01", float("nan"), float("inf")])
+def test_regime_predictive_power_experiment_rejects_invalid_aggregated_forward_drawdown_value(
+    invalid_value: object,
+) -> None:
+    row = _row(0, risk_on=True, forward_1d=0.018, forward_3d=0.042, drawdown_3d=-0.01)
+    row.forward_drawdowns["7d"] = invalid_value  # type: ignore[assignment]
+
+    with pytest.raises(ValueError, match=r"^forward_drawdowns\.7d must be a finite number$"):
         run_regime_predictive_power_experiment([row])
 
 
@@ -202,6 +224,19 @@ def test_regime_predictive_power_experiment_preserves_valid_forward_metrics_and_
 
     assert result["by_regime"]["RISK_ON_TREND"]["forward_return_by_window"]["3d"] == 0.042
     assert result["by_regime"]["RISK_ON_TREND"]["forward_drawdown_by_window"] == {}
+
+
+@pytest.mark.parametrize("invalid_value", [True, "0.02", float("nan"), float("inf")])
+def test_mean_mapping_rejects_present_invalid_values(invalid_value: object) -> None:
+    with pytest.raises(ValueError, match=r"^forward_returns\.7d must be a finite number$"):
+        _mean_mapping(
+            [{"7d": 0.03}, {"7d": invalid_value}],  # type: ignore[list-item]
+            path="forward_returns",
+        )
+
+
+def test_mean_mapping_preserves_missing_default_and_valid_numeric_values() -> None:
+    assert _mean_mapping([{"7d": 1}, {}], path="forward_returns") == {"7d": 0.5}
 
 
 
