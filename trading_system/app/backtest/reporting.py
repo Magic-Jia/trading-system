@@ -741,6 +741,15 @@ def _rotation_comparison_rows(rows: list[Any]) -> list[dict[str, Any]]:
     return validated_rows
 
 
+def _allocator_comparison_rows(rows: list[Any]) -> list[dict[str, Any]]:
+    validated_rows: list[dict[str, Any]] = []
+    for index, row in enumerate(rows):
+        if not isinstance(row, Mapping):
+            raise ValueError(f"comparison_rows[{index}] must be an object")
+        validated_rows.append(dict(row))
+    return validated_rows
+
+
 def _variant_with_best_metric(
     variants: Mapping[str, Any],
     *,
@@ -906,7 +915,7 @@ def render_allocator_friction_report(
         },
         "comparison_rows": {
             "metadata": dict(metadata),
-            "rows": _list_field(experiment, "comparison_rows"),
+            "rows": _allocator_comparison_rows(_list_field(experiment, "comparison_rows")),
         },
         "scorecard": {
             "metadata": _scorecard_metadata(experiment_name=experiment_name, metadata=metadata),
