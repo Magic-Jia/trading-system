@@ -521,6 +521,21 @@ def test_full_market_report_rejects_non_string_rejection_reason() -> None:
         reporting.render_full_market_baseline_report(bad_result)
 
 
+def test_full_market_report_rejects_list_rejection_reasons_container() -> None:
+    result = sample_baseline_result()
+    bad_result = BaselineReplayResult(
+        portfolio_summary=result.portfolio_summary,
+        trade_ledger=result.trade_ledger,
+        rejection_ledger=(replace(result.rejection_ledger[0], reasons=["open_risk_limit_reached"]),),  # type: ignore[arg-type]
+        cost_breakdown=result.cost_breakdown,
+        gross_period_returns=result.gross_period_returns,
+        net_period_returns=result.net_period_returns,
+    )
+
+    with pytest.raises(ValueError, match=r"rejections\[0\]\.reasons must be a tuple"):
+        reporting.render_full_market_baseline_report(bad_result)
+
+
 def test_full_market_report_exposes_depth_and_maker_fill_fields() -> None:
     report = reporting.render_full_market_baseline_report(sample_baseline_result())
 

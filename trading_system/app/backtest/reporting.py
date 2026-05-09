@@ -265,9 +265,9 @@ def _trade_ledger_payload(trade_ledger: tuple[TradeLedgerRow, ...]) -> list[dict
 
 def render_full_market_baseline_report(result: BaselineReplayResult) -> dict[str, Any]:
     reason_counts = Counter(
-        _canonical_report_string(reason, field_name=f"rejections[{row_index}].reasons[{reason_index}]")
+        reason
         for row_index, row in enumerate(result.rejection_ledger)
-        for reason_index, reason in enumerate(row.reasons)
+        for reason in _canonical_report_string_tuple(row.reasons, field_name=f"rejections[{row_index}].reasons")
     )
 
     if not isinstance(result.cost_breakdown, Mapping):
@@ -407,6 +407,15 @@ def _canonical_report_string_list(value: object, *, field_name: str) -> list[str
     if not isinstance(value, list):
         raise ValueError(f"{field_name} must be a list")
     return [_canonical_report_string(item, field_name=f"{field_name}[]") for item in value]
+
+
+def _canonical_report_string_tuple(value: object, *, field_name: str) -> tuple[str, ...]:
+    if not isinstance(value, tuple):
+        raise ValueError(f"{field_name} must be a tuple")
+    return tuple(
+        _canonical_report_string(item, field_name=f"{field_name}[{index}]")
+        for index, item in enumerate(value)
+    )
 
 
 def _list_field(
