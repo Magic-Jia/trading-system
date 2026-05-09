@@ -472,6 +472,9 @@ def run_public_strategy_factor_experiment(
 def _regime_for_row(row: DatasetSnapshotRow) -> dict[str, Any]:
     override = row.meta.get("regime_override")
     if isinstance(override, Mapping):
+        for key in override:
+            if not isinstance(key, str):
+                raise ValueError("regime_override key must be a string")
         return dict(override)
     return asdict(classify_regime(row.market, row.derivatives))
 
