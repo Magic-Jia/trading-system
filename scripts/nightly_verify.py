@@ -43,6 +43,7 @@ def main() -> int:
             "entrypoint": "nightly_verify",
             "clean_env": True,
             "commands": DISPLAY_COMMANDS,
+            "command_argv": [["python3", "scripts/verify.py", "--suite", "full"]],
             "suites": PLANNED_SUITES,
             "unset_env": UNSET_ENV,
         }

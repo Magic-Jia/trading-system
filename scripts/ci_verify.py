@@ -38,6 +38,11 @@ def main() -> int:
             "plan_kind": "ci_verification_plan",
             "entrypoint": "ci_verify",
             "commands": DISPLAY_COMMANDS,
+            "command_argv": [
+                ["python3", "scripts/verify.py", "--dry-run", "--strict-auto-changed"],
+                ["python3", "scripts/verify.py", "--suite", "workflow-meta"],
+                ["python3", "scripts/verify.py", "--suite", "evidence-chain"],
+            ],
             "suites": PLANNED_SUITES,
             "strict_changed_verification": True,
         }

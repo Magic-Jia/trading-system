@@ -22,6 +22,7 @@ VERIFICATION_PLAN_JSON_KEYS = {
     "tests",
 }
 CI_PLAN_JSON_KEYS = {
+    "command_argv",
     "commands",
     "entrypoint",
     "plan_kind",
@@ -31,6 +32,7 @@ CI_PLAN_JSON_KEYS = {
 }
 NIGHTLY_PLAN_JSON_KEYS = {
     "clean_env",
+    "command_argv",
     "commands",
     "entrypoint",
     "plan_kind",
@@ -341,6 +343,11 @@ def test_ci_verify_dry_run_json_reports_commands() -> None:
         "python3 scripts/verify.py --suite workflow-meta",
         "python3 scripts/verify.py --suite evidence-chain",
     ]
+    assert payload["command_argv"] == [
+        ["python3", "scripts/verify.py", "--dry-run", "--strict-auto-changed"],
+        ["python3", "scripts/verify.py", "--suite", "workflow-meta"],
+        ["python3", "scripts/verify.py", "--suite", "evidence-chain"],
+    ]
 
 
 def test_ci_verify_json_requires_dry_run() -> None:
@@ -406,6 +413,7 @@ def test_nightly_verify_dry_run_json_reports_clean_env_full_command() -> None:
     assert payload["clean_env"] is True
     assert payload["suites"] == ["full"]
     assert payload["commands"] == ["python3 scripts/verify.py --suite full"]
+    assert payload["command_argv"] == [["python3", "scripts/verify.py", "--suite", "full"]]
     assert "TRADING_RUNTIME_ENV" in payload["unset_env"]
 
 
