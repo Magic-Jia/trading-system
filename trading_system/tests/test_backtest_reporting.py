@@ -1896,6 +1896,23 @@ def test_rotation_suppression_report_rejects_boolean_policy_pnl() -> None:
         )
 
 
+def test_rotation_suppression_report_rejects_string_policy_pnl() -> None:
+    with pytest.raises(ValueError, match="policies.soft_suppression.bucket_level_pnl must be a finite number"):
+        cli.render_rotation_suppression_report(
+            experiment_name="rotation_suppression",
+            metadata={"snapshot_count": 1},
+            experiment={
+                "policies": {
+                    "current": {"bucket_level_pnl": 0.01},
+                    "soft_suppression": {"bucket_level_pnl": "0.02"},
+                    "no_suppression": {"bucket_level_pnl": 0.0},
+                },
+                "opportunity_kill_rate": 0.1,
+                "avoid_loss_rate": 0.2,
+            },
+        )
+
+
 def test_rotation_suppression_report_rejects_non_list_comparison_rows() -> None:
     with pytest.raises(ValueError, match="rotation_comparison_rows must be a list"):
         cli.render_rotation_suppression_report(

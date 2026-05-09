@@ -782,9 +782,9 @@ def render_rotation_suppression_report(
     current_policy = policy_payload("current")
     soft_policy = policy_payload("soft_suppression")
     no_suppression_policy = policy_payload("no_suppression")
-    current_pnl = _report_finite_float(current_policy.get("bucket_level_pnl", 0.0), field_name="policies.current.bucket_level_pnl")
-    soft_pnl = _report_finite_float(soft_policy.get("bucket_level_pnl", 0.0), field_name="policies.soft_suppression.bucket_level_pnl")
-    no_suppression_pnl = _report_finite_float(no_suppression_policy.get("bucket_level_pnl", 0.0), field_name="policies.no_suppression.bucket_level_pnl")
+    current_pnl = _strict_present_finite_float(current_policy.get("bucket_level_pnl", 0.0), field_name="policies.current.bucket_level_pnl")
+    soft_pnl = _strict_present_finite_float(soft_policy.get("bucket_level_pnl", 0.0), field_name="policies.soft_suppression.bucket_level_pnl")
+    no_suppression_pnl = _strict_present_finite_float(no_suppression_policy.get("bucket_level_pnl", 0.0), field_name="policies.no_suppression.bucket_level_pnl")
     opportunity_kill_rate = _report_finite_float(experiment.get("opportunity_kill_rate", 0.0), field_name="opportunity_kill_rate")
     avoid_loss_rate = _report_finite_float(experiment.get("avoid_loss_rate", 0.0), field_name="avoid_loss_rate")
 
