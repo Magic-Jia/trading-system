@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Sequence
 from dataclasses import asdict
 import math
 from statistics import mean
@@ -756,6 +757,25 @@ def _normalize_symbol_rows(symbol_rows: Any) -> dict[str, dict[str, Any]]:
             "filter_counts": dict(_telemetry_optional_mapping(row_payload, "filter_counts", path=row_path)),
         }
     return normalized
+
+
+def _trace_candidate_rows(payload: Mapping[str, Any]) -> list[dict[str, Any]]:
+    value = payload.get("candidates", [])
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes, bytearray)):
+        raise ValueError("candidates must be a list")
+    rows: list[dict[str, Any]] = []
+    for index, candidate in enumerate(value):
+        if not isinstance(candidate, Mapping):
+            raise ValueError(f"candidates[{index}] must be an object")
+        rows.append(dict(candidate))
+    return rows
+
+
+def _trace_input_universe(payload: Mapping[str, Any]) -> int:
+    value = payload.get("input_universe", 0)
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError("input_universe must be an integer")
+    return value
 
 
 def _validated_candidate_symbol(candidate: Mapping[str, Any], *, index: int) -> str:
@@ -1699,8 +1719,8 @@ def run_engine_filter_ablation_experiment(
             regime = _regime_for_row(row)
             traced = variant["builder"](row)
             regime = traced.get("regime", regime)
-            candidate_rows = list(traced.get("candidates", []))
-            input_universe = int(traced.get("input_universe", 0))
+            candidate_rows = _trace_candidate_rows(traced)
+            input_universe = _trace_input_universe(traced)
             _merge_counts(filter_counts, _traced_filter_counts(traced))
             selected_symbols.update(
                 symbol
@@ -1795,8 +1815,8 @@ def run_long_gate_telemetry_experiment(
             pipeline = _run_candidate_pipeline(
                 row,
                 regime=regime,
-                input_universe=int(traced["input_universe"]),
-                candidates=list(traced["candidates"]),
+                input_universe=_trace_input_universe(traced),
+                candidates=_trace_candidate_rows(traced),
                 evaluation_window=evaluation_window,
             )
             aggregate = aggregates[engine_name]

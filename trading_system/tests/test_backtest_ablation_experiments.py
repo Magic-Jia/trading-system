@@ -664,6 +664,63 @@ def test_engine_filter_ablation_rejects_non_mapping_traced_filter_counts(monkeyp
         run_engine_filter_ablation_experiment([_bullish_ablation_row()], evaluation_window="3d")
 
 
+@pytest.mark.parametrize(
+    ("candidates", "match"),
+    [
+        ("BTCUSDT", r"^candidates must be a list$"),
+        ([object()], r"^candidates\[0\] must be an object$"),
+    ],
+)
+def test_engine_filter_ablation_rejects_invalid_trace_candidate_shape(
+    monkeypatch: pytest.MonkeyPatch,
+    candidates: object,
+    match: str,
+) -> None:
+    row = _bullish_ablation_row()
+
+    def invalid_trend_candidates_with_trace(_row, **_kwargs):
+        return {
+            "regime": row.meta["regime_override"],
+            "input_universe": 1,
+            "candidates": candidates,
+            "filter_counts": {},
+        }
+
+    monkeypatch.setattr(
+        backtest_experiments,
+        "_trend_candidates_with_trace",
+        invalid_trend_candidates_with_trace,
+    )
+
+    with pytest.raises(ValueError, match=match):
+        run_engine_filter_ablation_experiment([row], evaluation_window="3d")
+
+
+@pytest.mark.parametrize("input_universe", [True, "1", 1.5])
+def test_engine_filter_ablation_rejects_invalid_trace_input_universe(
+    monkeypatch: pytest.MonkeyPatch,
+    input_universe: object,
+) -> None:
+    row = _bullish_ablation_row()
+
+    def invalid_trend_candidates_with_trace(_row, **_kwargs):
+        return {
+            "regime": row.meta["regime_override"],
+            "input_universe": input_universe,
+            "candidates": [],
+            "filter_counts": {},
+        }
+
+    monkeypatch.setattr(
+        backtest_experiments,
+        "_trend_candidates_with_trace",
+        invalid_trend_candidates_with_trace,
+    )
+
+    with pytest.raises(ValueError, match=r"^input_universe must be an integer$"):
+        run_engine_filter_ablation_experiment([row], evaluation_window="3d")
+
+
 
 def test_long_gate_telemetry_outputs_engine_blockers_and_snapshot_rows() -> None:
     rows = [_bullish_ablation_row(), _bearish_short_row()]
@@ -826,6 +883,51 @@ def test_long_gate_telemetry_rejects_non_mapping_symbol_row_shapes(
     monkeypatch.setattr(backtest_experiments, "_trend_candidates_with_trace", traced_with_invalid_symbol_rows)
 
     with pytest.raises(ValueError, match=match):
+        run_long_gate_telemetry_experiment([_bullish_ablation_row()], evaluation_window="3d")
+
+
+@pytest.mark.parametrize(
+    ("candidates", "match"),
+    [
+        ("BTCUSDT", r"^candidates must be a list$"),
+        ([object()], r"^candidates\[0\] must be an object$"),
+    ],
+)
+def test_long_gate_telemetry_rejects_invalid_trace_candidate_shape(
+    monkeypatch: pytest.MonkeyPatch,
+    candidates: object,
+    match: str,
+) -> None:
+    def traced_with_invalid_candidates(_row):
+        return {
+            "input_universe": 1,
+            "candidates": candidates,
+            "filter_counts": {},
+            "symbol_rows": {},
+        }
+
+    monkeypatch.setattr(backtest_experiments, "_trend_candidates_with_trace", traced_with_invalid_candidates)
+
+    with pytest.raises(ValueError, match=match):
+        run_long_gate_telemetry_experiment([_bullish_ablation_row()], evaluation_window="3d")
+
+
+@pytest.mark.parametrize("input_universe", [True, "1", 1.5])
+def test_long_gate_telemetry_rejects_invalid_trace_input_universe(
+    monkeypatch: pytest.MonkeyPatch,
+    input_universe: object,
+) -> None:
+    def traced_with_invalid_input_universe(_row):
+        return {
+            "input_universe": input_universe,
+            "candidates": [],
+            "filter_counts": {},
+            "symbol_rows": {},
+        }
+
+    monkeypatch.setattr(backtest_experiments, "_trend_candidates_with_trace", traced_with_invalid_input_universe)
+
+    with pytest.raises(ValueError, match=r"^input_universe must be an integer$"):
         run_long_gate_telemetry_experiment([_bullish_ablation_row()], evaluation_window="3d")
 
 
