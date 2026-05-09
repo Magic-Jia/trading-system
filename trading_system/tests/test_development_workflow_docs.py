@@ -29,3 +29,18 @@ def test_codex_worker_template_forbids_side_effects_and_nested_agents() -> None:
     assert "RED command" in text
     assert "GREEN command" in text
     assert "scripts/verify.py" in text
+
+
+def test_workflow_doc_lists_every_non_full_suite() -> None:
+    text = WORKFLOW_DOC.read_text()
+    for suite in (
+        "evidence-chain",
+        "runtime-main",
+        "universe",
+        "portfolio",
+        "backtest-core",
+        "archive-data",
+        "runtime-support",
+        "app-smoke",
+    ):
+        assert f"--suite {suite}" in text
