@@ -1136,7 +1136,11 @@ def render_walk_forward_validation_report(
     if not isinstance(raw_out_of_sample_scorecard, Mapping):
         raise ValueError("out_of_sample_scorecard must be an object")
     out_of_sample_scorecard = dict(raw_out_of_sample_scorecard)
-    windows = _list_field(experiment, "windows")
+    windows = []
+    for index, window in enumerate(_list_field(experiment, "windows")):
+        if not isinstance(window, Mapping):
+            raise ValueError(f"windows[{index}] must be an object")
+        windows.append(dict(window))
 
     out_of_sample_total_return = _report_finite_float(
         out_of_sample_scorecard.get("total_return", 0.0),
