@@ -69,3 +69,23 @@ def test_verify_auto_detects_git_changed_paths() -> None:
 
     assert result.returncode == 0, result.stderr
     assert "trading_system/tests/test_development_workflow.py" in result.stdout
+
+
+def test_verify_maps_docs_and_templates_to_workflow_doc_tests() -> None:
+    result = run_verify("--dry-run", "--changed", "docs/development-workflow.md", "--changed", "templates/codex-worker-prompt.md")
+
+    assert result.returncode == 0, result.stderr
+    assert "trading_system/tests/test_development_workflow_docs.py" in result.stdout
+
+
+def test_verify_auto_changed_includes_untracked_files() -> None:
+    marker = ROOT / "templates" / ".verify-untracked-marker.md"
+    marker.parent.mkdir(exist_ok=True)
+    marker.write_text("temporary untracked marker\n")
+    try:
+        result = run_verify("--dry-run", "--auto-changed")
+    finally:
+        marker.unlink(missing_ok=True)
+
+    assert result.returncode == 0, result.stderr
+    assert "trading_system/tests/test_development_workflow_docs.py" in result.stdout

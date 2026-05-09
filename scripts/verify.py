@@ -50,6 +50,8 @@ IMPACT_RULES: tuple[tuple[str, list[str]], ...] = (
         "trading_system/tests/test_backtest_live_readiness.py",
     ]),
     ("scripts/verify.py", ["trading_system/tests/test_development_workflow.py"]),
+    ("docs/development-workflow.md", ["trading_system/tests/test_development_workflow_docs.py"]),
+    ("templates/", ["trading_system/tests/test_development_workflow_docs.py"]),
 )
 
 
@@ -66,9 +68,9 @@ def tests_for_changed(paths: list[str]) -> list[str]:
     return unique(selected)
 
 
-def git_changed_paths() -> list[str]:
+def _git_lines(command: str) -> list[str]:
     completed = subprocess.run(
-        "git diff --name-only HEAD",
+        command,
         shell=True,
         text=True,
         stdout=subprocess.PIPE,
@@ -76,8 +78,15 @@ def git_changed_paths() -> list[str]:
         check=False,
     )
     if completed.returncode != 0:
-        raise RuntimeError(completed.stderr.strip() or "git diff --name-only HEAD failed")
+        raise RuntimeError(completed.stderr.strip() or f"{command} failed")
     return [line.strip() for line in completed.stdout.splitlines() if line.strip()]
+
+
+def git_changed_paths() -> list[str]:
+    return unique(
+        _git_lines("git diff --name-only HEAD")
+        + _git_lines("git ls-files --others --exclude-standard")
+    )
 
 
 def build_commands(*, suites: list[str], changed: list[str]) -> list[str]:
