@@ -88,3 +88,12 @@ def test_registered_suite_test_files_have_impact_mapping() -> None:
     ]
 
     assert missing == []
+
+
+def test_management_execution_test_file_has_portfolio_impact_mapping() -> None:
+    verify = load_verify_module()
+
+    tests = verify.tests_for_changed(["trading_system/tests/test_management_execution.py"])
+
+    assert "trading_system/tests/test_management_execution.py" in tests
+    assert "trading_system/tests/test_target_management_state.py" in tests
