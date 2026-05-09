@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import subprocess
 import sys
@@ -258,6 +259,11 @@ def run_command_argv(commands: list[list[str]]) -> int:
     return 0
 
 
+def plan_fingerprint(payload: dict[str, object]) -> str:
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Deterministic trading-system verification entrypoint")
     parser.add_argument("--suite", action="append", default=[], help="fixed suite: evidence-chain, runtime-main, universe, full")
@@ -352,6 +358,7 @@ def main(argv: list[str] | None = None) -> int:
                 "commands": commands,
                 "command_argv": command_argv,
             }
+            payload["plan_fingerprint"] = plan_fingerprint(payload)
             print(json.dumps(payload, indent=2, sort_keys=True))
         else:
             print("\n".join(commands))

@@ -17,6 +17,7 @@ VERIFICATION_PLAN_JSON_KEYS = {
     "explicit_tests",
     "full",
     "full_checkpoint_reason",
+    "plan_fingerprint",
     "plan_kind",
     "plan_version",
     "strict_changed_verification",
@@ -202,6 +203,12 @@ def test_verify_json_dry_run_emits_machine_readable_plan() -> None:
     assert set(payload) == VERIFICATION_PLAN_JSON_KEYS
     assert payload["plan_version"] == 1
     assert payload["plan_kind"] == "verification_plan"
+    assert len(payload["plan_fingerprint"]) == 64
+    assert all(char in "0123456789abcdef" for char in payload["plan_fingerprint"])
+    repeat = run_verify("--dry-run", "--json", "--changed", "trading_system/app/main.py")
+    assert repeat.returncode == 0, repeat.stderr
+    repeat_payload = json.loads(repeat.stdout)
+    assert repeat_payload["plan_fingerprint"] == payload["plan_fingerprint"]
     assert payload["suites"] == []
     assert payload["changed"] == ["trading_system/app/main.py"]
     assert payload["strict_changed_verification"] is False
