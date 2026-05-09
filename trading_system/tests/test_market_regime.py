@@ -6,7 +6,7 @@ import pytest
 from trading_system.app.data_sources.derivatives_loader import load_derivatives_snapshot
 from trading_system.app.data_sources.market_loader import load_market_context
 from trading_system.app.market_regime.breadth import compute_breadth_metrics
-from trading_system.app.market_regime.classifier import classify_regime
+from trading_system.app.market_regime.classifier import _classify_label, classify_regime
 from trading_system.app.market_regime.derivatives import summarize_derivatives_risk, symbol_derivatives_features
 
 
@@ -403,6 +403,22 @@ def test_classify_regime_rejects_string_daily_atr_pct(load_fixture):
 
     with pytest.raises(ValueError, match="BTCUSDT.daily.atr_pct"):
         classify_regime(market, derivatives)
+
+
+def test_classify_label_rejects_present_invalid_derivatives_summary_category():
+    breadth = {
+        "pct_above_4h_ema20": 1.0,
+        "pct_4h_ema20_above_ema50": 1.0,
+        "positive_momentum_share": 1.0,
+    }
+    derivatives_summary = {
+        "crowding_bias": True,
+        "oi_trend": "flat",
+        "late_stage_heat": "none",
+    }
+
+    with pytest.raises(ValueError, match="derivatives summary crowding_bias"):
+        _classify_label(breadth, derivatives_summary, trend_strength=1.0, avg_daily_atr_pct=0.02)
 
 
 def test_low_confidence_regime_reduces_aggression(load_fixture):

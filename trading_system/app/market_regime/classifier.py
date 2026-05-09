@@ -11,6 +11,10 @@ from .breadth import compute_breadth_metrics
 from .derivatives import summarize_derivatives_risk
 
 MAJOR_SYMBOLS = {"BTCUSDT", "ETHUSDT"}
+_MISSING = object()
+_CROWDING_BIAS_VALUES = {"balanced", "crowded_long", "crowded_short"}
+_OI_TREND_VALUES = {"flat", "expanding", "contracting"}
+_LATE_STAGE_HEAT_VALUES = {"none", "cascade", "squeeze"}
 
 _REGIME_PROFILES: dict[str, dict[str, Any]] = {
     "RISK_ON_TREND": {
@@ -70,6 +74,21 @@ def _strict_present_finite_float(
     return number
 
 
+def _strict_derivatives_summary_category(
+    summary: dict[str, Any], field: str, *, default: str, allowed: set[str]
+) -> str:
+    value = summary.get(field, _MISSING)
+    if value is _MISSING or value is None:
+        return default
+    if not isinstance(value, str):
+        raise ValueError(f"derivatives summary {field} must be a string")
+    if value.strip() != value or not value:
+        raise ValueError(f"derivatives summary {field} must be a canonical string")
+    if value not in allowed:
+        raise ValueError(f"derivatives summary {field} must be one of {sorted(allowed)}")
+    return value
+
+
 def _major_trend_strength(market_rows: list[dict[str, Any]]) -> float:
     majors = [row for row in market_rows if row.get("symbol") in MAJOR_SYMBOLS]
     if not majors:
@@ -118,9 +137,24 @@ def _classify_label(
         and breadth["positive_momentum_share"] < 0.4
     )
     high_volatility = avg_daily_atr_pct >= 0.06
-    crowding_bias = str(derivatives.get("crowding_bias", "balanced"))
-    oi_trend = str(derivatives.get("oi_trend", "flat"))
-    late_stage_heat = str(derivatives.get("late_stage_heat", "none"))
+    crowding_bias = _strict_derivatives_summary_category(
+        derivatives,
+        "crowding_bias",
+        default="balanced",
+        allowed=_CROWDING_BIAS_VALUES,
+    )
+    oi_trend = _strict_derivatives_summary_category(
+        derivatives,
+        "oi_trend",
+        default="flat",
+        allowed=_OI_TREND_VALUES,
+    )
+    late_stage_heat = _strict_derivatives_summary_category(
+        derivatives,
+        "late_stage_heat",
+        default="none",
+        allowed=_LATE_STAGE_HEAT_VALUES,
+    )
 
     if late_stage_heat != "none":
         return "CRASH_DEFENSIVE"
@@ -185,8 +219,18 @@ def classify_regime(
         confidence = min(confidence, 0.35)
 
     aggression = _aggression_scale(confidence)
-    crowding_bias = str(derivatives_summary.get("crowding_bias", "balanced"))
-    late_stage_heat = str(derivatives_summary.get("late_stage_heat", "none"))
+    crowding_bias = _strict_derivatives_summary_category(
+        derivatives_summary,
+        "crowding_bias",
+        default="balanced",
+        allowed=_CROWDING_BIAS_VALUES,
+    )
+    late_stage_heat = _strict_derivatives_summary_category(
+        derivatives_summary,
+        "late_stage_heat",
+        default="none",
+        allowed=_LATE_STAGE_HEAT_VALUES,
+    )
     if crowding_bias == "crowded_long":
         aggression = max(0.3, aggression * 0.8)
     if late_stage_heat != "none":
