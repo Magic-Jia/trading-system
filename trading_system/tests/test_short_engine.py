@@ -372,6 +372,88 @@ def test_generate_short_candidates_rejects_present_non_object_liquidity_meta():
         )
 
 
+def test_generate_short_candidates_rejects_non_string_liquidity_meta_key():
+    market = _defensive_market()
+    market["symbols"]["DOGEUSDT"] = {
+        "sector": "majors",
+        "liquidity_tier": "high",
+        "daily": {
+            "close": 0.142,
+            "ema_20": 0.148,
+            "ema_50": 0.155,
+            "return_pct_7d": -0.052,
+            "volume_usdt_24h": 12_000_000_000.0,
+        },
+        "4h": {
+            "close": 0.141,
+            "ema_20": 0.146,
+            "ema_50": 0.151,
+            "return_pct_3d": -0.031,
+        },
+        "1h": {
+            "close": 0.1405,
+            "ema_20": 0.144,
+            "ema_50": 0.149,
+            "return_pct_24h": -0.011,
+        },
+    }
+    regime = {"label": "HIGH_VOL_DEFENSIVE", "bucket_targets": {"trend": 0.2, "rotation": 0.0, "short": 0.8}}
+
+    assert [
+        candidate.liquidity_meta
+        for candidate in generate_short_candidates(
+            market,
+            short_universe=[
+                {
+                    "symbol": "DOGEUSDT",
+                    "sector": "majors",
+                    "liquidity_meta": {"rolling_notional": 1_000_000.0, "source": "fixture"},
+                },
+            ],
+            regime=regime,
+        )
+    ] == [
+        {
+            "rolling_notional": 1_000_000.0,
+            "source": "fixture",
+            "liquidity_tier": "high",
+            "volume_usdt_24h": 12_000_000_000.0,
+        }
+    ]
+
+    assert [
+        candidate.liquidity_meta
+        for candidate in generate_short_candidates(
+            market,
+            short_universe=[
+                {
+                    "symbol": "DOGEUSDT",
+                    "sector": "majors",
+                },
+            ],
+            regime=regime,
+        )
+    ] == [
+        {
+            "liquidity_tier": "high",
+            "volume_usdt_24h": 12_000_000_000.0,
+        }
+    ]
+
+    with pytest.raises(ValueError, match=r"DOGEUSDT\.liquidity_meta key must be a string"):
+        generate_short_candidates(
+            market,
+            short_universe=[
+                {
+                    "symbol": "DOGEUSDT",
+                    "sector": "majors",
+                    "liquidity_meta": {123: "bad", "rolling_notional": 1_000_000.0},
+                },
+            ],
+            regime=regime,
+        )
+
+
 @pytest.mark.parametrize("bad_rolling_notional", ["12500000000", True])
 def test_generate_short_candidates_rejects_present_invalid_liquidity_rolling_notional(bad_rolling_notional):
     market = _defensive_market()

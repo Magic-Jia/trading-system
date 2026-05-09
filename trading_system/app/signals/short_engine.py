@@ -33,6 +33,9 @@ def _liquidity_meta(universe_row: Mapping[str, Any], symbol: str) -> Mapping[str
         return {}
     value = universe_row.get("liquidity_meta")
     if isinstance(value, Mapping):
+        for key in value:
+            if not isinstance(key, str):
+                raise ValueError(f"{symbol}.liquidity_meta key must be a string")
         return value
     raise ValueError(f"{symbol}.liquidity_meta must be an object")
 
