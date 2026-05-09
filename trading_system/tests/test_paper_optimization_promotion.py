@@ -192,3 +192,20 @@ def test_materialize_env_overrides_rejects_non_object_overlay_ops() -> None:
 
     with pytest.raises(ValueError, match="overlay_ops entries must be objects"):
         materialize_env_overrides(payload, baseline_env={})
+
+def test_materialize_env_overrides_rejects_non_string_env_name() -> None:
+    payload = {
+        "recommendations": [
+            {
+                "id": "bad-env",
+                "overlay_ops": [
+                    {"env": 123, "op": "set", "value": "rotation"},
+                ],
+            }
+        ]
+    }
+
+    import pytest
+
+    with pytest.raises(ValueError, match="overlay_ops.env must be a string"):
+        materialize_env_overrides(payload, baseline_env={})

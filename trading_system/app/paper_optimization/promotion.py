@@ -50,10 +50,16 @@ def materialize_env_overrides(
         for raw_op in overlay_ops:
             if not isinstance(raw_op, Mapping):
                 raise ValueError("overlay_ops entries must be objects")
-            env_name = str(raw_op.get("env") or "").strip()
+            raw_env_name = raw_op.get("env")
+            if not isinstance(raw_env_name, str):
+                raise ValueError("overlay_ops.env must be a string")
+            env_name = raw_env_name.strip()
             if not env_name:
                 continue
-            op = str(raw_op.get("op") or "set").strip().lower()
+            raw_op_name = raw_op.get("op", "set")
+            if not isinstance(raw_op_name, str):
+                raise ValueError("overlay_ops.op must be a string")
+            op = raw_op_name.strip().lower()
             if op == "set":
                 env_values[env_name] = str(raw_op.get("value") or "")
                 continue
