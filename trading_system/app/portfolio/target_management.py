@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+import numbers
 from typing import Any, Mapping
 
 TARGET_STATUS_PENDING = "pending"
@@ -17,6 +19,29 @@ def _float(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _present_string(payload: Mapping[str, Any], field: str) -> str | None:
+    if field not in payload or payload.get(field) is None:
+        return None
+    value = payload.get(field)
+    if isinstance(value, str):
+        return value
+    raise TypeError(f"{field} must be a string when present")
+
+
+def _present_finite_number(payload: Mapping[str, Any], field: str) -> float | None:
+    if field not in payload or payload.get(field) is None:
+        return None
+    value = payload.get(field)
+    if isinstance(value, bool):
+        raise TypeError(f"{field} must be a finite non-bool number when present")
+    if not isinstance(value, numbers.Real):
+        raise ValueError(f"{field} must be a finite non-bool number when present")
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError(f"{field} must be a finite non-bool number when present")
+    return number
 
 
 def _optional_bool(payload: Mapping[str, Any], field: str, default: bool = False) -> bool:
@@ -86,7 +111,9 @@ def derive_target_management_fields(
     legacy_take_profit: float | None,
     original_position_qty: float,
 ) -> dict[str, Any]:
-    if str(side).upper() != "LONG":
+    if not isinstance(side, str):
+        raise TypeError("side must be a string")
+    if side.upper() != "LONG":
         return {}
 
     stop = _float(stop_loss)
@@ -175,7 +202,8 @@ def _normalize_runner_state(payload: dict[str, Any]) -> dict[str, Any]:
     if not payload.get("runner_protected"):
         return payload
 
-    if str(payload.get("second_target_status") or TARGET_STATUS_PENDING) != TARGET_STATUS_FILLED:
+    second_target_status = _present_string(payload, "second_target_status") or TARGET_STATUS_PENDING
+    if second_target_status != TARGET_STATUS_FILLED:
         payload["runner_protected"] = False
         payload["runner_stop_price"] = None
         return payload
@@ -248,7 +276,7 @@ def _stage_fraction(stage: str) -> float:
 
 def stage_requested_qty(position: Mapping[str, Any], *, stage: str) -> float:
     fraction = _stage_fraction(stage)
-    original_qty = _float(position.get("original_position_qty")) or 0.0
+    original_qty = _present_finite_number(position, "original_position_qty") or 0.0
     if fraction <= 0 or original_qty <= 0:
         return 0.0
     return _round_qty(original_qty * fraction)
@@ -258,8 +286,8 @@ def stage_completed(position: Mapping[str, Any], *, stage: str) -> bool:
     target_qty = stage_requested_qty(position, stage=stage)
     if target_qty <= 0:
         return False
-    filled_qty = _float(position.get(f"{stage}_target_filled_qty")) or 0.0
-    step_size = _float(position.get("symbol_step_size"))
+    filled_qty = _present_finite_number(position, f"{stage}_target_filled_qty") or 0.0
+    step_size = _present_finite_number(position, "symbol_step_size")
     epsilon = _qty_epsilon(step_size)
     return filled_qty + epsilon >= target_qty
 
@@ -269,16 +297,16 @@ def reconciled_stage_qty(position: Mapping[str, Any], *, stage: str) -> float | 
     if requested_qty <= 0:
         return None
 
-    filled_qty = _float(position.get(f"{stage}_target_filled_qty")) or 0.0
+    filled_qty = _present_finite_number(position, f"{stage}_target_filled_qty") or 0.0
     stage_remaining_qty = max(requested_qty - filled_qty, 0.0)
     if stage_remaining_qty <= 0:
         return None
 
-    remaining_qty = _float(position.get("remaining_position_qty"))
+    remaining_qty = _present_finite_number(position, "remaining_position_qty")
     if remaining_qty is None:
         remaining_qty = _float(position.get("qty")) or 0.0
     raw_executable_qty = min(stage_remaining_qty, max(remaining_qty, 0.0))
-    step = _float(position.get("symbol_step_size"))
+    step = _present_finite_number(position, "symbol_step_size")
     executable_qty = _floor_to_step(raw_executable_qty, step)
     if executable_qty <= 0:
         return None
@@ -291,11 +319,13 @@ def reconciled_stage_qty(position: Mapping[str, Any], *, stage: str) -> float | 
 
 def terminalize_all_unreachable_stages(position: Mapping[str, Any]) -> dict[str, Any]:
     payload = dict(position)
-    if str(payload.get("side") or "").upper() != "LONG":
+    side = _present_string(payload, "side") or ""
+    if side.upper() != "LONG":
         return payload
 
     for stage in ("first", "second"):
-        if str(payload.get(f"{stage}_target_status") or TARGET_STATUS_PENDING) != TARGET_STATUS_PENDING:
+        stage_status = _present_string(payload, f"{stage}_target_status") or TARGET_STATUS_PENDING
+        if stage_status != TARGET_STATUS_PENDING:
             continue
         if not _stage_unreachable(payload, stage=stage):
             continue
@@ -324,9 +354,8 @@ def _apply_legacy_stage_seed(position: dict[str, Any], *, allow_legacy_partial_s
             position["first_target_status"] = TARGET_STATUS_PENDING
             position["first_target_hit"] = False
 
-    if str(position.get("first_target_status") or TARGET_STATUS_PENDING) == TARGET_STATUS_PENDING and _stage_unreachable(
-        position, stage="first"
-    ):
+    first_target_status = _present_string(position, "first_target_status") or TARGET_STATUS_PENDING
+    if first_target_status == TARGET_STATUS_PENDING and _stage_unreachable(position, stage="first"):
         position["first_target_status"] = TARGET_STATUS_EXTERNAL
         position["first_target_hit"] = False
     return _with_default_target_state(position)
@@ -334,8 +363,11 @@ def _apply_legacy_stage_seed(position: dict[str, Any], *, allow_legacy_partial_s
 
 def ensure_target_management_state(position: Mapping[str, Any]) -> dict[str, Any]:
     payload = dict(position)
-    if str(payload.get("side") or "").upper() != "LONG":
+    side = _present_string(payload, "side") or ""
+    if side.upper() != "LONG":
         return payload
+    _present_string(payload, "first_target_status")
+    _present_string(payload, "second_target_status")
 
     first_target_price = _float(payload.get("first_target_price"))
     second_target_price = _float(payload.get("second_target_price"))
@@ -376,7 +408,7 @@ def ensure_target_management_state(position: Mapping[str, Any]) -> dict[str, Any
         remaining_qty = _float(payload.get("qty"))
 
     derived = derive_target_management_fields(
-        side=str(payload.get("side") or "LONG"),
+        side=side or "LONG",
         entry_price=_float(payload.get("entry_price")) or 0.0,
         stop_loss=_float(payload.get("stop_loss")),
         structure_target_price=_float(payload.get("structure_target_price")),

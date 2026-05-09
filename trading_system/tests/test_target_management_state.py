@@ -3,6 +3,10 @@ import pytest
 from trading_system.app.portfolio.target_management import (
     derive_target_management_fields,
     ensure_target_management_state,
+    reconciled_stage_qty,
+    stage_completed,
+    stage_requested_qty,
+    terminalize_all_unreachable_stages,
 )
 from trading_system.app.portfolio.positions import (
     _has_explicit_target_management_state,
@@ -120,6 +124,19 @@ def test_derive_target_management_fields_falls_back_to_1r_when_structure_target_
     assert no_structure["first_target_source"] == "fallback_1r"
 
 
+@pytest.mark.parametrize("side", [123, True])
+def test_derive_target_management_fields_rejects_present_non_string_side(side):
+    with pytest.raises(TypeError, match="side must be a string"):
+        derive_target_management_fields(
+            side=side,
+            entry_price=100.0,
+            stop_loss=95.0,
+            structure_target_price=None,
+            legacy_take_profit=None,
+            original_position_qty=2.0,
+        )
+
+
 def test_ensure_target_management_state_maps_invalid_legacy_take_profit_back_to_1r():
     position = ensure_target_management_state(
         {
@@ -136,6 +153,94 @@ def test_ensure_target_management_state_maps_invalid_legacy_take_profit_back_to_
     assert position["first_target_price"] == pytest.approx(105.0)
     assert position["first_target_source"] == "fallback_1r"
     assert position["second_target_price"] == pytest.approx(110.0)
+
+
+def test_ensure_target_management_state_rejects_present_non_string_side():
+    with pytest.raises(TypeError, match="side must be a string when present"):
+        ensure_target_management_state(
+            {
+                "symbol": "BTCUSDT",
+                "side": 123,
+                "entry_price": 100.0,
+                "stop_loss": 95.0,
+                "qty": 2.0,
+            }
+        )
+
+
+@pytest.mark.parametrize("field", ["first_target_status", "second_target_status"])
+def test_ensure_target_management_state_rejects_present_non_string_target_status(field):
+    payload = {
+        "symbol": "BTCUSDT",
+        "side": "LONG",
+        "entry_price": 100.0,
+        "stop_loss": 95.0,
+        "qty": 2.0,
+        "first_target_price": 105.0,
+        "first_target_source": "fallback_1r",
+        "second_target_price": 110.0,
+        "second_target_source": "fixed_2r",
+        "first_target_status": "pending",
+        "second_target_status": "pending",
+        field: 123,
+    }
+
+    with pytest.raises(TypeError, match=f"{field} must be a string when present"):
+        ensure_target_management_state(payload)
+
+
+@pytest.mark.parametrize("field", ["first_target_status", "second_target_status"])
+def test_terminalize_all_unreachable_stages_rejects_present_non_string_target_status(field):
+    payload = {
+        "symbol": "BTCUSDT",
+        "side": "LONG",
+        "qty": 0.01,
+        "original_position_qty": 2.0,
+        "remaining_position_qty": 0.01,
+        "symbol_step_size": 0.01,
+        "first_target_status": "pending",
+        "second_target_status": "pending",
+        field: 123,
+    }
+
+    with pytest.raises(TypeError, match=f"{field} must be a string when present"):
+        terminalize_all_unreachable_stages(payload)
+
+
+@pytest.mark.parametrize("field", ["original_position_qty"])
+def test_stage_requested_qty_rejects_present_invalid_numeric_string(field):
+    with pytest.raises(ValueError, match=f"{field} must be a finite non-bool number when present"):
+        stage_requested_qty({field: "bad"}, stage="first")
+
+
+@pytest.mark.parametrize("field", ["original_position_qty", "first_target_filled_qty", "symbol_step_size"])
+def test_stage_completed_rejects_present_invalid_numeric_string(field):
+    payload = {
+        "original_position_qty": 2.0,
+        "first_target_filled_qty": 0.5,
+        "symbol_step_size": 0.01,
+        field: "bad",
+    }
+
+    with pytest.raises(ValueError, match=f"{field} must be a finite non-bool number when present"):
+        stage_completed(payload, stage="first")
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["original_position_qty", "remaining_position_qty", "first_target_filled_qty", "symbol_step_size"],
+)
+def test_reconciled_stage_qty_rejects_present_invalid_numeric_string(field):
+    payload = {
+        "original_position_qty": 2.0,
+        "remaining_position_qty": 1.0,
+        "first_target_filled_qty": 0.25,
+        "symbol_step_size": 0.01,
+        field: "bad",
+    }
+
+    with pytest.raises(ValueError, match=f"{field} must be a finite non-bool number when present"):
+        reconciled_stage_qty(payload, stage="first")
 
 
 def test_ensure_target_management_state_rederives_invalid_frozen_target_order():
