@@ -1619,6 +1619,47 @@ def test_allocation_summary_rejects_invalid_present_accepted_final_risk_budget(i
         backtest_experiments._allocation_summary(allocations)
 
 
+@pytest.mark.parametrize("invalid_score", [True, "1"])
+def test_baseline_allocation_row_rejects_non_numeric_present_rank_score(invalid_score: object) -> None:
+    candidate = {"symbol": "BTCUSDT", "engine": "trend", "setup_type": "breakout", "score": invalid_score}
+
+    with pytest.raises(ValueError, match=r"^candidate\.score must be numeric$"):
+        backtest_experiments._baseline_allocation_row(
+            candidate,
+            rank=1,
+            status="ACCEPTED",
+            final_risk_budget=0.01,
+            baseline_name="equal_weight_baseline",
+        )
+
+
+@pytest.mark.parametrize("invalid_score", [float("nan"), float("inf")])
+def test_baseline_allocation_row_rejects_non_finite_present_rank_score(invalid_score: float) -> None:
+    candidate = {"symbol": "BTCUSDT", "engine": "trend", "setup_type": "breakout", "score": invalid_score}
+
+    with pytest.raises(ValueError, match=r"^candidate\.score must be finite$"):
+        backtest_experiments._baseline_allocation_row(
+            candidate,
+            rank=1,
+            status="ACCEPTED",
+            final_risk_budget=0.01,
+            baseline_name="equal_weight_baseline",
+        )
+
+
+@pytest.mark.parametrize("candidate", [{"symbol": "BTCUSDT"}, {"symbol": "BTCUSDT", "score": None}])
+def test_baseline_allocation_row_defaults_missing_rank_score(candidate: dict[str, object]) -> None:
+    row = backtest_experiments._baseline_allocation_row(
+        candidate,
+        rank=1,
+        status="ACCEPTED",
+        final_risk_budget=0.01,
+        baseline_name="equal_weight_baseline",
+    )
+
+    assert row["meta"]["rank_score"] == 0.0
+
+
 @pytest.mark.parametrize("input_universe", [True, "1", 1.5])
 def test_allocator_friction_experiment_rejects_invalid_engine_only_input_universe(
     monkeypatch: pytest.MonkeyPatch,

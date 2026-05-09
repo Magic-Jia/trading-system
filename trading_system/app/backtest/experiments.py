@@ -1054,6 +1054,17 @@ def _allocation_final_risk_budget(allocation: Mapping[str, Any], *, path: str) -
     return budget
 
 
+def _baseline_rank_score(candidate: Mapping[str, Any]) -> float:
+    if "score" not in candidate or candidate.get("score") is None:
+        return 0.0
+    score = candidate.get("score")
+    if isinstance(score, bool) or not isinstance(score, int | float):
+        raise ValueError("candidate.score must be numeric")
+    if not math.isfinite(score):
+        raise ValueError("candidate.score must be finite")
+    return float(score)
+
+
 def _baseline_allocation_row(
     candidate: Mapping[str, Any],
     *,
@@ -1074,7 +1085,7 @@ def _baseline_allocation_row(
         "final_risk_budget": round(float(final_risk_budget), 6),
         "meta": {
             "baseline_name": baseline_name,
-            "rank_score": float(candidate.get("score", 0.0) or 0.0),
+            "rank_score": _baseline_rank_score(candidate),
         },
     }
 
