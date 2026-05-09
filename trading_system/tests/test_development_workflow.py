@@ -122,6 +122,7 @@ def test_verify_json_dry_run_emits_machine_readable_plan() -> None:
     import json
 
     payload = json.loads(result.stdout)
+    assert payload["plan_version"] == 1
     assert payload["suites"] == []
     assert payload["changed"] == ["trading_system/app/main.py"]
     assert payload["strict_changed_verification"] is False
@@ -246,6 +247,7 @@ def test_ci_verify_dry_run_json_reports_commands() -> None:
     import json
 
     payload = json.loads(result.stdout)
+    assert payload["plan_version"] == 1
     assert payload["entrypoint"] == "ci_verify"
     assert payload["strict_changed_verification"] is True
     assert payload["commands"] == [
@@ -294,6 +296,7 @@ def test_nightly_verify_dry_run_json_reports_clean_env_full_command() -> None:
     import json
 
     payload = json.loads(result.stdout)
+    assert payload["plan_version"] == 1
     assert payload["entrypoint"] == "nightly_verify"
     assert payload["clean_env"] is True
     assert payload["commands"] == ["python3 scripts/verify.py --suite full"]

@@ -33,6 +33,7 @@ def main() -> int:
         return 2
     if args.dry_run:
         payload = {
+            "plan_version": 1,
             "entrypoint": "ci_verify",
             "commands": DISPLAY_COMMANDS,
             "strict_changed_verification": True,

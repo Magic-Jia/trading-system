@@ -37,6 +37,7 @@ def main() -> int:
         return 2
     if args.dry_run:
         payload = {
+            "plan_version": 1,
             "entrypoint": "nightly_verify",
             "clean_env": True,
             "commands": DISPLAY_COMMANDS,

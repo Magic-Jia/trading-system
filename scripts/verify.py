@@ -264,6 +264,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.dry_run:
         if args.json:
             payload = {
+                "plan_version": 1,
                 "suites": suites,
                 "changed": changed,
                 "explicit_tests": args.test,
