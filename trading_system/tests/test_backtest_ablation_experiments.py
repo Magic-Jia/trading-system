@@ -753,6 +753,46 @@ def test_engine_filter_ablation_rejects_invalid_pipeline_allocation_rows(
         run_engine_filter_ablation_experiment([_bullish_ablation_row()], evaluation_window="3d")
 
 
+@pytest.mark.parametrize(
+    ("reasons", "expected"),
+    [
+        (None, []),
+        ([], []),
+        (["some reason"], ["some reason"]),
+    ],
+)
+def test_baseline_allocation_row_preserves_valid_reasons(reasons: object, expected: list[str]) -> None:
+    row = backtest_experiments._baseline_allocation_row(
+        {"symbol": "BTCUSDT", "engine": "trend_long", "setup_type": "breakout", "score": 1.25},
+        rank=1,
+        status="ACCEPTED",
+        final_risk_budget=0.1234567,
+        reasons=reasons,
+        baseline_name="equal_weight",
+    )
+
+    assert row["reasons"] == expected
+
+
+@pytest.mark.parametrize(
+    ("reasons", "match"),
+    [
+        ("bad", r"^reasons must be a list$"),
+        ([1], r"^reasons\[0\] must be a string$"),
+    ],
+)
+def test_baseline_allocation_row_rejects_invalid_reasons(reasons: object, match: str) -> None:
+    with pytest.raises(ValueError, match=match):
+        backtest_experiments._baseline_allocation_row(
+            {"symbol": "BTCUSDT", "engine": "trend_long", "setup_type": "breakout", "score": 1.25},
+            rank=1,
+            status="REJECTED",
+            final_risk_budget=0.0,
+            reasons=reasons,
+            baseline_name="equal_weight",
+        )
+
+
 
 def test_long_gate_telemetry_outputs_engine_blockers_and_snapshot_rows() -> None:
     rows = [_bullish_ablation_row(), _bearish_short_row()]

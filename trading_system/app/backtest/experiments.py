@@ -1065,6 +1065,17 @@ def _baseline_rank_score(candidate: Mapping[str, Any]) -> float:
     return float(score)
 
 
+def _baseline_allocation_reasons(reasons: list[str] | None) -> list[str]:
+    if reasons is None:
+        return []
+    if not isinstance(reasons, list):
+        raise ValueError("reasons must be a list")
+    for index, reason in enumerate(reasons):
+        if not isinstance(reason, str):
+            raise ValueError(f"reasons[{index}] must be a string")
+    return list(reasons)
+
+
 def _baseline_allocation_row(
     candidate: Mapping[str, Any],
     *,
@@ -1084,7 +1095,7 @@ def _baseline_allocation_row(
         "score": candidate.get("score"),
         "status": status,
         "rank": rank,
-        "reasons": list(reasons or []),
+        "reasons": _baseline_allocation_reasons(reasons),
         "final_risk_budget": round(budget, 6),
         "meta": {
             "baseline_name": baseline_name,
