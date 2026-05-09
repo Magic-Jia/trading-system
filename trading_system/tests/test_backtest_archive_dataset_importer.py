@@ -2711,6 +2711,38 @@ def test_write_phase1_dataset_bundle_rejects_present_malformed_funding_rate(
         write_phase1_dataset_bundle(bad_material, dataset_root)
 
 
+def test_write_phase1_dataset_bundle_rejects_present_malformed_open_interest_usdt(
+    tmp_path: Path,
+) -> None:
+    archive_root = tmp_path / "archive"
+    dataset_root = tmp_path / "dataset"
+    _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT")
+    imported = load_phase1_raw_market_imports(archive_root)
+    material = build_phase1_dataset_bundle_materials(imported)[-1]
+    market_context = dict(material.market_context)
+    symbols = dict(market_context["symbols"])
+    symbol_context = dict(symbols["BTCUSDT"])
+    futures_context = dict(symbol_context["futures_context"])
+    futures_context["open_interest_usdt"] = "1450000000.0"
+    symbol_context["futures_context"] = futures_context
+    symbols["BTCUSDT"] = symbol_context
+    market_context["symbols"] = symbols
+    bad_material = archive_importer.Phase1DatasetBundleMaterial(
+        timestamp=material.timestamp,
+        run_id=material.run_id,
+        metadata=material.metadata,
+        market_context=market_context,
+        derivatives_snapshot=material.derivatives_snapshot,
+        account_snapshot=material.account_snapshot,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"market_context symbols\.BTCUSDT\.futures_context\.open_interest_usdt must be numeric",
+    ):
+        write_phase1_dataset_bundle(bad_material, dataset_root)
+
+
 def test_write_phase1_dataset_bundle_rejects_present_invalid_instrument_rows(tmp_path: Path) -> None:
     archive_root = tmp_path / "archive"
     dataset_root = tmp_path / "dataset"

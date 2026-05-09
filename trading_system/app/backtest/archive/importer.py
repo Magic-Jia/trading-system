@@ -1990,7 +1990,7 @@ def _material_context_numeric_field(value: Any, *, field: str) -> float:
     return parsed
 
 
-def _validate_material_market_context_funding_rate(market_context: Mapping[str, Any]) -> None:
+def _validate_material_market_context_numeric_evidence(market_context: Mapping[str, Any]) -> None:
     symbols = market_context.get("symbols") if "symbols" in market_context else {}
     if symbols is None:
         return
@@ -2002,12 +2002,15 @@ def _validate_material_market_context_funding_rate(market_context: Mapping[str, 
         if not isinstance(symbol_context, Mapping):
             continue
         futures_context = symbol_context.get("futures_context")
-        if not isinstance(futures_context, Mapping) or "funding_rate" not in futures_context:
+        if not isinstance(futures_context, Mapping):
             continue
-        _material_context_numeric_field(
-            futures_context.get("funding_rate"),
-            field=f"market_context symbols.{symbol}.futures_context.funding_rate",
-        )
+        for field_name in ("funding_rate", "open_interest_usdt"):
+            if field_name not in futures_context:
+                continue
+            _material_context_numeric_field(
+                futures_context.get(field_name),
+                field=f"market_context symbols.{symbol}.futures_context.{field_name}",
+            )
 
 
 def _row_market_symbol_keys(row: Any) -> tuple[str, ...]:
@@ -2213,7 +2216,7 @@ def write_phase1_dataset_root_manifest(
 
 def write_phase1_dataset_bundle(material: Phase1DatasetBundleMaterial, dataset_root: str | Path) -> Path:
     root = Path(dataset_root)
-    _validate_material_market_context_funding_rate(material.market_context)
+    _validate_material_market_context_numeric_evidence(material.market_context)
     bundle_dir = root / f"{_bundle_fragment(material.timestamp)}__{material.run_id}"
     bundle_dir.mkdir(parents=True, exist_ok=False)
     _write_json(bundle_dir / "metadata.json", material.metadata)
