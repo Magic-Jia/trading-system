@@ -347,6 +347,19 @@ def test_verify_run_commands_uses_argv_without_shell(monkeypatch) -> None:
     ]
 
 
+def test_verify_validates_test_paths_from_argv_not_display_commands() -> None:
+    spec = importlib.util.spec_from_file_location("verify", VERIFY)
+    assert spec is not None
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+
+    module.validate_test_path_argv([
+        ["python3", "-m", "pytest", "-q", "trading_system/tests/test_development_workflow.py"],
+        ["git", "diff", "--check", "HEAD"],
+    ])
+
+
 def test_ci_verify_entrypoint_runs_strict_workflow_and_evidence_chain() -> None:
     script = ROOT / "scripts" / "ci_verify.py"
 

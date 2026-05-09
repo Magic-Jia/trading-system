@@ -221,11 +221,12 @@ def build_commands(*, suites: list[str], changed: list[str], explicit_tests: lis
     return [" ".join(argv) for argv in build_command_argv(suites=suites, changed=changed, explicit_tests=explicit_tests)]
 
 
-def validate_test_paths(commands: list[str]) -> None:
+def validate_test_path_argv(commands: list[list[str]]) -> None:
+    pytest_prefix = ["python3", "-m", "pytest", "-q"]
     for command in commands:
-        if not command.startswith(TEST + " "):
+        if command[:4] != pytest_prefix:
             continue
-        for token in command[len(TEST) :].strip().split():
+        for token in command[4:]:
             if token.startswith("-"):
                 continue
             path = Path(token)
@@ -312,7 +313,7 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         commands = build_commands(suites=suites, changed=changed, explicit_tests=args.test)
         command_argv = build_command_argv(suites=suites, changed=changed, explicit_tests=args.test)
-        validate_test_paths(commands)
+        validate_test_path_argv(command_argv)
     except ValueError as exc:
         print(str(exc), file=sys.stderr)
         return 2
