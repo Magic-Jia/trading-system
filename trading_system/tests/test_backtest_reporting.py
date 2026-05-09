@@ -106,6 +106,19 @@ def test_backtest_evaluation_report_rejects_non_object_cost_stress_payload() -> 
         )
 
 
+def test_backtest_evaluation_report_rejects_non_string_mapping_keys() -> None:
+    with pytest.raises(ValueError, match="walk_forward key must be a string"):
+        reporting.render_backtest_evaluation_report(
+            experiment_name="evaluation",
+            evaluation={
+                "walk_forward": {1: "bad", "metadata": {"window_count": 1}},
+                "regimes": {"buckets": []},
+                "cost_stress": {"scenarios": []},
+            },
+            metadata={"dataset_root": "dataset"},
+        )
+
+
 def test_backtest_evaluation_report_rejects_invalid_regime_buckets_shape() -> None:
     with pytest.raises(ValueError, match="regimes.buckets must be a list"):
         reporting.render_backtest_evaluation_report(
@@ -2380,6 +2393,117 @@ def test_public_strategy_factor_report_rejects_invalid_effectiveness_numeric_met
         )
 
 
+def test_public_strategy_factor_report_rejects_string_effectiveness_numeric_metrics() -> None:
+    with pytest.raises(ValueError, match="effectiveness.information_coefficient must be a finite number"):
+        reporting.render_public_strategy_factor_report(
+            experiment_name="public_strategy_factors",
+            experiment={
+                "summary": {
+                    "supported_factor_count": 1,
+                    "unsupported_factor_count": 0,
+                    "data_gap_count": 0,
+                    "evaluated_factor_count": 1,
+                    "effective_factor_count": 1,
+                },
+                "factors": [
+                    {
+                        "source_strategy_family": "momentum",
+                        "factor_name": "momentum_3d",
+                        "supported": True,
+                        "effectiveness": {
+                            "effectiveness_status": "promising_research",
+                            "sample_count": 2,
+                            "minimum_sample_count": 1,
+                            "information_coefficient": "0.3",
+                            "top_minus_bottom_forward_return": 0.02,
+                            "top_bucket_hit_rate": 0.6,
+                        },
+                    }
+                ],
+            },
+            metadata={"snapshot_count": 1},
+        )
+
+
+def test_public_strategy_factor_report_rejects_non_string_factor_keys() -> None:
+    with pytest.raises(ValueError, match=r"factors\[0\] key must be a string"):
+        reporting.render_public_strategy_factor_report(
+            experiment_name="public_strategy_factors",
+            experiment={
+                "summary": {
+                    "supported_factor_count": 1,
+                    "unsupported_factor_count": 0,
+                    "data_gap_count": 0,
+                    "evaluated_factor_count": 1,
+                    "effective_factor_count": 1,
+                },
+                "factors": [{1: "bad", "effectiveness": {}}],
+            },
+            metadata={"snapshot_count": 1},
+        )
+
+
+def test_public_strategy_factor_report_rejects_list_of_pairs_factor_payload() -> None:
+    with pytest.raises(ValueError, match=r"factors\[0\] must be an object"):
+        reporting.render_public_strategy_factor_report(
+            experiment_name="public_strategy_factors",
+            experiment={
+                "summary": {
+                    "supported_factor_count": 1,
+                    "unsupported_factor_count": 0,
+                    "data_gap_count": 0,
+                    "evaluated_factor_count": 1,
+                    "effective_factor_count": 1,
+                },
+                "factors": [[("factor_name", "momentum_3d"), ("effectiveness", {})]],
+            },
+            metadata={"snapshot_count": 1},
+        )
+
+
+def test_public_strategy_factor_report_rejects_non_string_effectiveness_keys() -> None:
+    with pytest.raises(ValueError, match=r"factors\[0\]\.effectiveness key must be a string"):
+        reporting.render_public_strategy_factor_report(
+            experiment_name="public_strategy_factors",
+            experiment={
+                "summary": {
+                    "supported_factor_count": 1,
+                    "unsupported_factor_count": 0,
+                    "data_gap_count": 0,
+                    "evaluated_factor_count": 1,
+                    "effective_factor_count": 1,
+                },
+                "factors": [
+                    {
+                        "source_strategy_family": "momentum",
+                        "factor_name": "momentum_3d",
+                        "supported": True,
+                        "effectiveness": {1: "bad"},
+                    }
+                ],
+            },
+            metadata={"snapshot_count": 1},
+        )
+
+
+def test_public_strategy_factor_report_rejects_list_of_pairs_summary_payload() -> None:
+    with pytest.raises(ValueError, match="summary must be an object"):
+        reporting.render_public_strategy_factor_report(
+            experiment_name="public_strategy_factors",
+            experiment={
+                "summary": [
+                    ("supported_factor_count", 1),
+                    ("unsupported_factor_count", 0),
+                    ("data_gap_count", 0),
+                    ("evaluated_factor_count", 1),
+                    ("effective_factor_count", 1),
+                ],
+                "factors": [],
+            },
+            metadata={"snapshot_count": 1},
+        )
+
+
 def test_public_strategy_factor_report_rejects_invalid_effectiveness_snapshot_fallback() -> None:
     with pytest.raises(ValueError, match="metadata.snapshot_count must be a non-negative integer"):
         reporting.render_public_strategy_factor_report(
@@ -2806,6 +2930,40 @@ def test_render_llm_trend_breakout_report_rejects_invalid_present_summary_numeri
         reporting.render_llm_trend_breakout_report(
             experiment_name="llm_trend_breakout",
             experiment={"summary": summary, "candidate_rows": []},
+            metadata={"snapshot_count": 2},
+        )
+
+
+def test_render_llm_trend_breakout_report_rejects_string_acceptance_rate() -> None:
+    with pytest.raises(ValueError, match="summary.acceptance_rate must be a finite number"):
+        reporting.render_llm_trend_breakout_report(
+            experiment_name="llm_trend_breakout",
+            experiment={
+                "summary": {
+                    "technical_candidate_count": 2,
+                    "accepted_candidate_count": 1,
+                    "rejected_candidate_count": 1,
+                    "acceptance_rate": "0.5",
+                },
+                "candidate_rows": [],
+            },
+            metadata={"snapshot_count": 2},
+        )
+
+
+def test_render_llm_trend_breakout_report_rejects_list_of_pairs_summary_payload() -> None:
+    with pytest.raises(ValueError, match="summary must be an object"):
+        reporting.render_llm_trend_breakout_report(
+            experiment_name="llm_trend_breakout",
+            experiment={
+                "summary": [
+                    ("technical_candidate_count", 2),
+                    ("accepted_candidate_count", 1),
+                    ("rejected_candidate_count", 1),
+                    ("acceptance_rate", 0.5),
+                ],
+                "candidate_rows": [],
+            },
             metadata={"snapshot_count": 2},
         )
 

@@ -471,11 +471,27 @@ def _list_field(
 
 def _mapping_field(payload: Mapping[str, Any], field: str, *, default: Mapping[str, Any] | None = None) -> dict[str, Any]:
     if field not in payload:
-        return dict(default or {})
+        return _strict_mapping_copy(default or {}, field_name=field)
     raw_value = payload[field]
     if not isinstance(raw_value, Mapping):
         raise ValueError(f"{field} must be an object")
-    return dict(raw_value)
+    return _strict_mapping_copy(raw_value, field_name=field)
+
+
+def _strict_mapping_copy(payload: Mapping[Any, Any], *, field_name: str) -> dict[str, Any]:
+    copied: dict[str, Any] = {}
+    for key, value in payload.items():
+        if not isinstance(key, str):
+            raise ValueError(f"{field_name} key must be a string")
+        copied[key] = value
+    return copied
+
+
+def _strict_optional_mapping(payload: Mapping[str, Any], field: str) -> dict[str, Any]:
+    raw_value = payload.get(field, {})
+    if not isinstance(raw_value, Mapping):
+        raise ValueError(f"{field} must be an object")
+    return _strict_mapping_copy(raw_value, field_name=field)
 
 
 _ALLOWED_DECISIONS = {"keep_researching", "candidate_for_promotion", "reject"}
@@ -506,12 +522,9 @@ def _summary_float(summary_payload: Mapping[str, Any], field: str, default: floa
     if field not in summary_payload:
         return default
     raw_value = summary_payload[field]
-    if isinstance(raw_value, bool):
+    if isinstance(raw_value, bool) or not isinstance(raw_value, int | float):
         raise ValueError(f"summary.{field} must be a finite number")
-    try:
-        value = float(raw_value)
-    except (OverflowError, TypeError, ValueError) as exc:
-        raise ValueError(f"summary.{field} must be a finite number") from exc
+    value = float(raw_value)
     if not math.isfinite(value):
         raise ValueError(f"summary.{field} must be a finite number")
     return value
@@ -565,12 +578,9 @@ def _effectiveness_float(effectiveness: Mapping[str, Any], field: str, *, defaul
     if field not in effectiveness:
         return default
     raw_value = effectiveness[field]
-    if isinstance(raw_value, bool):
+    if isinstance(raw_value, bool) or not isinstance(raw_value, int | float):
         raise ValueError(f"effectiveness.{field} must be a finite number")
-    try:
-        value = float(raw_value)
-    except (OverflowError, TypeError, ValueError) as exc:
-        raise ValueError(f"effectiveness.{field} must be a finite number") from exc
+    value = float(raw_value)
     if not math.isfinite(value):
         raise ValueError(f"effectiveness.{field} must be a finite number")
     return value
@@ -602,13 +612,13 @@ def _public_strategy_factor_directionally_supported(factor: Mapping[str, Any]) -
     return True
 
 
-def _flatten_public_strategy_factor(factor: Mapping[str, Any]) -> dict[str, Any]:
-    flattened = dict(factor)
+def _flatten_public_strategy_factor(factor: Mapping[str, Any], *, field_name: str = "factor") -> dict[str, Any]:
+    flattened = _strict_mapping_copy(factor, field_name=field_name)
     effectiveness = factor.get("effectiveness")
     if not isinstance(effectiveness, Mapping):
         return flattened
 
-    effectiveness_payload = dict(effectiveness)
+    effectiveness_payload = _strict_mapping_copy(effectiveness, field_name=f"{field_name}.effectiveness")
     if "sample_count" in effectiveness_payload:
         effectiveness_payload["sample_count"] = _non_negative_int_field(
             effectiveness_payload, "sample_count", label="effectiveness"
@@ -1145,9 +1155,16 @@ def render_public_strategy_factor_report(
     experiment: Mapping[str, Any],
     metadata: Mapping[str, Any],
 ) -> dict[str, dict[str, Any]]:
-    summary_payload = dict(experiment.get("summary", {}))
-    raw_factors = [dict(factor) for factor in list(experiment.get("factors", []))]
-    factors = [_flatten_public_strategy_factor(factor) for factor in raw_factors]
+    summary_payload = _strict_optional_mapping(experiment, "summary")
+    raw_factors = []
+    for index, factor in enumerate(list(experiment.get("factors", []))):
+        if not isinstance(factor, Mapping):
+            raise ValueError(f"factors[{index}] must be an object")
+        raw_factors.append(_strict_mapping_copy(factor, field_name=f"factors[{index}]"))
+    factors = [
+        _flatten_public_strategy_factor(factor, field_name=f"factors[{index}]")
+        for index, factor in enumerate(raw_factors)
+    ]
     supported_factor_count = _summary_int(summary_payload, "supported_factor_count")
     unsupported_factor_count = _summary_int(summary_payload, "unsupported_factor_count")
     effective_factor_count = _summary_int(summary_payload, "effective_factor_count")
@@ -1209,7 +1226,7 @@ def render_llm_trend_breakout_report(
     experiment: Mapping[str, Any],
     metadata: Mapping[str, Any],
 ) -> dict[str, dict[str, Any]]:
-    summary_payload = dict(experiment.get("summary", {}))
+    summary_payload = _strict_optional_mapping(experiment, "summary")
     candidate_rows = _llm_trend_candidate_rows(_list_field(experiment, "candidate_rows"))
     technical_candidate_count = _summary_int(summary_payload, "technical_candidate_count")
     accepted_candidate_count = _summary_int(summary_payload, "accepted_candidate_count")
