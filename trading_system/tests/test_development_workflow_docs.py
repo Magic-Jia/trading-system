@@ -87,6 +87,14 @@ def test_workflow_doc_records_json_plan_and_full_checkpoint_policy() -> None:
     assert "full_checkpoint_reason" in text
     assert "exact top-level field set" in text
     assert "AGENTS.md" in text
+    assert "duplicate changed path" in text
+    assert "duplicate suite" in text
+    assert "duplicate explicit test" in text
+    assert "changed path must be non-empty" in text
+    assert "suite must be non-empty" in text
+    assert "explicit test must be non-empty" in text
+    assert "require-full-after must be non-negative" in text
+    assert "slice-count must be non-negative" in text
 
 
 def test_codex_worker_template_requires_json_plan_report() -> None:
