@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict
 from datetime import datetime, timezone
 import math
+from collections.abc import Mapping
 from typing import Any
 
 from .exit_policy import ExitDecision, evaluate_exit_policy
@@ -61,6 +62,27 @@ def _position_float(position: dict[str, Any], field: str, *, default: float | No
     return value
 
 
+def _present_finite_number(payload: dict[str, Any], field: str) -> float | None:
+    if field not in payload or payload.get(field) is None:
+        return None
+    raw_value = payload[field]
+    if isinstance(raw_value, bool) or not isinstance(raw_value, (int, float)):
+        raise ValueError(f"{field} must be a finite non-bool number when present")
+    value = float(raw_value)
+    if not math.isfinite(value):
+        raise ValueError(f"{field} must be a finite non-bool number when present")
+    return value
+
+
+def _present_bool(payload: dict[str, Any], field: str) -> bool | None:
+    if field not in payload or payload.get(field) is None:
+        return None
+    value = payload[field]
+    if not isinstance(value, bool):
+        raise ValueError(f"{field} must be a bool when present")
+    return value
+
+
 def _suggest_protective_stop(side: str, entry_price: float, mark_price: float | None) -> float:
     # MVP fallback: anchor the stop 2% beyond entry, but if price is already through
     # that level, place it 0.5% beyond the current mark instead to avoid previewing an
@@ -107,10 +129,8 @@ def _exit_decision_to_suggestion(position: dict[str, Any], decision: ExitDecisio
 
 
 def _taxonomy_stop(side: str, entry_price: float, position: dict[str, Any]) -> float | None:
-    stop = position.get("taxonomy_stop_loss")
-    try:
-        candidate = float(stop)
-    except (TypeError, ValueError):
+    candidate = _present_finite_number(position, "taxonomy_stop_loss")
+    if candidate is None:
         return None
     if not _valid_stop(side, entry_price, candidate):
         return None
@@ -302,7 +322,7 @@ def _target_management_lifecycle_projection(position: dict[str, Any]) -> dict[st
     payload: dict[str, Any] = {}
     for key in ("first_target_hit", "second_target_hit", "runner_protected"):
         if key in position:
-            payload[key] = bool(position.get(key))
+            payload[key] = _present_bool(position, key)
 
     runner_stop = position.get("runner_stop_price")
     if runner_stop is not None:
@@ -311,7 +331,9 @@ def _target_management_lifecycle_projection(position: dict[str, Any]) -> dict[st
 
     scale_out_plan = position.get("scale_out_plan")
     if scale_out_plan is not None:
-        payload["scale_out_plan"] = dict(scale_out_plan or {})
+        if not isinstance(scale_out_plan, Mapping):
+            raise TypeError("scale_out_plan must be a mapping when present")
+        payload["scale_out_plan"] = dict(scale_out_plan)
 
     second_target_source = position.get("second_target_source")
     if second_target_source:
@@ -336,7 +358,8 @@ def advance_lifecycle_positions(state: RuntimeState, lifecycle_config: Any) -> d
         stop_loss = _float(stop) if stop is not None else 0.0
         take_profit = position.get("take_profit")
         r_multiple = _r_multiple(position)
-        carries_persistent_lifecycle = bool(position.get("tracked_from_intent")) or _has_explicit_target_management_state(position)
+        tracked_from_intent = _present_bool(position, "tracked_from_intent")
+        carries_persistent_lifecycle = bool(tracked_from_intent) or _has_explicit_target_management_state(position)
         current_state = str((latest.get(symbol) or {}).get("state", "INIT")) if carries_persistent_lifecycle else "INIT"
 
         stop_hit = False
@@ -394,7 +417,8 @@ def _intent_id(symbol: str, action: str) -> str:
 
 
 def _position_qty(position: dict[str, Any]) -> float:
-    return round(float(position.get("qty", 0.0) or 0.0), 8)
+    qty = _present_finite_number(position, "qty")
+    return round(qty or 0.0, 8)
 
 
 def build_management_action_intents(
@@ -411,7 +435,7 @@ def build_management_action_intents(
             continue
 
         position_qty = _position_qty(position)
-        qty_fraction = float(row.get("qty_fraction") or 0.0)
+        qty_fraction = _present_finite_number(row, "qty_fraction") or 0.0
         qty = None
         stop_loss = None
         row_meta = dict(row.get("meta") or {})

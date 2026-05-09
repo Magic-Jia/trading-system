@@ -1,6 +1,6 @@
 import pytest
 
-from trading_system.app.portfolio.lifecycle import advance_lifecycle_positions
+from trading_system.app.portfolio.lifecycle import advance_lifecycle_positions, build_management_action_intents, evaluate_position
 from trading_system.app.portfolio.lifecycle_v2 import advance_lifecycle_state, advance_lifecycle_transition
 from trading_system.app.storage.state_store import RuntimeStateV2
 from trading_system.app.types import LifecycleState
@@ -113,3 +113,133 @@ def test_advance_lifecycle_positions_keeps_snapshot_only_positions_stateless_bet
 
     assert updates["BTCUSDT"]["state"] == "CONFIRM"
     assert updates["BTCUSDT"]["reason_codes"] == ["init_to_confirm_confirmed"]
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("first_target_hit", "false"),
+        ("second_target_hit", 1),
+        ("runner_protected", "true"),
+    ],
+)
+def test_advance_lifecycle_positions_rejects_present_non_bool_target_management_flags(field, value):
+    state = RuntimeStateV2(
+        updated_at_bj="2026-04-09T20:00:00+08:00",
+        positions={
+            "BTCUSDT": {
+                "symbol": "BTCUSDT",
+                "side": "LONG",
+                "qty": 1.0,
+                "entry_price": 100.0,
+                "mark_price": 106.0,
+                "stop_loss": 95.0,
+                "status": "OPEN",
+                "first_target_status": "pending",
+                field: value,
+            }
+        },
+    )
+
+    with pytest.raises(ValueError, match=f"{field} must be a bool when present"):
+        advance_lifecycle_positions(state, {"protect_r_multiple": 1.2})
+
+
+def test_advance_lifecycle_positions_rejects_present_non_bool_tracked_from_intent():
+    state = RuntimeStateV2(
+        updated_at_bj="2026-04-09T20:00:00+08:00",
+        positions={
+            "BTCUSDT": {
+                "symbol": "BTCUSDT",
+                "side": "LONG",
+                "qty": 1.0,
+                "entry_price": 100.0,
+                "mark_price": 106.0,
+                "stop_loss": 95.0,
+                "status": "OPEN",
+                "tracked_from_intent": "false",
+            }
+        },
+    )
+
+    with pytest.raises(ValueError, match="tracked_from_intent must be a bool when present"):
+        advance_lifecycle_positions(state, {"protect_r_multiple": 1.2})
+
+
+def test_advance_lifecycle_positions_rejects_present_non_mapping_scale_out_plan():
+    state = RuntimeStateV2(
+        updated_at_bj="2026-04-09T20:00:00+08:00",
+        positions={
+            "BTCUSDT": {
+                "symbol": "BTCUSDT",
+                "side": "LONG",
+                "qty": 1.0,
+                "entry_price": 100.0,
+                "mark_price": 106.0,
+                "stop_loss": 95.0,
+                "status": "OPEN",
+                "first_target_status": "pending",
+                "scale_out_plan": [("first", 0.5)],
+            }
+        },
+    )
+
+    with pytest.raises(TypeError, match="scale_out_plan must be a mapping when present"):
+        advance_lifecycle_positions(state, {"protect_r_multiple": 1.2})
+
+
+@pytest.mark.parametrize("taxonomy_stop_loss", ["95.0", True, float("nan")])
+def test_evaluate_position_rejects_present_invalid_taxonomy_stop_loss(taxonomy_stop_loss):
+    position = {
+        "symbol": "BTCUSDT",
+        "side": "LONG",
+        "qty": 1.0,
+        "entry_price": 100.0,
+        "mark_price": 106.0,
+        "status": "OPEN",
+        "taxonomy_stop_loss": taxonomy_stop_loss,
+    }
+
+    with pytest.raises(ValueError, match="taxonomy_stop_loss must be a finite non-bool number when present"):
+        evaluate_position(position)
+
+
+@pytest.mark.parametrize(
+    ("position_qty", "qty_fraction", "field"),
+    [
+        ("bad", 0.25, "qty"),
+        (1.0, "0.25", "qty_fraction"),
+        (1.0, True, "qty_fraction"),
+        (float("nan"), 0.25, "qty"),
+    ],
+)
+def test_build_management_action_intents_rejects_present_invalid_quantities(position_qty, qty_fraction, field):
+    state = RuntimeStateV2(
+        updated_at_bj="2026-04-09T20:00:00+08:00",
+        positions={
+            "BTCUSDT": {
+                "symbol": "BTCUSDT",
+                "side": "LONG",
+                "qty": position_qty,
+                "entry_price": 100.0,
+                "mark_price": 106.0,
+                "stop_loss": 95.0,
+                "status": "OPEN",
+            }
+        },
+    )
+
+    with pytest.raises(ValueError, match=f"{field} must be a finite non-bool number when present"):
+        build_management_action_intents(
+            state,
+            [
+                {
+                    "symbol": "BTCUSDT",
+                    "side": "LONG",
+                    "action": "DE_RISK",
+                    "qty_fraction": qty_fraction,
+                    "reference_price": 106.0,
+                    "meta": {},
+                }
+            ],
+        )
