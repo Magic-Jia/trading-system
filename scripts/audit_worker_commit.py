@@ -32,8 +32,25 @@ def commit_changed_files(commit: str) -> list[str]:
     return git_lines(["git", "diff-tree", "--no-commit-id", "--name-only", "-r", resolved])
 
 
+def worktree_dirty_paths() -> list[str]:
+    completed = subprocess.run(
+        ["git", "status", "--short"],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise RuntimeError(completed.stderr.strip() or "git status failed")
+    paths: list[str] = []
+    for line in completed.stdout.splitlines():
+        if len(line) > 3:
+            paths.append(line[3:])
+    return list(dict.fromkeys(paths))
+
+
 def worktree_dirty() -> bool:
-    return bool(git_lines(["git", "status", "--short"]))
+    return bool(worktree_dirty_paths())
 
 
 def verification_plan(changed_files: list[str]) -> dict[str, object]:
@@ -95,6 +112,7 @@ def main(argv: list[str] | None = None) -> int:
                 "changed_files": changed_files,
                 "strict_changed_verification": True,
                 "worktree_dirty": worktree_dirty(),
+                "worktree_dirty_paths": worktree_dirty_paths(),
                 "verification_plan": plan,
             },
             indent=2,
