@@ -543,9 +543,13 @@ def _variant_with_best_metric(
     best_name = None
     best_value = float("-inf")
     for variant_name, payload in variants.items():
+        if not isinstance(variant_name, str) or not variant_name or variant_name.strip() != variant_name:
+            raise ValueError("variant names must be canonical strings")
+        if not isinstance(payload, Mapping):
+            raise ValueError(f"variants.{variant_name} must be an object")
         value = float(metric_fn(variant_name, dict(payload)))
         if best_name is None or value > best_value:
-            best_name = str(variant_name)
+            best_name = variant_name
             best_value = value
     if best_name is None:
         return None, 0.0
