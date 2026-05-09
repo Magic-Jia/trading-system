@@ -718,9 +718,9 @@ def _bump_symbol_funnel(symbol_rows: dict[str, dict[str, Any]], symbol: str, key
     funnel[key] = int(funnel.get(key, 0)) + 1
 
 
-def _telemetry_symbol_row_key(symbol: Any) -> str:
+def _telemetry_symbol_row_key(symbol: Any, *, path: str = "symbol_rows") -> str:
     if not isinstance(symbol, str):
-        raise ValueError("symbol_rows key must be a string")
+        raise ValueError(f"{path} key must be a string")
     return symbol
 
 
@@ -787,10 +787,16 @@ def _validated_candidate_symbol(candidate: Mapping[str, Any], *, index: int) -> 
 
 def _merge_symbol_breakdown(target: dict[str, dict[str, Any]], source: Mapping[str, Any]) -> None:
     for symbol, payload in source.items():
-        target_row = target.setdefault(str(symbol), {"snapshot_count": 0, "funnel": {}, "filter_counts": {}})
-        target_row["snapshot_count"] += int(dict(payload).get("snapshot_count", 0))
-        _merge_counts(target_row["funnel"], dict(payload).get("funnel", {}))
-        _merge_counts(target_row["filter_counts"], dict(payload).get("filter_counts", {}))
+        symbol_key = _telemetry_symbol_row_key(symbol, path="symbol_breakdown")
+        row_path = f"symbol_breakdown.{symbol_key}"
+        row_payload = _telemetry_mapping(payload, path=row_path)
+        target_row = target.setdefault(symbol_key, {"snapshot_count": 0, "funnel": {}, "filter_counts": {}})
+        target_row["snapshot_count"] += int(row_payload.get("snapshot_count", 0))
+        _merge_counts(target_row["funnel"], _telemetry_optional_mapping(row_payload, "funnel", path=row_path))
+        _merge_counts(
+            target_row["filter_counts"],
+            _telemetry_optional_mapping(row_payload, "filter_counts", path=row_path),
+        )
 
 
 def _run_candidate_pipeline(

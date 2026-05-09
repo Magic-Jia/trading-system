@@ -818,6 +818,23 @@ def test_long_gate_telemetry_outputs_symbol_and_regime_breakdowns() -> None:
     assert trend_symbols["BTCUSDT"]["funnel"]["raw_candidates"] > 0
 
 
+@pytest.mark.parametrize(
+    ("source", "match"),
+    [
+        ({123: {"snapshot_count": 1, "funnel": {}, "filter_counts": {}}}, r"^symbol_breakdown key must be a string$"),
+        ({"BTCUSDT": [("snapshot_count", 1), ("funnel", {}), ("filter_counts", {})]}, r"^symbol_breakdown\.BTCUSDT must be an object$"),
+        ({"BTCUSDT": {"snapshot_count": 1, "funnel": [("raw_candidates", 1)], "filter_counts": {}}}, r"^symbol_breakdown\.BTCUSDT\.funnel must be an object$"),
+        ({"BTCUSDT": {"snapshot_count": 1, "funnel": {}, "filter_counts": [("selected", 1)]}}, r"^symbol_breakdown\.BTCUSDT\.filter_counts must be an object$"),
+    ],
+)
+def test_long_gate_telemetry_rejects_non_mapping_symbol_breakdown_shapes(
+    source: object,
+    match: str,
+) -> None:
+    with pytest.raises(ValueError, match=match):
+        backtest_experiments._merge_symbol_breakdown({}, source)
+
+
 def test_long_gate_telemetry_rejects_present_non_string_regime_label() -> None:
     row = _bullish_ablation_row()
     row.meta["regime_override"]["label"] = True
