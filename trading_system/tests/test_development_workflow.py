@@ -158,3 +158,13 @@ def test_verify_exposes_workflow_meta_suite() -> None:
     assert "trading_system/tests/test_development_workflow_docs.py" in dry_run.stdout
     assert "trading_system/tests/test_development_workflow_impact_map.py" in dry_run.stdout
     assert "trading_system/tests/test_development_workflow_worker_audit.py" in dry_run.stdout
+
+
+def test_verify_maps_workflow_tool_changes_to_workflow_meta_suite() -> None:
+    result = run_verify("--dry-run", "--changed", "scripts/verify.py")
+
+    assert result.returncode == 0, result.stderr
+    assert "trading_system/tests/test_development_workflow.py" in result.stdout
+    assert "trading_system/tests/test_development_workflow_docs.py" in result.stdout
+    assert "trading_system/tests/test_development_workflow_impact_map.py" in result.stdout
+    assert "trading_system/tests/test_development_workflow_worker_audit.py" in result.stdout
