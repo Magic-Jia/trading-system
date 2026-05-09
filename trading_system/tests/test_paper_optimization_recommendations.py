@@ -147,3 +147,17 @@ def test_write_recommendations_persists_json_payload(tmp_path) -> None:
     assert written["recommendation_count"] == 1
     assert written["recommendations"][0]["id"] == "lower-total-risk-budget"
     assert written["recommendations"][0]["is_repeat"] is True
+
+def test_generate_recommendations_rejects_boolean_trade_outcome_count() -> None:
+    import pytest
+
+    with pytest.raises(ValueError, match="daily_metrics.trade_outcome_count must be numeric"):
+        generate_recommendations(
+            daily_metrics={
+                "recorded_at_bj": "2026-04-24T12:00:00+08:00",
+                "trade_outcome_count": True,
+                "unrealized_pnl_total": -1.0,
+            },
+            health_report={"status": "ok", "warnings": []},
+            recorded_at_bj="2026-04-24T12:05:00+08:00",
+        )

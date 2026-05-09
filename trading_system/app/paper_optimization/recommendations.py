@@ -34,14 +34,18 @@ def _read_json(path: Path) -> dict[str, Any]:
     return payload
 
 
-def _float(value: Any, default: float = 0.0) -> float:
+def _float(value: Any, default: float = 0.0, *, field_name: str = "metric") -> float:
+    if isinstance(value, bool):
+        raise ValueError(f"{field_name} must be numeric")
     try:
         return float(value)
     except (TypeError, ValueError):
         return default
 
 
-def _int(value: Any, default: int = 0) -> int:
+def _int(value: Any, default: int = 0, *, field_name: str = "metric") -> int:
+    if isinstance(value, bool):
+        raise ValueError(f"{field_name} must be numeric")
     try:
         return int(value)
     except (TypeError, ValueError):
@@ -61,9 +65,9 @@ def _engine_weight_recommendation(
     if default_value <= 0:
         return None
     proposed_value = round(default_value * 0.75, 4)
-    trade_outcome_count = _int(bucket.get("trade_outcome_count"))
-    unrealized_pnl_total = round(_float(bucket.get("unrealized_pnl_total")), 4)
-    position_not_tracked_count = _int(bucket.get("position_not_tracked_count"))
+    trade_outcome_count = _int(bucket.get("trade_outcome_count"), field_name=f"by_engine.{engine}.trade_outcome_count")
+    unrealized_pnl_total = round(_float(bucket.get("unrealized_pnl_total"), field_name=f"by_engine.{engine}.unrealized_pnl_total"), 4)
+    position_not_tracked_count = _int(bucket.get("position_not_tracked_count"), field_name=f"by_engine.{engine}.position_not_tracked_count")
     return {
         "id": f"reduce-{engine}-bucket-weight",
         "kind": "reduce_bucket_weight",
@@ -106,8 +110,8 @@ def _risk_budget_recommendation(
     daily_metrics: Mapping[str, Any],
     metrics_recorded_at_bj: str | None,
 ) -> dict[str, Any]:
-    trade_outcome_count = _int(daily_metrics.get("trade_outcome_count"))
-    unrealized_pnl_total = round(_float(daily_metrics.get("unrealized_pnl_total")), 4)
+    trade_outcome_count = _int(daily_metrics.get("trade_outcome_count"), field_name="daily_metrics.trade_outcome_count")
+    unrealized_pnl_total = round(_float(daily_metrics.get("unrealized_pnl_total"), field_name="daily_metrics.unrealized_pnl_total"), 4)
     proposed_value = round(_DEFAULT_TOTAL_RISK_PCT * 0.8, 4)
     return {
         "id": "lower-total-risk-budget",
@@ -139,8 +143,8 @@ def _risk_budget_recommendation(
         "evidence": {
             "unrealized_pnl_total": unrealized_pnl_total,
             "trade_outcome_count": trade_outcome_count,
-            "open_count": _int(daily_metrics.get("open_count")),
-            "position_not_tracked_count": _int(daily_metrics.get("position_not_tracked_count")),
+            "open_count": _int(daily_metrics.get("open_count"), field_name="daily_metrics.open_count"),
+            "position_not_tracked_count": _int(daily_metrics.get("position_not_tracked_count"), field_name="daily_metrics.position_not_tracked_count"),
         },
     }
 
@@ -154,8 +158,8 @@ def generate_recommendations(
 ) -> dict[str, Any]:
     metrics_recorded_at_bj = str(daily_metrics.get("recorded_at_bj") or "") or None
     recommendation_recorded_at = _recorded_at_bj(recorded_at_bj)
-    trade_outcome_count = _int(daily_metrics.get("trade_outcome_count"))
-    unrealized_pnl_total = round(_float(daily_metrics.get("unrealized_pnl_total")), 4)
+    trade_outcome_count = _int(daily_metrics.get("trade_outcome_count"), field_name="daily_metrics.trade_outcome_count")
+    unrealized_pnl_total = round(_float(daily_metrics.get("unrealized_pnl_total"), field_name="daily_metrics.unrealized_pnl_total"), 4)
     warnings = list(health_report.get("warnings") or []) if isinstance(health_report.get("warnings"), list) else []
     suppressed: list[dict[str, Any]] = []
     recommendations: list[dict[str, Any]] = []
@@ -178,7 +182,7 @@ def generate_recommendations(
             if isinstance(previous_suppressed, list):
                 for item in previous_suppressed:
                     if isinstance(item, Mapping) and item.get("reason") == "low_sample":
-                        previous_low_sample_count = max(previous_low_sample_count, _int(item.get("consecutive_count"), 1))
+                        previous_low_sample_count = max(previous_low_sample_count, _int(item.get("consecutive_count"), 1, field_name="previous_recommendations.suppressed.consecutive_count"))
         consecutive_count = previous_low_sample_count + 1
         suppressed.append(
             {
@@ -217,8 +221,8 @@ def generate_recommendations(
             for engine_name, raw_bucket in by_engine.items():
                 if not isinstance(raw_bucket, Mapping):
                     continue
-                engine_trade_outcome_count = _int(raw_bucket.get("trade_outcome_count"))
-                engine_unrealized_pnl_total = _float(raw_bucket.get("unrealized_pnl_total"))
+                engine_trade_outcome_count = _int(raw_bucket.get("trade_outcome_count"), field_name=f"by_engine.{engine_name}.trade_outcome_count")
+                engine_unrealized_pnl_total = _float(raw_bucket.get("unrealized_pnl_total"), field_name=f"by_engine.{engine_name}.unrealized_pnl_total")
                 if engine_trade_outcome_count < _DEFAULT_MIN_ENGINE_TRADE_OUTCOMES:
                     continue
                 if engine_unrealized_pnl_total > _DEFAULT_ENGINE_LOSS_THRESHOLD:
