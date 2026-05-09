@@ -40,11 +40,13 @@ def _float_or_zero(value: Any) -> float:
 
 def _runtime_position_rows(runtime_positions: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
     out: dict[str, dict[str, Any]] = {}
-    if not isinstance(runtime_positions, dict):
+    if runtime_positions is None:
         return out
+    if not isinstance(runtime_positions, dict):
+        raise ValueError("runtime_positions must be an object")
     for symbol, raw in runtime_positions.items():
         if not isinstance(raw, dict):
-            continue
+            raise ValueError("runtime position rows must be objects")
         status = str(raw.get("status") or "").upper()
         qty = _float_or_zero(raw.get("qty"))
         if status in {"OPEN", "PENDING"} and qty > 0:

@@ -345,3 +345,20 @@ def test_write_daily_metrics_rejects_malformed_jsonl_rows(tmp_path: Path) -> Non
             health_report_path=paths.health_report_file,
             recorded_at_bj="2026-04-27T00:00:00+08:00",
         )
+
+def test_write_daily_metrics_rejects_invalid_runtime_position_rows(tmp_path: Path) -> None:
+    paths = build_runtime_paths("paper", runtime_root=tmp_path / "runtime", runtime_env="research")
+    module = _metrics_module()
+    paths.signal_facts_file.parent.mkdir(parents=True, exist_ok=True)
+    paths.signal_facts_file.write_text('{"symbol": "BTCUSDT"}\n', encoding="utf-8")
+    paths.trade_outcomes_file.write_text('{"symbol": "BTCUSDT", "outcome_status": "OPEN"}\n', encoding="utf-8")
+
+    with pytest.raises(ValueError, match="runtime position rows must be objects"):
+        module.write_daily_metrics_and_health_report(
+            trade_outcomes_path=paths.trade_outcomes_file,
+            signal_facts_path=paths.signal_facts_file,
+            daily_metrics_path=paths.daily_metrics_file,
+            health_report_path=paths.health_report_file,
+            recorded_at_bj="2026-04-27T00:00:00+08:00",
+            runtime_positions={"BTCUSDT": "not-an-object"},
+        )
