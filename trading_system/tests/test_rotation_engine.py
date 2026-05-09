@@ -294,6 +294,25 @@ def test_generate_rotation_candidates_rejects_present_string_derivatives_basis_b
         )
 
 
+def test_generate_rotation_candidates_rejects_non_string_derivatives_feature_key(monkeypatch, load_fixture):
+    market = load_fixture("market_context_v2.json")
+    rotation_universe = [{"symbol": "SOLUSDT", "sector": "alt_l1", "liquidity_tier": "high"}]
+    _set_h1_extension(market, "SOLUSDT", 0.007459)
+
+    def invalid_derivatives_features(_derivatives: object, _symbol: str) -> dict[object, object]:
+        return {123: "bad", "crowding_bias": "balanced", "basis_bps": 0.0}
+
+    monkeypatch.setattr(rotation_engine, "symbol_derivatives_features", invalid_derivatives_features)
+    monkeypatch.setattr(rotation_engine, "is_late_stage_long_blowoff", lambda *_args, **_kwargs: False)
+
+    with pytest.raises(ValueError, match=r"SOLUSDT\.derivatives key must be a string"):
+        generate_rotation_candidates(
+            market,
+            rotation_universe=rotation_universe,
+            derivatives={"rows": []},
+        )
+
+
 def test_generate_rotation_candidates_require_absolute_strength_alongside_relative_strength(load_fixture):
     market = load_fixture("market_context_v2.json")
     rotation_universe = [

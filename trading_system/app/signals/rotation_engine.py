@@ -126,6 +126,14 @@ def _strict_present_derivatives_string(features: Mapping[str, Any], field: str, 
     return value
 
 
+def _derivatives_features(symbol: str, derivatives: Mapping[str, Any] | list[dict[str, Any]] | None) -> Mapping[str, Any]:
+    features = symbol_derivatives_features(derivatives, symbol)
+    for key in features:
+        if not isinstance(key, str):
+            raise ValueError(f"{symbol}.derivatives key must be a string")
+    return features
+
+
 def _market_symbol_key(symbol: Any) -> str:
     if not isinstance(symbol, str):
         raise ValueError("market.symbols key must be a string")
@@ -601,7 +609,7 @@ def generate_rotation_candidates(
         if not _passes_reacceleration_h1_extension_gate(payload, setup_type):
             continue
 
-        derivatives_features = symbol_derivatives_features(derivatives, symbol)
+        derivatives_features = _derivatives_features(symbol, derivatives)
         if _reject_overheated_crowded_leader(symbol, derivatives_features, payload):
             continue
 
