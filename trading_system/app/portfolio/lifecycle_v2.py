@@ -14,31 +14,33 @@ class LifecycleThresholds:
     exit_r_multiple: float = 2.0
 
 
-def _as_float(value: Any, default: float) -> float:
+def _strict_float(value: Any, field: str) -> float:
     if isinstance(value, bool):
-        return default
+        raise ValueError(f"{field} must be a finite non-bool number when present")
     try:
         candidate = float(value)
-    except (TypeError, ValueError):
-        return default
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{field} must be a finite non-bool number when present") from exc
     if not isfinite(candidate):
-        return default
+        raise ValueError(f"{field} must be a finite non-bool number when present")
     return candidate
 
 
 def _state(value: LifecycleState | str) -> LifecycleState:
     if isinstance(value, LifecycleState):
         return value
+    if not isinstance(value, str):
+        raise ValueError("current_state must be a LifecycleState or string when present")
     try:
-        return LifecycleState(str(value))
+        return LifecycleState(value)
     except ValueError:
         return LifecycleState.INIT
 
 
-def _as_bool(value: Any, default: bool) -> bool:
-    if isinstance(value, bool):
-        return value
-    return default
+def _strict_bool(value: Any, field: str) -> bool:
+    if not isinstance(value, bool):
+        raise ValueError(f"{field} must be a bool when present")
+    return value
 
 
 def _thresholds(config: Mapping[str, Any] | Any | None) -> LifecycleThresholds:
@@ -46,15 +48,39 @@ def _thresholds(config: Mapping[str, Any] | Any | None) -> LifecycleThresholds:
         return LifecycleThresholds()
     if isinstance(config, Mapping):
         return LifecycleThresholds(
-            confirm_r_multiple=_as_float(config.get("confirm_r_multiple"), 0.8),
-            protect_r_multiple=_as_float(config.get("protect_r_multiple"), 1.2),
-            exit_r_multiple=_as_float(config.get("exit_r_multiple"), 2.0),
+            confirm_r_multiple=(
+                _strict_float(config["confirm_r_multiple"], "confirm_r_multiple")
+                if "confirm_r_multiple" in config
+                else 0.8
+            ),
+            protect_r_multiple=(
+                _strict_float(config["protect_r_multiple"], "protect_r_multiple")
+                if "protect_r_multiple" in config
+                else 1.2
+            ),
+            exit_r_multiple=(
+                _strict_float(config["exit_r_multiple"], "exit_r_multiple")
+                if "exit_r_multiple" in config
+                else 2.0
+            ),
         )
 
     return LifecycleThresholds(
-        confirm_r_multiple=_as_float(getattr(config, "confirm_r_multiple", None), 0.8),
-        protect_r_multiple=_as_float(getattr(config, "protect_r_multiple", None), 1.2),
-        exit_r_multiple=_as_float(getattr(config, "exit_r_multiple", None), 2.0),
+        confirm_r_multiple=(
+            _strict_float(getattr(config, "confirm_r_multiple"), "confirm_r_multiple")
+            if hasattr(config, "confirm_r_multiple")
+            else 0.8
+        ),
+        protect_r_multiple=(
+            _strict_float(getattr(config, "protect_r_multiple"), "protect_r_multiple")
+            if hasattr(config, "protect_r_multiple")
+            else 1.2
+        ),
+        exit_r_multiple=(
+            _strict_float(getattr(config, "exit_r_multiple"), "exit_r_multiple")
+            if hasattr(config, "exit_r_multiple")
+            else 2.0
+        ),
     )
 
 
@@ -68,15 +94,17 @@ def advance_lifecycle_transition(
     context = signals or {}
     state = _state(current_state)
 
-    r_multiple = _as_float(context.get("r_multiple"), 0.0)
-    confirmed = _as_bool(context.get("confirmed", False), False)
-    payload_ready = _as_bool(context.get("payload_ready", confirmed), confirmed)
-    trend_mature = _as_bool(context.get("trend_mature", False), False)
-    stop_hit = _as_bool(context.get("stop_hit", False), False)
-    exit_requested = _as_bool(context.get("exit_requested", False), False)
-    force_exit = _as_bool(context.get("force_exit", False), False)
-    protect_breached = _as_bool(context.get("protect_breached", False), False)
-    target_hit = _as_bool(context.get("target_hit", False), False)
+    r_multiple = _strict_float(context["r_multiple"], "r_multiple") if "r_multiple" in context else 0.0
+    confirmed = _strict_bool(context["confirmed"], "confirmed") if "confirmed" in context else False
+    payload_ready = _strict_bool(context["payload_ready"], "payload_ready") if "payload_ready" in context else confirmed
+    trend_mature = _strict_bool(context["trend_mature"], "trend_mature") if "trend_mature" in context else False
+    stop_hit = _strict_bool(context["stop_hit"], "stop_hit") if "stop_hit" in context else False
+    exit_requested = _strict_bool(context["exit_requested"], "exit_requested") if "exit_requested" in context else False
+    force_exit = _strict_bool(context["force_exit"], "force_exit") if "force_exit" in context else False
+    protect_breached = (
+        _strict_bool(context["protect_breached"], "protect_breached") if "protect_breached" in context else False
+    )
+    target_hit = _strict_bool(context["target_hit"], "target_hit") if "target_hit" in context else False
 
     if force_exit:
         return LifecycleState.EXIT, ["force_exit_requested"]

@@ -1,60 +1,68 @@
+import pytest
+
 from trading_system.app.portfolio.lifecycle import advance_lifecycle_positions
 from trading_system.app.portfolio.lifecycle_v2 import advance_lifecycle_state, advance_lifecycle_transition
 from trading_system.app.storage.state_store import RuntimeStateV2
 from trading_system.app.types import LifecycleState
 
 
-def test_lifecycle_ignores_present_non_bool_boolean_signals():
-    cases = [
-        (LifecycleState.INIT, {"r_multiple": 0.8, "confirmed": "true"}, LifecycleState.INIT, ["init_waiting_confirmation"]),
-        (LifecycleState.CONFIRM, {"payload_ready": "true"}, LifecycleState.CONFIRM, ["confirm_waiting_payload"]),
-        (
-            LifecycleState.PAYLOAD,
-            {"r_multiple": 2.2, "trend_mature": "true"},
-            LifecycleState.PAYLOAD,
-            ["payload_active"],
-        ),
-        (LifecycleState.PAYLOAD, {"stop_hit": "true"}, LifecycleState.PAYLOAD, ["payload_active"]),
-        (LifecycleState.PAYLOAD, {"exit_requested": "true"}, LifecycleState.PAYLOAD, ["payload_active"]),
-        (LifecycleState.PROTECT, {"force_exit": "true"}, LifecycleState.PROTECT, ["protect_active"]),
-        (LifecycleState.PROTECT, {"protect_breached": "true"}, LifecycleState.PROTECT, ["protect_active"]),
-        (
-            LifecycleState.PROTECT,
-            {"r_multiple": 2.2, "target_hit": "true"},
-            LifecycleState.PROTECT,
-            ["protect_active"],
-        ),
-    ]
-
-    for current_state, signals, expected_state, expected_reasons in cases:
-        next_state, reason_codes = advance_lifecycle_transition(current_state, signals)
-
-        assert next_state == expected_state
-        assert reason_codes == expected_reasons
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("confirmed", "true"),
+        ("confirmed", 1),
+        ("payload_ready", "true"),
+        ("payload_ready", 1),
+        ("trend_mature", "true"),
+        ("trend_mature", 1),
+        ("stop_hit", "true"),
+        ("stop_hit", 1),
+        ("exit_requested", "true"),
+        ("exit_requested", 1),
+        ("force_exit", "true"),
+        ("force_exit", 1),
+        ("protect_breached", "true"),
+        ("protect_breached", 1),
+        ("target_hit", "true"),
+        ("target_hit", 1),
+    ],
+)
+def test_lifecycle_rejects_present_non_bool_boolean_signals(field, value):
+    with pytest.raises(ValueError, match=f"{field} must be a bool when present"):
+        advance_lifecycle_transition(LifecycleState.PAYLOAD, {field: value})
 
 
-def test_lifecycle_ignores_bool_and_non_finite_r_multiple():
-    cases = [
-        (LifecycleState.INIT, {"r_multiple": True, "confirmed": True}, LifecycleState.INIT, ["init_waiting_confirmation"]),
-        (
-            LifecycleState.PAYLOAD,
-            {"r_multiple": float("inf"), "trend_mature": True},
-            LifecycleState.PAYLOAD,
-            ["payload_active"],
-        ),
-        (
-            LifecycleState.PROTECT,
-            {"r_multiple": float("nan"), "target_hit": True},
-            LifecycleState.PROTECT,
-            ["protect_active"],
-        ),
-    ]
+@pytest.mark.parametrize("value", [True, float("nan"), float("inf"), "bad"])
+def test_lifecycle_rejects_present_invalid_r_multiple(value):
+    with pytest.raises(ValueError, match="r_multiple must be a finite non-bool number when present"):
+        advance_lifecycle_transition(LifecycleState.INIT, {"r_multiple": value})
 
-    for current_state, signals, expected_state, expected_reasons in cases:
-        next_state, reason_codes = advance_lifecycle_transition(current_state, signals)
 
-        assert next_state == expected_state
-        assert reason_codes == expected_reasons
+@pytest.mark.parametrize("field", ["confirm_r_multiple", "protect_r_multiple", "exit_r_multiple"])
+@pytest.mark.parametrize("value", [True, float("nan"), float("inf"), "bad"])
+def test_lifecycle_rejects_present_invalid_thresholds(field, value):
+    with pytest.raises(ValueError, match=f"{field} must be a finite non-bool number when present"):
+        advance_lifecycle_transition(LifecycleState.INIT, {}, config={field: value})
+
+
+@pytest.mark.parametrize("current_state", [1, None, object()])
+def test_lifecycle_rejects_present_non_string_non_lifecycle_state(current_state):
+    with pytest.raises(ValueError, match="current_state must be a LifecycleState or string when present"):
+        advance_lifecycle_transition(current_state, {})
+
+
+def test_lifecycle_accepts_valid_string_current_state():
+    next_state, reason_codes = advance_lifecycle_transition("PAYLOAD", {"r_multiple": 2.2, "trend_mature": True})
+
+    assert next_state == LifecycleState.PROTECT
+    assert reason_codes == ["payload_to_protect_trend_mature"]
+
+
+def test_lifecycle_keeps_unknown_string_current_state_as_init():
+    next_state, reason_codes = advance_lifecycle_transition("unknown", {"r_multiple": 0.8, "confirmed": True})
+
+    assert next_state == LifecycleState.CONFIRM
+    assert reason_codes == ["init_to_confirm_confirmed"]
 
 
 def test_lifecycle_moves_from_init_to_confirm_on_confirmation_signal():
