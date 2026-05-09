@@ -431,6 +431,22 @@ def test_generate_short_candidates_respects_regime_gate_and_suppression():
     )
 
 
+def test_generate_short_candidates_rejects_present_non_string_suppression_rule():
+    market = _defensive_market()
+    short_universe = [{"symbol": "BTCUSDT", "sector": "majors", "liquidity_meta": {"rolling_notional": 12_500_000_000.0}}]
+
+    with pytest.raises(ValueError, match=r"regime\.suppression_rules"):
+        generate_short_candidates(
+            market,
+            short_universe=short_universe,
+            regime={
+                "label": "HIGH_VOL_DEFENSIVE",
+                "bucket_targets": {"trend": 0.2, "rotation": 0.0, "short": 0.8},
+                "suppression_rules": [True],
+            },
+        )
+
+
 @pytest.mark.parametrize("bad_short_target", ["0.8", True])
 def test_generate_short_candidates_rejects_present_invalid_short_bucket_target(bad_short_target):
     market = _defensive_market()

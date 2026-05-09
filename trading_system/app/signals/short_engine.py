@@ -75,7 +75,10 @@ def _short_suppressed(regime: RegimeSnapshot | Mapping[str, Any] | None) -> bool
     rules = _regime_value(regime, "suppression_rules", [])
     if not isinstance(rules, list):
         return False
-    return "short" in {str(rule).lower().strip() for rule in rules}
+    for rule in rules:
+        if not isinstance(rule, str):
+            raise ValueError("regime.suppression_rules entries must be strings")
+    return "short" in {rule.lower().strip() for rule in rules}
 
 
 def _short_enabled(regime: RegimeSnapshot | Mapping[str, Any] | None) -> bool:
