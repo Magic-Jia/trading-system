@@ -24,6 +24,7 @@ from trading_system.app.backtest.types import (
     SetupRewriteRule,
     TradeLedgerRow,
     UniverseFilterConfig,
+    WalkForwardConfig,
 )
 
 
@@ -182,6 +183,128 @@ def test_backtest_evaluation_report_rejects_list_pair_walk_forward_metadata() ->
             },
             metadata={"dataset_root": "dataset"},
         )
+
+
+def _minimal_cli_config(tmp_path: Path, *, experiment_kind: str = "regime_research") -> BacktestConfig:
+    return BacktestConfig(
+        dataset_root=tmp_path / "dataset",
+        experiment_kind=experiment_kind,
+        sample_windows=(),
+        forward_return_windows=(),
+        costs=BacktestCosts(),
+        baseline_name="baseline",
+        variant_name="variant",
+    )
+
+
+def test_backtest_cli_manifest_rejects_non_string_metadata_keys(tmp_path: Path) -> None:
+    config = _minimal_cli_config(tmp_path)
+
+    with pytest.raises(ValueError, match="metadata key must be a string"):
+        cli._manifest(config, [], {}, metadata={"generated_by": "test", 1: "bad"})
+
+
+def test_backtest_cli_manifest_rejects_list_of_pairs_metadata(tmp_path: Path) -> None:
+    config = _minimal_cli_config(tmp_path)
+
+    with pytest.raises(ValueError, match="metadata must be an object"):
+        cli._manifest(config, [], {}, metadata=[("generated_by", "test")])  # type: ignore[arg-type]
+
+
+def test_regime_research_outputs_rejects_list_of_pairs_experiment_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        cli,
+        "run_regime_predictive_power_experiment",
+        lambda rows: {"metadata": [("window_count", 1)], "buckets": []},
+        raising=False,
+    )
+
+    with pytest.raises(ValueError, match="experiment.metadata must be an object"):
+        cli._regime_research_outputs(_minimal_cli_config(tmp_path), _sample_dataset_rows())
+
+
+def test_regime_research_outputs_rejects_non_string_experiment_metadata_keys(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        cli,
+        "run_regime_predictive_power_experiment",
+        lambda rows: {"metadata": {1: "bad"}, "buckets": []},
+        raising=False,
+    )
+
+    with pytest.raises(ValueError, match="experiment.metadata key must be a string"):
+        cli._regime_research_outputs(_minimal_cli_config(tmp_path), _sample_dataset_rows())
+
+
+@pytest.mark.parametrize("metadata", ["window_count=1", [("window_count", 1)]])
+def test_walk_forward_outputs_rejects_non_object_experiment_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    metadata: object,
+) -> None:
+    monkeypatch.setattr(
+        cli,
+        "run_walk_forward_validation_experiment",
+        lambda rows, *, evaluation_window, in_sample_size, out_of_sample_size, step_size, config=None: {
+            "metadata": metadata,
+            "windows": [],
+            "robustness_summary": {
+                "out_of_sample_scorecard": {"total_return": 0.0, "trade_count": 0},
+                "performance_dispersion": {"positive_window_ratio": 0.0},
+            },
+            "parameter_stability": {"parameter_stability_score": 0.0},
+        },
+        raising=False,
+    )
+    config = _minimal_cli_config(tmp_path, experiment_kind="walk_forward_validation")
+    config = replace(
+        config,
+        experiment_params=ExperimentParams(
+            evaluation_window="3d",
+            walk_forward=WalkForwardConfig(in_sample_size=1, out_of_sample_size=1, step_size=1),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="experiment.metadata must be an object"):
+        cli._walk_forward_validation_outputs(config, _sample_dataset_rows())
+
+
+@pytest.mark.parametrize("window_count", ["1", True, -1])
+def test_walk_forward_outputs_rejects_invalid_experiment_window_count(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    window_count: object,
+) -> None:
+    monkeypatch.setattr(
+        cli,
+        "run_walk_forward_validation_experiment",
+        lambda rows, *, evaluation_window, in_sample_size, out_of_sample_size, step_size, config=None: {
+            "metadata": {"window_count": window_count},
+            "windows": [],
+            "robustness_summary": {
+                "out_of_sample_scorecard": {"total_return": 0.0, "trade_count": 0},
+                "performance_dispersion": {"positive_window_ratio": 0.0},
+            },
+            "parameter_stability": {"parameter_stability_score": 0.0},
+        },
+        raising=False,
+    )
+    config = _minimal_cli_config(tmp_path, experiment_kind="walk_forward_validation")
+    config = replace(
+        config,
+        experiment_params=ExperimentParams(
+            evaluation_window="3d",
+            walk_forward=WalkForwardConfig(in_sample_size=1, out_of_sample_size=1, step_size=1),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="experiment.metadata.window_count must be a non-negative integer"):
+        cli._walk_forward_validation_outputs(config, _sample_dataset_rows())
 
 
 def test_regime_scorecard_rejects_non_object_metadata_payload() -> None:

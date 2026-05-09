@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Callable
 
@@ -109,8 +110,33 @@ def _base_metadata(config: BacktestConfig, rows: list[DatasetSnapshotRow]) -> di
     return metadata
 
 
+def _string_key_mapping(value: Any, *, field_name: str) -> dict[str, Any]:
+    if not isinstance(value, Mapping):
+        raise ValueError(f"{field_name} must be an object")
+    for key in value:
+        if not isinstance(key, str):
+            raise ValueError(f"{field_name} key must be a string")
+    return dict(value)
+
+
+def _experiment_metadata(experiment: Mapping[str, Any]) -> dict[str, Any]:
+    if "metadata" not in experiment:
+        return {}
+    return _string_key_mapping(experiment["metadata"], field_name="experiment.metadata")
+
+
+def _experiment_window_count(experiment: Mapping[str, Any]) -> int:
+    metadata = _experiment_metadata(experiment)
+    if "window_count" not in metadata:
+        return 0
+    window_count = metadata["window_count"]
+    if isinstance(window_count, bool) or not isinstance(window_count, int) or window_count < 0:
+        raise ValueError("experiment.metadata.window_count must be a non-negative integer")
+    return window_count
+
+
 def _manifest(config: BacktestConfig, rows: list[DatasetSnapshotRow], artifacts: dict[str, dict[str, Any]], metadata: dict[str, Any] | None = None) -> dict[str, Any]:
-    base = metadata if metadata is not None else _base_metadata(config, rows)
+    base = _string_key_mapping(metadata, field_name="metadata") if metadata is not None else _base_metadata(config, rows)
     return {
         **base,
         "bundle_name": _bundle_name(config),
@@ -130,7 +156,7 @@ def _regime_research_outputs(config: BacktestConfig, rows: list[DatasetSnapshotR
     summary = dict(experiment)
     summary["metadata"] = {
         **_base_metadata(config, rows),
-        **dict(experiment.get("metadata", {})),
+        **_experiment_metadata(experiment),
     }
     scorecard = render_regime_scorecard(
         experiment_name=config.experiment_kind,
@@ -342,7 +368,7 @@ def _walk_forward_validation_outputs(config: BacktestConfig, rows: list[DatasetS
         **_base_metadata(config, rows),
         "snapshot_count": len(rows),
         "evaluation_window": evaluation_window,
-        "window_count": int(dict(experiment.get("metadata", {})).get("window_count", 0)),
+        "window_count": _experiment_window_count(experiment),
         "in_sample_size": params.walk_forward.in_sample_size,
         "out_of_sample_size": params.walk_forward.out_of_sample_size,
         "step_size": params.walk_forward.step_size,
