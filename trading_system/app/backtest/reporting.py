@@ -114,6 +114,10 @@ def render_backtest_evaluation_report(
     if not isinstance(raw_walk_forward_metadata, Mapping):
         raise ValueError("walk_forward.metadata must be an object")
     walk_forward_metadata = dict(raw_walk_forward_metadata)
+    regime_buckets = _list_field(regimes, "buckets", label="regimes.buckets")
+    for index, bucket in enumerate(regime_buckets):
+        if not isinstance(bucket, Mapping):
+            raise ValueError(f"regimes.buckets[{index}] must be an object")
     stress_scenarios = []
     validated_cost_scenarios = []
     for index, scenario_payload in enumerate(_list_field(cost_stress, "scenarios", label="cost_stress.scenarios")):
@@ -160,7 +164,7 @@ def render_backtest_evaluation_report(
             "walk_forward_window_count": _non_negative_int_field(
                 walk_forward_metadata, "window_count", label="walk_forward.metadata"
             ),
-            "regime_bucket_count": len(_list_field(regimes, "buckets", label="regimes.buckets")),
+            "regime_bucket_count": len(regime_buckets),
             "cost_stress_scenarios": stress_scenarios,
         },
         "walk_forward": walk_forward,
