@@ -1451,6 +1451,24 @@ def test_engine_filter_ablation_report_rejects_boolean_accepted_allocations() ->
         )
 
 
+
+def test_rotation_suppression_report_rejects_boolean_policy_pnl() -> None:
+    with pytest.raises(ValueError, match="policies.current.bucket_level_pnl must be a finite number"):
+        cli.render_rotation_suppression_report(
+            experiment_name="rotation_suppression",
+            metadata={"snapshot_count": 1},
+            experiment={
+                "policies": {
+                    "current": {"bucket_level_pnl": True},
+                    "soft_suppression": {"bucket_level_pnl": 0.02},
+                    "no_suppression": {"bucket_level_pnl": 0.0},
+                },
+                "opportunity_kill_rate": 0.1,
+                "avoid_loss_rate": 0.2,
+            },
+        )
+
+
 def test_backtest_cli_writes_walk_forward_validation_bundle(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr(cli, "load_historical_dataset", lambda _dataset_root: _sample_dataset_rows(), raising=False)
     monkeypatch.setattr(

@@ -562,15 +562,25 @@ def render_rotation_suppression_report(
     experiment: Mapping[str, Any],
     metadata: Mapping[str, Any],
 ) -> dict[str, dict[str, Any]]:
-    policies = dict(experiment.get("policies", {}))
-    current_policy = dict(policies.get("current", {}))
-    soft_policy = dict(policies.get("soft_suppression", {}))
-    no_suppression_policy = dict(policies.get("no_suppression", {}))
-    current_pnl = float(current_policy.get("bucket_level_pnl", 0.0))
-    soft_pnl = float(soft_policy.get("bucket_level_pnl", 0.0))
-    no_suppression_pnl = float(no_suppression_policy.get("bucket_level_pnl", 0.0))
-    opportunity_kill_rate = float(experiment.get("opportunity_kill_rate", 0.0))
-    avoid_loss_rate = float(experiment.get("avoid_loss_rate", 0.0))
+    raw_policies = experiment.get("policies", {})
+    if not isinstance(raw_policies, Mapping):
+        raise ValueError("policies must be an object")
+    policies = dict(raw_policies)
+
+    def policy_payload(name: str) -> dict[str, Any]:
+        raw_policy = policies.get(name, {})
+        if not isinstance(raw_policy, Mapping):
+            raise ValueError(f"policies.{name} must be an object")
+        return dict(raw_policy)
+
+    current_policy = policy_payload("current")
+    soft_policy = policy_payload("soft_suppression")
+    no_suppression_policy = policy_payload("no_suppression")
+    current_pnl = _report_finite_float(current_policy.get("bucket_level_pnl", 0.0), field_name="policies.current.bucket_level_pnl")
+    soft_pnl = _report_finite_float(soft_policy.get("bucket_level_pnl", 0.0), field_name="policies.soft_suppression.bucket_level_pnl")
+    no_suppression_pnl = _report_finite_float(no_suppression_policy.get("bucket_level_pnl", 0.0), field_name="policies.no_suppression.bucket_level_pnl")
+    opportunity_kill_rate = _report_finite_float(experiment.get("opportunity_kill_rate", 0.0), field_name="opportunity_kill_rate")
+    avoid_loss_rate = _report_finite_float(experiment.get("avoid_loss_rate", 0.0), field_name="avoid_loss_rate")
 
     if soft_pnl > current_pnl and avoid_loss_rate >= opportunity_kill_rate:
         decision = "candidate_for_promotion"
