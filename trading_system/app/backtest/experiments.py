@@ -124,6 +124,14 @@ def _trace_candidate_sort_score(candidate: Mapping[str, Any], *, index: int, eng
     return float(score)
 
 
+def _trace_score_components(value: Any, *, engine: str, index: int) -> dict[str, Any]:
+    if value is None:
+        return {}
+    if not isinstance(value, Mapping):
+        raise ValueError(f"{engine} candidates[{index}].score_components must be an object")
+    return dict(value)
+
+
 def _has_forward_window(rows: list[DatasetSnapshotRow], evaluation_window: str) -> bool:
     return any(evaluation_window in row.forward_returns for row in rows)
 
@@ -1482,6 +1490,11 @@ def _rotation_candidates_with_trace(
             }
         )
         total_score = rotation_signals._to_float(scored.get("total"))
+        score_components = _trace_score_components(
+            scored.get("components"),
+            engine="rotation",
+            index=len(candidates),
+        )
         if total_score < rotation_signals._ROTATION_SCORE_FLOOR and "score_floor" not in disabled_filters:
             filter_counts["score_floor_filtered"] += 1
             _bump_symbol_filter(symbol_rows, symbol_name, "score_floor_filtered")
@@ -1519,7 +1532,7 @@ def _rotation_candidates_with_trace(
                         "h4_spread": round(rs_features["h4_spread"], 6),
                         "h1_spread": round(rs_features["h1_spread"], 6),
                     },
-                    "score_components": scored.get("components", {}),
+                    "score_components": score_components,
                 },
                 "sector": sector,
                 "liquidity_meta": liquidity_meta,

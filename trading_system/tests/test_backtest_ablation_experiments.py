@@ -1569,6 +1569,61 @@ def test_long_gate_telemetry_preserves_missing_rotation_universe_liquidity_meta(
     }
 
 
+@pytest.mark.parametrize("invalid_components", ["bad", [("x", 1)], True])
+def test_long_gate_telemetry_rejects_invalid_rotation_score_components(
+    monkeypatch: pytest.MonkeyPatch,
+    invalid_components: object,
+) -> None:
+    row = _supportive_soft_long_gate_row()
+    monkeypatch.setattr(
+        backtest_experiments.rotation_signals,
+        "score_rotation_candidate",
+        lambda _features: {"total": 0.9, "components": invalid_components},
+    )
+    monkeypatch.setattr(backtest_experiments.rotation_signals, "symbol_derivatives_features", lambda *_args: {})
+
+    with pytest.raises(ValueError, match=r"^rotation candidates\[0\]\.score_components must be an object$"):
+        backtest_experiments._rotation_candidates_with_trace(row, disabled_filters=frozenset())
+
+
+def test_long_gate_telemetry_preserves_rotation_score_component_mapping(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    row = _supportive_soft_long_gate_row()
+    components = {"relative_strength": 0.4, "persistence": 0.2}
+    monkeypatch.setattr(
+        backtest_experiments.rotation_signals,
+        "score_rotation_candidate",
+        lambda _features: {"total": 0.9, "components": components},
+    )
+    monkeypatch.setattr(backtest_experiments.rotation_signals, "symbol_derivatives_features", lambda *_args: {})
+
+    trace = backtest_experiments._rotation_candidates_with_trace(row, disabled_filters=frozenset())
+
+    score_components = trace["candidates"][0]["timeframe_meta"]["score_components"]
+    assert score_components == components
+    assert score_components is not components
+
+
+@pytest.mark.parametrize("scored", [{"total": 0.9}, {"total": 0.9, "components": None}])
+def test_long_gate_telemetry_defaults_missing_rotation_score_components_to_empty_object(
+    monkeypatch: pytest.MonkeyPatch,
+    scored: dict[str, object],
+) -> None:
+    row = _supportive_soft_long_gate_row()
+    monkeypatch.setattr(
+        backtest_experiments.rotation_signals,
+        "score_rotation_candidate",
+        lambda _features: scored,
+    )
+    monkeypatch.setattr(backtest_experiments.rotation_signals, "symbol_derivatives_features", lambda *_args: {})
+
+    trace = backtest_experiments._rotation_candidates_with_trace(row, disabled_filters=frozenset())
+
+    assert trace["candidates"][0]["timeframe_meta"]["score_components"] == {}
+
+
+
 def _supportive_soft_long_gate_row(regime_label: str = "RISK_ON_ROTATION") -> DatasetSnapshotRow:
     market = {
         "symbols": {
