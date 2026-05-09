@@ -202,3 +202,13 @@ def test_ci_verify_entrypoint_runs_strict_workflow_and_evidence_chain() -> None:
     assert result.returncode == 0, result.stderr
     assert "trading_system/tests/test_development_workflow.py" in result.stdout
     assert "trading_system/tests/test_development_workflow_docs.py" in result.stdout
+
+
+def test_nightly_verify_entrypoint_runs_full_suite() -> None:
+    script = ROOT / "scripts" / "nightly_verify.py"
+
+    assert script.exists()
+    text = script.read_text()
+    assert "--suite full" in text
+    assert "TRADING_RUNTIME_ENV" in text
+    assert "TRADING_ENTRY_PROFILE" in text
