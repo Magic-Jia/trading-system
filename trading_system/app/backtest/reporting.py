@@ -780,7 +780,10 @@ def render_rotation_suppression_report(
     raw_policies = experiment.get("policies", {})
     if not isinstance(raw_policies, Mapping):
         raise ValueError("policies must be an object")
-    policies = dict(raw_policies)
+    policies = {
+        _canonical_report_string(policy_name, field_name="policies keys"): policy_payload
+        for policy_name, policy_payload in raw_policies.items()
+    }
 
     def policy_payload(name: str) -> dict[str, Any]:
         if name not in policies:

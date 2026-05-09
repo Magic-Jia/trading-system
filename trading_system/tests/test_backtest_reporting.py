@@ -1929,6 +1929,24 @@ def test_rotation_suppression_report_rejects_missing_current_policy() -> None:
         )
 
 
+def test_rotation_suppression_report_rejects_non_string_policy_key() -> None:
+    with pytest.raises(ValueError, match="policies keys must be a canonical string"):
+        cli.render_rotation_suppression_report(
+            experiment_name="rotation_suppression",
+            metadata={"snapshot_count": 1},
+            experiment={
+                "policies": {
+                    "current": {"bucket_level_pnl": 0.01},
+                    "soft_suppression": {"bucket_level_pnl": 0.02},
+                    "no_suppression": {"bucket_level_pnl": 0.0},
+                    1: {"bucket_level_pnl": 0.03},
+                },
+                "opportunity_kill_rate": 0.1,
+                "avoid_loss_rate": 0.2,
+            },
+        )
+
+
 def test_rotation_suppression_report_rejects_string_opportunity_kill_rate() -> None:
     with pytest.raises(ValueError, match="opportunity_kill_rate must be a finite number"):
         cli.render_rotation_suppression_report(
