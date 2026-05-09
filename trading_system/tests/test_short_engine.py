@@ -376,6 +376,26 @@ def test_generate_short_candidates_attach_derivatives_meta():
     assert candidate.timeframe_meta["derivatives"]["basis_bps"] == -8.0
 
 
+def test_generate_short_candidates_rejects_derivatives_feature_non_string_key(monkeypatch):
+    market = _defensive_market()
+    short_universe = [
+        {"symbol": "BTCUSDT", "sector": "majors", "liquidity_meta": {"rolling_notional": 12_500_000_000.0}},
+    ]
+    monkeypatch.setattr(
+        short_engine,
+        "symbol_derivatives_features",
+        lambda _derivatives, _symbol: {123: "bad", "crowding_bias": "balanced", "basis_bps": 0.0},
+    )
+
+    with pytest.raises(ValueError, match=r"BTCUSDT\.derivatives key must be a string"):
+        generate_short_candidates(
+            market,
+            short_universe=short_universe,
+            derivatives={"rows": [{"symbol": "BTCUSDT"}]},
+            regime={"label": "HIGH_VOL_DEFENSIVE", "bucket_targets": {"trend": 0.2, "rotation": 0.0, "short": 0.8}},
+        )
+
+
 @pytest.mark.parametrize("bad_basis_bps", ["-25", True])
 def test_generate_short_candidates_rejects_present_invalid_derivatives_basis_bps(monkeypatch, bad_basis_bps):
     market = _defensive_market()

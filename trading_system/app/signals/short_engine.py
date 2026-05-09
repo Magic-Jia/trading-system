@@ -126,7 +126,10 @@ def _optional_strict_feature_string(features: Mapping[str, Any], field: str, *, 
     return value
 
 
-def _strict_derivatives_short_features(features: Mapping[str, Any]) -> dict[str, Any]:
+def _strict_derivatives_short_features(symbol: str, features: Mapping[str, Any]) -> dict[str, Any]:
+    for key in features:
+        if not isinstance(key, str):
+            raise ValueError(f"{symbol}.derivatives key must be a string")
     return {
         "crowding_bias": _optional_strict_feature_string(features, "crowding_bias", default="balanced"),
         "basis_bps": _optional_strict_feature_number(features, "basis_bps", default=0.0),
@@ -333,7 +336,10 @@ def generate_short_candidates(
         if setup_type is None:
             continue
 
-        derivatives_features = _strict_derivatives_short_features(symbol_derivatives_features(derivatives, canonical_symbol))
+        derivatives_features = _strict_derivatives_short_features(
+            canonical_symbol,
+            symbol_derivatives_features(derivatives, canonical_symbol),
+        )
         if _reject_crowded_short_squeeze_risk(derivatives_features):
             continue
 
