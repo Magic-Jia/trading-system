@@ -400,6 +400,19 @@ def test_generate_rotation_candidates_respects_regime_suppression(load_fixture):
     assert candidates == []
 
 
+def test_generate_rotation_candidates_rejects_non_string_suppression_rule(load_fixture):
+    market = load_fixture("market_context_v2.json")
+
+    with pytest.raises(ValueError, match="regime.suppression_rules\\[0\\]"):
+        generate_rotation_candidates(
+            market,
+            rotation_universe=[
+                {"symbol": "SOLUSDT", "sector": "alt_l1", "liquidity_tier": "high"},
+            ],
+            regime={"suppression_rules": [True]},
+        )
+
+
 def _soft_rotation_reclaim_market(
     *,
     sol_daily_close: float = 103.0,

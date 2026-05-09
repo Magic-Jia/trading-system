@@ -72,7 +72,12 @@ def _rotation_suppressed(regime: RegimeSnapshot | Mapping[str, Any] | None) -> b
     rules = _regime_value(regime, "suppression_rules", [])
     if not isinstance(rules, list):
         return False
-    return "rotation" in {str(rule).lower().strip() for rule in rules}
+    normalized_rules: set[str] = set()
+    for index, rule in enumerate(rules):
+        if not isinstance(rule, str):
+            raise ValueError(f"regime.suppression_rules[{index}] must be a string")
+        normalized_rules.add(rule.lower().strip())
+    return "rotation" in normalized_rules
 
 
 def _rotation_symbols(rotation_universe: Sequence[Mapping[str, Any]] | None) -> dict[str, Mapping[str, Any]]:
