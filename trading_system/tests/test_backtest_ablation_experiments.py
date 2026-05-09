@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 import math
 
@@ -172,6 +173,24 @@ def test_public_strategy_factor_experiment_preserves_unknown_string_strategy_fam
     assert factor["factor_name"] == "custom_family"
     assert factor["supported"] is False
     assert factor["unsupported_reason"] == "unknown_strategy_family"
+
+
+@pytest.mark.parametrize("supported", ["false", 1])
+def test_public_strategy_factor_experiment_rejects_non_bool_family_spec_supported(
+    monkeypatch: pytest.MonkeyPatch,
+    supported: object,
+) -> None:
+    def has_forward_window(_rows, _evaluation_window):
+        return supported
+
+    monkeypatch.setattr(backtest_experiments, "_has_forward_window", has_forward_window)
+
+    with pytest.raises(ValueError, match=r"^family_specs\.momentum\.supported must be a bool$"):
+        run_public_strategy_factor_experiment(
+            [_suppressed_rotation_row(0, link_return=0.06, ada_return=-0.03, forward_return_3d=0.01)],
+            evaluation_window="3d",
+            strategy_families=("momentum",),
+        )
 
 
 def test_public_strategy_factor_experiment_skips_missing_daily_factor_fields() -> None:
@@ -397,6 +416,18 @@ def test_rotation_suppression_experiment_rejects_non_string_candidate_symbol(mon
 
     with pytest.raises(ValueError, match=r"^current\.candidate\.symbol must be a string$"):
         run_rotation_suppression_experiment([row], evaluation_window="3d")
+
+
+@pytest.mark.parametrize("soft_score_floor", [True, "0.72", float("nan")])
+def test_rotation_suppression_experiment_rejects_invalid_soft_score_floor(
+    soft_score_floor: object,
+) -> None:
+    with pytest.raises(ValueError, match=r"^soft_score_floor must be a finite number$"):
+        run_rotation_suppression_experiment(
+            [_bullish_ablation_row()],
+            evaluation_window="3d",
+            soft_score_floor=soft_score_floor,  # type: ignore[arg-type]
+        )
 
 
 def _engine_account() -> dict[str, float | list[object]]:
@@ -2644,6 +2675,13 @@ def test_allocator_friction_experiment_rejects_non_string_candidate_bundle_regim
 
     with pytest.raises(ValueError, match=r"^candidate_bundle\.regime key must be a string$"):
         run_allocator_friction_experiment([_bullish_ablation_row()], evaluation_window="3d")
+
+
+def test_allocator_friction_experiment_rejects_list_of_pairs_row_account() -> None:
+    row = replace(_bullish_ablation_row(), account=[("equity", 100_000.0)])  # type: ignore[arg-type]
+
+    with pytest.raises(ValueError, match=r"^row\.account must be an object$"):
+        run_allocator_friction_experiment([row], evaluation_window="3d")
 
 
 @pytest.mark.parametrize("invalid_budget", [True, float("nan"), float("inf")])

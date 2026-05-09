@@ -125,6 +125,14 @@ def test_regime_predictive_power_experiment_rejects_non_string_regime_override_k
         run_regime_predictive_power_experiment([row])
 
 
+def test_regime_predictive_power_experiment_rejects_present_non_mapping_regime_override() -> None:
+    row = _row(0, risk_on=True, forward_1d=0.018, forward_3d=0.042, drawdown_3d=-0.01)
+    row.meta["regime_override"] = [("label", "RISK_ON_TREND")]
+
+    with pytest.raises(ValueError, match=r"^regime_override must be an object$"):
+        run_regime_predictive_power_experiment([row])
+
+
 @pytest.mark.parametrize("regime_override", [{}, {"label": None}])
 def test_regime_predictive_power_experiment_defaults_missing_regime_label_to_unknown(
     regime_override: dict[str, object],

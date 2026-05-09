@@ -113,6 +113,12 @@ def _strict_finite_number(value: Any, *, field_name: str) -> float:
     return number
 
 
+def _strict_bool(value: Any, *, field_name: str) -> bool:
+    if not isinstance(value, bool):
+        raise ValueError(f"{field_name} must be a bool")
+    return value
+
+
 def _optional_strict_finite_number(regime: Mapping[str, Any], field: str, *, default: float = 0.0) -> float:
     value = regime.get(field)
     if value is None:
@@ -427,7 +433,7 @@ def run_public_strategy_factor_experiment(
             "source_strategy_family": family,
             "factor_name": spec["factor_name"],
             "required_fields": list(spec["required_fields"]),
-            "supported": bool(spec["supported"]),
+            "supported": _strict_bool(spec["supported"], field_name=f"family_specs.{family}.supported"),
             "unsupported_reason": spec["unsupported_reason"],
             "sample_count": len(ordered_rows),
             "evaluation_window": evaluation_window,
@@ -471,6 +477,8 @@ def run_public_strategy_factor_experiment(
 
 def _regime_for_row(row: DatasetSnapshotRow) -> dict[str, Any]:
     override = row.meta.get("regime_override")
+    if override is not None and not isinstance(override, Mapping):
+        raise ValueError("regime_override must be an object")
     if isinstance(override, Mapping):
         for key in override:
             if not isinstance(key, str):
@@ -637,6 +645,7 @@ def _rotation_candidates_for_policy(
     policy: str,
     soft_score_floor: float,
 ) -> list[dict[str, Any]]:
+    floor = _strict_finite_number(soft_score_floor, field_name="soft_score_floor")
     regime = _rotation_regime_variant(_regime_for_row(row), policy=policy)
     universes = build_universes(row.market, derivatives=row.derivatives)
     candidates = [
@@ -649,7 +658,11 @@ def _rotation_candidates_for_policy(
         )
     ]
     if policy == "soft_suppression":
-        return [candidate for candidate in candidates if float(candidate.get("score", 0.0)) >= soft_score_floor]
+        return [
+            candidate
+            for index, candidate in enumerate(candidates)
+            if _trace_candidate_sort_score(candidate, index=index, engine="rotation") >= floor
+        ]
     return candidates
 
 
@@ -766,6 +779,8 @@ def _account_context(row: DatasetSnapshotRow) -> dict[str, Any]:
     }
     if not row.account:
         return default_account
+    if not isinstance(row.account, Mapping):
+        raise ValueError("row.account must be an object")
     account = dict(row.account)
     account.setdefault("open_positions", [])
     return account
