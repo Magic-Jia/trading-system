@@ -60,7 +60,7 @@ Report these fields exactly:
 - Focused verification:
 - Impacted verification:
 - Verification plan JSON:
-  - Include `plan_version` and `plan_kind` from `scripts/verify.py --dry-run --json` / `scripts/ci_verify.py --dry-run --json` output.
+  - Include `plan_version`, `plan_kind`, and `command_argv` from `scripts/verify.py --dry-run --json` / `scripts/ci_verify.py --dry-run --json` output.
   - Include entrypoint JSON `suites` from CI/nightly dry-run JSON when applicable so the controller does not infer suite names from command strings.
   - If reporting suite inventory, include `inventory_version` and `inventory_kind` from `scripts/verify.py --list-suites --json` output.
 - Changed files:
@@ -88,6 +88,8 @@ After the worker commits, the controller should run:
 ```bash
 python3 scripts/audit_worker_commit.py --commit <worker-commit>
 ```
+
+For uncommitted worker diffs, pass explicit changed paths with `--changed-file <path>`; empty changed-file input must fail with `changed file must be non-empty`, and duplicate changed-file input must fail with `duplicate changed file`.
 
 The worker must not treat this as proof of merge readiness; it is a controller preflight for changed files and impacted verification plan.
 

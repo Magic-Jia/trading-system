@@ -102,6 +102,7 @@ def test_codex_worker_template_requires_json_plan_report() -> None:
 
     assert "Verification plan JSON" in text
     assert "plan_kind" in text
+    assert "command_argv" in text
     assert "inventory_version" in text
     assert "entrypoint JSON `suites`" in text
     assert "--dry-run --json" in text
@@ -115,6 +116,9 @@ def test_workflow_docs_and_codex_template_reference_worker_audit() -> None:
 
     assert "scripts/audit_worker_commit.py" in doc
     assert "scripts/audit_worker_commit.py" in template
+    assert "--changed-file" in template
+    assert "changed file must be non-empty" in template
+    assert "duplicate changed file" in template
     assert "final_merge_proof" in doc
     assert "audit_version" in doc
     assert "nested `verification_plan` includes `plan_kind: verification_plan`" in doc
