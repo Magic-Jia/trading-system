@@ -15,16 +15,17 @@ def _jsonl(path: Path) -> list[dict[str, Any]]:
         return []
     rows: list[dict[str, Any]] = []
     with path.open(encoding="utf-8") as handle:
-        for line in handle:
+        for line_number, line in enumerate(handle, start=1):
             payload = line.strip()
             if not payload:
                 continue
             try:
                 raw = json.loads(payload)
-            except json.JSONDecodeError:
-                continue
-            if isinstance(raw, dict):
-                rows.append(raw)
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"{path.name} line {line_number} must be valid JSON") from exc
+            if not isinstance(raw, dict):
+                raise ValueError(f"{path.name} line {line_number} must be a JSON object")
+            rows.append(raw)
     return rows
 
 
