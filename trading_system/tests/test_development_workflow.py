@@ -175,3 +175,15 @@ def test_verify_strict_auto_changed_rejects_unmapped_paths() -> None:
 
     assert result.returncode == 2
     assert "no impacted verification tests" in result.stderr
+
+
+def test_verify_strict_auto_changed_implies_auto_changed(tmp_path: Path) -> None:
+    probe = ROOT / "UNTRACKED_STRICT_AUTO_CHANGED.txt"
+    try:
+        probe.write_text("temporary strict-auto-changed probe\n")
+        result = run_verify("--dry-run", "--json", "--strict-auto-changed")
+    finally:
+        probe.unlink(missing_ok=True)
+
+    assert result.returncode == 2
+    assert "no impacted verification tests" in result.stderr

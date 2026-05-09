@@ -123,6 +123,14 @@ def tests_for_changed(paths: list[str]) -> list[str]:
     return unique(selected)
 
 
+def unmapped_changed_paths(paths: list[str]) -> list[str]:
+    unmapped: list[str] = []
+    for changed in paths:
+        if not any(changed == prefix or changed.startswith(prefix) for prefix, _tests in IMPACT_RULES):
+            unmapped.append(changed)
+    return unique(unmapped)
+
+
 def _git_lines(command: str) -> list[str]:
     completed = subprocess.run(
         command,
@@ -218,7 +226,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     changed = list(args.changed)
-    if args.auto_changed:
+    if args.auto_changed or args.strict_auto_changed:
         try:
             changed.extend(git_changed_paths())
         except RuntimeError as exc:
@@ -233,8 +241,9 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         tests, full = build_tests(suites=suites, changed=changed, explicit_tests=args.test)
-        if args.strict_auto_changed and changed and not suites and not args.test and not tests and not full:
-            print("no impacted verification tests for changed files", file=sys.stderr)
+        unmapped = unmapped_changed_paths(changed)
+        if args.strict_auto_changed and changed and unmapped:
+            print(f"no impacted verification tests for changed files: {', '.join(unmapped)}", file=sys.stderr)
             return 2
         commands = build_commands(suites=suites, changed=changed, explicit_tests=args.test)
         validate_test_paths(commands)
