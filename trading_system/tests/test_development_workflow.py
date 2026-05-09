@@ -234,3 +234,22 @@ def test_nightly_verify_entrypoint_runs_full_suite() -> None:
     assert "--suite full" in text
     assert "TRADING_RUNTIME_ENV" in text
     assert "TRADING_ENTRY_PROFILE" in text
+
+
+def test_nightly_verify_dry_run_json_reports_clean_env_full_command() -> None:
+    result = subprocess.run(
+        [sys.executable, str(ROOT / "scripts" / "nightly_verify.py"), "--dry-run", "--json"],
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    import json
+
+    payload = json.loads(result.stdout)
+    assert payload["entrypoint"] == "nightly_verify"
+    assert payload["commands"] == ["python3 scripts/verify.py --suite full"]
+    assert "TRADING_RUNTIME_ENV" in payload["unset_env"]
