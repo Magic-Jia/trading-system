@@ -3688,6 +3688,17 @@ def test_candidate_signal_generates_default_take_profit_for_cost_coverage():
     assert signal.meta["structure_target_price"] == pytest.approx(signal.take_profit)
 
 
+def test_candidate_signal_rejects_present_non_mapping_candidate_meta() -> None:
+    allocation = _active_paper_first_rotation_probe_allocation(
+        engine="trend",
+        setup_type="BREAKOUT_CONTINUATION",
+        meta=[("stop_family", "structure_stop")],
+    )
+
+    with pytest.raises(ValueError, match="candidate.meta"):
+        main_module._candidate_signal(allocation, _near_stop_rotation_market(), regime={"label": "MIXED"})
+
+
 def test_main_v2_active_paper_first_rotation_probe_uses_valid_stop_and_tiny_execution_budget():
     account = AccountSnapshot(equity=1000.0, available_balance=1000.0, futures_wallet_balance=1000.0)
     allocation = _active_paper_first_rotation_probe_allocation()

@@ -651,6 +651,8 @@ def _candidate_with_stop_taxonomy(
     risk_config: RiskConfig | None = None,
 ) -> dict[str, Any]:
     row = _candidate_row(candidate)
+    if row.get("meta") is not None and not isinstance(row.get("meta"), Mapping):
+        raise ValueError("candidate.meta must be a mapping when present")
     symbol = str(row.get("symbol", "")).upper()
     payload = market.get("symbols", {}).get(symbol, {})
     if not isinstance(payload, Mapping):
