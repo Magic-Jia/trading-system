@@ -1,4 +1,5 @@
 import math
+from types import MappingProxyType
 
 import pytest
 
@@ -80,6 +81,30 @@ def test_generate_rotation_candidates_accepts_numeric_score_total(monkeypatch, l
     candidates = generate_rotation_candidates(market, rotation_universe=rotation_universe)
 
     assert [(candidate.symbol, candidate.score) for candidate in candidates] == [("SOLUSDT", 0.9)]
+    assert candidates[0].timeframe_meta["score_components"] == {"test": 0.9}
+
+
+def test_generate_rotation_candidates_copies_valid_score_components_to_plain_dict(monkeypatch, load_fixture):
+    market = load_fixture("market_context_v2.json")
+    rotation_universe = [
+        {"symbol": "SOLUSDT", "sector": "alt_l1", "liquidity_tier": "high"},
+    ]
+    _set_h1_extension(market, "SOLUSDT", 0.007459)
+    components = MappingProxyType({"relative_strength_rank": 1, "persistence": 0.25})
+
+    monkeypatch.setattr(
+        rotation_engine,
+        "score_rotation_candidate",
+        lambda _features: {"total": 0.9, "components": components},
+    )
+
+    candidates = generate_rotation_candidates(market, rotation_universe=rotation_universe)
+
+    assert type(candidates[0].timeframe_meta["score_components"]) is dict
+    assert candidates[0].timeframe_meta["score_components"] == {
+        "relative_strength_rank": 1.0,
+        "persistence": 0.25,
+    }
 
 
 @pytest.mark.parametrize("bad_total", ["0.9", True, math.nan, math.inf])
@@ -97,6 +122,66 @@ def test_generate_rotation_candidates_rejects_present_invalid_score_total(monkey
     )
 
     with pytest.raises(ValueError, match=r"rotation score\.total must be a finite non-bool number"):
+        generate_rotation_candidates(market, rotation_universe=rotation_universe)
+
+
+@pytest.mark.parametrize("bad_components", [["test"], "test"])
+def test_generate_rotation_candidates_rejects_present_non_object_score_components(
+    monkeypatch, load_fixture, bad_components
+):
+    market = load_fixture("market_context_v2.json")
+    rotation_universe = [
+        {"symbol": "SOLUSDT", "sector": "alt_l1", "liquidity_tier": "high"},
+    ]
+    _set_h1_extension(market, "SOLUSDT", 0.007459)
+
+    monkeypatch.setattr(
+        rotation_engine,
+        "score_rotation_candidate",
+        lambda _features: {"total": 0.9, "components": bad_components},
+    )
+
+    with pytest.raises(ValueError, match=r"rotation score\.components must be an object"):
+        generate_rotation_candidates(market, rotation_universe=rotation_universe)
+
+
+def test_generate_rotation_candidates_rejects_non_string_score_components_key(monkeypatch, load_fixture):
+    market = load_fixture("market_context_v2.json")
+    rotation_universe = [
+        {"symbol": "SOLUSDT", "sector": "alt_l1", "liquidity_tier": "high"},
+    ]
+    _set_h1_extension(market, "SOLUSDT", 0.007459)
+
+    monkeypatch.setattr(
+        rotation_engine,
+        "score_rotation_candidate",
+        lambda _features: {"total": 0.9, "components": {123: 0.1}},
+    )
+
+    with pytest.raises(ValueError, match=r"rotation score\.components key must be a string"):
+        generate_rotation_candidates(market, rotation_universe=rotation_universe)
+
+
+@pytest.mark.parametrize("bad_value", ["0.1", True, math.nan, math.inf])
+def test_generate_rotation_candidates_rejects_invalid_score_components_value(
+    monkeypatch, load_fixture, bad_value
+):
+    market = load_fixture("market_context_v2.json")
+    rotation_universe = [
+        {"symbol": "SOLUSDT", "sector": "alt_l1", "liquidity_tier": "high"},
+    ]
+    _set_h1_extension(market, "SOLUSDT", 0.007459)
+
+    monkeypatch.setattr(
+        rotation_engine,
+        "score_rotation_candidate",
+        lambda _features: {"total": 0.9, "components": {"relative_strength_rank": bad_value}},
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"rotation score\.components\.relative_strength_rank must be a finite non-bool number",
+    ):
         generate_rotation_candidates(market, rotation_universe=rotation_universe)
 
 

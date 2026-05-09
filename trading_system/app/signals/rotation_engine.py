@@ -41,6 +41,26 @@ def _score_total(scored: Mapping[str, Any]) -> float:
     return float(value)
 
 
+def _score_components(scored: Mapping[str, Any]) -> dict[str, float]:
+    if "components" not in scored:
+        return {}
+    value = scored.get("components")
+    if not isinstance(value, Mapping):
+        raise ValueError("rotation score.components must be an object")
+    components: dict[str, float] = {}
+    for key, component_value in value.items():
+        if not isinstance(key, str):
+            raise ValueError("rotation score.components key must be a string")
+        if (
+            isinstance(component_value, bool)
+            or not isinstance(component_value, int | float)
+            or not math.isfinite(component_value)
+        ):
+            raise ValueError(f"rotation score.components.{key} must be a finite non-bool number")
+        components[key] = float(component_value)
+    return components
+
+
 def _tf_row(payload: Mapping[str, Any], timeframe: str) -> Mapping[str, Any]:
     row = payload.get(timeframe)
     if isinstance(row, Mapping):
@@ -598,6 +618,7 @@ def generate_rotation_candidates(
             }
         )
         total_score = _score_total(scored)
+        score_components = _score_components(scored)
         score_floor = _SCOUT_ROTATION_SCORE_FLOOR if _is_scout_profile(profile) else _ROTATION_SCORE_FLOOR
         if total_score < score_floor:
             continue
@@ -647,7 +668,7 @@ def generate_rotation_candidates(
                         "h4_spread": round(rs_features["h4_spread"], 6),
                         "h1_spread": round(rs_features["h1_spread"], 6),
                     },
-                    "score_components": scored.get("components", {}),
+                    "score_components": score_components,
                     **({"trigger_timeframes": trigger_timeframes} if trigger_timeframes else {}),
                 },
                 sector=_candidate_sector(symbol, payload, universe_row),
