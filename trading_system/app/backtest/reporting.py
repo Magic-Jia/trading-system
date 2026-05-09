@@ -886,7 +886,7 @@ def render_allocator_friction_report(
         best_stressed = best_frictions.get("stressed", {})
         if not isinstance(best_stressed, Mapping):
             raise ValueError(f"variants.{best_variant}.frictions.stressed must be an object")
-        best_stressed_net_bucket_pnl = _report_finite_float(
+        best_stressed_net_bucket_pnl = _strict_present_finite_float(
             best_stressed.get("net_bucket_pnl", 0.0),
             field_name=f"variants.{best_variant}.frictions.stressed.net_bucket_pnl",
         )
