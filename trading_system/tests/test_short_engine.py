@@ -406,6 +406,24 @@ def test_generate_short_candidates_rejects_present_invalid_liquidity_rolling_not
         )
 
 
+def test_generate_short_candidates_uses_canonical_symbol_for_liquidity_meta_errors():
+    market = _defensive_market()
+    regime = {"label": "HIGH_VOL_DEFENSIVE", "bucket_targets": {"trend": 0.2, "rotation": 0.0, "short": 0.8}}
+
+    with pytest.raises(ValueError, match=r"BTCUSDT\.liquidity_meta\.rolling_notional"):
+        generate_short_candidates(
+            market,
+            short_universe=[
+                {
+                    "symbol": " btcusdt ",
+                    "sector": "majors",
+                    "liquidity_meta": {"rolling_notional": "12500000000"},
+                },
+            ],
+            regime=regime,
+        )
+
+
 def test_generate_short_candidates_rejects_present_non_string_short_universe_symbol():
     market = _defensive_market()
     regime = {"label": "HIGH_VOL_DEFENSIVE", "bucket_targets": {"trend": 0.2, "rotation": 0.0, "short": 0.8}}

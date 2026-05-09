@@ -215,10 +215,9 @@ def _momentum_quality(payload: Mapping[str, Any]) -> float:
     return max(min(weakness / 0.09, 1.0), 0.0)
 
 
-def _liquidity_quality(payload: Mapping[str, Any], universe_row: Mapping[str, Any]) -> float:
+def _liquidity_quality(payload: Mapping[str, Any], universe_row: Mapping[str, Any], symbol: str) -> float:
     daily = _tf_row(payload, "daily")
     volume = _to_float(daily.get("volume_usdt_24h"))
-    symbol = str(universe_row.get("symbol", ""))
     liquidity_meta = _liquidity_meta(universe_row, symbol)
     if "rolling_notional" in liquidity_meta and not _is_finite_number(liquidity_meta["rolling_notional"]):
         raise ValueError(f"{symbol}.liquidity_meta.rolling_notional must be a finite non-bool number")
@@ -315,7 +314,7 @@ def generate_short_candidates(
                 "h4_structure": "breakdown",
                 "h1_trigger": "confirmed",
                 "momentum_quality": _momentum_quality(payload),
-                "liquidity_quality": _liquidity_quality(payload, universe_row),
+                "liquidity_quality": _liquidity_quality(payload, universe_row, canonical_symbol),
             }
         )
         total_score = _to_float(scored.get("total"))
