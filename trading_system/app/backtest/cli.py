@@ -431,7 +431,7 @@ def _render_trade_postmortem_markdown(trades: list[dict[str, Any]]) -> str:
                 engine=trade.get("engine", ""),
                 setup=trade.get("setup_type", ""),
                 score=_optional_postmortem_float(trade, "score", index=index - 1),
-                entry=float(trade.get("entry_price") or 0.0),
+                entry=_optional_postmortem_float(trade, "entry_price", index=index - 1),
                 exit=float(trade.get("exit_price") or 0.0),
                 gross=float(trade.get("gross_pnl") or 0.0),
                 net=float(trade.get("net_pnl") or 0.0),

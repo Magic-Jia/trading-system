@@ -631,6 +631,33 @@ def test_full_market_trade_postmortem_rejects_numeric_string_score() -> None:
         )
 
 
+def test_full_market_trade_postmortem_rejects_numeric_string_entry_price() -> None:
+    with pytest.raises(ValueError, match=r"trades\[0\]\.entry_price must be a finite number"):
+        cli._render_trade_postmortem_markdown(
+            [
+                {
+                    "entry_timestamp": "2026-03-10T00:00:00+00:00",
+                    "symbol": "BTCUSDT",
+                    "side": "long",
+                    "engine": "trend",
+                    "setup_type": "TREND_PULLBACK",
+                    "score": 0.95,
+                    "entry_price": "100.1",
+                    "exit_price": 110.0,
+                    "gross_pnl": 99.0,
+                    "net_pnl": 95.0,
+                    "mfe_pct": 0.12,
+                    "mae_pct": 0.01,
+                    "exit_reason": "fixed_horizon",
+                    "fill_model": "taker_orderbook",
+                    "execution_price_source": "best_ask",
+                    "execution_lag_bars": 0,
+                    "fill_quality": "evidence_backed",
+                }
+            ]
+        )
+
+
 def test_full_market_report_rejects_invalid_cost_breakdown_fields() -> None:
     result = sample_baseline_result()
     bad_result = BaselineReplayResult(
