@@ -40,6 +40,15 @@ def _write_json(path: Path, payload: Mapping[str, Any]) -> None:
     )
 
 
+def _optional_manifest_str(manifest: Mapping[str, Any], field_name: str) -> str:
+    value = manifest.get(field_name)
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise ValueError(f"import_manifest.{field_name} must be a string")
+    return value.strip()
+
+
 def _baseline_env_snapshot(baseline_env: Mapping[str, str] | None = None) -> dict[str, str]:
     if baseline_env is not None:
         snapshot: dict[str, str] = {}
@@ -82,8 +91,8 @@ def resolve_validation_dataset_root(
     for manifest_path in sorted(imported_roots_dir.glob("*/import_manifest.json")):
         manifest = _read_json(manifest_path)
         dataset_path = manifest_path.parent
-        end_timestamp = str(manifest.get("end_timestamp") or "")
-        start_timestamp = str(manifest.get("start_timestamp") or "")
+        end_timestamp = _optional_manifest_str(manifest, "end_timestamp")
+        start_timestamp = _optional_manifest_str(manifest, "start_timestamp")
         candidates.append((end_timestamp, start_timestamp, dataset_path))
 
     if not candidates:
@@ -95,8 +104,8 @@ def resolve_validation_dataset_root(
 def _dataset_time_bounds(dataset_root: Path) -> tuple[str, str]:
     manifest_path = dataset_root / "import_manifest.json"
     manifest = _read_json(manifest_path) if manifest_path.exists() else {}
-    start_timestamp = str(manifest.get("start_timestamp") or "").strip()
-    end_timestamp = str(manifest.get("end_timestamp") or "").strip()
+    start_timestamp = _optional_manifest_str(manifest, "start_timestamp")
+    end_timestamp = _optional_manifest_str(manifest, "end_timestamp")
     if start_timestamp and end_timestamp:
         return start_timestamp, end_timestamp
 
