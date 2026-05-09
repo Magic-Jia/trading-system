@@ -61,9 +61,10 @@ def worktree_dirty() -> bool:
 
 
 def verification_plan(changed_files: list[str]) -> dict[str, object]:
-    command = [sys.executable, "scripts/verify.py", "--dry-run", "--json", "--strict-auto-changed"]
-    for path in changed_files:
-        command.extend(["--changed", path])
+    command_argv = [
+        [sys.executable, "scripts/verify.py", "--dry-run", "--json", "--strict-auto-changed", *sum((["--changed", path] for path in changed_files), [])]
+    ]
+    command = command_argv[0]
     completed = subprocess.run(
         command,
         text=True,
@@ -73,7 +74,8 @@ def verification_plan(changed_files: list[str]) -> dict[str, object]:
     )
     if completed.returncode != 0:
         raise RuntimeError(completed.stderr.strip() or "verification plan failed")
-    return json.loads(completed.stdout)
+    plan = json.loads(completed.stdout)
+    return plan
 
 
 def main(argv: list[str] | None = None) -> int:

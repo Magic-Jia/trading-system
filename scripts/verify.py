@@ -224,13 +224,17 @@ def validate_test_paths(commands: list[str]) -> None:
                 raise ValueError(f"missing verification path: {token}")
 
 
-def run_commands(commands: list[str]) -> int:
+def run_command_argv(commands: list[list[str]]) -> int:
     for command in commands:
-        print(f"$ {command}", flush=True)
-        completed = subprocess.run(command, shell=True, text=True)
+        print(f"$ {' '.join(command)}", flush=True)
+        completed = subprocess.run(command, text=True, shell=False)
         if completed.returncode != 0:
             return completed.returncode
     return 0
+
+
+def run_commands(commands: list[str]) -> int:
+    return run_command_argv([command.split() for command in commands])
 
 
 def main(argv: list[str] | None = None) -> int:

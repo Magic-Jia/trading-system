@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import subprocess
 import sys
 from pathlib import Path
@@ -304,6 +305,31 @@ def test_verify_strict_auto_changed_implies_auto_changed(tmp_path: Path) -> None
         "UNTRACKED_STRICT_AUTO_CHANGED.txt" in result.stderr
         or "memory/dev-status.md" in result.stderr
     )
+
+
+def test_verify_run_commands_uses_argv_without_shell(monkeypatch) -> None:
+    spec = importlib.util.spec_from_file_location("verify", VERIFY)
+    assert spec is not None
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+
+    calls: list[dict[str, object]] = []
+
+    class Completed:
+        returncode = 0
+
+    def fake_run(command, **kwargs):
+        calls.append({"command": command, **kwargs})
+        return Completed()
+
+    monkeypatch.setattr(module.subprocess, "run", fake_run)
+
+    assert module.run_command_argv([["python3", "-m", "pytest", "-q"], ["git", "diff", "--check", "HEAD"]]) == 0
+    assert calls == [
+        {"command": ["python3", "-m", "pytest", "-q"], "text": True, "shell": False},
+        {"command": ["git", "diff", "--check", "HEAD"], "text": True, "shell": False},
+    ]
 
 
 def test_ci_verify_entrypoint_runs_strict_workflow_and_evidence_chain() -> None:
