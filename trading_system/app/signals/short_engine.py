@@ -28,31 +28,30 @@ def _tf_row(payload: Mapping[str, Any], timeframe: str) -> Mapping[str, Any]:
     return {}
 
 
-def _has_finite_present_numeric(row: Mapping[str, Any], field: str) -> bool:
-    if field not in row:
-        return True
-    value = row.get(field)
-    if isinstance(value, bool):
-        return False
-    try:
-        return math.isfinite(float(value))
-    except (TypeError, ValueError):
-        return False
+_REQUIRED_SHORT_TIMEFRAME_NUMERIC_FIELDS = {
+    "daily": ("close", "ema_20", "ema_50", "return_pct_7d", "volume_usdt_24h"),
+    "4h": ("close", "ema_20", "ema_50", "return_pct_3d"),
+    "1h": ("close", "ema_20", "ema_50", "return_pct_24h"),
+    "30m": ("close", "ema_20", "ema_50"),
+    "15m": ("close", "ema_20", "ema_50"),
+}
 
 
-def _has_required_short_timeframe_numerics(payload: Mapping[str, Any]) -> bool:
-    required_fields = {
-        "daily": ("close", "ema_20", "ema_50", "return_pct_7d", "volume_usdt_24h"),
-        "4h": ("close", "ema_20", "ema_50", "return_pct_3d"),
-        "1h": ("close", "ema_20", "ema_50", "return_pct_24h"),
-        "30m": ("close", "ema_20", "ema_50"),
-        "15m": ("close", "ema_20", "ema_50"),
-    }
-    return all(
-        _has_finite_present_numeric(_tf_row(payload, timeframe), field)
-        for timeframe, fields in required_fields.items()
-        for field in fields
-    )
+def _is_finite_number(value: Any) -> bool:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return False
+    return math.isfinite(value)
+
+
+def _validate_required_short_timeframe_numerics(symbol: str, payload: Mapping[str, Any]) -> bool:
+    for timeframe, fields in _REQUIRED_SHORT_TIMEFRAME_NUMERIC_FIELDS.items():
+        row = _tf_row(payload, timeframe)
+        for field in fields:
+            if field not in row:
+                continue
+            if not _is_finite_number(row[field]):
+                raise ValueError(f"{symbol}.{timeframe}.{field} must be a finite non-bool number")
+    return True
 
 
 def _regime_value(regime: RegimeSnapshot | Mapping[str, Any] | None, key: str, default: Any = None) -> Any:
@@ -204,7 +203,7 @@ def generate_short_candidates(
         payload = payload_value
         if str(payload.get("sector", "")).lower() != "majors":
             continue
-        if not _has_required_short_timeframe_numerics(payload):
+        if not _validate_required_short_timeframe_numerics(str(symbol), payload):
             continue
         if not _trend_broken(payload):
             continue

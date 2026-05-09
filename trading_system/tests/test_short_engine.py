@@ -291,6 +291,32 @@ def test_short_term_short_candidates_expose_intraday_entry_reference_metadata():
     assert candidate.timeframe_meta["stop_reference_timeframe"] == "15m"
 
 
+def test_generate_short_candidates_rejects_present_string_numeric_required_timeframe_field():
+    market = _defensive_market()
+    short_universe = [
+        {"symbol": "BTCUSDT", "sector": "majors", "liquidity_meta": {"rolling_notional": 12_500_000_000.0}},
+    ]
+    regime = {"label": "HIGH_VOL_DEFENSIVE", "bucket_targets": {"trend": 0.2, "rotation": 0.0, "short": 0.8}}
+
+    assert [
+        candidate.symbol
+        for candidate in generate_short_candidates(
+            market,
+            short_universe=short_universe,
+            regime=regime,
+        )
+    ] == ["BTCUSDT"]
+
+    market["symbols"]["BTCUSDT"]["daily"]["close"] = "100"
+
+    with pytest.raises(ValueError, match=r"BTCUSDT\.daily\.close"):
+        generate_short_candidates(
+            market,
+            short_universe=short_universe,
+            regime=regime,
+        )
+
+
 @pytest.mark.parametrize("bad_value", [True, math.nan, math.inf, -math.inf])
 def test_short_term_candidates_reject_present_invalid_required_numeric(bad_value):
     market = _defensive_market()
@@ -319,15 +345,13 @@ def test_short_term_candidates_reject_present_invalid_required_numeric(bad_value
 
     market["symbols"]["BTCUSDT"]["daily"]["close"] = bad_value
 
-    assert (
+    with pytest.raises(ValueError, match=r"BTCUSDT\.daily\.close"):
         generate_short_candidates(
             market,
             short_universe=short_universe,
             regime=regime,
             entry_profile="short_term",
         )
-        == []
-    )
 
 
 def test_generate_short_candidates_respects_regime_gate_and_suppression():
