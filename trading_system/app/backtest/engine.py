@@ -45,11 +45,20 @@ from .types import (
 from .universe import filter_universe
 
 
+def _strict_string_key_mapping(value: Any, field_name: str) -> dict[str, Any]:
+    if not isinstance(value, Mapping):
+        raise ValueError(f"{field_name} must be a mapping")
+    for key in value:
+        if not isinstance(key, str):
+            raise ValueError(f"{field_name} keys must be strings")
+    return dict(value)
+
+
 def _candidate_row(candidate: Any) -> dict[str, Any]:
     if is_dataclass(candidate):
         return asdict(candidate)
     if isinstance(candidate, Mapping):
-        return dict(candidate)
+        return _strict_string_key_mapping(candidate, "candidate")
     raise TypeError(f"unsupported candidate type: {type(candidate)!r}")
 
 
@@ -63,8 +72,10 @@ def _rank_key(row: Mapping[str, Any]) -> tuple[float, str, str]:
 
 def _regime_dict(row: DatasetSnapshotRow, *, disabled_engines: frozenset[str] | None = None) -> dict[str, Any]:
     override = row.meta.get("regime_override")
+    if override is not None and not isinstance(override, Mapping):
+        raise ValueError("regime_override must be a mapping")
     if isinstance(override, Mapping):
-        return dict(override)
+        return _strict_string_key_mapping(override, "regime_override")
     return asdict(classify_regime(row.market, row.derivatives, disabled_engines=disabled_engines))
 
 
@@ -146,7 +157,7 @@ def _allocation_rows(
                 "rank": decision.rank,
                 "reasons": list(decision.reasons),
                 "final_risk_budget": decision.final_risk_budget,
-                "meta": dict(decision.meta),
+                "meta": _strict_string_key_mapping(decision.meta, "decision.meta"),
             }
         )
     return allocations
@@ -186,7 +197,8 @@ def replay_snapshot(
         ],
     }
     all_candidates = [candidate for engine_rows in raw_candidates.values() for candidate in engine_rows]
-    account = dict(row.account or {"equity": 0.0, "available_balance": 0.0, "futures_wallet_balance": 0.0, "open_positions": []})
+    default_account = {"equity": 0.0, "available_balance": 0.0, "futures_wallet_balance": 0.0, "open_positions": []}
+    account = _strict_string_key_mapping(row.account, "account") if row.account is not None else default_account
     validated_candidates = _validated_candidates(all_candidates, account)
     allocations = _allocation_rows(account, validated_candidates, regime, app_config=resolved_config)
     return {

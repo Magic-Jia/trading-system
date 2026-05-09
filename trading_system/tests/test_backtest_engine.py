@@ -29,7 +29,7 @@ from trading_system.app.backtest.types import (
     UniverseFilterConfig,
     WalkForwardConfig,
 )
-from trading_system.app.types import EngineCandidate, RegimeSnapshot
+from trading_system.app.types import AllocationDecision, EngineCandidate, RegimeSnapshot
 from trading_system.app.universe.builder import UniverseBuildResult
 
 
@@ -84,6 +84,34 @@ def test_suppression_payload_rejects_coerced_regime_fields() -> None:
         backtest_engine._suppression_payload({"suppression_rules": ["rotation", True]})
     with pytest.raises(ValueError, match="execution_policy must be a canonical string"):
         backtest_engine._suppression_payload({"suppression_rules": [], "execution_policy": True})
+
+
+def test_candidate_row_rejects_non_string_mapping_keys() -> None:
+    with pytest.raises(ValueError, match="candidate keys must be strings"):
+        backtest_engine._candidate_row({True: "BTCUSDT", "symbol": "ETHUSDT"})
+
+    with pytest.raises(TypeError, match="unsupported candidate type"):
+        backtest_engine._candidate_row([("symbol", "BTCUSDT")])
+
+
+@pytest.mark.parametrize(
+    "override",
+    [
+        [("label", "RISK_ON")],
+        {True: "RISK_ON", "label": "MIXED"},
+    ],
+)
+def test_regime_dict_rejects_invalid_regime_override_shapes(override: Any) -> None:
+    row = DatasetSnapshotRow(
+        timestamp=_ts("2026-03-10T00:00:00+00:00"),
+        run_id="run-1",
+        market={},
+        derivatives=[],
+        meta={"regime_override": override},
+    )
+
+    with pytest.raises(ValueError, match="regime_override"):
+        backtest_engine._regime_dict(row)
 
 
 def test_engine_funding_rate_rejects_coerced_derivative_fields() -> None:
@@ -652,6 +680,99 @@ def test_replay_snapshot_records_layer_artifacts(fixture_dir: Path) -> None:
     assert isinstance(result["validated_candidates"], list)
     assert isinstance(result["allocations"], list)
     assert result["execution_assumptions"]["fee_bps"] == 0.0
+
+
+def test_replay_snapshot_preserves_missing_account_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        backtest_engine,
+        "classify_regime",
+        lambda *_args, **_kwargs: RegimeSnapshot(label="MIXED", confidence=0.5, risk_multiplier=1.0),
+    )
+    monkeypatch.setattr(backtest_engine, "build_universes", lambda *_args, **_kwargs: UniverseBuildResult())
+    monkeypatch.setattr(backtest_engine, "generate_trend_candidates", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(backtest_engine, "generate_rotation_candidates", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(backtest_engine, "generate_short_candidates", lambda *_args, **_kwargs: [])
+
+    row = DatasetSnapshotRow(
+        timestamp=_ts("2026-03-10T00:00:00+00:00"),
+        run_id="run-1",
+        market={},
+        derivatives=[],
+        account=None,
+    )
+
+    result = replay_snapshot(row)
+
+    assert result["validated_candidates"] == []
+    assert result["allocations"] == []
+
+
+@pytest.mark.parametrize(
+    "account",
+    [
+        [("equity", 1000.0)],
+        {True: 1000.0, "open_positions": []},
+    ],
+)
+def test_replay_snapshot_rejects_invalid_present_account_shapes(account: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        backtest_engine,
+        "classify_regime",
+        lambda *_args, **_kwargs: RegimeSnapshot(label="MIXED", confidence=0.5, risk_multiplier=1.0),
+    )
+    monkeypatch.setattr(backtest_engine, "build_universes", lambda *_args, **_kwargs: UniverseBuildResult())
+    monkeypatch.setattr(backtest_engine, "generate_trend_candidates", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(backtest_engine, "generate_rotation_candidates", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(backtest_engine, "generate_short_candidates", lambda *_args, **_kwargs: [])
+
+    row = DatasetSnapshotRow(
+        timestamp=_ts("2026-03-10T00:00:00+00:00"),
+        run_id="run-1",
+        market={},
+        derivatives=[],
+        account=account,
+    )
+
+    with pytest.raises(ValueError, match="account"):
+        replay_snapshot(row)
+
+
+@pytest.mark.parametrize(
+    "meta",
+    [
+        [("rank_score", 0.9)],
+        {True: 0.9, "rank_score": 0.8},
+    ],
+)
+def test_allocation_rows_rejects_invalid_decision_meta_shapes(meta: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    def allocate_with_bad_meta(**_kwargs: Any) -> list[AllocationDecision]:
+        return [
+            AllocationDecision(
+                status="ACCEPTED",
+                engine="trend",
+                reasons=[],
+                meta=meta,
+                final_risk_budget=0.01,
+                rank=1,
+            )
+        ]
+
+    monkeypatch.setattr(backtest_engine, "allocate_candidates", allocate_with_bad_meta)
+
+    with pytest.raises(ValueError, match="decision.meta"):
+        backtest_engine._allocation_rows(
+            {"equity": 1000.0, "open_positions": []},
+            [
+                {
+                    "symbol": "BTCUSDT",
+                    "engine": "trend",
+                    "setup_type": "BREAKOUT_CONTINUATION",
+                    "score": 0.95,
+                }
+            ],
+            {"label": "MIXED", "confidence": 0.5, "risk_multiplier": 1.0},
+            app_config=backtest_engine.DEFAULT_CONFIG,
+        )
 
 
 def test_backtest_cli_runs_fixture_experiment(
