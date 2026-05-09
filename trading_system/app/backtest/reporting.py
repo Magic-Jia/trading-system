@@ -203,7 +203,9 @@ def _trade_ledger_payload(trade_ledger: tuple[TradeLedgerRow, ...]) -> list[dict
             "slippage_paid": row.slippage_paid,
             "funding_paid": row.funding_paid,
             "engine": row.engine,
-            "setup_type": row.setup_type,
+            "setup_type": _canonical_optional_empty_report_string(
+                row.setup_type, field_name=f"trades[{index}].setup_type"
+            ),
             "score": row.score,
             "stop_loss": row.stop_loss,
             "take_profit": row.take_profit,
@@ -391,6 +393,14 @@ def _optional_canonical_report_string(value: object, *, field_name: str) -> str 
     if value is None:
         return None
     return _canonical_report_string(value, field_name=field_name)
+
+
+def _canonical_optional_empty_report_string(value: object, *, field_name: str) -> str:
+    if not isinstance(value, str):
+        raise ValueError(f"{field_name} must be a canonical string")
+    if value.strip() != value:
+        raise ValueError(f"{field_name} must be a canonical string")
+    return value
 
 
 def _canonical_report_string_list(value: object, *, field_name: str) -> list[str]:
