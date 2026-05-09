@@ -44,3 +44,12 @@ def test_workflow_doc_lists_every_non_full_suite() -> None:
         "app-smoke",
     ):
         assert f"--suite {suite}" in text
+
+
+def test_workflow_doc_records_json_plan_and_full_checkpoint_policy() -> None:
+    text = WORKFLOW_DOC.read_text()
+
+    assert "--json" in text
+    assert "--require-full-after" in text
+    assert "--slice-count" in text
+    assert "full_checkpoint_reason" in text

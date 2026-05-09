@@ -35,7 +35,21 @@ python3 scripts/verify.py --suite full
 python3 scripts/verify.py --list-suites
 ```
 
-`--dry-run` prints the commands without executing them.
+`--dry-run` prints the commands without executing them. Add `--json` to emit a machine-readable plan for CI/controller auditing:
+
+```bash
+python3 scripts/verify.py --dry-run --json --auto-changed
+```
+
+The JSON payload includes `changed`, `suites`, `tests`, `commands`, `full`, and `full_checkpoint_reason`.
+
+Use full-suite checkpoint policy when multiple slices have landed since the last full run:
+
+```bash
+python3 scripts/verify.py --dry-run --json --require-full-after 3 --slice-count 3 --auto-changed
+```
+
+When `--slice-count` reaches `--require-full-after`, the plan is forced to `--suite full` even if narrower impacted tests were also selected.
 
 ## Codex / Controller split
 
