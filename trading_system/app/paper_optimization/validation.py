@@ -118,12 +118,18 @@ def _dataset_time_bounds(dataset_root: Path) -> tuple[str, str]:
 def _active_recommendation_ids(recommendations_payload: Mapping[str, Any]) -> list[str]:
     recommendations = recommendations_payload.get("recommendations", [])
     if not isinstance(recommendations, list):
-        return []
-    return [
-        str(item.get("id"))
-        for item in recommendations
-        if isinstance(item, Mapping) and item.get("id")
-    ]
+        raise ValueError("recommendations must be a list")
+    ids: list[str] = []
+    for item in recommendations:
+        if not isinstance(item, Mapping):
+            raise ValueError("recommendations entries must be objects")
+        recommendation_id = item.get("id")
+        if recommendation_id is None:
+            continue
+        if not isinstance(recommendation_id, str) or not recommendation_id:
+            raise ValueError("recommendations.id must be a string")
+        ids.append(recommendation_id)
+    return ids
 
 
 def _validation_metadata(
