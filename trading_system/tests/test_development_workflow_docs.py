@@ -70,6 +70,7 @@ def test_workflow_doc_records_json_plan_and_full_checkpoint_policy() -> None:
     assert "JSON payload includes `strict_changed_verification`" in text
     assert "plan_version" in text
     assert "plan_kind" in text
+    assert "plan_fingerprint" in text
     assert "plan_kind: verification_plan" in text
     assert "plan_kind: ci_verification_plan" in text
     assert "plan_kind: nightly_verification_plan" in text
@@ -102,6 +103,7 @@ def test_codex_worker_template_requires_json_plan_report() -> None:
 
     assert "Verification plan JSON" in text
     assert "plan_kind" in text
+    assert "plan_fingerprint" in text
     assert "command_argv" in text
     assert "inventory_version" in text
     assert "entrypoint JSON `suites`" in text
@@ -130,3 +132,4 @@ def test_workflow_docs_and_codex_template_reference_worker_audit() -> None:
     assert "changed file must be non-empty" in doc
     assert "duplicate changed file" in doc
     assert "verification_plan.command_argv" in doc
+    assert "verification_plan.plan_fingerprint" in doc
