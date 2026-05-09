@@ -107,6 +107,15 @@ def test_verify_maps_docs_and_templates_to_workflow_doc_tests() -> None:
     assert "trading_system/tests/test_development_workflow_docs.py" in result.stdout
 
 
+def test_verify_maps_agent_rules_to_workflow_meta_suite() -> None:
+    result = run_verify("--dry-run", "--changed", "AGENTS.md")
+
+    assert result.returncode == 0, result.stderr
+    assert "trading_system/tests/test_development_workflow.py" in result.stdout
+    assert "trading_system/tests/test_development_workflow_docs.py" in result.stdout
+    assert "trading_system/tests/test_development_workflow_worker_audit.py" in result.stdout
+
+
 def test_verify_maps_worker_audit_script_to_worker_audit_tests() -> None:
     result = run_verify("--dry-run", "--changed", "scripts/audit_worker_commit.py")
 

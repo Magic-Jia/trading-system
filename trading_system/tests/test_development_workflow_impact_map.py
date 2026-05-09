@@ -55,3 +55,18 @@ def test_workflow_docs_and_templates_have_impact_mapping() -> None:
     ]
 
     assert missing == []
+
+
+def test_agent_rule_files_have_impact_mapping() -> None:
+    verify = load_verify_module()
+    required_paths = [ROOT / "AGENTS.md"]
+    required_paths.extend(ROOT.glob("CLAUDE.md"))
+    required_paths.extend(ROOT.glob(".cursorrules"))
+
+    missing = [
+        path.relative_to(ROOT).as_posix()
+        for path in required_paths
+        if not verify.tests_for_changed([path.relative_to(ROOT).as_posix()])
+    ]
+
+    assert missing == []
