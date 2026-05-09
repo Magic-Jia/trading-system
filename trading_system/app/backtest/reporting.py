@@ -636,6 +636,55 @@ def _llm_trend_candidate_rows(rows: list[Any]) -> list[dict[str, Any]]:
     return validated_rows
 
 
+def _walk_forward_window_rows(rows: list[Any]) -> list[dict[str, Any]]:
+    scorecard_numeric_fields = (
+        "total_return",
+        "max_drawdown",
+        "sharpe",
+        "sortino",
+        "calmar",
+        "win_rate",
+        "payoff_ratio",
+        "expectancy",
+    )
+    validated_rows: list[dict[str, Any]] = []
+    for index, window in enumerate(rows):
+        if not isinstance(window, Mapping):
+            raise ValueError(f"windows[{index}] must be an object")
+        validated = dict(window)
+        for segment_name in ("in_sample", "out_of_sample"):
+            segment = validated.get(segment_name)
+            if segment is None:
+                continue
+            if not isinstance(segment, Mapping):
+                raise ValueError(f"windows[{index}].{segment_name} must be an object")
+            validated_segment = dict(segment)
+            scorecard = validated_segment.get("scorecard")
+            if scorecard is None:
+                validated[segment_name] = validated_segment
+                continue
+            if not isinstance(scorecard, Mapping):
+                raise ValueError(f"windows[{index}].{segment_name}.scorecard must be an object")
+            validated_scorecard = dict(scorecard)
+            for field in scorecard_numeric_fields:
+                if field not in validated_scorecard or validated_scorecard[field] is None:
+                    continue
+                validated_scorecard[field] = _strict_present_finite_float(
+                    validated_scorecard[field],
+                    field_name=f"windows[{index}].{segment_name}.scorecard.{field}",
+                )
+            if "trade_count" in validated_scorecard and validated_scorecard["trade_count"] is not None:
+                validated_scorecard["trade_count"] = _non_negative_int_field(
+                    validated_scorecard,
+                    "trade_count",
+                    label=f"windows[{index}].{segment_name}.scorecard",
+                )
+            validated_segment["scorecard"] = validated_scorecard
+            validated[segment_name] = validated_segment
+        validated_rows.append(validated)
+    return validated_rows
+
+
 def _variant_with_best_metric(
     variants: Mapping[str, Any],
     *,
@@ -1136,11 +1185,7 @@ def render_walk_forward_validation_report(
     if not isinstance(raw_out_of_sample_scorecard, Mapping):
         raise ValueError("out_of_sample_scorecard must be an object")
     out_of_sample_scorecard = dict(raw_out_of_sample_scorecard)
-    windows = []
-    for index, window in enumerate(_list_field(experiment, "windows")):
-        if not isinstance(window, Mapping):
-            raise ValueError(f"windows[{index}] must be an object")
-        windows.append(dict(window))
+    windows = _walk_forward_window_rows(_list_field(experiment, "windows"))
 
     out_of_sample_total_return = _report_finite_float(
         out_of_sample_scorecard.get("total_return", 0.0),
