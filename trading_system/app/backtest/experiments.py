@@ -751,8 +751,14 @@ def _normalize_symbol_rows(symbol_rows: Any) -> dict[str, dict[str, Any]]:
         symbol_key = _telemetry_symbol_row_key(symbol)
         row_path = f"symbol_rows.{symbol_key}"
         row_payload = _telemetry_mapping(payload, path=row_path)
+        snapshot_count = 0
+        if "snapshot_count" in row_payload:
+            snapshot_count = _telemetry_integer_counter(
+                row_payload["snapshot_count"],
+                path=f"{row_path}.snapshot_count",
+            )
         normalized[symbol_key] = {
-            "snapshot_count": int(row_payload.get("snapshot_count", 0)),
+            "snapshot_count": snapshot_count,
             "funnel": dict(_telemetry_optional_mapping(row_payload, "funnel", path=row_path)),
             "filter_counts": dict(_telemetry_optional_mapping(row_payload, "filter_counts", path=row_path)),
         }

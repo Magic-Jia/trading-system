@@ -903,6 +903,31 @@ def test_long_gate_telemetry_rejects_non_mapping_symbol_row_shapes(
         run_long_gate_telemetry_experiment([_bullish_ablation_row()], evaluation_window="3d")
 
 
+@pytest.mark.parametrize("snapshot_count", [True, "1", 1.5])
+def test_long_gate_telemetry_rejects_invalid_symbol_row_snapshot_count(
+    monkeypatch: pytest.MonkeyPatch,
+    snapshot_count: object,
+) -> None:
+    def traced_with_invalid_symbol_row_snapshot_count(_row):
+        return {
+            "input_universe": 1,
+            "candidates": [],
+            "filter_counts": {},
+            "symbol_rows": {
+                "BTCUSDT": {"snapshot_count": snapshot_count, "funnel": {}, "filter_counts": {}},
+            },
+        }
+
+    monkeypatch.setattr(
+        backtest_experiments,
+        "_trend_candidates_with_trace",
+        traced_with_invalid_symbol_row_snapshot_count,
+    )
+
+    with pytest.raises(ValueError, match=r"^symbol_rows\.BTCUSDT\.snapshot_count must be an integer$"):
+        run_long_gate_telemetry_experiment([_bullish_ablation_row()], evaluation_window="3d")
+
+
 @pytest.mark.parametrize(
     ("candidates", "match"),
     [
