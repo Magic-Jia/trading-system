@@ -824,9 +824,22 @@ def render_allocator_friction_report(
     metadata: Mapping[str, Any],
 ) -> dict[str, dict[str, Any]]:
     variants = dict(experiment.get("variants", {}))
+
+    def base_net_bucket_pnl(variant_name: str, payload: Mapping[str, Any]) -> float:
+        frictions = payload.get("frictions", {})
+        if not isinstance(frictions, Mapping):
+            raise ValueError(f"variants.{variant_name}.frictions must be an object")
+        base = frictions.get("base", {})
+        if not isinstance(base, Mapping):
+            raise ValueError(f"variants.{variant_name}.frictions.base must be an object")
+        return _strict_present_finite_float(
+            base.get("net_bucket_pnl", 0.0),
+            field_name=f"variants.{variant_name}.frictions.base.net_bucket_pnl",
+        )
+
     best_variant, best_base_net_bucket_pnl = _variant_with_best_metric(
         variants,
-        metric_fn=lambda _name, payload: dict(dict(payload.get("frictions", {})).get("base", {})).get("net_bucket_pnl", 0.0),
+        metric_fn=base_net_bucket_pnl,
     )
     current_allocator = variants.get("current_allocator", {})
     if not isinstance(current_allocator, Mapping):
