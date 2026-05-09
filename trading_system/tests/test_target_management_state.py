@@ -870,6 +870,40 @@ def test_apply_executed_intent_rejects_present_non_mapping_order_meta_before_sta
     assert state.positions == {}
 
 
+def test_apply_executed_intent_rejects_present_non_string_existing_source_without_mutating_state():
+    original_position = {
+        "symbol": "BTCUSDT",
+        "side": "LONG",
+        "qty": 1.0,
+        "entry_price": 100.0,
+        "source": 123,
+        "tracked_from_snapshot": True,
+    }
+    state = RuntimeStateV2(
+        updated_at_bj="2026-04-09T12:00:00+08:00",
+        positions={"BTCUSDT": dict(original_position)},
+    )
+
+    with pytest.raises(TypeError, match="positions\\[BTCUSDT\\]\\.source"):
+        apply_executed_intent(
+            state,
+            OrderIntent(
+                intent_id="intent-invalid-source",
+                signal_id="signal-invalid-source",
+                symbol="BTCUSDT",
+                side="LONG",
+                qty=0.5,
+                entry_price=102.0,
+                stop_loss=95.0,
+                take_profit=107.0,
+                status="FILLED",
+                meta={},
+            ),
+        )
+
+    assert state.positions["BTCUSDT"] == original_position
+
+
 @pytest.mark.parametrize("taxonomy_stop_loss", [True, "95.0", float("nan")])
 def test_apply_executed_intent_rejects_present_invalid_taxonomy_stop_loss_without_mutating_state(taxonomy_stop_loss):
     original_position = {
@@ -1250,6 +1284,165 @@ def test_sync_positions_from_account_rejects_invalid_preserved_paper_position_qt
         )
 
     assert state.positions["BTCUSDT"] == original_position
+
+
+@pytest.mark.parametrize("status", [123, True])
+def test_sync_positions_from_account_rejects_present_non_string_missing_position_status_without_mutating_state(status):
+    original_position = {
+        "symbol": "ETHUSDT",
+        "side": "LONG",
+        "qty": 0.858,
+        "entry_price": 2329.52,
+        "status": status,
+        "intent_id": "intent-eth-long",
+        "tracked_from_snapshot": False,
+        "tracked_from_intent": True,
+    }
+    state = RuntimeStateV2(
+        updated_at_bj="2026-04-09T12:00:00+08:00",
+        positions={"ETHUSDT": dict(original_position)},
+    )
+
+    with pytest.raises(TypeError, match="positions\\[ETHUSDT\\]\\.status"):
+        sync_positions_from_account(
+            state,
+            AccountSnapshot(
+                equity=1000.0,
+                available_balance=1000.0,
+                futures_wallet_balance=1000.0,
+                open_positions=[],
+            ),
+        )
+
+    assert state.positions["ETHUSDT"] == original_position
+
+
+def test_sync_positions_from_account_rejects_unknown_missing_position_status_without_mutating_state():
+    original_position = {
+        "symbol": "ETHUSDT",
+        "side": "LONG",
+        "qty": 0.858,
+        "entry_price": 2329.52,
+        "status": "MYSTERY",
+        "intent_id": "intent-eth-long",
+        "tracked_from_snapshot": False,
+        "tracked_from_intent": True,
+    }
+    state = RuntimeStateV2(
+        updated_at_bj="2026-04-09T12:00:00+08:00",
+        positions={"ETHUSDT": dict(original_position)},
+    )
+
+    with pytest.raises(ValueError, match="positions\\[ETHUSDT\\]\\.status"):
+        sync_positions_from_account(
+            state,
+            AccountSnapshot(
+                equity=1000.0,
+                available_balance=1000.0,
+                futures_wallet_balance=1000.0,
+                open_positions=[],
+            ),
+        )
+
+    assert state.positions["ETHUSDT"] == original_position
+
+
+def test_sync_positions_from_account_rejects_present_non_string_existing_source_without_mutating_state():
+    original_position = {
+        "symbol": "BTCUSDT",
+        "side": "LONG",
+        "qty": 0.4,
+        "entry_price": 100.0,
+        "source": 123,
+        "tracked_from_snapshot": True,
+        "tracked_from_intent": False,
+    }
+    state = RuntimeStateV2(
+        updated_at_bj="2026-04-09T12:00:00+08:00",
+        positions={"BTCUSDT": dict(original_position)},
+    )
+
+    with pytest.raises(TypeError, match="positions\\[BTCUSDT\\]\\.source"):
+        sync_positions_from_account(
+            state,
+            AccountSnapshot(
+                equity=1000.0,
+                available_balance=1000.0,
+                futures_wallet_balance=1000.0,
+                open_positions=[PositionSnapshot(symbol="BTCUSDT", side="LONG", qty=0.4, entry_price=100.0, mark_price=106.0)],
+            ),
+        )
+
+    assert state.positions["BTCUSDT"] == original_position
+
+
+@pytest.mark.parametrize("field", ["invalidation_source", "invalidation_reason", "stop_family", "stop_reference", "stop_policy_source"])
+def test_sync_positions_from_account_rejects_present_non_string_existing_taxonomy_fields_without_mutating_state(field):
+    original_position = {
+        "symbol": "BTCUSDT",
+        "side": "LONG",
+        "qty": 0.4,
+        "entry_price": 100.0,
+        field: 123,
+        "tracked_from_snapshot": True,
+        "tracked_from_intent": False,
+    }
+    state = RuntimeStateV2(
+        updated_at_bj="2026-04-09T12:00:00+08:00",
+        positions={"BTCUSDT": dict(original_position)},
+    )
+
+    with pytest.raises(TypeError, match=f"positions\\[BTCUSDT\\]\\.{field}"):
+        sync_positions_from_account(
+            state,
+            AccountSnapshot(
+                equity=1000.0,
+                available_balance=1000.0,
+                futures_wallet_balance=1000.0,
+                open_positions=[PositionSnapshot(symbol="BTCUSDT", side="LONG", qty=0.4, entry_price=100.0, mark_price=106.0)],
+            ),
+        )
+
+    assert state.positions["BTCUSDT"] == original_position
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "exception"),
+    [
+        ("qty", True, TypeError),
+        ("entry_price", "100.0", TypeError),
+        ("mark_price", float("inf"), ValueError),
+        ("notional", "40.0", TypeError),
+        ("unrealized_pnl", float("nan"), ValueError),
+    ],
+)
+def test_sync_positions_from_account_rejects_invalid_snapshot_numeric_fields_without_mutating_state(
+    field, value, exception
+):
+    state = RuntimeStateV2(updated_at_bj="2026-04-09T12:00:00+08:00")
+    snapshot_payload = {
+        "symbol": "BTCUSDT",
+        "side": "LONG",
+        "qty": 0.4,
+        "entry_price": 100.0,
+        "mark_price": 106.0,
+        "notional": 42.4,
+        "unrealized_pnl": 2.4,
+    }
+    snapshot_payload[field] = value
+
+    with pytest.raises(exception, match=f"account.open_positions\\[BTCUSDT\\]\\.{field}"):
+        sync_positions_from_account(
+            state,
+            AccountSnapshot(
+                equity=1000.0,
+                available_balance=1000.0,
+                futures_wallet_balance=1000.0,
+                open_positions=[PositionSnapshot(**snapshot_payload)],
+            ),
+        )
+
+    assert state.positions == {}
 
 
 def test_sync_positions_from_account_marks_tracked_intent_position_closed_when_exchange_position_disappears(monkeypatch):

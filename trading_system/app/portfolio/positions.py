@@ -82,6 +82,19 @@ _TARGET_MANAGEMENT_BOOL_KEYS = frozenset(
         "runner_protected",
     }
 )
+_POSITION_STATUS_VALUES = frozenset(
+    {
+        "OPEN",
+        "PENDING",
+        "SENT",
+        "FILLED",
+        "CLOSED",
+        "SKIPPED",
+        "FAILED",
+        "CANCELLED",
+        "CANCELED",
+    }
+)
 
 
 def _now_bj() -> str:
@@ -109,12 +122,14 @@ def _unrealized_pnl(side: str, qty: float, entry_price: float, mark_price: float
     return round((entry_price - mark_price) * qty, 4)
 
 
-def _source(existing: dict[str, Any], from_snapshot: bool, from_intent: bool) -> str:
+def _source(existing: dict[str, Any], from_snapshot: bool, from_intent: bool, field: str = "source") -> str:
+    if "source" in existing and existing.get("source") is not None:
+        _strict_optional_string(existing, "source", field)
     if from_snapshot and from_intent:
         return "hybrid"
     if from_intent:
         return "paper_execution"
-    return existing.get("source", "account_snapshot")
+    return _strict_optional_string(existing, "source", field) or "account_snapshot"
 
 
 def _strict_mapping(value: Any, field: str) -> Mapping[str, Any]:
@@ -154,6 +169,21 @@ def _strict_optional_string(payload: Mapping[str, Any], key: str, field: str | N
     if not normalized:
         raise ValueError(f"{label} must not be blank when present")
     return normalized
+
+
+def _strict_position_status(payload: Mapping[str, Any], key: str, field: str | None = None) -> str:
+    label = field or key
+    if key not in payload or payload.get(key) is None:
+        return "OPEN"
+    value = payload.get(key)
+    if not isinstance(value, str):
+        raise TypeError(f"{label} must be a string when present")
+    status = value.strip().upper()
+    if not status:
+        raise ValueError(f"{label} must not be blank when present")
+    if status not in _POSITION_STATUS_VALUES:
+        raise ValueError(f"{label} must be one of {sorted(_POSITION_STATUS_VALUES)} when present")
+    return status
 
 
 def _strict_optional_bool(payload: Mapping[str, Any], field: str, default: bool = False) -> bool:
@@ -198,10 +228,10 @@ def _partial_take_profit_stage(intent: ManagementActionIntent) -> str:
     return stage
 
 
-def _taxonomy_fields(existing: dict[str, Any]) -> dict[str, Any]:
+def _taxonomy_fields(existing: dict[str, Any], field_prefix: str = "") -> dict[str, Any]:
     payload: dict[str, Any] = {}
     for key in _POSITION_TAXONOMY_KEYS:
-        value = existing.get(key)
+        value = _strict_present_optional_number(existing, key, f"{field_prefix}{key}") if key == "taxonomy_stop_loss" else _strict_taxonomy_string(existing, key, f"{field_prefix}{key}")
         if value is not None:
             payload[key] = value
     return payload
@@ -331,7 +361,18 @@ def sync_positions_from_account(state: RuntimeState, account: AccountSnapshot) -
         snapshot_source = _strict_optional_string(account_meta, "source", "account.meta.source")
 
     for snapshot in account.open_positions:
-        if snapshot.qty <= 0:
+        snapshot_label = f"account.open_positions[{snapshot.symbol}]"
+        snapshot_qty = _strict_finite_number(snapshot.qty, f"{snapshot_label}.qty")
+        snapshot_entry_price = _strict_finite_number(snapshot.entry_price, f"{snapshot_label}.entry_price")
+        snapshot_mark_price = (
+            None
+            if snapshot.mark_price is None
+            else _strict_finite_number(snapshot.mark_price, f"{snapshot_label}.mark_price")
+        )
+        snapshot_notional = _strict_finite_number(snapshot.notional, f"{snapshot_label}.notional")
+        snapshot_unrealized_pnl = _strict_finite_number(snapshot.unrealized_pnl, f"{snapshot_label}.unrealized_pnl")
+
+        if snapshot_qty <= 0:
             continue
 
         existing = state.positions.get(snapshot.symbol, {})
@@ -358,19 +399,35 @@ def sync_positions_from_account(state: RuntimeState, account: AccountSnapshot) -
             and carry_qty > 0.0
             and carry_entry_price > 0.0
         )
-        qty = round(abs(carry_qty), 6) if preserve_paper_position else round(abs(float(snapshot.qty)), 6)
+        qty = round(abs(carry_qty), 6) if preserve_paper_position else round(abs(snapshot_qty), 6)
         entry_price = (
             _round_price(carry_entry_price) or 0.0
             if preserve_paper_position
-            else (_round_price(snapshot.entry_price) or 0.0)
+            else (_round_price(snapshot_entry_price) or 0.0)
         )
-        mark_price = _round_price(snapshot.mark_price)
+        mark_price = _round_price(snapshot_mark_price)
         reference_price = mark_price or entry_price
-        notional = round(qty * reference_price, 4) if preserve_paper_position else _position_notional(snapshot)
-        unrealized_pnl = (
-            _unrealized_pnl(snapshot.side, qty, entry_price, mark_price, snapshot.unrealized_pnl)
+        notional = (
+            round(qty * reference_price, 4)
             if preserve_paper_position
-            else round(float(snapshot.unrealized_pnl), 4)
+            else _position_notional(
+                PositionSnapshot(
+                    symbol=snapshot.symbol,
+                    side=snapshot.side,
+                    qty=snapshot_qty,
+                    entry_price=snapshot_entry_price,
+                    mark_price=snapshot_mark_price,
+                    unrealized_pnl=snapshot_unrealized_pnl,
+                    notional=snapshot_notional,
+                    leverage=snapshot.leverage,
+                    strategy_tag=snapshot.strategy_tag,
+                )
+            )
+        )
+        unrealized_pnl = (
+            _unrealized_pnl(snapshot.side, qty, entry_price, mark_price, snapshot_unrealized_pnl)
+            if preserve_paper_position
+            else round(snapshot_unrealized_pnl, 4)
         )
 
         synced_position = {
@@ -387,8 +444,13 @@ def sync_positions_from_account(state: RuntimeState, account: AccountSnapshot) -
             "status": "OPEN",
             "intent_id": carry_existing.get("intent_id"),
             "signal_id": carry_existing.get("signal_id"),
-            **_taxonomy_fields(carry_existing),
-            "source": _source(carry_existing, from_snapshot=True, from_intent=tracked_from_intent),
+            **_taxonomy_fields(carry_existing, f"positions[{snapshot.symbol}]."),
+            "source": _source(
+                carry_existing,
+                from_snapshot=True,
+                from_intent=tracked_from_intent,
+                field=f"positions[{snapshot.symbol}].source",
+            ),
             "tracked_from_snapshot": True,
             "tracked_from_intent": tracked_from_intent,
             "opened_at_bj": carry_existing.get("opened_at_bj", now_bj),
@@ -407,13 +469,13 @@ def sync_positions_from_account(state: RuntimeState, account: AccountSnapshot) -
         if position.get("tracked_from_snapshot") and not position.get("tracked_from_intent"):
             stale_symbols.append(symbol)
             continue
-        status = str(position.get("status", "OPEN")).upper()
+        status = _strict_position_status(position, "status", f"positions[{symbol}].status")
         if position.get("tracked_from_intent") and status not in {"CLOSED", "SKIPPED", "FAILED", "CANCELLED"}:
             _mark_intent_position_closed(state, symbol, position, now_bj)
             continue
         if position.get("tracked_from_snapshot"):
             position["tracked_from_snapshot"] = False
-            position["source"] = _source(position, from_snapshot=False, from_intent=True)
+            position["source"] = _source(position, from_snapshot=False, from_intent=True, field=f"positions[{symbol}].source")
             position["updated_at_bj"] = now_bj
             position["last_synced_from"] = "state_only"
 
@@ -513,7 +575,12 @@ def apply_executed_intent(state: RuntimeState, order: OrderIntent) -> dict[str, 
         **_order_taxonomy_fields(order, carry_existing),
         **target_management_fields,
         "remaining_position_qty": round(aggregate_qty if aggregate_qty > 0 else order_qty, 8),
-        "source": _source(carry_existing, from_snapshot=tracked_from_snapshot and same_side, from_intent=True),
+        "source": _source(
+            carry_existing,
+            from_snapshot=tracked_from_snapshot and same_side,
+            from_intent=True,
+            field=f"positions[{order.symbol}].source",
+        ),
         "tracked_from_snapshot": tracked_from_snapshot and same_side,
         "tracked_from_intent": True,
         "opened_at_bj": carry_existing.get("opened_at_bj", now_bj),
