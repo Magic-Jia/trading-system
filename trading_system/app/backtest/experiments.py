@@ -711,8 +711,16 @@ def _candidate_forward_return(
     if isinstance(candidate_returns, Mapping):
         engine_returns = candidate_returns.get(engine)
         if isinstance(engine_returns, Mapping) and symbol in engine_returns:
-            return float(engine_returns[symbol])
-    return float(row.forward_returns.get(evaluation_window, 0.0))
+            return _strict_finite_number(
+                engine_returns[symbol],
+                field_name=f"candidate_forward_returns.{engine}.{symbol}",
+            )
+    if evaluation_window not in row.forward_returns:
+        return 0.0
+    return _strict_finite_number(
+        row.forward_returns[evaluation_window],
+        field_name=f"forward_returns.{evaluation_window}",
+    )
 
 
 def _account_context(row: DatasetSnapshotRow) -> dict[str, Any]:

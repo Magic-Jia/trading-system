@@ -1904,6 +1904,74 @@ def test_allocator_and_friction_comparisons() -> None:
     assert result["comparison_rows"]
 
 
+def _accepted_trend_btc_allocation_rows(*_args, **_kwargs) -> list[dict[str, object]]:
+    return [
+        {
+            "symbol": "BTCUSDT",
+            "engine": "trend",
+            "status": "ACCEPTED",
+            "final_risk_budget": 0.01,
+        }
+    ]
+
+
+@pytest.mark.parametrize("invalid_return", [True, "0.01", math.nan, math.inf])
+def test_allocator_friction_experiment_rejects_invalid_candidate_forward_returns(
+    monkeypatch: pytest.MonkeyPatch,
+    invalid_return: object,
+) -> None:
+    row = _bullish_ablation_row()
+    row.meta["candidate_forward_returns"]["trend"]["BTCUSDT"] = invalid_return
+    monkeypatch.setattr(backtest_experiments, "_allocation_rows", _accepted_trend_btc_allocation_rows)
+
+    with pytest.raises(
+        ValueError,
+        match=r"^candidate_forward_returns\.trend\.BTCUSDT must be a finite number$",
+    ):
+        run_allocator_friction_experiment([row], evaluation_window="3d")
+
+
+@pytest.mark.parametrize("invalid_return", [True, "0.01", math.nan, math.inf])
+def test_allocator_friction_experiment_rejects_invalid_fallback_forward_returns(
+    monkeypatch: pytest.MonkeyPatch,
+    invalid_return: object,
+) -> None:
+    row = _bullish_ablation_row()
+    row.meta["candidate_forward_returns"] = {"trend": {}}
+    row.forward_returns["3d"] = invalid_return
+    monkeypatch.setattr(backtest_experiments, "_allocation_rows", _accepted_trend_btc_allocation_rows)
+
+    with pytest.raises(ValueError, match=r"^forward_returns\.3d must be a finite number$"):
+        run_allocator_friction_experiment([row], evaluation_window="3d")
+
+
+@pytest.mark.parametrize("candidate_return", [1, 0.01])
+def test_allocator_friction_experiment_preserves_valid_candidate_forward_returns(
+    monkeypatch: pytest.MonkeyPatch,
+    candidate_return: int | float,
+) -> None:
+    row = _bullish_ablation_row()
+    row.meta["candidate_forward_returns"]["trend"]["BTCUSDT"] = candidate_return
+    monkeypatch.setattr(backtest_experiments, "_allocation_rows", _accepted_trend_btc_allocation_rows)
+
+    result = run_allocator_friction_experiment([row], evaluation_window="3d")
+
+    assert result["variants"]["current_allocator"]["frictions"]["base"]["trade_count"] == 1
+
+
+def test_allocator_friction_experiment_defaults_missing_fallback_forward_return(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    row = _bullish_ablation_row()
+    row.meta["candidate_forward_returns"] = {"trend": {}}
+    row.forward_returns.clear()
+    monkeypatch.setattr(backtest_experiments, "_allocation_rows", _accepted_trend_btc_allocation_rows)
+
+    result = run_allocator_friction_experiment([row], evaluation_window="3d")
+
+    assert result["variants"]["current_allocator"]["frictions"]["base"]["gross_bucket_pnl"] == 0.0
+
+
 def test_friction_summary_preserves_valid_cost_attribution_outputs() -> None:
     summary = backtest_experiments._friction_summary(
         [
