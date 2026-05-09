@@ -1,5 +1,7 @@
 import math
 
+import pytest
+
 from trading_system.app.signals.entry_profile import ACTIVE_PAPER_ENTRY_PROFILE
 from trading_system.app.signals.scoring import score_trend_candidate
 from trading_system.app.signals.trend_engine import generate_trend_candidates
@@ -15,6 +17,18 @@ def test_score_trend_candidate_rewards_multi_timeframe_alignment():
     score = score_trend_candidate(candidate)
     assert score["total"] > 0
     assert score["components"]["timeframe_alignment"] > 0
+
+
+def test_score_trend_candidate_rejects_non_string_categorical_flag():
+    candidate = {
+        "daily_bias": True,
+        "h4_structure": "intact",
+        "h1_trigger": "confirmed",
+        "volume_quality": 1.0,
+    }
+
+    with pytest.raises(ValueError):
+        score_trend_candidate(candidate)
 
 
 def test_generate_trend_candidates_produces_engine_candidates(load_fixture):

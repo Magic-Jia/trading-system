@@ -27,7 +27,11 @@ SHORT_SCORE_WEIGHTS: dict[str, float] = {
 
 
 def _normalized_flag(value: Any, positive_values: set[str]) -> float:
-    return 1.0 if str(value).lower() in positive_values else 0.0
+    if value is None:
+        return 0.0
+    if not isinstance(value, str):
+        raise ValueError("categorical signal flags must be strings")
+    return 1.0 if value.strip().lower() in positive_values else 0.0
 
 
 def _bounded_float(value: Any) -> float:
