@@ -1707,6 +1707,29 @@ def test_long_gate_telemetry_rejects_invalid_rotation_universe_liquidity_meta(
         backtest_experiments._rotation_candidates_with_trace(row, disabled_filters=frozenset())
 
 
+def test_long_gate_telemetry_rejects_rotation_universe_liquidity_meta_non_string_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    row = _supportive_soft_long_gate_row()
+    original_build_universes = backtest_experiments.build_universes
+
+    def patched_build_universes(market, derivatives=None):
+        universes = original_build_universes(market, derivatives=derivatives)
+        for universe_row in universes.rotation_universe:
+            if universe_row["symbol"] == "LINKUSDT":
+                universe_row["liquidity_meta"] = {123: "bad"}
+        return universes
+
+    monkeypatch.setattr(backtest_experiments, "build_universes", patched_build_universes)
+    monkeypatch.setattr(backtest_experiments.rotation_signals, "symbol_derivatives_features", lambda *_args: {})
+
+    with pytest.raises(
+        ValueError,
+        match=r"^LINKUSDT\.rotation_universe\.liquidity_meta key must be a string$",
+    ):
+        backtest_experiments._rotation_candidates_with_trace(row, disabled_filters=frozenset())
+
+
 @pytest.mark.parametrize("liquidity_meta", [None, {}])
 def test_long_gate_telemetry_preserves_missing_rotation_universe_liquidity_meta(
     monkeypatch: pytest.MonkeyPatch,
