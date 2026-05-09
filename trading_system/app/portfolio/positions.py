@@ -599,6 +599,7 @@ def apply_management_action_fill(state: RuntimeState, intent: ManagementActionIn
 
     position = dict(existing)
     current_qty = _strict_non_negative_quantity(position, "qty", default=0.0)
+    _strict_non_negative_quantity(position, "remaining_position_qty", default=current_qty)
     filled_qty = round(
         _strict_non_negative_quantity(
             {"qty": intent.qty} if intent.qty is not None else {},

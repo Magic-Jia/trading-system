@@ -803,6 +803,18 @@ def test_apply_management_action_fill_rejects_coerced_existing_position_qty(qty)
     assert state.positions["BTCUSDT"]["first_target_filled_qty"] == 0.0
 
 
+@pytest.mark.parametrize("remaining_position_qty", [True, "1.0"])
+def test_apply_management_action_fill_rejects_coerced_existing_remaining_position_qty(remaining_position_qty):
+    state = _management_fill_state(remaining_position_qty=remaining_position_qty)
+
+    with pytest.raises(ValueError, match="remaining_position_qty"):
+        apply_management_action_fill(state, _partial_take_profit_intent())
+
+    assert state.positions["BTCUSDT"]["remaining_position_qty"] == remaining_position_qty
+    assert state.positions["BTCUSDT"]["qty"] == 1.0
+    assert state.positions["BTCUSDT"]["first_target_filled_qty"] == 0.0
+
+
 @pytest.mark.parametrize("qty", [True, "0.25"])
 def test_apply_management_action_fill_rejects_coerced_intent_qty(qty):
     state = _management_fill_state()
