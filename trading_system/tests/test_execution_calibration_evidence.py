@@ -83,6 +83,16 @@ def test_writes_passive_and_taker_calibration_summary_from_jsonl(tmp_path: Path)
     assert json.loads(output.read_text()) == summary
 
 
+def test_rejects_non_object_calibration_rows(tmp_path: Path) -> None:
+    source = tmp_path / "dust_orders.jsonl"
+    source.write_text(json.dumps(["not-an-object"]) + "\n")
+
+    import pytest
+
+    with pytest.raises(ValueError, match="calibration records must be objects"):
+        load_calibration_records(source)
+
+
 def test_rejects_boolean_intended_limit_price(tmp_path: Path) -> None:
     source = tmp_path / "dust_orders.jsonl"
     source.write_text(

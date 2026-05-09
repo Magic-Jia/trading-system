@@ -101,7 +101,12 @@ def load_calibration_records(path: str | Path) -> tuple[PassiveOrderCalibrationR
         raw_rows = [json.loads(line) for line in text.splitlines() if line.strip()]
     if not isinstance(raw_rows, list):
         raise ValueError("calibration input must be a JSON array or JSONL records")
-    return tuple(_record_from_mapping(row) for row in raw_rows)
+    records: list[PassiveOrderCalibrationRecord] = []
+    for row in raw_rows:
+        if not isinstance(row, Mapping):
+            raise ValueError("calibration records must be objects")
+        records.append(_record_from_mapping(row))
+    return tuple(records)
 
 
 def _is_filled(record: PassiveOrderCalibrationRecord) -> bool:
