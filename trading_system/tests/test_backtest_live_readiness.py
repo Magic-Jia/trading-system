@@ -9927,6 +9927,37 @@ def test_trade_postmortem_summary_rejects_malformed_present_order_type(
         )
 
 
+@pytest.mark.parametrize(
+    ("liquidity_role", "error"),
+    [
+        (123, "postmortem.trades\\[1\\].liquidity_role must be a supported canonical string"),
+        ("", "postmortem.trades\\[1\\].liquidity_role must be a supported canonical string"),
+        (" maker ", "postmortem.trades\\[1\\].liquidity_role must be a supported canonical string"),
+        ("auction", "postmortem.trades\\[1\\].liquidity_role must be a supported canonical string"),
+    ],
+)
+def test_trade_postmortem_summary_rejects_malformed_present_liquidity_role(
+    liquidity_role: Any,
+    error: str,
+) -> None:
+    with pytest.raises(ValueError, match=error):
+        summarize_trade_postmortem(
+            [
+                {
+                    "symbol": "SOLUSDT",
+                    "setup_type": "RS_REACCELERATION",
+                    "liquidity_role": liquidity_role,
+                    "gross_pnl": 100.0,
+                    "net_pnl": 80.0,
+                    "fee_paid": 10.0,
+                    "slippage_paid": 10.0,
+                    "mfe_pct": 0.012,
+                    "mae_pct": 0.0,
+                }
+            ]
+        )
+
+
 class _Universes:
     major_universe = ()
     rotation_universe = ()
