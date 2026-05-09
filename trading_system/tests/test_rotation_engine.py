@@ -468,6 +468,18 @@ def test_generate_rotation_candidates_rejects_present_non_string_universe_symbol
         )
 
 
+def test_generate_rotation_candidates_rejects_present_non_string_payload_sector():
+    market = _soft_rotation_reclaim_market()
+    market["symbols"]["SOLUSDT"]["sector"] = True
+
+    with pytest.raises(ValueError, match=r"SOLUSDT\.sector"):
+        generate_rotation_candidates(
+            market,
+            rotation_universe=[{"symbol": "SOLUSDT", "sector": "alt_l1", "liquidity_tier": "high"}],
+            regime={"label": "RISK_ON_ROTATION", "suppression_rules": []},
+        )
+
+
 def test_generate_rotation_candidates_rejects_present_string_numeric_required_timeframe_field():
     market = _soft_rotation_reclaim_market()
     universe = [{"symbol": "SOLUSDT", "sector": "alt_l1", "liquidity_tier": "high"}]

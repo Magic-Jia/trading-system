@@ -48,6 +48,26 @@ def _strict_present_numeric(row: Mapping[str, Any], field: str, field_path: str)
     return float(value)
 
 
+def _strict_optional_sector(row: Mapping[str, Any], field_path: str) -> str:
+    if "sector" not in row:
+        return ""
+    value = row.get("sector")
+    if not isinstance(value, str):
+        raise ValueError(f"{field_path} must be a string when present")
+    return value.strip()
+
+
+def _payload_sector(symbol: str, payload: Mapping[str, Any]) -> str:
+    return _strict_optional_sector(payload, f"{symbol}.sector")
+
+
+def _candidate_sector(symbol: str, payload: Mapping[str, Any], universe_row: Mapping[str, Any]) -> str:
+    payload_sector = _payload_sector(symbol, payload)
+    if payload_sector:
+        return payload_sector
+    return _strict_optional_sector(universe_row, f"rotation_universe[{symbol}].sector")
+
+
 def _validate_required_rotation_timeframe_numerics(symbol: str, payload: Mapping[str, Any]) -> None:
     required_fields = {
         "daily": ("close", "ema_20", "ema_50", "atr_pct", "return_pct_7d", "volume_usdt_24h"),
@@ -200,7 +220,7 @@ def _active_paper_soft_reclaim_trend_intact(
         return False
     if _rotation_suppressed(regime):
         return False
-    if str(payload.get("sector", "")).lower() == "majors":
+    if _payload_sector("", payload).lower() == "majors":
         return False
     if str(payload.get("liquidity_tier", "")).lower() not in _HIGH_LIQUIDITY_TIERS:
         return False
@@ -231,7 +251,7 @@ def _active_paper_soft_reclaim_trend_intact(
 def _scout_intraday_recovery_trend_intact(payload: Mapping[str, Any], profile: EntryProfile) -> bool:
     if not _is_scout_profile(profile):
         return False
-    if str(payload.get("sector", "")).lower() == "majors":
+    if _payload_sector("", payload).lower() == "majors":
         return False
     if str(payload.get("liquidity_tier", "")).lower() not in _HIGH_LIQUIDITY_TIERS:
         return False
@@ -438,7 +458,7 @@ def generate_rotation_candidates(
         if not isinstance(payload_value, Mapping):
             continue
         payload = payload_value
-        if str(payload.get("sector", "")).lower() == "majors":
+        if _payload_sector(symbol, payload).lower() == "majors":
             continue
         _validate_required_rotation_timeframe_numerics(symbol, payload)
         active_paper_soft_reclaim = _active_paper_soft_reclaim_trend_intact(payload, regime, profile)
@@ -526,7 +546,7 @@ def generate_rotation_candidates(
                     "score_components": scored.get("components", {}),
                     **({"trigger_timeframes": trigger_timeframes} if trigger_timeframes else {}),
                 },
-                sector=str(payload.get("sector") or universe_row.get("sector") or ""),
+                sector=_candidate_sector(symbol, payload, universe_row),
                 liquidity_meta=liquidity_meta,
             )
         )
