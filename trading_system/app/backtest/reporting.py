@@ -115,9 +115,11 @@ def render_backtest_evaluation_report(
         raise ValueError("walk_forward.metadata must be an object")
     walk_forward_metadata = dict(raw_walk_forward_metadata)
     stress_scenarios = []
+    validated_cost_scenarios = []
     for index, scenario_payload in enumerate(_list_field(cost_stress, "scenarios", label="cost_stress.scenarios")):
         if not isinstance(scenario_payload, Mapping):
             raise ValueError(f"cost_stress.scenarios[{index}] must be an object")
+        validated_scenario_payload = dict(scenario_payload)
         scenario = scenario_payload.get("scenario", {})
         if not isinstance(scenario, Mapping):
             raise ValueError(f"cost_stress.scenarios[{index}].scenario must be an object")
@@ -126,6 +128,26 @@ def render_backtest_evaluation_report(
             stress_scenarios.append(
                 _canonical_report_string(name, field_name=f"cost_stress.scenarios[{index}].scenario.name")
             )
+        for metrics_field in ("base_metrics", "stressed_metrics"):
+            if metrics_field not in scenario_payload:
+                continue
+            metrics = scenario_payload[metrics_field]
+            if not isinstance(metrics, Mapping):
+                raise ValueError(f"cost_stress.scenarios[{index}].{metrics_field} must be an object")
+            validated_metrics = dict(metrics)
+            for metric_name, metric_value in validated_metrics.items():
+                metric_key = _canonical_report_string(
+                    metric_name,
+                    field_name=f"cost_stress.scenarios[{index}].{metrics_field} key",
+                )
+                validated_metrics[metric_key] = _strict_present_finite_float(
+                    metric_value,
+                    field_name=f"cost_stress.scenarios[{index}].{metrics_field}.{metric_key}",
+                )
+            validated_scenario_payload[metrics_field] = validated_metrics
+        validated_cost_scenarios.append(validated_scenario_payload)
+    validated_cost_stress = dict(cost_stress)
+    validated_cost_stress["scenarios"] = validated_cost_scenarios
 
     return {
         "summary": {
@@ -143,7 +165,7 @@ def render_backtest_evaluation_report(
         },
         "walk_forward": walk_forward,
         "regimes": regimes,
-        "cost_stress": cost_stress,
+        "cost_stress": validated_cost_stress,
     }
 
 
