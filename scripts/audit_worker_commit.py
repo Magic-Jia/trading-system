@@ -37,7 +37,7 @@ def worktree_dirty() -> bool:
 
 
 def verification_plan(changed_files: list[str]) -> dict[str, object]:
-    command = [sys.executable, "scripts/verify.py", "--dry-run", "--json"]
+    command = [sys.executable, "scripts/verify.py", "--dry-run", "--json", "--strict-auto-changed"]
     for path in changed_files:
         command.extend(["--changed", path])
     completed = subprocess.run(

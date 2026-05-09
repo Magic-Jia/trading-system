@@ -101,6 +101,7 @@ IMPACT_RULES: tuple[tuple[str, list[str]], ...] = (
     ("trading_system/app/backtest/", SUITES["backtest-core"]),
     ("scripts/audit_worker_commit.py", SUITES["workflow-meta"]),
     ("scripts/verify.py", SUITES["workflow-meta"]),
+    ("trading_system/tests/test_development_workflow", SUITES["workflow-meta"]),
     ("README.md", SUITES["workflow-meta"]),
     ("trading_system/README.md", SUITES["workflow-meta"]),
     ("trading_system/app/README.md", SUITES["workflow-meta"]),
@@ -226,7 +227,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     changed = list(args.changed)
-    if args.auto_changed or args.strict_auto_changed:
+    if args.auto_changed or (args.strict_auto_changed and not changed):
         try:
             changed.extend(git_changed_paths())
         except RuntimeError as exc:

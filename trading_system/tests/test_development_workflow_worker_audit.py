@@ -68,3 +68,16 @@ def test_audit_worker_commit_maps_readme_changes_to_workflow_meta() -> None:
     payload = json.loads(result.stdout)
     assert "trading_system/tests/test_development_workflow_docs.py" in payload["verification_plan"]["tests"]
     assert "trading_system/tests/test_development_workflow.py" in payload["verification_plan"]["tests"]
+
+
+def test_audit_worker_commit_rejects_partially_unmapped_changed_files() -> None:
+    result = run_audit(
+        "--changed-file",
+        "README.md",
+        "--changed-file",
+        "UNKNOWN_UNMAPPED_FILE.txt",
+    )
+
+    assert result.returncode == 2
+    assert "no impacted verification tests" in result.stderr
+    assert "UNKNOWN_UNMAPPED_FILE.txt" in result.stderr
