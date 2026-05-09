@@ -62,7 +62,12 @@ def _mapping(value: Any) -> Mapping[str, Any]:
 
 def _signal_facts(signal_facts: list[dict[str, Any]] | None, signal_facts_path: Path | None) -> list[dict[str, Any]]:
     if signal_facts is not None:
-        return [dict(row) for row in signal_facts]
+        rows: list[dict[str, Any]] = []
+        for row in signal_facts:
+            if not isinstance(row, Mapping):
+                raise ValueError("signal_facts rows must be objects")
+            rows.append(dict(row))
+        return rows
     return _jsonl(signal_facts_path)
 
 

@@ -303,3 +303,15 @@ def test_collect_trade_outcomes_rejects_malformed_signal_fact_jsonl(tmp_path: Pa
             signal_facts_path=paths.signal_facts_file,
             paper_ledger_path=None,
         )
+
+def test_collect_trade_outcomes_rejects_non_object_signal_fact_rows(tmp_path: Path) -> None:
+    paths = build_runtime_paths("paper", runtime_root=tmp_path / "runtime", runtime_env="research")
+    module = _outcomes_module()
+
+    with pytest.raises(ValueError, match="signal_facts rows must be objects"):
+        module.collect_trade_outcomes(
+            trade_outcomes_path=paths.trade_outcomes_file,
+            runtime_positions={},
+            signal_facts=["not-an-object"],
+            paper_ledger_path=None,
+        )
