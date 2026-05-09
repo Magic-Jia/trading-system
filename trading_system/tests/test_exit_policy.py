@@ -340,6 +340,19 @@ def test_evaluate_exit_policy_rejects_present_invalid_core_numeric_fields(field_
         evaluate_exit_policy(position)
 
 
+def test_evaluate_exit_policy_rejects_numeric_string_first_target_price_before_it_can_trigger_exit():
+    with pytest.raises(ValueError, match="first_target_price must be a finite non-bool number when present"):
+        evaluate_exit_policy(
+            _position(
+                mark_price=105.0,
+                first_target_price="105.0",
+                second_target_price=110.0,
+                first_target_status="pending",
+                second_target_status="pending",
+            )
+        )
+
+
 def test_evaluate_exit_policy_skips_invalid_runner_state_without_guessing_stop():
     decisions = evaluate_exit_policy(
         _position(

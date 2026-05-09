@@ -39,7 +39,7 @@ def _optional_number(payload: Mapping[str, Any], field_name: str, *, prefix: str
     if field_name not in payload or payload[field_name] is None:
         return None
     value = payload[field_name]
-    if isinstance(value, bool):
+    if isinstance(value, bool | str):
         raise ValueError(f"{prefix}{field_name} must be a finite non-bool number when present")
     try:
         parsed = float(value)
