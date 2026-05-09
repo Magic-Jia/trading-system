@@ -203,6 +203,8 @@ def _positions_from_rows(rows: list[dict[str, Any]]) -> list[PositionSnapshot]:
 
 def _load_v1_account_snapshot(raw: dict[str, Any]) -> AccountSnapshot:
     futures = raw["futures"]
+    if not isinstance(futures, Mapping):
+        raise ValueError("futures must be an object")
     open_orders = futures.get("open_orders", futures.get("openOrders", raw.get("open_orders", raw.get("openOrders", []))))
     if not isinstance(open_orders, list):
         raise ValueError("futures.open_orders must be a list")
@@ -253,6 +255,8 @@ def _load_v2_account_snapshot(raw: dict[str, Any]) -> AccountSnapshot:
 
 
 def _load_account_snapshot_payload(raw: dict[str, Any]) -> AccountSnapshot:
+    if not isinstance(raw, Mapping):
+        raise ValueError("account snapshot must be an object")
     if "futures" in raw:
         return _load_v1_account_snapshot(raw)
     return _load_v2_account_snapshot(raw)

@@ -4799,3 +4799,18 @@ def test_load_v1_account_snapshot_rejects_non_list_open_orders(tmp_path):
 
     with pytest.raises(ValueError, match="futures.open_orders must be a list"):
         main_module.load_account_snapshot(account_path)
+
+def test_load_account_snapshot_rejects_non_object_payload(tmp_path):
+    account_path = tmp_path / "account_snapshot.json"
+    account_path.write_text(json.dumps(["not", "an", "object"]))
+
+    with pytest.raises(ValueError, match="account snapshot must be an object"):
+        main_module.load_account_snapshot(account_path)
+
+
+def test_load_v1_account_snapshot_rejects_non_object_futures(tmp_path):
+    account_path = tmp_path / "account_snapshot.json"
+    account_path.write_text(json.dumps({"futures": ["not", "an", "object"]}))
+
+    with pytest.raises(ValueError, match="futures must be an object"):
+        main_module.load_account_snapshot(account_path)
