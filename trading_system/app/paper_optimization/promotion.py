@@ -67,10 +67,12 @@ def materialize_env_overrides(
 
     for recommendation in recommendations:
         if not isinstance(recommendation, Mapping):
-            continue
+            raise ValueError("recommendations entries must be objects")
         overlay_ops = recommendation.get("overlay_ops")
-        if not isinstance(overlay_ops, list):
+        if overlay_ops is None:
             continue
+        if not isinstance(overlay_ops, list):
+            raise ValueError("overlay_ops must be a list")
         for raw_op in overlay_ops:
             if not isinstance(raw_op, Mapping):
                 raise ValueError("overlay_ops entries must be objects")
