@@ -124,8 +124,25 @@ def test_verify_json_dry_run_emits_machine_readable_plan() -> None:
     payload = json.loads(result.stdout)
     assert payload["suites"] == []
     assert payload["changed"] == ["trading_system/app/main.py"]
+    assert payload["strict_changed_verification"] is False
     assert "trading_system/tests/test_main_v2_cycle.py" in payload["tests"]
     assert payload["commands"][-1] == "git diff --check HEAD"
+
+
+def test_verify_json_dry_run_reports_strict_changed_verification() -> None:
+    result = run_verify(
+        "--dry-run",
+        "--json",
+        "--strict-auto-changed",
+        "--changed",
+        "trading_system/app/main.py",
+    )
+
+    assert result.returncode == 0, result.stderr
+    import json
+
+    payload = json.loads(result.stdout)
+    assert payload["strict_changed_verification"] is True
 
 
 def test_verify_requires_full_after_slice_threshold() -> None:

@@ -267,6 +267,7 @@ def main(argv: list[str] | None = None) -> int:
                 "suites": suites,
                 "changed": changed,
                 "explicit_tests": args.test,
+                "strict_changed_verification": bool(args.strict_auto_changed),
                 "full": full,
                 "full_checkpoint_reason": full_checkpoint_reason,
                 "tests": tests,
