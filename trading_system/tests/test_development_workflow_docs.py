@@ -78,6 +78,7 @@ def test_workflow_doc_records_json_plan_and_full_checkpoint_policy() -> None:
     assert "explicit --changed" in text
     assert "--slice-count" in text
     assert "full_checkpoint_reason" in text
+    assert "exact top-level field set" in text
 
 
 def test_codex_worker_template_requires_json_plan_report() -> None:
