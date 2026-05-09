@@ -413,6 +413,11 @@ def _validate_existing_position_identities(positions: Mapping[str, dict[str, Any
         _strict_optional_string(position, "source", f"positions[{symbol}].source")
 
 
+def _validate_snapshot_position_identities(open_positions: list[PositionSnapshot]) -> None:
+    for snapshot in open_positions:
+        _strict_position_side({"side": snapshot.side}, "side", f"account.open_positions[{snapshot.symbol}].side")
+
+
 def _mark_intent_position_closed(state: RuntimeState, symbol: str, position: dict[str, Any], now_bj: str) -> None:
     position["qty"] = 0.0
     position["remaining_position_qty"] = 0.0
@@ -433,6 +438,7 @@ def sync_positions_from_account(state: RuntimeState, account: AccountSnapshot) -
     if not snapshot_source:
         snapshot_source = _strict_optional_string(account_meta, "source", "account.meta.source")
     _validate_existing_position_identities(state.positions)
+    _validate_snapshot_position_identities(account.open_positions)
 
     for snapshot in account.open_positions:
         snapshot_label = f"account.open_positions[{snapshot.symbol}]"
