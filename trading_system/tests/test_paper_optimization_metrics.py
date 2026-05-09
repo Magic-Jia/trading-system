@@ -472,3 +472,22 @@ def test_write_daily_metrics_rejects_non_string_outcome_status_fields(tmp_path: 
             health_report_path=paths.health_report_file,
             recorded_at_bj="2026-04-27T00:00:00+08:00",
         )
+
+def test_write_daily_metrics_rejects_non_string_recorded_at(tmp_path: Path) -> None:
+    paths = build_runtime_paths("paper", runtime_root=tmp_path / "runtime", runtime_env="research")
+    module = _metrics_module()
+    paths.signal_facts_file.parent.mkdir(parents=True, exist_ok=True)
+    paths.signal_facts_file.write_text('{"symbol": "BTCUSDT"}\n', encoding="utf-8")
+    paths.trade_outcomes_file.write_text(
+        json.dumps({"symbol": "BTCUSDT", "outcome_status": "OPEN", "unrealized_pnl": 1.0}) + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="recorded_at_bj must be a string"):
+        module.write_daily_metrics_and_health_report(
+            trade_outcomes_path=paths.trade_outcomes_file,
+            signal_facts_path=paths.signal_facts_file,
+            daily_metrics_path=paths.daily_metrics_file,
+            health_report_path=paths.health_report_file,
+            recorded_at_bj=123,
+        )

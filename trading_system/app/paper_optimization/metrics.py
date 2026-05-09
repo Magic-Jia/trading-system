@@ -71,6 +71,10 @@ def _runtime_position_rows(runtime_positions: dict[str, Any] | None) -> dict[str
 
 
 def _recorded_at_bj(value: str | None) -> str:
+    if value is None:
+        return datetime.now(BJ).isoformat()
+    if not isinstance(value, str):
+        raise ValueError("recorded_at_bj must be a string")
     if value:
         return value
     return datetime.now(BJ).isoformat()
