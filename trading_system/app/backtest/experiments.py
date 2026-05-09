@@ -500,7 +500,7 @@ def run_regime_predictive_power_experiment(rows: Iterable[DatasetSnapshotRow]) -
 
     for row in ordered_rows:
         regime = _regime_for_row(row)
-        label = str(regime.get("label", "UNKNOWN"))
+        label = _regime_label(regime, default="UNKNOWN")
         labels.append(label)
         aggression = _aggression_from_regime(regime)
         grouped[label]["returns"].append(dict(row.forward_returns))

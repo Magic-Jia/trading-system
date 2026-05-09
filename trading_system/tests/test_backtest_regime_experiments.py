@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import pytest
+
 from trading_system.app.backtest.experiments import run_regime_predictive_power_experiment
 from trading_system.app.backtest.reporting import render_regime_scorecard
 from trading_system.app.backtest.types import DatasetSnapshotRow
@@ -98,6 +100,28 @@ def test_regime_predictive_power_experiment_emits_expected_sections() -> None:
     assert "confidence_aggression_summary" in result
     assert result["by_regime"]["RISK_ON_TREND"]["forward_return_by_window"]["3d"] > 0
     assert result["by_regime"]["RISK_OFF"]["forward_drawdown_by_window"]["3d"] < 0
+
+
+@pytest.mark.parametrize("invalid_label", [True, 123, []])
+def test_regime_predictive_power_experiment_rejects_present_non_string_regime_label(invalid_label: object) -> None:
+    row = _row(0, risk_on=True, forward_1d=0.018, forward_3d=0.042, drawdown_3d=-0.01)
+    row.meta["regime_override"] = {"label": invalid_label}
+
+    with pytest.raises(ValueError, match=r"^regime\.label must be a string when present$"):
+        run_regime_predictive_power_experiment([row])
+
+
+@pytest.mark.parametrize("regime_override", [{}, {"label": None}])
+def test_regime_predictive_power_experiment_defaults_missing_regime_label_to_unknown(
+    regime_override: dict[str, object],
+) -> None:
+    row = _row(0, risk_on=True, forward_1d=0.018, forward_3d=0.042, drawdown_3d=-0.01)
+    row.meta["regime_override"] = regime_override
+
+    result = run_regime_predictive_power_experiment([row])
+
+    assert set(result["by_regime"]) == {"UNKNOWN"}
+    assert set(result["duration_stats"]) == {"UNKNOWN"}
 
 
 def test_regime_scorecard_rendering(tmp_path: Path) -> None:
