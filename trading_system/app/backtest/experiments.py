@@ -1891,7 +1891,10 @@ def run_allocator_friction_experiment(
                         "friction_scenario": friction_name,
                         "accepted_allocations": len(performance_rows),
                         "total_risk_budget": round(
-                            sum(float(item["risk_budget"]) for item in performance_rows),
+                            sum(
+                                _performance_row_finite_number(item, "risk_budget", index=index)
+                                for index, item in enumerate(performance_rows)
+                            ),
                             6,
                         ),
                         "gross_bucket_pnl": summary["gross_bucket_pnl"],

@@ -2059,6 +2059,68 @@ def test_allocator_friction_experiment_rejects_invalid_present_final_risk_budget
         run_allocator_friction_experiment([_bullish_ablation_row()], evaluation_window="3d")
 
 
+@pytest.mark.parametrize("invalid_budget", [True, "0.1", float("nan"), float("inf")])
+def test_allocator_friction_experiment_rejects_invalid_performance_risk_budget(
+    monkeypatch: pytest.MonkeyPatch,
+    invalid_budget: object,
+) -> None:
+    def invalid_performance_rows(*_args, **_kwargs):
+        return [
+            {
+                "symbol": "BTCUSDT",
+                "engine": "trend",
+                "status": "ACCEPTED",
+                "risk_budget": invalid_budget,
+                "gross_pnl": 0.02,
+                "net_pnl": 0.019,
+                "fee_drag": 0.0004,
+                "slippage_drag": 0.0002,
+                "funding_drag": 0.0001,
+            }
+        ]
+
+    monkeypatch.setattr(backtest_experiments, "_allocation_performance_rows", invalid_performance_rows)
+
+    with pytest.raises(ValueError, match=r"^performance_rows\[0\]\.risk_budget must be a finite number$"):
+        run_allocator_friction_experiment([_bullish_ablation_row()], evaluation_window="3d")
+
+
+def test_allocator_friction_experiment_preserves_valid_performance_risk_budget_total(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def valid_performance_rows(*_args, **_kwargs):
+        return [
+            {
+                "symbol": "BTCUSDT",
+                "engine": "trend",
+                "status": "ACCEPTED",
+                "risk_budget": 1,
+                "gross_pnl": 0.02,
+                "net_pnl": 0.019,
+                "fee_drag": 0.0004,
+                "slippage_drag": 0.0002,
+                "funding_drag": 0.0001,
+            },
+            {
+                "symbol": "ETHUSDT",
+                "engine": "trend",
+                "status": "ACCEPTED",
+                "risk_budget": 0.01234567,
+                "gross_pnl": 0.01,
+                "net_pnl": 0.009,
+                "fee_drag": 0.0003,
+                "slippage_drag": 0.0002,
+                "funding_drag": 0.0001,
+            },
+        ]
+
+    monkeypatch.setattr(backtest_experiments, "_allocation_performance_rows", valid_performance_rows)
+
+    result = run_allocator_friction_experiment([_bullish_ablation_row()], evaluation_window="3d")
+
+    assert result["comparison_rows"][0]["total_risk_budget"] == 1.012346
+
+
 def _valid_friction_performance_row() -> dict[str, object]:
     return {
         "gross_pnl": 2,
