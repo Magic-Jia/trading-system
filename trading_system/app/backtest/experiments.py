@@ -104,6 +104,17 @@ def _finite_number(value: Any, *, field_name: str) -> float:
     return number
 
 
+def _trace_candidate_sort_score(candidate: Mapping[str, Any], *, index: int, engine: str) -> float:
+    if "score" not in candidate or candidate.get("score") is None:
+        return 0.0
+    score = candidate.get("score")
+    if isinstance(score, bool) or not isinstance(score, int | float):
+        raise ValueError(f"{engine} candidates[{index}].score must be numeric")
+    if not math.isfinite(score):
+        raise ValueError(f"{engine} candidates[{index}].score must be finite")
+    return float(score)
+
+
 def _has_forward_window(rows: list[DatasetSnapshotRow], evaluation_window: str) -> bool:
     return any(evaluation_window in row.forward_returns for row in rows)
 
@@ -1450,10 +1461,13 @@ def _rotation_candidates_with_trace(
 
     return {
         "input_universe": len(eligible),
-        "candidates": sorted(
-            candidates,
-            key=lambda row: (-float(row.get("score", 0.0) or 0.0), row["symbol"]),
-        ),
+        "candidates": [
+            candidate
+            for _, candidate in sorted(
+                enumerate(candidates),
+                key=lambda row: (-_trace_candidate_sort_score(row[1], index=row[0], engine="rotation"), row[1]["symbol"]),
+            )
+        ],
         "filter_counts": dict(filter_counts),
         "symbol_rows": symbol_rows,
     }
@@ -1661,10 +1675,13 @@ def _trend_candidates_with_trace(
     _validate_trend_candidate_symbols(candidates)
     return {
         "input_universe": input_universe,
-        "candidates": sorted(
-            candidates,
-            key=lambda row: (-float(row.get("score", 0.0) or 0.0), row["symbol"]),
-        ),
+        "candidates": [
+            candidate
+            for _, candidate in sorted(
+                enumerate(candidates),
+                key=lambda row: (-_trace_candidate_sort_score(row[1], index=row[0], engine="trend"), row[1]["symbol"]),
+            )
+        ],
         "filter_counts": dict(filter_counts),
         "symbol_rows": symbol_rows,
     }

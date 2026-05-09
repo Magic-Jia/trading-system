@@ -1414,6 +1414,67 @@ def test_long_gate_telemetry_rejects_non_string_rotation_candidate_symbol(monkey
         backtest_experiments._rotation_candidates_with_trace(row, disabled_filters=frozenset())
 
 
+def _preserve_trace_score(monkeypatch: pytest.MonkeyPatch, engine_module: object, invalid_score: object) -> None:
+    original_to_float = engine_module._to_float
+
+    def patched_to_float(value: object) -> object:
+        if value is invalid_score:
+            return value
+        return original_to_float(value)
+
+    monkeypatch.setattr(engine_module, "_to_float", patched_to_float)
+
+
+@pytest.mark.parametrize(
+    ("invalid_score", "match"),
+    [
+        (True, r"^trend candidates\[0\]\.score must be numeric$"),
+        (float("nan"), r"^trend candidates\[0\]\.score must be finite$"),
+    ],
+)
+def test_long_gate_telemetry_rejects_invalid_trend_candidate_sort_score(
+    monkeypatch: pytest.MonkeyPatch,
+    invalid_score: object,
+    match: str,
+) -> None:
+    row = _bullish_ablation_row()
+    _preserve_trace_score(monkeypatch, backtest_experiments.trend_signals, invalid_score)
+    monkeypatch.setattr(
+        backtest_experiments.trend_signals,
+        "score_trend_candidate",
+        lambda _features: {"total": invalid_score, "components": {}},
+    )
+    monkeypatch.setattr(backtest_experiments.trend_signals, "symbol_derivatives_features", lambda *_args: {})
+
+    with pytest.raises(ValueError, match=match):
+        backtest_experiments._trend_candidates_with_trace(row)
+
+
+@pytest.mark.parametrize(
+    ("invalid_score", "match"),
+    [
+        (True, r"^rotation candidates\[0\]\.score must be numeric$"),
+        (float("inf"), r"^rotation candidates\[0\]\.score must be finite$"),
+    ],
+)
+def test_long_gate_telemetry_rejects_invalid_rotation_candidate_sort_score(
+    monkeypatch: pytest.MonkeyPatch,
+    invalid_score: object,
+    match: str,
+) -> None:
+    row = _supportive_soft_long_gate_row()
+    _preserve_trace_score(monkeypatch, backtest_experiments.rotation_signals, invalid_score)
+    monkeypatch.setattr(
+        backtest_experiments.rotation_signals,
+        "score_rotation_candidate",
+        lambda _features: {"total": invalid_score, "components": {}},
+    )
+    monkeypatch.setattr(backtest_experiments.rotation_signals, "symbol_derivatives_features", lambda *_args: {})
+
+    with pytest.raises(ValueError, match=match):
+        backtest_experiments._rotation_candidates_with_trace(row, disabled_filters=frozenset())
+
+
 def _supportive_soft_long_gate_row(regime_label: str = "RISK_ON_ROTATION") -> DatasetSnapshotRow:
     market = {
         "symbols": {
