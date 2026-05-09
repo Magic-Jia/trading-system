@@ -135,6 +135,21 @@ def _experiment_window_count(experiment: Mapping[str, Any]) -> int:
     return window_count
 
 
+def _strict_present_finite_float(value: Any, *, field_name: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise ValueError(f"{field_name} must be a finite number")
+    number = float(value)
+    if number != number or number in (float("inf"), float("-inf")):
+        raise ValueError(f"{field_name} must be a finite number")
+    return number
+
+
+def _optional_postmortem_float(trade: Mapping[str, Any], field: str, *, index: int, default: float = 0.0) -> float:
+    if field not in trade or trade[field] is None:
+        return default
+    return _strict_present_finite_float(trade[field], field_name=f"trades[{index}].{field}")
+
+
 def _manifest(config: BacktestConfig, rows: list[DatasetSnapshotRow], artifacts: dict[str, dict[str, Any]], metadata: dict[str, Any] | None = None) -> dict[str, Any]:
     base = _string_key_mapping(metadata, field_name="metadata") if metadata is not None else _base_metadata(config, rows)
     return {
@@ -415,7 +430,7 @@ def _render_trade_postmortem_markdown(trades: list[dict[str, Any]]) -> str:
                 side=trade.get("side", ""),
                 engine=trade.get("engine", ""),
                 setup=trade.get("setup_type", ""),
-                score=float(trade.get("score") or 0.0),
+                score=_optional_postmortem_float(trade, "score", index=index - 1),
                 entry=float(trade.get("entry_price") or 0.0),
                 exit=float(trade.get("exit_price") or 0.0),
                 gross=float(trade.get("gross_pnl") or 0.0),
