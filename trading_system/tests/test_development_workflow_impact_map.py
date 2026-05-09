@@ -72,11 +72,18 @@ def test_agent_rule_files_have_impact_mapping() -> None:
     assert missing == []
 
 
-def test_evidence_chain_test_files_have_impact_mapping() -> None:
+def test_registered_suite_test_files_have_impact_mapping() -> None:
     verify = load_verify_module()
+    registered_tests = sorted(
+        {
+            test_path
+            for suite_tests in verify.SUITES.values()
+            for test_path in suite_tests
+        }
+    )
     missing = [
         test_path
-        for test_path in verify.SUITES["evidence-chain"]
+        for test_path in registered_tests
         if not verify.tests_for_changed([test_path])
     ]
 
