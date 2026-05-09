@@ -138,7 +138,7 @@ def collect_trade_outcomes(
         if _str_value(fact.get("fact_type")) and _str_value(fact.get("fact_type")) != "signal":
             continue
 
-        intent_id = _str_or_none(fact.get("intent_id"))
+        intent_id = _optional_str(fact.get("intent_id"), field_name="fact.intent_id")
         symbol = _str_value(fact.get("symbol")).upper()
         position = positions_by_intent.get(intent_id or "") or positions_by_symbol.get(symbol) or {}
         ledger_event = ledger_by_intent.get(intent_id or "") or {}
