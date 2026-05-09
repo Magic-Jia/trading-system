@@ -65,6 +65,7 @@ def test_workflow_doc_records_json_plan_and_full_checkpoint_policy() -> None:
     assert "strict_changed_verification: true" in text
     assert "JSON payload includes `strict_changed_verification`" in text
     assert "plan_version" in text
+    assert "plan_kind" in text
     assert "plan_version: 1" in text
     assert "scripts/nightly_verify.py" in text
     assert "scripts/nightly_verify.py --dry-run --json" in text
