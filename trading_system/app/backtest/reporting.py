@@ -936,10 +936,22 @@ def render_walk_forward_validation_report(
     experiment: Mapping[str, Any],
     metadata: Mapping[str, Any],
 ) -> dict[str, dict[str, Any]]:
-    robustness_summary = dict(experiment.get("robustness_summary", {}))
-    parameter_stability = dict(experiment.get("parameter_stability", {}))
-    performance_dispersion = dict(robustness_summary.get("performance_dispersion", {}))
-    out_of_sample_scorecard = dict(robustness_summary.get("out_of_sample_scorecard", {}))
+    raw_robustness_summary = experiment.get("robustness_summary", {})
+    if not isinstance(raw_robustness_summary, Mapping):
+        raise ValueError("robustness_summary must be an object")
+    robustness_summary = dict(raw_robustness_summary)
+    raw_parameter_stability = experiment.get("parameter_stability", {})
+    if not isinstance(raw_parameter_stability, Mapping):
+        raise ValueError("parameter_stability must be an object")
+    parameter_stability = dict(raw_parameter_stability)
+    raw_performance_dispersion = robustness_summary.get("performance_dispersion", {})
+    if not isinstance(raw_performance_dispersion, Mapping):
+        raise ValueError("performance_dispersion must be an object")
+    performance_dispersion = dict(raw_performance_dispersion)
+    raw_out_of_sample_scorecard = robustness_summary.get("out_of_sample_scorecard", {})
+    if not isinstance(raw_out_of_sample_scorecard, Mapping):
+        raise ValueError("out_of_sample_scorecard must be an object")
+    out_of_sample_scorecard = dict(raw_out_of_sample_scorecard)
 
     out_of_sample_total_return = _report_finite_float(
         out_of_sample_scorecard.get("total_return", 0.0),

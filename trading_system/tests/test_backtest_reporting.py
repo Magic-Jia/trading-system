@@ -1354,6 +1354,16 @@ def test_walk_forward_validation_report_rejects_invalid_metadata_counts() -> Non
 
 
 
+def test_walk_forward_validation_report_rejects_non_object_robustness_payloads() -> None:
+    with pytest.raises(ValueError, match="robustness_summary must be an object"):
+        cli.render_walk_forward_validation_report(
+            experiment_name="walk_forward_validation",
+            metadata={"snapshot_count": 1, "window_count": 1},
+            experiment={"windows": [], "robustness_summary": [], "parameter_stability": {"parameter_stability_score": 0.8}},
+        )
+
+
+
 def test_backtest_cli_writes_walk_forward_validation_bundle(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr(cli, "load_historical_dataset", lambda _dataset_root: _sample_dataset_rows(), raising=False)
     monkeypatch.setattr(
