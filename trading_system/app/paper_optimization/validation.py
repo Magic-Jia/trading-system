@@ -147,6 +147,8 @@ def _validation_metadata(
         if not isinstance(value, str):
             raise ValueError(f"runtime_env_overrides.{key} must be a string")
         env_snapshot[key] = value
+    if recorded_at_bj is not None and not isinstance(recorded_at_bj, str):
+        raise ValueError("recorded_at_bj must be a string")
     return {
         "generated_by": "paper_optimization.validation",
         "recommendation_ids": recommendation_ids,
