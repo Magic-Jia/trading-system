@@ -81,3 +81,24 @@ def test_writes_passive_and_taker_calibration_summary_from_jsonl(tmp_path: Path)
     output = write_calibration_summary(source, tmp_path / "out", evidence_source={"type": "synthetic_fixture"})
     assert output == tmp_path / "out" / "passive_order_calibration_summary.json"
     assert json.loads(output.read_text()) == summary
+
+
+def test_rejects_boolean_intended_limit_price(tmp_path: Path) -> None:
+    source = tmp_path / "dust_orders.jsonl"
+    source.write_text(
+        json.dumps(
+            {
+                "symbol": "BTCUSDT",
+                "side": "buy",
+                "intended_limit_price": True,
+                "submitted_at": "2026-01-01T00:00:00+00:00",
+                "status": "filled",
+            }
+        )
+        + "\n"
+    )
+
+    import pytest
+
+    with pytest.raises(ValueError, match="intended_limit_price must be numeric"):
+        load_calibration_records(source)

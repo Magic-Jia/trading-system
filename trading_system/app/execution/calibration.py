@@ -42,7 +42,20 @@ def _parse_datetime(value: Any) -> datetime | None:
 def _float_or_none(value: Any) -> float | None:
     if value is None or value == "":
         return None
+    if isinstance(value, bool):
+        raise ValueError("calibration numeric field must be numeric")
     return float(value)
+
+
+def _required_float(row: Mapping[str, Any], *keys: str, field_name: str) -> float:
+    for key in keys:
+        if key not in row or row[key] is None or row[key] == "":
+            continue
+        value = row[key]
+        if isinstance(value, bool):
+            raise ValueError(f"{field_name} must be numeric")
+        return float(value)
+    raise ValueError(f"calibration record missing {field_name}")
 
 
 def _record_from_mapping(row: Mapping[str, Any]) -> PassiveOrderCalibrationRecord:
@@ -52,7 +65,12 @@ def _record_from_mapping(row: Mapping[str, Any]) -> PassiveOrderCalibrationRecor
     return PassiveOrderCalibrationRecord(
         symbol=str(row.get("symbol", "")).strip().upper(),
         side=str(row.get("side", "")).strip().lower(),
-        intended_limit_price=float(row.get("intended_limit_price") or row.get("limit_price")),
+        intended_limit_price=_required_float(
+            row,
+            "intended_limit_price",
+            "limit_price",
+            field_name="intended_limit_price",
+        ),
         submitted_at=submitted_at,
         first_fill_at=_parse_datetime(row.get("first_fill_at")),
         last_fill_at=_parse_datetime(row.get("last_fill_at")),
