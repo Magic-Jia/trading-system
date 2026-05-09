@@ -37,6 +37,19 @@ def test_audit_worker_commit_outputs_json_for_head() -> None:
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
     assert payload["commit"]
+    assert set(payload) == {
+        "audit_kind",
+        "audit_version",
+        "changed_files",
+        "commit",
+        "controller_next_steps",
+        "final_merge_proof",
+        "status",
+        "strict_changed_verification",
+        "verification_plan",
+        "worktree_dirty",
+        "worktree_dirty_paths",
+    }
     assert payload["changed_files"]
     assert payload["status"] == "ok"
     assert payload["audit_version"] == 1
