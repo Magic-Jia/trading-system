@@ -306,6 +306,19 @@ def test_generate_trend_candidates_rejects_present_string_numeric_required_field
         )
 
 
+@pytest.mark.parametrize("field,invalid_value", [("sector", True), ("liquidity_tier", 123)])
+def test_generate_trend_candidates_rejects_present_non_string_category_field(field, invalid_value):
+    market = _modest_positive_trend_market()
+    market["symbols"]["BTCUSDT"][field] = invalid_value
+
+    with pytest.raises(ValueError, match=f"BTCUSDT.{field}"):
+        generate_trend_candidates(
+            market,
+            include_high_liquidity_strong_names=False,
+            entry_profile=ACTIVE_PAPER_ENTRY_PROFILE,
+        )
+
+
 def _active_paper_shallow_h1_pullback_trend_market() -> dict[str, object]:
     market = _modest_positive_trend_market()
     btc = market["symbols"]["BTCUSDT"]

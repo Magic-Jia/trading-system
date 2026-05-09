@@ -57,6 +57,22 @@ def _validate_required_trend_numerics(symbol: str, payload: Mapping[str, Any]) -
     return complete
 
 
+def _optional_string_field(symbol: str, payload: Mapping[str, Any], field: str) -> str:
+    value = payload.get(field, "")
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise ValueError(f"{symbol}.{field} must be a string")
+    return value
+
+
+def _payload_categories(symbol: str, payload: Mapping[str, Any]) -> tuple[str, str]:
+    return (
+        _optional_string_field(symbol, payload, "sector"),
+        _optional_string_field(symbol, payload, "liquidity_tier"),
+    )
+
+
 def _has_required_trend_numerics(payload: Mapping[str, Any]) -> bool:
     for timeframe, fields in _REQUIRED_TREND_NUMERIC_FIELDS.items():
         row = _tf_row(payload, timeframe)
@@ -143,12 +159,17 @@ def _short_term_long_trigger(payload: Mapping[str, Any], profile: EntryProfile) 
     )
 
 
-def _is_active_paper_major_shallow_h1_pullback(payload: Mapping[str, Any], profile: EntryProfile) -> bool:
+def _is_active_paper_major_shallow_h1_pullback(
+    payload: Mapping[str, Any],
+    profile: EntryProfile,
+    sector: str,
+    liquidity_tier: str,
+) -> bool:
     if not _is_active_paper_profile(profile):
         return False
-    if str(payload.get("sector", "")) != _MAJOR_SECTOR:
+    if sector != _MAJOR_SECTOR:
         return False
-    if str(payload.get("liquidity_tier", "")).lower() not in _HIGH_LIQUIDITY_TIERS:
+    if liquidity_tier.lower() not in _HIGH_LIQUIDITY_TIERS:
         return False
 
     daily = _tf_row(payload, "daily")
@@ -170,12 +191,17 @@ def _is_active_paper_major_shallow_h1_pullback(payload: Mapping[str, Any], profi
     return daily_constructive and h4_constructive and h1_shallow_pullback
 
 
-def _is_scout_major_intraday_recovery(payload: Mapping[str, Any], profile: EntryProfile) -> bool:
+def _is_scout_major_intraday_recovery(
+    payload: Mapping[str, Any],
+    profile: EntryProfile,
+    sector: str,
+    liquidity_tier: str,
+) -> bool:
     if not _is_scout_profile(profile):
         return False
-    if str(payload.get("sector", "")) != _MAJOR_SECTOR:
+    if sector != _MAJOR_SECTOR:
         return False
-    if str(payload.get("liquidity_tier", "")).lower() not in _HIGH_LIQUIDITY_TIERS:
+    if liquidity_tier.lower() not in _HIGH_LIQUIDITY_TIERS:
         return False
 
     daily = _tf_row(payload, "daily")
@@ -187,8 +213,8 @@ def _is_scout_major_intraday_recovery(payload: Mapping[str, Any], profile: Entry
     return daily_constructive and h4_reclaimed_ema20 and h1_reclaimed_ema20 and _short_term_long_trigger(payload, profile)
 
 
-def _is_high_liquidity_strong_name(payload: Mapping[str, Any]) -> bool:
-    tier = str(payload.get("liquidity_tier", "")).lower()
+def _is_high_liquidity_strong_name(payload: Mapping[str, Any], liquidity_tier: str) -> bool:
+    tier = liquidity_tier.lower()
     daily = _tf_row(payload, "daily")
     h4 = _tf_row(payload, "4h")
     h1 = _tf_row(payload, "1h")
@@ -209,13 +235,13 @@ def _lower_timeframes_intact(payload: Mapping[str, Any]) -> bool:
     )
 
 
-def _is_supportive_non_major_soft_pretrend(payload: Mapping[str, Any], regime: Any) -> bool:
+def _is_supportive_non_major_soft_pretrend(payload: Mapping[str, Any], regime: Any, liquidity_tier: str) -> bool:
     if _regime_label(regime) not in _SUPPORTIVE_NON_MAJOR_SOFT_PRETREND_REGIMES:
         return False
     if _has_suppression_rule(regime, "trend"):
         return False
 
-    tier = str(payload.get("liquidity_tier", "")).lower()
+    tier = liquidity_tier.lower()
     daily = _tf_row(payload, "daily")
     h4 = _tf_row(payload, "4h")
     h1 = _tf_row(payload, "1h")
@@ -339,16 +365,25 @@ def generate_trend_candidates(
         payload = payload_value
         if not _validate_required_trend_numerics(str(symbol), payload):
             continue
-        sector = str(payload.get("sector", ""))
+        sector, liquidity_tier = _payload_categories(str(symbol), payload)
         is_major = sector == _MAJOR_SECTOR
         soft_non_major_pretrend = False
-        active_paper_shallow_pullback = _is_active_paper_major_shallow_h1_pullback(payload, profile)
-        scout_intraday_recovery = _is_scout_major_intraday_recovery(payload, profile)
+        active_paper_shallow_pullback = _is_active_paper_major_shallow_h1_pullback(
+            payload,
+            profile,
+            sector,
+            liquidity_tier,
+        )
+        scout_intraday_recovery = _is_scout_major_intraday_recovery(payload, profile, sector, liquidity_tier)
         if not is_major:
-            soft_non_major_pretrend = _is_supportive_non_major_soft_pretrend(payload, regime)
+            soft_non_major_pretrend = _is_supportive_non_major_soft_pretrend(payload, regime, liquidity_tier)
             if not include_high_liquidity_strong_names and not soft_non_major_pretrend:
                 continue
-            if include_high_liquidity_strong_names and not _is_high_liquidity_strong_name(payload) and not soft_non_major_pretrend:
+            if (
+                include_high_liquidity_strong_names
+                and not _is_high_liquidity_strong_name(payload, liquidity_tier)
+                and not soft_non_major_pretrend
+            ):
                 continue
 
         daily = _tf_row(payload, "daily")
