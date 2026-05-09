@@ -176,7 +176,7 @@ def collect_trade_outcomes(
                 allocation_status=_optional_str(fact.get("allocation_status"), field_name="fact.allocation_status"),
                 execution_status=execution_status,
                 outcome_status=outcome_status,
-                position_status=_str_or_none(position.get("status")),
+                position_status=_optional_str(position.get("status"), field_name="position.status"),
                 score=_float_or_none(fact.get("score"), field_name="fact.score"),
                 final_risk_budget=_float_or_none(fact.get("final_risk_budget"), field_name="fact.final_risk_budget"),
                 filled_qty=(
