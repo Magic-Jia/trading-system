@@ -141,6 +141,16 @@ def validate_changed_paths(paths: list[str], *, label: str = "changed path") -> 
         seen.add(path)
 
 
+def validate_repeated_args(values: list[str], *, label: str) -> None:
+    seen: set[str] = set()
+    for value in values:
+        if not value:
+            raise ValueError(f"{label} must be non-empty")
+        if value in seen:
+            raise ValueError(f"duplicate {label}: {value}")
+        seen.add(value)
+
+
 def suites_for_test_path(path: str) -> list[str]:
     selected: list[str] = []
     for tests in SUITES.values():
@@ -291,6 +301,8 @@ def main(argv: list[str] | None = None) -> int:
             return 2
     try:
         validate_changed_paths(changed)
+        validate_repeated_args(list(args.suite), label="suite")
+        validate_repeated_args(list(args.test), label="explicit test")
     except ValueError as exc:
         print(str(exc), file=sys.stderr)
         return 2

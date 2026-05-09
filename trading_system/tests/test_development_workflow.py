@@ -307,6 +307,40 @@ def test_verify_rejects_duplicate_changed_path() -> None:
     assert "duplicate changed path" in result.stderr
 
 
+def test_verify_rejects_blank_suite() -> None:
+    result = run_verify("--dry-run", "--suite", "")
+
+    assert result.returncode == 2
+    assert "suite must be non-empty" in result.stderr
+
+
+def test_verify_rejects_duplicate_suite() -> None:
+    result = run_verify("--dry-run", "--suite", "workflow-meta", "--suite", "workflow-meta")
+
+    assert result.returncode == 2
+    assert "duplicate suite" in result.stderr
+
+
+def test_verify_rejects_blank_explicit_test() -> None:
+    result = run_verify("--dry-run", "--test", "")
+
+    assert result.returncode == 2
+    assert "explicit test must be non-empty" in result.stderr
+
+
+def test_verify_rejects_duplicate_explicit_test() -> None:
+    result = run_verify(
+        "--dry-run",
+        "--test",
+        "trading_system/tests/test_development_workflow.py",
+        "--test",
+        "trading_system/tests/test_development_workflow.py",
+    )
+
+    assert result.returncode == 2
+    assert "duplicate explicit test" in result.stderr
+
+
 def test_verify_strict_auto_changed_implies_auto_changed(tmp_path: Path) -> None:
     probe = ROOT / "UNTRACKED_STRICT_AUTO_CHANGED.txt"
     try:
