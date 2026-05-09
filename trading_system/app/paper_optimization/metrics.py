@@ -124,6 +124,9 @@ def _group_breakdown(rows: list[dict[str, Any]], key: str) -> dict[str, dict[str
     return grouped
 
 
+def _trade_outcome_status(row: dict[str, Any], field: str) -> str | None:
+    return _optional_str(row.get(field), field_name=f"trade_outcome.{field}")
+
 
 def write_daily_metrics_and_health_report(
     *,
@@ -139,11 +142,15 @@ def write_daily_metrics_and_health_report(
     signal_fact_count = len(_jsonl(signal_facts_path))
     raw_trade_outcome_count = len(raw_rows)
     trade_outcome_count = len(rows)
-    execution_status_counts = Counter(str(row.get("execution_status") or "") for row in rows if row.get("execution_status"))
-    outcome_status_counts = Counter(str(row.get("outcome_status") or "") for row in rows if row.get("outcome_status"))
-    open_count = sum(1 for row in rows if row.get("outcome_status") == "OPEN")
-    not_executed_count = sum(1 for row in rows if row.get("outcome_status") == "NOT_EXECUTED")
-    position_not_tracked_count = sum(1 for row in rows if row.get("outcome_status") == "POSITION_NOT_TRACKED")
+    execution_status_counts = Counter(
+        status for row in rows if (status := _trade_outcome_status(row, "execution_status"))
+    )
+    outcome_status_counts = Counter(
+        status for row in rows if (status := _trade_outcome_status(row, "outcome_status"))
+    )
+    open_count = sum(1 for row in rows if _trade_outcome_status(row, "outcome_status") == "OPEN")
+    not_executed_count = sum(1 for row in rows if _trade_outcome_status(row, "outcome_status") == "NOT_EXECUTED")
+    position_not_tracked_count = sum(1 for row in rows if _trade_outcome_status(row, "outcome_status") == "POSITION_NOT_TRACKED")
     unrealized_pnl_total = round(sum(_float_or_zero(row.get("unrealized_pnl"), field_name="trade_outcome.unrealized_pnl") for row in rows), 4)
     current_positions = _runtime_position_rows(runtime_positions)
     scope = "current_runtime_latest_by_symbol"
