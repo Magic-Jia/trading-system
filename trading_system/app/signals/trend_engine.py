@@ -62,6 +62,15 @@ def _strict_present_score_total(score: Mapping[str, Any]) -> float:
     return float(value)
 
 
+def _strict_present_primary_close(row: Mapping[str, Any], field_path: str) -> float | None:
+    if "close" not in row or row.get("close") is None:
+        return None
+    value = row.get("close")
+    if not _is_finite_number(value):
+        raise ValueError(f"{field_path} must be a finite non-bool number when present")
+    return float(value)
+
+
 def _strict_present_derivatives_string(features: Mapping[str, Any], field: str, field_path: str, default: str) -> str:
     if field not in features:
         return default
@@ -99,7 +108,7 @@ def _validate_required_trend_numerics(symbol: str, payload: Mapping[str, Any]) -
                 complete = False
                 continue
             if not _is_finite_number(row[field]):
-                raise ValueError(f"{symbol}.{timeframe}.{field} must be a finite non-bool number")
+                raise ValueError(f"{symbol}.{timeframe}.{field} must be a finite non-bool number when present")
     return complete
 
 
@@ -334,19 +343,35 @@ def _setup_type(payload: Mapping[str, Any]) -> str:
     return "PULLBACK_CONTINUATION"
 
 
-def _trend_stop_loss(payload: Mapping[str, Any], entry_profile: EntryProfile | None = None) -> float:
+def _trend_stop_loss(
+    symbol_or_payload: str | Mapping[str, Any],
+    payload: Mapping[str, Any] | None = None,
+    entry_profile: EntryProfile | None = None,
+) -> float:
+    if payload is None:
+        symbol = "trend"
+        payload = symbol_or_payload if isinstance(symbol_or_payload, Mapping) else {}
+    else:
+        symbol = symbol_or_payload if isinstance(symbol_or_payload, str) else "trend"
     h4 = _tf_row(payload, "4h")
     daily = _tf_row(payload, "daily")
     m15 = _tf_row(payload, "15m")
     if entry_profile is not None and (_is_short_term_profile(entry_profile) or _is_scout_profile(entry_profile)):
-        entry_reference = _to_float(m15.get("close")) or _to_float(h4.get("close"))
+        entry_reference = _strict_present_primary_close(m15, f"{symbol}.15m.close") or _to_float(h4.get("close"))
         stop_loss = _to_float(m15.get("ema_50"))
     else:
-        entry_reference = _to_float(daily.get("close")) or _to_float(h4.get("close"))
+        entry_reference = _strict_present_primary_close(daily, f"{symbol}.daily.close") or _to_float(h4.get("close"))
         stop_loss = _to_float(h4.get("ema_50"))
     if entry_reference <= 0 or stop_loss <= 0 or stop_loss >= entry_reference:
         return 0.0
     return stop_loss
+
+
+def _validate_selected_primary_entry_reference(symbol: str, payload: Mapping[str, Any], profile: EntryProfile) -> None:
+    if _is_short_term_profile(profile) or _is_scout_profile(profile):
+        _strict_present_primary_close(_tf_row(payload, "15m"), f"{symbol}.15m.close")
+    else:
+        _strict_present_primary_close(_tf_row(payload, "daily"), f"{symbol}.daily.close")
 
 
 def _passes_absolute_strength_gate(payload: Mapping[str, Any], entry_profile: EntryProfile | str | None = None) -> bool:
@@ -423,6 +448,7 @@ def generate_trend_candidates(
         payload = payload_value
         if not _validate_required_trend_numerics(symbol_name, payload):
             continue
+        _validate_selected_primary_entry_reference(symbol_name, payload, profile)
         sector, liquidity_tier = _payload_categories(symbol_name, payload)
         is_major = sector == _MAJOR_SECTOR
         soft_non_major_pretrend = False
@@ -480,7 +506,7 @@ def generate_trend_candidates(
         if total_score <= 0.0:
             continue
 
-        stop_loss = _trend_stop_loss(payload, profile)
+        stop_loss = _trend_stop_loss(symbol_name, payload, profile)
         if stop_loss <= 0.0:
             continue
 

@@ -2,7 +2,7 @@ import math
 
 import pytest
 
-from trading_system.app.signals.entry_profile import ACTIVE_PAPER_ENTRY_PROFILE
+from trading_system.app.signals.entry_profile import ACTIVE_PAPER_ENTRY_PROFILE, SHORT_TERM_ENTRY_PROFILE
 from trading_system.app.signals.scoring import score_trend_candidate
 from trading_system.app.signals import trend_engine
 from trading_system.app.signals.trend_engine import generate_trend_candidates
@@ -267,6 +267,55 @@ def test_generate_trend_candidates_active_paper_profile_allows_modest_positive_m
 
     assert [candidate.symbol for candidate in candidates] == ["BTCUSDT"]
     assert candidates[0].stop_loss > 0
+
+
+def _short_term_trend_market() -> dict[str, object]:
+    market = _modest_positive_trend_market()
+    btc = market["symbols"]["BTCUSDT"]
+    btc["30m"] = {
+        "close": 101.4,
+        "ema_20": 101.0,
+        "ema_50": 100.2,
+        "return_pct_8h": 0.001,
+    }
+    btc["15m"] = {
+        "close": 101.3,
+        "ema_20": 101.0,
+        "ema_50": 100.0,
+        "return_pct_4h": 0.001,
+    }
+    return market
+
+
+@pytest.mark.parametrize("bad_close", ["bad", True, math.nan, math.inf])
+def test_generate_trend_candidates_rejects_present_invalid_short_term_primary_entry_reference(bad_close):
+    market = _short_term_trend_market()
+    market["symbols"]["BTCUSDT"]["15m"]["close"] = bad_close
+
+    with pytest.raises(
+        ValueError,
+        match=r"BTCUSDT\.15m\.close must be a finite non-bool number when present",
+    ):
+        generate_trend_candidates(
+            market,
+            include_high_liquidity_strong_names=False,
+            entry_profile=SHORT_TERM_ENTRY_PROFILE,
+        )
+
+
+@pytest.mark.parametrize("bad_close", ["bad", True, math.nan, math.inf])
+def test_generate_trend_candidates_rejects_present_invalid_default_primary_entry_reference(bad_close):
+    market = _modest_positive_trend_market()
+    market["symbols"]["BTCUSDT"]["daily"]["close"] = bad_close
+
+    with pytest.raises(
+        ValueError,
+        match=r"BTCUSDT\.daily\.close must be a finite non-bool number when present",
+    ):
+        generate_trend_candidates(
+            market,
+            include_high_liquidity_strong_names=False,
+        )
 
 
 @pytest.mark.parametrize("score_total", ["0.9", True, math.nan, math.inf])
