@@ -320,6 +320,15 @@ def _canonical_report_string_list(value: object, *, field_name: str) -> list[str
     return [_canonical_report_string(item, field_name=f"{field_name}[]") for item in value]
 
 
+def _list_field(payload: Mapping[str, Any], field: str, *, default: list[Any] | None = None) -> list[Any]:
+    if field not in payload:
+        return list(default or [])
+    raw_value = payload[field]
+    if not isinstance(raw_value, list):
+        raise ValueError(f"{field} must be a list")
+    return list(raw_value)
+
+
 _ALLOWED_DECISIONS = {"keep_researching", "candidate_for_promotion", "reject"}
 
 
@@ -793,7 +802,7 @@ def render_llm_trend_breakout_report(
     metadata: Mapping[str, Any],
 ) -> dict[str, dict[str, Any]]:
     summary_payload = dict(experiment.get("summary", {}))
-    candidate_rows = list(experiment.get("candidate_rows", []))
+    candidate_rows = _list_field(experiment, "candidate_rows")
     technical_candidate_count = _summary_int(summary_payload, "technical_candidate_count")
     accepted_candidate_count = _summary_int(summary_payload, "accepted_candidate_count")
     rejected_candidate_count = _summary_int(summary_payload, "rejected_candidate_count")
