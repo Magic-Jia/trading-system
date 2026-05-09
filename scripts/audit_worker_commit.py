@@ -73,6 +73,9 @@ def main(argv: list[str] | None = None) -> int:
             print(f"forbidden worker changed files: {', '.join(forbidden)}", file=sys.stderr)
             return 2
         plan = verification_plan(changed_files)
+        if not plan.get("full") and not plan.get("tests"):
+            print("no impacted verification tests for changed files", file=sys.stderr)
+            return 2
     except (RuntimeError, json.JSONDecodeError) as exc:
         print(str(exc), file=sys.stderr)
         return 2

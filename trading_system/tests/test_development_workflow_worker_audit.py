@@ -52,3 +52,10 @@ def test_audit_worker_commit_rejects_empty_input() -> None:
 
     assert result.returncode == 2
     assert "no changed files" in result.stderr
+
+
+def test_audit_worker_commit_rejects_changed_files_without_impacted_tests() -> None:
+    result = run_audit("--changed-file", "README.md")
+
+    assert result.returncode == 2
+    assert "no impacted verification tests" in result.stderr
