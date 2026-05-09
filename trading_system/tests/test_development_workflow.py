@@ -204,6 +204,28 @@ def test_ci_verify_entrypoint_runs_strict_workflow_and_evidence_chain() -> None:
     assert "trading_system/tests/test_development_workflow_docs.py" in result.stdout
 
 
+def test_ci_verify_dry_run_json_reports_commands() -> None:
+    result = subprocess.run(
+        [sys.executable, str(ROOT / "scripts" / "ci_verify.py"), "--dry-run", "--json"],
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    import json
+
+    payload = json.loads(result.stdout)
+    assert payload["entrypoint"] == "ci_verify"
+    assert payload["commands"] == [
+        "python3 scripts/verify.py --dry-run --strict-auto-changed",
+        "python3 scripts/verify.py --suite workflow-meta",
+        "python3 scripts/verify.py --suite evidence-chain",
+    ]
+
+
 def test_nightly_verify_entrypoint_runs_full_suite() -> None:
     script = ROOT / "scripts" / "nightly_verify.py"
 
