@@ -189,6 +189,75 @@ def test_ensure_target_management_state_rejects_present_non_string_target_status
         ensure_target_management_state(payload)
 
 
+@pytest.mark.parametrize(
+    "field",
+    [
+        "qty",
+        "original_position_qty",
+        "remaining_position_qty",
+        "first_target_filled_qty",
+        "second_target_filled_qty",
+        "symbol_step_size",
+        "min_order_qty",
+        "runner_stop_price",
+    ],
+)
+def test_ensure_target_management_state_rejects_present_invalid_default_state_numbers(field):
+    payload = {
+        "symbol": "BTCUSDT",
+        "side": "LONG",
+        "entry_price": 100.0,
+        "stop_loss": 95.0,
+        "qty": 2.0,
+        "first_target_price": 105.0,
+        "first_target_source": "fallback_1r",
+        "second_target_price": 110.0,
+        "second_target_source": "fixed_2r",
+        "first_target_status": "pending",
+        "second_target_status": "filled",
+        "runner_protected": True,
+        "remaining_position_qty": 0.5,
+        "symbol_step_size": 0.01,
+        field: "bad",
+    }
+
+    with pytest.raises(ValueError, match=f"{field} must be a finite non-bool number when present"):
+        ensure_target_management_state(payload)
+
+
+@pytest.mark.parametrize("field", ["first_target_status", "second_target_status"])
+def test_ensure_target_management_state_rejects_unknown_target_status(field):
+    payload = {
+        "symbol": "BTCUSDT",
+        "side": "LONG",
+        "entry_price": 100.0,
+        "stop_loss": 95.0,
+        "qty": 2.0,
+        "first_target_price": 105.0,
+        "first_target_source": "fallback_1r",
+        "second_target_price": 110.0,
+        "second_target_source": "fixed_2r",
+        "first_target_status": "pending",
+        "second_target_status": "pending",
+        field: "done",
+    }
+
+    with pytest.raises(ValueError, match=f"{field} must be one of"):
+        ensure_target_management_state(payload)
+
+
+@pytest.mark.parametrize(
+    "position, message",
+    [
+        ([("symbol", "BTCUSDT"), ("side", "LONG")], "position must be a mapping"),
+        ({"symbol": "BTCUSDT", 1: "bad", "side": "LONG"}, "position keys must be strings"),
+    ],
+)
+def test_ensure_target_management_state_rejects_non_mapping_or_non_string_keys(position, message):
+    with pytest.raises(TypeError, match=message):
+        ensure_target_management_state(position)
+
+
 @pytest.mark.parametrize("field", ["first_target_status", "second_target_status"])
 def test_terminalize_all_unreachable_stages_rejects_present_non_string_target_status(field):
     payload = {
@@ -205,6 +274,18 @@ def test_terminalize_all_unreachable_stages_rejects_present_non_string_target_st
 
     with pytest.raises(TypeError, match=f"{field} must be a string when present"):
         terminalize_all_unreachable_stages(payload)
+
+
+@pytest.mark.parametrize(
+    "position, message",
+    [
+        ([("symbol", "BTCUSDT"), ("side", "LONG")], "position must be a mapping"),
+        ({"symbol": "BTCUSDT", 1: "bad", "side": "LONG"}, "position keys must be strings"),
+    ],
+)
+def test_terminalize_all_unreachable_stages_rejects_non_mapping_or_non_string_keys(position, message):
+    with pytest.raises(TypeError, match=message):
+        terminalize_all_unreachable_stages(position)
 
 
 @pytest.mark.parametrize("field", ["original_position_qty"])
