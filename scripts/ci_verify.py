@@ -47,8 +47,11 @@ def main() -> int:
             print("plan_version: 1")
             print("plan_kind: ci_verification_plan")
             print("strict_changed_verification: true")
-            print("\n".join(DISPLAY_COMMANDS))
+            print(f"suites: {','.join(PLANNED_SUITES)}")
+            for command in DISPLAY_COMMANDS:
+                print(command)
         return 0
+
     for command in COMMANDS:
         print("$ " + " ".join(command), flush=True)
         completed = subprocess.run(command, text=True)

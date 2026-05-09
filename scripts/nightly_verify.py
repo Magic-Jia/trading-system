@@ -52,6 +52,7 @@ def main() -> int:
             print("plan_version: 1")
             print("plan_kind: nightly_verification_plan")
             print("clean_env: true")
+            print(f"suites: {','.join(PLANNED_SUITES)}")
             print("unset " + " ".join(UNSET_ENV))
             print("\n".join(DISPLAY_COMMANDS))
         return 0

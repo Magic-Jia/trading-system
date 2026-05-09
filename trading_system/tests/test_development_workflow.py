@@ -357,6 +357,7 @@ def test_ci_verify_text_dry_run_reports_strict_changed_verification() -> None:
     assert "plan_version: 1" in result.stdout
     assert "plan_kind: ci_verification_plan" in result.stdout
     assert "strict_changed_verification: true" in result.stdout
+    assert "suites: workflow-meta,evidence-chain" in result.stdout
     assert "python3 scripts/verify.py --dry-run --strict-auto-changed" in result.stdout
 
 
@@ -422,5 +423,6 @@ def test_nightly_verify_text_dry_run_reports_clean_env() -> None:
     assert "plan_version: 1" in result.stdout
     assert "plan_kind: nightly_verification_plan" in result.stdout
     assert "clean_env: true" in result.stdout
+    assert "suites: full" in result.stdout
     assert "TRADING_RUNTIME_ENV" in result.stdout
     assert "python3 scripts/verify.py --suite full" in result.stdout
