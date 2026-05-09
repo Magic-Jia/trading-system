@@ -196,3 +196,27 @@ def test_generate_recommendations_rejects_invalid_engine_bucket_numeric_strings(
             health_report={"status": "ok", "warnings": []},
             recorded_at_bj="2026-04-24T12:05:00+08:00",
         )
+
+def test_generate_recommendations_rejects_invalid_status_and_timestamp_fields() -> None:
+    import pytest
+
+    with pytest.raises(ValueError, match="daily_metrics.recorded_at_bj must be a string"):
+        generate_recommendations(
+            daily_metrics={"recorded_at_bj": 123, "trade_outcome_count": 8, "unrealized_pnl_total": -0.8},
+            health_report={"status": "ok", "warnings": []},
+            recorded_at_bj="2026-04-24T12:05:00+08:00",
+        )
+
+    with pytest.raises(ValueError, match="health_report.status must be a string"):
+        generate_recommendations(
+            daily_metrics={"recorded_at_bj": "2026-04-24T12:00:00+08:00", "trade_outcome_count": 8, "unrealized_pnl_total": -0.8},
+            health_report={"status": 123, "warnings": []},
+            recorded_at_bj="2026-04-24T12:05:00+08:00",
+        )
+
+    with pytest.raises(ValueError, match="health_report.warnings must be a list"):
+        generate_recommendations(
+            daily_metrics={"recorded_at_bj": "2026-04-24T12:00:00+08:00", "trade_outcome_count": 8, "unrealized_pnl_total": -0.8},
+            health_report={"status": "ok", "warnings": "bad"},
+            recorded_at_bj="2026-04-24T12:05:00+08:00",
+        )

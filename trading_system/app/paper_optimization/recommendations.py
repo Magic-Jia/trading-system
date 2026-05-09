@@ -20,9 +20,31 @@ _ENGINE_WEIGHT_DEFAULTS = {
 
 
 def _recorded_at_bj(value: str | None) -> str:
+    if value is None:
+        return datetime.now(BJ).isoformat()
+    if not isinstance(value, str):
+        raise ValueError("recorded_at_bj must be a string")
     if value:
         return value
     return datetime.now(BJ).isoformat()
+
+
+def _optional_str(payload: Mapping[str, Any], field_name: str, *, source_name: str) -> str | None:
+    value = payload.get(field_name)
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError(f"{source_name}.{field_name} must be a string")
+    return value
+
+
+def _optional_list(payload: Mapping[str, Any], field_name: str, *, source_name: str) -> list[Any]:
+    value = payload.get(field_name)
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValueError(f"{source_name}.{field_name} must be a list")
+    return value
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -160,16 +182,16 @@ def generate_recommendations(
     recorded_at_bj: str | None = None,
     previous_recommendations: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    metrics_recorded_at_bj = str(daily_metrics.get("recorded_at_bj") or "") or None
+    metrics_recorded_at_bj = _optional_str(daily_metrics, "recorded_at_bj", source_name="daily_metrics")
     recommendation_recorded_at = _recorded_at_bj(recorded_at_bj)
     trade_outcome_count = _int(daily_metrics.get("trade_outcome_count"), field_name="daily_metrics.trade_outcome_count")
     unrealized_pnl_total = round(_float(daily_metrics.get("unrealized_pnl_total"), field_name="daily_metrics.unrealized_pnl_total"), 4)
-    warnings = list(health_report.get("warnings") or []) if isinstance(health_report.get("warnings"), list) else []
+    warnings = _optional_list(health_report, "warnings", source_name="health_report")
     suppressed: list[dict[str, Any]] = []
     recommendations: list[dict[str, Any]] = []
     alerts: list[dict[str, Any]] = []
 
-    health_status = str(health_report.get("status") or "missing")
+    health_status = _optional_str(health_report, "status", source_name="health_report") or "missing"
     if health_status != "ok":
         suppressed.append(
             {
