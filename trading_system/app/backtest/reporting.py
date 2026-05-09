@@ -34,7 +34,10 @@ def render_regime_scorecard(
     best_return = None
     worst_regime = None
     worst_return = None
-    for label, payload in by_regime.items():
+    for raw_label, payload in by_regime.items():
+        if not isinstance(raw_label, str) or not raw_label or raw_label.strip() != raw_label:
+            raise ValueError("by_regime keys must be canonical strings")
+        label = raw_label
         if not isinstance(payload, Mapping):
             raise ValueError(f"by_regime.{label} must be an object")
         forward_return_by_window = payload.get("forward_return_by_window", {})
