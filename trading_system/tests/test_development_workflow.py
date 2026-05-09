@@ -209,6 +209,7 @@ def test_verify_json_dry_run_emits_machine_readable_plan() -> None:
     assert payload["commands"][-1] == "git diff --check HEAD"
     assert payload["command_argv"][-1] == ["git", "diff", "--check", "HEAD"]
     assert ["python3", "-m", "pytest", "-q", "trading_system/tests/test_main_v2_cycle.py"] == payload["command_argv"][0][:5]
+    assert payload["commands"][0].split() == payload["command_argv"][0]
 
 
 def test_verify_json_dry_run_reports_strict_changed_verification() -> None:
