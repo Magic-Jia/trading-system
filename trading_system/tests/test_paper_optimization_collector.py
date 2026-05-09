@@ -87,3 +87,27 @@ def test_collect_signal_facts_appends_minimal_candidate_allocation_execution_fac
             "intent_id": "intent-btc",
         }
     ]
+
+def test_collect_signal_facts_rejects_non_boolean_validation_allowed(tmp_path: Path) -> None:
+    paths = build_runtime_paths("paper", runtime_root=tmp_path / "runtime", runtime_env="research")
+    collector = _collector_module()
+
+    with pytest.raises(ValueError, match="validation.allowed must be boolean"):
+        collector.collect_signal_facts(
+            signal_facts_path=paths.signal_facts_file,
+            candidate_rows=[
+                {
+                    "engine": "trend",
+                    "setup_type": "BREAKOUT_CONTINUATION",
+                    "symbol": "BTCUSDT",
+                    "side": "LONG",
+                    "score": 0.91,
+                    "validation": {"allowed": "false"},
+                }
+            ],
+            allocation_rows=[],
+            execution_rows=[],
+            regime={"label": "RISK_ON_TREND", "confidence": 0.82},
+            mode="paper",
+            runtime_env="research",
+        )

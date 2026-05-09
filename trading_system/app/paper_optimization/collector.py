@@ -76,7 +76,9 @@ def _validation_allowed(candidate: Mapping[str, Any]) -> bool | None:
     allowed = validation.get("allowed")
     if allowed is None:
         return None
-    return bool(allowed)
+    if not isinstance(allowed, bool):
+        raise ValueError("validation.allowed must be boolean")
+    return allowed
 
 
 def collect_signal_facts(
