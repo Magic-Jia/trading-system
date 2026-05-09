@@ -397,6 +397,37 @@ def test_write_daily_metrics_rejects_boolean_runtime_position_qty(tmp_path: Path
             runtime_positions={"BTCUSDT": {"symbol": "BTCUSDT", "status": "OPEN", "qty": True}},
         )
 
+
+def test_write_daily_metrics_rejects_numeric_string_fields(tmp_path: Path) -> None:
+    paths = build_runtime_paths("paper", runtime_root=tmp_path / "runtime", runtime_env="research")
+    module = _metrics_module()
+    paths.signal_facts_file.parent.mkdir(parents=True, exist_ok=True)
+    paths.signal_facts_file.write_text('{"symbol": "BTCUSDT"}\n', encoding="utf-8")
+
+    paths.trade_outcomes_file.write_text(
+        json.dumps({"symbol": "BTCUSDT", "outcome_status": "OPEN", "unrealized_pnl": "1.0"}) + "\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="trade_outcome.unrealized_pnl must be numeric"):
+        module.write_daily_metrics_and_health_report(
+            trade_outcomes_path=paths.trade_outcomes_file,
+            signal_facts_path=paths.signal_facts_file,
+            daily_metrics_path=paths.daily_metrics_file,
+            health_report_path=paths.health_report_file,
+            recorded_at_bj="2026-04-27T00:00:00+08:00",
+        )
+
+    paths.trade_outcomes_file.write_text('{"symbol": "BTCUSDT", "outcome_status": "OPEN"}\n', encoding="utf-8")
+    with pytest.raises(ValueError, match="runtime_position.qty must be numeric"):
+        module.write_daily_metrics_and_health_report(
+            trade_outcomes_path=paths.trade_outcomes_file,
+            signal_facts_path=paths.signal_facts_file,
+            daily_metrics_path=paths.daily_metrics_file,
+            health_report_path=paths.health_report_file,
+            recorded_at_bj="2026-04-27T00:00:00+08:00",
+            runtime_positions={"BTCUSDT": {"symbol": "BTCUSDT", "status": "OPEN", "qty": "1.0"}},
+        )
+
 def test_write_daily_metrics_rejects_non_string_trade_outcome_symbol(tmp_path: Path) -> None:
     paths = build_runtime_paths("paper", runtime_root=tmp_path / "runtime", runtime_env="research")
     module = _metrics_module()

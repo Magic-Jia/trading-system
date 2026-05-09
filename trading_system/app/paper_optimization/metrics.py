@@ -33,12 +33,9 @@ def _jsonl(path: Path) -> list[dict[str, Any]]:
 def _float_or_zero(value: Any, *, field_name: str) -> float:
     if value is None:
         return 0.0
-    if isinstance(value, bool):
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError(f"{field_name} must be numeric")
-    try:
-        return float(value)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"{field_name} must be numeric") from exc
+    return float(value)
 
 
 def _optional_str(value: Any, *, field_name: str) -> str | None:
