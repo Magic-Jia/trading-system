@@ -123,3 +123,35 @@ def test_run_paper_optimization_validation_writes_artifacts_and_updates_promotio
     assert written["decision"] == "candidate_for_promotion"
     assert written["baseline_bundle"].endswith("paper_opt_baseline")
     assert written["variant_bundle"].endswith("paper_opt_candidate")
+
+def test_run_paper_optimization_validation_rejects_non_string_baseline_env(monkeypatch, tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    optimization_dir = tmp_path / "runtime" / "paper" / "prod" / "optimization"
+    recommendations_path = optimization_dir / "recommendations.json"
+    promotion_decision_path = optimization_dir / "promotion_decision.json"
+    dataset_root = repo_root / "data" / "imported-datasets" / "dataset-a"
+    dataset_root.mkdir(parents=True, exist_ok=True)
+    (dataset_root / "import_manifest.json").write_text(
+        json.dumps(
+            {
+                "dataset_root": str(dataset_root),
+                "start_timestamp": "2026-03-10T00:00:00Z",
+                "end_timestamp": "2026-03-20T00:00:00Z",
+            }
+        ),
+        encoding="utf-8",
+    )
+    recommendations_path.parent.mkdir(parents=True, exist_ok=True)
+    recommendations_path.write_text(json.dumps({"recommendations": []}), encoding="utf-8")
+
+    import pytest
+
+    with pytest.raises(ValueError, match="baseline_env.TRADING_MAX_TOTAL_RISK_PCT must be a string"):
+        run_paper_optimization_validation(
+            recommendations_path=recommendations_path,
+            promotion_decision_path=promotion_decision_path,
+            optimization_dir=optimization_dir,
+            repo_root=repo_root,
+            baseline_env={"TRADING_MAX_TOTAL_RISK_PCT": 0.03},
+            recorded_at_bj="2026-04-24T12:10:00+08:00",
+        )

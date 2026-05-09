@@ -42,7 +42,14 @@ def _write_json(path: Path, payload: Mapping[str, Any]) -> None:
 
 def _baseline_env_snapshot(baseline_env: Mapping[str, str] | None = None) -> dict[str, str]:
     if baseline_env is not None:
-        return {key: str(value) for key, value in baseline_env.items() if key in SUPPORTED_RUNTIME_ENV_KEYS}
+        snapshot: dict[str, str] = {}
+        for key, value in baseline_env.items():
+            if key not in SUPPORTED_RUNTIME_ENV_KEYS:
+                continue
+            if not isinstance(value, str):
+                raise ValueError(f"baseline_env.{key} must be a string")
+            snapshot[key] = value
+        return snapshot
     snapshot: dict[str, str] = {}
     for key in SUPPORTED_RUNTIME_ENV_KEYS:
         value = os.environ.get(key)
