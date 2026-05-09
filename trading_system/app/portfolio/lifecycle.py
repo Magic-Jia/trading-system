@@ -407,7 +407,8 @@ def advance_lifecycle_positions(state: RuntimeState, lifecycle_config: Any) -> d
 
     for symbol, position in state.positions.items():
         side = _position_side(position)
-        mark = _float(position.get("mark_price"))
+        mark_value = _present_finite_number(position, "mark_price")
+        mark = mark_value if mark_value is not None else 0.0
         stop = position.get("stop_loss")
         stop_loss = _float(stop) if stop is not None else 0.0
         take_profit = position.get("take_profit")

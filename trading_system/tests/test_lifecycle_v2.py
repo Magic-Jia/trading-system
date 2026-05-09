@@ -346,6 +346,7 @@ def test_evaluate_position_rejects_present_invalid_taxonomy_stop_loss(taxonomy_s
         ("runner_stop_price", "bad"),
         ("runner_stop_price", True),
         ("runner_stop_price", float("nan")),
+        ("mark_price", "106.0"),
         ("take_profit", "110.0"),
         ("take_profit", True),
         ("take_profit", float("nan")),
