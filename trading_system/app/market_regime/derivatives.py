@@ -23,7 +23,13 @@ def _coerce_all_rows(derivatives: dict[str, Any] | list[dict[str, Any]]) -> list
     else:
         return []
 
-    return [row for row in rows if isinstance(row, dict) and row.get("symbol")]
+    normalized: list[dict[str, Any]] = []
+    for idx, row in enumerate(rows):
+        if not isinstance(row, dict):
+            raise ValueError(f"derivatives rows[{idx}] must be an object")
+        if row.get("symbol"):
+            normalized.append(row)
+    return normalized
 
 
 def _coerce_rows(derivatives: dict[str, Any] | list[dict[str, Any]]) -> list[dict[str, Any]]:
