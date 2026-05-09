@@ -31,6 +31,7 @@ python3 scripts/verify.py --suite backtest-core
 python3 scripts/verify.py --suite archive-data
 python3 scripts/verify.py --suite runtime-support
 python3 scripts/verify.py --suite app-smoke
+python3 scripts/verify.py --suite workflow-meta
 python3 scripts/verify.py --suite full
 python3 scripts/verify.py --list-suites
 ```

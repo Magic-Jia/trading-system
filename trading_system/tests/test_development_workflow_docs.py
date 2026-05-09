@@ -42,6 +42,7 @@ def test_workflow_doc_lists_every_non_full_suite() -> None:
         "archive-data",
         "runtime-support",
         "app-smoke",
+        "workflow-meta",
     ):
         assert f"--suite {suite}" in text
 

@@ -74,6 +74,12 @@ SUITES: dict[str, list[str]] = {
         "trading_system/tests/test_reporting.py",
         "trading_system/tests/test_validator.py",
     ],
+    "workflow-meta": [
+        "trading_system/tests/test_development_workflow.py",
+        "trading_system/tests/test_development_workflow_docs.py",
+        "trading_system/tests/test_development_workflow_impact_map.py",
+        "trading_system/tests/test_development_workflow_worker_audit.py",
+    ],
     "full": [],
 }
 

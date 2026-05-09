@@ -144,3 +144,17 @@ def test_verify_json_requires_dry_run() -> None:
 
     assert result.returncode == 2
     assert "--json requires --dry-run" in result.stderr
+
+
+def test_verify_exposes_workflow_meta_suite() -> None:
+    result = run_verify("--list-suites")
+
+    assert result.returncode == 0, result.stderr
+    assert "workflow-meta" in result.stdout
+
+    dry_run = run_verify("--dry-run", "--suite", "workflow-meta")
+    assert dry_run.returncode == 0, dry_run.stderr
+    assert "trading_system/tests/test_development_workflow.py" in dry_run.stdout
+    assert "trading_system/tests/test_development_workflow_docs.py" in dry_run.stdout
+    assert "trading_system/tests/test_development_workflow_impact_map.py" in dry_run.stdout
+    assert "trading_system/tests/test_development_workflow_worker_audit.py" in dry_run.stdout
