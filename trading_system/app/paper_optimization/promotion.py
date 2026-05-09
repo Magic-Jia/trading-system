@@ -76,6 +76,15 @@ def _object_section(payload: Mapping[str, Any], key: str) -> dict[str, Any]:
     return dict(value)
 
 
+def _optional_section_str(section: Mapping[str, Any], key: str, *, section_name: str) -> str | None:
+    value = section.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError(f"{section_name}.{key} must be a string")
+    return value
+
+
 def materialize_env_overrides(
     recommendations_payload: Mapping[str, Any],
     *,
@@ -182,13 +191,17 @@ def build_promotion_decision(
     )
     promotion_gate = _object_section(comparison, "promotion_gate")
     decision_summary = _object_section(comparison, "decision_summary")
-    payload["status"] = str(promotion_gate.get("decision") or decision_summary.get("decision") or "hold")
+    payload["status"] = (
+        _optional_section_str(promotion_gate, "decision", section_name="promotion_gate")
+        or _optional_section_str(decision_summary, "decision", section_name="decision_summary")
+        or "hold"
+    )
     payload["decision"] = payload["status"]
     payload["baseline_bundle"] = str(baseline_bundle)
     payload["variant_bundle"] = str(variant_bundle)
     payload["promotion_gate"] = promotion_gate
     payload["decision_summary"] = decision_summary
-    payload["summary"] = str(decision_summary.get("summary") or payload["summary"])
+    payload["summary"] = _optional_section_str(decision_summary, "summary", section_name="decision_summary") or payload["summary"]
     return payload
 
 
