@@ -1381,6 +1381,22 @@ def test_walk_forward_validation_report_rejects_invalid_windows_shape() -> None:
 
 
 
+def test_engine_filter_ablation_report_rejects_invalid_metadata_counts() -> None:
+    with pytest.raises(ValueError, match="metadata.snapshot_count must be a non-negative integer"):
+        cli.render_engine_filter_ablation_report(
+            experiment_name="engine_filter_ablation",
+            metadata={"snapshot_count": True},
+            experiment={
+                "variants": {
+                    "trend_only": {
+                        "funnel": {"accepted_allocations": 1},
+                        "performance": {"bucket_level_pnl": 0.01},
+                    }
+                }
+            },
+        )
+
+
 def test_backtest_cli_writes_walk_forward_validation_bundle(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr(cli, "load_historical_dataset", lambda _dataset_root: _sample_dataset_rows(), raising=False)
     monkeypatch.setattr(

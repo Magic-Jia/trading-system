@@ -693,7 +693,7 @@ def render_engine_filter_ablation_report(
         "scorecard": {
             "metadata": _scorecard_metadata(experiment_name=experiment_name, metadata=metadata),
             "key_metrics": {
-                "snapshot_count": int(metadata.get("snapshot_count", 0)),
+                "snapshot_count": _metadata_int(metadata, "snapshot_count"),
                 "best_variant": best_variant,
                 "best_bucket_level_pnl": best_bucket_pnl,
                 "best_variant_accepted_allocations": accepted_allocations,
