@@ -259,12 +259,16 @@ def _promotion_metadata_sections(metadata: Mapping[str, Any]) -> dict[str, Any]:
     if raw is None:
         return {}
     if isinstance(raw, PromotionMetadata):
-        runtime_fields = list(raw.runtime_fields)
+        runtime_fields = _canonical_report_string_list(
+            list(raw.runtime_fields), field_name="promotion_metadata.runtime_fields"
+        )
         rollback_target = raw.rollback_target
         rollback_trigger = raw.rollback_trigger
         observation_window = raw.observation_window
     elif isinstance(raw, Mapping):
-        runtime_fields = [str(item) for item in raw.get("runtime_fields", [])]
+        runtime_fields = _canonical_report_string_list(
+            raw.get("runtime_fields", []), field_name="promotion_metadata.runtime_fields"
+        )
         rollback_target = raw.get("rollback_target")
         rollback_trigger = raw.get("rollback_trigger")
         observation_window = raw.get("observation_window")
@@ -282,6 +286,20 @@ def _promotion_metadata_sections(metadata: Mapping[str, Any]) -> dict[str, Any]:
         }
     return sections
 
+
+
+def _canonical_report_string(value: object, *, field_name: str) -> str:
+    if not isinstance(value, str):
+        raise ValueError(f"{field_name} must be a canonical string")
+    if not value or value.strip() != value:
+        raise ValueError(f"{field_name} must be a canonical string")
+    return value
+
+
+def _canonical_report_string_list(value: object, *, field_name: str) -> list[str]:
+    if not isinstance(value, list):
+        raise ValueError(f"{field_name} must be a list")
+    return [_canonical_report_string(item, field_name=f"{field_name}[]") for item in value]
 
 
 _ALLOWED_DECISIONS = {"keep_researching", "candidate_for_promotion", "reject"}
