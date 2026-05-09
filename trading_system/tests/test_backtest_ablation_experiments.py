@@ -1621,6 +1621,47 @@ def test_long_gate_telemetry_preserves_valid_trend_scorer_total(
     assert result["candidates"][0]["score"] == float(valid_total)
 
 
+@pytest.mark.parametrize("invalid_volume", [True, "123", math.nan, math.inf])
+def test_long_gate_telemetry_rejects_invalid_selected_trend_daily_volume(
+    monkeypatch: pytest.MonkeyPatch,
+    invalid_volume: object,
+) -> None:
+    row = _bullish_ablation_row()
+    row.market["symbols"]["BTCUSDT"]["daily"]["volume_usdt_24h"] = invalid_volume
+    monkeypatch.setattr(backtest_experiments.trend_signals, "symbol_derivatives_features", lambda *_args: {})
+
+    with pytest.raises(ValueError, match=r"^BTCUSDT\.daily\.volume_usdt_24h must be a finite number$"):
+        backtest_experiments._trend_candidates_with_trace(row)
+
+
+@pytest.mark.parametrize("volume", [0, 20_000_000_000])
+def test_long_gate_telemetry_preserves_valid_selected_trend_daily_volume(
+    monkeypatch: pytest.MonkeyPatch,
+    volume: int,
+) -> None:
+    row = _bullish_ablation_row()
+    row.market["symbols"]["BTCUSDT"]["daily"]["volume_usdt_24h"] = volume
+    monkeypatch.setattr(backtest_experiments.trend_signals, "symbol_derivatives_features", lambda *_args: {})
+
+    result = backtest_experiments._trend_candidates_with_trace(row)
+
+    btc_candidate = next(candidate for candidate in result["candidates"] if candidate["symbol"] == "BTCUSDT")
+    assert btc_candidate["liquidity_meta"]["volume_usdt_24h"] == float(volume)
+
+
+def test_long_gate_telemetry_preserves_missing_selected_trend_daily_volume_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    row = _bullish_ablation_row()
+    del row.market["symbols"]["BTCUSDT"]["daily"]["volume_usdt_24h"]
+    monkeypatch.setattr(backtest_experiments.trend_signals, "symbol_derivatives_features", lambda *_args: {})
+
+    result = backtest_experiments._trend_candidates_with_trace(row)
+
+    btc_candidate = next(candidate for candidate in result["candidates"] if candidate["symbol"] == "BTCUSDT")
+    assert btc_candidate["liquidity_meta"]["volume_usdt_24h"] == 0.0
+
+
 @pytest.mark.parametrize(
     ("invalid_score", "match"),
     [
@@ -1680,6 +1721,45 @@ def test_long_gate_telemetry_accepts_valid_rotation_scorer_total(
 
     assert trace["candidates"]
     assert {candidate["score"] for candidate in trace["candidates"]} == {float(valid_total)}
+
+
+@pytest.mark.parametrize("invalid_volume", [True, "123", math.nan, math.inf])
+def test_long_gate_telemetry_rejects_invalid_selected_rotation_daily_volume(
+    monkeypatch: pytest.MonkeyPatch,
+    invalid_volume: object,
+) -> None:
+    row = _supportive_soft_long_gate_row()
+    row.market["symbols"]["LINKUSDT"]["daily"]["volume_usdt_24h"] = invalid_volume
+    monkeypatch.setattr(backtest_experiments.rotation_signals, "symbol_derivatives_features", lambda *_args: {})
+
+    with pytest.raises(ValueError, match=r"^LINKUSDT\.daily\.volume_usdt_24h must be a finite number$"):
+        backtest_experiments._rotation_candidates_with_trace(row, disabled_filters=frozenset())
+
+
+@pytest.mark.parametrize("volume", [0, 1_450_000_000])
+def test_long_gate_telemetry_preserves_valid_selected_rotation_daily_volume(
+    monkeypatch: pytest.MonkeyPatch,
+    volume: int,
+) -> None:
+    row = _supportive_soft_long_gate_row()
+    row.market["symbols"]["LINKUSDT"]["daily"]["volume_usdt_24h"] = volume
+    monkeypatch.setattr(backtest_experiments.rotation_signals, "symbol_derivatives_features", lambda *_args: {})
+
+    result = backtest_experiments._rotation_candidates_with_trace(row, disabled_filters=frozenset())
+
+    assert result["candidates"][0]["liquidity_meta"]["volume_usdt_24h"] == float(volume)
+
+
+def test_long_gate_telemetry_preserves_missing_selected_rotation_daily_volume_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    row = _supportive_soft_long_gate_row()
+    del row.market["symbols"]["LINKUSDT"]["daily"]["volume_usdt_24h"]
+    monkeypatch.setattr(backtest_experiments.rotation_signals, "symbol_derivatives_features", lambda *_args: {})
+
+    result = backtest_experiments._rotation_candidates_with_trace(row, disabled_filters=frozenset())
+
+    assert result["candidates"][0]["liquidity_meta"]["volume_usdt_24h"] == 0.0
 
 
 @pytest.mark.parametrize("invalid_liquidity_meta", [[("liquidity_tier", "high")], "not-object"])

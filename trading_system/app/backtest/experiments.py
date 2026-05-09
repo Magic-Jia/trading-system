@@ -137,6 +137,19 @@ def _strict_optional_mapping_number(mapping: Mapping[str, float], key: str, *, p
     return _strict_finite_number(mapping[key], field_name=f"{path}.{key}")
 
 
+def _strict_daily_finite_number(
+    payload: Mapping[str, Any],
+    symbol: str,
+    field: str,
+    *,
+    default: float = 0.0,
+) -> float:
+    daily = trend_signals._tf_row(payload, "daily")
+    if field not in daily:
+        return default
+    return _strict_finite_number(daily[field], field_name=f"{symbol}.daily.{field}")
+
+
 def _trace_candidate_sort_score(candidate: Mapping[str, Any], *, index: int, engine: str) -> float:
     if "score" not in candidate or candidate.get("score") is None:
         return 0.0
@@ -1496,6 +1509,10 @@ def _rotation_candidates_with_trace(
     for symbol in symbols:
         rotation_signals._market_symbol_key(symbol)
     _validate_rotation_payload_sectors(symbols)
+    for symbol, payload_value in symbols.items():
+        symbol_name = rotation_signals._market_symbol_key(symbol)
+        if isinstance(payload_value, Mapping):
+            _strict_daily_finite_number(payload_value, symbol_name, "volume_usdt_24h")
 
     universes = build_universes(row.market, derivatives=row.derivatives)
     eligible = rotation_signals._rotation_symbols(universes.rotation_universe)
@@ -1582,7 +1599,7 @@ def _rotation_candidates_with_trace(
         daily = rotation_signals._tf_row(payload, "daily")
         liquidity_meta = _rotation_universe_liquidity_meta(symbol_name, universe_row)
         liquidity_meta.setdefault("liquidity_tier", payload.get("liquidity_tier"))
-        liquidity_meta["volume_usdt_24h"] = rotation_signals._to_float(daily.get("volume_usdt_24h"))
+        liquidity_meta["volume_usdt_24h"] = _strict_daily_finite_number(payload, symbol_name, "volume_usdt_24h")
 
         candidates.append(
             {
@@ -1821,7 +1838,7 @@ def _trend_candidates_with_trace(
                 "sector": sector or None,
                 "liquidity_meta": {
                     "liquidity_tier": payload.get("liquidity_tier"),
-                    "volume_usdt_24h": trend_signals._to_float(daily.get("volume_usdt_24h")),
+                    "volume_usdt_24h": _strict_daily_finite_number(payload, symbol_name, "volume_usdt_24h"),
                 },
             }
         )
