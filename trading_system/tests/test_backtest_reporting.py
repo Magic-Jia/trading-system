@@ -1556,6 +1556,25 @@ def test_allocator_friction_report_rejects_boolean_best_stressed_net_bucket_pnl(
         )
 
 
+def test_allocator_friction_report_rejects_non_list_comparison_rows() -> None:
+    with pytest.raises(ValueError, match="comparison_rows must be a list"):
+        cli.render_allocator_friction_report(
+            experiment_name="allocator_friction",
+            metadata={"snapshot_count": 1},
+            experiment={
+                "variants": {
+                    "current_allocator": {
+                        "frictions": {
+                            "base": {"net_bucket_pnl": 0.01, "cost_drag": 0.005},
+                            "stressed": {"net_bucket_pnl": 0.01},
+                        },
+                    }
+                },
+                "comparison_rows": "accepted",
+            },
+        )
+
+
 def test_backtest_cli_writes_walk_forward_validation_bundle(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr(cli, "load_historical_dataset", lambda _dataset_root: _sample_dataset_rows(), raising=False)
     monkeypatch.setattr(
