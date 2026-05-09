@@ -3067,13 +3067,17 @@ def _postmortem_failure_bucket(trade: Mapping[str, Any]) -> str:
 
 
 def _validate_postmortem_trade_execution_fields(trade: Mapping[str, Any], index: int) -> None:
-    if "execution_lag_bars" not in trade or trade.get("execution_lag_bars") is None:
-        return
     value = trade.get("execution_lag_bars")
-    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-        raise ValueError(
-            f"postmortem.trades[{index}].execution_lag_bars must be a non-negative strict integer"
-        )
+    if value is not None:
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise ValueError(
+                f"postmortem.trades[{index}].execution_lag_bars must be a non-negative strict integer"
+            )
+    value = trade.get("fill_quality")
+    if value is None:
+        return
+    if not isinstance(value, str) or not value.strip() or value != value.strip():
+        raise ValueError(f"postmortem.trades[{index}].fill_quality must be a canonical string")
 
 
 def _postmortem_dominance_bucket(
