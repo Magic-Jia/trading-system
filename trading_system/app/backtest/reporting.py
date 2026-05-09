@@ -323,15 +323,19 @@ def _canonical_report_string_list(value: object, *, field_name: str) -> list[str
 _ALLOWED_DECISIONS = {"keep_researching", "candidate_for_promotion", "reject"}
 
 
-def _summary_int(summary_payload: Mapping[str, Any], field: str, default: int = 0) -> int:
-    if field not in summary_payload:
+def _non_negative_int_field(payload: Mapping[str, Any], field: str, *, label: str, default: int = 0) -> int:
+    if field not in payload:
         return default
-    raw_value = summary_payload[field]
+    raw_value = payload[field]
     if isinstance(raw_value, bool) or not isinstance(raw_value, int):
-        raise ValueError(f"summary.{field} must be a non-negative integer")
+        raise ValueError(f"{label}.{field} must be a non-negative integer")
     if raw_value < 0:
-        raise ValueError(f"summary.{field} must be a non-negative integer")
+        raise ValueError(f"{label}.{field} must be a non-negative integer")
     return raw_value
+
+
+def _summary_int(summary_payload: Mapping[str, Any], field: str, default: int = 0) -> int:
+    return _non_negative_int_field(summary_payload, field, label="summary", default=default)
 
 
 def _summary_float(summary_payload: Mapping[str, Any], field: str, default: float = 0.0) -> float:
@@ -817,7 +821,7 @@ def render_llm_trend_breakout_report(
         "scorecard": {
             "metadata": _scorecard_metadata(experiment_name=experiment_name, metadata=metadata),
             "key_metrics": {
-                "snapshot_count": int(metadata.get("snapshot_count", 0)),
+                "snapshot_count": _non_negative_int_field(metadata, "snapshot_count", label="metadata"),
                 "technical_candidate_count": technical_candidate_count,
                 "accepted_candidate_count": accepted_candidate_count,
                 "rejected_candidate_count": rejected_candidate_count,
