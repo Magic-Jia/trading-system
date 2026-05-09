@@ -55,6 +55,20 @@ def _integer(value: Any, *, field_name: str, default: int) -> int:
         raise ValueError(f"{field_name} must be an integer") from exc
 
 
+def _recommendation_ids(recommendations: list[Any]) -> list[str]:
+    ids: list[str] = []
+    for item in recommendations:
+        if not isinstance(item, Mapping):
+            raise ValueError("recommendations entries must be objects")
+        recommendation_id = item.get("id")
+        if recommendation_id is None:
+            continue
+        if not isinstance(recommendation_id, str) or not recommendation_id:
+            raise ValueError("recommendations.id must be a string")
+        ids.append(recommendation_id)
+    return ids
+
+
 def materialize_env_overrides(
     recommendations_payload: Mapping[str, Any],
     *,
@@ -130,11 +144,7 @@ def build_promotion_decision(
         recommendations_payload,
         baseline_env=baseline_env,
     )
-    applied_ids = [
-        str(item.get("id"))
-        for item in recommendations
-        if isinstance(item, Mapping) and item.get("id")
-    ]
+    applied_ids = _recommendation_ids(recommendations)
 
     payload: dict[str, Any] = {
         "recorded_at_bj": _recorded_at_bj(recorded_at_bj),

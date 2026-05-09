@@ -320,3 +320,19 @@ def test_materialize_env_overrides_rejects_non_list_overlay_ops() -> None:
 
     with pytest.raises(ValueError, match="overlay_ops must be a list"):
         materialize_env_overrides(payload, baseline_env={})
+
+def test_build_promotion_decision_rejects_non_string_recommendation_ids() -> None:
+    import pytest
+
+    with pytest.raises(ValueError, match="recommendations.id must be a string"):
+        build_promotion_decision(
+            recommendations_payload={
+                "recommendations": [
+                    {
+                        "id": 123,
+                        "overlay_ops": [],
+                    }
+                ]
+            },
+            recorded_at_bj="2026-04-24T12:05:00+08:00",
+        )
