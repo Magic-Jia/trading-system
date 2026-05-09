@@ -13,6 +13,14 @@ _BASELINE_ACCOUNT_FILENAME = "baseline_account_snapshot.json"
 _INSTRUMENT_SNAPSHOT_FILENAME = "instrument_snapshot.json"
 _IMPORT_MANIFEST_FILENAME = "import_manifest.json"
 _ACCOUNT_NON_NEGATIVE_NUMBER_FIELDS = ("equity", "available_balance", "futures_wallet_balance")
+_ACCOUNT_IDENTITY_STRING_FIELDS = (
+    "account_id",
+    "venue",
+    "exchange",
+    "quote_currency",
+    "margin_mode",
+    "account_type",
+)
 
 
 def _parse_timestamp(value: str) -> datetime:
@@ -132,6 +140,12 @@ def _metadata_metric_map(metadata: dict, key: str) -> dict[str, float]:
 
 def _account_snapshot(account: dict, *, path: Path) -> dict:
     snapshot = dict(account)
+    for field in _ACCOUNT_IDENTITY_STRING_FIELDS:
+        if field not in snapshot:
+            continue
+        value = snapshot[field]
+        if not isinstance(value, str) or not value or value != value.strip():
+            raise ValueError(f"account.{field} must be a canonical string: {path}")
     for field in _ACCOUNT_NON_NEGATIVE_NUMBER_FIELDS:
         if field not in snapshot:
             continue

@@ -147,6 +147,36 @@ def test_load_historical_dataset_rejects_numeric_string_account_equity(tmp_path:
         load_historical_dataset(dataset_root)
 
 
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("account_id", True),
+        ("venue", ""),
+        ("exchange", " binance"),
+        ("quote_currency", "USDT "),
+        ("margin_mode", 123),
+        ("account_type", "paper\n"),
+    ],
+)
+def test_load_historical_dataset_rejects_noncanonical_present_account_identity_fields(
+    tmp_path: Path, field: str, value: object
+) -> None:
+    dataset_root = tmp_path / "sample_dataset"
+    bundle = dataset_root / "2026-03-10T00-00-00Z__sample-001"
+    bundle.mkdir(parents=True)
+    (bundle / "metadata.json").write_text(
+        '{"timestamp": "2026-03-10T00:00:00Z", "run_id": "sample-001"}',
+        encoding="utf-8",
+    )
+    (bundle / "market_context.json").write_text('{"symbols": {"BTCUSDT": {}}}', encoding="utf-8")
+    (bundle / "derivatives_snapshot.json").write_text('{"rows": []}', encoding="utf-8")
+    account_snapshot = {"equity": 100000.0, field: value}
+    (bundle / "account_snapshot.json").write_text(json.dumps(account_snapshot), encoding="utf-8")
+
+    with pytest.raises(ValueError, match=rf"account\.{field} must be a canonical string"):
+        load_historical_dataset(dataset_root)
+
+
 def test_load_historical_dataset_rejects_noncanonical_metadata_identity_fields(tmp_path: Path) -> None:
     dataset_root = tmp_path / "sample_dataset"
     bundle = dataset_root / "2026-03-10T00-00-00Z__sample-001"
