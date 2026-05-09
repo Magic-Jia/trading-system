@@ -770,39 +770,51 @@ def render_engine_filter_ablation_report(
     }
 
 
-def _top_blocker(filter_counts: Mapping[str, Any]) -> tuple[str | None, int]:
+def _top_blocker(filter_counts: Mapping[str, Any], *, label: str = "filter_counts") -> tuple[str | None, int]:
     blocker_keys = [
         key
         for key in filter_counts
-        if key != "selected" and not key.endswith("_bypassed") and float(filter_counts.get(key, 0) or 0) > 0
+        if key != "selected"
+        and not key.endswith("_bypassed")
+        and _non_negative_int_field(filter_counts, key, label=label) > 0
     ]
     if not blocker_keys:
         return None, 0
-    blocker_key = max(blocker_keys, key=lambda key: (float(filter_counts.get(key, 0) or 0), key))
-    return blocker_key, int(float(filter_counts.get(blocker_key, 0) or 0))
+    blocker_key = max(
+        blocker_keys,
+        key=lambda key: (_non_negative_int_field(filter_counts, key, label=label), key),
+    )
+    return blocker_key, _non_negative_int_field(filter_counts, blocker_key, label=label)
 
 
 
-def _top_specific_eligibility_blocker(filter_counts: Mapping[str, Any]) -> tuple[str | None, int]:
+def _top_specific_eligibility_blocker(
+    filter_counts: Mapping[str, Any], *, label: str = "filter_counts"
+) -> tuple[str | None, int]:
     eligibility_keys = [
         key
         for key in filter_counts
         if key.startswith("eligibility_")
         and key != "eligibility_filtered"
-        and float(filter_counts.get(key, 0) or 0) > 0
+        and _non_negative_int_field(filter_counts, key, label=label) > 0
     ]
     if not eligibility_keys:
         return None, 0
-    blocker_key = max(eligibility_keys, key=lambda key: (float(filter_counts.get(key, 0) or 0), key))
-    return blocker_key, int(float(filter_counts.get(blocker_key, 0) or 0))
+    blocker_key = max(
+        eligibility_keys,
+        key=lambda key: (_non_negative_int_field(filter_counts, key, label=label), key),
+    )
+    return blocker_key, _non_negative_int_field(filter_counts, blocker_key, label=label)
 
 
 
-def _dominant_long_gate_blocker(filter_counts: Mapping[str, Any]) -> tuple[str | None, int]:
-    blocker_gate, blocker_count = _top_blocker(filter_counts)
+def _dominant_long_gate_blocker(
+    filter_counts: Mapping[str, Any], *, label: str = "filter_counts"
+) -> tuple[str | None, int]:
+    blocker_gate, blocker_count = _top_blocker(filter_counts, label=label)
     if blocker_gate != "eligibility_filtered":
         return blocker_gate, blocker_count
-    specific_gate, specific_count = _top_specific_eligibility_blocker(filter_counts)
+    specific_gate, specific_count = _top_specific_eligibility_blocker(filter_counts, label=label)
     if specific_gate is None:
         return blocker_gate, blocker_count
     return specific_gate, specific_count
@@ -841,7 +853,10 @@ def render_long_gate_telemetry_report(
         raw_filter_counts = payload.get("filter_counts", {})
         if not isinstance(raw_filter_counts, Mapping):
             raise ValueError(f"engines.{engine_name}.filter_counts must be an object")
-        blocker_gate, blocker_count = _dominant_long_gate_blocker(dict(raw_filter_counts))
+        blocker_gate, blocker_count = _dominant_long_gate_blocker(
+            dict(raw_filter_counts),
+            label=f"engines.{engine_name}.filter_counts",
+        )
         if blocker_count > dominant_blocker_count:
             dominant_blocker_engine = str(engine_name)
             dominant_blocker_gate = blocker_gate
