@@ -548,6 +548,20 @@ def _rotation_candidates_for_policy(
     return candidates
 
 
+def _rotation_candidate_symbol(candidate: Mapping[str, Any], *, field_name: str) -> str:
+    symbol = candidate["symbol"]
+    if not isinstance(symbol, str):
+        raise ValueError(f"{field_name} must be a string")
+    return symbol
+
+
+def _rotation_policy_candidate_map(policy: str, candidates: Iterable[Mapping[str, Any]]) -> dict[str, Mapping[str, Any]]:
+    return {
+        _rotation_candidate_symbol(candidate, field_name=f"{policy}.candidate.symbol"): candidate
+        for candidate in candidates
+    }
+
+
 def _policy_summary(returns: list[float]) -> dict[str, float]:
     return {
         "bucket_level_pnl": round(sum(returns), 6),
@@ -575,9 +589,9 @@ def run_rotation_suppression_experiment(
         soft_candidates = _rotation_candidates_for_policy(row, policy="soft_suppression", soft_score_floor=soft_score_floor)
 
         policy_maps = {
-            "current": {str(candidate["symbol"]): candidate for candidate in current_candidates},
-            "no_suppression": {str(candidate["symbol"]): candidate for candidate in no_suppression_candidates},
-            "soft_suppression": {str(candidate["symbol"]): candidate for candidate in soft_candidates},
+            "current": _rotation_policy_candidate_map("current", current_candidates),
+            "no_suppression": _rotation_policy_candidate_map("no_suppression", no_suppression_candidates),
+            "soft_suppression": _rotation_policy_candidate_map("soft_suppression", soft_candidates),
         }
         all_symbols = sorted(set().union(*[set(policy_map) for policy_map in policy_maps.values()]))
         for symbol in all_symbols:

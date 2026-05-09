@@ -205,6 +205,24 @@ def test_rotation_suppression_experiment_rejects_non_string_regime_suppression_r
         run_rotation_suppression_experiment([row], evaluation_window="3d", soft_score_floor=0.72)
 
 
+def test_rotation_suppression_experiment_rejects_non_string_candidate_symbol(monkeypatch) -> None:
+    row = _suppressed_rotation_row(0, link_return=0.06, ada_return=-0.03)
+
+    def patched_rotation_candidates_for_policy(_row, *, policy, soft_score_floor):
+        if policy == "current":
+            return [{"symbol": 123, "score": 0.9}]
+        return [{"symbol": "LINKUSDT", "score": 0.9}]
+
+    monkeypatch.setattr(
+        backtest_experiments,
+        "_rotation_candidates_for_policy",
+        patched_rotation_candidates_for_policy,
+    )
+
+    with pytest.raises(ValueError, match=r"^current\.candidate\.symbol must be a string$"):
+        run_rotation_suppression_experiment([row], evaluation_window="3d")
+
+
 def _engine_account() -> dict[str, float | list[object]]:
     return {
         "equity": 100_000.0,
