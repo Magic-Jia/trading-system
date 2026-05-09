@@ -57,8 +57,10 @@ def test_workflow_doc_records_json_plan_and_full_checkpoint_policy() -> None:
     assert "--strict-auto-changed" in text
     assert "scripts/ci_verify.py" in text
     assert "scripts/ci_verify.py --dry-run --json" in text
+    assert "strict_changed_verification: true" in text
     assert "scripts/nightly_verify.py" in text
     assert "scripts/nightly_verify.py --dry-run --json" in text
+    assert "clean_env: true" in text
     assert "forbidden changed file" in text
     assert "explicit --changed" in text
     assert "--slice-count" in text
