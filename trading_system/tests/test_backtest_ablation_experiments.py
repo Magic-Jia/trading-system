@@ -1647,6 +1647,58 @@ def test_baseline_allocation_row_rejects_non_finite_present_rank_score(invalid_s
         )
 
 
+@pytest.mark.parametrize("invalid_budget", [True, "0.01"])
+def test_baseline_allocation_row_rejects_non_numeric_final_risk_budget(invalid_budget: object) -> None:
+    candidate = {"symbol": "BTCUSDT", "engine": "trend", "setup_type": "breakout", "score": 0.9}
+
+    with pytest.raises(ValueError, match=r"^final_risk_budget must be a finite number$"):
+        backtest_experiments._baseline_allocation_row(
+            candidate,
+            rank=1,
+            status="ACCEPTED",
+            final_risk_budget=invalid_budget,
+            baseline_name="equal_weight_baseline",
+        )
+
+
+@pytest.mark.parametrize("invalid_budget", [float("nan"), float("inf")])
+def test_baseline_allocation_row_rejects_non_finite_final_risk_budget(invalid_budget: float) -> None:
+    candidate = {"symbol": "BTCUSDT", "engine": "trend", "setup_type": "breakout", "score": 0.9}
+
+    with pytest.raises(ValueError, match=r"^final_risk_budget must be a finite number$"):
+        backtest_experiments._baseline_allocation_row(
+            candidate,
+            rank=1,
+            status="ACCEPTED",
+            final_risk_budget=invalid_budget,
+            baseline_name="equal_weight_baseline",
+        )
+
+
+@pytest.mark.parametrize(
+    ("budget", "expected"),
+    [
+        (1, 1.0),
+        (0.01234567, 0.012346),
+    ],
+)
+def test_baseline_allocation_row_preserves_valid_final_risk_budget_rounding(
+    budget: int | float,
+    expected: float,
+) -> None:
+    candidate = {"symbol": "BTCUSDT", "engine": "trend", "setup_type": "breakout", "score": 0.9}
+
+    row = backtest_experiments._baseline_allocation_row(
+        candidate,
+        rank=1,
+        status="ACCEPTED",
+        final_risk_budget=budget,
+        baseline_name="equal_weight_baseline",
+    )
+
+    assert row["final_risk_budget"] == expected
+
+
 @pytest.mark.parametrize("candidate", [{"symbol": "BTCUSDT"}, {"symbol": "BTCUSDT", "score": None}])
 def test_baseline_allocation_row_defaults_missing_rank_score(candidate: dict[str, object]) -> None:
     row = backtest_experiments._baseline_allocation_row(

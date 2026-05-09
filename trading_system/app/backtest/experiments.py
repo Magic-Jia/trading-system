@@ -1074,6 +1074,9 @@ def _baseline_allocation_row(
     reasons: list[str] | None = None,
     baseline_name: str,
 ) -> dict[str, Any]:
+    if isinstance(final_risk_budget, bool) or not isinstance(final_risk_budget, int | float):
+        raise ValueError("final_risk_budget must be a finite number")
+    budget = _finite_number(final_risk_budget, field_name="final_risk_budget")
     return {
         "symbol": candidate.get("symbol"),
         "engine": candidate.get("engine"),
@@ -1082,7 +1085,7 @@ def _baseline_allocation_row(
         "status": status,
         "rank": rank,
         "reasons": list(reasons or []),
-        "final_risk_budget": round(float(final_risk_budget), 6),
+        "final_risk_budget": round(budget, 6),
         "meta": {
             "baseline_name": baseline_name,
             "rank_score": _baseline_rank_score(candidate),
