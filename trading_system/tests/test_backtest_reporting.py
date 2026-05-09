@@ -82,6 +82,18 @@ def test_backtest_evaluation_report_rejects_invalid_walk_forward_window_count() 
         )
 
 
+def test_regime_scorecard_rejects_non_object_forward_return_window() -> None:
+    with pytest.raises(ValueError, match="by_regime.bull.forward_return_by_window must be an object"):
+        reporting.render_regime_scorecard(
+            experiment_name="regime_dispersion",
+            experiment={
+                "metadata": {"snapshot_count": 2},
+                "by_regime": {"bull": {"forward_return_by_window": []}},
+            },
+            metadata={"dataset_root": "dataset"},
+        )
+
+
 def test_regime_scorecard_rejects_non_object_regime_payload() -> None:
     with pytest.raises(ValueError, match="by_regime.bull must be an object"):
         reporting.render_regime_scorecard(

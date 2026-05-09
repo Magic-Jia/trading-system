@@ -37,8 +37,11 @@ def render_regime_scorecard(
     for label, payload in by_regime.items():
         if not isinstance(payload, Mapping):
             raise ValueError(f"by_regime.{label} must be an object")
+        forward_return_by_window = payload.get("forward_return_by_window", {})
+        if not isinstance(forward_return_by_window, Mapping):
+            raise ValueError(f"by_regime.{label}.forward_return_by_window must be an object")
         current = _report_finite_float(
-            dict(payload.get("forward_return_by_window", {})).get("3d", 0.0),
+            dict(forward_return_by_window).get("3d", 0.0),
             field_name=f"by_regime.{label}.forward_return_by_window.3d",
         )
         if best_return is None or current > best_return:
