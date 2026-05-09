@@ -90,10 +90,15 @@ def _latest_rows_by_symbol(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     latest: dict[str, dict[str, Any]] = {}
     latest_key: dict[str, tuple[str, int]] = {}
     for idx, row in enumerate(rows):
-        symbol = str(row.get("symbol") or "").upper()
+        symbol = (_optional_str(row.get("symbol"), field_name="trade_outcome.symbol") or "").upper()
         if not symbol:
             continue
-        ts = str(row.get("updated_at_bj") or row.get("recorded_at_bj") or row.get("opened_at_bj") or "")
+        ts = (
+            _optional_str(row.get("updated_at_bj"), field_name="trade_outcome.updated_at_bj")
+            or _optional_str(row.get("recorded_at_bj"), field_name="trade_outcome.recorded_at_bj")
+            or _optional_str(row.get("opened_at_bj"), field_name="trade_outcome.opened_at_bj")
+            or ""
+        )
         key = (ts, idx)
         if symbol not in latest_key or key >= latest_key[symbol]:
             latest[symbol] = row
