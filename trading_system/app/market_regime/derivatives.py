@@ -146,13 +146,20 @@ def symbol_derivatives_features(
         rows = _coerce_all_rows(derivatives)
 
     normalized_symbol = str(symbol).upper()
-    row = next((item for item in rows if str(item.get("symbol", "")).upper() == normalized_symbol), {})
+    row = next((item for item in rows if str(item.get("symbol", "")).upper() == normalized_symbol), None)
 
-    funding_rate = float(row.get("funding_rate", 0.0) or 0.0)
-    open_interest_change_24h_pct = float(row.get("open_interest_change_24h_pct", 0.0) or 0.0)
-    mark_price_change_24h_pct = float(row.get("mark_price_change_24h_pct", 0.0) or 0.0)
-    taker_buy_sell_ratio = float(row.get("taker_buy_sell_ratio", 1.0) or 1.0)
-    basis_bps = float(row.get("basis_bps", 0.0) or 0.0)
+    if row is None:
+        funding_rate = 0.0
+        open_interest_change_24h_pct = 0.0
+        mark_price_change_24h_pct = 0.0
+        taker_buy_sell_ratio = 1.0
+        basis_bps = 0.0
+    else:
+        funding_rate = _strict_number_field(row, "funding_rate")
+        open_interest_change_24h_pct = _strict_number_field(row, "open_interest_change_24h_pct")
+        mark_price_change_24h_pct = _strict_number_field(row, "mark_price_change_24h_pct")
+        taker_buy_sell_ratio = _strict_number_field(row, "taker_buy_sell_ratio")
+        basis_bps = _strict_number_field(row, "basis_bps")
     crowding_score = _crowding_score(
         funding_rate=funding_rate,
         open_interest_change_24h_pct=open_interest_change_24h_pct,

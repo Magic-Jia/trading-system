@@ -7,7 +7,7 @@ from trading_system.app.data_sources.derivatives_loader import load_derivatives_
 from trading_system.app.data_sources.market_loader import load_market_context
 from trading_system.app.market_regime.breadth import compute_breadth_metrics
 from trading_system.app.market_regime.classifier import classify_regime
-from trading_system.app.market_regime.derivatives import summarize_derivatives_risk
+from trading_system.app.market_regime.derivatives import summarize_derivatives_risk, symbol_derivatives_features
 
 
 def _high_vol_mixed_market_context() -> dict[str, object]:
@@ -263,6 +263,22 @@ def test_summarize_derivatives_risk_rejects_string_open_interest_change():
 
     with pytest.raises(ValueError, match="open_interest_change_24h_pct"):
         summarize_derivatives_risk(derivatives)
+
+
+def test_symbol_derivatives_features_rejects_string_funding_rate_for_matching_symbol():
+    derivatives = _majors_derivatives_snapshot(
+        funding_rate=0.00012,
+        open_interest_change_24h_pct=0.08,
+        taker_buy_sell_ratio=1.06,
+        basis_bps=20,
+        mark_price_change_24h_pct=0.03,
+    )
+    rows = derivatives["rows"]
+    assert isinstance(rows, list)
+    rows[0]["funding_rate"] = "0.00012"
+
+    with pytest.raises(ValueError, match="funding_rate"):
+        symbol_derivatives_features(derivatives, "BTCUSDT")
 
 
 def test_summarize_derivatives_risk_rejects_non_object_row():
