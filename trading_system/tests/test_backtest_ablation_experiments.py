@@ -1588,6 +1588,37 @@ def test_allocator_and_friction_comparisons() -> None:
     assert result["comparison_rows"]
 
 
+def test_allocation_summary_preserves_valid_accepted_budget_outputs() -> None:
+    summary = backtest_experiments._allocation_summary(
+        [
+            {"status": "ACCEPTED", "final_risk_budget": 0.015},
+            {"status": "DOWNSIZED", "final_risk_budget": 0.01},
+            {"status": "REJECTED", "final_risk_budget": 0.5},
+            {"status": "ACCEPTED"},
+        ]
+    )
+
+    assert summary == {
+        "accepted_allocations": 2,
+        "total_risk_budget": 0.025,
+        "avg_risk_budget": 0.0125,
+        "max_risk_budget": 0.015,
+        "status_breakdown": {
+            "accepted": 2,
+            "downsized": 1,
+            "rejected": 1,
+        },
+    }
+
+
+@pytest.mark.parametrize("invalid_budget", [True, "0.1", float("nan"), float("inf")])
+def test_allocation_summary_rejects_invalid_present_accepted_final_risk_budget(invalid_budget: object) -> None:
+    allocations = [{"status": "ACCEPTED", "final_risk_budget": invalid_budget}]
+
+    with pytest.raises(ValueError, match=r"^allocations\[0\]\.final_risk_budget must be a finite number$"):
+        backtest_experiments._allocation_summary(allocations)
+
+
 @pytest.mark.parametrize("input_universe", [True, "1", 1.5])
 def test_allocator_friction_experiment_rejects_invalid_engine_only_input_universe(
     monkeypatch: pytest.MonkeyPatch,

@@ -1046,12 +1046,9 @@ def _allocation_final_risk_budget(allocation: Mapping[str, Any], *, path: str) -
     if "final_risk_budget" not in allocation or allocation.get("final_risk_budget") is None:
         return 0.0
     value = allocation["final_risk_budget"]
-    if isinstance(value, bool):
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError(f"{path} must be a finite number")
-    try:
-        budget = float(value)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"{path} must be a finite number") from exc
+    budget = float(value)
     if not math.isfinite(budget):
         raise ValueError(f"{path} must be a finite number")
     return budget
@@ -1248,8 +1245,13 @@ def _allocation_performance_rows(
 
 
 def _allocation_summary(allocations: list[dict[str, Any]]) -> dict[str, Any]:
-    accepted = _accepted_allocations(allocations)
-    budgets = [float(allocation.get("final_risk_budget", 0.0) or 0.0) for allocation in accepted]
+    budgets: list[float] = []
+    for index, allocation in enumerate(allocations):
+        if _allocation_status(allocation, index=index).upper() == "REJECTED":
+            continue
+        budget = _allocation_final_risk_budget(allocation, path=f"allocations[{index}].final_risk_budget")
+        if budget > 0.0:
+            budgets.append(budget)
     status_breakdown = {
         "accepted": sum(
             1
@@ -1268,7 +1270,7 @@ def _allocation_summary(allocations: list[dict[str, Any]]) -> dict[str, Any]:
         ),
     }
     return {
-        "accepted_allocations": len(accepted),
+        "accepted_allocations": len(budgets),
         "total_risk_budget": round(sum(budgets), 6),
         "avg_risk_budget": round(mean(budgets), 6) if budgets else 0.0,
         "max_risk_budget": round(max(budgets), 6) if budgets else 0.0,
