@@ -2004,7 +2004,7 @@ def _validate_material_market_context_numeric_evidence(market_context: Mapping[s
         futures_context = symbol_context.get("futures_context")
         if not isinstance(futures_context, Mapping):
             continue
-        for field_name in ("mark_price", "funding_rate", "open_interest_usdt"):
+        for field_name in ("mark_price", "index_price", "funding_rate", "open_interest_usdt"):
             if field_name not in futures_context:
                 continue
             _material_context_numeric_field(
