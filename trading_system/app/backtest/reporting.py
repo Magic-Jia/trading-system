@@ -188,7 +188,7 @@ def _trade_ledger_payload(trade_ledger: tuple[TradeLedgerRow, ...]) -> list[dict
         {
             "symbol": _canonical_report_string(row.symbol, field_name=f"trades[{index}].symbol"),
             "market_type": _canonical_report_string(row.market_type, field_name=f"trades[{index}].market_type"),
-            "base_asset": row.base_asset,
+            "base_asset": _canonical_report_string(row.base_asset, field_name=f"trades[{index}].base_asset"),
             "side": row.side,
             "status": row.status,
             "entry_timestamp": row.entry_timestamp.isoformat(),
