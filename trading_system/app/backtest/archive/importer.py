@@ -1528,6 +1528,8 @@ def build_phase1_dataset_bundle_materials(
         )
 
         for item in symbol_series:
+            if not isinstance(item.symbol, str):
+                raise ValueError("market_context instrument_rows row symbol must be a string")
             if timestamp not in ohlcv_timestamp_sets[item.symbol]:
                 continue
             hourly_index = hourly_ohlcv_indexes[item.symbol]
