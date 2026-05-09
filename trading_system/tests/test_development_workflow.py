@@ -187,3 +187,18 @@ def test_verify_strict_auto_changed_implies_auto_changed(tmp_path: Path) -> None
 
     assert result.returncode == 2
     assert "no impacted verification tests" in result.stderr
+
+
+def test_ci_verify_entrypoint_runs_strict_workflow_and_evidence_chain() -> None:
+    script = ROOT / "scripts" / "ci_verify.py"
+
+    assert script.exists()
+    text = script.read_text()
+    assert "--strict-auto-changed" in text
+    assert "--suite workflow-meta" in text
+    assert "--suite evidence-chain" in text
+
+    result = run_verify("--dry-run", "--changed", "scripts/ci_verify.py")
+    assert result.returncode == 0, result.stderr
+    assert "trading_system/tests/test_development_workflow.py" in result.stdout
+    assert "trading_system/tests/test_development_workflow_docs.py" in result.stdout

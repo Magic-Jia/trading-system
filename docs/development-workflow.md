@@ -41,6 +41,7 @@ python3 scripts/verify.py --list-suites
 ```bash
 python3 scripts/verify.py --dry-run --json --auto-changed
 python3 scripts/verify.py --dry-run --strict-auto-changed --auto-changed
+python3 scripts/ci_verify.py
 ```
 
 The JSON payload includes `changed`, `suites`, `tests`, `commands`, `full`, and `full_checkpoint_reason`. `--json requires --dry-run`; using `--json` without `--dry-run` fails fast instead of executing tests while a caller expects JSON. Use `--strict-auto-changed` in controller/CI preflight when every changed path must map to at least one verification test. With explicit --changed paths, strict mode validates exactly those explicit `--changed` paths and does not mix in unrelated controller worktree dirtiness; without explicit paths, strict mode implies auto-discovery of changed/untracked paths.
