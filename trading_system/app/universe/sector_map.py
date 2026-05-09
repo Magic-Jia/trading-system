@@ -19,7 +19,9 @@ _DEFAULT_SECTOR = "other_uncategorized"
 
 
 def _base_asset(symbol: str) -> str:
-    upper = str(symbol).upper().strip()
+    if not isinstance(symbol, str) or not symbol or symbol.strip() != symbol:
+        raise ValueError("symbol must be a non-empty canonical string")
+    upper = symbol.upper()
     for quote in _KNOWN_QUOTES:
         if upper.endswith(quote) and len(upper) > len(quote):
             return upper[: -len(quote)]

@@ -32,6 +32,12 @@ def test_sector_for_symbol_uses_fallback_taxonomy():
     assert sector_for_symbol("DOGEUSDT")
 
 
+@pytest.mark.parametrize("bad_symbol", [123, "", "   ", " BTCUSDT "])
+def test_sector_for_symbol_rejects_noncanonical_symbols(bad_symbol):
+    with pytest.raises(ValueError, match="symbol"):
+        sector_for_symbol(bad_symbol)
+
+
 def test_passes_liquidity_filter_rejects_thin_symbols():
     assert passes_liquidity_filter(
         {
