@@ -31,6 +31,18 @@ def test_score_trend_candidate_rejects_non_string_categorical_flag():
         score_trend_candidate(candidate)
 
 
+def test_score_trend_candidate_rejects_string_numeric_volume_quality():
+    candidate = {
+        "daily_bias": "up",
+        "h4_structure": "intact",
+        "h1_trigger": "confirmed",
+        "volume_quality": "0.8",
+    }
+
+    with pytest.raises(ValueError):
+        score_trend_candidate(candidate)
+
+
 def test_generate_trend_candidates_produces_engine_candidates(load_fixture):
     market = load_fixture("market_context_v2.json")
     candidates = generate_trend_candidates(market)

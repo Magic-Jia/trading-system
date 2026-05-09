@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+from numbers import Real
 from typing import Any, Mapping
 
 TREND_SCORE_WEIGHTS: dict[str, float] = {
@@ -35,10 +37,13 @@ def _normalized_flag(value: Any, positive_values: set[str]) -> float:
 
 
 def _bounded_float(value: Any) -> float:
-    try:
-        numeric = float(value)
-    except (TypeError, ValueError):
+    if value is None:
         return 0.0
+    if isinstance(value, bool) or not isinstance(value, Real):
+        raise ValueError("score feature must be a finite non-bool number")
+    numeric = float(value)
+    if not math.isfinite(numeric):
+        raise ValueError("score feature must be finite")
     if numeric < 0.0:
         return 0.0
     if numeric > 1.0:
