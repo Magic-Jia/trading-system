@@ -108,6 +108,7 @@ def main(argv: list[str] | None = None) -> int:
         json.dumps(
             {
                 "status": "ok",
+                "audit_version": 1,
                 "audit_kind": "worker_commit_preflight",
                 "final_merge_proof": False,
                 "controller_next_steps": [
