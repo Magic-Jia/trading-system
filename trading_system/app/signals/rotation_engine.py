@@ -48,6 +48,19 @@ def _strict_present_numeric(row: Mapping[str, Any], field: str, field_path: str)
     return float(value)
 
 
+def _strict_present_liquidity_meta_numeric(
+    liquidity_meta: Mapping[str, Any],
+    field: str,
+    field_path: str,
+) -> float:
+    if field not in liquidity_meta:
+        return 0.0
+    value = liquidity_meta.get(field)
+    if isinstance(value, bool) or not isinstance(value, int | float) or not math.isfinite(value):
+        raise ValueError(f"{field_path} must be a finite non-bool number")
+    return float(value)
+
+
 def _strict_optional_sector(row: Mapping[str, Any], field_path: str) -> str:
     if "sector" not in row:
         return ""
@@ -344,9 +357,19 @@ def _liquidity_quality(payload: Mapping[str, Any], universe_row: Mapping[str, An
     daily = _tf_row(payload, "daily")
     volume = _to_float(daily.get("volume_usdt_24h"))
     liquidity_meta = _liquidity_meta(universe_row)
-    rolling_notional = _to_float(liquidity_meta.get("rolling_notional"))
+    symbol = str(universe_row.get("symbol", "")).upper().strip()
+    field_prefix = f"rotation_universe[{symbol}].liquidity_meta" if symbol else "rotation_universe.liquidity_meta"
+    rolling_notional = _strict_present_liquidity_meta_numeric(
+        liquidity_meta,
+        "rolling_notional",
+        f"{field_prefix}.rolling_notional",
+    )
     normalized_volume = min(max(volume, rolling_notional) / 1_200_000_000.0, 1.0)
-    slippage_bps = _to_float(liquidity_meta.get("slippage_bps"),)
+    slippage_bps = _strict_present_liquidity_meta_numeric(
+        liquidity_meta,
+        "slippage_bps",
+        f"{field_prefix}.slippage_bps",
+    )
     slippage_quality = 1.0 - min(slippage_bps / 25.0, 1.0)
     return max(min((normalized_volume * 0.8) + (slippage_quality * 0.2), 1.0), 0.0)
 
