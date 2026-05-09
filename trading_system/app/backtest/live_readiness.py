@@ -66,6 +66,18 @@ TRADE_ROW_FIELDS = frozenset(
 )
 VALID_TRADE_SIDES = ("long", "short")
 VALID_EXIT_REASONS = ("take_profit", "stop_loss", "stop", "tp", "fixed_horizon")
+VALID_EXECUTION_PRICE_SOURCES = (
+    "ohlcv_close",
+    "ohlcv_next_open",
+    "ohlcv_reference",
+    "best_bid",
+    "best_ask",
+    "bid_depth",
+    "ask_depth",
+    "trade_print",
+    "book_cross",
+    "no_crossing_evidence",
+)
 NOTIONAL_CONSISTENCY_ABS_TOLERANCE = 1e-9
 NOTIONAL_CONSISTENCY_REL_TOLERANCE = 1e-6
 PNL_CONSISTENCY_ABS_TOLERANCE = 1e-9
@@ -3074,10 +3086,20 @@ def _validate_postmortem_trade_execution_fields(trade: Mapping[str, Any], index:
                 f"postmortem.trades[{index}].execution_lag_bars must be a non-negative strict integer"
             )
     value = trade.get("fill_quality")
+    if value is not None and (not isinstance(value, str) or not value.strip() or value != value.strip()):
+        raise ValueError(f"postmortem.trades[{index}].fill_quality must be a canonical string")
+    value = trade.get("execution_price_source")
     if value is None:
         return
-    if not isinstance(value, str) or not value.strip() or value != value.strip():
-        raise ValueError(f"postmortem.trades[{index}].fill_quality must be a canonical string")
+    if (
+        not isinstance(value, str)
+        or not value.strip()
+        or value != value.strip()
+        or value not in VALID_EXECUTION_PRICE_SOURCES
+    ):
+        raise ValueError(
+            f"postmortem.trades[{index}].execution_price_source must be a supported canonical string"
+        )
 
 
 def _postmortem_dominance_bucket(
