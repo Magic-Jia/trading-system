@@ -29,6 +29,7 @@ TRADE_TIME_FIELDS = ("entry_time", "exit_time")
 TRADE_PRICE_FIELDS = ("entry_price", "exit_price")
 TRADE_SIZE_FIELDS = ("quantity", "notional")
 TRADE_EXIT_REASON_FIELDS = ("simulated_exit_reason", "exit_reason")
+TRADE_COST_IDENTITY_FIELDS = ("fee_currency", "cost_currency", "quote_asset", "commission_asset")
 VALID_TRADES_ARTIFACT_SCHEMA_VERSION = "trades.v1"
 VALID_SUMMARY_ARTIFACT_SCHEMA_VERSION = "backtest_summary.v1"
 TRADE_EXECUTION_COST_FIELDS = ("fee_paid", "slippage_paid")
@@ -3122,6 +3123,12 @@ def _validate_postmortem_trade_execution_fields(trade: Mapping[str, Any], index:
         not isinstance(value, str) or not value.strip() or value != value.strip() or value not in VALID_LIQUIDITY_ROLES
     ):
         raise ValueError(f"postmortem.trades[{index}].liquidity_role must be a supported canonical string")
+    for field in TRADE_COST_IDENTITY_FIELDS:
+        value = trade.get(field)
+        if value is not None and (
+            not isinstance(value, str) or not value.strip() or value != value.strip() or not re.fullmatch(r"[A-Z0-9]{2,20}", value)
+        ):
+            raise ValueError(f"postmortem.trades[{index}].{field} must be a supported canonical asset string")
 
 
 def _postmortem_dominance_bucket(

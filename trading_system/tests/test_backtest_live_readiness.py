@@ -229,6 +229,29 @@ def test_trade_postmortem_rejects_noncanonical_fill_model(fill_model: object) ->
         summarize_trade_postmortem([trade])
 
 
+@pytest.mark.parametrize("field", ["fee_currency", "cost_currency", "quote_asset", "commission_asset"])
+@pytest.mark.parametrize("value", [123, "", " USDT ", "USD.T"])
+def test_trade_postmortem_rejects_malformed_present_cost_identity_fields(field: str, value: object) -> None:
+    trade = {
+        "symbol": "BTCUSDT",
+        "setup_type": "TREND_PULLBACK",
+        "net_pnl": -1.0,
+        "gross_pnl": -1.0,
+        "fee_paid": 0.0,
+        "slippage_paid": 0.0,
+        "funding_paid": 0.0,
+        "mfe_pct": 0.0,
+        "mae_pct": 0.0,
+        field: value,
+    }
+
+    with pytest.raises(
+        ValueError,
+        match=rf"postmortem\.trades\[1\]\.{field} must be a supported canonical asset string",
+    ):
+        summarize_trade_postmortem([trade])
+
+
 def test_stdout_concentration_summary_rejects_non_strict_bucket() -> None:
     report = {
         "concentration": {
