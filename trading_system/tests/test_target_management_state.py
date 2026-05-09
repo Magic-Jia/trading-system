@@ -276,6 +276,22 @@ def test_terminalize_all_unreachable_stages_rejects_present_non_string_target_st
         terminalize_all_unreachable_stages(payload)
 
 
+def test_terminalize_all_unreachable_stages_rejects_present_numeric_string_original_qty():
+    with pytest.raises(ValueError, match="original_position_qty must be a finite non-bool number when present"):
+        terminalize_all_unreachable_stages(
+            {
+                "symbol": "BTCUSDT",
+                "side": "LONG",
+                "qty": 0.01,
+                "original_position_qty": "2.0",
+                "remaining_position_qty": 0.01,
+                "symbol_step_size": 0.01,
+                "first_target_status": "pending",
+                "second_target_status": "pending",
+            }
+        )
+
+
 @pytest.mark.parametrize(
     "position, message",
     [

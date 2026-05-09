@@ -268,26 +268,26 @@ def _valid_frozen_target_order(position: Mapping[str, Any], *, first_target_pric
 
 def _stage_unreachable(position: Mapping[str, Any], *, stage: str) -> bool:
     fraction = FIRST_STAGE_FRACTION if stage == "first" else SECOND_STAGE_FRACTION
-    original_qty = _float(position.get("original_position_qty")) or 0.0
+    original_qty = _present_finite_number(position, "original_position_qty") or 0.0
     if original_qty <= 0:
         return False
 
-    filled_qty = _float(position.get(f"{stage}_target_filled_qty")) or 0.0
+    filled_qty = _present_finite_number(position, f"{stage}_target_filled_qty") or 0.0
     target_qty = original_qty * fraction
     stage_remaining_qty = max(target_qty - filled_qty, 0.0)
 
-    step_size = _float(position.get("symbol_step_size"))
+    step_size = _present_finite_number(position, "symbol_step_size")
     epsilon = _qty_epsilon(step_size)
     if stage_remaining_qty <= epsilon:
         return False
 
-    remaining_qty = _float(position.get("remaining_position_qty"))
+    remaining_qty = _present_finite_number(position, "remaining_position_qty")
     if remaining_qty is None:
-        remaining_qty = _float(position.get("qty")) or 0.0
+        remaining_qty = _present_finite_number(position, "qty") or 0.0
 
     raw_executable = min(stage_remaining_qty, max(remaining_qty, 0.0))
     rounded_executable = _floor_to_step(raw_executable, step_size)
-    min_order_qty = _float(position.get("min_order_qty"))
+    min_order_qty = _present_finite_number(position, "min_order_qty")
 
     if remaining_qty <= epsilon:
         return True
