@@ -1329,6 +1329,24 @@ def test_public_strategy_factor_report_rejects_invalid_effectiveness_numeric_met
         )
 
 
+def test_public_strategy_factor_report_rejects_invalid_effectiveness_snapshot_fallback() -> None:
+    with pytest.raises(ValueError, match="metadata.snapshot_count must be a non-negative integer"):
+        reporting.render_public_strategy_factor_report(
+            experiment_name="public_strategy_factors",
+            experiment={
+                "summary": {
+                    "supported_factor_count": 0,
+                    "unsupported_factor_count": 0,
+                    "data_gap_count": 0,
+                    "evaluated_factor_count": 0,
+                    "effective_factor_count": 0,
+                },
+                "factors": [],
+            },
+            metadata={"snapshot_count": True},
+        )
+
+
 def test_public_strategy_factor_report_surfaces_effectiveness_counts() -> None:
     report = reporting.render_public_strategy_factor_report(
         experiment_name="public_strategy_factors",

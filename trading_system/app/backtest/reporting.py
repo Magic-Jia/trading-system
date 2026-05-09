@@ -349,6 +349,10 @@ def _summary_int(summary_payload: Mapping[str, Any], field: str, default: int = 
     return _non_negative_int_field(summary_payload, field, label="summary", default=default)
 
 
+def _metadata_int(metadata: Mapping[str, Any], field: str, default: int = 0) -> int:
+    return _non_negative_int_field(metadata, field, label="metadata", default=default)
+
+
 def _summary_float(summary_payload: Mapping[str, Any], field: str, default: float = 0.0) -> float:
     if field not in summary_payload:
         return default
@@ -405,7 +409,7 @@ def _public_strategy_factor_sample_count(
             )
     if evaluated_sample_counts:
         return min(evaluated_sample_counts)
-    return int(metadata.get("snapshot_count", 0))
+    return _metadata_int(metadata, "snapshot_count")
 
 
 def _effectiveness_float(effectiveness: Mapping[str, Any], field: str, *, default: float = 0.0) -> float:
@@ -818,7 +822,7 @@ def render_public_strategy_factor_report(
         "scorecard": {
             "metadata": _scorecard_metadata(experiment_name=experiment_name, metadata=metadata),
             "key_metrics": {
-                "snapshot_count": _summary_int(metadata, "snapshot_count"),
+                "snapshot_count": _metadata_int(metadata, "snapshot_count"),
                 "supported_factor_count": supported_factor_count,
                 "unsupported_factor_count": unsupported_factor_count,
                 "data_gap_count": _summary_int(summary_payload, "data_gap_count"),
