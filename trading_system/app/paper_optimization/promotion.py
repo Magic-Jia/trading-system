@@ -49,7 +49,7 @@ def materialize_env_overrides(
             continue
         for raw_op in overlay_ops:
             if not isinstance(raw_op, Mapping):
-                continue
+                raise ValueError("overlay_ops entries must be objects")
             env_name = str(raw_op.get("env") or "").strip()
             if not env_name:
                 continue

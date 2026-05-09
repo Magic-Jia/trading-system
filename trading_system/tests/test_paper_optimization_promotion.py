@@ -177,3 +177,18 @@ def test_write_promotion_decision_persists_json_payload(tmp_path) -> None:
     assert written == payload
     assert written["decision"] == "awaiting_backtest"
     assert written["variant"]["env_overrides"] == {"TRADING_MAX_TOTAL_RISK_PCT": "0.024"}
+
+def test_materialize_env_overrides_rejects_non_object_overlay_ops() -> None:
+    payload = {
+        "recommendations": [
+            {
+                "id": "bad-overlay",
+                "overlay_ops": ["not-an-object"],
+            }
+        ]
+    }
+
+    import pytest
+
+    with pytest.raises(ValueError, match="overlay_ops entries must be objects"):
+        materialize_env_overrides(payload, baseline_env={})
