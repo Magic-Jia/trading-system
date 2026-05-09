@@ -289,3 +289,17 @@ def test_collect_trade_outcomes_rejects_invalid_present_filled_qty(tmp_path: Pat
             runtime_positions={},
             paper_ledger_path=ledger_path,
         )
+
+def test_collect_trade_outcomes_rejects_malformed_signal_fact_jsonl(tmp_path: Path) -> None:
+    paths = build_runtime_paths("paper", runtime_root=tmp_path / "runtime", runtime_env="research")
+    module = _outcomes_module()
+    paths.signal_facts_file.parent.mkdir(parents=True, exist_ok=True)
+    paths.signal_facts_file.write_text("not-json\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="signal_facts.jsonl:1 must be valid JSON"):
+        module.collect_trade_outcomes(
+            trade_outcomes_path=paths.trade_outcomes_file,
+            runtime_positions={},
+            signal_facts_path=paths.signal_facts_file,
+            paper_ledger_path=None,
+        )
