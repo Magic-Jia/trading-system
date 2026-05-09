@@ -84,6 +84,37 @@ def test_evaluate_exit_policy_rejects_non_bool_invalidation_flag():
         )
 
 
+@pytest.mark.parametrize(
+    ("field_name", "value"),
+    [
+        ("invalidation_source", 123),
+        ("invalidation_reason", True),
+    ],
+)
+def test_evaluate_exit_policy_rejects_present_non_string_invalidation_fields(field_name, value):
+    with pytest.raises(ValueError, match=f"{field_name} must be a string when present"):
+        evaluate_exit_policy(_position(**{field_name: value}))
+
+
+@pytest.mark.parametrize(
+    ("field_name", "value"),
+    [
+        ("invalidation_source", None),
+        ("invalidation_reason", ""),
+    ],
+)
+def test_evaluate_exit_policy_omits_blank_or_none_invalidation_fields(field_name, value):
+    decisions = evaluate_exit_policy(
+        _position(
+            mark_price=110.0,
+            take_profit=110.0,
+            **{field_name: value},
+        )
+    )
+
+    assert field_name not in decisions[0].meta
+
+
 def test_evaluate_exit_policy_emits_defensive_regime_de_risking_when_trade_is_in_profit():
     decisions = evaluate_exit_policy(
         _position(
@@ -112,6 +143,18 @@ def test_evaluate_exit_policy_emits_defensive_regime_de_risking_when_trade_is_in
             },
         )
     ]
+
+
+def test_evaluate_exit_policy_rejects_present_non_string_regime_execution_policy():
+    with pytest.raises(ValueError, match="regime.execution_policy must be a string when present"):
+        evaluate_exit_policy(
+            _position(mark_price=104.0, stop_loss=95.0),
+            regime={
+                "label": "CRASH_DEFENSIVE",
+                "execution_policy": 123,
+                "risk_multiplier": 0.35,
+            },
+        )
 
 
 def test_evaluate_exit_policy_emits_first_and_second_partials_in_order_on_gap_through_second_target():
@@ -235,6 +278,18 @@ def test_evaluate_exit_policy_rejects_present_non_string_target_status_fields(fi
                 first_target_price=105.0,
                 second_target_price=110.0,
                 **{field_name: value},
+            )
+        )
+
+
+@pytest.mark.parametrize("field_name", ["first_target_status", "second_target_status"])
+def test_evaluate_exit_policy_rejects_unknown_target_status_values(field_name):
+    with pytest.raises(ValueError, match=f"{field_name} must be one of"):
+        evaluate_exit_policy(
+            _position(
+                first_target_price=105.0,
+                second_target_price=110.0,
+                **{field_name: "unexpected"},
             )
         )
 

@@ -19,6 +19,7 @@ class ExitDecision:
 
 
 _OPEN_STATUSES = {None, "OPEN", "FILLED", "SENT"}
+_TARGET_STATUSES = {"pending", "filled", "satisfied_by_external_reduction"}
 
 
 def _is_open(position: Mapping[str, Any]) -> bool:
@@ -76,8 +77,8 @@ def _risk_unit(side: str, entry_price: float, stop_loss: float | None) -> float:
 
 def _invalidation_fields(position: Mapping[str, Any]) -> dict[str, Any]:
     payload: dict[str, Any] = {}
-    invalidation_source = str(position.get("invalidation_source") or "").strip()
-    invalidation_reason = str(position.get("invalidation_reason") or "").strip()
+    invalidation_source = _optional_string(position, "invalidation_source").strip()
+    invalidation_reason = _optional_string(position, "invalidation_reason").strip()
     if invalidation_source:
         payload["invalidation_source"] = invalidation_source
     if invalidation_reason:
@@ -87,8 +88,8 @@ def _invalidation_fields(position: Mapping[str, Any]) -> dict[str, Any]:
 
 def _invalidation_reason_with_context(position: Mapping[str, Any]) -> str | None:
     invalidation_meta = _invalidation_fields(position)
-    invalidation_source = str(invalidation_meta.get("invalidation_source") or "").strip()
-    invalidation_reason = str(invalidation_meta.get("invalidation_reason") or "").strip()
+    invalidation_source = _optional_string(invalidation_meta, "invalidation_source").strip()
+    invalidation_reason = _optional_string(invalidation_meta, "invalidation_reason").strip()
     if invalidation_reason and invalidation_source:
         return f"{invalidation_reason}（{invalidation_source}）"
     if invalidation_reason:
@@ -108,8 +109,8 @@ def _defensive_regime(regime: Mapping[str, Any] | None) -> bool:
 
 
 def _target_fields(position: Mapping[str, Any]) -> dict[str, Any]:
-    first_target_status = _optional_string(position, "first_target_status") or "pending"
-    second_target_status = _optional_string(position, "second_target_status") or "pending"
+    first_target_status = _target_status(position, "first_target_status")
+    second_target_status = _target_status(position, "second_target_status")
     return {
         "first_target_price": _optional_number(position, "first_target_price"),
         "second_target_price": _optional_number(position, "second_target_price"),
@@ -118,6 +119,14 @@ def _target_fields(position: Mapping[str, Any]) -> dict[str, Any]:
         "runner_protected": _optional_bool(position, "runner_protected"),
         "runner_stop_price": _optional_number(position, "runner_stop_price"),
     }
+
+
+def _target_status(position: Mapping[str, Any], field_name: str) -> str:
+    value = _optional_string(position, field_name) or "pending"
+    if value not in _TARGET_STATUSES:
+        allowed = ", ".join(sorted(_TARGET_STATUSES))
+        raise ValueError(f"{field_name} must be one of: {allowed}")
+    return value
 
 
 def _first_target_decision(mark_price: float, first_target_price: float, invalidation_meta: dict[str, Any]) -> ExitDecision:
@@ -295,7 +304,7 @@ def evaluate_exit_policy(
     )
     if _defensive_regime(regime) and in_profit and sufficiently_in_profit and not has_triggerable_pending_target_stage:
         label = _optional_string(regime or {}, "label", prefix="regime.")
-        execution_policy = str((regime or {}).get("execution_policy") or "")
+        execution_policy = _optional_string(regime or {}, "execution_policy", prefix="regime.")
         risk_multiplier = _optional_number(regime or {}, "risk_multiplier", prefix="regime.")
         decisions.append(
             ExitDecision(
