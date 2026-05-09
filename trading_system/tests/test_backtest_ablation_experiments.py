@@ -576,6 +576,19 @@ def test_engine_ablation_rejects_non_string_rotation_candidate_sector(monkeypatc
         backtest_experiments._rotation_candidates_with_trace(row, disabled_filters=frozenset())
 
 
+def test_engine_ablation_rejects_non_string_trend_payload_sector() -> None:
+    row = _majors_soft_trend_row()
+    payload = row.market["symbols"]["BTCUSDT"]
+    payload["sector"] = True
+
+    with pytest.raises(ValueError, match=r"^BTCUSDT\.sector must be a string when present$"):
+        backtest_experiments._trend_structure_intact(
+            payload,
+            symbol="BTCUSDT",
+            soft_daily_for_majors=True,
+        )
+
+
 def test_majors_soft_trend_relaxes_daily_structure_only_for_majors() -> None:
     result = run_engine_filter_ablation_experiment([_majors_soft_trend_row()], evaluation_window="3d")
 

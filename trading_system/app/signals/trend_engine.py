@@ -102,7 +102,7 @@ def _optional_string_field(symbol: str, payload: Mapping[str, Any], field: str) 
     if value is None:
         return ""
     if not isinstance(value, str):
-        raise ValueError(f"{symbol}.{field} must be a string")
+        raise ValueError(f"{symbol}.{field} must be a string when present")
     return value
 
 

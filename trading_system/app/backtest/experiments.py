@@ -1232,6 +1232,8 @@ def _trend_daily_reclaim_gap_pct(payload: Mapping[str, Any]) -> float | None:
 def _trend_structure_intact(
     payload: Mapping[str, Any],
     *,
+    symbol: str = "trend_payload",
+    sector: str | None = None,
     soft_daily_for_majors: bool = False,
     majors_reclaim_max_gap_pct: float | None = None,
 ) -> bool:
@@ -1247,7 +1249,8 @@ def _trend_structure_intact(
     h1_intact = (
         trend_signals._to_float(h1.get("close")) >= trend_signals._to_float(h1.get("ema_20")) >= trend_signals._to_float(h1.get("ema_50"))
     )
-    sector = str(payload.get("sector", ""))
+    if sector is None:
+        sector, _ = trend_signals._payload_categories(symbol, payload)
     if majors_reclaim_max_gap_pct is not None and sector == trend_signals._MAJOR_SECTOR:
         reclaim_gap_pct = _trend_daily_reclaim_gap_pct(payload)
         daily_intact = (
@@ -1310,6 +1313,8 @@ def _trend_candidates_with_trace(
         h1 = trend_signals._tf_row(payload, "1h")
         if not _trend_structure_intact(
             payload,
+            symbol=symbol_name,
+            sector=sector,
             soft_daily_for_majors=soft_daily_for_majors,
             majors_reclaim_max_gap_pct=majors_reclaim_max_gap_pct,
         ) and not soft_non_major_pretrend:
