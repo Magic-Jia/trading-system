@@ -192,6 +192,19 @@ def test_suppression_policy_comparison() -> None:
     assert result["rotation_comparison_rows"]
 
 
+def test_rotation_suppression_experiment_rejects_non_string_regime_suppression_rules(monkeypatch) -> None:
+    row = _suppressed_rotation_row(0, link_return=0.06, ada_return=-0.03)
+    row.meta["regime_override"]["suppression_rules"] = [True]
+
+    def no_candidates(*args, **kwargs):
+        return []
+
+    monkeypatch.setattr(backtest_experiments, "generate_rotation_candidates", no_candidates)
+
+    with pytest.raises(ValueError, match=r"regime\.suppression_rules"):
+        run_rotation_suppression_experiment([row], evaluation_window="3d", soft_score_floor=0.72)
+
+
 def _engine_account() -> dict[str, float | list[object]]:
     return {
         "equity": 100_000.0,

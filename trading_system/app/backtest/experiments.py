@@ -502,10 +502,16 @@ def run_regime_predictive_power_experiment(rows: Iterable[DatasetSnapshotRow]) -
 
 def _rotation_regime_variant(regime: Mapping[str, Any], *, policy: str) -> dict[str, Any]:
     variant = dict(regime)
-    rules = [str(rule) for rule in list(variant.get("suppression_rules", []))]
-    rules = [rule for rule in rules if rule.lower() != "rotation"]
+    raw_rules = variant.get("suppression_rules", [])
+    if isinstance(raw_rules, list):
+        for index, rule in enumerate(raw_rules):
+            if not isinstance(rule, str):
+                raise ValueError(f"regime.suppression_rules[{index}] must be a string")
+        rules = [rule for rule in raw_rules if rule.lower() != "rotation"]
+    else:
+        rules = []
     if policy == "current":
-        variant["suppression_rules"] = list(regime.get("suppression_rules", []))
+        variant["suppression_rules"] = list(raw_rules) if isinstance(raw_rules, list) else raw_rules
     else:
         variant["suppression_rules"] = rules
     return variant
