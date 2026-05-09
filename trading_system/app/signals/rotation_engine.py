@@ -88,6 +88,12 @@ def _strict_present_derivatives_string(features: Mapping[str, Any], field: str, 
     return value
 
 
+def _market_symbol_key(symbol: Any) -> str:
+    if not isinstance(symbol, str):
+        raise ValueError("market.symbols key must be a string")
+    return symbol
+
+
 def _payload_sector(symbol: str, payload: Mapping[str, Any]) -> str:
     return _strict_optional_sector(payload, f"{symbol}.sector")
 
@@ -159,11 +165,11 @@ def _major_proxy_returns(market_context: Mapping[str, Any]) -> dict[str, float]:
     if not isinstance(symbols, Mapping):
         return {"daily": 0.0, "4h": 0.0, "1h": 0.0}
 
-    majors = [
-        (str(symbol).upper(), payload)
-        for symbol, payload in symbols.items()
-        if str(symbol).upper() in {"BTCUSDT", "ETHUSDT"}
-    ]
+    majors: list[tuple[str, Any]] = []
+    for symbol, payload in symbols.items():
+        symbol_name = _market_symbol_key(symbol).upper()
+        if symbol_name in {"BTCUSDT", "ETHUSDT"}:
+            majors.append((symbol_name, payload))
     if not majors:
         return {"daily": 0.0, "4h": 0.0, "1h": 0.0}
 
@@ -540,7 +546,7 @@ def generate_rotation_candidates(
         if not _passes_reacceleration_h1_extension_gate(payload, setup_type):
             continue
 
-        derivatives_features = symbol_derivatives_features(derivatives, str(symbol))
+        derivatives_features = symbol_derivatives_features(derivatives, symbol)
         if _reject_overheated_crowded_leader(symbol, derivatives_features, payload):
             continue
 

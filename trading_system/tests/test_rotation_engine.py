@@ -500,6 +500,22 @@ def test_generate_rotation_candidates_rejects_present_non_string_payload_sector(
         )
 
 
+def test_generate_rotation_candidates_rejects_non_string_market_symbol_key():
+    market = _soft_rotation_reclaim_market()
+    market["symbols"] = {
+        "BTCUSDT": market["symbols"]["BTCUSDT"],
+        "ETHUSDT": market["symbols"]["ETHUSDT"],
+        123: market["symbols"]["SOLUSDT"],
+    }
+
+    with pytest.raises(ValueError, match=r"market\.symbols key must be a string"):
+        generate_rotation_candidates(
+            market,
+            rotation_universe=[{"symbol": "SOLUSDT", "sector": "alt_l1", "liquidity_tier": "high"}],
+            regime={"label": "RISK_ON_ROTATION", "suppression_rules": []},
+        )
+
+
 def test_generate_rotation_candidates_rejects_present_non_object_liquidity_meta():
     with pytest.raises(ValueError, match=r"rotation_universe\.liquidity_meta"):
         generate_rotation_candidates(

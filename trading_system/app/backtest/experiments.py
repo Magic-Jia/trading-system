@@ -977,18 +977,20 @@ def _rotation_candidates_with_trace(
     if rotation_signals._rotation_suppressed(regime):
         return {"input_universe": 0, "candidates": [], "filter_counts": {"rotation_suppressed": 1}}
 
-    universes = build_universes(row.market, derivatives=row.derivatives)
-    eligible = rotation_signals._rotation_symbols(universes.rotation_universe)
     symbols = row.market.get("symbols")
     if not isinstance(symbols, Mapping):
         return {"input_universe": 0, "candidates": [], "filter_counts": {}}
+    for symbol in symbols:
+        rotation_signals._market_symbol_key(symbol)
 
+    universes = build_universes(row.market, derivatives=row.derivatives)
+    eligible = rotation_signals._rotation_symbols(universes.rotation_universe)
     proxy = rotation_signals._major_proxy_returns(row.market)
     filter_counts: dict[str, int] = defaultdict(int)
     candidates: list[dict[str, Any]] = []
     symbol_rows: dict[str, dict[str, Any]] = {}
     for symbol, universe_row in eligible.items():
-        symbol_name = str(symbol)
+        symbol_name = rotation_signals._market_symbol_key(symbol)
         payload_value = symbols.get(symbol)
         if not isinstance(payload_value, Mapping):
             filter_counts["missing_payload"] += 1
@@ -1018,7 +1020,7 @@ def _rotation_candidates_with_trace(
             filter_counts["overheat_bypassed"] += 1
             _bump_symbol_filter(symbol_rows, symbol_name, "overheat_bypassed")
 
-        derivatives_features = rotation_signals.symbol_derivatives_features(row.derivatives, str(symbol))
+        derivatives_features = rotation_signals.symbol_derivatives_features(row.derivatives, symbol_name)
         if rotation_signals._reject_overheated_crowded_leader(symbol_name, derivatives_features, payload):
             filter_counts["crowding_filtered"] += 1
             _bump_symbol_filter(symbol_rows, symbol_name, "crowding_filtered")

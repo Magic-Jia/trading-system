@@ -656,6 +656,18 @@ def test_long_gate_telemetry_rejects_non_string_trend_symbol_key() -> None:
         backtest_experiments._trend_candidates_with_trace(row)
 
 
+def test_long_gate_telemetry_rejects_non_string_rotation_symbol_key() -> None:
+    row = _supportive_soft_long_gate_row()
+    row.market["symbols"] = {
+        "BTCUSDT": row.market["symbols"]["BTCUSDT"],
+        "ETHUSDT": row.market["symbols"]["ETHUSDT"],
+        123: row.market["symbols"]["LINKUSDT"],
+    }
+
+    with pytest.raises(ValueError, match=r"market\.symbols key must be a string"):
+        backtest_experiments._rotation_candidates_with_trace(row, disabled_filters=frozenset())
+
+
 def _supportive_soft_long_gate_row(regime_label: str = "RISK_ON_ROTATION") -> DatasetSnapshotRow:
     market = {
         "symbols": {
