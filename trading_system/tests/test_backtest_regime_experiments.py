@@ -171,6 +171,39 @@ def test_regime_predictive_power_experiment_preserves_valid_and_default_regime_n
     assert result["metadata"] == {"snapshot_count": 1, "regime_count": 1}
 
 
+@pytest.mark.parametrize("invalid_value", [True, "0.01", float("nan"), float("inf")])
+def test_regime_predictive_power_experiment_rejects_invalid_forward_return_value(
+    invalid_value: object,
+) -> None:
+    row = _row(0, risk_on=True, forward_1d=0.018, forward_3d=0.042, drawdown_3d=-0.01)
+    row.forward_returns["3d"] = invalid_value  # type: ignore[assignment]
+
+    with pytest.raises(ValueError, match=r"^forward_returns\.3d must be a finite number$"):
+        run_regime_predictive_power_experiment([row])
+
+
+@pytest.mark.parametrize("invalid_value", [True, "-0.01", float("nan"), float("inf")])
+def test_regime_predictive_power_experiment_rejects_invalid_forward_drawdown_value(
+    invalid_value: object,
+) -> None:
+    row = _row(0, risk_on=True, forward_1d=0.018, forward_3d=0.042, drawdown_3d=-0.01)
+    row.forward_drawdowns["3d"] = invalid_value  # type: ignore[assignment]
+
+    with pytest.raises(ValueError, match=r"^forward_drawdowns\.3d must be a finite number$"):
+        run_regime_predictive_power_experiment([row])
+
+
+def test_regime_predictive_power_experiment_preserves_valid_forward_metrics_and_missing_windows() -> None:
+    row = _row(0, risk_on=True, forward_1d=1, forward_3d=0.042, drawdown_3d=-1)
+    row.forward_returns.pop("1d")
+    row.forward_drawdowns.pop("3d")
+
+    result = run_regime_predictive_power_experiment([row])
+
+    assert result["by_regime"]["RISK_ON_TREND"]["forward_return_by_window"]["3d"] == 0.042
+    assert result["by_regime"]["RISK_ON_TREND"]["forward_drawdown_by_window"] == {}
+
+
 
 def test_regime_scorecard_rendering(tmp_path: Path) -> None:
     rows = [

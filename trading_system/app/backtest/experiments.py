@@ -120,6 +120,23 @@ def _optional_strict_finite_number(regime: Mapping[str, Any], field: str, *, def
     return _strict_finite_number(value, field_name=f"regime.{field}")
 
 
+def _strict_finite_number_mapping(value: Any, *, path: str) -> dict[str, float]:
+    if not isinstance(value, Mapping):
+        raise ValueError(f"{path} must be an object")
+    result: dict[str, float] = {}
+    for key, item in value.items():
+        if not isinstance(key, str):
+            raise ValueError(f"{path} keys must be strings")
+        result[key] = _strict_finite_number(item, field_name=f"{path}.{key}")
+    return result
+
+
+def _strict_optional_mapping_number(mapping: Mapping[str, float], key: str, *, path: str, default: float = 0.0) -> float:
+    if key not in mapping:
+        return default
+    return _strict_finite_number(mapping[key], field_name=f"{path}.{key}")
+
+
 def _trace_candidate_sort_score(candidate: Mapping[str, Any], *, index: int, engine: str) -> float:
     if "score" not in candidate or candidate.get("score") is None:
         return 0.0
@@ -511,14 +528,18 @@ def run_regime_predictive_power_experiment(rows: Iterable[DatasetSnapshotRow]) -
         labels.append(label)
         aggression = _aggression_from_regime(regime)
         confidence = _optional_strict_finite_number(regime, "confidence")
-        grouped[label]["returns"].append(dict(row.forward_returns))
-        grouped[label]["drawdowns"].append(dict(row.forward_drawdowns))
+        forward_returns = _strict_finite_number_mapping(row.forward_returns, path="forward_returns")
+        forward_drawdowns = _strict_finite_number_mapping(row.forward_drawdowns, path="forward_drawdowns")
+        grouped[label]["returns"].append(forward_returns)
+        grouped[label]["drawdowns"].append(forward_drawdowns)
         grouped[label]["confidence"].append(confidence)
         grouped[label]["aggression"].append(aggression)
 
         bucket_name = f"{_confidence_bucket(confidence)}|{_aggression_bucket(aggression)}"
         confidence_aggression_summary[bucket_name]["count"] += 1
-        confidence_aggression_summary[bucket_name]["forward_return_3d"].append(float(row.forward_returns.get("3d", 0.0)))
+        confidence_aggression_summary[bucket_name]["forward_return_3d"].append(
+            _strict_optional_mapping_number(forward_returns, "3d", path="forward_returns")
+        )
 
     by_regime = {
         label: {
