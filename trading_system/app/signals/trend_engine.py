@@ -39,12 +39,22 @@ def _to_float(value: Any) -> float:
 
 
 def _is_finite_number(value: Any) -> bool:
-    if isinstance(value, bool):
+    if isinstance(value, bool) or not isinstance(value, int | float):
         return False
-    try:
-        return math.isfinite(float(value))
-    except (TypeError, ValueError):
-        return False
+    return math.isfinite(value)
+
+
+def _validate_required_trend_numerics(symbol: str, payload: Mapping[str, Any]) -> bool:
+    complete = True
+    for timeframe, fields in _REQUIRED_TREND_NUMERIC_FIELDS.items():
+        row = _tf_row(payload, timeframe)
+        for field in fields:
+            if field not in row:
+                complete = False
+                continue
+            if not _is_finite_number(row[field]):
+                raise ValueError(f"{symbol}.{timeframe}.{field} must be a finite non-bool number")
+    return complete
 
 
 def _has_required_trend_numerics(payload: Mapping[str, Any]) -> bool:
@@ -322,7 +332,7 @@ def generate_trend_candidates(
         if not isinstance(payload_value, Mapping):
             continue
         payload = payload_value
-        if not _has_required_trend_numerics(payload):
+        if not _validate_required_trend_numerics(str(symbol), payload):
             continue
         sector = str(payload.get("sector", ""))
         is_major = sector == _MAJOR_SECTOR

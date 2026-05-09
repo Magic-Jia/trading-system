@@ -286,13 +286,24 @@ def test_generate_trend_candidates_rejects_invalid_required_numeric_boundaries()
         market = _modest_positive_trend_market()
         market["symbols"]["BTCUSDT"][timeframe][field] = invalid_value
 
-        candidates = generate_trend_candidates(
+        with pytest.raises(ValueError, match=f"BTCUSDT.{timeframe}.{field}"):
+            generate_trend_candidates(
+                market,
+                include_high_liquidity_strong_names=False,
+                entry_profile=ACTIVE_PAPER_ENTRY_PROFILE,
+            )
+
+
+def test_generate_trend_candidates_rejects_present_string_numeric_required_field():
+    market = _modest_positive_trend_market()
+    market["symbols"]["BTCUSDT"]["daily"]["close"] = "100"
+
+    with pytest.raises(ValueError, match="BTCUSDT.daily.close"):
+        generate_trend_candidates(
             market,
             include_high_liquidity_strong_names=False,
             entry_profile=ACTIVE_PAPER_ENTRY_PROFILE,
         )
-
-        assert candidates == []
 
 
 def _active_paper_shallow_h1_pullback_trend_market() -> dict[str, object]:
