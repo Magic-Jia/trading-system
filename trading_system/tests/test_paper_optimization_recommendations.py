@@ -301,3 +301,21 @@ def test_generate_recommendations_rejects_invalid_previous_recommendations() -> 
             previous_recommendations={"suppressed": "bad"},
             recorded_at_bj="2026-04-24T12:05:00+08:00",
         )
+
+
+def test_generate_recommendations_rejects_numeric_string_metrics() -> None:
+    import pytest
+
+    with pytest.raises(ValueError, match="daily_metrics.trade_outcome_count must be numeric"):
+        generate_recommendations(
+            daily_metrics={"recorded_at_bj": "2026-04-24T12:00:00+08:00", "trade_outcome_count": "8", "unrealized_pnl_total": -0.8},
+            health_report={"status": "ok", "warnings": []},
+            recorded_at_bj="2026-04-24T12:05:00+08:00",
+        )
+
+    with pytest.raises(ValueError, match="daily_metrics.unrealized_pnl_total must be numeric"):
+        generate_recommendations(
+            daily_metrics={"recorded_at_bj": "2026-04-24T12:00:00+08:00", "trade_outcome_count": 8, "unrealized_pnl_total": "-0.8"},
+            health_report={"status": "ok", "warnings": []},
+            recorded_at_bj="2026-04-24T12:05:00+08:00",
+        )
