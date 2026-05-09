@@ -61,6 +61,9 @@ def main(argv: list[str] | None = None) -> int:
             commit = git_lines(["git", "rev-parse", "--verify", args.commit])[0]
             changed_files.extend(commit_changed_files(commit))
         changed_files = list(dict.fromkeys(changed_files))
+        if not changed_files:
+            print("no changed files to audit", file=sys.stderr)
+            return 2
         forbidden = sorted(set(changed_files) & FORBIDDEN_FILES)
         if forbidden:
             print(f"forbidden worker changed files: {', '.join(forbidden)}", file=sys.stderr)

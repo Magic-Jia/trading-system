@@ -37,3 +37,10 @@ def test_audit_worker_commit_rejects_dev_status_file() -> None:
 
     assert result.returncode == 2
     assert "memory/dev-status.md" in result.stderr
+
+
+def test_audit_worker_commit_rejects_empty_input() -> None:
+    result = run_audit()
+
+    assert result.returncode == 2
+    assert "no changed files" in result.stderr
