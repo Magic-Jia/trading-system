@@ -46,6 +46,15 @@ def _payload_sector(payload: Mapping[str, Any], symbol: str) -> str:
     return value
 
 
+def _short_universe_sector(universe_row: Mapping[str, Any], symbol: str) -> str:
+    if "sector" not in universe_row:
+        return ""
+    value = universe_row.get("sector")
+    if not isinstance(value, str):
+        raise ValueError(f"{symbol}.short_universe.sector must be a string when present")
+    return value
+
+
 def _optional_payload_string(payload: Mapping[str, Any], symbol: str, field: str) -> str | None:
     if field not in payload:
         return None
@@ -282,6 +291,7 @@ def generate_short_candidates(
             continue
         payload = payload_value
         payload_sector = _payload_sector(payload, canonical_symbol)
+        sector = payload_sector or _short_universe_sector(universe_row, canonical_symbol)
         if payload_sector.lower() != "majors":
             continue
         if not _validate_required_short_timeframe_numerics(canonical_symbol, payload):
@@ -353,7 +363,7 @@ def generate_short_candidates(
                 stop_loss=stop_loss,
                 invalidation_source=invalidation_source,
                 timeframe_meta=timeframe_meta,
-                sector=payload_sector or str(universe_row.get("sector") or ""),
+                sector=sector,
                 liquidity_meta=liquidity_meta,
             )
         )
