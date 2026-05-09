@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 from trading_system.app.config import LifecycleConfig
 from trading_system.app.portfolio.lifecycle import advance_lifecycle_positions
 from trading_system.app.signals.entry_profile import resolve_entry_profile
@@ -114,6 +116,11 @@ def test_scout_entry_profile_is_resolvable_with_aggressive_testnet_alias():
     assert profile.trend_m15_floor == 0.0
     assert profile.rotation_m30_floor == 0.0
     assert profile.rotation_m15_floor == 0.0
+
+
+def test_entry_profile_rejects_present_non_string_identifier():
+    with pytest.raises(ValueError, match="entry profile must be a string identifier"):
+        resolve_entry_profile(True)
 
 
 def test_market_context_payload_generates_30m_and_15m_snapshots(monkeypatch):

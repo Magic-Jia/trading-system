@@ -107,9 +107,13 @@ _ENTRY_PROFILES = {
 def resolve_entry_profile(value: EntryProfile | str | None = None) -> EntryProfile:
     if isinstance(value, EntryProfile):
         return value
-    if value is None or str(value).strip() == "":
+    if value is None:
         return CONSERVATIVE_ENTRY_PROFILE
-    key = str(value).strip().lower().replace("-", "_")
+    if not isinstance(value, str):
+        raise ValueError(f"entry profile must be a string identifier, EntryProfile, or None; got {value!r}")
+    if value.strip() == "":
+        return CONSERVATIVE_ENTRY_PROFILE
+    key = value.strip().lower().replace("-", "_")
     try:
         return _ENTRY_PROFILES[key]
     except KeyError as exc:
