@@ -1357,6 +1357,24 @@ def test_render_long_gate_telemetry_prefers_specific_eligibility_blocker_in_scor
     assert report["scorecard"]["key_metrics"]["dominant_blocker_gate"] == "eligibility_daily_return_filtered"
 
 
+def test_render_long_gate_telemetry_rejects_non_string_engine_keys() -> None:
+    with pytest.raises(ValueError, match="engine names must be a canonical string"):
+        cli.render_long_gate_telemetry_report(
+            experiment_name="long_gate_telemetry",
+            metadata={"snapshot_count": 1, "evaluation_window": "3d"},
+            experiment={
+                "engines": {
+                    True: {
+                        "funnel": {"raw_candidates": 1, "accepted_allocations": 1},
+                        "filter_counts": {"selected": 1},
+                        "performance": {"bucket_level_pnl": 0.01, "trade_count": 1},
+                    },
+                },
+                "snapshot_rows": [],
+            },
+        )
+
+
 def test_render_long_gate_telemetry_rejects_non_object_filter_counts() -> None:
     with pytest.raises(ValueError, match="engines.trend_long.filter_counts must be an object"):
         cli.render_long_gate_telemetry_report(

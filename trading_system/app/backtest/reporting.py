@@ -838,27 +838,28 @@ def render_long_gate_telemetry_report(
     dominant_blocker_count = 0
 
     for engine_name, payload in engines.items():
+        engine_label = _canonical_report_string(engine_name, field_name="engine names")
         if not isinstance(payload, Mapping):
-            raise ValueError(f"engines.{engine_name} must be an object")
+            raise ValueError(f"engines.{engine_label} must be an object")
         raw_funnel = payload.get("funnel", {})
         if not isinstance(raw_funnel, Mapping):
-            raise ValueError(f"engines.{engine_name}.funnel must be an object")
+            raise ValueError(f"engines.{engine_label}.funnel must be an object")
         funnel = dict(raw_funnel)
-        engine_funnels[str(engine_name)] = funnel
+        engine_funnels[engine_label] = funnel
         accept_count = int(funnel.get("accepted_allocations", 0))
         if accept_count > best_accept_count:
-            best_engine = str(engine_name)
+            best_engine = engine_label
             best_accept_count = accept_count
 
         raw_filter_counts = payload.get("filter_counts", {})
         if not isinstance(raw_filter_counts, Mapping):
-            raise ValueError(f"engines.{engine_name}.filter_counts must be an object")
+            raise ValueError(f"engines.{engine_label}.filter_counts must be an object")
         blocker_gate, blocker_count = _dominant_long_gate_blocker(
             dict(raw_filter_counts),
-            label=f"engines.{engine_name}.filter_counts",
+            label=f"engines.{engine_label}.filter_counts",
         )
         if blocker_count > dominant_blocker_count:
-            dominant_blocker_engine = str(engine_name)
+            dominant_blocker_engine = engine_label
             dominant_blocker_gate = blocker_gate
             dominant_blocker_count = blocker_count
 
