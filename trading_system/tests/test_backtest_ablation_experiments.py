@@ -1066,6 +1066,39 @@ def test_long_gate_telemetry_rejects_non_string_rotation_symbol_key() -> None:
         backtest_experiments._rotation_candidates_with_trace(row, disabled_filters=frozenset())
 
 
+def test_long_gate_telemetry_rejects_non_string_rotation_candidate_symbol(monkeypatch) -> None:
+    row = _supportive_soft_long_gate_row()
+    original_build_universes = backtest_experiments.build_universes
+    original_symbol_key = backtest_experiments.rotation_signals._market_symbol_key
+    link_payload = row.market["symbols"]["LINKUSDT"]
+
+    class CandidatePayloadMap(dict):
+        def get(self, key, default=None):
+            if key == 123:
+                return link_payload
+            return super().get(key, default)
+
+    def patched_rotation_symbols(rotation_universe):
+        universes = original_build_universes(row.market, derivatives=row.derivatives)
+        link_universe_row = next(
+            universe_row for universe_row in universes.rotation_universe if universe_row["symbol"] == "LINKUSDT"
+        )
+        return {123: link_universe_row}
+
+    def patched_symbol_key(symbol):
+        if symbol == 123:
+            return symbol
+        return original_symbol_key(symbol)
+
+    row.market["symbols"] = CandidatePayloadMap(row.market["symbols"])
+    monkeypatch.setattr(backtest_experiments.rotation_signals, "_rotation_symbols", patched_rotation_symbols)
+    monkeypatch.setattr(backtest_experiments.rotation_signals, "_market_symbol_key", patched_symbol_key)
+    monkeypatch.setattr(backtest_experiments.rotation_signals, "symbol_derivatives_features", lambda *_args: {})
+
+    with pytest.raises(ValueError, match=r"^rotation candidates\[0\]\.symbol must be a string$"):
+        backtest_experiments._rotation_candidates_with_trace(row, disabled_filters=frozenset())
+
+
 def _supportive_soft_long_gate_row(regime_label: str = "RISK_ON_ROTATION") -> DatasetSnapshotRow:
     market = {
         "symbols": {

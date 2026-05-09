@@ -1307,11 +1307,15 @@ def _rotation_candidates_with_trace(
         _bump_symbol_filter(symbol_rows, symbol_name, "selected")
         _bump_symbol_funnel(symbol_rows, symbol_name, "raw_candidates")
 
+    for index, candidate in enumerate(candidates):
+        if not isinstance(candidate.get("symbol"), str):
+            raise ValueError(f"rotation candidates[{index}].symbol must be a string")
+
     return {
         "input_universe": len(eligible),
         "candidates": sorted(
             candidates,
-            key=lambda row: (-float(row.get("score", 0.0) or 0.0), str(row.get("symbol", ""))),
+            key=lambda row: (-float(row.get("score", 0.0) or 0.0), row["symbol"]),
         ),
         "filter_counts": dict(filter_counts),
         "symbol_rows": symbol_rows,
