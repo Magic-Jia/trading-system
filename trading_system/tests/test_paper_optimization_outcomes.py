@@ -429,3 +429,15 @@ def test_collect_trade_outcomes_rejects_non_string_ledger_intent_id(tmp_path: Pa
             runtime_positions={},
             paper_ledger_path=ledger_path,
         )
+
+def test_collect_trade_outcomes_rejects_non_string_position_intent_id(tmp_path: Path) -> None:
+    paths = build_runtime_paths("paper", runtime_root=tmp_path / "runtime", runtime_env="research")
+    module = _outcomes_module()
+
+    with pytest.raises(ValueError, match="position.intent_id must be a string"):
+        module.collect_trade_outcomes(
+            trade_outcomes_path=paths.trade_outcomes_file,
+            signal_facts=[],
+            runtime_positions={"BTCUSDT": {"symbol": "BTCUSDT", "intent_id": 123}},
+            paper_ledger_path=None,
+        )

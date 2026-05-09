@@ -98,7 +98,7 @@ def _position_indexes(runtime_positions: Mapping[str, Mapping[str, Any]]) -> tup
         normalized_symbol = _str_value(row.get("symbol") or symbol).upper()
         if normalized_symbol:
             by_symbol[normalized_symbol] = row
-        intent_id = _str_or_none(row.get("intent_id"))
+        intent_id = _optional_str(row.get("intent_id"), field_name="position.intent_id")
         if intent_id:
             by_intent_id[intent_id] = row
     return by_intent_id, by_symbol
