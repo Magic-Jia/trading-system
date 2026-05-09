@@ -1989,6 +1989,21 @@ def test_long_gate_telemetry_rejects_invalid_rotation_score_components(
         backtest_experiments._rotation_candidates_with_trace(row, disabled_filters=frozenset())
 
 
+def test_long_gate_telemetry_rejects_rotation_score_component_non_string_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    row = _supportive_soft_long_gate_row()
+    monkeypatch.setattr(
+        backtest_experiments.rotation_signals,
+        "score_rotation_candidate",
+        lambda _features: {"total": 0.9, "components": {123: 0.4}},
+    )
+    monkeypatch.setattr(backtest_experiments.rotation_signals, "symbol_derivatives_features", lambda *_args: {})
+
+    with pytest.raises(ValueError, match=r"^rotation candidates\[0\]\.score_components key must be a string$"):
+        backtest_experiments._rotation_candidates_with_trace(row, disabled_filters=frozenset())
+
+
 def test_long_gate_telemetry_preserves_rotation_score_component_mapping(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

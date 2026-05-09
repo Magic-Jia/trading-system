@@ -180,6 +180,9 @@ def _trace_score_components(value: Any, *, engine: str, index: int) -> dict[str,
         return {}
     if not isinstance(value, Mapping):
         raise ValueError(f"{engine} candidates[{index}].score_components must be an object")
+    for key in value:
+        if not isinstance(key, str):
+            raise ValueError(f"{engine} candidates[{index}].score_components key must be a string")
     return dict(value)
 
 
