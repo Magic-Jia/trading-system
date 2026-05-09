@@ -155,6 +155,19 @@ def test_ensure_target_management_state_maps_invalid_legacy_take_profit_back_to_
     assert position["second_target_price"] == pytest.approx(110.0)
 
 
+def test_ensure_target_management_state_rejects_present_numeric_string_stop_loss():
+    with pytest.raises(ValueError, match="stop_loss must be a finite non-bool number when present"):
+        ensure_target_management_state(
+            {
+                "symbol": "BTCUSDT",
+                "side": "LONG",
+                "entry_price": 100.0,
+                "stop_loss": "95.0",
+                "qty": 2.0,
+            }
+        )
+
+
 def test_ensure_target_management_state_rejects_present_non_string_side():
     with pytest.raises(TypeError, match="side must be a string when present"):
         ensure_target_management_state(

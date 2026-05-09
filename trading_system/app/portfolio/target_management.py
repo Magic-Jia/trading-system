@@ -398,6 +398,7 @@ def ensure_target_management_state(position: Mapping[str, Any]) -> dict[str, Any
     side = _present_string(payload, "side") or ""
     if side.upper() != "LONG":
         return payload
+    _present_finite_number(payload, "stop_loss")
     _present_target_status(payload, "first_target_status")
     _present_target_status(payload, "second_target_status")
 
