@@ -70,6 +70,24 @@ def _strict_optional_sector(row: Mapping[str, Any], field_path: str) -> str:
     return value.strip()
 
 
+def _strict_present_derivatives_number(features: Mapping[str, Any], field: str, field_path: str) -> float:
+    if field not in features:
+        return 0.0
+    value = features.get(field)
+    if isinstance(value, bool) or not isinstance(value, int | float) or not math.isfinite(value):
+        raise ValueError(f"{field_path} must be a finite non-bool number")
+    return float(value)
+
+
+def _strict_present_derivatives_string(features: Mapping[str, Any], field: str, field_path: str, default: str) -> str:
+    if field not in features:
+        return default
+    value = features.get(field)
+    if not isinstance(value, str):
+        raise ValueError(f"{field_path} must be a string when present")
+    return value
+
+
 def _payload_sector(symbol: str, payload: Mapping[str, Any]) -> str:
     return _strict_optional_sector(payload, f"{symbol}.sector")
 
@@ -419,9 +437,20 @@ def _reject_price_extension_overheat(payload: Mapping[str, Any]) -> bool:
     )
 
 
-def _reject_overheated_crowded_leader(features: Mapping[str, Any], payload: Mapping[str, Any]) -> bool:
+def _reject_overheated_crowded_leader(symbol: str, features: Mapping[str, Any], payload: Mapping[str, Any]) -> bool:
     h4 = _tf_row(payload, "4h")
     h1 = _tf_row(payload, "1h")
+    crowding_bias = _strict_present_derivatives_string(
+        features,
+        "crowding_bias",
+        f"{symbol}.derivatives.crowding_bias",
+        default="balanced",
+    )
+    basis_bps = _strict_present_derivatives_number(
+        features,
+        "basis_bps",
+        f"{symbol}.derivatives.basis_bps",
+    )
     return (
         is_late_stage_long_blowoff(
             features,
@@ -429,8 +458,8 @@ def _reject_overheated_crowded_leader(features: Mapping[str, Any], payload: Mapp
             h1_extension_pct=_extension_pct(h1),
         )
         or (
-            str(features.get("crowding_bias", "balanced")) == "crowded_long"
-            and _to_float(features.get("basis_bps")) >= _CROWDED_LONG_BASIS_BPS
+            crowding_bias == "crowded_long"
+            and basis_bps >= _CROWDED_LONG_BASIS_BPS
         )
     )
 
@@ -512,7 +541,7 @@ def generate_rotation_candidates(
             continue
 
         derivatives_features = symbol_derivatives_features(derivatives, str(symbol))
-        if _reject_overheated_crowded_leader(derivatives_features, payload):
+        if _reject_overheated_crowded_leader(symbol, derivatives_features, payload):
             continue
 
         if rs_features["relative_strength_rank"] < 0.38 or rs_features["persistence"] < (2.0 / 3.0):

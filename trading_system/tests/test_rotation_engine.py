@@ -1,6 +1,7 @@
 import pytest
 
 from trading_system.app.signals.entry_profile import ACTIVE_PAPER_ENTRY_PROFILE
+from trading_system.app.signals import rotation_engine
 from trading_system.app.signals.rotation_engine import generate_rotation_candidates
 from trading_system.app.signals.scoring import score_rotation_candidate
 
@@ -149,6 +150,25 @@ def test_generate_rotation_candidates_reject_funding_basis_blowoff_even_when_str
     )
 
     assert {candidate.symbol for candidate in candidates} == {"LINKUSDT"}
+
+
+def test_generate_rotation_candidates_rejects_present_string_derivatives_basis_bps(monkeypatch, load_fixture):
+    market = load_fixture("market_context_v2.json")
+    rotation_universe = [{"symbol": "SOLUSDT", "sector": "alt_l1", "liquidity_tier": "high"}]
+    _set_h1_extension(market, "SOLUSDT", 0.007459)
+
+    def invalid_derivatives_features(_derivatives: object, _symbol: str) -> dict[str, object]:
+        return {"crowding_bias": "balanced", "basis_bps": "25"}
+
+    monkeypatch.setattr(rotation_engine, "symbol_derivatives_features", invalid_derivatives_features)
+    monkeypatch.setattr(rotation_engine, "is_late_stage_long_blowoff", lambda *_args, **_kwargs: False)
+
+    with pytest.raises(ValueError, match=r"SOLUSDT\.derivatives\.basis_bps"):
+        generate_rotation_candidates(
+            market,
+            rotation_universe=rotation_universe,
+            derivatives={"rows": []},
+        )
 
 
 def test_generate_rotation_candidates_require_absolute_strength_alongside_relative_strength(load_fixture):
