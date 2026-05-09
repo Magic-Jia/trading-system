@@ -148,11 +148,20 @@ def render_backtest_evaluation_report(
 
 
 def _trade_breakdown_rows(
-    trade_ledger: tuple[TradeLedgerRow, ...], *, key_name: str, key_fn: Callable[[TradeLedgerRow], Any]
+    trade_ledger: tuple[TradeLedgerRow, ...],
+    *,
+    key_name: str,
+    key_fn: Callable[[TradeLedgerRow], Any],
+    canonical_string_key: bool = False,
 ) -> list[dict[str, Any]]:
     buckets: dict[str, dict[str, float | int | str]] = {}
-    for row in trade_ledger:
-        bucket_key = str(key_fn(row))
+    for index, row in enumerate(trade_ledger):
+        raw_bucket_key = key_fn(row)
+        bucket_key = (
+            _canonical_report_string(raw_bucket_key, field_name=f"trades[{index}].{key_name}")
+            if canonical_string_key
+            else str(raw_bucket_key)
+        )
         bucket = buckets.setdefault(
             bucket_key,
             {
@@ -178,7 +187,7 @@ def _trade_ledger_payload(trade_ledger: tuple[TradeLedgerRow, ...]) -> list[dict
     return [
         {
             "symbol": _canonical_report_string(row.symbol, field_name=f"trades[{index}].symbol"),
-            "market_type": row.market_type,
+            "market_type": _canonical_report_string(row.market_type, field_name=f"trades[{index}].market_type"),
             "base_asset": row.base_asset,
             "side": row.side,
             "status": row.status,
@@ -280,7 +289,12 @@ def render_full_market_baseline_report(result: BaselineReplayResult) -> dict[str
             "cost_breakdown": cost_breakdown_payload,
         },
         "breakdowns": {
-            "by_market": _trade_breakdown_rows(result.trade_ledger, key_name="market_type", key_fn=lambda row: row.market_type),
+            "by_market": _trade_breakdown_rows(
+                result.trade_ledger,
+                key_name="market_type",
+                key_fn=lambda row: row.market_type,
+                canonical_string_key=True,
+            ),
             "by_year": _trade_breakdown_rows(result.trade_ledger, key_name="year", key_fn=lambda row: row.exit_timestamp.year),
         },
         "audit": {
