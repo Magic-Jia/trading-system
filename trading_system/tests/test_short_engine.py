@@ -317,6 +317,39 @@ def test_generate_short_candidates_rejects_present_string_numeric_required_timef
         )
 
 
+def test_generate_short_candidates_rejects_present_non_object_liquidity_meta():
+    market = _defensive_market()
+    regime = {"label": "HIGH_VOL_DEFENSIVE", "bucket_targets": {"trend": 0.2, "rotation": 0.0, "short": 0.8}}
+
+    assert [
+        candidate.symbol
+        for candidate in generate_short_candidates(
+            market,
+            short_universe=[
+                {
+                    "symbol": "BTCUSDT",
+                    "sector": "majors",
+                    "liquidity_meta": {"rolling_notional": 12_500_000_000.0},
+                },
+            ],
+            regime=regime,
+        )
+    ] == ["BTCUSDT"]
+
+    with pytest.raises(ValueError, match=r"BTCUSDT\.liquidity_meta"):
+        generate_short_candidates(
+            market,
+            short_universe=[
+                {
+                    "symbol": "BTCUSDT",
+                    "sector": "majors",
+                    "liquidity_meta": [("rolling_notional", 12_500_000_000.0)],
+                },
+            ],
+            regime=regime,
+        )
+
+
 @pytest.mark.parametrize("bad_value", [True, math.nan, math.inf, -math.inf])
 def test_short_term_candidates_reject_present_invalid_required_numeric(bad_value):
     market = _defensive_market()

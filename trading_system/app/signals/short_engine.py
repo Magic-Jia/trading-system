@@ -28,6 +28,15 @@ def _tf_row(payload: Mapping[str, Any], timeframe: str) -> Mapping[str, Any]:
     return {}
 
 
+def _liquidity_meta(universe_row: Mapping[str, Any], symbol: str) -> Mapping[str, Any]:
+    if "liquidity_meta" not in universe_row:
+        return {}
+    value = universe_row.get("liquidity_meta")
+    if isinstance(value, Mapping):
+        return value
+    raise ValueError(f"{symbol}.liquidity_meta must be an object")
+
+
 _REQUIRED_SHORT_TIMEFRAME_NUMERIC_FIELDS = {
     "daily": ("close", "ema_20", "ema_50", "return_pct_7d", "volume_usdt_24h"),
     "4h": ("close", "ema_20", "ema_50", "return_pct_3d"),
@@ -135,7 +144,7 @@ def _momentum_quality(payload: Mapping[str, Any]) -> float:
 def _liquidity_quality(payload: Mapping[str, Any], universe_row: Mapping[str, Any]) -> float:
     daily = _tf_row(payload, "daily")
     volume = _to_float(daily.get("volume_usdt_24h"))
-    rolling_notional = _to_float(dict(universe_row.get("liquidity_meta", {})).get("rolling_notional"))
+    rolling_notional = _to_float(_liquidity_meta(universe_row, str(universe_row.get("symbol", ""))).get("rolling_notional"))
     return min(max(volume, rolling_notional) / 10_000_000_000.0, 1.0)
 
 
@@ -255,7 +264,7 @@ def generate_short_candidates(
                 "basis_bps": _to_float(derivatives_features.get("basis_bps")),
             }
 
-        liquidity_meta = dict(universe_row.get("liquidity_meta", {})) if isinstance(universe_row, Mapping) else {}
+        liquidity_meta = dict(_liquidity_meta(universe_row, symbol))
         liquidity_meta.setdefault("liquidity_tier", payload.get("liquidity_tier"))
         liquidity_meta["volume_usdt_24h"] = _to_float(daily.get("volume_usdt_24h"))
 
