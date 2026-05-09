@@ -208,9 +208,15 @@ def collect_trade_outcomes(
                 unrealized_pnl=unrealized_pnl,
                 realized_pnl=None,
                 pnl_basis="unrealized" if unrealized_pnl is not None else None,
-                opened_at_bj=_str_or_none(position.get("opened_at_bj")) or _str_or_none(position_update.get("opened_at_bj")),
-                updated_at_bj=_str_or_none(position.get("updated_at_bj")) or _str_or_none(position_update.get("updated_at_bj")),
-                recorded_at_bj=_str_or_none(ledger_event.get("recorded_at_bj")),
+                opened_at_bj=(
+                    _optional_str(position.get("opened_at_bj"), field_name="position.opened_at_bj")
+                    or _optional_str(position_update.get("opened_at_bj"), field_name="position_update.opened_at_bj")
+                ),
+                updated_at_bj=(
+                    _optional_str(position.get("updated_at_bj"), field_name="position.updated_at_bj")
+                    or _optional_str(position_update.get("updated_at_bj"), field_name="position_update.updated_at_bj")
+                ),
+                recorded_at_bj=_optional_str(ledger_event.get("recorded_at_bj"), field_name="ledger.recorded_at_bj"),
             )
         )
 
