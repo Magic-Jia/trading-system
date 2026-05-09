@@ -106,6 +106,7 @@ _MANAGEMENT_ACTION_VALUES = frozenset(
 )
 _FRACTION_BASIS_VALUES = frozenset({"original_position"})
 _EXIT_TRIGGER_VALUES = frozenset({"first_target_hit", "second_target_hit", "runner_stop_hit"})
+_POSITION_SIDE_VALUES = frozenset({"LONG", "SHORT"})
 
 
 def _now_bj() -> str:
@@ -195,6 +196,21 @@ def _strict_position_status(payload: Mapping[str, Any], key: str, field: str | N
     if status not in _POSITION_STATUS_VALUES:
         raise ValueError(f"{label} must be one of {sorted(_POSITION_STATUS_VALUES)} when present")
     return status
+
+
+def _strict_position_side(payload: Mapping[str, Any], key: str, field: str | None = None) -> str:
+    label = field or key
+    if key not in payload or payload.get(key) is None:
+        return ""
+    value = payload.get(key)
+    if not isinstance(value, str):
+        raise TypeError(f"{label} must be a string when present")
+    side = value.strip().upper()
+    if not side:
+        raise ValueError(f"{label} must not be blank when present")
+    if side not in _POSITION_SIDE_VALUES:
+        raise ValueError(f"{label} must be one of {sorted(_POSITION_SIDE_VALUES)} when present")
+    return side
 
 
 def _strict_optional_bool(payload: Mapping[str, Any], field: str, default: bool = False) -> bool:
@@ -390,6 +406,12 @@ def _position_close_event_payload(symbol: str, position: dict[str, Any], now_bj:
     }
 
 
+def _validate_existing_position_identities(positions: Mapping[str, dict[str, Any]]) -> None:
+    for symbol, position in positions.items():
+        _strict_position_side(position, "side", f"positions[{symbol}].side")
+        _strict_position_status(position, "status", f"positions[{symbol}].status")
+
+
 def _mark_intent_position_closed(state: RuntimeState, symbol: str, position: dict[str, Any], now_bj: str) -> None:
     position["qty"] = 0.0
     position["remaining_position_qty"] = 0.0
@@ -409,6 +431,7 @@ def sync_positions_from_account(state: RuntimeState, account: AccountSnapshot) -
     snapshot_source = _strict_optional_string(account_meta, "snapshot_source", "account.meta.snapshot_source")
     if not snapshot_source:
         snapshot_source = _strict_optional_string(account_meta, "source", "account.meta.source")
+    _validate_existing_position_identities(state.positions)
 
     for snapshot in account.open_positions:
         snapshot_label = f"account.open_positions[{snapshot.symbol}]"
