@@ -197,6 +197,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--list-suites", action="store_true", help="list fixed verification suites")
     args = parser.parse_args(argv)
 
+    if args.json and not args.dry_run:
+        print("--json requires --dry-run", file=sys.stderr)
+        return 2
+
     if args.list_suites:
         for name, tests in SUITES.items():
             count = "full pytest suite" if name == "full" else f"{len(tests)} test paths"

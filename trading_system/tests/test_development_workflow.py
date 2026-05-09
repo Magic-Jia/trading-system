@@ -137,3 +137,10 @@ def test_verify_requires_full_after_slice_threshold() -> None:
     payload = json.loads(result.stdout)
     assert payload["full"] is True
     assert payload["commands"][0] == "python3 -m pytest -q"
+
+
+def test_verify_json_requires_dry_run() -> None:
+    result = run_verify("--json", "--changed", "trading_system/app/main.py")
+
+    assert result.returncode == 2
+    assert "--json requires --dry-run" in result.stderr
