@@ -34,6 +34,7 @@ def main() -> int:
     if args.dry_run:
         payload = {
             "plan_version": 1,
+            "plan_kind": "ci_verification_plan",
             "entrypoint": "ci_verify",
             "commands": DISPLAY_COMMANDS,
             "strict_changed_verification": True,
