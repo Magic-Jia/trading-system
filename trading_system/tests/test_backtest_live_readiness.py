@@ -9865,6 +9865,37 @@ def test_trade_postmortem_summary_buckets_failure_taxonomy_and_setups() -> None:
     }
 
 
+@pytest.mark.parametrize(
+    ("exit_reason", "error"),
+    [
+        (123, "postmortem.trades\\[1\\].exit_reason must be a supported canonical string"),
+        ("", "postmortem.trades\\[1\\].exit_reason must be a supported canonical string"),
+        (" stop_loss ", "postmortem.trades\\[1\\].exit_reason must be a supported canonical string"),
+        ("manual_override", "postmortem.trades\\[1\\].exit_reason must be a supported canonical string"),
+    ],
+)
+def test_trade_postmortem_summary_rejects_malformed_present_exit_reason(
+    exit_reason: Any,
+    error: str,
+) -> None:
+    with pytest.raises(ValueError, match=error):
+        summarize_trade_postmortem(
+            [
+                {
+                    "symbol": "SOLUSDT",
+                    "setup_type": "RS_REACCELERATION",
+                    "exit_reason": exit_reason,
+                    "gross_pnl": 100.0,
+                    "net_pnl": 80.0,
+                    "fee_paid": 10.0,
+                    "slippage_paid": 10.0,
+                    "mfe_pct": 0.012,
+                    "mae_pct": 0.0,
+                }
+            ]
+        )
+
+
 class _Universes:
     major_universe = ()
     rotation_universe = ()

@@ -3096,9 +3096,7 @@ def _validate_postmortem_trade_execution_fields(trade: Mapping[str, Any], index:
     ):
         raise ValueError(f"postmortem.trades[{index}].fill_model must be a supported canonical string")
     value = trade.get("execution_price_source")
-    if value is None:
-        return
-    if (
+    if value is not None and (
         not isinstance(value, str)
         or not value.strip()
         or value != value.strip()
@@ -3107,6 +3105,11 @@ def _validate_postmortem_trade_execution_fields(trade: Mapping[str, Any], index:
         raise ValueError(
             f"postmortem.trades[{index}].execution_price_source must be a supported canonical string"
         )
+    value = trade.get("exit_reason")
+    if value is not None and (
+        not isinstance(value, str) or not value.strip() or value != value.strip() or value not in VALID_EXIT_REASONS
+    ):
+        raise ValueError(f"postmortem.trades[{index}].exit_reason must be a supported canonical string")
 
 
 def _postmortem_dominance_bucket(
