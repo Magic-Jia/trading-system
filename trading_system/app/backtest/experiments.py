@@ -4,6 +4,7 @@ from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import asdict
 import math
+from numbers import Real
 from statistics import mean
 from typing import Any, Iterable, Mapping
 
@@ -871,10 +872,13 @@ def _finalize_returns(value: Any, *, path: str) -> list[float]:
         raise ValueError(f"{path} must be a list")
     returns: list[float] = []
     for index, item in enumerate(value):
-        try:
-            returns.append(float(item))
-        except (TypeError, ValueError) as exc:
-            raise ValueError(f"{path}[{index}] must be numeric") from exc
+        item_path = f"{path}[{index}]"
+        if isinstance(item, bool) or not isinstance(item, Real):
+            raise ValueError(f"{item_path} must be numeric")
+        number = float(item)
+        if not math.isfinite(number):
+            raise ValueError(f"{item_path} must be finite")
+        returns.append(number)
     return returns
 
 

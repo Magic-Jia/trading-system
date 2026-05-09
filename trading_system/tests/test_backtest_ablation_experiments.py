@@ -888,6 +888,35 @@ def test_long_gate_telemetry_finalizes_engine_results_output() -> None:
     assert result["trend_long"]["performance"]["trade_count"] == 2
 
 
+def test_long_gate_telemetry_finalizes_valid_accepted_returns() -> None:
+    assert backtest_experiments._finalize_returns(
+        [0, 0.1, -0.02],
+        path="engines.trend_long.accepted_returns",
+    ) == [0.0, 0.1, -0.02]
+
+
+@pytest.mark.parametrize("invalid_return", [True, "0.1"])
+def test_long_gate_telemetry_rejects_non_numeric_final_accepted_returns(
+    invalid_return: object,
+) -> None:
+    with pytest.raises(ValueError, match=r"^engines\.trend_long\.accepted_returns\[0\] must be numeric$"):
+        backtest_experiments._finalize_returns(
+            [invalid_return],
+            path="engines.trend_long.accepted_returns",
+        )
+
+
+@pytest.mark.parametrize("invalid_return", [math.nan, math.inf])
+def test_long_gate_telemetry_rejects_non_finite_final_accepted_returns(
+    invalid_return: float,
+) -> None:
+    with pytest.raises(ValueError, match=r"^engines\.trend_long\.accepted_returns\[0\] must be finite$"):
+        backtest_experiments._finalize_returns(
+            [invalid_return],
+            path="engines.trend_long.accepted_returns",
+        )
+
+
 @pytest.mark.parametrize(
     ("engine_payload", "match"),
     [
