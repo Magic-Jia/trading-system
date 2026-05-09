@@ -742,6 +742,46 @@ def test_long_gate_telemetry_outputs_symbol_and_regime_breakdowns() -> None:
     assert trend_symbols["BTCUSDT"]["funnel"]["raw_candidates"] > 0
 
 
+def test_long_gate_telemetry_rejects_non_string_symbol_rows_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    def traced_with_invalid_symbol_key(_row):
+        return {
+            "input_universe": 1,
+            "candidates": [],
+            "filter_counts": {},
+            "symbol_rows": {
+                123: {"snapshot_count": 1, "funnel": {"raw_candidates": 1}, "filter_counts": {"selected": 1}},
+            },
+        }
+
+    monkeypatch.setattr(backtest_experiments, "_trend_candidates_with_trace", traced_with_invalid_symbol_key)
+
+    with pytest.raises(ValueError, match=r"^symbol_rows key must be a string$"):
+        run_long_gate_telemetry_experiment([_bullish_ablation_row()], evaluation_window="3d")
+
+
+def test_long_gate_telemetry_rejects_non_string_validated_candidate_symbol(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def pipeline_with_invalid_validated_symbol(*_args, **_kwargs):
+        return {
+            "funnel": {
+                "input_universe": 1,
+                "raw_candidates": 1,
+                "validated_candidates": 1,
+                "allocation_decisions": 0,
+                "accepted_allocations": 0,
+            },
+            "validated_candidates": [{"symbol": 123}],
+            "allocation_rows": [],
+            "returns": [],
+        }
+
+    monkeypatch.setattr(backtest_experiments, "_run_candidate_pipeline", pipeline_with_invalid_validated_symbol)
+
+    with pytest.raises(ValueError, match=r"^validated_candidates\[0\]\.symbol must be a string$"):
+        run_long_gate_telemetry_experiment([_bullish_ablation_row()], evaluation_window="3d")
+
+
 def test_long_gate_telemetry_rejects_non_string_trend_symbol_key() -> None:
     row = _bullish_ablation_row()
     row.market["symbols"] = {123: row.market["symbols"]["BTCUSDT"]}

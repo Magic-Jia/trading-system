@@ -708,6 +708,19 @@ def _bump_symbol_funnel(symbol_rows: dict[str, dict[str, Any]], symbol: str, key
     funnel[key] = int(funnel.get(key, 0)) + 1
 
 
+def _telemetry_symbol_row_key(symbol: Any) -> str:
+    if not isinstance(symbol, str):
+        raise ValueError("symbol_rows key must be a string")
+    return symbol
+
+
+def _validated_candidate_symbol(candidate: Mapping[str, Any], *, index: int) -> str:
+    symbol = candidate.get("symbol", "")
+    if not isinstance(symbol, str):
+        raise ValueError(f"validated_candidates[{index}].symbol must be a string")
+    return symbol
+
+
 def _merge_symbol_breakdown(target: dict[str, dict[str, Any]], source: Mapping[str, Any]) -> None:
     for symbol, payload in source.items():
         target_row = target.setdefault(str(symbol), {"snapshot_count": 0, "funnel": {}, "filter_counts": {}})
@@ -1752,15 +1765,15 @@ def run_long_gate_telemetry_experiment(
             regime_engine_bucket["accepted_returns"].extend(pipeline["returns"])
 
             symbol_rows = {
-                str(symbol): {
+                _telemetry_symbol_row_key(symbol): {
                     "snapshot_count": int(dict(payload).get("snapshot_count", 0)),
                     "funnel": dict(dict(payload).get("funnel", {})),
                     "filter_counts": dict(dict(payload).get("filter_counts", {})),
                 }
                 for symbol, payload in dict(traced.get("symbol_rows", {})).items()
             }
-            for candidate in list(pipeline.get("validated_candidates", [])):
-                symbol = str(candidate.get("symbol", ""))
+            for candidate_index, candidate in enumerate(list(pipeline.get("validated_candidates", []))):
+                symbol = _validated_candidate_symbol(candidate, index=candidate_index)
                 if symbol:
                     _bump_symbol_funnel(symbol_rows, symbol, "validated_candidates")
             for allocation_index, allocation in enumerate(list(pipeline.get("allocation_rows", []))):
