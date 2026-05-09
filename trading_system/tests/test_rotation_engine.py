@@ -445,6 +445,30 @@ def test_generate_rotation_candidates_allows_soft_daily_reclaim_in_risk_on_rotat
     assert [candidate.symbol for candidate in candidates] == ["SOLUSDT"]
 
 
+def test_generate_rotation_candidates_rejects_present_string_numeric_required_timeframe_field():
+    market = _soft_rotation_reclaim_market()
+    universe = [{"symbol": "SOLUSDT", "sector": "alt_l1", "liquidity_tier": "high"}]
+    regime = {"label": "RISK_ON_ROTATION", "suppression_rules": []}
+
+    assert [
+        candidate.symbol
+        for candidate in generate_rotation_candidates(
+            market,
+            rotation_universe=universe,
+            regime=regime,
+        )
+    ] == ["SOLUSDT"]
+
+    market["symbols"]["SOLUSDT"]["daily"]["close"] = "103.0"
+
+    with pytest.raises(ValueError, match=r"SOLUSDT\.daily\.close"):
+        generate_rotation_candidates(
+            market,
+            rotation_universe=universe,
+            regime=regime,
+        )
+
+
 @pytest.mark.parametrize(
     ("timeframe", "field", "invalid_value"),
     [
@@ -474,14 +498,12 @@ def test_generate_rotation_candidates_rejects_present_invalid_required_timeframe
 
     market["symbols"]["SOLUSDT"][timeframe][field] = invalid_value
 
-    assert (
+    with pytest.raises(ValueError, match=rf"SOLUSDT\.{timeframe}\.{field}"):
         generate_rotation_candidates(
             market,
             rotation_universe=universe,
             regime=regime,
         )
-        == []
-    )
 
 
 def test_generate_rotation_candidates_allows_soft_daily_reclaim_when_daily_close_is_just_above_ema50():

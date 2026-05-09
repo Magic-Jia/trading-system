@@ -39,29 +39,25 @@ def _tf_row(payload: Mapping[str, Any], timeframe: str) -> Mapping[str, Any]:
     return {}
 
 
-def _has_finite_present_numeric(row: Mapping[str, Any], field: str) -> bool:
+def _strict_present_numeric(row: Mapping[str, Any], field: str, field_path: str) -> float:
     if field not in row:
-        return True
+        return 0.0
     value = row.get(field)
-    if isinstance(value, bool):
-        return False
-    try:
-        return math.isfinite(float(value))
-    except (TypeError, ValueError):
-        return False
+    if isinstance(value, bool) or not isinstance(value, int | float) or not math.isfinite(value):
+        raise ValueError(f"{field_path} must be a finite non-bool number")
+    return float(value)
 
 
-def _has_required_rotation_timeframe_numerics(payload: Mapping[str, Any]) -> bool:
+def _validate_required_rotation_timeframe_numerics(symbol: str, payload: Mapping[str, Any]) -> None:
     required_fields = {
         "daily": ("close", "ema_20", "ema_50", "atr_pct", "return_pct_7d", "volume_usdt_24h"),
         "4h": ("close", "ema_20", "ema_50", "return_pct_3d"),
         "1h": ("close", "ema_20", "ema_50", "return_pct_24h"),
     }
-    return all(
-        _has_finite_present_numeric(_tf_row(payload, timeframe), field)
-        for timeframe, fields in required_fields.items()
-        for field in fields
-    )
+    for timeframe, fields in required_fields.items():
+        row = _tf_row(payload, timeframe)
+        for field in fields:
+            _strict_present_numeric(row, field, f"{symbol}.{timeframe}.{field}")
 
 
 def _regime_value(regime: RegimeSnapshot | Mapping[str, Any] | None, key: str, default: Any = None) -> Any:
@@ -95,17 +91,25 @@ def _major_proxy_returns(market_context: Mapping[str, Any]) -> dict[str, float]:
     if not isinstance(symbols, Mapping):
         return {"daily": 0.0, "4h": 0.0, "1h": 0.0}
 
-    majors = [payload for symbol, payload in symbols.items() if str(symbol).upper() in {"BTCUSDT", "ETHUSDT"}]
+    majors = [
+        (str(symbol).upper(), payload)
+        for symbol, payload in symbols.items()
+        if str(symbol).upper() in {"BTCUSDT", "ETHUSDT"}
+    ]
     if not majors:
         return {"daily": 0.0, "4h": 0.0, "1h": 0.0}
 
     total_daily = 0.0
     total_h4 = 0.0
     total_h1 = 0.0
-    for payload in majors:
-        total_daily += _to_float(_tf_row(payload, "daily").get("return_pct_7d"))
-        total_h4 += _to_float(_tf_row(payload, "4h").get("return_pct_3d"))
-        total_h1 += _to_float(_tf_row(payload, "1h").get("return_pct_24h"))
+    for symbol, payload in majors:
+        total_daily += _strict_present_numeric(
+            _tf_row(payload, "daily"), "return_pct_7d", f"{symbol}.daily.return_pct_7d"
+        )
+        total_h4 += _strict_present_numeric(_tf_row(payload, "4h"), "return_pct_3d", f"{symbol}.4h.return_pct_3d")
+        total_h1 += _strict_present_numeric(
+            _tf_row(payload, "1h"), "return_pct_24h", f"{symbol}.1h.return_pct_24h"
+        )
 
     count = float(len(majors))
     return {"daily": total_daily / count, "4h": total_h4 / count, "1h": total_h1 / count}
@@ -428,8 +432,7 @@ def generate_rotation_candidates(
         payload = payload_value
         if str(payload.get("sector", "")).lower() == "majors":
             continue
-        if not _has_required_rotation_timeframe_numerics(payload):
-            continue
+        _validate_required_rotation_timeframe_numerics(symbol, payload)
         active_paper_soft_reclaim = _active_paper_soft_reclaim_trend_intact(payload, regime, profile)
         scout_intraday_recovery = _scout_intraday_recovery_trend_intact(payload, profile)
         if not _trend_accepted(payload, regime, profile):
