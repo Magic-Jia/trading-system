@@ -818,6 +818,107 @@ def test_long_gate_telemetry_outputs_symbol_and_regime_breakdowns() -> None:
     assert trend_symbols["BTCUSDT"]["funnel"]["raw_candidates"] > 0
 
 
+def test_long_gate_telemetry_finalizes_symbol_breakdown_output() -> None:
+    result = backtest_experiments._finalize_symbol_breakdown(
+        {
+            "BTCUSDT": {
+                "snapshot_count": 2,
+                "funnel": {"raw_candidates": 3},
+                "filter_counts": {"selected": 1},
+            }
+        },
+        filter_keys=("selected", "trend_filtered"),
+    )
+
+    assert result["BTCUSDT"]["snapshot_count"] == 2
+    assert result["BTCUSDT"]["funnel"]["raw_candidates"] == 3
+    assert result["BTCUSDT"]["funnel"]["accepted_allocations"] == 0
+    assert result["BTCUSDT"]["filter_counts"] == {"selected": 1, "trend_filtered": 0}
+
+
+@pytest.mark.parametrize("snapshot_count", [True, "1", 1.5])
+def test_long_gate_telemetry_rejects_invalid_final_symbol_breakdown_snapshot_count(
+    snapshot_count: object,
+) -> None:
+    with pytest.raises(ValueError, match=r"^symbol_breakdown\.BTCUSDT\.snapshot_count must be an integer$"):
+        backtest_experiments._finalize_symbol_breakdown(
+            {
+                "BTCUSDT": {
+                    "snapshot_count": snapshot_count,
+                    "funnel": {},
+                    "filter_counts": {},
+                }
+            },
+            filter_keys=("selected",),
+        )
+
+
+@pytest.mark.parametrize(
+    ("payload", "match"),
+    [
+        (
+            {"snapshot_count": 1, "funnel": [("raw_candidates", 1)], "filter_counts": {}},
+            r"^symbol_breakdown\.BTCUSDT\.funnel must be an object$",
+        ),
+        (
+            {"snapshot_count": 1, "funnel": {}, "filter_counts": [("selected", 1)]},
+            r"^symbol_breakdown\.BTCUSDT\.filter_counts must be an object$",
+        ),
+    ],
+)
+def test_long_gate_telemetry_rejects_invalid_final_symbol_breakdown_nested_maps(
+    payload: object,
+    match: str,
+) -> None:
+    with pytest.raises(ValueError, match=match):
+        backtest_experiments._finalize_symbol_breakdown({"BTCUSDT": payload}, filter_keys=("selected",))
+
+
+def test_long_gate_telemetry_rejects_invalid_final_regime_breakdown_engines() -> None:
+    with pytest.raises(ValueError, match=r"^regime_breakdown\.RISK_ON_TREND\.engines must be an object$"):
+        backtest_experiments._finalize_regime_breakdown(
+            {"RISK_ON_TREND": {"snapshot_count": 1, "engines": [("trend_long", {})]}},
+            {
+                "trend_long": {"filter_keys": ("selected",)},
+            },
+        )
+
+
+@pytest.mark.parametrize(
+    ("engine_payload", "match"),
+    [
+        (
+            [("funnel_counts", {})],
+            r"^regime_breakdown\.RISK_ON_TREND\.engines\.trend_long must be an object$",
+        ),
+        (
+            {"funnel_counts": [("raw_candidates", 1)], "filter_counts": {}, "accepted_returns": []},
+            r"^regime_breakdown\.RISK_ON_TREND\.engines\.trend_long\.funnel_counts must be an object$",
+        ),
+        (
+            {"funnel_counts": {}, "filter_counts": [("selected", 1)], "accepted_returns": []},
+            r"^regime_breakdown\.RISK_ON_TREND\.engines\.trend_long\.filter_counts must be an object$",
+        ),
+    ],
+)
+def test_long_gate_telemetry_rejects_invalid_final_regime_breakdown_engine_maps(
+    engine_payload: object,
+    match: str,
+) -> None:
+    with pytest.raises(ValueError, match=match):
+        backtest_experiments._finalize_regime_breakdown(
+            {
+                "RISK_ON_TREND": {
+                    "snapshot_count": 1,
+                    "engines": {"trend_long": engine_payload},
+                }
+            },
+            {
+                "trend_long": {"filter_keys": ("selected",)},
+            },
+        )
+
+
 @pytest.mark.parametrize(
     ("source", "match"),
     [

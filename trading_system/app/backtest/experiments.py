@@ -866,6 +866,82 @@ def _merge_symbol_breakdown(target: dict[str, dict[str, Any]], source: Mapping[s
         )
 
 
+def _finalize_returns(value: Any, *, path: str) -> list[float]:
+    if not isinstance(value, list):
+        raise ValueError(f"{path} must be a list")
+    return [float(item) for item in value]
+
+
+def _finalize_symbol_breakdown(symbols: Mapping[str, Any], *, filter_keys: tuple[str, ...]) -> dict[str, dict[str, Any]]:
+    result: dict[str, dict[str, Any]] = {}
+    for symbol, payload in sorted(symbols.items()):
+        symbol_key = _telemetry_symbol_row_key(symbol, path="symbol_breakdown")
+        row_path = f"symbol_breakdown.{symbol_key}"
+        row_payload = _telemetry_mapping(payload, path=row_path)
+        snapshot_count = 0
+        if "snapshot_count" in row_payload:
+            snapshot_count = _telemetry_integer_counter(
+                row_payload["snapshot_count"],
+                path=f"{row_path}.snapshot_count",
+            )
+        result[symbol_key] = {
+            "snapshot_count": snapshot_count,
+            "funnel": _with_zero_defaults(
+                _telemetry_optional_mapping(row_payload, "funnel", path=row_path),
+                _SYMBOL_FUNNEL_KEYS,
+            ),
+            "filter_counts": _with_zero_defaults(
+                _telemetry_optional_mapping(row_payload, "filter_counts", path=row_path),
+                filter_keys,
+            ),
+        }
+    return result
+
+
+def _finalize_regime_breakdown(
+    regimes: Mapping[str, Any],
+    engines: Mapping[str, Mapping[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    result: dict[str, dict[str, Any]] = {}
+    for regime_label, payload in regimes.items():
+        if not isinstance(regime_label, str):
+            raise ValueError("regime_breakdown key must be a string")
+        row_path = f"regime_breakdown.{regime_label}"
+        row_payload = _telemetry_mapping(payload, path=row_path)
+        snapshot_count = 0
+        if "snapshot_count" in row_payload:
+            snapshot_count = _telemetry_integer_counter(
+                row_payload["snapshot_count"],
+                path=f"{row_path}.snapshot_count",
+            )
+        engine_payloads = _telemetry_optional_mapping(row_payload, "engines", path=row_path)
+        finalized_engines: dict[str, Any] = {}
+        for engine_name, spec in engines.items():
+            engine_path = f"{row_path}.engines.{engine_name}"
+            engine_payload = _telemetry_mapping(engine_payloads.get(engine_name, {}), path=engine_path)
+            finalized_engines[engine_name] = {
+                "funnel": _with_zero_defaults(
+                    _telemetry_optional_mapping(engine_payload, "funnel_counts", path=engine_path),
+                    _FUNNEL_KEYS,
+                ),
+                "filter_counts": _with_zero_defaults(
+                    _telemetry_optional_mapping(engine_payload, "filter_counts", path=engine_path),
+                    tuple(spec["filter_keys"]),
+                ),
+                "performance": _policy_summary(
+                    _finalize_returns(
+                        engine_payload.get("accepted_returns", []),
+                        path=f"{engine_path}.accepted_returns",
+                    )
+                ),
+            }
+        result[regime_label] = {
+            "snapshot_count": snapshot_count,
+            "engines": finalized_engines,
+        }
+    return result
+
+
 def _run_candidate_pipeline(
     row: DatasetSnapshotRow,
     *,
@@ -1956,39 +2032,14 @@ def run_long_gate_telemetry_experiment(
         }
 
     symbol_breakdown = {
-        engine_name: {
-            symbol: {
-                "snapshot_count": int(payload.get("snapshot_count", 0)),
-                "funnel": _with_zero_defaults(dict(payload.get("funnel", {})), _SYMBOL_FUNNEL_KEYS),
-                "filter_counts": _with_zero_defaults(dict(payload.get("filter_counts", {})), tuple(engines[engine_name]["filter_keys"])),
-            }
-            for symbol, payload in sorted(engine_symbols.items())
-        }
+        engine_name: _finalize_symbol_breakdown(
+            engine_symbols,
+            filter_keys=tuple(engines[engine_name]["filter_keys"]),
+        )
         for engine_name, engine_symbols in symbol_breakdown_aggregates.items()
     }
 
-    regime_breakdown = {
-        regime_label: {
-            "snapshot_count": int(payload.get("snapshot_count", 0)),
-            "engines": {
-                engine_name: {
-                    "funnel": _with_zero_defaults(
-                        dict(dict(payload.get("engines", {})).get(engine_name, {}).get("funnel_counts", {})),
-                        _FUNNEL_KEYS,
-                    ),
-                    "filter_counts": _with_zero_defaults(
-                        dict(dict(payload.get("engines", {})).get(engine_name, {}).get("filter_counts", {})),
-                        tuple(engines[engine_name]["filter_keys"]),
-                    ),
-                    "performance": _policy_summary(
-                        list(dict(payload.get("engines", {})).get(engine_name, {}).get("accepted_returns", []))
-                    ),
-                }
-                for engine_name in engines
-            },
-        }
-        for regime_label, payload in regime_breakdown_aggregates.items()
-    }
+    regime_breakdown = _finalize_regime_breakdown(regime_breakdown_aggregates, engines)
 
     return {
         "metadata": {
