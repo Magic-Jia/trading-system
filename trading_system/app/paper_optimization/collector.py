@@ -50,19 +50,26 @@ def _key(row: Mapping[str, Any]) -> tuple[str, str, str]:
 
 
 def _allocation_index(allocation_rows: list[dict[str, Any]]) -> dict[tuple[str, str, str], dict[str, Any]]:
-    return {_key(row): row for row in allocation_rows}
+    index: dict[tuple[str, str, str], dict[str, Any]] = {}
+    for row in allocation_rows:
+        if not isinstance(row, Mapping):
+            raise ValueError("allocation rows must be objects")
+        index[_key(row)] = dict(row)
+    return index
 
 
 def _execution_index(execution_rows: list[dict[str, Any]]) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
     by_intent_id: dict[str, dict[str, Any]] = {}
     by_symbol: dict[str, dict[str, Any]] = {}
     for row in execution_rows:
+        if not isinstance(row, Mapping):
+            raise ValueError("execution rows must be objects")
         intent_id = _str_or_none(row.get("intent_id"))
         if intent_id:
-            by_intent_id[intent_id] = row
+            by_intent_id[intent_id] = dict(row)
         symbol = _str_value(row.get("symbol")).upper()
         if symbol:
-            by_symbol[symbol] = row
+            by_symbol[symbol] = dict(row)
     return by_intent_id, by_symbol
 
 
@@ -100,6 +107,8 @@ def collect_signal_facts(
     facts: list[PaperSignalFact] = []
 
     for candidate in candidate_rows:
+        if not isinstance(candidate, Mapping):
+            raise ValueError("candidate rows must be objects")
         allocation = allocations.get(_key(candidate), {})
         allocation_execution = _allocation_execution(allocation)
         intent_id = _str_or_none(allocation_execution.get("intent_id") or allocation.get("intent_id"))

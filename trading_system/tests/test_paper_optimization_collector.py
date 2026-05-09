@@ -135,3 +135,18 @@ def test_collect_signal_facts_rejects_invalid_candidate_numeric_fields(tmp_path:
             mode="paper",
             runtime_env="research",
         )
+
+def test_collect_signal_facts_rejects_non_object_candidate_rows(tmp_path: Path) -> None:
+    paths = build_runtime_paths("paper", runtime_root=tmp_path / "runtime", runtime_env="research")
+    collector = _collector_module()
+
+    with pytest.raises(ValueError, match="candidate rows must be objects"):
+        collector.collect_signal_facts(
+            signal_facts_path=paths.signal_facts_file,
+            candidate_rows=["not-an-object"],
+            allocation_rows=[],
+            execution_rows=[],
+            regime={"label": "RISK_ON_TREND", "confidence": 0.82},
+            mode="paper",
+            runtime_env="research",
+        )
