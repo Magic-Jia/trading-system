@@ -2017,12 +2017,16 @@ def _validate_material_market_context_numeric_evidence(market_context: Mapping[s
         ):
             if field_name not in futures_context:
                 continue
+            if field_name.endswith("_age_seconds"):
+                _require_non_negative_int_field(
+                    futures_context.get(field_name),
+                    field=f"market_context symbols.{symbol}.futures_context.{field_name}",
+                )
+                continue
             parsed = _material_context_numeric_field(
                 futures_context.get(field_name),
                 field=f"market_context symbols.{symbol}.futures_context.{field_name}",
             )
-            if field_name.endswith("_age_seconds") and parsed < 0.0:
-                raise ValueError(f"market_context symbols.{symbol}.futures_context.{field_name} must be non-negative")
 
 
 def _row_market_symbol_keys(row: Any) -> tuple[str, ...]:

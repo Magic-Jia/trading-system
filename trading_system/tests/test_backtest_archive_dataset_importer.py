@@ -361,7 +361,25 @@ def test_materialize_dataset_root_rejects_negative_futures_context_age_before_wr
 
     with pytest.raises(
         ValueError,
-        match=r"market_context symbols\.BTCUSDT\.futures_context\.mark_price_age_seconds must be non-negative",
+        match=r"market_context symbols\.BTCUSDT\.futures_context\.mark_price_age_seconds must be a non-negative integer",
+    ):
+        _materialize_dataset_root(archive_root=archive_root, dataset_root=dataset_root, materials=[material])
+
+    assert not dataset_root.exists()
+
+
+def test_materialize_dataset_root_rejects_fractional_futures_context_age_before_write(tmp_path: Path) -> None:
+    archive_root = tmp_path / "archive"
+    _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT")
+    latest = build_phase1_dataset_bundle_materials(load_phase1_raw_market_imports(archive_root))[-1]
+    market_context = json.loads(json.dumps(latest.market_context))
+    market_context["symbols"]["BTCUSDT"]["futures_context"]["funding_age_seconds"] = 25200.5
+    material = replace(latest, market_context=market_context)
+    dataset_root = tmp_path / "dataset"
+
+    with pytest.raises(
+        ValueError,
+        match=r"market_context symbols\.BTCUSDT\.futures_context\.funding_age_seconds must be a non-negative integer",
     ):
         _materialize_dataset_root(archive_root=archive_root, dataset_root=dataset_root, materials=[material])
 
@@ -2765,7 +2783,7 @@ def test_write_phase1_dataset_bundle_rejects_present_malformed_funding_age_secon
 
     with pytest.raises(
         ValueError,
-        match=r"market_context symbols\.BTCUSDT\.futures_context\.funding_age_seconds must be numeric",
+        match=r"market_context symbols\.BTCUSDT\.futures_context\.funding_age_seconds must be a non-negative integer",
     ):
         write_phase1_dataset_bundle(bad_material, dataset_root)
 
