@@ -70,3 +70,5 @@ def test_workflow_docs_and_codex_template_reference_worker_audit() -> None:
 
     assert "scripts/audit_worker_commit.py" in doc
     assert "scripts/audit_worker_commit.py" in template
+    assert "final_merge_proof" in doc
+    assert "controller_next_steps" in doc
