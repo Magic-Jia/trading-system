@@ -55,6 +55,7 @@ def test_workflow_doc_records_json_plan_and_full_checkpoint_policy() -> None:
     assert "--list-suites --json" in text
     assert "inventory_kind" in text
     assert "inventory_version" in text
+    assert "inventory_fingerprint" in text
     assert "count" in text
     assert "tests" in text
     assert "--json" in text
@@ -106,6 +107,7 @@ def test_codex_worker_template_requires_json_plan_report() -> None:
     assert "plan_fingerprint" in text
     assert "command_argv" in text
     assert "inventory_version" in text
+    assert "inventory_fingerprint" in text
     assert "entrypoint JSON `suites`" in text
     assert "--dry-run --json" in text
     assert "scripts/ci_verify.py --dry-run --json" in text

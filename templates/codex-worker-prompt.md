@@ -62,7 +62,7 @@ Report these fields exactly:
 - Verification plan JSON:
   - Include `plan_version`, `plan_kind`, `plan_fingerprint`, and `command_argv` from `scripts/verify.py --dry-run --json` / `scripts/ci_verify.py --dry-run --json` output.
   - Include entrypoint JSON `suites` from CI/nightly dry-run JSON when applicable so the controller does not infer suite names from command strings.
-  - If reporting suite inventory, include `inventory_version` and `inventory_kind` from `scripts/verify.py --list-suites --json` output.
+  - If reporting suite inventory, include `inventory_version`, `inventory_kind`, and `inventory_fingerprint` from `scripts/verify.py --list-suites --json` output.
 - Changed files:
 - Commit hash:
 - Known limitations:
