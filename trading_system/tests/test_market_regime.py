@@ -396,6 +396,15 @@ def test_classify_regime_rejects_string_major_daily_close(load_fixture):
         classify_regime(market, derivatives)
 
 
+def test_classify_regime_rejects_string_daily_atr_pct(load_fixture):
+    market = load_fixture("market_context_v2.json")
+    derivatives = load_fixture("derivatives_snapshot_v2.json")
+    market["symbols"]["BTCUSDT"]["daily"]["atr_pct"] = "0.02"
+
+    with pytest.raises(ValueError, match="BTCUSDT.daily.atr_pct"):
+        classify_regime(market, derivatives)
+
+
 def test_low_confidence_regime_reduces_aggression(load_fixture):
     market = load_fixture("market_context_v2.json")
     derivatives = load_fixture("derivatives_snapshot_v2.json")

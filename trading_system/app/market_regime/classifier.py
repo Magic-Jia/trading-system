@@ -94,7 +94,13 @@ def _avg_daily_atr_pct(market_rows: list[dict[str, Any]]) -> float:
         return 0.0
     total = 0.0
     for row in market_rows:
-        total += float(row.get("daily", {}).get("atr_pct", 0.0))
+        symbol = row.get("symbol")
+        if not isinstance(symbol, str) or not symbol:
+            raise ValueError("market regime row symbol must be a non-empty string")
+        daily = row.get("daily", {})
+        if not isinstance(daily, dict):
+            raise ValueError(f"market regime timeframe must be an object: {symbol}.daily")
+        total += _strict_present_finite_float(daily, "atr_pct", symbol=symbol, timeframe="daily") or 0.0
     return total / len(market_rows)
 
 
