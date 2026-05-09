@@ -93,6 +93,7 @@ def main(argv: list[str] | None = None) -> int:
                 ],
                 "commit": commit,
                 "changed_files": changed_files,
+                "strict_changed_verification": True,
                 "worktree_dirty": worktree_dirty(),
                 "verification_plan": plan,
             },
