@@ -679,7 +679,14 @@ def render_engine_filter_ablation_report(
         metric_fn=lambda _name, payload: dict(payload.get("performance", {})).get("bucket_level_pnl", 0.0),
     )
     best_payload = dict(variants.get(best_variant, {})) if best_variant is not None else {}
-    accepted_allocations = int(dict(best_payload.get("funnel", {})).get("accepted_allocations", 0))
+    raw_best_funnel = best_payload.get("funnel", {})
+    if not isinstance(raw_best_funnel, Mapping):
+        raise ValueError(f"variants.{best_variant}.funnel must be an object")
+    accepted_allocations = _non_negative_int_field(
+        raw_best_funnel,
+        "accepted_allocations",
+        label=f"variants.{best_variant}.funnel",
+    )
 
     if best_bucket_pnl > 0.0 and accepted_allocations > 0:
         decision = "candidate_for_promotion"
