@@ -89,6 +89,14 @@ def _optional_section_str(section: Mapping[str, Any], key: str, *, section_name:
     return value
 
 
+def _bundle_path(value: str | Path | None, *, field_name: str) -> str | Path | None:
+    if value is None:
+        return None
+    if not isinstance(value, (str, Path)):
+        raise ValueError(f"{field_name} must be a path string")
+    return value
+
+
 def materialize_env_overrides(
     recommendations_payload: Mapping[str, Any],
     *,
@@ -186,6 +194,8 @@ def build_promotion_decision(
     payload["decision"] = "awaiting_backtest"
     payload["summary"] = "recommendations translated into a candidate env overlay; awaiting validation bundles"
 
+    baseline_bundle = _bundle_path(baseline_bundle, field_name="baseline_bundle")
+    variant_bundle = _bundle_path(variant_bundle, field_name="variant_bundle")
     if baseline_bundle is None or variant_bundle is None:
         return payload
 

@@ -405,3 +405,18 @@ def test_build_promotion_decision_rejects_non_string_recorded_at() -> None:
             recommendations_payload={"recommendations": []},
             recorded_at_bj=123,
         )
+
+def test_build_promotion_decision_rejects_invalid_bundle_paths() -> None:
+    import pytest
+
+    with pytest.raises(ValueError, match="baseline_bundle must be a path string"):
+        build_promotion_decision(
+            recommendations_payload={"recommendations": [{"id": "validate", "overlay_ops": []}]},
+            baseline_bundle=123,
+            variant_bundle="/tmp/variant",
+            compare_backtest_bundles_fn=lambda **_kwargs: {
+                "promotion_gate": {"decision": "hold"},
+                "decision_summary": {"decision": "hold"},
+            },
+            recorded_at_bj="2026-04-24T12:05:00+08:00",
+        )
