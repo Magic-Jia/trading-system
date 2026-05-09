@@ -275,6 +275,15 @@ def render_full_market_baseline_report(result: BaselineReplayResult) -> dict[str
         cost_key = _canonical_report_string(key, field_name="cost_breakdown key")
         cost_breakdown_payload[cost_key] = _report_finite_float(value, field_name=f"cost_breakdown.{cost_key}")
 
+    gross_period_returns = _strict_finite_float_sequence(
+        result.gross_period_returns,
+        field_name="gross_period_returns",
+    )
+    net_period_returns = _strict_finite_float_sequence(
+        result.net_period_returns,
+        field_name="net_period_returns",
+    )
+
     return {
         "summary": {
             "experiment_name": result.portfolio_summary.experiment_name,
@@ -285,7 +294,7 @@ def render_full_market_baseline_report(result: BaselineReplayResult) -> dict[str
             "calmar": result.portfolio_summary.calmar,
             "turnover": result.portfolio_summary.turnover,
             "trade_count": result.portfolio_summary.trade_count,
-            "cost_drag": cost_drag(result.gross_period_returns, result.net_period_returns),
+            "cost_drag": cost_drag(gross_period_returns, net_period_returns),
             "cost_breakdown": cost_breakdown_payload,
         },
         "breakdowns": {
@@ -576,6 +585,15 @@ def _strict_present_finite_float(value: Any, *, field_name: str) -> float:
     if not math.isfinite(parsed):
         raise ValueError(f"{field_name} must be a finite number")
     return parsed
+
+
+def _strict_finite_float_sequence(value: Any, *, field_name: str) -> tuple[float, ...]:
+    if isinstance(value, (str, bytes)) or not isinstance(value, tuple):
+        raise ValueError(f"{field_name} must be a tuple")
+    return tuple(
+        _strict_present_finite_float(item, field_name=f"{field_name}[{index}]")
+        for index, item in enumerate(value)
+    )
 
 
 def _llm_trend_candidate_rows(rows: list[Any]) -> list[dict[str, Any]]:

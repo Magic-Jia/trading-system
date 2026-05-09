@@ -445,6 +445,21 @@ def test_full_market_report_rejects_invalid_cost_breakdown_fields() -> None:
         reporting.render_full_market_baseline_report(bad_result)
 
 
+def test_full_market_report_rejects_string_cost_drag_return_metric() -> None:
+    result = sample_baseline_result()
+    bad_result = BaselineReplayResult(
+        portfolio_summary=result.portfolio_summary,
+        trade_ledger=result.trade_ledger,
+        rejection_ledger=result.rejection_ledger,
+        cost_breakdown=result.cost_breakdown,
+        gross_period_returns=("0.08", result.gross_period_returns[1]),  # type: ignore[arg-type]
+        net_period_returns=result.net_period_returns,
+    )
+
+    with pytest.raises(ValueError, match=r"gross_period_returns\[0\] must be a finite number"):
+        reporting.render_full_market_baseline_report(bad_result)
+
+
 def test_full_market_report_rejects_non_string_trade_symbol() -> None:
     result = sample_baseline_result()
     bad_result = BaselineReplayResult(
