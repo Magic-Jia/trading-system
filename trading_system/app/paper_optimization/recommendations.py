@@ -47,6 +47,14 @@ def _optional_list(payload: Mapping[str, Any], field_name: str, *, source_name: 
     return value
 
 
+def _optional_mapping(payload: Mapping[str, Any] | None, *, source_name: str) -> Mapping[str, Any] | None:
+    if payload is None:
+        return None
+    if not isinstance(payload, Mapping):
+        raise ValueError(f"{source_name} must be an object")
+    return payload
+
+
 def _read_json(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
@@ -182,6 +190,7 @@ def generate_recommendations(
     recorded_at_bj: str | None = None,
     previous_recommendations: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
+    previous_payload = _optional_mapping(previous_recommendations, source_name="previous_recommendations")
     metrics_recorded_at_bj = _optional_str(daily_metrics, "recorded_at_bj", source_name="daily_metrics")
     recommendation_recorded_at = _recorded_at_bj(recorded_at_bj)
     trade_outcome_count = _int(daily_metrics.get("trade_outcome_count"), field_name="daily_metrics.trade_outcome_count")
@@ -203,12 +212,13 @@ def generate_recommendations(
         )
     elif trade_outcome_count < _DEFAULT_MIN_TRADE_OUTCOMES:
         previous_low_sample_count = 0
-        if isinstance(previous_recommendations, Mapping):
-            previous_suppressed = previous_recommendations.get("suppressed")
-            if isinstance(previous_suppressed, list):
-                for item in previous_suppressed:
-                    if isinstance(item, Mapping) and item.get("reason") == "low_sample":
-                        previous_low_sample_count = max(previous_low_sample_count, _int(item.get("consecutive_count"), 1, field_name="previous_recommendations.suppressed.consecutive_count"))
+        if previous_payload is not None:
+            previous_suppressed = _optional_list(previous_payload, "suppressed", source_name="previous_recommendations")
+            for item in previous_suppressed:
+                if not isinstance(item, Mapping):
+                    raise ValueError("previous_recommendations.suppressed entries must be objects")
+                if item.get("reason") == "low_sample":
+                    previous_low_sample_count = max(previous_low_sample_count, _int(item.get("consecutive_count"), 1, field_name="previous_recommendations.suppressed.consecutive_count"))
         consecutive_count = previous_low_sample_count + 1
         suppressed.append(
             {
@@ -266,12 +276,18 @@ def generate_recommendations(
                     recommendations.append(recommendation)
 
     previous_ids = set()
-    if isinstance(previous_recommendations, Mapping):
-        previous_items = previous_recommendations.get("recommendations")
-        if isinstance(previous_items, list):
-            for item in previous_items:
-                if isinstance(item, Mapping) and item.get("id"):
-                    previous_ids.add(str(item.get("id")))
+    if previous_payload is not None:
+        previous_items = _optional_list(previous_payload, "recommendations", source_name="previous_recommendations")
+        for item in previous_items:
+            if not isinstance(item, Mapping):
+                raise ValueError("previous_recommendations.recommendations entries must be objects")
+            previous_id = item.get("id")
+            if previous_id is None:
+                continue
+            if not isinstance(previous_id, str):
+                raise ValueError("previous_recommendations.recommendations.id must be a string")
+            if previous_id:
+                previous_ids.add(previous_id)
     for recommendation in recommendations:
         recommendation["is_repeat"] = recommendation["id"] in previous_ids
 

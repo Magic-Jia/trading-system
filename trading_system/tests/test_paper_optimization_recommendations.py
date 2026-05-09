@@ -251,3 +251,53 @@ def test_generate_recommendations_rejects_invalid_engine_breakdowns() -> None:
             health_report={"status": "ok", "warnings": []},
             recorded_at_bj="2026-04-24T12:05:00+08:00",
         )
+
+
+def test_generate_recommendations_rejects_invalid_previous_recommendations() -> None:
+    import pytest
+
+    base_metrics = {
+        "recorded_at_bj": "2026-04-24T12:00:00+08:00",
+        "trade_outcome_count": 8,
+        "unrealized_pnl_total": -0.8,
+    }
+
+    with pytest.raises(ValueError, match="previous_recommendations must be an object"):
+        generate_recommendations(
+            daily_metrics=base_metrics,
+            health_report={"status": "ok", "warnings": []},
+            previous_recommendations=[],
+            recorded_at_bj="2026-04-24T12:05:00+08:00",
+        )
+
+    with pytest.raises(ValueError, match="previous_recommendations.recommendations must be a list"):
+        generate_recommendations(
+            daily_metrics=base_metrics,
+            health_report={"status": "ok", "warnings": []},
+            previous_recommendations={"recommendations": "bad"},
+            recorded_at_bj="2026-04-24T12:05:00+08:00",
+        )
+
+    with pytest.raises(ValueError, match="previous_recommendations.recommendations entries must be objects"):
+        generate_recommendations(
+            daily_metrics=base_metrics,
+            health_report={"status": "ok", "warnings": []},
+            previous_recommendations={"recommendations": ["bad"]},
+            recorded_at_bj="2026-04-24T12:05:00+08:00",
+        )
+
+    with pytest.raises(ValueError, match="previous_recommendations.recommendations.id must be a string"):
+        generate_recommendations(
+            daily_metrics=base_metrics,
+            health_report={"status": "ok", "warnings": []},
+            previous_recommendations={"recommendations": [{"id": 123}]},
+            recorded_at_bj="2026-04-24T12:05:00+08:00",
+        )
+
+    with pytest.raises(ValueError, match="previous_recommendations.suppressed must be a list"):
+        generate_recommendations(
+            daily_metrics={**base_metrics, "trade_outcome_count": 0},
+            health_report={"status": "ok", "warnings": []},
+            previous_recommendations={"suppressed": "bad"},
+            recorded_at_bj="2026-04-24T12:05:00+08:00",
+        )
