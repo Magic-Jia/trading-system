@@ -68,13 +68,26 @@ def _tf_row(payload: Mapping[str, Any], timeframe: str) -> Mapping[str, Any]:
     return {}
 
 
-def _strict_present_numeric(row: Mapping[str, Any], field: str, field_path: str) -> float:
+def _strict_present_numeric(
+    row: Mapping[str, Any],
+    field: str,
+    field_path: str,
+    *,
+    when_present: bool = False,
+) -> float:
     if field not in row:
         return 0.0
     value = row.get(field)
     if isinstance(value, bool) or not isinstance(value, int | float) or not math.isfinite(value):
-        raise ValueError(f"{field_path} must be a finite non-bool number")
+        suffix = " when present" if when_present else ""
+        raise ValueError(f"{field_path} must be a finite non-bool number{suffix}")
     return float(value)
+
+
+def _entry_reference_close(row: Mapping[str, Any], field_path: str) -> float | None:
+    if "close" not in row or row.get("close") is None:
+        return None
+    return _strict_present_numeric(row, "close", field_path, when_present=True)
 
 
 def _strict_present_liquidity_meta_numeric(
@@ -164,7 +177,23 @@ def _validate_required_rotation_timeframe_numerics(symbol: str, payload: Mapping
     for timeframe, fields in required_fields.items():
         row = _tf_row(payload, timeframe)
         for field in fields:
-            _strict_present_numeric(row, field, f"{symbol}.{timeframe}.{field}")
+            _strict_present_numeric(
+                row,
+                field,
+                f"{symbol}.{timeframe}.{field}",
+                when_present=field == "close",
+            )
+
+
+def _validate_primary_entry_reference_close(
+    symbol: str,
+    payload: Mapping[str, Any],
+    profile: EntryProfile,
+) -> None:
+    if _is_short_term_profile(profile) or _is_scout_profile(profile):
+        _entry_reference_close(_tf_row(payload, "15m"), f"{symbol}.15m.close")
+    else:
+        _entry_reference_close(_tf_row(payload, "1h"), f"{symbol}.1h.close")
 
 
 def _regime_value(regime: RegimeSnapshot | Mapping[str, Any] | None, key: str, default: Any = None) -> Any:
@@ -546,15 +575,24 @@ def _passes_reacceleration_h1_extension_gate(payload: Mapping[str, Any], setup_t
     return _extension_pct(_tf_row(payload, "1h")) >= _ROTATION_REACCELERATION_H1_EXTENSION_FLOOR_PCT
 
 
-def _rotation_stop_loss(payload: Mapping[str, Any], entry_profile: EntryProfile | None = None) -> float:
+def _rotation_stop_loss(
+    payload: Mapping[str, Any],
+    entry_profile: EntryProfile | None = None,
+    *,
+    symbol: str = "rotation",
+) -> float:
     h1 = _tf_row(payload, "1h")
     daily = _tf_row(payload, "daily")
     m15 = _tf_row(payload, "15m")
     if entry_profile is not None and (_is_short_term_profile(entry_profile) or _is_scout_profile(entry_profile)):
-        entry_reference = _to_float(m15.get("close")) or _to_float(h1.get("close"))
+        entry_reference = _entry_reference_close(m15, f"{symbol}.15m.close")
+        if entry_reference is None:
+            entry_reference = _entry_reference_close(h1, f"{symbol}.1h.close") or 0.0
         stop_loss = _to_float(m15.get("ema_50"))
     else:
-        entry_reference = _to_float(h1.get("close")) or _to_float(daily.get("close"))
+        entry_reference = _entry_reference_close(h1, f"{symbol}.1h.close")
+        if entry_reference is None:
+            entry_reference = _entry_reference_close(daily, f"{symbol}.daily.close") or 0.0
         stop_loss = _to_float(h1.get("ema_50"))
     if entry_reference <= 0 or stop_loss <= 0 or stop_loss >= entry_reference:
         return 0.0
@@ -592,6 +630,7 @@ def generate_rotation_candidates(
             continue
         _payload_liquidity_tier(symbol, payload)
         _validate_required_rotation_timeframe_numerics(symbol, payload)
+        _validate_primary_entry_reference_close(symbol, payload, profile)
         active_paper_soft_reclaim = _active_paper_soft_reclaim_trend_intact(payload, regime, profile)
         scout_intraday_recovery = _scout_intraday_recovery_trend_intact(payload, profile)
         if not _trend_accepted(payload, regime, profile):
@@ -631,7 +670,7 @@ def generate_rotation_candidates(
         if total_score < score_floor:
             continue
 
-        stop_loss = _rotation_stop_loss(payload, profile)
+        stop_loss = _rotation_stop_loss(payload, profile, symbol=symbol)
         if stop_loss <= 0.0:
             continue
 

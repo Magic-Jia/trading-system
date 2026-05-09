@@ -3,7 +3,7 @@ from types import MappingProxyType
 
 import pytest
 
-from trading_system.app.signals.entry_profile import ACTIVE_PAPER_ENTRY_PROFILE
+from trading_system.app.signals.entry_profile import ACTIVE_PAPER_ENTRY_PROFILE, SHORT_TERM_ENTRY_PROFILE
 from trading_system.app.signals import rotation_engine
 from trading_system.app.signals.rotation_engine import generate_rotation_candidates
 from trading_system.app.signals.scoring import score_rotation_candidate
@@ -409,6 +409,80 @@ def test_generate_rotation_candidates_active_paper_profile_allows_modest_relativ
 
     assert [candidate.symbol for candidate in candidates] == ["LINKUSDT"]
     assert candidates[0].stop_loss > 0
+
+
+@pytest.mark.parametrize("bad_close", ["bad", True, math.nan, math.inf])
+def test_generate_rotation_candidates_rejects_present_invalid_short_term_primary_entry_reference(
+    bad_close: object,
+):
+    market = _soft_rotation_reclaim_market()
+    market["symbols"]["SOLUSDT"]["15m"] = {
+        "close": 104.0,
+        "ema_20": 103.0,
+        "ema_50": 102.0,
+        "return_pct_4h": 0.002,
+    }
+    market["symbols"]["SOLUSDT"]["30m"] = {
+        "close": 104.0,
+        "ema_20": 103.0,
+        "ema_50": 102.0,
+        "return_pct_8h": 0.002,
+    }
+    universe = [{"symbol": "SOLUSDT", "sector": "alt_l1", "liquidity_tier": "high"}]
+    regime = {"label": "RISK_ON_ROTATION", "suppression_rules": []}
+
+    assert [
+        candidate.symbol
+        for candidate in generate_rotation_candidates(
+            market,
+            rotation_universe=universe,
+            regime=regime,
+            entry_profile=SHORT_TERM_ENTRY_PROFILE,
+        )
+    ] == ["SOLUSDT"]
+
+    market["symbols"]["SOLUSDT"]["15m"]["close"] = bad_close
+
+    with pytest.raises(
+        ValueError,
+        match=r"SOLUSDT\.15m\.close must be a finite non-bool number when present",
+    ):
+        generate_rotation_candidates(
+            market,
+            rotation_universe=universe,
+            regime=regime,
+            entry_profile=SHORT_TERM_ENTRY_PROFILE,
+        )
+
+
+@pytest.mark.parametrize("bad_close", ["bad", True, math.nan, math.inf])
+def test_generate_rotation_candidates_rejects_present_invalid_default_primary_entry_reference(
+    bad_close: object,
+):
+    market = _soft_rotation_reclaim_market()
+    universe = [{"symbol": "SOLUSDT", "sector": "alt_l1", "liquidity_tier": "high"}]
+    regime = {"label": "RISK_ON_ROTATION", "suppression_rules": []}
+
+    assert [
+        candidate.symbol
+        for candidate in generate_rotation_candidates(
+            market,
+            rotation_universe=universe,
+            regime=regime,
+        )
+    ] == ["SOLUSDT"]
+
+    market["symbols"]["SOLUSDT"]["1h"]["close"] = bad_close
+
+    with pytest.raises(
+        ValueError,
+        match=r"SOLUSDT\.1h\.close must be a finite non-bool number when present",
+    ):
+        generate_rotation_candidates(
+            market,
+            rotation_universe=universe,
+            regime=regime,
+        )
 
 
 def test_generate_rotation_candidates_rejects_non_string_liquidity_meta_key():
