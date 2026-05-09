@@ -40,9 +40,10 @@ python3 scripts/verify.py --list-suites
 
 ```bash
 python3 scripts/verify.py --dry-run --json --auto-changed
+python3 scripts/verify.py --dry-run --strict-auto-changed --auto-changed
 ```
 
-The JSON payload includes `changed`, `suites`, `tests`, `commands`, `full`, and `full_checkpoint_reason`. `--json requires --dry-run`; using `--json` without `--dry-run` fails fast instead of executing tests while a caller expects JSON.
+The JSON payload includes `changed`, `suites`, `tests`, `commands`, `full`, and `full_checkpoint_reason`. `--json requires --dry-run`; using `--json` without `--dry-run` fails fast instead of executing tests while a caller expects JSON. Use `--strict-auto-changed` in controller/CI preflight when every changed path must map to at least one verification test.
 
 Use full-suite checkpoint policy when multiple slices have landed since the last full run:
 
