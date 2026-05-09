@@ -12,6 +12,7 @@ _REQUIRED_BUNDLE_FILES = ("metadata.json", "market_context.json", "derivatives_s
 _BASELINE_ACCOUNT_FILENAME = "baseline_account_snapshot.json"
 _INSTRUMENT_SNAPSHOT_FILENAME = "instrument_snapshot.json"
 _IMPORT_MANIFEST_FILENAME = "import_manifest.json"
+_ACCOUNT_NON_NEGATIVE_NUMBER_FIELDS = ("equity", "available_balance", "futures_wallet_balance")
 
 
 def _parse_timestamp(value: str) -> datetime:
@@ -129,6 +130,20 @@ def _metadata_metric_map(metadata: dict, key: str) -> dict[str, float]:
     return result
 
 
+def _account_snapshot(account: dict, *, path: Path) -> dict:
+    snapshot = dict(account)
+    for field in _ACCOUNT_NON_NEGATIVE_NUMBER_FIELDS:
+        if field not in snapshot:
+            continue
+        value = snapshot[field]
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError(f"account.{field} must be a non-negative finite number: {path}")
+        number = float(value)
+        if not math.isfinite(number) or number < 0.0:
+            raise ValueError(f"account.{field} must be a non-negative finite number: {path}")
+    return snapshot
+
+
 def _row_from_bundle(bundle_path: Path, *, fallback_account: dict | None) -> DatasetSnapshotRow:
     for filename in _REQUIRED_BUNDLE_FILES:
         file_path = bundle_path / filename
@@ -162,7 +177,10 @@ def _row_from_bundle(bundle_path: Path, *, fallback_account: dict | None) -> Dat
         )
     if not isinstance(account, dict):
         raise ValueError(f"dataset bundle has invalid account snapshot: {bundle_path / 'account_snapshot.json'}")
-    account_snapshot = dict(account)
+    account_snapshot = _account_snapshot(
+        account,
+        path=account_path if account_path.exists() else bundle_path.parent / _BASELINE_ACCOUNT_FILENAME,
+    )
     instrument_rows = _instrument_rows(bundle_path)
 
     forward_returns = _metadata_metric_map(metadata, "forward_returns")

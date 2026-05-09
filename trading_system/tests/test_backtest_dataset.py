@@ -128,6 +128,25 @@ def test_load_historical_dataset_rejects_non_object_account_snapshot(tmp_path: P
         load_historical_dataset(dataset_root)
 
 
+def test_load_historical_dataset_rejects_numeric_string_account_equity(tmp_path: Path) -> None:
+    dataset_root = tmp_path / "sample_dataset"
+    bundle = dataset_root / "2026-03-10T00-00-00Z__sample-001"
+    bundle.mkdir(parents=True)
+    (bundle / "metadata.json").write_text(
+        '{"timestamp": "2026-03-10T00:00:00Z", "run_id": "sample-001"}',
+        encoding="utf-8",
+    )
+    (bundle / "market_context.json").write_text('{"symbols": {"BTCUSDT": {}}}', encoding="utf-8")
+    (bundle / "derivatives_snapshot.json").write_text('{"rows": []}', encoding="utf-8")
+    (bundle / "account_snapshot.json").write_text(
+        json.dumps({"equity": "100000.0", "available_balance": 90000.0}),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="account.equity must be a non-negative finite number"):
+        load_historical_dataset(dataset_root)
+
+
 def test_load_historical_dataset_rejects_noncanonical_metadata_identity_fields(tmp_path: Path) -> None:
     dataset_root = tmp_path / "sample_dataset"
     bundle = dataset_root / "2026-03-10T00-00-00Z__sample-001"
