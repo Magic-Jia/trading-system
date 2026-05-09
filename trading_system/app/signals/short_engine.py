@@ -46,6 +46,15 @@ def _payload_sector(payload: Mapping[str, Any], symbol: str) -> str:
     return value
 
 
+def _optional_payload_string(payload: Mapping[str, Any], symbol: str, field: str) -> str | None:
+    if field not in payload:
+        return None
+    value = payload.get(field)
+    if not isinstance(value, str):
+        raise ValueError(f"{symbol}.{field} must be a string when present")
+    return value
+
+
 _REQUIRED_SHORT_TIMEFRAME_NUMERIC_FIELDS = {
     "daily": ("close", "ema_20", "ema_50", "return_pct_7d", "volume_usdt_24h"),
     "4h": ("close", "ema_20", "ema_50", "return_pct_3d"),
@@ -328,7 +337,10 @@ def generate_short_candidates(
             }
 
         liquidity_meta = dict(_liquidity_meta(universe_row, canonical_symbol))
-        liquidity_meta.setdefault("liquidity_tier", payload.get("liquidity_tier"))
+        liquidity_meta.setdefault(
+            "liquidity_tier",
+            _optional_payload_string(payload, canonical_symbol, "liquidity_tier"),
+        )
         liquidity_meta["volume_usdt_24h"] = _to_float(daily.get("volume_usdt_24h"))
 
         candidates.append(

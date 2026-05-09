@@ -459,6 +459,22 @@ def test_generate_short_candidates_rejects_present_non_string_payload_sector():
         )
 
 
+def test_generate_short_candidates_rejects_present_non_string_payload_liquidity_tier():
+    market = _defensive_market()
+    market["symbols"]["BTCUSDT"]["liquidity_tier"] = True
+    short_universe = [
+        {"symbol": "BTCUSDT", "sector": "majors", "liquidity_meta": {"rolling_notional": 12_500_000_000.0}},
+    ]
+    regime = {"label": "HIGH_VOL_DEFENSIVE", "bucket_targets": {"trend": 0.2, "rotation": 0.0, "short": 0.8}}
+
+    with pytest.raises(ValueError, match=r"BTCUSDT\.liquidity_tier"):
+        generate_short_candidates(
+            market,
+            short_universe=short_universe,
+            regime=regime,
+        )
+
+
 @pytest.mark.parametrize("bad_value", [True, math.nan, math.inf, -math.inf])
 def test_short_term_candidates_reject_present_invalid_required_numeric(bad_value):
     market = _defensive_market()
