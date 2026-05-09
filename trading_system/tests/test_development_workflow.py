@@ -28,6 +28,7 @@ CI_PLAN_JSON_KEYS = {
     "command_argv",
     "commands",
     "entrypoint",
+    "plan_fingerprint",
     "plan_kind",
     "plan_version",
     "strict_changed_verification",
@@ -38,6 +39,7 @@ NIGHTLY_PLAN_JSON_KEYS = {
     "command_argv",
     "commands",
     "entrypoint",
+    "plan_fingerprint",
     "plan_kind",
     "plan_version",
     "suites",
@@ -447,6 +449,17 @@ def test_ci_verify_dry_run_json_reports_commands() -> None:
     assert set(payload) == CI_PLAN_JSON_KEYS
     assert payload["plan_version"] == 1
     assert payload["plan_kind"] == "ci_verification_plan"
+    assert len(payload["plan_fingerprint"]) == 64
+    repeat = subprocess.run(
+        [sys.executable, str(ROOT / "scripts" / "ci_verify.py"), "--dry-run", "--json"],
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    assert repeat.returncode == 0, repeat.stderr
+    assert json.loads(repeat.stdout)["plan_fingerprint"] == payload["plan_fingerprint"]
     assert payload["entrypoint"] == "ci_verify"
     assert payload["strict_changed_verification"] is True
     assert payload["suites"] == ["workflow-meta", "evidence-chain"]
@@ -521,6 +534,17 @@ def test_nightly_verify_dry_run_json_reports_clean_env_full_command() -> None:
     assert set(payload) == NIGHTLY_PLAN_JSON_KEYS
     assert payload["plan_version"] == 1
     assert payload["plan_kind"] == "nightly_verification_plan"
+    assert len(payload["plan_fingerprint"]) == 64
+    repeat = subprocess.run(
+        [sys.executable, str(ROOT / "scripts" / "nightly_verify.py"), "--dry-run", "--json"],
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    assert repeat.returncode == 0, repeat.stderr
+    assert json.loads(repeat.stdout)["plan_fingerprint"] == payload["plan_fingerprint"]
     assert payload["entrypoint"] == "nightly_verify"
     assert payload["clean_env"] is True
     assert payload["suites"] == ["full"]

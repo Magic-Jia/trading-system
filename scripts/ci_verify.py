@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import subprocess
 import sys
@@ -27,6 +28,11 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def plan_fingerprint(payload: dict[str, object]) -> str:
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
 def main() -> int:
     args = build_parser().parse_args()
     if args.json and not args.dry_run:
@@ -46,6 +52,7 @@ def main() -> int:
             "suites": PLANNED_SUITES,
             "strict_changed_verification": True,
         }
+        payload["plan_fingerprint"] = plan_fingerprint(payload)
         if args.json:
             print(json.dumps(payload, indent=2, sort_keys=True))
         else:
