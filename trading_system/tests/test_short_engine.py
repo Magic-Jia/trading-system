@@ -136,6 +136,84 @@ def test_generate_short_candidates_accepts_numeric_score_total(monkeypatch):
     assert [(candidate.symbol, candidate.score) for candidate in candidates] == [("BTCUSDT", 0.9)]
 
 
+@pytest.mark.parametrize("bad_components", [["test", 0.9], "bad"])
+def test_generate_short_candidates_rejects_present_non_object_score_components(monkeypatch, bad_components):
+    market = _defensive_market()
+    short_universe = [
+        {"symbol": "BTCUSDT", "sector": "majors", "liquidity_meta": {"rolling_notional": 12_500_000_000.0}},
+    ]
+    regime = {"label": "HIGH_VOL_DEFENSIVE", "bucket_targets": {"trend": 0.2, "rotation": 0.0, "short": 0.8}}
+
+    monkeypatch.setattr(
+        short_engine,
+        "score_short_candidate",
+        lambda _features: {"total": 0.9, "components": bad_components},
+    )
+
+    with pytest.raises(ValueError, match=r"short score\.components must be an object"):
+        generate_short_candidates(market, short_universe=short_universe, regime=regime)
+
+
+def test_generate_short_candidates_rejects_score_component_non_string_key(monkeypatch):
+    market = _defensive_market()
+    short_universe = [
+        {"symbol": "BTCUSDT", "sector": "majors", "liquidity_meta": {"rolling_notional": 12_500_000_000.0}},
+    ]
+    regime = {"label": "HIGH_VOL_DEFENSIVE", "bucket_targets": {"trend": 0.2, "rotation": 0.0, "short": 0.8}}
+
+    monkeypatch.setattr(
+        short_engine,
+        "score_short_candidate",
+        lambda _features: {"total": 0.9, "components": {123: 0.1}},
+    )
+
+    with pytest.raises(ValueError, match=r"short score\.components key must be a string"):
+        generate_short_candidates(market, short_universe=short_universe, regime=regime)
+
+
+@pytest.mark.parametrize("bad_value", ["0.1", True, math.nan, math.inf])
+def test_generate_short_candidates_rejects_invalid_score_component_value(monkeypatch, bad_value):
+    market = _defensive_market()
+    short_universe = [
+        {"symbol": "BTCUSDT", "sector": "majors", "liquidity_meta": {"rolling_notional": 12_500_000_000.0}},
+    ]
+    regime = {"label": "HIGH_VOL_DEFENSIVE", "bucket_targets": {"trend": 0.2, "rotation": 0.0, "short": 0.8}}
+
+    monkeypatch.setattr(
+        short_engine,
+        "score_short_candidate",
+        lambda _features: {"total": 0.9, "components": {"momentum_quality": bad_value}},
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"short score\.components\.momentum_quality must be a finite non-bool number",
+    ):
+        generate_short_candidates(market, short_universe=short_universe, regime=regime)
+
+
+def test_generate_short_candidates_preserves_score_components_as_plain_dict(monkeypatch):
+    market = _defensive_market()
+    short_universe = [
+        {"symbol": "BTCUSDT", "sector": "majors", "liquidity_meta": {"rolling_notional": 12_500_000_000.0}},
+    ]
+    regime = {"label": "HIGH_VOL_DEFENSIVE", "bucket_targets": {"trend": 0.2, "rotation": 0.0, "short": 0.8}}
+    components = {"momentum_quality": 1, "liquidity_quality": 0.75}
+
+    monkeypatch.setattr(
+        short_engine,
+        "score_short_candidate",
+        lambda _features: {"total": 0.9, "components": components},
+    )
+
+    candidates = generate_short_candidates(market, short_universe=short_universe, regime=regime)
+
+    score_components = candidates[0].timeframe_meta["score_components"]
+    assert score_components == components
+    assert score_components is not components
+    assert type(score_components) is dict
+
+
 @pytest.mark.parametrize("bad_total", ["0.9", True, math.nan, math.inf])
 def test_generate_short_candidates_rejects_present_invalid_score_total(monkeypatch, bad_total):
     market = _defensive_market()

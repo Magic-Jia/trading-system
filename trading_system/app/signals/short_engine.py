@@ -30,6 +30,23 @@ def _score_total(scored: Mapping[str, Any]) -> float:
     return float(value)
 
 
+def _score_components(scored: Mapping[str, Any]) -> dict[str, float]:
+    if "components" not in scored or scored.get("components") is None:
+        return {}
+    components = scored.get("components")
+    if not isinstance(components, Mapping):
+        raise ValueError("short score.components must be an object")
+
+    valid_components: dict[str, float] = {}
+    for key, value in components.items():
+        if not isinstance(key, str):
+            raise ValueError("short score.components key must be a string")
+        if not _is_finite_number(value):
+            raise ValueError(f"short score.components.{key} must be a finite non-bool number")
+        valid_components[key] = float(value)
+    return valid_components
+
+
 def _tf_row(payload: Mapping[str, Any], timeframe: str) -> Mapping[str, Any]:
     row = payload.get(timeframe)
     if isinstance(row, Mapping):
@@ -343,7 +360,7 @@ def generate_short_candidates(
             "h4_structure": "breakdown",
             "h1_trigger": "confirmed",
             "gate_timeframes": ["daily", "4h", "1h"],
-            "score_components": scored.get("components", {}),
+            "score_components": _score_components(scored),
         }
         invalidation_source = "short_structure_reclaim_above_4h_ema50"
         if _is_short_term_profile(profile):
