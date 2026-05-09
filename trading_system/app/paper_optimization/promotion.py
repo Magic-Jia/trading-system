@@ -35,28 +35,29 @@ def _format_float(value: float, precision: int) -> str:
     return rendered.rstrip("0").rstrip(".") if "." in rendered else rendered
 
 
-def _numeric(value: Any, *, field_name: str, default: float | None = None) -> float:
+def _numeric(value: Any, *, field_name: str, default: float | None = None, allow_numeric_string: bool = False) -> float:
     if value is None:
         if default is None:
             raise ValueError(f"{field_name} must be numeric")
         return default
     if isinstance(value, bool):
         raise ValueError(f"{field_name} must be numeric")
-    try:
+    if isinstance(value, (int, float)):
         return float(value)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"{field_name} must be numeric") from exc
+    if allow_numeric_string and isinstance(value, str):
+        try:
+            return float(value)
+        except ValueError as exc:
+            raise ValueError(f"{field_name} must be numeric") from exc
+    raise ValueError(f"{field_name} must be numeric")
 
 
 def _integer(value: Any, *, field_name: str, default: int) -> int:
     if value is None:
         return default
-    if isinstance(value, bool):
+    if isinstance(value, bool) or not isinstance(value, int):
         raise ValueError(f"{field_name} must be an integer")
-    try:
-        return int(value)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"{field_name} must be an integer") from exc
+    return value
 
 
 def _recommendation_ids(recommendations: list[Any]) -> list[str]:
@@ -156,6 +157,7 @@ def materialize_env_overrides(
             base_value = _numeric(
                 env_values.get(env_name, raw_op.get("default", 0.0)),
                 field_name="overlay_ops.base_value",
+                allow_numeric_string=True,
             )
             proposed = max(minimum, min(maximum, base_value * factor))
             env_values[env_name] = _format_float(round(proposed, precision), precision)
