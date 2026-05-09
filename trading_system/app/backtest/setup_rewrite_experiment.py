@@ -68,13 +68,13 @@ def _serialize_rule(rule: SetupRewriteRule) -> dict[str, Any]:
 def _evaluate_row(*, index: int, row: Mapping[str, Any], params: SetupRewriteParams) -> dict[str, Any]:
     identity = {
         "row_index": index,
-        "symbol": _string_or_none(row.get("symbol")),
-        "setup_type": _string_or_none(row.get("setup_type")),
-        "side": _string_or_none(row.get("side")),
-        "entry_timestamp": _string_or_none(row.get("entry_timestamp")),
+        "symbol": _string_or_none(row.get("symbol"), field_path=f"rows[{index}].symbol"),
+        "setup_type": _string_or_none(row.get("setup_type"), field_path=f"rows[{index}].setup_type"),
+        "side": _string_or_none(row.get("side"), field_path=f"rows[{index}].side"),
+        "entry_timestamp": _string_or_none(row.get("entry_timestamp"), field_path=f"rows[{index}].entry_timestamp"),
         "score": _float_or_none(row.get("score"), field_path=f"rows[{index}].score"),
         "net_pnl": _net_pnl_or_none(row.get("net_pnl"), field_path=f"rows[{index}].net_pnl"),
-        "source_chunk": _source_chunk(row),
+        "source_chunk": _source_chunk(row, index=index),
     }
     for rule in params.rules:
         status, reason, keep = _evaluate_rule(identity=identity, raw_row=row, rule=rule)
@@ -231,16 +231,18 @@ def _net_pnl_or_none(value: Any, *, field_path: str) -> float | None:
     return result
 
 
-def _string_or_none(value: Any) -> str | None:
+def _string_or_none(value: Any, *, field_path: str) -> str | None:
     if value is None:
         return None
+    if not isinstance(value, str):
+        raise ValueError(f"{field_path} must be a string")
     text = str(value).strip()
     return text or None
 
 
-def _source_chunk(row: Mapping[str, Any]) -> str | None:
+def _source_chunk(row: Mapping[str, Any], *, index: int) -> str | None:
     for key in ("source_chunk", "chunk", "chunk_name"):
-        value = _string_or_none(row.get(key))
+        value = _string_or_none(row.get(key), field_path=f"rows[{index}].{key}")
         if value is not None:
             return value
     return None
