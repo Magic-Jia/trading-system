@@ -307,7 +307,11 @@ def _uses_intraday_long_trigger(profile: EntryProfile) -> bool:
     return _is_short_term_profile(profile) or _is_scout_profile(profile)
 
 
-def _short_term_long_trigger(payload: Mapping[str, Any], profile: EntryProfile) -> bool:
+def _intraday_trigger_numeric(row: Mapping[str, Any], field: str, field_path: str) -> float:
+    return _strict_present_numeric(row, field, field_path, when_present=True)
+
+
+def _short_term_long_trigger(payload: Mapping[str, Any], profile: EntryProfile, *, symbol: str = "rotation") -> bool:
     if not _uses_intraday_long_trigger(profile):
         return True
     h4 = _tf_row(payload, "4h")
@@ -315,8 +319,12 @@ def _short_term_long_trigger(payload: Mapping[str, Any], profile: EntryProfile) 
     m30 = _tf_row(payload, "30m")
     m15 = _tf_row(payload, "15m")
     intraday_trigger = (
-        _to_float(m30.get("close")) >= _to_float(m30.get("ema_20")) >= _to_float(m30.get("ema_50"))
-        and _to_float(m15.get("close")) >= _to_float(m15.get("ema_20")) >= _to_float(m15.get("ema_50"))
+        _intraday_trigger_numeric(m30, "close", f"{symbol}.30m.close")
+        >= _intraday_trigger_numeric(m30, "ema_20", f"{symbol}.30m.ema_20")
+        >= _intraday_trigger_numeric(m30, "ema_50", f"{symbol}.30m.ema_50")
+        and _intraday_trigger_numeric(m15, "close", f"{symbol}.15m.close")
+        >= _intraday_trigger_numeric(m15, "ema_20", f"{symbol}.15m.ema_20")
+        >= _intraday_trigger_numeric(m15, "ema_50", f"{symbol}.15m.ema_50")
     )
     if _is_scout_profile(profile):
         return intraday_trigger
@@ -385,7 +393,12 @@ def _active_paper_soft_reclaim_trend_intact(
     return daily_soft_reclaim and lower_timeframe_near_ema50(h4) and lower_timeframe_near_ema50(h1)
 
 
-def _scout_intraday_recovery_trend_intact(payload: Mapping[str, Any], profile: EntryProfile) -> bool:
+def _scout_intraday_recovery_trend_intact(
+    payload: Mapping[str, Any],
+    profile: EntryProfile,
+    *,
+    symbol: str = "rotation",
+) -> bool:
     if not _is_scout_profile(profile):
         return False
     if _payload_sector("", payload).lower() == "majors":
@@ -397,19 +410,21 @@ def _scout_intraday_recovery_trend_intact(payload: Mapping[str, Any], profile: E
     h1 = _tf_row(payload, "1h")
     daily_constructive = _to_float(daily.get("close")) > _to_float(daily.get("ema_20")) > _to_float(daily.get("ema_50"))
     h1_reclaimed_ema20 = _to_float(h1.get("close")) >= _to_float(h1.get("ema_20")) > 0.0
-    return daily_constructive and h1_reclaimed_ema20 and _short_term_long_trigger(payload, profile)
+    return daily_constructive and h1_reclaimed_ema20 and _short_term_long_trigger(payload, profile, symbol=symbol)
 
 
 def _trend_accepted(
     payload: Mapping[str, Any],
     regime: RegimeSnapshot | Mapping[str, Any] | None = None,
     profile: EntryProfile | None = None,
+    *,
+    symbol: str = "rotation",
 ) -> bool:
     return (
         _trend_intact(payload)
         or _soft_reclaim_trend_intact(payload, regime)
         or (profile is not None and _active_paper_soft_reclaim_trend_intact(payload, regime, profile))
-        or (profile is not None and _scout_intraday_recovery_trend_intact(payload, profile))
+        or (profile is not None and _scout_intraday_recovery_trend_intact(payload, profile, symbol=symbol))
     )
 
 
@@ -632,10 +647,10 @@ def generate_rotation_candidates(
         _validate_required_rotation_timeframe_numerics(symbol, payload)
         _validate_primary_entry_reference_close(symbol, payload, profile)
         active_paper_soft_reclaim = _active_paper_soft_reclaim_trend_intact(payload, regime, profile)
-        scout_intraday_recovery = _scout_intraday_recovery_trend_intact(payload, profile)
-        if not _trend_accepted(payload, regime, profile):
+        scout_intraday_recovery = _scout_intraday_recovery_trend_intact(payload, profile, symbol=symbol)
+        if not _trend_accepted(payload, regime, profile, symbol=symbol):
             continue
-        if not _short_term_long_trigger(payload, profile):
+        if not _short_term_long_trigger(payload, profile, symbol=symbol):
             continue
         rs_features = _relative_strength_features(payload, proxy)
         if not _passes_absolute_strength_gate(
