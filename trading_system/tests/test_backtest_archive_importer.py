@@ -698,16 +698,31 @@ def test_order_book_execution_payload_rejects_invalid_numeric_boundaries(
     observed_at = datetime(2024, 4, 1, tzinfo=UTC)
     payload: dict[str, object] = {
         "symbol": "BTCUSDT",
-        "bid": "70000.0",
-        "ask": "70001.0",
-        "bid_size": "1.25",
-        "askSize": "1.5",
+        "bid": 70000.0,
+        "ask": 70001.0,
+        "bid_size": 1.25,
+        "askSize": 1.5,
     }
     payload[field] = bad_value
 
     record = ImportedRawMarketRecord(observed_at=observed_at, payload=payload)
 
     with pytest.raises(ValueError, match=rf"{message}: 2024-04-01 00:00:00\+00:00"):
+        archive_importer._order_book_payload(record, symbol="BTCUSDT")
+
+
+def test_order_book_execution_payload_rejects_numeric_string_bid() -> None:
+    observed_at = datetime(2024, 4, 1, tzinfo=UTC)
+    record = ImportedRawMarketRecord(
+        observed_at=observed_at,
+        payload={
+            "symbol": "BTCUSDT",
+            "bid": "70000.0",
+            "ask": 70001.0,
+        },
+    )
+
+    with pytest.raises(ValueError, match=r"order book bid must be numeric: 2024-04-01 00:00:00\+00:00"):
         archive_importer._order_book_payload(record, symbol="BTCUSDT")
 
 
@@ -728,8 +743,8 @@ def test_trade_execution_payload_rejects_invalid_numeric_boundaries(
     observed_at = datetime(2024, 4, 1, tzinfo=UTC)
     payload: dict[str, object] = {
         "symbol": "BTCUSDT",
-        "price": "70000.0",
-        "quantity": "0.25",
+        "price": 70000.0,
+        "quantity": 0.25,
     }
     if field in {"p", "q"}:
         payload.pop("price" if field == "p" else "quantity")

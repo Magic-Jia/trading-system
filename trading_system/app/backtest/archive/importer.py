@@ -605,7 +605,8 @@ def _required_positive_execution_float(value: Any, *, field: str, observed_at: d
     if isinstance(value, str):
         if not value.strip() or value != value.strip():
             raise ValueError(f"{field} must be canonical: {observed_at}")
-    elif not isinstance(value, (int, float)):
+        raise ValueError(f"{field} must be numeric: {observed_at}")
+    if not isinstance(value, (int, float)):
         raise ValueError(f"{field} must be numeric: {observed_at}")
     try:
         parsed = float(value)

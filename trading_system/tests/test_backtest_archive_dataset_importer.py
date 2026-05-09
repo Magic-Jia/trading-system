@@ -1392,7 +1392,7 @@ def test_build_phase1_dataset_bundle_materials_materializes_fresh_order_book_exe
     assert latest.metadata["source"]["execution_evidence"]["missing"]["order_book"] == 0
 
 
-def test_build_phase1_dataset_bundle_materials_materializes_string_encoded_execution_evidence(
+def test_build_phase1_dataset_bundle_materials_materializes_numeric_execution_evidence(
     tmp_path: Path,
 ) -> None:
     archive_root = tmp_path / "archive"
@@ -1414,10 +1414,10 @@ def test_build_phase1_dataset_bundle_materials_materializes_string_encoded_execu
                 {
                     "timestamp": _timestamp_ms(evidence_time),
                     "symbol": "BTCUSDT",
-                    "bid": "64389.50",
-                    "ask": "64390.50",
-                    "bid_size": "3.25",
-                    "ask_size": "2.75",
+                    "bid": 64389.50,
+                    "ask": 64390.50,
+                    "bid_size": 3.25,
+                    "ask_size": 2.75,
                 }
             ]
         },
@@ -1437,8 +1437,8 @@ def test_build_phase1_dataset_bundle_materials_materializes_string_encoded_execu
                 {
                     "timestamp": _timestamp_ms(signal_time + timedelta(seconds=2)),
                     "symbol": "BTCUSDT",
-                    "price": "64391.00",
-                    "quantity": "0.20",
+                    "price": 64391.00,
+                    "quantity": 0.20,
                     "side": "buy",
                 }
             ]
