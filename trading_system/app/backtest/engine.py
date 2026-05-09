@@ -642,26 +642,36 @@ def _optional_futures_int(value: Any, field: str) -> int | None:
         return None
     if isinstance(value, bool) or not isinstance(value, int):
         raise ValueError(f"invalid futures context integer field {field}: {value!r}")
+    if field.endswith("_age_seconds") and value < 0:
+        raise ValueError(f"invalid futures context integer field {field}: {value!r}")
     return value
 
 
-def _optional_int(value: Any) -> int | None:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
+def _optional_int(value: Any, field: str = "integer") -> int | None:
+    if value is None:
         return None
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"invalid integer field {field}: {value!r}")
+    return value
 
 
 def _futures_context(row: DatasetSnapshotRow, symbol: str) -> dict[str, Any]:
     context: dict[str, Any] = {}
-    symbol_context = _symbol_payload(row, symbol).get("futures_context")
-    if isinstance(symbol_context, Mapping):
+    symbol_payload = _symbol_payload(row, symbol)
+    symbol_context = symbol_payload.get("futures_context")
+    if "futures_context" in symbol_payload and symbol_context is not None:
+        if not isinstance(symbol_context, Mapping):
+            raise ValueError("futures_context must be an object when present")
+        if any(not isinstance(key, str) for key in symbol_context):
+            raise ValueError("futures_context keys must be strings")
         context.update(symbol_context)
     for derivative in row.derivatives:
         if not isinstance(derivative, Mapping):
             raise ValueError("derivative row must be an object")
         derivative_symbol = _canonical_string(derivative.get("symbol"), field_name="derivative.symbol")
         if derivative_symbol == symbol:
+            if any(not isinstance(key, str) for key in derivative):
+                raise ValueError("derivative futures context keys must be strings")
             for key in (
                 "mark_price",
                 "mark_price_timestamp",
