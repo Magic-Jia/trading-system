@@ -138,6 +138,15 @@ def _regime_value(regime: RegimeSnapshot | Mapping[str, Any] | None, key: str, d
     return getattr(regime, key, default)
 
 
+def _regime_label(regime: RegimeSnapshot | Mapping[str, Any] | None) -> str:
+    label = _regime_value(regime, "label", "")
+    if label is None:
+        return ""
+    if not isinstance(label, str):
+        raise ValueError("regime.label must be a string when present")
+    return label.upper()
+
+
 def _rotation_suppressed(regime: RegimeSnapshot | Mapping[str, Any] | None) -> bool:
     rules = _regime_value(regime, "suppression_rules", [])
     if not isinstance(rules, list):
@@ -252,7 +261,7 @@ def _short_term_long_trigger(payload: Mapping[str, Any], profile: EntryProfile) 
 
 
 def _soft_reclaim_trend_intact(payload: Mapping[str, Any], regime: RegimeSnapshot | Mapping[str, Any] | None) -> bool:
-    if str(_regime_value(regime, "label", "")).upper() not in _SOFT_RECLAIM_ROTATION_REGIMES:
+    if _regime_label(regime) not in _SOFT_RECLAIM_ROTATION_REGIMES:
         return False
     if _rotation_suppressed(regime):
         return False
@@ -278,7 +287,7 @@ def _active_paper_soft_reclaim_trend_intact(
 ) -> bool:
     if not _is_active_paper_profile(profile):
         return False
-    if str(_regime_value(regime, "label", "")).upper() not in _ACTIVE_PAPER_SOFT_RECLAIM_REGIMES:
+    if _regime_label(regime) not in _ACTIVE_PAPER_SOFT_RECLAIM_REGIMES:
         return False
     if _rotation_suppressed(regime):
         return False

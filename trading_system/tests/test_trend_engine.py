@@ -525,6 +525,16 @@ def test_generate_trend_candidates_allows_non_major_soft_pretrend_in_supportive_
     assert [candidate.symbol for candidate in candidates] == ["LINKUSDT"]
 
 
+@pytest.mark.parametrize("label", [True, 123])
+def test_generate_trend_candidates_rejects_present_non_string_regime_label(label):
+    with pytest.raises(ValueError, match="regime.label must be a string when present"):
+        generate_trend_candidates(
+            _soft_non_major_trend_market(),
+            include_high_liquidity_strong_names=False,
+            regime={"label": label, "suppression_rules": []},
+        )
+
+
 def test_generate_trend_candidates_rejects_non_string_suppression_rule_entries():
     with pytest.raises(ValueError, match="regime.suppression_rules"):
         generate_trend_candidates(

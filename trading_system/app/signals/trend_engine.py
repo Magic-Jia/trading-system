@@ -140,7 +140,12 @@ def _regime_value(regime: Any, key: str, default: Any = None) -> Any:
 
 
 def _regime_label(regime: Any) -> str:
-    return str(_regime_value(regime, "label", "")).upper()
+    label = _regime_value(regime, "label", "")
+    if label is None:
+        return ""
+    if not isinstance(label, str):
+        raise ValueError("regime.label must be a string when present")
+    return label.upper()
 
 
 def _has_suppression_rule(regime: Any, rule_name: str) -> bool:

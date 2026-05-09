@@ -671,6 +671,16 @@ def test_generate_rotation_candidates_allows_soft_daily_reclaim_when_daily_close
     assert [candidate.symbol for candidate in candidates] == ["SOLUSDT"]
 
 
+@pytest.mark.parametrize("label", [True, 123])
+def test_generate_rotation_candidates_rejects_present_non_string_regime_label(label):
+    with pytest.raises(ValueError, match="regime.label must be a string when present"):
+        generate_rotation_candidates(
+            _soft_rotation_reclaim_market(sol_daily_close=102.0, sol_daily_ema50=101.0),
+            rotation_universe=[{"symbol": "SOLUSDT", "sector": "alt_l1", "liquidity_tier": "high"}],
+            regime={"label": label, "suppression_rules": []},
+        )
+
+
 def test_generate_rotation_candidates_allows_soft_daily_reclaim_even_when_daily_close_is_extended_above_ema50():
     candidates = generate_rotation_candidates(
         _soft_rotation_reclaim_market(sol_daily_close=104.0, sol_daily_ema50=101.0),
