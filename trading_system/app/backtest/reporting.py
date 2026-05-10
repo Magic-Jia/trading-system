@@ -59,6 +59,15 @@ def render_regime_scorecard(
         if worst_return is None or current < worst_return:
             worst_regime, worst_return = label, current
 
+    raw_duration_stats = experiment.get("duration_stats", {})
+    if not isinstance(raw_duration_stats, Mapping):
+        raise ValueError("duration_stats must be an object")
+    for raw_label, payload in raw_duration_stats.items():
+        label = _canonical_report_string(raw_label, field_name="duration_stats key")
+        if not isinstance(payload, Mapping):
+            raise ValueError(f"duration_stats.{label} must be an object")
+        _non_negative_int_field(payload, "max_duration_bars", label=f"duration_stats.{label}")
+
     regimes_with_samples = len(by_regime)
     promotion_pass = regimes_with_samples >= 2 and (best_return or 0.0) > 0 and (worst_return or 0.0) < 0
     summary = (

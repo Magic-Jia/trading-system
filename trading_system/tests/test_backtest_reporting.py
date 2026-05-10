@@ -391,6 +391,26 @@ def test_regime_scorecard_rejects_string_forward_return_metric() -> None:
         )
 
 
+@pytest.mark.parametrize("max_duration_bars", [True, "2", 2.0, float("nan"), float("inf"), -1])
+def test_regime_scorecard_rejects_malformed_present_max_duration_bars(max_duration_bars: object) -> None:
+    with pytest.raises(
+        ValueError,
+        match=r"duration_stats\.bull\.max_duration_bars must be a non-negative integer",
+    ):
+        reporting.render_regime_scorecard(
+            experiment_name="regime_dispersion",
+            experiment={
+                "metadata": {"snapshot_count": 2},
+                "by_regime": {
+                    "bull": {"forward_return_by_window": {"3d": 0.01}},
+                    "bear": {"forward_return_by_window": {"3d": -0.01}},
+                },
+                "duration_stats": {"bull": {"max_duration_bars": max_duration_bars}},
+            },
+            metadata={"dataset_root": "dataset"},
+        )
+
+
 def sample_baseline_result() -> BaselineReplayResult:
     return BaselineReplayResult(
         portfolio_summary=PortfolioScorecardRow(
