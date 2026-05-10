@@ -264,6 +264,8 @@ _ACCOUNT_OPEN_POSITION_TIME_FIELDS = (
     "openedAt",
     "updated_at",
     "updatedAt",
+    "update_time",
+    "updateTime",
     "closed_at",
     "closedAt",
     "as_of",
@@ -546,6 +548,7 @@ def _validate_open_position_time_order(position: dict, *, field_prefix: str, pat
         opened_field, opened_at = opened
         for fields in (
             ("updated_at", "updatedAt"),
+            ("update_time", "updateTime"),
             ("as_of",),
             ("timestamp",),
             ("last_update_time", "lastUpdateTime"),
