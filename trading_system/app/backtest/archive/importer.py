@@ -2108,6 +2108,15 @@ def _material_market_context_instrument_rows(material: Phase1DatasetBundleMateri
 
 def _validate_material_instrument_snapshot_rows(rows: Sequence[Mapping[str, Any]]) -> None:
     for index, row in enumerate(rows):
+        for field in ("quote_volume_usdt_24h", "quantity_step", "price_tick"):
+            if field not in row:
+                continue
+            value = row[field]
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise ValueError(f"instrument_snapshot rows[{index}].{field} must be a positive finite number")
+            parsed = float(value)
+            if not parsed == parsed or parsed in {float("inf"), float("-inf")} or parsed <= 0.0:
+                raise ValueError(f"instrument_snapshot rows[{index}].{field} must be a positive finite number")
         if "has_complete_funding" not in row:
             continue
         if not isinstance(row["has_complete_funding"], bool):
