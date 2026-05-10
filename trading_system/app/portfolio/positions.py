@@ -657,6 +657,8 @@ def _validate_snapshot_time_provenance_order(payload: Mapping[str, str], *, snap
             "as_of",
             "timestamp",
             "last_update_time",
+            "event_time",
+            "trade_time",
             "close_time",
             "settlement_time",
             "expiry_time",

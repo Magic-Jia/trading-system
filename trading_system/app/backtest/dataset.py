@@ -404,6 +404,8 @@ def _validate_open_position_time_order(position: dict, *, field_prefix: str, pat
             "as_of",
             "timestamp",
             "last_update_time",
+            "event_time",
+            "trade_time",
             "close_time",
             "settlement_time",
             "expiry_time",

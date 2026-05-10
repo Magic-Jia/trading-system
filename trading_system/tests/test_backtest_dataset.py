@@ -994,6 +994,53 @@ def test_load_historical_dataset_rejects_malformed_open_position_provenance_time
         load_historical_dataset(dataset_root)
 
 
+@pytest.mark.parametrize(
+    ("field", "value", "match"),
+    [
+        ("event_time", "2026-03-09T23:59:59Z", r"account\.open_positions\[0\]\.event_time must be at or after opened_at"),
+        ("trade_time", "2026-03-09T23:59:59Z", r"account\.open_positions\[0\]\.trade_time must be at or after opened_at"),
+    ],
+)
+def test_load_historical_dataset_rejects_open_position_event_and_trade_time_before_opened_at(
+    tmp_path: Path, field: str, value: str, match: str
+) -> None:
+    dataset_root = tmp_path / "sample_dataset"
+    bundle = dataset_root / "2026-03-10T00-00-00Z__sample-001"
+    bundle.mkdir(parents=True)
+    (bundle / "metadata.json").write_text(
+        '{"timestamp": "2026-03-10T00:00:00Z", "run_id": "sample-001"}',
+        encoding="utf-8",
+    )
+    (bundle / "market_context.json").write_text('{"symbols": {"BTCUSDT": {}}}', encoding="utf-8")
+    (bundle / "derivatives_snapshot.json").write_text('{"rows": []}', encoding="utf-8")
+    (bundle / "account_snapshot.json").write_text(
+        json.dumps(
+            {
+                "equity": 100000.0,
+                "open_positions": [
+                    {
+                        "symbol": "BTCUSDT",
+                        "side": "LONG",
+                        "opened_at": "2026-03-10T00:00:00Z",
+                        "event_time": "2026-03-10T00:00:00Z",
+                        "trade_time": "2026-03-10T00:00:00Z",
+                        "qty": 0.5,
+                        "entry_price": 60000.0,
+                        "mark_price": 61000.0,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    account_snapshot = json.loads((bundle / "account_snapshot.json").read_text(encoding="utf-8"))
+    account_snapshot["open_positions"][0][field] = value
+    (bundle / "account_snapshot.json").write_text(json.dumps(account_snapshot), encoding="utf-8")
+
+    with pytest.raises(ValueError, match=match):
+        load_historical_dataset(dataset_root)
+
+
 def test_load_historical_dataset_preserves_canonical_open_position_provenance_timestamps(tmp_path: Path) -> None:
     dataset_root = tmp_path / "sample_dataset"
     bundle = dataset_root / "2026-03-10T00-00-00Z__sample-001"
