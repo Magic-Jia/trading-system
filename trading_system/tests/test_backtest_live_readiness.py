@@ -10180,6 +10180,54 @@ def test_trade_postmortem_summary_rejects_malformed_present_executed_qty(
         )
 
 
+@pytest.mark.parametrize(
+    ("field", "value", "error"),
+    [
+        ("avg_entry_price", True, r"postmortem.trades\[1\]\.avg_entry_price must be a positive finite strict number"),
+        ("avg_entry_price", "100.0", r"postmortem.trades\[1\]\.avg_entry_price must be a positive finite strict number"),
+        ("avg_entry_price", float("nan"), r"postmortem.trades\[1\]\.avg_entry_price must be a positive finite strict number"),
+        ("avg_entry_price", float("inf"), r"postmortem.trades\[1\]\.avg_entry_price must be a positive finite strict number"),
+        ("avg_entry_price", -100.0, r"postmortem.trades\[1\]\.avg_entry_price must be a positive finite strict number"),
+        ("avg_entry_price", 0.0, r"postmortem.trades\[1\]\.avg_entry_price must be a positive finite strict number"),
+        ("avg_exit_price", True, r"postmortem.trades\[1\]\.avg_exit_price must be a positive finite strict number"),
+        ("execution_price", "100.0", r"postmortem.trades\[1\]\.execution_price must be a positive finite strict number"),
+        ("filled_price", float("nan"), r"postmortem.trades\[1\]\.filled_price must be a positive finite strict number"),
+        ("vwap_price", float("inf"), r"postmortem.trades\[1\]\.vwap_price must be a positive finite strict number"),
+        ("realized_price", -100.0, r"postmortem.trades\[1\]\.realized_price must be a positive finite strict number"),
+        ("price_improvement_bps", True, r"postmortem.trades\[1\]\.price_improvement_bps must be a finite strict number"),
+        ("price_improvement_bps", "1.0", r"postmortem.trades\[1\]\.price_improvement_bps must be a finite strict number"),
+        ("price_improvement_bps", float("nan"), r"postmortem.trades\[1\]\.price_improvement_bps must be a finite strict number"),
+        ("price_improvement_bps", float("inf"), r"postmortem.trades\[1\]\.price_improvement_bps must be a finite strict number"),
+        ("spread_paid_bps", True, r"postmortem.trades\[1\]\.spread_paid_bps must be a non-negative finite strict number"),
+        ("spread_paid_bps", "1.0", r"postmortem.trades\[1\]\.spread_paid_bps must be a non-negative finite strict number"),
+        ("spread_paid_bps", float("nan"), r"postmortem.trades\[1\]\.spread_paid_bps must be a non-negative finite strict number"),
+        ("spread_paid_bps", float("inf"), r"postmortem.trades\[1\]\.spread_paid_bps must be a non-negative finite strict number"),
+        ("spread_paid_bps", -1.0, r"postmortem.trades\[1\]\.spread_paid_bps must be a non-negative finite strict number"),
+    ],
+)
+def test_trade_postmortem_summary_rejects_malformed_present_derived_execution_price_fields(
+    field: str,
+    value: object,
+    error: str,
+) -> None:
+    with pytest.raises(ValueError, match=error):
+        summarize_trade_postmortem(
+            [
+                {
+                    "symbol": "SOLUSDT",
+                    "setup_type": "RS_REACCELERATION",
+                    "gross_pnl": 100.0,
+                    "net_pnl": 80.0,
+                    "fee_paid": 10.0,
+                    "slippage_paid": 10.0,
+                    "mfe_pct": 0.012,
+                    "mae_pct": 0.0,
+                    field: value,
+                }
+            ]
+        )
+
+
 class _Universes:
     major_universe = ()
     rotation_universe = ()

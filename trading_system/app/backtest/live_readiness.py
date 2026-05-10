@@ -54,6 +54,16 @@ TRADE_LATENCY_MS_FIELDS = (
     "slippage_latency_ms",
 )
 TRADE_POSITIVE_EXECUTION_SIZE_FIELDS = ("executed_qty",)
+TRADE_POSITIVE_DERIVED_EXECUTION_PRICE_FIELDS = (
+    "avg_entry_price",
+    "avg_exit_price",
+    "execution_price",
+    "filled_price",
+    "vwap_price",
+    "realized_price",
+)
+TRADE_SIGNED_DERIVED_EXECUTION_BPS_FIELDS = ("price_improvement_bps",)
+TRADE_NON_NEGATIVE_DERIVED_EXECUTION_BPS_FIELDS = ("spread_paid_bps",)
 TRADE_BAR_COUNT_FIELDS = (
     "latency_bars",
     "holding_bars",
@@ -3135,6 +3145,28 @@ def _validate_postmortem_trade_execution_fields(trade: Mapping[str, Any], index:
             if not valid or parsed <= 0.0:
                 raise ValueError(
                     f"postmortem.trades[{index}].{field} must be a positive finite strict number"
+                )
+    for field in TRADE_POSITIVE_DERIVED_EXECUTION_PRICE_FIELDS:
+        value = trade.get(field)
+        if value is not None:
+            parsed, valid = _strict_float_value(value)
+            if not valid or parsed <= 0.0:
+                raise ValueError(
+                    f"postmortem.trades[{index}].{field} must be a positive finite strict number"
+                )
+    for field in TRADE_SIGNED_DERIVED_EXECUTION_BPS_FIELDS:
+        value = trade.get(field)
+        if value is not None:
+            _parsed, valid = _strict_float_value(value)
+            if not valid:
+                raise ValueError(f"postmortem.trades[{index}].{field} must be a finite strict number")
+    for field in TRADE_NON_NEGATIVE_DERIVED_EXECUTION_BPS_FIELDS:
+        value = trade.get(field)
+        if value is not None:
+            parsed, valid = _strict_float_value(value)
+            if not valid or parsed < 0.0:
+                raise ValueError(
+                    f"postmortem.trades[{index}].{field} must be a non-negative finite strict number"
                 )
     for field in TRADE_BAR_COUNT_FIELDS:
         value = trade.get(field)
