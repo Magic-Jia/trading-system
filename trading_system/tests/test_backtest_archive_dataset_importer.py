@@ -4627,6 +4627,36 @@ def test_write_phase1_dataset_bundle_rejects_numeric_string_instrument_quantity_
     assert not dataset_root.exists()
 
 
+def test_write_phase1_dataset_bundle_rejects_numeric_string_instrument_min_notional_without_artifact(
+    tmp_path: Path,
+) -> None:
+    archive_root = tmp_path / "archive"
+    dataset_root = tmp_path / "dataset"
+    _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT")
+    imported = load_phase1_raw_market_imports(archive_root)
+    material = build_phase1_dataset_bundle_materials(imported)[-1]
+    market_context = dict(material.market_context)
+    instrument_rows = [dict(row) for row in market_context["instrument_rows"]]
+    instrument_rows[0]["min_notional"] = "5.0"
+    market_context["instrument_rows"] = instrument_rows
+    bad_material = archive_importer.Phase1DatasetBundleMaterial(
+        timestamp=material.timestamp,
+        run_id=material.run_id,
+        metadata=material.metadata,
+        market_context=market_context,
+        derivatives_snapshot=material.derivatives_snapshot,
+        account_snapshot=material.account_snapshot,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"instrument_snapshot rows\[0\]\.min_notional must be a positive finite number",
+    ):
+        write_phase1_dataset_bundle(bad_material, dataset_root)
+
+    assert not dataset_root.exists()
+
+
 def test_supplement_phase1_imported_dataset_root_rejects_non_object_archive_derived_instrument_rows(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
