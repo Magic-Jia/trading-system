@@ -406,6 +406,16 @@ def _position_close_event_payload(symbol: str, position: dict[str, Any], now_bj:
 
 def _validate_existing_position_identities(positions: Mapping[str, dict[str, Any]]) -> None:
     for symbol, position in positions.items():
+        if not isinstance(symbol, str) or not symbol or symbol != symbol.strip() or symbol != symbol.upper():
+            raise ValueError("position key must be a canonical symbol string")
+        if "symbol" in position and position.get("symbol") is not None:
+            embedded_symbol = position.get("symbol")
+            if not isinstance(embedded_symbol, str):
+                raise TypeError(f"positions[{symbol}].symbol must be a string when present")
+            if not embedded_symbol or embedded_symbol != embedded_symbol.strip() or embedded_symbol != embedded_symbol.upper():
+                raise ValueError(f"positions[{symbol}].symbol must be a canonical symbol string when present")
+            if embedded_symbol != symbol:
+                raise ValueError(f"positions[{symbol}].symbol must match position key")
         _strict_position_side(position, "side", f"positions[{symbol}].side")
         _strict_position_status(position, "status", f"positions[{symbol}].status")
         source = _strict_optional_string(position, "source", f"positions[{symbol}].source")
