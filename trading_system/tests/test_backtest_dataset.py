@@ -550,6 +550,63 @@ def test_load_historical_dataset_rejects_malformed_open_position_origin_aliases_
 
 
 @pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("quote_asset", True),
+        ("base_asset", ""),
+        ("margin_asset", " USDT"),
+        ("collateral_asset", "usdt"),
+        ("settlement_asset", "USD\nT"),
+        ("fee_asset", "USDT-PERP"),
+        ("funding_asset", "USDT/USDC"),
+        ("pnl_asset", "USDT "),
+        ("pnl_currency", []),
+    ],
+)
+def test_load_historical_dataset_rejects_malformed_open_position_asset_currency_aliases_before_load(
+    tmp_path: Path, field: str, value: object
+) -> None:
+    dataset_root = tmp_path / "sample_dataset"
+    bundle = dataset_root / "2026-03-10T00-00-00Z__sample-001"
+    bundle.mkdir(parents=True)
+    (bundle / "metadata.json").write_text(
+        '{"timestamp": "2026-03-10T00:00:00Z", "run_id": "sample-001"}',
+        encoding="utf-8",
+    )
+    (bundle / "market_context.json").write_text('{"symbols": {"BTCUSDT": {}}}', encoding="utf-8")
+    (bundle / "derivatives_snapshot.json").write_text('{"rows": []}', encoding="utf-8")
+    account_snapshot = {
+        "equity": 100000.0,
+        "open_positions": [
+            {
+                "symbol": "BTCUSDT",
+                "side": "LONG",
+                "base_asset": "BTC",
+                "quote_asset": "USDT",
+                "margin_asset": "USDT",
+                "collateral_asset": "USDT",
+                "settlement_asset": "USDT",
+                "fee_asset": "BNB",
+                "funding_asset": "USDT",
+                "pnl_asset": "USDT",
+                "pnl_currency": "USDT",
+                "qty": 0.5,
+                "entry_price": 60000.0,
+                "mark_price": 61000.0,
+            }
+        ],
+    }
+    account_snapshot["open_positions"][0][field] = value
+    (bundle / "account_snapshot.json").write_text(json.dumps(account_snapshot), encoding="utf-8")
+
+    with pytest.raises(
+        ValueError,
+        match=rf"account\.open_positions\[0\]\.{field} must be an uppercase asset code",
+    ):
+        load_historical_dataset(dataset_root)
+
+
+@pytest.mark.parametrize(
     ("field", "value", "expected_message"),
     [
         ("position_source", True, r"account\.open_positions\[0\]\.position_source must be a canonical string"),

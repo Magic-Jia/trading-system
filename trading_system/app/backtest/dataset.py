@@ -124,6 +124,26 @@ _ACCOUNT_OPEN_POSITION_PROVENANCE_IDENTIFIER_FIELDS = (
     "strategy_source",
     "data_source",
 )
+_ACCOUNT_OPEN_POSITION_ASSET_CODE_FIELDS = (
+    "base_asset",
+    "base_currency",
+    "quote_asset",
+    "quote_currency",
+    "margin_asset",
+    "margin_currency",
+    "collateral_asset",
+    "collateral_currency",
+    "settlement_asset",
+    "settlement_currency",
+    "fee_asset",
+    "fee_currency",
+    "funding_asset",
+    "funding_currency",
+    "pnl_asset",
+    "pnl_currency",
+    "cost_asset",
+    "cost_currency",
+)
 _ACCOUNT_OPEN_POSITION_TIME_FIELDS = (
     "opened_at",
     "openedAt",
@@ -136,6 +156,7 @@ _ACCOUNT_OPEN_POSITION_TIME_FIELDS = (
     "last_update_time",
 )
 _ACCOUNT_IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9_.:-]+$")
+_ACCOUNT_ASSET_CODE_RE = re.compile(r"^[A-Z0-9]+$")
 _ACCOUNT_OPEN_POSITION_UPPERCASE_IDENTITY_FIELDS = (
     "symbol",
     "venue",
@@ -317,6 +338,9 @@ def _validate_open_position_identity_fields(account: dict, *, path: Path) -> Non
                     field_path=f"{field_prefix}.{field}",
                     path=path,
                 )
+        for field in _ACCOUNT_OPEN_POSITION_ASSET_CODE_FIELDS:
+            if field in position:
+                _require_account_asset_code(position[field], field_path=f"{field_prefix}.{field}", path=path)
         for field in _ACCOUNT_OPEN_POSITION_TIME_FIELDS:
             if field in position:
                 _require_account_utc_iso_timestamp(position[field], field_path=f"{field_prefix}.{field}", path=path)
@@ -380,6 +404,17 @@ def _require_account_uppercase_canonical_string(value: object, *, field_path: st
     if text != text.upper():
         raise ValueError(f"{field_path} must be an uppercase canonical string: {path}")
     return text
+
+
+def _require_account_asset_code(value: object, *, field_path: str, path: Path) -> str:
+    if (
+        not isinstance(value, str)
+        or not value
+        or value != value.strip()
+        or _ACCOUNT_ASSET_CODE_RE.fullmatch(value) is None
+    ):
+        raise ValueError(f"{field_path} must be an uppercase asset code: {path}")
+    return value
 
 
 def validate_account_snapshot_payload(account: object, *, path: Path) -> None:
