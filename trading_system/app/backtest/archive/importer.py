@@ -2106,6 +2106,14 @@ def _material_market_context_instrument_rows(material: Phase1DatasetBundleMateri
     return tuple(parsed)
 
 
+def _validate_material_instrument_snapshot_rows(rows: Sequence[Mapping[str, Any]]) -> None:
+    for index, row in enumerate(rows):
+        if "has_complete_funding" not in row:
+            continue
+        if not isinstance(row["has_complete_funding"], bool):
+            raise ValueError(f"instrument_snapshot rows[{index}].has_complete_funding must be a boolean")
+
+
 def _materialized_dataset_row_source(rows: Sequence[Any]) -> dict[str, Any]:
     return _merged_import_trace(
         _json_object_field(
@@ -2285,6 +2293,8 @@ def write_phase1_dataset_bundle(material: Phase1DatasetBundleMaterial, dataset_r
     _validate_material_derivatives_snapshot_numeric_evidence(material.derivatives_snapshot)
     _validate_material_derivatives_snapshot_identity_fields(material.derivatives_snapshot)
     validate_account_snapshot_payload(material.account_snapshot, path=root / "account_snapshot.json")
+    instrument_rows = _material_market_context_instrument_rows(material)
+    _validate_material_instrument_snapshot_rows(instrument_rows)
     bundle_dir = root / f"{_bundle_fragment(material.timestamp)}__{material.run_id}"
     bundle_dir.mkdir(parents=True, exist_ok=False)
     _write_json(bundle_dir / "metadata.json", material.metadata)
@@ -2295,7 +2305,7 @@ def write_phase1_dataset_bundle(material: Phase1DatasetBundleMaterial, dataset_r
         bundle_dir / "instrument_snapshot.json",
         _instrument_snapshot_payload(
             as_of=_material_market_context_as_of(material),
-            instrument_rows=_material_market_context_instrument_rows(material),
+            instrument_rows=instrument_rows,
         ),
     )
     return bundle_dir
