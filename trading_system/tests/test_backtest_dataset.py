@@ -342,6 +342,7 @@ def test_load_historical_dataset_rejects_zero_open_position_core_prices(tmp_path
         (("wallet_balance",), True, r"account\.wallet_balance must be a non-negative finite number"),
         (("margin_balance",), "100000.0", r"account\.margin_balance must be a non-negative finite number"),
         (("totalWalletBalance",), True, r"account\.totalWalletBalance must be a non-negative finite number"),
+        (("totalInitialMargin",), True, r"account\.totalInitialMargin must be a non-negative finite number"),
         (("total_unrealized_profit",), float("nan"), r"account\.total_unrealized_profit must be a finite number"),
         (
             ("open_positions", 0, "leverage"),
