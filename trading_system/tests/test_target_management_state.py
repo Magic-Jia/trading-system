@@ -1684,6 +1684,42 @@ def test_sync_positions_from_account_rejects_invalid_snapshot_side_before_any_po
     assert state.positions == {"BTCUSDT": btc_position}
 
 
+@pytest.mark.parametrize("snapshot_symbol", [" ETHUSDT", "ethusdt", "ETH/USDT"])
+def test_sync_positions_from_account_rejects_noncanonical_snapshot_symbol_before_any_position_mutation(
+    snapshot_symbol,
+):
+    btc_position = {
+        "symbol": "BTCUSDT",
+        "side": "LONG",
+        "qty": 0.4,
+        "entry_price": 100.0,
+        "mark_price": 101.0,
+        "status": "OPEN",
+        "tracked_from_snapshot": True,
+        "tracked_from_intent": False,
+    }
+    state = RuntimeStateV2(
+        updated_at_bj="2026-04-09T12:00:00+08:00",
+        positions={"BTCUSDT": dict(btc_position)},
+    )
+
+    with pytest.raises(ValueError, match="account\\.open_positions\\[.*\\]\\.symbol"):
+        sync_positions_from_account(
+            state,
+            AccountSnapshot(
+                equity=1000.0,
+                available_balance=1000.0,
+                futures_wallet_balance=1000.0,
+                open_positions=[
+                    PositionSnapshot(symbol="BTCUSDT", side="LONG", qty=0.5, entry_price=100.0, mark_price=106.0),
+                    PositionSnapshot(symbol=snapshot_symbol, side="LONG", qty=0.8, entry_price=2300.0, mark_price=2310.0),
+                ],
+            ),
+        )
+
+    assert state.positions == {"BTCUSDT": btc_position}
+
+
 def test_sync_positions_from_account_rejects_present_non_string_existing_source_without_mutating_state():
     original_position = {
         "symbol": "BTCUSDT",

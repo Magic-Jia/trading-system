@@ -109,6 +109,14 @@ _EXIT_TRIGGER_VALUES = frozenset({"first_target_hit", "second_target_hit", "runn
 _POSITION_SIDE_VALUES = frozenset({"LONG", "SHORT"})
 
 
+def _strict_canonical_symbol(value: Any, field: str) -> str:
+    if not isinstance(value, str):
+        raise TypeError(f"{field} must be a string")
+    if not value or value != value.strip() or value != value.upper() or not value.isalnum():
+        raise ValueError(f"{field} must be a canonical symbol string")
+    return value
+
+
 def _now_bj() -> str:
     return datetime.now(BJ).isoformat()
 
@@ -406,14 +414,10 @@ def _position_close_event_payload(symbol: str, position: dict[str, Any], now_bj:
 
 def _validate_existing_position_identities(positions: Mapping[str, dict[str, Any]]) -> None:
     for symbol, position in positions.items():
-        if not isinstance(symbol, str) or not symbol or symbol != symbol.strip() or symbol != symbol.upper():
-            raise ValueError("position key must be a canonical symbol string")
+        _strict_canonical_symbol(symbol, "position key")
         if "symbol" in position and position.get("symbol") is not None:
             embedded_symbol = position.get("symbol")
-            if not isinstance(embedded_symbol, str):
-                raise TypeError(f"positions[{symbol}].symbol must be a string when present")
-            if not embedded_symbol or embedded_symbol != embedded_symbol.strip() or embedded_symbol != embedded_symbol.upper():
-                raise ValueError(f"positions[{symbol}].symbol must be a canonical symbol string when present")
+            _strict_canonical_symbol(embedded_symbol, f"positions[{symbol}].symbol")
             if embedded_symbol != symbol:
                 raise ValueError(f"positions[{symbol}].symbol must match position key")
         _strict_position_side(position, "side", f"positions[{symbol}].side")
@@ -425,6 +429,7 @@ def _validate_existing_position_identities(positions: Mapping[str, dict[str, Any
 
 def _validate_snapshot_position_identities(open_positions: list[PositionSnapshot]) -> None:
     for snapshot in open_positions:
+        _strict_canonical_symbol(snapshot.symbol, f"account.open_positions[{snapshot.symbol}].symbol")
         _strict_position_side({"side": snapshot.side}, "side", f"account.open_positions[{snapshot.symbol}].side")
 
 
