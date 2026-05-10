@@ -644,6 +644,28 @@ def test_series_report_rejects_noncanonical_series_identity() -> None:
         _series_report(series, expected_interval=None)
 
 
+def test_series_report_rejects_series_key_embedded_symbol_mismatch() -> None:
+    series = ImportedRawMarketSeries(
+        series_key="binance:futures:ohlcv:ETHUSDT:1h",
+        exchange="binance",
+        market="futures",
+        dataset="ohlcv",
+        symbol="BTCUSDT",
+        timeframe="1h",
+        symbol_metadata=None,
+        files=(),
+        records=(
+            ImportedRawMarketRecord(
+                observed_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                payload={"open": 100.0, "high": 101.0, "low": 99.0, "close": 100.5, "volume": 10.0},
+            ),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="raw-market series_key must match embedded identity"):
+        _series_report(series, expected_interval=None)
+
+
 def test_series_report_rejects_non_string_provenance_sha256(tmp_path: Path) -> None:
     archived = archive_raw_market_payload(
         archive_root=tmp_path / "archive",

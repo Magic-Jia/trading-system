@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
-from .raw_market import ImportedRawMarketSeries, load_phase1_raw_market_imports
+from .raw_market import ImportedRawMarketSeries, load_phase1_raw_market_imports, raw_market_series_key
 
 RAW_MARKET_DATA_QUALITY_SCHEMA_VERSION = "raw_market_data_quality_report.v1"
 
@@ -106,6 +106,21 @@ def _coverage_ratio(series: ImportedRawMarketSeries, expected_interval: timedelt
 
 
 def _series_report(series: ImportedRawMarketSeries, expected_interval: timedelta | None) -> dict[str, Any]:
+    series_key = _canonical_series_string(series.series_key, "series_key")
+    exchange = _canonical_series_string(series.exchange, "exchange")
+    market = _canonical_series_string(series.market, "market")
+    dataset = _canonical_series_string(series.dataset, "dataset")
+    symbol = _canonical_series_string(series.symbol, "symbol")
+    timeframe = _optional_canonical_series_string(series.timeframe, "timeframe")
+    expected_series_key = raw_market_series_key(
+        exchange=exchange,
+        market=market,
+        dataset=dataset,
+        symbol=symbol,
+        timeframe=timeframe,
+    )
+    if series_key != expected_series_key:
+        raise ValueError("raw-market series_key must match embedded identity")
     missing = _missing_intervals(series, expected_interval)
     files = list(series.files)
     timestamp_counts = Counter(record.observed_at for record in series.records)
@@ -150,12 +165,12 @@ def _series_report(series: ImportedRawMarketSeries, expected_interval: timedelta
         and provenance_missing_manifest_path_count == 0
     )
     return {
-        "series_key": _canonical_series_string(series.series_key, "series_key"),
-        "exchange": _canonical_series_string(series.exchange, "exchange"),
-        "market": _canonical_series_string(series.market, "market"),
-        "dataset": _canonical_series_string(series.dataset, "dataset"),
-        "symbol": _canonical_series_string(series.symbol, "symbol"),
-        "timeframe": _optional_canonical_series_string(series.timeframe, "timeframe"),
+        "series_key": series_key,
+        "exchange": exchange,
+        "market": market,
+        "dataset": dataset,
+        "symbol": symbol,
+        "timeframe": timeframe,
         "record_count": len(series.records),
         "file_count": len(files),
         "observed_at_unique": observed_at_unique,
