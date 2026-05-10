@@ -130,6 +130,8 @@ _ACCOUNT_SIGNED_NUMBER_FIELDS = (
 _ACCOUNT_IDENTITY_STRING_FIELDS = (
     "account_id",
     "accountId",
+)
+_ACCOUNT_ASSET_CODE_FIELDS = (
     "quote_currency",
     "quoteCurrency",
 )
@@ -422,6 +424,9 @@ def validate_account_snapshot_identity(account: object, *, path: Path) -> None:
         if value not in allowed:
             allowed_values = ", ".join(sorted(allowed))
             raise ValueError(f"account.{field} must be one of {allowed_values}: {path}")
+    for field in _ACCOUNT_ASSET_CODE_FIELDS:
+        if field in account:
+            _require_account_asset_code(account[field], field_path=f"account.{field}", path=path)
     _validate_open_position_identity_fields(account, path=path)
 
 

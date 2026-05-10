@@ -349,6 +349,7 @@ def test_load_historical_dataset_rejects_zero_open_position_core_prices(tmp_path
         (("marginMode",), "cross margin", r"account\.marginMode must be one of CROSS, ISOLATED"),
         (("accountType",), "futures account", r"account\.accountType must be one of FUTURES, MARGIN, PORTFOLIO_MARGIN, SPOT"),
         (("exchange",), "kraken", r"account\.exchange must be one of BINANCE"),
+        (("quoteCurrency",), "usd tether", r"account\.quoteCurrency must be an uppercase asset code"),
         (("open_positions", 0, "orderTime"), "2026-03-10 00:00:00", r"account\.open_positions\[0\]\.orderTime must be a canonical UTC ISO timestamp"),
         (("open_positions", 0, "baseAsset"), "btc", r"account\.open_positions\[0\]\.baseAsset must be an uppercase asset code"),
         (("open_positions", 0, "signalSource"), "bad space", r"account\.open_positions\[0\]\.signalSource must be a canonical identifier string"),
@@ -664,18 +665,18 @@ def test_load_historical_dataset_rejects_malformed_open_position_fee_cost_numeri
 
 
 @pytest.mark.parametrize(
-    ("field", "value"),
+    ("field", "value", "expected_message"),
     [
-        ("account_id", True),
-        ("venue", ""),
-        ("exchange", " binance"),
-        ("quote_currency", "USDT "),
-        ("margin_mode", 123),
-        ("account_type", "paper\n"),
+        ("account_id", True, r"a canonical string"),
+        ("venue", "", r"a canonical string"),
+        ("exchange", " binance", r"a canonical string"),
+        ("quote_currency", "USDT ", r"an uppercase asset code"),
+        ("margin_mode", 123, r"a canonical string"),
+        ("account_type", "paper\n", r"a canonical string"),
     ],
 )
 def test_load_historical_dataset_rejects_noncanonical_present_account_identity_fields(
-    tmp_path: Path, field: str, value: object
+    tmp_path: Path, field: str, value: object, expected_message: str
 ) -> None:
     dataset_root = tmp_path / "sample_dataset"
     bundle = dataset_root / "2026-03-10T00-00-00Z__sample-001"
@@ -689,7 +690,7 @@ def test_load_historical_dataset_rejects_noncanonical_present_account_identity_f
     account_snapshot = {"equity": 100000.0, field: value}
     (bundle / "account_snapshot.json").write_text(json.dumps(account_snapshot), encoding="utf-8")
 
-    with pytest.raises(ValueError, match=rf"account\.{field} must be a canonical string"):
+    with pytest.raises(ValueError, match=rf"account\.{field} must be {expected_message}"):
         load_historical_dataset(dataset_root)
 
 
