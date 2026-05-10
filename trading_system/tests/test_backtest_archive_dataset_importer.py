@@ -1565,7 +1565,11 @@ def test_write_phase1_dataset_bundle_rejects_malformed_open_position_risk_prices
     material.account_snapshot["open_positions"][0][field] = value
     expected_bundle_dir = tmp_path / f"{archive_importer._bundle_fragment(timestamp)}__{material.run_id}"
 
-    expected_qualifier = "positive finite" if field in {"liquidation_price", "liquidationPrice", "risk_price"} else "non-negative finite"
+    expected_qualifier = (
+        "positive finite"
+        if field in {"liquidation_price", "liquidationPrice", "break_even_price", "breakEvenPrice", "risk_price"}
+        else "non-negative finite"
+    )
     with pytest.raises(
         ValueError,
         match=rf"account\.open_positions\[0\]\.{field} must be a {expected_qualifier} number",
@@ -1619,7 +1623,7 @@ def test_write_phase1_dataset_bundle_rejects_zero_open_position_notional_without
     assert not expected_bundle_dir.exists()
 
 
-@pytest.mark.parametrize("field", ["entry_price", "mark_price", "liquidation_price"])
+@pytest.mark.parametrize("field", ["entry_price", "mark_price", "liquidation_price", "break_even_price"])
 def test_write_phase1_dataset_bundle_rejects_zero_open_position_core_prices_without_artifact(
     tmp_path: Path, field: str
 ) -> None:

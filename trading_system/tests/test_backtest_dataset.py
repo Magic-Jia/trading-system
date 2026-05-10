@@ -294,7 +294,7 @@ def test_load_historical_dataset_rejects_zero_open_position_notional(tmp_path: P
         load_historical_dataset(dataset_root)
 
 
-@pytest.mark.parametrize("field", ["entry_price", "mark_price", "liquidation_price"])
+@pytest.mark.parametrize("field", ["entry_price", "mark_price", "liquidation_price", "break_even_price"])
 def test_load_historical_dataset_rejects_zero_open_position_core_prices(tmp_path: Path, field: str) -> None:
     dataset_root = tmp_path / "sample_dataset"
     bundle = dataset_root / "2026-03-10T00-00-00Z__sample-001"
@@ -349,12 +349,12 @@ def test_load_historical_dataset_rejects_zero_open_position_core_prices(tmp_path
         (
             ("open_positions", 0, "break_even_price"),
             float("nan"),
-            r"account\.open_positions\[0\]\.break_even_price must be a non-negative finite number",
+            r"account\.open_positions\[0\]\.break_even_price must be a positive finite number",
         ),
         (
             ("open_positions", 0, "breakEvenPrice"),
             True,
-            r"account\.open_positions\[0\]\.breakEvenPrice must be a non-negative finite number",
+            r"account\.open_positions\[0\]\.breakEvenPrice must be a positive finite number",
         ),
         (
             ("open_positions", 0, "risk_price"),
