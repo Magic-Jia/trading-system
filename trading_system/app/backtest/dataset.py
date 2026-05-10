@@ -134,11 +134,13 @@ _ACCOUNT_IDENTITY_STRING_FIELDS = (
     "exchange",
     "quote_currency",
     "quoteCurrency",
-    "margin_mode",
-    "marginMode",
     "account_type",
     "accountType",
 )
+_ACCOUNT_ENUM_FIELDS = {
+    "margin_mode": {"CROSS", "ISOLATED"},
+    "marginMode": {"CROSS", "ISOLATED"},
+}
 _ACCOUNT_OPEN_POSITION_IDENTITY_STRING_FIELDS = (
     "status",
     "source",
@@ -411,6 +413,15 @@ def validate_account_snapshot_identity(account: object, *, path: Path) -> None:
         value = account[field]
         if not isinstance(value, str) or not value or value != value.strip():
             raise ValueError(f"account.{field} must be a canonical string: {path}")
+    for field, allowed in _ACCOUNT_ENUM_FIELDS.items():
+        if field not in account:
+            continue
+        value = account[field]
+        if not isinstance(value, str) or not value or value != value.strip():
+            raise ValueError(f"account.{field} must be a canonical string: {path}")
+        if value not in allowed:
+            allowed_values = ", ".join(sorted(allowed))
+            raise ValueError(f"account.{field} must be one of {allowed_values}: {path}")
     _validate_open_position_identity_fields(account, path=path)
 
 
