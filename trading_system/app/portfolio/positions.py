@@ -994,7 +994,13 @@ def sync_positions_from_account(state: RuntimeState, account: AccountSnapshot) -
             if snapshot.mark_price is None
             else _strict_positive_quantity(snapshot.mark_price, f"{snapshot_label}.mark_price")
         )
-        snapshot_notional = _strict_finite_number(snapshot.notional, f"{snapshot_label}.notional")
+        snapshot_notional = _strict_present_optional_positive_number(
+            {"notional": snapshot.notional},
+            "notional",
+            f"{snapshot_label}.notional",
+        )
+        if snapshot_notional is None:
+            snapshot_notional = 0.0
         snapshot_unrealized_pnl = _strict_finite_number(snapshot.unrealized_pnl, f"{snapshot_label}.unrealized_pnl")
         snapshot_leverage = _strict_present_optional_positive_number(
             {"leverage": snapshot.leverage},

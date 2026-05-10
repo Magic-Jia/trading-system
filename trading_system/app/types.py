@@ -50,7 +50,7 @@ class PositionSnapshot:
     entry_price: float
     mark_price: float | None = None
     unrealized_pnl: float = 0.0
-    notional: float = 0.0
+    notional: float | None = None
     leverage: float | None = None
     strategy_tag: str | None = None
     status: str | None = None

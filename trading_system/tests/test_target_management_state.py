@@ -2901,6 +2901,7 @@ def test_sync_positions_from_account_rejects_malformed_snapshot_taxonomy_before_
         ("mark_price", float("inf"), ValueError),
         ("mark_price", 0.0, ValueError),
         ("notional", "40.0", TypeError),
+        ("notional", 0.0, ValueError),
         ("unrealized_pnl", float("nan"), ValueError),
     ],
 )
