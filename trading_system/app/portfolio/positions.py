@@ -924,7 +924,9 @@ def _validate_snapshot_position_identities(open_positions: list[PositionSnapshot
     for snapshot in open_positions:
         _strict_canonical_symbol(snapshot.symbol, f"account.open_positions[{snapshot.symbol}].symbol")
         _strict_position_side({"side": snapshot.side}, "side", f"account.open_positions[{snapshot.symbol}].side")
-        _strict_position_status({"status": getattr(snapshot, "status", None)}, "status", f"account.open_positions[{snapshot.symbol}].status")
+        snapshot_status = _strict_position_status({"status": getattr(snapshot, "status", None)}, "status", f"account.open_positions[{snapshot.symbol}].status")
+        if snapshot_status in {"CLOSED", "SKIPPED", "FAILED", "CANCELLED", "CANCELED"}:
+            raise ValueError(f"account.open_positions[{snapshot.symbol}].status must be OPEN or omitted for an open position snapshot")
         _strict_optional_canonical_lower_string(
             {"strategy_tag": getattr(snapshot, "strategy_tag", None)},
             "strategy_tag",
