@@ -64,6 +64,7 @@ _ACCOUNT_OPEN_POSITION_ENUM_FIELDS = {
     "side": {"LONG", "SHORT"},
     "positionSide": {"LONG", "SHORT"},
     "margin_mode": {"CROSS", "ISOLATED"},
+    "marginType": {"CROSS", "ISOLATED"},
 }
 
 
