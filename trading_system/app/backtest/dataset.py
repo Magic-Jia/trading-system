@@ -82,6 +82,12 @@ _ACCOUNT_OPEN_POSITION_POSITIVE_PRICE_FIELDS = (
     "mark_price",
     "notional",
     "risk_price",
+    "stop_price",
+    "stopPrice",
+    "take_profit_price",
+    "takeProfitPrice",
+    "trailing_stop_price",
+    "trailingStopPrice",
 )
 _ACCOUNT_RISK_EXPOSURE_RATIO_FIELDS = (
     "account_risk_pct",
