@@ -273,6 +273,7 @@ _ACCOUNT_OPEN_POSITION_ENUM_FIELDS = {
     "position_source": {"account_snapshot", "archive_fixture", "paper_execution"},
     "margin_type": {"CROSS", "ISOLATED"},
     "product_type": {"FUTURES", "MARGIN", "SPOT"},
+    "productType": {"FUTURES", "MARGIN", "SPOT"},
 }
 _ACCOUNT_OPEN_POSITION_TERMINAL_STATUS_VALUES = {"CLOSED", "SKIPPED", "FAILED", "CANCELLED", "CANCELED"}
 _ACCOUNT_OPEN_POSITION_OPEN_STATUS_VALUES = {"OPEN"}

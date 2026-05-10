@@ -349,6 +349,7 @@ def test_load_historical_dataset_rejects_zero_open_position_core_prices(tmp_path
         (("open_positions", 0, "orderTime"), "2026-03-10 00:00:00", r"account\.open_positions\[0\]\.orderTime must be a canonical UTC ISO timestamp"),
         (("open_positions", 0, "baseAsset"), "btc", r"account\.open_positions\[0\]\.baseAsset must be an uppercase asset code"),
         (("open_positions", 0, "signalSource"), "bad space", r"account\.open_positions\[0\]\.signalSource must be a canonical identifier string"),
+        (("open_positions", 0, "productType"), "options", r"account\.open_positions\[0\]\.productType must be one of FUTURES, MARGIN, SPOT"),
         (
             ("open_positions", 0, "leverage"),
             float("inf"),
