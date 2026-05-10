@@ -59,6 +59,18 @@ TRADE_BOUNDED_BPS_RISK_SCALE_FIELDS = (
     "risk_bps",
     "exposure_bps",
 )
+TRADE_BOUNDED_COST_RATIO_FIELDS = (
+    "fee_pct",
+    "slippage_pct",
+    "funding_pct",
+    "cost_pct",
+)
+TRADE_BOUNDED_COST_BPS_FIELDS = (
+    "fee_bps",
+    "slippage_bps",
+    "funding_bps",
+    "cost_bps",
+)
 TRADE_LATENCY_MS_FIELDS = (
     "execution_latency_ms",
     "order_latency_ms",
@@ -3252,6 +3264,22 @@ def _validate_postmortem_trade_execution_fields(trade: Mapping[str, Any], index:
             if not valid or parsed < 0.0 or parsed > 10000.0:
                 raise ValueError(
                     f"postmortem.trades[{index}].{field} must be bounded non-negative finite strict bps"
+                )
+    for field in TRADE_BOUNDED_COST_RATIO_FIELDS:
+        value = trade.get(field)
+        if value is not None:
+            parsed, valid = _strict_float_value(value)
+            if not valid or parsed < 0.0 or parsed > 1.0:
+                raise ValueError(
+                    f"postmortem.trades[{index}].{field} must be a bounded non-negative cost ratio strict number"
+                )
+    for field in TRADE_BOUNDED_COST_BPS_FIELDS:
+        value = trade.get(field)
+        if value is not None:
+            parsed, valid = _strict_float_value(value)
+            if not valid or parsed < 0.0 or parsed > 10000.0:
+                raise ValueError(
+                    f"postmortem.trades[{index}].{field} must be bounded non-negative finite strict cost bps"
                 )
 
 

@@ -10278,6 +10278,52 @@ def test_trade_postmortem_summary_rejects_malformed_present_derived_execution_pr
         )
 
 
+@pytest.mark.parametrize(
+    ("field", "value", "error"),
+    [
+        ("fee_pct", True, r"postmortem.trades\[1\]\.fee_pct must be a bounded non-negative cost ratio strict number"),
+        ("fee_pct", "0.01", r"postmortem.trades\[1\]\.fee_pct must be a bounded non-negative cost ratio strict number"),
+        ("fee_pct", float("nan"), r"postmortem.trades\[1\]\.fee_pct must be a bounded non-negative cost ratio strict number"),
+        ("fee_pct", float("inf"), r"postmortem.trades\[1\]\.fee_pct must be a bounded non-negative cost ratio strict number"),
+        ("fee_pct", -0.01, r"postmortem.trades\[1\]\.fee_pct must be a bounded non-negative cost ratio strict number"),
+        ("fee_pct", 1.01, r"postmortem.trades\[1\]\.fee_pct must be a bounded non-negative cost ratio strict number"),
+        ("slippage_pct", True, r"postmortem.trades\[1\]\.slippage_pct must be a bounded non-negative cost ratio strict number"),
+        ("funding_pct", "0.01", r"postmortem.trades\[1\]\.funding_pct must be a bounded non-negative cost ratio strict number"),
+        ("cost_pct", float("nan"), r"postmortem.trades\[1\]\.cost_pct must be a bounded non-negative cost ratio strict number"),
+        ("fee_bps", True, r"postmortem.trades\[1\]\.fee_bps must be bounded non-negative finite strict cost bps"),
+        ("fee_bps", "1.0", r"postmortem.trades\[1\]\.fee_bps must be bounded non-negative finite strict cost bps"),
+        ("fee_bps", float("nan"), r"postmortem.trades\[1\]\.fee_bps must be bounded non-negative finite strict cost bps"),
+        ("fee_bps", float("inf"), r"postmortem.trades\[1\]\.fee_bps must be bounded non-negative finite strict cost bps"),
+        ("fee_bps", -1.0, r"postmortem.trades\[1\]\.fee_bps must be bounded non-negative finite strict cost bps"),
+        ("fee_bps", 10000.1, r"postmortem.trades\[1\]\.fee_bps must be bounded non-negative finite strict cost bps"),
+        ("slippage_bps", True, r"postmortem.trades\[1\]\.slippage_bps must be bounded non-negative finite strict cost bps"),
+        ("funding_bps", "1.0", r"postmortem.trades\[1\]\.funding_bps must be bounded non-negative finite strict cost bps"),
+        ("cost_bps", float("inf"), r"postmortem.trades\[1\]\.cost_bps must be bounded non-negative finite strict cost bps"),
+    ],
+)
+def test_trade_postmortem_summary_rejects_malformed_present_cost_breakdown_ratios_and_bps(
+    field: str,
+    value: object,
+    error: str,
+) -> None:
+    with pytest.raises(ValueError, match=error):
+        summarize_trade_postmortem(
+            [
+                {
+                    "symbol": "SOLUSDT",
+                    "setup_type": "RS_REACCELERATION",
+                    "gross_pnl": 100.0,
+                    "net_pnl": 80.0,
+                    "fee_paid": 10.0,
+                    "slippage_paid": 10.0,
+                    "mfe_pct": 0.012,
+                    "mae_pct": 0.0,
+                    field: value,
+                }
+            ]
+        )
+
+
 class _Universes:
     major_universe = ()
     rotation_universe = ()
