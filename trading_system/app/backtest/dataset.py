@@ -178,8 +178,11 @@ _ACCOUNT_OPEN_POSITION_IDENTIFIER_FIELDS = (
 )
 _ACCOUNT_OPEN_POSITION_PROVENANCE_IDENTIFIER_FIELDS = (
     "signal_source",
+    "signalSource",
     "strategy_source",
+    "strategySource",
     "data_source",
+    "dataSource",
 )
 _ACCOUNT_OPEN_POSITION_ASSET_CODE_FIELDS = (
     "base_asset",
