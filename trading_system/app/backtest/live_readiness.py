@@ -38,7 +38,15 @@ TRADE_COST_IDENTITY_FIELDS = (
     "commission_asset",
     "fee_asset",
 )
-TRADE_POSITIVE_NUMERIC_EVIDENCE_FIELDS = ("risk_reward",)
+TRADE_POSITIVE_NUMERIC_EVIDENCE_FIELDS = (
+    "risk_reward",
+    "stop_distance_bps",
+    "target_distance_bps",
+    "stop_distance_pct",
+    "target_distance_pct",
+    "take_profit_distance_bps",
+    "stop_loss_distance_bps",
+)
 VALID_TRADES_ARTIFACT_SCHEMA_VERSION = "trades.v1"
 VALID_SUMMARY_ARTIFACT_SCHEMA_VERSION = "backtest_summary.v1"
 TRADE_EXECUTION_COST_FIELDS = ("fee_paid", "slippage_paid")

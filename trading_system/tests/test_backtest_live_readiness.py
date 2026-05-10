@@ -285,6 +285,42 @@ def test_trade_postmortem_rejects_malformed_present_risk_reward(risk_reward: obj
         summarize_trade_postmortem([trade])
 
 
+@pytest.mark.parametrize(
+    "field",
+    [
+        "stop_distance_bps",
+        "target_distance_bps",
+        "stop_distance_pct",
+        "target_distance_pct",
+        "take_profit_distance_bps",
+        "stop_loss_distance_bps",
+    ],
+)
+@pytest.mark.parametrize("value", [True, "25.0", float("nan"), float("inf"), -1.0, 0.0])
+def test_trade_postmortem_rejects_malformed_present_stop_target_distance_fields(
+    field: str,
+    value: object,
+) -> None:
+    trade = {
+        "symbol": "BTCUSDT",
+        "setup_type": "TREND_PULLBACK",
+        "net_pnl": -1.0,
+        "gross_pnl": -1.0,
+        "fee_paid": 0.0,
+        "slippage_paid": 0.0,
+        "funding_paid": 0.0,
+        "mfe_pct": 0.0,
+        "mae_pct": 0.0,
+        field: value,
+    }
+
+    with pytest.raises(
+        ValueError,
+        match=rf"postmortem\.trades\[1\]\.{field} must be a positive finite strict number",
+    ):
+        summarize_trade_postmortem([trade])
+
+
 def test_stdout_concentration_summary_rejects_non_strict_bucket() -> None:
     report = {
         "concentration": {
