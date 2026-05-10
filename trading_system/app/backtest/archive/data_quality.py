@@ -227,6 +227,9 @@ def _l2_series_reports(series_reports: Mapping[str, Mapping[str, Any]]) -> list[
             raise ValueError(f"l2 series report {key} must be an object")
         if any(not isinstance(field, str) or not field.strip() or field != field.strip() for field in report):
             raise ValueError("l2 series report fields must be canonical")
+        series_key = _l2_canonical_string(report, "series_key")
+        if series_key != key:
+            raise ValueError("l2 series report key must match series_key")
         parsed.append(dict(report))
     return parsed
 
