@@ -75,6 +75,8 @@ _ACCOUNT_RATIO_NUMBER_FIELDS = (
 )
 _ACCOUNT_OPEN_POSITION_POSITIVE_PRICE_FIELDS = (
     "entry_price",
+    "liquidation_price",
+    "liquidationPrice",
     "mark_price",
     "notional",
     "risk_price",
