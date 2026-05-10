@@ -148,6 +148,64 @@ def test_load_historical_dataset_rejects_numeric_string_account_equity(tmp_path:
 
 
 @pytest.mark.parametrize(
+    ("field_path", "value", "expected_message"),
+    [
+        (("wallet_balance",), True, r"account\.wallet_balance must be a non-negative finite number"),
+        (("margin_balance",), "100000.0", r"account\.margin_balance must be a non-negative finite number"),
+        (("total_unrealized_profit",), float("nan"), r"account\.total_unrealized_profit must be a finite number"),
+        (
+            ("open_positions", 0, "leverage"),
+            float("inf"),
+            r"account\.open_positions\[0\]\.leverage must be a non-negative finite number",
+        ),
+        (
+            ("open_positions", 0, "maintenance_margin"),
+            -1.0,
+            r"account\.open_positions\[0\]\.maintenance_margin must be a non-negative finite number",
+        ),
+    ],
+)
+def test_load_historical_dataset_rejects_malformed_present_account_numeric_fields(
+    tmp_path: Path, field_path: tuple[object, ...], value: object, expected_message: str
+) -> None:
+    dataset_root = tmp_path / "sample_dataset"
+    bundle = dataset_root / "2026-03-10T00-00-00Z__sample-001"
+    bundle.mkdir(parents=True)
+    (bundle / "metadata.json").write_text(
+        '{"timestamp": "2026-03-10T00:00:00Z", "run_id": "sample-001"}',
+        encoding="utf-8",
+    )
+    (bundle / "market_context.json").write_text('{"symbols": {"BTCUSDT": {}}}', encoding="utf-8")
+    (bundle / "derivatives_snapshot.json").write_text('{"rows": []}', encoding="utf-8")
+    account_snapshot = {
+        "equity": 100000.0,
+        "wallet_balance": 100000.0,
+        "margin_balance": 100000.0,
+        "total_unrealized_profit": -12.5,
+        "open_positions": [
+            {
+                "symbol": "BTCUSDT",
+                "qty": 0.5,
+                "entry_price": 60000.0,
+                "mark_price": 61000.0,
+                "unrealized_pnl": 500.0,
+                "notional": 30500.0,
+                "leverage": 2.0,
+                "maintenance_margin": 75.0,
+            }
+        ],
+    }
+    target = account_snapshot
+    for key in field_path[:-1]:
+        target = target[key]  # type: ignore[index]
+    target[field_path[-1]] = value  # type: ignore[index]
+    (bundle / "account_snapshot.json").write_text(json.dumps(account_snapshot), encoding="utf-8")
+
+    with pytest.raises(ValueError, match=expected_message):
+        load_historical_dataset(dataset_root)
+
+
+@pytest.mark.parametrize(
     ("field", "value"),
     [
         ("account_id", True),

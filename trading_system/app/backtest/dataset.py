@@ -12,7 +12,36 @@ _REQUIRED_BUNDLE_FILES = ("metadata.json", "market_context.json", "derivatives_s
 _BASELINE_ACCOUNT_FILENAME = "baseline_account_snapshot.json"
 _INSTRUMENT_SNAPSHOT_FILENAME = "instrument_snapshot.json"
 _IMPORT_MANIFEST_FILENAME = "import_manifest.json"
-_ACCOUNT_NON_NEGATIVE_NUMBER_FIELDS = ("equity", "available_balance", "futures_wallet_balance")
+_ACCOUNT_NON_NEGATIVE_NUMBER_FIELDS = (
+    "available_balance",
+    "entry",
+    "entry_price",
+    "futures_wallet_balance",
+    "initial_margin",
+    "leverage",
+    "liquidation_price",
+    "maintenance_margin",
+    "margin_balance",
+    "mark",
+    "mark_price",
+    "notional",
+    "position_amt",
+    "positionAmt",
+    "qty",
+    "stop_price",
+    "total_initial_margin",
+    "total_maint_margin",
+    "total_margin_balance",
+    "total_wallet_balance",
+    "wallet_balance",
+    "equity",
+)
+_ACCOUNT_SIGNED_NUMBER_FIELDS = (
+    "total_unrealized_profit",
+    "unRealizedProfit",
+    "unrealized_pnl",
+    "upl",
+)
 _ACCOUNT_IDENTITY_STRING_FIELDS = (
     "account_id",
     "venue",
@@ -155,7 +184,35 @@ def _account_snapshot(account: dict, *, path: Path) -> dict:
         number = float(value)
         if not math.isfinite(number) or number < 0.0:
             raise ValueError(f"account.{field} must be a non-negative finite number: {path}")
+    _validate_account_numeric_fields(snapshot, path=path, field_path="account")
     return snapshot
+
+
+def _validate_account_number(value: object, *, field_path: str, path: Path, non_negative: bool) -> None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        qualifier = "non-negative finite" if non_negative else "finite"
+        raise ValueError(f"{field_path} must be a {qualifier} number: {path}")
+    number = float(value)
+    if not math.isfinite(number) or (non_negative and number < 0.0):
+        qualifier = "non-negative finite" if non_negative else "finite"
+        raise ValueError(f"{field_path} must be a {qualifier} number: {path}")
+
+
+def _validate_account_numeric_fields(payload: object, *, path: Path, field_path: str) -> None:
+    if isinstance(payload, dict):
+        for key, value in payload.items():
+            child_path = f"{field_path}.{key}"
+            if key in _ACCOUNT_NON_NEGATIVE_NUMBER_FIELDS:
+                _validate_account_number(value, field_path=child_path, path=path, non_negative=True)
+            elif key in _ACCOUNT_SIGNED_NUMBER_FIELDS:
+                _validate_account_number(value, field_path=child_path, path=path, non_negative=False)
+            elif isinstance(value, (dict, list)):
+                _validate_account_numeric_fields(value, path=path, field_path=child_path)
+        return
+    if isinstance(payload, list):
+        for index, item in enumerate(payload):
+            if isinstance(item, (dict, list)):
+                _validate_account_numeric_fields(item, path=path, field_path=f"{field_path}[{index}]")
 
 
 def _row_from_bundle(bundle_path: Path, *, fallback_account: dict | None) -> DatasetSnapshotRow:
