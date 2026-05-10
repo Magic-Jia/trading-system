@@ -53,6 +53,7 @@ class PositionSnapshot:
     notional: float = 0.0
     leverage: float | None = None
     strategy_tag: str | None = None
+    status: str | None = None
 
 
 @dataclass(slots=True)

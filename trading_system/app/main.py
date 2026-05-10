@@ -212,6 +212,7 @@ def _positions_from_rows(rows: list[dict[str, Any]]) -> list[PositionSnapshot]:
                 if row.get("leverage") is not None
                 else None,
                 strategy_tag=row.get("strategy_tag"),
+                status=row.get("status"),
             )
         )
     return positions
