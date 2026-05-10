@@ -69,6 +69,7 @@ TRADE_ROW_FIELDS = frozenset(
 VALID_TRADE_SIDES = ("long", "short")
 VALID_ORDER_TYPES = ("LIMIT", "MARKET", "STOP_MARKET", "TAKE_PROFIT_MARKET", "TRAILING_STOP_MARKET")
 VALID_LIQUIDITY_ROLES = ("maker", "taker")
+VALID_EXECUTION_VENUES = ("binance_spot", "binance_futures", "binance_futures_testnet", "paper_simulator")
 VALID_EXIT_REASONS = ("take_profit", "stop_loss", "stop", "tp", "fixed_horizon")
 VALID_EXECUTION_PRICE_SOURCES = (
     "ohlcv_close",
@@ -3123,6 +3124,11 @@ def _validate_postmortem_trade_execution_fields(trade: Mapping[str, Any], index:
         not isinstance(value, str) or not value.strip() or value != value.strip() or value not in VALID_LIQUIDITY_ROLES
     ):
         raise ValueError(f"postmortem.trades[{index}].liquidity_role must be a supported canonical string")
+    value = trade.get("execution_venue")
+    if value is not None and (
+        not isinstance(value, str) or not value.strip() or value != value.strip() or value not in VALID_EXECUTION_VENUES
+    ):
+        raise ValueError(f"postmortem.trades[{index}].execution_venue must be a supported canonical string")
     for field in TRADE_COST_IDENTITY_FIELDS:
         value = trade.get(field)
         if value is not None and (

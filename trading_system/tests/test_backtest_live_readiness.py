@@ -9981,6 +9981,37 @@ def test_trade_postmortem_summary_rejects_malformed_present_liquidity_role(
         )
 
 
+@pytest.mark.parametrize(
+    ("execution_venue", "error"),
+    [
+        (123, "postmortem.trades\\[1\\].execution_venue must be a supported canonical string"),
+        ("", "postmortem.trades\\[1\\].execution_venue must be a supported canonical string"),
+        (" binance_futures ", "postmortem.trades\\[1\\].execution_venue must be a supported canonical string"),
+        ("dark_pool", "postmortem.trades\\[1\\].execution_venue must be a supported canonical string"),
+    ],
+)
+def test_trade_postmortem_summary_rejects_malformed_present_execution_venue(
+    execution_venue: Any,
+    error: str,
+) -> None:
+    with pytest.raises(ValueError, match=error):
+        summarize_trade_postmortem(
+            [
+                {
+                    "symbol": "SOLUSDT",
+                    "setup_type": "RS_REACCELERATION",
+                    "execution_venue": execution_venue,
+                    "gross_pnl": 100.0,
+                    "net_pnl": 80.0,
+                    "fee_paid": 10.0,
+                    "slippage_paid": 10.0,
+                    "mfe_pct": 0.012,
+                    "mae_pct": 0.0,
+                }
+            ]
+        )
+
+
 class _Universes:
     major_universe = ()
     rotation_universe = ()
