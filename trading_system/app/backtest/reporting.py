@@ -688,6 +688,24 @@ def _strict_present_finite_float(value: Any, *, field_name: str) -> float:
     return parsed
 
 
+def _strict_bounded_ratio_float(value: Any, *, field_name: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise ValueError(f"{field_name} must be a bounded ratio strict number")
+    parsed = float(value)
+    if not math.isfinite(parsed) or parsed < 0.0 or parsed > 1.0:
+        raise ValueError(f"{field_name} must be a bounded ratio strict number")
+    return parsed
+
+
+def _strict_non_negative_finite_float(value: Any, *, field_name: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise ValueError(f"{field_name} must be a non-negative finite strict number")
+    parsed = float(value)
+    if not math.isfinite(parsed) or parsed < 0.0:
+        raise ValueError(f"{field_name} must be a non-negative finite strict number")
+    return parsed
+
+
 def _optional_non_negative_finite_float(value: Any, *, field_name: str) -> float | None:
     if value is None:
         return None
@@ -770,10 +788,22 @@ def _walk_forward_window_rows(rows: list[Any]) -> list[dict[str, Any]]:
             for field in scorecard_numeric_fields:
                 if field not in validated_scorecard or validated_scorecard[field] is None:
                     continue
-                validated_scorecard[field] = _strict_present_finite_float(
-                    validated_scorecard[field],
-                    field_name=f"windows[{index}].{segment_name}.scorecard.{field}",
-                )
+                field_name = f"windows[{index}].{segment_name}.scorecard.{field}"
+                if field == "win_rate":
+                    validated_scorecard[field] = _strict_bounded_ratio_float(
+                        validated_scorecard[field],
+                        field_name=field_name,
+                    )
+                elif field == "payoff_ratio":
+                    validated_scorecard[field] = _strict_non_negative_finite_float(
+                        validated_scorecard[field],
+                        field_name=field_name,
+                    )
+                else:
+                    validated_scorecard[field] = _strict_present_finite_float(
+                        validated_scorecard[field],
+                        field_name=field_name,
+                    )
             if "trade_count" in validated_scorecard and validated_scorecard["trade_count"] is not None:
                 validated_scorecard["trade_count"] = _non_negative_int_field(
                     validated_scorecard,

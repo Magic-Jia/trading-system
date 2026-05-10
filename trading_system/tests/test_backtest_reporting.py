@@ -2217,6 +2217,63 @@ def test_walk_forward_validation_report_rejects_string_window_scorecard_metric()
         )
 
 
+@pytest.mark.parametrize(
+    ("field", "value", "match"),
+    [
+        ("win_rate", True, r"windows\[0\]\.out_of_sample\.scorecard\.win_rate must be a bounded ratio strict number"),
+        ("win_rate", "0.55", r"windows\[0\]\.out_of_sample\.scorecard\.win_rate must be a bounded ratio strict number"),
+        ("win_rate", float("nan"), r"windows\[0\]\.out_of_sample\.scorecard\.win_rate must be a bounded ratio strict number"),
+        ("win_rate", float("inf"), r"windows\[0\]\.out_of_sample\.scorecard\.win_rate must be a bounded ratio strict number"),
+        ("win_rate", -0.01, r"windows\[0\]\.out_of_sample\.scorecard\.win_rate must be a bounded ratio strict number"),
+        ("win_rate", 1.01, r"windows\[0\]\.out_of_sample\.scorecard\.win_rate must be a bounded ratio strict number"),
+        ("payoff_ratio", True, r"windows\[0\]\.out_of_sample\.scorecard\.payoff_ratio must be a non-negative finite strict number"),
+        ("payoff_ratio", "1.5", r"windows\[0\]\.out_of_sample\.scorecard\.payoff_ratio must be a non-negative finite strict number"),
+        ("payoff_ratio", float("nan"), r"windows\[0\]\.out_of_sample\.scorecard\.payoff_ratio must be a non-negative finite strict number"),
+        ("payoff_ratio", float("inf"), r"windows\[0\]\.out_of_sample\.scorecard\.payoff_ratio must be a non-negative finite strict number"),
+        ("payoff_ratio", -1.0, r"windows\[0\]\.out_of_sample\.scorecard\.payoff_ratio must be a non-negative finite strict number"),
+    ],
+)
+def test_walk_forward_validation_report_rejects_malformed_ratio_domain_scorecard_values(
+    field: str,
+    value: object,
+    match: str,
+) -> None:
+    scorecard = {
+        "total_return": 0.03,
+        "max_drawdown": -0.01,
+        "sharpe": 1.2,
+        "sortino": 1.4,
+        "calmar": 2.0,
+        "win_rate": 0.5,
+        "payoff_ratio": 1.5,
+        "expectancy": 0.01,
+        "trade_count": 2,
+    }
+    scorecard[field] = value
+
+    with pytest.raises(ValueError, match=match):
+        cli.render_walk_forward_validation_report(
+            experiment_name="walk_forward_validation",
+            metadata={"snapshot_count": 1, "window_count": 1},
+            experiment={
+                "windows": [
+                    {
+                        "window_index": 1,
+                        "out_of_sample": {
+                            "scorecard": scorecard,
+                            "run_ids": ["row-002"],
+                        },
+                    }
+                ],
+                "robustness_summary": {
+                    "out_of_sample_scorecard": {"total_return": 0.03},
+                    "performance_dispersion": {"positive_window_ratio": 1.0},
+                },
+                "parameter_stability": {"parameter_stability_score": 0.8},
+            },
+        )
+
+
 def test_walk_forward_validation_report_rejects_blank_window_run_id() -> None:
     with pytest.raises(ValueError, match=r"windows\[0\]\.out_of_sample\.run_ids\[\] must be a canonical string"):
         cli.render_walk_forward_validation_report(
