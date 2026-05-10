@@ -169,6 +169,16 @@ _ACCOUNT_ASSET_CODE_FIELDS = (
     "cost_currency",
     "costCurrency",
 )
+_ACCOUNT_TIME_FIELDS = (
+    "last_update_time",
+    "lastUpdateTime",
+    "update_time",
+    "updateTime",
+    "event_time",
+    "eventTime",
+    "as_of",
+    "timestamp",
+)
 _ACCOUNT_ENUM_FIELDS = {
     "account_type": {"FUTURES", "MARGIN", "PORTFOLIO_MARGIN", "SPOT"},
     "accountType": {"FUTURES", "MARGIN", "PORTFOLIO_MARGIN", "SPOT"},
@@ -473,6 +483,9 @@ def validate_account_snapshot_identity(account: object, *, path: Path) -> None:
     for field in _ACCOUNT_ASSET_CODE_FIELDS:
         if field in account:
             _require_account_asset_code(account[field], field_path=f"account.{field}", path=path)
+    for field in _ACCOUNT_TIME_FIELDS:
+        if field in account:
+            _require_account_utc_iso_timestamp(account[field], field_path=f"account.{field}", path=path)
     _validate_open_position_identity_fields(account, path=path)
 
 
