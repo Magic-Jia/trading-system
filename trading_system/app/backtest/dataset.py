@@ -335,6 +335,8 @@ _ACCOUNT_OPEN_POSITION_STRICT_BOOL_FIELDS = (
     "reduceOnly",
     "post_only",
     "postOnly",
+    "close_position",
+    "closePosition",
 )
 _ACCOUNT_OPEN_POSITION_TERMINAL_STATUS_VALUES = {"CLOSED", "SKIPPED", "FAILED", "CANCELLED", "CANCELED"}
 _ACCOUNT_OPEN_POSITION_OPEN_STATUS_VALUES = {"OPEN"}

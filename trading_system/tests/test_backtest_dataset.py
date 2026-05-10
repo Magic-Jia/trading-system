@@ -1166,6 +1166,8 @@ def test_load_historical_dataset_rejects_malformed_open_position_order_position_
         ("reduceOnly", 0, r"account\.open_positions\[0\]\.reduceOnly must be a strict boolean"),
         ("post_only", "false", r"account\.open_positions\[0\]\.post_only must be a strict boolean"),
         ("postOnly", 0, r"account\.open_positions\[0\]\.postOnly must be a strict boolean"),
+        ("close_position", "false", r"account\.open_positions\[0\]\.close_position must be a strict boolean"),
+        ("closePosition", 0, r"account\.open_positions\[0\]\.closePosition must be a strict boolean"),
     ],
 )
 def test_load_historical_dataset_rejects_malformed_open_position_order_execution_aliases_before_load(
