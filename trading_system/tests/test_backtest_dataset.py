@@ -226,6 +226,57 @@ def test_load_historical_dataset_rejects_malformed_present_account_numeric_field
 
 
 @pytest.mark.parametrize(
+    ("field", "value", "expected_message"),
+    [
+        ("margin_ratio", True, r"account\.open_positions\[0\]\.margin_ratio must be a ratio in \(0, 1\]"),
+        ("marginRatio", "0.08", r"account\.open_positions\[0\]\.marginRatio must be a ratio in \(0, 1\]"),
+        (
+            "maintenance_margin_ratio",
+            float("nan"),
+            r"account\.open_positions\[0\]\.maintenance_margin_ratio must be a ratio in \(0, 1\]",
+        ),
+        (
+            "initial_margin_ratio",
+            float("inf"),
+            r"account\.open_positions\[0\]\.initial_margin_ratio must be a ratio in \(0, 1\]",
+        ),
+        ("risk_ratio", -0.01, r"account\.open_positions\[0\]\.risk_ratio must be a ratio in \(0, 1\]"),
+        ("riskRatio", 0.0, r"account\.open_positions\[0\]\.riskRatio must be a ratio in \(0, 1\]"),
+        ("margin_ratio", 1.01, r"account\.open_positions\[0\]\.margin_ratio must be a ratio in \(0, 1\]"),
+    ],
+)
+def test_load_historical_dataset_rejects_malformed_open_position_ratio_fields_before_load(
+    tmp_path: Path, field: str, value: object, expected_message: str
+) -> None:
+    dataset_root = tmp_path / "sample_dataset"
+    bundle = dataset_root / "2026-03-10T00-00-00Z__sample-001"
+    bundle.mkdir(parents=True)
+    (bundle / "metadata.json").write_text(
+        '{"timestamp": "2026-03-10T00:00:00Z", "run_id": "sample-001"}',
+        encoding="utf-8",
+    )
+    (bundle / "market_context.json").write_text('{"symbols": {"BTCUSDT": {}}}', encoding="utf-8")
+    (bundle / "derivatives_snapshot.json").write_text('{"rows": []}', encoding="utf-8")
+    account_snapshot = {
+        "equity": 100000.0,
+        "open_positions": [
+            {
+                "symbol": "BTCUSDT",
+                "qty": 0.5,
+                "entry_price": 60000.0,
+                "mark_price": 61000.0,
+                "margin_ratio": 0.08,
+            }
+        ],
+    }
+    account_snapshot["open_positions"][0][field] = value
+    (bundle / "account_snapshot.json").write_text(json.dumps(account_snapshot), encoding="utf-8")
+
+    with pytest.raises(ValueError, match=expected_message):
+        load_historical_dataset(dataset_root)
+
+
+@pytest.mark.parametrize(
     ("field", "value"),
     [
         ("account_id", True),

@@ -24,8 +24,6 @@ _ACCOUNT_NON_NEGATIVE_NUMBER_FIELDS = (
     "margin",
     "maintenance_margin",
     "margin_balance",
-    "marginRatio",
-    "margin_ratio",
     "mark",
     "mark_price",
     "notional",
@@ -45,6 +43,16 @@ _ACCOUNT_NON_NEGATIVE_NUMBER_FIELDS = (
 )
 _ACCOUNT_POSITIVE_NUMBER_FIELDS = (
     "leverage",
+)
+_ACCOUNT_RATIO_NUMBER_FIELDS = (
+    "initial_margin_ratio",
+    "initialMarginRatio",
+    "maintenance_margin_ratio",
+    "maintenanceMarginRatio",
+    "marginRatio",
+    "margin_ratio",
+    "riskRatio",
+    "risk_ratio",
 )
 _ACCOUNT_SIGNED_NUMBER_FIELDS = (
     "total_unrealized_profit",
@@ -298,11 +306,22 @@ def _validate_account_number(value: object, *, field_path: str, path: Path, qual
     return number
 
 
+def _validate_account_ratio(value: object, *, field_path: str, path: Path) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{field_path} must be a ratio in (0, 1]: {path}")
+    number = float(value)
+    if not math.isfinite(number) or number <= 0.0 or number > 1.0:
+        raise ValueError(f"{field_path} must be a ratio in (0, 1]: {path}")
+    return number
+
+
 def _validate_account_numeric_fields(payload: object, *, path: Path, field_path: str) -> None:
     if isinstance(payload, dict):
         for key, value in payload.items():
             child_path = f"{field_path}.{key}"
-            if key in _ACCOUNT_POSITIVE_NUMBER_FIELDS:
+            if key in _ACCOUNT_RATIO_NUMBER_FIELDS:
+                _validate_account_ratio(value, field_path=child_path, path=path)
+            elif key in _ACCOUNT_POSITIVE_NUMBER_FIELDS:
                 number = _validate_account_number(
                     value,
                     field_path=child_path,

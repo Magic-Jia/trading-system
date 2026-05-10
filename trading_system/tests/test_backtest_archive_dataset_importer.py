@@ -492,7 +492,7 @@ def test_write_phase1_dataset_bundle_rejects_malformed_open_position_leverage_ma
         ("unrealizedPnl", "12.5", r"account\.open_positions\[0\]\.unrealizedPnl must be a finite number"),
         ("realized_pnl", float("nan"), r"account\.open_positions\[0\]\.realized_pnl must be a finite number"),
         ("pnl", float("inf"), r"account\.open_positions\[0\]\.pnl must be a finite number"),
-        ("margin_ratio", -0.01, r"account\.open_positions\[0\]\.margin_ratio must be a non-negative finite number"),
+        ("margin_ratio", -0.01, r"account\.open_positions\[0\]\.margin_ratio must be a ratio in \(0, 1\]"),
     ],
 )
 def test_write_phase1_dataset_bundle_rejects_malformed_open_position_notional_pnl_numbers_without_artifact(
@@ -531,6 +531,74 @@ def test_write_phase1_dataset_bundle_rejects_malformed_open_position_notional_pn
                     "realized_pnl": -25.0,
                     "pnl": 475.0,
                     "margin_ratio": 0.08,
+                }
+            ],
+        },
+    )
+    material.account_snapshot["open_positions"][0][field] = value
+    expected_bundle_dir = tmp_path / f"{archive_importer._bundle_fragment(timestamp)}__{material.run_id}"
+
+    with pytest.raises(ValueError, match=expected_message):
+        write_phase1_dataset_bundle(material, tmp_path)
+
+    assert not expected_bundle_dir.exists()
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "expected_message"),
+    [
+        ("margin_ratio", 0.0, r"account\.open_positions\[0\]\.margin_ratio must be a ratio in \(0, 1\]"),
+        ("marginRatio", 1.01, r"account\.open_positions\[0\]\.marginRatio must be a ratio in \(0, 1\]"),
+        (
+            "maintenance_margin_ratio",
+            "0.004",
+            r"account\.open_positions\[0\]\.maintenance_margin_ratio must be a ratio in \(0, 1\]",
+        ),
+        (
+            "initial_margin_ratio",
+            True,
+            r"account\.open_positions\[0\]\.initial_margin_ratio must be a ratio in \(0, 1\]",
+        ),
+        ("risk_ratio", float("nan"), r"account\.open_positions\[0\]\.risk_ratio must be a ratio in \(0, 1\]"),
+        ("riskRatio", float("inf"), r"account\.open_positions\[0\]\.riskRatio must be a ratio in \(0, 1\]"),
+    ],
+)
+def test_write_phase1_dataset_bundle_rejects_malformed_open_position_ratio_fields_without_artifact(
+    tmp_path: Path, field: str, value: object, expected_message: str
+) -> None:
+    timestamp = datetime(2024, 1, 1, tzinfo=UTC)
+    material = archive_importer.Phase1DatasetBundleMaterial(
+        timestamp=timestamp,
+        run_id=archive_importer._run_id(timestamp),
+        metadata={"timestamp": "2024-01-01T00:00:00Z", "run_id": archive_importer._run_id(timestamp)},
+        market_context={
+            "schema_version": archive_importer.PHASE1_IMPORTER_MARKET_CONTEXT_SCHEMA,
+            "as_of": "2024-01-01T00:00:00Z",
+            "symbols": {"BTCUSDT": {}},
+            "instrument_rows": [],
+        },
+        derivatives_snapshot={
+            "schema_version": archive_importer.PHASE1_IMPORTER_DERIVATIVES_SCHEMA,
+            "as_of": "2024-01-01T00:00:00Z",
+            "rows": [],
+        },
+        account_snapshot={
+            "schema_version": archive_importer.PHASE1_IMPORTER_ACCOUNT_SCHEMA,
+            "as_of": "2024-01-01T00:00:00Z",
+            "equity": 100000.0,
+            "open_positions": [
+                {
+                    "symbol": "BTCUSDT",
+                    "side": "LONG",
+                    "qty": 0.5,
+                    "entry_price": 60000.0,
+                    "mark_price": 61000.0,
+                    "margin_ratio": 0.08,
+                    "marginRatio": 0.08,
+                    "maintenance_margin_ratio": 0.004,
+                    "initial_margin_ratio": 0.05,
+                    "risk_ratio": 0.01,
+                    "riskRatio": 0.01,
                 }
             ],
         },
