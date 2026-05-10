@@ -50,6 +50,20 @@ _ACCOUNT_IDENTITY_STRING_FIELDS = (
     "margin_mode",
     "account_type",
 )
+_ACCOUNT_OPEN_POSITION_IDENTITY_STRING_FIELDS = (
+    "status",
+    "position_mode",
+    "source",
+)
+_ACCOUNT_OPEN_POSITION_UPPERCASE_IDENTITY_FIELDS = (
+    "symbol",
+    "venue",
+    "exchange",
+)
+_ACCOUNT_OPEN_POSITION_ENUM_FIELDS = {
+    "side": {"LONG", "SHORT"},
+    "margin_mode": {"CROSS", "ISOLATED"},
+}
 
 
 def _parse_timestamp(value: str) -> datetime:
@@ -169,23 +183,78 @@ def _metadata_metric_map(metadata: dict, key: str) -> dict[str, float]:
 
 def _account_snapshot(account: dict, *, path: Path) -> dict:
     snapshot = dict(account)
+    validate_account_snapshot_identity(snapshot, path=path)
+    _validate_account_numeric_fields(snapshot, path=path, field_path="account")
+    return snapshot
+
+
+def validate_account_snapshot_identity(account: object, *, path: Path) -> None:
+    if not isinstance(account, dict):
+        raise ValueError(f"dataset bundle has invalid account snapshot: {path}")
     for field in _ACCOUNT_IDENTITY_STRING_FIELDS:
-        if field not in snapshot:
+        if field not in account:
             continue
-        value = snapshot[field]
+        value = account[field]
         if not isinstance(value, str) or not value or value != value.strip():
             raise ValueError(f"account.{field} must be a canonical string: {path}")
+    _validate_open_position_identity_fields(account, path=path)
+
+
+def _validate_open_position_identity_fields(account: dict, *, path: Path) -> None:
+    positions = account.get("open_positions")
+    if positions is None:
+        return
+    if not isinstance(positions, list):
+        raise ValueError(f"account.open_positions must be a list: {path}")
+    for index, position in enumerate(positions):
+        if not isinstance(position, dict):
+            raise ValueError(f"account.open_positions[{index}] must be an object: {path}")
+        field_prefix = f"account.open_positions[{index}]"
+        for field in _ACCOUNT_OPEN_POSITION_IDENTITY_STRING_FIELDS:
+            if field in position:
+                _require_account_canonical_string(position[field], field_path=f"{field_prefix}.{field}", path=path)
+        for field in _ACCOUNT_OPEN_POSITION_UPPERCASE_IDENTITY_FIELDS:
+            if field in position:
+                _require_account_uppercase_canonical_string(
+                    position[field],
+                    field_path=f"{field_prefix}.{field}",
+                    path=path,
+                )
+        for field, allowed in _ACCOUNT_OPEN_POSITION_ENUM_FIELDS.items():
+            if field in position:
+                value = _require_account_canonical_string(position[field], field_path=f"{field_prefix}.{field}", path=path)
+                if value not in allowed:
+                    allowed_values = ", ".join(sorted(allowed))
+                    raise ValueError(f"{field_prefix}.{field} must be one of {allowed_values}: {path}")
+
+
+def _require_account_canonical_string(value: object, *, field_path: str, path: Path) -> str:
+    if not isinstance(value, str) or not value or value != value.strip():
+        raise ValueError(f"{field_path} must be a canonical string: {path}")
+    return value
+
+
+def _require_account_uppercase_canonical_string(value: object, *, field_path: str, path: Path) -> str:
+    text = _require_account_canonical_string(value, field_path=field_path, path=path)
+    if text != text.upper():
+        raise ValueError(f"{field_path} must be an uppercase canonical string: {path}")
+    return text
+
+
+def validate_account_snapshot_payload(account: object, *, path: Path) -> None:
+    if not isinstance(account, dict):
+        raise ValueError(f"dataset bundle has invalid account snapshot: {path}")
+    validate_account_snapshot_identity(account, path=path)
     for field in _ACCOUNT_NON_NEGATIVE_NUMBER_FIELDS:
-        if field not in snapshot:
+        if field not in account:
             continue
-        value = snapshot[field]
+        value = account[field]
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             raise ValueError(f"account.{field} must be a non-negative finite number: {path}")
         number = float(value)
         if not math.isfinite(number) or number < 0.0:
             raise ValueError(f"account.{field} must be a non-negative finite number: {path}")
-    _validate_account_numeric_fields(snapshot, path=path, field_path="account")
-    return snapshot
+    _validate_account_numeric_fields(account, path=path, field_path="account")
 
 
 def _validate_account_number(value: object, *, field_path: str, path: Path, non_negative: bool) -> None:

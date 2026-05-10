@@ -12,7 +12,7 @@ from typing import Any, Iterable, Mapping, Sequence
 
 from trading_system.app.universe.sector_map import sector_for_symbol
 
-from ..dataset import load_historical_dataset
+from ..dataset import load_historical_dataset, validate_account_snapshot_payload
 from .data_quality import build_raw_market_data_quality_report
 from .raw_market import (
     ImportedRawMarketRecord,
@@ -2284,6 +2284,7 @@ def write_phase1_dataset_bundle(material: Phase1DatasetBundleMaterial, dataset_r
     _validate_material_market_context_numeric_evidence(material.market_context)
     _validate_material_derivatives_snapshot_numeric_evidence(material.derivatives_snapshot)
     _validate_material_derivatives_snapshot_identity_fields(material.derivatives_snapshot)
+    validate_account_snapshot_payload(material.account_snapshot, path=root / "account_snapshot.json")
     bundle_dir = root / f"{_bundle_fragment(material.timestamp)}__{material.run_id}"
     bundle_dir.mkdir(parents=True, exist_ok=False)
     _write_json(bundle_dir / "metadata.json", material.metadata)

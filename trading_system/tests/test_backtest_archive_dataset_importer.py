@@ -201,6 +201,48 @@ def test_validate_bundle_payloads_rejects_non_string_payload_identity(tmp_path: 
         archive_importer._validate_bundle_payloads(bundle_dir, expected_timestamp=expected_timestamp)
 
 
+def test_write_phase1_dataset_bundle_rejects_malformed_open_position_identity_without_artifact(
+    tmp_path: Path,
+) -> None:
+    timestamp = datetime(2024, 1, 1, tzinfo=UTC)
+    material = archive_importer.Phase1DatasetBundleMaterial(
+        timestamp=timestamp,
+        run_id=archive_importer._run_id(timestamp),
+        metadata={"timestamp": "2024-01-01T00:00:00Z", "run_id": archive_importer._run_id(timestamp)},
+        market_context={
+            "schema_version": archive_importer.PHASE1_IMPORTER_MARKET_CONTEXT_SCHEMA,
+            "as_of": "2024-01-01T00:00:00Z",
+            "symbols": {"BTCUSDT": {}},
+            "instrument_rows": [],
+        },
+        derivatives_snapshot={
+            "schema_version": archive_importer.PHASE1_IMPORTER_DERIVATIVES_SCHEMA,
+            "as_of": "2024-01-01T00:00:00Z",
+            "rows": [],
+        },
+        account_snapshot={
+            "schema_version": archive_importer.PHASE1_IMPORTER_ACCOUNT_SCHEMA,
+            "as_of": "2024-01-01T00:00:00Z",
+            "equity": 100000.0,
+            "open_positions": [
+                {
+                    "symbol": "btcusdt",
+                    "side": "LONG",
+                    "qty": 0.5,
+                    "entry_price": 60000.0,
+                    "mark_price": 61000.0,
+                }
+            ],
+        },
+    )
+    expected_bundle_dir = tmp_path / f"{archive_importer._bundle_fragment(timestamp)}__{material.run_id}"
+
+    with pytest.raises(ValueError, match=r"account\.open_positions\[0\]\.symbol must be an uppercase canonical string"):
+        write_phase1_dataset_bundle(material, tmp_path)
+
+    assert not expected_bundle_dir.exists()
+
+
 def test_merged_execution_evidence_coverage_rejects_non_object_buckets() -> None:
     with pytest.raises(ValueError, match="execution_evidence.materialized must be a JSON object"):
         archive_importer._merged_execution_evidence_coverage(
