@@ -18,8 +18,9 @@ _ACCOUNT_NON_NEGATIVE_NUMBER_FIELDS = (
     "entry_price",
     "futures_wallet_balance",
     "initial_margin",
-    "leverage",
+    "isolated_margin",
     "liquidation_price",
+    "margin",
     "maintenance_margin",
     "margin_balance",
     "mark",
@@ -35,6 +36,9 @@ _ACCOUNT_NON_NEGATIVE_NUMBER_FIELDS = (
     "total_wallet_balance",
     "wallet_balance",
     "equity",
+)
+_ACCOUNT_POSITIVE_NUMBER_FIELDS = (
+    "leverage",
 )
 _ACCOUNT_SIGNED_NUMBER_FIELDS = (
     "total_unrealized_profit",
@@ -275,24 +279,45 @@ def validate_account_snapshot_payload(account: object, *, path: Path) -> None:
     _validate_account_numeric_fields(account, path=path, field_path="account")
 
 
-def _validate_account_number(value: object, *, field_path: str, path: Path, non_negative: bool) -> None:
+def _validate_account_number(value: object, *, field_path: str, path: Path, qualifier: str, minimum: float | None) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
-        qualifier = "non-negative finite" if non_negative else "finite"
         raise ValueError(f"{field_path} must be a {qualifier} number: {path}")
     number = float(value)
-    if not math.isfinite(number) or (non_negative and number < 0.0):
-        qualifier = "non-negative finite" if non_negative else "finite"
+    if not math.isfinite(number) or (minimum is not None and number < minimum):
         raise ValueError(f"{field_path} must be a {qualifier} number: {path}")
+    return number
 
 
 def _validate_account_numeric_fields(payload: object, *, path: Path, field_path: str) -> None:
     if isinstance(payload, dict):
         for key, value in payload.items():
             child_path = f"{field_path}.{key}"
-            if key in _ACCOUNT_NON_NEGATIVE_NUMBER_FIELDS:
-                _validate_account_number(value, field_path=child_path, path=path, non_negative=True)
+            if key in _ACCOUNT_POSITIVE_NUMBER_FIELDS:
+                number = _validate_account_number(
+                    value,
+                    field_path=child_path,
+                    path=path,
+                    qualifier="positive finite",
+                    minimum=0.0,
+                )
+                if number == 0.0:
+                    raise ValueError(f"{child_path} must be a positive finite number: {path}")
+            elif key in _ACCOUNT_NON_NEGATIVE_NUMBER_FIELDS:
+                _validate_account_number(
+                    value,
+                    field_path=child_path,
+                    path=path,
+                    qualifier="non-negative finite",
+                    minimum=0.0,
+                )
             elif key in _ACCOUNT_SIGNED_NUMBER_FIELDS:
-                _validate_account_number(value, field_path=child_path, path=path, non_negative=False)
+                _validate_account_number(
+                    value,
+                    field_path=child_path,
+                    path=path,
+                    qualifier="finite",
+                    minimum=None,
+                )
             elif isinstance(value, (dict, list)):
                 _validate_account_numeric_fields(value, path=path, field_path=child_path)
         return

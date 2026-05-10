@@ -156,7 +156,7 @@ def test_load_historical_dataset_rejects_numeric_string_account_equity(tmp_path:
         (
             ("open_positions", 0, "leverage"),
             float("inf"),
-            r"account\.open_positions\[0\]\.leverage must be a non-negative finite number",
+            r"account\.open_positions\[0\]\.leverage must be a positive finite number",
         ),
         (
             ("open_positions", 0, "maintenance_margin"),
