@@ -116,11 +116,14 @@ _ACCOUNT_RISK_EXPOSURE_BPS_FIELDS = (
 )
 _ACCOUNT_SIGNED_NUMBER_FIELDS = (
     "total_unrealized_profit",
+    "totalUnrealizedProfit",
     "unRealizedProfit",
     "realizedPnl",
+    "realizedProfit",
     "realized_pnl",
     "unrealized_pnl",
     "unrealizedPnl",
+    "unrealizedProfit",
     "pnl",
     "upl",
 )
