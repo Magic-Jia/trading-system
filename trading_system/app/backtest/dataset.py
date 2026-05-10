@@ -54,6 +54,10 @@ _ACCOUNT_OPEN_POSITION_IDENTITY_STRING_FIELDS = (
     "status",
     "position_mode",
     "source",
+    "strategy_tag",
+    "strategyTag",
+    "intent_id",
+    "intentId",
 )
 _ACCOUNT_OPEN_POSITION_UPPERCASE_IDENTITY_FIELDS = (
     "symbol",
