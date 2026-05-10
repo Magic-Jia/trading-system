@@ -442,7 +442,7 @@ def _validate_existing_position_identities(positions: Mapping[str, dict[str, Any
                 raise ValueError(f"positions[{symbol}].symbol must match position key")
         _strict_position_side(position, "side", f"positions[{symbol}].side")
         _strict_position_status(position, "status", f"positions[{symbol}].status")
-        for key in ("intent_id", "strategy_tag", "setup_type", "engine"):
+        for key in ("intent_id", "signal_id", "strategy_tag", "setup_type", "engine"):
             _strict_optional_identity_string(position, key, f"positions[{symbol}].{key}")
         source = _strict_optional_string(position, "source", f"positions[{symbol}].source")
         if source and position.get("source") != position.get("source").strip():
