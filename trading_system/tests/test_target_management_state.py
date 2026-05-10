@@ -2379,6 +2379,63 @@ def test_sync_positions_from_account_rejects_invalid_snapshot_cost_metadata_with
 @pytest.mark.parametrize(
     ("field", "value", "exception"),
     [
+        ("liquidation_price", True, TypeError),
+        ("liquidationPrice", "95.0", TypeError),
+        ("break_even_price", float("nan"), ValueError),
+        ("breakEvenPrice", float("inf"), ValueError),
+        ("risk_price", -1.0, ValueError),
+        ("stop_price", 0.0, ValueError),
+        ("take_profit_price", "112.0", TypeError),
+        ("trailing_stop_price", 0.0, ValueError),
+        ("mark_spread_bps", -0.01, ValueError),
+    ],
+)
+def test_sync_positions_from_account_rejects_malformed_snapshot_risk_price_metadata_before_any_position_mutation(
+    field, value, exception
+):
+    btc_position = {
+        "symbol": "BTCUSDT",
+        "side": "LONG",
+        "qty": 0.4,
+        "entry_price": 100.0,
+        "mark_price": 101.0,
+        "status": "OPEN",
+        "tracked_from_snapshot": True,
+        "tracked_from_intent": False,
+        "source": "account_snapshot",
+    }
+    state = RuntimeStateV2(
+        updated_at_bj="2026-04-09T12:00:00+08:00",
+        positions={"BTCUSDT": dict(btc_position)},
+    )
+    snapshot_payload = {
+        "symbol": "BTCUSDT",
+        "side": "LONG",
+        "qty": 0.4,
+        "entry_price": 100.0,
+        "mark_price": 106.0,
+        "notional": 42.4,
+        "unrealized_pnl": 2.4,
+        field: value,
+    }
+
+    with pytest.raises(exception, match=f"account.open_positions\\[BTCUSDT\\]\\.{field}"):
+        sync_positions_from_account(
+            state,
+            AccountSnapshot(
+                equity=1000.0,
+                available_balance=1000.0,
+                futures_wallet_balance=1000.0,
+                open_positions=[PositionSnapshot(**snapshot_payload)],
+            ),
+        )
+
+    assert state.positions == {"BTCUSDT": btc_position}
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "exception"),
+    [
         ("order_type", 123, ValueError),
         ("order_type", "", ValueError),
         ("order_type", " LIMIT ", ValueError),

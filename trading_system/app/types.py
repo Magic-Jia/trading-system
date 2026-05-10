@@ -80,6 +80,15 @@ class PositionSnapshot:
     maker_status: str | None = None
     reduce_only: bool | None = None
     post_only: bool | None = None
+    liquidation_price: float | None = None
+    liquidationPrice: float | None = None
+    break_even_price: float | None = None
+    breakEvenPrice: float | None = None
+    risk_price: float | None = None
+    stop_price: float | None = None
+    take_profit_price: float | None = None
+    trailing_stop_price: float | None = None
+    mark_spread_bps: float | None = None
 
 
 @dataclass(slots=True)

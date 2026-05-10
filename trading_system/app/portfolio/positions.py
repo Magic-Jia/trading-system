@@ -141,6 +141,30 @@ _SNAPSHOT_ORDER_EXECUTION_STRING_FIELDS = {
     "maker_status": frozenset({"filled", "partial", "no_fill", "expired", "cancelled_replaced"}),
 }
 _SNAPSHOT_ORDER_EXECUTION_BOOL_FIELDS = ("reduce_only", "post_only")
+_SNAPSHOT_RISK_PRICE_METADATA_KEYS = (
+    "liquidation_price",
+    "liquidationPrice",
+    "break_even_price",
+    "breakEvenPrice",
+    "risk_price",
+    "stop_price",
+    "take_profit_price",
+    "trailing_stop_price",
+    "mark_spread_bps",
+)
+_POSITIVE_SNAPSHOT_RISK_PRICE_METADATA_KEYS = frozenset(
+    {
+        "liquidation_price",
+        "liquidationPrice",
+        "break_even_price",
+        "breakEvenPrice",
+        "risk_price",
+        "stop_price",
+        "take_profit_price",
+        "trailing_stop_price",
+    }
+)
+_NON_NEGATIVE_SNAPSHOT_RISK_PRICE_METADATA_KEYS = frozenset({"mark_spread_bps"})
 
 
 def _strict_canonical_symbol(value: Any, field: str) -> str:
@@ -380,6 +404,25 @@ def _strict_snapshot_order_execution_metadata(snapshot: PositionSnapshot) -> dic
         )
         if value is not None:
             payload[key] = value
+    return payload
+
+
+def _strict_snapshot_risk_price_metadata(snapshot: PositionSnapshot) -> dict[str, float]:
+    payload: dict[str, float] = {}
+    snapshot_label = f"account.open_positions[{snapshot.symbol}]"
+    for key in _SNAPSHOT_RISK_PRICE_METADATA_KEYS:
+        value = _strict_present_optional_number(
+            {key: getattr(snapshot, key, None)},
+            key,
+            f"{snapshot_label}.{key}",
+        )
+        if value is None:
+            continue
+        if key in _POSITIVE_SNAPSHOT_RISK_PRICE_METADATA_KEYS and value <= 0.0:
+            raise ValueError(f"{snapshot_label}.{key} must be positive when present")
+        if key in _NON_NEGATIVE_SNAPSHOT_RISK_PRICE_METADATA_KEYS and value < 0.0:
+            raise ValueError(f"{snapshot_label}.{key} must be non-negative when present")
+        payload[key] = value
     return payload
 
 
@@ -628,6 +671,7 @@ def _validate_snapshot_position_identities(open_positions: list[PositionSnapshot
             )
         _strict_snapshot_cost_metadata(snapshot)
         _strict_snapshot_order_execution_metadata(snapshot)
+        _strict_snapshot_risk_price_metadata(snapshot)
 
 
 def _mark_intent_position_closed(state: RuntimeState, symbol: str, position: dict[str, Any], now_bj: str) -> None:
@@ -674,6 +718,7 @@ def sync_positions_from_account(state: RuntimeState, account: AccountSnapshot) -
         )
         snapshot_cost_metadata = _strict_snapshot_cost_metadata(snapshot)
         snapshot_order_execution_metadata = _strict_snapshot_order_execution_metadata(snapshot)
+        snapshot_risk_price_metadata = _strict_snapshot_risk_price_metadata(snapshot)
 
         if snapshot_qty <= 0:
             continue
@@ -750,6 +795,7 @@ def sync_positions_from_account(state: RuntimeState, account: AccountSnapshot) -
             **_snapshot_taxonomy_fields(snapshot, carry_existing),
             **snapshot_cost_metadata,
             **snapshot_order_execution_metadata,
+            **snapshot_risk_price_metadata,
             "source": _source(
                 carry_existing,
                 from_snapshot=True,
