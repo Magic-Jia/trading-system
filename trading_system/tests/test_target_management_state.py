@@ -1819,6 +1819,63 @@ def test_sync_positions_from_account_rejects_noncanonical_snapshot_status_before
     assert state.positions == {"BTCUSDT": btc_position, "ETHUSDT": eth_position}
 
 
+@pytest.mark.parametrize("strategy_tag", [123, True, "", "   ", " trend_v2", "trend_v2\n"])
+def test_sync_positions_from_account_rejects_malformed_snapshot_strategy_tag_before_any_position_mutation(
+    strategy_tag,
+):
+    btc_position = {
+        "symbol": "BTCUSDT",
+        "side": "LONG",
+        "qty": 0.4,
+        "entry_price": 100.0,
+        "mark_price": 101.0,
+        "status": "OPEN",
+        "tracked_from_snapshot": True,
+        "tracked_from_intent": False,
+    }
+    eth_position = {
+        "symbol": "ETHUSDT",
+        "side": "LONG",
+        "qty": 0.858,
+        "entry_price": 2329.52,
+        "status": "OPEN",
+        "intent_id": "intent-eth-long",
+        "tracked_from_snapshot": False,
+        "tracked_from_intent": True,
+    }
+    state = RuntimeStateV2(
+        updated_at_bj="2026-04-09T12:00:00+08:00",
+        positions={"BTCUSDT": dict(btc_position), "ETHUSDT": dict(eth_position)},
+    )
+
+    with pytest.raises((TypeError, ValueError), match="account\\.open_positions\\[ETHUSDT\\]\\.strategy_tag"):
+        sync_positions_from_account(
+            state,
+            AccountSnapshot(
+                equity=1000.0,
+                available_balance=1000.0,
+                futures_wallet_balance=1000.0,
+                open_positions=[
+                    PositionSnapshot(symbol="BTCUSDT", side="LONG", qty=0.5, entry_price=100.0, mark_price=106.0),
+                    PositionSnapshot(
+                        symbol="ETHUSDT",
+                        side="LONG",
+                        qty=0.8,
+                        entry_price=2300.0,
+                        mark_price=2310.0,
+                        unrealized_pnl=8.0,
+                        notional=1848.0,
+                        leverage=None,
+                        strategy_tag=strategy_tag,
+                        status="OPEN",
+                    ),
+                ],
+            ),
+        )
+
+    assert state.positions == {"BTCUSDT": btc_position, "ETHUSDT": eth_position}
+
+
 def test_sync_positions_from_account_rejects_present_non_string_existing_source_without_mutating_state():
     original_position = {
         "symbol": "BTCUSDT",
