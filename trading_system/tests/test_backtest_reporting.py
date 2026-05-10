@@ -660,6 +660,35 @@ def test_full_market_trade_postmortem_rejects_malformed_present_reduce_only(redu
         )
 
 
+@pytest.mark.parametrize("post_only", ["false", 0, 1, object()])
+def test_full_market_trade_postmortem_rejects_malformed_present_post_only(post_only: object) -> None:
+    with pytest.raises(ValueError, match=r"trades\[0\]\.post_only must be a strict boolean"):
+        cli._render_trade_postmortem_markdown(
+            [
+                {
+                    "entry_timestamp": "2026-03-10T00:00:00+00:00",
+                    "symbol": "BTCUSDT",
+                    "side": "long",
+                    "engine": "trend",
+                    "setup_type": "TREND_PULLBACK",
+                    "score": 0.95,
+                    "entry_price": 100.1,
+                    "exit_price": 110.0,
+                    "gross_pnl": 99.0,
+                    "net_pnl": 95.0,
+                    "mfe_pct": 0.12,
+                    "mae_pct": 0.01,
+                    "exit_reason": "fixed_horizon",
+                    "fill_model": "maker_post_only_queue",
+                    "execution_price_source": "no_crossing_evidence",
+                    "execution_lag_bars": 0,
+                    "fill_quality": "evidence_backed",
+                    "post_only": post_only,
+                }
+            ]
+        )
+
+
 def test_full_market_trade_postmortem_rejects_numeric_string_entry_price() -> None:
     with pytest.raises(ValueError, match=r"trades\[0\]\.entry_price must be a finite number"):
         cli._render_trade_postmortem_markdown(

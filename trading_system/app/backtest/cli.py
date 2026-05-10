@@ -431,6 +431,7 @@ def _render_trade_postmortem_markdown(trades: list[dict[str, Any]]) -> str:
     ]
     for index, trade in enumerate(trades, start=1):
         _optional_postmortem_bool(trade, "reduce_only", index=index - 1)
+        _optional_postmortem_bool(trade, "post_only", index=index - 1)
         lines.append(
             "| {index} | {time} | {symbol} | {side} | {engine} | {setup} | {score:.4f} | {entry:.6g} | {exit:.6g} | {gross:.2f} | {net:.2f} | {mfe:.4%} | {mae:.4%} | {exit_reason} | {fill_model} | {exec_source} | {exec_tf} | {lag_bars} | {fill_quality} | {maker_status} | {maker_wait} | {filled_qty} | {unfilled_qty} | {depth_levels} | {impact_bps} | {coverage} | {mark_price} | {funding_rate} | {open_interest} |".format(
                 index=index,
