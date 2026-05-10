@@ -540,6 +540,72 @@ def test_write_phase1_dataset_bundle_rejects_malformed_open_position_margin_type
 @pytest.mark.parametrize(
     ("field", "value", "expected_message"),
     [
+        ("position_source", 123, r"account\.open_positions\[0\]\.position_source must be a canonical string"),
+        ("position_source", "account_snapshot\n", r"account\.open_positions\[0\]\.position_source must be a canonical string"),
+        ("position_source", "exchange_import", r"account\.open_positions\[0\]\.position_source must be one of"),
+        ("signal_source", " ", r"account\.open_positions\[0\]\.signal_source must be a canonical string"),
+        ("signal_source", "trend/engine", r"account\.open_positions\[0\]\.signal_source must be a canonical identifier string"),
+        ("strategy_source", True, r"account\.open_positions\[0\]\.strategy_source must be a canonical string"),
+        ("strategy_source", "trend engine", r"account\.open_positions\[0\]\.strategy_source must be a canonical identifier string"),
+        ("data_source", "binance futures", r"account\.open_positions\[0\]\.data_source must be a canonical identifier string"),
+        ("margin_type", "ISOLATED ", r"account\.open_positions\[0\]\.margin_type must be a canonical string"),
+        ("margin_type", "PORTFOLIO", r"account\.open_positions\[0\]\.margin_type must be one of CROSS, ISOLATED"),
+        ("product_type", [], r"account\.open_positions\[0\]\.product_type must be a canonical string"),
+        ("product_type", "PERPETUAL", r"account\.open_positions\[0\]\.product_type must be one of FUTURES, MARGIN, SPOT"),
+    ],
+)
+def test_write_phase1_dataset_bundle_rejects_malformed_open_position_provenance_taxonomy_without_artifact(
+    tmp_path: Path, field: str, value: object, expected_message: str
+) -> None:
+    timestamp = datetime(2024, 1, 1, tzinfo=UTC)
+    material = archive_importer.Phase1DatasetBundleMaterial(
+        timestamp=timestamp,
+        run_id=archive_importer._run_id(timestamp),
+        metadata={"timestamp": "2024-01-01T00:00:00Z", "run_id": archive_importer._run_id(timestamp)},
+        market_context={
+            "schema_version": archive_importer.PHASE1_IMPORTER_MARKET_CONTEXT_SCHEMA,
+            "as_of": "2024-01-01T00:00:00Z",
+            "symbols": {"BTCUSDT": {}},
+            "instrument_rows": [],
+        },
+        derivatives_snapshot={
+            "schema_version": archive_importer.PHASE1_IMPORTER_DERIVATIVES_SCHEMA,
+            "as_of": "2024-01-01T00:00:00Z",
+            "rows": [],
+        },
+        account_snapshot={
+            "schema_version": archive_importer.PHASE1_IMPORTER_ACCOUNT_SCHEMA,
+            "as_of": "2024-01-01T00:00:00Z",
+            "equity": 100000.0,
+            "open_positions": [
+                {
+                    "symbol": "BTCUSDT",
+                    "side": "LONG",
+                    "position_source": "account_snapshot",
+                    "signal_source": "trend_engine",
+                    "strategy_source": "trend_v2",
+                    "data_source": "binance_futures",
+                    "margin_type": "CROSS",
+                    "product_type": "FUTURES",
+                    "qty": 0.5,
+                    "entry_price": 60000.0,
+                    "mark_price": 61000.0,
+                }
+            ],
+        },
+    )
+    material.account_snapshot["open_positions"][0][field] = value
+    expected_bundle_dir = tmp_path / f"{archive_importer._bundle_fragment(timestamp)}__{material.run_id}"
+
+    with pytest.raises(ValueError, match=expected_message):
+        write_phase1_dataset_bundle(material, tmp_path)
+
+    assert not expected_bundle_dir.exists()
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "expected_message"),
+    [
         ("leverage", True, r"account\.open_positions\[0\]\.leverage must be a positive finite number"),
         ("leverage", "2", r"account\.open_positions\[0\]\.leverage must be a positive finite number"),
         ("leverage", float("nan"), r"account\.open_positions\[0\]\.leverage must be a positive finite number"),

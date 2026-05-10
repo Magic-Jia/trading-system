@@ -460,6 +460,60 @@ def test_load_historical_dataset_rejects_malformed_open_position_origin_aliases_
 
 
 @pytest.mark.parametrize(
+    ("field", "value", "expected_message"),
+    [
+        ("position_source", True, r"account\.open_positions\[0\]\.position_source must be a canonical string"),
+        ("position_source", " paper_execution", r"account\.open_positions\[0\]\.position_source must be a canonical string"),
+        ("position_source", "live_exchange", r"account\.open_positions\[0\]\.position_source must be one of"),
+        ("signal_source", "", r"account\.open_positions\[0\]\.signal_source must be a canonical string"),
+        ("signal_source", "strategy\nengine", r"account\.open_positions\[0\]\.signal_source must be a canonical identifier string"),
+        ("strategy_source", [], r"account\.open_positions\[0\]\.strategy_source must be a canonical string"),
+        ("strategy_source", "trend engine", r"account\.open_positions\[0\]\.strategy_source must be a canonical identifier string"),
+        ("data_source", "binance/futures", r"account\.open_positions\[0\]\.data_source must be a canonical identifier string"),
+        ("margin_type", "cross", r"account\.open_positions\[0\]\.margin_type must be one of CROSS, ISOLATED"),
+        ("margin_type", "CROSS ", r"account\.open_positions\[0\]\.margin_type must be a canonical string"),
+        ("product_type", "PERP", r"account\.open_positions\[0\]\.product_type must be one of FUTURES, MARGIN, SPOT"),
+        ("product_type", 123, r"account\.open_positions\[0\]\.product_type must be a canonical string"),
+    ],
+)
+def test_load_historical_dataset_rejects_malformed_open_position_provenance_taxonomy_before_load(
+    tmp_path: Path, field: str, value: object, expected_message: str
+) -> None:
+    dataset_root = tmp_path / "sample_dataset"
+    bundle = dataset_root / "2026-03-10T00-00-00Z__sample-001"
+    bundle.mkdir(parents=True)
+    (bundle / "metadata.json").write_text(
+        '{"timestamp": "2026-03-10T00:00:00Z", "run_id": "sample-001"}',
+        encoding="utf-8",
+    )
+    (bundle / "market_context.json").write_text('{"symbols": {"BTCUSDT": {}}}', encoding="utf-8")
+    (bundle / "derivatives_snapshot.json").write_text('{"rows": []}', encoding="utf-8")
+    account_snapshot = {
+        "equity": 100000.0,
+        "open_positions": [
+            {
+                "symbol": "BTCUSDT",
+                "side": "LONG",
+                "position_source": "paper_execution",
+                "signal_source": "trend_engine",
+                "strategy_source": "trend_v2",
+                "data_source": "binance_futures",
+                "margin_type": "CROSS",
+                "product_type": "FUTURES",
+                "qty": 0.5,
+                "entry_price": 60000.0,
+                "mark_price": 61000.0,
+            }
+        ],
+    }
+    account_snapshot["open_positions"][0][field] = value
+    (bundle / "account_snapshot.json").write_text(json.dumps(account_snapshot), encoding="utf-8")
+
+    with pytest.raises(ValueError, match=expected_message):
+        load_historical_dataset(dataset_root)
+
+
+@pytest.mark.parametrize(
     ("field", "value"),
     [
         ("strategy_tag", 123),

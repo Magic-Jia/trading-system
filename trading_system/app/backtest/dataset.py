@@ -98,6 +98,11 @@ _ACCOUNT_OPEN_POSITION_IDENTIFIER_FIELDS = (
     "client_order_id",
     "clientOrderId",
 )
+_ACCOUNT_OPEN_POSITION_PROVENANCE_IDENTIFIER_FIELDS = (
+    "signal_source",
+    "strategy_source",
+    "data_source",
+)
 _ACCOUNT_OPEN_POSITION_TIME_FIELDS = (
     "opened_at",
     "openedAt",
@@ -128,6 +133,9 @@ _ACCOUNT_OPEN_POSITION_ENUM_FIELDS = {
     "origin": {"account_snapshot", "archive_fixture", "paper_execution"},
     "accountSource": {"account_snapshot", "archive_fixture"},
     "positionSource": {"account_snapshot", "archive_fixture", "paper_execution"},
+    "position_source": {"account_snapshot", "archive_fixture", "paper_execution"},
+    "margin_type": {"CROSS", "ISOLATED"},
+    "product_type": {"FUTURES", "MARGIN", "SPOT"},
 }
 
 
@@ -281,6 +289,13 @@ def _validate_open_position_identity_fields(account: dict, *, path: Path) -> Non
         for field in _ACCOUNT_OPEN_POSITION_IDENTIFIER_FIELDS:
             if field in position:
                 _require_account_identifier_string(position[field], field_path=f"{field_prefix}.{field}", path=path)
+        for field in _ACCOUNT_OPEN_POSITION_PROVENANCE_IDENTIFIER_FIELDS:
+            if field in position:
+                _require_account_provenance_identifier_string(
+                    position[field],
+                    field_path=f"{field_prefix}.{field}",
+                    path=path,
+                )
         for field in _ACCOUNT_OPEN_POSITION_TIME_FIELDS:
             if field in position:
                 _require_account_utc_iso_timestamp(position[field], field_path=f"{field_prefix}.{field}", path=path)
@@ -315,6 +330,13 @@ def _require_account_identifier_string(value: object, *, field_path: str, path: 
     if _ACCOUNT_IDENTIFIER_RE.fullmatch(value) is None:
         raise ValueError(f"{field_path} must be a canonical identifier string: {path}")
     return value
+
+
+def _require_account_provenance_identifier_string(value: object, *, field_path: str, path: Path) -> str:
+    text = _require_account_canonical_string(value, field_path=field_path, path=path)
+    if _ACCOUNT_IDENTIFIER_RE.fullmatch(text) is None:
+        raise ValueError(f"{field_path} must be a canonical identifier string: {path}")
+    return text
 
 
 def _require_account_utc_iso_timestamp(value: object, *, field_path: str, path: Path) -> str:
