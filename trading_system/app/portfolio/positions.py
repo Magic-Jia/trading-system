@@ -362,10 +362,9 @@ def _strict_taxonomy_string(payload: Mapping[str, Any], key: str, field: str | N
     value = payload.get(key)
     if not isinstance(value, str):
         raise TypeError(f"{label} must be a string when present")
-    normalized = value.strip()
-    if not normalized:
+    if not value or value != value.strip() or "\n" in value or "\r" in value:
         raise ValueError(f"{label} must not be blank when present")
-    return normalized
+    return value
 
 
 def _order_taxonomy_fields(order: OrderIntent, existing: dict[str, Any]) -> dict[str, Any]:
@@ -377,6 +376,27 @@ def _order_taxonomy_fields(order: OrderIntent, existing: dict[str, Any]) -> dict
     payload["taxonomy_stop_loss"] = round(_strict_finite_number(taxonomy_stop_loss, "taxonomy_stop_loss"), 8)
     for key in _POSITION_TAXONOMY_KEYS[1:]:
         value = _strict_taxonomy_string(meta, key)
+        if value is not None:
+            payload[key] = value
+    return payload
+
+
+def _snapshot_taxonomy_fields(snapshot: PositionSnapshot, existing: dict[str, Any]) -> dict[str, Any]:
+    snapshot_label = f"account.open_positions[{snapshot.symbol}]"
+    payload = _taxonomy_fields(existing, f"positions[{snapshot.symbol}].")
+    taxonomy_stop_loss = _strict_present_optional_number(
+        {"taxonomy_stop_loss": getattr(snapshot, "taxonomy_stop_loss", None)},
+        "taxonomy_stop_loss",
+        f"{snapshot_label}.taxonomy_stop_loss",
+    )
+    if taxonomy_stop_loss is not None:
+        payload["taxonomy_stop_loss"] = round(taxonomy_stop_loss, 8)
+    for key in _POSITION_TAXONOMY_KEYS[1:]:
+        value = _strict_taxonomy_string(
+            {key: getattr(snapshot, key, None)},
+            key,
+            f"{snapshot_label}.{key}",
+        )
         if value is not None:
             payload[key] = value
     return payload
@@ -493,6 +513,17 @@ def _validate_snapshot_position_identities(open_positions: list[PositionSnapshot
                 key,
                 f"account.open_positions[{snapshot.symbol}].{key}",
             )
+        _strict_present_optional_number(
+            {"taxonomy_stop_loss": getattr(snapshot, "taxonomy_stop_loss", None)},
+            "taxonomy_stop_loss",
+            f"account.open_positions[{snapshot.symbol}].taxonomy_stop_loss",
+        )
+        for key in _POSITION_TAXONOMY_KEYS[1:]:
+            _strict_taxonomy_string(
+                {key: getattr(snapshot, key, None)},
+                key,
+                f"account.open_positions[{snapshot.symbol}].{key}",
+            )
 
 
 def _mark_intent_position_closed(state: RuntimeState, symbol: str, position: dict[str, Any], now_bj: str) -> None:
@@ -605,7 +636,7 @@ def sync_positions_from_account(state: RuntimeState, account: AccountSnapshot) -
             "status": "OPEN",
             "intent_id": carry_existing.get("intent_id"),
             "signal_id": carry_existing.get("signal_id"),
-            **_taxonomy_fields(carry_existing, f"positions[{snapshot.symbol}]."),
+            **_snapshot_taxonomy_fields(snapshot, carry_existing),
             "source": _source(
                 carry_existing,
                 from_snapshot=True,

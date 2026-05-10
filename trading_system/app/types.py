@@ -60,6 +60,12 @@ class PositionSnapshot:
     orderId: str | None = None
     client_order_id: str | None = None
     clientOrderId: str | None = None
+    taxonomy_stop_loss: float | None = None
+    invalidation_source: str | None = None
+    invalidation_reason: str | None = None
+    stop_family: str | None = None
+    stop_reference: str | None = None
+    stop_policy_source: str | None = None
 
 
 @dataclass(slots=True)

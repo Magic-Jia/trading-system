@@ -2229,6 +2229,62 @@ def test_sync_positions_from_account_rejects_present_non_string_existing_taxonom
 @pytest.mark.parametrize(
     ("field", "value", "exception"),
     [
+        ("invalidation_source", 123, TypeError),
+        ("invalidation_reason", "", ValueError),
+        ("stop_family", True, TypeError),
+        ("stop_reference", " 4h_ema20 ", ValueError),
+        ("stop_policy_source", "shared_taxonomy\n", ValueError),
+    ],
+)
+def test_sync_positions_from_account_rejects_malformed_snapshot_taxonomy_before_any_position_mutation(
+    field, value, exception
+):
+    btc_position = {
+        "symbol": "BTCUSDT",
+        "side": "LONG",
+        "qty": 0.4,
+        "entry_price": 100.0,
+        "mark_price": 101.0,
+        "status": "OPEN",
+        "tracked_from_snapshot": True,
+        "tracked_from_intent": False,
+    }
+    state = RuntimeStateV2(
+        updated_at_bj="2026-04-09T12:00:00+08:00",
+        positions={"BTCUSDT": dict(btc_position)},
+    )
+    eth_snapshot_payload = {
+        "symbol": "ETHUSDT",
+        "side": "LONG",
+        "qty": 0.8,
+        "entry_price": 2300.0,
+        "mark_price": 2310.0,
+        "unrealized_pnl": 8.0,
+        "notional": 1848.0,
+        "status": "OPEN",
+        field: value,
+    }
+
+    with pytest.raises(exception, match=f"account.open_positions\\[ETHUSDT\\]\\.{field}"):
+        sync_positions_from_account(
+            state,
+            AccountSnapshot(
+                equity=1000.0,
+                available_balance=1000.0,
+                futures_wallet_balance=1000.0,
+                open_positions=[
+                    PositionSnapshot(symbol="BTCUSDT", side="LONG", qty=0.5, entry_price=100.0, mark_price=106.0),
+                    PositionSnapshot(**eth_snapshot_payload),
+                ],
+            ),
+        )
+
+    assert state.positions == {"BTCUSDT": btc_position}
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "exception"),
+    [
         ("qty", True, TypeError),
         ("entry_price", "100.0", TypeError),
         ("mark_price", float("inf"), ValueError),
