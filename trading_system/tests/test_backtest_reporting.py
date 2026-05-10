@@ -1021,6 +1021,20 @@ def test_full_market_report_exposes_depth_and_maker_fill_fields() -> None:
     assert trade["maker_reasons"] == ["queue_depleted"]
 
 
+@pytest.mark.parametrize("maker_status", [123, "", " filled ", "unknown_status"])
+def test_full_market_report_rejects_malformed_present_maker_status(maker_status: object) -> None:
+    result = sample_baseline_result()
+    bad_result = replace(
+        result,
+        trade_ledger=(
+            replace(result.trade_ledger[0], maker_status=maker_status),
+        ),
+    )
+
+    with pytest.raises(ValueError, match=r"trades\[0\]\.maker_status must be a supported canonical string"):
+        reporting.render_full_market_baseline_report(bad_result)
+
+
 def test_full_market_report_and_postmortem_expose_futures_context_fields() -> None:
     report = reporting.render_full_market_baseline_report(sample_baseline_result())
 

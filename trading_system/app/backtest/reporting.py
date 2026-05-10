@@ -8,6 +8,9 @@ from .metrics import cost_drag
 from .types import BaselineReplayResult, PromotionMetadata, TradeLedgerRow
 
 
+_MAKER_STATUS_VALUES = frozenset({"filled", "partial", "no_fill", "expired", "cancelled_replaced"})
+
+
 def _report_finite_float(value: Any, *, field_name: str) -> float:
     if isinstance(value, bool):
         raise ValueError(f"{field_name} must be a finite number")
@@ -270,7 +273,11 @@ def _trade_ledger_payload(trade_ledger: tuple[TradeLedgerRow, ...]) -> list[dict
             "exit_slippage_vs_reference_bps": row.exit_slippage_vs_reference_bps,
             "execution_timeframe": row.execution_timeframe,
             "execution_lag_bars": row.execution_lag_bars,
-            "maker_status": row.maker_status,
+            "maker_status": _optional_supported_report_string(
+                row.maker_status,
+                field_name=f"trades[{index}].maker_status",
+                allowed=_MAKER_STATUS_VALUES,
+            ),
             "first_fill_timestamp": row.first_fill_timestamp.isoformat() if row.first_fill_timestamp is not None else None,
             "last_fill_timestamp": row.last_fill_timestamp.isoformat() if row.last_fill_timestamp is not None else None,
             "queue_ahead_initial": row.queue_ahead_initial,
@@ -432,6 +439,14 @@ def _optional_canonical_report_string(value: object, *, field_name: str) -> str 
     if value is None:
         return None
     return _canonical_report_string(value, field_name=field_name)
+
+
+def _optional_supported_report_string(value: object, *, field_name: str, allowed: frozenset[str]) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value or value.strip() != value or value not in allowed:
+        raise ValueError(f"{field_name} must be a supported canonical string")
+    return value
 
 
 def _canonical_optional_empty_report_string(value: object, *, field_name: str) -> str:
