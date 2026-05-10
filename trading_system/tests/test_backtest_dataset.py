@@ -279,6 +279,60 @@ def test_load_historical_dataset_rejects_malformed_open_position_ratio_fields_be
 @pytest.mark.parametrize(
     ("field", "value"),
     [
+        ("fee", True),
+        ("commission", "1.25"),
+        ("funding_fee", float("nan")),
+        ("borrow_fee", float("inf")),
+        ("slippage", -0.01),
+        ("cost", True),
+        ("realized_fee", "0.1"),
+        ("unrealized_cost", -1.0),
+    ],
+)
+def test_load_historical_dataset_rejects_malformed_open_position_fee_cost_numerics_before_load(
+    tmp_path: Path, field: str, value: object
+) -> None:
+    dataset_root = tmp_path / "sample_dataset"
+    bundle = dataset_root / "2026-03-10T00-00-00Z__sample-001"
+    bundle.mkdir(parents=True)
+    (bundle / "metadata.json").write_text(
+        '{"timestamp": "2026-03-10T00:00:00Z", "run_id": "sample-001"}',
+        encoding="utf-8",
+    )
+    (bundle / "market_context.json").write_text('{"symbols": {"BTCUSDT": {}}}', encoding="utf-8")
+    (bundle / "derivatives_snapshot.json").write_text('{"rows": []}', encoding="utf-8")
+    account_snapshot = {
+        "equity": 100000.0,
+        "open_positions": [
+            {
+                "symbol": "BTCUSDT",
+                "qty": 0.5,
+                "entry_price": 60000.0,
+                "mark_price": 61000.0,
+                "fee": 1.0,
+                "commission": 1.0,
+                "funding_fee": 0.0,
+                "borrow_fee": 0.0,
+                "slippage": 0.25,
+                "cost": 2.25,
+                "realized_fee": 1.0,
+                "unrealized_cost": 0.0,
+            }
+        ],
+    }
+    account_snapshot["open_positions"][0][field] = value
+    (bundle / "account_snapshot.json").write_text(json.dumps(account_snapshot), encoding="utf-8")
+
+    with pytest.raises(
+        ValueError,
+        match=rf"account\.open_positions\[0\]\.{field} must be a non-negative finite number",
+    ):
+        load_historical_dataset(dataset_root)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
         ("account_id", True),
         ("venue", ""),
         ("exchange", " binance"),
