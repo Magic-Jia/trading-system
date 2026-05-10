@@ -134,10 +134,10 @@ _ACCOUNT_IDENTITY_STRING_FIELDS = (
     "exchange",
     "quote_currency",
     "quoteCurrency",
-    "account_type",
-    "accountType",
 )
 _ACCOUNT_ENUM_FIELDS = {
+    "account_type": {"FUTURES", "MARGIN", "PORTFOLIO_MARGIN", "SPOT"},
+    "accountType": {"FUTURES", "MARGIN", "PORTFOLIO_MARGIN", "SPOT"},
     "margin_mode": {"CROSS", "ISOLATED"},
     "marginMode": {"CROSS", "ISOLATED"},
 }
