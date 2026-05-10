@@ -353,6 +353,16 @@ def test_load_historical_dataset_rejects_zero_open_position_core_prices(tmp_path
             r"account\.open_positions\[0\]\.maintenance_margin must be a non-negative finite number",
         ),
         (
+            ("open_positions", 0, "initialMargin"),
+            -1.0,
+            r"account\.open_positions\[0\]\.initialMargin must be a non-negative finite number",
+        ),
+        (
+            ("open_positions", 0, "maintenanceMargin"),
+            True,
+            r"account\.open_positions\[0\]\.maintenanceMargin must be a non-negative finite number",
+        ),
+        (
             ("open_positions", 0, "liquidationPrice"),
             "59000.0",
             r"account\.open_positions\[0\]\.liquidationPrice must be a positive finite number",
