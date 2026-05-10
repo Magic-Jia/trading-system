@@ -191,6 +191,14 @@ def _strict_optional_string(payload: Mapping[str, Any], key: str, field: str | N
     return normalized
 
 
+def _strict_optional_canonical_lower_string(payload: Mapping[str, Any], key: str, field: str | None = None) -> str:
+    label = field or key
+    value = _strict_optional_string(payload, key, label)
+    if value and payload.get(key) != value:
+        raise ValueError(f"{label} must be canonical when present")
+    return value
+
+
 def _strict_position_status(payload: Mapping[str, Any], key: str, field: str | None = None) -> str:
     label = field or key
     if key not in payload or payload.get(key) is None:
@@ -450,9 +458,13 @@ def sync_positions_from_account(state: RuntimeState, account: AccountSnapshot) -
     now_bj = _now_bj()
     seen_symbols: set[str] = set()
     account_meta = _strict_mapping(account.meta, "account.meta")
-    snapshot_source = _strict_optional_string(account_meta, "snapshot_source", "account.meta.snapshot_source")
+    snapshot_source = _strict_optional_canonical_lower_string(
+        account_meta,
+        "snapshot_source",
+        "account.meta.snapshot_source",
+    )
     if not snapshot_source:
-        snapshot_source = _strict_optional_string(account_meta, "source", "account.meta.source")
+        snapshot_source = _strict_optional_canonical_lower_string(account_meta, "source", "account.meta.source")
     _validate_existing_position_identities(state.positions)
     _validate_snapshot_position_identities(account.open_positions)
 

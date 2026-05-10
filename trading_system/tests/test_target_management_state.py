@@ -1379,6 +1379,50 @@ def test_sync_positions_from_account_rejects_present_non_string_snapshot_source(
     assert state.positions == {}
 
 
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("snapshot_source", " binance_futures_testnet"),
+        ("snapshot_source", "BINANCE_FUTURES_TESTNET"),
+        ("source", " binance_futures_testnet"),
+        ("source", "BINANCE_FUTURES_TESTNET"),
+    ],
+)
+def test_sync_positions_from_account_rejects_noncanonical_snapshot_origin_before_any_position_mutation(
+    field, value
+):
+    btc_position = {
+        "symbol": "BTCUSDT",
+        "side": "LONG",
+        "qty": 0.4,
+        "entry_price": 100.0,
+        "mark_price": 101.0,
+        "status": "OPEN",
+        "tracked_from_snapshot": True,
+        "tracked_from_intent": False,
+    }
+    state = RuntimeStateV2(
+        updated_at_bj="2026-04-09T12:00:00+08:00",
+        positions={"BTCUSDT": dict(btc_position)},
+    )
+
+    with pytest.raises(ValueError, match=f"account\\.meta\\.{field}"):
+        sync_positions_from_account(
+            state,
+            AccountSnapshot(
+                equity=1000.0,
+                available_balance=1000.0,
+                futures_wallet_balance=1000.0,
+                open_positions=[
+                    PositionSnapshot(symbol="BTCUSDT", side="LONG", qty=0.5, entry_price=100.0, mark_price=106.0)
+                ],
+                meta={field: value},
+            ),
+        )
+
+    assert state.positions == {"BTCUSDT": btc_position}
+
+
 def test_sync_positions_from_account_rejects_invalid_preserved_paper_position_qty_without_mutating_state():
     original_position = {
         "symbol": "BTCUSDT",
