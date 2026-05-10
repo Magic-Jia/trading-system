@@ -2490,6 +2490,202 @@ def test_walk_forward_validation_report_rejects_malformed_ratio_domain_scorecard
         )
 
 
+@pytest.mark.parametrize(
+    ("field", "value", "match"),
+    [
+        ("coverage_ratio", True, r"windows\[0\]\.out_of_sample\.scorecard\.coverage_ratio must be a bounded ratio strict number"),
+        ("coverage_ratio", "0.90", r"windows\[0\]\.out_of_sample\.scorecard\.coverage_ratio must be a bounded ratio strict number"),
+        ("coverage_ratio", float("nan"), r"windows\[0\]\.out_of_sample\.scorecard\.coverage_ratio must be a bounded ratio strict number"),
+        ("coverage_ratio", float("inf"), r"windows\[0\]\.out_of_sample\.scorecard\.coverage_ratio must be a bounded ratio strict number"),
+        ("coverage_ratio", -0.01, r"windows\[0\]\.out_of_sample\.scorecard\.coverage_ratio must be a bounded ratio strict number"),
+        ("coverage_ratio", 1.01, r"windows\[0\]\.out_of_sample\.scorecard\.coverage_ratio must be a bounded ratio strict number"),
+        ("data_coverage_pct", True, r"windows\[0\]\.out_of_sample\.scorecard\.data_coverage_pct must be a bounded percentage strict number"),
+        ("data_coverage_pct", "90", r"windows\[0\]\.out_of_sample\.scorecard\.data_coverage_pct must be a bounded percentage strict number"),
+        ("data_coverage_pct", 90.5, r"windows\[0\]\.out_of_sample\.scorecard\.data_coverage_pct must be a bounded percentage strict number"),
+        ("data_coverage_pct", float("nan"), r"windows\[0\]\.out_of_sample\.scorecard\.data_coverage_pct must be a bounded percentage strict number"),
+        ("data_coverage_pct", float("inf"), r"windows\[0\]\.out_of_sample\.scorecard\.data_coverage_pct must be a bounded percentage strict number"),
+        ("data_coverage_pct", -0.01, r"windows\[0\]\.out_of_sample\.scorecard\.data_coverage_pct must be a bounded percentage strict number"),
+        ("data_coverage_pct", 100.01, r"windows\[0\]\.out_of_sample\.scorecard\.data_coverage_pct must be a bounded percentage strict number"),
+    ],
+)
+def test_walk_forward_validation_report_rejects_malformed_coverage_scorecard_values(
+    field: str,
+    value: object,
+    match: str,
+) -> None:
+    scorecard = {
+        "total_return": 0.03,
+        "trade_count": 2,
+        "coverage_ratio": 0.9,
+        "data_coverage_pct": 90,
+    }
+    scorecard[field] = value
+
+    with pytest.raises(ValueError, match=match):
+        cli.render_walk_forward_validation_report(
+            experiment_name="walk_forward_validation",
+            metadata={"snapshot_count": 1, "window_count": 1},
+            experiment={
+                "windows": [
+                    {
+                        "window_index": 1,
+                        "out_of_sample": {
+                            "scorecard": scorecard,
+                            "run_ids": ["row-002"],
+                        },
+                    }
+                ],
+                "robustness_summary": {
+                    "out_of_sample_scorecard": {"total_return": 0.03},
+                    "performance_dispersion": {"positive_window_ratio": 1.0},
+                },
+                "parameter_stability": {"parameter_stability_score": 0.8},
+            },
+        )
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "coverage_pct",
+        "sample_coverage_pct",
+        "trade_coverage_pct",
+        "signal_coverage_pct",
+        "regime_coverage_pct",
+        "fill_coverage_pct",
+        "universe_coverage_pct",
+        "benchmark_coverage_pct",
+        "execution_coverage_pct",
+    ],
+)
+@pytest.mark.parametrize("value", [True, "90", 90.5, float("nan"), float("inf"), -0.01, 100.01])
+def test_walk_forward_validation_report_rejects_malformed_named_percentage_coverage_fields(
+    field: str,
+    value: object,
+) -> None:
+    scorecard = {
+        "total_return": 0.03,
+        "trade_count": 2,
+        field: value,
+    }
+
+    with pytest.raises(
+        ValueError,
+        match=rf"windows\[0\]\.out_of_sample\.scorecard\.{field} must be a bounded percentage strict number",
+    ):
+        cli.render_walk_forward_validation_report(
+            experiment_name="walk_forward_validation",
+            metadata={"snapshot_count": 1, "window_count": 1},
+            experiment={
+                "windows": [
+                    {
+                        "window_index": 1,
+                        "out_of_sample": {
+                            "scorecard": scorecard,
+                            "run_ids": ["row-002"],
+                        },
+                    }
+                ],
+                "robustness_summary": {
+                    "out_of_sample_scorecard": {"total_return": 0.03},
+                    "performance_dispersion": {"positive_window_ratio": 1.0},
+                },
+                "parameter_stability": {"parameter_stability_score": 0.8},
+            },
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "match"),
+    [
+        ("coverage_ratio", "0.90", r"out_of_sample_scorecard\.coverage_ratio must be a bounded ratio strict number"),
+        ("coverage_ratio", 1.01, r"out_of_sample_scorecard\.coverage_ratio must be a bounded ratio strict number"),
+        ("execution_coverage_pct", "90", r"out_of_sample_scorecard\.execution_coverage_pct must be a bounded percentage strict number"),
+        ("execution_coverage_pct", 100.01, r"out_of_sample_scorecard\.execution_coverage_pct must be a bounded percentage strict number"),
+    ],
+)
+def test_walk_forward_validation_report_rejects_malformed_summary_coverage_scorecard_values(
+    field: str,
+    value: object,
+    match: str,
+) -> None:
+    out_of_sample_scorecard = {
+        "total_return": 0.03,
+        "trade_count": 2,
+        field: value,
+    }
+
+    with pytest.raises(ValueError, match=match):
+        cli.render_walk_forward_validation_report(
+            experiment_name="walk_forward_validation",
+            metadata={"snapshot_count": 1, "window_count": 1},
+            experiment={
+                "windows": [],
+                "robustness_summary": {
+                    "out_of_sample_scorecard": out_of_sample_scorecard,
+                    "performance_dispersion": {"positive_window_ratio": 1.0},
+                },
+                "parameter_stability": {"parameter_stability_score": 0.8},
+            },
+        )
+
+
+def test_walk_forward_validation_report_preserves_valid_coverage_scorecard_values() -> None:
+    report = cli.render_walk_forward_validation_report(
+        experiment_name="walk_forward_validation",
+        metadata={"snapshot_count": 1, "window_count": 1},
+        experiment={
+            "windows": [
+                {
+                    "window_index": 1,
+                    "out_of_sample": {
+                        "scorecard": {
+                            "total_return": 0.03,
+                            "trade_count": 2,
+                            "coverage_ratio": 1.0,
+                            "data_coverage_pct": 100,
+                            "sample_coverage_pct": 75,
+                            "trade_coverage_pct": 80,
+                            "signal_coverage_pct": 85,
+                            "regime_coverage_pct": 90,
+                            "fill_coverage_pct": 95,
+                            "universe_coverage_pct": 100,
+                            "benchmark_coverage_pct": 0,
+                            "execution_coverage_pct": 65,
+                        },
+                        "run_ids": ["row-002"],
+                    },
+                }
+            ],
+            "robustness_summary": {
+                "out_of_sample_scorecard": {
+                    "total_return": 0.03,
+                    "trade_count": 2,
+                    "coverage_ratio": 0.0,
+                    "data_coverage_pct": 0,
+                },
+                "performance_dispersion": {"positive_window_ratio": 1.0},
+            },
+            "parameter_stability": {"parameter_stability_score": 0.8},
+        },
+    )
+
+    window_scorecard = report["windows"]["rows"][0]["out_of_sample"]["scorecard"]
+    assert window_scorecard["coverage_ratio"] == pytest.approx(1.0)
+    assert window_scorecard["data_coverage_pct"] == 100
+    assert window_scorecard["sample_coverage_pct"] == 75
+    assert window_scorecard["trade_coverage_pct"] == 80
+    assert window_scorecard["signal_coverage_pct"] == 85
+    assert window_scorecard["regime_coverage_pct"] == 90
+    assert window_scorecard["fill_coverage_pct"] == 95
+    assert window_scorecard["universe_coverage_pct"] == 100
+    assert window_scorecard["benchmark_coverage_pct"] == 0
+    assert window_scorecard["execution_coverage_pct"] == 65
+    summary_scorecard = report["summary"]["robustness_summary"]["out_of_sample_scorecard"]
+    assert summary_scorecard["coverage_ratio"] == pytest.approx(0.0)
+    assert summary_scorecard["data_coverage_pct"] == 0
+
+
 def test_walk_forward_validation_report_rejects_blank_window_run_id() -> None:
     with pytest.raises(ValueError, match=r"windows\[0\]\.out_of_sample\.run_ids\[\] must be a canonical string"):
         cli.render_walk_forward_validation_report(

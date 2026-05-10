@@ -711,6 +711,14 @@ def _strict_bounded_ratio_float(value: Any, *, field_name: str) -> float:
     return parsed
 
 
+def _strict_bounded_percentage_int(value: Any, *, field_name: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"{field_name} must be a bounded percentage strict number")
+    if value < 0 or value > 100:
+        raise ValueError(f"{field_name} must be a bounded percentage strict number")
+    return value
+
+
 def _strict_non_negative_finite_float(value: Any, *, field_name: str) -> float:
     if isinstance(value, bool) or not isinstance(value, int | float):
         raise ValueError(f"{field_name} must be a non-negative finite strict number")
@@ -756,6 +764,31 @@ def _llm_trend_candidate_rows(rows: list[Any]) -> list[dict[str, Any]]:
             )
         validated_rows.append(validated)
     return validated_rows
+
+
+_WALK_FORWARD_COVERAGE_RATIO_FIELDS = ("coverage_ratio",)
+_WALK_FORWARD_COVERAGE_PERCENT_FIELDS = (
+    "coverage_pct",
+    "data_coverage_pct",
+    "sample_coverage_pct",
+    "trade_coverage_pct",
+    "signal_coverage_pct",
+    "regime_coverage_pct",
+    "fill_coverage_pct",
+    "universe_coverage_pct",
+    "benchmark_coverage_pct",
+    "execution_coverage_pct",
+)
+
+
+def _walk_forward_scorecard_coverage_fields(scorecard: dict[str, Any], *, label: str) -> dict[str, Any]:
+    for field in _WALK_FORWARD_COVERAGE_RATIO_FIELDS:
+        if field in scorecard and scorecard[field] is not None:
+            scorecard[field] = _strict_bounded_ratio_float(scorecard[field], field_name=f"{label}.{field}")
+    for field in _WALK_FORWARD_COVERAGE_PERCENT_FIELDS:
+        if field in scorecard and scorecard[field] is not None:
+            scorecard[field] = _strict_bounded_percentage_int(scorecard[field], field_name=f"{label}.{field}")
+    return scorecard
 
 
 def _walk_forward_window_rows(rows: list[Any]) -> list[dict[str, Any]]:
@@ -850,6 +883,10 @@ def _walk_forward_window_rows(rows: list[Any]) -> list[dict[str, Any]]:
                         field,
                         label=f"windows[{index}].{segment_name}.scorecard",
                     )
+            validated_scorecard = _walk_forward_scorecard_coverage_fields(
+                validated_scorecard,
+                label=f"windows[{index}].{segment_name}.scorecard",
+            )
             validated_segment["scorecard"] = validated_scorecard
             validated[segment_name] = validated_segment
         validated_rows.append(validated)
@@ -876,6 +913,7 @@ def _walk_forward_scorecard_counts(scorecard: dict[str, Any], *, label: str) -> 
     for field in _WALK_FORWARD_DURATION_FIELDS:
         if field in scorecard and scorecard[field] is not None:
             scorecard[field] = _strict_positive_int_field(scorecard, field, label=label)
+    scorecard = _walk_forward_scorecard_coverage_fields(scorecard, label=label)
     return scorecard
 
 
