@@ -2283,6 +2283,49 @@ def test_sync_positions_from_account_rejects_execution_before_order_time_without
     assert state.positions == {"BTCUSDT": btc_position}
 
 
+def test_sync_positions_from_account_rejects_updated_before_opened_at_without_mutating_state():
+    btc_position = {
+        "symbol": "BTCUSDT",
+        "side": "LONG",
+        "qty": 0.4,
+        "entry_price": 100.0,
+        "mark_price": 101.0,
+        "status": "OPEN",
+        "tracked_from_snapshot": True,
+        "tracked_from_intent": False,
+    }
+    state = RuntimeStateV2(
+        updated_at_bj="2026-04-09T12:00:00+08:00",
+        positions={"BTCUSDT": dict(btc_position)},
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"account\.open_positions\[BTCUSDT\]\.updated_at must be at or after opened_at",
+    ):
+        sync_positions_from_account(
+            state,
+            AccountSnapshot(
+                equity=1000.0,
+                available_balance=1000.0,
+                futures_wallet_balance=1000.0,
+                open_positions=[
+                    PositionSnapshot(
+                        symbol="BTCUSDT",
+                        side="LONG",
+                        qty=0.5,
+                        entry_price=100.0,
+                        mark_price=106.0,
+                        opened_at="2026-04-09T03:00:02Z",
+                        updated_at="2026-04-09T03:00:01Z",
+                    )
+                ],
+            ),
+        )
+
+    assert state.positions == {"BTCUSDT": btc_position}
+
+
 def test_sync_positions_from_account_carries_valid_remaining_snapshot_identity_metadata():
     state = RuntimeStateV2(updated_at_bj="2026-04-09T12:00:00+08:00")
 
