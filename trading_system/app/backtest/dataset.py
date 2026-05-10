@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import math
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
 
@@ -97,6 +97,17 @@ _ACCOUNT_OPEN_POSITION_IDENTIFIER_FIELDS = (
     "orderId",
     "client_order_id",
     "clientOrderId",
+)
+_ACCOUNT_OPEN_POSITION_TIME_FIELDS = (
+    "opened_at",
+    "openedAt",
+    "updated_at",
+    "updatedAt",
+    "closed_at",
+    "closedAt",
+    "as_of",
+    "timestamp",
+    "last_update_time",
 )
 _ACCOUNT_IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9_.:-]+$")
 _ACCOUNT_OPEN_POSITION_UPPERCASE_IDENTITY_FIELDS = (
@@ -270,6 +281,9 @@ def _validate_open_position_identity_fields(account: dict, *, path: Path) -> Non
         for field in _ACCOUNT_OPEN_POSITION_IDENTIFIER_FIELDS:
             if field in position:
                 _require_account_identifier_string(position[field], field_path=f"{field_prefix}.{field}", path=path)
+        for field in _ACCOUNT_OPEN_POSITION_TIME_FIELDS:
+            if field in position:
+                _require_account_utc_iso_timestamp(position[field], field_path=f"{field_prefix}.{field}", path=path)
         for field in _ACCOUNT_OPEN_POSITION_UPPERCASE_IDENTITY_FIELDS:
             if field in position:
                 value = _require_account_uppercase_canonical_string(
@@ -300,6 +314,21 @@ def _require_account_identifier_string(value: object, *, field_path: str, path: 
         raise ValueError(f"{field_path} must be a canonical identifier string: {path}")
     if _ACCOUNT_IDENTIFIER_RE.fullmatch(value) is None:
         raise ValueError(f"{field_path} must be a canonical identifier string: {path}")
+    return value
+
+
+def _require_account_utc_iso_timestamp(value: object, *, field_path: str, path: Path) -> str:
+    if not isinstance(value, str) or not value or value != value.strip() or "\n" in value or "\r" in value:
+        raise ValueError(f"{field_path} must be a canonical UTC ISO timestamp: {path}")
+    if not value.endswith("Z") or "T" not in value:
+        raise ValueError(f"{field_path} must be a canonical UTC ISO timestamp: {path}")
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError(f"{field_path} must be a canonical UTC ISO timestamp: {path}") from exc
+    canonical = parsed.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+    if value != canonical:
+        raise ValueError(f"{field_path} must be a canonical UTC ISO timestamp: {path}")
     return value
 
 
