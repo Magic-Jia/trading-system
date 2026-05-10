@@ -115,6 +115,18 @@ _SNAPSHOT_IDENTITY_KEYS = (
     "client_order_id",
     "clientOrderId",
 )
+_SNAPSHOT_PROVENANCE_TAXONOMY_STRING_FIELDS = {
+    "source": frozenset({"account_snapshot", "paper_execution", "hybrid"}),
+    "position_source": frozenset({"account_snapshot", "paper_execution"}),
+    "signal_source": None,
+    "strategy_source": None,
+    "data_source": None,
+    "margin_type": frozenset({"CROSS", "ISOLATED"}),
+    "product_type": frozenset({"FUTURES", "MARGIN", "SPOT"}),
+    "account_type": frozenset({"paper", "testnet"}),
+    "venue": frozenset({"BINANCE"}),
+    "exchange": frozenset({"BINANCE"}),
+}
 _SNAPSHOT_COST_METADATA_KEYS = (
     "fee_paid",
     "commission",
@@ -348,6 +360,36 @@ def _strict_present_supported_string(
     return value
 
 
+def _strict_present_supported_taxonomy_string(
+    payload: Mapping[str, Any], key: str, allowed: frozenset[str], field: str | None = None
+) -> str | None:
+    label = field or key
+    if key not in payload or payload.get(key) is None:
+        return None
+    value = payload.get(key)
+    if not isinstance(value, str):
+        raise TypeError(f"{label} must be a supported canonical string when present")
+    if not value or value != value.strip() or "\n" in value or "\r" in value:
+        raise ValueError(f"{label} must be a supported canonical string when present")
+    if value not in allowed:
+        raise ValueError(f"{label} must be a supported canonical string when present")
+    return value
+
+
+def _strict_present_identifier_string(payload: Mapping[str, Any], key: str, field: str | None = None) -> str | None:
+    label = field or key
+    if key not in payload or payload.get(key) is None:
+        return None
+    value = payload.get(key)
+    if not isinstance(value, str):
+        raise TypeError(f"{label} must be a canonical string when present")
+    if not value or value != value.strip() or "\n" in value or "\r" in value:
+        raise ValueError(f"{label} must be a canonical string when present")
+    if not all(char.islower() or char.isdigit() or char == "_" for char in value):
+        raise ValueError(f"{label} must be a canonical identifier string when present")
+    return value
+
+
 def _strict_present_optional_number(payload: Mapping[str, Any], key: str, field: str | None = None) -> float | None:
     label = field or key
     if key not in payload or payload.get(key) is None:
@@ -365,6 +407,28 @@ def _strict_present_optional_positive_number(
     if value <= 0.0:
         raise ValueError(f"{label} must be positive when present")
     return value
+
+
+def _strict_snapshot_provenance_taxonomy_metadata(snapshot: PositionSnapshot) -> dict[str, str]:
+    payload: dict[str, str] = {}
+    snapshot_label = f"account.open_positions[{snapshot.symbol}]"
+    for key, allowed in _SNAPSHOT_PROVENANCE_TAXONOMY_STRING_FIELDS.items():
+        if allowed is None:
+            value = _strict_present_identifier_string(
+                {key: getattr(snapshot, key, None)},
+                key,
+                f"{snapshot_label}.{key}",
+            )
+        else:
+            value = _strict_present_supported_taxonomy_string(
+                {key: getattr(snapshot, key, None)},
+                key,
+                allowed,
+                f"{snapshot_label}.{key}",
+            )
+        if value is not None:
+            payload[key] = value
+    return payload
 
 
 def _strict_snapshot_cost_metadata(snapshot: PositionSnapshot) -> dict[str, float]:
@@ -658,6 +722,7 @@ def _validate_snapshot_position_identities(open_positions: list[PositionSnapshot
                 key,
                 f"account.open_positions[{snapshot.symbol}].{key}",
             )
+        _strict_snapshot_provenance_taxonomy_metadata(snapshot)
         _strict_present_optional_number(
             {"taxonomy_stop_loss": getattr(snapshot, "taxonomy_stop_loss", None)},
             "taxonomy_stop_loss",
@@ -716,6 +781,7 @@ def sync_positions_from_account(state: RuntimeState, account: AccountSnapshot) -
             "leverage",
             f"{snapshot_label}.leverage",
         )
+        snapshot_provenance_taxonomy_metadata = _strict_snapshot_provenance_taxonomy_metadata(snapshot)
         snapshot_cost_metadata = _strict_snapshot_cost_metadata(snapshot)
         snapshot_order_execution_metadata = _strict_snapshot_order_execution_metadata(snapshot)
         snapshot_risk_price_metadata = _strict_snapshot_risk_price_metadata(snapshot)
@@ -793,6 +859,7 @@ def sync_positions_from_account(state: RuntimeState, account: AccountSnapshot) -
             "intent_id": carry_existing.get("intent_id"),
             "signal_id": carry_existing.get("signal_id"),
             **_snapshot_taxonomy_fields(snapshot, carry_existing),
+            **snapshot_provenance_taxonomy_metadata,
             **snapshot_cost_metadata,
             **snapshot_order_execution_metadata,
             **snapshot_risk_price_metadata,

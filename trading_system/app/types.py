@@ -60,6 +60,16 @@ class PositionSnapshot:
     orderId: str | None = None
     client_order_id: str | None = None
     clientOrderId: str | None = None
+    source: str | None = None
+    position_source: str | None = None
+    signal_source: str | None = None
+    strategy_source: str | None = None
+    data_source: str | None = None
+    margin_type: str | None = None
+    product_type: str | None = None
+    account_type: str | None = None
+    venue: str | None = None
+    exchange: str | None = None
     taxonomy_stop_loss: float | None = None
     invalidation_source: str | None = None
     invalidation_reason: str | None = None

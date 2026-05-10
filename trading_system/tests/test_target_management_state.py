@@ -2536,6 +2536,118 @@ def test_sync_positions_from_account_carries_valid_snapshot_order_execution_meta
     assert synced[0]["post_only"] is True
 
 
+@pytest.mark.parametrize(
+    ("field", "value", "exception"),
+    [
+        ("source", 123, TypeError),
+        ("source", "", ValueError),
+        ("source", " account_snapshot", ValueError),
+        ("source", "account_snapshot\n", ValueError),
+        ("source", "manual_import", ValueError),
+        ("position_source", "live_exchange", ValueError),
+        ("signal_source", "trend engine", ValueError),
+        ("strategy_source", "trend/engine", ValueError),
+        ("data_source", "binance futures", ValueError),
+        ("margin_type", "CROSS ", ValueError),
+        ("margin_type", "PORTFOLIO", ValueError),
+        ("product_type", [], TypeError),
+        ("product_type", "PERPETUAL", ValueError),
+        ("account_type", "paper\n", ValueError),
+        ("account_type", "live", ValueError),
+        ("venue", "binance", ValueError),
+        ("venue", "COINBASE", ValueError),
+        ("exchange", "BINANCE ", ValueError),
+        ("exchange", "COINBASE", ValueError),
+    ],
+)
+def test_sync_positions_from_account_rejects_malformed_snapshot_provenance_taxonomy_before_any_position_mutation(
+    field, value, exception
+):
+    btc_position = {
+        "symbol": "BTCUSDT",
+        "side": "LONG",
+        "qty": 0.4,
+        "entry_price": 100.0,
+        "mark_price": 101.0,
+        "status": "OPEN",
+        "tracked_from_snapshot": True,
+        "tracked_from_intent": False,
+        "source": "account_snapshot",
+    }
+    state = RuntimeStateV2(
+        updated_at_bj="2026-04-09T12:00:00+08:00",
+        positions={"BTCUSDT": dict(btc_position)},
+    )
+    snapshot_payload = {
+        "symbol": "BTCUSDT",
+        "side": "LONG",
+        "qty": 0.4,
+        "entry_price": 100.0,
+        "mark_price": 106.0,
+        "notional": 42.4,
+        "unrealized_pnl": 2.4,
+        field: value,
+    }
+
+    with pytest.raises(exception, match=f"account.open_positions\\[BTCUSDT\\]\\.{field}"):
+        sync_positions_from_account(
+            state,
+            AccountSnapshot(
+                equity=1000.0,
+                available_balance=1000.0,
+                futures_wallet_balance=1000.0,
+                open_positions=[PositionSnapshot(**snapshot_payload)],
+            ),
+        )
+
+    assert state.positions == {"BTCUSDT": btc_position}
+
+
+def test_sync_positions_from_account_carries_valid_snapshot_provenance_taxonomy_metadata():
+    state = RuntimeStateV2(updated_at_bj="2026-04-09T12:00:00+08:00")
+
+    synced = sync_positions_from_account(
+        state,
+        AccountSnapshot(
+            equity=1000.0,
+            available_balance=1000.0,
+            futures_wallet_balance=1000.0,
+            open_positions=[
+                PositionSnapshot(
+                    symbol="BTCUSDT",
+                    side="LONG",
+                    qty=0.4,
+                    entry_price=100.0,
+                    mark_price=106.0,
+                    notional=42.4,
+                    unrealized_pnl=2.4,
+                    source="account_snapshot",
+                    position_source="account_snapshot",
+                    signal_source="trend_engine",
+                    strategy_source="trend_v2",
+                    data_source="binance_futures",
+                    margin_type="CROSS",
+                    product_type="FUTURES",
+                    account_type="testnet",
+                    venue="BINANCE",
+                    exchange="BINANCE",
+                )
+            ],
+        ),
+    )
+
+    assert synced[0]["source"] == "account_snapshot"
+    assert synced[0]["position_source"] == "account_snapshot"
+    assert synced[0]["signal_source"] == "trend_engine"
+    assert synced[0]["strategy_source"] == "trend_v2"
+    assert synced[0]["data_source"] == "binance_futures"
+    assert synced[0]["margin_type"] == "CROSS"
+    assert synced[0]["product_type"] == "FUTURES"
+    assert synced[0]["account_type"] == "testnet"
+    assert synced[0]["venue"] == "BINANCE"
+    assert synced[0]["exchange"] == "BINANCE"
+
+
 @pytest.mark.parametrize("leverage", [True, "3.0", float("nan"), float("inf"), 0.0])
 def test_sync_positions_from_account_rejects_invalid_snapshot_leverage_without_mutating_state(leverage):
     state = RuntimeStateV2(
