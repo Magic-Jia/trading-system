@@ -199,6 +199,18 @@ def _strict_optional_canonical_lower_string(payload: Mapping[str, Any], key: str
     return value
 
 
+def _strict_optional_identity_string(payload: Mapping[str, Any], key: str, field: str | None = None) -> str:
+    label = field or key
+    if key not in payload or payload.get(key) is None:
+        return ""
+    value = payload.get(key)
+    if not isinstance(value, str):
+        raise TypeError(f"{label} must be a string when present")
+    if not value or value != value.strip() or "\n" in value or "\r" in value:
+        raise ValueError(f"{label} must be canonical when present")
+    return value
+
+
 def _strict_position_status(payload: Mapping[str, Any], key: str, field: str | None = None) -> str:
     label = field or key
     if key not in payload or payload.get(key) is None:
@@ -430,6 +442,8 @@ def _validate_existing_position_identities(positions: Mapping[str, dict[str, Any
                 raise ValueError(f"positions[{symbol}].symbol must match position key")
         _strict_position_side(position, "side", f"positions[{symbol}].side")
         _strict_position_status(position, "status", f"positions[{symbol}].status")
+        for key in ("intent_id", "strategy_tag", "setup_type", "engine"):
+            _strict_optional_identity_string(position, key, f"positions[{symbol}].{key}")
         source = _strict_optional_string(position, "source", f"positions[{symbol}].source")
         if source and position.get("source") != position.get("source").strip():
             raise ValueError(f"positions[{symbol}].source must not be blank when present")
