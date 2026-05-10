@@ -488,7 +488,25 @@ def validate_account_snapshot_identity(account: object, *, path: Path) -> None:
     for field in _ACCOUNT_TIME_FIELDS:
         if field in account:
             _require_account_utc_iso_timestamp(account[field], field_path=f"account.{field}", path=path)
+    _validate_account_time_order(account, path=path)
     _validate_open_position_identity_fields(account, path=path)
+
+
+def _validate_account_time_order(account: dict, *, path: Path) -> None:
+    event = _account_first_present_utc_timestamp(account, "event_time", "eventTime")
+    update = _account_first_present_utc_timestamp(
+        account,
+        "last_update_time",
+        "lastUpdateTime",
+        "update_time",
+        "updateTime",
+    )
+    if event is None or update is None:
+        return
+    event_field, event_time = event
+    update_field, update_time = update
+    if update_time < event_time:
+        raise ValueError(f"account.{update_field} must be at or after {event_field}: {path}")
 
 
 def _validate_open_position_identity_fields(account: dict, *, path: Path) -> None:
