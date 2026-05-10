@@ -29,7 +29,15 @@ TRADE_TIME_FIELDS = ("entry_time", "exit_time")
 TRADE_PRICE_FIELDS = ("entry_price", "exit_price")
 TRADE_SIZE_FIELDS = ("quantity", "notional")
 TRADE_EXIT_REASON_FIELDS = ("simulated_exit_reason", "exit_reason")
-TRADE_COST_IDENTITY_FIELDS = ("fee_currency", "cost_currency", "quote_asset", "commission_asset")
+TRADE_COST_IDENTITY_FIELDS = (
+    "fee_currency",
+    "cost_currency",
+    "quote_asset",
+    "settlement_asset",
+    "collateral_asset",
+    "commission_asset",
+    "fee_asset",
+)
 TRADE_POSITIVE_NUMERIC_EVIDENCE_FIELDS = ("risk_reward",)
 VALID_TRADES_ARTIFACT_SCHEMA_VERSION = "trades.v1"
 VALID_SUMMARY_ARTIFACT_SCHEMA_VERSION = "backtest_summary.v1"

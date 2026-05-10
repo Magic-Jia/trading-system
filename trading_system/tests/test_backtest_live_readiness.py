@@ -229,8 +229,19 @@ def test_trade_postmortem_rejects_noncanonical_fill_model(fill_model: object) ->
         summarize_trade_postmortem([trade])
 
 
-@pytest.mark.parametrize("field", ["fee_currency", "cost_currency", "quote_asset", "commission_asset"])
-@pytest.mark.parametrize("value", [123, "", " USDT ", "USD.T"])
+@pytest.mark.parametrize(
+    "field",
+    [
+        "fee_currency",
+        "cost_currency",
+        "quote_asset",
+        "settlement_asset",
+        "collateral_asset",
+        "commission_asset",
+        "fee_asset",
+    ],
+)
+@pytest.mark.parametrize("value", [123, "", " USDT ", "usdt", "USD\nT", "USD.T"])
 def test_trade_postmortem_rejects_malformed_present_cost_identity_fields(field: str, value: object) -> None:
     trade = {
         "symbol": "BTCUSDT",
