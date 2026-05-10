@@ -2436,6 +2436,107 @@ def test_sync_positions_from_account_rejects_malformed_snapshot_risk_price_metad
 @pytest.mark.parametrize(
     ("field", "value", "exception"),
     [
+        ("position_value", True, TypeError),
+        ("market_value", "42.4", TypeError),
+        ("exposure_value", float("nan"), ValueError),
+        ("margin_used", float("inf"), ValueError),
+        ("position_value", 0.0, ValueError),
+        ("initial_margin", -0.01, ValueError),
+        ("maintenance_margin", -0.01, ValueError),
+        ("collateral_value", -0.01, ValueError),
+        ("risk_pct", 1.01, ValueError),
+        ("exposure_pct", -0.01, ValueError),
+    ],
+)
+def test_sync_positions_from_account_rejects_malformed_snapshot_position_sizing_metadata_before_any_position_mutation(
+    field, value, exception
+):
+    btc_position = {
+        "symbol": "BTCUSDT",
+        "side": "LONG",
+        "qty": 0.4,
+        "entry_price": 100.0,
+        "mark_price": 101.0,
+        "status": "OPEN",
+        "tracked_from_snapshot": True,
+        "tracked_from_intent": False,
+        "source": "account_snapshot",
+    }
+    state = RuntimeStateV2(
+        updated_at_bj="2026-04-09T12:00:00+08:00",
+        positions={"BTCUSDT": dict(btc_position)},
+    )
+    snapshot_payload = {
+        "symbol": "BTCUSDT",
+        "side": "LONG",
+        "qty": 0.4,
+        "entry_price": 100.0,
+        "mark_price": 106.0,
+        "notional": 42.4,
+        "unrealized_pnl": 2.4,
+        field: value,
+    }
+
+    with pytest.raises(exception, match=f"account.open_positions\\[BTCUSDT\\]\\.{field}"):
+        sync_positions_from_account(
+            state,
+            AccountSnapshot(
+                equity=1000.0,
+                available_balance=1000.0,
+                futures_wallet_balance=1000.0,
+                open_positions=[PositionSnapshot(**snapshot_payload)],
+            ),
+        )
+
+    assert state.positions == {"BTCUSDT": btc_position}
+
+
+def test_sync_positions_from_account_carries_valid_snapshot_position_sizing_metadata():
+    state = RuntimeStateV2(updated_at_bj="2026-04-09T12:00:00+08:00")
+
+    synced = sync_positions_from_account(
+        state,
+        AccountSnapshot(
+            equity=1000.0,
+            available_balance=1000.0,
+            futures_wallet_balance=1000.0,
+            open_positions=[
+                PositionSnapshot(
+                    symbol="BTCUSDT",
+                    side="LONG",
+                    qty=0.4,
+                    entry_price=100.0,
+                    mark_price=106.0,
+                    notional=42.4,
+                    unrealized_pnl=2.4,
+                    position_value=42.4,
+                    market_value=42.4,
+                    exposure_value=42.4,
+                    margin_used=4.24,
+                    initial_margin=4.24,
+                    maintenance_margin=0.21,
+                    collateral_value=100.0,
+                    risk_pct=0.01,
+                    exposure_pct=0.0424,
+                )
+            ],
+        ),
+    )
+
+    assert synced[0]["position_value"] == 42.4
+    assert synced[0]["market_value"] == 42.4
+    assert synced[0]["exposure_value"] == 42.4
+    assert synced[0]["margin_used"] == 4.24
+    assert synced[0]["initial_margin"] == 4.24
+    assert synced[0]["maintenance_margin"] == 0.21
+    assert synced[0]["collateral_value"] == 100.0
+    assert synced[0]["risk_pct"] == 0.01
+    assert synced[0]["exposure_pct"] == 0.0424
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "exception"),
+    [
         ("order_type", 123, ValueError),
         ("order_type", "", ValueError),
         ("order_type", " LIMIT ", ValueError),

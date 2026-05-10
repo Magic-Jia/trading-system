@@ -177,6 +177,19 @@ _POSITIVE_SNAPSHOT_RISK_PRICE_METADATA_KEYS = frozenset(
     }
 )
 _NON_NEGATIVE_SNAPSHOT_RISK_PRICE_METADATA_KEYS = frozenset({"mark_spread_bps"})
+_SNAPSHOT_POSITION_SIZING_METADATA_KEYS = (
+    "position_value",
+    "market_value",
+    "exposure_value",
+    "margin_used",
+    "initial_margin",
+    "maintenance_margin",
+    "collateral_value",
+    "risk_pct",
+    "exposure_pct",
+)
+_POSITIVE_SNAPSHOT_POSITION_SIZING_METADATA_KEYS = frozenset({"position_value", "market_value", "exposure_value"})
+_SNAPSHOT_POSITION_SIZING_RATIO_KEYS = frozenset({"risk_pct", "exposure_pct"})
 
 
 def _strict_canonical_symbol(value: Any, field: str) -> str:
@@ -490,6 +503,28 @@ def _strict_snapshot_risk_price_metadata(snapshot: PositionSnapshot) -> dict[str
     return payload
 
 
+def _strict_snapshot_position_sizing_metadata(snapshot: PositionSnapshot) -> dict[str, float]:
+    payload: dict[str, float] = {}
+    snapshot_label = f"account.open_positions[{snapshot.symbol}]"
+    for key in _SNAPSHOT_POSITION_SIZING_METADATA_KEYS:
+        value = _strict_present_optional_number(
+            {key: getattr(snapshot, key, None)},
+            key,
+            f"{snapshot_label}.{key}",
+        )
+        if value is None:
+            continue
+        if key in _SNAPSHOT_POSITION_SIZING_RATIO_KEYS:
+            if value < 0.0 or value > 1.0:
+                raise ValueError(f"{snapshot_label}.{key} must be a bounded non-negative ratio when present")
+        elif key in _POSITIVE_SNAPSHOT_POSITION_SIZING_METADATA_KEYS and value <= 0.0:
+            raise ValueError(f"{snapshot_label}.{key} must be positive when present")
+        elif value < 0.0:
+            raise ValueError(f"{snapshot_label}.{key} must be non-negative when present")
+        payload[key] = value
+    return payload
+
+
 def _strict_non_negative_quantity(payload: Mapping[str, Any], field: str, default: float | None = None) -> float:
     if field not in payload or payload.get(field) is None:
         if default is None:
@@ -737,6 +772,7 @@ def _validate_snapshot_position_identities(open_positions: list[PositionSnapshot
         _strict_snapshot_cost_metadata(snapshot)
         _strict_snapshot_order_execution_metadata(snapshot)
         _strict_snapshot_risk_price_metadata(snapshot)
+        _strict_snapshot_position_sizing_metadata(snapshot)
 
 
 def _mark_intent_position_closed(state: RuntimeState, symbol: str, position: dict[str, Any], now_bj: str) -> None:
@@ -785,6 +821,7 @@ def sync_positions_from_account(state: RuntimeState, account: AccountSnapshot) -
         snapshot_cost_metadata = _strict_snapshot_cost_metadata(snapshot)
         snapshot_order_execution_metadata = _strict_snapshot_order_execution_metadata(snapshot)
         snapshot_risk_price_metadata = _strict_snapshot_risk_price_metadata(snapshot)
+        snapshot_position_sizing_metadata = _strict_snapshot_position_sizing_metadata(snapshot)
 
         if snapshot_qty <= 0:
             continue
@@ -863,6 +900,7 @@ def sync_positions_from_account(state: RuntimeState, account: AccountSnapshot) -
             **snapshot_cost_metadata,
             **snapshot_order_execution_metadata,
             **snapshot_risk_price_metadata,
+            **snapshot_position_sizing_metadata,
             "source": _source(
                 carry_existing,
                 from_snapshot=True,

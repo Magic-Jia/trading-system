@@ -99,6 +99,15 @@ class PositionSnapshot:
     take_profit_price: float | None = None
     trailing_stop_price: float | None = None
     mark_spread_bps: float | None = None
+    position_value: float | None = None
+    market_value: float | None = None
+    exposure_value: float | None = None
+    margin_used: float | None = None
+    initial_margin: float | None = None
+    maintenance_margin: float | None = None
+    collateral_value: float | None = None
+    risk_pct: float | None = None
+    exposure_pct: float | None = None
 
 
 @dataclass(slots=True)
