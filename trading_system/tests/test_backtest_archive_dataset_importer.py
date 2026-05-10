@@ -1625,7 +1625,15 @@ def test_write_phase1_dataset_bundle_rejects_zero_open_position_notional_without
 
 @pytest.mark.parametrize(
     "field",
-    ["entry_price", "mark_price", "liquidation_price", "break_even_price", "stop_price"],
+    [
+        "entry_price",
+        "entryPrice",
+        "mark_price",
+        "markPrice",
+        "liquidation_price",
+        "break_even_price",
+        "stop_price",
+    ],
 )
 def test_write_phase1_dataset_bundle_rejects_zero_open_position_core_prices_without_artifact(
     tmp_path: Path, field: str
