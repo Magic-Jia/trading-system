@@ -239,6 +239,8 @@ def _l2_missing_intervals(report: Mapping[str, Any]) -> list[dict[str, Any]]:
     for index, item in enumerate(value, start=1):
         if not isinstance(item, Mapping):
             raise ValueError(f"l2 missing_intervals[{index}] must be an object")
+        if any(not isinstance(field, str) or not field.strip() or field != field.strip() for field in item):
+            raise ValueError(f"l2 missing_intervals[{index}] fields must be canonical")
         start = item.get("start")
         if not isinstance(start, str) or not start.strip() or start != start.strip():
             raise ValueError(f"l2 missing_intervals[{index}].start must be canonical")

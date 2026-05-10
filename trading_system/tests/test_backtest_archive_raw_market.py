@@ -556,6 +556,31 @@ def test_l2_tick_coverage_rejects_noncanonical_missing_interval_fields() -> None
         _l2_tick_coverage(reports, required_coverage=0.99)
 
 
+@pytest.mark.parametrize("bad_field", [123, " start "])
+def test_l2_tick_coverage_rejects_noncanonical_missing_interval_field_keys(bad_field: object) -> None:
+    reports = {
+        "BTCUSDT:trades": {
+            "series_key": "BTCUSDT:trades",
+            "dataset": "trades",
+            "symbol": "BTCUSDT",
+            "timeframe": None,
+            "coverage_ratio": 0.5,
+            "has_missing_intervals": True,
+            "missing_intervals": [
+                {
+                    "start": "2026-01-01T00:00:00Z",
+                    "end": "2026-01-01T01:00:00Z",
+                    "missing_records": 1,
+                    bad_field: "ambiguous",
+                }
+            ],
+        }
+    }
+
+    with pytest.raises(ValueError, match=r"l2 missing_intervals\[1\] fields must be canonical"):
+        _l2_tick_coverage(reports, required_coverage=0.99)
+
+
 def test_l2_tick_coverage_rejects_boolean_required_coverage() -> None:
     reports = {
         "BTCUSDT:trades": {
