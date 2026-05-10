@@ -141,7 +141,6 @@ _ACCOUNT_IDENTITY_STRING_FIELDS = (
 )
 _ACCOUNT_OPEN_POSITION_IDENTITY_STRING_FIELDS = (
     "status",
-    "position_mode",
     "source",
     "strategy_tag",
     "strategyTag",
@@ -271,6 +270,8 @@ _ACCOUNT_OPEN_POSITION_ENUM_FIELDS = {
     "accountSource": {"account_snapshot", "archive_fixture"},
     "positionSource": {"account_snapshot", "archive_fixture", "paper_execution"},
     "position_source": {"account_snapshot", "archive_fixture", "paper_execution"},
+    "position_mode": {"ONE_WAY", "HEDGE", "BOTH", "SINGLE", "DUAL"},
+    "positionMode": {"ONE_WAY", "HEDGE", "BOTH", "SINGLE", "DUAL"},
     "margin_type": {"CROSS", "ISOLATED"},
     "product_type": {"FUTURES", "MARGIN", "SPOT"},
     "productType": {"FUTURES", "MARGIN", "SPOT"},

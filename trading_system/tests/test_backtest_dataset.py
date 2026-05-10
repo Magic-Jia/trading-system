@@ -350,6 +350,7 @@ def test_load_historical_dataset_rejects_zero_open_position_core_prices(tmp_path
         (("open_positions", 0, "baseAsset"), "btc", r"account\.open_positions\[0\]\.baseAsset must be an uppercase asset code"),
         (("open_positions", 0, "signalSource"), "bad space", r"account\.open_positions\[0\]\.signalSource must be a canonical identifier string"),
         (("open_positions", 0, "productType"), "options", r"account\.open_positions\[0\]\.productType must be one of FUTURES, MARGIN, SPOT"),
+        (("open_positions", 0, "positionMode"), "hedge mode", r"account\.open_positions\[0\]\.positionMode must be one of BOTH, DUAL, HEDGE, ONE_WAY, SINGLE"),
         (
             ("open_positions", 0, "leverage"),
             float("inf"),
