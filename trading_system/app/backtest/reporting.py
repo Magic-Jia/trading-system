@@ -258,7 +258,10 @@ def _trade_ledger_payload(trade_ledger: tuple[TradeLedgerRow, ...]) -> list[dict
             "simulated_exit_ordering": row.simulated_exit_ordering,
             "simulated_gross_pnl": row.simulated_gross_pnl,
             "simulated_net_pnl": row.simulated_net_pnl,
-            "cost_coverage_ratio": row.cost_coverage_ratio,
+            "cost_coverage_ratio": _optional_non_negative_finite_float(
+                row.cost_coverage_ratio,
+                field_name=f"trades[{index}].cost_coverage_ratio",
+            ),
             "entry_reference_timeframe": row.entry_reference_timeframe,
             "entry_reference_price": row.entry_reference_price,
             "gate_timeframes": list(row.gate_timeframes),
@@ -299,8 +302,14 @@ def _trade_ledger_payload(trade_ledger: tuple[TradeLedgerRow, ...]) -> list[dict
             "filled_notional": row.filled_notional,
             "unfilled_quantity": row.unfilled_quantity,
             "depth_levels_consumed": row.depth_levels_consumed,
-            "execution_impact_bps": row.execution_impact_bps,
-            "slippage_bps": row.slippage_bps,
+            "execution_impact_bps": _optional_non_negative_finite_float(
+                row.execution_impact_bps,
+                field_name=f"trades[{index}].execution_impact_bps",
+            ),
+            "slippage_bps": _optional_non_negative_finite_float(
+                row.slippage_bps,
+                field_name=f"trades[{index}].slippage_bps",
+            ),
         }
         for index, row in enumerate(trade_ledger)
     ]
@@ -667,6 +676,17 @@ def _strict_present_finite_float(value: Any, *, field_name: str) -> float:
     parsed = float(value)
     if not math.isfinite(parsed):
         raise ValueError(f"{field_name} must be a finite number")
+    return parsed
+
+
+def _optional_non_negative_finite_float(value: Any, *, field_name: str) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise ValueError(f"{field_name} must be a non-negative finite number")
+    parsed = float(value)
+    if not math.isfinite(parsed) or parsed < 0.0:
+        raise ValueError(f"{field_name} must be a non-negative finite number")
     return parsed
 
 

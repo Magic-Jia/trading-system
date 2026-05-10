@@ -1079,6 +1079,18 @@ def test_full_market_report_exposes_depth_and_maker_fill_fields() -> None:
     assert trade["maker_reasons"] == ["queue_depleted"]
 
 
+@pytest.mark.parametrize("slippage_bps", [True, "10.0", float("nan"), float("inf"), -1.0])
+def test_full_market_report_rejects_malformed_present_slippage_bps(slippage_bps: object) -> None:
+    result = sample_baseline_result()
+    bad_result = replace(
+        result,
+        trade_ledger=(replace(result.trade_ledger[0], slippage_bps=slippage_bps),),  # type: ignore[arg-type]
+    )
+
+    with pytest.raises(ValueError, match=r"trades\[0\]\.slippage_bps must be a non-negative finite number"):
+        reporting.render_full_market_baseline_report(bad_result)
+
+
 @pytest.mark.parametrize("maker_status", [123, "", " filled ", "unknown_status"])
 def test_full_market_report_rejects_malformed_present_maker_status(maker_status: object) -> None:
     result = sample_baseline_result()
