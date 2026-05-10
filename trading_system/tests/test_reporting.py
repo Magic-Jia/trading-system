@@ -203,6 +203,25 @@ def test_build_rotation_report_rejects_non_mapping_allocation_rows(allocation):
         )
 
 
+@pytest.mark.parametrize("time_in_force", [123, "", " GTX ", "DAY"])
+def test_build_rotation_report_rejects_present_invalid_execution_time_in_force(time_in_force):
+    with pytest.raises(ValueError, match="time_in_force"):
+        build_rotation_report(
+            rotation_candidates=[
+                {
+                    "engine": "rotation",
+                    "symbol": "SOLUSDT",
+                    "score": 0.83,
+                    "timeframe_meta": {"relative_strength": {"daily_spread": 0.017}},
+                    "liquidity_meta": {"volume_usdt_24h": 3900000000.0},
+                }
+            ],
+            allocations=[],
+            executions=[{"symbol": "SOLUSDT", "status": "FILLED", "time_in_force": time_in_force}],
+            rotation_universe=[],
+        )
+
+
 def test_build_regime_summary_includes_rotation_report_when_provided():
     summary = build_regime_summary(
         regime={"label": "RISK_ON_TREND", "confidence": 0.9, "risk_multiplier": 0.95, "execution_policy": "normal"},

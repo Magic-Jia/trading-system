@@ -7,6 +7,7 @@ from typing import Any, Mapping, Sequence
 _LIFECYCLE_STATES = ("INIT", "CONFIRM", "PAYLOAD", "PROTECT", "EXIT")
 _REVIEW_ACTION_CAP = 5
 _TARGET_REVIEW_KEYS = ("target_price", "target_stage", "fraction_basis", "runner_stop_price")
+_EXECUTION_TIME_IN_FORCE_VALUES = frozenset({"GTC", "IOC", "FOK", "GTX"})
 
 
 def _strict_mapping_row(value: Any, field: str) -> Mapping[str, Any]:
@@ -75,6 +76,13 @@ def _strict_optional_string_field(payload: Mapping[str, Any], key: str, *, defau
     if key not in payload:
         return default
     return _strict_string_value(payload.get(key), key, required=True)
+
+
+def _strict_optional_string_allowlist(payload: Mapping[str, Any], key: str, allowed: frozenset[str]) -> str:
+    value = _strict_optional_string_field(payload, key)
+    if value and value not in allowed:
+        raise ValueError(f"{key} must be one of {sorted(allowed)}")
+    return value
 
 
 def _strict_reason_codes(payload: Mapping[str, Any]) -> list[str]:
@@ -378,6 +386,8 @@ def build_rotation_report(
         }
     )
     execution_rows = _strict_mapping_rows(executions, "executions")
+    for row in execution_rows:
+        _strict_optional_string_allowlist(row, "time_in_force", _EXECUTION_TIME_IN_FORCE_VALUES)
     executed_symbols = sorted(
         {
             _strict_string_field(row, "symbol")
