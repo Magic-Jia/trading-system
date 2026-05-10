@@ -652,7 +652,14 @@ def _canonical_utc_timestamp_value(value: str) -> datetime:
 def _validate_snapshot_time_provenance_order(payload: Mapping[str, str], *, snapshot_label: str) -> None:
     if "opened_at" in payload:
         opened_at = _canonical_utc_timestamp_value(payload["opened_at"])
-        for field in ("updated_at", "as_of", "timestamp", "last_update_time", "close_time"):
+        for field in (
+            "updated_at",
+            "as_of",
+            "timestamp",
+            "last_update_time",
+            "close_time",
+            "expiry_time",
+        ):
             if field in payload and _canonical_utc_timestamp_value(payload[field]) < opened_at:
                 raise ValueError(f"{snapshot_label}.{field} must be at or after opened_at")
     if "close_time" in payload and "settlement_time" in payload:
