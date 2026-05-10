@@ -1733,6 +1733,8 @@ def _legacy_provenance_schema_error(payload: Mapping[str, Any]) -> str:
     unknown_fields = sorted(set(legacy) - {"source", "real_exchange_records"})
     if unknown_fields:
         return "unknown_provenance_field: " + ", ".join(unknown_fields)
+    if raw_legacy is not None and "real_exchange_records" not in legacy:
+        return "provenance_real_exchange_records_missing"
     source = legacy.get("source")
     if source is not None and not isinstance(source, str):
         return "provenance_source_not_string"
