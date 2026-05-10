@@ -988,11 +988,11 @@ def sync_positions_from_account(state: RuntimeState, account: AccountSnapshot) -
     for snapshot in account.open_positions:
         snapshot_label = f"account.open_positions[{snapshot.symbol}]"
         snapshot_qty = _strict_positive_quantity(snapshot.qty, f"{snapshot_label}.qty")
-        snapshot_entry_price = _strict_finite_number(snapshot.entry_price, f"{snapshot_label}.entry_price")
+        snapshot_entry_price = _strict_positive_quantity(snapshot.entry_price, f"{snapshot_label}.entry_price")
         snapshot_mark_price = (
             None
             if snapshot.mark_price is None
-            else _strict_finite_number(snapshot.mark_price, f"{snapshot_label}.mark_price")
+            else _strict_positive_quantity(snapshot.mark_price, f"{snapshot_label}.mark_price")
         )
         snapshot_notional = _strict_finite_number(snapshot.notional, f"{snapshot_label}.notional")
         snapshot_unrealized_pnl = _strict_finite_number(snapshot.unrealized_pnl, f"{snapshot_label}.unrealized_pnl")
