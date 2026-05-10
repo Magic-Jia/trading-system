@@ -405,6 +405,7 @@ def _validate_open_position_time_order(position: dict, *, field_prefix: str, pat
             "timestamp",
             "last_update_time",
             "close_time",
+            "settlement_time",
             "expiry_time",
         ):
             if field in position and _account_utc_timestamp_value(position[field]) < opened_at:

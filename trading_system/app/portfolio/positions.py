@@ -658,6 +658,7 @@ def _validate_snapshot_time_provenance_order(payload: Mapping[str, str], *, snap
             "timestamp",
             "last_update_time",
             "close_time",
+            "settlement_time",
             "expiry_time",
         ):
             if field in payload and _canonical_utc_timestamp_value(payload[field]) < opened_at:
