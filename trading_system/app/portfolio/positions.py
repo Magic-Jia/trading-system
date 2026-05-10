@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from datetime import datetime
 import math
+import re
 from typing import Any
 
 from .target_management import ensure_target_management_state, stage_completed, terminalize_all_unreachable_stages
@@ -223,6 +224,22 @@ _SNAPSHOT_ASSET_IDENTITY_KEYS = (
     "pnl_asset",
     "pnl_currency",
 )
+_SNAPSHOT_TIME_PROVENANCE_KEYS = (
+    "opened_at",
+    "updated_at",
+    "as_of",
+    "timestamp",
+    "last_update_time",
+    "event_time",
+    "trade_time",
+    "execution_time",
+    "fill_time",
+    "order_time",
+    "close_time",
+    "expiry_time",
+    "settlement_time",
+)
+_CANONICAL_UTC_ISO_TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 
 
 def _strict_canonical_symbol(value: Any, field: str) -> str:
@@ -354,6 +371,24 @@ def _strict_optional_iso_datetime_string(payload: Mapping[str, Any], key: str, f
         datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError as exc:
         raise ValueError(f"{label} must be a canonical ISO timestamp when present") from exc
+    return value
+
+
+def _strict_present_canonical_utc_timestamp(payload: Mapping[str, Any], key: str, field: str | None = None) -> str | None:
+    label = field or key
+    if key not in payload or payload.get(key) is None:
+        return None
+    value = payload.get(key)
+    if not isinstance(value, str):
+        raise TypeError(f"{label} must be a canonical UTC ISO timestamp when present")
+    if not _CANONICAL_UTC_ISO_TIMESTAMP_RE.fullmatch(value):
+        raise ValueError(f"{label} must be a canonical UTC ISO timestamp when present")
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError(f"{label} must be a canonical UTC ISO timestamp when present") from exc
+    if parsed.isoformat().replace("+00:00", "Z") != value:
+        raise ValueError(f"{label} must be a canonical UTC ISO timestamp when present")
     return value
 
 
@@ -601,6 +636,20 @@ def _strict_snapshot_remaining_identity_metadata(snapshot: PositionSnapshot) -> 
     snapshot_label = f"account.open_positions[{snapshot.symbol}]"
     for key in _SNAPSHOT_REMAINING_IDENTITY_KEYS:
         value = _strict_present_remaining_identity_string(
+            {key: getattr(snapshot, key, None)},
+            key,
+            f"{snapshot_label}.{key}",
+        )
+        if value is not None:
+            payload[key] = value
+    return payload
+
+
+def _strict_snapshot_time_provenance_metadata(snapshot: PositionSnapshot) -> dict[str, str]:
+    payload: dict[str, str] = {}
+    snapshot_label = f"account.open_positions[{snapshot.symbol}]"
+    for key in _SNAPSHOT_TIME_PROVENANCE_KEYS:
+        value = _strict_present_canonical_utc_timestamp(
             {key: getattr(snapshot, key, None)},
             key,
             f"{snapshot_label}.{key}",
@@ -860,6 +909,7 @@ def _validate_snapshot_position_identities(open_positions: list[PositionSnapshot
         _strict_snapshot_risk_price_metadata(snapshot)
         _strict_snapshot_position_sizing_metadata(snapshot)
         _strict_snapshot_asset_identity_metadata(snapshot)
+        _strict_snapshot_time_provenance_metadata(snapshot)
 
 
 def _mark_intent_position_closed(state: RuntimeState, symbol: str, position: dict[str, Any], now_bj: str) -> None:
@@ -911,6 +961,7 @@ def sync_positions_from_account(state: RuntimeState, account: AccountSnapshot) -
         snapshot_position_sizing_metadata = _strict_snapshot_position_sizing_metadata(snapshot)
         snapshot_asset_identity_metadata = _strict_snapshot_asset_identity_metadata(snapshot)
         snapshot_remaining_identity_metadata = _strict_snapshot_remaining_identity_metadata(snapshot)
+        snapshot_time_provenance_metadata = _strict_snapshot_time_provenance_metadata(snapshot)
 
         if snapshot_qty <= 0:
             continue
@@ -992,6 +1043,7 @@ def sync_positions_from_account(state: RuntimeState, account: AccountSnapshot) -
             **snapshot_position_sizing_metadata,
             **snapshot_asset_identity_metadata,
             **snapshot_remaining_identity_metadata,
+            **snapshot_time_provenance_metadata,
             "source": _source(
                 carry_existing,
                 from_snapshot=True,

@@ -137,6 +137,19 @@ class PositionSnapshot:
     funding_asset: str | None = None
     pnl_asset: str | None = None
     pnl_currency: str | None = None
+    opened_at: str | None = None
+    updated_at: str | None = None
+    as_of: str | None = None
+    timestamp: str | None = None
+    last_update_time: str | None = None
+    event_time: str | None = None
+    trade_time: str | None = None
+    execution_time: str | None = None
+    fill_time: str | None = None
+    order_time: str | None = None
+    close_time: str | None = None
+    expiry_time: str | None = None
+    settlement_time: str | None = None
 
 
 @dataclass(slots=True)

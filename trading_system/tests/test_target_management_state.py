@@ -2129,6 +2129,116 @@ def test_sync_positions_from_account_rejects_malformed_remaining_snapshot_identi
     assert state.positions == {"BTCUSDT": btc_position}
 
 
+@pytest.mark.parametrize(
+    ("field", "value", "exception"),
+    [
+        ("opened_at", 123, TypeError),
+        ("updated_at", "", ValueError),
+        ("as_of", " 2026-04-09T04:00:00Z", ValueError),
+        ("timestamp", "2026-04-09T04:00:00Z\n", ValueError),
+        ("last_update_time", "2026-04-09T04:00:00\x1fZ", ValueError),
+        ("event_time", "2026-04-09T12:00:00+08:00", ValueError),
+        ("trade_time", "2026-04-09T04:00:00", ValueError),
+        ("execution_time", "2026-04-09T04:00:00+00:00", ValueError),
+        ("fill_time", "2026-04-09T04:00:00.1Z", ValueError),
+        ("order_time", "2026-04-09", ValueError),
+        ("close_time", "not-a-timestamp", ValueError),
+        ("expiry_time", True, TypeError),
+        ("settlement_time", "2026-04-09T04:00:00.000000Z", ValueError),
+    ],
+)
+def test_sync_positions_from_account_rejects_malformed_snapshot_time_provenance_before_any_position_mutation(
+    field, value, exception
+):
+    btc_position = {
+        "symbol": "BTCUSDT",
+        "side": "LONG",
+        "qty": 0.4,
+        "entry_price": 100.0,
+        "mark_price": 101.0,
+        "status": "OPEN",
+        "tracked_from_snapshot": True,
+        "tracked_from_intent": False,
+    }
+    snapshot_payload = {
+        "symbol": "BTCUSDT",
+        "side": "LONG",
+        "qty": 0.5,
+        "entry_price": 100.0,
+        "mark_price": 106.0,
+        field: value,
+    }
+    state = RuntimeStateV2(
+        updated_at_bj="2026-04-09T12:00:00+08:00",
+        positions={"BTCUSDT": dict(btc_position)},
+    )
+
+    with pytest.raises(exception, match=f"account.open_positions\\[BTCUSDT\\]\\.{field}"):
+        sync_positions_from_account(
+            state,
+            AccountSnapshot(
+                equity=1000.0,
+                available_balance=1000.0,
+                futures_wallet_balance=1000.0,
+                open_positions=[PositionSnapshot(**snapshot_payload)],
+            ),
+        )
+
+    assert state.positions == {"BTCUSDT": btc_position}
+
+
+def test_sync_positions_from_account_carries_valid_snapshot_time_provenance_metadata():
+    state = RuntimeStateV2(updated_at_bj="2026-04-09T12:00:00+08:00")
+
+    synced = sync_positions_from_account(
+        state,
+        AccountSnapshot(
+            equity=1000.0,
+            available_balance=1000.0,
+            futures_wallet_balance=1000.0,
+            open_positions=[
+                PositionSnapshot(
+                    symbol="BTCUSDT",
+                    side="LONG",
+                    qty=0.4,
+                    entry_price=100.0,
+                    mark_price=106.0,
+                    notional=42.4,
+                    unrealized_pnl=2.4,
+                    opened_at="2026-04-09T03:00:00Z",
+                    updated_at="2026-04-09T04:00:00Z",
+                    as_of="2026-04-09T04:00:00Z",
+                    timestamp="2026-04-09T04:00:00Z",
+                    last_update_time="2026-04-09T04:00:00Z",
+                    event_time="2026-04-09T03:59:00Z",
+                    trade_time="2026-04-09T03:55:00Z",
+                    execution_time="2026-04-09T03:55:01Z",
+                    fill_time="2026-04-09T03:55:02Z",
+                    order_time="2026-04-09T03:54:59Z",
+                    close_time="2026-04-10T04:00:00Z",
+                    expiry_time="2026-06-09T04:00:00Z",
+                    settlement_time="2026-06-10T04:00:00Z",
+                )
+            ],
+        ),
+    )
+
+    assert synced[0]["opened_at"] == "2026-04-09T03:00:00Z"
+    assert synced[0]["updated_at"] == "2026-04-09T04:00:00Z"
+    assert synced[0]["as_of"] == "2026-04-09T04:00:00Z"
+    assert synced[0]["timestamp"] == "2026-04-09T04:00:00Z"
+    assert synced[0]["last_update_time"] == "2026-04-09T04:00:00Z"
+    assert synced[0]["event_time"] == "2026-04-09T03:59:00Z"
+    assert synced[0]["trade_time"] == "2026-04-09T03:55:00Z"
+    assert synced[0]["execution_time"] == "2026-04-09T03:55:01Z"
+    assert synced[0]["fill_time"] == "2026-04-09T03:55:02Z"
+    assert synced[0]["order_time"] == "2026-04-09T03:54:59Z"
+    assert synced[0]["close_time"] == "2026-04-10T04:00:00Z"
+    assert synced[0]["expiry_time"] == "2026-06-09T04:00:00Z"
+    assert synced[0]["settlement_time"] == "2026-06-10T04:00:00Z"
+    assert state.positions["BTCUSDT"]["settlement_time"] == "2026-06-10T04:00:00Z"
+
+
 def test_sync_positions_from_account_carries_valid_remaining_snapshot_identity_metadata():
     state = RuntimeStateV2(updated_at_bj="2026-04-09T12:00:00+08:00")
 
