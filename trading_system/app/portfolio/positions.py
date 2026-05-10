@@ -133,6 +133,14 @@ _NON_NEGATIVE_SNAPSHOT_COST_METADATA_KEYS = frozenset(
         "borrow_fee",
     }
 )
+_SNAPSHOT_ORDER_EXECUTION_STRING_FIELDS = {
+    "order_type": frozenset({"LIMIT", "MARKET", "STOP_MARKET", "TAKE_PROFIT_MARKET", "TRAILING_STOP_MARKET"}),
+    "time_in_force": frozenset({"GTC", "IOC", "FOK", "GTX"}),
+    "execution_venue": frozenset({"binance_spot", "binance_futures", "binance_futures_testnet", "paper_simulator"}),
+    "liquidity_role": frozenset({"maker", "taker"}),
+    "maker_status": frozenset({"filled", "partial", "no_fill", "expired", "cancelled_replaced"}),
+}
+_SNAPSHOT_ORDER_EXECUTION_BOOL_FIELDS = ("reduce_only", "post_only")
 
 
 def _strict_canonical_symbol(value: Any, field: str) -> str:
@@ -292,6 +300,30 @@ def _strict_optional_bool(payload: Mapping[str, Any], field: str, default: bool 
     raise ValueError(f"{field} must be a bool when present")
 
 
+def _strict_present_optional_bool(payload: Mapping[str, Any], key: str, field: str | None = None) -> bool | None:
+    label = field or key
+    if key not in payload or payload.get(key) is None:
+        return None
+    value = payload.get(key)
+    if isinstance(value, bool):
+        return value
+    raise ValueError(f"{label} must be a strict boolean when present")
+
+
+def _strict_present_supported_string(
+    payload: Mapping[str, Any], key: str, allowed: frozenset[str], field: str | None = None
+) -> str | None:
+    label = field or key
+    if key not in payload or payload.get(key) is None:
+        return None
+    value = payload.get(key)
+    if not isinstance(value, str) or not value or value != value.strip() or "\n" in value or "\r" in value:
+        raise ValueError(f"{label} must be a supported canonical string when present")
+    if value not in allowed:
+        raise ValueError(f"{label} must be a supported canonical string when present")
+    return value
+
+
 def _strict_present_optional_number(payload: Mapping[str, Any], key: str, field: str | None = None) -> float | None:
     label = field or key
     if key not in payload or payload.get(key) is None:
@@ -325,6 +357,29 @@ def _strict_snapshot_cost_metadata(snapshot: PositionSnapshot) -> dict[str, floa
         if key in _NON_NEGATIVE_SNAPSHOT_COST_METADATA_KEYS and value < 0.0:
             raise ValueError(f"{snapshot_label}.{key} must be non-negative when present")
         payload[key] = value
+    return payload
+
+
+def _strict_snapshot_order_execution_metadata(snapshot: PositionSnapshot) -> dict[str, Any]:
+    payload: dict[str, Any] = {}
+    snapshot_label = f"account.open_positions[{snapshot.symbol}]"
+    for key, allowed in _SNAPSHOT_ORDER_EXECUTION_STRING_FIELDS.items():
+        value = _strict_present_supported_string(
+            {key: getattr(snapshot, key, None)},
+            key,
+            allowed,
+            f"{snapshot_label}.{key}",
+        )
+        if value is not None:
+            payload[key] = value
+    for key in _SNAPSHOT_ORDER_EXECUTION_BOOL_FIELDS:
+        value = _strict_present_optional_bool(
+            {key: getattr(snapshot, key, None)},
+            key,
+            f"{snapshot_label}.{key}",
+        )
+        if value is not None:
+            payload[key] = value
     return payload
 
 
@@ -572,6 +627,7 @@ def _validate_snapshot_position_identities(open_positions: list[PositionSnapshot
                 f"account.open_positions[{snapshot.symbol}].{key}",
             )
         _strict_snapshot_cost_metadata(snapshot)
+        _strict_snapshot_order_execution_metadata(snapshot)
 
 
 def _mark_intent_position_closed(state: RuntimeState, symbol: str, position: dict[str, Any], now_bj: str) -> None:
@@ -617,6 +673,7 @@ def sync_positions_from_account(state: RuntimeState, account: AccountSnapshot) -
             f"{snapshot_label}.leverage",
         )
         snapshot_cost_metadata = _strict_snapshot_cost_metadata(snapshot)
+        snapshot_order_execution_metadata = _strict_snapshot_order_execution_metadata(snapshot)
 
         if snapshot_qty <= 0:
             continue
@@ -692,6 +749,7 @@ def sync_positions_from_account(state: RuntimeState, account: AccountSnapshot) -
             "signal_id": carry_existing.get("signal_id"),
             **_snapshot_taxonomy_fields(snapshot, carry_existing),
             **snapshot_cost_metadata,
+            **snapshot_order_execution_metadata,
             "source": _source(
                 carry_existing,
                 from_snapshot=True,

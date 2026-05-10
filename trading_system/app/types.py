@@ -73,6 +73,13 @@ class PositionSnapshot:
     slippage_paid: float | None = None
     carry_cost: float | None = None
     borrow_fee: float | None = None
+    order_type: str | None = None
+    time_in_force: str | None = None
+    execution_venue: str | None = None
+    liquidity_role: str | None = None
+    maker_status: str | None = None
+    reduce_only: bool | None = None
+    post_only: bool | None = None
 
 
 @dataclass(slots=True)
