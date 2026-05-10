@@ -508,6 +508,15 @@ def _validate_account_number(value: object, *, field_path: str, path: Path, qual
     return number
 
 
+def _validate_account_positive_number(value: object, *, field_path: str, path: Path) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{field_path} must be a positive finite number: {path}")
+    number = float(value)
+    if not math.isfinite(number) or number <= 0.0:
+        raise ValueError(f"{field_path} must be a positive finite number: {path}")
+    return number
+
+
 def _validate_account_ratio(value: object, *, field_path: str, path: Path) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError(f"{field_path} must be a ratio in (0, 1]: {path}")
@@ -539,6 +548,9 @@ def _validate_account_numeric_fields(payload: object, *, path: Path, field_path:
     if isinstance(payload, dict):
         for key, value in payload.items():
             child_path = f"{field_path}.{key}"
+            if field_path.startswith("account.open_positions[") and key == "qty":
+                _validate_account_positive_number(value, field_path=child_path, path=path)
+                continue
             if key in _ACCOUNT_RATIO_NUMBER_FIELDS:
                 _validate_account_ratio(value, field_path=child_path, path=path)
             elif key in _ACCOUNT_RISK_EXPOSURE_RATIO_FIELDS:

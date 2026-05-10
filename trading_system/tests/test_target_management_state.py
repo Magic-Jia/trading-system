@@ -686,6 +686,52 @@ def test_sync_positions_from_account_rejects_non_bool_tracked_from_intent(monkey
         )
 
 
+@pytest.mark.parametrize(
+    ("qty", "expected_message"),
+    [
+        (0.0, r"account\.open_positions\[BTCUSDT\]\.qty must be positive"),
+        (-0.5, r"account\.open_positions\[BTCUSDT\]\.qty must be positive"),
+    ],
+)
+def test_sync_positions_from_account_rejects_non_positive_open_position_qty_without_mutating_state(
+    monkeypatch,
+    qty: float,
+    expected_message: str,
+):
+    monkeypatch.setattr("trading_system.app.portfolio.positions._now_bj", lambda: "2026-04-09T18:00:00+08:00")
+    state = RuntimeStateV2(
+        updated_at_bj="2026-04-09T12:00:00+08:00",
+        positions={
+            "BTCUSDT": {
+                "symbol": "BTCUSDT",
+                "side": "LONG",
+                "qty": 0.5,
+                "entry_price": 100.0,
+                "mark_price": 101.0,
+                "status": "OPEN",
+                "tracked_from_snapshot": True,
+                "tracked_from_intent": False,
+            }
+        },
+    )
+    before = dict(state.positions["BTCUSDT"])
+
+    with pytest.raises(ValueError, match=expected_message):
+        sync_positions_from_account(
+            state,
+            AccountSnapshot(
+                equity=1000.0,
+                available_balance=1000.0,
+                futures_wallet_balance=1000.0,
+                open_positions=[
+                    PositionSnapshot(symbol="BTCUSDT", side="LONG", qty=qty, entry_price=100.0, mark_price=101.0)
+                ],
+            ),
+        )
+
+    assert state.positions["BTCUSDT"] == before
+
+
 def test_sync_positions_from_account_clears_runner_protection_until_second_stage_is_filled(monkeypatch):
     monkeypatch.setattr("trading_system.app.portfolio.positions._now_bj", lambda: "2026-04-09T18:00:00+08:00")
     state = RuntimeStateV2(

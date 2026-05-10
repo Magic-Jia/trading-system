@@ -711,6 +711,13 @@ def _strict_non_negative_quantity(payload: Mapping[str, Any], field: str, defaul
     return qty
 
 
+def _strict_positive_quantity(value: Any, field: str) -> float:
+    qty = _strict_finite_number(value, field)
+    if not math.isfinite(qty) or qty <= 0:
+        raise ValueError(f"{field} must be positive")
+    return qty
+
+
 def _partial_take_profit_stage(intent: ManagementActionIntent) -> str:
     if intent.action != "PARTIAL_TAKE_PROFIT":
         return ""
@@ -978,7 +985,7 @@ def sync_positions_from_account(state: RuntimeState, account: AccountSnapshot) -
 
     for snapshot in account.open_positions:
         snapshot_label = f"account.open_positions[{snapshot.symbol}]"
-        snapshot_qty = _strict_finite_number(snapshot.qty, f"{snapshot_label}.qty")
+        snapshot_qty = _strict_positive_quantity(snapshot.qty, f"{snapshot_label}.qty")
         snapshot_entry_price = _strict_finite_number(snapshot.entry_price, f"{snapshot_label}.entry_price")
         snapshot_mark_price = (
             None
@@ -1000,9 +1007,6 @@ def sync_positions_from_account(state: RuntimeState, account: AccountSnapshot) -
         snapshot_asset_identity_metadata = _strict_snapshot_asset_identity_metadata(snapshot)
         snapshot_remaining_identity_metadata = _strict_snapshot_remaining_identity_metadata(snapshot)
         snapshot_time_provenance_metadata = _strict_snapshot_time_provenance_metadata(snapshot)
-
-        if snapshot_qty <= 0:
-            continue
 
         existing = state.positions.get(snapshot.symbol, {})
         carry_existing = existing if existing.get("side") == snapshot.side else {}
