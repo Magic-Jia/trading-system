@@ -358,6 +358,69 @@ def test_write_phase1_dataset_bundle_rejects_malformed_open_position_strategy_in
 
 
 @pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("position_id", 123),
+        ("positionId", ""),
+        ("order_id", " order-123"),
+        ("orderId", "order-123\n"),
+        ("client_order_id", "client/order"),
+        ("clientOrderId", "client order"),
+    ],
+)
+def test_write_phase1_dataset_bundle_rejects_malformed_open_position_order_position_ids_without_artifact(
+    tmp_path: Path, field: str, value: object
+) -> None:
+    timestamp = datetime(2024, 1, 1, tzinfo=UTC)
+    material = archive_importer.Phase1DatasetBundleMaterial(
+        timestamp=timestamp,
+        run_id=archive_importer._run_id(timestamp),
+        metadata={"timestamp": "2024-01-01T00:00:00Z", "run_id": archive_importer._run_id(timestamp)},
+        market_context={
+            "schema_version": archive_importer.PHASE1_IMPORTER_MARKET_CONTEXT_SCHEMA,
+            "as_of": "2024-01-01T00:00:00Z",
+            "symbols": {"BTCUSDT": {}},
+            "instrument_rows": [],
+        },
+        derivatives_snapshot={
+            "schema_version": archive_importer.PHASE1_IMPORTER_DERIVATIVES_SCHEMA,
+            "as_of": "2024-01-01T00:00:00Z",
+            "rows": [],
+        },
+        account_snapshot={
+            "schema_version": archive_importer.PHASE1_IMPORTER_ACCOUNT_SCHEMA,
+            "as_of": "2024-01-01T00:00:00Z",
+            "equity": 100000.0,
+            "open_positions": [
+                {
+                    "symbol": "BTCUSDT",
+                    "side": "LONG",
+                    "position_id": "pos-123",
+                    "positionId": "pos:123",
+                    "order_id": "order_123",
+                    "orderId": "order-123",
+                    "client_order_id": "client_123",
+                    "clientOrderId": "client-123",
+                    "qty": 0.5,
+                    "entry_price": 60000.0,
+                    "mark_price": 61000.0,
+                }
+            ],
+        },
+    )
+    material.account_snapshot["open_positions"][0][field] = value
+    expected_bundle_dir = tmp_path / f"{archive_importer._bundle_fragment(timestamp)}__{material.run_id}"
+
+    with pytest.raises(
+        ValueError,
+        match=rf"account\.open_positions\[0\]\.{field} must be a canonical identifier string",
+    ):
+        write_phase1_dataset_bundle(material, tmp_path)
+
+    assert not expected_bundle_dir.exists()
+
+
+@pytest.mark.parametrize(
     ("margin_type", "expected_message"),
     [
         (" cross ", r"account\.open_positions\[0\]\.marginType must be a canonical string"),

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Iterable
@@ -81,6 +82,15 @@ _ACCOUNT_OPEN_POSITION_IDENTITY_STRING_FIELDS = (
     "intent_id",
     "intentId",
 )
+_ACCOUNT_OPEN_POSITION_IDENTIFIER_FIELDS = (
+    "position_id",
+    "positionId",
+    "order_id",
+    "orderId",
+    "client_order_id",
+    "clientOrderId",
+)
+_ACCOUNT_IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9_.:-]+$")
 _ACCOUNT_OPEN_POSITION_UPPERCASE_IDENTITY_FIELDS = (
     "symbol",
     "venue",
@@ -249,6 +259,9 @@ def _validate_open_position_identity_fields(account: dict, *, path: Path) -> Non
         for field in _ACCOUNT_OPEN_POSITION_IDENTITY_STRING_FIELDS:
             if field in position:
                 _require_account_canonical_string(position[field], field_path=f"{field_prefix}.{field}", path=path)
+        for field in _ACCOUNT_OPEN_POSITION_IDENTIFIER_FIELDS:
+            if field in position:
+                _require_account_identifier_string(position[field], field_path=f"{field_prefix}.{field}", path=path)
         for field in _ACCOUNT_OPEN_POSITION_UPPERCASE_IDENTITY_FIELDS:
             if field in position:
                 value = _require_account_uppercase_canonical_string(
@@ -271,6 +284,14 @@ def _validate_open_position_identity_fields(account: dict, *, path: Path) -> Non
 def _require_account_canonical_string(value: object, *, field_path: str, path: Path) -> str:
     if not isinstance(value, str) or not value or value != value.strip():
         raise ValueError(f"{field_path} must be a canonical string: {path}")
+    return value
+
+
+def _require_account_identifier_string(value: object, *, field_path: str, path: Path) -> str:
+    if not isinstance(value, str) or not value or value != value.strip():
+        raise ValueError(f"{field_path} must be a canonical identifier string: {path}")
+    if _ACCOUNT_IDENTIFIER_RE.fullmatch(value) is None:
+        raise ValueError(f"{field_path} must be a canonical identifier string: {path}")
     return value
 
 
