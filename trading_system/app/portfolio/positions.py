@@ -115,6 +115,24 @@ _SNAPSHOT_IDENTITY_KEYS = (
     "client_order_id",
     "clientOrderId",
 )
+_SNAPSHOT_COST_METADATA_KEYS = (
+    "fee_paid",
+    "commission",
+    "funding_paid",
+    "funding_fee",
+    "slippage_paid",
+    "carry_cost",
+    "borrow_fee",
+)
+_NON_NEGATIVE_SNAPSHOT_COST_METADATA_KEYS = frozenset(
+    {
+        "fee_paid",
+        "commission",
+        "slippage_paid",
+        "carry_cost",
+        "borrow_fee",
+    }
+)
 
 
 def _strict_canonical_symbol(value: Any, field: str) -> str:
@@ -291,6 +309,23 @@ def _strict_present_optional_positive_number(
     if value <= 0.0:
         raise ValueError(f"{label} must be positive when present")
     return value
+
+
+def _strict_snapshot_cost_metadata(snapshot: PositionSnapshot) -> dict[str, float]:
+    payload: dict[str, float] = {}
+    snapshot_label = f"account.open_positions[{snapshot.symbol}]"
+    for key in _SNAPSHOT_COST_METADATA_KEYS:
+        value = _strict_present_optional_number(
+            {key: getattr(snapshot, key, None)},
+            key,
+            f"{snapshot_label}.{key}",
+        )
+        if value is None:
+            continue
+        if key in _NON_NEGATIVE_SNAPSHOT_COST_METADATA_KEYS and value < 0.0:
+            raise ValueError(f"{snapshot_label}.{key} must be non-negative when present")
+        payload[key] = value
+    return payload
 
 
 def _strict_non_negative_quantity(payload: Mapping[str, Any], field: str, default: float | None = None) -> float:
@@ -536,6 +571,7 @@ def _validate_snapshot_position_identities(open_positions: list[PositionSnapshot
                 key,
                 f"account.open_positions[{snapshot.symbol}].{key}",
             )
+        _strict_snapshot_cost_metadata(snapshot)
 
 
 def _mark_intent_position_closed(state: RuntimeState, symbol: str, position: dict[str, Any], now_bj: str) -> None:
@@ -580,6 +616,7 @@ def sync_positions_from_account(state: RuntimeState, account: AccountSnapshot) -
             "leverage",
             f"{snapshot_label}.leverage",
         )
+        snapshot_cost_metadata = _strict_snapshot_cost_metadata(snapshot)
 
         if snapshot_qty <= 0:
             continue
@@ -654,6 +691,7 @@ def sync_positions_from_account(state: RuntimeState, account: AccountSnapshot) -
             "intent_id": carry_existing.get("intent_id"),
             "signal_id": carry_existing.get("signal_id"),
             **_snapshot_taxonomy_fields(snapshot, carry_existing),
+            **snapshot_cost_metadata,
             "source": _source(
                 carry_existing,
                 from_snapshot=True,

@@ -66,6 +66,13 @@ class PositionSnapshot:
     stop_family: str | None = None
     stop_reference: str | None = None
     stop_policy_source: str | None = None
+    fee_paid: float | None = None
+    commission: float | None = None
+    funding_paid: float | None = None
+    funding_fee: float | None = None
+    slippage_paid: float | None = None
+    carry_cost: float | None = None
+    borrow_fee: float | None = None
 
 
 @dataclass(slots=True)
