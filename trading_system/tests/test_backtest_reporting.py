@@ -2218,6 +2218,114 @@ def test_walk_forward_validation_report_rejects_string_window_scorecard_metric()
 
 
 @pytest.mark.parametrize(
+    ("path", "value", "match"),
+    [
+        (
+            ("windows", 0, "out_of_sample", "snapshot_count"),
+            True,
+            r"windows\[0\]\.out_of_sample\.snapshot_count must be a non-negative integer",
+        ),
+        (
+            ("windows", 0, "out_of_sample", "snapshot_count"),
+            "1",
+            r"windows\[0\]\.out_of_sample\.snapshot_count must be a non-negative integer",
+        ),
+        (
+            ("windows", 0, "out_of_sample", "snapshot_count"),
+            1.5,
+            r"windows\[0\]\.out_of_sample\.snapshot_count must be a non-negative integer",
+        ),
+        (
+            ("windows", 0, "out_of_sample", "snapshot_count"),
+            float("nan"),
+            r"windows\[0\]\.out_of_sample\.snapshot_count must be a non-negative integer",
+        ),
+        (
+            ("windows", 0, "out_of_sample", "snapshot_count"),
+            float("inf"),
+            r"windows\[0\]\.out_of_sample\.snapshot_count must be a non-negative integer",
+        ),
+        (
+            ("windows", 0, "out_of_sample", "snapshot_count"),
+            -1,
+            r"windows\[0\]\.out_of_sample\.snapshot_count must be a non-negative integer",
+        ),
+        (
+            ("windows", 0, "out_of_sample", "scorecard", "win_count"),
+            "1",
+            r"windows\[0\]\.out_of_sample\.scorecard\.win_count must be a non-negative integer",
+        ),
+        (
+            ("windows", 0, "out_of_sample", "scorecard", "loss_count"),
+            True,
+            r"windows\[0\]\.out_of_sample\.scorecard\.loss_count must be a non-negative integer",
+        ),
+        (
+            ("robustness_summary", "performance_dispersion", "window_count"),
+            1.5,
+            r"performance_dispersion\.window_count must be a non-negative integer",
+        ),
+        (
+            ("robustness_summary", "performance_dispersion", "positive_window_count"),
+            "1",
+            r"performance_dispersion\.positive_window_count must be a non-negative integer",
+        ),
+        (
+            ("robustness_summary", "worst_window", "window_index"),
+            0,
+            r"worst_window\.window_index must be a positive integer",
+        ),
+        (
+            ("robustness_summary", "worst_window", "scorecard", "trade_count"),
+            float("inf"),
+            r"worst_window\.scorecard\.trade_count must be a non-negative integer",
+        ),
+    ],
+)
+def test_walk_forward_validation_report_rejects_malformed_present_count_domains(
+    path: tuple[object, ...],
+    value: object,
+    match: str,
+) -> None:
+    experiment: dict[str, object] = {
+        "windows": [
+            {
+                "window_index": 1,
+                "out_of_sample": {
+                    "snapshot_count": 1,
+                    "scorecard": {"total_return": 0.03, "trade_count": 1, "win_count": 1, "loss_count": 0},
+                    "run_ids": ["row-002"],
+                },
+            }
+        ],
+        "robustness_summary": {
+            "out_of_sample_scorecard": {"total_return": 0.03, "trade_count": 1},
+            "performance_dispersion": {
+                "window_count": 1,
+                "positive_window_count": 1,
+                "positive_window_ratio": 1.0,
+            },
+            "worst_window": {
+                "window_index": 1,
+                "scorecard": {"total_return": 0.03, "trade_count": 1},
+            },
+        },
+        "parameter_stability": {"parameter_stability_score": 0.8},
+    }
+    cursor: object = experiment
+    for part in path[:-1]:
+        cursor = cursor[part]  # type: ignore[index]
+    cursor[path[-1]] = value  # type: ignore[index]
+
+    with pytest.raises(ValueError, match=match):
+        cli.render_walk_forward_validation_report(
+            experiment_name="walk_forward_validation",
+            metadata={"snapshot_count": 1, "window_count": 1},
+            experiment=experiment,
+        )
+
+
+@pytest.mark.parametrize(
     ("field", "value", "match"),
     [
         ("win_rate", True, r"windows\[0\]\.out_of_sample\.scorecard\.win_rate must be a bounded ratio strict number"),

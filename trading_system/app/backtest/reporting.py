@@ -543,6 +543,13 @@ def _non_negative_int_field(
     return raw_value
 
 
+def _positive_int_field(payload: Mapping[str, Any], field: str, *, label: str = "summary") -> int:
+    value = _non_negative_int_field(payload, field, label=label)
+    if value <= 0:
+        raise ValueError(f"{label}.{field} must be a positive integer")
+    return value
+
+
 def _summary_int(summary_payload: Mapping[str, Any], field: str, default: int = 0) -> int:
     return _non_negative_int_field(summary_payload, field, label="summary", default=default)
 
@@ -755,6 +762,7 @@ def _walk_forward_window_rows(rows: list[Any]) -> list[dict[str, Any]]:
         "payoff_ratio",
         "expectancy",
     )
+    scorecard_count_fields = ("trade_count", "win_count", "loss_count")
     validated_rows: list[dict[str, Any]] = []
     for index, window in enumerate(rows):
         if not isinstance(window, Mapping):
@@ -777,6 +785,12 @@ def _walk_forward_window_rows(rows: list[Any]) -> list[dict[str, Any]]:
                 validated_segment["run_ids"] = _canonical_report_string_list(
                     validated_segment["run_ids"],
                     field_name=f"windows[{index}].{segment_name}.run_ids",
+                )
+            if "snapshot_count" in validated_segment and validated_segment["snapshot_count"] is not None:
+                validated_segment["snapshot_count"] = _non_negative_int_field(
+                    validated_segment,
+                    "snapshot_count",
+                    label=f"windows[{index}].{segment_name}",
                 )
             scorecard = validated_segment.get("scorecard")
             if scorecard is None:
@@ -804,16 +818,55 @@ def _walk_forward_window_rows(rows: list[Any]) -> list[dict[str, Any]]:
                         validated_scorecard[field],
                         field_name=field_name,
                     )
-            if "trade_count" in validated_scorecard and validated_scorecard["trade_count"] is not None:
-                validated_scorecard["trade_count"] = _non_negative_int_field(
-                    validated_scorecard,
-                    "trade_count",
-                    label=f"windows[{index}].{segment_name}.scorecard",
-                )
+            for field in scorecard_count_fields:
+                if field in validated_scorecard and validated_scorecard[field] is not None:
+                    validated_scorecard[field] = _non_negative_int_field(
+                        validated_scorecard,
+                        field,
+                        label=f"windows[{index}].{segment_name}.scorecard",
+                    )
             validated_segment["scorecard"] = validated_scorecard
             validated[segment_name] = validated_segment
         validated_rows.append(validated)
     return validated_rows
+
+
+def _walk_forward_scorecard_counts(scorecard: dict[str, Any], *, label: str) -> dict[str, Any]:
+    for field in ("trade_count", "win_count", "loss_count"):
+        if field in scorecard and scorecard[field] is not None:
+            scorecard[field] = _non_negative_int_field(scorecard, field, label=label)
+    return scorecard
+
+
+def _walk_forward_performance_dispersion(payload: Mapping[str, Any]) -> dict[str, Any]:
+    performance_dispersion = dict(payload)
+    for field in ("window_count", "positive_window_count"):
+        if field in performance_dispersion and performance_dispersion[field] is not None:
+            performance_dispersion[field] = _non_negative_int_field(
+                performance_dispersion,
+                field,
+                label="performance_dispersion",
+            )
+    return performance_dispersion
+
+
+def _walk_forward_worst_window(payload: Any) -> dict[str, Any] | None:
+    if payload is None:
+        return None
+    if not isinstance(payload, Mapping):
+        raise ValueError("worst_window must be an object")
+    worst_window = dict(payload)
+    if "window_index" in worst_window and worst_window["window_index"] is not None:
+        worst_window["window_index"] = _positive_int_field(worst_window, "window_index", label="worst_window")
+    scorecard = worst_window.get("scorecard")
+    if scorecard is not None:
+        if not isinstance(scorecard, Mapping):
+            raise ValueError("worst_window.scorecard must be an object")
+        worst_window["scorecard"] = _walk_forward_scorecard_counts(
+            dict(scorecard),
+            label="worst_window.scorecard",
+        )
+    return worst_window
 
 
 def _rotation_comparison_rows(rows: list[Any]) -> list[dict[str, Any]]:
@@ -1363,11 +1416,26 @@ def render_walk_forward_validation_report(
     raw_performance_dispersion = robustness_summary.get("performance_dispersion", {})
     if not isinstance(raw_performance_dispersion, Mapping):
         raise ValueError("performance_dispersion must be an object")
-    performance_dispersion = dict(raw_performance_dispersion)
+    performance_dispersion = _walk_forward_performance_dispersion(raw_performance_dispersion)
     raw_out_of_sample_scorecard = robustness_summary.get("out_of_sample_scorecard", {})
     if not isinstance(raw_out_of_sample_scorecard, Mapping):
         raise ValueError("out_of_sample_scorecard must be an object")
-    out_of_sample_scorecard = dict(raw_out_of_sample_scorecard)
+    out_of_sample_scorecard = _walk_forward_scorecard_counts(
+        dict(raw_out_of_sample_scorecard),
+        label="out_of_sample_scorecard",
+    )
+    if "in_sample_scorecard" in robustness_summary:
+        raw_in_sample_scorecard = robustness_summary["in_sample_scorecard"]
+        if not isinstance(raw_in_sample_scorecard, Mapping):
+            raise ValueError("in_sample_scorecard must be an object")
+        robustness_summary["in_sample_scorecard"] = _walk_forward_scorecard_counts(
+            dict(raw_in_sample_scorecard),
+            label="in_sample_scorecard",
+        )
+    robustness_summary["out_of_sample_scorecard"] = out_of_sample_scorecard
+    robustness_summary["performance_dispersion"] = performance_dispersion
+    if "worst_window" in robustness_summary:
+        robustness_summary["worst_window"] = _walk_forward_worst_window(robustness_summary["worst_window"])
     windows = _walk_forward_window_rows(_list_field(experiment, "windows"))
 
     out_of_sample_total_return = _report_finite_float(
