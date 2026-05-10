@@ -318,6 +318,10 @@ _ACCOUNT_OPEN_POSITION_ENUM_FIELDS = {
     "time_in_force": {"GTC", "IOC", "FOK", "GTX"},
     "timeInForce": {"GTC", "IOC", "FOK", "GTX"},
 }
+_ACCOUNT_OPEN_POSITION_STRICT_BOOL_FIELDS = (
+    "reduce_only",
+    "reduceOnly",
+)
 _ACCOUNT_OPEN_POSITION_TERMINAL_STATUS_VALUES = {"CLOSED", "SKIPPED", "FAILED", "CANCELLED", "CANCELED"}
 _ACCOUNT_OPEN_POSITION_OPEN_STATUS_VALUES = {"OPEN"}
 
@@ -520,6 +524,9 @@ def _validate_open_position_identity_fields(account: dict, *, path: Path) -> Non
                 if value not in allowed:
                     allowed_values = ", ".join(sorted(allowed))
                     raise ValueError(f"{field_prefix}.{field} must be one of {allowed_values}: {path}")
+        for field in _ACCOUNT_OPEN_POSITION_STRICT_BOOL_FIELDS:
+            if field in position:
+                _require_account_strict_bool(position[field], field_path=f"{field_prefix}.{field}", path=path)
 
 
 def _account_utc_timestamp_value(value: str) -> datetime:
@@ -626,6 +633,12 @@ def _require_account_asset_code(value: object, *, field_path: str, path: Path) -
         or _ACCOUNT_ASSET_CODE_RE.fullmatch(value) is None
     ):
         raise ValueError(f"{field_path} must be an uppercase asset code: {path}")
+    return value
+
+
+def _require_account_strict_bool(value: object, *, field_path: str, path: Path) -> bool:
+    if not isinstance(value, bool):
+        raise ValueError(f"{field_path} must be a strict boolean: {path}")
     return value
 
 

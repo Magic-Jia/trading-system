@@ -1140,6 +1140,8 @@ def test_load_historical_dataset_rejects_malformed_open_position_order_position_
         ("orderType", " LIMIT ", r"account\.open_positions\[0\]\.orderType must be a canonical string"),
         ("time_in_force", "DAY", r"account\.open_positions\[0\]\.time_in_force must be one of"),
         ("timeInForce", True, r"account\.open_positions\[0\]\.timeInForce must be a canonical string"),
+        ("reduce_only", "false", r"account\.open_positions\[0\]\.reduce_only must be a strict boolean"),
+        ("reduceOnly", 0, r"account\.open_positions\[0\]\.reduceOnly must be a strict boolean"),
     ],
 )
 def test_load_historical_dataset_rejects_malformed_open_position_order_execution_aliases_before_load(
