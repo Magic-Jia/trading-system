@@ -190,12 +190,11 @@ def _strict_position_status(payload: Mapping[str, Any], key: str, field: str | N
     value = payload.get(key)
     if not isinstance(value, str):
         raise TypeError(f"{label} must be a string when present")
-    status = value.strip().upper()
-    if not status:
+    if value != value.strip() or not value:
         raise ValueError(f"{label} must not be blank when present")
-    if status not in _POSITION_STATUS_VALUES:
+    if value not in _POSITION_STATUS_VALUES:
         raise ValueError(f"{label} must be one of {sorted(_POSITION_STATUS_VALUES)} when present")
-    return status
+    return value
 
 
 def _strict_position_side(payload: Mapping[str, Any], key: str, field: str | None = None) -> str:
@@ -409,7 +408,9 @@ def _validate_existing_position_identities(positions: Mapping[str, dict[str, Any
     for symbol, position in positions.items():
         _strict_position_side(position, "side", f"positions[{symbol}].side")
         _strict_position_status(position, "status", f"positions[{symbol}].status")
-        _strict_optional_string(position, "source", f"positions[{symbol}].source")
+        source = _strict_optional_string(position, "source", f"positions[{symbol}].source")
+        if source and position.get("source") != position.get("source").strip():
+            raise ValueError(f"positions[{symbol}].source must not be blank when present")
 
 
 def _validate_snapshot_position_identities(open_positions: list[PositionSnapshot]) -> None:
