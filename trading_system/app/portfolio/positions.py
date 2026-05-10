@@ -219,6 +219,24 @@ def _strict_optional_identity_string(payload: Mapping[str, Any], key: str, field
     return value
 
 
+def _strict_optional_iso_datetime_string(payload: Mapping[str, Any], key: str, field: str | None = None) -> str:
+    label = field or key
+    if key not in payload or payload.get(key) is None:
+        return ""
+    value = payload.get(key)
+    if not isinstance(value, str):
+        raise TypeError(f"{label} must be a string when present")
+    if not value or value != value.strip() or "\n" in value or "\r" in value:
+        raise ValueError(f"{label} must be a canonical ISO timestamp when present")
+    if "T" not in value:
+        raise ValueError(f"{label} must be a canonical ISO timestamp when present")
+    try:
+        datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError(f"{label} must be a canonical ISO timestamp when present") from exc
+    return value
+
+
 def _strict_position_status(payload: Mapping[str, Any], key: str, field: str | None = None) -> str:
     label = field or key
     if key not in payload or payload.get(key) is None:
@@ -452,6 +470,8 @@ def _validate_existing_position_identities(positions: Mapping[str, dict[str, Any
         _strict_position_status(position, "status", f"positions[{symbol}].status")
         for key in ("intent_id", "signal_id", "strategy_tag", "setup_type", "engine"):
             _strict_optional_identity_string(position, key, f"positions[{symbol}].{key}")
+        for key in ("opened_at_bj", "updated_at_bj"):
+            _strict_optional_iso_datetime_string(position, key, f"positions[{symbol}].{key}")
         source = _strict_optional_string(position, "source", f"positions[{symbol}].source")
         if source and position.get("source") != position.get("source").strip():
             raise ValueError(f"positions[{symbol}].source must not be blank when present")
