@@ -10147,6 +10147,39 @@ def test_trade_postmortem_summary_rejects_malformed_present_latency_and_bar_fiel
         )
 
 
+@pytest.mark.parametrize(
+    ("executed_qty", "error"),
+    [
+        (True, r"postmortem.trades\[1\]\.executed_qty must be a positive finite strict number"),
+        ("1", r"postmortem.trades\[1\]\.executed_qty must be a positive finite strict number"),
+        (float("nan"), r"postmortem.trades\[1\]\.executed_qty must be a positive finite strict number"),
+        (float("inf"), r"postmortem.trades\[1\]\.executed_qty must be a positive finite strict number"),
+        (-1, r"postmortem.trades\[1\]\.executed_qty must be a positive finite strict number"),
+        (0, r"postmortem.trades\[1\]\.executed_qty must be a positive finite strict number"),
+    ],
+)
+def test_trade_postmortem_summary_rejects_malformed_present_executed_qty(
+    executed_qty: object,
+    error: str,
+) -> None:
+    with pytest.raises(ValueError, match=error):
+        summarize_trade_postmortem(
+            [
+                {
+                    "symbol": "SOLUSDT",
+                    "setup_type": "RS_REACCELERATION",
+                    "gross_pnl": 100.0,
+                    "net_pnl": 80.0,
+                    "fee_paid": 10.0,
+                    "slippage_paid": 10.0,
+                    "mfe_pct": 0.012,
+                    "mae_pct": 0.0,
+                    "executed_qty": executed_qty,
+                }
+            ]
+        )
+
+
 class _Universes:
     major_universe = ()
     rotation_universe = ()
