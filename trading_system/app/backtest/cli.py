@@ -150,6 +150,14 @@ def _optional_postmortem_float(trade: Mapping[str, Any], field: str, *, index: i
     return _strict_present_finite_float(trade[field], field_name=f"trades[{index}].{field}")
 
 
+def _optional_postmortem_bool(trade: Mapping[str, Any], field: str, *, index: int) -> bool | None:
+    if field not in trade or trade[field] is None:
+        return None
+    if not isinstance(trade[field], bool):
+        raise ValueError(f"trades[{index}].{field} must be a strict boolean")
+    return trade[field]
+
+
 def _manifest(config: BacktestConfig, rows: list[DatasetSnapshotRow], artifacts: dict[str, dict[str, Any]], metadata: dict[str, Any] | None = None) -> dict[str, Any]:
     base = _string_key_mapping(metadata, field_name="metadata") if metadata is not None else _base_metadata(config, rows)
     return {
@@ -422,6 +430,7 @@ def _render_trade_postmortem_markdown(trades: list[dict[str, Any]]) -> str:
         "|---:|---|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---|---|---|---|---:|---|---|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for index, trade in enumerate(trades, start=1):
+        _optional_postmortem_bool(trade, "reduce_only", index=index - 1)
         lines.append(
             "| {index} | {time} | {symbol} | {side} | {engine} | {setup} | {score:.4f} | {entry:.6g} | {exit:.6g} | {gross:.2f} | {net:.2f} | {mfe:.4%} | {mae:.4%} | {exit_reason} | {fill_model} | {exec_source} | {exec_tf} | {lag_bars} | {fill_quality} | {maker_status} | {maker_wait} | {filled_qty} | {unfilled_qty} | {depth_levels} | {impact_bps} | {coverage} | {mark_price} | {funding_rate} | {open_interest} |".format(
                 index=index,
