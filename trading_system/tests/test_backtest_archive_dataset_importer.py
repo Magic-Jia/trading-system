@@ -483,6 +483,67 @@ def test_write_phase1_dataset_bundle_rejects_malformed_open_position_leverage_ma
     assert not expected_bundle_dir.exists()
 
 
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("liquidation_price", "59000.0"),
+        ("liquidationPrice", True),
+        ("break_even_price", float("inf")),
+        ("breakEvenPrice", "60050.0"),
+        ("risk_price", -1.0),
+    ],
+)
+def test_write_phase1_dataset_bundle_rejects_malformed_open_position_risk_prices_without_artifact(
+    tmp_path: Path, field: str, value: object
+) -> None:
+    timestamp = datetime(2024, 1, 1, tzinfo=UTC)
+    material = archive_importer.Phase1DatasetBundleMaterial(
+        timestamp=timestamp,
+        run_id=archive_importer._run_id(timestamp),
+        metadata={"timestamp": "2024-01-01T00:00:00Z", "run_id": archive_importer._run_id(timestamp)},
+        market_context={
+            "schema_version": archive_importer.PHASE1_IMPORTER_MARKET_CONTEXT_SCHEMA,
+            "as_of": "2024-01-01T00:00:00Z",
+            "symbols": {"BTCUSDT": {}},
+            "instrument_rows": [],
+        },
+        derivatives_snapshot={
+            "schema_version": archive_importer.PHASE1_IMPORTER_DERIVATIVES_SCHEMA,
+            "as_of": "2024-01-01T00:00:00Z",
+            "rows": [],
+        },
+        account_snapshot={
+            "schema_version": archive_importer.PHASE1_IMPORTER_ACCOUNT_SCHEMA,
+            "as_of": "2024-01-01T00:00:00Z",
+            "equity": 100000.0,
+            "open_positions": [
+                {
+                    "symbol": "BTCUSDT",
+                    "side": "LONG",
+                    "qty": 0.5,
+                    "entry_price": 60000.0,
+                    "mark_price": 61000.0,
+                    "liquidation_price": 59000.0,
+                    "liquidationPrice": 59000.0,
+                    "break_even_price": 60050.0,
+                    "breakEvenPrice": 60050.0,
+                    "risk_price": 59500.0,
+                }
+            ],
+        },
+    )
+    material.account_snapshot["open_positions"][0][field] = value
+    expected_bundle_dir = tmp_path / f"{archive_importer._bundle_fragment(timestamp)}__{material.run_id}"
+
+    with pytest.raises(
+        ValueError,
+        match=rf"account\.open_positions\[0\]\.{field} must be a non-negative finite number",
+    ):
+        write_phase1_dataset_bundle(material, tmp_path)
+
+    assert not expected_bundle_dir.exists()
+
+
 def test_merged_execution_evidence_coverage_rejects_non_object_buckets() -> None:
     with pytest.raises(ValueError, match="execution_evidence.materialized must be a JSON object"):
         archive_importer._merged_execution_evidence_coverage(

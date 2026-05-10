@@ -163,6 +163,26 @@ def test_load_historical_dataset_rejects_numeric_string_account_equity(tmp_path:
             -1.0,
             r"account\.open_positions\[0\]\.maintenance_margin must be a non-negative finite number",
         ),
+        (
+            ("open_positions", 0, "liquidationPrice"),
+            "59000.0",
+            r"account\.open_positions\[0\]\.liquidationPrice must be a non-negative finite number",
+        ),
+        (
+            ("open_positions", 0, "break_even_price"),
+            float("nan"),
+            r"account\.open_positions\[0\]\.break_even_price must be a non-negative finite number",
+        ),
+        (
+            ("open_positions", 0, "breakEvenPrice"),
+            True,
+            r"account\.open_positions\[0\]\.breakEvenPrice must be a non-negative finite number",
+        ),
+        (
+            ("open_positions", 0, "risk_price"),
+            -1.0,
+            r"account\.open_positions\[0\]\.risk_price must be a non-negative finite number",
+        ),
     ],
 )
 def test_load_historical_dataset_rejects_malformed_present_account_numeric_fields(

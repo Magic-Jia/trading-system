@@ -20,6 +20,7 @@ _ACCOUNT_NON_NEGATIVE_NUMBER_FIELDS = (
     "initial_margin",
     "isolated_margin",
     "liquidation_price",
+    "liquidationPrice",
     "margin",
     "maintenance_margin",
     "margin_balance",
@@ -35,7 +36,10 @@ _ACCOUNT_NON_NEGATIVE_NUMBER_FIELDS = (
     "total_margin_balance",
     "total_wallet_balance",
     "wallet_balance",
+    "break_even_price",
+    "breakEvenPrice",
     "equity",
+    "risk_price",
 )
 _ACCOUNT_POSITIVE_NUMBER_FIELDS = (
     "leverage",
