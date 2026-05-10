@@ -346,6 +346,7 @@ def test_load_historical_dataset_rejects_zero_open_position_core_prices(tmp_path
         (("total_unrealized_profit",), float("nan"), r"account\.total_unrealized_profit must be a finite number"),
         (("unrealizedProfit",), "1.0", r"account\.unrealizedProfit must be a finite number"),
         (("accountId",), " bad ", r"account\.accountId must be a canonical string"),
+        (("open_positions", 0, "orderTime"), "2026-03-10 00:00:00", r"account\.open_positions\[0\]\.orderTime must be a canonical UTC ISO timestamp"),
         (
             ("open_positions", 0, "leverage"),
             float("inf"),
@@ -425,6 +426,38 @@ def test_load_historical_dataset_rejects_malformed_present_account_numeric_field
     (bundle / "account_snapshot.json").write_text(json.dumps(account_snapshot), encoding="utf-8")
 
     with pytest.raises(ValueError, match=expected_message):
+        load_historical_dataset(dataset_root)
+
+
+def test_load_historical_dataset_rejects_camelcase_open_position_time_order(tmp_path: Path) -> None:
+    dataset_root = tmp_path / "sample_dataset"
+    bundle = dataset_root / "2026-03-10T00-00-00Z__sample-001"
+    bundle.mkdir(parents=True)
+    (bundle / "metadata.json").write_text(
+        '{"timestamp": "2026-03-10T00:00:00Z", "run_id": "sample-001"}',
+        encoding="utf-8",
+    )
+    (bundle / "market_context.json").write_text('{"symbols": {"BTCUSDT": {}}}', encoding="utf-8")
+    (bundle / "derivatives_snapshot.json").write_text('{"rows": []}', encoding="utf-8")
+    account_snapshot = {
+        "equity": 100000.0,
+        "open_positions": [
+            {
+                "symbol": "BTCUSDT",
+                "qty": 0.5,
+                "entry_price": 60000.0,
+                "mark_price": 61000.0,
+                "orderTime": "2026-03-10T00:00:02Z",
+                "executionTime": "2026-03-10T00:00:01Z",
+            }
+        ],
+    }
+    (bundle / "account_snapshot.json").write_text(json.dumps(account_snapshot), encoding="utf-8")
+
+    with pytest.raises(
+        ValueError,
+        match=r"account\.open_positions\[0\]\.executionTime must be at or after orderTime",
+    ):
         load_historical_dataset(dataset_root)
 
 

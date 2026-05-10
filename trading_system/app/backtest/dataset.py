@@ -211,14 +211,23 @@ _ACCOUNT_OPEN_POSITION_TIME_FIELDS = (
     "as_of",
     "timestamp",
     "last_update_time",
+    "lastUpdateTime",
     "event_time",
+    "eventTime",
     "trade_time",
+    "tradeTime",
     "execution_time",
+    "executionTime",
     "fill_time",
+    "fillTime",
     "order_time",
+    "orderTime",
     "close_time",
+    "closeTime",
     "expiry_time",
+    "expiryTime",
     "settlement_time",
+    "settlementTime",
 )
 _ACCOUNT_IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9_.:-]+$")
 _ACCOUNT_ASSET_CODE_RE = re.compile(r"^[A-Z0-9]+$")
@@ -440,37 +449,53 @@ def _account_utc_timestamp_value(value: str) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
+def _account_first_present_utc_timestamp(position: dict, *fields: str) -> tuple[str, datetime] | None:
+    for field in fields:
+        if field in position:
+            return field, _account_utc_timestamp_value(position[field])
+    return None
+
+
 def _validate_open_position_time_order(position: dict, *, field_prefix: str, path: Path) -> None:
-    if "opened_at" in position:
-        opened_at = _account_utc_timestamp_value(position["opened_at"])
-        for field in (
-            "updated_at",
-            "as_of",
-            "timestamp",
-            "last_update_time",
-            "event_time",
-            "trade_time",
-            "close_time",
-            "settlement_time",
-            "expiry_time",
+    opened = _account_first_present_utc_timestamp(position, "opened_at", "openedAt")
+    if opened is not None:
+        opened_field, opened_at = opened
+        for fields in (
+            ("updated_at", "updatedAt"),
+            ("as_of",),
+            ("timestamp",),
+            ("last_update_time", "lastUpdateTime"),
+            ("event_time", "eventTime"),
+            ("trade_time", "tradeTime"),
+            ("close_time", "closeTime"),
+            ("settlement_time", "settlementTime"),
+            ("expiry_time", "expiryTime"),
         ):
-            if field in position and _account_utc_timestamp_value(position[field]) < opened_at:
-                raise ValueError(f"{field_prefix}.{field} must be at or after opened_at: {path}")
-    if "close_time" in position and "settlement_time" in position:
-        close_time = _account_utc_timestamp_value(position["close_time"])
-        settlement_time = _account_utc_timestamp_value(position["settlement_time"])
+            candidate = _account_first_present_utc_timestamp(position, *fields)
+            if candidate is not None:
+                field, value = candidate
+                if value < opened_at:
+                    raise ValueError(f"{field_prefix}.{field} must be at or after {opened_field}: {path}")
+    close = _account_first_present_utc_timestamp(position, "close_time", "closeTime")
+    settlement = _account_first_present_utc_timestamp(position, "settlement_time", "settlementTime")
+    if close is not None and settlement is not None:
+        close_field, close_time = close
+        settlement_field, settlement_time = settlement
         if settlement_time < close_time:
-            raise ValueError(f"{field_prefix}.settlement_time must be at or after close_time: {path}")
-    if "order_time" in position and "execution_time" in position:
-        order_time = _account_utc_timestamp_value(position["order_time"])
-        execution_time = _account_utc_timestamp_value(position["execution_time"])
+            raise ValueError(f"{field_prefix}.{settlement_field} must be at or after {close_field}: {path}")
+    order = _account_first_present_utc_timestamp(position, "order_time", "orderTime")
+    execution = _account_first_present_utc_timestamp(position, "execution_time", "executionTime")
+    if order is not None and execution is not None:
+        order_field, order_time = order
+        execution_field, execution_time = execution
         if execution_time < order_time:
-            raise ValueError(f"{field_prefix}.execution_time must be at or after order_time: {path}")
-    if "execution_time" in position and "fill_time" in position:
-        execution_time = _account_utc_timestamp_value(position["execution_time"])
-        fill_time = _account_utc_timestamp_value(position["fill_time"])
+            raise ValueError(f"{field_prefix}.{execution_field} must be at or after {order_field}: {path}")
+    fill = _account_first_present_utc_timestamp(position, "fill_time", "fillTime")
+    if execution is not None and fill is not None:
+        execution_field, execution_time = execution
+        fill_field, fill_time = fill
         if fill_time < execution_time:
-            raise ValueError(f"{field_prefix}.fill_time must be at or after execution_time: {path}")
+            raise ValueError(f"{field_prefix}.{fill_field} must be at or after {execution_field}: {path}")
 
 
 def _require_account_canonical_string(value: object, *, field_path: str, path: Path) -> str:
