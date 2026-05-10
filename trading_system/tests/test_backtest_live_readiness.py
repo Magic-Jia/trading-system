@@ -321,6 +321,56 @@ def test_trade_postmortem_rejects_malformed_present_stop_target_distance_fields(
         summarize_trade_postmortem([trade])
 
 
+@pytest.mark.parametrize(
+    ("field", "value", "error"),
+    [
+        ("risk_pct", True, r"postmortem\.trades\[1\]\.risk_pct must be a bounded non-negative ratio strict number"),
+        ("risk_pct", "0.01", r"postmortem\.trades\[1\]\.risk_pct must be a bounded non-negative ratio strict number"),
+        ("risk_pct", float("nan"), r"postmortem\.trades\[1\]\.risk_pct must be a bounded non-negative ratio strict number"),
+        ("risk_pct", float("inf"), r"postmortem\.trades\[1\]\.risk_pct must be a bounded non-negative ratio strict number"),
+        ("risk_pct", -0.01, r"postmortem\.trades\[1\]\.risk_pct must be a bounded non-negative ratio strict number"),
+        ("risk_pct", 1.01, r"postmortem\.trades\[1\]\.risk_pct must be a bounded non-negative ratio strict number"),
+        ("account_risk_pct", True, r"postmortem\.trades\[1\]\.account_risk_pct must be a bounded non-negative ratio strict number"),
+        ("position_risk_pct", "0.02", r"postmortem\.trades\[1\]\.position_risk_pct must be a bounded non-negative ratio strict number"),
+        ("exposure_pct", float("nan"), r"postmortem\.trades\[1\]\.exposure_pct must be a bounded non-negative ratio strict number"),
+        ("notional_pct", float("inf"), r"postmortem\.trades\[1\]\.notional_pct must be a bounded non-negative ratio strict number"),
+        ("margin_used_pct", -0.01, r"postmortem\.trades\[1\]\.margin_used_pct must be a bounded non-negative ratio strict number"),
+        ("risk_bps", True, r"postmortem\.trades\[1\]\.risk_bps must be bounded non-negative finite strict bps"),
+        ("risk_bps", "100", r"postmortem\.trades\[1\]\.risk_bps must be bounded non-negative finite strict bps"),
+        ("risk_bps", float("nan"), r"postmortem\.trades\[1\]\.risk_bps must be bounded non-negative finite strict bps"),
+        ("risk_bps", float("inf"), r"postmortem\.trades\[1\]\.risk_bps must be bounded non-negative finite strict bps"),
+        ("risk_bps", -1.0, r"postmortem\.trades\[1\]\.risk_bps must be bounded non-negative finite strict bps"),
+        ("risk_bps", 10000.01, r"postmortem\.trades\[1\]\.risk_bps must be bounded non-negative finite strict bps"),
+        ("exposure_bps", True, r"postmortem\.trades\[1\]\.exposure_bps must be bounded non-negative finite strict bps"),
+        ("exposure_bps", "100", r"postmortem\.trades\[1\]\.exposure_bps must be bounded non-negative finite strict bps"),
+        ("exposure_bps", float("nan"), r"postmortem\.trades\[1\]\.exposure_bps must be bounded non-negative finite strict bps"),
+        ("exposure_bps", float("inf"), r"postmortem\.trades\[1\]\.exposure_bps must be bounded non-negative finite strict bps"),
+        ("exposure_bps", -1.0, r"postmortem\.trades\[1\]\.exposure_bps must be bounded non-negative finite strict bps"),
+        ("exposure_bps", 10000.01, r"postmortem\.trades\[1\]\.exposure_bps must be bounded non-negative finite strict bps"),
+    ],
+)
+def test_trade_postmortem_rejects_malformed_present_risk_scale_numeric_fields(
+    field: str,
+    value: object,
+    error: str,
+) -> None:
+    trade = {
+        "symbol": "BTCUSDT",
+        "setup_type": "TREND_PULLBACK",
+        "net_pnl": -1.0,
+        "gross_pnl": -1.0,
+        "fee_paid": 0.0,
+        "slippage_paid": 0.0,
+        "funding_paid": 0.0,
+        "mfe_pct": 0.0,
+        "mae_pct": 0.0,
+        field: value,
+    }
+
+    with pytest.raises(ValueError, match=error):
+        summarize_trade_postmortem([trade])
+
+
 def test_stdout_concentration_summary_rejects_non_strict_bucket() -> None:
     report = {
         "concentration": {
