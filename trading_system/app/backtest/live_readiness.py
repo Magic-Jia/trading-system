@@ -2399,16 +2399,22 @@ def _passive_calibration_diagnostic(
             and not schema_error
         )
         provenance_present = (not parse_error) and _artifact_provenance_present(payload)
-        attempts, attempts_valid = _strict_summary_int_value(overall.get("attempt_count", 0))
-        fill_rate, fill_rate_valid = _strict_float_value(overall.get("fill_rate", 0.0))
+        attempts_present = "attempt_count" in overall
+        fill_rate_present = "fill_rate" in overall
+        attempts, attempts_valid = _strict_summary_int_value(overall.get("attempt_count"))
+        fill_rate, fill_rate_valid = _strict_float_value(overall.get("fill_rate"))
         numeric_error = schema_error or ""
         unknown_overall_fields = sorted(set(overall) - {"attempt_count", "fill_rate"})
         if not overall_object_valid:
             numeric_error = "overall_not_object"
         elif unknown_overall_fields:
             numeric_error = "unknown_overall_field: " + ", ".join(unknown_overall_fields)
+        elif not attempts_present:
+            numeric_error = "missing_numeric_field: attempt_count"
         elif not attempts_valid or attempts < 0:
             numeric_error = "invalid_numeric_field: attempt_count"
+        elif not fill_rate_present:
+            numeric_error = "missing_numeric_field: fill_rate"
         elif not fill_rate_valid or fill_rate < 0.0 or fill_rate > 1.0:
             numeric_error = "invalid_numeric_field: fill_rate"
         if numeric_error:

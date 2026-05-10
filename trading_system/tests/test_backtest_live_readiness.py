@@ -3043,6 +3043,29 @@ def test_live_readiness_gate_rejects_passive_calibration_unknown_overall_field(t
     assert "passive_calibration_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
 
 
+def test_live_readiness_gate_rejects_passive_calibration_missing_overall_attempt_count(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    (chunk / "passive_order_calibration_summary.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "passive_order_calibration_summary.v1",
+                "evidence_source": {"type": "exchange_export", "run_id": "calibration-missing-attempt-count"},
+                "overall": {"fill_rate": 0.75},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_live_readiness_gate_report(tmp_path, require_passive_calibration=True)
+
+    passive = report["passive_calibration"]
+    assert passive["checks"]["passive_calibration_artifact_schema_valid"] is False
+    assert passive["chunks"][0]["parse_error"] == "missing_numeric_field: attempt_count"
+    assert passive["chunks"][0]["attempt_count"] == 0
+    assert "passive_calibration_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
+
+
 
 def test_live_readiness_gate_rejects_invalid_passive_calibration_numeric_fields(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
