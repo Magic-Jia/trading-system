@@ -2064,6 +2064,136 @@ def test_sync_positions_from_account_rejects_malformed_snapshot_metadata_identit
     assert state.positions == {"BTCUSDT": btc_position}
 
 
+@pytest.mark.parametrize(
+    ("field", "value", "exception"),
+    [
+        ("trade_id", 123, TypeError),
+        ("tradeId", "", ValueError),
+        ("execution_id", " execution-btc-long ", ValueError),
+        ("executionId", "execution-btc-long\n", ValueError),
+        ("fill_id", "fill/btc/long", ValueError),
+        ("fillId", "fill-btc-long\t1", ValueError),
+        ("strategy_id", True, TypeError),
+        ("strategyId", "   ", ValueError),
+        ("setup_id", " setup-btc-long", ValueError),
+        ("setupId", "setup-btc-long\r", ValueError),
+        ("batch_id", "batch/btc/long", ValueError),
+        ("batchId", "batch-btc-long\x1f", ValueError),
+        ("source_id", 123, TypeError),
+        ("sourceId", "source btc long", ValueError),
+        ("correlation_id", " correlation-btc-long ", ValueError),
+        ("correlationId", "correlation/btc/long", ValueError),
+        ("parent_order_id", True, TypeError),
+        ("parentOrderId", "parent-order-btc-long\n", ValueError),
+        ("exchange_order_id", "exchange/order/btc/long", ValueError),
+        ("exchangeOrderId", "exchange-order-btc-long\t1", ValueError),
+    ],
+)
+def test_sync_positions_from_account_rejects_malformed_remaining_snapshot_identity_before_any_position_mutation(
+    field, value, exception
+):
+    btc_position = {
+        "symbol": "BTCUSDT",
+        "side": "LONG",
+        "qty": 0.4,
+        "entry_price": 100.0,
+        "mark_price": 101.0,
+        "status": "OPEN",
+        "tracked_from_snapshot": True,
+        "tracked_from_intent": False,
+    }
+    snapshot_payload = {
+        "symbol": "BTCUSDT",
+        "side": "LONG",
+        "qty": 0.5,
+        "entry_price": 100.0,
+        "mark_price": 106.0,
+        field: value,
+    }
+    state = RuntimeStateV2(
+        updated_at_bj="2026-04-09T12:00:00+08:00",
+        positions={"BTCUSDT": dict(btc_position)},
+    )
+
+    with pytest.raises(exception, match=f"account.open_positions\\[BTCUSDT\\]\\.{field}"):
+        sync_positions_from_account(
+            state,
+            AccountSnapshot(
+                equity=1000.0,
+                available_balance=1000.0,
+                futures_wallet_balance=1000.0,
+                open_positions=[PositionSnapshot(**snapshot_payload)],
+            ),
+        )
+
+    assert state.positions == {"BTCUSDT": btc_position}
+
+
+def test_sync_positions_from_account_carries_valid_remaining_snapshot_identity_metadata():
+    state = RuntimeStateV2(updated_at_bj="2026-04-09T12:00:00+08:00")
+
+    synced = sync_positions_from_account(
+        state,
+        AccountSnapshot(
+            equity=1000.0,
+            available_balance=1000.0,
+            futures_wallet_balance=1000.0,
+            open_positions=[
+                PositionSnapshot(
+                    symbol="BTCUSDT",
+                    side="LONG",
+                    qty=0.4,
+                    entry_price=100.0,
+                    mark_price=106.0,
+                    notional=42.4,
+                    unrealized_pnl=2.4,
+                    trade_id="trade-btc-long",
+                    tradeId="trade-btc-long-alias",
+                    execution_id="execution-btc-long",
+                    executionId="execution-btc-long-alias",
+                    fill_id="fill-btc-long",
+                    fillId="fill-btc-long-alias",
+                    strategy_id="strategy-btc-long",
+                    strategyId="strategy-btc-long-alias",
+                    setup_id="setup-btc-long",
+                    setupId="setup-btc-long-alias",
+                    batch_id="batch-btc-long",
+                    batchId="batch-btc-long-alias",
+                    source_id="source-btc-long",
+                    sourceId="source-btc-long-alias",
+                    correlation_id="correlation-btc-long",
+                    correlationId="correlation-btc-long-alias",
+                    parent_order_id="parent-order-btc-long",
+                    parentOrderId="parent-order-btc-long-alias",
+                    exchange_order_id="exchange-order-btc-long",
+                    exchangeOrderId="exchange-order-btc-long-alias",
+                )
+            ],
+        ),
+    )
+
+    assert synced[0]["trade_id"] == "trade-btc-long"
+    assert synced[0]["tradeId"] == "trade-btc-long-alias"
+    assert synced[0]["execution_id"] == "execution-btc-long"
+    assert synced[0]["executionId"] == "execution-btc-long-alias"
+    assert synced[0]["fill_id"] == "fill-btc-long"
+    assert synced[0]["fillId"] == "fill-btc-long-alias"
+    assert synced[0]["strategy_id"] == "strategy-btc-long"
+    assert synced[0]["strategyId"] == "strategy-btc-long-alias"
+    assert synced[0]["setup_id"] == "setup-btc-long"
+    assert synced[0]["setupId"] == "setup-btc-long-alias"
+    assert synced[0]["batch_id"] == "batch-btc-long"
+    assert synced[0]["batchId"] == "batch-btc-long-alias"
+    assert synced[0]["source_id"] == "source-btc-long"
+    assert synced[0]["sourceId"] == "source-btc-long-alias"
+    assert synced[0]["correlation_id"] == "correlation-btc-long"
+    assert synced[0]["correlationId"] == "correlation-btc-long-alias"
+    assert synced[0]["parent_order_id"] == "parent-order-btc-long"
+    assert synced[0]["parentOrderId"] == "parent-order-btc-long-alias"
+    assert synced[0]["exchange_order_id"] == "exchange-order-btc-long"
+    assert synced[0]["exchangeOrderId"] == "exchange-order-btc-long-alias"
+
+
 def test_sync_positions_from_account_rejects_present_non_string_existing_source_without_mutating_state():
     original_position = {
         "symbol": "BTCUSDT",

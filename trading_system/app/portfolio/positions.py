@@ -115,6 +115,28 @@ _SNAPSHOT_IDENTITY_KEYS = (
     "client_order_id",
     "clientOrderId",
 )
+_SNAPSHOT_REMAINING_IDENTITY_KEYS = (
+    "trade_id",
+    "tradeId",
+    "execution_id",
+    "executionId",
+    "fill_id",
+    "fillId",
+    "strategy_id",
+    "strategyId",
+    "setup_id",
+    "setupId",
+    "batch_id",
+    "batchId",
+    "source_id",
+    "sourceId",
+    "correlation_id",
+    "correlationId",
+    "parent_order_id",
+    "parentOrderId",
+    "exchange_order_id",
+    "exchangeOrderId",
+)
 _SNAPSHOT_PROVENANCE_TAXONOMY_STRING_FIELDS = {
     "source": frozenset({"account_snapshot", "paper_execution", "hybrid"}),
     "position_source": frozenset({"account_snapshot", "paper_execution"}),
@@ -302,6 +324,18 @@ def _strict_optional_identity_string(payload: Mapping[str, Any], key: str, field
         raise TypeError(f"{label} must be a string when present")
     if not value or value != value.strip() or "\n" in value or "\r" in value:
         raise ValueError(f"{label} must be canonical when present")
+    return value
+
+
+def _strict_present_remaining_identity_string(payload: Mapping[str, Any], key: str, field: str | None = None) -> str | None:
+    label = field or key
+    if key not in payload or payload.get(key) is None:
+        return None
+    value = payload.get(key)
+    if not isinstance(value, str):
+        raise TypeError(f"{label} must be a canonical string when present")
+    if not value or value != value.strip() or any(char.isspace() or ord(char) < 32 for char in value) or "/" in value:
+        raise ValueError(f"{label} must be a canonical string when present")
     return value
 
 
@@ -562,6 +596,20 @@ def _strict_snapshot_asset_identity_metadata(snapshot: PositionSnapshot) -> dict
     return payload
 
 
+def _strict_snapshot_remaining_identity_metadata(snapshot: PositionSnapshot) -> dict[str, str]:
+    payload: dict[str, str] = {}
+    snapshot_label = f"account.open_positions[{snapshot.symbol}]"
+    for key in _SNAPSHOT_REMAINING_IDENTITY_KEYS:
+        value = _strict_present_remaining_identity_string(
+            {key: getattr(snapshot, key, None)},
+            key,
+            f"{snapshot_label}.{key}",
+        )
+        if value is not None:
+            payload[key] = value
+    return payload
+
+
 def _strict_non_negative_quantity(payload: Mapping[str, Any], field: str, default: float | None = None) -> float:
     if field not in payload or payload.get(field) is None:
         if default is None:
@@ -794,6 +842,7 @@ def _validate_snapshot_position_identities(open_positions: list[PositionSnapshot
                 key,
                 f"account.open_positions[{snapshot.symbol}].{key}",
             )
+        _strict_snapshot_remaining_identity_metadata(snapshot)
         _strict_snapshot_provenance_taxonomy_metadata(snapshot)
         _strict_present_optional_number(
             {"taxonomy_stop_loss": getattr(snapshot, "taxonomy_stop_loss", None)},
@@ -861,6 +910,7 @@ def sync_positions_from_account(state: RuntimeState, account: AccountSnapshot) -
         snapshot_risk_price_metadata = _strict_snapshot_risk_price_metadata(snapshot)
         snapshot_position_sizing_metadata = _strict_snapshot_position_sizing_metadata(snapshot)
         snapshot_asset_identity_metadata = _strict_snapshot_asset_identity_metadata(snapshot)
+        snapshot_remaining_identity_metadata = _strict_snapshot_remaining_identity_metadata(snapshot)
 
         if snapshot_qty <= 0:
             continue
@@ -941,6 +991,7 @@ def sync_positions_from_account(state: RuntimeState, account: AccountSnapshot) -
             **snapshot_risk_price_metadata,
             **snapshot_position_sizing_metadata,
             **snapshot_asset_identity_metadata,
+            **snapshot_remaining_identity_metadata,
             "source": _source(
                 carry_existing,
                 from_snapshot=True,
