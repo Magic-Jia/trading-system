@@ -213,6 +213,12 @@ def _positions_from_rows(rows: list[dict[str, Any]]) -> list[PositionSnapshot]:
                 else None,
                 strategy_tag=row.get("strategy_tag"),
                 status=row.get("status"),
+                signal_id=row.get("signal_id"),
+                signalId=row.get("signalId"),
+                order_id=row.get("order_id"),
+                orderId=row.get("orderId"),
+                client_order_id=row.get("client_order_id"),
+                clientOrderId=row.get("clientOrderId"),
             )
         )
     return positions

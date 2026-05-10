@@ -107,6 +107,14 @@ _MANAGEMENT_ACTION_VALUES = frozenset(
 _FRACTION_BASIS_VALUES = frozenset({"original_position"})
 _EXIT_TRIGGER_VALUES = frozenset({"first_target_hit", "second_target_hit", "runner_stop_hit"})
 _POSITION_SIDE_VALUES = frozenset({"LONG", "SHORT"})
+_SNAPSHOT_IDENTITY_KEYS = (
+    "signal_id",
+    "signalId",
+    "order_id",
+    "orderId",
+    "client_order_id",
+    "clientOrderId",
+)
 
 
 def _strict_canonical_symbol(value: Any, field: str) -> str:
@@ -459,6 +467,12 @@ def _validate_snapshot_position_identities(open_positions: list[PositionSnapshot
             "strategy_tag",
             f"account.open_positions[{snapshot.symbol}].strategy_tag",
         )
+        for key in _SNAPSHOT_IDENTITY_KEYS:
+            _strict_optional_identity_string(
+                {key: getattr(snapshot, key, None)},
+                key,
+                f"account.open_positions[{snapshot.symbol}].{key}",
+            )
 
 
 def _mark_intent_position_closed(state: RuntimeState, symbol: str, position: dict[str, Any], now_bj: str) -> None:

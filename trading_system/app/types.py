@@ -54,6 +54,12 @@ class PositionSnapshot:
     leverage: float | None = None
     strategy_tag: str | None = None
     status: str | None = None
+    signal_id: str | None = None
+    signalId: str | None = None
+    order_id: str | None = None
+    orderId: str | None = None
+    client_order_id: str | None = None
+    clientOrderId: str | None = None
 
 
 @dataclass(slots=True)
