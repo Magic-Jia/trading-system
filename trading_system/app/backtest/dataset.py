@@ -63,6 +63,17 @@ _ACCOUNT_RATIO_NUMBER_FIELDS = (
     "riskRatio",
     "risk_ratio",
 )
+_ACCOUNT_RISK_EXPOSURE_RATIO_FIELDS = (
+    "account_risk_pct",
+    "exposure_pct",
+    "margin_used_pct",
+    "notional_pct",
+    "risk_pct",
+)
+_ACCOUNT_RISK_EXPOSURE_BPS_FIELDS = (
+    "exposure_bps",
+    "risk_bps",
+)
 _ACCOUNT_SIGNED_NUMBER_FIELDS = (
     "total_unrealized_profit",
     "unRealizedProfit",
@@ -395,12 +406,34 @@ def _validate_account_ratio(value: object, *, field_path: str, path: Path) -> fl
     return number
 
 
+def _validate_account_bounded_non_negative_ratio(value: object, *, field_path: str, path: Path) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{field_path} must be a bounded non-negative ratio strict number: {path}")
+    number = float(value)
+    if not math.isfinite(number) or number < 0.0 or number > 1.0:
+        raise ValueError(f"{field_path} must be a bounded non-negative ratio strict number: {path}")
+    return number
+
+
+def _validate_account_bps(value: object, *, field_path: str, path: Path) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{field_path} must be bounded non-negative finite strict bps: {path}")
+    number = float(value)
+    if not math.isfinite(number) or number < 0.0 or number > 10000.0:
+        raise ValueError(f"{field_path} must be bounded non-negative finite strict bps: {path}")
+    return number
+
+
 def _validate_account_numeric_fields(payload: object, *, path: Path, field_path: str) -> None:
     if isinstance(payload, dict):
         for key, value in payload.items():
             child_path = f"{field_path}.{key}"
             if key in _ACCOUNT_RATIO_NUMBER_FIELDS:
                 _validate_account_ratio(value, field_path=child_path, path=path)
+            elif key in _ACCOUNT_RISK_EXPOSURE_RATIO_FIELDS:
+                _validate_account_bounded_non_negative_ratio(value, field_path=child_path, path=path)
+            elif key in _ACCOUNT_RISK_EXPOSURE_BPS_FIELDS:
+                _validate_account_bps(value, field_path=child_path, path=path)
             elif key in _ACCOUNT_POSITIVE_NUMBER_FIELDS:
                 number = _validate_account_number(
                     value,

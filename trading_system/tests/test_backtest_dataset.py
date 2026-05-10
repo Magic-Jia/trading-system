@@ -277,6 +277,96 @@ def test_load_historical_dataset_rejects_malformed_open_position_ratio_fields_be
 
 
 @pytest.mark.parametrize(
+    ("field", "value", "expected_message"),
+    [
+        ("risk_pct", True, r"account\.open_positions\[0\]\.risk_pct must be a bounded non-negative ratio strict number"),
+        (
+            "account_risk_pct",
+            "0.02",
+            r"account\.open_positions\[0\]\.account_risk_pct must be a bounded non-negative ratio strict number",
+        ),
+        (
+            "exposure_pct",
+            float("nan"),
+            r"account\.open_positions\[0\]\.exposure_pct must be a bounded non-negative ratio strict number",
+        ),
+        (
+            "notional_pct",
+            float("inf"),
+            r"account\.open_positions\[0\]\.notional_pct must be a bounded non-negative ratio strict number",
+        ),
+        (
+            "margin_used_pct",
+            -0.01,
+            r"account\.open_positions\[0\]\.margin_used_pct must be a bounded non-negative ratio strict number",
+        ),
+        (
+            "exposure_pct",
+            1.01,
+            r"account\.open_positions\[0\]\.exposure_pct must be a bounded non-negative ratio strict number",
+        ),
+        ("risk_bps", True, r"account\.open_positions\[0\]\.risk_bps must be bounded non-negative finite strict bps"),
+        ("risk_bps", "100", r"account\.open_positions\[0\]\.risk_bps must be bounded non-negative finite strict bps"),
+        (
+            "exposure_bps",
+            float("nan"),
+            r"account\.open_positions\[0\]\.exposure_bps must be bounded non-negative finite strict bps",
+        ),
+        (
+            "exposure_bps",
+            float("inf"),
+            r"account\.open_positions\[0\]\.exposure_bps must be bounded non-negative finite strict bps",
+        ),
+        (
+            "risk_bps",
+            -1.0,
+            r"account\.open_positions\[0\]\.risk_bps must be bounded non-negative finite strict bps",
+        ),
+        (
+            "exposure_bps",
+            10000.01,
+            r"account\.open_positions\[0\]\.exposure_bps must be bounded non-negative finite strict bps",
+        ),
+    ],
+)
+def test_load_historical_dataset_rejects_malformed_open_position_risk_exposure_scale_fields_before_load(
+    tmp_path: Path, field: str, value: object, expected_message: str
+) -> None:
+    dataset_root = tmp_path / "sample_dataset"
+    bundle = dataset_root / "2026-03-10T00-00-00Z__sample-001"
+    bundle.mkdir(parents=True)
+    (bundle / "metadata.json").write_text(
+        '{"timestamp": "2026-03-10T00:00:00Z", "run_id": "sample-001"}',
+        encoding="utf-8",
+    )
+    (bundle / "market_context.json").write_text('{"symbols": {"BTCUSDT": {}}}', encoding="utf-8")
+    (bundle / "derivatives_snapshot.json").write_text('{"rows": []}', encoding="utf-8")
+    account_snapshot = {
+        "equity": 100000.0,
+        "open_positions": [
+            {
+                "symbol": "BTCUSDT",
+                "qty": 0.5,
+                "entry_price": 60000.0,
+                "mark_price": 61000.0,
+                "risk_pct": 0.01,
+                "account_risk_pct": 0.02,
+                "exposure_pct": 0.305,
+                "notional_pct": 0.305,
+                "margin_used_pct": 0.04,
+                "risk_bps": 100.0,
+                "exposure_bps": 3050.0,
+            }
+        ],
+    }
+    account_snapshot["open_positions"][0][field] = value
+    (bundle / "account_snapshot.json").write_text(json.dumps(account_snapshot), encoding="utf-8")
+
+    with pytest.raises(ValueError, match=expected_message):
+        load_historical_dataset(dataset_root)
+
+
+@pytest.mark.parametrize(
     ("field", "value"),
     [
         ("fee", True),
