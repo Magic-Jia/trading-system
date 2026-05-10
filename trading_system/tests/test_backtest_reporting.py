@@ -2326,6 +2326,114 @@ def test_walk_forward_validation_report_rejects_malformed_present_count_domains(
 
 
 @pytest.mark.parametrize(
+    ("path", "value", "match"),
+    [
+        (
+            ("windows", 0, "out_of_sample", "scorecard", "duration_bars"),
+            True,
+            r"windows\[0\]\.out_of_sample\.scorecard\.duration_bars must be a positive integer",
+        ),
+        (
+            ("windows", 0, "out_of_sample", "scorecard", "duration_bars"),
+            "2",
+            r"windows\[0\]\.out_of_sample\.scorecard\.duration_bars must be a positive integer",
+        ),
+        (
+            ("windows", 0, "out_of_sample", "scorecard", "holding_bars"),
+            1.5,
+            r"windows\[0\]\.out_of_sample\.scorecard\.holding_bars must be a positive integer",
+        ),
+        (
+            ("windows", 0, "out_of_sample", "scorecard", "bars_since_entry"),
+            float("nan"),
+            r"windows\[0\]\.out_of_sample\.scorecard\.bars_since_entry must be a positive integer",
+        ),
+        (
+            ("windows", 0, "out_of_sample", "scorecard", "age_bars"),
+            float("inf"),
+            r"windows\[0\]\.out_of_sample\.scorecard\.age_bars must be a positive integer",
+        ),
+        (
+            ("windows", 0, "out_of_sample", "scorecard", "lookback_bars"),
+            -1,
+            r"windows\[0\]\.out_of_sample\.scorecard\.lookback_bars must be a positive integer",
+        ),
+        (
+            ("windows", 0, "out_of_sample", "scorecard", "window_span_bars"),
+            0,
+            r"windows\[0\]\.out_of_sample\.scorecard\.window_span_bars must be a positive integer",
+        ),
+        (
+            ("robustness_summary", "performance_dispersion", "median_duration_bars"),
+            "4",
+            r"performance_dispersion\.median_duration_bars must be a positive integer",
+        ),
+        (
+            ("robustness_summary", "worst_window", "scorecard", "max_duration_bars"),
+            2.0,
+            r"worst_window\.scorecard\.max_duration_bars must be a positive integer",
+        ),
+        (
+            ("robustness_summary", "out_of_sample_scorecard", "min_duration_bars"),
+            0,
+            r"out_of_sample_scorecard\.min_duration_bars must be a positive integer",
+        ),
+    ],
+)
+def test_walk_forward_validation_report_rejects_malformed_present_duration_domains(
+    path: tuple[object, ...],
+    value: object,
+    match: str,
+) -> None:
+    experiment: dict[str, object] = {
+        "windows": [
+            {
+                "window_index": 1,
+                "out_of_sample": {
+                    "snapshot_count": 1,
+                    "scorecard": {
+                        "total_return": 0.03,
+                        "trade_count": 1,
+                        "duration_bars": 2,
+                        "holding_bars": 2,
+                        "bars_since_entry": 1,
+                        "age_bars": 5,
+                        "lookback_bars": 20,
+                        "window_span_bars": 48,
+                    },
+                    "run_ids": ["row-002"],
+                },
+            }
+        ],
+        "robustness_summary": {
+            "out_of_sample_scorecard": {"total_return": 0.03, "trade_count": 1, "min_duration_bars": 1},
+            "performance_dispersion": {
+                "window_count": 1,
+                "positive_window_count": 1,
+                "positive_window_ratio": 1.0,
+                "median_duration_bars": 2,
+            },
+            "worst_window": {
+                "window_index": 1,
+                "scorecard": {"total_return": 0.03, "trade_count": 1, "max_duration_bars": 2},
+            },
+        },
+        "parameter_stability": {"parameter_stability_score": 0.8},
+    }
+    cursor: object = experiment
+    for part in path[:-1]:
+        cursor = cursor[part]  # type: ignore[index]
+    cursor[path[-1]] = value  # type: ignore[index]
+
+    with pytest.raises(ValueError, match=match):
+        cli.render_walk_forward_validation_report(
+            experiment_name="walk_forward_validation",
+            metadata={"snapshot_count": 1, "window_count": 1},
+            experiment=experiment,
+        )
+
+
+@pytest.mark.parametrize(
     ("field", "value", "match"),
     [
         ("win_rate", True, r"windows\[0\]\.out_of_sample\.scorecard\.win_rate must be a bounded ratio strict number"),

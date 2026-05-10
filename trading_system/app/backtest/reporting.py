@@ -550,6 +550,13 @@ def _positive_int_field(payload: Mapping[str, Any], field: str, *, label: str = 
     return value
 
 
+def _strict_positive_int_field(payload: Mapping[str, Any], field: str, *, label: str) -> int:
+    raw_value = payload[field]
+    if isinstance(raw_value, bool) or not isinstance(raw_value, int) or raw_value <= 0:
+        raise ValueError(f"{label}.{field} must be a positive integer")
+    return raw_value
+
+
 def _summary_int(summary_payload: Mapping[str, Any], field: str, default: int = 0) -> int:
     return _non_negative_int_field(summary_payload, field, label="summary", default=default)
 
@@ -763,6 +770,17 @@ def _walk_forward_window_rows(rows: list[Any]) -> list[dict[str, Any]]:
         "expectancy",
     )
     scorecard_count_fields = ("trade_count", "win_count", "loss_count")
+    scorecard_duration_fields = (
+        "holding_bars",
+        "duration_bars",
+        "max_duration_bars",
+        "min_duration_bars",
+        "median_duration_bars",
+        "lookback_bars",
+        "window_span_bars",
+        "age_bars",
+        "bars_since_entry",
+    )
     validated_rows: list[dict[str, Any]] = []
     for index, window in enumerate(rows):
         if not isinstance(window, Mapping):
@@ -825,16 +843,39 @@ def _walk_forward_window_rows(rows: list[Any]) -> list[dict[str, Any]]:
                         field,
                         label=f"windows[{index}].{segment_name}.scorecard",
                     )
+            for field in scorecard_duration_fields:
+                if field in validated_scorecard and validated_scorecard[field] is not None:
+                    validated_scorecard[field] = _strict_positive_int_field(
+                        validated_scorecard,
+                        field,
+                        label=f"windows[{index}].{segment_name}.scorecard",
+                    )
             validated_segment["scorecard"] = validated_scorecard
             validated[segment_name] = validated_segment
         validated_rows.append(validated)
     return validated_rows
 
 
+_WALK_FORWARD_DURATION_FIELDS = (
+    "holding_bars",
+    "duration_bars",
+    "max_duration_bars",
+    "min_duration_bars",
+    "median_duration_bars",
+    "lookback_bars",
+    "window_span_bars",
+    "age_bars",
+    "bars_since_entry",
+)
+
+
 def _walk_forward_scorecard_counts(scorecard: dict[str, Any], *, label: str) -> dict[str, Any]:
     for field in ("trade_count", "win_count", "loss_count"):
         if field in scorecard and scorecard[field] is not None:
             scorecard[field] = _non_negative_int_field(scorecard, field, label=label)
+    for field in _WALK_FORWARD_DURATION_FIELDS:
+        if field in scorecard and scorecard[field] is not None:
+            scorecard[field] = _strict_positive_int_field(scorecard, field, label=label)
     return scorecard
 
 
@@ -843,6 +884,13 @@ def _walk_forward_performance_dispersion(payload: Mapping[str, Any]) -> dict[str
     for field in ("window_count", "positive_window_count"):
         if field in performance_dispersion and performance_dispersion[field] is not None:
             performance_dispersion[field] = _non_negative_int_field(
+                performance_dispersion,
+                field,
+                label="performance_dispersion",
+            )
+    for field in _WALK_FORWARD_DURATION_FIELDS:
+        if field in performance_dispersion and performance_dispersion[field] is not None:
+            performance_dispersion[field] = _strict_positive_int_field(
                 performance_dispersion,
                 field,
                 label="performance_dispersion",
