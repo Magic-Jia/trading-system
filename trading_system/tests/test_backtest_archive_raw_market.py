@@ -333,6 +333,23 @@ def test_raw_market_data_quality_rejects_non_object_expected_intervals() -> None
         _expected_intervals([("ohlcv:1h", timedelta(hours=1))])
 
 
+def test_l2_tick_coverage_rejects_non_finite_report_coverage_ratio() -> None:
+    reports = {
+        "trades:BTCUSDT": {
+            "series_key": "trades:BTCUSDT",
+            "dataset": "trades",
+            "symbol": "BTCUSDT",
+            "timeframe": None,
+            "coverage_ratio": float("inf"),
+            "has_missing_intervals": False,
+            "missing_intervals": [],
+        }
+    }
+
+    with pytest.raises(ValueError, match="l2 coverage_ratio must be finite"):
+        _l2_tick_coverage(reports, required_coverage=0.99)
+
+
 def test_raw_market_data_quality_reports_provenance_completeness(tmp_path: Path) -> None:
     from trading_system.app.backtest.archive.data_quality import build_raw_market_data_quality_report
 

@@ -183,7 +183,10 @@ def _l2_coverage_ratio_value(report: Mapping[str, Any]) -> float:
     value = report.get("coverage_ratio")
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError("l2 coverage ratio must be numeric")
-    return float(value)
+    parsed = float(value)
+    if not parsed == parsed or parsed in {float("inf"), float("-inf")}:
+        raise ValueError("l2 coverage_ratio must be finite")
+    return parsed
 
 
 def _l2_missing_intervals_value(report: Mapping[str, Any]) -> bool:
