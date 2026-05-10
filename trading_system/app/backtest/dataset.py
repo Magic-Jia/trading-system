@@ -372,6 +372,7 @@ def _validate_open_position_identity_fields(account: dict, *, path: Path) -> Non
         for field in _ACCOUNT_OPEN_POSITION_TIME_FIELDS:
             if field in position:
                 _require_account_utc_iso_timestamp(position[field], field_path=f"{field_prefix}.{field}", path=path)
+        _validate_open_position_time_order(position, field_prefix=field_prefix, path=path)
         for field in _ACCOUNT_OPEN_POSITION_UPPERCASE_IDENTITY_FIELDS:
             if field in position:
                 value = _require_account_uppercase_canonical_string(
@@ -389,6 +390,23 @@ def _validate_open_position_identity_fields(account: dict, *, path: Path) -> Non
                 if value not in allowed:
                     allowed_values = ", ".join(sorted(allowed))
                     raise ValueError(f"{field_prefix}.{field} must be one of {allowed_values}: {path}")
+
+
+def _account_utc_timestamp_value(value: str) -> datetime:
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def _validate_open_position_time_order(position: dict, *, field_prefix: str, path: Path) -> None:
+    if "order_time" in position and "execution_time" in position:
+        order_time = _account_utc_timestamp_value(position["order_time"])
+        execution_time = _account_utc_timestamp_value(position["execution_time"])
+        if execution_time < order_time:
+            raise ValueError(f"{field_prefix}.execution_time must be at or after order_time: {path}")
+    if "execution_time" in position and "fill_time" in position:
+        execution_time = _account_utc_timestamp_value(position["execution_time"])
+        fill_time = _account_utc_timestamp_value(position["fill_time"])
+        if fill_time < execution_time:
+            raise ValueError(f"{field_prefix}.fill_time must be at or after execution_time: {path}")
 
 
 def _require_account_canonical_string(value: object, *, field_path: str, path: Path) -> str:
