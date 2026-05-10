@@ -208,6 +208,7 @@ _ACCOUNT_OPEN_POSITION_ENUM_FIELDS = {
     "product_type": {"FUTURES", "MARGIN", "SPOT"},
 }
 _ACCOUNT_OPEN_POSITION_TERMINAL_STATUS_VALUES = {"CLOSED", "SKIPPED", "FAILED", "CANCELLED", "CANCELED"}
+_ACCOUNT_OPEN_POSITION_OPEN_STATUS_VALUES = {"OPEN"}
 
 
 def _parse_timestamp(value: str) -> datetime:
@@ -359,6 +360,9 @@ def _validate_open_position_identity_fields(account: dict, *, path: Path) -> Non
                 value = _require_account_canonical_string(position[field], field_path=f"{field_prefix}.{field}", path=path)
                 if field == "status" and value in _ACCOUNT_OPEN_POSITION_TERMINAL_STATUS_VALUES:
                     raise ValueError(f"{field_prefix}.{field} must not be a terminal open position state: {path}")
+                if field == "status" and value not in _ACCOUNT_OPEN_POSITION_OPEN_STATUS_VALUES:
+                    allowed_values = ", ".join(sorted(_ACCOUNT_OPEN_POSITION_OPEN_STATUS_VALUES))
+                    raise ValueError(f"{field_prefix}.{field} must be one of {allowed_values} or omitted for an open position: {path}")
         for field in _ACCOUNT_OPEN_POSITION_IDENTIFIER_FIELDS:
             if field in position:
                 _require_account_identifier_string(position[field], field_path=f"{field_prefix}.{field}", path=path)
