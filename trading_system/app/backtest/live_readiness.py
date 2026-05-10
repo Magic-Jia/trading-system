@@ -30,6 +30,7 @@ TRADE_PRICE_FIELDS = ("entry_price", "exit_price")
 TRADE_SIZE_FIELDS = ("quantity", "notional")
 TRADE_EXIT_REASON_FIELDS = ("simulated_exit_reason", "exit_reason")
 TRADE_COST_IDENTITY_FIELDS = ("fee_currency", "cost_currency", "quote_asset", "commission_asset")
+TRADE_POSITIVE_NUMERIC_EVIDENCE_FIELDS = ("risk_reward",)
 VALID_TRADES_ARTIFACT_SCHEMA_VERSION = "trades.v1"
 VALID_SUMMARY_ARTIFACT_SCHEMA_VERSION = "backtest_summary.v1"
 TRADE_EXECUTION_COST_FIELDS = ("fee_paid", "slippage_paid")
@@ -3135,6 +3136,14 @@ def _validate_postmortem_trade_execution_fields(trade: Mapping[str, Any], index:
             not isinstance(value, str) or not value.strip() or value != value.strip() or not re.fullmatch(r"[A-Z0-9]{2,20}", value)
         ):
             raise ValueError(f"postmortem.trades[{index}].{field} must be a supported canonical asset string")
+    for field in TRADE_POSITIVE_NUMERIC_EVIDENCE_FIELDS:
+        value = trade.get(field)
+        if value is not None:
+            parsed, valid = _strict_float_value(value)
+            if not valid or parsed <= 0.0:
+                raise ValueError(
+                    f"postmortem.trades[{index}].{field} must be a positive finite strict number"
+                )
 
 
 def _postmortem_dominance_bucket(

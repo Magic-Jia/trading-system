@@ -252,6 +252,28 @@ def test_trade_postmortem_rejects_malformed_present_cost_identity_fields(field: 
         summarize_trade_postmortem([trade])
 
 
+@pytest.mark.parametrize("risk_reward", [True, "2.0", float("nan"), float("inf"), -1.0, 0.0])
+def test_trade_postmortem_rejects_malformed_present_risk_reward(risk_reward: object) -> None:
+    trade = {
+        "symbol": "BTCUSDT",
+        "setup_type": "TREND_PULLBACK",
+        "net_pnl": -1.0,
+        "gross_pnl": -1.0,
+        "fee_paid": 0.0,
+        "slippage_paid": 0.0,
+        "funding_paid": 0.0,
+        "mfe_pct": 0.0,
+        "mae_pct": 0.0,
+        "risk_reward": risk_reward,
+    }
+
+    with pytest.raises(
+        ValueError,
+        match=r"postmortem\.trades\[1\]\.risk_reward must be a positive finite strict number",
+    ):
+        summarize_trade_postmortem([trade])
+
+
 def test_stdout_concentration_summary_rejects_non_strict_bucket() -> None:
     report = {
         "concentration": {
