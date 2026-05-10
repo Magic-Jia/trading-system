@@ -292,7 +292,7 @@ def test_load_historical_dataset_rejects_pending_open_position_status(tmp_path: 
         (
             ("open_positions", 0, "risk_price"),
             -1.0,
-            r"account\.open_positions\[0\]\.risk_price must be a non-negative finite number",
+            r"account\.open_positions\[0\]\.risk_price must be a positive finite number",
         ),
     ],
 )

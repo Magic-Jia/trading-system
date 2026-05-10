@@ -73,6 +73,9 @@ _ACCOUNT_RATIO_NUMBER_FIELDS = (
     "riskRatio",
     "risk_ratio",
 )
+_ACCOUNT_OPEN_POSITION_POSITIVE_PRICE_FIELDS = (
+    "risk_price",
+)
 _ACCOUNT_RISK_EXPOSURE_RATIO_FIELDS = (
     "account_risk_pct",
     "exposure_pct",
@@ -556,6 +559,9 @@ def _validate_account_numeric_fields(payload: object, *, path: Path, field_path:
         for key, value in payload.items():
             child_path = f"{field_path}.{key}"
             if field_path.startswith("account.open_positions[") and key == "qty":
+                _validate_account_positive_number(value, field_path=child_path, path=path)
+                continue
+            if field_path.startswith("account.open_positions[") and key in _ACCOUNT_OPEN_POSITION_POSITIVE_PRICE_FIELDS:
                 _validate_account_positive_number(value, field_path=child_path, path=path)
                 continue
             if key in _ACCOUNT_RATIO_NUMBER_FIELDS:
