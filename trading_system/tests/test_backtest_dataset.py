@@ -504,6 +504,137 @@ def test_load_historical_dataset_rejects_malformed_open_position_identity_before
 
 
 @pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("trade_id", 123),
+        ("tradeId", "trade/001"),
+        ("execution_id", ""),
+        ("executionId", " exec-001"),
+        ("fill_id", "fill-001 "),
+        ("fillId", "fill\n001"),
+        ("strategy_id", "strategy/001"),
+        ("strategyId", "strategy 001"),
+        ("setup_id", "setup\t001"),
+        ("setupId", "setup\u001f001"),
+        ("batch_id", []),
+        ("batchId", "batch/001"),
+        ("source_id", "source\r001"),
+        ("sourceId", "source 001"),
+        ("correlation_id", " correlation-001"),
+        ("correlationId", "correlation-001 "),
+        ("parent_order_id", "parent/order-001"),
+        ("parentOrderId", "\nparent-order-001"),
+        ("exchange_order_id", {}),
+        ("exchangeOrderId", "exchange order 001"),
+    ],
+)
+def test_load_historical_dataset_rejects_malformed_remaining_open_position_identifiers_before_load(
+    tmp_path: Path, field: str, value: object
+) -> None:
+    dataset_root = tmp_path / "sample_dataset"
+    bundle = dataset_root / "2026-03-10T00-00-00Z__sample-001"
+    bundle.mkdir(parents=True)
+    (bundle / "metadata.json").write_text(
+        '{"timestamp": "2026-03-10T00:00:00Z", "run_id": "sample-001"}',
+        encoding="utf-8",
+    )
+    (bundle / "market_context.json").write_text('{"symbols": {"BTCUSDT": {}}}', encoding="utf-8")
+    (bundle / "derivatives_snapshot.json").write_text('{"rows": []}', encoding="utf-8")
+    account_snapshot = {
+        "equity": 100000.0,
+        "open_positions": [
+            {
+                "symbol": "BTCUSDT",
+                "side": "LONG",
+                "qty": 0.5,
+                "entry_price": 60000.0,
+                "mark_price": 61000.0,
+                "trade_id": "trade-001",
+                "tradeId": "trade-001",
+                "execution_id": "exec-001",
+                "executionId": "exec-001",
+                "fill_id": "fill-001",
+                "fillId": "fill-001",
+                "strategy_id": "strategy_001",
+                "strategyId": "strategy_001",
+                "setup_id": "setup-001",
+                "setupId": "setup-001",
+                "batch_id": "batch-001",
+                "batchId": "batch-001",
+                "source_id": "source-001",
+                "sourceId": "source-001",
+                "correlation_id": "correlation-001",
+                "correlationId": "correlation-001",
+                "parent_order_id": "parent-order-001",
+                "parentOrderId": "parent-order-001",
+                "exchange_order_id": "exchange-order-001",
+                "exchangeOrderId": "exchange-order-001",
+            }
+        ],
+    }
+    account_snapshot["open_positions"][0][field] = value
+    (bundle / "account_snapshot.json").write_text(json.dumps(account_snapshot), encoding="utf-8")
+
+    with pytest.raises(
+        ValueError,
+        match=rf"account\.open_positions\[0\]\.{field} must be a canonical identifier string",
+    ):
+        load_historical_dataset(dataset_root)
+
+
+def test_load_historical_dataset_preserves_canonical_remaining_open_position_identifiers(tmp_path: Path) -> None:
+    dataset_root = tmp_path / "sample_dataset"
+    bundle = dataset_root / "2026-03-10T00-00-00Z__sample-001"
+    bundle.mkdir(parents=True)
+    (bundle / "metadata.json").write_text(
+        '{"timestamp": "2026-03-10T00:00:00Z", "run_id": "sample-001"}',
+        encoding="utf-8",
+    )
+    (bundle / "market_context.json").write_text('{"symbols": {"BTCUSDT": {}}}', encoding="utf-8")
+    (bundle / "derivatives_snapshot.json").write_text('{"rows": []}', encoding="utf-8")
+    identifiers = {
+        "trade_id": "trade-001",
+        "tradeId": "trade-001",
+        "execution_id": "exec-001",
+        "executionId": "exec-001",
+        "fill_id": "fill-001",
+        "fillId": "fill-001",
+        "strategy_id": "strategy_001",
+        "strategyId": "strategy_001",
+        "setup_id": "setup-001",
+        "setupId": "setup-001",
+        "batch_id": "batch-001",
+        "batchId": "batch-001",
+        "source_id": "source-001",
+        "sourceId": "source-001",
+        "correlation_id": "correlation-001",
+        "correlationId": "correlation-001",
+        "parent_order_id": "parent-order-001",
+        "parentOrderId": "parent-order-001",
+        "exchange_order_id": "exchange-order-001",
+        "exchangeOrderId": "exchange-order-001",
+    }
+    account_snapshot = {
+        "equity": 100000.0,
+        "open_positions": [
+            {
+                "symbol": "BTCUSDT",
+                "side": "LONG",
+                "qty": 0.5,
+                "entry_price": 60000.0,
+                "mark_price": 61000.0,
+                **identifiers,
+            }
+        ],
+    }
+    (bundle / "account_snapshot.json").write_text(json.dumps(account_snapshot), encoding="utf-8")
+
+    rows = load_historical_dataset(dataset_root)
+
+    assert rows[0].account["open_positions"][0] == account_snapshot["open_positions"][0]
+
+
+@pytest.mark.parametrize(
     ("field", "value", "expected_message"),
     [
         ("venue", "binance", r"account\.open_positions\[0\]\.venue must be an uppercase canonical string"),
