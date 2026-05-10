@@ -15,6 +15,7 @@ _INSTRUMENT_SNAPSHOT_FILENAME = "instrument_snapshot.json"
 _IMPORT_MANIFEST_FILENAME = "import_manifest.json"
 _ACCOUNT_NON_NEGATIVE_NUMBER_FIELDS = (
     "available_balance",
+    "availableBalance",
     "borrow_fee",
     "entry",
     "entry_price",
@@ -32,6 +33,7 @@ _ACCOUNT_NON_NEGATIVE_NUMBER_FIELDS = (
     "maintenance_margin",
     "maintenanceMargin",
     "margin_balance",
+    "marginBalance",
     "margin_used",
     "marginUsed",
     "mark",
@@ -46,8 +48,11 @@ _ACCOUNT_NON_NEGATIVE_NUMBER_FIELDS = (
     "total_initial_margin",
     "total_maint_margin",
     "total_margin_balance",
+    "totalMarginBalance",
     "total_wallet_balance",
+    "totalWalletBalance",
     "wallet_balance",
+    "walletBalance",
     "break_even_price",
     "breakEvenPrice",
     "collateral_value",
