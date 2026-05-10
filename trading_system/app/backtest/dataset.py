@@ -60,11 +60,19 @@ _ACCOUNT_OPEN_POSITION_UPPERCASE_IDENTITY_FIELDS = (
     "venue",
     "exchange",
 )
+_ACCOUNT_OPEN_POSITION_UPPERCASE_ENUM_FIELDS = {
+    "venue": {"BINANCE"},
+    "exchange": {"BINANCE"},
+}
 _ACCOUNT_OPEN_POSITION_ENUM_FIELDS = {
     "side": {"LONG", "SHORT"},
     "positionSide": {"LONG", "SHORT"},
     "margin_mode": {"CROSS", "ISOLATED"},
     "marginType": {"CROSS", "ISOLATED"},
+    "source": {"account_snapshot", "archive_fixture", "paper_execution"},
+    "origin": {"account_snapshot", "archive_fixture", "paper_execution"},
+    "accountSource": {"account_snapshot", "archive_fixture"},
+    "positionSource": {"account_snapshot", "archive_fixture", "paper_execution"},
 }
 
 
@@ -217,11 +225,15 @@ def _validate_open_position_identity_fields(account: dict, *, path: Path) -> Non
                 _require_account_canonical_string(position[field], field_path=f"{field_prefix}.{field}", path=path)
         for field in _ACCOUNT_OPEN_POSITION_UPPERCASE_IDENTITY_FIELDS:
             if field in position:
-                _require_account_uppercase_canonical_string(
+                value = _require_account_uppercase_canonical_string(
                     position[field],
                     field_path=f"{field_prefix}.{field}",
                     path=path,
                 )
+                allowed = _ACCOUNT_OPEN_POSITION_UPPERCASE_ENUM_FIELDS.get(field)
+                if allowed is not None and value not in allowed:
+                    allowed_values = ", ".join(sorted(allowed))
+                    raise ValueError(f"{field_prefix}.{field} must be one of {allowed_values}: {path}")
         for field, allowed in _ACCOUNT_OPEN_POSITION_ENUM_FIELDS.items():
             if field in position:
                 value = _require_account_canonical_string(position[field], field_path=f"{field_prefix}.{field}", path=path)

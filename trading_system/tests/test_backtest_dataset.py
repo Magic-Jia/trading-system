@@ -288,6 +288,52 @@ def test_load_historical_dataset_rejects_malformed_open_position_identity_before
         load_historical_dataset(dataset_root)
 
 
+@pytest.mark.parametrize(
+    ("field", "value", "expected_message"),
+    [
+        ("venue", "binance", r"account\.open_positions\[0\]\.venue must be an uppercase canonical string"),
+        ("exchange", "COINBASE", r"account\.open_positions\[0\]\.exchange must be one of BINANCE"),
+        ("accountSource", " account_snapshot", r"account\.open_positions\[0\]\.accountSource must be a canonical string"),
+        ("positionSource", "paper_snapshot", r"account\.open_positions\[0\]\.positionSource must be one of"),
+        ("source", [], r"account\.open_positions\[0\]\.source must be a canonical string"),
+    ],
+)
+def test_load_historical_dataset_rejects_malformed_open_position_origin_aliases_before_load(
+    tmp_path: Path, field: str, value: object, expected_message: str
+) -> None:
+    dataset_root = tmp_path / "sample_dataset"
+    bundle = dataset_root / "2026-03-10T00-00-00Z__sample-001"
+    bundle.mkdir(parents=True)
+    (bundle / "metadata.json").write_text(
+        '{"timestamp": "2026-03-10T00:00:00Z", "run_id": "sample-001"}',
+        encoding="utf-8",
+    )
+    (bundle / "market_context.json").write_text('{"symbols": {"BTCUSDT": {}}}', encoding="utf-8")
+    (bundle / "derivatives_snapshot.json").write_text('{"rows": []}', encoding="utf-8")
+    account_snapshot = {
+        "equity": 100000.0,
+        "open_positions": [
+            {
+                "symbol": "BTCUSDT",
+                "side": "LONG",
+                "venue": "BINANCE",
+                "exchange": "BINANCE",
+                "accountSource": "account_snapshot",
+                "positionSource": "paper_execution",
+                "source": "archive_fixture",
+                "qty": 0.5,
+                "entry_price": 60000.0,
+                "mark_price": 61000.0,
+            }
+        ],
+    }
+    account_snapshot["open_positions"][0][field] = value
+    (bundle / "account_snapshot.json").write_text(json.dumps(account_snapshot), encoding="utf-8")
+
+    with pytest.raises(ValueError, match=expected_message):
+        load_historical_dataset(dataset_root)
+
+
 def test_load_historical_dataset_rejects_noncanonical_metadata_identity_fields(tmp_path: Path) -> None:
     dataset_root = tmp_path / "sample_dataset"
     bundle = dataset_root / "2026-03-10T00-00-00Z__sample-001"
