@@ -258,6 +258,37 @@ def test_load_historical_dataset_rejects_pending_open_position_status(tmp_path: 
         load_historical_dataset(dataset_root)
 
 
+@pytest.mark.parametrize("field", ["entry_price", "mark_price"])
+def test_load_historical_dataset_rejects_zero_open_position_core_prices(tmp_path: Path, field: str) -> None:
+    dataset_root = tmp_path / "sample_dataset"
+    bundle = dataset_root / "2026-03-10T00-00-00Z__sample-001"
+    bundle.mkdir(parents=True)
+    (bundle / "metadata.json").write_text(
+        '{"timestamp": "2026-03-10T00:00:00Z", "run_id": "sample-001"}',
+        encoding="utf-8",
+    )
+    (bundle / "market_context.json").write_text('{"symbols": {"BTCUSDT": {}}}', encoding="utf-8")
+    (bundle / "derivatives_snapshot.json").write_text('{"rows": []}', encoding="utf-8")
+    position = {
+        "symbol": "BTCUSDT",
+        "side": "LONG",
+        "qty": 0.5,
+        "entry_price": 60000.0,
+        "mark_price": 61000.0,
+    }
+    position[field] = 0.0
+    (bundle / "account_snapshot.json").write_text(
+        json.dumps({"equity": 100000.0, "open_positions": [position]}),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=rf"account\.open_positions\[0\]\.{field} must be a positive finite number",
+    ):
+        load_historical_dataset(dataset_root)
+
+
 @pytest.mark.parametrize(
     ("field_path", "value", "expected_message"),
     [

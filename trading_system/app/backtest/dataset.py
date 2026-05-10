@@ -74,6 +74,8 @@ _ACCOUNT_RATIO_NUMBER_FIELDS = (
     "risk_ratio",
 )
 _ACCOUNT_OPEN_POSITION_POSITIVE_PRICE_FIELDS = (
+    "entry_price",
+    "mark_price",
     "risk_price",
 )
 _ACCOUNT_RISK_EXPOSURE_RATIO_FIELDS = (
