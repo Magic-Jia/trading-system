@@ -47,6 +47,17 @@ TRADE_POSITIVE_NUMERIC_EVIDENCE_FIELDS = (
     "take_profit_distance_bps",
     "stop_loss_distance_bps",
 )
+TRADE_LATENCY_MS_FIELDS = (
+    "execution_latency_ms",
+    "order_latency_ms",
+    "fill_latency_ms",
+    "slippage_latency_ms",
+)
+TRADE_BAR_COUNT_FIELDS = (
+    "latency_bars",
+    "holding_bars",
+    "duration_bars",
+)
 VALID_TRADES_ARTIFACT_SCHEMA_VERSION = "trades.v1"
 VALID_SUMMARY_ARTIFACT_SCHEMA_VERSION = "backtest_summary.v1"
 TRADE_EXECUTION_COST_FIELDS = ("fee_paid", "slippage_paid")
@@ -3108,6 +3119,19 @@ def _validate_postmortem_trade_execution_fields(trade: Mapping[str, Any], index:
             raise ValueError(
                 f"postmortem.trades[{index}].execution_lag_bars must be a non-negative strict integer"
             )
+    for field in TRADE_LATENCY_MS_FIELDS:
+        value = trade.get(field)
+        if value is not None:
+            parsed, valid = _strict_float_value(value)
+            if not valid or parsed < 0.0:
+                raise ValueError(
+                    f"postmortem.trades[{index}].{field} must be a non-negative finite strict number"
+                )
+    for field in TRADE_BAR_COUNT_FIELDS:
+        value = trade.get(field)
+        if value is not None:
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise ValueError(f"postmortem.trades[{index}].{field} must be a non-negative strict integer")
     value = trade.get("fill_quality")
     if value is not None and (not isinstance(value, str) or not value.strip() or value != value.strip()):
         raise ValueError(f"postmortem.trades[{index}].fill_quality must be a canonical string")

@@ -10081,6 +10081,72 @@ def test_trade_postmortem_summary_rejects_malformed_present_execution_venue(
         )
 
 
+@pytest.mark.parametrize(
+    ("field", "value", "error"),
+    [
+        ("execution_latency_ms", True, r"postmortem.trades\[1\]\.execution_latency_ms must be a non-negative finite strict number"),
+        ("execution_latency_ms", "1", r"postmortem.trades\[1\]\.execution_latency_ms must be a non-negative finite strict number"),
+        ("execution_latency_ms", float("nan"), r"postmortem.trades\[1\]\.execution_latency_ms must be a non-negative finite strict number"),
+        ("execution_latency_ms", float("inf"), r"postmortem.trades\[1\]\.execution_latency_ms must be a non-negative finite strict number"),
+        ("execution_latency_ms", -1, r"postmortem.trades\[1\]\.execution_latency_ms must be a non-negative finite strict number"),
+        ("order_latency_ms", True, r"postmortem.trades\[1\]\.order_latency_ms must be a non-negative finite strict number"),
+        ("order_latency_ms", "1", r"postmortem.trades\[1\]\.order_latency_ms must be a non-negative finite strict number"),
+        ("order_latency_ms", float("nan"), r"postmortem.trades\[1\]\.order_latency_ms must be a non-negative finite strict number"),
+        ("order_latency_ms", float("inf"), r"postmortem.trades\[1\]\.order_latency_ms must be a non-negative finite strict number"),
+        ("order_latency_ms", -1, r"postmortem.trades\[1\]\.order_latency_ms must be a non-negative finite strict number"),
+        ("fill_latency_ms", True, r"postmortem.trades\[1\]\.fill_latency_ms must be a non-negative finite strict number"),
+        ("fill_latency_ms", "1", r"postmortem.trades\[1\]\.fill_latency_ms must be a non-negative finite strict number"),
+        ("fill_latency_ms", float("nan"), r"postmortem.trades\[1\]\.fill_latency_ms must be a non-negative finite strict number"),
+        ("fill_latency_ms", float("inf"), r"postmortem.trades\[1\]\.fill_latency_ms must be a non-negative finite strict number"),
+        ("fill_latency_ms", -1, r"postmortem.trades\[1\]\.fill_latency_ms must be a non-negative finite strict number"),
+        ("slippage_latency_ms", True, r"postmortem.trades\[1\]\.slippage_latency_ms must be a non-negative finite strict number"),
+        ("slippage_latency_ms", "1", r"postmortem.trades\[1\]\.slippage_latency_ms must be a non-negative finite strict number"),
+        ("slippage_latency_ms", float("nan"), r"postmortem.trades\[1\]\.slippage_latency_ms must be a non-negative finite strict number"),
+        ("slippage_latency_ms", float("inf"), r"postmortem.trades\[1\]\.slippage_latency_ms must be a non-negative finite strict number"),
+        ("slippage_latency_ms", -1, r"postmortem.trades\[1\]\.slippage_latency_ms must be a non-negative finite strict number"),
+        ("latency_bars", True, r"postmortem.trades\[1\]\.latency_bars must be a non-negative strict integer"),
+        ("latency_bars", "1", r"postmortem.trades\[1\]\.latency_bars must be a non-negative strict integer"),
+        ("latency_bars", 1.5, r"postmortem.trades\[1\]\.latency_bars must be a non-negative strict integer"),
+        ("latency_bars", float("nan"), r"postmortem.trades\[1\]\.latency_bars must be a non-negative strict integer"),
+        ("latency_bars", float("inf"), r"postmortem.trades\[1\]\.latency_bars must be a non-negative strict integer"),
+        ("latency_bars", -1, r"postmortem.trades\[1\]\.latency_bars must be a non-negative strict integer"),
+        ("holding_bars", True, r"postmortem.trades\[1\]\.holding_bars must be a non-negative strict integer"),
+        ("holding_bars", "1", r"postmortem.trades\[1\]\.holding_bars must be a non-negative strict integer"),
+        ("holding_bars", 1.5, r"postmortem.trades\[1\]\.holding_bars must be a non-negative strict integer"),
+        ("holding_bars", float("nan"), r"postmortem.trades\[1\]\.holding_bars must be a non-negative strict integer"),
+        ("holding_bars", float("inf"), r"postmortem.trades\[1\]\.holding_bars must be a non-negative strict integer"),
+        ("holding_bars", -1, r"postmortem.trades\[1\]\.holding_bars must be a non-negative strict integer"),
+        ("duration_bars", True, r"postmortem.trades\[1\]\.duration_bars must be a non-negative strict integer"),
+        ("duration_bars", "1", r"postmortem.trades\[1\]\.duration_bars must be a non-negative strict integer"),
+        ("duration_bars", 1.5, r"postmortem.trades\[1\]\.duration_bars must be a non-negative strict integer"),
+        ("duration_bars", float("nan"), r"postmortem.trades\[1\]\.duration_bars must be a non-negative strict integer"),
+        ("duration_bars", float("inf"), r"postmortem.trades\[1\]\.duration_bars must be a non-negative strict integer"),
+        ("duration_bars", -1, r"postmortem.trades\[1\]\.duration_bars must be a non-negative strict integer"),
+    ],
+)
+def test_trade_postmortem_summary_rejects_malformed_present_latency_and_bar_fields(
+    field: str,
+    value: object,
+    error: str,
+) -> None:
+    with pytest.raises(ValueError, match=error):
+        summarize_trade_postmortem(
+            [
+                {
+                    "symbol": "SOLUSDT",
+                    "setup_type": "RS_REACCELERATION",
+                    "gross_pnl": 100.0,
+                    "net_pnl": 80.0,
+                    "fee_paid": 10.0,
+                    "slippage_paid": 10.0,
+                    "mfe_pct": 0.012,
+                    "mae_pct": 0.0,
+                    field: value,
+                }
+            ]
+        )
+
+
 class _Universes:
     major_universe = ()
     rotation_universe = ()
