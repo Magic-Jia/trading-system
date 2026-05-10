@@ -2686,11 +2686,13 @@ def supplement_phase1_imported_dataset_root_instrument_snapshots(
         instrument_snapshot_path = bundle_dir / "instrument_snapshot.json"
         if instrument_snapshot_path.exists() and not overwrite:
             continue
+        instrument_rows = _material_market_context_instrument_rows(material)
+        _validate_material_instrument_snapshot_rows(instrument_rows)
         _write_json(
             instrument_snapshot_path,
             _instrument_snapshot_payload(
                 as_of=_material_market_context_as_of(material),
-                instrument_rows=_material_market_context_instrument_rows(material),
+                instrument_rows=instrument_rows,
             ),
         )
         written_paths.append(instrument_snapshot_path)

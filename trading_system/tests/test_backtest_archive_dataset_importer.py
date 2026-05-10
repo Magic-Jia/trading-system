@@ -4701,6 +4701,51 @@ def test_supplement_phase1_imported_dataset_root_rejects_non_string_archive_deri
         supplement_phase1_imported_dataset_root_instrument_snapshots(dataset_root)
 
 
+def test_supplement_phase1_imported_dataset_root_rejects_numeric_string_archive_derived_price_tick_without_artifact(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    archive_root = tmp_path / "archive"
+    dataset_root = tmp_path / "dataset"
+    _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT")
+    imported = load_phase1_raw_market_imports(archive_root)
+    material = build_phase1_dataset_bundle_materials(imported)[-1]
+    bundle_dir = write_phase1_dataset_bundle(material, dataset_root)
+    write_phase1_dataset_root_manifest(
+        archive_root,
+        dataset_root,
+        symbols=("BTCUSDT",),
+        materials=(material,),
+        bundle_dirs=(bundle_dir,),
+    )
+    instrument_snapshot_path = bundle_dir / "instrument_snapshot.json"
+    instrument_snapshot_path.unlink()
+    market_context = dict(material.market_context)
+    instrument_rows = [dict(row) for row in market_context["instrument_rows"]]
+    instrument_rows[0]["price_tick"] = "0.1"
+    market_context["instrument_rows"] = instrument_rows
+    bad_material = archive_importer.Phase1DatasetBundleMaterial(
+        timestamp=material.timestamp,
+        run_id=material.run_id,
+        metadata=material.metadata,
+        market_context=market_context,
+        derivatives_snapshot=material.derivatives_snapshot,
+        account_snapshot=material.account_snapshot,
+    )
+    monkeypatch.setattr(
+        archive_importer,
+        "build_phase1_dataset_bundle_materials",
+        lambda imported_series: (bad_material,),
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"instrument_snapshot rows\[0\]\.price_tick must be a positive finite number",
+    ):
+        supplement_phase1_imported_dataset_root_instrument_snapshots(dataset_root)
+
+    assert not instrument_snapshot_path.exists()
+
+
 def test_supplement_phase1_imported_dataset_root_instrument_snapshots_backfills_legacy_root(tmp_path: Path) -> None:
     archive_root = tmp_path / "archive"
     dataset_root = tmp_path / "dataset"
