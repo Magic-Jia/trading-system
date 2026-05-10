@@ -741,6 +741,86 @@ def test_write_phase1_dataset_bundle_rejects_malformed_open_position_notional_pn
 @pytest.mark.parametrize(
     ("field", "value", "expected_message"),
     [
+        ("position_value", True, r"account\.open_positions\[0\]\.position_value must be a positive finite number"),
+        ("market_value", "30500.0", r"account\.open_positions\[0\]\.market_value must be a positive finite number"),
+        ("exposure_value", float("nan"), r"account\.open_positions\[0\]\.exposure_value must be a positive finite number"),
+        ("positionValue", 0.0, r"account\.open_positions\[0\]\.positionValue must be a positive finite number"),
+        ("marketValue", float("inf"), r"account\.open_positions\[0\]\.marketValue must be a positive finite number"),
+        (
+            "exposureValue",
+            float("-inf"),
+            r"account\.open_positions\[0\]\.exposureValue must be a positive finite number",
+        ),
+        ("margin_used", "1000.0", r"account\.open_positions\[0\]\.margin_used must be a non-negative finite number"),
+        ("marginUsed", float("nan"), r"account\.open_positions\[0\]\.marginUsed must be a non-negative finite number"),
+        (
+            "collateral_value",
+            -1.0,
+            r"account\.open_positions\[0\]\.collateral_value must be a non-negative finite number",
+        ),
+        (
+            "collateralValue",
+            True,
+            r"account\.open_positions\[0\]\.collateralValue must be a non-negative finite number",
+        ),
+    ],
+)
+def test_write_phase1_dataset_bundle_rejects_malformed_open_position_derived_value_numbers_without_artifact(
+    tmp_path: Path, field: str, value: object, expected_message: str
+) -> None:
+    timestamp = datetime(2024, 1, 1, tzinfo=UTC)
+    material = archive_importer.Phase1DatasetBundleMaterial(
+        timestamp=timestamp,
+        run_id=archive_importer._run_id(timestamp),
+        metadata={"timestamp": "2024-01-01T00:00:00Z", "run_id": archive_importer._run_id(timestamp)},
+        market_context={
+            "schema_version": archive_importer.PHASE1_IMPORTER_MARKET_CONTEXT_SCHEMA,
+            "as_of": "2024-01-01T00:00:00Z",
+            "symbols": {"BTCUSDT": {}},
+            "instrument_rows": [],
+        },
+        derivatives_snapshot={
+            "schema_version": archive_importer.PHASE1_IMPORTER_DERIVATIVES_SCHEMA,
+            "as_of": "2024-01-01T00:00:00Z",
+            "rows": [],
+        },
+        account_snapshot={
+            "schema_version": archive_importer.PHASE1_IMPORTER_ACCOUNT_SCHEMA,
+            "as_of": "2024-01-01T00:00:00Z",
+            "equity": 100000.0,
+            "open_positions": [
+                {
+                    "symbol": "BTCUSDT",
+                    "side": "LONG",
+                    "qty": 0.5,
+                    "entry_price": 60000.0,
+                    "mark_price": 61000.0,
+                    "position_value": 30500.0,
+                    "positionValue": 30500.0,
+                    "market_value": 30500.0,
+                    "marketValue": 30500.0,
+                    "exposure_value": 30500.0,
+                    "exposureValue": 30500.0,
+                    "margin_used": 1000.0,
+                    "marginUsed": 1000.0,
+                    "collateral_value": 1000.0,
+                    "collateralValue": 1000.0,
+                }
+            ],
+        },
+    )
+    material.account_snapshot["open_positions"][0][field] = value
+    expected_bundle_dir = tmp_path / f"{archive_importer._bundle_fragment(timestamp)}__{material.run_id}"
+
+    with pytest.raises(ValueError, match=expected_message):
+        write_phase1_dataset_bundle(material, tmp_path)
+
+    assert not expected_bundle_dir.exists()
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "expected_message"),
+    [
         ("margin_ratio", 0.0, r"account\.open_positions\[0\]\.margin_ratio must be a ratio in \(0, 1\]"),
         ("marginRatio", 1.01, r"account\.open_positions\[0\]\.marginRatio must be a ratio in \(0, 1\]"),
         (

@@ -30,6 +30,8 @@ _ACCOUNT_NON_NEGATIVE_NUMBER_FIELDS = (
     "margin",
     "maintenance_margin",
     "margin_balance",
+    "margin_used",
+    "marginUsed",
     "mark",
     "mark_price",
     "notional",
@@ -46,12 +48,20 @@ _ACCOUNT_NON_NEGATIVE_NUMBER_FIELDS = (
     "wallet_balance",
     "break_even_price",
     "breakEvenPrice",
+    "collateral_value",
+    "collateralValue",
     "equity",
     "risk_price",
     "unrealized_cost",
 )
 _ACCOUNT_POSITIVE_NUMBER_FIELDS = (
+    "exposure_value",
+    "exposureValue",
     "leverage",
+    "market_value",
+    "marketValue",
+    "position_value",
+    "positionValue",
 )
 _ACCOUNT_RATIO_NUMBER_FIELDS = (
     "initial_margin_ratio",
