@@ -24,6 +24,8 @@ _ACCOUNT_NON_NEGATIVE_NUMBER_FIELDS = (
     "margin",
     "maintenance_margin",
     "margin_balance",
+    "marginRatio",
+    "margin_ratio",
     "mark",
     "mark_price",
     "notional",
@@ -47,7 +49,11 @@ _ACCOUNT_POSITIVE_NUMBER_FIELDS = (
 _ACCOUNT_SIGNED_NUMBER_FIELDS = (
     "total_unrealized_profit",
     "unRealizedProfit",
+    "realizedPnl",
+    "realized_pnl",
     "unrealized_pnl",
+    "unrealizedPnl",
+    "pnl",
     "upl",
 )
 _ACCOUNT_IDENTITY_STRING_FIELDS = (
