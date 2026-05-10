@@ -129,11 +129,15 @@ _ACCOUNT_SIGNED_NUMBER_FIELDS = (
 )
 _ACCOUNT_IDENTITY_STRING_FIELDS = (
     "account_id",
+    "accountId",
     "venue",
     "exchange",
     "quote_currency",
+    "quoteCurrency",
     "margin_mode",
+    "marginMode",
     "account_type",
+    "accountType",
 )
 _ACCOUNT_OPEN_POSITION_IDENTITY_STRING_FIELDS = (
     "status",

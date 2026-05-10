@@ -345,6 +345,7 @@ def test_load_historical_dataset_rejects_zero_open_position_core_prices(tmp_path
         (("totalInitialMargin",), True, r"account\.totalInitialMargin must be a non-negative finite number"),
         (("total_unrealized_profit",), float("nan"), r"account\.total_unrealized_profit must be a finite number"),
         (("unrealizedProfit",), "1.0", r"account\.unrealizedProfit must be a finite number"),
+        (("accountId",), " bad ", r"account\.accountId must be a canonical string"),
         (
             ("open_positions", 0, "leverage"),
             float("inf"),
