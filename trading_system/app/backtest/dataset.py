@@ -62,6 +62,7 @@ _ACCOUNT_OPEN_POSITION_UPPERCASE_IDENTITY_FIELDS = (
 )
 _ACCOUNT_OPEN_POSITION_ENUM_FIELDS = {
     "side": {"LONG", "SHORT"},
+    "positionSide": {"LONG", "SHORT"},
     "margin_mode": {"CROSS", "ISOLATED"},
 }
 

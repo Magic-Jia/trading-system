@@ -29,6 +29,7 @@ from trading_system.app.backtest.archive.importer import (
     _ordered_timeframes,
     _order_book_payload,
     _trade_payload,
+    write_phase1_dataset_bundle,
 )
 from trading_system.app.backtest.archive.materialization import _execution_evidence_gap
 from trading_system.app.backtest.archive.materialization import _manifest_coverage_bounds
@@ -46,6 +47,36 @@ def test_material_metadata_source_rejects_present_null_source() -> None:
 
     with pytest.raises(ValueError, match="materialized dataset bundle metadata source must contain a JSON object"):
         _material_metadata_source(material)
+
+
+def test_write_phase1_dataset_bundle_rejects_malformed_open_position_position_side_before_artifact(
+    tmp_path: Path,
+) -> None:
+    material = Phase1DatasetBundleMaterial(
+        timestamp=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        run_id="phase1-import-2026-01-01T00-00-00Z",
+        metadata={"timestamp": "2026-01-01T00:00:00Z", "run_id": "phase1-import-2026-01-01T00-00-00Z"},
+        market_context={"as_of": "2026-01-01T00:00:00Z", "symbols": {}, "instrument_rows": []},
+        derivatives_snapshot={"rows": []},
+        account_snapshot={
+            "equity": 100_000.0,
+            "open_positions": [
+                {
+                    "symbol": "BTCUSDT",
+                    "positionSide": " long ",
+                    "qty": 0.25,
+                    "entry_price": 60_000.0,
+                    "mark_price": 61_000.0,
+                }
+            ],
+        },
+    )
+    dataset_root = tmp_path / "dataset"
+
+    with pytest.raises(ValueError, match=r"account\.open_positions\[0\]\.positionSide must be a canonical string"):
+        write_phase1_dataset_bundle(material, dataset_root)
+
+    assert not dataset_root.exists()
 
 
 def test_load_raw_market_manifest_fails_fast_on_duplicate_file_timestamps(tmp_path: Path) -> None:
