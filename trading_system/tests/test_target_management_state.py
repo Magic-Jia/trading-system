@@ -2321,6 +2321,53 @@ def test_sync_positions_from_account_rejects_invalid_snapshot_numeric_fields_wit
     assert state.positions == {}
 
 
+@pytest.mark.parametrize("leverage", [True, "3.0", float("nan"), float("inf"), 0.0])
+def test_sync_positions_from_account_rejects_invalid_snapshot_leverage_without_mutating_state(leverage):
+    state = RuntimeStateV2(
+        updated_at_bj="2026-04-09T12:00:00+08:00",
+        positions={
+            "ETHUSDT": {
+                "symbol": "ETHUSDT",
+                "side": "LONG",
+                "qty": 0.8,
+                "entry_price": 2300.0,
+                "mark_price": 2310.0,
+                "unrealized_pnl": 8.0,
+                "notional": 1848.0,
+                "status": "OPEN",
+                "tracked_from_snapshot": True,
+                "tracked_from_intent": False,
+                "source": "account_snapshot",
+            }
+        },
+    )
+    original_positions = dict(state.positions)
+
+    with pytest.raises((TypeError, ValueError), match=r"account\.open_positions\[BTCUSDT\]\.leverage"):
+        sync_positions_from_account(
+            state,
+            AccountSnapshot(
+                equity=1000.0,
+                available_balance=1000.0,
+                futures_wallet_balance=1000.0,
+                open_positions=[
+                    PositionSnapshot(
+                        symbol="BTCUSDT",
+                        side="LONG",
+                        qty=0.4,
+                        entry_price=100.0,
+                        mark_price=106.0,
+                        notional=42.4,
+                        unrealized_pnl=2.4,
+                        leverage=leverage,
+                    )
+                ],
+            ),
+        )
+
+    assert state.positions == original_positions
+
+
 def test_sync_positions_from_account_marks_tracked_intent_position_closed_when_exchange_position_disappears(monkeypatch):
     monkeypatch.setattr("trading_system.app.portfolio.positions._now_bj", lambda: "2026-04-09T18:00:00+08:00")
     state = RuntimeStateV2(

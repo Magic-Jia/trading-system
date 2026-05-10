@@ -281,6 +281,18 @@ def _strict_present_optional_number(payload: Mapping[str, Any], key: str, field:
     return _strict_finite_number(payload.get(key), label)
 
 
+def _strict_present_optional_positive_number(
+    payload: Mapping[str, Any], key: str, field: str | None = None
+) -> float | None:
+    label = field or key
+    value = _strict_present_optional_number(payload, key, label)
+    if value is None:
+        return None
+    if value <= 0.0:
+        raise ValueError(f"{label} must be positive when present")
+    return value
+
+
 def _strict_non_negative_quantity(payload: Mapping[str, Any], field: str, default: float | None = None) -> float:
     if field not in payload or payload.get(field) is None:
         if default is None:
@@ -563,6 +575,11 @@ def sync_positions_from_account(state: RuntimeState, account: AccountSnapshot) -
         )
         snapshot_notional = _strict_finite_number(snapshot.notional, f"{snapshot_label}.notional")
         snapshot_unrealized_pnl = _strict_finite_number(snapshot.unrealized_pnl, f"{snapshot_label}.unrealized_pnl")
+        snapshot_leverage = _strict_present_optional_positive_number(
+            {"leverage": snapshot.leverage},
+            "leverage",
+            f"{snapshot_label}.leverage",
+        )
 
         if snapshot_qty <= 0:
             continue
@@ -611,7 +628,7 @@ def sync_positions_from_account(state: RuntimeState, account: AccountSnapshot) -
                     mark_price=snapshot_mark_price,
                     unrealized_pnl=snapshot_unrealized_pnl,
                     notional=snapshot_notional,
-                    leverage=snapshot.leverage,
+                    leverage=snapshot_leverage,
                     strategy_tag=snapshot.strategy_tag,
                 )
             )
@@ -630,7 +647,7 @@ def sync_positions_from_account(state: RuntimeState, account: AccountSnapshot) -
             "mark_price": mark_price,
             "unrealized_pnl": unrealized_pnl,
             "notional": notional,
-            "leverage": snapshot.leverage,
+            "leverage": snapshot_leverage,
             "stop_loss": carry_existing.get("stop_loss"),
             "take_profit": carry_existing.get("take_profit"),
             "status": "OPEN",
