@@ -645,6 +645,23 @@ def _strict_snapshot_remaining_identity_metadata(snapshot: PositionSnapshot) -> 
     return payload
 
 
+def _canonical_utc_timestamp_value(value: str) -> datetime:
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def _validate_snapshot_time_provenance_order(payload: Mapping[str, str], *, snapshot_label: str) -> None:
+    if "order_time" in payload and "execution_time" in payload:
+        order_time = _canonical_utc_timestamp_value(payload["order_time"])
+        execution_time = _canonical_utc_timestamp_value(payload["execution_time"])
+        if execution_time < order_time:
+            raise ValueError(f"{snapshot_label}.execution_time must be at or after order_time")
+    if "execution_time" in payload and "fill_time" in payload:
+        execution_time = _canonical_utc_timestamp_value(payload["execution_time"])
+        fill_time = _canonical_utc_timestamp_value(payload["fill_time"])
+        if fill_time < execution_time:
+            raise ValueError(f"{snapshot_label}.fill_time must be at or after execution_time")
+
+
 def _strict_snapshot_time_provenance_metadata(snapshot: PositionSnapshot) -> dict[str, str]:
     payload: dict[str, str] = {}
     snapshot_label = f"account.open_positions[{snapshot.symbol}]"
@@ -656,6 +673,7 @@ def _strict_snapshot_time_provenance_metadata(snapshot: PositionSnapshot) -> dic
         )
         if value is not None:
             payload[key] = value
+    _validate_snapshot_time_provenance_order(payload, snapshot_label=snapshot_label)
     return payload
 
 
