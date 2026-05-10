@@ -48,10 +48,10 @@ def load_audit_module():
     return module
 
 
-def run_audit(*args: str) -> subprocess.CompletedProcess[str]:
+def run_audit(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [sys.executable, str(AUDIT), *args],
-        cwd=ROOT,
+        cwd=cwd,
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -59,11 +59,20 @@ def run_audit(*args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def test_audit_worker_commit_outputs_json_for_head() -> None:
-    result = run_audit("--commit", "HEAD")
+def clone_repo(tmp_path: Path) -> Path:
+    repo = tmp_path / "repo"
+    clone = subprocess.run(
+        ["git", "clone", "--quiet", str(ROOT), str(repo)],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    assert clone.returncode == 0, clone.stderr
+    return repo
 
-    assert result.returncode == 0, result.stderr
-    payload = json.loads(result.stdout)
+
+def assert_worker_audit_contract(payload: dict[str, object]) -> None:
     assert payload["commit"]
     assert set(payload) == WORKER_AUDIT_JSON_KEYS
     assert payload["changed_files"]
@@ -76,8 +85,6 @@ def test_audit_worker_commit_outputs_json_for_head() -> None:
         "run verification_plan.commands in controller workspace",
         "only integrate after controller verification passes",
     ]
-    assert payload["worktree_dirty"] is True
-    assert "memory/dev-status.md" in payload["worktree_dirty_paths"]
     assert payload["strict_changed_verification"] is True
     assert set(payload["verification_plan"]) == WORKER_AUDIT_VERIFICATION_PLAN_JSON_KEYS
     assert payload["verification_plan"]["plan_version"] == 1
@@ -88,43 +95,77 @@ def test_audit_worker_commit_outputs_json_for_head() -> None:
     assert payload["verification_plan"]["command_argv"][-1] == ["git", "diff", "--check", "HEAD"]
 
 
+def test_audit_worker_commit_outputs_json_for_head_in_clean_worktree(tmp_path: Path) -> None:
+    repo = clone_repo(tmp_path)
+    result = run_audit(repo, "--commit", "HEAD")
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert_worker_audit_contract(payload)
+    assert payload["worktree_dirty"] is False
+    assert payload["worktree_dirty_paths"] == []
+
+
+def test_audit_worker_commit_reports_dirty_worktree_paths(tmp_path: Path) -> None:
+    repo = clone_repo(tmp_path)
+    dirty_marker = repo / "trading_system" / "tests" / ".audit_worker_commit_dirty_marker.txt"
+    dirty_marker.write_text("dirty\n", encoding="utf-8")
+    try:
+        result = run_audit(repo, "--commit", "HEAD")
+
+        assert result.returncode == 0, result.stderr
+        payload = json.loads(result.stdout)
+        assert_worker_audit_contract(payload)
+        assert payload["worktree_dirty"] is True
+        assert str(dirty_marker.relative_to(repo)) in payload["worktree_dirty_paths"]
+    finally:
+        dirty_marker.unlink(missing_ok=True)
+
+    cleaned = run_audit(repo, "--commit", "HEAD")
+    assert cleaned.returncode == 0, cleaned.stderr
+    cleaned_payload = json.loads(cleaned.stdout)
+    assert_worker_audit_contract(cleaned_payload)
+    assert cleaned_payload["worktree_dirty"] is False
+    assert cleaned_payload["worktree_dirty_paths"] == []
+
+
 def test_audit_worker_commit_rejects_dev_status_file() -> None:
-    result = run_audit("--changed-file", "memory/dev-status.md")
+    result = run_audit(ROOT, "--changed-file", "memory/dev-status.md")
 
     assert result.returncode == 2
     assert "memory/dev-status.md" in result.stderr
 
 
 def test_audit_worker_commit_rejects_empty_input() -> None:
-    result = run_audit()
+    result = run_audit(ROOT)
 
     assert result.returncode == 2
     assert "no changed files" in result.stderr
 
 
 def test_audit_worker_commit_rejects_blank_changed_file() -> None:
-    result = run_audit("--changed-file", "")
+    result = run_audit(ROOT, "--changed-file", "")
 
     assert result.returncode == 2
     assert "changed file must be non-empty" in result.stderr
 
 
 def test_audit_worker_commit_rejects_duplicate_changed_file() -> None:
-    result = run_audit("--changed-file", "AGENTS.md", "--changed-file", "AGENTS.md")
+    result = run_audit(ROOT, "--changed-file", "AGENTS.md", "--changed-file", "AGENTS.md")
 
     assert result.returncode == 2
     assert "duplicate changed file" in result.stderr
 
 
 def test_audit_worker_commit_rejects_changed_files_without_impacted_tests() -> None:
-    result = run_audit("--changed-file", "UNKNOWN_UNMAPPED_FILE.txt")
+    result = run_audit(ROOT, "--changed-file", "UNKNOWN_UNMAPPED_FILE.txt")
 
     assert result.returncode == 2
     assert "no impacted verification tests" in result.stderr
 
 
 def test_audit_worker_commit_maps_agent_rules_to_workflow_meta() -> None:
-    result = run_audit("--changed-file", "AGENTS.md")
+    result = run_audit(ROOT, "--changed-file", "AGENTS.md")
 
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
@@ -133,7 +174,7 @@ def test_audit_worker_commit_maps_agent_rules_to_workflow_meta() -> None:
 
 
 def test_audit_worker_commit_maps_readme_changes_to_workflow_meta() -> None:
-    result = run_audit("--changed-file", "README.md")
+    result = run_audit(ROOT, "--changed-file", "README.md")
 
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
@@ -143,6 +184,7 @@ def test_audit_worker_commit_maps_readme_changes_to_workflow_meta() -> None:
 
 def test_audit_worker_commit_rejects_partially_unmapped_changed_files() -> None:
     result = run_audit(
+        ROOT,
         "--changed-file",
         "README.md",
         "--changed-file",
