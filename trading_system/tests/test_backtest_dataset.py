@@ -348,6 +348,7 @@ def test_load_historical_dataset_rejects_zero_open_position_core_prices(tmp_path
         (("accountId",), " bad ", r"account\.accountId must be a canonical string"),
         (("marginMode",), "cross margin", r"account\.marginMode must be one of CROSS, ISOLATED"),
         (("accountType",), "futures account", r"account\.accountType must be one of FUTURES, MARGIN, PORTFOLIO_MARGIN, SPOT"),
+        (("exchange",), "kraken", r"account\.exchange must be one of BINANCE"),
         (("open_positions", 0, "orderTime"), "2026-03-10 00:00:00", r"account\.open_positions\[0\]\.orderTime must be a canonical UTC ISO timestamp"),
         (("open_positions", 0, "baseAsset"), "btc", r"account\.open_positions\[0\]\.baseAsset must be an uppercase asset code"),
         (("open_positions", 0, "signalSource"), "bad space", r"account\.open_positions\[0\]\.signalSource must be a canonical identifier string"),

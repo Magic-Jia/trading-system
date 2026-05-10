@@ -130,14 +130,14 @@ _ACCOUNT_SIGNED_NUMBER_FIELDS = (
 _ACCOUNT_IDENTITY_STRING_FIELDS = (
     "account_id",
     "accountId",
-    "venue",
-    "exchange",
     "quote_currency",
     "quoteCurrency",
 )
 _ACCOUNT_ENUM_FIELDS = {
     "account_type": {"FUTURES", "MARGIN", "PORTFOLIO_MARGIN", "SPOT"},
     "accountType": {"FUTURES", "MARGIN", "PORTFOLIO_MARGIN", "SPOT"},
+    "venue": {"BINANCE"},
+    "exchange": {"BINANCE"},
     "margin_mode": {"CROSS", "ISOLATED"},
     "marginMode": {"CROSS", "ISOLATED"},
 }
