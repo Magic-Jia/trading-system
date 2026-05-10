@@ -108,6 +108,15 @@ class PositionSnapshot:
     collateral_value: float | None = None
     risk_pct: float | None = None
     exposure_pct: float | None = None
+    base_asset: str | None = None
+    quote_asset: str | None = None
+    margin_asset: str | None = None
+    collateral_asset: str | None = None
+    settlement_asset: str | None = None
+    fee_asset: str | None = None
+    funding_asset: str | None = None
+    pnl_asset: str | None = None
+    pnl_currency: str | None = None
 
 
 @dataclass(slots=True)

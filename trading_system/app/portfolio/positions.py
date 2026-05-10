@@ -190,6 +190,17 @@ _SNAPSHOT_POSITION_SIZING_METADATA_KEYS = (
 )
 _POSITIVE_SNAPSHOT_POSITION_SIZING_METADATA_KEYS = frozenset({"position_value", "market_value", "exposure_value"})
 _SNAPSHOT_POSITION_SIZING_RATIO_KEYS = frozenset({"risk_pct", "exposure_pct"})
+_SNAPSHOT_ASSET_IDENTITY_KEYS = (
+    "base_asset",
+    "quote_asset",
+    "margin_asset",
+    "collateral_asset",
+    "settlement_asset",
+    "fee_asset",
+    "funding_asset",
+    "pnl_asset",
+    "pnl_currency",
+)
 
 
 def _strict_canonical_symbol(value: Any, field: str) -> str:
@@ -403,6 +414,18 @@ def _strict_present_identifier_string(payload: Mapping[str, Any], key: str, fiel
     return value
 
 
+def _strict_present_asset_identity_string(payload: Mapping[str, Any], key: str, field: str | None = None) -> str | None:
+    label = field or key
+    if key not in payload or payload.get(key) is None:
+        return None
+    value = payload.get(key)
+    if not isinstance(value, str):
+        raise TypeError(f"{label} must be a canonical asset string when present")
+    if not value or value != value.strip() or value != value.upper() or not value.isalnum():
+        raise ValueError(f"{label} must be a canonical asset string when present")
+    return value
+
+
 def _strict_present_optional_number(payload: Mapping[str, Any], key: str, field: str | None = None) -> float | None:
     label = field or key
     if key not in payload or payload.get(key) is None:
@@ -522,6 +545,20 @@ def _strict_snapshot_position_sizing_metadata(snapshot: PositionSnapshot) -> dic
         elif value < 0.0:
             raise ValueError(f"{snapshot_label}.{key} must be non-negative when present")
         payload[key] = value
+    return payload
+
+
+def _strict_snapshot_asset_identity_metadata(snapshot: PositionSnapshot) -> dict[str, str]:
+    payload: dict[str, str] = {}
+    snapshot_label = f"account.open_positions[{snapshot.symbol}]"
+    for key in _SNAPSHOT_ASSET_IDENTITY_KEYS:
+        value = _strict_present_asset_identity_string(
+            {key: getattr(snapshot, key, None)},
+            key,
+            f"{snapshot_label}.{key}",
+        )
+        if value is not None:
+            payload[key] = value
     return payload
 
 
@@ -773,6 +810,7 @@ def _validate_snapshot_position_identities(open_positions: list[PositionSnapshot
         _strict_snapshot_order_execution_metadata(snapshot)
         _strict_snapshot_risk_price_metadata(snapshot)
         _strict_snapshot_position_sizing_metadata(snapshot)
+        _strict_snapshot_asset_identity_metadata(snapshot)
 
 
 def _mark_intent_position_closed(state: RuntimeState, symbol: str, position: dict[str, Any], now_bj: str) -> None:
@@ -822,6 +860,7 @@ def sync_positions_from_account(state: RuntimeState, account: AccountSnapshot) -
         snapshot_order_execution_metadata = _strict_snapshot_order_execution_metadata(snapshot)
         snapshot_risk_price_metadata = _strict_snapshot_risk_price_metadata(snapshot)
         snapshot_position_sizing_metadata = _strict_snapshot_position_sizing_metadata(snapshot)
+        snapshot_asset_identity_metadata = _strict_snapshot_asset_identity_metadata(snapshot)
 
         if snapshot_qty <= 0:
             continue
@@ -901,6 +940,7 @@ def sync_positions_from_account(state: RuntimeState, account: AccountSnapshot) -
             **snapshot_order_execution_metadata,
             **snapshot_risk_price_metadata,
             **snapshot_position_sizing_metadata,
+            **snapshot_asset_identity_metadata,
             "source": _source(
                 carry_existing,
                 from_snapshot=True,
