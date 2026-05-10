@@ -1111,6 +1111,45 @@ def test_load_historical_dataset_rejects_open_position_updated_before_opened_at(
         load_historical_dataset(dataset_root)
 
 
+@pytest.mark.parametrize(
+    ("field", "value", "match"),
+    [
+        ("close_time", "2026-03-09T23:59:59Z", r"account\.open_positions\[0\]\.close_time must be at or after opened_at"),
+        ("settlement_time", "2026-03-10T00:00:02Z", r"account\.open_positions\[0\]\.settlement_time must be at or after close_time"),
+    ],
+)
+def test_load_historical_dataset_rejects_impossible_open_position_close_lifecycle(
+    tmp_path: Path, field: str, value: str, match: str
+) -> None:
+    dataset_root = tmp_path / "sample_dataset"
+    bundle = dataset_root / "2026-03-10T00-00-00Z__sample-001"
+    bundle.mkdir(parents=True)
+    (bundle / "metadata.json").write_text(
+        '{"timestamp": "2026-03-10T00:00:00Z", "run_id": "sample-001"}',
+        encoding="utf-8",
+    )
+    (bundle / "market_context.json").write_text('{"symbols": {"BTCUSDT": {}}}', encoding="utf-8")
+    (bundle / "derivatives_snapshot.json").write_text('{"rows": []}', encoding="utf-8")
+    position = {
+        "symbol": "BTCUSDT",
+        "side": "LONG",
+        "opened_at": "2026-03-10T00:00:00Z",
+        "close_time": "2026-03-10T00:00:03Z",
+        "settlement_time": "2026-03-10T00:00:04Z",
+        "qty": 0.5,
+        "entry_price": 60000.0,
+        "mark_price": 61000.0,
+    }
+    position[field] = value
+    (bundle / "account_snapshot.json").write_text(
+        json.dumps({"equity": 100000.0, "open_positions": [position]}),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match=match):
+        load_historical_dataset(dataset_root)
+
+
 def test_load_historical_dataset_rejects_noncanonical_metadata_identity_fields(tmp_path: Path) -> None:
     dataset_root = tmp_path / "sample_dataset"
     bundle = dataset_root / "2026-03-10T00-00-00Z__sample-001"

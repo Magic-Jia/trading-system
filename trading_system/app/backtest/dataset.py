@@ -399,9 +399,14 @@ def _account_utc_timestamp_value(value: str) -> datetime:
 def _validate_open_position_time_order(position: dict, *, field_prefix: str, path: Path) -> None:
     if "opened_at" in position:
         opened_at = _account_utc_timestamp_value(position["opened_at"])
-        for field in ("updated_at", "as_of", "timestamp", "last_update_time"):
+        for field in ("updated_at", "as_of", "timestamp", "last_update_time", "close_time"):
             if field in position and _account_utc_timestamp_value(position[field]) < opened_at:
                 raise ValueError(f"{field_prefix}.{field} must be at or after opened_at: {path}")
+    if "close_time" in position and "settlement_time" in position:
+        close_time = _account_utc_timestamp_value(position["close_time"])
+        settlement_time = _account_utc_timestamp_value(position["settlement_time"])
+        if settlement_time < close_time:
+            raise ValueError(f"{field_prefix}.settlement_time must be at or after close_time: {path}")
     if "order_time" in position and "execution_time" in position:
         order_time = _account_utc_timestamp_value(position["order_time"])
         execution_time = _account_utc_timestamp_value(position["execution_time"])
