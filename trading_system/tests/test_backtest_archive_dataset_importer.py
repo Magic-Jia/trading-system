@@ -606,6 +606,123 @@ def test_write_phase1_dataset_bundle_rejects_malformed_open_position_time_metada
 
 
 @pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("event_time", 123),
+        ("trade_time", ""),
+        ("execution_time", " 2024-01-01T00:00:00Z"),
+        ("fill_time", "2024-01-01T00:00:00Z\n"),
+        ("order_time", "2024-01-01T00:00:00\x00Z"),
+        ("close_time", "2024-01-01T00:00:00+01:00"),
+        ("expiry_time", "2024-01-01T00:00:00.1Z"),
+        ("settlement_time", "2024-01-01"),
+    ],
+)
+def test_write_phase1_dataset_bundle_rejects_malformed_open_position_provenance_timestamps_without_artifact(
+    tmp_path: Path, field: str, value: object
+) -> None:
+    timestamp = datetime(2024, 1, 1, tzinfo=UTC)
+    material = archive_importer.Phase1DatasetBundleMaterial(
+        timestamp=timestamp,
+        run_id=archive_importer._run_id(timestamp),
+        metadata={"timestamp": "2024-01-01T00:00:00Z", "run_id": archive_importer._run_id(timestamp)},
+        market_context={
+            "schema_version": archive_importer.PHASE1_IMPORTER_MARKET_CONTEXT_SCHEMA,
+            "as_of": "2024-01-01T00:00:00Z",
+            "symbols": {"BTCUSDT": {}},
+            "instrument_rows": [],
+        },
+        derivatives_snapshot={
+            "schema_version": archive_importer.PHASE1_IMPORTER_DERIVATIVES_SCHEMA,
+            "as_of": "2024-01-01T00:00:00Z",
+            "rows": [],
+        },
+        account_snapshot={
+            "schema_version": archive_importer.PHASE1_IMPORTER_ACCOUNT_SCHEMA,
+            "as_of": "2024-01-01T00:00:00Z",
+            "equity": 100000.0,
+            "open_positions": [
+                {
+                    "symbol": "BTCUSDT",
+                    "side": "LONG",
+                    "event_time": "2024-01-01T00:00:00Z",
+                    "trade_time": "2024-01-01T00:00:00Z",
+                    "execution_time": "2024-01-01T00:00:00Z",
+                    "fill_time": "2024-01-01T00:00:00Z",
+                    "order_time": "2024-01-01T00:00:00Z",
+                    "close_time": "2024-01-01T00:00:00Z",
+                    "expiry_time": "2024-01-01T00:00:00Z",
+                    "settlement_time": "2024-01-01T00:00:00Z",
+                    "qty": 0.5,
+                    "entry_price": 60000.0,
+                    "mark_price": 61000.0,
+                }
+            ],
+        },
+    )
+    material.account_snapshot["open_positions"][0][field] = value
+    expected_bundle_dir = tmp_path / f"{archive_importer._bundle_fragment(timestamp)}__{material.run_id}"
+
+    with pytest.raises(
+        ValueError,
+        match=rf"account\.open_positions\[0\]\.{field} must be a canonical UTC ISO timestamp",
+    ):
+        write_phase1_dataset_bundle(material, tmp_path)
+
+    assert not expected_bundle_dir.exists()
+
+
+def test_write_phase1_dataset_bundle_preserves_canonical_open_position_provenance_timestamps(
+    tmp_path: Path,
+) -> None:
+    timestamp = datetime(2024, 1, 1, tzinfo=UTC)
+    material = archive_importer.Phase1DatasetBundleMaterial(
+        timestamp=timestamp,
+        run_id=archive_importer._run_id(timestamp),
+        metadata={"timestamp": "2024-01-01T00:00:00Z", "run_id": archive_importer._run_id(timestamp)},
+        market_context={
+            "schema_version": archive_importer.PHASE1_IMPORTER_MARKET_CONTEXT_SCHEMA,
+            "as_of": "2024-01-01T00:00:00Z",
+            "symbols": {"BTCUSDT": {}},
+            "instrument_rows": [],
+        },
+        derivatives_snapshot={
+            "schema_version": archive_importer.PHASE1_IMPORTER_DERIVATIVES_SCHEMA,
+            "as_of": "2024-01-01T00:00:00Z",
+            "rows": [],
+        },
+        account_snapshot={
+            "schema_version": archive_importer.PHASE1_IMPORTER_ACCOUNT_SCHEMA,
+            "as_of": "2024-01-01T00:00:00Z",
+            "equity": 100000.0,
+            "open_positions": [
+                {
+                    "symbol": "BTCUSDT",
+                    "side": "LONG",
+                    "event_time": "2024-01-01T00:00:00Z",
+                    "trade_time": "2024-01-01T00:00:00Z",
+                    "execution_time": "2024-01-01T00:00:00Z",
+                    "fill_time": "2024-01-01T00:00:00Z",
+                    "order_time": "2024-01-01T00:00:00Z",
+                    "close_time": "2024-01-01T00:00:00Z",
+                    "expiry_time": "2024-01-01T00:00:00Z",
+                    "settlement_time": "2024-01-01T00:00:00Z",
+                    "qty": 0.5,
+                    "entry_price": 60000.0,
+                    "mark_price": 61000.0,
+                }
+            ],
+        },
+    )
+
+    bundle_dir = write_phase1_dataset_bundle(material, tmp_path)
+    loaded_account = json.loads((bundle_dir / "account_snapshot.json").read_text(encoding="utf-8"))
+
+    assert loaded_account["open_positions"][0]["event_time"] == "2024-01-01T00:00:00Z"
+    assert loaded_account["open_positions"][0]["settlement_time"] == "2024-01-01T00:00:00Z"
+
+
+@pytest.mark.parametrize(
     ("margin_type", "expected_message"),
     [
         (" cross ", r"account\.open_positions\[0\]\.marginType must be a canonical string"),

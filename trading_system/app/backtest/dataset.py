@@ -174,6 +174,14 @@ _ACCOUNT_OPEN_POSITION_TIME_FIELDS = (
     "as_of",
     "timestamp",
     "last_update_time",
+    "event_time",
+    "trade_time",
+    "execution_time",
+    "fill_time",
+    "order_time",
+    "close_time",
+    "expiry_time",
+    "settlement_time",
 )
 _ACCOUNT_IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9_.:-]+$")
 _ACCOUNT_ASSET_CODE_RE = re.compile(r"^[A-Z0-9]+$")

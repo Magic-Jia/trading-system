@@ -939,6 +939,103 @@ def test_load_historical_dataset_rejects_malformed_open_position_time_metadata_b
         load_historical_dataset(dataset_root)
 
 
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("event_time", 123),
+        ("trade_time", ""),
+        ("execution_time", " 2026-03-10T00:00:00Z"),
+        ("fill_time", "2026-03-10T00:00:00Z\n"),
+        ("order_time", "2026-03-10T00:00:00\x00Z"),
+        ("close_time", "2026-03-10T00:00:00+01:00"),
+        ("expiry_time", "2026-03-10T00:00:00.1Z"),
+        ("settlement_time", "2026-03-10"),
+    ],
+)
+def test_load_historical_dataset_rejects_malformed_open_position_provenance_timestamps_before_load(
+    tmp_path: Path, field: str, value: object
+) -> None:
+    dataset_root = tmp_path / "sample_dataset"
+    bundle = dataset_root / "2026-03-10T00-00-00Z__sample-001"
+    bundle.mkdir(parents=True)
+    (bundle / "metadata.json").write_text(
+        '{"timestamp": "2026-03-10T00:00:00Z", "run_id": "sample-001"}',
+        encoding="utf-8",
+    )
+    (bundle / "market_context.json").write_text('{"symbols": {"BTCUSDT": {}}}', encoding="utf-8")
+    (bundle / "derivatives_snapshot.json").write_text('{"rows": []}', encoding="utf-8")
+    account_snapshot = {
+        "equity": 100000.0,
+        "open_positions": [
+            {
+                "symbol": "BTCUSDT",
+                "side": "LONG",
+                "event_time": "2026-03-10T00:00:00Z",
+                "trade_time": "2026-03-10T00:00:00Z",
+                "execution_time": "2026-03-10T00:00:00Z",
+                "fill_time": "2026-03-10T00:00:00Z",
+                "order_time": "2026-03-10T00:00:00Z",
+                "close_time": "2026-03-10T00:00:00Z",
+                "expiry_time": "2026-03-10T00:00:00Z",
+                "settlement_time": "2026-03-10T00:00:00Z",
+                "qty": 0.5,
+                "entry_price": 60000.0,
+                "mark_price": 61000.0,
+            }
+        ],
+    }
+    account_snapshot["open_positions"][0][field] = value
+    (bundle / "account_snapshot.json").write_text(json.dumps(account_snapshot), encoding="utf-8")
+
+    with pytest.raises(
+        ValueError,
+        match=rf"account\.open_positions\[0\]\.{field} must be a canonical UTC ISO timestamp",
+    ):
+        load_historical_dataset(dataset_root)
+
+
+def test_load_historical_dataset_preserves_canonical_open_position_provenance_timestamps(tmp_path: Path) -> None:
+    dataset_root = tmp_path / "sample_dataset"
+    bundle = dataset_root / "2026-03-10T00-00-00Z__sample-001"
+    bundle.mkdir(parents=True)
+    (bundle / "metadata.json").write_text(
+        '{"timestamp": "2026-03-10T00:00:00Z", "run_id": "sample-001"}',
+        encoding="utf-8",
+    )
+    (bundle / "market_context.json").write_text('{"symbols": {"BTCUSDT": {}}}', encoding="utf-8")
+    (bundle / "derivatives_snapshot.json").write_text('{"rows": []}', encoding="utf-8")
+    (bundle / "account_snapshot.json").write_text(
+        json.dumps(
+            {
+                "equity": 100000.0,
+                "open_positions": [
+                    {
+                        "symbol": "BTCUSDT",
+                        "side": "LONG",
+                        "event_time": "2026-03-10T00:00:00Z",
+                        "trade_time": "2026-03-10T00:00:00Z",
+                        "execution_time": "2026-03-10T00:00:00Z",
+                        "fill_time": "2026-03-10T00:00:00Z",
+                        "order_time": "2026-03-10T00:00:00Z",
+                        "close_time": "2026-03-10T00:00:00Z",
+                        "expiry_time": "2026-03-10T00:00:00Z",
+                        "settlement_time": "2026-03-10T00:00:00Z",
+                        "qty": 0.5,
+                        "entry_price": 60000.0,
+                        "mark_price": 61000.0,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    rows = load_historical_dataset(dataset_root)
+
+    assert rows[0].account["open_positions"][0]["event_time"] == "2026-03-10T00:00:00Z"
+    assert rows[0].account["open_positions"][0]["settlement_time"] == "2026-03-10T00:00:00Z"
+
+
 def test_load_historical_dataset_rejects_noncanonical_metadata_identity_fields(tmp_path: Path) -> None:
     dataset_root = tmp_path / "sample_dataset"
     bundle = dataset_root / "2026-03-10T00-00-00Z__sample-001"
