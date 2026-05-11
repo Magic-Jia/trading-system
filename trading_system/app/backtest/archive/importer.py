@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 import shutil
 from bisect import bisect_right
@@ -78,6 +79,10 @@ _ACCOUNT_BALANCE_NUMERIC_ALIASES = (
     "available_balance",
     "maxWithdrawAmount",
     "max_withdraw_amount",
+)
+_ACCOUNT_BALANCE_WALLET_TOTAL_ALIASES = (
+    "walletBalance",
+    "wallet_balance",
 )
 _ACCOUNT_BALANCE_ASSET_CODE_RE = re.compile(r"^[A-Z0-9]+$")
 _EXCHANGE_SYMBOL_RE = re.compile(r"^[A-Z0-9]+$")
@@ -2578,6 +2583,14 @@ def _validate_material_account_balance_numeric_aliases(account_snapshot: Mapping
             parsed = float(value)
             if not parsed == parsed or parsed in {float("inf"), float("-inf")} or parsed < 0.0:
                 raise ValueError(f"account.balances[{index}].{field} must be a non-negative finite number")
+        if "free" in balance and "locked" in balance:
+            total = float(balance["free"]) + float(balance["locked"])
+            for field in _ACCOUNT_BALANCE_WALLET_TOTAL_ALIASES:
+                if field not in balance:
+                    continue
+                parsed = float(balance[field])
+                if not math.isclose(parsed, total, rel_tol=1e-12, abs_tol=1e-12):
+                    raise ValueError(f"account.balances[{index}].{field} must equal free + locked")
 
 
 def write_phase1_dataset_root_manifest(
