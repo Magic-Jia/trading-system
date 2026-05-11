@@ -58,6 +58,49 @@ def test_materialized_dataset_row_source_rejects_empty_list_source() -> None:
         archive_importer._materialized_dataset_row_source([row])
 
 
+class SourceTraceDictSubclass(dict[str, object]):
+    pass
+
+
+class SourceTraceMapping(Mapping[str, object]):
+    def __init__(self, values: Mapping[str, object]) -> None:
+        self._values = dict(values)
+
+    def __getitem__(self, key: str) -> object:
+        return self._values[key]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._values)
+
+    def __len__(self) -> int:
+        return len(self._values)
+
+
+class SourceTraceListLike:
+    def __iter__(self) -> Iterator[tuple[str, object]]:
+        return iter((("scope", archive_importer.PHASE1_IMPORTER_SCOPE),))
+
+
+class SourceTraceStringLike(str):
+    pass
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        SourceTraceDictSubclass(),
+        SourceTraceMapping({}),
+        SourceTraceListLike(),
+        SourceTraceStringLike("scope"),
+    ],
+)
+def test_materialized_dataset_row_source_rejects_non_plain_dict_source_trace_items(source: object) -> None:
+    row = type("Row", (), {"meta": {"source": source}})()
+
+    with pytest.raises(ValueError, match="materialized dataset bundle metadata source must contain a JSON object"):
+        archive_importer._materialized_dataset_row_source([row])
+
+
 @pytest.mark.parametrize("source", [{123: "x"}, {" bad ": "x"}])
 def test_materialized_dataset_row_source_rejects_noncanonical_source_canonical_keys(source: object) -> None:
     row = type("Row", (), {"meta": {"source": source}})()
