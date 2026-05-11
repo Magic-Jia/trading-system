@@ -91,6 +91,13 @@ def _provenance_file_metadata(manifest: Mapping[str, Any]) -> Mapping[str, Any]:
     return value
 
 
+def _provenance_path(value: Path, field: str) -> str:
+    rendered = str(value)
+    if not rendered.strip() or rendered != rendered.strip() or rendered == ".":
+        raise ValueError(f"raw-market provenance {field} must be canonical")
+    return rendered
+
+
 def _missing_intervals(series: ImportedRawMarketSeries, expected_interval: timedelta | None) -> list[dict[str, Any]]:
     if expected_interval is None or expected_interval.total_seconds() <= 0 or not series.records:
         return []
@@ -164,8 +171,8 @@ def _series_report(series: ImportedRawMarketSeries, expected_interval: timedelta
     }
     provenance = [
         {
-            "manifest_path": str(item.manifest_path),
-            "data_path": str(item.data_path),
+            "manifest_path": _provenance_path(item.manifest_path, "manifest_path"),
+            "data_path": _provenance_path(item.data_path, "data_path"),
             "coverage_start": _utc_timestamp(item.coverage_start),
             "coverage_end": _utc_timestamp(item.coverage_end),
             "sha256": _provenance_sha256(_provenance_file_metadata(item.manifest).get("sha256")),

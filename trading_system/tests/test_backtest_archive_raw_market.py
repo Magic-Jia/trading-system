@@ -837,6 +837,53 @@ def test_series_report_rejects_non_object_provenance_file_metadata(tmp_path: Pat
         _series_report(bad_series, expected_interval=None)
 
 
+def test_series_report_rejects_empty_provenance_data_path(tmp_path: Path) -> None:
+    archived = archive_raw_market_payload(
+        archive_root=tmp_path / "archive",
+        exchange="binance",
+        market="futures",
+        dataset="ohlcv",
+        symbol="BTCUSDT",
+        timeframe="1h",
+        coverage_start="2026-01-01T00:00:00Z",
+        coverage_end="2026-01-01T02:00:00Z",
+        fetched_at="2026-01-01T02:01:00Z",
+        endpoint="/fapi/v1/klines",
+        payload={
+            "rows": [
+                {"open_time": "2026-01-01T00:00:00Z", "open": 100.0, "high": 101.0, "low": 99.0, "close": 100.5, "volume": 10.0},
+                {"open_time": "2026-01-01T01:00:00Z", "open": 100.5, "high": 102.0, "low": 100.0, "close": 101.0, "volume": 12.0},
+            ]
+        },
+    )
+    raw_file = load_phase1_raw_market_manifest(archived.manifest_path)
+    bad_file = raw_file.__class__(
+        series_key=raw_file.series_key,
+        manifest_path=raw_file.manifest_path,
+        data_path=Path(""),
+        manifest=raw_file.manifest,
+        symbol_metadata=raw_file.symbol_metadata,
+        coverage_start=raw_file.coverage_start,
+        coverage_end=raw_file.coverage_end,
+        fetched_at=raw_file.fetched_at,
+        records=raw_file.records,
+    )
+    bad_series = ImportedRawMarketSeries(
+        series_key=raw_file.series_key,
+        exchange=raw_file.manifest["exchange"],
+        market=raw_file.manifest["market"],
+        dataset=raw_file.manifest["dataset"],
+        symbol=raw_file.manifest["symbol"],
+        timeframe=raw_file.manifest.get("timeframe"),
+        symbol_metadata=raw_file.symbol_metadata,
+        files=(bad_file,),
+        records=raw_file.records,
+    )
+
+    with pytest.raises(ValueError, match="raw-market provenance data_path must be canonical"):
+        _series_report(bad_series, expected_interval=None)
+
+
 def test_merged_ohlcv_timeframe_coverage_rejects_empty_list_not_materialized() -> None:
     with pytest.raises(ValueError, match="ohlcv_timeframes.not_materialized must be a JSON object"):
         _merged_ohlcv_timeframe_coverage(
