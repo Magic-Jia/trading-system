@@ -3706,6 +3706,9 @@ def write_live_readiness_smoke_report(
                 shutil.copy2(source, chunk_dir / artifact_name)
         normalized_chunks.append({"chunk": chunk_name, "source_dir": str(bundle_dir), "normalized_dir": str(chunk_dir)})
 
+    promotion_bundle_integrity_required = (
+        require_promotion_bundle_integrity if isinstance(require_promotion_bundle_integrity, bool) else False
+    )
     report = build_live_readiness_gate_report(
         normalized_root,
         evidence_coverage_threshold=evidence_coverage_threshold,
@@ -3726,11 +3729,11 @@ def write_live_readiness_smoke_report(
         require_validation_evidence=require_validation_evidence,
         require_microstructure_evidence=require_microstructure_evidence,
         require_runtime_safety_evidence=require_runtime_safety_evidence,
-        require_promotion_bundle_integrity=False,
+        require_promotion_bundle_integrity=require_promotion_bundle_integrity,
     )
-    if require_promotion_bundle_integrity or (source_root / "promotion_evidence_manifest.json").exists():
+    if promotion_bundle_integrity_required or (source_root / "promotion_evidence_manifest.json").exists():
         source_integrity = {
-            "required": require_promotion_bundle_integrity,
+            "required": promotion_bundle_integrity_required,
             **verify_promotion_evidence_bundle(source_root),
         }
         report["promotion_bundle_integrity"] = source_integrity
