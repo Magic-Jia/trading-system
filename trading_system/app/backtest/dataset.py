@@ -539,7 +539,7 @@ def _validate_open_position_identity_fields(account: dict, *, path: Path) -> Non
     positions = account.get("open_positions")
     if positions is None:
         return
-    if not isinstance(positions, list):
+    if type(positions) is not list:
         raise ValueError(f"account.open_positions must be a list: {path}")
     for index, position in enumerate(positions):
         if not isinstance(position, dict):

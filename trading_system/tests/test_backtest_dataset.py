@@ -11,6 +11,7 @@ from trading_system.app.backtest.dataset import (
     load_dataset_root_metadata,
     load_historical_dataset,
     split_rows_by_windows,
+    validate_account_snapshot_payload,
 )
 from trading_system.app.backtest.types import (
     DatasetSnapshotRow,
@@ -607,6 +608,29 @@ def test_load_historical_dataset_rejects_malformed_spot_balance_object_boundarie
 
     with pytest.raises(ValueError, match=expected_message):
         load_historical_dataset(dataset_root)
+
+
+def test_validate_account_snapshot_payload_rejects_list_like_open_positions_boundary(tmp_path: Path) -> None:
+    class OpenPositions(list[object]):
+        pass
+
+    account_snapshot = {
+        "equity": 100000.0,
+        "open_positions": OpenPositions(
+            [
+                {
+                    "symbol": "BTCUSDT",
+                    "side": "LONG",
+                    "qty": 0.5,
+                    "entry_price": 60000.0,
+                    "mark_price": 61000.0,
+                }
+            ]
+        ),
+    }
+
+    with pytest.raises(ValueError, match=r"account\.open_positions must be a list"):
+        validate_account_snapshot_payload(account_snapshot, path=tmp_path / "account_snapshot.json")
 
 
 @pytest.mark.parametrize(
