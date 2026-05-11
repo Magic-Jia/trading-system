@@ -38,6 +38,11 @@ def _artifact_path_is_canonical(rel_path: str) -> bool:
     return rel_path == rel_path.strip() and rel_path == str(Path(rel_path))
 
 
+def _artifact_source_path_is_canonical(source_path: str) -> bool:
+    path = Path(source_path)
+    return source_path == source_path.strip() and source_path == str(path) and ".." not in path.parts
+
+
 def collect_promotion_evidence_bundle(
     source_dir: str | Path,
     bundle_dir: str | Path,
@@ -373,7 +378,7 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
     duplicate_artifact_paths: list[str] = []
     noncanonical_artifact_paths: list[str] = []
     for artifact_index, artifact in enumerate(artifacts, start=1):
-        if not isinstance(artifact, Mapping):
+        if type(artifact) is not dict:
             invalid_metadata.append(f"artifacts[{artifact_index}]")
             continue
         unknown_artifact_fields = sorted(set(artifact) - {"path", "sha256", "bytes", "source_path"})
@@ -408,7 +413,11 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
             invalid_metadata.append(f"{rel_path}:source_path")
         if isinstance(source_path_raw, str) and not source_path_raw.strip():
             source_path_blank_metadata.append(f"{rel_path}:source_path")
-        if isinstance(source_path_raw, str) and source_path_raw.strip() and source_path_raw != source_path_raw.strip():
+        if (
+            isinstance(source_path_raw, str)
+            and source_path_raw.strip()
+            and not _artifact_source_path_is_canonical(source_path_raw)
+        ):
             invalid_metadata.append(f"{rel_path}:source_path")
             source_path_noncanonical_metadata.append(f"{rel_path}:source_path")
         actual_sha = _sha256(path)

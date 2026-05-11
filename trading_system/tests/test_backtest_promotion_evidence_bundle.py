@@ -1118,6 +1118,45 @@ def test_bundle_verifier_marks_schema_invalid_for_padded_artifact_source_path(tm
     assert result["invalid_artifact_metadata"] == [f"{REQUIRED_ARTIFACTS[0]}:source_path"]
 
 
+def test_bundle_verifier_rejects_artifact_metadata_mapping_subclasses_and_noncanonical_source_paths(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class ArtifactMetadata(dict):
+        pass
+
+    source = tmp_path / "source"
+    source.mkdir()
+    for name in REQUIRED_ARTIFACTS:
+        _write_json(source / name, {"artifact": name})
+    bundle_dir = collect_promotion_evidence_bundle(
+        source,
+        tmp_path / "bundle",
+        candidate_id="candidate-1",
+        evidence_source={"type": "promotion_bundle_export", "run_id": "bundle-1"},
+    )
+    manifest_path = bundle_dir / "promotion_evidence_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    bad_metadata_path = REQUIRED_ARTIFACTS[0]
+    bad_source_path = REQUIRED_ARTIFACTS[1]
+    manifest["artifacts"][0] = ArtifactMetadata(manifest["artifacts"][0])
+    manifest["artifacts"][1]["source_path"] = str(source / "nested" / ".." / bad_source_path)
+
+    def load_manifest_with_mapping_subclass(_text: str) -> dict:
+        return manifest
+
+    monkeypatch.setattr(promotion_bundle.json, "loads", load_manifest_with_mapping_subclass)
+
+    result = verify_promotion_evidence_bundle(bundle_dir)
+
+    assert result["verified"] is False
+    assert result["schema_valid"] is False
+    assert f"artifacts[1]" in result["invalid_artifact_metadata"]
+    assert f"{bad_source_path}:source_path" in result["invalid_artifact_metadata"]
+    assert "artifact_entry_not_object" in result["manifest_errors"]
+    assert "artifact_source_path_noncanonical" in result["manifest_errors"]
+
+
 def test_bundle_verifier_reports_non_string_metadata_reason_entries() -> None:
     class NonStringReason:
         def __str__(self) -> str:
