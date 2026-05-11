@@ -55,6 +55,10 @@ def _is_canonical_utc_timestamp(value: str) -> bool:
     return parsed.tzinfo is not None and parsed.astimezone(UTC).isoformat().replace("+00:00", "Z") == value
 
 
+def _is_exact_string(value: Any) -> bool:
+    return type(value) is str
+
+
 def collect_promotion_evidence_bundle(
     source_dir: str | Path,
     bundle_dir: str | Path,
@@ -101,7 +105,7 @@ def collect_promotion_evidence_bundle(
     unknown_source_fields = sorted(set(source_payload) - {"type", "run_id", "exported_at"})
     if unknown_source_fields:
         raise ValueError("unknown evidence_source field: " + ", ".join(unknown_source_fields))
-    if not isinstance(source_payload.get("type"), str):
+    if not _is_exact_string(source_payload.get("type")):
         raise ValueError("evidence_source type must be a string")
     if not source_payload["type"].strip():
         raise ValueError("evidence_source type must be non-empty")
@@ -118,15 +122,15 @@ def collect_promotion_evidence_bundle(
         raise ValueError("evidence_source type must be live-grade")
     for optional_field in ("run_id", "exported_at"):
         optional_value = source_payload.get(optional_field)
-        if optional_value is not None and not isinstance(optional_value, str):
+        if optional_value is not None and not _is_exact_string(optional_value):
             raise ValueError(f"evidence_source {optional_field} must be a string")
-        if isinstance(optional_value, str) and not optional_value.strip():
+        if _is_exact_string(optional_value) and not optional_value.strip():
             raise ValueError(f"evidence_source {optional_field} must be non-empty")
-        if isinstance(optional_value, str) and optional_value != optional_value.strip():
+        if _is_exact_string(optional_value) and optional_value != optional_value.strip():
             raise ValueError(f"evidence_source {optional_field} must be canonical")
         if (
             optional_field == "exported_at"
-            and isinstance(optional_value, str)
+            and _is_exact_string(optional_value)
             and not _is_canonical_utc_timestamp(optional_value)
         ):
             raise ValueError("evidence_source exported_at must be a canonical UTC timestamp")
@@ -289,16 +293,16 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
         if evidence_source_type is None:
             schema_valid = False
             manifest_errors.append("evidence_source_type_missing")
-        elif not isinstance(evidence_source_type, str):
+        elif not _is_exact_string(evidence_source_type):
             schema_valid = False
             manifest_errors.append("evidence_source_type_not_string")
-        if isinstance(evidence_source_type, str) and not evidence_source_type.strip():
+        if _is_exact_string(evidence_source_type) and not evidence_source_type.strip():
             schema_valid = False
             manifest_errors.append("evidence_source_type_blank")
-        if isinstance(evidence_source_type, str) and evidence_source_type != evidence_source_type.strip():
+        if _is_exact_string(evidence_source_type) and evidence_source_type != evidence_source_type.strip():
             schema_valid = False
             manifest_errors.append("evidence_source_type_noncanonical")
-        if isinstance(evidence_source_type, str) and evidence_source_type.strip().lower() in {
+        if _is_exact_string(evidence_source_type) and evidence_source_type.strip().lower() in {
             "synthetic",
             "synthetic_fixture",
             "simulated",
@@ -310,18 +314,18 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
             manifest_errors.append("promotion_evidence_source_not_live_grade")
         for optional_field in ("run_id", "exported_at"):
             optional_value = evidence_source_raw.get(optional_field)
-            if optional_value is not None and not isinstance(optional_value, str):
+            if optional_value is not None and not _is_exact_string(optional_value):
                 schema_valid = False
                 manifest_errors.append(f"evidence_source_{optional_field}_not_string")
-            elif isinstance(optional_value, str) and not optional_value.strip():
+            elif _is_exact_string(optional_value) and not optional_value.strip():
                 schema_valid = False
                 manifest_errors.append(f"evidence_source_{optional_field}_blank")
-            elif isinstance(optional_value, str) and optional_value != optional_value.strip():
+            elif _is_exact_string(optional_value) and optional_value != optional_value.strip():
                 schema_valid = False
                 manifest_errors.append(f"evidence_source_{optional_field}_noncanonical")
             elif (
                 optional_field == "exported_at"
-                and isinstance(optional_value, str)
+                and _is_exact_string(optional_value)
                 and not _is_canonical_utc_timestamp(optional_value)
             ):
                 schema_valid = False
