@@ -43,6 +43,23 @@ def _expected_intervals(values: Mapping[str, timedelta] | None) -> dict[str, tim
     return parsed
 
 
+def _validate_manifest_interval_scope(series: ImportedRawMarketSeries, intervals: Mapping[str, timedelta]) -> None:
+    interval_key = _interval_key(series)
+    if interval_key not in intervals or series.dataset != "ohlcv" or not series.timeframe:
+        return
+    for item in series.files:
+        metadata = item.manifest.get("metadata")
+        if not isinstance(metadata, Mapping):
+            continue
+        interval = metadata.get("interval")
+        if interval is None:
+            continue
+        if not isinstance(interval, str) or not interval.strip() or interval != interval.strip():
+            raise ValueError("raw-market manifest interval must be canonical")
+        if interval != series.timeframe:
+            raise ValueError("raw-market manifest interval must match series timeframe")
+
+
 def _canonical_series_string(value: Any, field: str) -> str:
     if not isinstance(value, str) or not value.strip() or value != value.strip():
         raise ValueError(f"raw-market {field} must be canonical")
@@ -345,6 +362,8 @@ def build_raw_market_data_quality_report(
 ) -> dict[str, Any]:
     intervals = _expected_intervals(expected_intervals)
     series = load_phase1_raw_market_imports(archive_root)
+    for item in series:
+        _validate_manifest_interval_scope(item, intervals)
     reports = {
         item.series_key: _series_report(item, _expected_interval(intervals.get(_interval_key(item)), _interval_key(item)))
         for item in series

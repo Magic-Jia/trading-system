@@ -328,6 +328,65 @@ def test_raw_market_data_quality_rejects_noncanonical_expected_interval_key(tmp_
         build_raw_market_data_quality_report(tmp_path / "archive", expected_intervals={" ohlcv:1h ": timedelta(hours=1)})
 
 
+def test_raw_market_data_quality_rejects_explicit_manifest_interval_scope_drift_only(tmp_path: Path) -> None:
+    from trading_system.app.backtest.archive.data_quality import build_raw_market_data_quality_report
+
+    archive_root = tmp_path / "archive"
+    archive_raw_market_payload(
+        archive_root=archive_root,
+        exchange="binance",
+        market="futures",
+        dataset="ohlcv",
+        symbol="BTCUSDT",
+        timeframe="1h",
+        coverage_start="2026-01-01T00:00:00Z",
+        coverage_end="2026-01-01T02:00:00Z",
+        fetched_at="2026-01-01T02:01:00Z",
+        endpoint="/fapi/v1/klines",
+        payload={
+            "rows": [
+                {"open_time": "2026-01-01T00:00:00Z", "open": 100.0, "high": 101.0, "low": 99.0, "close": 100.5, "volume": 10.0},
+                {"open_time": "2026-01-01T01:00:00Z", "open": 100.5, "high": 102.0, "low": 100.0, "close": 101.0, "volume": 12.0},
+            ]
+        },
+        metadata={"interval": "1h"},
+    )
+
+    partial_report = build_raw_market_data_quality_report(
+        archive_root,
+        expected_intervals={"ohlcv:1h": timedelta(hours=1), "ohlcv:5m": timedelta(minutes=5)},
+    )
+
+    assert partial_report["series"]["binance:futures:ohlcv:BTCUSDT:1h"]["expected_interval_seconds"] == 3600
+
+    drifted_archive_root = tmp_path / "drifted-archive"
+    archive_raw_market_payload(
+        archive_root=drifted_archive_root,
+        exchange="binance",
+        market="futures",
+        dataset="ohlcv",
+        symbol="BTCUSDT",
+        timeframe="1h",
+        coverage_start="2026-01-01T00:00:00Z",
+        coverage_end="2026-01-01T02:00:00Z",
+        fetched_at="2026-01-01T02:01:00Z",
+        endpoint="/fapi/v1/klines",
+        payload={
+            "rows": [
+                {"open_time": "2026-01-01T00:00:00Z", "open": 100.0, "high": 101.0, "low": 99.0, "close": 100.5, "volume": 10.0},
+                {"open_time": "2026-01-01T01:00:00Z", "open": 100.5, "high": 102.0, "low": 100.0, "close": 101.0, "volume": 12.0},
+            ]
+        },
+        metadata={"interval": "5m"},
+    )
+
+    with pytest.raises(ValueError, match="raw-market manifest interval must match series timeframe"):
+        build_raw_market_data_quality_report(
+            drifted_archive_root,
+            expected_intervals={"ohlcv:1h": timedelta(hours=1), "ohlcv:5m": timedelta(minutes=5)},
+        )
+
+
 def test_raw_market_data_quality_rejects_non_object_expected_intervals() -> None:
     with pytest.raises(ValueError, match="expected_intervals must be an object"):
         _expected_intervals([("ohlcv:1h", timedelta(hours=1))])
