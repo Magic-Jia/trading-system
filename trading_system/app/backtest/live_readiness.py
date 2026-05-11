@@ -867,6 +867,23 @@ def _parse_trade_time(value: Any) -> tuple[datetime | None, str | None]:
     return parsed.astimezone(UTC), None
 
 
+_CANONICAL_UTC_TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z$")
+
+
+def _is_exact_string(value: Any) -> bool:
+    return type(value) is str
+
+
+def _is_canonical_utc_timestamp(value: str) -> bool:
+    if not _CANONICAL_UTC_TIMESTAMP_RE.fullmatch(value):
+        return False
+    try:
+        parsed = datetime.fromisoformat(value[:-1] + "+00:00")
+    except ValueError:
+        return False
+    return parsed.tzinfo is not None and parsed.astimezone(UTC).isoformat().replace("+00:00", "Z") == value
+
+
 def _trade_time_integrity(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
     invalid_fields: list[dict[str, Any]] = []
     for chunk_dir in chunk_dirs:
@@ -1706,7 +1723,7 @@ def _artifact_provenance_schema_error(payload: Mapping[str, Any]) -> str:
     source_type = source.get("type")
     if source_type is None:
         return ""
-    if not isinstance(source_type, str):
+    if not _is_exact_string(source_type):
         return "evidence_source_type_not_string"
     if not source_type.strip():
         return "evidence_source_type_blank"
@@ -1716,12 +1733,18 @@ def _artifact_provenance_schema_error(payload: Mapping[str, Any]) -> str:
         return "evidence_source_type_noncanonical"
     for optional_field in ("run_id", "exported_at"):
         optional_value = source.get(optional_field)
-        if optional_value is not None and not isinstance(optional_value, str):
+        if optional_value is not None and not _is_exact_string(optional_value):
             return f"evidence_source_{optional_field}_not_string"
-        if isinstance(optional_value, str) and not optional_value.strip():
+        if _is_exact_string(optional_value) and not optional_value.strip():
             return f"evidence_source_{optional_field}_blank"
-        if isinstance(optional_value, str) and optional_value != optional_value.strip():
+        if _is_exact_string(optional_value) and optional_value != optional_value.strip():
             return f"evidence_source_{optional_field}_noncanonical"
+        if (
+            optional_field == "exported_at"
+            and _is_exact_string(optional_value)
+            and not _is_canonical_utc_timestamp(optional_value)
+        ):
+            return "evidence_source_exported_at_noncanonical_timestamp"
     return ""
 
 
