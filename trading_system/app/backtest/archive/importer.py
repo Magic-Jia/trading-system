@@ -1286,6 +1286,14 @@ def _require_canonical_string_items(values: Any, *, field: str) -> tuple[str, ..
     return tuple(parsed)
 
 
+def _require_json_list_canonical_string_items(values: Any, *, field: str) -> tuple[str, ...]:
+    if values is None:
+        return ()
+    if not isinstance(values, list):
+        raise ValueError(f"{field} must be a list")
+    return _require_canonical_string_items(values, field=field)
+
+
 def _require_importer_ohlcv_timeframe(value: str, *, field: str) -> str:
     if value not in PHASE1_IMPORTER_KNOWN_OHLCV_TIMEFRAMES:
         raise ValueError(f"{field} must be a known importer timeframe")
@@ -2369,7 +2377,7 @@ def _archive_root_from_manifest_paths(manifest_paths: Sequence[str]) -> Path | N
 def _validated_source_trace_against_manifests(source: Mapping[str, Any], *, context: str) -> dict[str, Any]:
     normalized_source = _json_object_field(source, context=context)
     manifest_paths = sorted(
-        _require_canonical_string_items(
+        _require_json_list_canonical_string_items(
             normalized_source.get("manifest_paths"), field=f"{context} manifest_paths"
         )
     )

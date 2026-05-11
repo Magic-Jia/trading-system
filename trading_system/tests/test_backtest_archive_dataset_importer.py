@@ -127,6 +127,23 @@ def test_archive_root_from_manifest_paths_rejects_non_string_path_entries() -> N
         archive_importer._archive_root_from_manifest_paths([123])
 
 
+def test_validated_source_trace_rejects_tuple_manifest_paths_before_loading_manifests() -> None:
+    source = {
+        "scope": archive_importer.PHASE1_IMPORTER_SCOPE,
+        "exchange": "binance",
+        "market": "futures",
+        "symbols": ["BTCUSDT"],
+        "series_keys": ["binance:futures:ohlcv:BTCUSDT:1h"],
+        "manifest_paths": ("/tmp/archive/raw-market/binance/futures/ohlcv/BTCUSDT/1h/a.manifest.json",),
+    }
+
+    with pytest.raises(ValueError, match="materialized dataset root source manifest_paths must be a list"):
+        archive_importer._validated_source_trace_against_manifests(
+            source,
+            context="materialized dataset root source",
+        )
+
+
 
 def test_validate_bundle_payloads_rejects_non_string_metadata_identity(tmp_path: Path) -> None:
     expected_timestamp = datetime(2024, 1, 1, tzinfo=UTC)
