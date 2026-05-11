@@ -48,6 +48,7 @@ _PHASE1_DEFAULT_QUANTITY_STEP = 0.001
 _PHASE1_DEFAULT_PRICE_TICK = 0.1
 _INSTRUMENT_MAX_LEVERAGE_FIELDS = ("max_leverage", "maxLeverage", "leverage_cap", "leverageCap")
 _INSTRUMENT_PRECISION_FIELDS = ("price_precision", "pricePrecision", "quantity_precision", "quantityPrecision")
+_ACCOUNT_OPEN_POSITION_EXECUTION_BOOL_ALIASES = ("maker", "taker", "buyer")
 
 
 @dataclass(frozen=True, slots=True)
@@ -2134,6 +2135,20 @@ def _validate_material_instrument_snapshot_rows(rows: Sequence[Mapping[str, Any]
             raise ValueError(f"instrument_snapshot rows[{index}].has_complete_funding must be a boolean")
 
 
+def _validate_material_account_open_position_execution_aliases(account_snapshot: Mapping[str, Any]) -> None:
+    positions = account_snapshot.get("open_positions")
+    if positions is None:
+        return
+    if not isinstance(positions, Sequence) or isinstance(positions, (str, bytes, bytearray)):
+        return
+    for index, position in enumerate(positions):
+        if not isinstance(position, Mapping):
+            continue
+        for field in _ACCOUNT_OPEN_POSITION_EXECUTION_BOOL_ALIASES:
+            if field in position and not isinstance(position[field], bool):
+                raise ValueError(f"account.open_positions[{index}].{field} must be a strict boolean")
+
+
 def _materialized_dataset_row_source(rows: Sequence[Any]) -> dict[str, Any]:
     return _merged_import_trace(
         _json_object_field(
@@ -2312,6 +2327,7 @@ def write_phase1_dataset_bundle(material: Phase1DatasetBundleMaterial, dataset_r
     _validate_material_market_context_numeric_evidence(material.market_context)
     _validate_material_derivatives_snapshot_numeric_evidence(material.derivatives_snapshot)
     _validate_material_derivatives_snapshot_identity_fields(material.derivatives_snapshot)
+    _validate_material_account_open_position_execution_aliases(material.account_snapshot)
     validate_account_snapshot_payload(material.account_snapshot, path=root / "account_snapshot.json")
     instrument_rows = _material_market_context_instrument_rows(material)
     _validate_material_instrument_snapshot_rows(instrument_rows)
