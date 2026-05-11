@@ -2631,9 +2631,12 @@ def build_live_readiness_gate_report(
     require_promotion_bundle_integrity: bool = False,
 ) -> dict[str, Any]:
     root = Path(chunk_results_dir)
+    promotion_bundle_integrity_required = (
+        require_promotion_bundle_integrity if isinstance(require_promotion_bundle_integrity, bool) else False
+    )
     promotion_bundle_integrity = {
         "schema_version": "promotion_evidence_bundle_verification.v1",
-        "required": require_promotion_bundle_integrity,
+        "required": promotion_bundle_integrity_required,
         "verified": True,
         "manifest_present": False,
         "missing_artifacts": [],
@@ -2642,9 +2645,9 @@ def build_live_readiness_gate_report(
         "checked_artifacts": [],
     }
     manifest_candidate = root / "promotion_evidence_manifest.json"
-    if require_promotion_bundle_integrity or manifest_candidate.exists():
+    if promotion_bundle_integrity_required or manifest_candidate.exists():
         promotion_bundle_integrity = {
-            "required": require_promotion_bundle_integrity,
+            "required": promotion_bundle_integrity_required,
             **verify_promotion_evidence_bundle(root),
         }
     chunk_dirs = sorted((path for path in root.iterdir() if _is_chunk_result_dir(path)), key=_natural_path_key)
@@ -3032,12 +3035,13 @@ def build_live_readiness_gate_report(
         reasons.append("setup_min_sample_too_low")
     if not setup_quality_checks.get("banned_setup_types_absent", True):
         reasons.append("banned_setup_type_present")
+    require_runtime_safety_evidence_policy = policy_requirements["require_runtime_safety_evidence"]
     runtime_safety_checks = _as_mapping(runtime_safety_gate.get("checks"))
     runtime_safety_artifact_count, runtime_safety_artifact_count_valid = _optional_gate_artifact_count(runtime_safety_gate)
     runtime_safety_artifact_present = runtime_safety_artifact_count > 0
     if not runtime_safety_artifact_count_valid:
         reasons.append("runtime_safety_artifact_count_invalid")
-    if require_runtime_safety_evidence and not runtime_safety_artifact_present:
+    if require_runtime_safety_evidence_policy and not runtime_safety_artifact_present:
         reasons.append("runtime_safety_evidence_missing")
     if runtime_safety_artifact_present and not runtime_safety_checks.get("runtime_safety_artifact_schema_valid", False):
         reasons.append("runtime_safety_artifact_schema_invalid")
@@ -3052,43 +3056,45 @@ def build_live_readiness_gate_report(
         "runtime_explainability_met": "runtime_explainability_missing",
         "drift_guard_met": "drift_guard_missing",
     }
-    if require_runtime_safety_evidence or runtime_safety_artifact_present:
+    if require_runtime_safety_evidence_policy or runtime_safety_artifact_present:
         for check, reason in runtime_safety_reason_by_check.items():
             if not runtime_safety_checks.get(check, False):
                 reasons.append(reason)
+    require_microstructure_evidence_policy = policy_requirements["require_microstructure_evidence"]
     microstructure_checks = _as_mapping(microstructure_gate.get("checks"))
     microstructure_artifact_count, microstructure_artifact_count_valid = _optional_gate_artifact_count(microstructure_gate)
     microstructure_artifact_present = microstructure_artifact_count > 0
     if not microstructure_artifact_count_valid:
         reasons.append("microstructure_artifact_count_invalid")
-    if require_microstructure_evidence and not microstructure_artifact_present:
+    if require_microstructure_evidence_policy and not microstructure_artifact_present:
         reasons.append("microstructure_evidence_missing")
     if microstructure_artifact_present and not microstructure_checks.get("microstructure_artifact_schema_valid", False):
         reasons.append("microstructure_artifact_schema_invalid")
     if microstructure_artifact_present and not microstructure_checks.get("microstructure_artifact_provenance_present", False):
         reasons.append("microstructure_artifact_provenance_missing")
-    if (require_microstructure_evidence or microstructure_artifact_present) and not microstructure_checks.get("l2_tick_coverage_met", False):
+    if (require_microstructure_evidence_policy or microstructure_artifact_present) and not microstructure_checks.get("l2_tick_coverage_met", False):
         reasons.append("l2_tick_coverage_below_threshold")
-    if (require_microstructure_evidence or microstructure_artifact_present) and not microstructure_checks.get("depth_driven_taker_met", False):
+    if (require_microstructure_evidence_policy or microstructure_artifact_present) and not microstructure_checks.get("depth_driven_taker_met", False):
         reasons.append("taker_depth_driven_missing")
+    require_validation_evidence_policy = policy_requirements["require_validation_evidence"]
     validation_checks = _as_mapping(validation_gate.get("checks"))
     validation_artifact_count, validation_artifact_count_valid = _optional_gate_artifact_count(validation_gate)
     validation_artifact_present = validation_artifact_count > 0
     if not validation_artifact_count_valid:
         reasons.append("validation_artifact_count_invalid")
-    if require_validation_evidence and not validation_artifact_present:
+    if require_validation_evidence_policy and not validation_artifact_present:
         reasons.append("validation_evidence_missing")
     if validation_artifact_present and not validation_checks.get("validation_artifact_schema_valid", False):
         reasons.append("validation_artifact_schema_invalid")
     if validation_artifact_present and not validation_checks.get("validation_artifact_provenance_present", False):
         reasons.append("validation_artifact_provenance_missing")
-    if (require_validation_evidence or validation_artifact_present) and not validation_checks.get("oos_non_degraded_met", False):
+    if (require_validation_evidence_policy or validation_artifact_present) and not validation_checks.get("oos_non_degraded_met", False):
         reasons.append("oos_degraded")
-    if (require_validation_evidence or validation_artifact_present) and not validation_checks.get("multi_regime_resilience_met", False):
+    if (require_validation_evidence_policy or validation_artifact_present) and not validation_checks.get("multi_regime_resilience_met", False):
         reasons.append("regime_single_point_survivor")
-    if (require_validation_evidence or validation_artifact_present) and not validation_checks.get("cost_stress_positive_met", False):
+    if (require_validation_evidence_policy or validation_artifact_present) and not validation_checks.get("cost_stress_positive_met", False):
         reasons.append("cost_stress_not_positive")
-    if (require_validation_evidence or validation_artifact_present) and not validation_checks.get("forward_contamination_absent_met", False):
+    if (require_validation_evidence_policy or validation_artifact_present) and not validation_checks.get("forward_contamination_absent_met", False):
         reasons.append("forward_contamination_unproven")
 
     if not setup_concentration_met:
