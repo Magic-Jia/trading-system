@@ -610,6 +610,31 @@ def test_load_historical_dataset_rejects_malformed_spot_balance_object_boundarie
         load_historical_dataset(dataset_root)
 
 
+def test_validate_account_snapshot_payload_rejects_dict_subclass_spot_balance_entry_boundary(
+    tmp_path: Path,
+) -> None:
+    class Balance(dict[str, object]):
+        pass
+
+    account_snapshot = {
+        "equity": 100000.0,
+        "spot": {
+            "nonzero_balances": [
+                Balance(
+                    {
+                        "asset": "USDT",
+                        "free": 10.0,
+                        "locked": 0.0,
+                    }
+                )
+            ]
+        },
+    }
+
+    with pytest.raises(ValueError, match=r"account\.spot\.nonzero_balances\[0\] must be an object"):
+        validate_account_snapshot_payload(account_snapshot, path=tmp_path / "account_snapshot.json")
+
+
 def test_validate_account_snapshot_payload_rejects_list_like_open_positions_boundary(tmp_path: Path) -> None:
     class OpenPositions(list[object]):
         pass

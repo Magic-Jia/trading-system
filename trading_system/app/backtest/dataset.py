@@ -525,7 +525,7 @@ def _validate_spot_balance_identity_fields(account: dict, *, path: Path) -> None
     if not isinstance(balances, list):
         raise ValueError(f"account.spot.nonzero_balances must be a list: {path}")
     for index, balance in enumerate(balances):
-        if not isinstance(balance, dict):
+        if type(balance) is not dict:
             raise ValueError(f"account.spot.nonzero_balances[{index}] must be an object: {path}")
         if "asset" in balance:
             _require_account_asset_code(
