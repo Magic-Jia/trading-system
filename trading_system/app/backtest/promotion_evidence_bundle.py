@@ -87,7 +87,9 @@ def collect_promotion_evidence_bundle(
         raise ValueError("candidate_id must be canonical")
     if not isinstance(required_artifacts, (list, tuple)):
         raise ValueError("required_artifacts must be a list or tuple")
-    invalid_required_types = [index for index, name in enumerate(required_artifacts, start=1) if not isinstance(name, str)]
+    invalid_required_types = [
+        index for index, name in enumerate(required_artifacts, start=1) if not _is_exact_string(name)
+    ]
     if invalid_required_types:
         raise ValueError("required artifact path entries must be strings")
     blank_required = [name for name in required_artifacts if not name.strip()]
@@ -516,7 +518,7 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
     else:
         manifest_required = []
         for required_index, name in enumerate(required_artifacts_raw, start=1):
-            if not isinstance(name, str):
+            if not _is_exact_string(name):
                 invalid_key = f"required_artifacts[{required_index}]"
                 invalid_required_artifacts.append(invalid_key)
                 non_string_required_artifacts.append(invalid_key)

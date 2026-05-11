@@ -1070,6 +1070,41 @@ def test_bundle_verifier_marks_schema_invalid_for_required_artifacts_string_cont
     assert "required_artifacts_string_container" in result["manifest_errors"]
     assert result["invalid_required_artifacts"] == []
 
+
+def test_bundle_verifier_rejects_required_artifact_string_subclass(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class RequiredArtifactPath(str):
+        pass
+
+    source = tmp_path / "source"
+    source.mkdir()
+    for name in REQUIRED_ARTIFACTS:
+        _write_json(source / name, {"artifact": name})
+    bundle_dir = collect_promotion_evidence_bundle(
+        source,
+        tmp_path / "bundle",
+        candidate_id="candidate-1",
+        evidence_source={"type": "promotion_bundle_export", "run_id": "bundle-1"},
+    )
+    manifest_path = bundle_dir / "promotion_evidence_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["required_artifacts"][0] = RequiredArtifactPath(REQUIRED_ARTIFACTS[0])
+
+    def load_manifest_with_required_artifact_subclass(_text: str) -> dict:
+        return manifest
+
+    monkeypatch.setattr(promotion_bundle.json, "loads", load_manifest_with_required_artifact_subclass)
+
+    result = verify_promotion_evidence_bundle(bundle_dir)
+
+    assert result["verified"] is False
+    assert result["schema_valid"] is False
+    assert "required_artifact_entry_not_string" in result["manifest_errors"]
+    assert result["invalid_required_artifacts"] == ["required_artifacts[1]"]
+
+
 def test_collect_rejects_required_artifacts_mapping_container(tmp_path: Path) -> None:
     source = tmp_path / "source"
     source.mkdir()
