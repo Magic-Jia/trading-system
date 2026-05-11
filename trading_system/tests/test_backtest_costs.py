@@ -49,6 +49,20 @@ def test_trade_costs_reject_invalid_position_notional(position_notional: object)
         slippage_cost(position_notional=position_notional, liquidity_tier="high", costs=costs)  # type: ignore[arg-type]
 
 
+def test_funding_cost_rejects_negative_position_notional() -> None:
+    costs = BacktestCosts(funding_mode="historical_series")
+
+    with pytest.raises(ValueError, match="position_notional must be a non-negative finite number"):
+        funding_cost(
+            position_notional=-1_000.0,
+            market_type="futures",
+            side="long",
+            funding_rate=0.001,
+            holding_hours=8.0,
+            costs=costs,
+        )
+
+
 def test_funding_cost_rejects_non_string_side_and_non_numeric_rate() -> None:
     costs = BacktestCosts(funding_mode="historical_series")
 
