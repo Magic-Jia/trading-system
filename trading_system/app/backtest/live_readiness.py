@@ -2685,6 +2685,21 @@ def build_live_readiness_gate_report(
             continue
         policy_invalid_config.append({"field": field, "value": value, "error": "out_of_range_threshold"})
         policy_invalid_fields.add(field)
+    if min_setup_trade_count is not None:
+        if (
+            isinstance(min_setup_trade_count, bool)
+            or not isinstance(min_setup_trade_count, int)
+            or not math.isfinite(float(min_setup_trade_count))
+        ):
+            policy_invalid_config.append(
+                {"field": "min_setup_trade_count", "value": min_setup_trade_count, "error": "invalid_threshold"}
+            )
+            policy_invalid_fields.add("min_setup_trade_count")
+        elif min_setup_trade_count < 0:
+            policy_invalid_config.append(
+                {"field": "min_setup_trade_count", "value": min_setup_trade_count, "error": "negative_threshold"}
+            )
+            policy_invalid_fields.add("min_setup_trade_count")
     valid_evidence_coverage_threshold = policy_thresholds.get("evidence_coverage_threshold")
     valid_exit_evidence_coverage_threshold = policy_thresholds.get("exit_evidence_coverage_threshold")
     valid_max_exit_path_ambiguity_rate = policy_thresholds.get("max_exit_path_ambiguity_rate")
