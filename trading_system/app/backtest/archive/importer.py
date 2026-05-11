@@ -1287,6 +1287,19 @@ def _require_uppercase_exchange_symbol_items(values: Any, *, field: str) -> tupl
     return symbols
 
 
+def _require_archive_series_key_items(values: Any, *, field: str) -> tuple[str, ...]:
+    series_keys = _require_canonical_string_items(values, field=field)
+    for index, value in enumerate(series_keys):
+        if "\\" in value or any(ord(char) < 32 or ord(char) == 127 for char in value):
+            raise ValueError(f"{field}[{index}] must be a valid archive series key")
+        if "/" not in value:
+            continue
+        path_parts = value.split("/")
+        if value.startswith("/") or any(part in {"", ".", ".."} for part in path_parts):
+            raise ValueError(f"{field}[{index}] must be a valid archive series key")
+    return series_keys
+
+
 def _require_canonical_json_object_keys(value: Mapping[Any, Any], *, field: str) -> None:
     for key in value.keys():
         if not isinstance(key, str):
@@ -1325,7 +1338,7 @@ def _merged_import_trace(traces: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
                 f"expected {(scope, exchange, market)}, loaded {(current_scope, current_exchange, current_market)}"
             )
         symbols.update(_require_uppercase_exchange_symbol_items(normalized.get("symbols"), field="import_trace.symbols"))
-        series_keys.update(_require_canonical_string_items(normalized.get("series_keys"), field="import_trace.series_keys"))
+        series_keys.update(_require_archive_series_key_items(normalized.get("series_keys"), field="import_trace.series_keys"))
         manifest_paths.update(_require_canonical_string_items(normalized.get("manifest_paths"), field="import_trace.manifest_paths"))
 
     if scope is None or exchange is None or market is None:

@@ -2365,6 +2365,30 @@ def test_merged_import_trace_rejects_padded_keys_before_merge() -> None:
         )
 
 
+@pytest.mark.parametrize(
+    "series_key",
+    [
+        "../raw-market/binance/futures/ohlcv/BTCUSDT/1h",
+        "/raw-market/binance/futures/ohlcv/BTCUSDT/1h",
+        "raw-market/binance/futures//BTCUSDT/1h",
+        "raw-market\\binance\\futures\\ohlcv\\BTCUSDT\\1h",
+        "raw-market/binance/futures/ohlcv/BTCUSDT/\n1h",
+    ],
+)
+def test_merged_import_trace_rejects_malformed_series_key_path_shapes(series_key: str) -> None:
+    with pytest.raises(ValueError, match=r"import_trace\.series_keys\[0\] must be a valid archive series key"):
+        archive_importer._merged_import_trace(
+            [
+                {
+                    "scope": archive_importer.PHASE1_IMPORTER_SCOPE,
+                    "exchange": "binance",
+                    "market": "futures",
+                    "series_keys": [series_key],
+                }
+            ]
+        )
+
+
 def _timestamp_ms(value: datetime) -> int:
     return int(value.timestamp() * 1000)
 
