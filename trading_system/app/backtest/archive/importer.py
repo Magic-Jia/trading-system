@@ -2488,6 +2488,14 @@ def _phase1_root_manifest_path_string(manifest: Mapping[str, Any], field: str, *
     return value
 
 
+def _phase1_root_manifest_path_strings(manifest: Mapping[str, Any], field: str, *, manifest_path: Path) -> tuple[str, ...]:
+    values = _phase1_root_manifest_canonical_strings(manifest, field, manifest_path=manifest_path)
+    for value in values:
+        if ".." in Path(value).parts:
+            raise ValueError(f"materialized dataset root manifest {field} must not contain parent traversal: {manifest_path}")
+    return values
+
+
 def _phase1_root_manifest_nonnegative_int(manifest: Mapping[str, Any], field: str, *, manifest_path: Path) -> int:
     value = manifest.get(field)
     if not isinstance(value, int) or isinstance(value, bool) or value < 0:
@@ -2628,7 +2636,7 @@ def validate_phase1_imported_dataset_root(
             )
         manifest_bundle_dirs = tuple(
             _resolved_phase1_imported_dataset_root_path(dataset_path, value)
-            for value in _phase1_root_manifest_canonical_strings(
+            for value in _phase1_root_manifest_path_strings(
                 root_manifest,
                 "bundle_dirs",
                 manifest_path=manifest_path,
