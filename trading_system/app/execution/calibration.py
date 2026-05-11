@@ -1,11 +1,24 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
 from statistics import median
 from typing import Any, Iterable, Mapping
+
+_ASSET_CODE_RE = re.compile(r"^[A-Z0-9]+$")
+_FEE_ASSET_FIELDS = (
+    "fee_asset",
+    "feeAsset",
+    "fee_currency",
+    "feeCurrency",
+    "commission_asset",
+    "commissionAsset",
+    "commission_currency",
+    "commissionCurrency",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,7 +71,22 @@ def _required_float(row: Mapping[str, Any], *keys: str, field_name: str) -> floa
     raise ValueError(f"calibration record missing {field_name}")
 
 
+def _validate_fee_asset_fields(row: Mapping[str, Any]) -> None:
+    for field in _FEE_ASSET_FIELDS:
+        if field not in row:
+            continue
+        value = row[field]
+        if (
+            type(value) is not str
+            or not value
+            or value != value.strip()
+            or _ASSET_CODE_RE.fullmatch(value) is None
+        ):
+            raise ValueError(f"calibration record {field} must be an uppercase asset code")
+
+
 def _record_from_mapping(row: Mapping[str, Any]) -> PassiveOrderCalibrationRecord:
+    _validate_fee_asset_fields(row)
     submitted_at = _parse_datetime(row.get("submitted_at"))
     if submitted_at is None:
         raise ValueError("calibration record missing submitted_at")
