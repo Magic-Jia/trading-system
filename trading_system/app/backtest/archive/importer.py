@@ -2868,6 +2868,11 @@ def _normalized_phase1_source_trace(dataset_path: Path, source: Mapping[str, Any
             manifest_paths,
             field="materialized dataset root manifest source.manifest_paths",
         )
+    if context == "materialized dataset bundle metadata source":
+        _reject_parent_traversal_path_strings(
+            manifest_paths,
+            field="materialized dataset bundle metadata source.manifest_paths",
+        )
     normalized["manifest_paths"] = list(_resolved_source_manifest_paths(dataset_path, manifest_paths))
     return normalized
 

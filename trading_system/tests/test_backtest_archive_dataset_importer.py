@@ -5649,6 +5649,29 @@ def test_validate_phase1_imported_dataset_root_rejects_parent_traversal_source_m
         validate_phase1_imported_dataset_root(dataset_root)
 
 
+def test_validate_phase1_imported_dataset_root_rejects_parent_traversal_bundle_metadata_source_manifest_paths(
+    tmp_path: Path,
+) -> None:
+    archive_root = tmp_path / "archive"
+    dataset_root = tmp_path / "dataset"
+    _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT")
+    import_phase1_archive_dataset_root(archive_root, dataset_root)
+
+    bundle_dir = next(path for path in dataset_root.iterdir() if path.is_dir())
+    metadata_path = bundle_dir / "metadata.json"
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    metadata["source"]["manifest_paths"] = [
+        "../archive/raw-market/binance/futures/BTCUSDT/ohlcv/1h/2026/01.manifest.json"
+    ]
+    metadata_path.write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    with pytest.raises(
+        ValueError,
+        match="bundle metadata source\\.manifest_paths must not contain parent traversal",
+    ):
+        validate_phase1_imported_dataset_root(dataset_root)
+
+
 def test_validate_phase1_imported_dataset_root_rejects_missing_instrument_snapshot(tmp_path: Path) -> None:
     archive_root = tmp_path / "archive"
     dataset_root = tmp_path / "dataset"
