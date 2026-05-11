@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from dataclasses import asdict, dataclass
 from datetime import datetime
+from numbers import Real
 from pathlib import Path
 from statistics import median
 from typing import Any, Iterable, Mapping
@@ -95,6 +97,19 @@ def _validate_commission_fields(row: Mapping[str, Any]) -> None:
         float(row[field])
 
 
+def _fee_float_or_none(field: str, value: Any) -> float | None:
+    if value is None or value == "":
+        return None
+    if isinstance(value, bool) or not isinstance(value, Real):
+        raise ValueError(f"calibration record {field} must be numeric")
+    parsed = float(value)
+    if not math.isfinite(parsed):
+        raise ValueError(f"calibration record {field} must be finite")
+    if parsed < 0.0:
+        raise ValueError(f"calibration record {field} must be non-negative")
+    return parsed
+
+
 def _record_from_mapping(row: Mapping[str, Any]) -> PassiveOrderCalibrationRecord:
     _validate_fee_asset_fields(row)
     _validate_commission_fields(row)
@@ -119,7 +134,7 @@ def _record_from_mapping(row: Mapping[str, Any]) -> PassiveOrderCalibrationRecor
         filled_notional=_float_or_none(row.get("filled_notional")),
         status=str(row.get("status", "")).strip().lower(),
         maker_taker=str(row.get("maker_taker")).strip().lower() if row.get("maker_taker") is not None else None,
-        fees=_float_or_none(row.get("fees")),
+        fees=_fee_float_or_none("fees", row.get("fees")),
         slippage_bps=_float_or_none(row.get("slippage_bps")),
         ref_price=_float_or_none(row.get("ref_price")),
         cancel_reason=str(row.get("cancel_reason")) if row.get("cancel_reason") is not None else None,

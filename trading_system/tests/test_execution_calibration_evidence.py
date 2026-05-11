@@ -132,7 +132,29 @@ def test_rejects_boolean_optional_numeric_fields(tmp_path: Path) -> None:
 
     import pytest
 
-    with pytest.raises(ValueError, match="calibration numeric field must be numeric"):
+    with pytest.raises(ValueError, match="calibration record fees must be numeric"):
+        load_calibration_records(source)
+
+
+def test_rejects_string_fees_before_calibration_load(tmp_path: Path) -> None:
+    source = tmp_path / "dust_orders.jsonl"
+    source.write_text(
+        json.dumps(
+            {
+                "symbol": "BTCUSDT",
+                "side": "buy",
+                "intended_limit_price": 100.0,
+                "submitted_at": "2026-01-01T00:00:00+00:00",
+                "fees": "0.01",
+                "status": "filled",
+            }
+        )
+        + "\n"
+    )
+
+    import pytest
+
+    with pytest.raises(ValueError, match="calibration record fees must be numeric"):
         load_calibration_records(source)
 
 
