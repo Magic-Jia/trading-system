@@ -622,7 +622,14 @@ def _conservative_trade_print_taker_fill(
     quantity: float,
     trades: tuple[TradePrint, ...],
 ) -> ExecutionFill | None:
-    symbol_trades = [trade for trade in trades if trade.symbol == symbol and trade.price > 0.0]
+    symbol_trades: list[TradePrint] = []
+    for trade in trades:
+        if trade.symbol != symbol:
+            continue
+        price = _positive_finite_float("trade.price", trade.price)
+        symbol_trades.append(
+            TradePrint(timestamp=trade.timestamp, symbol=trade.symbol, price=price, quantity=trade.quantity, side=trade.side)
+        )
     if not symbol_trades:
         return None
     trade = max(symbol_trades, key=lambda item: item.price) if side == "buy" else min(symbol_trades, key=lambda item: item.price)
