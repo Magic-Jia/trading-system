@@ -942,6 +942,24 @@ def test_bundle_verifier_marks_schema_invalid_for_required_artifacts_not_list(tm
     assert result["schema_valid"] is False
     assert "required_artifacts_not_list" in result["manifest_errors"]
 
+def test_collect_rejects_required_artifacts_mapping_container(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    _write_json(source / "trades.json", {"artifact": "trades.json"})
+    bundle = tmp_path / "bundle"
+
+    with pytest.raises(ValueError, match="required_artifacts must be a list or tuple"):
+        collect_promotion_evidence_bundle(
+            source,
+            bundle,
+            candidate_id="candidate-1",
+            evidence_source={"type": "promotion_bundle_export", "run_id": "bundle-1"},
+            required_artifacts={"trades.json": True},  # type: ignore[arg-type]
+        )
+
+    assert not bundle.exists()
+
+
 def test_bundle_verifier_marks_schema_invalid_for_missing_candidate_id(tmp_path: Path) -> None:
     source = tmp_path / "source"
     source.mkdir()

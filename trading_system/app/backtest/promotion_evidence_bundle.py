@@ -50,6 +50,8 @@ def collect_promotion_evidence_bundle(
         raise ValueError("candidate_id must be a non-empty string")
     if not _CANDIDATE_ID_RE.fullmatch(candidate_id):
         raise ValueError("candidate_id must be canonical")
+    if not isinstance(required_artifacts, (list, tuple)):
+        raise ValueError("required_artifacts must be a list or tuple")
     invalid_required_types = [index for index, name in enumerate(required_artifacts, start=1) if not isinstance(name, str)]
     if invalid_required_types:
         raise ValueError("required artifact path entries must be strings")
