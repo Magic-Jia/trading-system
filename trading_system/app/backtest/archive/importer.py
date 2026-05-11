@@ -2771,10 +2771,21 @@ def _phase1_imported_dataset_root_manifest_paths(dataset_path: Path, rows: Seque
     return _resolved_source_manifest_paths(dataset_path, manifest_paths)
 
 
+def _reject_parent_traversal_path_strings(paths: Sequence[str], *, field: str) -> None:
+    for value in paths:
+        if ".." in Path(value).parts:
+            raise ValueError(f"{field} must not contain parent traversal")
+
+
 def _normalized_phase1_source_trace(dataset_path: Path, source: Mapping[str, Any], *, context: str) -> dict[str, Any]:
     normalized = _json_object_field(source, context=context)
     field = f"{context} manifest_paths"
     manifest_paths = tuple(sorted(_canonical_string_sequence(normalized.get("manifest_paths"), field=field)))
+    if context == "materialized dataset root manifest source":
+        _reject_parent_traversal_path_strings(
+            manifest_paths,
+            field="materialized dataset root manifest source.manifest_paths",
+        )
     normalized["manifest_paths"] = list(_resolved_source_manifest_paths(dataset_path, manifest_paths))
     return normalized
 
