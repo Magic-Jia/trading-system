@@ -56,15 +56,17 @@ def slippage_bps_for_tier(costs: BacktestCosts, liquidity_tier: str) -> float:
 
 
 def fee_cost(*, position_notional: float, market_type: str, costs: BacktestCosts) -> float:
-    if position_notional <= 0.0:
+    notional = _non_negative_finite_number(position_notional, field_name="position_notional")
+    if notional <= 0.0:
         return 0.0
-    return (position_notional * 2.0 * fee_bps_for_market(costs, market_type)) / _BPS_DENOMINATOR
+    return (notional * 2.0 * fee_bps_for_market(costs, market_type)) / _BPS_DENOMINATOR
 
 
 def slippage_cost(*, position_notional: float, liquidity_tier: str, costs: BacktestCosts) -> float:
-    if position_notional <= 0.0:
+    notional = _non_negative_finite_number(position_notional, field_name="position_notional")
+    if notional <= 0.0:
         return 0.0
-    return (position_notional * 2.0 * slippage_bps_for_tier(costs, liquidity_tier)) / _BPS_DENOMINATOR
+    return (notional * 2.0 * slippage_bps_for_tier(costs, liquidity_tier)) / _BPS_DENOMINATOR
 
 
 def funding_cost(

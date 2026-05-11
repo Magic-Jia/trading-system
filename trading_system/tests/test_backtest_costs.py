@@ -4,7 +4,7 @@ import math
 
 import pytest
 
-from trading_system.app.backtest.costs import fee_bps_for_market, funding_cost, slippage_bps_for_tier
+from trading_system.app.backtest.costs import fee_bps_for_market, fee_cost, funding_cost, slippage_bps_for_tier, slippage_cost
 from trading_system.app.backtest.types import BacktestCosts
 
 
@@ -36,6 +36,17 @@ def test_slippage_bps_rejects_invalid_configured_tier_rate(slippage_bps: object)
 
     with pytest.raises(ValueError, match="slippage_bps_by_tier.high must be a non-negative finite number"):
         slippage_bps_for_tier(costs, "high")
+
+
+@pytest.mark.parametrize("position_notional", [True, "1000.0", math.nan, math.inf, -math.inf, -1.0])
+def test_trade_costs_reject_invalid_position_notional(position_notional: object) -> None:
+    costs = BacktestCosts(fee_bps_by_market={"futures": 5.0}, slippage_bps_by_tier={"high": 10.0})
+
+    with pytest.raises(ValueError, match="position_notional must be a non-negative finite number"):
+        fee_cost(position_notional=position_notional, market_type="futures", costs=costs)  # type: ignore[arg-type]
+
+    with pytest.raises(ValueError, match="position_notional must be a non-negative finite number"):
+        slippage_cost(position_notional=position_notional, liquidity_tier="high", costs=costs)  # type: ignore[arg-type]
 
 
 def test_funding_cost_rejects_non_string_side_and_non_numeric_rate() -> None:
