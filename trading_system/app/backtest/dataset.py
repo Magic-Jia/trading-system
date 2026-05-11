@@ -256,6 +256,7 @@ _ACCOUNT_OPEN_POSITION_ASSET_CODE_FIELDS = (
     "feeAsset",
     "fee_currency",
     "feeCurrency",
+    "commissionAsset",
     "funding_asset",
     "fundingAsset",
     "funding_currency",
