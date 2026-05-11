@@ -63,6 +63,20 @@ def test_funding_cost_rejects_negative_position_notional() -> None:
         )
 
 
+def test_funding_cost_rejects_negative_holding_hours_before_zero_funding_short_circuit() -> None:
+    costs = BacktestCosts(funding_mode=None)
+
+    with pytest.raises(ValueError, match="holding_hours must be a non-negative finite number"):
+        funding_cost(
+            position_notional=1_000.0,
+            market_type="spot",
+            side="long",
+            funding_rate=0.001,
+            holding_hours=-1.0,
+            costs=costs,
+        )
+
+
 def test_funding_cost_rejects_non_string_side_and_non_numeric_rate() -> None:
     costs = BacktestCosts(funding_mode="historical_series")
 
@@ -88,26 +102,26 @@ def test_funding_cost_rejects_non_string_side_and_non_numeric_rate() -> None:
 
 
 @pytest.mark.parametrize(
-    ("funding_rate", "holding_hours", "field_name"),
+    ("funding_rate", "holding_hours", "expected_message"),
     [
-        (True, 8.0, "funding_rate"),
-        ("0.001", 8.0, "funding_rate"),
-        (math.nan, 8.0, "funding_rate"),
-        (math.inf, 8.0, "funding_rate"),
-        (0.001, True, "holding_hours"),
-        (0.001, "8.0", "holding_hours"),
-        (0.001, math.nan, "holding_hours"),
-        (0.001, math.inf, "holding_hours"),
+        (True, 8.0, "funding_rate must be a finite number"),
+        ("0.001", 8.0, "funding_rate must be a finite number"),
+        (math.nan, 8.0, "funding_rate must be a finite number"),
+        (math.inf, 8.0, "funding_rate must be a finite number"),
+        (0.001, True, "holding_hours must be a non-negative finite number"),
+        (0.001, "8.0", "holding_hours must be a non-negative finite number"),
+        (0.001, math.nan, "holding_hours must be a non-negative finite number"),
+        (0.001, math.inf, "holding_hours must be a non-negative finite number"),
     ],
 )
 def test_funding_cost_rejects_invalid_numeric_inputs_before_zero_funding_short_circuit(
     funding_rate: object,
     holding_hours: object,
-    field_name: str,
+    expected_message: str,
 ) -> None:
     costs = BacktestCosts(funding_mode=None)
 
-    with pytest.raises(ValueError, match=rf"{field_name} must be a finite number"):
+    with pytest.raises(ValueError, match=expected_message):
         funding_cost(
             position_notional=1_000.0,
             market_type="spot",

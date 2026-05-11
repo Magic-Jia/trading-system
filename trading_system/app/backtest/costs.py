@@ -80,7 +80,7 @@ def funding_cost(
 ) -> float:
     position = _non_negative_finite_number(position_notional, field_name="position_notional")
     rate = _finite_number(funding_rate, field_name="funding_rate")
-    hours = _finite_number(holding_hours, field_name="holding_hours")
+    hours = _non_negative_finite_number(holding_hours, field_name="holding_hours")
     if position <= 0.0 or _canonical_string(market_type, field_name="market_type") != "futures" or costs.funding_mode != "historical_series":
         return 0.0
     if hours <= 0.0 or rate == 0.0:
