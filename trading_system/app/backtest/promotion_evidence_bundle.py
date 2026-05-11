@@ -217,9 +217,11 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
             **_empty_promotion_bundle_audit_fields(),
         }
     manifest = dict(manifest_payload) if isinstance(manifest_payload, Mapping) else {}
-    if not isinstance(manifest_payload, Mapping):
+    if type(manifest_payload) is not dict:
         manifest_errors.append("manifest_not_object")
     schema_valid = manifest.get("schema_version") == SCHEMA_VERSION
+    if type(manifest_payload) is not dict:
+        schema_valid = False
     allowed_manifest_fields = {
         "schema_version",
         "candidate_id",
@@ -256,7 +258,7 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
     if evidence_source_raw is None:
         schema_valid = False
         manifest_errors.append("evidence_source_missing")
-    elif not isinstance(evidence_source_raw, Mapping):
+    elif type(evidence_source_raw) is not dict:
         schema_valid = False
         manifest_errors.append("evidence_source_not_object")
     if isinstance(evidence_source_raw, Mapping):

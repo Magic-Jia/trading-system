@@ -1202,6 +1202,43 @@ def test_bundle_verifier_rejects_artifact_metadata_mapping_subclasses_and_noncan
     assert "artifact_source_path_noncanonical" in result["manifest_errors"]
 
 
+def test_bundle_verifier_rejects_manifest_and_evidence_source_mapping_subclasses(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class ManifestPayload(dict):
+        pass
+
+    class EvidenceSourcePayload(dict):
+        pass
+
+    source = tmp_path / "source"
+    source.mkdir()
+    for name in REQUIRED_ARTIFACTS:
+        _write_json(source / name, {"artifact": name})
+    bundle_dir = collect_promotion_evidence_bundle(
+        source,
+        tmp_path / "bundle",
+        candidate_id="candidate-1",
+        evidence_source={"type": "promotion_bundle_export", "run_id": "bundle-1"},
+    )
+    manifest_path = bundle_dir / "promotion_evidence_manifest.json"
+    manifest = ManifestPayload(json.loads(manifest_path.read_text(encoding="utf-8")))
+    manifest["evidence_source"] = EvidenceSourcePayload(manifest["evidence_source"])
+
+    def load_manifest_with_mapping_subclasses(_text: str) -> dict:
+        return manifest
+
+    monkeypatch.setattr(promotion_bundle.json, "loads", load_manifest_with_mapping_subclasses)
+
+    result = verify_promotion_evidence_bundle(bundle_dir)
+
+    assert result["verified"] is False
+    assert result["schema_valid"] is False
+    assert "manifest_not_object" in result["manifest_errors"]
+    assert "evidence_source_not_object" in result["manifest_errors"]
+
+
 def test_bundle_verifier_reports_non_string_metadata_reason_entries() -> None:
     class NonStringReason:
         def __str__(self) -> str:
