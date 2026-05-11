@@ -1971,9 +1971,11 @@ def _microstructure_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
         summary_schema_error = ""
         min_l2_tick_coverage = summary.get("min_l2_tick_coverage")
         if min_l2_tick_coverage is not None:
-            _, min_coverage_valid = _strict_float_value(min_l2_tick_coverage)
+            parsed_min_coverage, min_coverage_valid = _strict_float_value(min_l2_tick_coverage)
             if not min_coverage_valid:
                 summary_schema_error = "summary_min_l2_tick_coverage_not_number"
+            elif parsed_min_coverage < 0.0 or parsed_min_coverage > 1.0:
+                summary_schema_error = "summary_min_l2_tick_coverage_out_of_range"
         taker_fill_model = summary.get("taker_fill_model")
         if not summary_schema_error and taker_fill_model is not None:
             if not isinstance(taker_fill_model, str):
