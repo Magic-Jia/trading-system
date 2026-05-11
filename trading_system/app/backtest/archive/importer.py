@@ -87,6 +87,7 @@ _ACCOUNT_BALANCE_WALLET_TOTAL_ALIASES = (
 _ACCOUNT_BALANCE_EQUAL_ALIAS_GROUPS = (
     ("crossWalletBalance", "cross_wallet_balance"),
     ("availableBalance", "available_balance"),
+    ("maxWithdrawAmount", "max_withdraw_amount"),
 )
 _ACCOUNT_BALANCE_ASSET_CODE_RE = re.compile(r"^[A-Z0-9]+$")
 _EXCHANGE_SYMBOL_RE = re.compile(r"^[A-Z0-9]+$")
