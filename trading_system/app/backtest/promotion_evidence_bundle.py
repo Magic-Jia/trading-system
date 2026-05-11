@@ -400,7 +400,9 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
             missing.append(rel_path)
             continue
         source_path_raw = artifact.get("source_path")
-        if source_path_raw is not None and not isinstance(source_path_raw, str):
+        if source_path_raw is None:
+            missing_metadata.append(f"{rel_path}:source_path")
+        elif not isinstance(source_path_raw, str):
             invalid_metadata.append(f"{rel_path}:source_path")
         if isinstance(source_path_raw, str) and not source_path_raw.strip():
             source_path_blank_metadata.append(f"{rel_path}:source_path")
@@ -489,6 +491,9 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
     if missing_metadata:
         schema_valid = False
         manifest_errors.append("artifact_metadata_missing")
+    if any(str(item).endswith(":source_path") for item in missing_metadata):
+        schema_valid = False
+        manifest_errors.append("artifact_source_path_missing")
     if any(str(item).endswith(".path") for item in missing_metadata):
         schema_valid = False
         manifest_errors.append("artifact_path_missing")

@@ -409,6 +409,31 @@ def test_bundle_verifier_rejects_required_artifact_missing_checksum_metadata(tmp
     assert "artifact_metadata_missing" in result["manifest_errors"]
 
 
+def test_bundle_verifier_rejects_required_artifact_missing_source_path_metadata(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    for name in REQUIRED_ARTIFACTS:
+        _write_json(source / name, {"artifact": name, "synthetic": True})
+    bundle_dir = collect_promotion_evidence_bundle(
+        source,
+        tmp_path / "bundle",
+        candidate_id="candidate-1",
+        evidence_source={"type": "promotion_bundle_export", "run_id": "bundle-1"},
+    )
+    manifest_path = bundle_dir / "promotion_evidence_manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    missing_source_path = REQUIRED_ARTIFACTS[0]
+    manifest["artifacts"][0].pop("source_path")
+    manifest_path.write_text(json.dumps(manifest, sort_keys=True) + "\n")
+
+    result = verify_promotion_evidence_bundle(bundle_dir)
+
+    assert result["verified"] is False
+    assert result["missing_artifact_metadata"] == [f"{missing_source_path}:source_path"]
+    assert "artifact_metadata_missing" in result["manifest_errors"]
+    assert "artifact_source_path_missing" in result["manifest_errors"]
+
+
 def test_bundle_verifier_rejects_required_artifact_invalid_byte_metadata(tmp_path: Path) -> None:
     source = tmp_path / "source"
     source.mkdir()
