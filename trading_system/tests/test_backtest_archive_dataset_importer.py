@@ -243,6 +243,68 @@ def test_write_phase1_dataset_bundle_rejects_malformed_derivatives_contract_type
     assert not expected_bundle_dir.exists()
 
 
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("baseAsset", "btc"),
+        ("quoteAsset", " USDT"),
+        ("marginAsset", True),
+        ("base_asset", ""),
+        ("quote_asset", "USD\nT"),
+        ("margin_asset", "USDT-PERP"),
+    ],
+)
+def test_write_phase1_dataset_bundle_rejects_malformed_derivatives_asset_aliases_without_artifact(
+    tmp_path: Path, field: str, value: object
+) -> None:
+    timestamp = datetime(2024, 1, 1, tzinfo=UTC)
+    row = {
+        "symbol": "BTCUSDT",
+        "instrument": "perpetual",
+        "category": "futures",
+        "exchange": "binance",
+        "contractType": "PERPETUAL",
+        "baseAsset": "BTC",
+        "quoteAsset": "USDT",
+        "marginAsset": "USDT",
+        "base_asset": "BTC",
+        "quote_asset": "USDT",
+        "margin_asset": "USDT",
+    }
+    row[field] = value
+    material = archive_importer.Phase1DatasetBundleMaterial(
+        timestamp=timestamp,
+        run_id=archive_importer._run_id(timestamp),
+        metadata={"timestamp": "2024-01-01T00:00:00Z", "run_id": archive_importer._run_id(timestamp)},
+        market_context={
+            "schema_version": archive_importer.PHASE1_IMPORTER_MARKET_CONTEXT_SCHEMA,
+            "as_of": "2024-01-01T00:00:00Z",
+            "symbols": {"BTCUSDT": {}},
+            "instrument_rows": [],
+        },
+        derivatives_snapshot={
+            "schema_version": archive_importer.PHASE1_IMPORTER_DERIVATIVES_SCHEMA,
+            "as_of": "2024-01-01T00:00:00Z",
+            "rows": [row],
+        },
+        account_snapshot={
+            "schema_version": archive_importer.PHASE1_IMPORTER_ACCOUNT_SCHEMA,
+            "as_of": "2024-01-01T00:00:00Z",
+            "equity": 100000.0,
+            "open_positions": [],
+        },
+    )
+    expected_bundle_dir = tmp_path / f"{archive_importer._bundle_fragment(timestamp)}__{material.run_id}"
+
+    with pytest.raises(
+        ValueError,
+        match=rf"derivatives_snapshot rows\[0\]\.{field} must be an uppercase asset code",
+    ):
+        write_phase1_dataset_bundle(material, tmp_path)
+
+    assert not expected_bundle_dir.exists()
+
+
 def test_write_phase1_dataset_bundle_rejects_malformed_open_position_identity_without_artifact(
     tmp_path: Path,
 ) -> None:

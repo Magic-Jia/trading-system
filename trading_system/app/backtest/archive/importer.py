@@ -2116,6 +2116,17 @@ def _validate_material_derivatives_snapshot_identity_fields(derivatives_snapshot
             supported_value = supported_values.get(field_name)
             if supported_value is not None and value != supported_value:
                 raise ValueError(f"{field} is unsupported: {value}")
+        for field_name in ("baseAsset", "quoteAsset", "marginAsset", "base_asset", "quote_asset", "margin_asset"):
+            if field_name not in row:
+                continue
+            value = row[field_name]
+            if (
+                not isinstance(value, str)
+                or not value
+                or value != value.strip()
+                or _ACCOUNT_BALANCE_ASSET_CODE_RE.fullmatch(value) is None
+            ):
+                raise ValueError(f"derivatives_snapshot rows[{index}].{field_name} must be an uppercase asset code")
 
 
 def _row_market_symbol_keys(row: Any) -> tuple[str, ...]:
