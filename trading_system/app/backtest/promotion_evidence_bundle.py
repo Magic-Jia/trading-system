@@ -55,6 +55,10 @@ def _is_canonical_utc_timestamp(value: str) -> bool:
     return parsed.tzinfo is not None and parsed.astimezone(UTC).isoformat().replace("+00:00", "Z") == value
 
 
+def _canonical_utc_timestamp_from_epoch(epoch_seconds: float) -> str:
+    return datetime.fromtimestamp(epoch_seconds, UTC).isoformat().replace("+00:00", "Z")
+
+
 def _is_exact_string(value: Any) -> bool:
     return type(value) is str
 
@@ -162,6 +166,7 @@ def collect_promotion_evidence_bundle(
             {
                 "path": name,
                 "source_path": str(src),
+                "modified_at": _canonical_utc_timestamp_from_epoch(src.stat().st_mtime),
                 "bytes": src.stat().st_size,
                 "sha256": _sha256(src),
             }
@@ -218,6 +223,8 @@ def _promotion_artifact_metadata_reason_keys(metadata_entries: list[Any]) -> lis
         reasons.append("artifact_bytes_invalid_domain")
     if any(item.endswith(":source_path") for item in string_entries):
         reasons.append("artifact_source_path_not_string")
+    if any(item.endswith(":modified_at") for item in string_entries):
+        reasons.append("artifact_modified_at_invalid_domain")
     if any(item.startswith("artifacts[") and not item.endswith(".path") for item in string_entries):
         reasons.append("artifact_entry_not_object")
     return reasons
@@ -433,7 +440,7 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
         if type(artifact) is not dict:
             invalid_metadata.append(f"artifacts[{artifact_index}]")
             continue
-        unknown_artifact_fields = sorted(set(artifact) - {"path", "sha256", "bytes", "source_path"})
+        unknown_artifact_fields = sorted(set(artifact) - {"path", "sha256", "bytes", "source_path", "modified_at"})
         rel_path_raw = artifact.get("path")
         if rel_path_raw is None or (isinstance(rel_path_raw, str) and not rel_path_raw.strip()):
             missing_metadata.append(f"artifacts[{artifact_index}].path")
@@ -472,6 +479,17 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
         ):
             invalid_metadata.append(f"{rel_path}:source_path")
             source_path_noncanonical_metadata.append(f"{rel_path}:source_path")
+        modified_at_raw = artifact.get("modified_at")
+        if modified_at_raw is None:
+            missing_metadata.append(f"{rel_path}:modified_at")
+        elif not _is_exact_string(modified_at_raw):
+            invalid_metadata.append(f"{rel_path}:modified_at")
+        elif not modified_at_raw.strip():
+            invalid_metadata.append(f"{rel_path}:modified_at")
+        elif modified_at_raw != modified_at_raw.strip():
+            invalid_metadata.append(f"{rel_path}:modified_at")
+        elif not _is_canonical_utc_timestamp(modified_at_raw):
+            invalid_metadata.append(f"{rel_path}:modified_at")
         actual_sha = _sha256(path)
         expected_sha = artifact.get("sha256")
         actual_bytes = path.stat().st_size
@@ -562,6 +580,9 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
     if any(str(item).endswith(":source_path") for item in missing_metadata):
         schema_valid = False
         manifest_errors.append("artifact_source_path_missing")
+    if any(str(item).endswith(":modified_at") for item in missing_metadata):
+        schema_valid = False
+        manifest_errors.append("artifact_modified_at_missing")
     if any(str(item).endswith(".path") for item in missing_metadata):
         schema_valid = False
         manifest_errors.append("artifact_path_missing")
