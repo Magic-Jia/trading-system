@@ -416,7 +416,7 @@ def _promotion_metadata_sections(metadata: Mapping[str, Any]) -> dict[str, Any]:
         observation_window = _optional_canonical_report_string(
             raw.observation_window, field_name="promotion_metadata.observation_window"
         )
-    elif isinstance(raw, Mapping):
+    elif isinstance(raw, dict):
         runtime_fields = _canonical_report_string_list(
             raw.get("runtime_fields", []), field_name="promotion_metadata.runtime_fields"
         )

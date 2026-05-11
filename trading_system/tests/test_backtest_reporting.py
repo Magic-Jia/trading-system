@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator, Mapping
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
@@ -3821,6 +3822,35 @@ def test_render_llm_trend_breakout_report_rejects_non_object_promotion_metadata(
                 "candidate_rows": [],
             },
             metadata={"snapshot_count": 2, "promotion_metadata": True},
+        )
+
+
+def test_render_llm_trend_breakout_report_rejects_pseudo_object_promotion_metadata() -> None:
+    class PromotionMetadataMapping(Mapping[str, object]):
+        def __iter__(self) -> Iterator[str]:
+            return iter(("runtime_fields",))
+
+        def __len__(self) -> int:
+            return 1
+
+        def __getitem__(self, key: str) -> object:
+            if key == "runtime_fields":
+                return ["candidate_rows.final_score"]
+            raise KeyError(key)
+
+    with pytest.raises(ValueError, match="promotion_metadata must be an object"):
+        reporting.render_llm_trend_breakout_report(
+            experiment_name="llm_trend_breakout",
+            experiment={
+                "summary": {
+                    "technical_candidate_count": 2,
+                    "accepted_candidate_count": 1,
+                    "rejected_candidate_count": 1,
+                    "acceptance_rate": 0.5,
+                },
+                "candidate_rows": [],
+            },
+            metadata={"snapshot_count": 2, "promotion_metadata": PromotionMetadataMapping()},
         )
 
 
