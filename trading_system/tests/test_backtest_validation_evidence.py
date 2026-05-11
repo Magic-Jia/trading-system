@@ -58,6 +58,42 @@ def test_validation_gate_preserves_valid_evidence_source_payload() -> None:
     assert gate["evidence_source"] == manifest["evidence_source"]
 
 
+@pytest.mark.parametrize(
+    ("exported_at", "expected_error"),
+    [
+        ("2026-05-08T12:00:00+00:00", "evidence_source exported_at must be a canonical UTC timestamp"),
+        (123, "evidence_source exported_at must be a string"),
+    ],
+)
+def test_validation_gate_rejects_invalid_evidence_source_exported_at(
+    exported_at: object, expected_error: str
+) -> None:
+    manifest = _passing_manifest()
+    manifest["evidence_source"] = {
+        "type": "walk_forward_oos_report",
+        "run_id": "validation-1",
+        "exported_at": exported_at,
+    }
+
+    with pytest.raises(ValueError, match=f"^{expected_error}$"):
+        build_validation_gate(manifest)
+
+
+def test_validation_gate_rejects_evidence_source_exported_at_string_subclass() -> None:
+    class TimestampString(str):
+        pass
+
+    manifest = _passing_manifest()
+    manifest["evidence_source"] = {
+        "type": "walk_forward_oos_report",
+        "run_id": "validation-1",
+        "exported_at": TimestampString("2026-05-08T12:00:00Z"),
+    }
+
+    with pytest.raises(ValueError, match="^evidence_source exported_at must be a string$"):
+        build_validation_gate(manifest)
+
+
 def test_validation_gate_reports_each_failed_requirement() -> None:
     gate = build_validation_gate(
         {

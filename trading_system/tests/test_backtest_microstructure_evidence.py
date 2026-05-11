@@ -319,6 +319,54 @@ def test_microstructure_gate_rejects_non_string_evidence_source_run_id() -> None
         )
 
 
+@pytest.mark.parametrize(
+    ("exported_at", "expected_error"),
+    [
+        ("2026-05-08T12:00:00+00:00", "evidence_source exported_at must be a canonical UTC timestamp"),
+        (123, "evidence_source exported_at must be a string"),
+    ],
+)
+def test_microstructure_gate_rejects_invalid_evidence_source_exported_at(
+    exported_at: object, expected_error: str
+) -> None:
+    with pytest.raises(ValueError, match=f"^{expected_error}$"):
+        build_microstructure_gate(
+            {
+                "evidence_source": {
+                    "type": "historical_l2_tick_archive",
+                    "run_id": "micro-1",
+                    "exported_at": exported_at,
+                },
+                "coverage": {
+                    "l2_snapshot_coverage": 1.0,
+                    "l2_update_coverage": 1.0,
+                    "tick_coverage": 1.0,
+                },
+            }
+        )
+
+
+def test_microstructure_gate_rejects_evidence_source_exported_at_string_subclass() -> None:
+    class TimestampString(str):
+        pass
+
+    with pytest.raises(ValueError, match="^evidence_source exported_at must be a string$"):
+        build_microstructure_gate(
+            {
+                "evidence_source": {
+                    "type": "historical_l2_tick_archive",
+                    "run_id": "micro-1",
+                    "exported_at": TimestampString("2026-05-08T12:00:00Z"),
+                },
+                "coverage": {
+                    "l2_snapshot_coverage": 1.0,
+                    "l2_update_coverage": 1.0,
+                    "tick_coverage": 1.0,
+                },
+            }
+        )
+
+
 def test_microstructure_gate_rejects_unknown_evidence_source_fields() -> None:
     with pytest.raises(ValueError, match="unknown evidence_source field: extra"):
         build_microstructure_gate(

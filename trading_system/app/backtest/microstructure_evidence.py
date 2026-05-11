@@ -3,15 +3,32 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import re
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Mapping
 
 SCHEMA_VERSION = "market_microstructure_gate_input.v1"
+_CANONICAL_UTC_TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z$")
 _DEFAULT_COVERAGE_KEYS = (
     "l2_snapshot_coverage",
     "l2_update_coverage",
     "tick_coverage",
 )
+
+
+def _is_exact_string(value: Any) -> bool:
+    return type(value) is str
+
+
+def _is_canonical_utc_timestamp(value: str) -> bool:
+    if not _CANONICAL_UTC_TIMESTAMP_RE.fullmatch(value):
+        return False
+    try:
+        parsed = datetime.fromisoformat(value[:-1] + "+00:00")
+    except ValueError:
+        return False
+    return parsed.tzinfo is not None and parsed.astimezone(UTC).isoformat().replace("+00:00", "Z") == value
 
 
 def _normalise_coverage_value(name: str, value: Any) -> float | None:
@@ -165,12 +182,18 @@ def build_microstructure_gate(
         raise ValueError("evidence_source type must be canonical")
     for optional_field in ("run_id", "exported_at"):
         optional_value = evidence_source.get(optional_field)
-        if optional_value is not None and not isinstance(optional_value, str):
+        if optional_value is not None and not _is_exact_string(optional_value):
             raise ValueError(f"evidence_source {optional_field} must be a string")
-        if isinstance(optional_value, str) and not optional_value.strip():
+        if _is_exact_string(optional_value) and not optional_value.strip():
             raise ValueError(f"evidence_source {optional_field} must be non-empty")
-        if isinstance(optional_value, str) and optional_value != optional_value.strip():
+        if _is_exact_string(optional_value) and optional_value != optional_value.strip():
             raise ValueError(f"evidence_source {optional_field} must be canonical")
+        if (
+            optional_field == "exported_at"
+            and _is_exact_string(optional_value)
+            and not _is_canonical_utc_timestamp(optional_value)
+        ):
+            raise ValueError("evidence_source exported_at must be a canonical UTC timestamp")
 
     l2_tick_coverage_met = all(
         coverage[key] is not None and coverage[key] >= min_required_coverage
