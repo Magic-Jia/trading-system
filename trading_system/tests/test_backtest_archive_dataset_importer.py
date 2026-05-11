@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Iterator, Mapping
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -4984,6 +4985,45 @@ def test_write_phase1_dataset_bundle_rejects_non_object_instrument_rows(tmp_path
 
     with pytest.raises(ValueError, match=r"market_context instrument_rows\[1\] must be an object"):
         write_phase1_dataset_bundle(bad_material, dataset_root)
+
+
+def test_write_phase1_dataset_bundle_rejects_mapping_instrument_rows_without_artifact(tmp_path: Path) -> None:
+    class InstrumentRowMapping(Mapping[str, object]):
+        def __init__(self, payload: dict[str, object]) -> None:
+            self._payload = payload
+
+        def __getitem__(self, key: str) -> object:
+            return self._payload[key]
+
+        def __iter__(self) -> Iterator[str]:
+            return iter(self._payload)
+
+        def __len__(self) -> int:
+            return len(self._payload)
+
+    archive_root = tmp_path / "archive"
+    dataset_root = tmp_path / "dataset"
+    _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT")
+    imported = load_phase1_raw_market_imports(archive_root)
+    material = build_phase1_dataset_bundle_materials(imported)[-1]
+    market_context = dict(material.market_context)
+    market_context["instrument_rows"] = [
+        InstrumentRowMapping(dict(market_context["instrument_rows"][0])),
+    ]
+    bad_material = archive_importer.Phase1DatasetBundleMaterial(
+        timestamp=material.timestamp,
+        run_id=material.run_id,
+        metadata=material.metadata,
+        market_context=market_context,
+        derivatives_snapshot=material.derivatives_snapshot,
+        account_snapshot=material.account_snapshot,
+    )
+    expected_bundle_dir = dataset_root / f"{archive_importer._bundle_fragment(material.timestamp)}__{material.run_id}"
+
+    with pytest.raises(ValueError, match=r"market_context instrument_rows\[1\] must be a JSON object"):
+        write_phase1_dataset_bundle(bad_material, dataset_root)
+
+    assert not expected_bundle_dir.exists()
 
 
 def test_write_phase1_dataset_bundle_rejects_non_list_instrument_filters_without_artifact(tmp_path: Path) -> None:

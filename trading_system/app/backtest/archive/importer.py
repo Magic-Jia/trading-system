@@ -2255,7 +2255,9 @@ def _material_market_context_instrument_rows(material: Phase1DatasetBundleMateri
         raise ValueError("market_context instrument_rows must be a list")
     parsed: list[dict[str, Any]] = []
     for index, row in enumerate(rows, start=1):
-        if not isinstance(row, Mapping):
+        if not isinstance(row, dict):
+            if isinstance(row, Mapping):
+                raise ValueError(f"market_context instrument_rows[{index}] must be a JSON object")
             raise ValueError(f"market_context instrument_rows[{index}] must be an object")
         parsed.append(dict(row))
     return tuple(parsed)
