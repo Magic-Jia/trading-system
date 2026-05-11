@@ -1139,6 +1139,50 @@ def test_collect_rejects_padded_evidence_source_run_id(tmp_path: Path) -> None:
             evidence_source={"type": "promotion_bundle_export", "run_id": " bundle-1 "},
         )
 
+def test_collect_rejects_noncanonical_evidence_source_exported_at(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    for name in REQUIRED_ARTIFACTS:
+        _write_json(source / name, {"artifact": name})
+
+    with pytest.raises(ValueError, match="evidence_source exported_at must be a canonical UTC timestamp"):
+        collect_promotion_evidence_bundle(
+            source,
+            tmp_path / "bundle",
+            candidate_id="candidate-1",
+            evidence_source={
+                "type": "promotion_bundle_export",
+                "run_id": "bundle-1",
+                "exported_at": "2026-03-10 00:00:00+00:00",
+            },
+        )
+
+def test_bundle_verifier_rejects_noncanonical_evidence_source_exported_at(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    for name in REQUIRED_ARTIFACTS:
+        _write_json(source / name, {"artifact": name})
+    bundle_dir = collect_promotion_evidence_bundle(
+        source,
+        tmp_path / "bundle",
+        candidate_id="candidate-1",
+        evidence_source={
+            "type": "promotion_bundle_export",
+            "run_id": "bundle-1",
+            "exported_at": "2026-03-10T00:00:00Z",
+        },
+    )
+    manifest_path = bundle_dir / "promotion_evidence_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["evidence_source"]["exported_at"] = "2026-03-10T00:00:00+00:00"
+    _write_json(manifest_path, manifest)
+
+    result = verify_promotion_evidence_bundle(bundle_dir)
+
+    assert result["verified"] is False
+    assert result["schema_valid"] is False
+    assert "evidence_source_exported_at_noncanonical_timestamp" in result["manifest_errors"]
+
 def test_bundle_verifier_marks_schema_invalid_for_padded_artifact_source_path(tmp_path: Path) -> None:
     source = tmp_path / "source"
     source.mkdir()

@@ -5,12 +5,14 @@ import hashlib
 import json
 import re
 import shutil
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Mapping
 
 SCHEMA_VERSION = "promotion_evidence_bundle.v1"
 _CANDIDATE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _SHA256_HEX_RE = re.compile(r"^[0-9a-f]{64}$")
+_CANONICAL_UTC_TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z$")
 REQUIRED_ARTIFACTS = (
     "trades.json",
     "exit_path_replay.json",
@@ -41,6 +43,16 @@ def _artifact_path_is_canonical(rel_path: str) -> bool:
 def _artifact_source_path_is_canonical(source_path: str) -> bool:
     path = Path(source_path)
     return source_path == source_path.strip() and source_path == str(path) and ".." not in path.parts
+
+
+def _is_canonical_utc_timestamp(value: str) -> bool:
+    if not _CANONICAL_UTC_TIMESTAMP_RE.fullmatch(value):
+        return False
+    try:
+        parsed = datetime.fromisoformat(value[:-1] + "+00:00")
+    except ValueError:
+        return False
+    return parsed.tzinfo is not None and parsed.astimezone(UTC).isoformat().replace("+00:00", "Z") == value
 
 
 def collect_promotion_evidence_bundle(
@@ -112,6 +124,12 @@ def collect_promotion_evidence_bundle(
             raise ValueError(f"evidence_source {optional_field} must be non-empty")
         if isinstance(optional_value, str) and optional_value != optional_value.strip():
             raise ValueError(f"evidence_source {optional_field} must be canonical")
+        if (
+            optional_field == "exported_at"
+            and isinstance(optional_value, str)
+            and not _is_canonical_utc_timestamp(optional_value)
+        ):
+            raise ValueError("evidence_source exported_at must be a canonical UTC timestamp")
 
     destination.mkdir(parents=True, exist_ok=True)
     artifacts: list[dict[str, Any]] = []
@@ -301,6 +319,13 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
             elif isinstance(optional_value, str) and optional_value != optional_value.strip():
                 schema_valid = False
                 manifest_errors.append(f"evidence_source_{optional_field}_noncanonical")
+            elif (
+                optional_field == "exported_at"
+                and isinstance(optional_value, str)
+                and not _is_canonical_utc_timestamp(optional_value)
+            ):
+                schema_valid = False
+                manifest_errors.append("evidence_source_exported_at_noncanonical_timestamp")
     artifacts_raw = manifest.get("artifacts")
     declared_missing_artifacts_raw = manifest.get("missing_artifacts", [])
     if "missing_artifacts" not in manifest:
