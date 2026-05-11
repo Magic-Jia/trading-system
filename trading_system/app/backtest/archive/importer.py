@@ -1424,11 +1424,21 @@ def _require_non_negative_int_field(value: Any, *, field: str) -> int:
     return value
 
 
+def _reject_unknown_evidence_type_keys(
+    bucket: Mapping[str, Any], *, allowed: tuple[str, ...], field: str
+) -> None:
+    for raw_key in bucket:
+        key = _require_canonical_string(raw_key, field=f"{field} key")
+        if key not in allowed:
+            raise ValueError(f"{field}.{key} is unsupported")
+
+
 def _merged_execution_evidence_coverage(traces: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
     merged = _execution_coverage_template(
         available=False,
         max_staleness=PHASE1_IMPORTER_DEFAULT_EXECUTION_EVIDENCE_MAX_STALENESS,
     )
+    evidence_types = ("order_book", "trades")
     max_staleness_values: set[int] = set()
     for trace in traces:
         if not isinstance(trace, Mapping):
@@ -1452,7 +1462,12 @@ def _merged_execution_evidence_coverage(traces: Iterable[Mapping[str, Any]]) -> 
                 raw_counts = {}
             if not isinstance(raw_counts, Mapping):
                 raise ValueError(f"execution_evidence.{bucket} must be a JSON object")
-            for evidence_type in ("order_book", "trades"):
+            _reject_unknown_evidence_type_keys(
+                raw_counts,
+                allowed=evidence_types,
+                field=f"execution_evidence.{bucket}",
+            )
+            for evidence_type in evidence_types:
                 increment = _require_non_negative_int_field(
                     raw_counts.get(evidence_type, 0),
                     field=f"execution_evidence.{bucket}.{evidence_type}",
@@ -1475,6 +1490,7 @@ def _merged_futures_context_coverage(traces: Iterable[Mapping[str, Any]]) -> dic
         open_interest_max_age=PHASE1_IMPORTER_DEFAULT_OPEN_INTEREST_MAX_AGE,
     )
     max_age_values: dict[str, set[int]] = {"mark_price": set(), "funding": set(), "open_interest": set()}
+    evidence_types = ("mark_price", "funding", "open_interest")
     for trace in traces:
         if not isinstance(trace, Mapping):
             raise ValueError("futures_context trace entry must be a JSON object")
@@ -1503,7 +1519,12 @@ def _merged_futures_context_coverage(traces: Iterable[Mapping[str, Any]]) -> dic
                 raw_counts = {}
             if not isinstance(raw_counts, Mapping):
                 raise ValueError(f"futures_context.{bucket} must be a JSON object")
-            for evidence_type in ("mark_price", "funding", "open_interest"):
+            _reject_unknown_evidence_type_keys(
+                raw_counts,
+                allowed=evidence_types,
+                field=f"futures_context.{bucket}",
+            )
+            for evidence_type in evidence_types:
                 increment = _require_non_negative_int_field(
                     raw_counts.get(evidence_type, 0),
                     field=f"futures_context.{bucket}.{evidence_type}",

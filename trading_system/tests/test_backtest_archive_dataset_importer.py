@@ -1999,6 +1999,21 @@ def test_merged_execution_evidence_coverage_rejects_non_object_buckets() -> None
         )
 
 
+def test_merged_execution_evidence_coverage_rejects_unknown_bucket_keys() -> None:
+    with pytest.raises(ValueError, match="execution_evidence.materialized.liquidations is unsupported"):
+        archive_importer._merged_execution_evidence_coverage(
+            [
+                {
+                    "execution_evidence": {
+                        "available": True,
+                        "max_staleness_seconds": 300,
+                        "materialized": {"order_book": 1, "liquidations": 1},
+                    }
+                }
+            ]
+        )
+
+
 @pytest.mark.parametrize("contaminated_available", [1, "true"])
 def test_merged_execution_evidence_coverage_rejects_contaminated_existing_available(
     monkeypatch: pytest.MonkeyPatch,
@@ -2063,6 +2078,21 @@ def test_merged_futures_context_coverage_rejects_non_object_buckets() -> None:
                         "available": True,
                         "max_age_seconds": {"mark_price": 3660, "funding": 28860, "open_interest": 3660},
                         "materialized": ["mark_price"],
+                    }
+                }
+            ]
+        )
+
+
+def test_merged_futures_context_coverage_rejects_unknown_bucket_keys() -> None:
+    with pytest.raises(ValueError, match="futures_context.stale.index_price is unsupported"):
+        archive_importer._merged_futures_context_coverage(
+            [
+                {
+                    "futures_context": {
+                        "available": True,
+                        "max_age_seconds": {"mark_price": 3660, "funding": 28860, "open_interest": 3660},
+                        "stale": {"mark_price": 1, "index_price": 1},
                     }
                 }
             ]
