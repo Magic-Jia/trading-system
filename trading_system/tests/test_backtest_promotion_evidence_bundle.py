@@ -83,6 +83,27 @@ def test_collect_rejects_candidate_id_string_subclass_before_copying(tmp_path: P
     assert not bundle.exists()
 
 
+def test_collect_rejects_bundle_dir_string_subclass_before_copying(tmp_path: Path) -> None:
+    class BundleDir(str):
+        pass
+
+    source = tmp_path / "source"
+    source.mkdir()
+    for name in REQUIRED_ARTIFACTS:
+        _write_json(source / name, {"artifact": name})
+    bundle = tmp_path / "bundle"
+
+    with pytest.raises(ValueError, match="bundle_dir must be a path string or Path"):
+        collect_promotion_evidence_bundle(
+            source,
+            BundleDir(str(bundle)),
+            candidate_id="candidate-1",
+            evidence_source={"type": "promotion_bundle_export", "run_id": "bundle-1"},
+        )
+
+    assert not bundle.exists()
+
+
 def test_collect_rejects_non_mapping_evidence_source(tmp_path: Path) -> None:
     source = tmp_path / "source"
     source.mkdir()

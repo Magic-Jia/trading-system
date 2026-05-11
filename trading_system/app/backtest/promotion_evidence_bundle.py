@@ -59,6 +59,18 @@ def _is_exact_string(value: Any) -> bool:
     return type(value) is str
 
 
+def _coerce_bundle_root_path(value: str | Path, field_name: str) -> Path:
+    if isinstance(value, Path):
+        return value
+    if not _is_exact_string(value):
+        raise ValueError(f"{field_name} must be a path string or Path")
+    if not value.strip():
+        raise ValueError(f"{field_name} must be non-empty")
+    if value != value.strip():
+        raise ValueError(f"{field_name} must be canonical")
+    return Path(value)
+
+
 def collect_promotion_evidence_bundle(
     source_dir: str | Path,
     bundle_dir: str | Path,
@@ -87,8 +99,8 @@ def collect_promotion_evidence_bundle(
     noncanonical_required = [name for name in required_artifacts if not _artifact_path_is_canonical(name)]
     if noncanonical_required:
         raise ValueError("noncanonical required artifact path(s): " + ", ".join(noncanonical_required))
-    source = Path(source_dir)
-    destination = Path(bundle_dir)
+    source = _coerce_bundle_root_path(source_dir, "source_dir")
+    destination = _coerce_bundle_root_path(bundle_dir, "bundle_dir")
     missing = [name for name in required_artifacts if not (source / name).is_file()]
     if missing:
         raise FileNotFoundError("missing required promotion evidence artifact(s): " + ", ".join(missing))
