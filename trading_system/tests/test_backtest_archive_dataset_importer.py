@@ -4012,6 +4012,23 @@ def test_validate_phase1_imported_dataset_root_rejects_manifest_scope_drift(tmp_
         validate_phase1_imported_dataset_root(dataset_root)
 
 
+def test_validate_phase1_imported_dataset_root_rejects_parent_traversal_manifest_archive_root(
+    tmp_path: Path,
+) -> None:
+    archive_root = tmp_path / "archive"
+    dataset_root = tmp_path / "dataset"
+    _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT")
+
+    import_phase1_archive_dataset_root(archive_root, dataset_root)
+    manifest_path = dataset_root / "import_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["archive_root"] = "../archive"
+    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="root manifest archive_root must not contain parent traversal"):
+        validate_phase1_imported_dataset_root(dataset_root)
+
+
 def test_validate_phase1_imported_dataset_root_rejects_non_string_manifest_symbols(tmp_path: Path) -> None:
     archive_root = tmp_path / "archive"
     dataset_root = tmp_path / "dataset"
