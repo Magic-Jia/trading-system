@@ -488,6 +488,7 @@ def validate_account_snapshot_identity(account: object, *, path: Path) -> None:
     for field in _ACCOUNT_ASSET_CODE_FIELDS:
         if field in account:
             _require_account_asset_code(account[field], field_path=f"account.{field}", path=path)
+    _validate_spot_balance_identity_fields(account, path=path)
     for field in _ACCOUNT_TIME_FIELDS:
         if field in account:
             _require_account_utc_iso_timestamp(account[field], field_path=f"account.{field}", path=path)
@@ -510,6 +511,22 @@ def _validate_account_time_order(account: dict, *, path: Path) -> None:
     update_field, update_time = update
     if update_time < event_time:
         raise ValueError(f"account.{update_field} must be at or after {event_field}: {path}")
+
+
+def _validate_spot_balance_identity_fields(account: dict, *, path: Path) -> None:
+    spot = account.get("spot")
+    if not isinstance(spot, dict):
+        return
+    balances = spot.get("nonzero_balances")
+    if not isinstance(balances, list):
+        return
+    for index, balance in enumerate(balances):
+        if isinstance(balance, dict) and "asset" in balance:
+            _require_account_asset_code(
+                balance["asset"],
+                field_path=f"account.spot.nonzero_balances[{index}].asset",
+                path=path,
+            )
 
 
 def _validate_open_position_identity_fields(account: dict, *, path: Path) -> None:

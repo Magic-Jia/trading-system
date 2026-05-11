@@ -554,6 +554,33 @@ def test_load_historical_dataset_rejects_malformed_spot_balance_quantities_befor
         load_historical_dataset(dataset_root)
 
 
+@pytest.mark.parametrize("asset", ["usdt", "USD T", "USDT ", "", True])
+def test_load_historical_dataset_rejects_malformed_spot_balance_asset_before_load(
+    tmp_path: Path, asset: object
+) -> None:
+    dataset_root = tmp_path / "sample_dataset"
+    bundle = dataset_root / "2026-03-10T00-00-00Z__sample-001"
+    bundle.mkdir(parents=True)
+    (bundle / "metadata.json").write_text(
+        '{"timestamp": "2026-03-10T00:00:00Z", "run_id": "sample-001"}',
+        encoding="utf-8",
+    )
+    (bundle / "market_context.json").write_text('{"symbols": {"BTCUSDT": {}}}', encoding="utf-8")
+    (bundle / "derivatives_snapshot.json").write_text('{"rows": []}', encoding="utf-8")
+    (bundle / "account_snapshot.json").write_text(
+        json.dumps(
+            {"equity": 100000.0, "spot": {"nonzero_balances": [{"asset": asset, "free": 10.0, "locked": 0.0}]}}
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"account\.spot\.nonzero_balances\[0\]\.asset must be an uppercase asset code",
+    ):
+        load_historical_dataset(dataset_root)
+
+
 @pytest.mark.parametrize(
     ("field", "value", "expected_message"),
     [
