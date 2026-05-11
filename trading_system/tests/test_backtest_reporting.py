@@ -2092,6 +2092,24 @@ def test_render_long_gate_telemetry_rejects_boolean_filter_count_metric() -> Non
         )
 
 
+def test_render_long_gate_telemetry_rejects_tuple_snapshot_rows_payload() -> None:
+    with pytest.raises(ValueError, match="snapshot_rows must be a list"):
+        cli.render_long_gate_telemetry_report(
+            experiment_name="long_gate_telemetry",
+            metadata={"snapshot_count": 1, "evaluation_window": "3d"},
+            experiment={
+                "engines": {
+                    "trend_long": {
+                        "funnel": {"raw_candidates": 1, "accepted_allocations": 1},
+                        "filter_counts": {"selected": 1},
+                        "performance": {"bucket_level_pnl": 0.0, "trade_count": 0},
+                    },
+                },
+                "snapshot_rows": ({"run_id": "row-001"},),
+            },
+        )
+
+
 
 def test_walk_forward_validation_report_rejects_invalid_scorecard_numerics() -> None:
     with pytest.raises(ValueError, match="out_of_sample_scorecard.total_return must be a finite number"):

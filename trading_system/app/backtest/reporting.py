@@ -1341,7 +1341,7 @@ def render_long_gate_telemetry_report(
         },
         "snapshot_rows": {
             "metadata": dict(metadata),
-            "rows": list(experiment.get("snapshot_rows", [])),
+            "rows": _list_field(experiment, "snapshot_rows"),
         },
         "symbol_breakdown": {
             "metadata": dict(metadata),
