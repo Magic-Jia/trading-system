@@ -3362,15 +3362,21 @@ def _postmortem_dominance_bucket(
             raise ValueError("postmortem bucket trades must be a non-negative integer")
         return value
 
+    def bucket_net(bucket: Mapping[str, Any]) -> float:
+        value, valid = _strict_float_value(bucket.get("net"))
+        if not valid:
+            raise ValueError("postmortem bucket net must be a finite strict number")
+        return value
+
     if sort_by == "loss_abs":
-        sort_key = lambda item: (abs(min(_float_value(item[1].get("net")), 0.0)), bucket_trades(item[1]), item[0])
+        sort_key = lambda item: (abs(min(bucket_net(item[1]), 0.0)), bucket_trades(item[1]), item[0])
     elif sort_by == "net_abs":
-        sort_key = lambda item: (abs(_float_value(item[1].get("net"))), bucket_trades(item[1]), item[0])
+        sort_key = lambda item: (abs(bucket_net(item[1])), bucket_trades(item[1]), item[0])
     else:
-        sort_key = lambda item: (bucket_trades(item[1]), abs(_float_value(item[1].get("net"))), item[0])
+        sort_key = lambda item: (bucket_trades(item[1]), abs(bucket_net(item[1])), item[0])
     key, bucket = max(buckets.items(), key=sort_key)
     trades = bucket_trades(bucket)
-    net = _float_value(bucket.get("net"))
+    net = bucket_net(bucket)
     loss_abs = abs(min(net, 0.0))
     return {
         "key": key,

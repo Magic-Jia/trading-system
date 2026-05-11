@@ -847,6 +847,16 @@ def test_postmortem_dominance_rejects_non_strict_bucket_trade_counts(trades: Any
         )
 
 
+@pytest.mark.parametrize("net", [True, "10.0", float("nan"), float("inf")])
+def test_postmortem_dominance_rejects_non_strict_bucket_net(net: Any) -> None:
+    with pytest.raises(ValueError, match="postmortem bucket net must be a finite strict number"):
+        _postmortem_dominance_bucket(
+            {"TREND_PULLBACK": {"trades": 2, "net": net}},
+            total_trades=2,
+            total_abs_net=10.0,
+        )
+
+
 def test_execution_depth_audit_classifies_trade_evidence_caveats() -> None:
     report = audit_execution_depth(
         {
