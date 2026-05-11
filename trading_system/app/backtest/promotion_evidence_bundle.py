@@ -67,7 +67,9 @@ def collect_promotion_evidence_bundle(
     evidence_source: Mapping[str, Any] | None = None,
     required_artifacts: tuple[str, ...] = REQUIRED_ARTIFACTS,
 ) -> Path:
-    if not isinstance(candidate_id, str) or not candidate_id.strip():
+    if not _is_exact_string(candidate_id):
+        raise ValueError("candidate_id must be a string")
+    if not candidate_id.strip():
         raise ValueError("candidate_id must be a non-empty string")
     if not _CANDIDATE_ID_RE.fullmatch(candidate_id):
         raise ValueError("candidate_id must be canonical")
@@ -268,9 +270,12 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
         schema_valid = False
         manifest_errors.append("invalid_manifest_decision")
     candidate_id = manifest.get("candidate_id")
-    candidate_id_present = isinstance(candidate_id, str) and bool(candidate_id.strip())
+    candidate_id_present = _is_exact_string(candidate_id) and bool(candidate_id.strip())
     candidate_id_valid = candidate_id_present and bool(_CANDIDATE_ID_RE.fullmatch(candidate_id))
-    if not candidate_id_present:
+    if candidate_id is not None and not _is_exact_string(candidate_id):
+        schema_valid = False
+        manifest_errors.append("candidate_id_not_string")
+    elif not candidate_id_present:
         schema_valid = False
         manifest_errors.append("missing_candidate_id")
     elif not candidate_id_valid:

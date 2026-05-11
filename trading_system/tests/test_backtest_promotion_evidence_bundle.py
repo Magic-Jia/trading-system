@@ -62,6 +62,27 @@ def test_collect_rejects_noncanonical_candidate_id(tmp_path: Path) -> None:
         )
 
 
+def test_collect_rejects_candidate_id_string_subclass_before_copying(tmp_path: Path) -> None:
+    class CandidateId(str):
+        pass
+
+    source = tmp_path / "source"
+    source.mkdir()
+    for name in REQUIRED_ARTIFACTS:
+        _write_json(source / name, {"artifact": name})
+    bundle = tmp_path / "bundle"
+
+    with pytest.raises(ValueError, match="candidate_id must be a string"):
+        collect_promotion_evidence_bundle(
+            source,
+            bundle,
+            candidate_id=CandidateId("candidate-1"),
+            evidence_source={"type": "promotion_bundle_export", "run_id": "bundle-1"},
+        )
+
+    assert not bundle.exists()
+
+
 def test_collect_rejects_non_mapping_evidence_source(tmp_path: Path) -> None:
     source = tmp_path / "source"
     source.mkdir()
@@ -1067,6 +1088,41 @@ def test_bundle_verifier_marks_schema_invalid_for_missing_candidate_id(tmp_path:
     assert result["verified"] is False
     assert result["schema_valid"] is False
     assert "missing_candidate_id" in result["manifest_errors"]
+
+
+def test_bundle_verifier_rejects_candidate_id_string_subclass(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class CandidateId(str):
+        pass
+
+    source = tmp_path / "source"
+    source.mkdir()
+    for name in REQUIRED_ARTIFACTS:
+        _write_json(source / name, {"artifact": name})
+    bundle_dir = collect_promotion_evidence_bundle(
+        source,
+        tmp_path / "bundle",
+        candidate_id="candidate-1",
+        evidence_source={"type": "promotion_bundle_export", "run_id": "bundle-1"},
+    )
+    manifest_path = bundle_dir / "promotion_evidence_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["candidate_id"] = CandidateId("candidate-1")
+
+    def load_manifest_with_candidate_id_subclass(_text: str) -> dict:
+        return manifest
+
+    monkeypatch.setattr(promotion_bundle.json, "loads", load_manifest_with_candidate_id_subclass)
+
+    result = verify_promotion_evidence_bundle(bundle_dir)
+
+    assert result["verified"] is False
+    assert result["schema_valid"] is False
+    assert result["candidate_id_valid"] is False
+    assert "candidate_id_not_string" in result["manifest_errors"]
+
 
 def test_bundle_verifier_marks_schema_invalid_for_non_string_declared_missing_artifact(tmp_path: Path) -> None:
     source = tmp_path / "source"
