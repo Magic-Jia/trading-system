@@ -605,6 +605,20 @@ def test_taker_trade_print_rejects_invalid_price(price: object) -> None:
         )
 
 
+@pytest.mark.parametrize("quantity", [True, "1.0", math.nan, math.inf, -math.inf, 0.0, -1.0])
+def test_taker_trade_print_rejects_invalid_quantity(quantity: object) -> None:
+    with pytest.raises(ValueError, match="trade.quantity must be a positive finite number"):
+        simulate_taker_fill(
+            symbol="BTCUSDT",
+            side="buy",
+            quantity=1.0,
+            reference_price=100.0,
+            trades=(
+                TradePrint(timestamp=_ts("2026-03-10T00:00:01Z"), symbol="BTCUSDT", price=100.0, quantity=quantity),
+            ),
+        )
+
+
 def test_next_bar_ohlcv_fill_prefers_1m_then_5m_open_over_reference_close() -> None:
     fill = next_bar_ohlcv_fill(
         symbol="BTCUSDT",

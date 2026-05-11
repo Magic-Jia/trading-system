@@ -627,8 +627,9 @@ def _conservative_trade_print_taker_fill(
         if trade.symbol != symbol:
             continue
         price = _positive_finite_float("trade.price", trade.price)
+        quantity = _positive_finite_float("trade.quantity", trade.quantity)
         symbol_trades.append(
-            TradePrint(timestamp=trade.timestamp, symbol=trade.symbol, price=price, quantity=trade.quantity, side=trade.side)
+            TradePrint(timestamp=trade.timestamp, symbol=trade.symbol, price=price, quantity=quantity, side=trade.side)
         )
     if not symbol_trades:
         return None
