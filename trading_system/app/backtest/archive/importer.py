@@ -1319,6 +1319,18 @@ def _require_archive_series_key_items(values: Any, *, field: str) -> tuple[str, 
     return series_keys
 
 
+def _require_manifest_path_shape_items(values: Any, *, field: str) -> tuple[str, ...]:
+    manifest_paths = _require_canonical_string_items(values, field=field)
+    for index, value in enumerate(manifest_paths):
+        if "\\" in value or any(ord(char) < 32 or ord(char) == 127 for char in value):
+            raise ValueError(f"{field}[{index}] must be a valid manifest path")
+        path_parts = value.split("/")
+        checked_parts = path_parts[1:] if value.startswith("/") else path_parts
+        if any(part in {"", "."} for part in checked_parts):
+            raise ValueError(f"{field}[{index}] must be a valid manifest path")
+    return manifest_paths
+
+
 def _require_canonical_json_object_keys(value: Mapping[Any, Any], *, field: str) -> None:
     for key in value.keys():
         if not isinstance(key, str):
@@ -1358,7 +1370,9 @@ def _merged_import_trace(traces: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
             )
         symbols.update(_require_uppercase_exchange_symbol_items(normalized.get("symbols"), field="import_trace.symbols"))
         series_keys.update(_require_archive_series_key_items(normalized.get("series_keys"), field="import_trace.series_keys"))
-        manifest_paths.update(_require_canonical_string_items(normalized.get("manifest_paths"), field="import_trace.manifest_paths"))
+        manifest_paths.update(
+            _require_manifest_path_shape_items(normalized.get("manifest_paths"), field="import_trace.manifest_paths")
+        )
 
     if scope is None or exchange is None or market is None:
         return {}

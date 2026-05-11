@@ -2470,6 +2470,48 @@ def test_merged_import_trace_rejects_malformed_series_key_path_shapes(series_key
         )
 
 
+@pytest.mark.parametrize(
+    "manifest_path",
+    [
+        "raw-market/binance/futures/ohlcv/BTCUSDT/1h//2026/01.manifest.json",
+        "raw-market\\binance\\futures\\ohlcv\\BTCUSDT\\1h\\2026\\01.manifest.json",
+        "raw-market/binance/futures/ohlcv/BTCUSDT/1h/2026/\n01.manifest.json",
+    ],
+)
+def test_merged_import_trace_rejects_malformed_manifest_path_shapes(manifest_path: str) -> None:
+    with pytest.raises(ValueError, match=r"import_trace\.manifest_paths\[0\] must be a valid manifest path"):
+        archive_importer._merged_import_trace(
+            [
+                {
+                    "scope": archive_importer.PHASE1_IMPORTER_SCOPE,
+                    "exchange": "binance",
+                    "market": "futures",
+                    "manifest_paths": [manifest_path],
+                }
+            ]
+        )
+
+
+@pytest.mark.parametrize(
+    "manifest_path",
+    [
+        "raw-market/binance/futures/ohlcv/BTCUSDT/1h/2026/01.manifest.json",
+        "/tmp/archive/raw-market/binance/futures/ohlcv/BTCUSDT/1h/2026/01.manifest.json",
+    ],
+)
+def test_merged_import_trace_preserves_valid_manifest_paths(manifest_path: str) -> None:
+    assert archive_importer._merged_import_trace(
+        [
+            {
+                "scope": archive_importer.PHASE1_IMPORTER_SCOPE,
+                "exchange": "binance",
+                "market": "futures",
+                "manifest_paths": [manifest_path],
+            }
+        ]
+    )["manifest_paths"] == [manifest_path]
+
+
 def _timestamp_ms(value: datetime) -> int:
     return int(value.timestamp() * 1000)
 
