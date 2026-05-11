@@ -3649,6 +3649,40 @@ def _strict_source_integrity_verified(source_integrity: Mapping[str, Any]) -> tu
     return False, ["promotion_bundle_integrity_verified_invalid"]
 
 
+def _smoke_report_bool_policy_invalid_config(**requirements: Any) -> list[dict[str, Any]]:
+    return [
+        {"field": field, "value": value, "error": "invalid_bool"}
+        for field, value in requirements.items()
+        if not isinstance(value, bool)
+    ]
+
+
+def _apply_smoke_report_policy_invalid_config(
+    report: dict[str, Any],
+    invalid_config: list[dict[str, Any]],
+) -> None:
+    if not invalid_config:
+        return
+    gate = _as_mapping(report.get("promotion_gate"))
+    reasons = gate.get("reasons", [])
+    checks = gate.get("checks", {})
+    normalized_reasons = list(reasons) if isinstance(reasons, list) else []
+    normalized_checks = dict(checks) if isinstance(checks, Mapping) else {}
+    normalized_invalid_config = list(gate.get("invalid_config", [])) if isinstance(gate.get("invalid_config"), list) else []
+    for item in invalid_config:
+        if item not in normalized_invalid_config:
+            normalized_invalid_config.append(item)
+    normalized_checks["live_readiness_policy_config_valid"] = False
+    normalized_reasons.append("live_readiness_policy_config_invalid")
+    report["promotion_gate"] = {
+        **dict(gate),
+        "decision": "reject_for_live_promotion",
+        "reasons": list(dict.fromkeys(normalized_reasons)),
+        "invalid_config": normalized_invalid_config,
+        "checks": normalized_checks,
+    }
+
+
 def write_live_readiness_smoke_report(
     input_root: str | Path,
     output_dir: str | Path,
@@ -3730,6 +3764,17 @@ def write_live_readiness_smoke_report(
         require_microstructure_evidence=require_microstructure_evidence,
         require_runtime_safety_evidence=require_runtime_safety_evidence,
         require_promotion_bundle_integrity=require_promotion_bundle_integrity,
+    )
+    _apply_smoke_report_policy_invalid_config(
+        report,
+        _smoke_report_bool_policy_invalid_config(
+            require_passive_calibration=require_passive_calibration,
+            require_exit_path_replay_rows=require_exit_path_replay_rows,
+            require_validation_evidence=require_validation_evidence,
+            require_microstructure_evidence=require_microstructure_evidence,
+            require_runtime_safety_evidence=require_runtime_safety_evidence,
+            require_promotion_bundle_integrity=require_promotion_bundle_integrity,
+        ),
     )
     if promotion_bundle_integrity_required or (source_root / "promotion_evidence_manifest.json").exists():
         source_integrity = {

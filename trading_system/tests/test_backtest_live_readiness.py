@@ -1366,6 +1366,36 @@ def test_live_readiness_smoke_report_rejects_non_bool_promotion_bundle_requireme
     assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
 
 
+@pytest.mark.parametrize("required", ["false", 1])
+def test_live_readiness_smoke_report_rejects_non_bool_microstructure_requirement_policy_config(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    required: object,
+) -> None:
+    source = tmp_path / "source"
+    _write_minimal_smoke_source(source)
+    monkeypatch.setattr(
+        live_readiness,
+        "build_live_readiness_gate_report",
+        lambda *_args, **_kwargs: _minimal_gate_report(
+            {"decision": "candidate_for_promotion", "reasons": [], "checks": {"net_pnl_non_negative": True}}
+        ),
+    )
+
+    report = write_live_readiness_smoke_report(
+        source,
+        tmp_path / "out",
+        require_microstructure_evidence=required,  # type: ignore[arg-type]
+    )
+
+    assert report["promotion_gate"]["checks"]["live_readiness_policy_config_valid"] is False
+    assert report["promotion_gate"]["invalid_config"] == [
+        {"field": "require_microstructure_evidence", "value": required, "error": "invalid_bool"}
+    ]
+    assert "live_readiness_policy_config_invalid" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
 
 def test_promotion_bundle_verification_requires_evidence_source(tmp_path: Path) -> None:
     source = tmp_path / "source"
