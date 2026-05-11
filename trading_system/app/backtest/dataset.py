@@ -514,14 +514,20 @@ def _validate_account_time_order(account: dict, *, path: Path) -> None:
 
 
 def _validate_spot_balance_identity_fields(account: dict, *, path: Path) -> None:
-    spot = account.get("spot")
+    if "spot" not in account:
+        return
+    spot = account["spot"]
     if not isinstance(spot, dict):
+        raise ValueError(f"account.spot must be an object: {path}")
+    if "nonzero_balances" not in spot:
         return
-    balances = spot.get("nonzero_balances")
+    balances = spot["nonzero_balances"]
     if not isinstance(balances, list):
-        return
+        raise ValueError(f"account.spot.nonzero_balances must be a list: {path}")
     for index, balance in enumerate(balances):
-        if isinstance(balance, dict) and "asset" in balance:
+        if not isinstance(balance, dict):
+            raise ValueError(f"account.spot.nonzero_balances[{index}] must be an object: {path}")
+        if "asset" in balance:
             _require_account_asset_code(
                 balance["asset"],
                 field_path=f"account.spot.nonzero_balances[{index}].asset",

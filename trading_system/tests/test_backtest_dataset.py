@@ -582,6 +582,34 @@ def test_load_historical_dataset_rejects_malformed_spot_balance_asset_before_loa
 
 
 @pytest.mark.parametrize(
+    ("account_patch", "expected_message"),
+    [
+        ({"spot": [["nonzero_balances", []]]}, r"account\.spot must be an object"),
+        ({"spot": {"nonzero_balances": {"asset": "USDT"}}}, r"account\.spot\.nonzero_balances must be a list"),
+        ({"spot": {"nonzero_balances": [["asset", "USDT"]]}}, r"account\.spot\.nonzero_balances\[0\] must be an object"),
+    ],
+)
+def test_load_historical_dataset_rejects_malformed_spot_balance_object_boundaries(
+    tmp_path: Path, account_patch: dict[str, object], expected_message: str
+) -> None:
+    dataset_root = tmp_path / "sample_dataset"
+    bundle = dataset_root / "2026-03-10T00-00-00Z__sample-001"
+    bundle.mkdir(parents=True)
+    (bundle / "metadata.json").write_text(
+        '{"timestamp": "2026-03-10T00:00:00Z", "run_id": "sample-001"}',
+        encoding="utf-8",
+    )
+    (bundle / "market_context.json").write_text('{"symbols": {"BTCUSDT": {}}}', encoding="utf-8")
+    (bundle / "derivatives_snapshot.json").write_text('{"rows": []}', encoding="utf-8")
+    account_snapshot = {"equity": 100000.0}
+    account_snapshot.update(account_patch)
+    (bundle / "account_snapshot.json").write_text(json.dumps(account_snapshot), encoding="utf-8")
+
+    with pytest.raises(ValueError, match=expected_message):
+        load_historical_dataset(dataset_root)
+
+
+@pytest.mark.parametrize(
     ("field", "value", "expected_message"),
     [
         ("margin_ratio", True, r"account\.open_positions\[0\]\.margin_ratio must be a ratio in \(0, 1\]"),
