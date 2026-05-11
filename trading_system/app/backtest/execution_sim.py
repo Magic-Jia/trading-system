@@ -212,7 +212,9 @@ def simulate_taker_depth_fill(
     reference_price: float,
     order_book: OrderBookSnapshot,
 ) -> ExecutionFill:
-    notional_request = _positive_float(requested_notional)
+    notional_request = None
+    if requested_notional is not None:
+        notional_request = _positive_finite_float("requested_notional", requested_notional)
     requested_quantity = 0.0 if quantity is None else max(_finite_float("quantity", quantity), 0.0)
     levels = _side_levels(order_book, side=side)
     source: ExecutionPriceSource = "ask_depth" if side == "buy" else "bid_depth"
@@ -648,6 +650,18 @@ def _finite_float(name: str, value: Any) -> float:
         raise ValueError(f"{name} must be a finite number") from exc
     if not math.isfinite(result):
         raise ValueError(f"{name} must be a finite number")
+    return result
+
+
+def _positive_finite_float(name: str, value: Any) -> float:
+    if isinstance(value, (bool, str)):
+        raise ValueError(f"{name} must be a positive finite number")
+    try:
+        result = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} must be a positive finite number") from exc
+    if not math.isfinite(result) or result <= 0.0:
+        raise ValueError(f"{name} must be a positive finite number")
     return result
 
 

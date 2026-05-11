@@ -359,6 +359,24 @@ def test_taker_depth_buy_can_consume_by_requested_notional() -> None:
     assert fill.depth_levels_consumed == 2
 
 
+@pytest.mark.parametrize("requested_notional", [True, "251.0", math.nan, math.inf, -math.inf, 0.0, -1.0])
+def test_taker_depth_rejects_invalid_requested_notional(requested_notional: object) -> None:
+    with pytest.raises(ValueError, match="requested_notional must be a positive finite number"):
+        simulate_taker_depth_fill(
+            symbol="BTCUSDT",
+            side="buy",
+            requested_notional=requested_notional,
+            reference_price=100.0,
+            order_book=OrderBookSnapshot(
+                timestamp=_ts("2026-03-10T00:00:01Z"),
+                symbol="BTCUSDT",
+                bid=99.9,
+                ask=100.0,
+                ask_levels=(DepthLevel(price=100.0, quantity=1.0),),
+            ),
+        )
+
+
 def test_taker_depth_returns_partial_fill_when_depth_is_insufficient() -> None:
     fill = simulate_taker_depth_fill(
         symbol="BTCUSDT",
