@@ -1454,6 +1454,7 @@ def _merged_execution_evidence_coverage(traces: Iterable[Mapping[str, Any]]) -> 
     )
     evidence_types = ("order_book", "trades")
     max_staleness_values: set[int] = set()
+    producer_max_staleness_values: set[int] = set()
     for trace in traces:
         if not isinstance(trace, Mapping):
             raise ValueError("execution_evidence trace entry must be a JSON object")
@@ -1465,11 +1466,12 @@ def _merged_execution_evidence_coverage(traces: Iterable[Mapping[str, Any]]) -> 
         ) or _require_bool_field(
             coverage.get("available", False), field="execution_evidence.available"
         )
-        max_staleness_values.add(
-            _require_non_negative_int_field(
-                coverage.get("max_staleness_seconds", 0), field="execution_evidence.max_staleness_seconds"
-            )
+        max_staleness = _require_non_negative_int_field(
+            coverage.get("max_staleness_seconds", 0), field="execution_evidence.max_staleness_seconds"
         )
+        max_staleness_values.add(max_staleness)
+        if "max_staleness_seconds" in coverage:
+            producer_max_staleness_values.add(max_staleness)
         for bucket in ("materialized", "missing", "stale", "ambiguous"):
             raw_counts = coverage.get(bucket)
             if raw_counts is None:
@@ -1491,6 +1493,9 @@ def _merged_execution_evidence_coverage(traces: Iterable[Mapping[str, Any]]) -> 
                     field=f"execution_evidence.{bucket}.{evidence_type}",
                 )
                 merged[bucket][evidence_type] = current + increment
+    if len(producer_max_staleness_values) > 1:
+        values = ", ".join(str(value) for value in sorted(producer_max_staleness_values))
+        raise ValueError(f"execution_evidence.max_staleness_seconds has conflicting producer values: {values}")
     if len(max_staleness_values) == 1:
         merged["max_staleness_seconds"] = next(iter(max_staleness_values))
     return merged

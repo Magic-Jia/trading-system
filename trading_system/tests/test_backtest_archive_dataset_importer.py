@@ -2014,6 +2014,55 @@ def test_merged_execution_evidence_coverage_rejects_unknown_bucket_keys() -> Non
         )
 
 
+def test_merged_execution_evidence_coverage_preserves_identical_non_default_max_staleness() -> None:
+    merged = archive_importer._merged_execution_evidence_coverage(
+        [
+            {
+                "execution_evidence": {
+                    "available": True,
+                    "max_staleness_seconds": 120,
+                    "materialized": {"order_book": 1},
+                }
+            },
+            {
+                "execution_evidence": {
+                    "available": False,
+                    "max_staleness_seconds": 120,
+                    "materialized": {"trades": 1},
+                }
+            },
+        ]
+    )
+
+    assert merged["max_staleness_seconds"] == 120
+    assert merged["materialized"] == {"order_book": 1, "trades": 1}
+
+
+def test_merged_execution_evidence_coverage_rejects_conflicting_non_default_max_staleness() -> None:
+    with pytest.raises(
+        ValueError,
+        match="execution_evidence.max_staleness_seconds has conflicting producer values",
+    ):
+        archive_importer._merged_execution_evidence_coverage(
+            [
+                {
+                    "execution_evidence": {
+                        "available": True,
+                        "max_staleness_seconds": 120,
+                        "materialized": {"order_book": 1},
+                    }
+                },
+                {
+                    "execution_evidence": {
+                        "available": True,
+                        "max_staleness_seconds": 300,
+                        "materialized": {"trades": 1},
+                    }
+                },
+            ]
+        )
+
+
 @pytest.mark.parametrize("contaminated_available", [1, "true"])
 def test_merged_execution_evidence_coverage_rejects_contaminated_existing_available(
     monkeypatch: pytest.MonkeyPatch,
