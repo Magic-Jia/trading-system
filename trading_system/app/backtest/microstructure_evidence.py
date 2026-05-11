@@ -174,7 +174,7 @@ def build_microstructure_gate(
     unknown_source_fields = sorted(set(evidence_source) - {"type", "run_id", "exported_at"})
     if unknown_source_fields:
         raise ValueError("unknown evidence_source field: " + ", ".join(unknown_source_fields))
-    if not isinstance(evidence_source.get("type"), str):
+    if not _is_exact_string(evidence_source.get("type")):
         raise ValueError("evidence_source type must be a string")
     if not evidence_source["type"].strip():
         raise ValueError("evidence_source type must be non-empty")

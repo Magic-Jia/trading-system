@@ -237,6 +237,17 @@ def test_validation_gate_rejects_non_string_evidence_source_type() -> None:
         raise AssertionError("expected non-string evidence_source type to be rejected")
 
 
+def test_validation_gate_rejects_evidence_source_type_string_subclass() -> None:
+    class SourceType(str):
+        pass
+
+    manifest = _passing_manifest()
+    manifest["evidence_source"] = {"type": SourceType("walk_forward_oos_report")}
+
+    with pytest.raises(ValueError, match="^evidence_source type must be a string$"):
+        build_validation_gate(manifest)
+
+
 def test_validation_gate_rejects_non_string_evidence_source_run_id() -> None:
     manifest = _passing_manifest()
     manifest["evidence_source"] = {"type": "walk_forward_oos_report", "run_id": 123}

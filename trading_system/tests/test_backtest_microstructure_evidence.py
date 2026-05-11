@@ -305,6 +305,23 @@ def test_microstructure_gate_rejects_non_string_evidence_source_type() -> None:
         )
 
 
+def test_microstructure_gate_rejects_evidence_source_type_string_subclass() -> None:
+    class SourceType(str):
+        pass
+
+    with pytest.raises(ValueError, match="^evidence_source type must be a string$"):
+        build_microstructure_gate(
+            {
+                "evidence_source": {"type": SourceType("historical_l2_tick_archive")},
+                "coverage": {
+                    "l2_snapshot_coverage": 1.0,
+                    "l2_update_coverage": 1.0,
+                    "tick_coverage": 1.0,
+                },
+            }
+        )
+
+
 def test_microstructure_gate_rejects_non_string_evidence_source_run_id() -> None:
     with pytest.raises(ValueError, match="evidence_source run_id must be a string"):
         build_microstructure_gate(

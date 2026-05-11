@@ -79,7 +79,7 @@ def build_validation_gate(manifest: Mapping[str, Any]) -> dict[str, Any]:
     unknown_source_fields = sorted(set(source) - {"type", "run_id", "exported_at"})
     if unknown_source_fields:
         raise ValueError("unknown evidence_source field: " + ", ".join(unknown_source_fields))
-    if not isinstance(source.get("type"), str):
+    if not _is_exact_string(source.get("type")):
         raise ValueError("evidence_source type must be a string")
     if not source["type"].strip():
         raise ValueError("evidence_source type must be non-empty")
