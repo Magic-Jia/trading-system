@@ -2338,6 +2338,57 @@ def test_ohlcv_timeframe_coverage_rejects_present_invalid_not_materialized() -> 
         )
 
 
+@pytest.mark.parametrize(
+    ("bucket", "value", "match"),
+    [
+        ("available", "2h", r"ohlcv_timeframes.available\[0\] must be a known importer timeframe"),
+        ("available", " 1h", r"ohlcv_timeframes.available\[0\] must be canonical"),
+        ("materialized", "1H", r"ohlcv_timeframes.materialized\[0\] must be a known importer timeframe"),
+        (
+            "not_materialized",
+            "../raw-market/binance/futures/ohlcv/BTCUSDT/1h",
+            "ohlcv_timeframes.not_materialized key must be a known importer timeframe",
+        ),
+    ],
+)
+def test_merged_ohlcv_timeframe_coverage_rejects_unknown_timeframe_values(
+    bucket: str,
+    value: str,
+    match: str,
+) -> None:
+    coverage: dict[str, object] = {
+        "available": ["1h"],
+        "materialized": ["1h"],
+        "not_materialized": {},
+    }
+    if bucket == "not_materialized":
+        coverage[bucket] = {value: "missing_contiguous_bars"}
+    else:
+        coverage[bucket] = [value]
+
+    with pytest.raises(ValueError, match=match):
+        archive_importer._merged_ohlcv_timeframe_coverage([{"ohlcv_timeframes": coverage}])
+
+
+def test_merged_ohlcv_timeframe_coverage_preserves_known_importer_timeframes() -> None:
+    assert archive_importer._merged_ohlcv_timeframe_coverage(
+        [
+            {
+                "ohlcv_timeframes": {
+                    "available": ["1h", "1m", "5m", "15m", "30m"],
+                    "materialized": ["1h", "5m"],
+                    "not_materialized": {"15m": "missing_contiguous_bars"},
+                }
+            }
+        ]
+    ) == {
+        "available": ["1h", "1m", "5m", "15m", "30m"],
+        "materialized": ["1h", "5m"],
+        "missing_optional": [],
+        "not_materialized": {"15m": "missing_contiguous_bars"},
+    }
+
+
 def test_merged_import_trace_rejects_non_string_keys_before_merge() -> None:
     with pytest.raises(ValueError, match="import_trace entry keys must be strings"):
         archive_importer._merged_import_trace(

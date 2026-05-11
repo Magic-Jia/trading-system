@@ -33,6 +33,12 @@ PHASE1_IMPORTER_ROOT_SCHEMA = "phase1_imported_dataset_root.v1"
 PHASE1_IMPORTER_OHLCV_TIMEFRAME = "1h"
 PHASE1_IMPORTER_ROOT_MANIFEST = "import_manifest.json"
 PHASE1_IMPORTER_OPTIONAL_INTRADAY_OHLCV_TIMEFRAMES = ("1m", "5m", "15m", "30m")
+PHASE1_IMPORTER_KNOWN_OHLCV_TIMEFRAMES = (
+    "daily",
+    "4h",
+    PHASE1_IMPORTER_OHLCV_TIMEFRAME,
+    *PHASE1_IMPORTER_OPTIONAL_INTRADAY_OHLCV_TIMEFRAMES,
+)
 PHASE1_IMPORTER_DEFAULT_EXECUTION_EVIDENCE_MAX_STALENESS = timedelta(minutes=5)
 PHASE1_IMPORTER_DEFAULT_MARK_PRICE_MAX_AGE = timedelta(hours=1, minutes=1)
 PHASE1_IMPORTER_DEFAULT_FUNDING_MAX_AGE = timedelta(hours=8, minutes=1)
@@ -1279,6 +1285,19 @@ def _require_canonical_string_items(values: Any, *, field: str) -> tuple[str, ..
     return tuple(parsed)
 
 
+def _require_importer_ohlcv_timeframe(value: str, *, field: str) -> str:
+    if value not in PHASE1_IMPORTER_KNOWN_OHLCV_TIMEFRAMES:
+        raise ValueError(f"{field} must be a known importer timeframe")
+    return value
+
+
+def _require_importer_ohlcv_timeframe_items(values: Any, *, field: str) -> tuple[str, ...]:
+    return tuple(
+        _require_importer_ohlcv_timeframe(value, field=f"{field}[{index}]")
+        for index, value in enumerate(_require_canonical_string_items(values, field=field))
+    )
+
+
 def _require_uppercase_exchange_symbol_items(values: Any, *, field: str) -> tuple[str, ...]:
     symbols = _require_canonical_string_items(values, field=field)
     for symbol in symbols:
@@ -1363,8 +1382,12 @@ def _merged_ohlcv_timeframe_coverage(traces: Iterable[Mapping[str, Any]]) -> dic
         coverage = trace.get("ohlcv_timeframes")
         if not isinstance(coverage, Mapping):
             continue
-        available.update(_require_canonical_string_items(coverage.get("available"), field="ohlcv_timeframes.available"))
-        materialized.update(_require_canonical_string_items(coverage.get("materialized"), field="ohlcv_timeframes.materialized"))
+        available.update(
+            _require_importer_ohlcv_timeframe_items(coverage.get("available"), field="ohlcv_timeframes.available")
+        )
+        materialized.update(
+            _require_importer_ohlcv_timeframe_items(coverage.get("materialized"), field="ohlcv_timeframes.materialized")
+        )
         raw_not_materialized = coverage.get("not_materialized")
         if raw_not_materialized is None:
             raw_not_materialized = {}
@@ -1372,6 +1395,7 @@ def _merged_ohlcv_timeframe_coverage(traces: Iterable[Mapping[str, Any]]) -> dic
             raise ValueError("ohlcv_timeframes.not_materialized must be a JSON object")
         for timeframe, reason in raw_not_materialized.items():
             timeframe_key = _require_canonical_string(timeframe, field="ohlcv_timeframes.not_materialized key")
+            _require_importer_ohlcv_timeframe(timeframe_key, field="ohlcv_timeframes.not_materialized key")
             not_materialized[timeframe_key] = _require_canonical_string(
                 reason, field=f"ohlcv_timeframes.not_materialized.{timeframe_key}"
             )
