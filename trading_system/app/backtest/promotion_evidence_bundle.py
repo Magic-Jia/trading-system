@@ -445,6 +445,11 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
         schema_valid = False
         manifest_required = []
         manifest_errors.append("required_artifacts_not_list")
+    elif isinstance(required_artifacts_raw, str):
+        schema_valid = False
+        manifest_required = []
+        manifest_errors.append("required_artifacts_not_list")
+        manifest_errors.append("required_artifacts_string_container")
     elif not isinstance(required_artifacts_raw, list):
         schema_valid = False
         manifest_required = []
