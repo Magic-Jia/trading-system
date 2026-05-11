@@ -2103,11 +2103,12 @@ def _validate_material_derivatives_snapshot_identity_fields(derivatives_snapshot
         "instrument": "perpetual",
         "category": "futures",
         "exchange": "binance",
+        "contractType": "PERPETUAL",
     }
     for index, row in enumerate(rows):
         if not isinstance(row, Mapping):
             continue
-        for field_name in ("symbol", "instrument", "category", "exchange"):
+        for field_name in ("symbol", "instrument", "category", "exchange", "contractType"):
             if field_name not in row:
                 continue
             field = f"derivatives_snapshot rows[{index}].{field_name}"
