@@ -7466,7 +7466,10 @@ def test_live_readiness_gate_rejects_non_bool_validation_artifact_check_values(t
     validation = report["validation_gate"]
     assert validation["artifacts"][0]["checks"]["oos_non_degraded_met"] is False
     assert validation["checks"]["oos_non_degraded_met"] is False
-    assert "validation_artifact_schema_invalid" not in report["promotion_gate"]["reasons"]
+    assert validation["artifacts"][0]["schema_valid"] is False
+    assert validation["artifacts"][0]["parse_error"] == "check_oos_non_degraded_met_not_bool"
+    assert validation["checks"]["validation_artifact_schema_valid"] is False
+    assert "validation_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
     assert "oos_degraded" in report["promotion_gate"]["reasons"]
 
 

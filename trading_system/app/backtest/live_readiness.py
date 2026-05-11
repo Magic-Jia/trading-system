@@ -2121,6 +2121,11 @@ def _validation_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[str,
             elif summary_audit_id != summary_audit_id.strip():
                 summary_schema_error = "summary_forward_contamination_audit_id_noncanonical"
         unknown_check_fields = sorted(set(checks) - set(required_checks))
+        check_schema_error = ""
+        for check_name in required_checks:
+            if check_name in checks and not isinstance(checks.get(check_name), bool):
+                check_schema_error = f"check_{check_name}_not_bool"
+                break
         chunk_schema_valid = (
             (not parse_error)
             and _artifact_schema_valid(payload, "validation_gate_input.v1") is True
@@ -2131,6 +2136,7 @@ def _validation_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[str,
             and summary_object_valid
             and not summary_schema_error
             and not unknown_check_fields
+            and not check_schema_error
         )
         chunk_provenance_present = (not parse_error) and _artifact_provenance_present(payload) is True
         parse_error_message = str(parse_error or "")
@@ -2149,6 +2155,8 @@ def _validation_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[str,
                 parse_error_message = summary_schema_error
             elif unknown_check_fields:
                 parse_error_message = "unknown_check_field: " + ", ".join(unknown_check_fields)
+            elif check_schema_error:
+                parse_error_message = check_schema_error
         artifacts.append(
             {
                 "chunk": chunk_dir.name,
