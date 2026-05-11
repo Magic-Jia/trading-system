@@ -1,7 +1,5 @@
 # Live-Grade Trading Evidence Implementation Plan
 
-> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
-
 **Goal:** Turn the six remaining “not yet industry-grade” gaps into concrete implementation work that produces real evidence artifacts, not just gates.
 
 **Architecture:** Keep the current live-readiness hard gates as promotion blockers, then add producers for the artifacts those gates require. Start with offline, deterministic artifact producers and tests; do not place real/testnet/live orders without explicit per-action approval.

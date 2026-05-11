@@ -75,7 +75,6 @@ execution-safety 的优先级仍然是 live boundary、hard risk gate、restart-
 
 ## 关键文档
 
-- `docs/superpowers/plans/2026-03-23-trading-system-p0-p1-p2-roadmap.md`：最新双主线 roadmap（execution-safety vs strategy-development）
 - `trading_system/docs/STRATEGY_GAPS_AND_UPGRADES.md`：当前策略缺口、为什么仍然太 price-structure-heavy、以及明确的升级顺序
 - `trading_system/docs/MVP_ARCHITECTURE.md`：程序骨架与当前模块职责
 - `trading_system/docs/PAPER_TRADING_RUNBOOK.md`：paper cycle、ledger、restart-safe replay 的操作说明

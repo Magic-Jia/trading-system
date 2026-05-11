@@ -42,7 +42,7 @@ def default_report_date() -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Generate Binance Futures testnet daily trading report")
-    parser.add_argument("--bucket", default="/home/cn/.openclaw/agents/trade/workspace/trading_system/data/runtime/testnet/prod")
+    parser.add_argument("--bucket", default="trading_system/data/runtime/testnet/prod")
     parser.add_argument("--report-date", default=default_report_date())
     parser.add_argument("--output", default="")
     args = parser.parse_args()

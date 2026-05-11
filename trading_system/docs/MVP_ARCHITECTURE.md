@@ -6,7 +6,6 @@
 如果想看当前策略缺口与升级顺序，请同时参考：
 
 - `trading_system/docs/STRATEGY_GAPS_AND_UPGRADES.md`
-- `docs/superpowers/plans/2026-03-23-trading-system-p0-p1-p2-roadmap.md`
 
 ---
 

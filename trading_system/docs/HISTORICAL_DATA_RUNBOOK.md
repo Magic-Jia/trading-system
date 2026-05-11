@@ -711,4 +711,4 @@ find trading_system/tests/fixtures/backtest/sample_dataset -maxdepth 2 -type f |
 - 保留策略：`trading_system/docs/HISTORICAL_DATA_RETENTION.md`
 - 当前 dataset 规范：`trading_system/docs/BACKTEST_DATA_SPEC.md`
 - 当前 research runbook：`trading_system/docs/BACKTEST_RUNBOOK.md`
-- 已批准计划：`docs/superpowers/plans/2026-03-31-historical-data-and-backtest-dataset-plan.md`
+- 历史数据计划已整合进本 runbook 与架构文档。

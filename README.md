@@ -138,8 +138,6 @@ python -m trading_system.run_cycle --mode paper
 建议从这些文件开始：
 - `trading_system/README.md`
 - `trading_system/app/README.md`
-- `docs/superpowers/specs/`
-- `docs/superpowers/plans/`
 - `trading_system/tests/`
 
 ---

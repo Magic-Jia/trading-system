@@ -171,4 +171,4 @@ imported datasets 是为当前 backtest loader 准备的研究输入层。
 - 架构：`trading_system/docs/HISTORICAL_DATA_ARCHITECTURE.md`
 - 运行手册：`trading_system/docs/HISTORICAL_DATA_RUNBOOK.md`
 - 当前 dataset 规范：`trading_system/docs/BACKTEST_DATA_SPEC.md`
-- 已批准计划：`docs/superpowers/plans/2026-03-31-historical-data-and-backtest-dataset-plan.md`
+- 历史数据计划已整合进本 retention 文档与相关 runbook。

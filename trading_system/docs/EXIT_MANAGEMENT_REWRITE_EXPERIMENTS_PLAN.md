@@ -1,7 +1,5 @@
 # Exit Management Rewrite Experiments Implementation Plan
 
-> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
-
 **Goal:** Add opt-in, evidence-backed exit-management experiments for after-cost breakeven, MFE giveback cuts, and no-breakeven time stops, then validate them on corrected chunks and OOS/regime windows without promoting from the 30-trade survivor sample.
 
 **Architecture:** Keep current production/backtest baseline unchanged by default. Add an experiment-only exit policy layer that consumes chronological trade-print path data and materializes separate comparison artifacts. Every rule must use executable trade-print timestamps/prices, never optimistic bar high/low assumptions.
