@@ -23,6 +23,15 @@ def _finite_number(value: object, *, field_name: str) -> float:
     return parsed
 
 
+def _non_negative_finite_number(value: object, *, field_name: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{field_name} must be a non-negative finite number")
+    parsed = float(value)
+    if not math.isfinite(parsed) or parsed < 0.0:
+        raise ValueError(f"{field_name} must be a non-negative finite number")
+    return parsed
+
+
 def _portfolio_side(value: object) -> PortfolioSide:
     if value not in {"long", "short"}:
         raise ValueError("side must be a valid portfolio side")
@@ -31,12 +40,19 @@ def _portfolio_side(value: object) -> PortfolioSide:
 
 def fee_bps_for_market(costs: BacktestCosts, market_type: str) -> float:
     market = _canonical_string(market_type, field_name="market_type")
-    return float(costs.fee_bps_by_market.get(market, 0.0))
+    return _non_negative_finite_number(
+        costs.fee_bps_by_market.get(market, 0.0),
+        field_name=f"fee_bps_by_market.{market}",
+    )
 
 
 def slippage_bps_for_tier(costs: BacktestCosts, liquidity_tier: str) -> float:
     tier = _canonical_string(liquidity_tier, field_name="liquidity_tier")
-    return float(costs.slippage_bps_by_tier.get(tier.lower(), 0.0))
+    tier_key = tier.lower()
+    return _non_negative_finite_number(
+        costs.slippage_bps_by_tier.get(tier_key, 0.0),
+        field_name=f"slippage_bps_by_tier.{tier_key}",
+    )
 
 
 def fee_cost(*, position_notional: float, market_type: str, costs: BacktestCosts) -> float:
