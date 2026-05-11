@@ -176,6 +176,8 @@ def _promotion_artifact_metadata_reason_keys(metadata_entries: list[Any]) -> lis
         reasons.append("artifact_path_not_string")
     if any(item.endswith(":sha256") for item in string_entries):
         reasons.append("artifact_sha256_invalid_format")
+    if any(item.endswith(":bytes") for item in string_entries):
+        reasons.append("artifact_bytes_invalid_domain")
     if any(item.endswith(":source_path") for item in string_entries):
         reasons.append("artifact_source_path_not_string")
     if any(item.startswith("artifacts[") and not item.endswith(".path") for item in string_entries):
@@ -424,9 +426,9 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
         expected_sha = artifact.get("sha256")
         actual_bytes = path.stat().st_size
         expected_bytes_raw = artifact.get("bytes")
-        if not isinstance(expected_sha, str) or not expected_sha:
+        if expected_sha is None:
             missing_metadata.append(rel_path)
-        elif not _SHA256_HEX_RE.fullmatch(expected_sha):
+        elif not isinstance(expected_sha, str) or not _SHA256_HEX_RE.fullmatch(expected_sha):
             invalid_metadata.append(f"{rel_path}:sha256")
         elif actual_sha != expected_sha:
             sha_mismatches.append(rel_path)

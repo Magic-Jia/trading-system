@@ -458,6 +458,51 @@ def test_bundle_verifier_rejects_required_artifact_invalid_byte_metadata(tmp_pat
     assert "artifact_metadata_invalid" in result["manifest_errors"]
 
 
+@pytest.mark.parametrize(
+    ("field", "bad_value", "expected_reason"),
+    [
+        ("bytes", True, "artifact_bytes_invalid_domain"),
+        ("bytes", "123", "artifact_bytes_invalid_domain"),
+        ("bytes", float("nan"), "artifact_bytes_invalid_domain"),
+        ("bytes", float("inf"), "artifact_bytes_invalid_domain"),
+        ("bytes", -1, "artifact_bytes_invalid_domain"),
+        ("bytes", {"value": 123}, "artifact_bytes_invalid_domain"),
+        ("sha256", "", "artifact_sha256_invalid_format"),
+        ("sha256", "A" * 64, "artifact_sha256_invalid_format"),
+        ("sha256", ["0" * 64], "artifact_sha256_invalid_format"),
+        ("sha256", {"value": "0" * 64}, "artifact_sha256_invalid_format"),
+    ],
+)
+def test_bundle_verifier_rejects_artifact_bytes_and_hash_metadata_domain(
+    tmp_path: Path,
+    field: str,
+    bad_value: object,
+    expected_reason: str,
+) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    for name in REQUIRED_ARTIFACTS:
+        _write_json(source / name, {"artifact": name, "synthetic": True})
+    bundle_dir = collect_promotion_evidence_bundle(
+        source,
+        tmp_path / "bundle",
+        candidate_id="candidate-1",
+        evidence_source={"type": "promotion_bundle_export", "run_id": "bundle-1"},
+    )
+    manifest_path = bundle_dir / "promotion_evidence_manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    artifact_path = REQUIRED_ARTIFACTS[0]
+    manifest["artifacts"][0][field] = bad_value
+    manifest_path.write_text(json.dumps(manifest, sort_keys=True) + "\n")
+
+    result = verify_promotion_evidence_bundle(bundle_dir)
+
+    assert result["verified"] is False
+    assert result["invalid_artifact_metadata"] == [f"{artifact_path}:{field}"]
+    assert "artifact_metadata_invalid" in result["manifest_errors"]
+    assert expected_reason in result["manifest_errors"]
+
+
 def test_bundle_verifier_rejects_duplicate_artifact_manifest_entries(tmp_path: Path) -> None:
     source = tmp_path / "source"
     source.mkdir()
