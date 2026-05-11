@@ -174,6 +174,24 @@ def test_materialized_dataset_row_source_rejects_unsafe_source_trace_schema_valu
         archive_importer._materialized_dataset_row_source([row])
 
 
+def test_materialized_dataset_row_source_rejects_string_subclass_series_key_item() -> None:
+    source = {
+        "scope": archive_importer.PHASE1_IMPORTER_SCOPE,
+        "exchange": "binance",
+        "market": "futures",
+        "symbols": ["BTCUSDT"],
+        "series_keys": [SourceTraceStringLike("binance:futures:ohlcv:BTCUSDT:1h")],
+        "manifest_paths": ["/tmp/archive/raw-market/BTCUSDT/manifest.json"],
+    }
+    row = type("Row", (), {"meta": {"source": source}})()
+
+    with pytest.raises(
+        ValueError,
+        match=r"materialized dataset bundle metadata source\.series_keys\[0\] must be a string",
+    ):
+        archive_importer._materialized_dataset_row_source([row])
+
+
 def test_materialized_dataset_row_source_preserves_valid_mapping_with_canonical_keys() -> None:
     source = {
         "scope": archive_importer.PHASE1_IMPORTER_SCOPE,
