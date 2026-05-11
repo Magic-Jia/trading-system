@@ -47,6 +47,7 @@ _KNOWN_QUOTES = ("USDT", "USDC", "BUSD", "FDUSD", "USD")
 _PHASE1_DEFAULT_QUANTITY_STEP = 0.001
 _PHASE1_DEFAULT_PRICE_TICK = 0.1
 _INSTRUMENT_MAX_LEVERAGE_FIELDS = ("max_leverage", "maxLeverage", "leverage_cap", "leverageCap")
+_INSTRUMENT_PRECISION_FIELDS = ("price_precision", "pricePrecision", "quantity_precision", "quantityPrecision")
 
 
 @dataclass(frozen=True, slots=True)
@@ -2118,7 +2119,7 @@ def _validate_material_instrument_snapshot_rows(rows: Sequence[Mapping[str, Any]
             parsed = float(value)
             if not parsed == parsed or parsed in {float("inf"), float("-inf")} or parsed <= 0.0:
                 raise ValueError(f"instrument_snapshot rows[{index}].{field} must be a positive finite number")
-        for field in _INSTRUMENT_MAX_LEVERAGE_FIELDS:
+        for field in (*_INSTRUMENT_MAX_LEVERAGE_FIELDS, *_INSTRUMENT_PRECISION_FIELDS):
             if field not in row:
                 continue
             value = row[field]
