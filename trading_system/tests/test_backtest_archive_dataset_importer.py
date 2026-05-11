@@ -4540,6 +4540,52 @@ def test_write_phase1_dataset_bundle_rejects_non_object_instrument_filter_entrie
     assert not expected_bundle_dir.exists()
 
 
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("minQty", True),
+        ("maxQty", "100.0"),
+        ("stepSize", 0.0),
+        ("tickSize", -0.1),
+        ("minPrice", float("nan")),
+        ("maxPrice", float("inf")),
+        ("minNotional", "5.0"),
+        ("notional", 0.0),
+    ],
+)
+def test_write_phase1_dataset_bundle_rejects_malformed_instrument_filter_numerics_without_artifact(
+    tmp_path: Path,
+    field: str,
+    value: object,
+) -> None:
+    archive_root = tmp_path / "archive"
+    dataset_root = tmp_path / "dataset"
+    _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT")
+    imported = load_phase1_raw_market_imports(archive_root)
+    material = build_phase1_dataset_bundle_materials(imported)[-1]
+    market_context = dict(material.market_context)
+    instrument_rows = [dict(row) for row in market_context["instrument_rows"]]
+    instrument_rows[0]["filters"] = [{"filterType": "LOT_SIZE", field: value}]
+    market_context["instrument_rows"] = instrument_rows
+    bad_material = archive_importer.Phase1DatasetBundleMaterial(
+        timestamp=material.timestamp,
+        run_id=material.run_id,
+        metadata=material.metadata,
+        market_context=market_context,
+        derivatives_snapshot=material.derivatives_snapshot,
+        account_snapshot=material.account_snapshot,
+    )
+    expected_bundle_dir = dataset_root / f"{archive_importer._bundle_fragment(material.timestamp)}__{material.run_id}"
+
+    with pytest.raises(
+        ValueError,
+        match=rf"instrument_snapshot rows\[0\]\.filters\[0\]\.{field} must be a positive finite number",
+    ):
+        write_phase1_dataset_bundle(bad_material, dataset_root)
+
+    assert not expected_bundle_dir.exists()
+
+
 def test_write_phase1_dataset_bundle_rejects_non_string_market_context_as_of(tmp_path: Path) -> None:
     archive_root = tmp_path / "archive"
     dataset_root = tmp_path / "dataset"

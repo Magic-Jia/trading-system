@@ -49,6 +49,16 @@ _PHASE1_DEFAULT_QUANTITY_STEP = 0.001
 _PHASE1_DEFAULT_PRICE_TICK = 0.1
 _INSTRUMENT_MAX_LEVERAGE_FIELDS = ("max_leverage", "maxLeverage", "leverage_cap", "leverageCap")
 _INSTRUMENT_PRECISION_FIELDS = ("price_precision", "pricePrecision", "quantity_precision", "quantityPrecision")
+_INSTRUMENT_FILTER_POSITIVE_NUMERIC_FIELDS = (
+    "minQty",
+    "maxQty",
+    "stepSize",
+    "tickSize",
+    "minPrice",
+    "maxPrice",
+    "minNotional",
+    "notional",
+)
 _ACCOUNT_OPEN_POSITION_EXECUTION_BOOL_ALIASES = ("maker", "taker", "buyer")
 _ACCOUNT_BALANCE_NUMERIC_ALIASES = (
     "free",
@@ -2164,6 +2174,21 @@ def _validate_material_instrument_snapshot_rows(rows: Sequence[Mapping[str, Any]
             for filter_index, filter_row in enumerate(filters):
                 if not isinstance(filter_row, Mapping):
                     raise ValueError(f"instrument_snapshot rows[{index}].filters[{filter_index}] must be an object")
+                for field in _INSTRUMENT_FILTER_POSITIVE_NUMERIC_FIELDS:
+                    if field not in filter_row:
+                        continue
+                    value = filter_row[field]
+                    if isinstance(value, bool) or not isinstance(value, (int, float)):
+                        raise ValueError(
+                            f"instrument_snapshot rows[{index}].filters[{filter_index}].{field} "
+                            "must be a positive finite number"
+                        )
+                    parsed = float(value)
+                    if not parsed == parsed or parsed in {float("inf"), float("-inf")} or parsed <= 0.0:
+                        raise ValueError(
+                            f"instrument_snapshot rows[{index}].filters[{filter_index}].{field} "
+                            "must be a positive finite number"
+                        )
 
 
 def _validate_material_account_open_position_execution_aliases(account_snapshot: Mapping[str, Any]) -> None:
