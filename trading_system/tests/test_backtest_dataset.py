@@ -633,6 +633,31 @@ def test_validate_account_snapshot_payload_rejects_list_like_open_positions_boun
         validate_account_snapshot_payload(account_snapshot, path=tmp_path / "account_snapshot.json")
 
 
+def test_validate_account_snapshot_payload_rejects_dict_subclass_open_position_entry_boundary(
+    tmp_path: Path,
+) -> None:
+    class OpenPosition(dict[str, object]):
+        pass
+
+    account_snapshot = {
+        "equity": 100000.0,
+        "open_positions": [
+            OpenPosition(
+                {
+                    "symbol": "BTCUSDT",
+                    "side": "LONG",
+                    "qty": 0.5,
+                    "entry_price": 60000.0,
+                    "mark_price": 61000.0,
+                }
+            )
+        ],
+    }
+
+    with pytest.raises(ValueError, match=r"account\.open_positions\[0\] must be an object"):
+        validate_account_snapshot_payload(account_snapshot, path=tmp_path / "account_snapshot.json")
+
+
 @pytest.mark.parametrize(
     ("field", "value", "expected_message"),
     [

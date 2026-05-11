@@ -542,7 +542,7 @@ def _validate_open_position_identity_fields(account: dict, *, path: Path) -> Non
     if type(positions) is not list:
         raise ValueError(f"account.open_positions must be a list: {path}")
     for index, position in enumerate(positions):
-        if not isinstance(position, dict):
+        if type(position) is not dict:
             raise ValueError(f"account.open_positions[{index}] must be an object: {path}")
         field_prefix = f"account.open_positions[{index}]"
         for field in _ACCOUNT_OPEN_POSITION_IDENTITY_STRING_FIELDS:
