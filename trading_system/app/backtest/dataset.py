@@ -68,6 +68,11 @@ _ACCOUNT_NON_NEGATIVE_NUMBER_FIELDS = (
     "unrealized_cost",
     "unrealizedCost",
 )
+_ACCOUNT_SPOT_BALANCE_NON_NEGATIVE_NUMBER_FIELDS = (
+    "free",
+    "locked",
+    "total",
+)
 _ACCOUNT_POSITIVE_NUMBER_FIELDS = (
     "exposure_value",
     "exposureValue",
@@ -777,6 +782,18 @@ def _validate_account_numeric_fields(payload: object, *, path: Path, field_path:
     if isinstance(payload, dict):
         for key, value in payload.items():
             child_path = f"{field_path}.{key}"
+            if (
+                field_path.startswith("account.spot.nonzero_balances[")
+                and key in _ACCOUNT_SPOT_BALANCE_NON_NEGATIVE_NUMBER_FIELDS
+            ):
+                _validate_account_number(
+                    value,
+                    field_path=child_path,
+                    path=path,
+                    qualifier="non-negative finite",
+                    minimum=0.0,
+                )
+                continue
             if field_path.startswith("account.open_positions[") and key == "qty":
                 _validate_account_positive_number(value, field_path=child_path, path=path)
                 continue
