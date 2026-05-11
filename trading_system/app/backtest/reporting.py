@@ -478,13 +478,13 @@ def _canonical_optional_empty_report_string(value: object, *, field_name: str) -
 
 
 def _canonical_report_string_list(value: object, *, field_name: str) -> list[str]:
-    if not isinstance(value, list):
+    if type(value) is not list:
         raise ValueError(f"{field_name} must be a list")
     return [_canonical_report_string(item, field_name=f"{field_name}[]") for item in value]
 
 
 def _canonical_report_string_tuple(value: object, *, field_name: str) -> tuple[str, ...]:
-    if not isinstance(value, tuple):
+    if type(value) is not tuple:
         raise ValueError(f"{field_name} must be a tuple")
     return tuple(
         _canonical_report_string(item, field_name=f"{field_name}[{index}]")

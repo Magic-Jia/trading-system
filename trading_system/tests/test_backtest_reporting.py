@@ -3889,6 +3889,29 @@ def test_render_llm_trend_breakout_report_rejects_invalid_promotion_runtime_fiel
         )
 
 
+def test_render_llm_trend_breakout_report_rejects_promotion_runtime_fields_list_subclass() -> None:
+    class RuntimeFields(list[str]):
+        pass
+
+    with pytest.raises(ValueError, match="promotion_metadata.runtime_fields must be a list"):
+        reporting.render_llm_trend_breakout_report(
+            experiment_name="llm_trend_breakout",
+            experiment={
+                "summary": {
+                    "technical_candidate_count": 2,
+                    "accepted_candidate_count": 1,
+                    "rejected_candidate_count": 1,
+                    "acceptance_rate": 0.5,
+                },
+                "candidate_rows": [],
+            },
+            metadata={
+                "snapshot_count": 2,
+                "promotion_metadata": {"runtime_fields": RuntimeFields(["candidate_rows.final_score"])},
+            },
+        )
+
+
 @pytest.mark.parametrize("runtime_fields", ["regime", ["regime"]])
 def test_render_llm_trend_breakout_report_rejects_malformed_promotion_metadata_runtime_fields(
     runtime_fields: object,
