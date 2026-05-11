@@ -1532,11 +1532,12 @@ def _merged_futures_context_coverage(traces: Iterable[Mapping[str, Any]]) -> dic
             field="futures_context.max_age_seconds",
         )
         for evidence_type in max_age_values:
-            max_age_values[evidence_type].add(
-                _require_non_negative_int_field(
-                    raw_max_age.get(evidence_type, 0), field=f"futures_context.max_age_seconds.{evidence_type}"
+            if evidence_type in raw_max_age:
+                max_age_values[evidence_type].add(
+                    _require_non_negative_int_field(
+                        raw_max_age[evidence_type], field=f"futures_context.max_age_seconds.{evidence_type}"
+                    )
                 )
-            )
         for bucket in ("materialized", "missing", "stale"):
             raw_counts = coverage.get(bucket)
             if raw_counts is None:
@@ -1561,6 +1562,10 @@ def _merged_futures_context_coverage(traces: Iterable[Mapping[str, Any]]) -> dic
     for evidence_type, values in max_age_values.items():
         if len(values) == 1:
             merged["max_age_seconds"][evidence_type] = next(iter(values))
+        elif len(values) > 1:
+            raise ValueError(
+                f"futures_context.max_age_seconds.{evidence_type} has conflicting values: {sorted(values)}"
+            )
     return merged
 
 

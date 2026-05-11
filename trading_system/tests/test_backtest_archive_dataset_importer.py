@@ -2178,6 +2178,60 @@ def test_merged_futures_context_coverage_rejects_invalid_max_age_keys(
         )
 
 
+@pytest.mark.parametrize(
+    ("field", "first_value", "second_value"),
+    [
+        ("mark_price", 300, 301),
+        ("funding", 25200, 25201),
+        ("open_interest", 3600, 3601),
+    ],
+)
+def test_merged_futures_context_coverage_rejects_conflicting_max_age_values(
+    field: str,
+    first_value: int,
+    second_value: int,
+) -> None:
+    first_max_age = {"mark_price": 300, "funding": 25200, "open_interest": 3600}
+    second_max_age = dict(first_max_age)
+    first_max_age[field] = first_value
+    second_max_age[field] = second_value
+
+    with pytest.raises(
+        ValueError,
+        match=rf"futures_context\.max_age_seconds\.{field} has conflicting values",
+    ):
+        archive_importer._merged_futures_context_coverage(
+            [
+                {"futures_context": {"available": True, "max_age_seconds": first_max_age}},
+                {"futures_context": {"available": True, "max_age_seconds": second_max_age}},
+            ]
+        )
+
+
+def test_merged_futures_context_coverage_preserves_identical_max_age_values() -> None:
+    coverage = archive_importer._merged_futures_context_coverage(
+        [
+            {
+                "futures_context": {
+                    "available": True,
+                    "max_age_seconds": {"mark_price": 301, "funding": 25201, "open_interest": 3601},
+                    "materialized": {"mark_price": 1},
+                }
+            },
+            {
+                "futures_context": {
+                    "available": True,
+                    "max_age_seconds": {"mark_price": 301, "funding": 25201, "open_interest": 3601},
+                    "materialized": {"funding": 1, "open_interest": 1},
+                }
+            },
+        ]
+    )
+
+    assert coverage["max_age_seconds"] == {"mark_price": 301, "funding": 25201, "open_interest": 3601}
+    assert coverage["materialized"] == {"mark_price": 1, "funding": 1, "open_interest": 1}
+
+
 @pytest.mark.parametrize("contaminated_available", [1, "true"])
 def test_merged_futures_context_coverage_rejects_contaminated_existing_available(
     monkeypatch: pytest.MonkeyPatch,
