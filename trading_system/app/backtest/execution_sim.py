@@ -355,10 +355,13 @@ def simulate_maker_limit_fill(
 ) -> ExecutionFill:
     validated_limit_price = _positive_finite_float("limit_price", limit_price)
     validated_latency_ms = _non_negative_finite_float("latency_ms", latency_ms)
+    validated_timeout_seconds = (
+        _non_negative_finite_float("timeout_seconds", timeout_seconds) if timeout_seconds is not None else None
+    )
     uses_queue_model = (
         queue_ahead_quantity is not None
         or placement_timestamp is not None
-        or timeout_seconds is not None
+        or validated_timeout_seconds is not None
         or validated_latency_ms > 0.0
         or cancel_replace_timestamp is not None
     )
@@ -370,7 +373,7 @@ def simulate_maker_limit_fill(
             quantity=quantity,
             queue_ahead_quantity=queue_ahead_quantity,
             placement_timestamp=placement_timestamp,
-            timeout_seconds=timeout_seconds,
+            timeout_seconds=validated_timeout_seconds,
             latency_ms=validated_latency_ms,
             cancel_replace_timestamp=cancel_replace_timestamp,
             order_books=order_books,

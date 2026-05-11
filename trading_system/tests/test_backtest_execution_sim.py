@@ -208,6 +208,28 @@ def test_maker_latency_rejects_invalid_latency_ms(latency_ms: object) -> None:
         )
 
 
+@pytest.mark.parametrize("timeout_seconds", [True, "2", math.nan, math.inf, -math.inf, -1.0])
+def test_maker_timeout_rejects_invalid_timeout_seconds(timeout_seconds: object) -> None:
+    with pytest.raises(ValueError, match="timeout_seconds must be a non-negative finite number"):
+        simulate_maker_limit_fill(
+            symbol="BTCUSDT",
+            side="buy",
+            limit_price=99.5,
+            quantity=1.0,
+            placement_timestamp=_ts("2026-03-10T00:00:00Z"),
+            timeout_seconds=timeout_seconds,
+            trades=(
+                TradePrint(
+                    timestamp=_ts("2026-03-10T00:00:00.060000Z"),
+                    symbol="BTCUSDT",
+                    price=99.5,
+                    quantity=1.0,
+                    side="sell",
+                ),
+            ),
+        )
+
+
 def test_maker_cancel_replace_before_fill_stops_later_prints() -> None:
     fill = simulate_maker_limit_fill(
         symbol="BTCUSDT",
