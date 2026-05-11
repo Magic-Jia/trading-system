@@ -2148,6 +2148,36 @@ def test_merged_futures_context_coverage_rejects_unknown_bucket_keys() -> None:
         )
 
 
+@pytest.mark.parametrize(
+    ("invalid_key", "expected_error"),
+    [
+        (123, "futures_context.max_age_seconds key must be a string"),
+        (" mark_price", "futures_context.max_age_seconds key must be canonical"),
+        ("index_price", "futures_context.max_age_seconds.index_price is unsupported"),
+    ],
+)
+def test_merged_futures_context_coverage_rejects_invalid_max_age_keys(
+    invalid_key: object, expected_error: str
+) -> None:
+    with pytest.raises(ValueError, match=expected_error):
+        archive_importer._merged_futures_context_coverage(
+            [
+                {
+                    "futures_context": {
+                        "available": True,
+                        "max_age_seconds": {
+                            "mark_price": 3660,
+                            "funding": 28860,
+                            "open_interest": 3660,
+                            invalid_key: 1,
+                        },
+                        "materialized": {"mark_price": 1},
+                    }
+                }
+            ]
+        )
+
+
 @pytest.mark.parametrize("contaminated_available", [1, "true"])
 def test_merged_futures_context_coverage_rejects_contaminated_existing_available(
     monkeypatch: pytest.MonkeyPatch,

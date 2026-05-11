@@ -1526,6 +1526,11 @@ def _merged_futures_context_coverage(traces: Iterable[Mapping[str, Any]]) -> dic
             raw_max_age = {}
         if not isinstance(raw_max_age, Mapping):
             raise ValueError("futures_context.max_age_seconds must be a JSON object")
+        _reject_unknown_evidence_type_keys(
+            raw_max_age,
+            allowed=evidence_types,
+            field="futures_context.max_age_seconds",
+        )
         for evidence_type in max_age_values:
             max_age_values[evidence_type].add(
                 _require_non_negative_int_field(
