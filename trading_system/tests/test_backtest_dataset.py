@@ -1546,6 +1546,7 @@ def test_load_historical_dataset_rejects_open_position_update_time_before_opened
     ("field", "value", "match"),
     [
         ("close_time", "2026-03-09T23:59:59Z", r"account\.open_positions\[0\]\.close_time must be at or after opened_at"),
+        ("closed_at", "2026-03-10T00:00:02Z", r"account\.open_positions\[0\]\.closed_at must be at or after close_time"),
         ("settlement_time", "2026-03-10T00:00:02Z", r"account\.open_positions\[0\]\.settlement_time must be at or after close_time"),
     ],
 )
@@ -1566,6 +1567,7 @@ def test_load_historical_dataset_rejects_impossible_open_position_close_lifecycl
         "side": "LONG",
         "opened_at": "2026-03-10T00:00:00Z",
         "close_time": "2026-03-10T00:00:03Z",
+        "closed_at": "2026-03-10T00:00:03Z",
         "settlement_time": "2026-03-10T00:00:04Z",
         "qty": 0.5,
         "entry_price": 60000.0,

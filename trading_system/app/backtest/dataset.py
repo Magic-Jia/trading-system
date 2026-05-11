@@ -599,6 +599,12 @@ def _validate_open_position_time_order(position: dict, *, field_prefix: str, pat
                 if value < opened_at:
                     raise ValueError(f"{field_prefix}.{field} must be at or after {opened_field}: {path}")
     close = _account_first_present_utc_timestamp(position, "close_time", "closeTime")
+    closed = _account_first_present_utc_timestamp(position, "closed_at", "closedAt")
+    if close is not None and closed is not None:
+        close_field, close_time = close
+        closed_field, closed_at = closed
+        if closed_at < close_time:
+            raise ValueError(f"{field_prefix}.{closed_field} must be at or after {close_field}: {path}")
     settlement = _account_first_present_utc_timestamp(position, "settlement_time", "settlementTime")
     if close is not None and settlement is not None:
         close_field, close_time = close
