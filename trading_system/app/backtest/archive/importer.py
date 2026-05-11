@@ -84,6 +84,9 @@ _ACCOUNT_BALANCE_WALLET_TOTAL_ALIASES = (
     "walletBalance",
     "wallet_balance",
 )
+_ACCOUNT_BALANCE_EQUAL_ALIAS_GROUPS = (
+    ("crossWalletBalance", "cross_wallet_balance"),
+)
 _ACCOUNT_BALANCE_ASSET_CODE_RE = re.compile(r"^[A-Z0-9]+$")
 _EXCHANGE_SYMBOL_RE = re.compile(r"^[A-Z0-9]+$")
 _DERIVATIVES_SNAPSHOT_CAMELCASE_NON_NEGATIVE_INT_FIELDS = frozenset(
@@ -2583,6 +2586,13 @@ def _validate_material_account_balance_numeric_aliases(account_snapshot: Mapping
             parsed = float(value)
             if not parsed == parsed or parsed in {float("inf"), float("-inf")} or parsed < 0.0:
                 raise ValueError(f"account.balances[{index}].{field} must be a non-negative finite number")
+        for canonical, alias in _ACCOUNT_BALANCE_EQUAL_ALIAS_GROUPS:
+            if canonical not in balance or alias not in balance:
+                continue
+            canonical_value = float(balance[canonical])
+            alias_value = float(balance[alias])
+            if not math.isclose(alias_value, canonical_value, rel_tol=1e-12, abs_tol=1e-12):
+                raise ValueError(f"account.balances[{index}].{alias} must equal {canonical}")
         if "free" in balance and "locked" in balance:
             total = float(balance["free"]) + float(balance["locked"])
             for field in _ACCOUNT_BALANCE_WALLET_TOTAL_ALIASES:

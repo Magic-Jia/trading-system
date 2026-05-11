@@ -81,6 +81,9 @@ _ACCOUNT_BALANCE_WALLET_TOTAL_FIELDS = (
     "wallet_balance",
     "walletBalance",
 )
+_ACCOUNT_BALANCE_EQUAL_ALIAS_GROUPS = (
+    ("crossWalletBalance", "cross_wallet_balance"),
+)
 _ACCOUNT_POSITIVE_NUMBER_FIELDS = (
     "exposure_value",
     "exposureValue",
@@ -815,6 +818,25 @@ def _validate_spot_balance_total_parity(balance: dict, *, field_path: str, path:
 
 
 def _validate_account_balance_wallet_total_parity(balance: dict, *, field_path: str, path: Path) -> None:
+    for canonical, alias in _ACCOUNT_BALANCE_EQUAL_ALIAS_GROUPS:
+        if canonical not in balance or alias not in balance:
+            continue
+        canonical_value = _validate_account_number(
+            balance[canonical],
+            field_path=f"{field_path}.{canonical}",
+            path=path,
+            qualifier="non-negative finite",
+            minimum=0.0,
+        )
+        alias_value = _validate_account_number(
+            balance[alias],
+            field_path=f"{field_path}.{alias}",
+            path=path,
+            qualifier="non-negative finite",
+            minimum=0.0,
+        )
+        if not math.isclose(alias_value, canonical_value, rel_tol=1e-12, abs_tol=1e-12):
+            raise ValueError(f"{field_path}.{alias} must equal {canonical}: {path}")
     if not all(field in balance for field in ("free", "locked")):
         return
     free = _validate_account_number(
