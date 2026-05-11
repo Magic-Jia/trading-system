@@ -2143,10 +2143,15 @@ def _validate_material_instrument_snapshot_rows(rows: Sequence[Mapping[str, Any]
             parsed = float(value)
             if not parsed == parsed or parsed in {float("inf"), float("-inf")} or parsed <= 0.0 or not parsed.is_integer():
                 raise ValueError(f"instrument_snapshot rows[{index}].{field} must be a positive finite integer")
-        if "has_complete_funding" not in row:
-            continue
-        if not isinstance(row["has_complete_funding"], bool):
+        if "has_complete_funding" in row and not isinstance(row["has_complete_funding"], bool):
             raise ValueError(f"instrument_snapshot rows[{index}].has_complete_funding must be a boolean")
+        if "filters" in row:
+            filters = row["filters"]
+            if not isinstance(filters, list):
+                raise ValueError(f"instrument_snapshot rows[{index}].filters must be a list")
+            for filter_index, filter_row in enumerate(filters):
+                if not isinstance(filter_row, Mapping):
+                    raise ValueError(f"instrument_snapshot rows[{index}].filters[{filter_index}] must be an object")
 
 
 def _validate_material_account_open_position_execution_aliases(account_snapshot: Mapping[str, Any]) -> None:

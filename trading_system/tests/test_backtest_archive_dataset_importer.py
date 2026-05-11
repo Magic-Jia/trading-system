@@ -4412,6 +4412,60 @@ def test_write_phase1_dataset_bundle_rejects_non_object_instrument_rows(tmp_path
         write_phase1_dataset_bundle(bad_material, dataset_root)
 
 
+def test_write_phase1_dataset_bundle_rejects_non_list_instrument_filters_without_artifact(tmp_path: Path) -> None:
+    archive_root = tmp_path / "archive"
+    dataset_root = tmp_path / "dataset"
+    _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT")
+    imported = load_phase1_raw_market_imports(archive_root)
+    material = build_phase1_dataset_bundle_materials(imported)[-1]
+    market_context = dict(material.market_context)
+    instrument_rows = [dict(row) for row in market_context["instrument_rows"]]
+    instrument_rows[0]["filters"] = {"filterType": "LOT_SIZE"}
+    market_context["instrument_rows"] = instrument_rows
+    bad_material = archive_importer.Phase1DatasetBundleMaterial(
+        timestamp=material.timestamp,
+        run_id=material.run_id,
+        metadata=material.metadata,
+        market_context=market_context,
+        derivatives_snapshot=material.derivatives_snapshot,
+        account_snapshot=material.account_snapshot,
+    )
+    expected_bundle_dir = dataset_root / f"{archive_importer._bundle_fragment(material.timestamp)}__{material.run_id}"
+
+    with pytest.raises(ValueError, match=r"instrument_snapshot rows\[0\]\.filters must be a list"):
+        write_phase1_dataset_bundle(bad_material, dataset_root)
+
+    assert not expected_bundle_dir.exists()
+
+
+def test_write_phase1_dataset_bundle_rejects_non_object_instrument_filter_entries_without_artifact(
+    tmp_path: Path,
+) -> None:
+    archive_root = tmp_path / "archive"
+    dataset_root = tmp_path / "dataset"
+    _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT")
+    imported = load_phase1_raw_market_imports(archive_root)
+    material = build_phase1_dataset_bundle_materials(imported)[-1]
+    market_context = dict(material.market_context)
+    instrument_rows = [dict(row) for row in market_context["instrument_rows"]]
+    instrument_rows[0]["filters"] = [{"filterType": "LOT_SIZE"}, ["filterType", "PRICE_FILTER"]]
+    market_context["instrument_rows"] = instrument_rows
+    bad_material = archive_importer.Phase1DatasetBundleMaterial(
+        timestamp=material.timestamp,
+        run_id=material.run_id,
+        metadata=material.metadata,
+        market_context=market_context,
+        derivatives_snapshot=material.derivatives_snapshot,
+        account_snapshot=material.account_snapshot,
+    )
+    expected_bundle_dir = dataset_root / f"{archive_importer._bundle_fragment(material.timestamp)}__{material.run_id}"
+
+    with pytest.raises(ValueError, match=r"instrument_snapshot rows\[0\]\.filters\[1\] must be an object"):
+        write_phase1_dataset_bundle(bad_material, dataset_root)
+
+    assert not expected_bundle_dir.exists()
+
+
 def test_write_phase1_dataset_bundle_rejects_non_string_market_context_as_of(tmp_path: Path) -> None:
     archive_root = tmp_path / "archive"
     dataset_root = tmp_path / "dataset"
