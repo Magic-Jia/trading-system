@@ -2,11 +2,22 @@ __pycache__/
 .pytest_cache/
 .worktrees/
 
-# Local workspace memory / learning scratch
-memory/.dreams/
-memory/20*.md
-.learnings/ERRORS.md
-.learnings/FEATURE_REQUESTS.md
+# Local agent / workspace state (never publish)
+.hermes/
+.learnings/
+memory/
+AGENTS.md
+HEARTBEAT.md
+IDENTITY.md
+MEMORY.md
+SOUL.md
+TOOLS.md
+USER.md
+
+# Local planning / agent-generated docs outside product docs
+docs/plans/
+docs/superpowers/
+docs/openclaw-commit-notifications.md
 
 # Local temporary scripts and investigation artifacts
 .tmp/
@@ -16,7 +27,4 @@ tmp/
 tmp*.py
 
 # Generated runtime / research outputs
-trading_system/data/runtime/
-trading_system/data/archive/
-trading_system/data/imported-datasets/
-trading_system/data/backtest-results/
+trading_system/data/
