@@ -2552,7 +2552,7 @@ def _validate_material_account_balance_identity(account_snapshot: Mapping[str, A
             if field in balance:
                 value = balance[field]
                 if (
-                    not isinstance(value, str)
+                    type(value) is not str
                     or not value
                     or value != value.strip()
                     or _ACCOUNT_BALANCE_ASSET_CODE_RE.fullmatch(value) is None
