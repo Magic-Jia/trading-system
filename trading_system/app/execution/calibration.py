@@ -19,6 +19,7 @@ _FEE_ASSET_FIELDS = (
     "commission_currency",
     "commissionCurrency",
 )
+_COMMISSION_FIELDS = ("commission",)
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,8 +86,18 @@ def _validate_fee_asset_fields(row: Mapping[str, Any]) -> None:
             raise ValueError(f"calibration record {field} must be an uppercase asset code")
 
 
+def _validate_commission_fields(row: Mapping[str, Any]) -> None:
+    for field in _COMMISSION_FIELDS:
+        if field not in row or row[field] is None or row[field] == "":
+            continue
+        if isinstance(row[field], bool):
+            raise ValueError(f"calibration record {field} must be numeric")
+        float(row[field])
+
+
 def _record_from_mapping(row: Mapping[str, Any]) -> PassiveOrderCalibrationRecord:
     _validate_fee_asset_fields(row)
+    _validate_commission_fields(row)
     submitted_at = _parse_datetime(row.get("submitted_at"))
     if submitted_at is None:
         raise ValueError("calibration record missing submitted_at")

@@ -157,3 +157,26 @@ def test_rejects_malformed_commission_asset_before_calibration_load(tmp_path: Pa
 
     with pytest.raises(ValueError, match="calibration record commissionAsset must be an uppercase asset code"):
         load_calibration_records(source)
+
+
+def test_rejects_boolean_commission_before_calibration_load(tmp_path: Path) -> None:
+    source = tmp_path / "dust_orders.jsonl"
+    source.write_text(
+        json.dumps(
+            {
+                "symbol": "BTCUSDT",
+                "side": "buy",
+                "intended_limit_price": 100.0,
+                "submitted_at": "2026-01-01T00:00:00+00:00",
+                "commission": True,
+                "commissionAsset": "BNB",
+                "status": "filled",
+            }
+        )
+        + "\n"
+    )
+
+    import pytest
+
+    with pytest.raises(ValueError, match="calibration record commission must be numeric"):
+        load_calibration_records(source)
