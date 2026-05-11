@@ -2109,7 +2109,7 @@ def _material_market_context_instrument_rows(material: Phase1DatasetBundleMateri
 
 def _validate_material_instrument_snapshot_rows(rows: Sequence[Mapping[str, Any]]) -> None:
     for index, row in enumerate(rows):
-        for field in ("quote_volume_usdt_24h", "quantity_step", "price_tick", "min_notional"):
+        for field in ("quote_volume_usdt_24h", "quantity_step", "price_tick", "min_notional", "lot_size"):
             if field not in row:
                 continue
             value = row[field]
