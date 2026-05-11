@@ -50,6 +50,18 @@ _PHASE1_DEFAULT_PRICE_TICK = 0.1
 _INSTRUMENT_MAX_LEVERAGE_FIELDS = ("max_leverage", "maxLeverage", "leverage_cap", "leverageCap")
 _INSTRUMENT_PRECISION_FIELDS = ("price_precision", "pricePrecision", "quantity_precision", "quantityPrecision")
 _ACCOUNT_OPEN_POSITION_EXECUTION_BOOL_ALIASES = ("maker", "taker", "buyer")
+_ACCOUNT_BALANCE_NUMERIC_ALIASES = (
+    "free",
+    "locked",
+    "walletBalance",
+    "wallet_balance",
+    "crossWalletBalance",
+    "cross_wallet_balance",
+    "availableBalance",
+    "available_balance",
+    "maxWithdrawAmount",
+    "max_withdraw_amount",
+)
 _ACCOUNT_BALANCE_ASSET_CODE_RE = re.compile(r"^[A-Z0-9]+$")
 _DERIVATIVES_SNAPSHOT_CAMELCASE_NON_NEGATIVE_INT_FIELDS = frozenset(
     {
@@ -2340,6 +2352,26 @@ def _validate_material_account_balance_identity(account_snapshot: Mapping[str, A
                     raise ValueError(f"account.balances[{index}].{field} must be an uppercase asset code")
 
 
+def _validate_material_account_balance_numeric_aliases(account_snapshot: Mapping[str, Any]) -> None:
+    balances = account_snapshot.get("balances")
+    if balances is None:
+        return
+    if not isinstance(balances, list):
+        raise ValueError("account.balances must be a list")
+    for index, balance in enumerate(balances):
+        if not isinstance(balance, Mapping):
+            raise ValueError(f"account.balances[{index}] must be an object")
+        for field in _ACCOUNT_BALANCE_NUMERIC_ALIASES:
+            if field not in balance:
+                continue
+            value = balance[field]
+            if isinstance(value, bool) or isinstance(value, str) or not isinstance(value, (int, float)):
+                raise ValueError(f"account.balances[{index}].{field} must be a non-negative finite number")
+            parsed = float(value)
+            if not parsed == parsed or parsed in {float("inf"), float("-inf")} or parsed < 0.0:
+                raise ValueError(f"account.balances[{index}].{field} must be a non-negative finite number")
+
+
 def write_phase1_dataset_root_manifest(
     archive_root: str | Path,
     dataset_root: str | Path,
@@ -2369,6 +2401,7 @@ def write_phase1_dataset_bundle(material: Phase1DatasetBundleMaterial, dataset_r
     _validate_material_derivatives_snapshot_identity_fields(material.derivatives_snapshot)
     _validate_material_account_open_position_execution_aliases(material.account_snapshot)
     _validate_material_account_balance_identity(material.account_snapshot)
+    _validate_material_account_balance_numeric_aliases(material.account_snapshot)
     validate_account_snapshot_payload(material.account_snapshot, path=root / "account_snapshot.json")
     instrument_rows = _material_market_context_instrument_rows(material)
     _validate_material_instrument_snapshot_rows(instrument_rows)
