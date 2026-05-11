@@ -2569,6 +2569,21 @@ def _phase1_root_manifest_canonical_strings(manifest: Mapping[str, Any], field: 
         raise ValueError(f"{exc}: {manifest_path}") from exc
 
 
+def _phase1_root_manifest_uppercase_exchange_symbols(
+    manifest: Mapping[str, Any],
+    field: str,
+    *,
+    manifest_path: Path,
+) -> tuple[str, ...]:
+    symbols = _phase1_root_manifest_canonical_strings(manifest, field, manifest_path=manifest_path)
+    for symbol in symbols:
+        if _EXCHANGE_SYMBOL_RE.fullmatch(symbol) is None:
+            raise ValueError(
+                f"materialized dataset root manifest {field} entries must be uppercase exchange symbols: {manifest_path}"
+            )
+    return symbols
+
+
 def _require_phase1_root_manifest_paths_under_dataset_root(
     paths: Sequence[Path],
     *,
@@ -2726,7 +2741,7 @@ def validate_phase1_imported_dataset_root(
                 "materialized dataset root manifest snapshot_count did not round-trip: "
                 f"expected {manifest_snapshot_count}, loaded {len(rows)}"
             )
-        manifest_symbols = _phase1_root_manifest_canonical_strings(
+        manifest_symbols = _phase1_root_manifest_uppercase_exchange_symbols(
             root_manifest,
             "symbols",
             manifest_path=manifest_path,
