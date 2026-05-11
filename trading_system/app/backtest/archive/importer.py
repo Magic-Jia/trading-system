@@ -51,6 +51,17 @@ _INSTRUMENT_MAX_LEVERAGE_FIELDS = ("max_leverage", "maxLeverage", "leverage_cap"
 _INSTRUMENT_PRECISION_FIELDS = ("price_precision", "pricePrecision", "quantity_precision", "quantityPrecision")
 _ACCOUNT_OPEN_POSITION_EXECUTION_BOOL_ALIASES = ("maker", "taker", "buyer")
 _ACCOUNT_BALANCE_ASSET_CODE_RE = re.compile(r"^[A-Z0-9]+$")
+_DERIVATIVES_SNAPSHOT_CAMELCASE_NON_NEGATIVE_INT_FIELDS = frozenset(
+    {
+        "markPriceAgeSeconds",
+        "indexPriceAgeSeconds",
+        "fundingAgeSeconds",
+        "openInterestAgeSeconds",
+        "orderBookLatencyMs",
+        "tradeCount",
+        "openInterestCount",
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -2048,6 +2059,7 @@ def _validate_material_derivatives_snapshot_numeric_evidence(derivatives_snapsho
                 field_name.endswith("_age_seconds")
                 or field_name.endswith("_latency_ms")
                 or field_name.endswith("_count")
+                or field_name in _DERIVATIVES_SNAPSHOT_CAMELCASE_NON_NEGATIVE_INT_FIELDS
             ):
                 continue
             if field_name not in row:
