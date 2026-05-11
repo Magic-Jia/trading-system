@@ -8,6 +8,10 @@ from trading_system.app.backtest.costs import fee_bps_for_market, fee_cost, fund
 from trading_system.app.backtest.types import BacktestCosts
 
 
+class _StringSubclass(str):
+    pass
+
+
 def test_fee_bps_rejects_non_string_market_type() -> None:
     costs = BacktestCosts(fee_bps_by_market={"True": 99.0})
 
@@ -128,5 +132,36 @@ def test_funding_cost_rejects_invalid_numeric_inputs_before_zero_funding_short_c
             side="long",
             funding_rate=funding_rate,  # type: ignore[arg-type]
             holding_hours=holding_hours,  # type: ignore[arg-type]
+            costs=costs,
+        )
+
+
+@pytest.mark.parametrize(
+    ("market_type", "side", "funding_mode", "expected_message"),
+    [
+        ("spot", "LONG", None, "side must be a valid portfolio side"),
+        ("spot", "", None, "side must be a valid portfolio side"),
+        ("spot", _StringSubclass("long"), None, "side must be a valid portfolio side"),
+        ("perps", "long", None, "market_type must be spot or futures"),
+        (_StringSubclass("spot"), "long", None, "market_type must be a string"),
+        ("spot", "long", "disabled", "funding_mode must be historical_series or None"),
+        ("spot", "long", _StringSubclass("historical_series"), "funding_mode must be a string"),
+    ],
+)
+def test_funding_cost_rejects_invalid_domain_inputs_before_zero_funding_short_circuit(
+    market_type: object,
+    side: object,
+    funding_mode: object,
+    expected_message: str,
+) -> None:
+    costs = BacktestCosts(funding_mode=funding_mode)  # type: ignore[arg-type]
+
+    with pytest.raises(ValueError, match=expected_message):
+        funding_cost(
+            position_notional=1_000.0,
+            market_type=market_type,  # type: ignore[arg-type]
+            side=side,  # type: ignore[arg-type]
+            funding_rate=0.0,
+            holding_hours=0.0,
             costs=costs,
         )

@@ -33,9 +33,28 @@ def _non_negative_finite_number(value: object, *, field_name: str) -> float:
 
 
 def _portfolio_side(value: object) -> PortfolioSide:
-    if value not in {"long", "short"}:
+    if type(value) is not str or value not in {"long", "short"}:
         raise ValueError("side must be a valid portfolio side")
     return value  # type: ignore[return-value]
+
+
+def _funding_market_type(value: object) -> str:
+    market_type = _canonical_string(value, field_name="market_type")
+    if type(market_type) is not str:
+        raise ValueError("market_type must be a string")
+    if market_type not in {"spot", "futures"}:
+        raise ValueError("market_type must be spot or futures")
+    return market_type
+
+
+def _funding_mode(value: object) -> str | None:
+    if value is None:
+        return None
+    if type(value) is not str:
+        raise ValueError("funding_mode must be a string")
+    if value != "historical_series":
+        raise ValueError("funding_mode must be historical_series or None")
+    return value
 
 
 def fee_bps_for_market(costs: BacktestCosts, market_type: str) -> float:
@@ -81,10 +100,13 @@ def funding_cost(
     position = _non_negative_finite_number(position_notional, field_name="position_notional")
     rate = _finite_number(funding_rate, field_name="funding_rate")
     hours = _non_negative_finite_number(holding_hours, field_name="holding_hours")
-    if position <= 0.0 or _canonical_string(market_type, field_name="market_type") != "futures" or costs.funding_mode != "historical_series":
+    market = _funding_market_type(market_type)
+    side_key = _portfolio_side(side)
+    funding_mode = _funding_mode(costs.funding_mode)
+    if position <= 0.0 or market != "futures" or funding_mode != "historical_series":
         return 0.0
     if hours <= 0.0 or rate == 0.0:
         return 0.0
     intervals = hours / _FUNDING_INTERVAL_HOURS
-    direction = 1.0 if _portfolio_side(side) == "long" else -1.0
+    direction = 1.0 if side_key == "long" else -1.0
     return position * rate * intervals * direction
