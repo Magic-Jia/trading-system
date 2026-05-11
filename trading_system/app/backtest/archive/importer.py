@@ -73,6 +73,7 @@ _ACCOUNT_BALANCE_NUMERIC_ALIASES = (
     "max_withdraw_amount",
 )
 _ACCOUNT_BALANCE_ASSET_CODE_RE = re.compile(r"^[A-Z0-9]+$")
+_EXCHANGE_SYMBOL_RE = re.compile(r"^[A-Z0-9]+$")
 _DERIVATIVES_SNAPSHOT_CAMELCASE_NON_NEGATIVE_INT_FIELDS = frozenset(
     {
         "markPriceAgeSeconds",
@@ -1278,6 +1279,14 @@ def _require_canonical_string_items(values: Any, *, field: str) -> tuple[str, ..
     return tuple(parsed)
 
 
+def _require_uppercase_exchange_symbol_items(values: Any, *, field: str) -> tuple[str, ...]:
+    symbols = _require_canonical_string_items(values, field=field)
+    for symbol in symbols:
+        if _EXCHANGE_SYMBOL_RE.fullmatch(symbol) is None:
+            raise ValueError(f"{field} entries must be uppercase exchange symbols")
+    return symbols
+
+
 def _require_canonical_json_object_keys(value: Mapping[Any, Any], *, field: str) -> None:
     for key in value.keys():
         if not isinstance(key, str):
@@ -1315,7 +1324,7 @@ def _merged_import_trace(traces: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
                 "phase1 importer source trace scope/exchange/market must stay aligned across bundles: "
                 f"expected {(scope, exchange, market)}, loaded {(current_scope, current_exchange, current_market)}"
             )
-        symbols.update(_require_canonical_string_items(normalized.get("symbols"), field="import_trace.symbols"))
+        symbols.update(_require_uppercase_exchange_symbol_items(normalized.get("symbols"), field="import_trace.symbols"))
         series_keys.update(_require_canonical_string_items(normalized.get("series_keys"), field="import_trace.series_keys"))
         manifest_paths.update(_require_canonical_string_items(normalized.get("manifest_paths"), field="import_trace.manifest_paths"))
 
@@ -2833,6 +2842,12 @@ def _reject_parent_traversal_path_strings(paths: Sequence[str], *, field: str) -
 
 def _normalized_phase1_source_trace(dataset_path: Path, source: Mapping[str, Any], *, context: str) -> dict[str, Any]:
     normalized = _json_object_field(source, context=context)
+    normalized["symbols"] = list(
+        _require_uppercase_exchange_symbol_items(
+            normalized.get("symbols"),
+            field=f"{context} symbols",
+        )
+    )
     field = f"{context} manifest_paths"
     manifest_paths = tuple(sorted(_canonical_string_sequence(normalized.get("manifest_paths"), field=field)))
     if context == "materialized dataset root manifest source":
