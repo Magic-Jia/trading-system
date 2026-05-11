@@ -50,6 +50,7 @@ _PHASE1_IMPORTER_INTRADAY_GAPS = {
     "30m": timedelta(minutes=30),
 }
 _PHASE1_IMPORTER_OHLCV_TIMEFRAME_ORDER = ("1h", *PHASE1_IMPORTER_OPTIONAL_INTRADAY_OHLCV_TIMEFRAMES)
+_PHASE1_IMPORTER_OHLCV_NOT_MATERIALIZED_REASONS = frozenset({"missing_contiguous_bars"})
 _KNOWN_QUOTES = ("USDT", "USDC", "BUSD", "FDUSD", "USD")
 _PHASE1_DEFAULT_QUANTITY_STEP = 0.001
 _PHASE1_DEFAULT_PRICE_TICK = 0.1
@@ -1298,6 +1299,13 @@ def _require_importer_ohlcv_timeframe_items(values: Any, *, field: str) -> tuple
     )
 
 
+def _require_ohlcv_not_materialized_reason(value: Any, *, field: str) -> str:
+    reason = _require_canonical_string(value, field=field)
+    if reason not in _PHASE1_IMPORTER_OHLCV_NOT_MATERIALIZED_REASONS:
+        raise ValueError(f"{field} must be a canonical reason code")
+    return reason
+
+
 def _require_uppercase_exchange_symbol_items(values: Any, *, field: str) -> tuple[str, ...]:
     symbols = _require_canonical_string_items(values, field=field)
     for symbol in symbols:
@@ -1410,7 +1418,7 @@ def _merged_ohlcv_timeframe_coverage(traces: Iterable[Mapping[str, Any]]) -> dic
         for timeframe, reason in raw_not_materialized.items():
             timeframe_key = _require_canonical_string(timeframe, field="ohlcv_timeframes.not_materialized key")
             _require_importer_ohlcv_timeframe(timeframe_key, field="ohlcv_timeframes.not_materialized key")
-            not_materialized[timeframe_key] = _require_canonical_string(
+            not_materialized[timeframe_key] = _require_ohlcv_not_materialized_reason(
                 reason, field=f"ohlcv_timeframes.not_materialized.{timeframe_key}"
             )
     missing_optional = [

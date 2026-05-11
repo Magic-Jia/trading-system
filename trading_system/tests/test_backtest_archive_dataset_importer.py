@@ -2533,6 +2533,36 @@ def test_merged_ohlcv_timeframe_coverage_rejects_unknown_timeframe_values(
         archive_importer._merged_ohlcv_timeframe_coverage([{"ohlcv_timeframes": coverage}])
 
 
+@pytest.mark.parametrize(
+    ("reason", "match"),
+    [
+        (123, r"ohlcv_timeframes.not_materialized.5m must be a string"),
+        ("", r"ohlcv_timeframes.not_materialized.5m must be a string"),
+        (" missing_contiguous_bars", r"ohlcv_timeframes.not_materialized.5m must be canonical"),
+        ("missing_contiguous_bars ", r"ohlcv_timeframes.not_materialized.5m must be canonical"),
+        ("Missing Contiguous Bars", r"ohlcv_timeframes.not_materialized.5m must be a canonical reason code"),
+        ("missing contiguous bars", r"ohlcv_timeframes.not_materialized.5m must be a canonical reason code"),
+        ("MISSING_CONTIGUOUS_BARS", r"ohlcv_timeframes.not_materialized.5m must be a canonical reason code"),
+    ],
+)
+def test_merged_ohlcv_timeframe_coverage_rejects_malformed_not_materialized_reasons(
+    reason: object,
+    match: str,
+) -> None:
+    with pytest.raises(ValueError, match=match):
+        archive_importer._merged_ohlcv_timeframe_coverage(
+            [
+                {
+                    "ohlcv_timeframes": {
+                        "available": ["1h", "5m"],
+                        "materialized": ["1h"],
+                        "not_materialized": {"5m": reason},
+                    }
+                }
+            ]
+        )
+
+
 def test_merged_ohlcv_timeframe_coverage_preserves_known_importer_timeframes() -> None:
     assert archive_importer._merged_ohlcv_timeframe_coverage(
         [
