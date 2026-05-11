@@ -155,10 +155,11 @@ def simulate_taker_fill(
     book = _first_symbol_book(symbol, order_books)
     if book is not None:
         if _side_levels(book, side=side):
+            depth_quantity = None if not isinstance(quantity, bool) and quantity == 0.0 else quantity
             return simulate_taker_depth_fill(
                 symbol=symbol,
                 side=side,
-                quantity=quantity,
+                quantity=depth_quantity,
                 reference_price=reference_price,
                 order_book=book,
             )
@@ -215,7 +216,7 @@ def simulate_taker_depth_fill(
     notional_request = None
     if requested_notional is not None:
         notional_request = _positive_finite_float("requested_notional", requested_notional)
-    requested_quantity = 0.0 if quantity is None else max(_finite_float("quantity", quantity), 0.0)
+    requested_quantity = 0.0 if quantity is None else _positive_quantity_float("quantity", quantity)
     levels = _side_levels(order_book, side=side)
     source: ExecutionPriceSource = "ask_depth" if side == "buy" else "bid_depth"
     if not levels:
@@ -662,6 +663,22 @@ def _positive_finite_float(name: str, value: Any) -> float:
     except (TypeError, ValueError) as exc:
         raise ValueError(f"{name} must be a positive finite number") from exc
     if not math.isfinite(result) or result <= 0.0:
+        raise ValueError(f"{name} must be a positive finite number")
+    return result
+
+
+def _positive_quantity_float(name: str, value: Any) -> float:
+    if isinstance(value, bool):
+        raise ValueError(f"{name} must be a finite number")
+    if isinstance(value, str):
+        raise ValueError(f"{name} must be a positive finite number")
+    try:
+        result = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} must be a finite number") from exc
+    if not math.isfinite(result):
+        raise ValueError(f"{name} must be a finite number")
+    if result <= 0.0:
         raise ValueError(f"{name} must be a positive finite number")
     return result
 

@@ -454,6 +454,24 @@ def test_taker_depth_rejects_bool_and_non_finite_requested_quantity(quantity: fl
         )
 
 
+@pytest.mark.parametrize("quantity", ["1.0", 0.0, -1.0])
+def test_taker_depth_rejects_string_and_non_positive_requested_quantity(quantity: object) -> None:
+    with pytest.raises(ValueError, match="quantity must be a positive finite number"):
+        simulate_taker_depth_fill(
+            symbol="BTCUSDT",
+            side="buy",
+            quantity=quantity,
+            reference_price=100.0,
+            order_book=OrderBookSnapshot(
+                timestamp=_ts("2026-03-10T00:00:01Z"),
+                symbol="BTCUSDT",
+                bid=99.9,
+                ask=100.0,
+                ask_levels=(DepthLevel(price=100.0, quantity=1.0),),
+            ),
+        )
+
+
 @pytest.mark.parametrize(
     ("field", "value"),
     [
