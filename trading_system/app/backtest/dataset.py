@@ -778,8 +778,38 @@ def _validate_account_bps(value: object, *, field_path: str, path: Path) -> floa
     return number
 
 
+def _validate_spot_balance_total_parity(balance: dict, *, field_path: str, path: Path) -> None:
+    if not all(field in balance for field in ("free", "locked", "total")):
+        return
+    free = _validate_account_number(
+        balance["free"],
+        field_path=f"{field_path}.free",
+        path=path,
+        qualifier="non-negative finite",
+        minimum=0.0,
+    )
+    locked = _validate_account_number(
+        balance["locked"],
+        field_path=f"{field_path}.locked",
+        path=path,
+        qualifier="non-negative finite",
+        minimum=0.0,
+    )
+    total = _validate_account_number(
+        balance["total"],
+        field_path=f"{field_path}.total",
+        path=path,
+        qualifier="non-negative finite",
+        minimum=0.0,
+    )
+    if not math.isclose(total, free + locked, rel_tol=1e-12, abs_tol=1e-12):
+        raise ValueError(f"{field_path}.total must equal free + locked: {path}")
+
+
 def _validate_account_numeric_fields(payload: object, *, path: Path, field_path: str) -> None:
     if isinstance(payload, dict):
+        if field_path.startswith("account.spot.nonzero_balances["):
+            _validate_spot_balance_total_parity(payload, field_path=field_path, path=path)
         for key, value in payload.items():
             child_path = f"{field_path}.{key}"
             if (
