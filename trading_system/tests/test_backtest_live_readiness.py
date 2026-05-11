@@ -9888,6 +9888,25 @@ def test_live_readiness_gate_rejects_bool_min_passive_fill_rate(tmp_path: Path) 
     assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
 
 
+@pytest.mark.parametrize("threshold", [True, "0.95", float("nan"), float("inf")])
+def test_live_readiness_gate_rejects_invalid_evidence_coverage_thresholds(
+    tmp_path: Path,
+    threshold: object,
+) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+
+    report = build_live_readiness_gate_report(tmp_path, evidence_coverage_threshold=threshold)  # type: ignore[arg-type]
+
+    assert report["promotion_gate"]["invalid_config"] == [
+        {"field": "evidence_coverage_threshold", "value": threshold, "error": "invalid_threshold"}
+    ]
+    assert report["promotion_gate"]["checks"]["live_readiness_policy_config_valid"] is False
+    assert report["promotion_gate"]["checks"]["evidence_coverage_met"] is False
+    assert "live_readiness_policy_config_invalid" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
 
 def test_live_readiness_gate_rejects_negative_min_passive_fill_rate(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"

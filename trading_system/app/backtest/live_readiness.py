@@ -2649,6 +2649,8 @@ def build_live_readiness_gate_report(
         }
     chunk_dirs = sorted((path for path in root.iterdir() if _is_chunk_result_dir(path)), key=_natural_path_key)
     policy_invalid_config: list[dict[str, Any]] = []
+    policy_invalid_fields: set[str] = set()
+    policy_thresholds: dict[str, float | None] = {}
     for field, value in (
         ("evidence_coverage_threshold", evidence_coverage_threshold),
         ("exit_evidence_coverage_threshold", exit_evidence_coverage_threshold),
@@ -2656,10 +2658,13 @@ def build_live_readiness_gate_report(
     ):
         if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)):
             policy_invalid_config.append({"field": field, "value": value, "error": "invalid_threshold"})
+            policy_invalid_fields.add(field)
             continue
         if 0.0 <= float(value) <= 1.0:
+            policy_thresholds[field] = float(value)
             continue
         policy_invalid_config.append({"field": field, "value": value, "error": "out_of_range_threshold"})
+        policy_invalid_fields.add(field)
     for field, value in (
         ("max_setup_trade_share", max_setup_trade_share),
         ("max_symbol_trade_share", max_symbol_trade_share),
@@ -2669,13 +2674,26 @@ def build_live_readiness_gate_report(
         ("max_symbol_loss_abs_share", max_symbol_loss_abs_share),
     ):
         if value is None:
+            policy_thresholds[field] = None
             continue
         if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)):
             policy_invalid_config.append({"field": field, "value": value, "error": "invalid_threshold"})
+            policy_invalid_fields.add(field)
             continue
         if 0.0 <= float(value) <= 1.0:
+            policy_thresholds[field] = float(value)
             continue
         policy_invalid_config.append({"field": field, "value": value, "error": "out_of_range_threshold"})
+        policy_invalid_fields.add(field)
+    valid_evidence_coverage_threshold = policy_thresholds.get("evidence_coverage_threshold")
+    valid_exit_evidence_coverage_threshold = policy_thresholds.get("exit_evidence_coverage_threshold")
+    valid_max_exit_path_ambiguity_rate = policy_thresholds.get("max_exit_path_ambiguity_rate")
+    valid_max_setup_trade_share = policy_thresholds.get("max_setup_trade_share")
+    valid_max_symbol_trade_share = policy_thresholds.get("max_symbol_trade_share")
+    valid_max_setup_net_abs_share = policy_thresholds.get("max_setup_net_abs_share")
+    valid_max_symbol_net_abs_share = policy_thresholds.get("max_symbol_net_abs_share")
+    valid_max_setup_loss_abs_share = policy_thresholds.get("max_setup_loss_abs_share")
+    valid_max_symbol_loss_abs_share = policy_thresholds.get("max_symbol_loss_abs_share")
     all_trades: list[dict[str, Any]] = []
     chunk_performance: list[dict[str, Any]] = []
     for chunk_dir in chunk_dirs:
@@ -2801,22 +2819,36 @@ def build_live_readiness_gate_report(
     top_setup_loss_abs = _as_mapping(concentration.get("top_setup_by_loss_abs"))
     top_symbol_loss_abs = _as_mapping(concentration.get("top_symbol_by_loss_abs"))
     setup_concentration_met, setup_concentration_valid = _concentration_share_status(
-        top_setup, "trade_share", max_setup_trade_share
+        top_setup, "trade_share", valid_max_setup_trade_share
     )
     symbol_concentration_met, symbol_concentration_valid = _concentration_share_status(
-        top_symbol, "trade_share", max_symbol_trade_share
+        top_symbol, "trade_share", valid_max_symbol_trade_share
     )
     setup_net_abs_concentration_met, setup_net_abs_concentration_valid = _concentration_share_status(
-        top_setup_net_abs, "net_abs_share", max_setup_net_abs_share
+        top_setup_net_abs, "net_abs_share", valid_max_setup_net_abs_share
     )
     symbol_net_abs_concentration_met, symbol_net_abs_concentration_valid = _concentration_share_status(
-        top_symbol_net_abs, "net_abs_share", max_symbol_net_abs_share
+        top_symbol_net_abs, "net_abs_share", valid_max_symbol_net_abs_share
     )
     setup_loss_abs_concentration_met, setup_loss_abs_concentration_valid = _concentration_share_status(
-        top_setup_loss_abs, "loss_abs_share", max_setup_loss_abs_share
+        top_setup_loss_abs, "loss_abs_share", valid_max_setup_loss_abs_share
     )
     symbol_loss_abs_concentration_met, symbol_loss_abs_concentration_valid = _concentration_share_status(
-        top_symbol_loss_abs, "loss_abs_share", max_symbol_loss_abs_share
+        top_symbol_loss_abs, "loss_abs_share", valid_max_symbol_loss_abs_share
+    )
+    setup_concentration_met = setup_concentration_met and "max_setup_trade_share" not in policy_invalid_fields
+    symbol_concentration_met = symbol_concentration_met and "max_symbol_trade_share" not in policy_invalid_fields
+    setup_net_abs_concentration_met = (
+        setup_net_abs_concentration_met and "max_setup_net_abs_share" not in policy_invalid_fields
+    )
+    symbol_net_abs_concentration_met = (
+        symbol_net_abs_concentration_met and "max_symbol_net_abs_share" not in policy_invalid_fields
+    )
+    setup_loss_abs_concentration_met = (
+        setup_loss_abs_concentration_met and "max_setup_loss_abs_share" not in policy_invalid_fields
+    )
+    symbol_loss_abs_concentration_met = (
+        symbol_loss_abs_concentration_met and "max_symbol_loss_abs_share" not in policy_invalid_fields
     )
     concentration_buckets_valid = all(
         (
@@ -2864,11 +2896,26 @@ def build_live_readiness_gate_report(
         reasons.append("trade_side_price_pnl_inconsistent")
     if not _strict_valid_flag(trade_exit_reason_integrity):
         reasons.append("trade_exit_reason_invalid")
-    if evidence_coverage < evidence_coverage_threshold:
+    evidence_coverage_met = (
+        "evidence_coverage_threshold" not in policy_invalid_fields
+        and valid_evidence_coverage_threshold is not None
+        and evidence_coverage >= valid_evidence_coverage_threshold
+    )
+    exit_evidence_coverage_met = (
+        "exit_evidence_coverage_threshold" not in policy_invalid_fields
+        and valid_exit_evidence_coverage_threshold is not None
+        and exit_evidence_coverage >= valid_exit_evidence_coverage_threshold
+    )
+    exit_path_ambiguity_rate_met = (
+        "max_exit_path_ambiguity_rate" not in policy_invalid_fields
+        and valid_max_exit_path_ambiguity_rate is not None
+        and exit_path_ambiguity_rate <= valid_max_exit_path_ambiguity_rate
+    )
+    if not evidence_coverage_met:
         reasons.append("evidence_coverage_below_threshold")
-    if exit_evidence_coverage < exit_evidence_coverage_threshold:
+    if not exit_evidence_coverage_met:
         reasons.append("exit_evidence_coverage_below_threshold")
-    if exit_path_ambiguity_rate > max_exit_path_ambiguity_rate:
+    if not exit_path_ambiguity_rate_met:
         reasons.append("exit_path_ambiguity_rate_above_threshold")
     exit_path_artifacts = exit_path_reconciliation.get("artifacts")
     exit_path_artifacts_valid = exit_path_artifacts is None or isinstance(exit_path_artifacts, list)
@@ -3150,9 +3197,9 @@ def build_live_readiness_gate_report(
             "checks": {
                 "net_pnl_non_negative": net_pnl >= 0.0,
                 "live_readiness_policy_config_valid": not policy_invalid_config,
-                "evidence_coverage_met": evidence_coverage >= evidence_coverage_threshold,
-                "exit_evidence_coverage_met": exit_evidence_coverage >= exit_evidence_coverage_threshold,
-                "exit_path_ambiguity_rate_met": exit_path_ambiguity_rate <= max_exit_path_ambiguity_rate,
+                "evidence_coverage_met": evidence_coverage_met,
+                "exit_evidence_coverage_met": exit_evidence_coverage_met,
+                "exit_path_ambiguity_rate_met": exit_path_ambiguity_rate_met,
                 "exit_path_replay_rows_met": exit_path_replay_rows_met,
                 "exit_path_reconciliation_counters_valid": exit_path_reconciliation_types_valid,
                 "major_setup_buckets_non_negative": not major_negative,
