@@ -101,7 +101,7 @@ def test_materialized_dataset_row_source_rejects_non_plain_dict_source_trace_ite
         archive_importer._materialized_dataset_row_source([row])
 
 
-@pytest.mark.parametrize("source", [{123: "x"}, {" bad ": "x"}])
+@pytest.mark.parametrize("source", [{123: "x"}, {"": "x"}, {" bad ": "x"}])
 def test_materialized_dataset_row_source_rejects_noncanonical_source_canonical_keys(source: object) -> None:
     row = type("Row", (), {"meta": {"source": source}})()
 
@@ -109,6 +109,68 @@ def test_materialized_dataset_row_source_rejects_noncanonical_source_canonical_k
         ValueError,
         match="materialized dataset bundle metadata source keys must be canonical strings",
     ):
+        archive_importer._materialized_dataset_row_source([row])
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        {
+            "scope": archive_importer.PHASE1_IMPORTER_SCOPE,
+            "exchange": "binance",
+            "market": "futures",
+            "symbols": ("BTCUSDT",),
+            "series_keys": ["binance:futures:ohlcv:BTCUSDT:1h"],
+            "manifest_paths": ["/tmp/archive/raw-market/BTCUSDT/manifest.json"],
+        },
+        {
+            "scope": archive_importer.PHASE1_IMPORTER_SCOPE,
+            "exchange": "binance",
+            "market": "futures",
+            "symbols": [" BTCUSDT"],
+            "series_keys": ["binance:futures:ohlcv:BTCUSDT:1h"],
+            "manifest_paths": ["/tmp/archive/raw-market/BTCUSDT/manifest.json"],
+        },
+        {
+            "scope": archive_importer.PHASE1_IMPORTER_SCOPE,
+            "exchange": " binance",
+            "market": "futures",
+            "symbols": ["BTCUSDT"],
+            "series_keys": ["binance:futures:ohlcv:BTCUSDT:1h"],
+            "manifest_paths": ["/tmp/archive/raw-market/BTCUSDT/manifest.json"],
+        },
+        {
+            "scope": archive_importer.PHASE1_IMPORTER_SCOPE,
+            "exchange": "binance",
+            "market": "futures",
+            "symbols": ["BTCUSDT"],
+            "series_keys": SourceTraceMapping({"0": "binance:futures:ohlcv:BTCUSDT:1h"}),
+            "manifest_paths": ["/tmp/archive/raw-market/BTCUSDT/manifest.json"],
+        },
+        {
+            "scope": archive_importer.PHASE1_IMPORTER_SCOPE,
+            "exchange": "binance",
+            "market": "futures",
+            "symbols": ["BTCUSDT"],
+            "series_keys": ["binance:futures:ohlcv:BTCUSDT:1h"],
+            "manifest_paths": ["/tmp/archive/raw-market/BTCUSDT/manifest.json"],
+            "ohlcv_timeframes": SourceTraceMapping({"available": ["1h"]}),
+        },
+        {
+            "scope": archive_importer.PHASE1_IMPORTER_SCOPE,
+            "exchange": "binance",
+            "market": "futures",
+            "symbols": ["BTCUSDT"],
+            "series_keys": ["binance:futures:ohlcv:BTCUSDT:1h"],
+            "manifest_paths": ["/tmp/archive/raw-market/BTCUSDT/manifest.json"],
+            "unsafe": object(),
+        },
+    ],
+)
+def test_materialized_dataset_row_source_rejects_unsafe_source_trace_schema_values(source: object) -> None:
+    row = type("Row", (), {"meta": {"source": source}})()
+
+    with pytest.raises(ValueError, match="materialized dataset bundle metadata source"):
         archive_importer._materialized_dataset_row_source([row])
 
 

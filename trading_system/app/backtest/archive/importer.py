@@ -92,6 +92,21 @@ _DERIVATIVES_SNAPSHOT_CAMELCASE_NON_NEGATIVE_INT_FIELDS = frozenset(
         "openInterestCount",
     }
 )
+_MATERIALIZED_SOURCE_TRACE_KEYS = frozenset(
+    {
+        "scope",
+        "exchange",
+        "market",
+        "symbols",
+        "series_keys",
+        "manifest_paths",
+        "ohlcv_timeframes",
+        "execution_evidence",
+        "futures_context",
+    }
+)
+_MATERIALIZED_SOURCE_TRACE_LIST_FIELDS = frozenset({"symbols", "series_keys", "manifest_paths"})
+_MATERIALIZED_SOURCE_TRACE_OBJECT_FIELDS = frozenset({"ohlcv_timeframes", "execution_evidence", "futures_context"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -2337,12 +2352,50 @@ def _validate_material_account_open_position_execution_aliases(account_snapshot:
 
 def _materialized_dataset_row_source(rows: Sequence[Any]) -> dict[str, Any]:
     return _merged_import_trace(
-        _json_object_field(
+        _materialized_source_trace_item(
             row.meta.get("source") if row.meta.get("source") is not None else {},
             context="materialized dataset bundle metadata source",
         )
         for row in rows
     )
+
+
+def _materialized_source_trace_item(value: Any, *, context: str) -> dict[str, Any]:
+    source = _json_object_field(value, context=context)
+    for key, field_value in source.items():
+        if key not in _MATERIALIZED_SOURCE_TRACE_KEYS:
+            raise ValueError(f"{context}.{key} is unsupported")
+        if key in _MATERIALIZED_SOURCE_TRACE_LIST_FIELDS:
+            if not isinstance(field_value, list):
+                raise ValueError(f"{context}.{key} must be a list")
+            for index, item in enumerate(field_value):
+                _require_canonical_string(item, field=f"{context}.{key}[{index}]")
+            continue
+        if key in _MATERIALIZED_SOURCE_TRACE_OBJECT_FIELDS:
+            _require_materialized_source_trace_json_value(field_value, field=f"{context}.{key}")
+            continue
+        _require_canonical_string(field_value, field=f"{context}.{key}")
+    return source
+
+
+def _require_materialized_source_trace_json_value(value: Any, *, field: str) -> None:
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return
+    if type(value) is dict:
+        for key, item in value.items():
+            if not isinstance(key, str) or not key.strip() or key != key.strip():
+                raise ValueError(f"{field} keys must be canonical strings")
+            _require_materialized_source_trace_json_value(item, field=f"{field}.{key}")
+        return
+    if isinstance(value, list):
+        for index, item in enumerate(value):
+            _require_materialized_source_trace_json_value(item, field=f"{field}[{index}]")
+        return
+    if isinstance(value, Mapping):
+        raise ValueError(f"{field} must contain a JSON object")
+    if isinstance(value, (tuple, Sequence)) and not isinstance(value, (str, bytes, bytearray)):
+        raise ValueError(f"{field} must be a JSON list")
+    raise ValueError(f"{field} contains unsupported JSON value")
 
 
 def _archive_root_from_manifest_paths(manifest_paths: Sequence[str]) -> Path | None:
