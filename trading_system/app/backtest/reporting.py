@@ -404,8 +404,10 @@ def _promotion_metadata_sections(metadata: Mapping[str, Any]) -> dict[str, Any]:
     if raw is None:
         return {}
     if isinstance(raw, PromotionMetadata):
-        runtime_fields = _canonical_report_string_list(
-            list(raw.runtime_fields), field_name="promotion_metadata.runtime_fields"
+        runtime_fields = list(
+            _canonical_report_string_tuple(
+                raw.runtime_fields, field_name="promotion_metadata.runtime_fields"
+            )
         )
         rollback_target = _optional_canonical_report_string(
             raw.rollback_target, field_name="promotion_metadata.rollback_target"

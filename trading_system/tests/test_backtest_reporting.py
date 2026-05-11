@@ -19,6 +19,7 @@ from trading_system.app.backtest.types import (
     ExperimentParams,
     ExitPolicyParams,
     PortfolioDecisionLedgerRow,
+    PromotionMetadata,
     PortfolioScorecardRow,
     SampleWindow,
     SetupRewriteParams,
@@ -3885,6 +3886,29 @@ def test_render_llm_trend_breakout_report_rejects_invalid_promotion_runtime_fiel
                 "candidate_rows": [],
             },
             metadata={"snapshot_count": 2, "promotion_metadata": {"runtime_fields": [True]}},
+        )
+
+
+@pytest.mark.parametrize("runtime_fields", ["regime", ["regime"]])
+def test_render_llm_trend_breakout_report_rejects_malformed_promotion_metadata_runtime_fields(
+    runtime_fields: object,
+) -> None:
+    with pytest.raises(ValueError, match="promotion_metadata.runtime_fields must be a tuple"):
+        reporting.render_llm_trend_breakout_report(
+            experiment_name="llm_trend_breakout",
+            experiment={
+                "summary": {
+                    "technical_candidate_count": 2,
+                    "accepted_candidate_count": 1,
+                    "rejected_candidate_count": 1,
+                    "acceptance_rate": 0.5,
+                },
+                "candidate_rows": [],
+            },
+            metadata={
+                "snapshot_count": 2,
+                "promotion_metadata": PromotionMetadata(runtime_fields=runtime_fields),  # type: ignore[arg-type]
+            },
         )
 
 
