@@ -354,11 +354,12 @@ def simulate_maker_limit_fill(
     trades: tuple[TradePrint, ...] = (),
 ) -> ExecutionFill:
     validated_limit_price = _positive_finite_float("limit_price", limit_price)
+    validated_latency_ms = _non_negative_finite_float("latency_ms", latency_ms)
     uses_queue_model = (
         queue_ahead_quantity is not None
         or placement_timestamp is not None
         or timeout_seconds is not None
-        or latency_ms
+        or validated_latency_ms > 0.0
         or cancel_replace_timestamp is not None
     )
     if uses_queue_model:
@@ -370,7 +371,7 @@ def simulate_maker_limit_fill(
             queue_ahead_quantity=queue_ahead_quantity,
             placement_timestamp=placement_timestamp,
             timeout_seconds=timeout_seconds,
-            latency_ms=latency_ms,
+            latency_ms=validated_latency_ms,
             cancel_replace_timestamp=cancel_replace_timestamp,
             order_books=order_books,
             trades=trades,
@@ -680,6 +681,18 @@ def _positive_quantity_float(name: str, value: Any) -> float:
         raise ValueError(f"{name} must be a finite number")
     if result <= 0.0:
         raise ValueError(f"{name} must be a positive finite number")
+    return result
+
+
+def _non_negative_finite_float(name: str, value: Any) -> float:
+    if isinstance(value, (bool, str)):
+        raise ValueError(f"{name} must be a non-negative finite number")
+    try:
+        result = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} must be a non-negative finite number") from exc
+    if not math.isfinite(result) or result < 0.0:
+        raise ValueError(f"{name} must be a non-negative finite number")
     return result
 
 

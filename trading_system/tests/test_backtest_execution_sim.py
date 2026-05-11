@@ -186,6 +186,28 @@ def test_maker_latency_ignores_trade_prints_before_effective_placement_time() ->
     assert "latency_applied" in fill.maker_reasons
 
 
+@pytest.mark.parametrize("latency_ms", [True, "50", math.nan, math.inf, -math.inf, -1.0])
+def test_maker_latency_rejects_invalid_latency_ms(latency_ms: object) -> None:
+    with pytest.raises(ValueError, match="latency_ms must be a non-negative finite number"):
+        simulate_maker_limit_fill(
+            symbol="BTCUSDT",
+            side="buy",
+            limit_price=99.5,
+            quantity=1.0,
+            placement_timestamp=_ts("2026-03-10T00:00:00Z"),
+            latency_ms=latency_ms,
+            trades=(
+                TradePrint(
+                    timestamp=_ts("2026-03-10T00:00:00.060000Z"),
+                    symbol="BTCUSDT",
+                    price=99.5,
+                    quantity=1.0,
+                    side="sell",
+                ),
+            ),
+        )
+
+
 def test_maker_cancel_replace_before_fill_stops_later_prints() -> None:
     fill = simulate_maker_limit_fill(
         symbol="BTCUSDT",
