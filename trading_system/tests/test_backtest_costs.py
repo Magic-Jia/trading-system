@@ -60,3 +60,34 @@ def test_funding_cost_rejects_non_string_side_and_non_numeric_rate() -> None:
             holding_hours=8.0,
             costs=costs,
         )
+
+
+@pytest.mark.parametrize(
+    ("funding_rate", "holding_hours", "field_name"),
+    [
+        (True, 8.0, "funding_rate"),
+        ("0.001", 8.0, "funding_rate"),
+        (math.nan, 8.0, "funding_rate"),
+        (math.inf, 8.0, "funding_rate"),
+        (0.001, True, "holding_hours"),
+        (0.001, "8.0", "holding_hours"),
+        (0.001, math.nan, "holding_hours"),
+        (0.001, math.inf, "holding_hours"),
+    ],
+)
+def test_funding_cost_rejects_invalid_numeric_inputs_before_zero_funding_short_circuit(
+    funding_rate: object,
+    holding_hours: object,
+    field_name: str,
+) -> None:
+    costs = BacktestCosts(funding_mode=None)
+
+    with pytest.raises(ValueError, match=rf"{field_name} must be a finite number"):
+        funding_cost(
+            position_notional=1_000.0,
+            market_type="spot",
+            side="long",
+            funding_rate=funding_rate,  # type: ignore[arg-type]
+            holding_hours=holding_hours,  # type: ignore[arg-type]
+            costs=costs,
+        )
