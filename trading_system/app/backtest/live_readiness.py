@@ -2536,6 +2536,17 @@ def _strict_bucket_float(bucket: Mapping[str, Any], key: str) -> float:
     return parsed
 
 
+def _strict_bucket_ratio(bucket: Mapping[str, Any], key: str, *, field_path: str | None = None) -> float:
+    field = field_path or key
+    value = bucket.get(key, 0.0)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{field} must be a bounded non-negative ratio")
+    parsed = float(value)
+    if not math.isfinite(parsed) or parsed < 0.0 or parsed > 1.0:
+        raise ValueError(f"{field} must be a bounded non-negative ratio")
+    return parsed
+
+
 def _concentration_share_status(
     bucket: Mapping[str, Any] | None,
     share_key: str,
@@ -3776,30 +3787,33 @@ def render_live_readiness_markdown(report: Mapping[str, Any]) -> str:
         failure_buckets = _as_mapping(postmortem.get("by_failure_taxonomy"))
         for key, bucket in sorted(failure_buckets.items()):
             mapped_bucket = _as_mapping(bucket)
+            field_path = f"postmortem.by_failure_taxonomy.{key}.win_rate"
             lines.append(
                     f"- {key}: trades={_strict_bucket_int(mapped_bucket, 'trades')}, "
                     f"net={_strict_bucket_float(mapped_bucket, 'net'):.2f}, "
-                    f"win_rate={_strict_bucket_float(mapped_bucket, 'win_rate'):.2%}"
+                    f"win_rate={_strict_bucket_ratio(mapped_bucket, 'win_rate', field_path=field_path):.2%}"
             )
         setup_buckets = _as_mapping(postmortem.get("by_setup_type"))
         if setup_buckets:
             lines.extend(["", "### Setup Type Summary"])
             for key, bucket in sorted(setup_buckets.items()):
                 mapped_bucket = _as_mapping(bucket)
+                field_path = f"postmortem.by_setup_type.{key}.win_rate"
                 lines.append(
                     f"- {key}: trades={_strict_bucket_int(mapped_bucket, 'trades')}, "
                     f"net={_strict_bucket_float(mapped_bucket, 'net'):.2f}, "
-                    f"win_rate={_strict_bucket_float(mapped_bucket, 'win_rate'):.2%}"
+                    f"win_rate={_strict_bucket_ratio(mapped_bucket, 'win_rate', field_path=field_path):.2%}"
                 )
         symbol_buckets = _as_mapping(postmortem.get("by_symbol"))
         if symbol_buckets:
             lines.extend(["", "### Symbol Summary"])
             for key, bucket in sorted(symbol_buckets.items()):
                 mapped_bucket = _as_mapping(bucket)
+                field_path = f"postmortem.by_symbol.{key}.win_rate"
                 lines.append(
                     f"- {key}: trades={_strict_bucket_int(mapped_bucket, 'trades')}, "
                     f"net={_strict_bucket_float(mapped_bucket, 'net'):.2f}, "
-                    f"win_rate={_strict_bucket_float(mapped_bucket, 'win_rate'):.2%}"
+                    f"win_rate={_strict_bucket_ratio(mapped_bucket, 'win_rate', field_path=field_path):.2%}"
                 )
     setup_quality = _as_mapping(report.get("setup_quality_gate"))
     promotion_bundle_integrity = _as_mapping(report.get("promotion_bundle_integrity"))

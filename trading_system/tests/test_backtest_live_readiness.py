@@ -705,6 +705,30 @@ def test_markdown_renderer_rejects_non_strict_postmortem_buckets() -> None:
         render_live_readiness_markdown(report)
 
 
+def test_markdown_renderer_rejects_negative_postmortem_bucket_win_rate() -> None:
+    report = {
+        "promotion_gate": {"decision": "hold", "reasons": [], "checks": {}},
+        "totals": {
+            "trade_count": 1,
+            "net_pnl": 1.0,
+            "evidence_coverage": 1.0,
+            "exit_evidence_coverage": 1.0,
+            "exit_path_ambiguity_rate": 0.0,
+        },
+        "trade_postmortem_summary": {
+            "summary": {"trades": 1, "net_pnl": 1.0, "cost_total": 0.0},
+            "by_failure_taxonomy": {"cost_drag": {"trades": 1, "net": -1.0, "win_rate": -0.01}},
+        },
+        "caveats": [],
+    }
+
+    with pytest.raises(
+        ValueError,
+        match=r"postmortem\.by_failure_taxonomy\.cost_drag\.win_rate must be a bounded non-negative ratio",
+    ):
+        render_live_readiness_markdown(report)
+
+
 def test_markdown_renderer_rejects_non_strict_postmortem_reconciliation() -> None:
     report = {
         "promotion_gate": {"decision": "hold", "reasons": [], "checks": {}},
