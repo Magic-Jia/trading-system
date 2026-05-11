@@ -7550,6 +7550,27 @@ def test_live_readiness_gate_rejects_out_of_range_exit_path_ambiguity_threshold(
     assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
 
 
+@pytest.mark.parametrize("required", ["false", 1, float("nan"), float("inf")])
+def test_live_readiness_gate_rejects_non_bool_runtime_safety_requirement_policy_config(
+    tmp_path: Path,
+    required: object,
+) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+
+    report = build_live_readiness_gate_report(
+        tmp_path,
+        require_runtime_safety_evidence=required,  # type: ignore[arg-type]
+    )
+
+    assert report["promotion_gate"]["checks"]["live_readiness_policy_config_valid"] is False
+    assert report["promotion_gate"]["invalid_config"] == [
+        {"field": "require_runtime_safety_evidence", "value": required, "error": "invalid_bool"}
+    ]
+    assert "live_readiness_policy_config_invalid" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
 @pytest.mark.parametrize("threshold", [True, "2", 1.5, float("nan"), float("inf")])
 def test_live_readiness_gate_rejects_invalid_min_setup_trade_count_as_policy_config(
     tmp_path: Path,

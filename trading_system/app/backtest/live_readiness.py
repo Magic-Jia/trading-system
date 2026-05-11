@@ -2651,6 +2651,7 @@ def build_live_readiness_gate_report(
     policy_invalid_config: list[dict[str, Any]] = []
     policy_invalid_fields: set[str] = set()
     policy_thresholds: dict[str, float | None] = {}
+    policy_requirements: dict[str, bool] = {}
     for field, value in (
         ("evidence_coverage_threshold", evidence_coverage_threshold),
         ("exit_evidence_coverage_threshold", exit_evidence_coverage_threshold),
@@ -2685,6 +2686,20 @@ def build_live_readiness_gate_report(
             continue
         policy_invalid_config.append({"field": field, "value": value, "error": "out_of_range_threshold"})
         policy_invalid_fields.add(field)
+    for field, value in (
+        ("require_passive_calibration", require_passive_calibration),
+        ("require_exit_path_replay_rows", require_exit_path_replay_rows),
+        ("require_validation_evidence", require_validation_evidence),
+        ("require_microstructure_evidence", require_microstructure_evidence),
+        ("require_runtime_safety_evidence", require_runtime_safety_evidence),
+        ("require_promotion_bundle_integrity", require_promotion_bundle_integrity),
+    ):
+        if isinstance(value, bool):
+            policy_requirements[field] = value
+            continue
+        policy_invalid_config.append({"field": field, "value": value, "error": "invalid_bool"})
+        policy_invalid_fields.add(field)
+        policy_requirements[field] = False
     if min_setup_trade_count is not None:
         if (
             isinstance(min_setup_trade_count, bool)
@@ -2727,13 +2742,19 @@ def build_live_readiness_gate_report(
         min_setup_trade_count=min_setup_trade_count,
         banned_setup_types=banned_setup_types,
     )
-    runtime_safety_gate = _runtime_safety_gate(chunk_dirs, required=require_runtime_safety_evidence)
-    microstructure_gate = _microstructure_gate(chunk_dirs, required=require_microstructure_evidence)
-    validation_gate = _validation_gate(chunk_dirs, required=require_validation_evidence)
+    runtime_safety_gate = _runtime_safety_gate(
+        chunk_dirs,
+        required=policy_requirements["require_runtime_safety_evidence"],
+    )
+    microstructure_gate = _microstructure_gate(
+        chunk_dirs,
+        required=policy_requirements["require_microstructure_evidence"],
+    )
+    validation_gate = _validation_gate(chunk_dirs, required=policy_requirements["require_validation_evidence"])
     setup_rewrite_diagnostic = _setup_rewrite_diagnostic(chunk_dirs)
     passive_calibration = _passive_calibration_diagnostic(
         chunk_dirs,
-        required=require_passive_calibration,
+        required=policy_requirements["require_passive_calibration"],
         min_attempts=min_passive_calibration_attempts,
         min_fill_rate=min_passive_fill_rate,
     )
@@ -2763,7 +2784,10 @@ def build_live_readiness_gate_report(
     exit_evidence_count = sum(1 for trade in all_trades if _exit_evidence_live_grade(trade))
     exit_evidence_coverage = exit_evidence_count / trade_count if trade_count else 0.0
     exit_path_replay = audit_exit_path_replay(all_trades)
-    exit_path_reconciliation = _exit_path_replay_reconciliation(chunk_dirs, required=require_exit_path_replay_rows)
+    exit_path_reconciliation = _exit_path_replay_reconciliation(
+        chunk_dirs,
+        required=policy_requirements["require_exit_path_replay_rows"],
+    )
     exit_path_counts = _as_mapping(exit_path_replay.get("counts"))
     exit_path_ambiguous_count = _strict_count_int(
         exit_path_counts,
@@ -2876,7 +2900,7 @@ def build_live_readiness_gate_report(
         )
     )
     reasons: list[str] = []
-    promotion_bundle_integrity_enforced = require_promotion_bundle_integrity or bool(
+    promotion_bundle_integrity_enforced = policy_requirements["require_promotion_bundle_integrity"] or bool(
         promotion_bundle_integrity.get("manifest_present")
     )
     if promotion_bundle_integrity_enforced and not bool(promotion_bundle_integrity.get("verified")):
@@ -2980,7 +3004,9 @@ def build_live_readiness_gate_report(
         and exit_path_provenance_present_type_valid
     )
     exit_path_replay_rows_met = (
-        exit_path_matched if exit_path_artifacts and exit_path_reconciliation_types_valid else not require_exit_path_replay_rows
+        exit_path_matched
+        if exit_path_artifacts and exit_path_reconciliation_types_valid
+        else not policy_requirements["require_exit_path_replay_rows"]
     )
     if not exit_path_reconciliation_types_valid:
         exit_path_replay_rows_met = False
