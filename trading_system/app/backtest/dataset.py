@@ -77,6 +77,10 @@ _ACCOUNT_SPOT_BALANCE_NON_NEGATIVE_NUMBER_FIELDS = (
     "locked",
     "total",
 )
+_ACCOUNT_BALANCE_WALLET_TOTAL_FIELDS = (
+    "wallet_balance",
+    "walletBalance",
+)
 _ACCOUNT_POSITIVE_NUMBER_FIELDS = (
     "exposure_value",
     "exposureValue",
@@ -810,6 +814,38 @@ def _validate_spot_balance_total_parity(balance: dict, *, field_path: str, path:
         raise ValueError(f"{field_path}.total must equal free + locked: {path}")
 
 
+def _validate_account_balance_wallet_total_parity(balance: dict, *, field_path: str, path: Path) -> None:
+    if not all(field in balance for field in ("free", "locked")):
+        return
+    free = _validate_account_number(
+        balance["free"],
+        field_path=f"{field_path}.free",
+        path=path,
+        qualifier="non-negative finite",
+        minimum=0.0,
+    )
+    locked = _validate_account_number(
+        balance["locked"],
+        field_path=f"{field_path}.locked",
+        path=path,
+        qualifier="non-negative finite",
+        minimum=0.0,
+    )
+    total = free + locked
+    for field in _ACCOUNT_BALANCE_WALLET_TOTAL_FIELDS:
+        if field not in balance:
+            continue
+        wallet_total = _validate_account_number(
+            balance[field],
+            field_path=f"{field_path}.{field}",
+            path=path,
+            qualifier="non-negative finite",
+            minimum=0.0,
+        )
+        if not math.isclose(wallet_total, total, rel_tol=1e-12, abs_tol=1e-12):
+            raise ValueError(f"{field_path}.{field} must equal free + locked: {path}")
+
+
 def _account_first_present_number(payload: dict, *fields: str, path: Path, field_path: str) -> tuple[str, float] | None:
     for field in fields:
         if field in payload:
@@ -863,6 +899,8 @@ def _validate_account_numeric_fields(payload: object, *, path: Path, field_path:
     if isinstance(payload, dict):
         if field_path.startswith("account.spot.nonzero_balances["):
             _validate_spot_balance_total_parity(payload, field_path=field_path, path=path)
+        if field_path.startswith("account.balances["):
+            _validate_account_balance_wallet_total_parity(payload, field_path=field_path, path=path)
         for key, value in payload.items():
             child_path = f"{field_path}.{key}"
             if (
