@@ -319,6 +319,18 @@ def test_maker_limit_rejects_invalid_limit_price(limit_price: object) -> None:
         )
 
 
+@pytest.mark.parametrize("quantity", [True, "1.0", math.nan, math.inf, -math.inf, 0.0, -1.0])
+def test_maker_limit_rejects_invalid_quantity(quantity: object) -> None:
+    with pytest.raises(ValueError, match="quantity must be a positive finite number"):
+        simulate_maker_limit_fill(
+            symbol="BTCUSDT",
+            side="buy",
+            limit_price=99.5,
+            quantity=quantity,
+            trades=(TradePrint(timestamp=_ts("2026-03-10T00:00:01Z"), symbol="BTCUSDT", price=99.5, quantity=1.0),),
+        )
+
+
 def test_taker_uses_best_ask_for_buy_when_orderbook_is_available() -> None:
     fill = simulate_taker_fill(
         symbol="BTCUSDT",

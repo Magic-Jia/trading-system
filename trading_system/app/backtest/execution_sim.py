@@ -354,6 +354,7 @@ def simulate_maker_limit_fill(
     trades: tuple[TradePrint, ...] = (),
 ) -> ExecutionFill:
     validated_limit_price = _positive_finite_float("limit_price", limit_price)
+    validated_quantity = _positive_finite_float("quantity", quantity)
     validated_latency_ms = _non_negative_finite_float("latency_ms", latency_ms)
     validated_timeout_seconds = (
         _non_negative_finite_float("timeout_seconds", timeout_seconds) if timeout_seconds is not None else None
@@ -370,7 +371,7 @@ def simulate_maker_limit_fill(
             symbol=symbol,
             side=side,
             limit_price=validated_limit_price,
-            quantity=quantity,
+            quantity=validated_quantity,
             queue_ahead_quantity=queue_ahead_quantity,
             placement_timestamp=placement_timestamp,
             timeout_seconds=validated_timeout_seconds,
@@ -386,11 +387,11 @@ def simulate_maker_limit_fill(
         if not _crosses_limit(side=side, price=trade.price, limit_price=validated_limit_price):
             continue
         filled_qty += max(0.0, float(trade.quantity))
-        if filled_qty >= quantity:
+        if filled_qty >= validated_quantity:
             return ExecutionFill(
                 symbol=symbol,
                 side=side,
-                quantity=quantity,
+                quantity=validated_quantity,
                 filled=True,
                 fill_price=validated_limit_price,
                 fill_model="maker_orderbook_trade_evidence",
@@ -407,7 +408,7 @@ def simulate_maker_limit_fill(
             return ExecutionFill(
                 symbol=symbol,
                 side=side,
-                quantity=quantity,
+                quantity=validated_quantity,
                 filled=True,
                 fill_price=validated_limit_price,
                 fill_model="maker_orderbook_trade_evidence",
@@ -420,7 +421,7 @@ def simulate_maker_limit_fill(
     return ExecutionFill(
         symbol=symbol,
         side=side,
-        quantity=quantity,
+        quantity=validated_quantity,
         filled=False,
         fill_price=None,
         fill_model="maker_orderbook_trade_evidence",
