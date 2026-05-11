@@ -4252,6 +4252,26 @@ def test_validate_phase1_imported_dataset_root_rejects_non_string_manifest_bundl
         validate_phase1_imported_dataset_root(dataset_root)
 
 
+def test_validate_phase1_imported_dataset_root_rejects_noncanonical_manifest_bundle_timestamp_shape(
+    tmp_path: Path,
+) -> None:
+    archive_root = tmp_path / "archive"
+    dataset_root = tmp_path / "dataset"
+    _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT")
+
+    import_phase1_archive_dataset_root(archive_root, dataset_root)
+    manifest_path = dataset_root / "import_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["bundle_timestamps"] = [
+        timestamp.replace("Z", "+00:00")
+        for timestamp in manifest["bundle_timestamps"]
+    ]
+    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="root manifest bundle_timestamps entries must be canonical UTC timestamps"):
+        validate_phase1_imported_dataset_root(dataset_root)
+
+
 def test_validate_phase1_imported_dataset_root_rejects_noncanonical_manifest_archive_root(tmp_path: Path) -> None:
     archive_root = tmp_path / "archive"
     dataset_root = tmp_path / "dataset"

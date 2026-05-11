@@ -2554,6 +2554,28 @@ def _require_phase1_root_manifest_paths_under_dataset_root(
             ) from exc
 
 
+def _phase1_root_manifest_canonical_utc_timestamps(
+    manifest: Mapping[str, Any],
+    field: str,
+    *,
+    manifest_path: Path,
+) -> tuple[datetime, ...]:
+    timestamps: list[datetime] = []
+    for value in _phase1_root_manifest_canonical_strings(manifest, field, manifest_path=manifest_path):
+        try:
+            parsed = _utc_datetime(value)
+        except ValueError as exc:
+            raise ValueError(
+                f"materialized dataset root manifest {field} entries must be canonical UTC timestamps: {manifest_path}"
+            ) from exc
+        if value != _utc_timestamp(parsed):
+            raise ValueError(
+                f"materialized dataset root manifest {field} entries must be canonical UTC timestamps: {manifest_path}"
+            )
+        timestamps.append(parsed)
+    return tuple(timestamps)
+
+
 def validate_phase1_imported_dataset_root(
     dataset_root: str | Path,
     *,
@@ -2697,13 +2719,10 @@ def validate_phase1_imported_dataset_root(
                 "materialized dataset root manifest bundle_dirs did not round-trip: "
                 f"expected {manifest_bundle_dirs}, loaded {loaded_bundle_dirs}"
             )
-        manifest_timestamps = tuple(
-            _utc_datetime(value)
-            for value in _phase1_root_manifest_canonical_strings(
-                root_manifest,
-                "bundle_timestamps",
-                manifest_path=manifest_path,
-            )
+        manifest_timestamps = _phase1_root_manifest_canonical_utc_timestamps(
+            root_manifest,
+            "bundle_timestamps",
+            manifest_path=manifest_path,
         )
         if loaded_timestamps != manifest_timestamps:
             raise ValueError(
