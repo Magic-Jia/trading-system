@@ -500,7 +500,7 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
             invalid_metadata.append(f"{rel_path}:sha256")
         elif actual_sha != expected_sha:
             sha_mismatches.append(rel_path)
-        if not isinstance(expected_bytes_raw, int) or isinstance(expected_bytes_raw, bool):
+        if type(expected_bytes_raw) is not int:
             invalid_metadata.append(f"{rel_path}:bytes")
             expected_bytes = None
         else:

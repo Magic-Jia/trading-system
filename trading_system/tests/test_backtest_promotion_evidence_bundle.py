@@ -643,6 +643,41 @@ def test_bundle_verifier_rejects_artifact_bytes_and_hash_metadata_domain(
     assert expected_reason in result["manifest_errors"]
 
 
+def test_bundle_verifier_rejects_artifact_bytes_int_subclass(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class ArtifactBytes(int):
+        pass
+
+    source = tmp_path / "source"
+    source.mkdir()
+    for name in REQUIRED_ARTIFACTS:
+        _write_json(source / name, {"artifact": name, "synthetic": True})
+    bundle_dir = collect_promotion_evidence_bundle(
+        source,
+        tmp_path / "bundle",
+        candidate_id="candidate-1",
+        evidence_source={"type": "promotion_bundle_export", "run_id": "bundle-1"},
+    )
+    manifest_path = bundle_dir / "promotion_evidence_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    artifact_path = REQUIRED_ARTIFACTS[0]
+    manifest["artifacts"][0]["bytes"] = ArtifactBytes(manifest["artifacts"][0]["bytes"])
+
+    def load_manifest_with_bytes_subclass(_text: str) -> dict:
+        return manifest
+
+    monkeypatch.setattr(promotion_bundle.json, "loads", load_manifest_with_bytes_subclass)
+
+    result = verify_promotion_evidence_bundle(bundle_dir)
+
+    assert result["verified"] is False
+    assert result["invalid_artifact_metadata"] == [f"{artifact_path}:bytes"]
+    assert "artifact_metadata_invalid" in result["manifest_errors"]
+    assert "artifact_bytes_invalid_domain" in result["manifest_errors"]
+
+
 def test_bundle_verifier_rejects_duplicate_artifact_manifest_entries(tmp_path: Path) -> None:
     source = tmp_path / "source"
     source.mkdir()
