@@ -2781,6 +2781,22 @@ def test_engine_filter_ablation_report_rejects_boolean_accepted_allocations() ->
         )
 
 
+def test_engine_filter_ablation_report_rejects_list_coerced_performance_payload() -> None:
+    with pytest.raises(ValueError, match="variants.trend_only.performance must be an object"):
+        cli.render_engine_filter_ablation_report(
+            experiment_name="engine_filter_ablation",
+            metadata={"snapshot_count": 1},
+            experiment={
+                "variants": {
+                    "trend_only": {
+                        "funnel": {"accepted_allocations": 1},
+                        "performance": [("bucket_level_pnl", 0.01)],
+                    }
+                }
+            },
+        )
+
+
 
 def test_rotation_suppression_report_rejects_boolean_policy_pnl() -> None:
     with pytest.raises(ValueError, match="policies.current.bucket_level_pnl must be a finite number"):

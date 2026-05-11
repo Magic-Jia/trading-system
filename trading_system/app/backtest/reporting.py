@@ -1175,9 +1175,16 @@ def render_engine_filter_ablation_report(
     if not isinstance(raw_variants, Mapping):
         raise ValueError("variants must be an object")
     variants = dict(raw_variants)
+
+    def bucket_level_pnl(variant_name: str, payload: Mapping[str, Any]) -> float:
+        performance = payload.get("performance", {})
+        if not isinstance(performance, Mapping):
+            raise ValueError(f"variants.{variant_name}.performance must be an object")
+        return dict(performance).get("bucket_level_pnl", 0.0)
+
     best_variant, best_bucket_pnl = _variant_with_best_metric(
         variants,
-        metric_fn=lambda _name, payload: dict(payload.get("performance", {})).get("bucket_level_pnl", 0.0),
+        metric_fn=bucket_level_pnl,
     )
     best_payload = dict(variants.get(best_variant, {})) if best_variant is not None else {}
     raw_best_funnel = best_payload.get("funnel", {})
