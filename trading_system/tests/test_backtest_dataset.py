@@ -777,6 +777,21 @@ def test_validate_account_snapshot_payload_rejects_dict_subclass_open_position_e
         validate_account_snapshot_payload(account_snapshot, path=tmp_path / "account_snapshot.json")
 
 
+def test_validate_account_snapshot_payload_rejects_string_subclass_quote_currency(
+    tmp_path: Path,
+) -> None:
+    class AssetCode(str):
+        pass
+
+    account_snapshot = {
+        "equity": 100000.0,
+        "quoteCurrency": AssetCode("USDT"),
+    }
+
+    with pytest.raises(ValueError, match=r"account\.quoteCurrency must be an uppercase asset code"):
+        validate_account_snapshot_payload(account_snapshot, path=tmp_path / "account_snapshot.json")
+
+
 @pytest.mark.parametrize(
     ("field", "value", "expected_message"),
     [

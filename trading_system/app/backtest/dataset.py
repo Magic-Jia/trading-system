@@ -702,7 +702,7 @@ def _require_account_uppercase_canonical_string(value: object, *, field_path: st
 
 def _require_account_asset_code(value: object, *, field_path: str, path: Path) -> str:
     if (
-        not isinstance(value, str)
+        type(value) is not str
         or not value
         or value != value.strip()
         or _ACCOUNT_ASSET_CODE_RE.fullmatch(value) is None
