@@ -293,6 +293,20 @@ def test_taker_uses_best_ask_for_buy_when_orderbook_is_available() -> None:
     assert fill.fill_quality == "evidence_backed"
 
 
+@pytest.mark.parametrize("ask", [True, "100.1", math.nan, math.inf, -math.inf, 0.0, -1.0])
+def test_taker_rejects_invalid_best_ask_price(ask: object) -> None:
+    with pytest.raises(ValueError, match="order_book.ask must be a positive finite number"):
+        simulate_taker_fill(
+            symbol="BTCUSDT",
+            side="buy",
+            quantity=1.0,
+            reference_price=100.0,
+            order_books=(
+                OrderBookSnapshot(timestamp=_ts("2026-03-10T00:00:01Z"), symbol="BTCUSDT", bid=99.9, ask=ask),
+            ),
+        )
+
+
 def test_taker_depth_buy_consumes_multiple_ask_levels_with_weighted_average() -> None:
     fill = simulate_taker_depth_fill(
         symbol="BTCUSDT",

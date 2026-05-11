@@ -164,17 +164,17 @@ def simulate_taker_fill(
                 order_book=book,
             )
         if side == "buy":
-            price = book.ask
+            price = _positive_finite_float("order_book.ask", book.ask)
             source: ExecutionPriceSource = "best_ask"
         else:
-            price = book.bid
+            price = _positive_finite_float("order_book.bid", book.bid)
             source = "best_bid"
         return ExecutionFill(
             symbol=symbol,
             side=side,
             quantity=quantity,
             filled=True,
-            fill_price=float(price),
+            fill_price=price,
             fill_model="taker_orderbook",
             execution_price_source=source,
             fill_quality="evidence_backed",
@@ -182,7 +182,7 @@ def simulate_taker_fill(
             evidence_timestamp=book.timestamp,
             requested_quantity=quantity,
             filled_quantity=quantity if quantity > 0.0 else None,
-            filled_notional=(quantity * float(price)) if quantity > 0.0 else None,
+            filled_notional=(quantity * price) if quantity > 0.0 else None,
             unfilled_quantity=0.0 if quantity > 0.0 else None,
             depth_levels_consumed=1 if quantity > 0.0 else None,
         )
