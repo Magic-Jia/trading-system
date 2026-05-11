@@ -2609,6 +2609,30 @@ def _phase1_root_manifest_canonical_utc_timestamps(
     return tuple(timestamps)
 
 
+def _phase1_root_manifest_canonical_utc_timestamp(
+    manifest: Mapping[str, Any],
+    field: str,
+    *,
+    manifest_path: Path,
+) -> datetime:
+    value = manifest.get(field)
+    if not isinstance(value, str) or not value or value != value.strip():
+        raise ValueError(
+            f"materialized dataset root manifest {field} must be a canonical UTC timestamp: {manifest_path}"
+        )
+    try:
+        parsed = _utc_datetime(value)
+    except ValueError as exc:
+        raise ValueError(
+            f"materialized dataset root manifest {field} must be a canonical UTC timestamp: {manifest_path}"
+        ) from exc
+    if value != _utc_timestamp(parsed):
+        raise ValueError(
+            f"materialized dataset root manifest {field} must be a canonical UTC timestamp: {manifest_path}"
+        )
+    return parsed
+
+
 def validate_phase1_imported_dataset_root(
     dataset_root: str | Path,
     *,
@@ -2762,25 +2786,25 @@ def validate_phase1_imported_dataset_root(
                 "materialized dataset root manifest bundle_timestamps did not round-trip: "
                 f"expected {manifest_timestamps}, loaded {loaded_timestamps}"
             )
-        start_timestamp = _phase1_root_manifest_canonical_string(
+        start_timestamp = _phase1_root_manifest_canonical_utc_timestamp(
             root_manifest,
             "start_timestamp",
             manifest_path=manifest_path,
         )
-        if start_timestamp != _utc_timestamp(rows[0].timestamp):
+        if start_timestamp != rows[0].timestamp:
             raise ValueError(
                 "materialized dataset root manifest start_timestamp did not round-trip: "
-                f"expected {_utc_timestamp(rows[0].timestamp)}, loaded {start_timestamp}"
+                f"expected {_utc_timestamp(rows[0].timestamp)}, loaded {_utc_timestamp(start_timestamp)}"
             )
-        end_timestamp = _phase1_root_manifest_canonical_string(
+        end_timestamp = _phase1_root_manifest_canonical_utc_timestamp(
             root_manifest,
             "end_timestamp",
             manifest_path=manifest_path,
         )
-        if end_timestamp != _utc_timestamp(rows[-1].timestamp):
+        if end_timestamp != rows[-1].timestamp:
             raise ValueError(
                 "materialized dataset root manifest end_timestamp did not round-trip: "
-                f"expected {_utc_timestamp(rows[-1].timestamp)}, loaded {end_timestamp}"
+                f"expected {_utc_timestamp(rows[-1].timestamp)}, loaded {_utc_timestamp(end_timestamp)}"
             )
 
     return rows

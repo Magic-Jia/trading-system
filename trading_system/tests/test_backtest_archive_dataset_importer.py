@@ -4378,6 +4378,30 @@ def test_validate_phase1_imported_dataset_root_rejects_noncanonical_manifest_bun
         validate_phase1_imported_dataset_root(dataset_root)
 
 
+@pytest.mark.parametrize("field", ["start_timestamp", "end_timestamp"])
+@pytest.mark.parametrize("value", ["2024-02-19T00:00:00+00:00", "not-a-timestamp", 123])
+def test_validate_phase1_imported_dataset_root_rejects_noncanonical_manifest_root_timestamp_shape(
+    tmp_path: Path,
+    field: str,
+    value: object,
+) -> None:
+    archive_root = tmp_path / "archive"
+    dataset_root = tmp_path / "dataset"
+    _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT")
+
+    import_phase1_archive_dataset_root(archive_root, dataset_root)
+    manifest_path = dataset_root / "import_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest[field] = value
+    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    with pytest.raises(
+        ValueError,
+        match=rf"root manifest {field} must be a canonical UTC timestamp",
+    ):
+        validate_phase1_imported_dataset_root(dataset_root)
+
+
 def test_validate_phase1_imported_dataset_root_rejects_noncanonical_manifest_archive_root(tmp_path: Path) -> None:
     archive_root = tmp_path / "archive"
     dataset_root = tmp_path / "dataset"
