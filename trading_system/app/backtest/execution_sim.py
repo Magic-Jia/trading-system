@@ -352,6 +352,7 @@ def simulate_maker_limit_fill(
     order_books: tuple[OrderBookSnapshot, ...] = (),
     trades: tuple[TradePrint, ...] = (),
 ) -> ExecutionFill:
+    validated_limit_price = _positive_finite_float("limit_price", limit_price)
     uses_queue_model = (
         queue_ahead_quantity is not None
         or placement_timestamp is not None
@@ -363,7 +364,7 @@ def simulate_maker_limit_fill(
         return _simulate_maker_queue_fill(
             symbol=symbol,
             side=side,
-            limit_price=limit_price,
+            limit_price=validated_limit_price,
             quantity=quantity,
             queue_ahead_quantity=queue_ahead_quantity,
             placement_timestamp=placement_timestamp,
@@ -377,7 +378,7 @@ def simulate_maker_limit_fill(
     sorted_trades = sorted((trade for trade in trades if trade.symbol == symbol), key=lambda trade: trade.timestamp)
     filled_qty = 0.0
     for trade in sorted_trades:
-        if not _crosses_limit(side=side, price=trade.price, limit_price=limit_price):
+        if not _crosses_limit(side=side, price=trade.price, limit_price=validated_limit_price):
             continue
         filled_qty += max(0.0, float(trade.quantity))
         if filled_qty >= quantity:
@@ -386,7 +387,7 @@ def simulate_maker_limit_fill(
                 side=side,
                 quantity=quantity,
                 filled=True,
-                fill_price=float(limit_price),
+                fill_price=validated_limit_price,
                 fill_model="maker_orderbook_trade_evidence",
                 execution_price_source="trade_print",
                 fill_quality="evidence_backed",
@@ -397,13 +398,13 @@ def simulate_maker_limit_fill(
     sorted_books = sorted((book for book in order_books if book.symbol == symbol), key=lambda book: book.timestamp)
     for book in sorted_books:
         book_price = book.ask if side == "buy" else book.bid
-        if _crosses_limit(side=side, price=book_price, limit_price=limit_price):
+        if _crosses_limit(side=side, price=book_price, limit_price=validated_limit_price):
             return ExecutionFill(
                 symbol=symbol,
                 side=side,
                 quantity=quantity,
                 filled=True,
-                fill_price=float(limit_price),
+                fill_price=validated_limit_price,
                 fill_model="maker_orderbook_trade_evidence",
                 execution_price_source="book_cross",
                 fill_quality="evidence_backed",
