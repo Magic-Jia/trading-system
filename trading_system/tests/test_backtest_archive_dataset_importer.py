@@ -5743,6 +5743,23 @@ def test_validate_phase1_imported_dataset_root_rejects_bundle_dir_name_drift(tmp
         validate_phase1_imported_dataset_root(dataset_root)
 
 
+def test_validate_phase1_imported_dataset_root_rejects_manifest_bundle_dirs_outside_dataset_root(
+    tmp_path: Path,
+) -> None:
+    archive_root = tmp_path / "archive"
+    dataset_root = tmp_path / "dataset"
+    _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT")
+
+    import_phase1_archive_dataset_root(archive_root, dataset_root)
+    manifest_path = dataset_root / "import_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["bundle_dirs"][-1] = str(tmp_path / "outside" / "bundle")
+    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="manifest bundle_dirs must stay under dataset_root"):
+        validate_phase1_imported_dataset_root(dataset_root)
+
+
 def test_validate_phase1_imported_dataset_root_rejects_manifest_bundle_timestamps_drift(tmp_path: Path) -> None:
     archive_root = tmp_path / "archive"
     dataset_root = tmp_path / "dataset"

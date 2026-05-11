@@ -2536,6 +2536,24 @@ def _phase1_root_manifest_canonical_strings(manifest: Mapping[str, Any], field: 
         raise ValueError(f"{exc}: {manifest_path}") from exc
 
 
+def _require_phase1_root_manifest_paths_under_dataset_root(
+    paths: Sequence[Path],
+    *,
+    dataset_root: Path,
+    field: str,
+    manifest_path: Path,
+) -> None:
+    resolved_dataset_root = dataset_root.resolve()
+    for path in paths:
+        try:
+            path.resolve().relative_to(resolved_dataset_root)
+        except ValueError as exc:
+            raise ValueError(
+                f"materialized dataset root manifest {field} must stay under dataset_root: "
+                f"{path} is outside {dataset_root}: {manifest_path}"
+            ) from exc
+
+
 def validate_phase1_imported_dataset_root(
     dataset_root: str | Path,
     *,
@@ -2667,6 +2685,12 @@ def validate_phase1_imported_dataset_root(
                 "bundle_dirs",
                 manifest_path=manifest_path,
             )
+        )
+        _require_phase1_root_manifest_paths_under_dataset_root(
+            manifest_bundle_dirs,
+            dataset_root=manifest_dataset_root,
+            field="bundle_dirs",
+            manifest_path=manifest_path,
         )
         if tuple(path.resolve() for path in loaded_bundle_dirs) != tuple(path.resolve() for path in manifest_bundle_dirs):
             raise ValueError(
