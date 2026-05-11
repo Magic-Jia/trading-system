@@ -6786,6 +6786,9 @@ def test_live_readiness_gate_rejects_non_bool_runtime_safety_artifact_check_valu
     runtime = report["runtime_safety_gate"]
     assert runtime["artifacts"][0]["checks"]["kill_switch_dry_run_met"] == "false"
     assert runtime["checks"]["kill_switch_dry_run_met"] is False
+    assert runtime["artifacts"][0]["schema_valid"] is False
+    assert runtime["artifacts"][0]["parse_error"] == "check_kill_switch_dry_run_met_not_bool"
+    assert "runtime_safety_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
     assert "kill_switch_dry_run_missing" in report["promotion_gate"]["reasons"]
     assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
 
