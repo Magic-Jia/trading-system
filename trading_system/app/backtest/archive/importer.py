@@ -46,6 +46,7 @@ _PHASE1_IMPORTER_OHLCV_TIMEFRAME_ORDER = ("1h", *PHASE1_IMPORTER_OPTIONAL_INTRAD
 _KNOWN_QUOTES = ("USDT", "USDC", "BUSD", "FDUSD", "USD")
 _PHASE1_DEFAULT_QUANTITY_STEP = 0.001
 _PHASE1_DEFAULT_PRICE_TICK = 0.1
+_INSTRUMENT_MAX_LEVERAGE_FIELDS = ("max_leverage", "maxLeverage", "leverage_cap", "leverageCap")
 
 
 @dataclass(frozen=True, slots=True)
@@ -2117,6 +2118,15 @@ def _validate_material_instrument_snapshot_rows(rows: Sequence[Mapping[str, Any]
             parsed = float(value)
             if not parsed == parsed or parsed in {float("inf"), float("-inf")} or parsed <= 0.0:
                 raise ValueError(f"instrument_snapshot rows[{index}].{field} must be a positive finite number")
+        for field in _INSTRUMENT_MAX_LEVERAGE_FIELDS:
+            if field not in row:
+                continue
+            value = row[field]
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise ValueError(f"instrument_snapshot rows[{index}].{field} must be a positive finite integer")
+            parsed = float(value)
+            if not parsed == parsed or parsed in {float("inf"), float("-inf")} or parsed <= 0.0 or not parsed.is_integer():
+                raise ValueError(f"instrument_snapshot rows[{index}].{field} must be a positive finite integer")
         if "has_complete_funding" not in row:
             continue
         if not isinstance(row["has_complete_funding"], bool):
