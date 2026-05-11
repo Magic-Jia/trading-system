@@ -83,6 +83,7 @@ _ACCOUNT_BALANCE_WALLET_TOTAL_FIELDS = (
 )
 _ACCOUNT_BALANCE_EQUAL_ALIAS_GROUPS = (
     ("crossWalletBalance", "cross_wallet_balance"),
+    ("availableBalance", "available_balance"),
 )
 _ACCOUNT_POSITIVE_NUMBER_FIELDS = (
     "exposure_value",
