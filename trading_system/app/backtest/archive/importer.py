@@ -2290,7 +2290,11 @@ def _validate_material_instrument_snapshot_rows(rows: Sequence[Mapping[str, Any]
             if not isinstance(filters, list):
                 raise ValueError(f"instrument_snapshot rows[{index}].filters must be a list")
             for filter_index, filter_row in enumerate(filters):
-                if not isinstance(filter_row, Mapping):
+                if not isinstance(filter_row, dict):
+                    if isinstance(filter_row, Mapping):
+                        raise ValueError(
+                            f"instrument_snapshot rows[{index}].filters[{filter_index}] must be a JSON object"
+                        )
                     raise ValueError(f"instrument_snapshot rows[{index}].filters[{filter_index}] must be an object")
                 for field in _INSTRUMENT_FILTER_POSITIVE_NUMERIC_FIELDS:
                     if field not in filter_row:
