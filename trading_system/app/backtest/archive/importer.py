@@ -2524,7 +2524,7 @@ def validate_phase1_imported_dataset_root(
             raise ValueError(f"unsupported phase1 dataset root manifest schema: {manifest_path}")
         manifest_dataset_root = _resolved_phase1_imported_dataset_root_path(
             dataset_path,
-            _phase1_root_manifest_canonical_string(root_manifest, "dataset_root", manifest_path=manifest_path),
+            _phase1_root_manifest_path_string(root_manifest, "dataset_root", manifest_path=manifest_path),
         )
         if manifest_dataset_root.resolve() != dataset_path.resolve():
             raise ValueError(
