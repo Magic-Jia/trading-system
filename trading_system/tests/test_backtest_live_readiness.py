@@ -7660,6 +7660,42 @@ def test_live_readiness_gate_report_rejects_concentrated_setup_and_symbol_bucket
     assert report["promotion_gate"]["checks"]["symbol_concentration_met"] is False
 
 
+def test_live_readiness_gate_rejects_non_strict_concentration_share_status(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+
+    monkeypatch.setattr(
+        live_readiness,
+        "_dominance_from_gate_buckets",
+        lambda *_args, **_kwargs: {
+            "key": "BREAKOUT_CONTINUATION",
+            "trades": 1,
+            "trade_share": "0.0",
+            "net": 1.5,
+            "net_abs_share": 0.0,
+            "loss_abs_share": 0.0,
+        },
+    )
+
+    report = build_live_readiness_gate_report(
+        tmp_path,
+        max_setup_trade_share=0.45,
+        max_symbol_trade_share=0.70,
+        max_setup_net_abs_share=0.60,
+        max_symbol_net_abs_share=0.60,
+        max_setup_loss_abs_share=0.60,
+        max_symbol_loss_abs_share=0.60,
+    )
+
+    assert report["promotion_gate"]["checks"]["concentration_buckets_valid"] is False
+    assert report["promotion_gate"]["checks"]["setup_concentration_met"] is False
+    assert "concentration_bucket_invalid" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
 
 def test_live_readiness_gate_report_rejects_missing_exit_path_rows(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"

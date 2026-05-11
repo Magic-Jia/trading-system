@@ -2536,6 +2536,20 @@ def _strict_bucket_float(bucket: Mapping[str, Any], key: str) -> float:
     return parsed
 
 
+def _concentration_share_status(
+    bucket: Mapping[str, Any] | None,
+    share_key: str,
+    threshold: float | None,
+) -> tuple[bool, bool]:
+    if threshold is None or bucket is None:
+        return True, True
+    try:
+        share = _strict_bucket_float(bucket, share_key)
+    except ValueError:
+        return False, False
+    return share <= threshold, True
+
+
 def _dominance_from_gate_buckets(
     buckets: Mapping[str, Mapping[str, Any]],
     *,
@@ -2775,12 +2789,34 @@ def build_live_readiness_gate_report(
     top_symbol_net_abs = _as_mapping(concentration.get("top_symbol_by_net_abs"))
     top_setup_loss_abs = _as_mapping(concentration.get("top_setup_by_loss_abs"))
     top_symbol_loss_abs = _as_mapping(concentration.get("top_symbol_by_loss_abs"))
-    setup_concentration_met = max_setup_trade_share is None or _float_value(top_setup.get("trade_share")) <= max_setup_trade_share
-    symbol_concentration_met = max_symbol_trade_share is None or _float_value(top_symbol.get("trade_share")) <= max_symbol_trade_share
-    setup_net_abs_concentration_met = max_setup_net_abs_share is None or _float_value(top_setup_net_abs.get("net_abs_share")) <= max_setup_net_abs_share
-    symbol_net_abs_concentration_met = max_symbol_net_abs_share is None or _float_value(top_symbol_net_abs.get("net_abs_share")) <= max_symbol_net_abs_share
-    setup_loss_abs_concentration_met = max_setup_loss_abs_share is None or _float_value(top_setup_loss_abs.get("loss_abs_share")) <= max_setup_loss_abs_share
-    symbol_loss_abs_concentration_met = max_symbol_loss_abs_share is None or _float_value(top_symbol_loss_abs.get("loss_abs_share")) <= max_symbol_loss_abs_share
+    setup_concentration_met, setup_concentration_valid = _concentration_share_status(
+        top_setup, "trade_share", max_setup_trade_share
+    )
+    symbol_concentration_met, symbol_concentration_valid = _concentration_share_status(
+        top_symbol, "trade_share", max_symbol_trade_share
+    )
+    setup_net_abs_concentration_met, setup_net_abs_concentration_valid = _concentration_share_status(
+        top_setup_net_abs, "net_abs_share", max_setup_net_abs_share
+    )
+    symbol_net_abs_concentration_met, symbol_net_abs_concentration_valid = _concentration_share_status(
+        top_symbol_net_abs, "net_abs_share", max_symbol_net_abs_share
+    )
+    setup_loss_abs_concentration_met, setup_loss_abs_concentration_valid = _concentration_share_status(
+        top_setup_loss_abs, "loss_abs_share", max_setup_loss_abs_share
+    )
+    symbol_loss_abs_concentration_met, symbol_loss_abs_concentration_valid = _concentration_share_status(
+        top_symbol_loss_abs, "loss_abs_share", max_symbol_loss_abs_share
+    )
+    concentration_buckets_valid = all(
+        (
+            setup_concentration_valid,
+            symbol_concentration_valid,
+            setup_net_abs_concentration_valid,
+            symbol_net_abs_concentration_valid,
+            setup_loss_abs_concentration_valid,
+            symbol_loss_abs_concentration_valid,
+        )
+    )
     reasons: list[str] = []
     promotion_bundle_integrity_enforced = require_promotion_bundle_integrity or bool(
         promotion_bundle_integrity.get("manifest_present")
@@ -2968,6 +3004,8 @@ def build_live_readiness_gate_report(
         reasons.append("setup_loss_abs_concentration_too_high")
     if not symbol_loss_abs_concentration_met:
         reasons.append("symbol_loss_abs_concentration_too_high")
+    if not concentration_buckets_valid:
+        reasons.append("concentration_bucket_invalid")
     passive_checks = _as_mapping(passive_calibration.get("checks"))
     if passive_calibration.get("invalid_config"):
         reasons.append("passive_calibration_config_invalid")
@@ -3120,6 +3158,7 @@ def build_live_readiness_gate_report(
                 "symbol_net_abs_concentration_met": symbol_net_abs_concentration_met,
                 "setup_loss_abs_concentration_met": setup_loss_abs_concentration_met,
                 "symbol_loss_abs_concentration_met": symbol_loss_abs_concentration_met,
+                "concentration_buckets_valid": concentration_buckets_valid,
                 **passive_checks,
                 "passive_calibration_chunks_valid": passive_chunks_valid,
                 **setup_rewrite_checks,
