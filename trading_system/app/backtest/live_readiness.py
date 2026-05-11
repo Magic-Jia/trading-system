@@ -3686,6 +3686,23 @@ def _smoke_report_bool_policy_invalid_config(**requirements: Any) -> list[dict[s
     ]
 
 
+def _runtime_safety_missing_reasons_for_invalid_requirement(report: Mapping[str, Any]) -> set[str]:
+    runtime_gate = _as_mapping(report.get("runtime_safety_gate"))
+    artifact_count, artifact_count_valid = _optional_gate_artifact_count(runtime_gate)
+    if artifact_count_valid and artifact_count > 0:
+        return set()
+    return {
+        "runtime_safety_evidence_missing",
+        "kill_switch_dry_run_missing",
+        "order_position_reconciliation_missing",
+        "runtime_fail_closed_missing",
+        "live_dust_before_scale_missing",
+        "live_trade_ledger_missing",
+        "runtime_explainability_missing",
+        "drift_guard_missing",
+    }
+
+
 def _apply_smoke_report_policy_invalid_config(
     report: dict[str, Any],
     invalid_config: list[dict[str, Any]],
@@ -3701,6 +3718,12 @@ def _apply_smoke_report_policy_invalid_config(
     for item in invalid_config:
         if item not in normalized_invalid_config:
             normalized_invalid_config.append(item)
+    suppressed_reasons: set[str] = set()
+    invalid_fields = {item.get("field") for item in invalid_config if isinstance(item, Mapping)}
+    if "require_runtime_safety_evidence" in invalid_fields:
+        suppressed_reasons.update(_runtime_safety_missing_reasons_for_invalid_requirement(report))
+    if suppressed_reasons:
+        normalized_reasons = [reason for reason in normalized_reasons if reason not in suppressed_reasons]
     normalized_checks["live_readiness_policy_config_valid"] = False
     normalized_reasons.append("live_readiness_policy_config_invalid")
     report["promotion_gate"] = {

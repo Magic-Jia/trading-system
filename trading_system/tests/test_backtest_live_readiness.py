@@ -1396,6 +1396,47 @@ def test_live_readiness_smoke_report_rejects_non_bool_microstructure_requirement
     assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
 
 
+@pytest.mark.parametrize("required", ["false", 1])
+def test_live_readiness_smoke_report_suppresses_runtime_missing_noise_for_invalid_requirement_policy_config(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    required: object,
+) -> None:
+    source = tmp_path / "source"
+    _write_minimal_smoke_source(source)
+    monkeypatch.setattr(
+        live_readiness,
+        "build_live_readiness_gate_report",
+        lambda *_args, **_kwargs: _minimal_gate_report(
+            {
+                "decision": "reject_for_live_promotion",
+                "reasons": ["runtime_safety_evidence_missing", "runtime_fail_closed_missing"],
+                "checks": {
+                    "net_pnl_non_negative": True,
+                    "runtime_fail_closed_met": False,
+                },
+                "invalid_config": [],
+            }
+        ),
+    )
+
+    report = write_live_readiness_smoke_report(
+        source,
+        tmp_path / "out",
+        require_runtime_safety_evidence=required,  # type: ignore[arg-type]
+    )
+
+    assert report["promotion_gate"]["checks"]["live_readiness_policy_config_valid"] is False
+    assert report["promotion_gate"]["invalid_config"] == [
+        {"field": "require_runtime_safety_evidence", "value": required, "error": "invalid_bool"}
+    ]
+    reasons = report["promotion_gate"]["reasons"]
+    assert "live_readiness_policy_config_invalid" in reasons
+    assert "runtime_safety_evidence_missing" not in reasons
+    assert "runtime_fail_closed_missing" not in reasons
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
 
 def test_promotion_bundle_verification_requires_evidence_source(tmp_path: Path) -> None:
     source = tmp_path / "source"
