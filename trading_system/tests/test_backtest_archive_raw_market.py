@@ -350,6 +350,24 @@ def test_l2_tick_coverage_rejects_non_finite_report_coverage_ratio() -> None:
         _l2_tick_coverage(reports, required_coverage=0.99)
 
 
+def test_l2_tick_coverage_rejects_boolean_record_count() -> None:
+    reports = {
+        "trades:BTCUSDT": {
+            "series_key": "trades:BTCUSDT",
+            "dataset": "trades",
+            "symbol": "BTCUSDT",
+            "timeframe": None,
+            "record_count": True,
+            "coverage_ratio": 1.0,
+            "has_missing_intervals": False,
+            "missing_intervals": [],
+        }
+    }
+
+    with pytest.raises(ValueError, match="l2 record_count must be a non-negative integer"):
+        _l2_tick_coverage(reports, required_coverage=0.99)
+
+
 def test_raw_market_data_quality_reports_provenance_completeness(tmp_path: Path) -> None:
     from trading_system.app.backtest.archive.data_quality import build_raw_market_data_quality_report
 

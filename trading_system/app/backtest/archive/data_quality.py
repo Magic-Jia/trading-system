@@ -227,6 +227,15 @@ def _l2_optional_canonical_string(report: Mapping[str, Any], field: str) -> str 
     return value
 
 
+def _l2_optional_non_negative_integer(report: Mapping[str, Any], field: str) -> int | None:
+    value = report.get(field)
+    if value is None:
+        return None
+    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+        raise ValueError(f"l2 {field} must be a non-negative integer")
+    return value
+
+
 def _l2_dataset(report: Mapping[str, Any]) -> str:
     return _l2_canonical_string(report, "dataset")
 
@@ -245,6 +254,16 @@ def _l2_series_reports(series_reports: Mapping[str, Mapping[str, Any]]) -> list[
         series_key = _l2_canonical_string(report, "series_key")
         if series_key != key:
             raise ValueError("l2 series report key must match series_key")
+        for count_field in (
+            "record_count",
+            "file_count",
+            "duplicate_observed_at_count",
+            "provenance_file_count",
+            "provenance_missing_sha256_count",
+            "provenance_missing_data_path_count",
+            "provenance_missing_manifest_path_count",
+        ):
+            _l2_optional_non_negative_integer(report, count_field)
         parsed.append(dict(report))
     return parsed
 
