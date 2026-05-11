@@ -488,6 +488,35 @@ def test_load_historical_dataset_rejects_malformed_present_account_numeric_field
         load_historical_dataset(dataset_root)
 
 
+def test_load_historical_dataset_rejects_inconsistent_futures_balance_totals(tmp_path: Path) -> None:
+    dataset_root = tmp_path / "sample_dataset"
+    bundle = dataset_root / "2026-03-10T00-00-00Z__sample-001"
+    bundle.mkdir(parents=True)
+    (bundle / "metadata.json").write_text(
+        '{"timestamp": "2026-03-10T00:00:00Z", "run_id": "sample-001"}',
+        encoding="utf-8",
+    )
+    (bundle / "market_context.json").write_text('{"symbols": {"BTCUSDT": {}}}', encoding="utf-8")
+    (bundle / "derivatives_snapshot.json").write_text('{"rows": []}', encoding="utf-8")
+    (bundle / "account_snapshot.json").write_text(
+        json.dumps(
+            {
+                "equity": 100500.0,
+                "wallet_balance": 100000.0,
+                "margin_balance": 100600.0,
+                "total_unrealized_profit": 500.0,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"account\.margin_balance must equal wallet_balance \+ total_unrealized_profit",
+    ):
+        load_historical_dataset(dataset_root)
+
+
 def test_load_historical_dataset_rejects_camelcase_open_position_time_order(tmp_path: Path) -> None:
     dataset_root = tmp_path / "sample_dataset"
     bundle = dataset_root / "2026-03-10T00-00-00Z__sample-001"

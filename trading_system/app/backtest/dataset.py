@@ -806,6 +806,55 @@ def _validate_spot_balance_total_parity(balance: dict, *, field_path: str, path:
         raise ValueError(f"{field_path}.total must equal free + locked: {path}")
 
 
+def _account_first_present_number(payload: dict, *fields: str, path: Path, field_path: str) -> tuple[str, float] | None:
+    for field in fields:
+        if field in payload:
+            return field, _validate_account_number(
+                payload[field],
+                field_path=f"{field_path}.{field}",
+                path=path,
+                qualifier="finite",
+                minimum=None,
+            )
+    return None
+
+
+def _validate_futures_balance_total_parity(account: dict, *, path: Path, field_path: str) -> None:
+    wallet = _account_first_present_number(
+        account,
+        "wallet_balance",
+        "walletBalance",
+        "total_wallet_balance",
+        "totalWalletBalance",
+        path=path,
+        field_path=field_path,
+    )
+    margin = _account_first_present_number(
+        account,
+        "margin_balance",
+        "marginBalance",
+        "total_margin_balance",
+        "totalMarginBalance",
+        path=path,
+        field_path=field_path,
+    )
+    unrealized = _account_first_present_number(
+        account,
+        "total_unrealized_profit",
+        "totalUnrealizedProfit",
+        "unRealizedProfit",
+        path=path,
+        field_path=field_path,
+    )
+    if wallet is None or margin is None or unrealized is None:
+        return
+    wallet_field, wallet_value = wallet
+    margin_field, margin_value = margin
+    unrealized_field, unrealized_value = unrealized
+    if not math.isclose(margin_value, wallet_value + unrealized_value, rel_tol=1e-12, abs_tol=1e-12):
+        raise ValueError(f"{field_path}.{margin_field} must equal {wallet_field} + {unrealized_field}: {path}")
+
+
 def _validate_account_numeric_fields(payload: object, *, path: Path, field_path: str) -> None:
     if isinstance(payload, dict):
         if field_path.startswith("account.spot.nonzero_balances["):
@@ -864,6 +913,8 @@ def _validate_account_numeric_fields(payload: object, *, path: Path, field_path:
                 )
             elif isinstance(value, (dict, list)):
                 _validate_account_numeric_fields(value, path=path, field_path=child_path)
+        if field_path == "account":
+            _validate_futures_balance_total_parity(payload, field_path=field_path, path=path)
         return
     if isinstance(payload, list):
         for index, item in enumerate(payload):
