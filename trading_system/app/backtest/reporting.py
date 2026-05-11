@@ -1302,7 +1302,8 @@ def render_long_gate_telemetry_report(
             raise ValueError(f"engines.{engine_label}.funnel must be an object")
         funnel = dict(raw_funnel)
         engine_funnels[engine_label] = funnel
-        accept_count = int(funnel.get("accepted_allocations", 0))
+        funnel_label = f"engines.{engine_label}.funnel"
+        accept_count = _non_negative_int_field(funnel, "accepted_allocations", label=funnel_label)
         if accept_count > best_accept_count:
             best_engine = engine_label
             best_accept_count = accept_count
@@ -1320,10 +1321,13 @@ def render_long_gate_telemetry_report(
             dominant_blocker_count = blocker_count
 
     total_long_accepted_allocations = sum(
-        int(funnel.get("accepted_allocations", 0)) for funnel in engine_funnels.values()
+        _non_negative_int_field(funnel, "accepted_allocations", label=f"engines.{engine_name}.funnel")
+        for engine_name, funnel in engine_funnels.items()
     )
     engines_with_candidate_flow = sum(
-        1 for funnel in engine_funnels.values() if int(funnel.get("raw_candidates", 0)) > 0
+        1
+        for engine_name, funnel in engine_funnels.items()
+        if _non_negative_int_field(funnel, "raw_candidates", label=f"engines.{engine_name}.funnel") > 0
     )
 
     if total_long_accepted_allocations > 0:

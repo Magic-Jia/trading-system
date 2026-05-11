@@ -2092,6 +2092,37 @@ def test_render_long_gate_telemetry_rejects_boolean_filter_count_metric() -> Non
         )
 
 
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("accepted_allocations", True),
+        ("raw_candidates", "1"),
+    ],
+)
+def test_render_long_gate_telemetry_rejects_malformed_funnel_counts(field: str, value: object) -> None:
+    funnel = {"raw_candidates": 1, "accepted_allocations": 1}
+    funnel[field] = value
+
+    with pytest.raises(
+        ValueError,
+        match=rf"engines\.trend_long\.funnel\.{field} must be a non-negative integer",
+    ):
+        cli.render_long_gate_telemetry_report(
+            experiment_name="long_gate_telemetry",
+            metadata={"snapshot_count": 1, "evaluation_window": "3d"},
+            experiment={
+                "engines": {
+                    "trend_long": {
+                        "funnel": funnel,
+                        "filter_counts": {"selected": 1},
+                        "performance": {"bucket_level_pnl": 0.0, "trade_count": 0},
+                    },
+                },
+                "snapshot_rows": [],
+            },
+        )
+
+
 def test_render_long_gate_telemetry_rejects_tuple_snapshot_rows_payload() -> None:
     with pytest.raises(ValueError, match="snapshot_rows must be a list"):
         cli.render_long_gate_telemetry_report(
