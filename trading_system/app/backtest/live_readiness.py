@@ -1993,6 +1993,89 @@ def _validate_offline_rollout_stage(value: Any, stage: str) -> tuple[dict[str, A
     return parsed, ""
 
 
+def _producer_stage_from_evidence(stage: str, evidence: Mapping[str, Any]) -> dict[str, Any]:
+    if not isinstance(evidence, Mapping):
+        raise ValueError(f"{stage}.evidence must be a mapping")
+    if not evidence:
+        raise ValueError(f"{stage}.evidence must list at least one requirement")
+
+    requirements: list[str] = []
+    remaining: list[str] = []
+    seen_requirements: set[str] = set()
+    for requirement, evidence_id in evidence.items():
+        if not _is_exact_string(requirement) or not requirement.strip() or requirement != requirement.strip():
+            raise ValueError(f"{stage}.requirement must be a canonical evidence identifier")
+        if not _is_safe_evidence_identifier(requirement):
+            raise ValueError(f"{stage}.requirement must be a canonical evidence identifier")
+        if requirement in seen_requirements:
+            raise ValueError(f"{stage}.requirement must be unique")
+        seen_requirements.add(requirement)
+        requirements.append(requirement)
+
+        if evidence_id is None:
+            remaining.append(requirement)
+            continue
+        if (
+            not _is_exact_string(evidence_id)
+            or not evidence_id.strip()
+            or evidence_id != evidence_id.strip()
+            or not _is_safe_evidence_identifier(evidence_id)
+        ):
+            raise ValueError(f"{stage}.evidence.{requirement} must be a canonical evidence identifier or None")
+
+    return {
+        "evidence_complete": not remaining,
+        "remaining_requirements": remaining or requirements,
+    }
+
+
+def build_offline_rollout_readiness_checklist(
+    *,
+    paper_evidence: Mapping[str, Any],
+    shadow_evidence: Mapping[str, Any],
+    canary_evidence: Mapping[str, Any],
+    canary_guard_manifest: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Build the offline rollout readiness checklist accepted by the live gate."""
+
+    guard_manifest, error = _validate_canary_guard_manifest(canary_guard_manifest)
+    if error:
+        raise ValueError(error)
+
+    return {
+        "schema_version": "offline_rollout_readiness_checklist.v1",
+        "paper": _producer_stage_from_evidence("paper", paper_evidence),
+        "shadow": _producer_stage_from_evidence("shadow", shadow_evidence),
+        "canary": {
+            **_producer_stage_from_evidence("canary", canary_evidence),
+            "guard_manifest": guard_manifest,
+        },
+    }
+
+
+def write_offline_rollout_readiness_checklist(
+    root: str | Path,
+    *,
+    paper_evidence: Mapping[str, Any],
+    shadow_evidence: Mapping[str, Any],
+    canary_evidence: Mapping[str, Any],
+    canary_guard_manifest: Mapping[str, Any],
+) -> dict[str, Any]:
+    checklist = build_offline_rollout_readiness_checklist(
+        paper_evidence=paper_evidence,
+        shadow_evidence=shadow_evidence,
+        canary_evidence=canary_evidence,
+        canary_guard_manifest=canary_guard_manifest,
+    )
+    root_path = Path(root)
+    root_path.mkdir(parents=True, exist_ok=True)
+    (root_path / "offline_rollout_readiness_checklist.json").write_text(
+        json.dumps(checklist, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return checklist
+
+
 def _offline_rollout_readiness(root: Path) -> dict[str, Any]:
     path = root / "offline_rollout_readiness_checklist.json"
     checks = {

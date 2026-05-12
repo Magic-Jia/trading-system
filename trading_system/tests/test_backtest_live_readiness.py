@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import subprocess
 import sys
 from datetime import UTC, datetime
@@ -22,9 +23,11 @@ from trading_system.app.backtest.live_readiness import (
     audit_execution_depth,
     audit_exit_path_replay,
     build_live_readiness_gate_report,
+    build_offline_rollout_readiness_checklist,
     summarize_trade_postmortem,
     render_live_readiness_markdown,
     write_live_readiness_smoke_report,
+    write_offline_rollout_readiness_checklist,
 )
 from trading_system.app.backtest.microstructure_evidence import build_microstructure_gate
 from trading_system.app.backtest.promotion_evidence_bundle import (
@@ -1095,6 +1098,125 @@ def test_live_readiness_gate_rejects_missing_offline_rollout_checklist(tmp_path:
     assert checklist["checks"]["offline_rollout_checklist_present"] is False
     assert "offline_rollout_checklist_missing" in report["promotion_gate"]["reasons"]
     assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
+def test_offline_rollout_checklist_producer_writes_gate_accepted_schema(tmp_path: Path) -> None:
+    checklist = write_offline_rollout_readiness_checklist(
+        tmp_path,
+        paper_evidence={"paper-fill-reconciliation": "paper-run-20260513"},
+        shadow_evidence={"shadow-order-parity": "shadow-run-20260513"},
+        canary_evidence={"canary-rollback-drill": "canary-drill-20260513"},
+        canary_guard_manifest={
+            "max_notional": 100.0,
+            "symbol_allowlist": ["BTCUSDT", "ETHUSDT"],
+            "timeout_seconds": 300.0,
+            "rollback_evidence": "rollback-runbook-v1",
+            "alerting_evidence": "alerts-dry-run-v1",
+            "notification_evidence": "pager-dry-run-v1",
+            "kill_switch_evidence": "kill-switch-dry-run-v1",
+        },
+    )
+
+    assert checklist["schema_version"] == "offline_rollout_readiness_checklist.v1"
+    assert checklist["paper"]["evidence_complete"] is True
+    assert checklist["shadow"]["evidence_complete"] is True
+    assert checklist["canary"]["evidence_complete"] is True
+
+    persisted = json.loads((tmp_path / "offline_rollout_readiness_checklist.json").read_text(encoding="utf-8"))
+    assert persisted == checklist
+
+    report = build_live_readiness_gate_report(tmp_path)
+    assert report["offline_rollout_readiness"]["schema_valid"] is True
+    reasons = set(report["promotion_gate"]["reasons"])
+    assert "offline_rollout_checklist_invalid" not in reasons
+    assert "canary_guard_manifest_invalid" not in reasons
+
+
+def test_offline_rollout_checklist_producer_lists_missing_evidence_requirements() -> None:
+    checklist = build_offline_rollout_readiness_checklist(
+        paper_evidence={"paper-fill-reconciliation": None},
+        shadow_evidence={"shadow-order-parity": "shadow-run-20260513"},
+        canary_evidence={"canary-rollback-drill": None},
+        canary_guard_manifest={
+            "max_notional": 100.0,
+            "symbol_allowlist": ["BTCUSDT"],
+            "timeout_seconds": 300.0,
+            "rollback_evidence": "rollback-runbook-v1",
+            "alerting_evidence": "alerts-dry-run-v1",
+            "notification_evidence": "pager-dry-run-v1",
+            "kill_switch_evidence": "kill-switch-dry-run-v1",
+        },
+    )
+
+    assert checklist["paper"] == {
+        "evidence_complete": False,
+        "remaining_requirements": ["paper-fill-reconciliation"],
+    }
+    assert checklist["shadow"] == {
+        "evidence_complete": True,
+        "remaining_requirements": ["shadow-order-parity"],
+    }
+    assert checklist["canary"]["evidence_complete"] is False
+    assert checklist["canary"]["remaining_requirements"] == ["canary-rollback-drill"]
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "match"),
+    [
+        (
+            {"paper_evidence": {"paper-fill-reconciliation": " paper-run-20260513 "}},
+            "paper.evidence.paper-fill-reconciliation must be a canonical evidence identifier",
+        ),
+        (
+            {"shadow_evidence": {"shadow-order-parity": 123}},
+            "shadow.evidence.shadow-order-parity must be a canonical evidence identifier or None",
+        ),
+        (
+            {"canary_evidence": {"canary rollback drill": "canary-drill-20260513"}},
+            "canary.requirement must be a canonical evidence identifier",
+        ),
+        (
+            {"canary_guard_manifest": {"max_notional": "100.0"}},
+            "canary_guard_max_notional_not_number",
+        ),
+        (
+            {"canary_guard_manifest": {"timeout_seconds": 0.0}},
+            "canary_guard_timeout_seconds_not_positive_finite",
+        ),
+        (
+            {"canary_guard_manifest": {"symbol_allowlist": [" btcusdt "]}},
+            "canary_guard_symbol_allowlist_entry_noncanonical",
+        ),
+    ],
+)
+def test_offline_rollout_checklist_producer_rejects_malformed_inputs(
+    kwargs: dict[str, Any],
+    match: str,
+) -> None:
+    base_kwargs: dict[str, Any] = {
+        "paper_evidence": {"paper-fill-reconciliation": "paper-run-20260513"},
+        "shadow_evidence": {"shadow-order-parity": "shadow-run-20260513"},
+        "canary_evidence": {"canary-rollback-drill": "canary-drill-20260513"},
+        "canary_guard_manifest": {
+            "max_notional": 100.0,
+            "symbol_allowlist": ["BTCUSDT"],
+            "timeout_seconds": 300.0,
+            "rollback_evidence": "rollback-runbook-v1",
+            "alerting_evidence": "alerts-dry-run-v1",
+            "notification_evidence": "pager-dry-run-v1",
+            "kill_switch_evidence": "kill-switch-dry-run-v1",
+        },
+    }
+    if "canary_guard_manifest" in kwargs:
+        base_kwargs["canary_guard_manifest"] = {
+            **base_kwargs["canary_guard_manifest"],
+            **kwargs["canary_guard_manifest"],
+        }
+    else:
+        base_kwargs.update(kwargs)
+
+    with pytest.raises(ValueError, match=re.escape(match)):
+        build_offline_rollout_readiness_checklist(**base_kwargs)
 
 
 @pytest.mark.parametrize(
