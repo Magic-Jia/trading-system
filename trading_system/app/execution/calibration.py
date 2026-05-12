@@ -58,12 +58,15 @@ def _parse_datetime(value: Any, *, field_name: str) -> datetime | None:
     return parsed
 
 
-def _float_or_none(value: Any) -> float | None:
+def _float_or_none(field: str, value: Any) -> float | None:
     if value is None or value == "":
         return None
-    if isinstance(value, bool):
-        raise ValueError("calibration numeric field must be numeric")
-    return float(value)
+    if isinstance(value, bool) or not isinstance(value, Real):
+        raise ValueError(f"calibration record {field} must be numeric")
+    parsed = float(value)
+    if not math.isfinite(parsed):
+        raise ValueError(f"calibration record {field} must be finite")
+    return parsed
 
 
 def _required_float(row: Mapping[str, Any], *keys: str, field_name: str) -> float:
@@ -118,6 +121,14 @@ def _fee_float_or_none(field: str, value: Any) -> float | None:
     return parsed
 
 
+def _maker_taker_or_none(value: Any) -> str | None:
+    if value is None or value == "":
+        return None
+    if type(value) is not str or value not in {"maker", "taker"}:
+        raise ValueError("calibration record maker_taker must be maker or taker")
+    return value
+
+
 def _record_from_mapping(row: Mapping[str, Any]) -> PassiveOrderCalibrationRecord:
     _validate_fee_asset_fields(row)
     _validate_commission_fields(row)
@@ -139,18 +150,18 @@ def _record_from_mapping(row: Mapping[str, Any]) -> PassiveOrderCalibrationRecor
         submitted_at=submitted_at,
         first_fill_at=first_fill_at,
         last_fill_at=_parse_datetime(row.get("last_fill_at"), field_name="last_fill_at"),
-        requested_qty=_float_or_none(row.get("requested_qty")),
-        requested_notional=_float_or_none(row.get("requested_notional")),
-        filled_qty=_float_or_none(row.get("filled_qty")),
-        filled_notional=_float_or_none(row.get("filled_notional")),
+        requested_qty=_float_or_none("requested_qty", row.get("requested_qty")),
+        requested_notional=_float_or_none("requested_notional", row.get("requested_notional")),
+        filled_qty=_float_or_none("filled_qty", row.get("filled_qty")),
+        filled_notional=_float_or_none("filled_notional", row.get("filled_notional")),
         status=str(row.get("status", "")).strip().lower(),
-        maker_taker=str(row.get("maker_taker")).strip().lower() if row.get("maker_taker") is not None else None,
+        maker_taker=_maker_taker_or_none(row.get("maker_taker")),
         fees=_fee_float_or_none("fees", row.get("fees")),
-        slippage_bps=_float_or_none(row.get("slippage_bps")),
-        ref_price=_float_or_none(row.get("ref_price")),
+        slippage_bps=_float_or_none("slippage_bps", row.get("slippage_bps")),
+        ref_price=_float_or_none("ref_price", row.get("ref_price")),
         cancel_reason=str(row.get("cancel_reason")) if row.get("cancel_reason") is not None else None,
         expire_reason=str(row.get("expire_reason")) if row.get("expire_reason") is not None else None,
-        latency_ms=_float_or_none(row.get("latency_ms")),
+        latency_ms=_float_or_none("latency_ms", row.get("latency_ms")),
         setup_type=str(row.get("setup_type")).strip().upper() if row.get("setup_type") is not None else None,
     )
 

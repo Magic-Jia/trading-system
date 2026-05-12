@@ -3,11 +3,25 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from trading_system.app.execution.calibration import (
     load_calibration_records,
     summarize_calibration_records,
     write_calibration_summary,
 )
+
+
+def _strict_record_payload(**overrides: object) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "symbol": "BTCUSDT",
+        "side": "buy",
+        "intended_limit_price": 100.0,
+        "submitted_at": "2026-01-01T00:00:00+00:00",
+        "status": "filled",
+    }
+    payload.update(overrides)
+    return payload
 
 
 def test_writes_passive_and_taker_calibration_summary_from_jsonl(tmp_path: Path) -> None:
@@ -176,6 +190,35 @@ def test_rejects_string_fees_before_calibration_load(tmp_path: Path) -> None:
     import pytest
 
     with pytest.raises(ValueError, match="calibration record fees must be numeric"):
+        load_calibration_records(source)
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "requested_qty",
+        "requested_notional",
+        "filled_qty",
+        "filled_notional",
+        "slippage_bps",
+        "ref_price",
+        "latency_ms",
+    ],
+)
+def test_rejects_string_optional_numeric_fields_before_calibration_load(tmp_path: Path, field: str) -> None:
+    source = tmp_path / "dust_orders.jsonl"
+    source.write_text(json.dumps(_strict_record_payload(**{field: "1.0"})) + "\n")
+
+    with pytest.raises(ValueError, match=f"calibration record {field} must be numeric"):
+        load_calibration_records(source)
+
+
+@pytest.mark.parametrize("maker_taker", [" Maker ", "MAKER", "post_only", 123, True])
+def test_rejects_noncanonical_maker_taker_before_calibration_load(tmp_path: Path, maker_taker: object) -> None:
+    source = tmp_path / "dust_orders.jsonl"
+    source.write_text(json.dumps(_strict_record_payload(maker_taker=maker_taker)) + "\n")
+
+    with pytest.raises(ValueError, match="calibration record maker_taker must be maker or taker"):
         load_calibration_records(source)
 
 
