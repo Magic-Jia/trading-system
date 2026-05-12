@@ -335,6 +335,9 @@ _ACCOUNT_OPEN_POSITION_ASSET_CODE_EQUAL_ALIAS_GROUPS = (
     ("feeAsset", "fee_asset"),
     ("feeCurrency", "fee_currency"),
     ("commissionAsset", "commission_asset"),
+    ("fundingCurrency", "funding_currency"),
+    ("pnlCurrency", "pnl_currency"),
+    ("costCurrency", "cost_currency"),
 )
 _ACCOUNT_OPEN_POSITION_TIME_FIELDS = (
     "opened_at",

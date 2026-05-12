@@ -1920,6 +1920,9 @@ def test_load_historical_dataset_rejects_malformed_open_position_asset_currency_
         ("collateralCurrency", "collateral_currency"),
         ("feeAsset", "fee_asset"),
         ("commissionAsset", "commission_asset"),
+        ("fundingCurrency", "funding_currency"),
+        ("pnlCurrency", "pnl_currency"),
+        ("costCurrency", "cost_currency"),
     ],
 )
 def test_load_historical_dataset_rejects_conflicting_open_position_fee_commission_asset_aliases_before_load(

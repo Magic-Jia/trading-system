@@ -1179,6 +1179,9 @@ def test_write_phase1_dataset_bundle_preserves_canonical_open_position_asset_cur
         ("collateralCurrency", "collateral_currency"),
         ("feeAsset", "fee_asset"),
         ("commissionAsset", "commission_asset"),
+        ("fundingCurrency", "funding_currency"),
+        ("pnlCurrency", "pnl_currency"),
+        ("costCurrency", "cost_currency"),
     ],
 )
 def test_write_phase1_dataset_bundle_rejects_conflicting_open_position_fee_commission_asset_aliases_without_artifact(
