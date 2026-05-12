@@ -207,6 +207,10 @@ _ACCOUNT_ASSET_CODE_FIELDS = (
     "cost_currency",
     "costCurrency",
 )
+_ACCOUNT_ASSET_CODE_EQUAL_ALIAS_GROUPS = (
+    ("feeAsset", "fee_asset"),
+    ("feeCurrency", "fee_currency"),
+)
 _ACCOUNT_TIME_FIELDS = (
     "last_update_time",
     "lastUpdateTime",
@@ -294,6 +298,7 @@ _ACCOUNT_OPEN_POSITION_ASSET_CODE_FIELDS = (
     "feeAsset",
     "fee_currency",
     "feeCurrency",
+    "commission_asset",
     "commissionAsset",
     "funding_asset",
     "fundingAsset",
@@ -307,6 +312,11 @@ _ACCOUNT_OPEN_POSITION_ASSET_CODE_FIELDS = (
     "costAsset",
     "cost_currency",
     "costCurrency",
+)
+_ACCOUNT_OPEN_POSITION_ASSET_CODE_EQUAL_ALIAS_GROUPS = (
+    ("feeAsset", "fee_asset"),
+    ("feeCurrency", "fee_currency"),
+    ("commissionAsset", "commission_asset"),
 )
 _ACCOUNT_OPEN_POSITION_TIME_FIELDS = (
     "opened_at",
@@ -524,6 +534,12 @@ def validate_account_snapshot_identity(account: object, *, path: Path) -> None:
     for field in _ACCOUNT_ASSET_CODE_FIELDS:
         if field in account:
             _require_account_asset_code(account[field], field_path=f"account.{field}", path=path)
+    _validate_account_asset_code_alias_parity(
+        account,
+        field_path="account",
+        path=path,
+        alias_groups=_ACCOUNT_ASSET_CODE_EQUAL_ALIAS_GROUPS,
+    )
     _validate_spot_balance_identity_fields(account, path=path)
     for field in _ACCOUNT_TIME_FIELDS:
         if field in account:
@@ -602,6 +618,12 @@ def _validate_open_position_identity_fields(account: dict, *, path: Path) -> Non
         for field in _ACCOUNT_OPEN_POSITION_ASSET_CODE_FIELDS:
             if field in position:
                 _require_account_asset_code(position[field], field_path=f"{field_prefix}.{field}", path=path)
+        _validate_account_asset_code_alias_parity(
+            position,
+            field_path=field_prefix,
+            path=path,
+            alias_groups=_ACCOUNT_OPEN_POSITION_ASSET_CODE_EQUAL_ALIAS_GROUPS,
+        )
         for field in _ACCOUNT_OPEN_POSITION_TIME_FIELDS:
             if field in position:
                 _require_account_utc_iso_timestamp(position[field], field_path=f"{field_prefix}.{field}", path=path)
@@ -740,6 +762,20 @@ def _require_account_asset_code(value: object, *, field_path: str, path: Path) -
     ):
         raise ValueError(f"{field_path} must be an uppercase asset code: {path}")
     return value
+
+
+def _validate_account_asset_code_alias_parity(
+    payload: dict,
+    *,
+    field_path: str,
+    path: Path,
+    alias_groups: tuple[tuple[str, str], ...],
+) -> None:
+    for canonical, alias in alias_groups:
+        if canonical not in payload or alias not in payload:
+            continue
+        if payload[alias] != payload[canonical]:
+            raise ValueError(f"{field_path}.{alias} must equal {canonical}: {path}")
 
 
 def _require_account_strict_bool(value: object, *, field_path: str, path: Path) -> bool:
