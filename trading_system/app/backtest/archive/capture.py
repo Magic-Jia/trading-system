@@ -3,18 +3,51 @@ from __future__ import annotations
 import argparse
 import json
 from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Sequence
+from typing import Any, Mapping, Sequence
 
 from ...runtime_paths import build_runtime_paths
 from .runtime_bundle import RuntimeBundleSourcePaths, archive_runtime_bundle
 
 
-def _latest_finished_at(latest: dict) -> str:
+def _canonical_utc_timestamp(value: str, *, field_name: str) -> str:
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        raise ValueError(f"{field_name} must be canonical UTC") from None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    canonical = parsed.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+    if value != canonical:
+        raise ValueError(f"{field_name} must be canonical UTC")
+    return canonical
+
+
+def _read_latest_summary(path: Path) -> dict[str, Any]:
+    latest = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(latest, Mapping):
+        raise ValueError("latest summary must be a JSON object")
+    return dict(latest)
+
+
+def _latest_finished_at(latest: dict[str, Any]) -> str:
     value = latest.get("finished_at")
     if not isinstance(value, str) or not value or value != value.strip():
         raise ValueError("latest summary finished_at must be a non-empty timestamp string without whitespace")
-    return value
+    return _canonical_utc_timestamp(value, field_name="latest summary finished_at")
+
+
+def _validate_latest_summary_identity(latest: dict[str, Any], *, mode: str, runtime_env: str) -> None:
+    if latest.get("mode") != mode:
+        raise ValueError("latest summary mode must match requested mode")
+    if latest.get("runtime_env") != runtime_env:
+        raise ValueError("latest summary runtime_env must match requested runtime_env")
+
+
+def _validate_unique_runtime_envs(runtime_envs: Sequence[str]) -> None:
+    if len(set(runtime_envs)) != len(runtime_envs):
+        raise ValueError("runtime_env values must be unique")
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,7 +71,8 @@ def capture_runtime_env(
     runtime_env: str,
 ) -> RuntimeCaptureResult:
     paths = build_runtime_paths(mode, runtime_root=runtime_root, runtime_env=runtime_env)
-    latest = json.loads(paths.latest_summary_file.read_text(encoding="utf-8"))
+    latest = _read_latest_summary(paths.latest_summary_file)
+    _validate_latest_summary_identity(latest, mode=paths.mode, runtime_env=paths.runtime_env)
     archived_at = _latest_finished_at(latest)
     try:
         archived = archive_runtime_bundle(
@@ -76,6 +110,7 @@ def capture_runtime_envs(
     mode: str,
     runtime_envs: Sequence[str],
 ) -> list[RuntimeCaptureResult]:
+    _validate_unique_runtime_envs(runtime_envs)
     return [
         capture_runtime_env(runtime_root=runtime_root, mode=mode, runtime_env=runtime_env)
         for runtime_env in runtime_envs

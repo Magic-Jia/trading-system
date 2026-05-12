@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -112,6 +113,81 @@ def test_capture_runtime_env_skips_when_same_finished_at_already_archived(tmp_pa
     assert first.status == "archived"
     assert second.status == "already_archived"
     assert second.bundle_dir == first.bundle_dir
+
+
+@pytest.mark.parametrize(
+    ("summary_updates", "expected_message"),
+    [
+        ({"mode": "testnet"}, "latest summary mode must match requested mode"),
+        ({"runtime_env": "paper"}, "latest summary runtime_env must match requested runtime_env"),
+        ({"mode": 123}, "latest summary mode must match requested mode"),
+        ({"runtime_env": None}, "latest summary runtime_env must match requested runtime_env"),
+    ],
+)
+def test_capture_runtime_env_rejects_latest_summary_identity_mismatch_before_writing_archive(
+    tmp_path: Path,
+    summary_updates: dict,
+    expected_message: str,
+) -> None:
+    runtime_root = tmp_path / "runtime"
+    paths = _prepare_runtime_bucket(
+        runtime_root,
+        runtime_env="prod",
+        snapshot_as_of="2026-04-04T13:05:01.856498Z",
+        finished_at="2026-04-04T13:05:09.875678Z",
+    )
+    latest_summary = json.loads(paths.latest_summary_file.read_text(encoding="utf-8"))
+    latest_summary.update(summary_updates)
+    _write_json(paths.latest_summary_file, latest_summary)
+
+    with pytest.raises(ValueError, match=expected_message):
+        capture_runtime_env(runtime_root=runtime_root, mode="paper", runtime_env="prod")
+
+    assert not paths.archive_runtime_bundles_dir.exists()
+
+
+@pytest.mark.parametrize(
+    ("finished_at", "expected_message"),
+    [
+        ("2026-04-04T14:05:09.875678+01:00", "latest summary finished_at must be canonical UTC"),
+        ("2026-04-04T13:05:09.875678+00:00", "latest summary finished_at must be canonical UTC"),
+        ("2026-04-04T13:05:09", "latest summary finished_at must be canonical UTC"),
+    ],
+)
+def test_capture_runtime_env_rejects_non_canonical_latest_finished_at_before_writing_archive(
+    tmp_path: Path,
+    finished_at: str,
+    expected_message: str,
+) -> None:
+    runtime_root = tmp_path / "runtime"
+    paths = _prepare_runtime_bucket(
+        runtime_root,
+        runtime_env="prod",
+        snapshot_as_of="2026-04-04T13:05:01.856498Z",
+        finished_at=finished_at,
+    )
+
+    with pytest.raises(ValueError, match=expected_message):
+        capture_runtime_env(runtime_root=runtime_root, mode="paper", runtime_env="prod")
+
+    assert not paths.archive_runtime_bundles_dir.exists()
+
+
+def test_capture_runtime_env_rejects_ambiguous_existing_bundle_matches(tmp_path: Path) -> None:
+    runtime_root = tmp_path / "runtime"
+    _prepare_runtime_bucket(
+        runtime_root,
+        runtime_env="prod",
+        snapshot_as_of="2026-04-04T13:05:01.856498Z",
+        finished_at="2026-04-04T13:05:09.875678Z",
+    )
+
+    first = capture_runtime_env(runtime_root=runtime_root, mode="paper", runtime_env="prod")
+    ambiguous_bundle = first.bundle_dir.with_name(f"copy--{first.bundle_dir.name.split('--', 1)[1]}")
+    shutil.copytree(first.bundle_dir, ambiguous_bundle)
+
+    with pytest.raises(FileExistsError, match="immutable runtime bundle already exists"):
+        capture_runtime_env(runtime_root=runtime_root, mode="paper", runtime_env="prod")
 
 
 def test_capture_runtime_env_reuses_exact_existing_bundle_dir_when_input_timestamps_differ(tmp_path: Path) -> None:
@@ -228,6 +304,41 @@ def test_capture_runtime_envs_and_main_emit_structured_results(tmp_path: Path, c
     assert exit_code == 0
     assert [item["runtime_env"] for item in payload] == ["prod", "paper"]
     assert [item["status"] for item in payload] == ["already_archived", "already_archived"]
+
+
+def test_capture_runtime_envs_rejects_duplicate_runtime_envs_before_writing_archive(tmp_path: Path) -> None:
+    runtime_root = tmp_path / "runtime"
+    paths = _prepare_runtime_bucket(
+        runtime_root,
+        runtime_env="prod",
+        snapshot_as_of="2026-04-04T13:05:01.856498Z",
+        finished_at="2026-04-04T13:05:09.875678Z",
+    )
+
+    with pytest.raises(ValueError, match="runtime_env values must be unique"):
+        capture_runtime_envs(runtime_root=runtime_root, mode="paper", runtime_envs=("prod", "prod"))
+
+    assert not paths.archive_runtime_bundles_dir.exists()
+
+
+def test_runtime_capture_result_as_dict_is_canonical_result_provenance_shape(tmp_path: Path) -> None:
+    runtime_root = tmp_path / "runtime"
+    _prepare_runtime_bucket(
+        runtime_root,
+        runtime_env="prod",
+        snapshot_as_of="2026-04-04T13:05:01.856498Z",
+        finished_at="2026-04-04T13:05:09.875678Z",
+    )
+
+    captured = capture_runtime_env(runtime_root=runtime_root, mode="paper", runtime_env="prod")
+
+    assert captured.as_dict() == {
+        "mode": "paper",
+        "runtime_env": "prod",
+        "archived_at": "2026-04-04T13:05:09.875678Z",
+        "status": "archived",
+        "bundle_dir": str(captured.bundle_dir),
+    }
 
 
 def test_python_m_capture_emits_clean_json_only(tmp_path: Path) -> None:
