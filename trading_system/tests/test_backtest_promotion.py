@@ -1167,3 +1167,76 @@ def test_load_backtest_bundle_rejects_naive_manifest_sample_period(tmp_path: Pat
 
     with pytest.raises(ValueError, match="manifest.json.sample_period.start must be timezone-aware"):
         promotion.load_backtest_bundle(bundle)
+
+
+def _valid_execution_preview() -> dict[str, object]:
+    return {
+        "schema_version": "execution_preview.v1",
+        "orders": [
+            {
+                "symbol": "BTCUSDT",
+                "side": "BUY",
+                "order_type": "LIMIT",
+                "quantity": 0.01,
+                "notional": 600.0,
+                "price": 60000.0,
+                "stop_price": None,
+                "limit_price": 60000.0,
+                "reduce_only": False,
+                "close_position": False,
+                "time_in_force": "GTX",
+                "post_only": True,
+            },
+            {
+                "symbol": "BTCUSDT",
+                "side": "SELL",
+                "order_type": "STOP_MARKET",
+                "quantity": None,
+                "notional": None,
+                "price": None,
+                "stop_price": 58000.0,
+                "limit_price": None,
+                "reduce_only": True,
+                "close_position": True,
+                "time_in_force": None,
+                "post_only": False,
+            },
+        ],
+        "unsupported": [],
+    }
+
+
+def test_validate_execution_preview_payload_accepts_runtime_replay_payload() -> None:
+    report = promotion.validate_execution_preview_payload(_valid_execution_preview())
+
+    assert report == {"valid": True, "reason_codes": []}
+
+
+@pytest.mark.parametrize(
+    ("mutator", "reason_code"),
+    [
+        (lambda payload: payload["orders"][0].update({"quantity": "0.01"}), "quantity_not_strict_number"),
+        (lambda payload: payload["orders"][0].update({"quantity": True}), "quantity_not_strict_number"),
+        (lambda payload: payload["orders"][0].update({"quantity": float("inf")}), "quantity_not_finite"),
+        (lambda payload: payload["orders"][0].update({"symbol": " BTCUSDT"}), "symbol_not_canonical"),
+        (lambda payload: payload["orders"][0].update({"side": "LONG"}), "side_unsupported"),
+        (lambda payload: payload["orders"][0].update({"order_type": "ICEBERG"}), "order_type_unsupported"),
+        (lambda payload: payload["orders"][0].update({"reduce_only": 0}), "reduce_only_not_bool"),
+        (lambda payload: payload["orders"][0].update({"post_only": 1}), "post_only_not_bool"),
+        (lambda payload: payload["orders"][0].update({"time_in_force": " GTX"}), "time_in_force_not_canonical"),
+        (lambda payload: payload.update({"unsupported": [{"reason_code": "price protection missing"}]}), "unsupported_reason_code_invalid"),
+        (lambda payload: payload.update({"unsupported": [{"reason_code": "missing_exchange_metadata"}]}), "unsupported_orders_present"),
+        (lambda payload: payload["orders"][0].update({"limit_price": None}), "limit_price_required_for_limit"),
+        (lambda payload: payload["orders"][0].update({"post_only": False}), "post_only_required_for_gtx"),
+        (lambda payload: payload["orders"][1].update({"stop_price": None}), "stop_price_required_for_stop_market"),
+        (lambda payload: payload["orders"][1].update({"quantity": 0.01}), "quantity_must_be_absent_for_close_position"),
+    ],
+)
+def test_validate_execution_preview_payload_fails_closed_on_malformed_payloads(mutator, reason_code) -> None:
+    payload = _valid_execution_preview()
+    mutator(payload)
+
+    report = promotion.validate_execution_preview_payload(payload)
+
+    assert report["valid"] is False
+    assert reason_code in report["reason_codes"]

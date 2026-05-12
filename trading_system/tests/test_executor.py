@@ -71,6 +71,91 @@ def test_build_entry_order_payload_can_be_configured_to_market_taker_order():
     }
 
 
+def test_validated_order_preview_includes_replayable_execution_preview_schema():
+    from trading_system.app.execution.testnet_preview import build_validated_order_preview
+
+    preview = build_validated_order_preview(
+        _sample_order(),
+        exchange_metadata={
+            "BTCUSDT": {
+                "quantity_step_size": 0.001,
+                "price_tick_size": 0.1,
+                "min_notional": 100,
+                "allowed_order_types": ["LIMIT", "STOP_MARKET", "TAKE_PROFIT_MARKET"],
+            }
+        },
+        allowlist=["BTCUSDT"],
+        max_order_notional_usdt=1000,
+        submission_enabled=False,
+        preview_source="accepted_signal",
+    )
+
+    replay = preview["execution_preview"]
+    assert replay["schema_version"] == "execution_preview.v1"
+    assert replay["unsupported"] == []
+    assert replay["orders"] == [
+        {
+            "symbol": "BTCUSDT",
+            "side": "BUY",
+            "order_type": "LIMIT",
+            "quantity": 0.01,
+            "notional": 600.0,
+            "price": 60000.0,
+            "stop_price": None,
+            "limit_price": 60000.0,
+            "reduce_only": False,
+            "close_position": False,
+            "time_in_force": "GTX",
+            "post_only": True,
+        },
+        {
+            "symbol": "BTCUSDT",
+            "side": "SELL",
+            "order_type": "STOP_MARKET",
+            "quantity": None,
+            "notional": None,
+            "price": None,
+            "stop_price": 58000.0,
+            "limit_price": None,
+            "reduce_only": True,
+            "close_position": True,
+            "time_in_force": None,
+            "post_only": False,
+        },
+        {
+            "symbol": "BTCUSDT",
+            "side": "SELL",
+            "order_type": "TAKE_PROFIT_MARKET",
+            "quantity": None,
+            "notional": None,
+            "price": None,
+            "stop_price": 64000.0,
+            "limit_price": None,
+            "reduce_only": True,
+            "close_position": True,
+            "time_in_force": None,
+            "post_only": False,
+        },
+    ]
+
+
+def test_validated_order_preview_records_stable_unsupported_reason_codes():
+    from trading_system.app.execution.testnet_preview import build_validated_order_preview
+
+    preview = build_validated_order_preview(
+        _sample_order(),
+        exchange_metadata={},
+        allowlist=[],
+        max_order_notional_usdt=1000,
+        submission_enabled=False,
+        preview_source="accepted_signal",
+    )
+
+    reason_codes = [item["reason_code"] for item in preview["execution_preview"]["unsupported"]]
+    assert "symbol_not_allowed" in reason_codes
+    assert "missing_exchange_metadata" in reason_codes
+
+
 def test_execution_config_entry_order_policy_defaults_to_maker_only(monkeypatch):
     monkeypatch.delenv("TRADING_ENTRY_ORDER_POLICY", raising=False)
 

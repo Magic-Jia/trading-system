@@ -13,6 +13,25 @@ REQUIRED_ORDER_TYPES = {
     "take_profit": "TAKE_PROFIT_MARKET",
 }
 
+_UNSUPPORTED_REASON_CODES = (
+    ("symbol not allowed for testnet preview", "symbol_not_allowed"),
+    ("missing exchange metadata", "missing_exchange_metadata"),
+    ("order type incompatible with exchange metadata", "order_type_incompatible"),
+    ("entry notional below exchange minimum", "entry_notional_below_minimum"),
+    ("entry notional exceeds testnet cap", "entry_notional_exceeds_cap"),
+    ("quantity step size or precision incompatible", "quantity_precision_incompatible"),
+    ("price tick size or precision incompatible", "price_precision_incompatible"),
+    ("fixed futures payload mapping incompatible: entry.type", "entry_order_type_incompatible"),
+    ("fixed futures payload mapping incompatible: entry.timeInForce", "entry_time_in_force_incompatible"),
+    ("fixed futures payload mapping incompatible: entry.price", "entry_price_missing"),
+    ("fixed futures payload mapping incompatible: stop.type", "stop_order_type_incompatible"),
+    ("fixed futures payload mapping incompatible: stop.closePosition", "stop_close_position_incompatible"),
+    ("fixed futures payload mapping incompatible: stop.workingType", "stop_working_type_incompatible"),
+    ("fixed futures payload mapping incompatible: take_profit.type", "take_profit_order_type_incompatible"),
+    ("fixed futures payload mapping incompatible: take_profit.closePosition", "take_profit_close_position_incompatible"),
+    ("fixed futures payload mapping incompatible: take_profit.workingType", "take_profit_working_type_incompatible"),
+)
+
 
 def _decimal(value: Any) -> Decimal:
     try:
@@ -90,6 +109,75 @@ def _validate_payload_mapping(
             reasons.append("fixed futures payload mapping incompatible: take_profit.workingType")
 
 
+def _unsupported_reason_code(reason: str) -> str:
+    for prefix, code in _UNSUPPORTED_REASON_CODES:
+        if reason.startswith(prefix):
+            return code
+    return "unsupported_preview_payload"
+
+
+def _bool_from_exchange_flag(value: Any) -> bool:
+    return value is True or value == "true"
+
+
+def _entry_notional(intent: OrderIntent, payload: dict[str, Any]) -> float | None:
+    quantity = payload.get("quantity")
+    if not isinstance(quantity, (int, float)) or isinstance(quantity, bool):
+        return None
+    price = payload.get("price", intent.entry_price)
+    if not isinstance(price, (int, float)) or isinstance(price, bool):
+        return None
+    return float(quantity) * float(price)
+
+
+def _replay_order_from_payload(
+    *,
+    intent: OrderIntent,
+    payload: dict[str, Any],
+    protective_order: bool,
+) -> dict[str, Any]:
+    order_type = payload.get("type")
+    price = payload.get("price")
+    stop_price = payload.get("stopPrice")
+    time_in_force = payload.get("timeInForce")
+    close_position = protective_order and _bool_from_exchange_flag(payload.get("closePosition"))
+    return {
+        "symbol": payload.get("symbol"),
+        "side": payload.get("side"),
+        "order_type": order_type,
+        "quantity": None if close_position else payload.get("quantity"),
+        "notional": None if close_position else _entry_notional(intent, payload),
+        "price": price if order_type == "LIMIT" else None,
+        "stop_price": stop_price,
+        "limit_price": price if order_type == "LIMIT" else None,
+        "reduce_only": protective_order,
+        "close_position": close_position,
+        "time_in_force": time_in_force,
+        "post_only": time_in_force == "GTX",
+    }
+
+
+def _build_execution_preview(
+    *,
+    intent: OrderIntent,
+    payloads: dict[str, dict[str, Any] | None],
+    reasons: list[str],
+) -> dict[str, Any]:
+    orders: list[dict[str, Any]] = []
+    entry_payload = payloads["entry"]
+    if entry_payload is not None:
+        orders.append(_replay_order_from_payload(intent=intent, payload=entry_payload, protective_order=False))
+    for key in ("stop", "take_profit"):
+        payload = payloads[key]
+        if payload is not None:
+            orders.append(_replay_order_from_payload(intent=intent, payload=payload, protective_order=True))
+    return {
+        "schema_version": "execution_preview.v1",
+        "orders": orders,
+        "unsupported": [{"reason_code": _unsupported_reason_code(reason), "detail": reason} for reason in reasons],
+    }
+
+
 def build_validated_order_preview(
     intent: OrderIntent,
     *,
@@ -158,6 +246,7 @@ def build_validated_order_preview(
         "qty": intent.qty,
         "order_types": order_types,
         "payloads": payloads,
+        "execution_preview": _build_execution_preview(intent=intent, payloads=payloads, reasons=reasons),
         "local_validation_passed": submission_prerequisites_passed,
         "submission_enabled": submission_enabled,
         "would_submit": submission_enabled and submission_prerequisites_passed,

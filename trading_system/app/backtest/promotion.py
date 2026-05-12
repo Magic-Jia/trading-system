@@ -30,6 +30,9 @@ _REQUIRED_ARTIFACTS: dict[str, tuple[str, ...]] = {
 }
 
 _SAFE_EVIDENCE_IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
+_SUPPORTED_EXECUTION_PREVIEW_SIDES = frozenset({"BUY", "SELL"})
+_SUPPORTED_EXECUTION_PREVIEW_ORDER_TYPES = frozenset({"MARKET", "LIMIT", "STOP_MARKET", "TAKE_PROFIT_MARKET"})
+_SUPPORTED_EXECUTION_PREVIEW_TIME_IN_FORCE = frozenset({"GTC", "IOC", "FOK", "GTX"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,6 +89,144 @@ def _require_non_negative_int(payload: Mapping[str, Any], key: str, *, context: 
 
 def _is_safe_evidence_identifier(value: str) -> bool:
     return _SAFE_EVIDENCE_IDENTIFIER_RE.fullmatch(value) is not None
+
+
+def _append_unique_reason(reason_codes: list[str], reason_code: str) -> None:
+    if reason_code not in reason_codes:
+        reason_codes.append(reason_code)
+
+
+def _validate_preview_string(
+    value: Any,
+    *,
+    field_name: str,
+    supported: frozenset[str] | None,
+    reason_codes: list[str],
+) -> str | None:
+    if not isinstance(value, str) or not value:
+        _append_unique_reason(reason_codes, f"{field_name}_not_string")
+        return None
+    if value != value.strip():
+        _append_unique_reason(reason_codes, f"{field_name}_not_canonical")
+        return None
+    if supported is not None and value not in supported:
+        _append_unique_reason(reason_codes, f"{field_name}_unsupported")
+    return value
+
+
+def _validate_optional_preview_number(
+    value: Any,
+    *,
+    field_name: str,
+    reason_codes: list[str],
+) -> None:
+    if value is None:
+        return
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        _append_unique_reason(reason_codes, f"{field_name}_not_strict_number")
+        return
+    if not math.isfinite(float(value)):
+        _append_unique_reason(reason_codes, f"{field_name}_not_finite")
+
+
+def _validate_preview_bool(value: Any, *, field_name: str, reason_codes: list[str]) -> None:
+    if not isinstance(value, bool):
+        _append_unique_reason(reason_codes, f"{field_name}_not_bool")
+
+
+def _is_preview_number(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value))
+
+
+def _validate_execution_preview_order_shape(order: Mapping[str, Any], *, reason_codes: list[str]) -> None:
+    order_type = order.get("order_type")
+    time_in_force = order.get("time_in_force")
+    post_only = order.get("post_only")
+    close_position = order.get("close_position")
+    if close_position is True:
+        if order.get("quantity") is not None:
+            _append_unique_reason(reason_codes, "quantity_must_be_absent_for_close_position")
+        if order.get("notional") is not None:
+            _append_unique_reason(reason_codes, "notional_must_be_absent_for_close_position")
+    elif order_type in {"MARKET", "LIMIT"} and not _is_preview_number(order.get("quantity")):
+        _append_unique_reason(reason_codes, "quantity_required_for_entry_order")
+    if order_type == "LIMIT":
+        if not _is_preview_number(order.get("limit_price")):
+            _append_unique_reason(reason_codes, "limit_price_required_for_limit")
+        if not _is_preview_number(order.get("price")):
+            _append_unique_reason(reason_codes, "price_required_for_limit")
+    if order_type == "MARKET":
+        for field_name in ("price", "limit_price", "stop_price"):
+            if order.get(field_name) is not None:
+                _append_unique_reason(reason_codes, f"{field_name}_must_be_absent_for_market")
+    if order_type in {"STOP_MARKET", "TAKE_PROFIT_MARKET"}:
+        if not _is_preview_number(order.get("stop_price")):
+            _append_unique_reason(reason_codes, "stop_price_required_for_stop_market")
+        if close_position is not True:
+            _append_unique_reason(reason_codes, "close_position_required_for_stop_market")
+    if time_in_force == "GTX" and post_only is not True:
+        _append_unique_reason(reason_codes, "post_only_required_for_gtx")
+    if post_only is True and time_in_force != "GTX":
+        _append_unique_reason(reason_codes, "time_in_force_gtx_required_for_post_only")
+
+
+def validate_execution_preview_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
+    reason_codes: list[str] = []
+    if not isinstance(payload, Mapping):
+        return {"valid": False, "reason_codes": ["payload_not_object"]}
+    if payload.get("schema_version") != "execution_preview.v1":
+        _append_unique_reason(reason_codes, "schema_version_unsupported")
+    orders = payload.get("orders")
+    if not isinstance(orders, list) or not orders:
+        _append_unique_reason(reason_codes, "orders_not_non_empty_list")
+        orders = []
+    for order in orders:
+        if not isinstance(order, Mapping):
+            _append_unique_reason(reason_codes, "order_not_object")
+            continue
+        _validate_preview_string(order.get("symbol"), field_name="symbol", supported=None, reason_codes=reason_codes)
+        _validate_preview_string(
+            order.get("side"),
+            field_name="side",
+            supported=_SUPPORTED_EXECUTION_PREVIEW_SIDES,
+            reason_codes=reason_codes,
+        )
+        _validate_preview_string(
+            order.get("order_type"),
+            field_name="order_type",
+            supported=_SUPPORTED_EXECUTION_PREVIEW_ORDER_TYPES,
+            reason_codes=reason_codes,
+        )
+        for field_name in ("quantity", "notional", "price", "stop_price", "limit_price"):
+            _validate_optional_preview_number(order.get(field_name), field_name=field_name, reason_codes=reason_codes)
+        _validate_preview_bool(order.get("reduce_only"), field_name="reduce_only", reason_codes=reason_codes)
+        _validate_preview_bool(order.get("close_position"), field_name="close_position", reason_codes=reason_codes)
+        _validate_preview_bool(order.get("post_only"), field_name="post_only", reason_codes=reason_codes)
+        time_in_force = order.get("time_in_force")
+        if time_in_force is not None:
+            _validate_preview_string(
+                time_in_force,
+                field_name="time_in_force",
+                supported=_SUPPORTED_EXECUTION_PREVIEW_TIME_IN_FORCE,
+                reason_codes=reason_codes,
+            )
+        _validate_execution_preview_order_shape(order, reason_codes=reason_codes)
+    unsupported = payload.get("unsupported")
+    if not isinstance(unsupported, list):
+        _append_unique_reason(reason_codes, "unsupported_not_list")
+    else:
+        for item in unsupported:
+            if not isinstance(item, Mapping):
+                _append_unique_reason(reason_codes, "unsupported_item_not_object")
+                continue
+            reason_code = item.get("reason_code")
+            if not isinstance(reason_code, str) or not reason_code or reason_code != reason_code.strip():
+                _append_unique_reason(reason_codes, "unsupported_reason_code_invalid")
+            elif not _is_safe_evidence_identifier(reason_code):
+                _append_unique_reason(reason_codes, "unsupported_reason_code_invalid")
+            else:
+                _append_unique_reason(reason_codes, "unsupported_orders_present")
+    return {"valid": not reason_codes, "reason_codes": reason_codes}
 
 
 def _parse_iso_datetime(value: str, *, context: str) -> datetime:
