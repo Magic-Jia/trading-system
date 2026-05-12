@@ -120,6 +120,34 @@ def test_depth_rejects_non_string_or_empty_top_of_book_values_without_partial_ar
     assert not (tmp_path / "archive" / "raw-market").exists()
 
 
+def test_depth_rejects_top_of_book_rows_with_extra_fields_without_partial_archive(tmp_path: Path) -> None:
+    transport = _FakeTransport(
+        [
+            {
+                "lastUpdateId": 123,
+                "bids": [["64389.50", "3.25", "unexpected"]],
+                "asks": [["64390.50", "2.75"]],
+            },
+        ]
+    )
+
+    with pytest.raises(
+        BinanceExecutionDownloadError,
+        match="depth payload top bid must contain exactly price and quantity",
+    ):
+        download_binance_execution_evidence(
+            archive_root=tmp_path / "archive",
+            symbol="BTCUSDT",
+            start_time="2024-02-29T23:00:00Z",
+            end_time="2024-02-29T23:05:00Z",
+            include_trades=False,
+            fetch_json=transport,
+            now=lambda: "2026-04-01T07:33:00Z",
+        )
+
+    assert not (tmp_path / "archive" / "raw-market").exists()
+
+
 def test_mocked_agg_trades_response_writes_trade_rows_with_conservative_side(tmp_path: Path) -> None:
     transport = _FakeTransport(
         [
@@ -233,6 +261,61 @@ def test_agg_trades_rejects_non_string_price_or_quantity_without_partial_archive
     assert not (tmp_path / "archive" / "raw-market").exists()
 
 
+@pytest.mark.parametrize(
+    ("field", "expected_message"),
+    [
+        ("p", "aggTrades row price must be a non-empty string"),
+        ("q", "aggTrades row quantity must be a non-empty string"),
+    ],
+)
+def test_agg_trades_rejects_empty_price_or_quantity_without_partial_archive(
+    tmp_path: Path,
+    field: str,
+    expected_message: str,
+) -> None:
+    payload = {"a": 10, "p": "64391.00", "q": "0.20", "T": 1709247602000, "m": False}
+    payload[field] = ""
+    transport = _FakeTransport([[payload]])
+
+    with pytest.raises(BinanceExecutionDownloadError, match=expected_message):
+        download_binance_execution_evidence(
+            archive_root=tmp_path / "archive",
+            symbol="BTCUSDT",
+            start_time="2024-02-29T23:00:00Z",
+            end_time="2024-02-29T23:05:00Z",
+            include_order_book=False,
+            fetch_json=transport,
+            sleep=lambda _: None,
+            now=lambda: "2026-04-01T07:33:00Z",
+        )
+
+    assert not (tmp_path / "archive" / "raw-market").exists()
+
+
+def test_agg_trades_rejects_missing_price_with_field_level_error_without_partial_archive(tmp_path: Path) -> None:
+    transport = _FakeTransport(
+        [
+            [
+                {"a": 10, "q": "0.20", "T": 1709247602000, "m": False},
+            ],
+        ]
+    )
+
+    with pytest.raises(BinanceExecutionDownloadError, match="aggTrades row price is missing"):
+        download_binance_execution_evidence(
+            archive_root=tmp_path / "archive",
+            symbol="BTCUSDT",
+            start_time="2024-02-29T23:00:00Z",
+            end_time="2024-02-29T23:05:00Z",
+            include_order_book=False,
+            fetch_json=transport,
+            sleep=lambda _: None,
+            now=lambda: "2026-04-01T07:33:00Z",
+        )
+
+    assert not (tmp_path / "archive" / "raw-market").exists()
+
+
 def test_agg_trades_rejects_boolean_trade_id_without_partial_archive(tmp_path: Path) -> None:
     transport = _FakeTransport(
         [
@@ -267,6 +350,59 @@ def test_agg_trades_rejects_boolean_trade_timestamp_without_partial_archive(tmp_
     )
 
     with pytest.raises(BinanceExecutionDownloadError, match="aggTrades row trade timestamp must be integer"):
+        download_binance_execution_evidence(
+            archive_root=tmp_path / "archive",
+            symbol="BTCUSDT",
+            start_time="2024-02-29T23:00:00Z",
+            end_time="2024-02-29T23:05:00Z",
+            include_order_book=False,
+            fetch_json=transport,
+            sleep=lambda _: None,
+            now=lambda: "2026-04-01T07:33:00Z",
+        )
+
+    assert not (tmp_path / "archive" / "raw-market").exists()
+
+
+def test_agg_trades_rejects_duplicate_trade_ids_without_partial_archive(tmp_path: Path) -> None:
+    transport = _FakeTransport(
+        [
+            [
+                {"a": 10, "p": "64391.00", "q": "0.20", "T": 1709247602000, "m": False},
+                {"a": 10, "p": "64392.00", "q": "0.30", "T": 1709247603000, "m": True},
+            ],
+        ]
+    )
+
+    with pytest.raises(BinanceExecutionDownloadError, match="aggTrades row duplicate trade id 10"):
+        download_binance_execution_evidence(
+            archive_root=tmp_path / "archive",
+            symbol="BTCUSDT",
+            start_time="2024-02-29T23:00:00Z",
+            end_time="2024-02-29T23:05:00Z",
+            include_order_book=False,
+            fetch_json=transport,
+            sleep=lambda _: None,
+            now=lambda: "2026-04-01T07:33:00Z",
+        )
+
+    assert not (tmp_path / "archive" / "raw-market").exists()
+
+
+def test_agg_trades_rejects_non_monotonic_timestamps_without_partial_archive(tmp_path: Path) -> None:
+    transport = _FakeTransport(
+        [
+            [
+                {"a": 10, "p": "64391.00", "q": "0.20", "T": 1709247603000, "m": False},
+                {"a": 11, "p": "64392.00", "q": "0.30", "T": 1709247602000, "m": True},
+            ],
+        ]
+    )
+
+    with pytest.raises(
+        BinanceExecutionDownloadError,
+        match="aggTrades rows must be monotonic by trade timestamp",
+    ):
         download_binance_execution_evidence(
             archive_root=tmp_path / "archive",
             symbol="BTCUSDT",

@@ -140,10 +140,14 @@ def _top_of_book_row(*, symbol: str, fetched_at: str, payload: Mapping[str, Any]
         raise BinanceExecutionDownloadError("depth payload missing top bid/ask")
     best_bid = bids[0]
     best_ask = asks[0]
-    if not isinstance(best_bid, (list, tuple)) or len(best_bid) < 2:
+    if not isinstance(best_bid, (list, tuple)):
         raise BinanceExecutionDownloadError("depth payload top bid is malformed")
-    if not isinstance(best_ask, (list, tuple)) or len(best_ask) < 2:
+    if len(best_bid) != 2:
+        raise BinanceExecutionDownloadError("depth payload top bid must contain exactly price and quantity")
+    if not isinstance(best_ask, (list, tuple)):
         raise BinanceExecutionDownloadError("depth payload top ask is malformed")
+    if len(best_ask) != 2:
+        raise BinanceExecutionDownloadError("depth payload top ask must contain exactly price and quantity")
     row: dict[str, Any] = {
         "timestamp": fetched_at,
         "symbol": symbol,
@@ -159,6 +163,8 @@ def _top_of_book_row(*, symbol: str, fetched_at: str, payload: Mapping[str, Any]
 
 
 def _buyer_was_maker(payload: Mapping[str, Any]) -> bool:
+    if "m" not in payload:
+        raise BinanceExecutionDownloadError("aggTrades row maker flag is missing")
     maker_flag = payload.get("m")
     if not isinstance(maker_flag, bool):
         raise BinanceExecutionDownloadError("aggTrades row maker flag must be boolean")
@@ -170,6 +176,8 @@ def _maker_side(payload: Mapping[str, Any]) -> str:
 
 
 def _trade_id(payload: Mapping[str, Any]) -> int:
+    if "a" not in payload:
+        raise BinanceExecutionDownloadError("aggTrades row trade id is missing")
     trade_id = payload["a"]
     if isinstance(trade_id, bool) or not isinstance(trade_id, int):
         raise BinanceExecutionDownloadError("aggTrades row trade id must be integer")
@@ -177,6 +185,8 @@ def _trade_id(payload: Mapping[str, Any]) -> int:
 
 
 def _trade_time_ms(payload: Mapping[str, Any]) -> int:
+    if "T" not in payload:
+        raise BinanceExecutionDownloadError("aggTrades row trade timestamp is missing")
     trade_time = payload["T"]
     if isinstance(trade_time, bool) or not isinstance(trade_time, int):
         raise BinanceExecutionDownloadError("aggTrades row trade timestamp must be integer")
@@ -184,9 +194,13 @@ def _trade_time_ms(payload: Mapping[str, Any]) -> int:
 
 
 def _trade_string_field(payload: Mapping[str, Any], *, field: str, label: str) -> str:
+    if field not in payload:
+        raise BinanceExecutionDownloadError(f"aggTrades row {label} is missing")
     value = payload[field]
     if not isinstance(value, str):
         raise BinanceExecutionDownloadError(f"aggTrades row {label} must be a string")
+    if not value:
+        raise BinanceExecutionDownloadError(f"aggTrades row {label} must be a non-empty string")
     return value
 
 
@@ -202,6 +216,17 @@ def _trade_row(*, symbol: str, payload: Mapping[str, Any]) -> dict[str, Any]:
         "is_buyer_maker": buyer_was_maker,
         "evidence_time_semantics": "historical_agg_trade_time" if buyer_was_maker else "trade_execution_time",
     }
+
+
+def _require_non_duplicate_page_trade_id(*, trade_id: int, seen_page_ids: set[int]) -> None:
+    if trade_id in seen_page_ids:
+        raise BinanceExecutionDownloadError(f"aggTrades row duplicate trade id {trade_id}")
+    seen_page_ids.add(trade_id)
+
+
+def _require_monotonic_trade_time(*, trade_time: int, previous_trade_time: int | None) -> None:
+    if previous_trade_time is not None and trade_time < previous_trade_time:
+        raise BinanceExecutionDownloadError("aggTrades rows must be monotonic by trade timestamp")
 
 
 def _fetch_depth(
@@ -252,6 +277,7 @@ def _fetch_agg_trades(
     request_count = 0
     rows_by_id: dict[int, dict[str, Any]] = {}
     next_from_id: int | None = None
+    previous_trade_time: int | None = None
 
     while True:
         request_params = dict(params)
@@ -275,12 +301,18 @@ def _fetch_agg_trades(
         if not page:
             break
         mapped_page: list[dict[str, Any]] = []
+        seen_page_ids: set[int] = set()
         for item in page:
             if not isinstance(item, Mapping):
                 raise BinanceExecutionDownloadError("aggTrades row is not an object")
-            if _trade_time_ms(item) > end_ms:
+            trade_id = _trade_id(item)
+            _require_non_duplicate_page_trade_id(trade_id=trade_id, seen_page_ids=seen_page_ids)
+            trade_time = _trade_time_ms(item)
+            _require_monotonic_trade_time(trade_time=trade_time, previous_trade_time=previous_trade_time)
+            previous_trade_time = trade_time
+            if trade_time > end_ms:
                 continue
-            if _trade_time_ms(item) >= start_ms:
+            if trade_time >= start_ms:
                 row = _trade_row(symbol=symbol, payload=item)
                 rows_by_id.setdefault(int(row["agg_trade_id"]), row)
                 mapped_page.append(row)
