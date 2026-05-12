@@ -1529,6 +1529,114 @@ def test_write_phase1_dataset_bundle_rejects_invalid_account_balance_initial_mar
     assert not expected_bundle_dir.exists()
 
 
+@pytest.mark.parametrize(
+    ("canonical", "alias", "expected_message"),
+    [
+        (
+            "totalUnrealizedProfit",
+            "total_unrealized_profit",
+            r"account\.balances\[0\]\.total_unrealized_profit must equal totalUnrealizedProfit",
+        ),
+        (
+            "unrealizedPnl",
+            "unrealized_pnl",
+            r"account\.balances\[0\]\.unrealized_pnl must equal unrealizedPnl",
+        ),
+        (
+            "unRealizedProfit",
+            "unrealizedProfit",
+            r"account\.balances\[0\]\.unrealizedProfit must equal unRealizedProfit",
+        ),
+    ],
+)
+def test_write_phase1_dataset_bundle_rejects_account_balance_signed_pnl_alias_mismatch_without_artifact(
+    tmp_path: Path, canonical: str, alias: str, expected_message: str
+) -> None:
+    timestamp = datetime(2024, 1, 1, tzinfo=UTC)
+    material = archive_importer.Phase1DatasetBundleMaterial(
+        timestamp=timestamp,
+        run_id=archive_importer._run_id(timestamp),
+        metadata={"timestamp": "2024-01-01T00:00:00Z", "run_id": archive_importer._run_id(timestamp)},
+        market_context={
+            "schema_version": archive_importer.PHASE1_IMPORTER_MARKET_CONTEXT_SCHEMA,
+            "as_of": "2024-01-01T00:00:00Z",
+            "symbols": {"BTCUSDT": {}},
+            "instrument_rows": [],
+        },
+        derivatives_snapshot={
+            "schema_version": archive_importer.PHASE1_IMPORTER_DERIVATIVES_SCHEMA,
+            "as_of": "2024-01-01T00:00:00Z",
+            "rows": [],
+        },
+        account_snapshot={
+            "schema_version": archive_importer.PHASE1_IMPORTER_ACCOUNT_SCHEMA,
+            "as_of": "2024-01-01T00:00:00Z",
+            "equity": 100000.0,
+            "balances": [
+                {
+                    "asset": "USDT",
+                    "free": 75000.0,
+                    "locked": 25000.0,
+                    canonical: -12.5,
+                    alias: -12.4,
+                }
+            ],
+        },
+    )
+    expected_bundle_dir = tmp_path / f"{archive_importer._bundle_fragment(timestamp)}__{material.run_id}"
+
+    with pytest.raises(ValueError, match=expected_message):
+        write_phase1_dataset_bundle(material, tmp_path)
+
+    assert not expected_bundle_dir.exists()
+
+
+def test_write_phase1_dataset_bundle_allows_negative_account_balance_signed_pnl_aliases(
+    tmp_path: Path,
+) -> None:
+    timestamp = datetime(2024, 1, 1, tzinfo=UTC)
+    material = archive_importer.Phase1DatasetBundleMaterial(
+        timestamp=timestamp,
+        run_id=archive_importer._run_id(timestamp),
+        metadata={"timestamp": "2024-01-01T00:00:00Z", "run_id": archive_importer._run_id(timestamp)},
+        market_context={
+            "schema_version": archive_importer.PHASE1_IMPORTER_MARKET_CONTEXT_SCHEMA,
+            "as_of": "2024-01-01T00:00:00Z",
+            "symbols": {"BTCUSDT": {}},
+            "instrument_rows": [],
+        },
+        derivatives_snapshot={
+            "schema_version": archive_importer.PHASE1_IMPORTER_DERIVATIVES_SCHEMA,
+            "as_of": "2024-01-01T00:00:00Z",
+            "rows": [],
+        },
+        account_snapshot={
+            "schema_version": archive_importer.PHASE1_IMPORTER_ACCOUNT_SCHEMA,
+            "as_of": "2024-01-01T00:00:00Z",
+            "equity": 100000.0,
+            "balances": [
+                {
+                    "asset": "USDT",
+                    "free": 75000.0,
+                    "locked": 25000.0,
+                    "totalUnrealizedProfit": -12.5,
+                    "total_unrealized_profit": -12.5,
+                    "unRealizedProfit": -12.5,
+                    "unrealizedProfit": -12.5,
+                    "unrealizedPnl": -12.5,
+                    "unrealized_pnl": -12.5,
+                    "pnl": -12.5,
+                    "upl": -12.5,
+                }
+            ],
+        },
+    )
+
+    bundle_dir = write_phase1_dataset_bundle(material, tmp_path)
+
+    assert bundle_dir.exists()
+
+
 def test_write_phase1_dataset_bundle_rejects_account_balance_wallet_parity_without_artifact(
     tmp_path: Path,
 ) -> None:

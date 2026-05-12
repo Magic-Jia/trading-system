@@ -86,6 +86,16 @@ _ACCOUNT_BALANCE_NUMERIC_ALIASES = (
     "initialMargin",
     "initial_margin",
 )
+_ACCOUNT_BALANCE_SIGNED_NUMERIC_ALIASES = (
+    "totalUnrealizedProfit",
+    "total_unrealized_profit",
+    "unRealizedProfit",
+    "unrealizedProfit",
+    "unrealizedPnl",
+    "unrealized_pnl",
+    "pnl",
+    "upl",
+)
 _ACCOUNT_BALANCE_WALLET_TOTAL_ALIASES = (
     "walletBalance",
     "wallet_balance",
@@ -97,6 +107,12 @@ _ACCOUNT_BALANCE_EQUAL_ALIAS_GROUPS = (
     ("marginBalance", "margin_balance"),
     ("maintenanceMargin", "maintenance_margin"),
     ("initialMargin", "initial_margin"),
+)
+_ACCOUNT_BALANCE_SIGNED_EQUAL_ALIAS_GROUPS = (
+    ("totalUnrealizedProfit", "total_unrealized_profit"),
+    ("unRealizedProfit", "unrealizedProfit"),
+    ("unrealizedPnl", "unrealized_pnl"),
+    ("pnl", "upl"),
 )
 _ACCOUNT_BALANCE_ASSET_CODE_RE = re.compile(r"^[A-Z0-9]+$")
 _EXCHANGE_SYMBOL_RE = re.compile(r"^[A-Z0-9]+$")
@@ -2597,7 +2613,23 @@ def _validate_material_account_balance_numeric_aliases(account_snapshot: Mapping
             parsed = float(value)
             if not parsed == parsed or parsed in {float("inf"), float("-inf")} or parsed < 0.0:
                 raise ValueError(f"account.balances[{index}].{field} must be a non-negative finite number")
+        for field in _ACCOUNT_BALANCE_SIGNED_NUMERIC_ALIASES:
+            if field not in balance:
+                continue
+            value = balance[field]
+            if isinstance(value, bool) or isinstance(value, str) or not isinstance(value, (int, float)):
+                raise ValueError(f"account.balances[{index}].{field} must be a finite number")
+            parsed = float(value)
+            if not parsed == parsed or parsed in {float("inf"), float("-inf")}:
+                raise ValueError(f"account.balances[{index}].{field} must be a finite number")
         for canonical, alias in _ACCOUNT_BALANCE_EQUAL_ALIAS_GROUPS:
+            if canonical not in balance or alias not in balance:
+                continue
+            canonical_value = float(balance[canonical])
+            alias_value = float(balance[alias])
+            if not math.isclose(alias_value, canonical_value, rel_tol=1e-12, abs_tol=1e-12):
+                raise ValueError(f"account.balances[{index}].{alias} must equal {canonical}")
+        for canonical, alias in _ACCOUNT_BALANCE_SIGNED_EQUAL_ALIAS_GROUPS:
             if canonical not in balance or alias not in balance:
                 continue
             canonical_value = float(balance[canonical])
