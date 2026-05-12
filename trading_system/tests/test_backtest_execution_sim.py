@@ -546,16 +546,18 @@ def test_taker_depth_rejects_string_and_non_positive_requested_quantity(quantity
     ("field", "value"),
     [
         ("price", True),
+        ("price", "100.0"),
         ("price", math.nan),
         ("price", math.inf),
         ("price", -math.inf),
         ("quantity", True),
+        ("quantity", "1.0"),
         ("quantity", math.nan),
         ("quantity", math.inf),
         ("quantity", -math.inf),
     ],
 )
-def test_taker_depth_rejects_bool_and_non_finite_depth_level_values(field: str, value: float | bool) -> None:
+def test_taker_depth_rejects_non_exact_depth_level_values(field: str, value: object) -> None:
     level_kwargs = {"price": 100.0, "quantity": 1.0}
     level_kwargs[field] = value
 
@@ -573,6 +575,25 @@ def test_taker_depth_rejects_bool_and_non_finite_depth_level_values(field: str, 
                 ask_levels=(DepthLevel(**level_kwargs),),
             ),
         )
+
+
+def test_taker_depth_caps_notional_fill_quantity_to_available_requested_notional() -> None:
+    fill = simulate_taker_depth_fill(
+        symbol="BTCUSDT",
+        side="buy",
+        requested_notional=100.0,
+        reference_price=100.0,
+        order_book=OrderBookSnapshot(
+            timestamp=_ts("2026-03-10T00:00:01Z"),
+            symbol="BTCUSDT",
+            bid=99.9,
+            ask=100.0,
+            ask_levels=(DepthLevel(price=99.99, quantity=2.0),),
+        ),
+    )
+
+    assert fill.filled_notional == pytest.approx(100.0)
+    assert fill.filled_quantity <= (100.0 / 99.99) + 1e-12
 
 
 def test_taker_without_orderbook_keeps_ohlcv_approximation_label() -> None:
@@ -616,6 +637,32 @@ def test_taker_trade_print_rejects_invalid_quantity(quantity: object) -> None:
             trades=(
                 TradePrint(timestamp=_ts("2026-03-10T00:00:01Z"), symbol="BTCUSDT", price=100.0, quantity=quantity),
             ),
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "match"),
+    [
+        ("price", "99.5", "trade.price must be a positive finite number"),
+        ("quantity", "1.0", "trade.quantity must be a positive finite number"),
+    ],
+)
+def test_maker_limit_rejects_string_trade_evidence(field: str, value: object, match: str) -> None:
+    trade_kwargs = {
+        "timestamp": _ts("2026-03-10T00:00:01Z"),
+        "symbol": "BTCUSDT",
+        "price": 99.5,
+        "quantity": 1.0,
+    }
+    trade_kwargs[field] = value
+
+    with pytest.raises(ValueError, match=match):
+        simulate_maker_limit_fill(
+            symbol="BTCUSDT",
+            side="buy",
+            limit_price=99.5,
+            quantity=1.0,
+            trades=(TradePrint(**trade_kwargs),),
         )
 
 

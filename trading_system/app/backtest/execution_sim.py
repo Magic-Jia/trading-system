@@ -384,9 +384,11 @@ def simulate_maker_limit_fill(
     sorted_trades = sorted((trade for trade in trades if trade.symbol == symbol), key=lambda trade: trade.timestamp)
     filled_qty = 0.0
     for trade in sorted_trades:
-        if not _crosses_limit(side=side, price=trade.price, limit_price=validated_limit_price):
+        trade_price = _positive_finite_float("trade.price", trade.price)
+        trade_quantity = _positive_finite_float("trade.quantity", trade.quantity)
+        if not _crosses_limit(side=side, price=trade_price, limit_price=validated_limit_price):
             continue
-        filled_qty += max(0.0, float(trade.quantity))
+        filled_qty += trade_quantity
         if filled_qty >= validated_quantity:
             return ExecutionFill(
                 symbol=symbol,
@@ -403,7 +405,10 @@ def simulate_maker_limit_fill(
 
     sorted_books = sorted((book for book in order_books if book.symbol == symbol), key=lambda book: book.timestamp)
     for book in sorted_books:
-        book_price = book.ask if side == "buy" else book.bid
+        book_price = _positive_finite_float(
+            "order_book.ask" if side == "buy" else "order_book.bid",
+            book.ask if side == "buy" else book.bid,
+        )
         if _crosses_limit(side=side, price=book_price, limit_price=validated_limit_price):
             return ExecutionFill(
                 symbol=symbol,
@@ -469,17 +474,19 @@ def _simulate_maker_queue_fill(
     cutoff = _maker_cutoff(deadline=deadline, cancel_replace_timestamp=cancel_replace_timestamp)
 
     for trade in sorted((trade for trade in trades if trade.symbol == symbol), key=lambda trade: trade.timestamp):
+        trade_price = _positive_finite_float("trade.price", trade.price)
+        trade_quantity = _positive_finite_float("trade.quantity", trade.quantity)
         if effective_placement is not None and trade.timestamp < effective_placement:
             continue
         if cutoff is not None and trade.timestamp > cutoff:
             continue
-        if not _crosses_limit(side=side, price=trade.price, limit_price=limit_price):
+        if not _crosses_limit(side=side, price=trade_price, limit_price=limit_price):
             continue
         if not _maker_trade_side_consumes_queue(side=side, trade_side=trade.side):
             continue
         if trade.side is None:
             reasons.append("ambiguous_trade_side_assumed")
-        remaining_print_quantity = max(float(trade.quantity), 0.0)
+        remaining_print_quantity = trade_quantity
         if remaining_print_quantity <= 0.0:
             continue
         if queue_remaining > 0.0:
@@ -565,8 +572,8 @@ def _maker_queue_ahead(
     order_books: tuple[OrderBookSnapshot, ...],
     effective_placement: datetime | None,
 ) -> float:
-    explicit = _positive_float(queue_ahead_quantity)
-    if explicit is not None:
+    if queue_ahead_quantity is not None:
+        explicit = _non_negative_finite_float("queue_ahead_quantity", queue_ahead_quantity)
         return explicit
     eligible_books = [book for book in order_books if effective_placement is None or book.timestamp <= effective_placement]
     if not eligible_books:
@@ -575,7 +582,9 @@ def _maker_queue_ahead(
         return 0.0
     book = sorted(eligible_books, key=lambda item: item.timestamp)[-1]
     size = book.bid_size if side == "buy" else book.ask_size
-    return float(size or 0.0)
+    if size is None:
+        return 0.0
+    return _non_negative_finite_float("order_book.bid_size" if side == "buy" else "order_book.ask_size", size)
 
 
 def _maker_cutoff(
@@ -657,7 +666,7 @@ def _positive_float(value: Any) -> float | None:
 
 
 def _finite_float(name: str, value: Any) -> float:
-    if isinstance(value, bool):
+    if isinstance(value, (bool, str)):
         raise ValueError(f"{name} must be a finite number")
     try:
         result = float(value)
