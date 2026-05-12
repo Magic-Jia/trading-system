@@ -65,6 +65,7 @@ SUITES: dict[str, list[str]] = {
         "trading_system/tests/test_backtest_archive_importer.py",
         "trading_system/tests/test_backtest_archive_dataset_importer.py",
         "trading_system/tests/test_backtest_archive_raw_market.py",
+        "trading_system/tests/test_backtest_archive_runtime_bundle.py",
         "trading_system/tests/test_backtest_archive_binance_execution_downloader.py",
         "trading_system/tests/test_backtest_archive_capture.py",
         "trading_system/tests/test_backtest_raw_market_fetch.py",

@@ -222,6 +222,14 @@ def test_verify_maps_backtest_tail_tests_to_backtest_core_regression() -> None:
         assert "trading_system/tests/test_backtest_evaluation.py" in result.stdout
 
 
+def test_verify_maps_archive_runtime_bundle_tests_to_archive_data_regression() -> None:
+    result = run_verify("--dry-run", "--changed", "trading_system/tests/test_backtest_archive_runtime_bundle.py")
+
+    assert result.returncode == 0, result.stderr
+    assert "trading_system/tests/test_backtest_archive_runtime_bundle.py" in result.stdout
+    assert "trading_system/tests/test_backtest_archive_raw_market.py" in result.stdout
+
+
 def test_verify_auto_changed_includes_untracked_files() -> None:
     marker = ROOT / "templates" / ".verify-untracked-marker.md"
     marker.parent.mkdir(exist_ok=True)
