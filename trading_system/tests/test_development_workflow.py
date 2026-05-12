@@ -839,3 +839,53 @@ def test_nightly_verify_clears_all_trading_prefixed_env(monkeypatch) -> None:
     assert "TRADING_RUNTIME_ENV" not in env
     assert "TRADING_LIVE_API_KEY" not in env
     assert env["NON_TRADING_MARKER"] == "keep"
+
+
+def test_nightly_verify_writes_run_manifest(monkeypatch, tmp_path: Path) -> None:
+    module = load_module("nightly_verify", ROOT / "scripts" / "nightly_verify.py")
+    manifest_path = tmp_path / "nightly-manifest.json"
+
+    class Completed:
+        def __init__(self, returncode: int = 0, stdout: str = "") -> None:
+            self.returncode = returncode
+            self.stdout = stdout
+            self.stderr = ""
+
+    calls: list[dict[str, object]] = []
+
+    def fake_run(command, **kwargs):
+        calls.append({"command": command, **kwargs})
+        if command == ["git", "rev-parse", "HEAD"]:
+            return Completed(stdout="abc123\n")
+        return Completed(returncode=0)
+
+    monkeypatch.setattr(module.subprocess, "run", fake_run)
+    monkeypatch.setenv("TRADING_RUNTIME_ENV", "prod")
+
+    assert module.main(["--manifest-path", str(manifest_path)]) == 0
+
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert payload["manifest_kind"] == "nightly_verification_run"
+    assert payload["git_sha"] == "abc123"
+    assert payload["python_executable"] == sys.executable
+    assert payload["python_version"] == sys.version
+    assert payload["sanitized_trading_env"] == {
+        "TRADING_RUNTIME_ENV": {"present_before": True, "present_after": False},
+        "TRADING_ENTRY_PROFILE": {"present_before": False, "present_after": False},
+        "TRADING_EXECUTION_MODE": {"present_before": False, "present_after": False},
+        "TRADING_BASE_DIR": {"present_before": False, "present_after": False},
+        "TRADING_STATE_FILE": {"present_before": False, "present_after": False},
+        "TRADING_ACCOUNT_SNAPSHOT_FILE": {"present_before": False, "present_after": False},
+        "TRADING_MARKET_CONTEXT_FILE": {"present_before": False, "present_after": False},
+        "TRADING_DERIVATIVES_SNAPSHOT_FILE": {"present_before": False, "present_after": False},
+    }
+    assert payload["sanitized_env_removed_prefixes"] == ["TRADING_"]
+    assert payload["test_command"] == "python3 scripts/verify.py --suite full"
+    assert payload["test_command_argv"] == ["python3", "scripts/verify.py", "--suite", "full"]
+    assert payload["test_result_count"] is None
+    assert payload["returncode"] == 0
+    assert payload["diff_check_command"] == "git --no-pager diff --check HEAD"
+    assert payload["started_at"].endswith("Z")
+    assert payload["finished_at"].endswith("Z")
+    assert calls[0]["command"] == ["python3", "scripts/verify.py", "--suite", "full"]
+    assert calls[1]["command"] == ["git", "rev-parse", "HEAD"]
