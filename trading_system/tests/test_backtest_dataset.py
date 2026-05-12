@@ -1509,10 +1509,13 @@ def test_load_historical_dataset_rejects_malformed_open_position_risk_exposure_s
         ("fee", True),
         ("commission", "1.25"),
         ("funding_fee", float("nan")),
+        ("fundingFee", float("nan")),
         ("borrow_fee", float("inf")),
+        ("borrowFee", float("inf")),
         ("slippage", -0.01),
         ("cost", True),
         ("realized_fee", "0.1"),
+        ("realizedFee", "0.1"),
         ("unrealized_cost", -1.0),
     ],
 )
