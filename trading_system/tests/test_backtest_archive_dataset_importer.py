@@ -1384,6 +1384,51 @@ def test_write_phase1_dataset_bundle_rejects_account_balance_margin_alias_mismat
     assert not expected_bundle_dir.exists()
 
 
+def test_write_phase1_dataset_bundle_rejects_account_balance_maintenance_alias_mismatch_without_artifact(
+    tmp_path: Path,
+) -> None:
+    timestamp = datetime(2024, 1, 1, tzinfo=UTC)
+    material = archive_importer.Phase1DatasetBundleMaterial(
+        timestamp=timestamp,
+        run_id=archive_importer._run_id(timestamp),
+        metadata={"timestamp": "2024-01-01T00:00:00Z", "run_id": archive_importer._run_id(timestamp)},
+        market_context={
+            "schema_version": archive_importer.PHASE1_IMPORTER_MARKET_CONTEXT_SCHEMA,
+            "as_of": "2024-01-01T00:00:00Z",
+            "symbols": {"BTCUSDT": {}},
+            "instrument_rows": [],
+        },
+        derivatives_snapshot={
+            "schema_version": archive_importer.PHASE1_IMPORTER_DERIVATIVES_SCHEMA,
+            "as_of": "2024-01-01T00:00:00Z",
+            "rows": [],
+        },
+        account_snapshot={
+            "schema_version": archive_importer.PHASE1_IMPORTER_ACCOUNT_SCHEMA,
+            "as_of": "2024-01-01T00:00:00Z",
+            "equity": 100000.0,
+            "balances": [
+                {
+                    "asset": "USDT",
+                    "free": 75000.0,
+                    "locked": 25000.0,
+                    "maintenanceMargin": 1250.0,
+                    "maintenance_margin": 1251.0,
+                }
+            ],
+        },
+    )
+    expected_bundle_dir = tmp_path / f"{archive_importer._bundle_fragment(timestamp)}__{material.run_id}"
+
+    with pytest.raises(
+        ValueError,
+        match=r"account\.balances\[0\]\.maintenance_margin must equal maintenanceMargin",
+    ):
+        write_phase1_dataset_bundle(material, tmp_path)
+
+    assert not expected_bundle_dir.exists()
+
+
 def test_write_phase1_dataset_bundle_rejects_account_balance_wallet_parity_without_artifact(
     tmp_path: Path,
 ) -> None:

@@ -802,6 +802,43 @@ def test_load_historical_dataset_rejects_inconsistent_margin_balance_alias_befor
         load_historical_dataset(dataset_root)
 
 
+def test_load_historical_dataset_rejects_inconsistent_maintenance_margin_alias_before_load(
+    tmp_path: Path,
+) -> None:
+    dataset_root = tmp_path / "sample_dataset"
+    bundle = dataset_root / "2026-03-10T00-00-00Z__sample-001"
+    bundle.mkdir(parents=True)
+    (bundle / "metadata.json").write_text(
+        '{"timestamp": "2026-03-10T00:00:00Z", "run_id": "sample-001"}',
+        encoding="utf-8",
+    )
+    (bundle / "market_context.json").write_text('{"symbols": {"BTCUSDT": {}}}', encoding="utf-8")
+    (bundle / "derivatives_snapshot.json").write_text('{"rows": []}', encoding="utf-8")
+    (bundle / "account_snapshot.json").write_text(
+        json.dumps(
+            {
+                "equity": 100000.0,
+                "balances": [
+                    {
+                        "asset": "USDT",
+                        "free": 75000.0,
+                        "locked": 25000.0,
+                        "maintenanceMargin": 1250.0,
+                        "maintenance_margin": 1251.0,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"account\.balances\[0\]\.maintenance_margin must equal maintenanceMargin",
+    ):
+        load_historical_dataset(dataset_root)
+
+
 def test_load_historical_dataset_rejects_inconsistent_account_balance_wallet_before_load(
     tmp_path: Path,
 ) -> None:

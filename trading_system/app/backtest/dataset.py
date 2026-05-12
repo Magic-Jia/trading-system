@@ -86,6 +86,7 @@ _ACCOUNT_BALANCE_EQUAL_ALIAS_GROUPS = (
     ("availableBalance", "available_balance"),
     ("maxWithdrawAmount", "max_withdraw_amount"),
     ("marginBalance", "margin_balance"),
+    ("maintenanceMargin", "maintenance_margin"),
 )
 _ACCOUNT_POSITIVE_NUMBER_FIELDS = (
     "exposure_value",

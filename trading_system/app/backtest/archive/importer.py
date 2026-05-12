@@ -81,6 +81,8 @@ _ACCOUNT_BALANCE_NUMERIC_ALIASES = (
     "max_withdraw_amount",
     "marginBalance",
     "margin_balance",
+    "maintenanceMargin",
+    "maintenance_margin",
 )
 _ACCOUNT_BALANCE_WALLET_TOTAL_ALIASES = (
     "walletBalance",
@@ -91,6 +93,7 @@ _ACCOUNT_BALANCE_EQUAL_ALIAS_GROUPS = (
     ("availableBalance", "available_balance"),
     ("maxWithdrawAmount", "max_withdraw_amount"),
     ("marginBalance", "margin_balance"),
+    ("maintenanceMargin", "maintenance_margin"),
 )
 _ACCOUNT_BALANCE_ASSET_CODE_RE = re.compile(r"^[A-Z0-9]+$")
 _EXCHANGE_SYMBOL_RE = re.compile(r"^[A-Z0-9]+$")
