@@ -9,6 +9,7 @@ import subprocess
 import sys
 
 
+SANITIZED_ENV_REMOVED_PREFIXES = ["TRADING_"]
 UNSET_ENV = [
     "TRADING_RUNTIME_ENV",
     "TRADING_ENTRY_PROFILE",
@@ -39,6 +40,14 @@ def plan_fingerprint(payload: dict[str, object]) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
+def sanitized_env(env: dict[str, str] | None = None) -> dict[str, str]:
+    cleaned = dict(os.environ if env is None else env)
+    for key in list(cleaned):
+        if any(key.startswith(prefix) for prefix in SANITIZED_ENV_REMOVED_PREFIXES):
+            cleaned.pop(key, None)
+    return cleaned
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.json and not args.dry_run:
@@ -54,6 +63,7 @@ def main(argv: list[str] | None = None) -> int:
             "command_argv": PLAN_COMMAND_ARGV,
             "suites": PLANNED_SUITES,
             "unset_env": UNSET_ENV,
+            "sanitized_env_removed_prefixes": SANITIZED_ENV_REMOVED_PREFIXES,
         }
         payload["plan_fingerprint"] = plan_fingerprint(payload)
         if args.json:
@@ -67,9 +77,7 @@ def main(argv: list[str] | None = None) -> int:
             print("\n".join(DISPLAY_COMMANDS))
         return 0
 
-    env = os.environ.copy()
-    for key in UNSET_ENV:
-        env.pop(key, None)
+    env = sanitized_env()
     print("unset " + " ".join(UNSET_ENV), flush=True)
     print("$ " + " ".join(PLAN_COMMAND_ARGV[0]), flush=True)
     completed = subprocess.run(PLAN_COMMAND_ARGV[0], text=True, env=env, shell=False)

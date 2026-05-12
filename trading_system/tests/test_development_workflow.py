@@ -23,6 +23,8 @@ VERIFICATION_PLAN_JSON_KEYS = {
     "plan_fingerprint",
     "plan_kind",
     "plan_version",
+    "sanitized_env",
+    "sanitized_env_removed_prefixes",
     "strict_changed_verification",
     "suites",
     "tests",
@@ -45,6 +47,7 @@ NIGHTLY_PLAN_JSON_KEYS = {
     "plan_fingerprint",
     "plan_kind",
     "plan_version",
+    "sanitized_env_removed_prefixes",
     "suites",
     "unset_env",
 }
@@ -170,6 +173,14 @@ def test_verify_maps_docs_and_templates_to_workflow_doc_tests() -> None:
 
     assert result.returncode == 0, result.stderr
     assert "trading_system/tests/test_development_workflow_docs.py" in result.stdout
+
+
+def test_verify_maps_plan_docs_to_workflow_meta_suite() -> None:
+    result = run_verify("--dry-run", "--changed", "docs/plans/2026-05-12-industry-best-correctness-closure.md")
+
+    assert result.returncode == 0, result.stderr
+    assert "trading_system/tests/test_development_workflow.py" in result.stdout
+    assert "trading_system/tests/test_development_workflow_worker_audit.py" in result.stdout
 
 
 def test_verify_maps_agent_rules_to_workflow_meta_suite() -> None:
@@ -311,6 +322,20 @@ def test_verify_requires_full_after_slice_threshold() -> None:
     payload = json.loads(result.stdout)
     assert payload["full"] is True
     assert payload["commands"][0] == "python3 -m pytest -q"
+
+
+def test_verify_full_plan_exposes_sanitized_trading_env_contract() -> None:
+    result = run_verify("--dry-run", "--json", "--suite", "full")
+
+    assert result.returncode == 0, result.stderr
+    import json
+
+    payload = json.loads(result.stdout)
+    assert payload["full"] is True
+    assert payload["sanitized_env"] is True
+    assert payload["sanitized_env_removed_prefixes"] == ["TRADING_"]
+    assert payload["command_argv"][0] == ["python3", "-m", "pytest", "-q"]
+    assert payload["command_argv"][-1] == ["git", "--no-pager", "diff", "--check", "HEAD"]
 
 
 def test_verify_json_requires_dry_run() -> None:
@@ -719,6 +744,7 @@ def test_nightly_verify_dry_run_json_reports_clean_env_full_command() -> None:
     assert json.loads(repeat.stdout)["plan_fingerprint"] == payload["plan_fingerprint"]
     assert payload["entrypoint"] == "nightly_verify"
     assert payload["clean_env"] is True
+    assert payload["sanitized_env_removed_prefixes"] == ["TRADING_"]
     assert payload["suites"] == ["full"]
     assert payload["commands"] == ["python3 scripts/verify.py --suite full"]
     assert payload["command_argv"] == [["python3", "scripts/verify.py", "--suite", "full"]]
@@ -784,3 +810,32 @@ def test_nightly_verify_executes_plan_argv_without_shell(monkeypatch) -> None:
     env = calls[0]["env"]
     assert isinstance(env, dict)
     assert "TRADING_RUNTIME_ENV" not in env
+
+
+def test_nightly_verify_clears_all_trading_prefixed_env(monkeypatch) -> None:
+    spec = importlib.util.spec_from_file_location("nightly_verify", ROOT / "scripts" / "nightly_verify.py")
+    assert spec is not None
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+
+    monkeypatch.setenv("TRADING_RUNTIME_ENV", "live")
+    monkeypatch.setenv("TRADING_LIVE_API_KEY", "real-key")
+    monkeypatch.setenv("NON_TRADING_MARKER", "keep")
+    calls: list[dict[str, object]] = []
+
+    class Completed:
+        returncode = 0
+
+    def fake_run(command, **kwargs):
+        calls.append({"command": command, **kwargs})
+        return Completed()
+
+    monkeypatch.setattr(module.subprocess, "run", fake_run)
+
+    assert module.main([]) == 0
+    env = calls[0]["env"]
+    assert isinstance(env, dict)
+    assert "TRADING_RUNTIME_ENV" not in env
+    assert "TRADING_LIVE_API_KEY" not in env
+    assert env["NON_TRADING_MARKER"] == "keep"

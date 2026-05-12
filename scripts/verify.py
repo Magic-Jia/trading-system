@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import subprocess
 import sys
 from collections import OrderedDict
@@ -12,6 +13,7 @@ from pathlib import Path
 
 TEST = "python3 -m pytest -q"
 DIFF_CHECK = "git --no-pager diff --check HEAD"
+SANITIZED_ENV_REMOVED_PREFIXES = ["TRADING_"]
 
 SUITES: dict[str, list[str]] = {
     "evidence-chain": [
@@ -253,10 +255,22 @@ def validate_test_path_argv(commands: list[list[str]]) -> None:
                 raise ValueError(f"missing verification path: {token}")
 
 
-def run_command_argv(commands: list[list[str]]) -> int:
+def sanitized_env(env: dict[str, str] | None = None) -> dict[str, str]:
+    cleaned = dict(os.environ if env is None else env)
+    for key in list(cleaned):
+        if any(key.startswith(prefix) for prefix in SANITIZED_ENV_REMOVED_PREFIXES):
+            cleaned.pop(key, None)
+    return cleaned
+
+
+def run_command_argv(commands: list[list[str]], *, clean_trading_env: bool = False) -> int:
+    env = sanitized_env() if clean_trading_env else None
     for command in commands:
         print(f"$ {' '.join(command)}", flush=True)
-        completed = subprocess.run(command, text=True, shell=False)
+        kwargs: dict[str, object] = {"text": True, "shell": False}
+        if env is not None:
+            kwargs["env"] = env
+        completed = subprocess.run(command, **kwargs)
         if completed.returncode != 0:
             return completed.returncode
     return 0
@@ -368,6 +382,8 @@ def main(argv: list[str] | None = None) -> int:
                 "strict_changed_verification": bool(args.strict_auto_changed),
                 "full": full,
                 "full_checkpoint_reason": full_checkpoint_reason,
+                "sanitized_env": full,
+                "sanitized_env_removed_prefixes": SANITIZED_ENV_REMOVED_PREFIXES if full else [],
                 "tests": tests,
                 "commands": commands,
                 "command_argv": command_argv,
@@ -377,11 +393,11 @@ def main(argv: list[str] | None = None) -> int:
         else:
             print("\n".join(commands))
         return 0
-    return run_commands(commands, command_argv)
+    return run_commands(commands, command_argv, clean_trading_env=full)
 
 
-def run_commands(commands: list[str], command_argv: list[list[str]]) -> int:
-    return run_command_argv(command_argv)
+def run_commands(commands: list[str], command_argv: list[list[str]], *, clean_trading_env: bool = False) -> int:
+    return run_command_argv(command_argv, clean_trading_env=clean_trading_env)
 
 
 if __name__ == "__main__":

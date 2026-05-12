@@ -33,6 +33,8 @@ WORKER_AUDIT_VERIFICATION_PLAN_JSON_KEYS = {
     "plan_fingerprint",
     "plan_kind",
     "plan_version",
+    "sanitized_env",
+    "sanitized_env_removed_prefixes",
     "strict_changed_verification",
     "suites",
     "tests",
@@ -91,6 +93,12 @@ def assert_worker_audit_contract(payload: dict[str, object]) -> None:
     assert payload["verification_plan"]["plan_kind"] == "verification_plan"
     assert len(payload["verification_plan"]["plan_fingerprint"]) == 64
     assert payload["verification_plan"]["strict_changed_verification"] is True
+    if payload["verification_plan"]["full"]:
+        assert payload["verification_plan"]["sanitized_env"] is True
+        assert payload["verification_plan"]["sanitized_env_removed_prefixes"] == ["TRADING_"]
+    else:
+        assert payload["verification_plan"]["sanitized_env"] is False
+        assert payload["verification_plan"]["sanitized_env_removed_prefixes"] == []
     assert payload["verification_plan"]["commands"][-1] == "git --no-pager diff --check HEAD"
     assert payload["verification_plan"]["command_argv"][-1] == ["git", "--no-pager", "diff", "--check", "HEAD"]
 
