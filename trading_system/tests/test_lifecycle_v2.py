@@ -584,3 +584,66 @@ def test_build_management_action_intents_rejects_invalid_row_meta_contract(meta,
                 }
             ],
         )
+
+
+@pytest.mark.parametrize("suggested_stop_loss", ["95.0", True, float("nan")])
+def test_build_management_action_intents_rejects_invalid_protective_stop_loss(suggested_stop_loss):
+    state = RuntimeStateV2(
+        updated_at_bj="2026-04-09T20:00:00+08:00",
+        positions={
+            "BTCUSDT": {
+                "symbol": "BTCUSDT",
+                "side": "LONG",
+                "qty": 1.0,
+                "entry_price": 100.0,
+                "mark_price": 106.0,
+                "status": "OPEN",
+            }
+        },
+    )
+
+    with pytest.raises(ValueError, match="suggested_stop_loss must be a finite non-bool number when present"):
+        build_management_action_intents(
+            state,
+            [
+                {
+                    "symbol": "BTCUSDT",
+                    "side": "LONG",
+                    "action": "ADD_PROTECTIVE_STOP",
+                    "suggested_stop_loss": suggested_stop_loss,
+                    "reference_price": 106.0,
+                    "meta": {},
+                }
+            ],
+        )
+
+
+def test_build_management_action_intents_rejects_long_protective_stop_not_on_loss_side():
+    state = RuntimeStateV2(
+        updated_at_bj="2026-04-09T20:00:00+08:00",
+        positions={
+            "BTCUSDT": {
+                "symbol": "BTCUSDT",
+                "side": "LONG",
+                "qty": 1.0,
+                "entry_price": 100.0,
+                "mark_price": 106.0,
+                "status": "OPEN",
+            }
+        },
+    )
+
+    with pytest.raises(ValueError, match="suggested_stop_loss must stay on the loss side"):
+        build_management_action_intents(
+            state,
+            [
+                {
+                    "symbol": "BTCUSDT",
+                    "side": "LONG",
+                    "action": "ADD_PROTECTIVE_STOP",
+                    "suggested_stop_loss": 101.0,
+                    "reference_price": 106.0,
+                    "meta": {},
+                }
+            ],
+        )

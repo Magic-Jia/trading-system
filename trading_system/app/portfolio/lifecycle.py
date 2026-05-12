@@ -483,6 +483,26 @@ def _position_qty(position: dict[str, Any]) -> float:
     return round(qty or 0.0, 8)
 
 
+def _remaining_or_position_qty(position: dict[str, Any], position_qty: float) -> float:
+    remaining_qty = _present_finite_number(position, "remaining_position_qty")
+    if remaining_qty is None:
+        remaining_qty = position_qty
+    return round(max(min(remaining_qty, position_qty), 0.0), 8)
+
+
+def _strict_suggested_stop_loss(position: dict[str, Any], row: Mapping[str, Any], *, require_loss_side: bool) -> float:
+    stop_loss = _present_finite_number(row, "suggested_stop_loss")
+    if stop_loss is None:
+        raise ValueError("suggested_stop_loss must be a finite non-bool number when present")
+    side = _position_side(position)
+    entry_price = _present_finite_number(position, "entry_price")
+    if entry_price is None or entry_price <= 0:
+        raise ValueError("entry_price must be a finite non-bool number when present")
+    if require_loss_side and not _valid_stop(side, entry_price, stop_loss):
+        raise ValueError("suggested_stop_loss must stay on the loss side")
+    return round(stop_loss, 8)
+
+
 def _management_row_symbol(row: Mapping[str, Any]) -> str:
     value = row.get("symbol", "")
     if value is None or value == "":
@@ -516,6 +536,7 @@ def build_management_action_intents(
             continue
 
         position_qty = _position_qty(position)
+        available_qty = _remaining_or_position_qty(position, position_qty)
         qty_fraction = _present_finite_number(row, "qty_fraction") or 0.0
         qty = None
         stop_loss = None
@@ -532,16 +553,16 @@ def build_management_action_intents(
         target_stage = target_stage_value or ""
 
         if action in {"BREAK_EVEN", "ADD_PROTECTIVE_STOP"}:
-            stop_loss = row.get("suggested_stop_loss")
+            stop_loss = _strict_suggested_stop_loss(position, row, require_loss_side=action == "ADD_PROTECTIVE_STOP")
         elif action in {"PARTIAL_TAKE_PROFIT", "DE_RISK"}:
             if action == "PARTIAL_TAKE_PROFIT" and target_stage in {"first", "second"}:
                 qty = reconciled_stage_qty(position, stage=target_stage)
                 if qty is None:
                     continue
             else:
-                qty = round(position_qty * qty_fraction, 8)
+                qty = round(min(position_qty * qty_fraction, available_qty), 8)
         elif action == "EXIT":
-            qty = position_qty
+            qty = available_qty
 
         meta = {
             "reason": row.get("reason"),

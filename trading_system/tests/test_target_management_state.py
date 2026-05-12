@@ -366,6 +366,17 @@ def test_reconciled_stage_qty_rejects_masked_fallback_qty(qty, exception_type):
         reconciled_stage_qty(payload, stage="first")
 
 
+def test_reconciled_stage_qty_caps_stage_order_to_remaining_position_qty():
+    payload = {
+        "original_position_qty": 2.0,
+        "remaining_position_qty": 0.3,
+        "first_target_filled_qty": 0.0,
+        "symbol_step_size": 0.01,
+    }
+
+    assert reconciled_stage_qty(payload, stage="first") == pytest.approx(0.3)
+
+
 def test_ensure_target_management_state_rederives_invalid_frozen_target_order():
     position = ensure_target_management_state(
         {

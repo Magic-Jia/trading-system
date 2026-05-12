@@ -143,6 +143,40 @@ def test_build_management_action_intents_skips_second_stage_when_reconciled_qty_
     assert intents == []
 
 
+def test_build_management_action_intents_caps_de_risk_qty_to_remaining_position_qty():
+    state = RuntimeStateV2(
+        updated_at_bj="2026-04-09T20:00:00+08:00",
+        positions={
+            "BTCUSDT": {
+                "symbol": "BTCUSDT",
+                "side": "LONG",
+                "qty": 1.0,
+                "remaining_position_qty": 0.3,
+                "entry_price": 100.0,
+                "mark_price": 101.0,
+                "stop_loss": 95.0,
+                "status": "OPEN",
+            }
+        },
+    )
+
+    intents = build_management_action_intents(
+        state,
+        [
+            {
+                "symbol": "BTCUSDT",
+                "side": "LONG",
+                "action": "DE_RISK",
+                "qty_fraction": 0.8,
+                "reference_price": 101.0,
+                "meta": {},
+            }
+        ],
+    )
+
+    assert intents[0].qty == pytest.approx(0.3)
+
+
 def _paper_app_config(tmp_path):
     state_file = tmp_path / "runtime_state.json"
     return replace(
