@@ -10,8 +10,11 @@ from pathlib import Path
 from typing import Any, Mapping
 
 SCHEMA_VERSION = "promotion_evidence_bundle.v1"
+REPRODUCIBILITY_SCHEMA_VERSION = "promotion_evidence_bundle_reproducibility.v1"
+REPRODUCIBILITY_ALGORITHM = "promotion_evidence_bundle_reproducibility_sha256_chain.v1"
 _CANDIDATE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _SHA256_HEX_RE = re.compile(r"^[0-9a-f]{64}$")
+_REASON_CODE_RE = re.compile(r"^[a-z][a-z0-9_]{0,127}$")
 _CANONICAL_UTC_TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z$")
 REQUIRED_ARTIFACTS = (
     "trades.json",
@@ -21,6 +24,87 @@ REQUIRED_ARTIFACTS = (
     "validation_gate.json",
     "runtime_safety_gate.json",
 )
+PROMOTION_BUNDLE_REASON_CODE_ALIASES: dict[str, str] = {
+    "unknown_top_level_field": "unknown_top_level_field",
+    "invalid_schema_version": "invalid_schema_version",
+    "missing_manifest_decision": "missing_manifest_decision",
+    "invalid_manifest_decision": "invalid_manifest_decision",
+    "candidate_id_not_string": "candidate_id_not_string",
+    "missing_candidate_id": "missing_candidate_id",
+    "invalid_candidate_id": "invalid_candidate_id",
+    "evidence_source_missing": "evidence_source_missing",
+    "evidence_source_not_object": "evidence_source_not_object",
+    "unknown_evidence_source_field": "unknown_evidence_source_field",
+    "evidence_source_type_missing": "evidence_source_type_missing",
+    "evidence_source_type_not_string": "evidence_source_type_not_string",
+    "evidence_source_type_blank": "evidence_source_type_blank",
+    "evidence_source_type_noncanonical": "evidence_source_type_noncanonical",
+    "evidence_source_type_unsafe": "evidence_source_type_unsafe",
+    "promotion_evidence_source_not_live_grade": "promotion_evidence_source_not_live_grade",
+    "evidence_source_run_id_not_string": "evidence_source_run_id_not_string",
+    "evidence_source_run_id_blank": "evidence_source_run_id_blank",
+    "evidence_source_run_id_noncanonical": "evidence_source_run_id_noncanonical",
+    "evidence_source_run_id_unsafe": "evidence_source_run_id_unsafe",
+    "evidence_source_exported_at_not_string": "evidence_source_exported_at_not_string",
+    "evidence_source_exported_at_blank": "evidence_source_exported_at_blank",
+    "evidence_source_exported_at_noncanonical": "evidence_source_exported_at_noncanonical",
+    "evidence_source_exported_at_noncanonical_timestamp": "evidence_source_exported_at_noncanonical_timestamp",
+    "missing_artifacts_not_list": "missing_artifacts_not_list",
+    "missing_artifact_entry_invalid": "missing_artifact_entry_invalid",
+    "missing_artifact_entry_not_string": "missing_artifact_entry_not_string",
+    "missing_artifact_entry_blank": "missing_artifact_entry_blank",
+    "missing_artifact_path_unsafe": "missing_artifact_path_unsafe",
+    "missing_artifact_path_noncanonical": "missing_artifact_path_noncanonical",
+    "manifest_declares_missing_artifacts": "manifest_declares_missing_artifacts",
+    "artifacts_missing": "artifacts_missing",
+    "artifacts_not_list": "artifacts_not_list",
+    "unsafe_artifact_path": "unsafe_artifact_path",
+    "artifact_path_noncanonical": "artifact_path_noncanonical",
+    "artifact_metadata_missing": "artifact_metadata_missing",
+    "artifact_source_path_missing": "artifact_source_path_missing",
+    "artifact_modified_at_missing": "artifact_modified_at_missing",
+    "artifact_path_missing": "artifact_path_missing",
+    "artifact_metadata_invalid": "artifact_metadata_invalid",
+    "artifact_metadata_reason_entry_not_string": "artifact_metadata_reason_entry_not_string",
+    "artifact_path_not_string": "artifact_path_not_string",
+    "artifact_sha256_invalid_format": "artifact_sha256_invalid_format",
+    "artifact_bytes_invalid_domain": "artifact_bytes_invalid_domain",
+    "artifact_source_path_not_string": "artifact_source_path_not_string",
+    "artifact_modified_at_invalid_domain": "artifact_modified_at_invalid_domain",
+    "artifact_entry_not_object": "artifact_entry_not_object",
+    "artifact_modified_at_mismatch": "artifact_modified_at_mismatch",
+    "artifact_source_path_blank": "artifact_source_path_blank",
+    "artifact_source_path_noncanonical": "artifact_source_path_noncanonical",
+    "artifact_source_path_identity_mismatch": "artifact_source_path_identity_mismatch",
+    "unknown_artifact_field": "unknown_artifact_field",
+    "duplicate_artifact_path": "duplicate_artifact_path",
+    "required_artifacts_not_list": "required_artifacts_not_list",
+    "required_artifacts_string_container": "required_artifacts_string_container",
+    "required_artifact_entry_not_string": "required_artifact_entry_not_string",
+    "required_artifact_entry_blank": "required_artifact_entry_blank",
+    "required_artifact_path_unsafe": "required_artifact_path_unsafe",
+    "required_artifact_path_noncanonical": "required_artifact_path_noncanonical",
+    "duplicate_required_artifact": "duplicate_required_artifact",
+    "required_artifact_missing_manifest_entry": "required_artifact_missing_manifest_entry",
+    "default_required_artifact_omitted": "default_required_artifact_omitted",
+    "missing_manifest": "missing_manifest",
+    "invalid_manifest_json": "invalid_manifest_json",
+    "manifest_not_object": "manifest_not_object",
+    "reproducibility_not_object": "reproducibility_not_object",
+    "reproducibility_schema_version_invalid": "reproducibility_schema_version_invalid",
+    "reproducibility_algorithm_invalid": "reproducibility_algorithm_invalid",
+    "reproducibility_digest_invalid": "reproducibility_digest_invalid",
+    "reproducibility_links_not_list": "reproducibility_links_not_list",
+    "reproducibility_link_invalid": "reproducibility_link_invalid",
+    "reproducibility_digest_mismatch": "reproducibility_digest_mismatch",
+    "missing_artifact": "missing_artifact",
+    "sha256_mismatch": "sha256_mismatch",
+    "byte_size_mismatch": "byte_size_mismatch",
+    "unknown_reason_code": "unknown_reason_code",
+    "noncanonical_reason_code": "noncanonical_reason_code",
+    "promotion_bundle_verified": "promotion_bundle_verified",
+}
+PROMOTION_BUNDLE_REASON_CODES = frozenset(PROMOTION_BUNDLE_REASON_CODE_ALIASES.values())
 
 
 def _sha256(path: Path) -> str:
@@ -29,6 +113,120 @@ def _sha256(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _canonical_json_bytes(payload: Mapping[str, Any]) -> bytes:
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
+
+
+def _sha256_payload(payload: Mapping[str, Any]) -> str:
+    return hashlib.sha256(_canonical_json_bytes(payload)).hexdigest()
+
+
+def _reproducibility_artifact_payload(artifact: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "path": artifact.get("path"),
+        "source_path": artifact.get("source_path"),
+        "bytes": artifact.get("bytes"),
+        "sha256": artifact.get("sha256"),
+    }
+
+
+def _build_reproducibility_evidence(
+    *,
+    schema_version: Any,
+    candidate_id: Any,
+    evidence_source: Any,
+    required_artifacts: Any,
+    artifacts: list[Mapping[str, Any]],
+) -> dict[str, Any]:
+    previous_digest = _sha256_payload(
+        {
+            "schema_version": schema_version,
+            "candidate_id": candidate_id,
+            "evidence_source": evidence_source,
+            "required_artifacts": required_artifacts,
+        }
+    )
+    links: list[dict[str, str]] = []
+    for artifact in artifacts:
+        payload_digest = _sha256_payload(_reproducibility_artifact_payload(artifact))
+        chain_digest = _sha256_payload(
+            {
+                "previous_digest": previous_digest,
+                "artifact": _reproducibility_artifact_payload(artifact),
+            }
+        )
+        links.append(
+            {
+                "artifact_path": str(artifact.get("path")),
+                "payload_digest": payload_digest,
+                "previous_digest": previous_digest,
+                "chain_digest": chain_digest,
+            }
+        )
+        previous_digest = chain_digest
+    return {
+        "schema_version": REPRODUCIBILITY_SCHEMA_VERSION,
+        "algorithm": REPRODUCIBILITY_ALGORITHM,
+        "digest": previous_digest,
+        "links": links,
+    }
+
+
+def _is_valid_reproducibility_payload(value: Any) -> bool:
+    if type(value) is not dict:
+        return False
+    if value.get("schema_version") != REPRODUCIBILITY_SCHEMA_VERSION:
+        return False
+    if value.get("algorithm") != REPRODUCIBILITY_ALGORITHM:
+        return False
+    if not _is_exact_string(value.get("digest")) or not _SHA256_HEX_RE.fullmatch(value["digest"]):
+        return False
+    links = value.get("links")
+    if not isinstance(links, list):
+        return False
+    for link in links:
+        if type(link) is not dict:
+            return False
+        if set(link) != {"artifact_path", "payload_digest", "previous_digest", "chain_digest"}:
+            return False
+        if not _is_exact_string(link["artifact_path"]) or not link["artifact_path"].strip():
+            return False
+        for digest_field in ("payload_digest", "previous_digest", "chain_digest"):
+            if not _is_exact_string(link[digest_field]) or not _SHA256_HEX_RE.fullmatch(link[digest_field]):
+                return False
+    return True
+
+
+def _canonical_manifest_error_code(error: str) -> str:
+    return error.split(":", 1)[0]
+
+
+def _reason_codes_for_result_parts(
+    *,
+    verified: bool,
+    manifest_errors: list[str],
+    missing: list[str],
+    sha_mismatches: list[str],
+    byte_mismatches: list[str],
+) -> list[str]:
+    if verified:
+        return ["promotion_bundle_verified"]
+    raw_codes = [_canonical_manifest_error_code(error) for error in manifest_errors]
+    if missing:
+        raw_codes.append("missing_artifact")
+    if sha_mismatches:
+        raw_codes.append("sha256_mismatch")
+    if byte_mismatches:
+        raw_codes.append("byte_size_mismatch")
+    return sorted({PROMOTION_BUNDLE_REASON_CODE_ALIASES.get(code, code) for code in raw_codes})
+
+
+def _reason_taxonomy_violations(reason_codes: list[str]) -> tuple[list[str], list[str]]:
+    noncanonical = sorted({code for code in reason_codes if not _is_exact_string(code) or not _REASON_CODE_RE.fullmatch(code)})
+    unknown = sorted({code for code in reason_codes if code not in PROMOTION_BUNDLE_REASON_CODES})
+    return unknown, noncanonical
 
 
 def _artifact_path_is_safe(rel_path: str) -> bool:
@@ -206,6 +404,13 @@ def collect_promotion_evidence_bundle(
         "missing_artifacts": [],
         "artifacts": artifacts,
     }
+    manifest["reproducibility"] = _build_reproducibility_evidence(
+        schema_version=manifest["schema_version"],
+        candidate_id=manifest["candidate_id"],
+        evidence_source=manifest["evidence_source"],
+        required_artifacts=manifest["required_artifacts"],
+        artifacts=artifacts,
+    )
     manifest_path = destination / "promotion_evidence_manifest.json"
     manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
     return destination
@@ -231,6 +436,7 @@ def _empty_promotion_bundle_audit_fields() -> dict[str, list[Any]]:
         "noncanonical_artifact_paths": [],
         "sha256_mismatches": [],
         "byte_size_mismatches": [],
+        "reproducibility_chain_errors": [],
         "checked_artifacts": [],
     }
 
@@ -259,6 +465,8 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
     bundle = Path(bundle_dir)
     manifest_path = bundle / "promotion_evidence_manifest.json"
     if not manifest_path.is_file():
+        reason_codes = ["missing_manifest"]
+        unknown_reason_codes, noncanonical_reason_codes = _reason_taxonomy_violations(reason_codes)
         return {
             "schema_version": "promotion_evidence_bundle_verification.v1",
             "verified": False,
@@ -268,12 +476,20 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
             "manifest_errors": ["missing_manifest"],
             "schema_valid": False,
             "candidate_id_valid": False,
+            "reason_taxonomy_valid": not unknown_reason_codes and not noncanonical_reason_codes,
+            "reason_codes": reason_codes,
+            "unknown_reason_codes": unknown_reason_codes,
+            "noncanonical_reason_codes": noncanonical_reason_codes,
+            "reproducibility_digest": None,
+            "expected_reproducibility_digest": None,
             **_empty_promotion_bundle_audit_fields(),
         }
     manifest_errors: list[str] = []
     try:
         manifest_payload = json.loads(manifest_path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
+        reason_codes = ["invalid_manifest_json"]
+        unknown_reason_codes, noncanonical_reason_codes = _reason_taxonomy_violations(reason_codes)
         return {
             "schema_version": "promotion_evidence_bundle_verification.v1",
             "verified": False,
@@ -284,6 +500,12 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
             "manifest_parse_error": str(exc),
             "schema_valid": False,
             "candidate_id_valid": False,
+            "reason_taxonomy_valid": not unknown_reason_codes and not noncanonical_reason_codes,
+            "reason_codes": reason_codes,
+            "unknown_reason_codes": unknown_reason_codes,
+            "noncanonical_reason_codes": noncanonical_reason_codes,
+            "reproducibility_digest": None,
+            "expected_reproducibility_digest": None,
             **_empty_promotion_bundle_audit_fields(),
         }
     manifest = dict(manifest_payload) if isinstance(manifest_payload, Mapping) else {}
@@ -300,6 +522,7 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
         "required_artifacts",
         "missing_artifacts",
         "artifacts",
+        "reproducibility",
     }
     unknown_manifest_fields = sorted(set(manifest) - allowed_manifest_fields)
     if unknown_manifest_fields:
@@ -691,16 +914,100 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
     if unchecked_required:
         schema_valid = False
         manifest_errors.append("required_artifact_missing_manifest_entry")
+    reproducibility_raw = manifest.get("reproducibility")
+    reproducibility_chain_errors: list[str] = []
+    reproducibility_digest: str | None = None
+    expected_reproducibility_digest: str | None = None
+    if reproducibility_raw is not None:
+        if type(reproducibility_raw) is not dict:
+            schema_valid = False
+            manifest_errors.append("reproducibility_not_object")
+            reproducibility_chain_errors.append("reproducibility_not_object")
+        else:
+            if reproducibility_raw.get("schema_version") != REPRODUCIBILITY_SCHEMA_VERSION:
+                schema_valid = False
+                manifest_errors.append("reproducibility_schema_version_invalid")
+                reproducibility_chain_errors.append("reproducibility_schema_version_invalid")
+            if reproducibility_raw.get("algorithm") != REPRODUCIBILITY_ALGORITHM:
+                schema_valid = False
+                manifest_errors.append("reproducibility_algorithm_invalid")
+                reproducibility_chain_errors.append("reproducibility_algorithm_invalid")
+            if not _is_exact_string(reproducibility_raw.get("digest")) or not _SHA256_HEX_RE.fullmatch(
+                reproducibility_raw.get("digest", "")
+            ):
+                schema_valid = False
+                manifest_errors.append("reproducibility_digest_invalid")
+                reproducibility_chain_errors.append("reproducibility_digest_invalid")
+            else:
+                reproducibility_digest = reproducibility_raw["digest"]
+            if not isinstance(reproducibility_raw.get("links"), list):
+                schema_valid = False
+                manifest_errors.append("reproducibility_links_not_list")
+                reproducibility_chain_errors.append("reproducibility_links_not_list")
+            if _is_valid_reproducibility_payload(reproducibility_raw):
+                expected_reproducibility = _build_reproducibility_evidence(
+                    schema_version=manifest.get("schema_version"),
+                    candidate_id=manifest.get("candidate_id"),
+                    evidence_source=evidence_source_raw,
+                    required_artifacts=required_artifacts_raw,
+                    artifacts=[artifact for artifact in artifacts if isinstance(artifact, Mapping)],
+                )
+                expected_reproducibility_digest = expected_reproducibility["digest"]
+                if reproducibility_raw != expected_reproducibility:
+                    schema_valid = False
+                    manifest_errors.append("reproducibility_digest_mismatch")
+                    reproducibility_chain_errors.append("reproducibility_digest_mismatch")
+            elif type(reproducibility_raw) is dict and isinstance(reproducibility_raw.get("links"), list):
+                schema_valid = False
+                manifest_errors.append("reproducibility_link_invalid")
+                reproducibility_chain_errors.append("reproducibility_link_invalid")
+    pre_taxonomy_manifest_errors = sorted(set(manifest_errors))
+    pre_taxonomy_verified = (
+        not pre_taxonomy_manifest_errors and not missing and not sha_mismatches and not byte_mismatches
+    )
+    reason_codes = _reason_codes_for_result_parts(
+        verified=pre_taxonomy_verified,
+        manifest_errors=pre_taxonomy_manifest_errors,
+        missing=missing,
+        sha_mismatches=sha_mismatches,
+        byte_mismatches=byte_mismatches,
+    )
+    unknown_reason_codes, noncanonical_reason_codes = _reason_taxonomy_violations(reason_codes)
+    reason_taxonomy_valid = not unknown_reason_codes and not noncanonical_reason_codes
+    if unknown_reason_codes:
+        manifest_errors.append("unknown_reason_code")
+        reason_codes.append("unknown_reason_code")
+    if noncanonical_reason_codes:
+        manifest_errors.append("noncanonical_reason_code")
+        reason_codes.append("noncanonical_reason_code")
+    manifest_errors = sorted(set(manifest_errors))
+    verified = (
+        not manifest_errors
+        and not missing
+        and not sha_mismatches
+        and not byte_mismatches
+        and reason_taxonomy_valid
+    )
+    if not verified and "promotion_bundle_verified" in reason_codes:
+        reason_codes = [code for code in reason_codes if code != "promotion_bundle_verified"]
+    reason_codes = sorted(set(reason_codes))
     return {
         "schema_version": "promotion_evidence_bundle_verification.v1",
-        "verified": not manifest_errors and not missing and not sha_mismatches and not byte_mismatches,
+        "verified": verified,
         "bundle_dir": str(bundle),
         "manifest_path": str(manifest_path),
         "manifest_present": True,
-        "manifest_errors": sorted(set(manifest_errors)),
+        "manifest_errors": manifest_errors,
         "schema_valid": schema_valid,
         "candidate_id_valid": candidate_id_valid,
         "candidate_id": candidate_id,
+        "reason_codes": reason_codes,
+        "reason_taxonomy_valid": reason_taxonomy_valid,
+        "unknown_reason_codes": unknown_reason_codes,
+        "noncanonical_reason_codes": noncanonical_reason_codes,
+        "reproducibility_digest": reproducibility_digest,
+        "expected_reproducibility_digest": expected_reproducibility_digest,
+        "reproducibility_chain_errors": sorted(set(reproducibility_chain_errors)),
         "declared_missing_artifacts": sorted(canonical_declared_missing_artifacts),
         "invalid_declared_missing_artifacts": sorted(invalid_declared_missing_artifacts),
         "unsafe_declared_missing_artifacts": sorted(unsafe_declared_missing_artifacts),

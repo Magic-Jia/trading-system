@@ -47,6 +47,34 @@ def test_collects_required_evidence_artifacts_with_checksums(tmp_path: Path) -> 
     assert (bundle_dir / first["path"]).exists()
 
 
+def test_collects_reproducibility_hash_chain_over_manifest_identity_and_artifacts(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    for name in REQUIRED_ARTIFACTS:
+        _write_json(source / name, {"artifact": name, "synthetic": True})
+
+    bundle_dir = collect_promotion_evidence_bundle(
+        source,
+        tmp_path / "bundle",
+        candidate_id="candidate-1",
+        evidence_source={"type": "promotion_bundle_export", "run_id": "bundle-1"},
+    )
+
+    manifest = json.loads((bundle_dir / "promotion_evidence_manifest.json").read_text())
+    reproducibility = manifest["reproducibility"]
+    assert reproducibility["algorithm"] == "promotion_evidence_bundle_reproducibility_sha256_chain.v1"
+    assert reproducibility["schema_version"] == "promotion_evidence_bundle_reproducibility.v1"
+    assert reproducibility["digest"]
+    assert [link["artifact_path"] for link in reproducibility["links"]] == list(REQUIRED_ARTIFACTS)
+
+    verified = verify_promotion_evidence_bundle(bundle_dir)
+    assert verified["verified"] is True
+    assert verified["reproducibility_digest"] == reproducibility["digest"]
+    assert verified["reason_codes"] == ["promotion_bundle_verified"]
+
+
 def test_collect_persists_relative_artifact_source_paths(tmp_path: Path) -> None:
     source = tmp_path / "source"
     source.mkdir()
@@ -287,6 +315,91 @@ def test_bundle_verifier_detects_missing_and_tampered_artifacts(tmp_path: Path) 
     missing = verify_promotion_evidence_bundle(bundle_dir)
     assert missing["verified"] is False
     assert REQUIRED_ARTIFACTS[1] in missing["missing_artifacts"]
+
+
+def test_bundle_verifier_rejects_tampered_reproducibility_hash_chain(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    for name in REQUIRED_ARTIFACTS:
+        _write_json(source / name, {"artifact": name, "synthetic": True})
+    bundle_dir = collect_promotion_evidence_bundle(
+        source,
+        tmp_path / "bundle",
+        candidate_id="candidate-1",
+        evidence_source={"type": "promotion_bundle_export", "run_id": "bundle-1"},
+    )
+    manifest_path = bundle_dir / "promotion_evidence_manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["reproducibility"]["digest"] = "0" * 64
+    manifest_path.write_text(json.dumps(manifest, sort_keys=True) + "\n")
+
+    result = verify_promotion_evidence_bundle(bundle_dir)
+
+    assert result["verified"] is False
+    assert result["schema_valid"] is False
+    assert "reproducibility_digest_mismatch" in result["manifest_errors"]
+    assert result["reason_codes"] == ["reproducibility_digest_mismatch"]
+
+
+def test_bundle_verifier_fails_closed_for_unknown_reason_taxonomy(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    for name in REQUIRED_ARTIFACTS:
+        _write_json(source / name, {"artifact": name, "synthetic": True})
+    bundle_dir = collect_promotion_evidence_bundle(
+        source,
+        tmp_path / "bundle",
+        candidate_id="candidate-1",
+        evidence_source={"type": "promotion_bundle_export", "run_id": "bundle-1"},
+    )
+    monkeypatch.setattr(
+        promotion_bundle,
+        "PROMOTION_BUNDLE_REASON_CODES",
+        promotion_bundle.PROMOTION_BUNDLE_REASON_CODES - {"sha256_mismatch"},
+    )
+    (bundle_dir / REQUIRED_ARTIFACTS[0]).write_text("tampered\n", encoding="utf-8")
+
+    result = verify_promotion_evidence_bundle(bundle_dir)
+
+    assert result["verified"] is False
+    assert result["reason_taxonomy_valid"] is False
+    assert result["unknown_reason_codes"] == ["sha256_mismatch"]
+    assert "unknown_reason_code" in result["manifest_errors"]
+
+
+def test_bundle_verifier_fails_closed_for_noncanonical_reason_code(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    for name in REQUIRED_ARTIFACTS:
+        _write_json(source / name, {"artifact": name, "synthetic": True})
+    bundle_dir = collect_promotion_evidence_bundle(
+        source,
+        tmp_path / "bundle",
+        candidate_id="candidate-1",
+        evidence_source={"type": "promotion_bundle_export", "run_id": "bundle-1"},
+    )
+    monkeypatch.setitem(
+        promotion_bundle.PROMOTION_BUNDLE_REASON_CODE_ALIASES,
+        "invalid_schema_version",
+        "InvalidSchemaVersion",
+    )
+    manifest_path = bundle_dir / "promotion_evidence_manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["schema_version"] = "promotion_evidence_bundle.v0"
+    manifest_path.write_text(json.dumps(manifest, sort_keys=True) + "\n")
+
+    result = verify_promotion_evidence_bundle(bundle_dir)
+
+    assert result["verified"] is False
+    assert result["reason_taxonomy_valid"] is False
+    assert result["noncanonical_reason_codes"] == ["InvalidSchemaVersion"]
+    assert "noncanonical_reason_code" in result["manifest_errors"]
 
 
 def test_bundle_verify_only_cli_returns_nonzero_for_tampering(tmp_path: Path) -> None:
