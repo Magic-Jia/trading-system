@@ -431,6 +431,7 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
     invalid_metadata: list[str] = []
     source_path_blank_metadata: list[str] = []
     source_path_noncanonical_metadata: list[str] = []
+    modified_at_mismatch_metadata: list[str] = []
     checked: list[dict[str, Any]] = []
     checked_paths: set[str] = set()
     seen_artifact_paths: set[str] = set()
@@ -493,6 +494,7 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
             invalid_metadata.append(f"{rel_path}:modified_at")
         elif modified_at_raw != actual_modified_at:
             invalid_metadata.append(f"{rel_path}:modified_at")
+            modified_at_mismatch_metadata.append(f"{rel_path}:modified_at")
         actual_sha = _sha256(path)
         expected_sha = artifact.get("sha256")
         actual_bytes = path.stat().st_size
@@ -592,10 +594,15 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
     if invalid_metadata:
         schema_valid = False
         manifest_errors.append("artifact_metadata_invalid")
-    metadata_reason_keys = _promotion_artifact_metadata_reason_keys(invalid_metadata)
+    metadata_reason_keys = _promotion_artifact_metadata_reason_keys(
+        [item for item in invalid_metadata if item not in modified_at_mismatch_metadata]
+    )
     if metadata_reason_keys:
         schema_valid = False
         manifest_errors.extend(metadata_reason_keys)
+    if modified_at_mismatch_metadata:
+        schema_valid = False
+        manifest_errors.append("artifact_modified_at_mismatch")
     if source_path_blank_metadata:
         schema_valid = False
         manifest_errors.append("artifact_source_path_blank")
@@ -608,7 +615,7 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
             for item in invalid_metadata
             if isinstance(item, str)
             and ":" in item
-            and item.rsplit(":", 1)[1] not in {"sha256", "source_path", "bytes"}
+            and item.rsplit(":", 1)[1] not in {"sha256", "source_path", "bytes", "modified_at"}
         }
     )
     for field in unknown_artifact_field_names:
@@ -678,8 +685,7 @@ def _should_write_verification_report(result: Mapping[str, Any]) -> bool:
         return False
     allowed_integrity_drift_errors = {
         "artifact_metadata_invalid",
-        "artifact_modified_at_invalid_domain",
-        "unknown_artifact_field: modified_at",
+        "artifact_modified_at_mismatch",
     }
     manifest_errors = set(result["manifest_errors"])
     return not (manifest_errors - allowed_integrity_drift_errors)
