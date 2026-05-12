@@ -2676,6 +2676,63 @@ def test_write_phase1_dataset_bundle_rejects_malformed_open_position_provenance_
 
 
 @pytest.mark.parametrize(
+    ("canonical", "alias", "canonical_value", "alias_value"),
+    [
+        ("positionSource", "position_source", "archive_fixture", "paper_execution"),
+        ("signalSource", "signal_source", "trend_engine", "mean_reversion"),
+        ("strategySource", "strategy_source", "trend_v2", "carry_v1"),
+        ("dataSource", "data_source", "binance_futures", "archive_backfill"),
+        ("marginType", "margin_type", "CROSS", "ISOLATED"),
+    ],
+)
+def test_write_phase1_dataset_bundle_rejects_conflicting_open_position_source_aliases_without_artifact(
+    tmp_path: Path, canonical: str, alias: str, canonical_value: str, alias_value: str
+) -> None:
+    timestamp = datetime(2024, 1, 1, tzinfo=UTC)
+    material = archive_importer.Phase1DatasetBundleMaterial(
+        timestamp=timestamp,
+        run_id=archive_importer._run_id(timestamp),
+        metadata={"timestamp": "2024-01-01T00:00:00Z", "run_id": archive_importer._run_id(timestamp)},
+        market_context={
+            "schema_version": archive_importer.PHASE1_IMPORTER_MARKET_CONTEXT_SCHEMA,
+            "as_of": "2024-01-01T00:00:00Z",
+            "symbols": {"BTCUSDT": {}},
+            "instrument_rows": [],
+        },
+        derivatives_snapshot={
+            "schema_version": archive_importer.PHASE1_IMPORTER_DERIVATIVES_SCHEMA,
+            "as_of": "2024-01-01T00:00:00Z",
+            "rows": [],
+        },
+        account_snapshot={
+            "schema_version": archive_importer.PHASE1_IMPORTER_ACCOUNT_SCHEMA,
+            "as_of": "2024-01-01T00:00:00Z",
+            "equity": 100000.0,
+            "open_positions": [
+                {
+                    "symbol": "BTCUSDT",
+                    "side": "LONG",
+                    "qty": 0.5,
+                    "entry_price": 60000.0,
+                    "mark_price": 61000.0,
+                    canonical: canonical_value,
+                    alias: alias_value,
+                }
+            ],
+        },
+    )
+    expected_bundle_dir = tmp_path / f"{archive_importer._bundle_fragment(timestamp)}__{material.run_id}"
+
+    with pytest.raises(
+        ValueError,
+        match=rf"account\.open_positions\[0\]\.{alias} must equal {canonical}",
+    ):
+        write_phase1_dataset_bundle(material, tmp_path)
+
+    assert not expected_bundle_dir.exists()
+
+
+@pytest.mark.parametrize(
     ("field", "value", "expected_message"),
     [
         ("leverage", True, r"account\.open_positions\[0\]\.leverage must be a positive finite number"),

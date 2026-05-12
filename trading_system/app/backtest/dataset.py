@@ -289,6 +289,13 @@ _ACCOUNT_OPEN_POSITION_PROVENANCE_IDENTIFIER_FIELDS = (
     "data_source",
     "dataSource",
 )
+_ACCOUNT_OPEN_POSITION_SOURCE_EQUAL_ALIAS_GROUPS = (
+    ("positionSource", "position_source"),
+    ("signalSource", "signal_source"),
+    ("strategySource", "strategy_source"),
+    ("dataSource", "data_source"),
+    ("marginType", "margin_type"),
+)
 _ACCOUNT_OPEN_POSITION_ASSET_CODE_FIELDS = (
     "base_asset",
     "baseAsset",
@@ -695,6 +702,12 @@ def _validate_open_position_identity_fields(account: dict, *, path: Path) -> Non
                 if value not in allowed:
                     allowed_values = ", ".join(sorted(allowed))
                     raise ValueError(f"{field_prefix}.{field} must be one of {allowed_values}: {path}")
+        _validate_account_string_alias_parity(
+            position,
+            field_path=field_prefix,
+            path=path,
+            alias_groups=_ACCOUNT_OPEN_POSITION_SOURCE_EQUAL_ALIAS_GROUPS,
+        )
         for field in _ACCOUNT_OPEN_POSITION_STRICT_BOOL_FIELDS:
             if field in position:
                 _require_account_strict_bool(position[field], field_path=f"{field_prefix}.{field}", path=path)
@@ -839,6 +852,20 @@ def _validate_account_asset_code_alias_parity(
 
 
 def _validate_account_timestamp_alias_parity(
+    payload: dict,
+    *,
+    field_path: str,
+    path: Path,
+    alias_groups: tuple[tuple[str, str], ...],
+) -> None:
+    for canonical, alias in alias_groups:
+        if canonical not in payload or alias not in payload:
+            continue
+        if payload[alias] != payload[canonical]:
+            raise ValueError(f"{field_path}.{alias} must equal {canonical}: {path}")
+
+
+def _validate_account_string_alias_parity(
     payload: dict,
     *,
     field_path: str,
