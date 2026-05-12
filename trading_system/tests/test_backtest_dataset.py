@@ -2451,9 +2451,12 @@ def test_load_historical_dataset_rejects_malformed_open_position_provenance_time
     [
         ("event_time", "2026-03-09T23:59:59Z", r"account\.open_positions\[0\]\.event_time must be at or after opened_at"),
         ("trade_time", "2026-03-09T23:59:59Z", r"account\.open_positions\[0\]\.trade_time must be at or after opened_at"),
+        ("orderTime", "2026-03-09T23:59:57Z", r"account\.open_positions\[0\]\.orderTime must be at or after opened_at"),
+        ("executionTime", "2026-03-09T23:59:58Z", r"account\.open_positions\[0\]\.executionTime must be at or after opened_at"),
+        ("fillTime", "2026-03-09T23:59:59Z", r"account\.open_positions\[0\]\.fillTime must be at or after opened_at"),
     ],
 )
-def test_load_historical_dataset_rejects_open_position_event_and_trade_time_before_opened_at(
+def test_load_historical_dataset_rejects_open_position_lifecycle_times_before_opened_at(
     tmp_path: Path, field: str, value: str, match: str
 ) -> None:
     dataset_root = tmp_path / "sample_dataset"
@@ -2476,6 +2479,9 @@ def test_load_historical_dataset_rejects_open_position_event_and_trade_time_befo
                         "opened_at": "2026-03-10T00:00:00Z",
                         "event_time": "2026-03-10T00:00:00Z",
                         "trade_time": "2026-03-10T00:00:00Z",
+                        "orderTime": "2026-03-10T00:00:00Z",
+                        "executionTime": "2026-03-10T00:00:01Z",
+                        "fillTime": "2026-03-10T00:00:02Z",
                         "qty": 0.5,
                         "entry_price": 60000.0,
                         "mark_price": 61000.0,

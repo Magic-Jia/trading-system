@@ -880,9 +880,12 @@ def test_write_phase1_dataset_bundle_rejects_settlement_before_opened_at_without
     [
         ("event_time", "2023-12-31T23:59:59Z", r"account\.open_positions\[0\]\.event_time must be at or after opened_at"),
         ("trade_time", "2023-12-31T23:59:59Z", r"account\.open_positions\[0\]\.trade_time must be at or after opened_at"),
+        ("orderTime", "2023-12-31T23:59:57Z", r"account\.open_positions\[0\]\.orderTime must be at or after opened_at"),
+        ("executionTime", "2023-12-31T23:59:58Z", r"account\.open_positions\[0\]\.executionTime must be at or after opened_at"),
+        ("fillTime", "2023-12-31T23:59:59Z", r"account\.open_positions\[0\]\.fillTime must be at or after opened_at"),
     ],
 )
-def test_write_phase1_dataset_bundle_rejects_event_and_trade_time_before_opened_at_without_artifact(
+def test_write_phase1_dataset_bundle_rejects_open_position_lifecycle_times_before_opened_at_without_artifact(
     tmp_path: Path, field: str, value: str, match: str
 ) -> None:
     timestamp = datetime(2024, 1, 1, tzinfo=UTC)
@@ -912,6 +915,9 @@ def test_write_phase1_dataset_bundle_rejects_event_and_trade_time_before_opened_
                     "opened_at": "2024-01-01T00:00:00Z",
                     "event_time": "2024-01-01T00:00:00Z",
                     "trade_time": "2024-01-01T00:00:00Z",
+                    "orderTime": "2024-01-01T00:00:00Z",
+                    "executionTime": "2024-01-01T00:00:01Z",
+                    "fillTime": "2024-01-01T00:00:02Z",
                     "qty": 0.5,
                     "entry_price": 60000.0,
                     "mark_price": 61000.0,
