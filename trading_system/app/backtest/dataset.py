@@ -285,6 +285,21 @@ _ACCOUNT_OPEN_POSITION_IDENTIFIER_FIELDS = (
     "exchange_order_id",
     "exchangeOrderId",
 )
+_ACCOUNT_OPEN_POSITION_IDENTIFIER_EQUAL_ALIAS_GROUPS = (
+    ("positionId", "position_id"),
+    ("tradeId", "trade_id"),
+    ("executionId", "execution_id"),
+    ("fillId", "fill_id"),
+    ("orderId", "order_id"),
+    ("clientOrderId", "client_order_id"),
+    ("strategyId", "strategy_id"),
+    ("setupId", "setup_id"),
+    ("batchId", "batch_id"),
+    ("sourceId", "source_id"),
+    ("correlationId", "correlation_id"),
+    ("parentOrderId", "parent_order_id"),
+    ("exchangeOrderId", "exchange_order_id"),
+)
 _ACCOUNT_OPEN_POSITION_PROVENANCE_IDENTIFIER_FIELDS = (
     "signal_source",
     "signalSource",
@@ -675,6 +690,12 @@ def _validate_open_position_identity_fields(account: dict, *, path: Path) -> Non
         for field in _ACCOUNT_OPEN_POSITION_IDENTIFIER_FIELDS:
             if field in position:
                 _require_account_identifier_string(position[field], field_path=f"{field_prefix}.{field}", path=path)
+        _validate_account_string_alias_parity(
+            position,
+            field_path=field_prefix,
+            path=path,
+            alias_groups=_ACCOUNT_OPEN_POSITION_IDENTIFIER_EQUAL_ALIAS_GROUPS,
+        )
         for field in _ACCOUNT_OPEN_POSITION_PROVENANCE_IDENTIFIER_FIELDS:
             if field in position:
                 _require_account_provenance_identifier_string(

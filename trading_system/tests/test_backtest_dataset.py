@@ -1911,6 +1911,57 @@ def test_load_historical_dataset_preserves_canonical_remaining_open_position_ide
 
 
 @pytest.mark.parametrize(
+    ("canonical", "alias", "canonical_value", "alias_value"),
+    [
+        ("tradeId", "trade_id", "trade-001", "trade-002"),
+        ("orderId", "order_id", "order-001", "order-002"),
+        ("clientOrderId", "client_order_id", "client-001", "client-002"),
+        ("strategyId", "strategy_id", "strategy-001", "strategy-002"),
+        ("sourceId", "source_id", "source-001", "source-002"),
+        ("parentOrderId", "parent_order_id", "parent-001", "parent-002"),
+        ("exchangeOrderId", "exchange_order_id", "exchange-001", "exchange-002"),
+    ],
+)
+def test_load_historical_dataset_rejects_conflicting_remaining_open_position_identifier_aliases_before_load(
+    tmp_path: Path,
+    canonical: str,
+    alias: str,
+    canonical_value: str,
+    alias_value: str,
+) -> None:
+    dataset_root = tmp_path / "sample_dataset"
+    bundle = dataset_root / "2026-03-10T00-00-00Z__sample-001"
+    bundle.mkdir(parents=True)
+    (bundle / "metadata.json").write_text(
+        '{"timestamp": "2026-03-10T00:00:00Z", "run_id": "sample-001"}',
+        encoding="utf-8",
+    )
+    (bundle / "market_context.json").write_text('{"symbols": {"BTCUSDT": {}}}', encoding="utf-8")
+    (bundle / "derivatives_snapshot.json").write_text('{"rows": []}', encoding="utf-8")
+    account_snapshot = {
+        "equity": 100000.0,
+        "open_positions": [
+            {
+                "symbol": "BTCUSDT",
+                "side": "LONG",
+                "qty": 0.5,
+                "entry_price": 60000.0,
+                "mark_price": 61000.0,
+                canonical: canonical_value,
+                alias: alias_value,
+            }
+        ],
+    }
+    (bundle / "account_snapshot.json").write_text(json.dumps(account_snapshot), encoding="utf-8")
+
+    with pytest.raises(
+        ValueError,
+        match=rf"account\.open_positions\[0\]\.{alias} must equal {canonical}",
+    ):
+        load_historical_dataset(dataset_root)
+
+
+@pytest.mark.parametrize(
     ("field", "value", "expected_message"),
     [
         ("venue", "binance", r"account\.open_positions\[0\]\.venue must be an uppercase canonical string"),
