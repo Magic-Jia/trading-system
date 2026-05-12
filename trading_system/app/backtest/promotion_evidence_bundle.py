@@ -564,6 +564,7 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
     required = list(dict.fromkeys([*REQUIRED_ARTIFACTS, *manifest_required]))
     omitted_default_required = [name for name in REQUIRED_ARTIFACTS if name not in manifest_required]
     if omitted_default_required:
+        schema_valid = False
         manifest_errors.append("default_required_artifact_omitted")
     unchecked_required: list[str] = []
     for rel_path in required:

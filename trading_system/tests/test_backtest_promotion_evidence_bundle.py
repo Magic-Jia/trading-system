@@ -1065,6 +1065,51 @@ def test_bundle_verifier_rejects_manifest_that_omits_default_required_artifact(t
     assert result["omitted_default_required_artifacts"] == [omitted]
     assert omitted in result["missing_artifacts"]
     assert "default_required_artifact_omitted" in result["manifest_errors"]
+    assert result["schema_valid"] is False
+
+
+def test_bundle_verify_only_cli_rejects_omitted_default_required_artifact_without_report_artifact(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    for name in REQUIRED_ARTIFACTS:
+        _write_json(source / name, {"artifact": name, "synthetic": True})
+    bundle_dir = collect_promotion_evidence_bundle(
+        source,
+        tmp_path / "bundle",
+        candidate_id="candidate-1",
+        evidence_source={"type": "promotion_bundle_export", "run_id": "bundle-1"},
+    )
+    manifest_path = bundle_dir / "promotion_evidence_manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    omitted = REQUIRED_ARTIFACTS[0]
+    manifest["required_artifacts"] = [name for name in manifest["required_artifacts"] if name != omitted]
+    manifest_path.write_text(json.dumps(manifest, sort_keys=True) + "\n")
+    report_path = tmp_path / "reports" / "promotion_bundle_verification.json"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "trading_system.app.backtest.promotion_evidence_bundle",
+            "--bundle-dir",
+            str(bundle_dir),
+            "--verify-only",
+            "--verification-report-out",
+            str(report_path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 1
+    assert "default_required_artifact_omitted" in result.stdout
+    assert '"schema_valid": false' in result.stdout
+    assert omitted in result.stdout
+    assert not report_path.exists()
+    assert not report_path.parent.exists()
 
 
 def test_bundle_collector_rejects_blank_candidate_id(tmp_path: Path) -> None:
