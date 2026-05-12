@@ -247,12 +247,16 @@ _ACCOUNT_ENUM_FIELDS = {
 }
 _ACCOUNT_OPEN_POSITION_IDENTITY_STRING_FIELDS = (
     "status",
+    "positionStatus",
+    "position_status",
     "source",
     "strategy_tag",
     "strategyTag",
     "intent_id",
     "intentId",
 )
+_ACCOUNT_OPEN_POSITION_STATUS_FIELDS = ("status", "positionStatus", "position_status")
+_ACCOUNT_OPEN_POSITION_UNSAFE_STATUS_FIELDS = ("orderStatus",)
 _ACCOUNT_OPEN_POSITION_IDENTIFIER_FIELDS = (
     "position_id",
     "positionId",
@@ -432,7 +436,7 @@ _ACCOUNT_OPEN_POSITION_STRICT_BOOL_FIELDS = (
     "close_position",
     "closePosition",
 )
-_ACCOUNT_OPEN_POSITION_TERMINAL_STATUS_VALUES = {"CLOSED", "SKIPPED", "FAILED", "CANCELLED", "CANCELED"}
+_ACCOUNT_OPEN_POSITION_TERMINAL_STATUS_VALUES = {"CLOSED", "SKIPPED", "FAILED", "CANCELLED", "CANCELED", "FILLED"}
 _ACCOUNT_OPEN_POSITION_OPEN_STATUS_VALUES = {"OPEN"}
 
 
@@ -648,12 +652,24 @@ def _validate_open_position_identity_fields(account: dict, *, path: Path) -> Non
         if type(position) is not dict:
             raise ValueError(f"account.open_positions[{index}] must be an object: {path}")
         field_prefix = f"account.open_positions[{index}]"
+        for field in _ACCOUNT_OPEN_POSITION_UNSAFE_STATUS_FIELDS:
+            if field in position:
+                raise ValueError(f"{field_prefix}.{field} is not an open position status field: {path}")
+        status_values: list[tuple[str, str]] = []
         for field in _ACCOUNT_OPEN_POSITION_IDENTITY_STRING_FIELDS:
             if field in position:
                 value = _require_account_canonical_string(position[field], field_path=f"{field_prefix}.{field}", path=path)
-                if field == "status" and value in _ACCOUNT_OPEN_POSITION_TERMINAL_STATUS_VALUES:
+                if field in _ACCOUNT_OPEN_POSITION_STATUS_FIELDS and value in _ACCOUNT_OPEN_POSITION_TERMINAL_STATUS_VALUES:
                     raise ValueError(f"{field_prefix}.{field} must not be a terminal open position state: {path}")
-                if field == "status" and value not in _ACCOUNT_OPEN_POSITION_OPEN_STATUS_VALUES:
+                if field in _ACCOUNT_OPEN_POSITION_STATUS_FIELDS:
+                    status_values.append((field, value))
+        if status_values:
+            first_status_field, first_status_value = status_values[0]
+            for field, value in status_values[1:]:
+                if value != first_status_value:
+                    raise ValueError(f"{field_prefix}.{field} must equal {first_status_field}: {path}")
+            for field, value in status_values:
+                if value not in _ACCOUNT_OPEN_POSITION_OPEN_STATUS_VALUES:
                     allowed_values = ", ".join(sorted(_ACCOUNT_OPEN_POSITION_OPEN_STATUS_VALUES))
                     raise ValueError(f"{field_prefix}.{field} must be one of {allowed_values} or omitted for an open position: {path}")
         for field in _ACCOUNT_OPEN_POSITION_IDENTIFIER_FIELDS:

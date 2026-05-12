@@ -339,6 +339,109 @@ def test_load_historical_dataset_rejects_pending_open_position_status(tmp_path: 
         load_historical_dataset(dataset_root)
 
 
+@pytest.mark.parametrize("field", ["positionStatus", "position_status"])
+def test_load_historical_dataset_rejects_terminal_open_position_status_aliases(
+    tmp_path: Path, field: str
+) -> None:
+    dataset_root = tmp_path / "sample_dataset"
+    bundle = dataset_root / "2026-03-10T00-00-00Z__sample-001"
+    bundle.mkdir(parents=True)
+    (bundle / "metadata.json").write_text(
+        '{"timestamp": "2026-03-10T00:00:00Z", "run_id": "sample-001"}',
+        encoding="utf-8",
+    )
+    (bundle / "market_context.json").write_text('{"symbols": {"BTCUSDT": {}}}', encoding="utf-8")
+    (bundle / "derivatives_snapshot.json").write_text('{"rows": []}', encoding="utf-8")
+    (bundle / "account_snapshot.json").write_text(
+        json.dumps(
+            {
+                "equity": 100000.0,
+                "open_positions": [
+                    {
+                        "symbol": "BTCUSDT",
+                        "side": "LONG",
+                        field: "FILLED",
+                        "qty": 0.5,
+                        "entry_price": 60000.0,
+                        "mark_price": 61000.0,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match=rf"account\.open_positions\[0\]\.{field} must not be a terminal open position state"):
+        load_historical_dataset(dataset_root)
+
+
+def test_load_historical_dataset_rejects_conflicting_open_position_status_alias(tmp_path: Path) -> None:
+    dataset_root = tmp_path / "sample_dataset"
+    bundle = dataset_root / "2026-03-10T00-00-00Z__sample-001"
+    bundle.mkdir(parents=True)
+    (bundle / "metadata.json").write_text(
+        '{"timestamp": "2026-03-10T00:00:00Z", "run_id": "sample-001"}',
+        encoding="utf-8",
+    )
+    (bundle / "market_context.json").write_text('{"symbols": {"BTCUSDT": {}}}', encoding="utf-8")
+    (bundle / "derivatives_snapshot.json").write_text('{"rows": []}', encoding="utf-8")
+    (bundle / "account_snapshot.json").write_text(
+        json.dumps(
+            {
+                "equity": 100000.0,
+                "open_positions": [
+                    {
+                        "symbol": "BTCUSDT",
+                        "side": "LONG",
+                        "status": "OPEN",
+                        "positionStatus": "PENDING",
+                        "qty": 0.5,
+                        "entry_price": 60000.0,
+                        "mark_price": 61000.0,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match=r"account\.open_positions\[0\]\.positionStatus must equal status"):
+        load_historical_dataset(dataset_root)
+
+
+def test_load_historical_dataset_rejects_order_status_in_open_positions(tmp_path: Path) -> None:
+    dataset_root = tmp_path / "sample_dataset"
+    bundle = dataset_root / "2026-03-10T00-00-00Z__sample-001"
+    bundle.mkdir(parents=True)
+    (bundle / "metadata.json").write_text(
+        '{"timestamp": "2026-03-10T00:00:00Z", "run_id": "sample-001"}',
+        encoding="utf-8",
+    )
+    (bundle / "market_context.json").write_text('{"symbols": {"BTCUSDT": {}}}', encoding="utf-8")
+    (bundle / "derivatives_snapshot.json").write_text('{"rows": []}', encoding="utf-8")
+    (bundle / "account_snapshot.json").write_text(
+        json.dumps(
+            {
+                "equity": 100000.0,
+                "open_positions": [
+                    {
+                        "symbol": "BTCUSDT",
+                        "side": "LONG",
+                        "orderStatus": "FILLED",
+                        "qty": 0.5,
+                        "entry_price": 60000.0,
+                        "mark_price": 61000.0,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match=r"account\.open_positions\[0\]\.orderStatus is not an open position status field"):
+        load_historical_dataset(dataset_root)
+
+
 def test_load_historical_dataset_rejects_zero_open_position_notional(tmp_path: Path) -> None:
     dataset_root = tmp_path / "sample_dataset"
     bundle = dataset_root / "2026-03-10T00-00-00Z__sample-001"
