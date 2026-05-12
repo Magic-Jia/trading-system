@@ -16,7 +16,10 @@ from trading_system.app.backtest.experiments import (
     run_rotation_suppression_experiment,
 )
 from trading_system.app.backtest.types import DatasetSnapshotRow
-from trading_system.app.backtest.walk_forward import build_walk_forward_windows
+from trading_system.app.backtest.walk_forward import (
+    build_walk_forward_windows,
+    summarize_walk_forward_robustness,
+)
 
 
 def _rotation_market() -> dict[str, object]:
@@ -3075,3 +3078,46 @@ def test_walk_forward_outputs_robustness_summary_and_parameter_stability() -> No
     calmar_band = parameter_stability["sensitivity_bands"]["out_of_sample_calmar"]
     assert calmar_band["min"] < 0.0
     assert calmar_band["max"] >= 0.0
+
+
+def test_walk_forward_validation_rejects_missing_evaluation_window() -> None:
+    rows = _walk_forward_rows()
+    rows[1].forward_returns.pop("3d")
+
+    with pytest.raises(ValueError, match=r"^forward_returns\.3d must be present$"):
+        backtest_experiments.run_walk_forward_validation_experiment(
+            rows,
+            evaluation_window="3d",
+            in_sample_size=2,
+            out_of_sample_size=1,
+            step_size=1,
+        )
+
+
+@pytest.mark.parametrize("invalid_return", [True, "0.04", math.nan, math.inf, -math.inf])
+def test_walk_forward_validation_rejects_invalid_forward_returns(invalid_return: object) -> None:
+    rows = _walk_forward_rows()
+    rows[1].forward_returns["3d"] = invalid_return  # type: ignore[assignment]
+
+    with pytest.raises(ValueError, match=r"^forward_returns\.3d must be a finite number$"):
+        backtest_experiments.run_walk_forward_validation_experiment(
+            rows,
+            evaluation_window="3d",
+            in_sample_size=2,
+            out_of_sample_size=1,
+            step_size=1,
+        )
+
+
+@pytest.mark.parametrize("invalid_total_return", [True, "0.04", math.nan, math.inf, -math.inf])
+def test_walk_forward_robustness_rejects_invalid_summary_scorecard_metrics(
+    invalid_total_return: object,
+) -> None:
+    window_summary = {
+        "window_index": 1,
+        "in_sample": {"scorecard": {"total_return": 0.03}},
+        "out_of_sample": {"scorecard": {"total_return": invalid_total_return}},
+    }
+
+    with pytest.raises(ValueError, match=r"^out_of_sample\.scorecard\.total_return must be a finite number$"):
+        summarize_walk_forward_robustness([window_summary])

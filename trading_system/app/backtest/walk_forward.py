@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
+from numbers import Real
 from statistics import pstdev
 from typing import Any, Iterable, Mapping, Sequence
 
@@ -68,8 +70,20 @@ def build_walk_forward_windows(
     return windows
 
 
+def _strict_finite_number(value: Any, *, field_name: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, Real):
+        raise ValueError(f"{field_name} must be a finite number")
+    numeric_value = float(value)
+    if not math.isfinite(numeric_value):
+        raise ValueError(f"{field_name} must be a finite number")
+    return numeric_value
+
+
 def summarize_return_scorecard(returns: Sequence[float]) -> dict[str, float | int]:
-    numeric_returns = [float(value) for value in returns]
+    numeric_returns = [
+        _strict_finite_number(value, field_name=f"returns[{index}]")
+        for index, value in enumerate(returns)
+    ]
     return {
         "total_return": round(total_return(numeric_returns), 6),
         "max_drawdown": round(max_drawdown(numeric_returns), 6),
@@ -98,7 +112,16 @@ def summarize_walk_forward_segment(
             "scorecard": summarize_return_scorecard(()),
         }
 
-    returns = [float(row.forward_returns.get(evaluation_window, 0.0)) for row in ordered_rows]
+    returns = []
+    for row in ordered_rows:
+        if evaluation_window not in row.forward_returns:
+            raise ValueError(f"forward_returns.{evaluation_window} must be present")
+        returns.append(
+            _strict_finite_number(
+                row.forward_returns[evaluation_window],
+                field_name=f"forward_returns.{evaluation_window}",
+            )
+        )
     return {
         "run_ids": [row.run_id for row in ordered_rows],
         "snapshot_count": len(ordered_rows),
@@ -134,11 +157,17 @@ def _scorecard_metric(
 ) -> float:
     segment = dict(window_summary.get(split, {}))
     scorecard = dict(segment.get("scorecard", {}))
-    return float(scorecard.get(metric, 0.0))
+    return _strict_finite_number(
+        scorecard.get(metric, 0.0),
+        field_name=f"{split}.scorecard.{metric}",
+    )
 
 
 def _value_band(values: Sequence[float]) -> dict[str, float]:
-    numeric_values = sorted(float(value) for value in values)
+    numeric_values = sorted(
+        _strict_finite_number(value, field_name=f"values[{index}]")
+        for index, value in enumerate(values)
+    )
     if not numeric_values:
         return {"min": 0.0, "median": 0.0, "max": 0.0}
 
