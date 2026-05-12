@@ -1086,6 +1086,115 @@ def test_live_readiness_smoke_report_consumes_producer_gate_artifacts(tmp_path: 
     assert "passive_calibration_missing" not in reasons
 
 
+def test_live_readiness_gate_rejects_missing_offline_rollout_checklist(tmp_path: Path) -> None:
+    report = build_live_readiness_gate_report(tmp_path)
+
+    checklist = report["offline_rollout_readiness"]
+    assert checklist["schema_version"] == "offline_rollout_readiness_checklist_verification.v1"
+    assert checklist["present"] is False
+    assert checklist["checks"]["offline_rollout_checklist_present"] is False
+    assert "offline_rollout_checklist_missing" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
+@pytest.mark.parametrize(
+    ("guard_patch", "parse_error"),
+    [
+        ({"max_notional": "100.0"}, "canary_guard_max_notional_not_number"),
+        ({"symbol_allowlist": [" btcusdt "]}, "canary_guard_symbol_allowlist_entry_noncanonical"),
+        ({"timeout_seconds": True}, "canary_guard_timeout_seconds_not_number"),
+        ({"rollback_evidence": ""}, "canary_guard_rollback_evidence_blank"),
+        ({"alerting_evidence": 123}, "canary_guard_alerting_evidence_not_string"),
+        ({"notification_evidence": "pager duty"}, "canary_guard_notification_evidence_not_identifier"),
+        ({"kill_switch_evidence": None}, "canary_guard_kill_switch_evidence_not_string"),
+    ],
+)
+def test_live_readiness_gate_rejects_malformed_canary_guard_fields(
+    tmp_path: Path,
+    guard_patch: dict[str, object],
+    parse_error: str,
+) -> None:
+    guard = {
+        "max_notional": 100.0,
+        "symbol_allowlist": ["BTCUSDT"],
+        "timeout_seconds": 300.0,
+        "rollback_evidence": "rollback-runbook-v1",
+        "alerting_evidence": "alerts-dry-run-v1",
+        "notification_evidence": "pager-dry-run-v1",
+        "kill_switch_evidence": "kill-switch-dry-run-v1",
+        **guard_patch,
+    }
+    (tmp_path / "offline_rollout_readiness_checklist.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "offline_rollout_readiness_checklist.v1",
+                "paper": {"evidence_complete": True, "remaining_requirements": ["paper-fill-reconciliation"]},
+                "shadow": {"evidence_complete": True, "remaining_requirements": ["shadow-order-parity"]},
+                "canary": {
+                    "evidence_complete": True,
+                    "remaining_requirements": ["canary-rollback-drill"],
+                    "guard_manifest": guard,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    checklist = report["offline_rollout_readiness"]
+    assert checklist["present"] is True
+    assert checklist["schema_valid"] is False
+    assert checklist["parse_error"] == parse_error
+    assert checklist["checks"]["canary_guard_manifest_valid"] is False
+    assert "canary_guard_manifest_invalid" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
+def test_live_readiness_gate_accepts_valid_offline_rollout_checklist_and_canary_guard(tmp_path: Path) -> None:
+    (tmp_path / "offline_rollout_readiness_checklist.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "offline_rollout_readiness_checklist.v1",
+                "paper": {"evidence_complete": True, "remaining_requirements": ["paper-fill-reconciliation"]},
+                "shadow": {"evidence_complete": True, "remaining_requirements": ["shadow-order-parity"]},
+                "canary": {
+                    "evidence_complete": True,
+                    "remaining_requirements": ["canary-rollback-drill"],
+                    "guard_manifest": {
+                        "max_notional": 100.0,
+                        "symbol_allowlist": ["BTCUSDT", "ETHUSDT"],
+                        "timeout_seconds": 300.0,
+                        "rollback_evidence": "rollback-runbook-v1",
+                        "alerting_evidence": "alerts-dry-run-v1",
+                        "notification_evidence": "pager-dry-run-v1",
+                        "kill_switch_evidence": "kill-switch-dry-run-v1",
+                    },
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    checklist = report["offline_rollout_readiness"]
+    assert checklist["present"] is True
+    assert checklist["schema_valid"] is True
+    assert checklist["checks"] == {
+        "offline_rollout_checklist_present": True,
+        "offline_rollout_checklist_schema_valid": True,
+        "paper_evidence_requirements_listed": True,
+        "shadow_evidence_requirements_listed": True,
+        "canary_evidence_requirements_listed": True,
+        "canary_guard_manifest_valid": True,
+    }
+    reasons = set(report["promotion_gate"]["reasons"])
+    assert "offline_rollout_checklist_missing" not in reasons
+    assert "offline_rollout_checklist_invalid" not in reasons
+    assert "canary_guard_manifest_invalid" not in reasons
+
+
 def test_live_readiness_smoke_report_rejects_tampered_promotion_bundle(tmp_path: Path) -> None:
     source = tmp_path / "source"
     source.mkdir()
@@ -3694,9 +3803,36 @@ def _write_profitable_trade_chunk(chunk: Path) -> None:
     )
 
 
+def _write_valid_offline_rollout_checklist(root: Path) -> None:
+    (root / "offline_rollout_readiness_checklist.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "offline_rollout_readiness_checklist.v1",
+                "paper": {"evidence_complete": True, "remaining_requirements": ["paper-fill-reconciliation"]},
+                "shadow": {"evidence_complete": True, "remaining_requirements": ["shadow-order-parity"]},
+                "canary": {
+                    "evidence_complete": True,
+                    "remaining_requirements": ["canary-rollback-drill"],
+                    "guard_manifest": {
+                        "max_notional": 100.0,
+                        "symbol_allowlist": ["BTCUSDT"],
+                        "timeout_seconds": 300.0,
+                        "rollback_evidence": "rollback-runbook-v1",
+                        "alerting_evidence": "alerts-dry-run-v1",
+                        "notification_evidence": "pager-dry-run-v1",
+                        "kill_switch_evidence": "kill-switch-dry-run-v1",
+                    },
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
 def test_profitable_trade_fixture_is_live_readiness_candidate(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     _write_profitable_trade_chunk(chunk)
+    _write_valid_offline_rollout_checklist(tmp_path)
 
     report = build_live_readiness_gate_report(tmp_path)
 

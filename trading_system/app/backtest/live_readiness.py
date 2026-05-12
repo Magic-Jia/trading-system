@@ -1870,6 +1870,201 @@ def _optional_gate_artifact_count(gate: Mapping[str, Any]) -> tuple[int, bool]:
     return value, True
 
 
+def _strict_positive_number_field(mapping: Mapping[str, Any], field: str, reason_prefix: str) -> tuple[float, str]:
+    value = mapping.get(field)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return 0.0, f"{reason_prefix}_{field}_not_number"
+    parsed = float(value)
+    if not math.isfinite(parsed) or parsed <= 0.0:
+        return 0.0, f"{reason_prefix}_{field}_not_positive_finite"
+    return parsed, ""
+
+
+def _strict_guard_evidence_field(mapping: Mapping[str, Any], field: str) -> tuple[str, str]:
+    value = mapping.get(field)
+    if not _is_exact_string(value):
+        return "", f"canary_guard_{field}_not_string"
+    if not value.strip():
+        return "", f"canary_guard_{field}_blank"
+    if value != value.strip():
+        return "", f"canary_guard_{field}_noncanonical"
+    if not _is_safe_evidence_identifier(value):
+        return "", f"canary_guard_{field}_not_identifier"
+    return value, ""
+
+
+def _validate_canary_guard_manifest(value: Any) -> tuple[dict[str, Any], str]:
+    if not isinstance(value, Mapping):
+        return {}, "canary_guard_manifest_not_object"
+    unknown_fields = sorted(
+        set(value)
+        - {
+            "max_notional",
+            "symbol_allowlist",
+            "timeout_seconds",
+            "rollback_evidence",
+            "alerting_evidence",
+            "notification_evidence",
+            "kill_switch_evidence",
+        }
+    )
+    if unknown_fields:
+        return {}, "unknown_canary_guard_field: " + ", ".join(unknown_fields)
+
+    max_notional, error = _strict_positive_number_field(value, "max_notional", "canary_guard")
+    if error:
+        return {}, error
+    timeout_seconds, error = _strict_positive_number_field(value, "timeout_seconds", "canary_guard")
+    if error:
+        return {}, error
+
+    raw_symbols = value.get("symbol_allowlist")
+    if not isinstance(raw_symbols, list):
+        return {}, "canary_guard_symbol_allowlist_not_list"
+    if not raw_symbols:
+        return {}, "canary_guard_symbol_allowlist_empty"
+    symbols: list[str] = []
+    seen_symbols: set[str] = set()
+    for symbol in raw_symbols:
+        if not _is_exact_string(symbol):
+            return {}, "canary_guard_symbol_allowlist_entry_not_string"
+        if not symbol.strip():
+            return {}, "canary_guard_symbol_allowlist_entry_blank"
+        if symbol != symbol.strip() or symbol != symbol.upper():
+            return {}, "canary_guard_symbol_allowlist_entry_noncanonical"
+        if not re.fullmatch(r"[A-Z0-9]{2,30}", symbol):
+            return {}, "canary_guard_symbol_allowlist_entry_invalid"
+        if symbol in seen_symbols:
+            return {}, "canary_guard_symbol_allowlist_entry_duplicate"
+        seen_symbols.add(symbol)
+        symbols.append(symbol)
+
+    evidence: dict[str, str] = {}
+    for field in ("rollback_evidence", "alerting_evidence", "notification_evidence", "kill_switch_evidence"):
+        evidence_value, error = _strict_guard_evidence_field(value, field)
+        if error:
+            return {}, error
+        evidence[field] = evidence_value
+
+    return {
+        "max_notional": max_notional,
+        "symbol_allowlist": symbols,
+        "timeout_seconds": timeout_seconds,
+        **evidence,
+    }, ""
+
+
+def _validate_offline_rollout_stage(value: Any, stage: str) -> tuple[dict[str, Any], str]:
+    if not isinstance(value, Mapping):
+        return {}, f"{stage}_readiness_not_object"
+    unknown_fields = sorted(set(value) - {"evidence_complete", "remaining_requirements", "guard_manifest"})
+    if stage != "canary" and "guard_manifest" in value:
+        return {}, f"{stage}_readiness_unknown_field: guard_manifest"
+    if unknown_fields:
+        return {}, f"{stage}_readiness_unknown_field: " + ", ".join(unknown_fields)
+    evidence_complete = value.get("evidence_complete")
+    if not isinstance(evidence_complete, bool):
+        return {}, f"{stage}_evidence_complete_not_bool"
+    raw_requirements = value.get("remaining_requirements")
+    if not isinstance(raw_requirements, list):
+        return {}, f"{stage}_remaining_requirements_not_list"
+    if not raw_requirements:
+        return {}, f"{stage}_remaining_requirements_empty"
+    requirements: list[str] = []
+    for requirement in raw_requirements:
+        if not _is_exact_string(requirement):
+            return {}, f"{stage}_remaining_requirement_not_string"
+        if not requirement.strip():
+            return {}, f"{stage}_remaining_requirement_blank"
+        if requirement != requirement.strip():
+            return {}, f"{stage}_remaining_requirement_noncanonical"
+        if not _is_safe_evidence_identifier(requirement):
+            return {}, f"{stage}_remaining_requirement_not_identifier"
+        requirements.append(requirement)
+    parsed: dict[str, Any] = {
+        "evidence_complete": evidence_complete,
+        "remaining_requirements": requirements,
+    }
+    if stage == "canary":
+        guard_manifest, error = _validate_canary_guard_manifest(value.get("guard_manifest"))
+        if error:
+            return {}, error
+        parsed["guard_manifest"] = guard_manifest
+    return parsed, ""
+
+
+def _offline_rollout_readiness(root: Path) -> dict[str, Any]:
+    path = root / "offline_rollout_readiness_checklist.json"
+    checks = {
+        "offline_rollout_checklist_present": path.exists(),
+        "offline_rollout_checklist_schema_valid": False,
+        "paper_evidence_requirements_listed": False,
+        "shadow_evidence_requirements_listed": False,
+        "canary_evidence_requirements_listed": False,
+        "canary_guard_manifest_valid": False,
+    }
+    if not path.exists():
+        return {
+            "schema_version": "offline_rollout_readiness_checklist_verification.v1",
+            "present": False,
+            "schema_valid": False,
+            "parse_error": "offline_rollout_checklist_missing",
+            "checks": checks,
+        }
+    payload = _load_json(path)
+    if not isinstance(payload, Mapping):
+        return {
+            "schema_version": "offline_rollout_readiness_checklist_verification.v1",
+            "present": True,
+            "schema_valid": False,
+            "parse_error": "offline_rollout_checklist_not_object",
+            "checks": checks,
+        }
+    allowed_fields = {"schema_version", "paper", "shadow", "canary"}
+    top_level_error = _artifact_top_level_schema_error(payload, allowed_fields)
+    if top_level_error:
+        return {
+            "schema_version": "offline_rollout_readiness_checklist_verification.v1",
+            "present": True,
+            "schema_valid": False,
+            "parse_error": top_level_error,
+            "checks": checks,
+        }
+    if not _artifact_schema_valid(payload, "offline_rollout_readiness_checklist.v1"):
+        return {
+            "schema_version": "offline_rollout_readiness_checklist_verification.v1",
+            "present": True,
+            "schema_valid": False,
+            "parse_error": "offline_rollout_checklist_schema_version_invalid",
+            "checks": checks,
+        }
+    parsed_stages: dict[str, Any] = {}
+    for stage in ("paper", "shadow", "canary"):
+        parsed_stage, error = _validate_offline_rollout_stage(payload.get(stage), stage)
+        if error:
+            return {
+                "schema_version": "offline_rollout_readiness_checklist_verification.v1",
+                "present": True,
+                "schema_valid": False,
+                "parse_error": error,
+                "checks": checks,
+            }
+        parsed_stages[stage] = parsed_stage
+        checks[f"{stage}_evidence_requirements_listed"] = True
+    checks["offline_rollout_checklist_schema_valid"] = True
+    checks["canary_guard_manifest_valid"] = True
+    return {
+        "schema_version": "offline_rollout_readiness_checklist_verification.v1",
+        "present": True,
+        "schema_valid": True,
+        "parse_error": "",
+        "paper": parsed_stages["paper"],
+        "shadow": parsed_stages["shadow"],
+        "canary": parsed_stages["canary"],
+        "checks": checks,
+    }
+
+
 def _strict_optional_non_negative_int(mapping: Mapping[str, Any], key: str, default: int = 0) -> tuple[int, bool]:
     if key not in mapping or mapping.get(key) is None:
         return default, True
@@ -2890,6 +3085,7 @@ def build_live_readiness_gate_report(
         required=policy_requirements["require_microstructure_evidence"],
     )
     validation_gate = _validation_gate(chunk_dirs, required=policy_requirements["require_validation_evidence"])
+    offline_rollout_readiness = _offline_rollout_readiness(root)
     setup_rewrite_diagnostic = _setup_rewrite_diagnostic(chunk_dirs)
     passive_calibration = _passive_calibration_diagnostic(
         chunk_dirs,
@@ -3232,6 +3428,19 @@ def build_live_readiness_gate_report(
         reasons.append("cost_stress_not_positive")
     if (require_validation_evidence_policy or validation_artifact_present) and not validation_checks.get("forward_contamination_absent_met", False):
         reasons.append("forward_contamination_unproven")
+    offline_rollout_checks = _as_mapping(offline_rollout_readiness.get("checks"))
+    if not offline_rollout_checks.get("offline_rollout_checklist_present", False):
+        reasons.append("offline_rollout_checklist_missing")
+    elif not offline_rollout_checks.get("offline_rollout_checklist_schema_valid", False):
+        reasons.append("offline_rollout_checklist_invalid")
+    for check, reason in (
+        ("paper_evidence_requirements_listed", "paper_evidence_requirements_missing"),
+        ("shadow_evidence_requirements_listed", "shadow_evidence_requirements_missing"),
+        ("canary_evidence_requirements_listed", "canary_evidence_requirements_missing"),
+        ("canary_guard_manifest_valid", "canary_guard_manifest_invalid"),
+    ):
+        if not offline_rollout_checks.get(check, False):
+            reasons.append(reason)
 
     if not setup_concentration_met:
         reasons.append("setup_concentration_too_high")
@@ -3359,6 +3568,7 @@ def build_live_readiness_gate_report(
         "runtime_safety_gate": runtime_safety_gate,
         "microstructure_gate": microstructure_gate,
         "validation_gate": validation_gate,
+        "offline_rollout_readiness": offline_rollout_readiness,
         "concentration": concentration,
         "passive_calibration": passive_calibration,
         "exit_path_replay": {
@@ -3393,6 +3603,7 @@ def build_live_readiness_gate_report(
                 **runtime_safety_checks,
                 **microstructure_checks,
                 **validation_checks,
+                **offline_rollout_checks,
                 "setup_concentration_met": setup_concentration_met,
                 "symbol_concentration_met": symbol_concentration_met,
                 "setup_net_abs_concentration_met": setup_net_abs_concentration_met,
@@ -3904,6 +4115,7 @@ def write_live_readiness_smoke_report(
             "market_microstructure_gate.json",
             "validation_gate.json",
             "runtime_safety_gate.json",
+            "offline_rollout_readiness_checklist.json",
         ):
             source = bundle_dir / artifact_name
             if source.exists():
