@@ -2231,6 +2231,7 @@ def test_write_phase1_dataset_bundle_rejects_malformed_open_position_execution_b
         ("as_of", "2024-01-01T00:00:00+00:00"),
         ("timestamp", "not-a-timestamp"),
         ("last_update_time", "2024-01-01T00:00:00.1Z"),
+        ("createdAt", "2024-01-01 00:00:00Z"),
     ],
 )
 def test_write_phase1_dataset_bundle_rejects_malformed_open_position_time_metadata_without_artifact(

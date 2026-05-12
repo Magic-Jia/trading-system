@@ -330,6 +330,8 @@ _ACCOUNT_OPEN_POSITION_ASSET_CODE_EQUAL_ALIAS_GROUPS = (
 _ACCOUNT_OPEN_POSITION_TIME_FIELDS = (
     "opened_at",
     "openedAt",
+    "created_at",
+    "createdAt",
     "updated_at",
     "updatedAt",
     "update_time",
