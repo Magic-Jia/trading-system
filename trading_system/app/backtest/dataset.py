@@ -93,6 +93,9 @@ _ACCOUNT_BALANCE_SIGNED_EQUAL_ALIAS_GROUPS = (
     ("realizedPnl", "realized_pnl"),
     ("realizedPnl", "realizedProfit"),
 )
+_ACCOUNT_TOTAL_EQUAL_ALIAS_GROUPS = (
+    ("totalWalletBalance", "total_wallet_balance"),
+)
 _ACCOUNT_POSITIVE_NUMBER_FIELDS = (
     "exposure_value",
     "exposureValue",
@@ -896,6 +899,28 @@ def _validate_account_balance_wallet_total_parity(balance: dict, *, field_path: 
             raise ValueError(f"{field_path}.{field} must equal free + locked: {path}")
 
 
+def _validate_account_total_alias_parity(account: dict, *, field_path: str, path: Path) -> None:
+    for canonical, alias in _ACCOUNT_TOTAL_EQUAL_ALIAS_GROUPS:
+        if canonical not in account or alias not in account:
+            continue
+        canonical_value = _validate_account_number(
+            account[canonical],
+            field_path=f"{field_path}.{canonical}",
+            path=path,
+            qualifier="non-negative finite",
+            minimum=0.0,
+        )
+        alias_value = _validate_account_number(
+            account[alias],
+            field_path=f"{field_path}.{alias}",
+            path=path,
+            qualifier="non-negative finite",
+            minimum=0.0,
+        )
+        if not math.isclose(alias_value, canonical_value, rel_tol=1e-12, abs_tol=1e-12):
+            raise ValueError(f"{field_path}.{alias} must equal {canonical}: {path}")
+
+
 def _account_first_present_number(payload: dict, *fields: str, path: Path, field_path: str) -> tuple[str, float] | None:
     for field in fields:
         if field in payload:
@@ -1006,6 +1031,7 @@ def _validate_account_numeric_fields(payload: object, *, path: Path, field_path:
             elif isinstance(value, (dict, list)):
                 _validate_account_numeric_fields(value, path=path, field_path=child_path)
         if field_path == "account":
+            _validate_account_total_alias_parity(payload, field_path=field_path, path=path)
             _validate_futures_balance_total_parity(payload, field_path=field_path, path=path)
         return
     if isinstance(payload, list):
