@@ -63,6 +63,145 @@ def test_rejects_missing_or_low_l2_tick_coverage() -> None:
     assert "depth_driven_taker_evidence_missing" in gate["reasons"]
 
 
+def test_microstructure_gate_emits_strict_interval_coverage_identity() -> None:
+    gate = build_microstructure_gate(
+        {
+            "evidence_source": {
+                "type": "historical_l2_tick_archive",
+                "run_id": "micro-intervals-1",
+                "exported_at": "2026-05-12T09:00:00Z",
+            },
+            "coverage": {
+                "l2_snapshot_coverage": 1.0,
+                "l2_update_coverage": 1.0,
+                "tick_coverage": 1.0,
+            },
+            "required_intervals": ["1m"],
+            "interval_coverage": [
+                {
+                    "source": "historical_l2_tick_archive",
+                    "symbol": "BTCUSDT",
+                    "venue": "binance_futures",
+                    "interval": "1m",
+                    "generated_at": "2026-05-12T09:00:00Z",
+                    "coverage": {
+                        "l2_snapshot_coverage": 1.0,
+                        "l2_update_coverage": 1.0,
+                        "tick_coverage": 1.0,
+                    },
+                    "artifact_ref": "l2/BTCUSDT/binance_futures/1m.jsonl",
+                }
+            ],
+        }
+    )
+
+    assert gate["checks"]["l2_tick_coverage_met"] is True
+    assert gate["interval_coverage"] == [
+        {
+            "source": "historical_l2_tick_archive",
+            "symbol": "BTCUSDT",
+            "venue": "binance_futures",
+            "interval": "1m",
+            "generated_at": "2026-05-12T09:00:00Z",
+            "coverage": {
+                "l2_snapshot_coverage": 1.0,
+                "l2_update_coverage": 1.0,
+                "tick_coverage": 1.0,
+            },
+            "artifact_ref": "l2/BTCUSDT/binance_futures/1m.jsonl",
+        }
+    ]
+
+
+def test_microstructure_gate_fails_closed_for_zero_required_interval_coverage() -> None:
+    gate = build_microstructure_gate(
+        {
+            "coverage": {
+                "l2_snapshot_coverage": 1.0,
+                "l2_update_coverage": 1.0,
+                "tick_coverage": 1.0,
+            },
+            "required_intervals": ["1m"],
+            "interval_coverage": [
+                {
+                    "source": "historical_l2_tick_archive",
+                    "symbol": "BTCUSDT",
+                    "venue": "binance_futures",
+                    "interval": "1m",
+                    "generated_at": "2026-05-12T09:00:00Z",
+                    "coverage": {
+                        "l2_snapshot_coverage": 1.0,
+                        "l2_update_coverage": 0.0,
+                        "tick_coverage": 1.0,
+                    },
+                    "artifact_ref": "l2/BTCUSDT/binance_futures/1m.jsonl",
+                }
+            ],
+        }
+    )
+
+    assert gate["checks"]["l2_tick_coverage_met"] is False
+    assert "required_interval_coverage_zero:1m" in gate["reasons"]
+
+
+def test_microstructure_gate_rejects_string_interval_coverage_counter() -> None:
+    with pytest.raises(ValueError, match="interval_coverage\\[1\\] l2_update_coverage must be a number"):
+        build_microstructure_gate(
+            {
+                "coverage": {
+                    "l2_snapshot_coverage": 1.0,
+                    "l2_update_coverage": 1.0,
+                    "tick_coverage": 1.0,
+                },
+                "required_intervals": ["1m"],
+                "interval_coverage": [
+                    {
+                        "source": "historical_l2_tick_archive",
+                        "symbol": "BTCUSDT",
+                        "venue": "binance_futures",
+                        "interval": "1m",
+                        "generated_at": "2026-05-12T09:00:00Z",
+                        "coverage": {
+                            "l2_snapshot_coverage": 1.0,
+                            "l2_update_coverage": "1.0",
+                            "tick_coverage": 1.0,
+                        },
+                        "artifact_ref": "l2/BTCUSDT/binance_futures/1m.jsonl",
+                    }
+                ],
+            }
+        )
+
+
+def test_microstructure_gate_rejects_unsafe_interval_artifact_ref() -> None:
+    with pytest.raises(ValueError, match="interval_coverage\\[1\\] artifact_ref must be path-safe"):
+        build_microstructure_gate(
+            {
+                "coverage": {
+                    "l2_snapshot_coverage": 1.0,
+                    "l2_update_coverage": 1.0,
+                    "tick_coverage": 1.0,
+                },
+                "required_intervals": ["1m"],
+                "interval_coverage": [
+                    {
+                        "source": "historical_l2_tick_archive",
+                        "symbol": "BTCUSDT",
+                        "venue": "binance_futures",
+                        "interval": "1m",
+                        "generated_at": "2026-05-12T09:00:00Z",
+                        "coverage": {
+                            "l2_snapshot_coverage": 1.0,
+                            "l2_update_coverage": 1.0,
+                            "tick_coverage": 1.0,
+                        },
+                        "artifact_ref": "../BTCUSDT-1m.jsonl",
+                    }
+                ],
+            }
+        )
+
+
 def test_rejects_invalid_coverage_values() -> None:
     with pytest.raises(ValueError, match="l2_snapshot_coverage"):
         build_microstructure_gate(

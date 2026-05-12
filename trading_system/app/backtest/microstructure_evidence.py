@@ -15,6 +15,7 @@ _DEFAULT_COVERAGE_KEYS = (
     "l2_update_coverage",
     "tick_coverage",
 )
+_INTERVAL_IDENTITY_KEYS = ("source", "symbol", "venue", "interval", "generated_at")
 
 
 def _is_exact_string(value: Any) -> bool:
@@ -31,6 +32,25 @@ def _is_canonical_utc_timestamp(value: str) -> bool:
     return parsed.tzinfo is not None and parsed.astimezone(UTC).isoformat().replace("+00:00", "Z") == value
 
 
+def _artifact_ref_is_path_safe(value: str) -> bool:
+    path = Path(value)
+    return bool(value.strip()) and not path.is_absolute() and ".." not in path.parts
+
+
+def _artifact_ref_is_canonical(value: str) -> bool:
+    return value == value.strip() and value == str(Path(value))
+
+
+def _normalise_canonical_string(name: str, value: Any) -> str:
+    if not _is_exact_string(value):
+        raise ValueError(f"{name} must be a string")
+    if not value.strip():
+        raise ValueError(f"{name} must be non-empty")
+    if value != value.strip():
+        raise ValueError(f"{name} must be canonical")
+    return value
+
+
 def _normalise_coverage_value(name: str, value: Any) -> float | None:
     if value is None:
         return None
@@ -40,6 +60,62 @@ def _normalise_coverage_value(name: str, value: Any) -> float | None:
     if not math.isfinite(coverage) or coverage < 0 or coverage > 1:
         raise ValueError(f"{name} must be between 0 and 1")
     return coverage
+
+
+def _normalise_required_intervals(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValueError("required_intervals must be a list")
+    intervals: list[str] = []
+    for index, item in enumerate(value, start=1):
+        interval = _normalise_canonical_string(f"required_intervals[{index}]", item)
+        if interval in intervals:
+            raise ValueError(f"required_intervals[{index}] must be unique")
+        intervals.append(interval)
+    return intervals
+
+
+def _normalise_interval_coverage(value: Any) -> list[dict[str, Any]]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValueError("interval_coverage must be a list")
+    normalised: list[dict[str, Any]] = []
+    for index, item in enumerate(value, start=1):
+        if not isinstance(item, Mapping):
+            raise ValueError(f"interval_coverage[{index}] must be an object")
+        unknown_fields = sorted(set(item) - {*_INTERVAL_IDENTITY_KEYS, "coverage", "artifact_ref"})
+        if unknown_fields:
+            raise ValueError(
+                f"unknown interval_coverage[{index}] field: " + ", ".join(unknown_fields)
+            )
+        row: dict[str, Any] = {
+            key: _normalise_canonical_string(f"interval_coverage[{index}] {key}", item.get(key))
+            for key in _INTERVAL_IDENTITY_KEYS
+        }
+        if not _is_canonical_utc_timestamp(row["generated_at"]):
+            raise ValueError(f"interval_coverage[{index}] generated_at must be a canonical UTC timestamp")
+        coverage_input = item.get("coverage")
+        if not isinstance(coverage_input, Mapping):
+            raise ValueError(f"interval_coverage[{index}] coverage must be an object")
+        unknown_coverage_fields = sorted(set(coverage_input) - set(_DEFAULT_COVERAGE_KEYS))
+        if unknown_coverage_fields:
+            raise ValueError(
+                f"unknown interval_coverage[{index}] coverage field: " + ", ".join(unknown_coverage_fields)
+            )
+        row["coverage"] = {
+            key: _normalise_coverage_value(f"interval_coverage[{index}] {key}", coverage_input.get(key))
+            for key in _DEFAULT_COVERAGE_KEYS
+        }
+        artifact_ref = _normalise_canonical_string(
+            f"interval_coverage[{index}] artifact_ref", item.get("artifact_ref")
+        )
+        if not _artifact_ref_is_path_safe(artifact_ref) or not _artifact_ref_is_canonical(artifact_ref):
+            raise ValueError(f"interval_coverage[{index}] artifact_ref must be path-safe")
+        row["artifact_ref"] = artifact_ref
+        normalised.append(row)
+    return normalised
 
 
 def _normalise_positive_float(name: str, value: Any) -> float:
@@ -141,7 +217,15 @@ def build_microstructure_gate(
     """
 
     unknown_manifest_fields = sorted(
-        set(manifest) - {"evidence_source", "coverage", "depth_driven_taker_fills", "depth_driven_taker_met"}
+        set(manifest)
+        - {
+            "evidence_source",
+            "coverage",
+            "required_intervals",
+            "interval_coverage",
+            "depth_driven_taker_fills",
+            "depth_driven_taker_met",
+        }
     )
     if unknown_manifest_fields:
         raise ValueError("unknown microstructure manifest field: " + ", ".join(unknown_manifest_fields))
@@ -160,6 +244,30 @@ def build_microstructure_gate(
         for key in _DEFAULT_COVERAGE_KEYS
     }
     coverage["min_required_coverage"] = min_required_coverage
+
+    required_intervals = _normalise_required_intervals(manifest.get("required_intervals"))
+    interval_coverage = _normalise_interval_coverage(manifest.get("interval_coverage"))
+    interval_rows_by_interval: dict[str, list[dict[str, Any]]] = {}
+    for row in interval_coverage:
+        interval_rows_by_interval.setdefault(row["interval"], []).append(row)
+    interval_coverage_reasons: list[str] = []
+    for interval in required_intervals:
+        rows = interval_rows_by_interval.get(interval, [])
+        if not rows:
+            interval_coverage_reasons.append(f"required_interval_coverage_missing:{interval}")
+            continue
+        if any(
+            row["coverage"][key] is None or row["coverage"][key] <= 0
+            for row in rows
+            for key in _DEFAULT_COVERAGE_KEYS
+        ):
+            interval_coverage_reasons.append(f"required_interval_coverage_zero:{interval}")
+        elif any(
+            row["coverage"][key] < min_required_coverage
+            for row in rows
+            for key in _DEFAULT_COVERAGE_KEYS
+        ):
+            interval_coverage_reasons.append(f"required_interval_coverage_below_threshold:{interval}")
 
     evidence_source = manifest.get("evidence_source") or {"type": "synthetic_fixture"}
     if not isinstance(evidence_source, Mapping):
@@ -198,7 +306,7 @@ def build_microstructure_gate(
     l2_tick_coverage_met = all(
         coverage[key] is not None and coverage[key] >= min_required_coverage
         for key in _DEFAULT_COVERAGE_KEYS
-    )
+    ) and not interval_coverage_reasons
     depth_fills = manifest.get("depth_driven_taker_fills")
     if depth_fills is None:
         fill_count = 0
@@ -285,6 +393,7 @@ def build_microstructure_gate(
     reasons: list[str] = []
     if not l2_tick_coverage_met:
         reasons.append("l2_tick_coverage_below_threshold")
+    reasons.extend(interval_coverage_reasons)
     if not depth_driven_taker_met:
         if fill_count > 0 and incomplete_fill_count > 0:
             reasons.append("depth_driven_taker_incomplete_fill")
@@ -301,6 +410,10 @@ def build_microstructure_gate(
         "coverage": coverage,
         "reasons": reasons,
     }
+    if required_intervals:
+        gate["required_intervals"] = required_intervals
+    if interval_coverage:
+        gate["interval_coverage"] = interval_coverage
     if depth_fills is not None:
         gate["depth_driven_taker"] = {
             "fill_count": fill_count,

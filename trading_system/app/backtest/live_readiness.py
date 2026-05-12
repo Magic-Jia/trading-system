@@ -886,6 +886,15 @@ def _is_canonical_utc_timestamp(value: str) -> bool:
     return parsed.tzinfo is not None and parsed.astimezone(UTC).isoformat().replace("+00:00", "Z") == value
 
 
+def _artifact_ref_is_path_safe(rel_path: str) -> bool:
+    path = Path(rel_path)
+    return bool(rel_path.strip()) and not path.is_absolute() and ".." not in path.parts
+
+
+def _artifact_ref_is_canonical(rel_path: str) -> bool:
+    return rel_path == rel_path.strip() and rel_path == str(Path(rel_path))
+
+
 def _trade_time_integrity(chunk_dirs: Sequence[Path]) -> dict[str, Any]:
     invalid_fields: list[dict[str, Any]] = []
     for chunk_dir in chunk_dirs:
@@ -1750,6 +1759,71 @@ def _artifact_provenance_schema_error(payload: Mapping[str, Any]) -> str:
     return ""
 
 
+def _microstructure_required_intervals_schema_error(value: Any) -> str:
+    if value is None:
+        return ""
+    if not isinstance(value, list):
+        return "required_intervals_not_list"
+    seen: set[str] = set()
+    for interval in value:
+        if not _is_exact_string(interval):
+            return "required_intervals_entry_not_string"
+        if not interval.strip():
+            return "required_intervals_entry_blank"
+        if interval != interval.strip():
+            return "required_intervals_entry_noncanonical"
+        if interval in seen:
+            return "required_intervals_entry_duplicate"
+        seen.add(interval)
+    return ""
+
+
+def _microstructure_interval_coverage_schema_error(value: Any) -> str:
+    if value is None:
+        return ""
+    if not isinstance(value, list):
+        return "interval_coverage_not_list"
+    for row in value:
+        if not isinstance(row, Mapping):
+            return "interval_coverage_entry_not_object"
+        unknown_fields = sorted(
+            set(row) - {"source", "symbol", "venue", "interval", "generated_at", "coverage", "artifact_ref"}
+        )
+        if unknown_fields:
+            return "unknown_interval_coverage_field: " + ", ".join(unknown_fields)
+        for field in ("source", "symbol", "venue", "interval", "generated_at", "artifact_ref"):
+            item = row.get(field)
+            if not _is_exact_string(item):
+                return f"interval_coverage_{field}_not_string"
+            if not item.strip():
+                return f"interval_coverage_{field}_blank"
+            if item != item.strip():
+                return f"interval_coverage_{field}_noncanonical"
+        generated_at = row.get("generated_at")
+        if not _is_canonical_utc_timestamp(generated_at):
+            return "interval_coverage_generated_at_noncanonical_timestamp"
+        artifact_ref = row.get("artifact_ref")
+        if not _artifact_ref_is_path_safe(artifact_ref) or not _artifact_ref_is_canonical(artifact_ref):
+            return "interval_coverage_artifact_ref_not_path_safe"
+        coverage = row.get("coverage")
+        if not isinstance(coverage, Mapping):
+            return "interval_coverage_coverage_not_object"
+        unknown_coverage_fields = sorted(
+            set(coverage) - {"l2_snapshot_coverage", "l2_update_coverage", "tick_coverage"}
+        )
+        if unknown_coverage_fields:
+            return "unknown_interval_coverage_coverage_field: " + ", ".join(unknown_coverage_fields)
+        for coverage_field in ("l2_snapshot_coverage", "l2_update_coverage", "tick_coverage"):
+            if coverage_field not in coverage:
+                return f"interval_coverage_{coverage_field}_missing"
+            parsed_coverage, coverage_valid = _strict_float_value(coverage.get(coverage_field))
+            if not coverage_valid:
+                return f"interval_coverage_{coverage_field}_not_number"
+            if parsed_coverage < 0.0 or parsed_coverage > 1.0:
+                return f"interval_coverage_{coverage_field}_out_of_range"
+    return ""
+
+
 def _legacy_provenance_schema_error(payload: Mapping[str, Any]) -> str:
     raw_legacy = payload.get("provenance")
     if raw_legacy is not None and not isinstance(raw_legacy, Mapping):
@@ -1958,6 +2032,8 @@ def _microstructure_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
         summary_payload = payload.get("summary")
         coverage_payload = payload.get("coverage")
         depth_payload = payload.get("depth_driven_taker")
+        required_intervals_payload = payload.get("required_intervals")
+        interval_coverage_payload = payload.get("interval_coverage")
         summary_object_valid = summary_payload is None or isinstance(summary_payload, Mapping)
         coverage_object_valid = coverage_payload is None or isinstance(coverage_payload, Mapping)
         depth_object_valid = depth_payload is None or isinstance(depth_payload, Mapping)
@@ -1965,7 +2041,18 @@ def _microstructure_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
         evidence_source_object_valid = isinstance(evidence_source_payload, Mapping)
         evidence_source_schema_error = _artifact_provenance_schema_error(payload)
         top_level_schema_error = _artifact_top_level_schema_error(
-            payload, {"schema_version", "evidence_source", "checks", "summary", "coverage", "depth_driven_taker", "reasons"}
+            payload,
+            {
+                "schema_version",
+                "evidence_source",
+                "checks",
+                "summary",
+                "coverage",
+                "required_intervals",
+                "interval_coverage",
+                "depth_driven_taker",
+                "reasons",
+            },
         )
         checks = _as_mapping(checks_payload)
         unknown_check_fields = sorted(set(checks) - set(required_checks))
@@ -2026,6 +2113,12 @@ def _microstructure_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
                     depth_schema_error = f"depth_driven_taker_{depth_field}_not_int"
                 elif parsed_depth < 0:
                     depth_schema_error = f"depth_driven_taker_{depth_field}_negative"
+        required_intervals_schema_error = _microstructure_required_intervals_schema_error(
+            required_intervals_payload
+        )
+        interval_coverage_schema_error = _microstructure_interval_coverage_schema_error(
+            interval_coverage_payload
+        )
         chunk_schema_valid = (
             (not parse_error)
             and _artifact_schema_valid(payload, "market_microstructure_gate_input.v1") is True
@@ -2039,6 +2132,8 @@ def _microstructure_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
             and not coverage_schema_error
             and depth_object_valid
             and not depth_schema_error
+            and not required_intervals_schema_error
+            and not interval_coverage_schema_error
             and not unknown_check_fields
         )
         chunk_provenance_present = (not parse_error) and _artifact_provenance_present(payload) is True
@@ -2064,6 +2159,10 @@ def _microstructure_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
                 parse_error_message = "depth_driven_taker_not_object"
             elif depth_schema_error:
                 parse_error_message = depth_schema_error
+            elif required_intervals_schema_error:
+                parse_error_message = required_intervals_schema_error
+            elif interval_coverage_schema_error:
+                parse_error_message = interval_coverage_schema_error
             elif unknown_check_fields:
                 parse_error_message = "unknown_check_field: " + ", ".join(unknown_check_fields)
         artifacts.append(
