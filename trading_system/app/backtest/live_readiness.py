@@ -870,10 +870,15 @@ def _parse_trade_time(value: Any) -> tuple[datetime | None, str | None]:
 
 
 _CANONICAL_UTC_TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z$")
+_SAFE_EVIDENCE_IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
 
 
 def _is_exact_string(value: Any) -> bool:
     return type(value) is str
+
+
+def _is_safe_evidence_identifier(value: str) -> bool:
+    return _SAFE_EVIDENCE_IDENTIFIER_RE.fullmatch(value) is not None
 
 
 def _is_canonical_utc_timestamp(value: str) -> bool:
@@ -1936,6 +1941,9 @@ def _runtime_safety_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
             else:
                 for event_type, count in counts_by_type.items():
                     if not isinstance(event_type, str) or not event_type.strip() or event_type != event_type.strip():
+                        summary_schema_error = "summary_counts_by_type_key_invalid"
+                        break
+                    if not _is_safe_evidence_identifier(event_type):
                         summary_schema_error = "summary_counts_by_type_key_invalid"
                         break
                     if isinstance(count, bool) or not isinstance(count, int) or count < 0:
@@ -3743,7 +3751,12 @@ def _postmortem_reconciliation(report: Mapping[str, Any], postmortem_summary: Ma
 
 
 def _is_canonical_report_string(value: Any) -> bool:
-    return isinstance(value, str) and bool(value.strip()) and value == value.strip()
+    return (
+        isinstance(value, str)
+        and bool(value.strip())
+        and value == value.strip()
+        and _is_safe_evidence_identifier(value)
+    )
 
 
 def _strict_promotion_gate_reasons(value: Any) -> tuple[list[str], list[str]]:

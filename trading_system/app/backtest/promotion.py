@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import math
+import re
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -26,6 +28,8 @@ _REQUIRED_ARTIFACTS: dict[str, tuple[str, ...]] = {
     "engine_filter_ablation": ("summary.json", "scorecard.json"),
     "walk_forward_validation": ("summary.json", "windows.json", "scorecard.json"),
 }
+
+_SAFE_EVIDENCE_IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,7 +71,10 @@ def _require_real_number(payload: Mapping[str, Any], key: str, *, context: str) 
     value = payload.get(key)
     if not isinstance(value, (int, float)) or isinstance(value, bool):
         raise ValueError(f"{context}.{key} must be numeric")
-    return float(value)
+    parsed = float(value)
+    if not math.isfinite(parsed):
+        raise ValueError(f"{context}.{key} must be finite")
+    return parsed
 
 
 def _require_non_negative_int(payload: Mapping[str, Any], key: str, *, context: str) -> int:
@@ -75,6 +82,10 @@ def _require_non_negative_int(payload: Mapping[str, Any], key: str, *, context: 
     if not isinstance(value, int) or isinstance(value, bool) or value < 0:
         raise ValueError(f"{context}.{key} must be a non-negative integer")
     return value
+
+
+def _is_safe_evidence_identifier(value: str) -> bool:
+    return _SAFE_EVIDENCE_IDENTIFIER_RE.fullmatch(value) is not None
 
 
 def _parse_iso_datetime(value: str, *, context: str) -> datetime:
@@ -265,6 +276,8 @@ def _validate_full_market_bundle(bundle: BacktestBundle) -> None:
             raise ValueError(f"{bundle.root}/audit.json.audit.rejection_reasons key must be a string")
         if reason != reason.strip():
             raise ValueError(f"{bundle.root}/audit.json.audit.rejection_reasons key must be canonical")
+        if not _is_safe_evidence_identifier(reason):
+            raise ValueError(f"{bundle.root}/audit.json.audit.rejection_reasons key must be a safe identifier")
         if not isinstance(count, int) or isinstance(count, bool) or count < 0:
             raise ValueError(f"{bundle.root}/audit.json.audit.rejection_reasons.{reason} must be a non-negative integer")
 

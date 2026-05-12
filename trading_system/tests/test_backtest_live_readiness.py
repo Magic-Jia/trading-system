@@ -10991,3 +10991,89 @@ def test_live_readiness_rejects_negative_runtime_summary_event_count(tmp_path: P
     assert artifact["schema_valid"] is False
     assert artifact["parse_error"] == "summary_event_count_out_of_range"
     assert "runtime_safety_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
+
+
+def test_live_readiness_rejects_unsafe_runtime_counts_by_type_identifier(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    chunk = source / "chunk_001"
+    chunk.mkdir(parents=True)
+    (chunk / "trades.json").write_text(json.dumps({"trades": []}), encoding="utf-8")
+    gate = build_runtime_safety_gate(
+        {
+            "evidence_source": {"type": "paper_runtime_logs", "run_id": "runtime-1"},
+            "events": [
+                {"event_type": "kill_switch_dry_run", "passed": True},
+                {"event_type": "order_position_reconciliation", "passed": True},
+                {"event_type": "runtime_fail_closed", "passed": True},
+                {"event_type": "live_dust_before_scale", "passed": True},
+                {"event_type": "live_trade_ledger", "passed": True},
+                {"event_type": "runtime_explainability", "passed": True},
+                {"event_type": "drift_guard", "passed": True},
+            ],
+        }
+    )
+    gate["summary"]["counts_by_type"] = {"runtime fail closed": 1}
+    (chunk / "runtime_safety_gate.json").write_text(json.dumps(gate), encoding="utf-8")
+
+    report = write_live_readiness_smoke_report(source, tmp_path / "out", require_runtime_safety_evidence=True)
+
+    artifact = report["runtime_safety_gate"]["artifacts"][0]
+    assert artifact["schema_valid"] is False
+    assert artifact["parse_error"] == "summary_counts_by_type_key_invalid"
+    assert "runtime_safety_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
+
+
+def test_live_readiness_rejects_unsafe_promotion_gate_reason_identifier(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "source"
+    _write_minimal_smoke_source(source)
+
+    def _unsafe_reason_report(*_args: object, **_kwargs: object) -> dict[str, Any]:
+        return _minimal_gate_report(
+            {
+                "decision": "candidate_for_promotion",
+                "reasons": ["runtime safety missing"],
+                "checks": {"net_pnl_non_negative": True},
+            }
+        )
+
+    monkeypatch.setattr(live_readiness, "build_live_readiness_gate_report", _unsafe_reason_report)
+    monkeypatch.setattr(
+        live_readiness,
+        "verify_promotion_evidence_bundle",
+        lambda *_args, **_kwargs: {"verified": True, "manifest_present": True},
+    )
+
+    report = write_live_readiness_smoke_report(source, tmp_path / "out")
+
+    assert "promotion_gate_reasons_invalid" in report["promotion_gate"]["reasons"]
+    assert "runtime safety missing" not in report["promotion_gate"]["reasons"]
+
+
+def test_live_readiness_rejects_unsafe_promotion_gate_check_identifier(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "source"
+    _write_minimal_smoke_source(source)
+
+    def _unsafe_check_report(*_args: object, **_kwargs: object) -> dict[str, Any]:
+        return _minimal_gate_report(
+            {
+                "decision": "candidate_for_promotion",
+                "reasons": [],
+                "checks": {"net pnl non negative": True},
+            }
+        )
+
+    monkeypatch.setattr(live_readiness, "build_live_readiness_gate_report", _unsafe_check_report)
+    monkeypatch.setattr(
+        live_readiness,
+        "verify_promotion_evidence_bundle",
+        lambda *_args, **_kwargs: {"verified": True, "manifest_present": True},
+    )
+
+    report = write_live_readiness_smoke_report(source, tmp_path / "out")
+
+    assert "promotion_gate_checks_invalid" in report["promotion_gate"]["reasons"]
+    assert "net pnl non negative" not in report["promotion_gate"]["checks"]

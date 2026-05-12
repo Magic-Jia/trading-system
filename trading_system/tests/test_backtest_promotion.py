@@ -1094,6 +1094,44 @@ def test_load_backtest_bundle_rejects_string_full_market_breakdown_net_pnl(tmp_p
     with pytest.raises(ValueError, match=r"breakdowns.json.breakdowns.by_year\[0\].net_pnl must be numeric"):
         promotion.load_backtest_bundle(bundle)
 
+
+def test_load_backtest_bundle_rejects_non_finite_full_market_summary_numbers(tmp_path: Path) -> None:
+    bundle = _write_full_market_bundle(
+        tmp_path / "bundle",
+        baseline_name="current_system",
+        variant_name="candidate_policy",
+        total_return=0.10,
+        max_drawdown=-0.10,
+        sharpe=1.00,
+        cost_drag=0.020,
+    )
+    summary_path = bundle / "summary.json"
+    payload = json.loads(summary_path.read_text(encoding="utf-8"))
+    payload["summary"]["sharpe"] = float("inf")
+    _write_json(summary_path, payload)
+
+    with pytest.raises(ValueError, match="summary.json.summary.sharpe must be finite"):
+        promotion.load_backtest_bundle(bundle)
+
+
+def test_load_backtest_bundle_rejects_unsafe_audit_rejection_reason_identifier(tmp_path: Path) -> None:
+    bundle = _write_full_market_bundle(
+        tmp_path / "bundle",
+        baseline_name="current_system",
+        variant_name="candidate_policy",
+        total_return=0.10,
+        max_drawdown=-0.10,
+        sharpe=1.00,
+        cost_drag=0.020,
+    )
+    audit_path = bundle / "audit.json"
+    payload = json.loads(audit_path.read_text(encoding="utf-8"))
+    payload["audit"]["rejection_reasons"] = {"open risk limit reached": 1}
+    _write_json(audit_path, payload)
+
+    with pytest.raises(ValueError, match="audit.json.audit.rejection_reasons key must be a safe identifier"):
+        promotion.load_backtest_bundle(bundle)
+
 def test_load_backtest_bundle_rejects_reversed_manifest_sample_period(tmp_path: Path) -> None:
     bundle = _write_full_market_bundle(
         tmp_path / "bundle",
