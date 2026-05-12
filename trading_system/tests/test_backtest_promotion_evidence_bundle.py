@@ -418,6 +418,50 @@ def test_bundle_verify_only_cli_rejects_malformed_manifest_without_report_artifa
     assert not report_path.parent.exists()
 
 
+def test_bundle_verify_only_cli_rejects_duplicate_required_artifacts_without_report_artifact(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    for name in REQUIRED_ARTIFACTS:
+        _write_json(source / name, {"artifact": name, "synthetic": True})
+    bundle_dir = collect_promotion_evidence_bundle(
+        source,
+        tmp_path / "bundle",
+        candidate_id="candidate-1",
+        evidence_source={"type": "promotion_bundle_export", "run_id": "bundle-1"},
+    )
+    manifest_path = bundle_dir / "promotion_evidence_manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    duplicated = REQUIRED_ARTIFACTS[0]
+    manifest["required_artifacts"].append(duplicated)
+    manifest_path.write_text(json.dumps(manifest, sort_keys=True) + "\n")
+    (bundle_dir / duplicated).unlink()
+    report_path = tmp_path / "reports" / "promotion_bundle_verification.json"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "trading_system.app.backtest.promotion_evidence_bundle",
+            "--bundle-dir",
+            str(bundle_dir),
+            "--verify-only",
+            "--verification-report-out",
+            str(report_path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 1
+    assert "duplicate_required_artifact" in result.stdout
+    assert duplicated in result.stdout
+    assert not report_path.exists()
+    assert not report_path.parent.exists()
+
+
 def test_bundle_verifier_rejects_malformed_manifest_json(tmp_path: Path) -> None:
     bundle_dir = tmp_path / "bundle"
     bundle_dir.mkdir()

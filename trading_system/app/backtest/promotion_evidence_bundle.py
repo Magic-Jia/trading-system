@@ -666,6 +666,25 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
     }
 
 
+def _should_write_verification_report(result: Mapping[str, Any]) -> bool:
+    if result["verified"]:
+        return True
+    integrity_failure = (
+        result["missing_artifacts"]
+        or result["sha256_mismatches"]
+        or result["byte_size_mismatches"]
+    )
+    if not integrity_failure:
+        return False
+    allowed_integrity_drift_errors = {
+        "artifact_metadata_invalid",
+        "artifact_modified_at_invalid_domain",
+        "unknown_artifact_field: modified_at",
+    }
+    manifest_errors = set(result["manifest_errors"])
+    return not (manifest_errors - allowed_integrity_drift_errors)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Collect or verify promotion evidence bundle")
     parser.add_argument("--source-dir")
@@ -679,12 +698,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.verify_only:
         result = verify_promotion_evidence_bundle(args.bundle_dir)
-        if args.verification_report_out and (
-            result["verified"]
-            or result["missing_artifacts"]
-            or result["sha256_mismatches"]
-            or result["byte_size_mismatches"]
-        ):
+        if args.verification_report_out and _should_write_verification_report(result):
             report_path = Path(args.verification_report_out)
             report_path.parent.mkdir(parents=True, exist_ok=True)
             report_path.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
