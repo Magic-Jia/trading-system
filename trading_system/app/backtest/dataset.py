@@ -250,10 +250,6 @@ _ACCOUNT_OPEN_POSITION_IDENTITY_STRING_FIELDS = (
     "positionStatus",
     "position_status",
     "source",
-    "strategy_tag",
-    "strategyTag",
-    "intent_id",
-    "intentId",
 )
 _ACCOUNT_OPEN_POSITION_STATUS_FIELDS = ("status", "positionStatus", "position_status")
 _ACCOUNT_OPEN_POSITION_UNSAFE_STATUS_FIELDS = ("orderStatus",)
@@ -284,6 +280,10 @@ _ACCOUNT_OPEN_POSITION_IDENTIFIER_FIELDS = (
     "parentOrderId",
     "exchange_order_id",
     "exchangeOrderId",
+    "strategy_tag",
+    "strategyTag",
+    "intent_id",
+    "intentId",
 )
 _ACCOUNT_OPEN_POSITION_IDENTIFIER_EQUAL_ALIAS_GROUPS = (
     ("positionId", "position_id"),
@@ -299,6 +299,8 @@ _ACCOUNT_OPEN_POSITION_IDENTIFIER_EQUAL_ALIAS_GROUPS = (
     ("correlationId", "correlation_id"),
     ("parentOrderId", "parent_order_id"),
     ("exchangeOrderId", "exchange_order_id"),
+    ("strategyTag", "strategy_tag"),
+    ("intentId", "intent_id"),
 )
 _ACCOUNT_OPEN_POSITION_PROVENANCE_IDENTIFIER_FIELDS = (
     "signal_source",
