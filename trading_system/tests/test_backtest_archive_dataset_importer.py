@@ -26,7 +26,11 @@ from trading_system.app.backtest.archive.materialization import (
     _materialize_dataset_root,
     materialize_phase1_evidence_windows,
 )
-from trading_system.app.backtest.archive.raw_market import archive_raw_market_payload, load_phase1_raw_market_imports
+from trading_system.app.backtest.archive.raw_market import (
+    ImportedRawMarketFile,
+    archive_raw_market_payload,
+    load_phase1_raw_market_imports,
+)
 from trading_system.app.backtest.dataset import load_historical_dataset
 
 
@@ -269,6 +273,58 @@ def test_validated_source_trace_rejects_tuple_manifest_paths_before_loading_mani
     }
 
     with pytest.raises(ValueError, match="materialized dataset root source manifest_paths must be a list"):
+        archive_importer._validated_source_trace_against_manifests(
+            source,
+            context="materialized dataset root source",
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "values"),
+    [
+        ("symbols", ["BTCUSDT", "BTCUSDT"]),
+        ("series_keys", ["binance:futures:ohlcv:BTCUSDT:1h", "binance:futures:ohlcv:BTCUSDT:1h"]),
+        (
+            "manifest_paths",
+            [
+                "/tmp/archive/raw-market/binance/futures/ohlcv/BTCUSDT/1h/a.manifest.json",
+                "/tmp/archive/raw-market/binance/futures/ohlcv/BTCUSDT/1h/a.manifest.json",
+            ],
+        ),
+    ],
+)
+def test_validated_source_trace_rejects_duplicate_canonical_source_identity_entries(
+    field: str,
+    values: list[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manifest_path = "/tmp/archive/raw-market/binance/futures/ohlcv/BTCUSDT/1h/a.manifest.json"
+    source = {
+        "scope": archive_importer.PHASE1_IMPORTER_SCOPE,
+        "exchange": "binance",
+        "market": "futures",
+        "symbols": ["BTCUSDT"],
+        "series_keys": ["binance:futures:ohlcv:BTCUSDT:1h"],
+        "manifest_paths": [manifest_path],
+    }
+    source[field] = values
+    monkeypatch.setattr(
+        archive_importer,
+        "load_phase1_raw_market_manifest",
+        lambda path: ImportedRawMarketFile(
+            series_key="binance:futures:ohlcv:BTCUSDT:1h",
+            manifest_path=Path(path),
+            data_path=Path(path).with_suffix(".jsonl"),
+            manifest={"symbol": "BTCUSDT"},
+            symbol_metadata=None,
+            coverage_start=datetime(2024, 1, 1, tzinfo=UTC),
+            coverage_end=datetime(2024, 1, 1, tzinfo=UTC),
+            fetched_at=datetime(2024, 1, 1, tzinfo=UTC),
+            records=(),
+        ),
+    )
+
+    with pytest.raises(ValueError, match=rf"materialized dataset root source {field} must not contain duplicate entries"):
         archive_importer._validated_source_trace_against_manifests(
             source,
             context="materialized dataset root source",
@@ -4351,6 +4407,42 @@ def test_merged_ohlcv_timeframe_coverage_rejects_malformed_not_materialized_reas
                 }
             ]
         )
+
+
+def test_materialized_source_trace_rejects_bool_as_number_in_execution_evidence() -> None:
+    source = {
+        "scope": archive_importer.PHASE1_IMPORTER_SCOPE,
+        "exchange": "binance",
+        "market": "futures",
+        "symbols": ["BTCUSDT"],
+        "series_keys": ["binance:futures:ohlcv:BTCUSDT:1h"],
+        "manifest_paths": ["/tmp/archive/raw-market/binance/futures/ohlcv/BTCUSDT/1h/a.manifest.json"],
+        "execution_evidence": {
+            "available": True,
+            "materialized": {"order_book": True},
+        },
+    }
+
+    with pytest.raises(ValueError, match="execution_evidence.materialized.order_book must be a non-negative integer"):
+        archive_importer._merged_execution_evidence_coverage([source])
+
+
+def test_materialized_source_trace_rejects_bool_as_number_in_futures_context() -> None:
+    source = {
+        "scope": archive_importer.PHASE1_IMPORTER_SCOPE,
+        "exchange": "binance",
+        "market": "futures",
+        "symbols": ["BTCUSDT"],
+        "series_keys": ["binance:futures:ohlcv:BTCUSDT:1h"],
+        "manifest_paths": ["/tmp/archive/raw-market/binance/futures/ohlcv/BTCUSDT/1h/a.manifest.json"],
+        "futures_context": {
+            "available": True,
+            "max_age_seconds": {"mark_price": True},
+        },
+    }
+
+    with pytest.raises(ValueError, match="futures_context.max_age_seconds.mark_price must be a non-negative integer"):
+        archive_importer._merged_futures_context_coverage([source])
 
 
 def test_merged_ohlcv_timeframe_coverage_preserves_known_importer_timeframes() -> None:

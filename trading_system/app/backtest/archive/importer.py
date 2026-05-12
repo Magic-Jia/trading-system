@@ -1349,6 +1349,13 @@ def _require_json_list_canonical_string_items(values: Any, *, field: str) -> tup
     return _require_canonical_string_items(values, field=field)
 
 
+def _require_unique_canonical_string_items(values: Any, *, field: str) -> tuple[str, ...]:
+    parsed = _require_json_list_canonical_string_items(values, field=field)
+    if len(set(parsed)) != len(parsed):
+        raise ValueError(f"{field} must not contain duplicate entries")
+    return parsed
+
+
 def _require_importer_ohlcv_timeframe(value: str, *, field: str) -> str:
     if value not in PHASE1_IMPORTER_KNOWN_OHLCV_TIMEFRAMES:
         raise ValueError(f"{field} must be a known importer timeframe")
@@ -2471,11 +2478,16 @@ def _archive_root_from_manifest_paths(manifest_paths: Sequence[str]) -> Path | N
 
 def _validated_source_trace_against_manifests(source: Mapping[str, Any], *, context: str) -> dict[str, Any]:
     normalized_source = _json_object_field(source, context=context)
-    manifest_paths = sorted(
-        _require_json_list_canonical_string_items(
-            normalized_source.get("manifest_paths"), field=f"{context} manifest_paths"
-        )
+    normalized_source["symbols"] = sorted(
+        _require_unique_canonical_string_items(normalized_source.get("symbols"), field=f"{context} symbols")
     )
+    normalized_source["series_keys"] = sorted(
+        _require_unique_canonical_string_items(normalized_source.get("series_keys"), field=f"{context} series_keys")
+    )
+    manifest_paths = sorted(
+        _require_unique_canonical_string_items(normalized_source.get("manifest_paths"), field=f"{context} manifest_paths")
+    )
+    normalized_source["manifest_paths"] = manifest_paths
     if not manifest_paths:
         raise ValueError(f"{context} manifest_paths must not be empty")
 
