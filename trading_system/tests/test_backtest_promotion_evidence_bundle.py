@@ -1781,6 +1781,50 @@ def test_bundle_verifier_marks_schema_invalid_for_padded_artifact_source_path(tm
     assert result["invalid_artifact_metadata"] == [f"{REQUIRED_ARTIFACTS[0]}:source_path"]
 
 
+def test_bundle_verify_only_cli_rejects_artifact_source_path_identity_drift_without_report_artifact(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    for name in REQUIRED_ARTIFACTS:
+        _write_json(source / name, {"artifact": name})
+    bundle_dir = collect_promotion_evidence_bundle(
+        source,
+        tmp_path / "bundle",
+        candidate_id="candidate-1",
+        evidence_source={"type": "promotion_bundle_export", "run_id": "bundle-1"},
+    )
+    manifest_path = bundle_dir / "promotion_evidence_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    artifact_path = REQUIRED_ARTIFACTS[0]
+    manifest["artifacts"][0]["source_path"] = str(source / REQUIRED_ARTIFACTS[1])
+    _write_json(manifest_path, manifest)
+    (bundle_dir / artifact_path).write_text("tampered\n", encoding="utf-8")
+    report_path = tmp_path / "reports" / "promotion_bundle_verification.json"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "trading_system.app.backtest.promotion_evidence_bundle",
+            "--bundle-dir",
+            str(bundle_dir),
+            "--verify-only",
+            "--verification-report-out",
+            str(report_path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 1
+    assert "artifact_source_path_identity_mismatch" in result.stdout
+    assert f"{artifact_path}:source_path" in result.stdout
+    assert not report_path.exists()
+    assert not report_path.parent.exists()
+
+
 def test_bundle_verifier_rejects_artifact_metadata_mapping_subclasses_and_noncanonical_source_paths(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

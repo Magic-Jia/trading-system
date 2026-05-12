@@ -432,6 +432,7 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
     unknown_artifact_metadata: list[str] = []
     source_path_blank_metadata: list[str] = []
     source_path_noncanonical_metadata: list[str] = []
+    source_path_identity_mismatch_metadata: list[str] = []
     modified_at_mismatch_metadata: list[str] = []
     checked: list[dict[str, Any]] = []
     checked_paths: set[str] = set()
@@ -482,6 +483,18 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
         ):
             invalid_metadata.append(f"{rel_path}:source_path")
             source_path_noncanonical_metadata.append(f"{rel_path}:source_path")
+        if (
+            isinstance(source_path_raw, str)
+            and source_path_raw.strip()
+            and _artifact_source_path_is_canonical(source_path_raw)
+            and _artifact_path_is_safe(rel_path)
+            and _artifact_path_is_canonical(rel_path)
+        ):
+            source_parts = Path(source_path_raw).parts
+            rel_parts = Path(rel_path).parts
+            if len(source_parts) < len(rel_parts) or source_parts[-len(rel_parts) :] != rel_parts:
+                invalid_metadata.append(f"{rel_path}:source_path")
+                source_path_identity_mismatch_metadata.append(f"{rel_path}:source_path")
         modified_at_raw = artifact.get("modified_at")
         actual_modified_at = _canonical_utc_timestamp_from_epoch(path.stat().st_mtime)
         if modified_at_raw is None:
@@ -616,6 +629,9 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
     if source_path_noncanonical_metadata:
         schema_valid = False
         manifest_errors.append("artifact_source_path_noncanonical")
+    if source_path_identity_mismatch_metadata:
+        schema_valid = False
+        manifest_errors.append("artifact_source_path_identity_mismatch")
     unknown_artifact_field_names = sorted(
         {item.split(":", 1)[1] for item in unknown_artifact_metadata if isinstance(item, str)}
     )
