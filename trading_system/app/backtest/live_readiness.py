@@ -864,6 +864,8 @@ def _parse_trade_time(value: Any) -> tuple[datetime | None, str | None]:
         return None, "missing_or_invalid_timestamp"
     if parsed.tzinfo is None:
         return None, "timestamp_missing_timezone"
+    if not _is_canonical_utc_timestamp(stripped):
+        return None, "timestamp_not_canonical"
     return parsed.astimezone(UTC), None
 
 
