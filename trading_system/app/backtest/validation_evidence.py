@@ -57,6 +57,21 @@ def _float_or_none(value: Any, name: str) -> float | None:
     return number
 
 
+def _require_positive(value: float | None, name: str) -> None:
+    if value is not None and value <= 0:
+        raise ValueError(f"{name} must be positive")
+
+
+def _require_non_negative(value: float | None, name: str) -> None:
+    if value is not None and value < 0:
+        raise ValueError(f"{name} must be non-negative")
+
+
+def _require_fraction(value: float | None, name: str) -> None:
+    if value is not None and not 0 <= value <= 1:
+        raise ValueError(f"{name} must be between 0 and 1")
+
+
 def _mapping(value: Any, name: str) -> Mapping[str, Any]:
     if not isinstance(value, Mapping):
         raise ValueError(f"{name} must be a mapping")
@@ -105,6 +120,8 @@ def build_validation_gate(manifest: Mapping[str, Any]) -> dict[str, Any]:
         raise ValueError("evidence_source type must be non-empty")
     if source["type"] != source["type"].strip():
         raise ValueError("evidence_source type must be canonical")
+    if not _is_safe_evidence_identifier(source["type"]):
+        raise ValueError("evidence_source type must be a safe identifier")
     for optional_field in ("run_id", "exported_at"):
         optional_value = source.get(optional_field)
         if optional_value is not None and not _is_exact_string(optional_value):
@@ -113,6 +130,12 @@ def build_validation_gate(manifest: Mapping[str, Any]) -> dict[str, Any]:
             raise ValueError(f"evidence_source {optional_field} must be non-empty")
         if _is_exact_string(optional_value) and optional_value != optional_value.strip():
             raise ValueError(f"evidence_source {optional_field} must be canonical")
+        if (
+            optional_field == "run_id"
+            and _is_exact_string(optional_value)
+            and not _is_safe_evidence_identifier(optional_value)
+        ):
+            raise ValueError("evidence_source run_id must be a safe identifier")
         if (
             optional_field == "exported_at"
             and _is_exact_string(optional_value)
@@ -127,6 +150,9 @@ def build_validation_gate(manifest: Mapping[str, Any]) -> dict[str, Any]:
     baseline = _float_or_none(oos.get("baseline_net_pnl"), "oos baseline_net_pnl")
     oos_pnl = _float_or_none(oos.get("oos_net_pnl"), "oos oos_net_pnl")
     max_degradation = _float_or_none(oos.get("max_degradation_fraction"), "oos max_degradation_fraction")
+    _require_positive(baseline, "oos baseline_net_pnl")
+    _require_non_negative(oos_pnl, "oos oos_net_pnl")
+    _require_fraction(max_degradation, "oos max_degradation_fraction")
     if max_degradation is None:
         max_degradation = 0.2
     if baseline is None or baseline <= 0 or oos_pnl is None:
@@ -141,6 +167,7 @@ def build_validation_gate(manifest: Mapping[str, Any]) -> dict[str, Any]:
         raise ValueError("regimes must be a list")
     profitable_regime_count = 0
     eligible_regime_count = 0
+    regime_identifiers: set[str] = set()
     for index, regime in enumerate(regimes_raw):
         regime_name = f"regimes[{index}]"
         regime_mapping = _mapping(regime, regime_name)
@@ -148,7 +175,12 @@ def build_validation_gate(manifest: Mapping[str, Any]) -> dict[str, Any]:
         if unknown_regime_fields:
             raise ValueError("unknown validation regime field: " + ", ".join(unknown_regime_fields))
         for identifier_field in _OPTIONAL_REGIME_IDENTIFIER_FIELDS:
-            _optional_safe_identifier(regime_mapping.get(identifier_field), f"{regime_name}.{identifier_field}")
+            identifier = _optional_safe_identifier(regime_mapping.get(identifier_field), f"{regime_name}.{identifier_field}")
+            if identifier is None:
+                continue
+            if identifier in regime_identifiers:
+                raise ValueError(f"duplicate validation regime identifier: {identifier}")
+            regime_identifiers.add(identifier)
         trade_count = _integer_count(regime_mapping.get("trade_count", 0), "regime trade_count")
         net_pnl = _float_or_none(regime_mapping.get("net_pnl"), f"{regime_name}.net_pnl")
         if trade_count > 0:
@@ -162,6 +194,7 @@ def build_validation_gate(manifest: Mapping[str, Any]) -> dict[str, Any]:
     if unknown_cost_stress_fields:
         raise ValueError("unknown validation cost_stress field: " + ", ".join(unknown_cost_stress_fields))
     stressed_net_pnl = _float_or_none(cost_stress.get("stressed_net_pnl"), "cost_stress stressed_net_pnl")
+    _require_non_negative(stressed_net_pnl, "cost_stress stressed_net_pnl")
     cost_stress_positive_met = stressed_net_pnl is not None and stressed_net_pnl > 0
 
     forward = _mapping(manifest.get("forward_contamination", {}), "forward_contamination")

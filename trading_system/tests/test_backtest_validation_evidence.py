@@ -58,6 +58,32 @@ def test_validation_gate_preserves_valid_evidence_source_payload() -> None:
     assert gate["evidence_source"] == manifest["evidence_source"]
 
 
+def test_validation_gate_result_provenance_has_canonical_shape() -> None:
+    gate = build_validation_gate(_passing_manifest())
+
+    assert set(gate["evidence_source"]) == {"type"}
+    assert gate["evidence_source"]["type"] == "synthetic_fixture"
+    assert "forward_contamination_audit_id" in gate["summary"]
+
+
+@pytest.mark.parametrize(
+    ("field_name", "bad_identifier", "expected_error"),
+    [
+        ("type", "walk forward", "evidence_source type must be a safe identifier"),
+        ("run_id", "validation 1", "evidence_source run_id must be a safe identifier"),
+    ],
+)
+def test_validation_gate_rejects_unsafe_evidence_source_identity_fields(
+    field_name: str, bad_identifier: str, expected_error: str
+) -> None:
+    manifest = _passing_manifest()
+    manifest["evidence_source"] = {"type": "walk_forward_oos_report", "run_id": "validation-1"}
+    manifest["evidence_source"][field_name] = bad_identifier
+
+    with pytest.raises(ValueError, match=f"^{expected_error}$"):
+        build_validation_gate(manifest)
+
+
 @pytest.mark.parametrize(
     ("exported_at", "expected_error"),
     [
@@ -100,7 +126,7 @@ def test_validation_gate_reports_each_failed_requirement() -> None:
             "evidence_source": {"type": "synthetic_fixture"},
             "oos": {"baseline_net_pnl": 100.0, "oos_net_pnl": 60.0, "max_degradation_fraction": 0.2},
             "regimes": [{"net_pnl": 5.0, "trade_count": 20}],
-            "cost_stress": {"stressed_net_pnl": -1.0},
+            "cost_stress": {"stressed_net_pnl": 0.0},
             "forward_contamination": {"absent": False},
         }
     )
@@ -210,6 +236,34 @@ def test_validation_gate_rejects_boolean_regime_net_pnl_with_field_path() -> Non
     ]
 
     with pytest.raises(ValueError, match=r"^regimes\[1\]\.net_pnl must be a number$"):
+        build_validation_gate(manifest)
+
+
+@pytest.mark.parametrize(
+    ("section", "field_name", "bad_value", "expected_error"),
+    [
+        ("oos", "baseline_net_pnl", 0.0, "oos baseline_net_pnl must be positive"),
+        ("oos", "baseline_net_pnl", -1.0, "oos baseline_net_pnl must be positive"),
+        ("oos", "oos_net_pnl", -1.0, "oos oos_net_pnl must be non-negative"),
+        ("cost_stress", "stressed_net_pnl", -1.0, "cost_stress stressed_net_pnl must be non-negative"),
+    ],
+)
+def test_validation_gate_rejects_out_of_domain_oos_and_cost_stress_numerics(
+    section: str, field_name: str, bad_value: float, expected_error: str
+) -> None:
+    manifest = _passing_manifest()
+    manifest[section][field_name] = bad_value
+
+    with pytest.raises(ValueError, match=f"^{expected_error}$"):
+        build_validation_gate(manifest)
+
+
+@pytest.mark.parametrize("max_degradation_fraction", [-0.1, 1.1])
+def test_validation_gate_rejects_out_of_bounds_max_degradation_fraction(max_degradation_fraction: float) -> None:
+    manifest = _passing_manifest()
+    manifest["oos"]["max_degradation_fraction"] = max_degradation_fraction
+
+    with pytest.raises(ValueError, match="^oos max_degradation_fraction must be between 0 and 1$"):
         build_validation_gate(manifest)
 
 
@@ -350,6 +404,17 @@ def test_validation_gate_rejects_unsafe_optional_regime_identifiers(
     manifest["regimes"][0][field_name] = bad_identifier
 
     with pytest.raises(ValueError, match=rf"^regimes\[0\]\.{field_name} {expected_error}$"):
+        build_validation_gate(manifest)
+
+
+def test_validation_gate_rejects_duplicate_regime_identifiers() -> None:
+    manifest = _passing_manifest()
+    manifest["regimes"] = [
+        {"regime_id": "RISK_ON", "net_pnl": 40.0, "trade_count": 20},
+        {"regime_name": "RISK_ON", "net_pnl": 10.0, "trade_count": 12},
+    ]
+
+    with pytest.raises(ValueError, match="^duplicate validation regime identifier: RISK_ON$"):
         build_validation_gate(manifest)
 
 
