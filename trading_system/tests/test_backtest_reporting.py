@@ -30,6 +30,26 @@ from trading_system.app.backtest.types import (
 )
 
 
+class _DuplicateKeyMapping(Mapping):
+    def __init__(self, pairs: list[tuple[object, object]]) -> None:
+        self._pairs = pairs
+
+    def __getitem__(self, key: object) -> object:
+        for candidate, value in self._pairs:
+            if candidate == key:
+                return value
+        raise KeyError(key)
+
+    def __iter__(self) -> Iterator[object]:
+        return (key for key, _value in self._pairs)
+
+    def __len__(self) -> int:
+        return len(self._pairs)
+
+    def items(self):  # type: ignore[override]
+        return iter(self._pairs)
+
+
 def _ts(value: str) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(timezone.utc)
 
@@ -73,7 +93,23 @@ def test_backtest_evaluation_report_rejects_padded_experiment_name() -> None:
         )
 
 
-@pytest.mark.parametrize("field", ("dataset_root", "baseline_name", "variant_name", "sample_period"))
+def test_backtest_evaluation_report_rejects_malformed_sample_period_shape() -> None:
+    with pytest.raises(ValueError, match=r"metadata\.sample_period\.start must be a canonical string"):
+        reporting.render_backtest_evaluation_report(
+            experiment_name="evaluation",
+            evaluation={
+                "walk_forward": {"metadata": {"window_count": 1}},
+                "regimes": {"buckets": []},
+                "cost_stress": {"scenarios": []},
+            },
+            metadata={
+                "dataset_root": "dataset",
+                "sample_period": {"start": " 2026-03-10T00:00:00Z ", "end": "2026-03-11T00:00:00Z"},
+            },
+        )
+
+
+@pytest.mark.parametrize("field", ("dataset_root", "baseline_name", "variant_name"))
 def test_backtest_evaluation_report_rejects_padded_report_metadata_identifiers(field: str) -> None:
     with pytest.raises(ValueError, match=rf"metadata\.{field} must be a canonical string"):
         reporting.render_backtest_evaluation_report(
@@ -84,6 +120,19 @@ def test_backtest_evaluation_report_rejects_padded_report_metadata_identifiers(f
                 "cost_stress": {"scenarios": []},
             },
             metadata={field: " padded "},
+        )
+
+
+def test_backtest_evaluation_report_rejects_noncanonical_sample_period_string() -> None:
+    with pytest.raises(ValueError, match=r"metadata\.sample_period must be a canonical string"):
+        reporting.render_backtest_evaluation_report(
+            experiment_name="evaluation",
+            evaluation={
+                "walk_forward": {"metadata": {"window_count": 1}},
+                "regimes": {"buckets": []},
+                "cost_stress": {"scenarios": []},
+            },
+            metadata={"sample_period": " 2026-03-10 "},
         )
 
 
@@ -379,6 +428,58 @@ def test_regime_scorecard_rejects_non_object_metadata_payload() -> None:
         )
 
 
+def test_regime_scorecard_rejects_non_object_report_metadata() -> None:
+    with pytest.raises(ValueError, match="metadata must be an object"):
+        reporting.render_regime_scorecard(
+            experiment_name="regime_dispersion",
+            experiment={
+                "metadata": {"snapshot_count": 2},
+                "by_regime": {"bull": {"forward_return_by_window": {"3d": 0.01}}},
+            },
+            metadata=[("dataset_root", "dataset")],  # type: ignore[arg-type]
+        )
+
+
+def test_regime_scorecard_rejects_padded_experiment_name() -> None:
+    with pytest.raises(ValueError, match="experiment_name must be a canonical string"):
+        reporting.render_regime_scorecard(
+            experiment_name=" regime_dispersion ",
+            experiment={
+                "metadata": {"snapshot_count": 2},
+                "by_regime": {"bull": {"forward_return_by_window": {"3d": 0.01}}},
+            },
+            metadata={"dataset_root": "dataset"},
+        )
+
+
+@pytest.mark.parametrize("field", ("dataset_root", "baseline_name", "variant_name"))
+def test_regime_scorecard_rejects_padded_report_metadata_identifiers(field: str) -> None:
+    with pytest.raises(ValueError, match=rf"metadata\.{field} must be a canonical string"):
+        reporting.render_regime_scorecard(
+            experiment_name="regime_dispersion",
+            experiment={
+                "metadata": {"snapshot_count": 2},
+                "by_regime": {"bull": {"forward_return_by_window": {"3d": 0.01}}},
+            },
+            metadata={field: " padded "},
+        )
+
+
+def test_regime_scorecard_rejects_malformed_sample_period_shape() -> None:
+    with pytest.raises(ValueError, match=r"metadata\.sample_period\.end must be a canonical string"):
+        reporting.render_regime_scorecard(
+            experiment_name="regime_dispersion",
+            experiment={
+                "metadata": {"snapshot_count": 2},
+                "by_regime": {"bull": {"forward_return_by_window": {"3d": 0.01}}},
+            },
+            metadata={
+                "dataset_root": "dataset",
+                "sample_period": {"start": "2026-03-10T00:00:00Z", "end": " 2026-03-11T00:00:00Z "},
+            },
+        )
+
+
 def test_regime_scorecard_rejects_non_object_forward_return_window() -> None:
     with pytest.raises(ValueError, match="by_regime.bull.forward_return_by_window must be an object"):
         reporting.render_regime_scorecard(
@@ -410,12 +511,29 @@ def test_regime_scorecard_rejects_non_object_by_regime() -> None:
 
 
 def test_regime_scorecard_rejects_non_string_regime_label() -> None:
-    with pytest.raises(ValueError, match="by_regime keys must be canonical strings"):
+    with pytest.raises(ValueError, match="by_regime keys must be a canonical string"):
         reporting.render_regime_scorecard(
             experiment_name="regime_dispersion",
             experiment={
                 "metadata": {"snapshot_count": 2},
                 "by_regime": {1: {"forward_return_by_window": {"3d": 0.01}}},
+            },
+            metadata={"dataset_root": "dataset"},
+        )
+
+
+def test_regime_scorecard_rejects_duplicate_regime_labels() -> None:
+    with pytest.raises(ValueError, match="by_regime keys must be unique"):
+        reporting.render_regime_scorecard(
+            experiment_name="regime_dispersion",
+            experiment={
+                "metadata": {"snapshot_count": 2},
+                "by_regime": _DuplicateKeyMapping(
+                    [
+                        ("bull", {"forward_return_by_window": {"3d": 0.01}}),
+                        ("bull", {"forward_return_by_window": {"3d": -0.01}}),
+                    ]
+                ),
             },
             metadata={"dataset_root": "dataset"},
         )
@@ -444,6 +562,21 @@ def test_regime_scorecard_rejects_string_forward_return_metric() -> None:
                 "metadata": {"snapshot_count": 2},
                 "by_regime": {
                     "bull": {"forward_return_by_window": {"3d": "0.01"}},
+                    "bear": {"forward_return_by_window": {"3d": -0.01}},
+                },
+            },
+            metadata={"dataset_root": "dataset"},
+        )
+
+
+def test_regime_scorecard_rejects_invalid_non_primary_forward_return_metric() -> None:
+    with pytest.raises(ValueError, match="by_regime.bull.forward_return_by_window.7d must be a finite number"):
+        reporting.render_regime_scorecard(
+            experiment_name="regime_dispersion",
+            experiment={
+                "metadata": {"snapshot_count": 2},
+                "by_regime": {
+                    "bull": {"forward_return_by_window": {"3d": 0.01, "7d": "0.02"}},
                     "bear": {"forward_return_by_window": {"3d": -0.01}},
                 },
             },

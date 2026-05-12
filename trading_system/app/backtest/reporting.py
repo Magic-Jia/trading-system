@@ -29,29 +29,41 @@ def render_regime_scorecard(
     experiment: Mapping[str, Any],
     metadata: Mapping[str, Any],
 ) -> dict[str, Any]:
+    experiment_name = _canonical_report_string(experiment_name, field_name="experiment_name")
+    if not isinstance(metadata, Mapping):
+        raise ValueError("metadata must be an object")
+    report_metadata = _report_metadata_copy(metadata)
     raw_by_regime = experiment.get("by_regime", {})
     if not isinstance(raw_by_regime, Mapping):
         raise ValueError("by_regime must be an object")
-    by_regime = dict(raw_by_regime)
+    regime_labels: set[str] = set()
     best_regime = None
     best_return = None
     worst_regime = None
     worst_return = None
-    for raw_label, payload in by_regime.items():
-        if not isinstance(raw_label, str) or not raw_label or raw_label.strip() != raw_label:
-            raise ValueError("by_regime keys must be canonical strings")
-        label = raw_label
+    for raw_label, payload in raw_by_regime.items():
+        label = _canonical_report_string(raw_label, field_name="by_regime keys")
+        if label in regime_labels:
+            raise ValueError("by_regime keys must be unique")
+        regime_labels.add(label)
         if not isinstance(payload, Mapping):
             raise ValueError(f"by_regime.{label} must be an object")
         forward_return_by_window = payload.get("forward_return_by_window", {})
         if not isinstance(forward_return_by_window, Mapping):
             raise ValueError(f"by_regime.{label}.forward_return_by_window must be an object")
-        current = (
-            _strict_present_finite_float(
-                dict(forward_return_by_window)["3d"],
-                field_name=f"by_regime.{label}.forward_return_by_window.3d",
+        validated_forward_return_by_window: dict[str, float] = {}
+        for raw_window, raw_return in forward_return_by_window.items():
+            window = _canonical_report_string(
+                raw_window,
+                field_name=f"by_regime.{label}.forward_return_by_window key",
             )
-            if "3d" in forward_return_by_window
+            validated_forward_return_by_window[window] = _strict_present_finite_float(
+                raw_return,
+                field_name=f"by_regime.{label}.forward_return_by_window.{window}",
+            )
+        current = (
+            validated_forward_return_by_window["3d"]
+            if "3d" in validated_forward_return_by_window
             else 0.0
         )
         if best_return is None or current > best_return:
@@ -68,7 +80,7 @@ def render_regime_scorecard(
             raise ValueError(f"duration_stats.{label} must be an object")
         _non_negative_int_field(payload, "max_duration_bars", label=f"duration_stats.{label}")
 
-    regimes_with_samples = len(by_regime)
+    regimes_with_samples = len(regime_labels)
     promotion_pass = regimes_with_samples >= 2 and (best_return or 0.0) > 0 and (worst_return or 0.0) < 0
     summary = (
         f"{best_regime} leads forward return dispersion while {worst_regime} stays weakest"
@@ -83,10 +95,10 @@ def render_regime_scorecard(
     return {
         "metadata": {
             "experiment_name": experiment_name,
-            "dataset_root": metadata.get("dataset_root"),
-            "baseline_name": metadata.get("baseline_name"),
-            "variant_name": metadata.get("variant_name"),
-            "sample_period": metadata.get("sample_period"),
+            "dataset_root": report_metadata.get("dataset_root"),
+            "baseline_name": report_metadata.get("baseline_name"),
+            "variant_name": report_metadata.get("variant_name"),
+            "sample_period": report_metadata.get("sample_period"),
         },
         "key_metrics": {
             "snapshot_count": _non_negative_int_field(experiment_metadata, "snapshot_count", label="experiment.metadata"),
@@ -411,7 +423,6 @@ _REPORT_METADATA_IDENTIFIER_FIELDS = frozenset(
         "dataset_root",
         "baseline_name",
         "variant_name",
-        "sample_period",
         "evaluation_window",
     }
 )
@@ -422,7 +433,29 @@ def _report_metadata_copy(metadata: Mapping[str, Any]) -> dict[str, Any]:
     for field in _REPORT_METADATA_IDENTIFIER_FIELDS:
         if field in copied and copied[field] is not None:
             copied[field] = _canonical_report_string(copied[field], field_name=f"metadata.{field}")
+    if "sample_period" in copied and copied["sample_period"] is not None:
+        copied["sample_period"] = _report_sample_period(copied["sample_period"])
     return copied
+
+
+def _report_sample_period(value: object) -> dict[str, str | None] | str:
+    if type(value) is str:
+        return _canonical_report_string(value, field_name="metadata.sample_period")
+    if not isinstance(value, Mapping):
+        raise ValueError("metadata.sample_period must be an object or canonical string")
+    period = _strict_mapping_copy(value, field_name="metadata.sample_period")
+    for boundary in ("start", "end"):
+        if boundary not in period:
+            raise ValueError(f"metadata.sample_period.{boundary} must be present")
+        if period[boundary] is not None:
+            period[boundary] = _canonical_report_string(
+                period[boundary],
+                field_name=f"metadata.sample_period.{boundary}",
+            )
+    return {
+        "start": period["start"],
+        "end": period["end"],
+    }
 
 
 def _decision_summary(*, decision: str, summary: str) -> dict[str, str]:
