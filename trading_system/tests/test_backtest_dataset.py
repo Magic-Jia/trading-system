@@ -1803,6 +1803,41 @@ def test_load_historical_dataset_rejects_malformed_open_position_asset_currency_
         load_historical_dataset(dataset_root)
 
 
+def test_load_historical_dataset_rejects_inconsistent_open_position_collateral_value_alias_before_load(
+    tmp_path: Path,
+) -> None:
+    dataset_root = tmp_path / "sample_dataset"
+    bundle = dataset_root / "2026-03-10T00-00-00Z__sample-001"
+    bundle.mkdir(parents=True)
+    (bundle / "metadata.json").write_text(
+        '{"timestamp": "2026-03-10T00:00:00Z", "run_id": "sample-001"}',
+        encoding="utf-8",
+    )
+    (bundle / "market_context.json").write_text('{"symbols": {"BTCUSDT": {}}}', encoding="utf-8")
+    (bundle / "derivatives_snapshot.json").write_text('{"rows": []}', encoding="utf-8")
+    account_snapshot = {
+        "equity": 100000.0,
+        "open_positions": [
+            {
+                "symbol": "BTCUSDT",
+                "side": "LONG",
+                "qty": 0.5,
+                "entry_price": 60000.0,
+                "mark_price": 61000.0,
+                "collateralValue": 1000.0,
+                "collateral_value": 999.99,
+            }
+        ],
+    }
+    (bundle / "account_snapshot.json").write_text(json.dumps(account_snapshot), encoding="utf-8")
+
+    with pytest.raises(
+        ValueError,
+        match=r"account\.open_positions\[0\]\.collateral_value must equal collateralValue",
+    ):
+        load_historical_dataset(dataset_root)
+
+
 @pytest.mark.parametrize(
     ("field", "value", "expected_message"),
     [
