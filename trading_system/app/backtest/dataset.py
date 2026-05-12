@@ -94,6 +94,7 @@ _ACCOUNT_BALANCE_SIGNED_EQUAL_ALIAS_GROUPS = (
     ("realizedPnl", "realizedProfit"),
 )
 _ACCOUNT_TOTAL_EQUAL_ALIAS_GROUPS = (
+    ("futuresWalletBalance", "futures_wallet_balance"),
     ("totalWalletBalance", "total_wallet_balance"),
     ("totalInitialMargin", "total_initial_margin"),
     ("totalMaintMargin", "total_maint_margin"),
