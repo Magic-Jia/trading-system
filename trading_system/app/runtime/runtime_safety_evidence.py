@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Mapping
 
 SCHEMA_VERSION = "runtime_safety_gate_input.v1"
+_CANONICAL_UTC_TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z$")
 _REQUIRED_EVENTS = {
     "kill_switch_dry_run": ("kill_switch_dry_run_met", "kill_switch_dry_run_missing"),
     "order_position_reconciliation": (
@@ -18,6 +21,16 @@ _REQUIRED_EVENTS = {
     "runtime_explainability": ("runtime_explainability_met", "runtime_explainability_missing"),
     "drift_guard": ("drift_guard_met", "drift_guard_missing"),
 }
+
+
+def _is_canonical_utc_timestamp(value: str) -> bool:
+    if not _CANONICAL_UTC_TIMESTAMP_RE.fullmatch(value):
+        return False
+    try:
+        parsed = datetime.fromisoformat(value[:-1] + "+00:00")
+    except ValueError:
+        return False
+    return parsed.tzinfo is not None and parsed.astimezone(UTC).isoformat().replace("+00:00", "Z") == value
 
 
 def build_runtime_safety_gate(manifest: Mapping[str, Any]) -> dict[str, Any]:
@@ -56,6 +69,12 @@ def build_runtime_safety_gate(manifest: Mapping[str, Any]) -> dict[str, Any]:
             raise ValueError(f"evidence_source {optional_field} must be non-empty")
         if isinstance(optional_value, str) and optional_value != optional_value.strip():
             raise ValueError(f"evidence_source {optional_field} must be canonical")
+        if (
+            optional_field == "exported_at"
+            and isinstance(optional_value, str)
+            and not _is_canonical_utc_timestamp(optional_value)
+        ):
+            raise ValueError("evidence_source exported_at must be a canonical UTC timestamp")
     events = manifest.get("events", [])
     if not isinstance(events, list):
         raise ValueError("events must be a list")
@@ -106,8 +125,9 @@ def build_runtime_safety_gate(manifest: Mapping[str, Any]) -> dict[str, Any]:
 
 def write_runtime_safety_gate(manifest: Mapping[str, Any], output_dir: str | Path) -> Path:
     output_path = Path(output_dir) / "runtime_safety_gate.json"
+    gate = build_runtime_safety_gate(manifest)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(json.dumps(build_runtime_safety_gate(manifest), indent=2, sort_keys=True) + "\n")
+    output_path.write_text(json.dumps(gate, indent=2, sort_keys=True) + "\n")
     return output_path
 
 

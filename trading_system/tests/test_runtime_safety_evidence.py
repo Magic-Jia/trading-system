@@ -230,6 +230,28 @@ def test_runtime_safety_gate_copies_valid_evidence_source_payload() -> None:
     assert gate["evidence_source"] is not source
 
 
+def test_runtime_safety_gate_writer_rejects_noncanonical_evidence_source_exported_at_without_artifact_write(
+    tmp_path: Path,
+) -> None:
+    manifest = _passing_manifest()
+    manifest["evidence_source"] = {
+        "type": "paper_runtime_logs",
+        "run_id": "runtime-1",
+        "exported_at": "2026-05-08T12:00:00+00:00",
+    }
+    output_dir = tmp_path / "runtime"
+
+    try:
+        write_runtime_safety_gate(manifest, output_dir)
+    except ValueError as exc:
+        assert str(exc) == "evidence_source exported_at must be a canonical UTC timestamp"
+    else:  # pragma: no cover - RED path until timestamp metadata is hardened
+        raise AssertionError("expected noncanonical evidence_source exported_at to be rejected")
+
+    assert not (output_dir / "runtime_safety_gate.json").exists()
+    assert not output_dir.exists()
+
+
 def test_runtime_safety_gate_rejects_unknown_manifest_fields() -> None:
     manifest = _passing_manifest()
     manifest["unexpected"] = "not-allowed"
