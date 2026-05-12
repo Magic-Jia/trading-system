@@ -10,6 +10,8 @@ from typing import Any, Mapping
 
 SCHEMA_VERSION = "validation_gate_input.v1"
 _CANONICAL_UTC_TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z$")
+_SAFE_EVIDENCE_IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
+_OPTIONAL_REGIME_IDENTIFIER_FIELDS = frozenset({"regime_id", "regime_name", "label", "name"})
 
 
 def _is_exact_string(value: Any) -> bool:
@@ -24,6 +26,24 @@ def _is_canonical_utc_timestamp(value: str) -> bool:
     except ValueError:
         return False
     return parsed.tzinfo is not None and parsed.astimezone(UTC).isoformat().replace("+00:00", "Z") == value
+
+
+def _is_safe_evidence_identifier(value: str) -> bool:
+    return _SAFE_EVIDENCE_IDENTIFIER_RE.fullmatch(value) is not None
+
+
+def _optional_safe_identifier(value: Any, name: str) -> str | None:
+    if value is None:
+        return None
+    if not _is_exact_string(value):
+        raise ValueError(f"{name} must be a string")
+    if not value.strip():
+        raise ValueError(f"{name} must be non-empty")
+    if value != value.strip():
+        raise ValueError(f"{name} must be canonical")
+    if not _is_safe_evidence_identifier(value):
+        raise ValueError(f"{name} must be a safe identifier")
+    return value
 
 
 def _float_or_none(value: Any, name: str) -> float | None:
@@ -124,9 +144,11 @@ def build_validation_gate(manifest: Mapping[str, Any]) -> dict[str, Any]:
     for index, regime in enumerate(regimes_raw):
         regime_name = f"regimes[{index}]"
         regime_mapping = _mapping(regime, regime_name)
-        unknown_regime_fields = sorted(set(regime_mapping) - {"trade_count", "net_pnl"})
+        unknown_regime_fields = sorted(set(regime_mapping) - {"trade_count", "net_pnl"} - _OPTIONAL_REGIME_IDENTIFIER_FIELDS)
         if unknown_regime_fields:
             raise ValueError("unknown validation regime field: " + ", ".join(unknown_regime_fields))
+        for identifier_field in _OPTIONAL_REGIME_IDENTIFIER_FIELDS:
+            _optional_safe_identifier(regime_mapping.get(identifier_field), f"{regime_name}.{identifier_field}")
         trade_count = _integer_count(regime_mapping.get("trade_count", 0), "regime trade_count")
         net_pnl = _float_or_none(regime_mapping.get("net_pnl"), f"{regime_name}.net_pnl")
         if trade_count > 0:
@@ -151,12 +173,7 @@ def build_validation_gate(manifest: Mapping[str, Any]) -> dict[str, Any]:
         raise ValueError("forward_contamination absent must be a boolean")
     audit_id = forward.get("audit_id")
     if audit_id is not None:
-        if not isinstance(audit_id, str):
-            raise ValueError("forward_contamination audit_id must be a string")
-        if not audit_id.strip():
-            raise ValueError("forward_contamination audit_id must be non-empty")
-        if audit_id != audit_id.strip():
-            raise ValueError("forward_contamination audit_id must be canonical")
+        _optional_safe_identifier(audit_id, "forward_contamination audit_id")
     forward_contamination_absent_met = forward_absent
 
     checks = {

@@ -313,14 +313,44 @@ def test_validation_gate_rejects_unknown_manifest_fields() -> None:
 
 def test_validation_gate_rejects_unknown_regime_fields() -> None:
     manifest = _passing_manifest()
-    manifest["regimes"] = [{"trade_count": 1, "net_pnl": 10.0, "label": "legacy-alias"}]
+    manifest["regimes"] = [{"trade_count": 1, "net_pnl": 10.0, "legacy_alias": "RISK_ON"}]
 
     try:
         build_validation_gate(manifest)
     except ValueError as exc:
-        assert str(exc) == "unknown validation regime field: label"
+        assert str(exc) == "unknown validation regime field: legacy_alias"
     else:  # pragma: no cover - RED path until nested producer schema is hardened
         raise AssertionError("expected unknown validation regime field to be rejected")
+
+
+@pytest.mark.parametrize("field_name", ["regime_id", "regime_name", "label", "name"])
+def test_validation_gate_allows_safe_optional_regime_identifiers(field_name: str) -> None:
+    manifest = _passing_manifest()
+    manifest["regimes"][0][field_name] = "RISK_ON-TREND:1"
+
+    gate = build_validation_gate(manifest)
+
+    assert gate["summary"]["eligible_regime_count"] == 2
+
+
+@pytest.mark.parametrize("field_name", ["regime_id", "regime_name", "label", "name"])
+@pytest.mark.parametrize(
+    ("bad_identifier", "expected_error"),
+    [
+        (123, "must be a string"),
+        ("", "must be non-empty"),
+        (" RISK_ON", "must be canonical"),
+        ("RISK ON", "must be a safe identifier"),
+    ],
+)
+def test_validation_gate_rejects_unsafe_optional_regime_identifiers(
+    field_name: str, bad_identifier: object, expected_error: str
+) -> None:
+    manifest = _passing_manifest()
+    manifest["regimes"][0][field_name] = bad_identifier
+
+    with pytest.raises(ValueError, match=rf"^regimes\[0\]\.{field_name} {expected_error}$"):
+        build_validation_gate(manifest)
 
 
 def test_validation_gate_rejects_unknown_oos_fields() -> None:
@@ -386,3 +416,21 @@ def test_validation_gate_rejects_non_string_forward_contamination_audit_id() -> 
         assert "forward_contamination audit_id must be a string" in str(exc)
     else:
         raise AssertionError("expected non-string forward contamination audit_id to be rejected")
+
+
+@pytest.mark.parametrize(
+    ("audit_id", "expected_error"),
+    [
+        ("", "forward_contamination audit_id must be non-empty"),
+        (" audit-1", "forward_contamination audit_id must be canonical"),
+        ("audit 1", "forward_contamination audit_id must be a safe identifier"),
+    ],
+)
+def test_validation_gate_rejects_unsafe_forward_contamination_audit_id(
+    audit_id: str, expected_error: str
+) -> None:
+    manifest = _passing_manifest()
+    manifest["forward_contamination"]["audit_id"] = audit_id
+
+    with pytest.raises(ValueError, match=f"^{expected_error}$"):
+        build_validation_gate(manifest)
