@@ -3902,6 +3902,16 @@ def _optional_strict_report_float(mapping: Mapping[str, Any], key: str, *, field
     return float(value)
 
 
+def _optional_strict_report_ratio(mapping: Mapping[str, Any], key: str, *, field_path: str | None = None) -> float | None:
+    field = field_path or key
+    value = _optional_strict_report_float(mapping, key, field_path=field)
+    if value is None:
+        return None
+    if value < 0.0 or value > 1.0:
+        raise ValueError(f"{field} must be a bounded non-negative ratio")
+    return value
+
+
 def _format_strict_bool(mapping: Mapping[str, Any], key: str) -> str:
     return str(_strict_report_bool(mapping, key)).lower()
 
@@ -4141,22 +4151,22 @@ def render_live_readiness_markdown(report: Mapping[str, Any]) -> str:
     concentration = _as_mapping(report.get("concentration"))
     if concentration:
         lines.extend(["", "## Concentration Gate"])
-        max_setup_share = _optional_strict_report_float(
+        max_setup_share = _optional_strict_report_ratio(
             concentration, "max_setup_trade_share", field_path="concentration.max_setup_trade_share"
         )
-        max_symbol_share = _optional_strict_report_float(
+        max_symbol_share = _optional_strict_report_ratio(
             concentration, "max_symbol_trade_share", field_path="concentration.max_symbol_trade_share"
         )
-        max_setup_net_abs_share = _optional_strict_report_float(
+        max_setup_net_abs_share = _optional_strict_report_ratio(
             concentration, "max_setup_net_abs_share", field_path="concentration.max_setup_net_abs_share"
         )
-        max_symbol_net_abs_share = _optional_strict_report_float(
+        max_symbol_net_abs_share = _optional_strict_report_ratio(
             concentration, "max_symbol_net_abs_share", field_path="concentration.max_symbol_net_abs_share"
         )
-        max_setup_loss_abs_share = _optional_strict_report_float(
+        max_setup_loss_abs_share = _optional_strict_report_ratio(
             concentration, "max_setup_loss_abs_share", field_path="concentration.max_setup_loss_abs_share"
         )
-        max_symbol_loss_abs_share = _optional_strict_report_float(
+        max_symbol_loss_abs_share = _optional_strict_report_ratio(
             concentration, "max_symbol_loss_abs_share", field_path="concentration.max_symbol_loss_abs_share"
         )
         lines.append(

@@ -455,6 +455,31 @@ def test_markdown_renderer_rejects_non_finite_concentration_limits_with_path() -
         render_live_readiness_markdown(report)
 
 
+@pytest.mark.parametrize("bad_ratio", [-0.01, 1.01])
+def test_markdown_renderer_rejects_out_of_range_concentration_limits(bad_ratio: float) -> None:
+    report = {
+        "promotion_gate": {"decision": "hold", "reasons": [], "checks": {}},
+        "totals": {
+            "trade_count": 1,
+            "net_pnl": 1.0,
+            "evidence_coverage": 1.0,
+            "exit_evidence_coverage": 1.0,
+            "exit_path_ambiguity_rate": 0.0,
+        },
+        "concentration": {
+            "max_setup_trade_share": bad_ratio,
+            "top_setup_by_trades": {"key": "BREAKOUT", "trades": 1, "trade_share": 0.25},
+        },
+        "caveats": [],
+    }
+
+    with pytest.raises(
+        ValueError,
+        match="concentration.max_setup_trade_share must be a bounded non-negative ratio",
+    ):
+        render_live_readiness_markdown(report)
+
+
 def test_markdown_renderer_rejects_noncanonical_artifact_parse_errors() -> None:
     report = {
         "promotion_gate": {"decision": "hold", "reasons": [], "checks": {}},
