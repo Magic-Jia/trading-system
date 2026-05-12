@@ -91,7 +91,7 @@ def test_verify_dry_run_maps_main_changes_to_runtime_regression() -> None:
     assert "trading_system/tests/test_main_v2_cycle.py" in result.stdout
     assert "trading_system/tests/test_backtest_live_readiness.py" in result.stdout
     assert "trading_system/tests/test_backtest_promotion.py" in result.stdout
-    assert "git diff --check HEAD" in result.stdout
+    assert "git --no-pager diff --check HEAD" in result.stdout
 
 
 def test_verify_dry_run_maps_universe_changes_to_universe_regression() -> None:
@@ -132,7 +132,7 @@ def test_verify_auto_detects_git_changed_paths() -> None:
 
     assert result.returncode == 0, result.stderr
     assert "python3 -m pytest -q" in result.stdout
-    assert "git diff --check HEAD" in result.stdout
+    assert "git --no-pager diff --check HEAD" in result.stdout
 
 
 def test_verify_maps_docs_and_templates_to_workflow_doc_tests() -> None:
@@ -250,8 +250,8 @@ def test_verify_json_dry_run_emits_machine_readable_plan() -> None:
     assert payload["changed"] == ["trading_system/app/main.py"]
     assert payload["strict_changed_verification"] is False
     assert "trading_system/tests/test_main_v2_cycle.py" in payload["tests"]
-    assert payload["commands"][-1] == "git diff --check HEAD"
-    assert payload["command_argv"][-1] == ["git", "diff", "--check", "HEAD"]
+    assert payload["commands"][-1] == "git --no-pager diff --check HEAD"
+    assert payload["command_argv"][-1] == ["git", "--no-pager", "diff", "--check", "HEAD"]
     assert ["python3", "-m", "pytest", "-q", "trading_system/tests/test_main_v2_cycle.py"] == payload["command_argv"][0][:5]
     assert payload["commands"][0].split() == payload["command_argv"][0]
 
@@ -319,7 +319,7 @@ def test_verify_strict_auto_changed_accepts_agent_rule_changes() -> None:
 
     assert result.returncode == 0, result.stderr
     assert "trading_system/tests/test_development_workflow_docs.py" in result.stdout
-    assert "git diff --check HEAD" in result.stdout
+    assert "git --no-pager diff --check HEAD" in result.stdout
 
 
 def test_verify_strict_auto_changed_rejects_unmapped_paths() -> None:

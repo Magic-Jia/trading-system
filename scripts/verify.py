@@ -11,7 +11,7 @@ from pathlib import Path
 
 
 TEST = "python3 -m pytest -q"
-DIFF_CHECK = "git diff --check HEAD"
+DIFF_CHECK = "git --no-pager diff --check HEAD"
 
 SUITES: dict[str, list[str]] = {
     "evidence-chain": [
@@ -230,7 +230,7 @@ def build_command_argv(*, suites: list[str], changed: list[str], explicit_tests:
         commands.append(["python3", "-m", "pytest", "-q", *tests])
     else:
         commands.append(["python3", "-m", "pytest", "-q", "trading_system/tests/test_development_workflow.py"])
-    commands.append(["git", "diff", "--check", "HEAD"])
+    commands.append(DIFF_CHECK.split())
     return commands
 
 

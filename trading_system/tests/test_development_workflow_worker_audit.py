@@ -91,8 +91,8 @@ def assert_worker_audit_contract(payload: dict[str, object]) -> None:
     assert payload["verification_plan"]["plan_kind"] == "verification_plan"
     assert len(payload["verification_plan"]["plan_fingerprint"]) == 64
     assert payload["verification_plan"]["strict_changed_verification"] is True
-    assert payload["verification_plan"]["commands"][-1] == "git diff --check HEAD"
-    assert payload["verification_plan"]["command_argv"][-1] == ["git", "diff", "--check", "HEAD"]
+    assert payload["verification_plan"]["commands"][-1] == "git --no-pager diff --check HEAD"
+    assert payload["verification_plan"]["command_argv"][-1] == ["git", "--no-pager", "diff", "--check", "HEAD"]
 
 
 def test_audit_worker_commit_outputs_json_for_head_in_clean_worktree(tmp_path: Path) -> None:
