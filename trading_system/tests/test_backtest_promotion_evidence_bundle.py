@@ -574,6 +574,33 @@ def test_bundle_verifier_rejects_artifact_modified_at_string_subclass(
     assert "artifact_modified_at_invalid_domain" in result["manifest_errors"]
 
 
+def test_bundle_verifier_rejects_artifact_modified_at_mismatch(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    for name in REQUIRED_ARTIFACTS:
+        _write_json(source / name, {"artifact": name, "synthetic": True})
+    bundle_dir = collect_promotion_evidence_bundle(
+        source,
+        tmp_path / "bundle",
+        candidate_id="candidate-1",
+        evidence_source={"type": "promotion_bundle_export", "run_id": "bundle-1"},
+    )
+    manifest_path = bundle_dir / "promotion_evidence_manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    artifact_path = REQUIRED_ARTIFACTS[0]
+    manifest["artifacts"][0]["modified_at"] = "2026-03-10T00:00:00Z"
+    manifest_path.write_text(json.dumps(manifest, sort_keys=True) + "\n")
+
+    result = verify_promotion_evidence_bundle(bundle_dir)
+
+    assert result["verified"] is False
+    assert result["invalid_artifact_metadata"] == [f"{artifact_path}:modified_at"]
+    assert "artifact_metadata_invalid" in result["manifest_errors"]
+    assert "artifact_modified_at_invalid_domain" in result["manifest_errors"]
+
+
 def test_bundle_verifier_rejects_required_artifact_invalid_byte_metadata(tmp_path: Path) -> None:
     source = tmp_path / "source"
     source.mkdir()

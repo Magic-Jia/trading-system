@@ -480,6 +480,7 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
             invalid_metadata.append(f"{rel_path}:source_path")
             source_path_noncanonical_metadata.append(f"{rel_path}:source_path")
         modified_at_raw = artifact.get("modified_at")
+        actual_modified_at = _canonical_utc_timestamp_from_epoch(path.stat().st_mtime)
         if modified_at_raw is None:
             missing_metadata.append(f"{rel_path}:modified_at")
         elif not _is_exact_string(modified_at_raw):
@@ -489,6 +490,8 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
         elif modified_at_raw != modified_at_raw.strip():
             invalid_metadata.append(f"{rel_path}:modified_at")
         elif not _is_canonical_utc_timestamp(modified_at_raw):
+            invalid_metadata.append(f"{rel_path}:modified_at")
+        elif modified_at_raw != actual_modified_at:
             invalid_metadata.append(f"{rel_path}:modified_at")
         actual_sha = _sha256(path)
         expected_sha = artifact.get("sha256")
