@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from trading_system.app.runtime.runtime_safety_evidence import (
+    RuntimeSafetyReason,
     build_runtime_safety_gate,
     write_runtime_safety_gate,
 )
@@ -308,3 +309,148 @@ def test_runtime_safety_gate_rejects_padded_event_type() -> None:
         assert "runtime safety event type must be canonical" in str(exc)
     else:
         raise AssertionError("expected padded runtime safety event type to be rejected")
+
+
+def test_runtime_safety_gate_rejects_unknown_reason_code() -> None:
+    manifest = _passing_manifest()
+    manifest["reasons"] = [
+        {
+            "code": "unknown_preview_reason",
+            "severity": "block",
+            "category": "execution_preview",
+            "source": "execution_preview",
+        }
+    ]
+
+    try:
+        build_runtime_safety_gate(manifest)
+    except ValueError as exc:
+        assert str(exc) == "unknown runtime safety reason code: unknown_preview_reason"
+    else:
+        raise AssertionError("expected unknown runtime safety reason code to be rejected")
+
+
+def test_runtime_safety_gate_rejects_duplicate_reason_conflict() -> None:
+    manifest = _passing_manifest()
+    manifest["reasons"] = [
+        {
+            "code": "symbol_not_allowed",
+            "severity": "block",
+            "category": "execution_preview",
+            "source": "execution_preview",
+        },
+        {
+            "code": "symbol_not_allowed",
+            "severity": "warn",
+            "category": "execution_preview",
+            "source": "execution_preview",
+        },
+    ]
+
+    try:
+        build_runtime_safety_gate(manifest)
+    except ValueError as exc:
+        assert str(exc) == "runtime safety reason duplicate conflicts for code: symbol_not_allowed"
+    else:
+        raise AssertionError("expected duplicate runtime safety reason conflict to be rejected")
+
+
+def test_runtime_safety_gate_rejects_bool_reason_code() -> None:
+    manifest = _passing_manifest()
+    manifest["reasons"] = [
+        {
+            "code": True,
+            "severity": "block",
+            "category": "execution_preview",
+            "source": "execution_preview",
+        }
+    ]
+
+    try:
+        build_runtime_safety_gate(manifest)
+    except ValueError as exc:
+        assert str(exc) == "runtime safety reason code must be a string"
+    else:
+        raise AssertionError("expected bool runtime safety reason code to be rejected")
+
+
+def test_runtime_safety_gate_rejects_missing_reason_source() -> None:
+    manifest = _passing_manifest()
+    manifest["reasons"] = [
+        {
+            "code": "symbol_not_allowed",
+            "severity": "block",
+            "category": "execution_preview",
+        }
+    ]
+
+    try:
+        build_runtime_safety_gate(manifest)
+    except ValueError as exc:
+        assert str(exc) == "runtime safety reason source must be present"
+    else:
+        raise AssertionError("expected missing runtime safety reason source to be rejected")
+
+
+def test_runtime_safety_gate_accepts_execution_preview_reason_codes() -> None:
+    manifest = _passing_manifest()
+    manifest["reasons"] = [
+        {
+            "code": "symbol_not_allowed",
+            "severity": "block",
+            "category": "execution_preview",
+            "source": "execution_preview",
+        },
+        {
+            "code": "missing_exchange_metadata",
+            "severity": "block",
+            "category": "execution_preview",
+            "source": "execution_preview",
+        },
+    ]
+
+    gate = build_runtime_safety_gate(manifest)
+
+    assert gate["summary"]["reasons_by_code"] == {
+        "symbol_not_allowed": 1,
+        "missing_exchange_metadata": 1,
+    }
+    assert gate["summary"]["reason_count"] == 2
+    assert gate["runtime_reasons"] == [
+        {
+            "code": "symbol_not_allowed",
+            "severity": "block",
+            "category": "execution_preview",
+            "source": "execution_preview",
+        },
+        {
+            "code": "missing_exchange_metadata",
+            "severity": "block",
+            "category": "execution_preview",
+            "source": "execution_preview",
+        },
+    ]
+
+
+def test_runtime_safety_reason_taxonomy_rejects_conflicting_duplicate_code() -> None:
+    try:
+        RuntimeSafetyReason.canonicalize_many(
+            [
+                {
+                    "code": "symbol_not_allowed",
+                    "severity": "block",
+                    "category": "execution_preview",
+                    "source": "execution_preview",
+                },
+                {
+                    "code": "symbol_not_allowed",
+                    "severity": "warn",
+                    "category": "execution_preview",
+                    "source": "execution_preview",
+                },
+            ]
+        )
+    except ValueError as exc:
+        assert str(exc) == "runtime safety reason duplicate conflicts for code: symbol_not_allowed"
+    else:
+        raise AssertionError("expected conflicting duplicate reason code to be rejected")

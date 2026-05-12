@@ -2091,6 +2091,38 @@ def _strict_optional_bool(mapping: Mapping[str, Any], key: str, default: bool) -
         return default, False
     return value, True
 
+
+def _runtime_reasons_schema_error(value: Any) -> str:
+    if value is None:
+        return ""
+    if not isinstance(value, list):
+        return "runtime_reasons_not_list"
+    seen: dict[str, tuple[str, str]] = {}
+    for reason in value:
+        if not isinstance(reason, Mapping):
+            return "runtime_reason_not_object"
+        unknown_fields = sorted(set(reason) - {"code", "severity", "category", "source"})
+        if unknown_fields:
+            return "unknown_runtime_reason_field: " + ", ".join(unknown_fields)
+        for field in ("code", "severity", "category", "source"):
+            item = reason.get(field)
+            if not _is_exact_string(item):
+                return f"runtime_reason_{field}_not_string"
+            if not item.strip():
+                return f"runtime_reason_{field}_blank"
+            if item != item.strip():
+                return f"runtime_reason_{field}_noncanonical"
+            if not _is_safe_evidence_identifier(item):
+                return f"runtime_reason_{field}_invalid"
+        code = reason["code"]
+        current = (reason["severity"], reason["category"])
+        previous = seen.get(code)
+        if previous is not None and previous != current:
+            return "runtime_reason_duplicate_conflict"
+        seen[code] = current
+    return ""
+
+
 def _runtime_safety_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[str, Any]:
     required_checks = (
         "kill_switch_dry_run_met",
@@ -2119,7 +2151,7 @@ def _runtime_safety_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
         evidence_source_object_valid = isinstance(evidence_source_payload, Mapping)
         evidence_source_schema_error = _artifact_provenance_schema_error(payload)
         top_level_schema_error = _artifact_top_level_schema_error(
-            payload, {"schema_version", "evidence_source", "checks", "summary", "reasons"}
+            payload, {"schema_version", "evidence_source", "checks", "summary", "reasons", "runtime_reasons"}
         )
         checks = _as_mapping(checks_payload)
         summary = _as_mapping(summary_payload)
@@ -2144,6 +2176,28 @@ def _runtime_safety_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
                     if isinstance(count, bool) or not isinstance(count, int) or count < 0:
                         summary_schema_error = "summary_counts_by_type_count_invalid"
                         break
+        reason_count = summary.get("reason_count")
+        if not summary_schema_error and reason_count is not None:
+            if isinstance(reason_count, bool) or not isinstance(reason_count, int):
+                summary_schema_error = "summary_reason_count_not_int"
+            elif reason_count < 0:
+                summary_schema_error = "summary_reason_count_out_of_range"
+        reasons_by_code = summary.get("reasons_by_code")
+        if not summary_schema_error and reasons_by_code is not None:
+            if not isinstance(reasons_by_code, Mapping):
+                summary_schema_error = "summary_reasons_by_code_not_object"
+            else:
+                for reason_code, count in reasons_by_code.items():
+                    if not isinstance(reason_code, str) or not reason_code.strip() or reason_code != reason_code.strip():
+                        summary_schema_error = "summary_reasons_by_code_key_invalid"
+                        break
+                    if not _is_safe_evidence_identifier(reason_code):
+                        summary_schema_error = "summary_reasons_by_code_key_invalid"
+                        break
+                    if isinstance(count, bool) or not isinstance(count, int) or count < 0:
+                        summary_schema_error = "summary_reasons_by_code_count_invalid"
+                        break
+        runtime_reasons_schema_error = _runtime_reasons_schema_error(payload.get("runtime_reasons"))
         unknown_check_fields = sorted(set(checks) - set(required_checks))
         check_schema_error = ""
         for check_name in required_checks:
@@ -2160,6 +2214,7 @@ def _runtime_safety_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
             and not top_level_schema_error
             and summary_object_valid
             and not summary_schema_error
+            and not runtime_reasons_schema_error
             and not unknown_check_fields
             and not check_schema_error
         )
@@ -2181,6 +2236,8 @@ def _runtime_safety_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
                 parse_error_message = "summary_not_object"
             elif summary_schema_error:
                 parse_error_message = summary_schema_error
+            elif runtime_reasons_schema_error:
+                parse_error_message = runtime_reasons_schema_error
             elif unknown_check_fields:
                 parse_error_message = "unknown_check_field: " + ", ".join(unknown_check_fields)
             elif check_schema_error:

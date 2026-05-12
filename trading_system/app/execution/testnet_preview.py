@@ -3,6 +3,7 @@ from __future__ import annotations
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
+from ..runtime.runtime_safety_evidence import EXECUTION_PREVIEW_UNSUPPORTED_REASON_PREFIXES
 from ..types import OrderIntent
 from .orders import EntryOrderPolicy, build_entry_order_payload, build_stop_order_payload, build_take_profit_payload
 
@@ -12,26 +13,6 @@ REQUIRED_ORDER_TYPES = {
     "stop": "STOP_MARKET",
     "take_profit": "TAKE_PROFIT_MARKET",
 }
-
-_UNSUPPORTED_REASON_CODES = (
-    ("symbol not allowed for testnet preview", "symbol_not_allowed"),
-    ("missing exchange metadata", "missing_exchange_metadata"),
-    ("order type incompatible with exchange metadata", "order_type_incompatible"),
-    ("entry notional below exchange minimum", "entry_notional_below_minimum"),
-    ("entry notional exceeds testnet cap", "entry_notional_exceeds_cap"),
-    ("quantity step size or precision incompatible", "quantity_precision_incompatible"),
-    ("price tick size or precision incompatible", "price_precision_incompatible"),
-    ("fixed futures payload mapping incompatible: entry.type", "entry_order_type_incompatible"),
-    ("fixed futures payload mapping incompatible: entry.timeInForce", "entry_time_in_force_incompatible"),
-    ("fixed futures payload mapping incompatible: entry.price", "entry_price_missing"),
-    ("fixed futures payload mapping incompatible: stop.type", "stop_order_type_incompatible"),
-    ("fixed futures payload mapping incompatible: stop.closePosition", "stop_close_position_incompatible"),
-    ("fixed futures payload mapping incompatible: stop.workingType", "stop_working_type_incompatible"),
-    ("fixed futures payload mapping incompatible: take_profit.type", "take_profit_order_type_incompatible"),
-    ("fixed futures payload mapping incompatible: take_profit.closePosition", "take_profit_close_position_incompatible"),
-    ("fixed futures payload mapping incompatible: take_profit.workingType", "take_profit_working_type_incompatible"),
-)
-
 
 def _decimal(value: Any) -> Decimal:
     try:
@@ -110,7 +91,7 @@ def _validate_payload_mapping(
 
 
 def _unsupported_reason_code(reason: str) -> str:
-    for prefix, code in _UNSUPPORTED_REASON_CODES:
+    for prefix, code in EXECUTION_PREVIEW_UNSUPPORTED_REASON_PREFIXES:
         if reason.startswith(prefix):
             return code
     return "unsupported_preview_payload"

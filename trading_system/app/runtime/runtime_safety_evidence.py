@@ -3,11 +3,14 @@ from __future__ import annotations
 import argparse
 import json
 import re
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Mapping
 
 SCHEMA_VERSION = "runtime_safety_gate_input.v1"
+_RUNTIME_SAFETY_REASON_SEVERITIES = {"block", "warn", "info"}
+_RUNTIME_SAFETY_REASON_CATEGORIES = {"runtime_safety", "execution_preview"}
 _CANONICAL_UTC_TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z$")
 _REQUIRED_EVENTS = {
     "kill_switch_dry_run": ("kill_switch_dry_run_met", "kill_switch_dry_run_missing"),
@@ -21,6 +24,95 @@ _REQUIRED_EVENTS = {
     "runtime_explainability": ("runtime_explainability_met", "runtime_explainability_missing"),
     "drift_guard": ("drift_guard_met", "drift_guard_missing"),
 }
+EXECUTION_PREVIEW_UNSUPPORTED_REASON_PREFIXES = (
+    ("symbol not allowed for testnet preview", "symbol_not_allowed"),
+    ("missing exchange metadata", "missing_exchange_metadata"),
+    ("order type incompatible with exchange metadata", "order_type_incompatible"),
+    ("entry notional below exchange minimum", "entry_notional_below_minimum"),
+    ("entry notional exceeds testnet cap", "entry_notional_exceeds_cap"),
+    ("quantity step size or precision incompatible", "quantity_precision_incompatible"),
+    ("price tick size or precision incompatible", "price_precision_incompatible"),
+    ("fixed futures payload mapping incompatible: entry.type", "entry_order_type_incompatible"),
+    ("fixed futures payload mapping incompatible: entry.timeInForce", "entry_time_in_force_incompatible"),
+    ("fixed futures payload mapping incompatible: entry.price", "entry_price_missing"),
+    ("fixed futures payload mapping incompatible: stop.type", "stop_order_type_incompatible"),
+    ("fixed futures payload mapping incompatible: stop.closePosition", "stop_close_position_incompatible"),
+    ("fixed futures payload mapping incompatible: stop.workingType", "stop_working_type_incompatible"),
+    ("fixed futures payload mapping incompatible: take_profit.type", "take_profit_order_type_incompatible"),
+    ("fixed futures payload mapping incompatible: take_profit.closePosition", "take_profit_close_position_incompatible"),
+    ("fixed futures payload mapping incompatible: take_profit.workingType", "take_profit_working_type_incompatible"),
+)
+
+
+@dataclass(frozen=True)
+class RuntimeSafetyReason:
+    code: str
+    severity: str
+    category: str
+    source: str
+
+    def to_dict(self) -> dict[str, str]:
+        return {
+            "code": self.code,
+            "severity": self.severity,
+            "category": self.category,
+            "source": self.source,
+        }
+
+    @classmethod
+    def canonicalize_many(cls, raw_reasons: Any) -> list[RuntimeSafetyReason]:
+        if raw_reasons is None:
+            return []
+        if not isinstance(raw_reasons, list):
+            raise ValueError("runtime safety reasons must be a list")
+        reasons: list[RuntimeSafetyReason] = []
+        seen: dict[str, tuple[str, str]] = {}
+        for raw_reason in raw_reasons:
+            code, severity, category, _source = _canonical_reason_fields(raw_reason)
+            previous = seen.get(code)
+            current = (severity, category)
+            if previous is not None and previous != current:
+                raise ValueError(f"runtime safety reason duplicate conflicts for code: {code}")
+            seen[code] = current
+            reason = cls.from_mapping(raw_reason)
+            reasons.append(reason)
+        return reasons
+
+    @classmethod
+    def from_mapping(cls, raw_reason: Any) -> RuntimeSafetyReason:
+        code, severity, category, source = _canonical_reason_fields(raw_reason)
+        if code not in RUNTIME_SAFETY_REASON_TAXONOMY:
+            raise ValueError(f"unknown runtime safety reason code: {code}")
+        expected = RUNTIME_SAFETY_REASON_TAXONOMY[code]
+        if severity not in _RUNTIME_SAFETY_REASON_SEVERITIES:
+            raise ValueError(f"unknown runtime safety reason severity: {severity}")
+        if category not in _RUNTIME_SAFETY_REASON_CATEGORIES:
+            raise ValueError(f"unknown runtime safety reason category: {category}")
+        if severity != expected["severity"] or category != expected["category"]:
+            raise ValueError(f"runtime safety reason taxonomy mismatch for code: {code}")
+        return cls(code=code, severity=severity, category=category, source=source)
+
+
+def _required_event_reason_taxonomy() -> dict[str, dict[str, str]]:
+    return {
+        reason_code: {"severity": "block", "category": "runtime_safety"}
+        for _, reason_code in _REQUIRED_EVENTS.values()
+    }
+
+
+def _execution_preview_reason_taxonomy() -> dict[str, dict[str, str]]:
+    return {
+        reason_code: {"severity": "block", "category": "execution_preview"}
+        for _, reason_code in EXECUTION_PREVIEW_UNSUPPORTED_REASON_PREFIXES
+    } | {
+        "unsupported_preview_payload": {
+            "severity": "block",
+            "category": "execution_preview",
+        }
+    }
+
+
+RUNTIME_SAFETY_REASON_TAXONOMY = _required_event_reason_taxonomy() | _execution_preview_reason_taxonomy()
 
 
 def _is_canonical_utc_timestamp(value: str) -> bool:
@@ -33,8 +125,36 @@ def _is_canonical_utc_timestamp(value: str) -> bool:
     return parsed.tzinfo is not None and parsed.astimezone(UTC).isoformat().replace("+00:00", "Z") == value
 
 
+def _require_reason_string(raw_reason: Mapping[str, Any], field: str) -> str:
+    if field not in raw_reason:
+        raise ValueError(f"runtime safety reason {field} must be present")
+    value = raw_reason[field]
+    if not isinstance(value, str) or isinstance(value, bool):
+        raise ValueError(f"runtime safety reason {field} must be a string")
+    normalized = value.strip()
+    if not normalized:
+        raise ValueError(f"runtime safety reason {field} must be non-empty")
+    if value != normalized:
+        raise ValueError(f"runtime safety reason {field} must be canonical")
+    return normalized
+
+
+def _canonical_reason_fields(raw_reason: Any) -> tuple[str, str, str, str]:
+    if not isinstance(raw_reason, Mapping):
+        raise ValueError("runtime safety reason must be a mapping")
+    unknown_reason_fields = sorted(set(raw_reason) - {"code", "severity", "category", "source"})
+    if unknown_reason_fields:
+        raise ValueError("unknown runtime safety reason field: " + ", ".join(unknown_reason_fields))
+    return (
+        _require_reason_string(raw_reason, "code"),
+        _require_reason_string(raw_reason, "severity"),
+        _require_reason_string(raw_reason, "category"),
+        _require_reason_string(raw_reason, "source"),
+    )
+
+
 def build_runtime_safety_gate(manifest: Mapping[str, Any]) -> dict[str, Any]:
-    unknown_manifest_fields = sorted(set(manifest) - {"evidence_source", "events"})
+    unknown_manifest_fields = sorted(set(manifest) - {"evidence_source", "events", "reasons"})
     if unknown_manifest_fields:
         raise ValueError("unknown runtime safety manifest field: " + ", ".join(unknown_manifest_fields))
     raw_source = manifest.get("evidence_source")
@@ -78,6 +198,7 @@ def build_runtime_safety_gate(manifest: Mapping[str, Any]) -> dict[str, Any]:
     events = manifest.get("events", [])
     if not isinstance(events, list):
         raise ValueError("events must be a list")
+    runtime_reasons = RuntimeSafetyReason.canonicalize_many(manifest.get("reasons", []))
 
     passed_by_type: dict[str, bool] = {}
     counts_by_type: dict[str, int] = {}
@@ -118,8 +239,14 @@ def build_runtime_safety_gate(manifest: Mapping[str, Any]) -> dict[str, Any]:
         "summary": {
             "event_count": len(events),
             "counts_by_type": counts_by_type,
+            "reason_count": len(runtime_reasons),
+            "reasons_by_code": {
+                reason.code: sum(1 for item in runtime_reasons if item.code == reason.code)
+                for reason in runtime_reasons
+            },
         },
         "reasons": reasons,
+        "runtime_reasons": [reason.to_dict() for reason in runtime_reasons],
     }
 
 
