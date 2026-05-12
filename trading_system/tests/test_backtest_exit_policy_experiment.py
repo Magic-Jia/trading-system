@@ -156,3 +156,62 @@ def test_exit_policy_experiment_marks_missing_trade_print_path_as_no_evidence_wi
     assert row["diagnostic_fill_quality"] == "no_evidence"
     assert row["diagnostic_policy_gross_pnl"] is None
     assert row["diagnostic_policy_net_pnl"] is None
+
+
+@pytest.mark.parametrize("field", ("trade_prints", "exit_trade_prints"))
+@pytest.mark.parametrize("invalid_value", ("not-a-list", {"timestamp": "2026-03-10T00:01:00Z", "price": 100.0}, True))
+def test_exit_policy_experiment_rejects_present_malformed_trade_print_collections(
+    field: str, invalid_value: object
+) -> None:
+    module = importlib.import_module("trading_system.app.backtest.exit_policy_experiment")
+    trade = _valid_trade()
+    trade.pop("trade_prints")
+    trade[field] = invalid_value
+
+    with pytest.raises(ValueError, match=rf"trades\[1\]\.{field} must be a sequence of trade print mappings"):
+        module.build_exit_policy_experiment(trades=[trade], policy=_policy())
+
+
+@pytest.mark.parametrize("field", ("trade_prints", "exit_trade_prints"))
+def test_exit_policy_experiment_rejects_malformed_trade_print_rows(field: str) -> None:
+    module = importlib.import_module("trading_system.app.backtest.exit_policy_experiment")
+    trade = _valid_trade()
+    trade.pop("trade_prints")
+    trade[field] = [{"timestamp": "2026-03-10T00:01:00Z", "price": 100.0}, "bad-row"]
+
+    with pytest.raises(ValueError, match=rf"trades\[1\]\.{field}\[2\] must be a mapping"):
+        module.build_exit_policy_experiment(trades=[trade], policy=_policy())
+
+
+@pytest.mark.parametrize(
+    ("row", "expected_path"),
+    (
+        ({"timestamp": "not-a-timestamp", "price": 100.0}, "timestamp"),
+        ({"timestamp": "2026-03-10T00:01:00Z", "price": "100.0"}, "price"),
+        ({"timestamp": "2026-03-10T00:01:00Z", "price": True}, "price"),
+        ({"timestamp": "2026-03-10T00:01:00Z", "price": float("inf")}, "price"),
+        ({"timestamp": "2026-03-10T00:01:00Z", "price": 0.0}, "price"),
+    ),
+)
+def test_exit_policy_experiment_rejects_invalid_present_trade_print_fields(
+    row: dict[str, object], expected_path: str
+) -> None:
+    module = importlib.import_module("trading_system.app.backtest.exit_policy_experiment")
+    trade = _valid_trade()
+    trade["trade_prints"] = [row]
+
+    with pytest.raises(ValueError, match=rf"trades\[1\]\.trade_prints\[1\]\.{expected_path}"):
+        module.build_exit_policy_experiment(trades=[trade], policy=_policy())
+
+
+@pytest.mark.parametrize("field", ("qty", "entry_price", "exit_price"))
+@pytest.mark.parametrize("invalid_value", (True, "100.0", float("nan"), float("inf")))
+def test_exit_policy_experiment_rejects_present_invalid_identity_numeric_fields(
+    field: str, invalid_value: object
+) -> None:
+    module = importlib.import_module("trading_system.app.backtest.exit_policy_experiment")
+    trade = _valid_trade()
+    trade[field] = invalid_value
+
+    with pytest.raises(ValueError, match=rf"trades\[1\]\.{field} must be a finite number when present"):
+        module.build_exit_policy_experiment(trades=[trade], policy=_policy())

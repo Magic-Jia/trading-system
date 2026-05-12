@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+import math
+from numbers import Real
 from typing import Any, Mapping, Sequence
 
 from .exit_policies import ExitFillQuality, evaluate_exit_policy
@@ -67,14 +69,14 @@ def _evaluate_trade(*, index: int, trade: Mapping[str, Any], policy: ExitPolicyP
         "status": _optional_present_string(trade, field="status", index=index),
         "entry_timestamp": _iso_or_none(_parse_timestamp(trade.get("entry_timestamp"))),
         "baseline_exit_timestamp": _iso_or_none(_parse_timestamp(trade.get("exit_timestamp"))),
-        "entry_price": _float_or_none(trade.get("entry_price")),
-        "baseline_exit_price": _float_or_none(trade.get("exit_price")),
-        "qty": _float_or_none(trade.get("qty")),
+        "entry_price": _optional_present_finite_number(trade, field="entry_price", index=index),
+        "baseline_exit_price": _optional_present_finite_number(trade, field="exit_price", index=index),
+        "qty": _optional_present_finite_number(trade, field="qty", index=index),
     }
     side = identity["side"]
     entry_timestamp = _parse_timestamp(trade.get("entry_timestamp"))
     fixed_exit_timestamp = _parse_timestamp(trade.get("exit_timestamp"))
-    entry_price = _float_or_none(trade.get("entry_price"))
+    entry_price = identity["entry_price"]
 
     if side not in {"long", "short"} or entry_timestamp is None or fixed_exit_timestamp is None or entry_price is None or entry_price <= 0.0:
         return {
@@ -105,7 +107,7 @@ def _evaluate_trade(*, index: int, trade: Mapping[str, Any], policy: ExitPolicyP
             "diagnostic_policy_net_pnl": None,
         }
 
-    trade_prints = _trade_print_points(raw_trade_prints)
+    trade_prints = _trade_print_points(raw_trade_prints, path=f"trades[{index}].{trade_print_path}")
     if not trade_prints:
         return {
             **identity,
@@ -159,17 +161,16 @@ def _trade_print_source(trade: Mapping[str, Any]) -> tuple[str | None, Any]:
     return None, None
 
 
-def _trade_print_points(raw_trade_prints: Any) -> tuple[_TradePrintPoint, ...]:
+def _trade_print_points(raw_trade_prints: Any, *, path: str) -> tuple[_TradePrintPoint, ...]:
     if not isinstance(raw_trade_prints, Sequence) or isinstance(raw_trade_prints, (str, bytes, bytearray)):
-        return ()
+        raise ValueError(f"{path} must be a sequence of trade print mappings")
     points: list[_TradePrintPoint] = []
-    for item in raw_trade_prints:
+    for row_index, item in enumerate(raw_trade_prints, start=1):
+        row_path = f"{path}[{row_index}]"
         if not isinstance(item, Mapping):
-            continue
-        timestamp = _parse_timestamp(item.get("timestamp"))
-        price = _float_or_none(item.get("price"))
-        if timestamp is None or price is None or price <= 0.0:
-            continue
+            raise ValueError(f"{row_path} must be a mapping")
+        timestamp = _required_present_timestamp(item, field="timestamp", path=row_path)
+        price = _required_present_positive_finite_number(item, field="price", path=row_path)
         points.append(_TradePrintPoint(timestamp=timestamp, price=price))
     return tuple(points)
 
@@ -181,6 +182,37 @@ def _optional_present_string(trade: Mapping[str, Any], *, field: str, index: int
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"trades[{index}].{field} must be a non-blank string when present")
     return value
+
+
+def _optional_present_finite_number(trade: Mapping[str, Any], *, field: str, index: int) -> float | None:
+    if field not in trade or trade[field] is None:
+        return None
+    value = trade[field]
+    if not _is_finite_number(value):
+        raise ValueError(f"trades[{index}].{field} must be a finite number when present")
+    return float(value)
+
+
+def _required_present_timestamp(row: Mapping[str, Any], *, field: str, path: str) -> datetime:
+    if field not in row:
+        raise ValueError(f"{path}.{field} is required")
+    timestamp = _parse_timestamp(row[field])
+    if timestamp is None:
+        raise ValueError(f"{path}.{field} must be an ISO timestamp")
+    return timestamp
+
+
+def _required_present_positive_finite_number(row: Mapping[str, Any], *, field: str, path: str) -> float:
+    if field not in row:
+        raise ValueError(f"{path}.{field} is required")
+    value = row[field]
+    if not _is_finite_number(value) or float(value) <= 0.0:
+        raise ValueError(f"{path}.{field} must be a positive finite number")
+    return float(value)
+
+
+def _is_finite_number(value: Any) -> bool:
+    return isinstance(value, Real) and not isinstance(value, bool) and math.isfinite(float(value))
 
 
 def _parse_timestamp(value: Any) -> datetime | None:
