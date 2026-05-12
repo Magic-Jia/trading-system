@@ -223,3 +223,24 @@ def test_rejects_boolean_commission_before_calibration_load(tmp_path: Path) -> N
 
     with pytest.raises(ValueError, match="calibration record commission must be numeric"):
         load_calibration_records(source)
+
+
+def test_rejects_naive_submitted_at_before_calibration_load(tmp_path: Path) -> None:
+    source = tmp_path / "dust_orders.jsonl"
+    source.write_text(
+        json.dumps(
+            {
+                "symbol": "BTCUSDT",
+                "side": "buy",
+                "intended_limit_price": 100.0,
+                "submitted_at": "2026-01-01T00:00:00",
+                "status": "filled",
+            }
+        )
+        + "\n"
+    )
+
+    import pytest
+
+    with pytest.raises(ValueError, match="calibration record submitted_at must include a timezone"):
+        load_calibration_records(source)

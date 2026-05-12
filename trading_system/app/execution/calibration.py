@@ -47,12 +47,15 @@ class PassiveOrderCalibrationRecord:
     setup_type: str | None = None
 
 
-def _parse_datetime(value: Any) -> datetime | None:
+def _parse_datetime(value: Any, *, field_name: str) -> datetime | None:
     if value is None or value == "":
         return None
     if isinstance(value, datetime):
         return value
-    return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ValueError(f"calibration record {field_name} must include a timezone")
+    return parsed
 
 
 def _float_or_none(value: Any) -> float | None:
@@ -118,7 +121,7 @@ def _fee_float_or_none(field: str, value: Any) -> float | None:
 def _record_from_mapping(row: Mapping[str, Any]) -> PassiveOrderCalibrationRecord:
     _validate_fee_asset_fields(row)
     _validate_commission_fields(row)
-    submitted_at = _parse_datetime(row.get("submitted_at"))
+    submitted_at = _parse_datetime(row.get("submitted_at"), field_name="submitted_at")
     if submitted_at is None:
         raise ValueError("calibration record missing submitted_at")
     return PassiveOrderCalibrationRecord(
@@ -131,8 +134,8 @@ def _record_from_mapping(row: Mapping[str, Any]) -> PassiveOrderCalibrationRecor
             field_name="intended_limit_price",
         ),
         submitted_at=submitted_at,
-        first_fill_at=_parse_datetime(row.get("first_fill_at")),
-        last_fill_at=_parse_datetime(row.get("last_fill_at")),
+        first_fill_at=_parse_datetime(row.get("first_fill_at"), field_name="first_fill_at"),
+        last_fill_at=_parse_datetime(row.get("last_fill_at"), field_name="last_fill_at"),
         requested_qty=_float_or_none(row.get("requested_qty")),
         requested_notional=_float_or_none(row.get("requested_notional")),
         filled_qty=_float_or_none(row.get("filled_qty")),
