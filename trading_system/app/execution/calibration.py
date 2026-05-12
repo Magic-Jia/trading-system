@@ -68,9 +68,14 @@ def _required_float(row: Mapping[str, Any], *keys: str, field_name: str) -> floa
         if key not in row or row[key] is None or row[key] == "":
             continue
         value = row[key]
-        if isinstance(value, bool):
+        if isinstance(value, bool) or not isinstance(value, Real):
             raise ValueError(f"{field_name} must be numeric")
-        return float(value)
+        parsed = float(value)
+        if not math.isfinite(parsed):
+            raise ValueError(f"{field_name} must be finite")
+        if parsed <= 0.0:
+            raise ValueError(f"{field_name} must be positive")
+        return parsed
     raise ValueError(f"calibration record missing {field_name}")
 
 
