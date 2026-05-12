@@ -4,13 +4,16 @@ import json
 import math
 import re
 from dataclasses import asdict, dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from numbers import Real
 from pathlib import Path
 from statistics import median
 from typing import Any, Iterable, Mapping
 
 _ASSET_CODE_RE = re.compile(r"^[A-Z0-9]+$")
+_SYMBOL_RE = re.compile(r"^[A-Z0-9]+$")
+_LOWER_TOKEN_RE = re.compile(r"^[a-z0-9_]+$")
+_UPPER_TOKEN_RE = re.compile(r"^[A-Z0-9_]+$")
 _FEE_ASSET_FIELDS = (
     "fee_asset",
     "feeAsset",
@@ -55,7 +58,7 @@ def _parse_datetime(value: Any, *, field_name: str) -> datetime | None:
     parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
     if parsed.tzinfo is None or parsed.utcoffset() is None:
         raise ValueError(f"calibration record {field_name} must include a timezone")
-    return parsed
+    return parsed.astimezone(timezone.utc)
 
 
 def _float_or_none(field: str, value: Any) -> float | None:
@@ -86,6 +89,7 @@ def _required_float(row: Mapping[str, Any], *keys: str, field_name: str) -> floa
 
 
 def _validate_fee_asset_fields(row: Mapping[str, Any]) -> None:
+    values: set[str] = set()
     for field in _FEE_ASSET_FIELDS:
         if field not in row:
             continue
@@ -97,15 +101,51 @@ def _validate_fee_asset_fields(row: Mapping[str, Any]) -> None:
             or _ASSET_CODE_RE.fullmatch(value) is None
         ):
             raise ValueError(f"calibration record {field} must be an uppercase asset code")
+        values.add(value)
+    if len(values) > 1:
+        raise ValueError("calibration record fee asset aliases conflict")
 
 
 def _validate_commission_fields(row: Mapping[str, Any]) -> None:
     for field in _COMMISSION_FIELDS:
         if field not in row or row[field] is None or row[field] == "":
             continue
-        if isinstance(row[field], bool):
-            raise ValueError(f"calibration record {field} must be numeric")
-        float(row[field])
+        value = row[field]
+        if isinstance(value, bool) or not isinstance(value, Real):
+            raise ValueError(f"calibration record {field} must be numeric, finite, and non-negative")
+        parsed = float(value)
+        if not math.isfinite(parsed) or parsed < 0.0:
+            raise ValueError(f"calibration record {field} must be numeric, finite, and non-negative")
+
+
+def _required_symbol(row: Mapping[str, Any]) -> str:
+    value = row.get("symbol")
+    if type(value) is not str or _SYMBOL_RE.fullmatch(value) is None:
+        raise ValueError("calibration record symbol must be an uppercase symbol")
+    return value
+
+
+def _required_side(row: Mapping[str, Any]) -> str:
+    value = row.get("side")
+    if type(value) is not str or value not in {"buy", "sell"}:
+        raise ValueError("calibration record side must be buy or sell")
+    return value
+
+
+def _canonical_lower_token_or_none(field: str, value: Any) -> str | None:
+    if value is None or value == "":
+        return None
+    if type(value) is not str or _LOWER_TOKEN_RE.fullmatch(value) is None:
+        raise ValueError(f"calibration record {field} must be canonical")
+    return value
+
+
+def _canonical_upper_token_or_none(field: str, value: Any) -> str | None:
+    if value is None or value == "":
+        return None
+    if type(value) is not str or _UPPER_TOKEN_RE.fullmatch(value) is None:
+        raise ValueError(f"calibration record {field} must be canonical")
+    return value
 
 
 def _fee_float_or_none(field: str, value: Any) -> float | None:
@@ -138,9 +178,14 @@ def _record_from_mapping(row: Mapping[str, Any]) -> PassiveOrderCalibrationRecor
     first_fill_at = _parse_datetime(row.get("first_fill_at"), field_name="first_fill_at")
     if first_fill_at is not None and first_fill_at < submitted_at:
         raise ValueError("calibration record first_fill_at must be at or after submitted_at")
+    last_fill_at = _parse_datetime(row.get("last_fill_at"), field_name="last_fill_at")
+    if last_fill_at is not None and last_fill_at < submitted_at:
+        raise ValueError("calibration record last_fill_at must be at or after submitted_at")
+    if last_fill_at is not None and first_fill_at is not None and last_fill_at < first_fill_at:
+        raise ValueError("calibration record last_fill_at must be at or after first_fill_at")
     return PassiveOrderCalibrationRecord(
-        symbol=str(row.get("symbol", "")).strip().upper(),
-        side=str(row.get("side", "")).strip().lower(),
+        symbol=_required_symbol(row),
+        side=_required_side(row),
         intended_limit_price=_required_float(
             row,
             "intended_limit_price",
@@ -149,20 +194,20 @@ def _record_from_mapping(row: Mapping[str, Any]) -> PassiveOrderCalibrationRecor
         ),
         submitted_at=submitted_at,
         first_fill_at=first_fill_at,
-        last_fill_at=_parse_datetime(row.get("last_fill_at"), field_name="last_fill_at"),
+        last_fill_at=last_fill_at,
         requested_qty=_float_or_none("requested_qty", row.get("requested_qty")),
         requested_notional=_float_or_none("requested_notional", row.get("requested_notional")),
         filled_qty=_float_or_none("filled_qty", row.get("filled_qty")),
         filled_notional=_float_or_none("filled_notional", row.get("filled_notional")),
-        status=str(row.get("status", "")).strip().lower(),
+        status=_canonical_lower_token_or_none("status", row.get("status")) or "",
         maker_taker=_maker_taker_or_none(row.get("maker_taker")),
         fees=_fee_float_or_none("fees", row.get("fees")),
         slippage_bps=_float_or_none("slippage_bps", row.get("slippage_bps")),
         ref_price=_float_or_none("ref_price", row.get("ref_price")),
-        cancel_reason=str(row.get("cancel_reason")) if row.get("cancel_reason") is not None else None,
-        expire_reason=str(row.get("expire_reason")) if row.get("expire_reason") is not None else None,
+        cancel_reason=_canonical_lower_token_or_none("cancel_reason", row.get("cancel_reason")),
+        expire_reason=_canonical_lower_token_or_none("expire_reason", row.get("expire_reason")),
         latency_ms=_float_or_none("latency_ms", row.get("latency_ms")),
-        setup_type=str(row.get("setup_type")).strip().upper() if row.get("setup_type") is not None else None,
+        setup_type=_canonical_upper_token_or_none("setup_type", row.get("setup_type")),
     )
 
 
@@ -288,8 +333,13 @@ def summarize_calibration_records(
     rows = tuple(records)
     maker_rows = tuple(record for record in rows if record.maker_taker == "maker")
     taker_rows = tuple(record for record in rows if record.maker_taker == "taker")
+    if evidence_source is not None and not isinstance(evidence_source, Mapping):
+        raise ValueError("calibration summary evidence_source must be an object")
     source = dict(evidence_source or {"type": "unknown_offline_records"})
     source.setdefault("type", "unknown_offline_records")
+    source_type = source["type"]
+    if type(source_type) is not str or _LOWER_TOKEN_RE.fullmatch(source_type) is None:
+        raise ValueError("calibration summary evidence_source.type must be canonical")
     return {
         "schema_version": "passive_order_calibration_summary.v1",
         "evidence_source": source,

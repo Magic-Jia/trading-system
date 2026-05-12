@@ -309,3 +309,86 @@ def test_rejects_first_fill_at_before_submitted_at_before_calibration_load(tmp_p
 
     with pytest.raises(ValueError, match="calibration record first_fill_at must be at or after submitted_at"):
         load_calibration_records(source)
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("symbol", " btcusdt ", "calibration record symbol must be an uppercase symbol"),
+        ("side", " BUY ", "calibration record side must be buy or sell"),
+        ("status", " Filled ", "calibration record status must be canonical"),
+        ("cancel_reason", " expired ", "calibration record cancel_reason must be canonical"),
+        ("expire_reason", " timeout ", "calibration record expire_reason must be canonical"),
+        ("setup_type", "rs_pullback", "calibration record setup_type must be canonical"),
+    ],
+)
+def test_rejects_noncanonical_provenance_fields_before_calibration_load(
+    tmp_path: Path,
+    field: str,
+    value: object,
+    message: str,
+) -> None:
+    source = tmp_path / "dust_orders.jsonl"
+    source.write_text(json.dumps(_strict_record_payload(**{field: value})) + "\n")
+
+    with pytest.raises(ValueError, match=message):
+        load_calibration_records(source)
+
+
+def test_rejects_last_fill_at_before_submitted_at_before_calibration_load(tmp_path: Path) -> None:
+    source = tmp_path / "dust_orders.jsonl"
+    source.write_text(
+        json.dumps(
+            _strict_record_payload(
+                submitted_at="2026-01-01T00:00:05+00:00",
+                last_fill_at="2026-01-01T00:00:04+00:00",
+            )
+        )
+        + "\n"
+    )
+
+    with pytest.raises(ValueError, match="calibration record last_fill_at must be at or after submitted_at"):
+        load_calibration_records(source)
+
+
+def test_rejects_last_fill_at_before_first_fill_at_before_calibration_load(tmp_path: Path) -> None:
+    source = tmp_path / "dust_orders.jsonl"
+    source.write_text(
+        json.dumps(
+            _strict_record_payload(
+                first_fill_at="2026-01-01T00:00:05+00:00",
+                last_fill_at="2026-01-01T00:00:04+00:00",
+            )
+        )
+        + "\n"
+    )
+
+    with pytest.raises(ValueError, match="calibration record last_fill_at must be at or after first_fill_at"):
+        load_calibration_records(source)
+
+
+def test_rejects_conflicting_fee_asset_aliases_before_calibration_load(tmp_path: Path) -> None:
+    source = tmp_path / "dust_orders.jsonl"
+    source.write_text(json.dumps(_strict_record_payload(fee_asset="BNB", commissionAsset="USDT")) + "\n")
+
+    with pytest.raises(ValueError, match="calibration record fee asset aliases conflict"):
+        load_calibration_records(source)
+
+
+@pytest.mark.parametrize("commission", ["0.01", float("nan"), -0.01])
+def test_rejects_noncanonical_commission_before_calibration_load(tmp_path: Path, commission: object) -> None:
+    source = tmp_path / "dust_orders.jsonl"
+    source.write_text(json.dumps(_strict_record_payload(commission=commission, commissionAsset="BNB")) + "\n")
+
+    with pytest.raises(ValueError, match="calibration record commission must be numeric, finite, and non-negative"):
+        load_calibration_records(source)
+
+
+def test_rejects_non_mapping_evidence_source_before_summary() -> None:
+    with pytest.raises(ValueError, match="calibration summary evidence_source must be an object"):
+        summarize_calibration_records([], evidence_source="synthetic_fixture")  # type: ignore[arg-type]
+
+
+def test_rejects_noncanonical_evidence_source_type_before_summary() -> None:
+    with pytest.raises(ValueError, match="calibration summary evidence_source.type must be canonical"):
+        summarize_calibration_records([], evidence_source={"type": "Synthetic Fixture"})
