@@ -189,6 +189,152 @@ def test_setup_rewrite_experiment_applies_setup_scoped_score_and_cost_coverage_f
     ]
 
 
+def test_setup_rewrite_experiment_missing_multi_setup_correction_is_not_promotion_grade() -> None:
+    module = importlib.import_module("trading_system.app.backtest.setup_rewrite_experiment")
+
+    artifact = module.build_setup_rewrite_experiment(
+        rows=[
+            {"symbol": "BTCUSDT", "setup_type": "RS_REACCELERATION", "score": 0.8},
+            {"symbol": "ETHUSDT", "setup_type": "RS_PULLBACK", "score": 0.82},
+        ],
+        setup_rewrite=SetupRewriteParams(
+            rules=(
+                SetupRewriteRule(
+                    name="require_setup_min_score",
+                    setup_types=("RS_REACCELERATION", "RS_PULLBACK"),
+                    min_score=0.7,
+                ),
+            )
+        ),
+    )
+
+    assert artifact["metadata"]["promotion_grade"] is False
+    assert artifact["metadata"]["promotion_grade_reasons"] == [
+        "setup_rewrite_false_discovery_correction_missing",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("false_discovery_correction", "reason"),
+    [
+        (
+            {
+                "correction_method": "holm_bonferroni",
+                "family_size": "2",
+                "alpha": 0.05,
+                "adjusted_threshold": 0.025,
+                "controls_familywise_error": True,
+                "setup_identities": ["RS_REACCELERATION", "RS_PULLBACK"],
+            },
+            "setup_rewrite_false_discovery_correction_family_size_invalid",
+        ),
+        (
+            {
+                "correction_method": "Holm-Bonferroni",
+                "family_size": 2,
+                "alpha": 0.05,
+                "adjusted_threshold": 0.025,
+                "controls_familywise_error": True,
+                "setup_identities": ["RS_REACCELERATION", "RS_PULLBACK"],
+            },
+            "setup_rewrite_false_discovery_correction_method_invalid",
+        ),
+        (
+            {
+                "correction_method": "holm_bonferroni",
+                "family_size": 2,
+                "alpha": True,
+                "adjusted_threshold": 0.025,
+                "controls_familywise_error": True,
+                "setup_identities": ["RS_REACCELERATION", "RS_PULLBACK"],
+            },
+            "setup_rewrite_false_discovery_correction_alpha_invalid",
+        ),
+        (
+            {
+                "correction_method": "holm_bonferroni",
+                "family_size": 2,
+                "alpha": 0.05,
+                "adjusted_threshold": 0.025,
+                "controls_familywise_error": "true",
+                "setup_identities": ["RS_REACCELERATION", "RS_PULLBACK"],
+            },
+            "setup_rewrite_false_discovery_correction_controls_familywise_error_invalid",
+        ),
+        (
+            {
+                "correction_method": "holm_bonferroni",
+                "family_size": 2,
+                "alpha": 0.05,
+                "adjusted_threshold": 0.025,
+                "controls_familywise_error": True,
+                "setup_identities": ["RS_REACCELERATION", "RS_REACCELERATION"],
+            },
+            "setup_rewrite_false_discovery_correction_setup_identities_duplicate",
+        ),
+    ],
+)
+def test_setup_rewrite_experiment_malformed_correction_is_not_promotion_grade(
+    false_discovery_correction: dict[str, object],
+    reason: str,
+) -> None:
+    module = importlib.import_module("trading_system.app.backtest.setup_rewrite_experiment")
+
+    artifact = module.build_setup_rewrite_experiment(
+        rows=[
+            {"symbol": "BTCUSDT", "setup_type": "RS_REACCELERATION", "score": 0.8},
+            {"symbol": "ETHUSDT", "setup_type": "RS_PULLBACK", "score": 0.82},
+        ],
+        setup_rewrite=SetupRewriteParams(
+            rules=(
+                SetupRewriteRule(
+                    name="require_setup_min_score",
+                    setup_types=("RS_REACCELERATION", "RS_PULLBACK"),
+                    min_score=0.7,
+                ),
+            )
+        ),
+        metadata={"false_discovery_correction": false_discovery_correction},
+    )
+
+    assert artifact["metadata"]["promotion_grade"] is False
+    assert artifact["metadata"]["promotion_grade_reasons"] == [reason]
+
+
+def test_setup_rewrite_experiment_valid_corrected_multi_setup_is_promotion_grade() -> None:
+    module = importlib.import_module("trading_system.app.backtest.setup_rewrite_experiment")
+
+    artifact = module.build_setup_rewrite_experiment(
+        rows=[
+            {"symbol": "BTCUSDT", "setup_type": "RS_REACCELERATION", "score": 0.8},
+            {"symbol": "ETHUSDT", "setup_type": "RS_PULLBACK", "score": 0.82},
+        ],
+        setup_rewrite=SetupRewriteParams(
+            rules=(
+                SetupRewriteRule(
+                    name="require_setup_min_score",
+                    setup_types=("RS_REACCELERATION", "RS_PULLBACK"),
+                    min_score=0.7,
+                ),
+            )
+        ),
+        metadata={
+            "false_discovery_correction": {
+                "correction_method": "holm_bonferroni",
+                "family_size": 2,
+                "alpha": 0.05,
+                "adjusted_threshold": 0.025,
+                "controls_familywise_error": True,
+                "setup_identities": ["RS_REACCELERATION", "RS_PULLBACK"],
+            }
+        },
+    )
+
+    assert artifact["metadata"]["promotion_grade"] is True
+    assert artifact["metadata"]["promotion_grade_reasons"] == []
+    assert artifact["summary"]["would_keep_count"] == 2
+
+
 def test_setup_rewrite_experiment_applies_setup_scoped_allowed_symbols_filter() -> None:
     module = importlib.import_module("trading_system.app.backtest.setup_rewrite_experiment")
 

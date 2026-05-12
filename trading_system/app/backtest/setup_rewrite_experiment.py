@@ -2,10 +2,19 @@ from __future__ import annotations
 
 from collections import defaultdict
 import math
+from numbers import Integral
 from numbers import Real
 from typing import Any, Mapping, Sequence
 
 from .types import SetupRewriteParams, SetupRewriteRule
+
+_FALSE_DISCOVERY_CORRECTION_METHODS = frozenset(
+    {
+        "bonferroni",
+        "holm_bonferroni",
+        "benjamini_hochberg",
+    }
+)
 
 
 def serialize_setup_rewrite(params: SetupRewriteParams | None) -> dict[str, Any] | None:
@@ -33,10 +42,17 @@ def build_setup_rewrite_experiment(
         "by_source_chunk": _breakdown(evaluation_rows, key_name="source_chunk"),
     }
     base_metadata = dict(metadata or {})
+    promotion_grade, promotion_grade_reasons = _promotion_grade_contract(
+        setup_rewrite=setup_rewrite,
+        metadata=base_metadata,
+        evaluation_rows=evaluation_rows,
+    )
     base_metadata.update(
         {
             "artifact_type": "opt_in_offline_diagnostic",
             "changes_baseline_ledger": False,
+            "promotion_grade": promotion_grade,
+            "promotion_grade_reasons": promotion_grade_reasons,
             "setup_rewrite": serialize_setup_rewrite(setup_rewrite),
         }
     )
@@ -63,6 +79,104 @@ def _serialize_rule(rule: SetupRewriteRule) -> dict[str, Any]:
         payload["setup_types"] = list(rule.setup_types)
         payload["symbols"] = list(rule.symbols)
     return payload
+
+
+def _promotion_grade_contract(
+    *,
+    setup_rewrite: SetupRewriteParams,
+    metadata: Mapping[str, Any],
+    evaluation_rows: Sequence[Mapping[str, Any]],
+) -> tuple[bool, list[str]]:
+    reasons: list[str] = []
+    correction_scope = _false_discovery_correction_scope(setup_rewrite)
+    if correction_scope is not None:
+        reasons.extend(
+            _false_discovery_correction_reasons(
+                raw=metadata.get("false_discovery_correction"),
+                expected_identities=correction_scope,
+            )
+        )
+    if any(row["evaluation_status"] != "evaluated" for row in evaluation_rows):
+        reasons.append("setup_rewrite_missing_evidence")
+    return not reasons, reasons
+
+
+def _false_discovery_correction_scope(params: SetupRewriteParams) -> tuple[str, ...] | None:
+    setup_identities: set[str] = set()
+    for rule in params.rules:
+        setup_identities.update(rule.setup_types)
+    if len(setup_identities) > 1:
+        return tuple(sorted(setup_identities))
+    if len(params.rules) > 1:
+        return tuple(_rule_identity(rule) for rule in params.rules)
+    return None
+
+
+def _rule_identity(rule: SetupRewriteRule) -> str:
+    return "|".join(str(part) for part in _serialize_rule(rule).items())
+
+
+def _false_discovery_correction_reasons(*, raw: Any, expected_identities: Sequence[str]) -> list[str]:
+    reason_prefix = "setup_rewrite_false_discovery_correction"
+    if raw is None:
+        return [f"{reason_prefix}_missing"]
+    if not isinstance(raw, Mapping):
+        return [f"{reason_prefix}_invalid"]
+
+    expected_fields = {
+        "correction_method",
+        "family_size",
+        "alpha",
+        "adjusted_threshold",
+        "controls_familywise_error",
+        "setup_identities",
+    }
+    unknown_fields = set(raw) - expected_fields
+    if unknown_fields:
+        return [f"{reason_prefix}_unknown_field"]
+
+    method = raw.get("correction_method")
+    if not isinstance(method, str) or method.strip() != method or method not in _FALSE_DISCOVERY_CORRECTION_METHODS:
+        return [f"{reason_prefix}_method_invalid"]
+
+    family_size = raw.get("family_size")
+    if isinstance(family_size, bool) or not isinstance(family_size, Integral) or int(family_size) <= 0:
+        return [f"{reason_prefix}_family_size_invalid"]
+    if int(family_size) != len(expected_identities):
+        return [f"{reason_prefix}_family_size_mismatch"]
+
+    alpha = raw.get("alpha")
+    if not _is_finite_number(alpha) or not (0.0 < float(alpha) <= 1.0):
+        return [f"{reason_prefix}_alpha_invalid"]
+
+    adjusted_threshold = raw.get("adjusted_threshold")
+    if not _is_finite_number(adjusted_threshold) or not (0.0 <= float(adjusted_threshold) <= float(alpha)):
+        return [f"{reason_prefix}_adjusted_threshold_invalid"]
+
+    controls_familywise_error = raw.get("controls_familywise_error")
+    if type(controls_familywise_error) is not bool:
+        return [f"{reason_prefix}_controls_familywise_error_invalid"]
+    if controls_familywise_error is not True:
+        return [f"{reason_prefix}_does_not_control_familywise_error"]
+
+    setup_identities = raw.get("setup_identities")
+    if not isinstance(setup_identities, Sequence) or isinstance(setup_identities, (str, bytes)):
+        return [f"{reason_prefix}_setup_identities_invalid"]
+    parsed_identities: list[str] = []
+    for identity in setup_identities:
+        if not isinstance(identity, str) or identity.strip() != identity or not identity:
+            return [f"{reason_prefix}_setup_identities_invalid"]
+        parsed_identities.append(identity)
+    if len(parsed_identities) != len(set(parsed_identities)):
+        return [f"{reason_prefix}_setup_identities_duplicate"]
+    if tuple(sorted(parsed_identities)) != tuple(sorted(expected_identities)):
+        return [f"{reason_prefix}_setup_identities_mismatch"]
+
+    return []
+
+
+def _is_finite_number(value: Any) -> bool:
+    return not isinstance(value, bool) and isinstance(value, Real) and math.isfinite(float(value))
 
 
 def _evaluate_row(*, index: int, row: Mapping[str, Any], params: SetupRewriteParams) -> dict[str, Any]:
