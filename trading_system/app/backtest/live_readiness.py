@@ -1851,6 +1851,8 @@ def _runtime_safety_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
         event_count = summary.get("event_count")
         if event_count is not None and (isinstance(event_count, bool) or not isinstance(event_count, int)):
             summary_schema_error = "summary_event_count_not_int"
+        elif event_count is not None and event_count < 0:
+            summary_schema_error = "summary_event_count_out_of_range"
         counts_by_type = summary.get("counts_by_type")
         if not summary_schema_error and counts_by_type is not None:
             if not isinstance(counts_by_type, Mapping):
