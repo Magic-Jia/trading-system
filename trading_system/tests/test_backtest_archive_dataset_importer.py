@@ -2781,6 +2781,60 @@ def test_write_phase1_dataset_bundle_rejects_open_position_collateral_value_alia
     assert not expected_bundle_dir.exists()
 
 
+@pytest.mark.parametrize(
+    ("canonical", "alias"),
+    [
+        ("liquidationPrice", "liquidation_price"),
+        ("breakEvenPrice", "break_even_price"),
+    ],
+)
+def test_write_phase1_dataset_bundle_rejects_open_position_price_alias_mismatch_without_artifact(
+    tmp_path: Path, canonical: str, alias: str
+) -> None:
+    timestamp = datetime(2024, 1, 1, tzinfo=UTC)
+    material = archive_importer.Phase1DatasetBundleMaterial(
+        timestamp=timestamp,
+        run_id=archive_importer._run_id(timestamp),
+        metadata={"timestamp": "2024-01-01T00:00:00Z", "run_id": archive_importer._run_id(timestamp)},
+        market_context={
+            "schema_version": archive_importer.PHASE1_IMPORTER_MARKET_CONTEXT_SCHEMA,
+            "as_of": "2024-01-01T00:00:00Z",
+            "symbols": {"BTCUSDT": {}},
+            "instrument_rows": [],
+        },
+        derivatives_snapshot={
+            "schema_version": archive_importer.PHASE1_IMPORTER_DERIVATIVES_SCHEMA,
+            "as_of": "2024-01-01T00:00:00Z",
+            "rows": [],
+        },
+        account_snapshot={
+            "schema_version": archive_importer.PHASE1_IMPORTER_ACCOUNT_SCHEMA,
+            "as_of": "2024-01-01T00:00:00Z",
+            "equity": 100000.0,
+            "open_positions": [
+                {
+                    "symbol": "BTCUSDT",
+                    "side": "LONG",
+                    "qty": 0.5,
+                    "entry_price": 60000.0,
+                    "mark_price": 61000.0,
+                    canonical: 59000.0,
+                    alias: 59000.01,
+                }
+            ],
+        },
+    )
+    expected_bundle_dir = tmp_path / f"{archive_importer._bundle_fragment(timestamp)}__{material.run_id}"
+
+    with pytest.raises(
+        ValueError,
+        match=rf"account\.open_positions\[0\]\.{alias} must equal {canonical}",
+    ):
+        write_phase1_dataset_bundle(material, tmp_path)
+
+    assert not expected_bundle_dir.exists()
+
+
 def test_write_phase1_dataset_bundle_rejects_open_position_margin_used_alias_mismatch_without_artifact(
     tmp_path: Path,
 ) -> None:

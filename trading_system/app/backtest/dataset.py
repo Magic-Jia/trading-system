@@ -107,6 +107,10 @@ _ACCOUNT_OPEN_POSITION_EQUAL_ALIAS_GROUPS = (
     ("collateralValue", "collateral_value"),
     ("marginUsed", "margin_used"),
 )
+_ACCOUNT_OPEN_POSITION_POSITIVE_PRICE_EQUAL_ALIAS_GROUPS = (
+    ("liquidationPrice", "liquidation_price"),
+    ("breakEvenPrice", "break_even_price"),
+)
 _ACCOUNT_POSITIVE_NUMBER_FIELDS = (
     "exposure_value",
     "exposureValue",
@@ -987,6 +991,21 @@ def _validate_open_position_alias_parity(position: dict, *, field_path: str, pat
             path=path,
             qualifier="non-negative finite",
             minimum=0.0,
+        )
+        if not math.isclose(alias_value, canonical_value, rel_tol=1e-12, abs_tol=1e-12):
+            raise ValueError(f"{field_path}.{alias} must equal {canonical}: {path}")
+    for canonical, alias in _ACCOUNT_OPEN_POSITION_POSITIVE_PRICE_EQUAL_ALIAS_GROUPS:
+        if canonical not in position or alias not in position:
+            continue
+        canonical_value = _validate_account_positive_number(
+            position[canonical],
+            field_path=f"{field_path}.{canonical}",
+            path=path,
+        )
+        alias_value = _validate_account_positive_number(
+            position[alias],
+            field_path=f"{field_path}.{alias}",
+            path=path,
         )
         if not math.isclose(alias_value, canonical_value, rel_tol=1e-12, abs_tol=1e-12):
             raise ValueError(f"{field_path}.{alias} must equal {canonical}: {path}")
