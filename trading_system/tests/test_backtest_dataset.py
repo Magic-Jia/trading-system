@@ -548,6 +548,52 @@ def test_load_historical_dataset_rejects_inconsistent_total_wallet_balance_alias
 
 
 @pytest.mark.parametrize(
+    ("canonical", "alias", "expected_message"),
+    [
+        (
+            "totalInitialMargin",
+            "total_initial_margin",
+            r"account\.total_initial_margin must equal totalInitialMargin",
+        ),
+        (
+            "totalMaintMargin",
+            "total_maint_margin",
+            r"account\.total_maint_margin must equal totalMaintMargin",
+        ),
+        (
+            "totalMarginBalance",
+            "total_margin_balance",
+            r"account\.total_margin_balance must equal totalMarginBalance",
+        ),
+    ],
+)
+def test_load_historical_dataset_rejects_inconsistent_total_margin_aliases_before_load(
+    tmp_path: Path,
+    canonical: str,
+    alias: str,
+    expected_message: str,
+) -> None:
+    dataset_root = tmp_path / "sample_dataset"
+    bundle = dataset_root / "2026-03-10T00-00-00Z__sample-001"
+    bundle.mkdir(parents=True)
+    (bundle / "metadata.json").write_text(
+        '{"timestamp": "2026-03-10T00:00:00Z", "run_id": "sample-001"}',
+        encoding="utf-8",
+    )
+    (bundle / "market_context.json").write_text('{"symbols": {"BTCUSDT": {}}}', encoding="utf-8")
+    (bundle / "derivatives_snapshot.json").write_text('{"rows": []}', encoding="utf-8")
+    account_snapshot = {
+        "equity": 100000.0,
+        canonical: 1250.0,
+        alias: 1251.0,
+    }
+    (bundle / "account_snapshot.json").write_text(json.dumps(account_snapshot), encoding="utf-8")
+
+    with pytest.raises(ValueError, match=expected_message):
+        load_historical_dataset(dataset_root)
+
+
+@pytest.mark.parametrize(
     ("field", "value"),
     [
         ("totalWalletBalance", True),

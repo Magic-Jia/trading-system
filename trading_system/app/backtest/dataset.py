@@ -95,6 +95,9 @@ _ACCOUNT_BALANCE_SIGNED_EQUAL_ALIAS_GROUPS = (
 )
 _ACCOUNT_TOTAL_EQUAL_ALIAS_GROUPS = (
     ("totalWalletBalance", "total_wallet_balance"),
+    ("totalInitialMargin", "total_initial_margin"),
+    ("totalMaintMargin", "total_maint_margin"),
+    ("totalMarginBalance", "total_margin_balance"),
 )
 _ACCOUNT_OPEN_POSITION_EQUAL_ALIAS_GROUPS = (
     ("collateralValue", "collateral_value"),
