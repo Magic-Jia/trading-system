@@ -21,6 +21,7 @@ _OHLCV_TIMEFRAMES = ("1h", "1m", "5m", "15m", "30m")
 _OPTIONAL_CONTEXT_DATASETS = {"funding", "mark-price", "open-interest"}
 _EXECUTION_DATASETS = {"order-book", "trades"}
 _WINDOW_IMPORT_HISTORY_WARMUP = timedelta(days=50)
+_SYMBOL_FILTER_ALLOWED_CHARS = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
 
 
 def _read_manifest(path: Path) -> dict[str, Any]:
@@ -58,7 +59,45 @@ def _validated_window_days(windows_days: Iterable[int]) -> tuple[int, ...]:
         resolved.append(days)
     if not resolved:
         raise ValueError("windows_days must contain at least one window")
+    if len(set(resolved)) != len(resolved):
+        raise ValueError("windows_days must not contain duplicate window days")
     return tuple(resolved)
+
+
+def _validated_symbol_filters(symbols: Sequence[str] | None) -> tuple[str, ...] | None:
+    if symbols is None:
+        return None
+    if isinstance(symbols, (str, bytes)):
+        raise ValueError("symbols must be a sequence of canonical uppercase exchange symbols")
+    resolved: list[str] = []
+    for symbol in symbols:
+        if (
+            not isinstance(symbol, str)
+            or not symbol
+            or symbol != symbol.strip()
+            or symbol.upper() != symbol
+            or not set(symbol).issubset(_SYMBOL_FILTER_ALLOWED_CHARS)
+        ):
+            raise ValueError("symbols must contain canonical uppercase exchange symbols")
+        resolved.append(symbol)
+    if not resolved:
+        return None
+    if len(set(resolved)) != len(resolved):
+        raise ValueError("symbols must not contain duplicate symbols")
+    return tuple(resolved)
+
+
+def _validated_selection_window(
+    *,
+    start_timestamp: datetime | None,
+    end_timestamp: datetime | None,
+) -> tuple[datetime | None, datetime | None]:
+    for field, value in (("start_timestamp", start_timestamp), ("end_timestamp", end_timestamp)):
+        if value is not None and value.tzinfo is None:
+            raise ValueError(f"selection window {field} must be timezone-aware")
+    if start_timestamp is not None and end_timestamp is not None and start_timestamp >= end_timestamp:
+        raise ValueError("selection window start_timestamp must be before end_timestamp")
+    return start_timestamp, end_timestamp
 
 
 def _manifest_is_selected(
@@ -102,7 +141,12 @@ def _selected_manifest_paths(
     end_timestamp: datetime | None = None,
 ) -> tuple[Path, ...]:
     raw_market_root = archive_root / "raw-market"
-    selected_symbols = {symbol.upper() for symbol in symbols} if symbols else None
+    resolved_symbols = _validated_symbol_filters(symbols)
+    start_timestamp, end_timestamp = _validated_selection_window(
+        start_timestamp=start_timestamp,
+        end_timestamp=end_timestamp,
+    )
+    selected_symbols = set(resolved_symbols) if resolved_symbols is not None else None
     manifest_paths: list[Path] = []
     for manifest_path in sorted(raw_market_root.rglob("*.manifest.json")):
         manifest = _read_manifest(manifest_path)
@@ -209,6 +253,7 @@ def materialize_phase1_evidence_windows(
 ) -> dict[str, Any]:
     resolved_archive_root = _archive_root_from_input(archive_root)
     resolved_windows_days = _validated_window_days(windows_days)
+    resolved_symbols = _validated_symbol_filters(symbols)
 
     def emit_progress(message: str) -> None:
         print(message, file=progress_stream or sys.stderr)
@@ -216,7 +261,7 @@ def materialize_phase1_evidence_windows(
     def write_coverage_report() -> None:
         (output_path / "coverage_report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    initial_manifests = _selected_manifest_paths(resolved_archive_root, symbols=symbols)
+    initial_manifests = _selected_manifest_paths(resolved_archive_root, symbols=resolved_symbols)
     if not initial_manifests:
         raise FileNotFoundError(f"no matching raw-market manifests found under: {resolved_archive_root}")
     emit_progress(f"selected manifests initial count={len(initial_manifests)}")
@@ -254,7 +299,7 @@ def materialize_phase1_evidence_windows(
         )
         selected_manifests = _selected_manifest_paths(
             resolved_archive_root,
-            symbols=symbols,
+            symbols=resolved_symbols,
             start_timestamp=import_start,
             end_timestamp=end_exclusive,
         )

@@ -5199,6 +5199,65 @@ def test_materialize_phase1_evidence_windows_rejects_invalid_window_days_before_
     assert not (output_root / "coverage_report.json").exists()
 
 
+def test_materialize_phase1_evidence_windows_rejects_duplicate_window_days_before_output_side_effects(
+    tmp_path: Path,
+) -> None:
+    archive_root = tmp_path / "archive"
+    output_root = tmp_path / "materialized"
+    _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT", total_hours=50 * 24)
+
+    with pytest.raises(ValueError, match="windows_days must not contain duplicate window days"):
+        materialize_phase1_evidence_windows(
+            archive_root / "raw-market" / "binance" / "futures",
+            output_root,
+            symbols=("BTCUSDT",),
+            windows_days=(30, 30),
+        )
+
+    assert not output_root.exists()
+    assert not (output_root / "coverage_report.json").exists()
+
+
+@pytest.mark.parametrize("invalid_symbol", [123, " BTCUSDT", "btcusdt", "BTC/USDT", "BTCUSDT "])
+def test_materialize_phase1_evidence_windows_rejects_invalid_filter_symbols_before_output_side_effects(
+    tmp_path: Path,
+    invalid_symbol: object,
+) -> None:
+    archive_root = tmp_path / "archive"
+    output_root = tmp_path / "materialized"
+    _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT", total_hours=50 * 24)
+
+    with pytest.raises(ValueError, match="symbols must contain canonical uppercase exchange symbols"):
+        materialize_phase1_evidence_windows(
+            archive_root / "raw-market" / "binance" / "futures",
+            output_root,
+            symbols=(invalid_symbol,),  # type: ignore[arg-type]
+            windows_days=(30,),
+        )
+
+    assert not output_root.exists()
+    assert not (output_root / "coverage_report.json").exists()
+
+
+def test_materialize_phase1_evidence_windows_rejects_duplicate_filter_symbols_before_output_side_effects(
+    tmp_path: Path,
+) -> None:
+    archive_root = tmp_path / "archive"
+    output_root = tmp_path / "materialized"
+    _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT", total_hours=50 * 24)
+
+    with pytest.raises(ValueError, match="symbols must not contain duplicate symbols"):
+        materialize_phase1_evidence_windows(
+            archive_root / "raw-market" / "binance" / "futures",
+            output_root,
+            symbols=("BTCUSDT", "BTCUSDT"),
+            windows_days=(30,),
+        )
+
+    assert not output_root.exists()
+    assert not (output_root / "coverage_report.json").exists()
+
+
 def test_materialize_phase1_evidence_windows_streams_windows_and_reports_progress(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

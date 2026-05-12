@@ -33,6 +33,7 @@ from trading_system.app.backtest.archive.importer import (
 )
 from trading_system.app.backtest.archive.materialization import _execution_evidence_gap
 from trading_system.app.backtest.archive.materialization import _manifest_coverage_bounds
+from trading_system.app.backtest.archive.materialization import _selected_manifest_paths
 
 
 def test_material_metadata_source_rejects_present_null_source() -> None:
@@ -518,6 +519,35 @@ def test_materialization_manifest_coverage_bounds_reject_object_boundary_values(
                 "coverage_start": {"timestamp": "2026-01-01T00:00:00Z"},
                 "coverage_end": "2026-01-01T01:00:00Z",
             }
+        )
+
+
+def test_materialization_selected_manifest_paths_rejects_reversed_selection_window(tmp_path: Path) -> None:
+    archive_raw_market_payload(
+        archive_root=tmp_path / "archive",
+        exchange="binance",
+        market="futures",
+        dataset="ohlcv",
+        symbol="BTCUSDT",
+        timeframe="1h",
+        coverage_start="2026-01-01T00:00:00Z",
+        coverage_end="2026-01-01T02:00:00Z",
+        fetched_at="2026-01-01T02:01:00Z",
+        endpoint="/fapi/v1/klines",
+        payload={
+            "rows": [
+                {"open_time": "2026-01-01T00:00:00Z", "open": 100.0, "high": 101.0, "low": 99.0, "close": 100.5, "volume": 10.0},
+                {"open_time": "2026-01-01T01:00:00Z", "open": 100.5, "high": 102.0, "low": 100.0, "close": 101.0, "volume": 12.0},
+            ]
+        },
+    )
+
+    with pytest.raises(ValueError, match="selection window start_timestamp must be before end_timestamp"):
+        _selected_manifest_paths(
+            tmp_path / "archive",
+            symbols=("BTCUSDT",),
+            start_timestamp=datetime(2026, 1, 2, tzinfo=timezone.utc),
+            end_timestamp=datetime(2026, 1, 1, tzinfo=timezone.utc),
         )
 
 
