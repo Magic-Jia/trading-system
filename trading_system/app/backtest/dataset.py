@@ -106,6 +106,7 @@ _ACCOUNT_TOTAL_EQUAL_ALIAS_GROUPS = (
 _ACCOUNT_OPEN_POSITION_EQUAL_ALIAS_GROUPS = (
     ("collateralValue", "collateral_value"),
     ("marginUsed", "margin_used"),
+    ("unrealizedCost", "unrealized_cost"),
 )
 _ACCOUNT_OPEN_POSITION_POSITIVE_PRICE_EQUAL_ALIAS_GROUPS = (
     ("liquidationPrice", "liquidation_price"),
