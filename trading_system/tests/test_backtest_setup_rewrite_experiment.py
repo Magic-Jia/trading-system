@@ -278,3 +278,41 @@ def test_setup_rewrite_experiment_rejects_invalid_net_pnl_with_field_path(net_pn
             ],
             setup_rewrite=_params(),
         )
+
+
+def test_setup_rewrite_experiment_rejects_string_net_pnl_with_field_path() -> None:
+    module = importlib.import_module("trading_system.app.backtest.setup_rewrite_experiment")
+
+    with pytest.raises(ValueError, match=r"rows\[1\]\.net_pnl must be a finite number"):
+        module.build_setup_rewrite_experiment(
+            rows=[
+                {
+                    "symbol": "BTCUSDT",
+                    "setup_type": "TREND_PULLBACK",
+                    "score": 0.82,
+                    "net_pnl": "12.5",
+                    "cost_coverage_ratio": 1.4,
+                }
+            ],
+            setup_rewrite=_params(),
+        )
+
+
+@pytest.mark.parametrize("field_name", ["source_chunk", "chunk", "chunk_name"])
+def test_setup_rewrite_experiment_rejects_padded_source_identifier_with_field_path(field_name: str) -> None:
+    module = importlib.import_module("trading_system.app.backtest.setup_rewrite_experiment")
+
+    with pytest.raises(ValueError, match=rf"rows\[1\]\.{field_name} must be canonical"):
+        module.build_setup_rewrite_experiment(
+            rows=[
+                {
+                    "symbol": "BTCUSDT",
+                    "setup_type": "TREND_PULLBACK",
+                    "score": 0.82,
+                    "net_pnl": 12.5,
+                    "cost_coverage_ratio": 1.4,
+                    field_name: " 2026-03 ",
+                }
+            ],
+            setup_rewrite=_params(),
+        )

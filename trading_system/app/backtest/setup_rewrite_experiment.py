@@ -220,12 +220,9 @@ def _float_or_none(value: Any, *, field_path: str) -> float | None:
 def _net_pnl_or_none(value: Any, *, field_path: str) -> float | None:
     if value is None:
         return None
-    if isinstance(value, bool):
+    if isinstance(value, bool) or not isinstance(value, Real):
         raise ValueError(f"{field_path} must be a finite number")
-    try:
-        result = float(value)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"{field_path} must be a finite number") from exc
+    result = float(value)
     if not math.isfinite(result):
         raise ValueError(f"{field_path} must be a finite number")
     return result
@@ -242,7 +239,19 @@ def _string_or_none(value: Any, *, field_path: str) -> str | None:
 
 def _source_chunk(row: Mapping[str, Any], *, index: int) -> str | None:
     for key in ("source_chunk", "chunk", "chunk_name"):
-        value = _string_or_none(row.get(key), field_path=f"rows[{index}].{key}")
+        value = _source_identifier_or_none(row.get(key), field_path=f"rows[{index}].{key}")
         if value is not None:
             return value
     return None
+
+
+def _source_identifier_or_none(value: Any, *, field_path: str) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError(f"{field_path} must be a string")
+    if not value.strip():
+        return None
+    if value != value.strip():
+        raise ValueError(f"{field_path} must be canonical")
+    return value
