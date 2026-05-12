@@ -140,6 +140,52 @@ def test_cost_stress_scenarios_do_not_mutate_original_trades() -> None:
     assert stressed[0].stressed_trades[0]["stressed_net_pnl"] == pytest.approx(14.0)
 
 
+@pytest.mark.parametrize(
+    ("scenario_name", "expected_message"),
+    (
+        ("", "cost stress scenario name must be a canonical non-empty string"),
+        (" fees_2x", "cost stress scenario name must be a canonical non-empty string"),
+        ("fees 2x", "cost stress scenario name must be a canonical non-empty string"),
+        ("fees_2X", "cost stress scenario name must be a canonical non-empty string"),
+        (True, "cost stress scenario name must be a canonical non-empty string"),
+    ),
+)
+def test_cost_stress_scenario_rejects_non_canonical_names(scenario_name: object, expected_message: str) -> None:
+    with pytest.raises(ValueError, match=expected_message):
+        CostStressScenario(name=scenario_name)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    ("field_name", "bad_value", "expected_message"),
+    (
+        ("fee_multiplier", True, "fee_multiplier must be a finite non-bool non-negative number"),
+        ("slippage_multiplier", float("nan"), "slippage_multiplier must be a finite non-bool non-negative number"),
+        ("funding_multiplier", float("inf"), "funding_multiplier must be a finite non-bool non-negative number"),
+        ("fee_multiplier", -0.01, "fee_multiplier must be a finite non-bool non-negative number"),
+    ),
+)
+def test_cost_stress_scenario_rejects_invalid_multipliers(
+    field_name: str,
+    bad_value: object,
+    expected_message: str,
+) -> None:
+    with pytest.raises(ValueError, match=expected_message):
+        CostStressScenario(name="fees_2x", **{field_name: bad_value})  # type: ignore[arg-type]
+
+
+def test_cost_stress_rejects_duplicate_scenario_names() -> None:
+    trades = (_trade("BTCUSDT", "2026-01-01T12:00:00Z", net_pnl=20.0),)
+
+    with pytest.raises(ValueError, match="duplicate cost stress scenario name: fees_2x"):
+        run_cost_stress_tests(
+            trades,
+            (
+                CostStressScenario(name="fees_2x", fee_multiplier=2.0),
+                CostStressScenario(name="fees_2x", slippage_multiplier=2.0),
+            ),
+        )
+
+
 def test_regime_buckets_are_deterministic_and_report_per_regime_metrics() -> None:
     rows = [
         _row(0, close=110.0, ema_50=100.0, ret=0.06, atr=0.02),
@@ -159,6 +205,32 @@ def test_regime_buckets_are_deterministic_and_report_per_regime_metrics() -> Non
     assert by_label["low_vol_uptrend"].metrics["trade_count"] == 1
     assert by_label["low_vol_uptrend"].metrics["net_pnl"] == pytest.approx(9.0)
     assert by_label["high_vol_downtrend"].metrics["net_pnl"] == pytest.approx(-4.0)
+
+
+@pytest.mark.parametrize(
+    ("label", "expected_message"),
+    (
+        ("", "row-000 regime label must be a canonical non-empty string"),
+        ("RISK ON", "row-000 regime label must be a canonical non-empty string"),
+        (" risk_on", "row-000 regime label must be a canonical non-empty string"),
+        (True, "row-000 regime label must be a canonical non-empty string"),
+    ),
+)
+def test_regime_buckets_reject_non_canonical_explicit_labels(label: object, expected_message: str) -> None:
+    row = dataclasses.replace(_row(0), meta={"regime_label": label})
+
+    with pytest.raises(ValueError, match=expected_message):
+        evaluate_regime_buckets((row,), ())
+
+
+def test_regime_buckets_reject_rows_that_reuse_run_ids_with_different_labels() -> None:
+    rows = (
+        dataclasses.replace(_row(0), meta={"regime_label": "risk_on"}),
+        dataclasses.replace(_row(1), run_id="row-000", meta={"regime_label": "risk_off"}),
+    )
+
+    with pytest.raises(ValueError, match="duplicate regime row id with conflicting label: row-000"):
+        evaluate_regime_buckets(rows, ())
 
 
 def test_evaluation_report_labels_walk_forward_regimes_and_cost_stress() -> None:

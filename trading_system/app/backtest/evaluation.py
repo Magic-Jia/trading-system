@@ -4,6 +4,7 @@ from bisect import bisect_right
 from dataclasses import dataclass
 from datetime import timedelta
 import math
+import re
 from statistics import median
 from typing import Any, Iterable, Literal, Mapping, Sequence
 
@@ -11,6 +12,8 @@ from .metrics import expectancy, max_drawdown, payoff_ratio, sharpe_ratio, sorti
 from .types import DatasetSnapshotRow, TradeLedgerRow
 
 EvaluationStatus = Literal["ok", "insufficient_data"]
+_COST_STRESS_NAME_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
+_REGIME_LABEL_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,15 +101,22 @@ class CostStressScenario:
     funding_multiplier: float = 1.0
 
     def __post_init__(self) -> None:
-        if not self.name:
-            raise ValueError("cost stress scenario name is required")
+        if not isinstance(self.name, str) or _COST_STRESS_NAME_PATTERN.fullmatch(self.name) is None:
+            raise ValueError("cost stress scenario name must be a canonical non-empty string")
         for field_name, value in (
             ("fee_multiplier", self.fee_multiplier),
             ("slippage_multiplier", self.slippage_multiplier),
             ("funding_multiplier", self.funding_multiplier),
         ):
-            if value < 0:
-                raise ValueError(f"{field_name} must be non-negative")
+            if isinstance(value, bool):
+                raise ValueError(f"{field_name} must be a finite non-bool non-negative number")
+            try:
+                multiplier = float(value)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"{field_name} must be a finite non-bool non-negative number") from exc
+            if not math.isfinite(multiplier) or multiplier < 0:
+                raise ValueError(f"{field_name} must be a finite non-bool non-negative number")
+            object.__setattr__(self, field_name, multiplier)
 
     def to_dict(self) -> dict[str, float | str]:
         return {
@@ -380,11 +390,11 @@ def _mean(values: Sequence[float]) -> float | None:
 
 def deterministic_regime_label(row: DatasetSnapshotRow) -> str:
     meta_label = row.meta.get("regime_label")
-    if meta_label:
-        return str(meta_label)
+    if meta_label is not None:
+        return _canonical_regime_label(meta_label, row_id=row.run_id)
     regime = row.market.get("regime") if isinstance(row.market, Mapping) else None
-    if isinstance(regime, Mapping) and regime.get("label"):
-        return str(regime["label"])
+    if isinstance(regime, Mapping) and regime.get("label") is not None:
+        return _canonical_regime_label(regime["label"], row_id=row.run_id)
 
     returns = _daily_symbol_metric(row, "return_pct_7d")
     volatilities = _daily_symbol_metric(row, "atr_pct")
@@ -411,12 +421,24 @@ def deterministic_regime_label(row: DatasetSnapshotRow) -> str:
     return f"{volatility_label}_{direction_label}"
 
 
+def _canonical_regime_label(value: Any, *, row_id: str) -> str:
+    if not isinstance(value, str) or _REGIME_LABEL_PATTERN.fullmatch(value) is None:
+        raise ValueError(f"{row_id} regime label must be a canonical non-empty string")
+    return value
+
+
 def evaluate_regime_buckets(
     rows: Iterable[DatasetSnapshotRow],
     trade_ledger: Iterable[TradeLedgerRow],
 ) -> tuple[RegimeBucket, ...]:
     ordered = _ordered_rows(rows)
-    labels_by_run_id = {row.run_id: deterministic_regime_label(row) for row in ordered}
+    labels_by_run_id: dict[str, str] = {}
+    for row in ordered:
+        label = deterministic_regime_label(row)
+        existing_label = labels_by_run_id.get(row.run_id)
+        if existing_label is not None and existing_label != label:
+            raise ValueError(f"duplicate regime row id with conflicting label: {row.run_id}")
+        labels_by_run_id[row.run_id] = label
     row_ids_by_label: dict[str, list[str]] = {}
     for row in ordered:
         row_ids_by_label.setdefault(labels_by_run_id[row.run_id], []).append(row.run_id)
@@ -456,7 +478,11 @@ def run_cost_stress_tests(
 ) -> tuple[CostStressResult, ...]:
     trades = tuple(trade_ledger)
     results: list[CostStressResult] = []
+    seen_scenario_names: set[str] = set()
     for scenario in scenarios:
+        if scenario.name in seen_scenario_names:
+            raise ValueError(f"duplicate cost stress scenario name: {scenario.name}")
+        seen_scenario_names.add(scenario.name)
         stressed_net_pnls = [_stressed_net_pnl(trade, scenario) for trade in trades]
         stressed_net_returns = [
             (stressed_net_pnl / float(trade.position_notional)) if float(trade.position_notional) else 0.0
