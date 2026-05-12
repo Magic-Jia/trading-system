@@ -32,6 +32,41 @@ FillQuality = Literal["approximate", "evidence_backed", "partial_evidence_backed
 FillOutcome = Literal["filled", "missed_alpha"]
 TradePrintSide = Literal["buy", "sell"]
 MakerStatus = Literal["filled", "partial", "no_fill", "expired", "cancelled_replaced"]
+OrderType = Literal["market", "limit"]
+
+_ORDER_SIDES = frozenset(("buy", "sell"))
+_TAKER_ORDER_TYPES = frozenset(("market",))
+_MAKER_ORDER_TYPES = frozenset(("limit",))
+_TRADE_PRINT_SIDES = frozenset(("buy", "sell"))
+_FILL_MODELS = frozenset(
+    (
+        "reference_close",
+        "next_bar_ohlcv",
+        "taker_ohlcv_approx",
+        "taker_orderbook",
+        "taker_orderbook_depth",
+        "taker_trade_print",
+        "maker_orderbook_trade_evidence",
+        "maker_post_only_queue",
+    )
+)
+_PRICE_SOURCES = frozenset(
+    (
+        "ohlcv_close",
+        "ohlcv_next_open",
+        "ohlcv_reference",
+        "best_bid",
+        "best_ask",
+        "bid_depth",
+        "ask_depth",
+        "trade_print",
+        "book_cross",
+        "no_crossing_evidence",
+    )
+)
+_FILL_QUALITIES = frozenset(("approximate", "evidence_backed", "partial_evidence_backed", "no_fill"))
+_FILL_OUTCOMES = frozenset(("filled", "missed_alpha"))
+_MAKER_STATUSES = frozenset(("filled", "partial", "no_fill", "expired", "cancelled_replaced"))
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,6 +94,13 @@ class TradePrint:
     price: float
     quantity: float
     side: TradePrintSide | None = None
+    fill_id: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.side is not None:
+            object.__setattr__(self, "side", _canonical_domain("trade.side", self.side, _TRADE_PRINT_SIDES))
+        if self.fill_id is not None:
+            object.__setattr__(self, "fill_id", _canonical_string("trade.fill_id", self.fill_id))
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,8 +133,62 @@ class ExecutionFill:
     maker_wait_seconds: float | None = None
     maker_reasons: tuple[str, ...] = ()
 
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "side", _canonical_domain("side", self.side, _ORDER_SIDES))
+        object.__setattr__(self, "fill_model", _canonical_domain("fill_model", self.fill_model, _FILL_MODELS))
+        object.__setattr__(
+            self,
+            "execution_price_source",
+            _canonical_domain("execution_price_source", self.execution_price_source, _PRICE_SOURCES),
+        )
+        object.__setattr__(self, "fill_quality", _canonical_domain("fill_quality", self.fill_quality, _FILL_QUALITIES))
+        object.__setattr__(self, "outcome", _canonical_domain("outcome", self.outcome, _FILL_OUTCOMES))
+        if self.maker_status is not None:
+            object.__setattr__(
+                self,
+                "maker_status",
+                _canonical_domain("maker_status", self.maker_status, _MAKER_STATUSES),
+            )
+        object.__setattr__(self, "quantity", _non_negative_finite_float("quantity", self.quantity))
+        if self.fill_price is not None:
+            _coerce_positive_finite_float("fill_price", self.fill_price)
+        for field_name in (
+            "requested_quantity",
+            "requested_notional",
+            "filled_quantity",
+            "filled_notional",
+            "unfilled_quantity",
+            "execution_impact_bps",
+            "queue_ahead_initial",
+            "queue_ahead_remaining",
+            "maker_wait_seconds",
+        ):
+            value = getattr(self, field_name)
+            if value is not None:
+                _coerce_non_negative_finite_float(field_name, value)
+        if self.slippage_bps is not None:
+            object.__setattr__(self, "slippage_bps", _finite_float("slippage_bps", self.slippage_bps))
+
+    @property
+    def execution_provenance(self) -> dict[str, str]:
+        evidence = "synthetic_reference"
+        if self.fill_quality == "no_fill":
+            evidence = "no_crossing_evidence"
+        elif self.fill_quality in {"evidence_backed", "partial_evidence_backed"}:
+            evidence = "market_evidence"
+        return {
+            "simulator": "offline_execution_sim",
+            "fill_model": self.fill_model,
+            "price_source": self.execution_price_source,
+            "fill_quality": self.fill_quality,
+            "evidence": evidence,
+        }
+
 
 def reference_close_fill(*, symbol: str, side: OrderSide, quantity: float, close_price: float) -> ExecutionFill:
+    side = _canonical_order_side(side)
+    quantity = _non_negative_finite_float("quantity", quantity)
+    close_price = _positive_finite_float("close_price", close_price)
     return ExecutionFill(
         symbol=symbol,
         side=side,
@@ -115,6 +211,9 @@ def next_bar_ohlcv_fill(
     symbol_payload: Mapping[str, Any],
     execution_timeframes: tuple[str, ...] = ("1m", "5m", "15m", "30m"),
 ) -> ExecutionFill:
+    side = _canonical_order_side(side)
+    quantity = _non_negative_finite_float("quantity", quantity)
+    reference_close = _positive_finite_float("reference_close", reference_close)
     for timeframe in execution_timeframes:
         timeframe_row = symbol_payload.get(timeframe)
         if not isinstance(timeframe_row, Mapping):
@@ -149,9 +248,15 @@ def simulate_taker_fill(
     side: OrderSide,
     quantity: float,
     reference_price: float,
+    order_type: OrderType = "market",
     order_books: tuple[OrderBookSnapshot, ...] = (),
     trades: tuple[TradePrint, ...] = (),
 ) -> ExecutionFill:
+    side = _canonical_order_side(side)
+    _canonical_domain("order_type", order_type, _TAKER_ORDER_TYPES)
+    quantity = _non_negative_finite_float("quantity", quantity)
+    _positive_finite_float("reference_price", reference_price)
+    _validate_evidence_contract(symbol=symbol, order_books=order_books, trades=trades)
     book = _first_symbol_book(symbol, order_books)
     if book is not None:
         if _side_levels(book, side=side):
@@ -213,10 +318,13 @@ def simulate_taker_depth_fill(
     reference_price: float,
     order_book: OrderBookSnapshot,
 ) -> ExecutionFill:
+    side = _canonical_order_side(side)
+    _positive_finite_float("reference_price", reference_price)
+    _validate_evidence_contract(symbol=symbol, order_books=(order_book,), trades=())
     notional_request = None
     if requested_notional is not None:
         notional_request = _positive_finite_float("requested_notional", requested_notional)
-    requested_quantity = 0.0 if quantity is None else _positive_quantity_float("quantity", quantity)
+    requested_quantity = 0.0 if quantity is None else _depth_quantity_float("quantity", quantity)
     levels = _side_levels(order_book, side=side)
     source: ExecutionPriceSource = "ask_depth" if side == "buy" else "bid_depth"
     if not levels:
@@ -345,6 +453,7 @@ def simulate_maker_limit_fill(
     side: OrderSide,
     limit_price: float,
     quantity: float,
+    order_type: OrderType = "limit",
     queue_ahead_quantity: float | None = None,
     placement_timestamp: datetime | None = None,
     timeout_seconds: float | None = None,
@@ -353,8 +462,10 @@ def simulate_maker_limit_fill(
     order_books: tuple[OrderBookSnapshot, ...] = (),
     trades: tuple[TradePrint, ...] = (),
 ) -> ExecutionFill:
+    side = _canonical_order_side(side)
+    _canonical_domain("order_type", order_type, _MAKER_ORDER_TYPES)
     validated_limit_price = _positive_finite_float("limit_price", limit_price)
-    validated_quantity = _positive_finite_float("quantity", quantity)
+    validated_quantity = _positive_quantity_float("quantity", quantity)
     validated_latency_ms = _non_negative_finite_float("latency_ms", latency_ms)
     validated_timeout_seconds = (
         _non_negative_finite_float("timeout_seconds", timeout_seconds) if timeout_seconds is not None else None
@@ -366,6 +477,7 @@ def simulate_maker_limit_fill(
         or validated_latency_ms > 0.0
         or cancel_replace_timestamp is not None
     )
+    _validate_evidence_contract(symbol=symbol, order_books=order_books, trades=trades)
     if uses_queue_model:
         return _simulate_maker_queue_fill(
             symbol=symbol,
@@ -381,7 +493,7 @@ def simulate_maker_limit_fill(
             trades=trades,
         )
 
-    sorted_trades = sorted((trade for trade in trades if trade.symbol == symbol), key=lambda trade: trade.timestamp)
+    sorted_trades = tuple(trade for trade in trades if trade.symbol == symbol)
     filled_qty = 0.0
     for trade in sorted_trades:
         trade_price = _positive_finite_float("trade.price", trade.price)
@@ -403,7 +515,7 @@ def simulate_maker_limit_fill(
                 evidence_timestamp=trade.timestamp,
             )
 
-    sorted_books = sorted((book for book in order_books if book.symbol == symbol), key=lambda book: book.timestamp)
+    sorted_books = tuple(book for book in order_books if book.symbol == symbol)
     for book in sorted_books:
         book_price = _positive_finite_float(
             "order_book.ask" if side == "buy" else "order_book.bid",
@@ -473,7 +585,7 @@ def _simulate_maker_queue_fill(
     )
     cutoff = _maker_cutoff(deadline=deadline, cancel_replace_timestamp=cancel_replace_timestamp)
 
-    for trade in sorted((trade for trade in trades if trade.symbol == symbol), key=lambda trade: trade.timestamp):
+    for trade in (trade for trade in trades if trade.symbol == symbol):
         trade_price = _positive_finite_float("trade.price", trade.price)
         trade_quantity = _positive_finite_float("trade.quantity", trade.quantity)
         if effective_placement is not None and trade.timestamp < effective_placement:
@@ -600,17 +712,16 @@ def _maker_cutoff(
 
 
 def _first_symbol_book(symbol: str, order_books: tuple[OrderBookSnapshot, ...]) -> OrderBookSnapshot | None:
-    return next((book for book in sorted(order_books, key=lambda item: item.timestamp) if book.symbol == symbol), None)
+    return next((book for book in order_books if book.symbol == symbol), None)
 
 
 def _side_levels(order_book: OrderBookSnapshot, *, side: OrderSide) -> tuple[DepthLevel, ...]:
     raw_levels = order_book.ask_levels if side == "buy" else order_book.bid_levels
     valid_levels = []
     for level in raw_levels:
-        price = _finite_float("depth level price", level.price)
-        quantity = _finite_float("depth level quantity", level.quantity)
-        if price > 0.0 and quantity > 0.0:
-            valid_levels.append(DepthLevel(price=price, quantity=quantity))
+        price = _strict_positive_finite_float("depth level price", level.price)
+        quantity = _strict_positive_finite_float("depth level quantity", level.quantity)
+        valid_levels.append(DepthLevel(price=price, quantity=quantity))
     if side == "buy":
         return tuple(sorted(valid_levels, key=lambda level: level.price))
     return tuple(sorted(valid_levels, key=lambda level: level.price, reverse=True))
@@ -620,8 +731,8 @@ def _side_slippage_bps(*, side: OrderSide, fill_price: float, reference_price: f
     if reference_price <= 0.0 or fill_price <= 0.0:
         return None
     if side == "buy":
-        return ((float(fill_price) - float(reference_price)) / float(reference_price)) * 10_000.0
-    return ((float(reference_price) - float(fill_price)) / float(reference_price)) * 10_000.0
+        return max(((float(fill_price) - float(reference_price)) / float(reference_price)) * 10_000.0, 0.0)
+    return max(((float(reference_price) - float(fill_price)) / float(reference_price)) * 10_000.0, 0.0)
 
 
 def _conservative_trade_print_taker_fill(
@@ -638,7 +749,14 @@ def _conservative_trade_print_taker_fill(
         price = _positive_finite_float("trade.price", trade.price)
         quantity = _positive_finite_float("trade.quantity", trade.quantity)
         symbol_trades.append(
-            TradePrint(timestamp=trade.timestamp, symbol=trade.symbol, price=price, quantity=quantity, side=trade.side)
+            TradePrint(
+                timestamp=trade.timestamp,
+                symbol=trade.symbol,
+                price=price,
+                quantity=quantity,
+                side=trade.side,
+                fill_id=trade.fill_id,
+            )
         )
     if not symbol_trades:
         return None
@@ -677,6 +795,18 @@ def _finite_float(name: str, value: Any) -> float:
     return result
 
 
+def _coerce_positive_finite_float(name: str, value: Any) -> float:
+    if isinstance(value, bool):
+        raise ValueError(f"{name} must be a positive finite number")
+    try:
+        result = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} must be a positive finite number") from exc
+    if not math.isfinite(result) or result <= 0.0:
+        raise ValueError(f"{name} must be a positive finite number")
+    return result
+
+
 def _positive_finite_float(name: str, value: Any) -> float:
     if isinstance(value, (bool, str)):
         raise ValueError(f"{name} must be a positive finite number")
@@ -689,7 +819,7 @@ def _positive_finite_float(name: str, value: Any) -> float:
     return result
 
 
-def _positive_quantity_float(name: str, value: Any) -> float:
+def _depth_quantity_float(name: str, value: Any) -> float:
     if isinstance(value, bool):
         raise ValueError(f"{name} must be a finite number")
     if isinstance(value, str):
@@ -705,6 +835,37 @@ def _positive_quantity_float(name: str, value: Any) -> float:
     return result
 
 
+def _positive_quantity_float(name: str, value: Any) -> float:
+    if isinstance(value, (bool, str)):
+        raise ValueError(f"{name} must be a positive finite number")
+    try:
+        result = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} must be a positive finite number") from exc
+    if not math.isfinite(result) or result <= 0.0:
+        raise ValueError(f"{name} must be a positive finite number")
+    return result
+
+
+def _strict_positive_finite_float(name: str, value: Any) -> float:
+    result = _finite_float(name, value)
+    if result <= 0.0:
+        raise ValueError(f"{name} must be a positive finite number")
+    return result
+
+
+def _coerce_non_negative_finite_float(name: str, value: Any) -> float:
+    if isinstance(value, bool):
+        raise ValueError(f"{name} must be a non-negative finite number")
+    try:
+        result = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} must be a non-negative finite number") from exc
+    if not math.isfinite(result) or result < 0.0:
+        raise ValueError(f"{name} must be a non-negative finite number")
+    return result
+
+
 def _non_negative_finite_float(name: str, value: Any) -> float:
     if isinstance(value, (bool, str)):
         raise ValueError(f"{name} must be a non-negative finite number")
@@ -715,6 +876,67 @@ def _non_negative_finite_float(name: str, value: Any) -> float:
     if not math.isfinite(result) or result < 0.0:
         raise ValueError(f"{name} must be a non-negative finite number")
     return result
+
+
+def _canonical_order_side(value: Any) -> OrderSide:
+    return _canonical_domain("side", value, _ORDER_SIDES)  # type: ignore[return-value]
+
+
+def _canonical_domain(name: str, value: Any, allowed: frozenset[str]) -> str:
+    if not isinstance(value, str) or value not in allowed:
+        raise ValueError(f"{name} must be one of: {', '.join(sorted(allowed))}")
+    return value
+
+
+def _canonical_string(name: str, value: Any) -> str:
+    if not isinstance(value, str) or not value or value.strip() != value:
+        raise ValueError(f"{name} must be a canonical string")
+    return value
+
+
+def _validate_evidence_contract(
+    *,
+    symbol: str,
+    order_books: tuple[OrderBookSnapshot, ...],
+    trades: tuple[TradePrint, ...],
+) -> None:
+    seen_fill_ids: set[str] = set()
+    previous_trade_timestamp: datetime | None = None
+    for trade in trades:
+        if trade.symbol != symbol:
+            continue
+        _positive_finite_float("trade.price", trade.price)
+        _positive_finite_float("trade.quantity", trade.quantity)
+        if trade.side is not None:
+            _canonical_domain("trade.side", trade.side, _TRADE_PRINT_SIDES)
+        if trade.fill_id is not None:
+            fill_id = _canonical_string("trade.fill_id", trade.fill_id)
+            if fill_id in seen_fill_ids:
+                raise ValueError(f"duplicate trade.fill_id: {fill_id}")
+            seen_fill_ids.add(fill_id)
+        if previous_trade_timestamp is not None and trade.timestamp < previous_trade_timestamp:
+            raise ValueError(f"trade timestamps must be monotonic for {symbol}")
+        previous_trade_timestamp = trade.timestamp
+
+    previous_book_timestamp: datetime | None = None
+    for book in order_books:
+        if book.symbol != symbol:
+            continue
+        _positive_finite_float("order_book.bid", book.bid)
+        _positive_finite_float("order_book.ask", book.ask)
+        if book.bid_size is not None:
+            _non_negative_finite_float("order_book.bid_size", book.bid_size)
+        if book.ask_size is not None:
+            _non_negative_finite_float("order_book.ask_size", book.ask_size)
+        for level in book.bid_levels:
+            _strict_positive_finite_float("depth level price", level.price)
+            _strict_positive_finite_float("depth level quantity", level.quantity)
+        for level in book.ask_levels:
+            _strict_positive_finite_float("depth level price", level.price)
+            _strict_positive_finite_float("depth level quantity", level.quantity)
+        if previous_book_timestamp is not None and book.timestamp < previous_book_timestamp:
+            raise ValueError(f"order book timestamps must be monotonic for {symbol}")
+        previous_book_timestamp = book.timestamp
 
 
 def _datetime_or_none(value: Any) -> datetime | None:

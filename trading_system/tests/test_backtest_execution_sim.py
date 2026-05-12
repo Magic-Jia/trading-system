@@ -7,8 +7,10 @@ import pytest
 
 from trading_system.app.backtest.execution_sim import (
     DepthLevel,
+    ExecutionFill,
     OrderBookSnapshot,
     TradePrint,
+    reference_close_fill,
     next_bar_ohlcv_fill,
     simulate_maker_limit_fill,
     simulate_taker_depth_fill,
@@ -331,6 +333,32 @@ def test_maker_limit_rejects_invalid_quantity(quantity: object) -> None:
         )
 
 
+@pytest.mark.parametrize("side", [True, "BUY", " buy ", "hold", "", 1])
+def test_execution_sim_rejects_non_canonical_order_side(side: object) -> None:
+    with pytest.raises(ValueError, match="side must be one of: buy, sell"):
+        simulate_taker_fill(
+            symbol="BTCUSDT",
+            side=side,
+            quantity=1.0,
+            reference_price=100.0,
+            order_books=(
+                OrderBookSnapshot(timestamp=_ts("2026-03-10T00:00:01Z"), symbol="BTCUSDT", bid=99.9, ask=100.1),
+            ),
+        )
+
+
+@pytest.mark.parametrize("order_type", [True, "MARKET", " market ", "limit", "", 1])
+def test_taker_fill_rejects_non_canonical_order_type(order_type: object) -> None:
+    with pytest.raises(ValueError, match="order_type must be one of: market"):
+        simulate_taker_fill(
+            symbol="BTCUSDT",
+            side="buy",
+            order_type=order_type,
+            quantity=1.0,
+            reference_price=100.0,
+        )
+
+
 def test_taker_uses_best_ask_for_buy_when_orderbook_is_available() -> None:
     fill = simulate_taker_fill(
         symbol="BTCUSDT",
@@ -577,6 +605,27 @@ def test_taker_depth_rejects_non_exact_depth_level_values(field: str, value: obj
         )
 
 
+@pytest.mark.parametrize(("field", "value"), [("price", 0.0), ("price", -1.0), ("quantity", 0.0), ("quantity", -1.0)])
+def test_taker_depth_rejects_non_positive_depth_level_values(field: str, value: object) -> None:
+    level_kwargs = {"price": 100.0, "quantity": 1.0}
+    level_kwargs[field] = value
+
+    with pytest.raises(ValueError, match=f"depth level {field} must be a positive finite number"):
+        simulate_taker_depth_fill(
+            symbol="BTCUSDT",
+            side="buy",
+            quantity=1.0,
+            reference_price=100.0,
+            order_book=OrderBookSnapshot(
+                timestamp=_ts("2026-03-10T00:00:01Z"),
+                symbol="BTCUSDT",
+                bid=99.9,
+                ask=100.0,
+                ask_levels=(DepthLevel(**level_kwargs),),
+            ),
+        )
+
+
 def test_taker_depth_caps_notional_fill_quantity_to_available_requested_notional() -> None:
     fill = simulate_taker_depth_fill(
         symbol="BTCUSDT",
@@ -636,6 +685,104 @@ def test_taker_trade_print_rejects_invalid_quantity(quantity: object) -> None:
             reference_price=100.0,
             trades=(
                 TradePrint(timestamp=_ts("2026-03-10T00:00:01Z"), symbol="BTCUSDT", price=100.0, quantity=quantity),
+            ),
+        )
+
+
+@pytest.mark.parametrize("trade_side", [True, "BUY", " sell ", "hold", "", 1])
+def test_maker_limit_rejects_non_canonical_trade_print_side(trade_side: object) -> None:
+    with pytest.raises(ValueError, match="trade.side must be one of: buy, sell"):
+        simulate_maker_limit_fill(
+            symbol="BTCUSDT",
+            side="buy",
+            limit_price=99.5,
+            quantity=1.0,
+            trades=(
+                TradePrint(
+                    timestamp=_ts("2026-03-10T00:00:01Z"),
+                    symbol="BTCUSDT",
+                    price=99.5,
+                    quantity=1.0,
+                    side=trade_side,
+                ),
+            ),
+        )
+
+
+def test_maker_limit_rejects_duplicate_trade_print_identifiers() -> None:
+    with pytest.raises(ValueError, match="duplicate trade.fill_id: fill-001"):
+        simulate_maker_limit_fill(
+            symbol="BTCUSDT",
+            side="buy",
+            limit_price=99.5,
+            quantity=1.0,
+            trades=(
+                TradePrint(
+                    timestamp=_ts("2026-03-10T00:00:01Z"),
+                    symbol="BTCUSDT",
+                    price=99.5,
+                    quantity=0.5,
+                    fill_id="fill-001",
+                ),
+                TradePrint(
+                    timestamp=_ts("2026-03-10T00:00:02Z"),
+                    symbol="BTCUSDT",
+                    price=99.5,
+                    quantity=0.5,
+                    fill_id="fill-001",
+                ),
+            ),
+        )
+
+
+def test_taker_fill_rejects_non_monotonic_trade_print_timestamps() -> None:
+    with pytest.raises(ValueError, match="trade timestamps must be monotonic for BTCUSDT"):
+        simulate_taker_fill(
+            symbol="BTCUSDT",
+            side="buy",
+            quantity=1.0,
+            reference_price=100.0,
+            trades=(
+                TradePrint(
+                    timestamp=_ts("2026-03-10T00:00:02Z"),
+                    symbol="BTCUSDT",
+                    price=100.1,
+                    quantity=1.0,
+                    fill_id="fill-002",
+                ),
+                TradePrint(
+                    timestamp=_ts("2026-03-10T00:00:01Z"),
+                    symbol="BTCUSDT",
+                    price=100.2,
+                    quantity=1.0,
+                    fill_id="fill-003",
+                ),
+            ),
+        )
+
+
+def test_maker_limit_validates_all_trade_rows_before_returning_fill() -> None:
+    with pytest.raises(ValueError, match="trade.price must be a positive finite number"):
+        simulate_maker_limit_fill(
+            symbol="BTCUSDT",
+            side="buy",
+            limit_price=99.5,
+            quantity=1.0,
+            trades=(
+                TradePrint(
+                    timestamp=_ts("2026-03-10T00:00:01Z"),
+                    symbol="BTCUSDT",
+                    price=99.5,
+                    quantity=1.0,
+                    fill_id="fill-001",
+                ),
+                TradePrint(
+                    timestamp=_ts("2026-03-10T00:00:02Z"),
+                    symbol="BTCUSDT",
+                    price=math.nan,
+                    quantity=1.0,
+                    fill_id="fill-002",
+                ),
             ),
         )
 
@@ -708,3 +855,67 @@ def test_next_bar_ohlcv_fill_falls_back_to_reference_close_without_evidence() ->
     assert fill.fill_quality == "approximate"
     assert fill.execution_timeframe == ""
     assert fill.execution_lag_bars == 0
+
+
+def test_execution_fill_provenance_shape_is_deterministic_for_reference_close() -> None:
+    fill = reference_close_fill(symbol="BTCUSDT", side="buy", quantity=1.0, close_price=100.0)
+
+    assert fill.execution_provenance == {
+        "simulator": "offline_execution_sim",
+        "fill_model": "reference_close",
+        "price_source": "ohlcv_close",
+        "fill_quality": "approximate",
+        "evidence": "synthetic_reference",
+    }
+
+
+def test_execution_fill_rejects_non_canonical_maker_status() -> None:
+    with pytest.raises(ValueError, match="maker_status must be one of: cancelled_replaced, expired, filled, no_fill, partial"):
+        ExecutionFill(
+            symbol="BTCUSDT",
+            side="buy",
+            quantity=1.0,
+            filled=True,
+            fill_price=100.0,
+            fill_model="maker_post_only_queue",
+            execution_price_source="trade_print",
+            fill_quality="evidence_backed",
+            outcome="filled",
+            maker_status=" filled ",
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "match"),
+    [
+        ("quantity", True, "quantity must be a non-negative finite number"),
+        ("quantity", math.nan, "quantity must be a non-negative finite number"),
+        ("quantity", -1.0, "quantity must be a non-negative finite number"),
+        ("fill_price", True, "fill_price must be a positive finite number"),
+        ("fill_price", math.inf, "fill_price must be a positive finite number"),
+        ("requested_quantity", -1.0, "requested_quantity must be a non-negative finite number"),
+        ("filled_quantity", math.nan, "filled_quantity must be a non-negative finite number"),
+        ("filled_notional", True, "filled_notional must be a non-negative finite number"),
+        ("unfilled_quantity", -1.0, "unfilled_quantity must be a non-negative finite number"),
+        ("execution_impact_bps", math.inf, "execution_impact_bps must be a non-negative finite number"),
+        ("slippage_bps", math.inf, "slippage_bps must be a finite number"),
+        ("queue_ahead_initial", True, "queue_ahead_initial must be a non-negative finite number"),
+        ("maker_wait_seconds", -1.0, "maker_wait_seconds must be a non-negative finite number"),
+    ],
+)
+def test_execution_fill_rejects_invalid_numeric_contract_fields(field: str, value: object, match: str) -> None:
+    fill_kwargs = {
+        "symbol": "BTCUSDT",
+        "side": "buy",
+        "quantity": 1.0,
+        "filled": True,
+        "fill_price": 100.0,
+        "fill_model": "taker_orderbook",
+        "execution_price_source": "best_ask",
+        "fill_quality": "evidence_backed",
+        "outcome": "filled",
+    }
+    fill_kwargs[field] = value
+
+    with pytest.raises(ValueError, match=match):
+        ExecutionFill(**fill_kwargs)
