@@ -124,6 +124,9 @@ def _record_from_mapping(row: Mapping[str, Any]) -> PassiveOrderCalibrationRecor
     submitted_at = _parse_datetime(row.get("submitted_at"), field_name="submitted_at")
     if submitted_at is None:
         raise ValueError("calibration record missing submitted_at")
+    first_fill_at = _parse_datetime(row.get("first_fill_at"), field_name="first_fill_at")
+    if first_fill_at is not None and first_fill_at < submitted_at:
+        raise ValueError("calibration record first_fill_at must be at or after submitted_at")
     return PassiveOrderCalibrationRecord(
         symbol=str(row.get("symbol", "")).strip().upper(),
         side=str(row.get("side", "")).strip().lower(),
@@ -134,7 +137,7 @@ def _record_from_mapping(row: Mapping[str, Any]) -> PassiveOrderCalibrationRecor
             field_name="intended_limit_price",
         ),
         submitted_at=submitted_at,
-        first_fill_at=_parse_datetime(row.get("first_fill_at"), field_name="first_fill_at"),
+        first_fill_at=first_fill_at,
         last_fill_at=_parse_datetime(row.get("last_fill_at"), field_name="last_fill_at"),
         requested_qty=_float_or_none(row.get("requested_qty")),
         requested_notional=_float_or_none(row.get("requested_notional")),
