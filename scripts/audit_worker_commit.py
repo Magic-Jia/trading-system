@@ -9,6 +9,7 @@ from pathlib import Path
 
 
 FORBIDDEN_FILES = {"memory/dev-status.md"}
+VERIFY = Path(__file__).resolve().parent / "verify.py"
 
 
 def git_lines(command: list[str]) -> list[str]:
@@ -72,7 +73,14 @@ def validate_changed_files(paths: list[str]) -> None:
 
 def verification_plan(changed_files: list[str]) -> dict[str, object]:
     command_argv = [
-        [sys.executable, "scripts/verify.py", "--dry-run", "--json", "--strict-auto-changed", *sum((["--changed", path] for path in changed_files), [])]
+        [
+            sys.executable,
+            str(VERIFY),
+            "--dry-run",
+            "--json",
+            "--strict-auto-changed",
+            *sum((["--changed", path] for path in changed_files), []),
+        ]
     ]
     command = command_argv[0]
     completed = subprocess.run(

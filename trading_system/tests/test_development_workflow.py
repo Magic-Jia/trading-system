@@ -10,6 +10,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 VERIFY = ROOT / "scripts" / "verify.py"
+SANITIZED_VERIFY = ROOT / "scripts" / "trading_system_sanitized_verify.sh"
 
 SUITE_INVENTORY_JSON_KEYS = {"inventory_fingerprint", "inventory_kind", "inventory_version", "plan_version", "suites"}
 VERIFICATION_PLAN_JSON_KEYS = {
@@ -47,6 +48,14 @@ NIGHTLY_PLAN_JSON_KEYS = {
     "suites",
     "unset_env",
 }
+SANITIZED_VERIFY_CONTRACT_JSON_KEYS = {
+    "command_argv",
+    "contract_kind",
+    "contract_version",
+    "entrypoint",
+    "python",
+    "unset_env",
+}
 
 
 def run_verify(*args: str) -> subprocess.CompletedProcess[str]:
@@ -56,6 +65,27 @@ def run_verify(*args: str) -> subprocess.CompletedProcess[str]:
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
+        check=False,
+    )
+
+
+def run_sanitized_verify(
+    *args: str,
+    env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
+    merged_env = None
+    if env is not None:
+        import os
+
+        merged_env = os.environ.copy()
+        merged_env.update(env)
+    return subprocess.run(
+        [str(SANITIZED_VERIFY), *args],
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=merged_env,
         check=False,
     )
 
@@ -450,6 +480,48 @@ def test_verify_validates_test_paths_from_argv_not_display_commands() -> None:
         ["python3", "-m", "pytest", "-q", "trading_system/tests/test_development_workflow.py"],
         ["git", "diff", "--check", "HEAD"],
     ])
+
+
+def test_sanitized_verify_contract_uses_deterministic_python_and_unsets_trading_env() -> None:
+    result = run_sanitized_verify("--dry-run", "--json")
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert set(payload) == SANITIZED_VERIFY_CONTRACT_JSON_KEYS
+    assert payload["contract_version"] == 1
+    assert payload["contract_kind"] == "sanitized_verification_environment"
+    assert payload["entrypoint"] == "trading_system_sanitized_verify"
+    assert payload["python"] == "/home/cn/.hermes/hermes-agent/venv/bin/python"
+    assert payload["command_argv"] == [
+        "/home/cn/.hermes/hermes-agent/venv/bin/python",
+        "scripts/verify.py",
+    ]
+    assert "TRADING_RUNTIME_ENV" in payload["unset_env"]
+    assert "TRADING_ENTRY_PROFILE" in payload["unset_env"]
+    assert "TRADING_BASE_DIR" in payload["unset_env"]
+
+
+def test_sanitized_verify_clears_trading_env_but_preserves_non_trading_env() -> None:
+    result = run_sanitized_verify(
+        "--print-env",
+        env={
+            "TRADING_RUNTIME_ENV": "testnet",
+            "TRADING_ENTRY_PROFILE": "live",
+            "TRADING_BASE_DIR": "/tmp/real-trading-state",
+            "TRADING_STATE_FILE": "/tmp/real-state.json",
+            "SANITIZED_VERIFY_SENTINEL": "still-available",
+        },
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload == {
+        "SANITIZED_VERIFY_SENTINEL": "still-available",
+        "TRADING_BASE_DIR": None,
+        "TRADING_ENTRY_PROFILE": None,
+        "TRADING_RUNTIME_ENV": None,
+        "TRADING_STATE_FILE": None,
+    }
 
 
 def test_ci_verify_entrypoint_runs_strict_workflow_and_evidence_chain() -> None:

@@ -117,6 +117,7 @@ IMPACT_RULES: tuple[tuple[str, list[str]], ...] = (
     ("scripts/audit_worker_commit.py", SUITES["workflow-meta"]),
     ("scripts/ci_verify.py", SUITES["workflow-meta"]),
     ("scripts/nightly_verify.py", SUITES["workflow-meta"]),
+    ("scripts/trading_system_sanitized_verify.sh", SUITES["workflow-meta"]),
     ("scripts/verify.py", SUITES["workflow-meta"]),
     ("trading_system/tests/test_development_workflow", SUITES["workflow-meta"]),
     ("AGENTS.md", SUITES["workflow-meta"]),
@@ -124,6 +125,7 @@ IMPACT_RULES: tuple[tuple[str, list[str]], ...] = (
     ("trading_system/README.md", SUITES["workflow-meta"]),
     ("trading_system/app/README.md", SUITES["workflow-meta"]),
     ("docs/development-workflow.md", SUITES["workflow-meta"]),
+    ("docs/plans/", SUITES["workflow-meta"]),
     ("templates/", SUITES["workflow-meta"]),
     ("trading_system/app/", SUITES["app-smoke"]),
 )

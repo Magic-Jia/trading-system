@@ -173,6 +173,15 @@ def test_audit_worker_commit_maps_agent_rules_to_workflow_meta() -> None:
     assert "trading_system/tests/test_development_workflow_worker_audit.py" in payload["verification_plan"]["tests"]
 
 
+def test_audit_worker_commit_maps_sanitized_verify_wrapper_to_workflow_meta() -> None:
+    result = run_audit(ROOT, "--changed-file", "scripts/trading_system_sanitized_verify.sh")
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert "trading_system/tests/test_development_workflow.py" in payload["verification_plan"]["tests"]
+    assert "trading_system/tests/test_development_workflow_worker_audit.py" in payload["verification_plan"]["tests"]
+
+
 def test_audit_worker_commit_maps_readme_changes_to_workflow_meta() -> None:
     result = run_audit(ROOT, "--changed-file", "README.md")
 
