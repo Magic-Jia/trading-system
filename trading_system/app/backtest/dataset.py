@@ -232,6 +232,11 @@ _ACCOUNT_TIME_FIELDS = (
     "as_of",
     "timestamp",
 )
+_ACCOUNT_TIME_EQUAL_ALIAS_GROUPS = (
+    ("lastUpdateTime", "last_update_time"),
+    ("updateTime", "update_time"),
+    ("eventTime", "event_time"),
+)
 _ACCOUNT_ENUM_FIELDS = {
     "account_type": {"FUTURES", "MARGIN", "PORTFOLIO_MARGIN", "SPOT"},
     "accountType": {"FUTURES", "MARGIN", "PORTFOLIO_MARGIN", "SPOT"},
@@ -574,6 +579,12 @@ def validate_account_snapshot_identity(account: object, *, path: Path) -> None:
     for field in _ACCOUNT_TIME_FIELDS:
         if field in account:
             _require_account_utc_iso_timestamp(account[field], field_path=f"account.{field}", path=path)
+    _validate_account_timestamp_alias_parity(
+        account,
+        field_path="account",
+        path=path,
+        alias_groups=_ACCOUNT_TIME_EQUAL_ALIAS_GROUPS,
+    )
     _validate_account_time_order(account, path=path)
     _validate_open_position_identity_fields(account, path=path)
 
