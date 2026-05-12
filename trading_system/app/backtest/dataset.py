@@ -721,6 +721,7 @@ def _validate_open_position_time_order(position: dict, *, field_prefix: str, pat
             ("event_time", "eventTime"),
             ("trade_time", "tradeTime"),
             ("close_time", "closeTime"),
+            ("closed_at", "closedAt"),
             ("settlement_time", "settlementTime"),
             ("expiry_time", "expiryTime"),
         ):
