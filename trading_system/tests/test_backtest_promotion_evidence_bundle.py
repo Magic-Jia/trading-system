@@ -678,6 +678,41 @@ def test_bundle_verifier_rejects_artifact_bytes_int_subclass(
     assert "artifact_bytes_invalid_domain" in result["manifest_errors"]
 
 
+def test_bundle_verifier_rejects_artifact_sha256_string_subclass(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class ArtifactSha256(str):
+        pass
+
+    source = tmp_path / "source"
+    source.mkdir()
+    for name in REQUIRED_ARTIFACTS:
+        _write_json(source / name, {"artifact": name, "synthetic": True})
+    bundle_dir = collect_promotion_evidence_bundle(
+        source,
+        tmp_path / "bundle",
+        candidate_id="candidate-1",
+        evidence_source={"type": "promotion_bundle_export", "run_id": "bundle-1"},
+    )
+    manifest_path = bundle_dir / "promotion_evidence_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    artifact_path = REQUIRED_ARTIFACTS[0]
+    manifest["artifacts"][0]["sha256"] = ArtifactSha256(manifest["artifacts"][0]["sha256"])
+
+    def load_manifest_with_sha256_subclass(_text: str) -> dict:
+        return manifest
+
+    monkeypatch.setattr(promotion_bundle.json, "loads", load_manifest_with_sha256_subclass)
+
+    result = verify_promotion_evidence_bundle(bundle_dir)
+
+    assert result["verified"] is False
+    assert result["invalid_artifact_metadata"] == [f"{artifact_path}:sha256"]
+    assert "artifact_metadata_invalid" in result["manifest_errors"]
+    assert "artifact_sha256_invalid_format" in result["manifest_errors"]
+
+
 def test_bundle_verifier_rejects_duplicate_artifact_manifest_entries(tmp_path: Path) -> None:
     source = tmp_path / "source"
     source.mkdir()

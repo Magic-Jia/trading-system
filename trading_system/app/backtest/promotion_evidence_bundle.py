@@ -496,7 +496,7 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
         expected_bytes_raw = artifact.get("bytes")
         if expected_sha is None:
             missing_metadata.append(rel_path)
-        elif not isinstance(expected_sha, str) or not _SHA256_HEX_RE.fullmatch(expected_sha):
+        elif not _is_exact_string(expected_sha) or not _SHA256_HEX_RE.fullmatch(expected_sha):
             invalid_metadata.append(f"{rel_path}:sha256")
         elif actual_sha != expected_sha:
             sha_mismatches.append(rel_path)
