@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from trading_system.app.backtest import dataset as backtest_dataset
 from trading_system.app.backtest.archive import importer as archive_importer
 from trading_system.app.backtest.archive.importer import (
     _material_market_context_symbol_keys,
@@ -2883,6 +2884,59 @@ def test_write_phase1_dataset_bundle_rejects_conflicting_open_position_source_al
     with pytest.raises(
         ValueError,
         match=rf"account\.open_positions\[0\]\.{alias} must equal {canonical}",
+    ):
+        write_phase1_dataset_bundle(material, tmp_path)
+
+    assert not expected_bundle_dir.exists()
+
+
+def test_write_phase1_dataset_bundle_rejects_conflicting_open_position_venue_exchange_aliases_without_artifact(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setitem(backtest_dataset._ACCOUNT_OPEN_POSITION_UPPERCASE_ENUM_FIELDS, "venue", {"BINANCE", "COINBASE"})
+    monkeypatch.setitem(
+        backtest_dataset._ACCOUNT_OPEN_POSITION_UPPERCASE_ENUM_FIELDS,
+        "exchange",
+        {"BINANCE", "COINBASE"},
+    )
+    timestamp = datetime(2024, 1, 1, tzinfo=UTC)
+    material = archive_importer.Phase1DatasetBundleMaterial(
+        timestamp=timestamp,
+        run_id=archive_importer._run_id(timestamp),
+        metadata={"timestamp": "2024-01-01T00:00:00Z", "run_id": archive_importer._run_id(timestamp)},
+        market_context={
+            "schema_version": archive_importer.PHASE1_IMPORTER_MARKET_CONTEXT_SCHEMA,
+            "as_of": "2024-01-01T00:00:00Z",
+            "symbols": {"BTCUSDT": {}},
+            "instrument_rows": [],
+        },
+        derivatives_snapshot={
+            "schema_version": archive_importer.PHASE1_IMPORTER_DERIVATIVES_SCHEMA,
+            "as_of": "2024-01-01T00:00:00Z",
+            "rows": [],
+        },
+        account_snapshot={
+            "schema_version": archive_importer.PHASE1_IMPORTER_ACCOUNT_SCHEMA,
+            "as_of": "2024-01-01T00:00:00Z",
+            "equity": 100000.0,
+            "open_positions": [
+                {
+                    "symbol": "BTCUSDT",
+                    "side": "LONG",
+                    "venue": "BINANCE",
+                    "exchange": "COINBASE",
+                    "qty": 0.5,
+                    "entry_price": 60000.0,
+                    "mark_price": 61000.0,
+                }
+            ],
+        },
+    )
+    expected_bundle_dir = tmp_path / f"{archive_importer._bundle_fragment(timestamp)}__{material.run_id}"
+
+    with pytest.raises(
+        ValueError,
+        match=r"account\.open_positions\[0\]\.exchange must equal venue",
     ):
         write_phase1_dataset_bundle(material, tmp_path)
 

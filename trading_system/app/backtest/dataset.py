@@ -423,6 +423,9 @@ _ACCOUNT_OPEN_POSITION_UPPERCASE_ENUM_FIELDS = {
     "venue": {"BINANCE"},
     "exchange": {"BINANCE"},
 }
+_ACCOUNT_OPEN_POSITION_VENUE_EXCHANGE_ALIAS_GROUPS = (
+    ("venue", "exchange"),
+)
 _ACCOUNT_OPEN_POSITION_ENUM_FIELDS = {
     "side": {"LONG", "SHORT"},
     "positionSide": {"LONG", "SHORT"},
@@ -739,6 +742,12 @@ def _validate_open_position_identity_fields(account: dict, *, path: Path) -> Non
                 if value not in allowed:
                     allowed_values = ", ".join(sorted(allowed))
                     raise ValueError(f"{field_prefix}.{field} must be one of {allowed_values}: {path}")
+        _validate_account_string_alias_parity(
+            position,
+            field_path=field_prefix,
+            path=path,
+            alias_groups=_ACCOUNT_OPEN_POSITION_VENUE_EXCHANGE_ALIAS_GROUPS,
+        )
         _validate_account_string_alias_parity(
             position,
             field_path=field_prefix,

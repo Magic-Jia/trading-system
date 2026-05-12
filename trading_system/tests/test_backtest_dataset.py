@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from trading_system.app.backtest.config import load_backtest_config
+from trading_system.app.backtest import dataset as backtest_dataset
 from trading_system.app.backtest.dataset import (
     load_dataset_root_metadata,
     load_historical_dataset,
@@ -2004,6 +2005,47 @@ def test_load_historical_dataset_rejects_malformed_open_position_origin_aliases_
     (bundle / "account_snapshot.json").write_text(json.dumps(account_snapshot), encoding="utf-8")
 
     with pytest.raises(ValueError, match=expected_message):
+        load_historical_dataset(dataset_root)
+
+
+def test_load_historical_dataset_rejects_conflicting_open_position_venue_exchange_aliases_before_load(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setitem(backtest_dataset._ACCOUNT_OPEN_POSITION_UPPERCASE_ENUM_FIELDS, "venue", {"BINANCE", "COINBASE"})
+    monkeypatch.setitem(
+        backtest_dataset._ACCOUNT_OPEN_POSITION_UPPERCASE_ENUM_FIELDS,
+        "exchange",
+        {"BINANCE", "COINBASE"},
+    )
+    dataset_root = tmp_path / "sample_dataset"
+    bundle = dataset_root / "2026-03-10T00-00-00Z__sample-001"
+    bundle.mkdir(parents=True)
+    (bundle / "metadata.json").write_text(
+        '{"timestamp": "2026-03-10T00:00:00Z", "run_id": "sample-001"}',
+        encoding="utf-8",
+    )
+    (bundle / "market_context.json").write_text('{"symbols": {"BTCUSDT": {}}}', encoding="utf-8")
+    (bundle / "derivatives_snapshot.json").write_text('{"rows": []}', encoding="utf-8")
+    account_snapshot = {
+        "equity": 100000.0,
+        "open_positions": [
+            {
+                "symbol": "BTCUSDT",
+                "side": "LONG",
+                "venue": "BINANCE",
+                "exchange": "COINBASE",
+                "qty": 0.5,
+                "entry_price": 60000.0,
+                "mark_price": 61000.0,
+            }
+        ],
+    }
+    (bundle / "account_snapshot.json").write_text(json.dumps(account_snapshot), encoding="utf-8")
+
+    with pytest.raises(
+        ValueError,
+        match=r"account\.open_positions\[0\]\.exchange must equal venue",
+    ):
         load_historical_dataset(dataset_root)
 
 
