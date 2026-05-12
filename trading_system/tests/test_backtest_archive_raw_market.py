@@ -209,6 +209,53 @@ def test_archive_raw_market_payload_rejects_boolean_coverage_start_before_archiv
     assert not archive_root.exists()
 
 
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("coverage_start", "2026-01-01T00:00:00"),
+        ("coverage_end", "2026-01-01T01:00:00+00:00"),
+        ("fetched_at", "2026-01-01 01:01:00Z"),
+        ("coverage_start", "1767225600000"),
+    ],
+)
+def test_archive_raw_market_payload_rejects_noncanonical_archive_timestamps_before_side_effects(
+    tmp_path: Path,
+    field: str,
+    value: str,
+) -> None:
+    archive_root = tmp_path / "archive"
+    kwargs = {
+        "archive_root": archive_root,
+        "exchange": "binance",
+        "market": "futures",
+        "dataset": "ohlcv",
+        "symbol": "BTCUSDT",
+        "timeframe": "1h",
+        "coverage_start": "2026-01-01T00:00:00Z",
+        "coverage_end": "2026-01-01T01:00:00Z",
+        "fetched_at": "2026-01-01T01:01:00Z",
+        "endpoint": "/fapi/v1/klines",
+        "payload": {
+            "rows": [
+                {
+                    "open_time": "2026-01-01T00:00:00Z",
+                    "open": 100.0,
+                    "high": 101.0,
+                    "low": 99.0,
+                    "close": 100.5,
+                    "volume": 10.0,
+                },
+            ]
+        },
+    }
+    kwargs[field] = value
+
+    with pytest.raises(ValueError, match=f"raw-market {field} must be a canonical UTC Z timestamp"):
+        archive_raw_market_payload(**kwargs)
+
+    assert not archive_root.exists()
+
+
 def test_raw_market_data_quality_reports_timestamp_uniqueness(tmp_path: Path) -> None:
     from trading_system.app.backtest.archive.data_quality import build_raw_market_data_quality_report
 
@@ -1343,6 +1390,76 @@ def test_load_raw_market_manifest_rejects_source_exchange_mismatch(tmp_path: Pat
 
     with pytest.raises(ValueError, match="raw-market manifest source must match exchange"):
         load_phase1_raw_market_manifest(manifest_path)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("exchange", "kraken"),
+        ("market", "spot"),
+        ("dataset", "funding"),
+        ("symbol", "ETHUSDT"),
+        ("timeframe", "5m"),
+    ],
+)
+def test_load_raw_market_manifest_rejects_scope_identity_drift(
+    tmp_path: Path,
+    field: str,
+    value: str,
+) -> None:
+    archived = archive_raw_market_payload(
+        archive_root=tmp_path / "archive",
+        exchange="binance",
+        market="futures",
+        dataset="ohlcv",
+        symbol="BTCUSDT",
+        timeframe="1h",
+        coverage_start="2026-01-01T00:00:00Z",
+        coverage_end="2026-01-01T02:00:00Z",
+        fetched_at="2026-01-01T02:01:00Z",
+        endpoint="/fapi/v1/klines",
+        payload={
+            "rows": [
+                {"open_time": "2026-01-01T00:00:00Z", "open": 100.0, "high": 101.0, "low": 99.0, "close": 100.5, "volume": 10.0},
+                {"open_time": "2026-01-01T01:00:00Z", "open": 100.5, "high": 102.0, "low": 100.0, "close": 101.0, "volume": 12.0},
+            ]
+        },
+    )
+    manifest = json.loads(archived.manifest_path.read_text(encoding="utf-8"))
+    manifest[field] = value
+    archived.manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    with pytest.raises(ValueError, match=f"raw-market manifest {field} must match canonical archive identity"):
+        load_phase1_raw_market_manifest(archived.manifest_path)
+
+
+def test_load_raw_market_manifest_rejects_file_path_identity_drift(tmp_path: Path) -> None:
+    archived = archive_raw_market_payload(
+        archive_root=tmp_path / "archive",
+        exchange="binance",
+        market="futures",
+        dataset="ohlcv",
+        symbol="BTCUSDT",
+        timeframe="1h",
+        coverage_start="2026-01-01T00:00:00Z",
+        coverage_end="2026-01-01T02:00:00Z",
+        fetched_at="2026-01-01T02:01:00Z",
+        endpoint="/fapi/v1/klines",
+        payload={
+            "rows": [
+                {"open_time": "2026-01-01T00:00:00Z", "open": 100.0, "high": 101.0, "low": 99.0, "close": 100.5, "volume": 10.0},
+                {"open_time": "2026-01-01T01:00:00Z", "open": 100.5, "high": 102.0, "low": 100.0, "close": 101.0, "volume": 12.0},
+            ]
+        },
+    )
+    copied_data_path = archived.data_path.with_name("copied-payload.json")
+    copied_data_path.write_bytes(archived.data_path.read_bytes())
+    manifest = json.loads(archived.manifest_path.read_text(encoding="utf-8"))
+    manifest["file"]["path"] = str(copied_data_path)
+    archived.manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="raw-market manifest file.path must match canonical archive path"):
+        load_phase1_raw_market_manifest(archived.manifest_path)
 
 
 

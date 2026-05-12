@@ -4,10 +4,11 @@ import hashlib
 import csv
 import io
 import json
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 RAW_MARKET_ROOT_DIRNAME = "raw-market"
 RAW_MARKET_MANIFEST_SCHEMA_VERSION = "raw_market_manifest.v1"
@@ -31,6 +32,7 @@ PHASE1_RAW_MARKET_DATASET_ALIASES = {
     "agg_trades": "trades",
     "agg-trades": "trades",
 }
+CANONICAL_UTC_TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$")
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,6 +82,15 @@ def _utc_timestamp(value: str) -> str:
     return parsed.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
+def _is_canonical_utc_timestamp(value: str) -> bool:
+    if not isinstance(value, str) or value != value.strip() or not CANONICAL_UTC_TIMESTAMP_RE.fullmatch(value):
+        return False
+    try:
+        return _utc_timestamp(value) == value
+    except ValueError:
+        return False
+
+
 def _timestamp_fragment(value: str) -> str:
     return _utc_timestamp(value).replace(":", "-")
 
@@ -87,7 +98,9 @@ def _timestamp_fragment(value: str) -> str:
 def _archive_timestamp(value: Any, *, field: str) -> str:
     if not isinstance(value, str):
         raise ValueError(f"raw-market {field} must be a string timestamp")
-    return _utc_timestamp(value)
+    if not _is_canonical_utc_timestamp(value):
+        raise ValueError(f"raw-market {field} must be a canonical UTC Z timestamp")
+    return value
 
 
 def _utc_datetime(value: str | int | float) -> datetime:
@@ -107,9 +120,9 @@ def _utc_datetime(value: str | int | float) -> datetime:
         raise ValueError("timestamp value must be canonical")
     if normalized.isdigit():
         return datetime.fromtimestamp(int(normalized) / 1000.0, tz=timezone.utc)
+    if not _is_canonical_utc_timestamp(normalized):
+        raise ValueError("timestamp value must be a canonical UTC Z timestamp")
     parsed = datetime.fromisoformat(normalized.replace("Z", "+00:00"))
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
     return parsed.astimezone(timezone.utc)
 
 
@@ -279,6 +292,39 @@ def _manifest_timeframe(manifest: dict[str, Any]) -> str | None:
     return value
 
 
+def _manifest_parent_identity(manifest_path: Path) -> tuple[str, str, str, str, str | None]:
+    parts = manifest_path.parent.parts
+    marker_indexes = [index for index, part in enumerate(parts) if part == RAW_MARKET_ROOT_DIRNAME]
+    if not marker_indexes:
+        raise ValueError(f"raw-market manifest path must be inside {RAW_MARKET_ROOT_DIRNAME}: {manifest_path}")
+    root_index = marker_indexes[-1]
+    identity_parts = parts[root_index + 1 :]
+    if len(identity_parts) == 4:
+        exchange, market, dataset, symbol = identity_parts
+        timeframe = None
+    elif len(identity_parts) == 5:
+        exchange, market, dataset, symbol, timeframe = identity_parts
+    else:
+        raise ValueError(f"raw-market manifest path must match archive identity layout: {manifest_path}")
+    return exchange, market, dataset, symbol, timeframe
+
+
+def _manifest_scope_value(
+    manifest: dict[str, Any],
+    key: str,
+    *,
+    expected: str | None,
+    manifest_path: Path,
+) -> str:
+    if key == "timeframe":
+        value = _manifest_timeframe(manifest)
+    else:
+        value = _required_manifest_value(manifest, key, manifest_path=manifest_path)
+    if value is None:
+        raise ValueError(f"raw-market manifest {key} must match canonical archive identity: {manifest_path}")
+    return value
+
+
 def _manifest_data_path(manifest: dict[str, Any], *, manifest_path: Path) -> Path:
     file_payload = manifest.get("file")
     if not isinstance(file_payload, dict):
@@ -297,6 +343,9 @@ def _manifest_data_path(manifest: dict[str, Any], *, manifest_path: Path) -> Pat
     resolved_path = path.resolve()
     if resolved_path != resolved_manifest_dir and resolved_manifest_dir not in resolved_path.parents:
         raise ValueError(f"raw-market manifest file.path must be safe: {manifest_path}")
+    expected_path = manifest_path.with_name(manifest_path.name.removesuffix(".manifest.json") + ".json")
+    if resolved_path != expected_path.resolve():
+        raise ValueError(f"raw-market manifest file.path must match canonical archive path: {manifest_path}")
     return path
 
 
@@ -401,12 +450,43 @@ def _validated_import_scope(manifest: dict[str, Any], *, manifest_path: Path) ->
     schema_version = _required_manifest_value(manifest, "schema_version", manifest_path=manifest_path)
     if schema_version != RAW_MARKET_MANIFEST_SCHEMA_VERSION:
         raise ValueError(f"unsupported raw-market manifest schema: {manifest_path}")
+    expected_exchange, expected_market, expected_dataset, expected_symbol, expected_timeframe = _manifest_parent_identity(
+        manifest_path
+    )
+    exchange = _manifest_scope_value(manifest, "exchange", expected=expected_exchange, manifest_path=manifest_path)
+    market = _manifest_scope_value(manifest, "market", expected=expected_market, manifest_path=manifest_path)
+    dataset = _manifest_scope_value(manifest, "dataset", expected=expected_dataset, manifest_path=manifest_path)
+    symbol = _manifest_scope_value(manifest, "symbol", expected=expected_symbol, manifest_path=manifest_path)
+    if expected_timeframe is None:
+        if "timeframe" in manifest:
+            raise ValueError(f"raw-market manifest timeframe must match canonical archive identity: {manifest_path}")
+        timeframe = None
+    else:
+        timeframe = _manifest_scope_value(
+            manifest,
+            "timeframe",
+            expected=expected_timeframe,
+            manifest_path=manifest_path,
+        )
+    normalized_exchange = _normalized_segment(exchange)
+    normalized_market = _normalized_segment(market)
+    canonical_dataset = _canonical_dataset(dataset)
+    normalized_symbol = _normalized_segment(symbol, lowercase=False)
+    normalized_timeframe = _normalized_segment(timeframe) if timeframe else None
+    expected_scope = (expected_exchange, expected_market, expected_dataset, expected_symbol, expected_timeframe)
+    actual_scope = (normalized_exchange, normalized_market, canonical_dataset, normalized_symbol, normalized_timeframe)
+    if actual_scope != expected_scope:
+        fields = ("exchange", "market", "dataset", "symbol", "timeframe")
+        field = next(
+            name for name, expected_value, actual_value in zip(fields, expected_scope, actual_scope) if actual_value != expected_value
+        )
+        raise ValueError(f"raw-market manifest {field} must match canonical archive identity: {manifest_path}")
     normalized_exchange, normalized_market, canonical_dataset, normalized_symbol, normalized_timeframe = _validated_scope(
-        exchange=_required_manifest_value(manifest, "exchange", manifest_path=manifest_path),
-        market=_required_manifest_value(manifest, "market", manifest_path=manifest_path),
-        dataset=_required_manifest_value(manifest, "dataset", manifest_path=manifest_path),
-        symbol=_required_manifest_value(manifest, "symbol", manifest_path=manifest_path),
-        timeframe=_manifest_timeframe(manifest),
+        exchange=exchange,
+        market=market,
+        dataset=dataset,
+        symbol=symbol,
+        timeframe=timeframe,
     )
     source = _required_manifest_value(manifest, "source", manifest_path=manifest_path)
     if source != normalized_exchange:

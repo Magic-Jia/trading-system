@@ -6637,7 +6637,7 @@ def test_validate_phase1_imported_dataset_root_rejects_out_of_scope_source_manif
     source_manifest["market"] = "spot"
     source_manifest_path.write_text(json.dumps(source_manifest, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    with pytest.raises(ValueError, match="only binance futures raw-market datasets are supported in phase 1"):
+    with pytest.raises(ValueError, match="raw-market manifest market must match canonical archive identity"):
         validate_phase1_imported_dataset_root(dataset_root)
 
 
