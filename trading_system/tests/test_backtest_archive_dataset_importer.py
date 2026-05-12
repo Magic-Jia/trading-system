@@ -251,6 +251,13 @@ def test_archive_root_from_manifest_paths_rejects_non_string_path_entries() -> N
         archive_importer._archive_root_from_manifest_paths([123])
 
 
+def test_archive_root_from_manifest_paths_rejects_parent_traversal_path_entries() -> None:
+    with pytest.raises(ValueError, match="source manifest_paths entries must not contain parent traversal"):
+        archive_importer._archive_root_from_manifest_paths(
+            ["/tmp/archive/raw-market/../raw-market/binance/futures/ohlcv/BTCUSDT/1h/a.manifest.json"]
+        )
+
+
 def test_validated_source_trace_rejects_tuple_manifest_paths_before_loading_manifests() -> None:
     source = {
         "scope": archive_importer.PHASE1_IMPORTER_SCOPE,

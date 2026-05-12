@@ -2445,6 +2445,8 @@ def _archive_root_from_manifest_paths(manifest_paths: Sequence[str]) -> Path | N
     archive_root: Path | None = None
     for value in _require_canonical_string_items(manifest_paths, field="source manifest_paths entries"):
         manifest_path = Path(value)
+        if ".." in manifest_path.parts:
+            raise ValueError("source manifest_paths entries must not contain parent traversal")
         raw_market_root = manifest_path.parent
         while raw_market_root.name != "raw-market" and raw_market_root != raw_market_root.parent:
             raw_market_root = raw_market_root.parent
