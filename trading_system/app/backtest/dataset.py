@@ -749,6 +749,12 @@ def _validate_open_position_time_order(position: dict, *, field_prefix: str, pat
         settlement_field, settlement_time = settlement
         if settlement_time < close_time:
             raise ValueError(f"{field_prefix}.{settlement_field} must be at or after {close_field}: {path}")
+    expiry = _account_first_present_utc_timestamp(position, "expiry_time", "expiryTime")
+    if expiry is not None and settlement is not None:
+        expiry_field, expiry_time = expiry
+        settlement_field, settlement_time = settlement
+        if settlement_time < expiry_time:
+            raise ValueError(f"{field_prefix}.{settlement_field} must be at or after {expiry_field}: {path}")
     order = _account_first_present_utc_timestamp(position, "order_time", "orderTime")
     execution = _account_first_present_utc_timestamp(position, "execution_time", "executionTime")
     if order is not None and execution is not None:

@@ -2848,6 +2848,46 @@ def test_load_historical_dataset_rejects_open_position_settlement_before_opened_
         load_historical_dataset(dataset_root)
 
 
+def test_load_historical_dataset_rejects_open_position_settlement_alias_before_expiry_time(
+    tmp_path: Path,
+) -> None:
+    dataset_root = tmp_path / "sample_dataset"
+    bundle = dataset_root / "2026-03-10T00-00-00Z__sample-001"
+    bundle.mkdir(parents=True)
+    (bundle / "metadata.json").write_text(
+        '{"timestamp": "2026-03-10T00:00:00Z", "run_id": "sample-001"}',
+        encoding="utf-8",
+    )
+    (bundle / "market_context.json").write_text('{"symbols": {"BTCUSDT": {}}}', encoding="utf-8")
+    (bundle / "derivatives_snapshot.json").write_text('{"rows": []}', encoding="utf-8")
+    (bundle / "account_snapshot.json").write_text(
+        json.dumps(
+            {
+                "equity": 100000.0,
+                "open_positions": [
+                    {
+                        "symbol": "BTCUSDT",
+                        "side": "LONG",
+                        "opened_at": "2026-03-10T00:00:00Z",
+                        "expiry_time": "2026-03-10T00:00:03Z",
+                        "settlementTime": "2026-03-10T00:00:02Z",
+                        "qty": 0.5,
+                        "entry_price": 60000.0,
+                        "mark_price": 61000.0,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"account\.open_positions\[0\]\.settlementTime must be at or after expiry_time",
+    ):
+        load_historical_dataset(dataset_root)
+
+
 def test_load_historical_dataset_rejects_noncanonical_metadata_identity_fields(tmp_path: Path) -> None:
     dataset_root = tmp_path / "sample_dataset"
     bundle = dataset_root / "2026-03-10T00-00-00Z__sample-001"
