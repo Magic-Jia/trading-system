@@ -359,6 +359,21 @@ _ACCOUNT_OPEN_POSITION_TIME_FIELDS = (
     "settlement_time",
     "settlementTime",
 )
+_ACCOUNT_OPEN_POSITION_TIME_EQUAL_ALIAS_GROUPS = (
+    ("openedAt", "opened_at"),
+    ("updatedAt", "updated_at"),
+    ("updateTime", "update_time"),
+    ("closedAt", "closed_at"),
+    ("lastUpdateTime", "last_update_time"),
+    ("eventTime", "event_time"),
+    ("tradeTime", "trade_time"),
+    ("executionTime", "execution_time"),
+    ("fillTime", "fill_time"),
+    ("orderTime", "order_time"),
+    ("closeTime", "close_time"),
+    ("expiryTime", "expiry_time"),
+    ("settlementTime", "settlement_time"),
+)
 _ACCOUNT_IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9_.:-]+$")
 _ACCOUNT_ASSET_CODE_RE = re.compile(r"^[A-Z0-9]+$")
 _ACCOUNT_OPEN_POSITION_UPPERCASE_IDENTITY_FIELDS = (
@@ -638,6 +653,12 @@ def _validate_open_position_identity_fields(account: dict, *, path: Path) -> Non
         for field in _ACCOUNT_OPEN_POSITION_TIME_FIELDS:
             if field in position:
                 _require_account_utc_iso_timestamp(position[field], field_path=f"{field_prefix}.{field}", path=path)
+        _validate_account_timestamp_alias_parity(
+            position,
+            field_path=field_prefix,
+            path=path,
+            alias_groups=_ACCOUNT_OPEN_POSITION_TIME_EQUAL_ALIAS_GROUPS,
+        )
         _validate_open_position_time_order(position, field_prefix=field_prefix, path=path)
         for field in _ACCOUNT_OPEN_POSITION_UPPERCASE_IDENTITY_FIELDS:
             if field in position:
@@ -776,6 +797,20 @@ def _require_account_asset_code(value: object, *, field_path: str, path: Path) -
 
 
 def _validate_account_asset_code_alias_parity(
+    payload: dict,
+    *,
+    field_path: str,
+    path: Path,
+    alias_groups: tuple[tuple[str, str], ...],
+) -> None:
+    for canonical, alias in alias_groups:
+        if canonical not in payload or alias not in payload:
+            continue
+        if payload[alias] != payload[canonical]:
+            raise ValueError(f"{field_path}.{alias} must equal {canonical}: {path}")
+
+
+def _validate_account_timestamp_alias_parity(
     payload: dict,
     *,
     field_path: str,
