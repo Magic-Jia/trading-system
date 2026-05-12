@@ -429,6 +429,7 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
     unsafe_paths: list[str] = []
     missing_metadata: list[str] = []
     invalid_metadata: list[str] = []
+    unknown_artifact_metadata: list[str] = []
     source_path_blank_metadata: list[str] = []
     source_path_noncanonical_metadata: list[str] = []
     modified_at_mismatch_metadata: list[str] = []
@@ -453,6 +454,7 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
         artifact_metadata_label = rel_path
         if unknown_artifact_fields:
             for field in unknown_artifact_fields:
+                unknown_artifact_metadata.append(f"{artifact_metadata_label}:{field}")
                 invalid_metadata.append(f"{artifact_metadata_label}:{field}")
         if rel_path in seen_artifact_paths:
             duplicate_artifact_paths.append(rel_path)
@@ -595,7 +597,11 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
         schema_valid = False
         manifest_errors.append("artifact_metadata_invalid")
     metadata_reason_keys = _promotion_artifact_metadata_reason_keys(
-        [item for item in invalid_metadata if item not in modified_at_mismatch_metadata]
+        [
+            item
+            for item in invalid_metadata
+            if item not in modified_at_mismatch_metadata and item not in unknown_artifact_metadata
+        ]
     )
     if metadata_reason_keys:
         schema_valid = False
@@ -610,13 +616,7 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
         schema_valid = False
         manifest_errors.append("artifact_source_path_noncanonical")
     unknown_artifact_field_names = sorted(
-        {
-            item.split(":", 1)[1]
-            for item in invalid_metadata
-            if isinstance(item, str)
-            and ":" in item
-            and item.rsplit(":", 1)[1] not in {"sha256", "source_path", "bytes", "modified_at"}
-        }
+        {item.split(":", 1)[1] for item in unknown_artifact_metadata if isinstance(item, str)}
     )
     for field in unknown_artifact_field_names:
         manifest_errors.append(f"unknown_artifact_field: {field}")
