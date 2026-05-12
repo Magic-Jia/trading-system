@@ -478,6 +478,48 @@ _ACCOUNT_OPEN_ORDER_POSITION_RECONCILIATION_BOOL_FIELDS = (
 _ACCOUNT_OPEN_ORDER_SYMBOL_FIELDS = ("symbol",)
 _ACCOUNT_OPEN_ORDER_SIDE_FIELDS = ("side", "orderSide")
 _ACCOUNT_OPEN_ORDER_QTY_FIELDS = ("qty", "quantity", "origQty", "orig_qty")
+_ACCOUNT_OPEN_ORDER_CREATED_TIME_FIELDS = ("created_at", "createdAt", "create_time", "createTime", "time")
+_ACCOUNT_OPEN_ORDER_UPDATED_TIME_FIELDS = ("updated_at", "updatedAt", "update_time", "updateTime")
+_ACCOUNT_OPEN_ORDER_FILLED_TIME_FIELDS = ("filled_at", "filledAt", "fill_time", "fillTime")
+_ACCOUNT_OPEN_ORDER_CANCELED_TIME_FIELDS = ("canceled_at", "canceledAt", "cancel_time", "cancelTime")
+_ACCOUNT_OPEN_ORDER_EXPIRED_TIME_FIELDS = ("expired_at", "expiredAt", "expire_time", "expireTime")
+_ACCOUNT_OPEN_ORDER_LIFECYCLE_TIME_FIELDS = (
+    *_ACCOUNT_OPEN_ORDER_CREATED_TIME_FIELDS,
+    *_ACCOUNT_OPEN_ORDER_UPDATED_TIME_FIELDS,
+    *_ACCOUNT_OPEN_ORDER_FILLED_TIME_FIELDS,
+    *_ACCOUNT_OPEN_ORDER_CANCELED_TIME_FIELDS,
+    *_ACCOUNT_OPEN_ORDER_EXPIRED_TIME_FIELDS,
+)
+_ACCOUNT_OPEN_ORDER_FILLED_COUNTER_FIELDS = ("filled_qty", "filledQty", "executed_qty", "executedQty")
+_ACCOUNT_OPEN_ORDER_CANCELED_COUNTER_FIELDS = ("canceled_qty", "canceledQty")
+_ACCOUNT_OPEN_ORDER_EXPIRED_COUNTER_FIELDS = ("expired_qty", "expiredQty")
+_ACCOUNT_OPEN_ORDER_LIFECYCLE_COUNTER_FIELDS = (
+    *_ACCOUNT_OPEN_ORDER_FILLED_COUNTER_FIELDS,
+    *_ACCOUNT_OPEN_ORDER_CANCELED_COUNTER_FIELDS,
+    *_ACCOUNT_OPEN_ORDER_EXPIRED_COUNTER_FIELDS,
+)
+_ACCOUNT_OPEN_ORDER_TERMINAL_STATUS_EVIDENCE = {
+    "FILLED": (
+        _ACCOUNT_OPEN_ORDER_FILLED_TIME_FIELDS,
+        _ACCOUNT_OPEN_ORDER_FILLED_COUNTER_FIELDS,
+        "filled_at or fill_time",
+    ),
+    "CANCELED": (
+        _ACCOUNT_OPEN_ORDER_CANCELED_TIME_FIELDS,
+        _ACCOUNT_OPEN_ORDER_CANCELED_COUNTER_FIELDS,
+        "canceled_at or cancel_time",
+    ),
+    "CANCELLED": (
+        _ACCOUNT_OPEN_ORDER_CANCELED_TIME_FIELDS,
+        _ACCOUNT_OPEN_ORDER_CANCELED_COUNTER_FIELDS,
+        "canceled_at or cancel_time",
+    ),
+    "EXPIRED": (
+        _ACCOUNT_OPEN_ORDER_EXPIRED_TIME_FIELDS,
+        _ACCOUNT_OPEN_ORDER_EXPIRED_COUNTER_FIELDS,
+        "expired_at or expire_time",
+    ),
+}
 _ACCOUNT_OPEN_POSITION_TERMINAL_STATUS_VALUES = {"CLOSED", "SKIPPED", "FAILED", "CANCELLED", "CANCELED", "FILLED"}
 _ACCOUNT_OPEN_POSITION_OPEN_STATUS_VALUES = {"OPEN"}
 
@@ -887,6 +929,80 @@ def _account_order_qty(order: dict, *, index: int, path: Path) -> float | None:
     return _validate_account_positive_number(value, field_path=f"account.open_orders[{index}].{field}", path=path)
 
 
+def _validate_account_non_negative_number(value: object, *, field_path: str, path: Path) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{field_path} must be a non-negative finite number: {path}")
+    number = float(value)
+    if not math.isfinite(number) or number < 0.0:
+        raise ValueError(f"{field_path} must be a non-negative finite number: {path}")
+    return number
+
+
+def _account_order_lifecycle_number(
+    order: dict,
+    fields: tuple[str, ...],
+    *,
+    field_prefix: str,
+    path: Path,
+) -> tuple[str, float] | None:
+    found = _account_first_present_value(order, fields)
+    if found is None:
+        return None
+    field, value = found
+    return field, _validate_account_non_negative_number(value, field_path=f"{field_prefix}.{field}", path=path)
+
+
+def _validate_open_order_lifecycle(order: dict, *, field_prefix: str, path: Path) -> None:
+    for field in _ACCOUNT_OPEN_ORDER_LIFECYCLE_TIME_FIELDS + _ACCOUNT_OPEN_ORDER_LIFECYCLE_COUNTER_FIELDS:
+        if field in order:
+            _validate_account_non_negative_number(order[field], field_path=f"{field_prefix}.{field}", path=path)
+
+    created = _account_order_lifecycle_number(
+        order,
+        _ACCOUNT_OPEN_ORDER_CREATED_TIME_FIELDS,
+        field_prefix=field_prefix,
+        path=path,
+    )
+    updated = _account_order_lifecycle_number(
+        order,
+        _ACCOUNT_OPEN_ORDER_UPDATED_TIME_FIELDS,
+        field_prefix=field_prefix,
+        path=path,
+    )
+    if created is not None and updated is not None:
+        created_field, created_at = created
+        updated_field, updated_at = updated
+        if updated_at < created_at:
+            raise ValueError(f"{field_prefix}.{updated_field} must be at or after {created_field}: {path}")
+
+    lower_bound = updated if updated is not None else created
+    if lower_bound is not None:
+        lower_field, lower_value = lower_bound
+        for fields in (
+            _ACCOUNT_OPEN_ORDER_CANCELED_TIME_FIELDS,
+            _ACCOUNT_OPEN_ORDER_FILLED_TIME_FIELDS,
+            _ACCOUNT_OPEN_ORDER_EXPIRED_TIME_FIELDS,
+        ):
+            terminal = _account_order_lifecycle_number(order, fields, field_prefix=field_prefix, path=path)
+            if terminal is None:
+                continue
+            terminal_field, terminal_value = terminal
+            if terminal_value < lower_value:
+                raise ValueError(f"{field_prefix}.{terminal_field} must be at or after {lower_field}: {path}")
+
+    status = _account_first_present_value(order, ("status", "order_status", "orderStatus", "state"))
+    if status is None:
+        return
+    status_field, status_value = status
+    status_text = _require_account_canonical_string(status_value, field_path=f"{field_prefix}.{status_field}", path=path)
+    terminal = _ACCOUNT_OPEN_ORDER_TERMINAL_STATUS_EVIDENCE.get(status_text.upper())
+    if terminal is None:
+        return
+    time_fields, counter_fields, evidence_label = terminal
+    if _account_first_present_value(order, time_fields) is None and _account_first_present_value(order, counter_fields) is None:
+        raise ValueError(f"{field_prefix}.{status_field} requires {evidence_label}: {path}")
+
+
 def _account_position_qty(position: dict, *, index: int, path: Path) -> float | None:
     if "qty" not in position:
         return None
@@ -928,6 +1044,7 @@ def _validate_open_order_position_reconciliation(account: dict, *, path: Path) -
     for order_index, order in enumerate(orders):
         if type(order) is not dict:
             raise ValueError(f"account.open_orders[{order_index}] must be an object: {path}")
+        _validate_open_order_lifecycle(order, field_prefix=f"account.open_orders[{order_index}]", path=path)
         reduce_only = _account_order_reduce_only(order, index=order_index, path=path)
         if not _account_order_has_position_reconciliation_evidence(order):
             continue

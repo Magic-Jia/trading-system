@@ -2783,6 +2783,89 @@ def test_load_historical_dataset_accepts_valid_reconciled_reduce_only_open_order
     assert rows[0].account["open_orders"] == account_snapshot["open_orders"]
 
 
+def test_load_historical_dataset_rejects_open_order_updated_before_created(
+    tmp_path: Path,
+) -> None:
+    dataset_root = _write_minimal_dataset_bundle(
+        tmp_path,
+        {
+            "equity": 100000.0,
+            "open_positions": [],
+            "open_orders": [{"symbol": "BTCUSDT", "created_at": 20, "updated_at": 19}],
+        },
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"account\.open_orders\[0\]\.updated_at must be at or after created_at",
+    ):
+        load_historical_dataset(dataset_root)
+
+
+def test_load_historical_dataset_rejects_terminal_open_order_without_terminal_time(
+    tmp_path: Path,
+) -> None:
+    dataset_root = _write_minimal_dataset_bundle(
+        tmp_path,
+        {
+            "equity": 100000.0,
+            "open_positions": [],
+            "open_orders": [{"symbol": "BTCUSDT", "status": "FILLED", "created_at": 20, "updated_at": 21}],
+        },
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"account\.open_orders\[0\]\.status requires filled_at or fill_time",
+    ):
+        load_historical_dataset(dataset_root)
+
+
+@pytest.mark.parametrize("field,value", [("created_at", True), ("updated_at", "21")])
+def test_load_historical_dataset_rejects_non_strict_open_order_lifecycle_numbers(
+    tmp_path: Path,
+    field: str,
+    value: object,
+) -> None:
+    dataset_root = _write_minimal_dataset_bundle(
+        tmp_path,
+        {
+            "equity": 100000.0,
+            "open_positions": [],
+            "open_orders": [{"symbol": "BTCUSDT", "created_at": 20, "updated_at": 21, field: value}],
+        },
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=rf"account\.open_orders\[0\]\.{field} must be a non-negative finite number",
+    ):
+        load_historical_dataset(dataset_root)
+
+
+def test_load_historical_dataset_accepts_valid_open_order_lifecycle(
+    tmp_path: Path,
+) -> None:
+    open_order = {
+        "symbol": "BTCUSDT",
+        "status": "FILLED",
+        "created_at": 20,
+        "updated_at": 21,
+        "filled_at": 22,
+        "filled_qty": 0.2,
+    }
+    account_snapshot = {
+        "equity": 100000.0,
+        "open_positions": [],
+        "open_orders": [open_order],
+    }
+    dataset_root = _write_minimal_dataset_bundle(tmp_path, account_snapshot)
+
+    rows = load_historical_dataset(dataset_root)
+
+    assert rows[0].account["open_orders"] == [open_order]
+
+
 @pytest.mark.parametrize(
     ("field", "value"),
     [

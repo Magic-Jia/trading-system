@@ -4797,6 +4797,108 @@ def test_load_account_snapshot_rejects_open_order_that_conflicts_with_position_s
         main_module.load_account_snapshot(account_path)
 
 
+def test_load_account_snapshot_rejects_open_order_updated_before_created(tmp_path):
+    account_path = tmp_path / "account_snapshot.json"
+    account_path.write_text(
+        json.dumps(
+            {
+                "equity": 1000.0,
+                "available_balance": 900.0,
+                "futures_wallet_balance": 1000.0,
+                "open_positions": [],
+                "open_orders": [
+                    {
+                        "symbol": "BTCUSDT",
+                        "created_at": 20,
+                        "updated_at": 19,
+                    }
+                ],
+            }
+        )
+    )
+
+    with pytest.raises(ValueError, match=r"open_orders\[0\]\.updated_at must be at or after created_at"):
+        main_module.load_account_snapshot(account_path)
+
+
+def test_load_account_snapshot_rejects_terminal_open_order_without_terminal_time(tmp_path):
+    account_path = tmp_path / "account_snapshot.json"
+    account_path.write_text(
+        json.dumps(
+            {
+                "equity": 1000.0,
+                "available_balance": 900.0,
+                "futures_wallet_balance": 1000.0,
+                "open_positions": [],
+                "open_orders": [
+                    {
+                        "symbol": "BTCUSDT",
+                        "status": "FILLED",
+                        "created_at": 20,
+                        "updated_at": 21,
+                    }
+                ],
+            }
+        )
+    )
+
+    with pytest.raises(ValueError, match=r"open_orders\[0\]\.status requires filled_at or fill_time"):
+        main_module.load_account_snapshot(account_path)
+
+
+@pytest.mark.parametrize("field,value", [("created_at", True), ("updated_at", "21")])
+def test_load_account_snapshot_rejects_non_strict_open_order_lifecycle_numbers(tmp_path, field, value):
+    account_path = tmp_path / "account_snapshot.json"
+    account_path.write_text(
+        json.dumps(
+            {
+                "equity": 1000.0,
+                "available_balance": 900.0,
+                "futures_wallet_balance": 1000.0,
+                "open_positions": [],
+                "open_orders": [
+                    {
+                        "symbol": "BTCUSDT",
+                        "created_at": 20,
+                        "updated_at": 21,
+                        field: value,
+                    }
+                ],
+            }
+        )
+    )
+
+    with pytest.raises(ValueError, match=rf"open_orders\[0\]\.{field} must be a non-negative finite number"):
+        main_module.load_account_snapshot(account_path)
+
+
+def test_load_account_snapshot_accepts_valid_open_order_lifecycle(tmp_path):
+    account_path = tmp_path / "account_snapshot.json"
+    open_order = {
+        "symbol": "BTCUSDT",
+        "status": "FILLED",
+        "created_at": 20,
+        "updated_at": 21,
+        "filled_at": 22,
+        "filled_qty": 0.2,
+    }
+    account_path.write_text(
+        json.dumps(
+            {
+                "equity": 1000.0,
+                "available_balance": 900.0,
+                "futures_wallet_balance": 1000.0,
+                "open_positions": [],
+                "open_orders": [open_order],
+            }
+        )
+    )
+
+    account = main_module.load_account_snapshot(account_path)
+
+    assert account.open_orders == [open_order]
+
+
 def test_load_v1_account_snapshot_rejects_non_list_positions(tmp_path):
     account_path = tmp_path / "account_snapshot.json"
     account_path.write_text(

@@ -237,6 +237,15 @@ def _strict_open_order_bool(value: Any, field_path: str) -> bool:
     return value
 
 
+def _strict_open_order_lifecycle_number(value: Any, field_path: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{field_path} must be a non-negative finite number")
+    number = float(value)
+    if not math.isfinite(number) or number < 0.0:
+        raise ValueError(f"{field_path} must be a non-negative finite number")
+    return number
+
+
 def _strict_open_order_identifier(value: Any, field_path: str) -> str:
     if not isinstance(value, str) or not value or value != value.strip():
         raise ValueError(f"{field_path} must be a canonical identifier string")
@@ -307,6 +316,84 @@ def _open_order_qty(row: Mapping[str, Any], field_path: str) -> float | None:
     return number
 
 
+_OPEN_ORDER_CREATED_TIME_FIELDS = ("created_at", "createdAt", "create_time", "createTime", "time")
+_OPEN_ORDER_UPDATED_TIME_FIELDS = ("updated_at", "updatedAt", "update_time", "updateTime")
+_OPEN_ORDER_FILLED_TIME_FIELDS = ("filled_at", "filledAt", "fill_time", "fillTime")
+_OPEN_ORDER_CANCELED_TIME_FIELDS = ("canceled_at", "canceledAt", "cancel_time", "cancelTime")
+_OPEN_ORDER_EXPIRED_TIME_FIELDS = ("expired_at", "expiredAt", "expire_time", "expireTime")
+_OPEN_ORDER_LIFECYCLE_TIME_FIELDS = (
+    *_OPEN_ORDER_CREATED_TIME_FIELDS,
+    *_OPEN_ORDER_UPDATED_TIME_FIELDS,
+    *_OPEN_ORDER_FILLED_TIME_FIELDS,
+    *_OPEN_ORDER_CANCELED_TIME_FIELDS,
+    *_OPEN_ORDER_EXPIRED_TIME_FIELDS,
+)
+_OPEN_ORDER_FILLED_COUNTER_FIELDS = ("filled_qty", "filledQty", "executed_qty", "executedQty")
+_OPEN_ORDER_CANCELED_COUNTER_FIELDS = ("canceled_qty", "canceledQty")
+_OPEN_ORDER_EXPIRED_COUNTER_FIELDS = ("expired_qty", "expiredQty")
+_OPEN_ORDER_LIFECYCLE_COUNTER_FIELDS = (
+    *_OPEN_ORDER_FILLED_COUNTER_FIELDS,
+    *_OPEN_ORDER_CANCELED_COUNTER_FIELDS,
+    *_OPEN_ORDER_EXPIRED_COUNTER_FIELDS,
+)
+_OPEN_ORDER_TERMINAL_STATUS_EVIDENCE = {
+    "FILLED": (_OPEN_ORDER_FILLED_TIME_FIELDS, _OPEN_ORDER_FILLED_COUNTER_FIELDS, "filled_at or fill_time"),
+    "CANCELED": (_OPEN_ORDER_CANCELED_TIME_FIELDS, _OPEN_ORDER_CANCELED_COUNTER_FIELDS, "canceled_at or cancel_time"),
+    "CANCELLED": (_OPEN_ORDER_CANCELED_TIME_FIELDS, _OPEN_ORDER_CANCELED_COUNTER_FIELDS, "canceled_at or cancel_time"),
+    "EXPIRED": (_OPEN_ORDER_EXPIRED_TIME_FIELDS, _OPEN_ORDER_EXPIRED_COUNTER_FIELDS, "expired_at or expire_time"),
+}
+
+
+def _open_order_lifecycle_number(row: Mapping[str, Any], fields: tuple[str, ...], field_path: str) -> tuple[str, float] | None:
+    found = _first_present(row, fields)
+    if found is None:
+        return None
+    field, value = found
+    return field, _strict_open_order_lifecycle_number(value, f"{field_path}.{field}")
+
+
+def _validate_open_order_lifecycle(row: Mapping[str, Any], field_path: str) -> None:
+    for field in _OPEN_ORDER_LIFECYCLE_TIME_FIELDS + _OPEN_ORDER_LIFECYCLE_COUNTER_FIELDS:
+        if field in row:
+            _strict_open_order_lifecycle_number(row[field], f"{field_path}.{field}")
+
+    created = _open_order_lifecycle_number(row, _OPEN_ORDER_CREATED_TIME_FIELDS, field_path)
+    updated = _open_order_lifecycle_number(row, _OPEN_ORDER_UPDATED_TIME_FIELDS, field_path)
+    if created is not None and updated is not None:
+        created_field, created_at = created
+        updated_field, updated_at = updated
+        if updated_at < created_at:
+            raise ValueError(f"{field_path}.{updated_field} must be at or after {created_field}")
+
+    lower_bound = updated if updated is not None else created
+    if lower_bound is not None:
+        lower_field, lower_value = lower_bound
+        for fields in (
+            _OPEN_ORDER_CANCELED_TIME_FIELDS,
+            _OPEN_ORDER_FILLED_TIME_FIELDS,
+            _OPEN_ORDER_EXPIRED_TIME_FIELDS,
+        ):
+            terminal = _open_order_lifecycle_number(row, fields, field_path)
+            if terminal is None:
+                continue
+            terminal_field, terminal_value = terminal
+            if terminal_value < lower_value:
+                raise ValueError(f"{field_path}.{terminal_field} must be at or after {lower_field}")
+
+    status = _first_present(row, ("status", "order_status", "orderStatus", "state"))
+    if status is None:
+        return
+    status_field, status_value = status
+    if not isinstance(status_value, str) or not status_value or status_value != status_value.strip():
+        raise ValueError(f"{field_path}.{status_field} must be a canonical string")
+    terminal = _OPEN_ORDER_TERMINAL_STATUS_EVIDENCE.get(status_value.upper())
+    if terminal is None:
+        return
+    time_fields, counter_fields, evidence_label = terminal
+    if _first_present(row, time_fields) is None and _first_present(row, counter_fields) is None:
+        raise ValueError(f"{field_path}.{status_field} requires {evidence_label}")
+
+
 def _position_snapshot_identity_keys(position: PositionSnapshot) -> list[tuple[str, str]]:
     keys = [("symbol", position.symbol)]
     for value in (getattr(position, "position_id", None), getattr(position, "positionId", None)):
@@ -325,6 +412,7 @@ def _validate_open_order_position_reconciliation(open_positions: list[PositionSn
         field_path = f"open_orders[{index}]"
         if not isinstance(order, Mapping):
             raise ValueError(f"{field_path} must be an object")
+        _validate_open_order_lifecycle(order, field_path)
         reduce_only = _open_order_reduce_only(order, field_path)
         if not _open_order_reconciliation_evidence(order):
             continue
