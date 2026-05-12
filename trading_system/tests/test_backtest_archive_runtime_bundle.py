@@ -15,7 +15,7 @@ from trading_system.app.backtest.archive.runtime_bundle import (
 from trading_system.app.backtest.archive.types import RuntimeBundleMetadata
 from trading_system.app.backtest.dataset import load_historical_dataset
 from trading_system.app.backtest.engine import replay_snapshot
-from trading_system.app.runtime_paths import build_runtime_paths
+from trading_system.app.runtime_paths import RuntimePaths, build_runtime_paths
 
 
 def _write_json(path: Path, payload: dict) -> None:
@@ -69,6 +69,31 @@ def _runtime_bundle_metadata(
     )
 
 
+def _write_runtime_bundle_sources(
+    paths,
+    *,
+    account_payload: dict,
+    market_payload: dict,
+    derivatives_payload: dict,
+    state_payload: dict | None = None,
+) -> RuntimeBundleSourcePaths:
+    paths.bucket_dir.mkdir(parents=True, exist_ok=True)
+    account_path = paths.bucket_dir / "account_snapshot.json"
+    market_path = paths.bucket_dir / "market_context.json"
+    derivatives_path = paths.bucket_dir / "derivatives_snapshot.json"
+    state_path = paths.state_file
+    _write_json(account_path, account_payload)
+    _write_json(market_path, market_payload)
+    _write_json(derivatives_path, derivatives_payload)
+    _write_json(state_path, state_payload if state_payload is not None else _bundle_state_payload())
+    return RuntimeBundleSourcePaths(
+        account_snapshot=account_path,
+        market_context=market_path,
+        derivatives_snapshot=derivatives_path,
+        runtime_state=state_path,
+    )
+
+
 @pytest.mark.parametrize(
     ("field_name", "invalid_value", "expected_message"),
     [
@@ -104,6 +129,169 @@ def test_build_runtime_paths_exposes_archive_bundle_root(tmp_path: Path) -> None
 
     assert paths.archive_root == tmp_path / "archive"
     assert paths.archive_runtime_bundles_dir == tmp_path / "archive" / "runtime-bundles" / "paper" / "prod"
+
+
+@pytest.mark.parametrize(
+    ("mode", "runtime_env", "expected_message"),
+    [
+        ("paper ", "testnet", "runtime bundle mode must already be canonical"),
+        ("Paper", "testnet", "runtime bundle mode must already be canonical"),
+        ("paper/live", "testnet", "runtime bundle mode must already be canonical"),
+        ("paper", "test net", "runtime bundle runtime_env must already be canonical"),
+        ("paper", "../prod", "runtime bundle runtime_env must already be canonical"),
+    ],
+)
+def test_archive_runtime_bundle_rejects_non_canonical_runtime_path_identity_before_writing_metadata(
+    tmp_path: Path,
+    account_snapshot_v2: dict,
+    market_context_v2: dict,
+    derivatives_snapshot_v2: dict,
+    mode: str,
+    runtime_env: str,
+    expected_message: str,
+) -> None:
+    canonical_paths = build_runtime_paths("paper", runtime_root=tmp_path / "runtime", runtime_env="testnet")
+    paths = RuntimePaths(
+        mode=mode,
+        runtime_env=runtime_env,
+        runtime_root=canonical_paths.runtime_root,
+        bucket_dir=canonical_paths.bucket_dir,
+        archive_root=canonical_paths.archive_root,
+        archive_runtime_bundles_dir=canonical_paths.archive_runtime_bundles_dir,
+        optimization_dir=canonical_paths.optimization_dir,
+        state_file=canonical_paths.state_file,
+        paper_ledger_file=canonical_paths.paper_ledger_file,
+        signal_facts_file=canonical_paths.signal_facts_file,
+        trade_outcomes_file=canonical_paths.trade_outcomes_file,
+        daily_metrics_file=canonical_paths.daily_metrics_file,
+        health_report_file=canonical_paths.health_report_file,
+        execution_log_file=canonical_paths.execution_log_file,
+        account_snapshot_file=canonical_paths.account_snapshot_file,
+        market_context_file=canonical_paths.market_context_file,
+        derivatives_snapshot_file=canonical_paths.derivatives_snapshot_file,
+        latest_summary_file=canonical_paths.latest_summary_file,
+        error_summary_file=canonical_paths.error_summary_file,
+    )
+    source_paths = _write_runtime_bundle_sources(
+        canonical_paths,
+        account_payload=account_snapshot_v2,
+        market_payload=market_context_v2,
+        derivatives_payload=derivatives_snapshot_v2,
+    )
+
+    with pytest.raises(ValueError, match=expected_message):
+        archive_runtime_bundle(paths, source_paths, archived_at="2026-04-01T01:02:03Z")
+
+    assert not paths.archive_runtime_bundles_dir.exists()
+
+
+@pytest.mark.parametrize(
+    ("payload_name", "timestamp_value", "expected_message"),
+    [
+        ("market", " 2026-03-15T00:00:00Z ", "market_context.json as_of must be canonical UTC"),
+        ("market", "2026-03-15T01:00:00+01:00", "market_context.json as_of must be canonical UTC"),
+        ("market", "2026-03-15T00:00:00+00:00", "market_context.json as_of must be canonical UTC"),
+        ("market", "2026-03-15T00:00:00", "market_context.json as_of must be canonical UTC"),
+        ("account", "2026-03-15T00:00:00+00:00", "account_snapshot.json as_of must be canonical UTC"),
+        ("derivatives", "2026-03-15T00:00:00+00:00", "derivatives_snapshot.json as_of must be canonical UTC"),
+    ],
+)
+def test_archive_runtime_bundle_rejects_non_canonical_source_utc_timestamps_before_writing_metadata(
+    tmp_path: Path,
+    account_snapshot_v2: dict,
+    market_context_v2: dict,
+    derivatives_snapshot_v2: dict,
+    payload_name: str,
+    timestamp_value: str,
+    expected_message: str,
+) -> None:
+    paths = build_runtime_paths("paper", runtime_root=tmp_path / "runtime", runtime_env="testnet")
+    payloads = {
+        "account": dict(account_snapshot_v2),
+        "market": dict(market_context_v2),
+        "derivatives": dict(derivatives_snapshot_v2),
+    }
+    payloads[payload_name]["as_of"] = timestamp_value
+    source_paths = _write_runtime_bundle_sources(
+        paths,
+        account_payload=payloads["account"],
+        market_payload=payloads["market"],
+        derivatives_payload=payloads["derivatives"],
+    )
+
+    with pytest.raises(ValueError, match=expected_message):
+        archive_runtime_bundle(paths, source_paths, archived_at="2026-04-01T01:02:03Z")
+
+    assert not paths.archive_runtime_bundles_dir.exists()
+
+
+@pytest.mark.parametrize(
+    ("archived_at", "expected_message"),
+    [
+        (" 2026-04-01T01:02:03Z ", "archived_at must be canonical UTC"),
+        ("2026-04-01T02:02:03+01:00", "archived_at must be canonical UTC"),
+        ("2026-04-01T01:02:03+00:00", "archived_at must be canonical UTC"),
+        ("2026-04-01T01:02:03", "archived_at must be canonical UTC"),
+    ],
+)
+def test_archive_runtime_bundle_rejects_non_canonical_archived_at_before_writing_metadata(
+    tmp_path: Path,
+    account_snapshot_v2: dict,
+    market_context_v2: dict,
+    derivatives_snapshot_v2: dict,
+    archived_at: str,
+    expected_message: str,
+) -> None:
+    paths = build_runtime_paths("paper", runtime_root=tmp_path / "runtime", runtime_env="testnet")
+    source_paths = _write_runtime_bundle_sources(
+        paths,
+        account_payload=account_snapshot_v2,
+        market_payload=market_context_v2,
+        derivatives_payload=derivatives_snapshot_v2,
+    )
+
+    with pytest.raises(ValueError, match=expected_message):
+        archive_runtime_bundle(paths, source_paths, archived_at=archived_at)
+
+    assert not paths.archive_runtime_bundles_dir.exists()
+
+
+@pytest.mark.parametrize(
+    ("field_name", "path_value", "expected_message"),
+    [
+        ("account_snapshot", Path("relative/account_snapshot.json"), "source account_snapshot must be an absolute local path"),
+        ("market_context", Path("s3://bucket/market_context.json"), "source market_context must be an absolute local path"),
+        ("derivatives_snapshot", Path("https://example.test/derivatives_snapshot.json"), "source derivatives_snapshot must be an absolute local path"),
+        ("runtime_state", Path("runtime_state.json"), "source runtime_state must be an absolute local path"),
+    ],
+)
+def test_archive_runtime_bundle_rejects_unsafe_source_path_metadata_before_writing_metadata(
+    tmp_path: Path,
+    account_snapshot_v2: dict,
+    market_context_v2: dict,
+    derivatives_snapshot_v2: dict,
+    field_name: str,
+    path_value: Path,
+    expected_message: str,
+) -> None:
+    paths = build_runtime_paths("paper", runtime_root=tmp_path / "runtime", runtime_env="testnet")
+    valid_source_paths = _write_runtime_bundle_sources(
+        paths,
+        account_payload=account_snapshot_v2,
+        market_payload=market_context_v2,
+        derivatives_payload=derivatives_snapshot_v2,
+    )
+    source_paths = RuntimeBundleSourcePaths(
+        account_snapshot=path_value if field_name == "account_snapshot" else valid_source_paths.account_snapshot,
+        market_context=path_value if field_name == "market_context" else valid_source_paths.market_context,
+        derivatives_snapshot=path_value if field_name == "derivatives_snapshot" else valid_source_paths.derivatives_snapshot,
+        runtime_state=path_value if field_name == "runtime_state" else valid_source_paths.runtime_state,
+    )
+
+    with pytest.raises(ValueError, match=expected_message):
+        archive_runtime_bundle(paths, source_paths, archived_at="2026-04-01T01:02:03Z")
+
+    assert not paths.archive_runtime_bundles_dir.exists()
 
 
 def test_archive_runtime_bundle_copies_inputs_into_immutable_strategy_bundle(

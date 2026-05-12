@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
@@ -14,6 +15,7 @@ from .types import ArchivedRuntimeBundle, RuntimeBundleMetadata, RuntimeBundleSo
 ARCHIVE_RUNTIME_BUNDLE_ENV = "TRADING_ARCHIVE_RUNTIME_BUNDLE"
 RUNTIME_BUNDLE_SCHEMA_VERSION = "runtime_bundle.v1"
 RUNTIME_BUNDLE_KIND = "runtime_cycle"
+_CANONICAL_SEGMENT_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
 
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
@@ -34,10 +36,43 @@ def _parse_timestamp(value: str) -> datetime:
     return parsed.astimezone(timezone.utc)
 
 
-def _utc_timestamp(value: str | None = None) -> str:
+def _utc_timestamp(value: str | None = None, *, field_name: str = "timestamp", strict: bool = False) -> str:
     if value is None:
         return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-    return _parse_timestamp(value).isoformat().replace("+00:00", "Z")
+    try:
+        canonical = _parse_timestamp(value).isoformat().replace("+00:00", "Z")
+    except ValueError:
+        if strict:
+            raise ValueError(f"{field_name} must be canonical UTC") from None
+        raise
+    if strict and value != canonical:
+        raise ValueError(f"{field_name} must be canonical UTC")
+    return canonical
+
+
+def _validate_canonical_segment(value: str, *, field_name: str) -> None:
+    if not isinstance(value, str) or not _CANONICAL_SEGMENT_PATTERN.fullmatch(value):
+        raise ValueError(f"runtime bundle {field_name} must already be canonical")
+
+
+def _validate_runtime_path_identity(paths: RuntimePaths) -> None:
+    _validate_canonical_segment(paths.mode, field_name="mode")
+    _validate_canonical_segment(paths.runtime_env, field_name="runtime_env")
+
+
+def _validate_source_path(value: Path, *, field_name: str) -> None:
+    if not value.is_absolute():
+        raise ValueError(f"source {field_name} must be an absolute local path")
+
+
+def _validate_source_paths(source_paths: RuntimeBundleSourcePaths) -> None:
+    for source_path, field_name in (
+        (source_paths.account_snapshot, "account_snapshot"),
+        (source_paths.market_context, "market_context"),
+        (source_paths.derivatives_snapshot, "derivatives_snapshot"),
+        (source_paths.runtime_state, "runtime_state"),
+    ):
+        _validate_source_path(source_path, field_name=field_name)
 
 
 def _optional_timestamp_string(payload: dict[str, Any], key: str, *, source_name: str) -> str:
@@ -46,6 +81,13 @@ def _optional_timestamp_string(payload: dict[str, Any], key: str, *, source_name
     value = payload[key]
     if not isinstance(value, str):
         raise ValueError(f"{source_name} {key} must be a string")
+    return value
+
+
+def _optional_canonical_utc_timestamp_string(payload: dict[str, Any], key: str, *, source_name: str) -> str:
+    value = _optional_timestamp_string(payload, key, source_name=source_name)
+    if value:
+        _utc_timestamp(value, field_name=f"{source_name} {key}", strict=True)
     return value
 
 
@@ -61,7 +103,7 @@ def _bundle_timestamp(
         (derivatives_payload, "derivatives_snapshot.json"),
         (account_payload, "account_snapshot.json"),
     ):
-        raw_value = _optional_timestamp_string(payload, "as_of", source_name=source_name)
+        raw_value = _optional_canonical_utc_timestamp_string(payload, "as_of", source_name=source_name)
         if raw_value:
             return _utc_timestamp(raw_value)
     return archived_at
@@ -91,11 +133,13 @@ def archive_runtime_bundle(
     *,
     archived_at: str | None = None,
 ) -> ArchivedRuntimeBundle:
+    _validate_runtime_path_identity(paths)
+    _validate_source_paths(source_paths)
     account_payload = _read_json_object(source_paths.account_snapshot)
     market_payload = _read_json_object(source_paths.market_context)
     derivatives_payload = _read_json_object(source_paths.derivatives_snapshot)
     state_payload = _read_json_object(source_paths.runtime_state)
-    archived_timestamp = _utc_timestamp(archived_at)
+    archived_timestamp = _utc_timestamp(archived_at, field_name="archived_at", strict=archived_at is not None)
     bundle_timestamp = _bundle_timestamp(
         account_payload=account_payload,
         market_payload=market_payload,
@@ -118,9 +162,17 @@ def archive_runtime_bundle(
             "runtime_state": str(source_paths.runtime_state),
         },
         input_timestamps={
-            "account_as_of": _optional_timestamp_string(account_payload, "as_of", source_name="account_snapshot.json"),
-            "market_as_of": _optional_timestamp_string(market_payload, "as_of", source_name="market_context.json"),
-            "derivatives_as_of": _optional_timestamp_string(
+            "account_as_of": _optional_canonical_utc_timestamp_string(
+                account_payload,
+                "as_of",
+                source_name="account_snapshot.json",
+            ),
+            "market_as_of": _optional_canonical_utc_timestamp_string(
+                market_payload,
+                "as_of",
+                source_name="market_context.json",
+            ),
+            "derivatives_as_of": _optional_canonical_utc_timestamp_string(
                 derivatives_payload,
                 "as_of",
                 source_name="derivatives_snapshot.json",
