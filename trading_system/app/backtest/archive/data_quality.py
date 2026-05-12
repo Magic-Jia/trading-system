@@ -79,6 +79,8 @@ def _provenance_sha256(value: Any) -> str | None:
         return None
     if not isinstance(value, str) or not value.strip() or value != value.strip():
         raise ValueError("raw-market provenance sha256 must be canonical")
+    if len(value) != 64 or any(character not in "0123456789abcdef" for character in value):
+        raise ValueError("raw-market provenance sha256 must be lowercase 64-hex")
     return value
 
 
