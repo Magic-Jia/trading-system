@@ -995,3 +995,94 @@ def test_apply_management_action_fill_rejects_coerced_runner_stop_price_writebac
     assert state.positions["BTCUSDT"]["second_target_status"] == "pending"
     assert state.positions["BTCUSDT"]["runner_protected"] is False
     assert state.positions["BTCUSDT"]["runner_stop_price"] is None
+
+
+def test_apply_management_action_fill_persists_canonical_action_audit_metadata():
+    state = _management_fill_state()
+
+    updated = apply_management_action_fill(
+        state,
+        _partial_take_profit_intent(
+            meta={
+                "target_stage": "first",
+                "exit_trigger": "first_target_hit",
+                "fraction_basis": "original_position",
+                "reason_code": "first_target_hit",
+                "source_id": "portfolio-lifecycle-v2",
+            }
+        ),
+    )
+
+    assert updated["last_management_action"] == {
+        "intent_id": "mgmt-btcusdt-partial-first",
+        "action": "PARTIAL_TAKE_PROFIT",
+        "reason_code": "first_target_hit",
+        "source_id": "portfolio-lifecycle-v2",
+    }
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("reason_code", "", "reason_code"),
+        ("reason_code", " first_target_hit", "reason_code"),
+        ("reason_code", "first-target-hit", "reason_code"),
+        ("source_id", "", "source_id"),
+        ("source_id", "portfolio lifecycle", "source_id"),
+        ("source_id", "portfolio/lifecycle", "source_id"),
+    ],
+)
+def test_apply_management_action_fill_rejects_unsafe_action_audit_metadata_before_state_mutation(field, value, message):
+    state = _management_fill_state()
+    before = dict(state.positions["BTCUSDT"])
+    meta = {
+        "target_stage": "first",
+        "exit_trigger": "first_target_hit",
+        "fraction_basis": "original_position",
+        "reason_code": "first_target_hit",
+        "source_id": "portfolio-lifecycle-v2",
+        field: value,
+    }
+
+    with pytest.raises(ValueError, match=message):
+        apply_management_action_fill(state, _partial_take_profit_intent(meta=meta))
+
+    assert state.positions["BTCUSDT"] == before
+
+
+def test_apply_management_action_fill_is_idempotent_for_already_filled_stage():
+    state = _management_fill_state(
+        qty=0.5,
+        remaining_position_qty=0.5,
+        first_target_status="filled",
+        first_target_hit=True,
+        first_target_filled_qty=1.0,
+    )
+    before = dict(state.positions["BTCUSDT"])
+
+    updated = apply_management_action_fill(state, _partial_take_profit_intent())
+
+    assert updated == before
+    assert state.positions["BTCUSDT"] == before
+
+
+def test_apply_management_action_fill_is_idempotent_when_no_remaining_quantity():
+    state = _management_fill_state(qty=0.0, remaining_position_qty=0.0)
+
+    updated = apply_management_action_fill(state, _partial_take_profit_intent())
+
+    assert updated["qty"] == pytest.approx(0.0)
+    assert updated["remaining_position_qty"] == pytest.approx(0.0)
+    assert updated["first_target_filled_qty"] == pytest.approx(0.0)
+
+
+@pytest.mark.parametrize("qty", [True, "0.25", float("nan"), float("inf")])
+def test_execute_management_action_rejects_unsafe_reduce_qty_before_state_mutation(qty, tmp_path):
+    executor = OrderExecutor(_paper_app_config(tmp_path), mode="paper")
+    state = _management_fill_state()
+    before = dict(state.positions["BTCUSDT"])
+
+    with pytest.raises(ValueError, match="qty must be a finite non-bool number when present"):
+        executor.execute_management_action(_partial_take_profit_intent(qty=qty), state)
+
+    assert state.positions["BTCUSDT"] == before

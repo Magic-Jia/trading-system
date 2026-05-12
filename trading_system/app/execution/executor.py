@@ -77,6 +77,15 @@ def _is_filled_entry_order_status(order_status: dict[str, Any]) -> bool:
     return _entry_status(order_status) == "FILLED"
 
 
+def _strict_management_reduce_qty(value: Any) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError("qty must be a finite non-bool number when present")
+    qty = float(value)
+    if not math.isfinite(qty):
+        raise ValueError("qty must be a finite non-bool number when present")
+    return qty
+
+
 class OrderExecutor:
     def __init__(
         self,
@@ -378,12 +387,12 @@ class OrderExecutor:
                 "position": position,
             }
 
-        qty = float(intent.qty or 0.0)
         if intent.action not in {"PARTIAL_TAKE_PROFIT", "DE_RISK", "EXIT"}:
             return {
                 "intent": asdict(intent),
                 "result": {"status": "UNSUPPORTED", "reason": "unsupported_management_action"},
             }
+        qty = 0.0 if intent.qty is None else _strict_management_reduce_qty(intent.qty)
         if qty <= 0:
             return {
                 "intent": asdict(intent),

@@ -6,7 +6,7 @@ import math
 import re
 from typing import Any
 
-from .target_management import ensure_target_management_state, stage_completed, terminalize_all_unreachable_stages
+from .target_management import ensure_target_management_state, stage_completed, stage_requested_qty, terminalize_all_unreachable_stages
 from ..types import AccountSnapshot, BJ, ManagementActionIntent, OrderIntent, PositionSnapshot, RuntimeState
 
 
@@ -481,6 +481,46 @@ def _strict_present_identifier_string(payload: Mapping[str, Any], key: str, fiel
     if not all(char.islower() or char.isdigit() or char == "_" for char in value):
         raise ValueError(f"{label} must be a canonical identifier string when present")
     return value
+
+
+def _strict_management_audit_reason_code(payload: Mapping[str, Any]) -> str | None:
+    if "reason_code" not in payload or payload.get("reason_code") is None:
+        return None
+    value = payload.get("reason_code")
+    if not isinstance(value, str):
+        raise TypeError("reason_code must be a canonical string when present")
+    if not value or value != value.strip() or not all(char.islower() or char.isdigit() or char == "_" for char in value):
+        raise ValueError("reason_code must be a canonical string when present")
+    return value
+
+
+def _strict_management_audit_source_id(payload: Mapping[str, Any]) -> str | None:
+    if "source_id" not in payload or payload.get("source_id") is None:
+        return None
+    value = payload.get("source_id")
+    if not isinstance(value, str):
+        raise TypeError("source_id must be a canonical string when present")
+    if not value or value != value.strip() or any(char.isspace() or ord(char) < 32 for char in value) or "/" in value:
+        raise ValueError("source_id must be a canonical string when present")
+    return value
+
+
+def _management_action_audit(intent: ManagementActionIntent, action: str) -> dict[str, str] | None:
+    meta = _strict_mapping(intent.meta, "intent.meta")
+    reason_code = _strict_management_audit_reason_code(meta)
+    source_id = _strict_management_audit_source_id(meta)
+    if reason_code is None and source_id is None:
+        return None
+    if reason_code is None:
+        raise ValueError("reason_code must be present with source_id")
+    if source_id is None:
+        raise ValueError("source_id must be present with reason_code")
+    return {
+        "intent_id": intent.intent_id,
+        "action": action,
+        "reason_code": reason_code,
+        "source_id": source_id,
+    }
 
 
 def _strict_present_asset_identity_string(payload: Mapping[str, Any], key: str, field: str | None = None) -> str | None:
@@ -1249,9 +1289,10 @@ def apply_management_action_fill(state: RuntimeState, intent: ManagementActionIn
     action = _management_action(intent)
     _management_exit_trigger(intent)
     _partial_take_profit_fraction_basis(intent)
+    audit = _management_action_audit(intent, action)
     position = dict(existing)
     current_qty = _strict_non_negative_quantity(position, "qty", default=0.0)
-    _strict_non_negative_quantity(position, "remaining_position_qty", default=current_qty)
+    current_remaining_qty = _strict_non_negative_quantity(position, "remaining_position_qty", default=current_qty)
     filled_qty = round(
         _strict_non_negative_quantity(
             {"qty": intent.qty} if intent.qty is not None else {},
@@ -1260,15 +1301,22 @@ def apply_management_action_fill(state: RuntimeState, intent: ManagementActionIn
         ),
         8,
     )
-    remaining_qty = max(round(current_qty - filled_qty, 8), 0.0)
-    position["qty"] = remaining_qty
-    position["remaining_position_qty"] = remaining_qty
 
     stage = _partial_take_profit_stage(intent)
     if action == "PARTIAL_TAKE_PROFIT" and stage in {"first", "second"}:
+        current_status = position.get(f"{stage}_target_status")
+        if current_status == "filled" or current_remaining_qty <= 0.0 or current_qty <= 0.0:
+            return position
         key = f"{stage}_target_filled_qty"
         stage_filled_qty = _strict_non_negative_quantity(position, key, default=0.0)
-        position[key] = round(stage_filled_qty + filled_qty, 8)
+        remaining_stage_qty = max(stage_requested_qty(position, stage=stage) - stage_filled_qty, 0.0)
+        effective_filled_qty = min(filled_qty, current_qty, current_remaining_qty, remaining_stage_qty)
+        if effective_filled_qty <= 0.0:
+            return position
+        remaining_qty = max(round(current_qty - effective_filled_qty, 8), 0.0)
+        position["qty"] = remaining_qty
+        position["remaining_position_qty"] = remaining_qty
+        position[key] = round(stage_filled_qty + effective_filled_qty, 8)
         if stage_completed(position, stage=stage):
             position[f"{stage}_target_status"] = "filled"
             position[f"{stage}_target_hit"] = True
@@ -1292,6 +1340,13 @@ def apply_management_action_fill(state: RuntimeState, intent: ManagementActionIn
         position["remaining_position_qty"] = 0.0
         position["runner_protected"] = False
         position["runner_stop_price"] = None
+    else:
+        remaining_qty = max(round(current_qty - filled_qty, 8), 0.0)
+        position["qty"] = remaining_qty
+        position["remaining_position_qty"] = remaining_qty
+
+    if audit is not None:
+        position["last_management_action"] = audit
 
     updated = terminalize_all_unreachable_stages(position)
     state.positions[intent.symbol] = updated
