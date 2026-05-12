@@ -2650,6 +2650,12 @@ def test_write_phase1_dataset_bundle_rejects_malformed_open_position_leverage_ma
         ("unrealized_pnl", True, r"account\.open_positions\[0\]\.unrealized_pnl must be a finite number"),
         ("unrealizedPnl", "12.5", r"account\.open_positions\[0\]\.unrealizedPnl must be a finite number"),
         ("realized_pnl", float("nan"), r"account\.open_positions\[0\]\.realized_pnl must be a finite number"),
+        ("realized_cost", True, r"account\.open_positions\[0\]\.realized_cost must be a non-negative finite number"),
+        (
+            "realizedCost",
+            "12.5",
+            r"account\.open_positions\[0\]\.realizedCost must be a non-negative finite number",
+        ),
         ("pnl", float("inf"), r"account\.open_positions\[0\]\.pnl must be a finite number"),
         ("margin_ratio", -0.01, r"account\.open_positions\[0\]\.margin_ratio must be a ratio in \(0, 1\]"),
     ],
@@ -2871,6 +2877,53 @@ def test_write_phase1_dataset_bundle_rejects_open_position_unrealized_cost_alias
     with pytest.raises(
         ValueError,
         match=r"account\.open_positions\[0\]\.unrealized_cost must equal unrealizedCost",
+    ):
+        write_phase1_dataset_bundle(material, tmp_path)
+
+    assert not expected_bundle_dir.exists()
+
+
+def test_write_phase1_dataset_bundle_rejects_open_position_realized_cost_alias_mismatch_without_artifact(
+    tmp_path: Path,
+) -> None:
+    timestamp = datetime(2024, 1, 1, tzinfo=UTC)
+    material = archive_importer.Phase1DatasetBundleMaterial(
+        timestamp=timestamp,
+        run_id=archive_importer._run_id(timestamp),
+        metadata={"timestamp": "2024-01-01T00:00:00Z", "run_id": archive_importer._run_id(timestamp)},
+        market_context={
+            "schema_version": archive_importer.PHASE1_IMPORTER_MARKET_CONTEXT_SCHEMA,
+            "as_of": "2024-01-01T00:00:00Z",
+            "symbols": {"BTCUSDT": {}},
+            "instrument_rows": [],
+        },
+        derivatives_snapshot={
+            "schema_version": archive_importer.PHASE1_IMPORTER_DERIVATIVES_SCHEMA,
+            "as_of": "2024-01-01T00:00:00Z",
+            "rows": [],
+        },
+        account_snapshot={
+            "schema_version": archive_importer.PHASE1_IMPORTER_ACCOUNT_SCHEMA,
+            "as_of": "2024-01-01T00:00:00Z",
+            "equity": 100000.0,
+            "open_positions": [
+                {
+                    "symbol": "BTCUSDT",
+                    "side": "LONG",
+                    "qty": 0.5,
+                    "entry_price": 60000.0,
+                    "mark_price": 61000.0,
+                    "realizedCost": 12.5,
+                    "realized_cost": 12.51,
+                }
+            ],
+        },
+    )
+    expected_bundle_dir = tmp_path / f"{archive_importer._bundle_fragment(timestamp)}__{material.run_id}"
+
+    with pytest.raises(
+        ValueError,
+        match=r"account\.open_positions\[0\]\.realized_cost must equal realizedCost",
     ):
         write_phase1_dataset_bundle(material, tmp_path)
 
