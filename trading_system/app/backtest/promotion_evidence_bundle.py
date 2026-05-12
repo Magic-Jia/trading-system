@@ -679,7 +679,12 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.verify_only:
         result = verify_promotion_evidence_bundle(args.bundle_dir)
-        if args.verification_report_out:
+        if args.verification_report_out and (
+            result["verified"]
+            or result["missing_artifacts"]
+            or result["sha256_mismatches"]
+            or result["byte_size_mismatches"]
+        ):
             report_path = Path(args.verification_report_out)
             report_path.parent.mkdir(parents=True, exist_ok=True)
             report_path.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
