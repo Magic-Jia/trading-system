@@ -1060,6 +1060,8 @@ def test_write_phase1_dataset_bundle_preserves_canonical_open_position_asset_cur
 @pytest.mark.parametrize(
     ("canonical", "alias"),
     [
+        ("collateralAsset", "collateral_asset"),
+        ("collateralCurrency", "collateral_currency"),
         ("feeAsset", "fee_asset"),
         ("commissionAsset", "commission_asset"),
     ],

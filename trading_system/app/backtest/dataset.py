@@ -314,6 +314,8 @@ _ACCOUNT_OPEN_POSITION_ASSET_CODE_FIELDS = (
     "costCurrency",
 )
 _ACCOUNT_OPEN_POSITION_ASSET_CODE_EQUAL_ALIAS_GROUPS = (
+    ("collateralAsset", "collateral_asset"),
+    ("collateralCurrency", "collateral_currency"),
     ("feeAsset", "fee_asset"),
     ("feeCurrency", "fee_currency"),
     ("commissionAsset", "commission_asset"),

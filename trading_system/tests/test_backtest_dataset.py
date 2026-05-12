@@ -1883,6 +1883,8 @@ def test_load_historical_dataset_rejects_malformed_open_position_asset_currency_
 @pytest.mark.parametrize(
     ("canonical", "alias"),
     [
+        ("collateralAsset", "collateral_asset"),
+        ("collateralCurrency", "collateral_currency"),
         ("feeAsset", "fee_asset"),
         ("commissionAsset", "commission_asset"),
     ],
