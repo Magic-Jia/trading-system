@@ -207,6 +207,19 @@ def test_verify_maps_paper_optimization_changes_to_owning_regression() -> None:
     assert "trading_system/tests/test_paper_optimization_recommendations.py" in result.stdout
 
 
+def test_verify_maps_backtest_tail_tests_to_backtest_core_regression() -> None:
+    for changed in (
+        "trading_system/tests/test_backtest_ablation_experiments.py",
+        "trading_system/tests/test_backtest_execution_sim.py",
+    ):
+        result = run_verify("--dry-run", "--changed", changed)
+
+        assert result.returncode == 0, result.stderr
+        assert "trading_system/tests/test_backtest_ablation_experiments.py" in result.stdout
+        assert "trading_system/tests/test_backtest_execution_sim.py" in result.stdout
+        assert "trading_system/tests/test_backtest_evaluation.py" in result.stdout
+
+
 def test_verify_auto_changed_includes_untracked_files() -> None:
     marker = ROOT / "templates" / ".verify-untracked-marker.md"
     marker.parent.mkdir(exist_ok=True)

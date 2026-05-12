@@ -54,6 +54,10 @@ SUITES: dict[str, list[str]] = {
         "trading_system/tests/test_backtest_dataset.py",
         "trading_system/tests/test_backtest_reporting.py",
         "trading_system/tests/test_backtest_promotion.py",
+        "trading_system/tests/test_backtest_execution_sim.py",
+        "trading_system/tests/test_backtest_evaluation.py",
+        "trading_system/tests/test_backtest_ablation_experiments.py",
+        "trading_system/tests/test_backtest_regime_experiments.py",
         "trading_system/tests/test_main_v2_cycle.py",
     ],
     "archive-data": [
