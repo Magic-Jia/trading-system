@@ -530,7 +530,7 @@ def test_load_historical_dataset_rejects_zero_open_position_core_prices(tmp_path
         (("totalInitialMargin",), True, r"account\.totalInitialMargin must be a non-negative finite number"),
         (("total_unrealized_profit",), float("nan"), r"account\.total_unrealized_profit must be a finite number"),
         (("unrealizedProfit",), "1.0", r"account\.unrealizedProfit must be a finite number"),
-        (("accountId",), " bad ", r"account\.accountId must be a canonical string"),
+        (("accountId",), " bad ", r"account\.accountId must be a canonical identifier string"),
         (("marginMode",), "cross margin", r"account\.marginMode must be one of CROSS, ISOLATED"),
         (("accountType",), "futures account", r"account\.accountType must be one of FUTURES, MARGIN, PORTFOLIO_MARGIN, SPOT"),
         (("exchange",), "kraken", r"account\.exchange must be one of BINANCE"),
@@ -1697,7 +1697,7 @@ def test_load_historical_dataset_rejects_malformed_open_position_fee_cost_numeri
 @pytest.mark.parametrize(
     ("field", "value", "expected_message"),
     [
-        ("account_id", True, r"a canonical string"),
+        ("account_id", True, r"a canonical identifier string"),
         ("venue", "", r"a canonical string"),
         ("exchange", " binance", r"a canonical string"),
         ("quote_currency", "USDT ", r"an uppercase asset code"),
@@ -1724,6 +1724,25 @@ def test_load_historical_dataset_rejects_noncanonical_present_account_identity_f
     (bundle / "account_snapshot.json").write_text(json.dumps(account_snapshot), encoding="utf-8")
 
     with pytest.raises(ValueError, match=rf"account\.{field} must be {expected_message}"):
+        load_historical_dataset(dataset_root)
+
+
+def test_load_historical_dataset_rejects_conflicting_account_id_aliases_before_load(tmp_path: Path) -> None:
+    dataset_root = tmp_path / "sample_dataset"
+    bundle = dataset_root / "2026-03-10T00-00-00Z__sample-001"
+    bundle.mkdir(parents=True)
+    (bundle / "metadata.json").write_text(
+        '{"timestamp": "2026-03-10T00:00:00Z", "run_id": "sample-001"}',
+        encoding="utf-8",
+    )
+    (bundle / "market_context.json").write_text('{"symbols": {"BTCUSDT": {}}}', encoding="utf-8")
+    (bundle / "derivatives_snapshot.json").write_text('{"rows": []}', encoding="utf-8")
+    (bundle / "account_snapshot.json").write_text(
+        json.dumps({"equity": 100000.0, "accountId": "acct-001", "account_id": "acct-002"}),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match=r"account\.account_id must equal accountId"):
         load_historical_dataset(dataset_root)
 
 

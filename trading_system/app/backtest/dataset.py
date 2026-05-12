@@ -180,6 +180,9 @@ _ACCOUNT_IDENTITY_STRING_FIELDS = (
     "account_id",
     "accountId",
 )
+_ACCOUNT_IDENTITY_EQUAL_ALIAS_GROUPS = (
+    ("accountId", "account_id"),
+)
 _ACCOUNT_ASSET_CODE_FIELDS = (
     "base_asset",
     "baseAsset",
@@ -588,9 +591,13 @@ def validate_account_snapshot_identity(account: object, *, path: Path) -> None:
     for field in _ACCOUNT_IDENTITY_STRING_FIELDS:
         if field not in account:
             continue
-        value = account[field]
-        if not isinstance(value, str) or not value or value != value.strip():
-            raise ValueError(f"account.{field} must be a canonical string: {path}")
+        _require_account_identifier_string(account[field], field_path=f"account.{field}", path=path)
+    _validate_account_string_alias_parity(
+        account,
+        field_path="account",
+        path=path,
+        alias_groups=_ACCOUNT_IDENTITY_EQUAL_ALIAS_GROUPS,
+    )
     for field, allowed in _ACCOUNT_ENUM_FIELDS.items():
         if field not in account:
             continue
