@@ -38,6 +38,7 @@ def _artifact_ref_is_path_safe(value: str) -> bool:
     return (
         bool(value.strip())
         and "\x00" not in value
+        and "\\" not in value
         and not path.is_absolute()
         and ".." not in path.parts
         and "" not in path.parts
@@ -45,7 +46,7 @@ def _artifact_ref_is_path_safe(value: str) -> bool:
 
 
 def _artifact_ref_is_canonical(value: str) -> bool:
-    return value == value.strip() and value == str(Path(value))
+    return value == value.strip() and "\\" not in value and value == str(Path(value))
 
 
 def _path_component_is_safe(value: str) -> bool:
@@ -67,6 +68,14 @@ def _normalise_canonical_string(name: str, value: Any) -> str:
     return value
 
 
+def _normalise_identity_fingerprint(name: str, value: Any) -> str:
+    if not _is_exact_string(value):
+        raise ValueError(f"{name} must be a string")
+    if not value.strip():
+        raise ValueError(f"{name} must be non-empty")
+    return value.strip().casefold()
+
+
 def _normalise_coverage_value(name: str, value: Any) -> float | None:
     if value is None:
         return None
@@ -86,6 +95,8 @@ def _normalise_required_intervals(value: Any) -> list[str]:
     intervals: list[str] = []
     for index, item in enumerate(value, start=1):
         interval = _normalise_canonical_string(f"required_intervals[{index}]", item)
+        if not _path_component_is_safe(interval):
+            raise ValueError(f"required_intervals[{index}] must be path-safe")
         if interval in intervals:
             raise ValueError(f"required_intervals[{index}] must be unique")
         intervals.append(interval)
@@ -107,6 +118,13 @@ def _normalise_interval_coverage(value: Any) -> list[dict[str, Any]]:
             raise ValueError(
                 f"unknown interval_coverage[{index}] field: " + ", ".join(unknown_fields)
             )
+        identity = tuple(
+            _normalise_identity_fingerprint(f"interval_coverage[{index}] {key}", item.get(key))
+            for key in _INTERVAL_IDENTITY_KEYS
+        )
+        if identity in interval_identities:
+            raise ValueError(f"interval_coverage[{index}] duplicates interval identity")
+        interval_identities.add(identity)
         row: dict[str, Any] = {
             key: _normalise_canonical_string(f"interval_coverage[{index}] {key}", item.get(key))
             for key in _INTERVAL_IDENTITY_KEYS
@@ -116,10 +134,6 @@ def _normalise_interval_coverage(value: Any) -> list[dict[str, Any]]:
                 raise ValueError(f"interval_coverage[{index}] {key} must be path-safe")
         if not _is_canonical_utc_timestamp(row["generated_at"]):
             raise ValueError(f"interval_coverage[{index}] generated_at must be a canonical UTC timestamp")
-        identity = tuple(row[key] for key in _INTERVAL_IDENTITY_KEYS)
-        if identity in interval_identities:
-            raise ValueError(f"interval_coverage[{index}] duplicates interval identity")
-        interval_identities.add(identity)
         coverage_input = item.get("coverage")
         if not isinstance(coverage_input, Mapping):
             raise ValueError(f"interval_coverage[{index}] coverage must be an object")
@@ -135,6 +149,8 @@ def _normalise_interval_coverage(value: Any) -> list[dict[str, Any]]:
         artifact_ref = _normalise_canonical_string(
             f"interval_coverage[{index}] artifact_ref", item.get("artifact_ref")
         )
+        if "\\" in artifact_ref:
+            raise ValueError(f"interval_coverage[{index}] artifact_ref must use / separators")
         if not _artifact_ref_is_path_safe(artifact_ref) or not _artifact_ref_is_canonical(artifact_ref):
             raise ValueError(f"interval_coverage[{index}] artifact_ref must be path-safe")
         row["artifact_ref"] = artifact_ref
@@ -174,6 +190,17 @@ def _normalise_book_levels(levels: list[Mapping[str, Any]] | tuple[Mapping[str, 
     return normalised
 
 
+def _ensure_sorted_book_side(name: str, levels: list[dict[str, float]], *, descending: bool) -> None:
+    for index in range(1, len(levels)):
+        previous_price = levels[index - 1]["price"]
+        current_price = levels[index]["price"]
+        if descending:
+            if current_price > previous_price:
+                raise ValueError(f"{name} must be sorted by descending price")
+        elif current_price < previous_price:
+            raise ValueError(f"{name} must be sorted by ascending price")
+
+
 def simulate_depth_driven_taker_fill(
     *,
     side: str,
@@ -184,12 +211,21 @@ def simulate_depth_driven_taker_fill(
 ) -> dict[str, Any]:
     """Simulate a marketable taker order against visible orderbook depth."""
 
-    side = side.lower()
     if side not in {"buy", "sell"}:
         raise ValueError("side must be buy or sell")
     requested_quantity = _normalise_positive_float("quantity", quantity)
     reference = _normalise_positive_float("reference_price", reference_price)
-    levels = _normalise_book_levels(asks if side == "buy" else bids)
+    bid_levels = _normalise_book_levels(bids)
+    ask_levels = _normalise_book_levels(asks)
+    if side == "sell" and not bid_levels:
+        raise ValueError("bids must contain at least one level")
+    if side == "buy" and not ask_levels:
+        raise ValueError("asks must contain at least one level")
+    _ensure_sorted_book_side("bids", bid_levels, descending=True)
+    _ensure_sorted_book_side("asks", ask_levels, descending=False)
+    if bid_levels and ask_levels and bid_levels[0]["price"] >= ask_levels[0]["price"]:
+        raise ValueError("book must not be crossed")
+    levels = ask_levels if side == "buy" else bid_levels
 
     remaining = requested_quantity
     filled = 0.0

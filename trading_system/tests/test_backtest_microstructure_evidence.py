@@ -13,6 +13,22 @@ from trading_system.app.backtest.microstructure_evidence import (
 )
 
 
+def _valid_interval_row() -> dict[str, object]:
+    return {
+        "source": "historical_l2_tick_archive",
+        "symbol": "BTCUSDT",
+        "venue": "binance_futures",
+        "interval": "1m",
+        "generated_at": "2026-05-12T09:00:00Z",
+        "coverage": {
+            "l2_snapshot_coverage": 1.0,
+            "l2_update_coverage": 1.0,
+            "tick_coverage": 1.0,
+        },
+        "artifact_ref": "l2/BTCUSDT/binance_futures/1m.jsonl",
+    }
+
+
 def test_builds_synthetic_microstructure_gate_when_coverage_is_sufficient(tmp_path: Path) -> None:
     manifest = {
         "evidence_source": {"type": "synthetic_fixture", "run_id": "unit-test-only"},
@@ -277,6 +293,64 @@ def test_microstructure_gate_rejects_duplicate_interval_identity_rows() -> None:
         )
 
 
+def test_microstructure_gate_rejects_duplicate_interval_identities_with_equivalent_spacing_and_case() -> None:
+    row = _valid_interval_row()
+    equivalent_row = dict(row)
+    equivalent_row.update(
+        {
+            "source": " Historical_L2_Tick_Archive ",
+            "symbol": " btcusdt ",
+            "venue": " BINANCE_FUTURES ",
+            "interval": " 1M ",
+        }
+    )
+
+    with pytest.raises(ValueError, match="interval_coverage\\[2\\] duplicates interval identity"):
+        build_microstructure_gate(
+            {
+                "coverage": {
+                    "l2_snapshot_coverage": 1.0,
+                    "l2_update_coverage": 1.0,
+                    "tick_coverage": 1.0,
+                },
+                "required_intervals": ["1m"],
+                "interval_coverage": [row, equivalent_row],
+            }
+        )
+
+
+def test_microstructure_gate_rejects_backslash_interval_artifact_ref() -> None:
+    row = _valid_interval_row()
+    row["artifact_ref"] = "l2\\BTCUSDT\\binance_futures\\1m.jsonl"
+
+    with pytest.raises(ValueError, match="interval_coverage\\[1\\] artifact_ref must use / separators"):
+        build_microstructure_gate(
+            {
+                "coverage": {
+                    "l2_snapshot_coverage": 1.0,
+                    "l2_update_coverage": 1.0,
+                    "tick_coverage": 1.0,
+                },
+                "required_intervals": ["1m"],
+                "interval_coverage": [row],
+            }
+        )
+
+
+def test_microstructure_gate_rejects_unsafe_required_interval_component() -> None:
+    with pytest.raises(ValueError, match="required_intervals\\[1\\] must be path-safe"):
+        build_microstructure_gate(
+            {
+                "coverage": {
+                    "l2_snapshot_coverage": 1.0,
+                    "l2_update_coverage": 1.0,
+                    "tick_coverage": 1.0,
+                },
+                "required_intervals": ["1m/../5m"],
+            }
+        )
+
+
 def test_rejects_invalid_coverage_values() -> None:
     with pytest.raises(ValueError, match="l2_snapshot_coverage"):
         build_microstructure_gate(
@@ -355,6 +429,61 @@ def test_depth_driven_sell_fill_consumes_bids_and_reports_vwap() -> None:
         {"price": 99.9, "quantity": 1.0},
         {"price": 99.7, "quantity": 1.5},
     ]
+
+
+def test_depth_fill_rejects_uppercase_side() -> None:
+    with pytest.raises(ValueError, match="side must be buy or sell"):
+        simulate_depth_driven_taker_fill(
+            side="BUY",
+            quantity=1.0,
+            reference_price=100.0,
+            bids=[{"price": 99.9, "quantity": 1.0}],
+            asks=[{"price": 100.1, "quantity": 1.0}],
+        )
+
+
+def test_depth_fill_rejects_empty_actionable_top_of_book() -> None:
+    with pytest.raises(ValueError, match="asks must contain at least one level"):
+        simulate_depth_driven_taker_fill(
+            side="buy",
+            quantity=1.0,
+            reference_price=100.0,
+            bids=[{"price": 99.9, "quantity": 1.0}],
+            asks=[],
+        )
+
+
+def test_depth_fill_rejects_unsorted_asks() -> None:
+    with pytest.raises(ValueError, match="asks must be sorted by ascending price"):
+        simulate_depth_driven_taker_fill(
+            side="buy",
+            quantity=1.0,
+            reference_price=100.0,
+            bids=[{"price": 99.9, "quantity": 1.0}],
+            asks=[{"price": 100.2, "quantity": 1.0}, {"price": 100.1, "quantity": 1.0}],
+        )
+
+
+def test_depth_fill_rejects_unsorted_bids() -> None:
+    with pytest.raises(ValueError, match="bids must be sorted by descending price"):
+        simulate_depth_driven_taker_fill(
+            side="sell",
+            quantity=1.0,
+            reference_price=100.0,
+            bids=[{"price": 99.8, "quantity": 1.0}, {"price": 99.9, "quantity": 1.0}],
+            asks=[{"price": 100.1, "quantity": 1.0}],
+        )
+
+
+def test_depth_fill_rejects_crossed_book() -> None:
+    with pytest.raises(ValueError, match="book must not be crossed"):
+        simulate_depth_driven_taker_fill(
+            side="buy",
+            quantity=1.0,
+            reference_price=100.0,
+            bids=[{"price": 100.2, "quantity": 1.0}],
+            asks=[{"price": 100.1, "quantity": 1.0}],
+        )
 
 
 @pytest.mark.parametrize(
