@@ -876,6 +876,140 @@ def test_load_historical_dataset_rejects_inconsistent_initial_margin_alias_befor
         load_historical_dataset(dataset_root)
 
 
+@pytest.mark.parametrize(
+    ("canonical", "alias", "expected_message"),
+    [
+        (
+            "realizedPnl",
+            "realized_pnl",
+            r"account\.balances\[0\]\.realized_pnl must equal realizedPnl",
+        ),
+        (
+            "realizedPnl",
+            "realizedProfit",
+            r"account\.balances\[0\]\.realizedProfit must equal realizedPnl",
+        ),
+    ],
+)
+def test_load_historical_dataset_rejects_inconsistent_account_balance_realized_pnl_alias_before_load(
+    tmp_path: Path,
+    canonical: str,
+    alias: str,
+    expected_message: str,
+) -> None:
+    dataset_root = tmp_path / "sample_dataset"
+    bundle = dataset_root / "2026-03-10T00-00-00Z__sample-001"
+    bundle.mkdir(parents=True)
+    (bundle / "metadata.json").write_text(
+        '{"timestamp": "2026-03-10T00:00:00Z", "run_id": "sample-001"}',
+        encoding="utf-8",
+    )
+    (bundle / "market_context.json").write_text('{"symbols": {"BTCUSDT": {}}}', encoding="utf-8")
+    (bundle / "derivatives_snapshot.json").write_text('{"rows": []}', encoding="utf-8")
+    (bundle / "account_snapshot.json").write_text(
+        json.dumps(
+            {
+                "equity": 100000.0,
+                "balances": [
+                    {
+                        "asset": "USDT",
+                        "free": 75000.0,
+                        "locked": 25000.0,
+                        canonical: -7.25,
+                        alias: -7.0,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match=expected_message):
+        load_historical_dataset(dataset_root)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("realizedPnl", True),
+        ("realizedProfit", "1.0"),
+        ("realized_pnl", float("nan")),
+    ],
+)
+def test_load_historical_dataset_rejects_invalid_account_balance_realized_pnl_alias_values_before_load(
+    tmp_path: Path,
+    field: str,
+    value: object,
+) -> None:
+    dataset_root = tmp_path / "sample_dataset"
+    bundle = dataset_root / "2026-03-10T00-00-00Z__sample-001"
+    bundle.mkdir(parents=True)
+    (bundle / "metadata.json").write_text(
+        '{"timestamp": "2026-03-10T00:00:00Z", "run_id": "sample-001"}',
+        encoding="utf-8",
+    )
+    (bundle / "market_context.json").write_text('{"symbols": {"BTCUSDT": {}}}', encoding="utf-8")
+    (bundle / "derivatives_snapshot.json").write_text('{"rows": []}', encoding="utf-8")
+    (bundle / "account_snapshot.json").write_text(
+        json.dumps(
+            {
+                "equity": 100000.0,
+                "balances": [
+                    {
+                        "asset": "USDT",
+                        "free": 75000.0,
+                        "locked": 25000.0,
+                        field: value,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=rf"account\.balances\[0\]\.{field} must be a finite number",
+    ):
+        load_historical_dataset(dataset_root)
+
+
+def test_load_historical_dataset_allows_negative_account_balance_realized_pnl_aliases(
+    tmp_path: Path,
+) -> None:
+    dataset_root = tmp_path / "sample_dataset"
+    bundle = dataset_root / "2026-03-10T00-00-00Z__sample-001"
+    bundle.mkdir(parents=True)
+    (bundle / "metadata.json").write_text(
+        '{"timestamp": "2026-03-10T00:00:00Z", "run_id": "sample-001"}',
+        encoding="utf-8",
+    )
+    (bundle / "market_context.json").write_text('{"symbols": {"BTCUSDT": {}}}', encoding="utf-8")
+    (bundle / "derivatives_snapshot.json").write_text('{"rows": []}', encoding="utf-8")
+    (bundle / "account_snapshot.json").write_text(
+        json.dumps(
+            {
+                "equity": 100000.0,
+                "balances": [
+                    {
+                        "asset": "USDT",
+                        "free": 75000.0,
+                        "locked": 25000.0,
+                        "realizedPnl": -7.25,
+                        "realized_pnl": -7.25,
+                        "realizedProfit": -7.25,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    rows = load_historical_dataset(dataset_root)
+
+    assert rows[0].account["balances"][0]["realizedPnl"] == pytest.approx(-7.25)
+
+
 def test_load_historical_dataset_rejects_inconsistent_account_balance_wallet_before_load(
     tmp_path: Path,
 ) -> None:

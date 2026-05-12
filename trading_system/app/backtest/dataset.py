@@ -89,6 +89,10 @@ _ACCOUNT_BALANCE_EQUAL_ALIAS_GROUPS = (
     ("maintenanceMargin", "maintenance_margin"),
     ("initialMargin", "initial_margin"),
 )
+_ACCOUNT_BALANCE_SIGNED_EQUAL_ALIAS_GROUPS = (
+    ("realizedPnl", "realized_pnl"),
+    ("realizedPnl", "realizedProfit"),
+)
 _ACCOUNT_POSITIVE_NUMBER_FIELDS = (
     "exposure_value",
     "exposureValue",
@@ -839,6 +843,25 @@ def _validate_account_balance_wallet_total_parity(balance: dict, *, field_path: 
             path=path,
             qualifier="non-negative finite",
             minimum=0.0,
+        )
+        if not math.isclose(alias_value, canonical_value, rel_tol=1e-12, abs_tol=1e-12):
+            raise ValueError(f"{field_path}.{alias} must equal {canonical}: {path}")
+    for canonical, alias in _ACCOUNT_BALANCE_SIGNED_EQUAL_ALIAS_GROUPS:
+        if canonical not in balance or alias not in balance:
+            continue
+        canonical_value = _validate_account_number(
+            balance[canonical],
+            field_path=f"{field_path}.{canonical}",
+            path=path,
+            qualifier="finite",
+            minimum=None,
+        )
+        alias_value = _validate_account_number(
+            balance[alias],
+            field_path=f"{field_path}.{alias}",
+            path=path,
+            qualifier="finite",
+            minimum=None,
         )
         if not math.isclose(alias_value, canonical_value, rel_tol=1e-12, abs_tol=1e-12):
             raise ValueError(f"{field_path}.{alias} must equal {canonical}: {path}")

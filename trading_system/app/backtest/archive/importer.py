@@ -91,6 +91,9 @@ _ACCOUNT_BALANCE_SIGNED_NUMERIC_ALIASES = (
     "total_unrealized_profit",
     "unRealizedProfit",
     "unrealizedProfit",
+    "realizedPnl",
+    "realizedProfit",
+    "realized_pnl",
     "unrealizedPnl",
     "unrealized_pnl",
     "pnl",
@@ -111,6 +114,8 @@ _ACCOUNT_BALANCE_EQUAL_ALIAS_GROUPS = (
 _ACCOUNT_BALANCE_SIGNED_EQUAL_ALIAS_GROUPS = (
     ("totalUnrealizedProfit", "total_unrealized_profit"),
     ("unRealizedProfit", "unrealizedProfit"),
+    ("realizedPnl", "realized_pnl"),
+    ("realizedPnl", "realizedProfit"),
     ("unrealizedPnl", "unrealized_pnl"),
     ("pnl", "upl"),
 )
