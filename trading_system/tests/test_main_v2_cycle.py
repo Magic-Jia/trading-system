@@ -4763,6 +4763,40 @@ def test_load_account_snapshot_rejects_invalid_open_position_qty(tmp_path):
     with pytest.raises(ValueError, match=r"open_positions\[0\]\.qty"):
         main_module.load_account_snapshot(account_path)
 
+
+def test_load_account_snapshot_rejects_open_order_that_conflicts_with_position_side(tmp_path):
+    account_path = tmp_path / "account_snapshot.json"
+    account_path.write_text(
+        json.dumps(
+            {
+                "equity": 1000.0,
+                "available_balance": 900.0,
+                "futures_wallet_balance": 1000.0,
+                "open_positions": [
+                    {
+                        "symbol": "BTCUSDT",
+                        "side": "LONG",
+                        "qty": 1.0,
+                        "entry_price": 100.0,
+                        "mark_price": 101.0,
+                    }
+                ],
+                "open_orders": [
+                    {
+                        "symbol": "BTCUSDT",
+                        "side": "BUY",
+                        "reduce_only": True,
+                        "qty": 0.2,
+                    }
+                ],
+            }
+        )
+    )
+
+    with pytest.raises(ValueError, match=r"open_orders\[0\]\.side must reduce open_positions\[0\]"):
+        main_module.load_account_snapshot(account_path)
+
+
 def test_load_v1_account_snapshot_rejects_non_list_positions(tmp_path):
     account_path = tmp_path / "account_snapshot.json"
     account_path.write_text(

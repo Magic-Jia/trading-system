@@ -23,6 +23,20 @@ from trading_system.app.backtest.types import (
 )
 
 
+def _write_minimal_dataset_bundle(tmp_path: Path, account_snapshot: dict) -> Path:
+    dataset_root = tmp_path / "sample_dataset"
+    bundle = dataset_root / "2026-03-10T00-00-00Z__sample-001"
+    bundle.mkdir(parents=True)
+    (bundle / "metadata.json").write_text(
+        '{"timestamp": "2026-03-10T00:00:00Z", "run_id": "sample-001"}',
+        encoding="utf-8",
+    )
+    (bundle / "market_context.json").write_text('{"symbols": {"BTCUSDT": {}}}', encoding="utf-8")
+    (bundle / "derivatives_snapshot.json").write_text('{"rows": []}', encoding="utf-8")
+    (bundle / "account_snapshot.json").write_text(json.dumps(account_snapshot), encoding="utf-8")
+    return dataset_root
+
+
 def test_backtest_shared_types_can_be_instantiated() -> None:
     metadata = ExperimentMetadata(
         name="phase0-foundation",
@@ -2638,6 +2652,135 @@ def test_load_historical_dataset_rejects_malformed_open_position_order_execution
 
     with pytest.raises(ValueError, match=expected_message):
         load_historical_dataset(dataset_root)
+
+
+def test_load_historical_dataset_rejects_reduce_only_open_order_without_referenced_position(
+    tmp_path: Path,
+) -> None:
+    dataset_root = _write_minimal_dataset_bundle(
+        tmp_path,
+        {
+            "equity": 100000.0,
+            "open_positions": [],
+            "open_orders": [
+                {
+                    "symbol": "BTCUSDT",
+                    "side": "SELL",
+                    "position_id": "pos-btc-long",
+                    "reduce_only": True,
+                    "qty": 0.5,
+                }
+            ],
+        },
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"account\.open_orders\[0\] references nonexistent open position",
+    ):
+        load_historical_dataset(dataset_root)
+
+
+def test_load_historical_dataset_rejects_reduce_only_open_order_with_conflicting_side(
+    tmp_path: Path,
+) -> None:
+    dataset_root = _write_minimal_dataset_bundle(
+        tmp_path,
+        {
+            "equity": 100000.0,
+            "open_positions": [
+                {
+                    "symbol": "BTCUSDT",
+                    "side": "LONG",
+                    "position_id": "pos-btc-long",
+                    "qty": 0.5,
+                    "entry_price": 60000.0,
+                    "mark_price": 61000.0,
+                }
+            ],
+            "open_orders": [
+                {
+                    "symbol": "BTCUSDT",
+                    "side": "BUY",
+                    "position_id": "pos-btc-long",
+                    "reduce_only": True,
+                    "qty": 0.2,
+                }
+            ],
+        },
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"account\.open_orders\[0\]\.side must reduce account\.open_positions\[0\]",
+    ):
+        load_historical_dataset(dataset_root)
+
+
+def test_load_historical_dataset_rejects_open_order_bool_strings(tmp_path: Path) -> None:
+    dataset_root = _write_minimal_dataset_bundle(
+        tmp_path,
+        {
+            "equity": 100000.0,
+            "open_positions": [
+                {
+                    "symbol": "BTCUSDT",
+                    "side": "LONG",
+                    "position_id": "pos-btc-long",
+                    "qty": 0.5,
+                    "entry_price": 60000.0,
+                    "mark_price": 61000.0,
+                }
+            ],
+            "open_orders": [
+                {
+                    "symbol": "BTCUSDT",
+                    "side": "SELL",
+                    "position_id": "pos-btc-long",
+                    "reduce_only": "true",
+                    "qty": 0.2,
+                }
+            ],
+        },
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"account\.open_orders\[0\]\.reduce_only must be a strict boolean",
+    ):
+        load_historical_dataset(dataset_root)
+
+
+def test_load_historical_dataset_accepts_valid_reconciled_reduce_only_open_order(
+    tmp_path: Path,
+) -> None:
+    account_snapshot = {
+        "equity": 100000.0,
+        "open_positions": [
+            {
+                "symbol": "BTCUSDT",
+                "side": "LONG",
+                "position_id": "pos-btc-long",
+                "qty": 0.5,
+                "entry_price": 60000.0,
+                "mark_price": 61000.0,
+            }
+        ],
+        "open_orders": [
+            {
+                "symbol": "BTCUSDT",
+                "side": "SELL",
+                "position_id": "pos-btc-long",
+                "reduce_only": True,
+                "qty": 0.2,
+            }
+        ],
+    }
+    dataset_root = _write_minimal_dataset_bundle(tmp_path, account_snapshot)
+
+    rows = load_historical_dataset(dataset_root)
+
+    assert rows[0].account["open_orders"] == account_snapshot["open_orders"]
 
 
 @pytest.mark.parametrize(

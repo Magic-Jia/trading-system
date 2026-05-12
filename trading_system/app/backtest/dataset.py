@@ -459,6 +459,25 @@ _ACCOUNT_OPEN_POSITION_STRICT_BOOL_FIELDS = (
     "close_position",
     "closePosition",
 )
+_ACCOUNT_OPEN_ORDER_POSITION_REFERENCE_FIELDS = (
+    "position_id",
+    "positionId",
+)
+_ACCOUNT_OPEN_ORDER_STRICT_BOOL_FIELDS = (
+    "reduce_only",
+    "reduceOnly",
+    "close_position",
+    "closePosition",
+)
+_ACCOUNT_OPEN_ORDER_POSITION_RECONCILIATION_BOOL_FIELDS = (
+    "reduce_only",
+    "reduceOnly",
+    "close_position",
+    "closePosition",
+)
+_ACCOUNT_OPEN_ORDER_SYMBOL_FIELDS = ("symbol",)
+_ACCOUNT_OPEN_ORDER_SIDE_FIELDS = ("side", "orderSide")
+_ACCOUNT_OPEN_ORDER_QTY_FIELDS = ("qty", "quantity", "origQty", "orig_qty")
 _ACCOUNT_OPEN_POSITION_TERMINAL_STATUS_VALUES = {"CLOSED", "SKIPPED", "FAILED", "CANCELLED", "CANCELED", "FILLED"}
 _ACCOUNT_OPEN_POSITION_OPEN_STATUS_VALUES = {"OPEN"}
 
@@ -628,6 +647,7 @@ def validate_account_snapshot_identity(account: object, *, path: Path) -> None:
     )
     _validate_account_time_order(account, path=path)
     _validate_open_position_identity_fields(account, path=path)
+    _validate_open_order_position_reconciliation(account, path=path)
 
 
 def _validate_account_time_order(account: dict, *, path: Path) -> None:
@@ -766,6 +786,172 @@ def _validate_open_position_identity_fields(account: dict, *, path: Path) -> Non
         for field in _ACCOUNT_OPEN_POSITION_STRICT_BOOL_FIELDS:
             if field in position:
                 _require_account_strict_bool(position[field], field_path=f"{field_prefix}.{field}", path=path)
+
+
+def _account_first_present_value(payload: dict, fields: tuple[str, ...]) -> tuple[str, object] | None:
+    for field in fields:
+        if field in payload:
+            return field, payload[field]
+    return None
+
+
+def _account_position_identity_key(position: dict, *, index: int, path: Path) -> tuple[str, object] | None:
+    position_id = _account_first_present_value(position, _ACCOUNT_OPEN_ORDER_POSITION_REFERENCE_FIELDS)
+    if position_id is not None:
+        field, value = position_id
+        identifier = _require_account_identifier_string(
+            value,
+            field_path=f"account.open_positions[{index}].{field}",
+            path=path,
+        )
+        return "position_id", identifier
+    symbol = _account_first_present_value(position, _ACCOUNT_OPEN_ORDER_SYMBOL_FIELDS)
+    if symbol is None:
+        return None
+    field, value = symbol
+    return "symbol", _require_account_uppercase_canonical_string(
+        value,
+        field_path=f"account.open_positions[{index}].{field}",
+        path=path,
+    )
+
+
+def _account_order_identity_key(order: dict, *, index: int, path: Path) -> tuple[str, object] | None:
+    position_id = _account_first_present_value(order, _ACCOUNT_OPEN_ORDER_POSITION_REFERENCE_FIELDS)
+    if position_id is not None:
+        field, value = position_id
+        identifier = _require_account_identifier_string(
+            value,
+            field_path=f"account.open_orders[{index}].{field}",
+            path=path,
+        )
+        return "position_id", identifier
+    symbol = _account_first_present_value(order, _ACCOUNT_OPEN_ORDER_SYMBOL_FIELDS)
+    if symbol is None:
+        return None
+    field, value = symbol
+    return "symbol", _require_account_uppercase_canonical_string(
+        value,
+        field_path=f"account.open_orders[{index}].{field}",
+        path=path,
+    )
+
+
+def _account_order_has_position_reconciliation_evidence(order: dict) -> bool:
+    if _account_first_present_value(order, _ACCOUNT_OPEN_ORDER_POSITION_RECONCILIATION_BOOL_FIELDS) is not None:
+        return True
+    return _account_first_present_value(order, _ACCOUNT_OPEN_ORDER_POSITION_REFERENCE_FIELDS) is not None
+
+
+def _account_side_for_position(position: dict, *, index: int, path: Path) -> str | None:
+    side = _account_first_present_value(position, ("side", "positionSide"))
+    if side is None:
+        return None
+    field, value = side
+    side_text = _require_account_canonical_string(
+        value,
+        field_path=f"account.open_positions[{index}].{field}",
+        path=path,
+    )
+    if side_text not in {"LONG", "SHORT"}:
+        raise ValueError(f"account.open_positions[{index}].{field} must be one of LONG, SHORT: {path}")
+    return side_text
+
+
+def _account_side_for_order(order: dict, *, index: int, path: Path) -> str | None:
+    side = _account_first_present_value(order, _ACCOUNT_OPEN_ORDER_SIDE_FIELDS)
+    if side is None:
+        return None
+    field, value = side
+    side_text = _require_account_canonical_string(value, field_path=f"account.open_orders[{index}].{field}", path=path)
+    if side_text not in {"BUY", "SELL", "LONG", "SHORT"}:
+        raise ValueError(f"account.open_orders[{index}].{field} must be one of BUY, LONG, SELL, SHORT: {path}")
+    return side_text
+
+
+def _account_order_reduce_only(order: dict, *, index: int, path: Path) -> bool:
+    reduce_only = False
+    for field in _ACCOUNT_OPEN_ORDER_STRICT_BOOL_FIELDS:
+        if field not in order:
+            continue
+        value = _require_account_strict_bool(order[field], field_path=f"account.open_orders[{index}].{field}", path=path)
+        reduce_only = reduce_only or value
+    return reduce_only
+
+
+def _account_order_qty(order: dict, *, index: int, path: Path) -> float | None:
+    qty = _account_first_present_value(order, _ACCOUNT_OPEN_ORDER_QTY_FIELDS)
+    if qty is None:
+        return None
+    field, value = qty
+    return _validate_account_positive_number(value, field_path=f"account.open_orders[{index}].{field}", path=path)
+
+
+def _account_position_qty(position: dict, *, index: int, path: Path) -> float | None:
+    if "qty" not in position:
+        return None
+    return _validate_account_positive_number(
+        position["qty"],
+        field_path=f"account.open_positions[{index}].qty",
+        path=path,
+    )
+
+
+def _order_side_reduces_position(order_side: str, position_side: str) -> bool:
+    if position_side == "LONG":
+        return order_side in {"SELL", "SHORT"}
+    if position_side == "SHORT":
+        return order_side in {"BUY", "LONG"}
+    return False
+
+
+def _validate_open_order_position_reconciliation(account: dict, *, path: Path) -> None:
+    orders = account.get("open_orders")
+    if orders is None:
+        return
+    if type(orders) is not list:
+        raise ValueError(f"account.open_orders must be a list: {path}")
+    positions = account.get("open_positions")
+    if positions is None:
+        positions = []
+    if type(positions) is not list:
+        return
+
+    positions_by_key: dict[tuple[str, object], tuple[int, dict]] = {}
+    for position_index, position in enumerate(positions):
+        if type(position) is not dict:
+            continue
+        key = _account_position_identity_key(position, index=position_index, path=path)
+        if key is not None:
+            positions_by_key.setdefault(key, (position_index, position))
+
+    for order_index, order in enumerate(orders):
+        if type(order) is not dict:
+            raise ValueError(f"account.open_orders[{order_index}] must be an object: {path}")
+        reduce_only = _account_order_reduce_only(order, index=order_index, path=path)
+        if not _account_order_has_position_reconciliation_evidence(order):
+            continue
+        key = _account_order_identity_key(order, index=order_index, path=path)
+        if key is None:
+            continue
+        position_match = positions_by_key.get(key)
+        if position_match is None:
+            raise ValueError(f"account.open_orders[{order_index}] references nonexistent open position: {path}")
+        if not reduce_only:
+            continue
+        position_index, position = position_match
+        position_side = _account_side_for_position(position, index=position_index, path=path)
+        order_side = _account_side_for_order(order, index=order_index, path=path)
+        if position_side is not None and order_side is not None and not _order_side_reduces_position(order_side, position_side):
+            raise ValueError(
+                f"account.open_orders[{order_index}].side must reduce account.open_positions[{position_index}]: {path}"
+            )
+        order_qty = _account_order_qty(order, index=order_index, path=path)
+        position_qty = _account_position_qty(position, index=position_index, path=path)
+        if order_qty is not None and position_qty is not None and order_qty > position_qty:
+            raise ValueError(
+                f"account.open_orders[{order_index}].qty must not exceed account.open_positions[{position_index}].qty: {path}"
+            )
 
 
 def _account_utc_timestamp_value(value: str) -> datetime:

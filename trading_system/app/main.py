@@ -224,6 +224,127 @@ def _positions_from_rows(rows: list[dict[str, Any]]) -> list[PositionSnapshot]:
     return positions
 
 
+def _first_present(row: Mapping[str, Any], keys: tuple[str, ...]) -> tuple[str, Any] | None:
+    for key in keys:
+        if key in row:
+            return key, row[key]
+    return None
+
+
+def _strict_open_order_bool(value: Any, field_path: str) -> bool:
+    if not isinstance(value, bool):
+        raise ValueError(f"{field_path} must be a strict boolean")
+    return value
+
+
+def _strict_open_order_identifier(value: Any, field_path: str) -> str:
+    if not isinstance(value, str) or not value or value != value.strip():
+        raise ValueError(f"{field_path} must be a canonical identifier string")
+    return value
+
+
+def _strict_open_order_symbol(value: Any, field_path: str) -> str:
+    symbol = _strict_open_order_identifier(value, field_path)
+    if symbol != symbol.upper():
+        raise ValueError(f"{field_path} must be an uppercase canonical symbol")
+    return symbol
+
+
+def _order_identity_key(row: Mapping[str, Any], field_path: str) -> tuple[str, str] | None:
+    position_id = _first_present(row, ("position_id", "positionId"))
+    if position_id is not None:
+        field, value = position_id
+        return "position_id", _strict_open_order_identifier(value, f"{field_path}.{field}")
+    symbol = _first_present(row, ("symbol",))
+    if symbol is None:
+        return None
+    field, value = symbol
+    return "symbol", _strict_open_order_symbol(value, f"{field_path}.{field}")
+
+
+def _open_order_reconciliation_evidence(row: Mapping[str, Any]) -> bool:
+    return _first_present(row, ("reduce_only", "reduceOnly", "close_position", "closePosition")) is not None or (
+        _first_present(row, ("position_id", "positionId")) is not None
+    )
+
+
+def _open_order_reduce_only(row: Mapping[str, Any], field_path: str) -> bool:
+    reduce_only = False
+    for field in ("reduce_only", "reduceOnly", "close_position", "closePosition"):
+        if field in row:
+            reduce_only = reduce_only or _strict_open_order_bool(row[field], f"{field_path}.{field}")
+    return reduce_only
+
+
+def _open_order_side(row: Mapping[str, Any], field_path: str) -> str | None:
+    side = _first_present(row, ("side", "orderSide"))
+    if side is None:
+        return None
+    field, value = side
+    if not isinstance(value, str) or value not in {"BUY", "SELL", "LONG", "SHORT"}:
+        raise ValueError(f"{field_path}.{field} must be one of BUY, LONG, SELL, SHORT")
+    return value
+
+
+def _side_reduces_position(order_side: str, position_side: str) -> bool:
+    if position_side == "LONG":
+        return order_side in {"SELL", "SHORT"}
+    if position_side == "SHORT":
+        return order_side in {"BUY", "LONG"}
+    return False
+
+
+def _open_order_qty(row: Mapping[str, Any], field_path: str) -> float | None:
+    qty = _first_present(row, ("qty", "quantity", "origQty", "orig_qty"))
+    if qty is None:
+        return None
+    field, value = qty
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{field_path}.{field} must be a positive finite number")
+    number = float(value)
+    if not math.isfinite(number) or number <= 0.0:
+        raise ValueError(f"{field_path}.{field} must be a positive finite number")
+    return number
+
+
+def _position_snapshot_identity_keys(position: PositionSnapshot) -> list[tuple[str, str]]:
+    keys = [("symbol", position.symbol)]
+    for value in (getattr(position, "position_id", None), getattr(position, "positionId", None)):
+        if value:
+            keys.insert(0, ("position_id", value))
+    return keys
+
+
+def _validate_open_order_position_reconciliation(open_positions: list[PositionSnapshot], open_orders: list[dict[str, Any]]) -> None:
+    positions_by_key: dict[tuple[str, str], tuple[int, PositionSnapshot]] = {}
+    for index, position in enumerate(open_positions):
+        for key in _position_snapshot_identity_keys(position):
+            positions_by_key.setdefault(key, (index, open_positions[index]))
+
+    for index, order in enumerate(open_orders):
+        field_path = f"open_orders[{index}]"
+        if not isinstance(order, Mapping):
+            raise ValueError(f"{field_path} must be an object")
+        reduce_only = _open_order_reduce_only(order, field_path)
+        if not _open_order_reconciliation_evidence(order):
+            continue
+        key = _order_identity_key(order, field_path)
+        if key is None:
+            continue
+        position_match = positions_by_key.get(key)
+        if position_match is None:
+            raise ValueError(f"{field_path} references nonexistent open position")
+        if not reduce_only:
+            continue
+        position_index, position = position_match
+        order_side = _open_order_side(order, field_path)
+        if order_side is not None and not _side_reduces_position(order_side, position.side):
+            raise ValueError(f"{field_path}.side must reduce open_positions[{position_index}]")
+        order_qty = _open_order_qty(order, field_path)
+        if order_qty is not None and order_qty > position.qty:
+            raise ValueError(f"{field_path}.qty must not exceed open_positions[{position_index}].qty")
+
+
 def _load_v1_account_snapshot(raw: dict[str, Any]) -> AccountSnapshot:
     futures = raw["futures"]
     if not isinstance(futures, Mapping):
@@ -235,6 +356,7 @@ def _load_v1_account_snapshot(raw: dict[str, Any]) -> AccountSnapshot:
     if not isinstance(raw_positions, list):
         raise ValueError("futures.positions must be a list")
     positions = _positions_from_rows(raw_positions)
+    _validate_open_order_position_reconciliation(positions, open_orders)
     return AccountSnapshot(
         equity=_strict_account_float(futures, ("total_wallet_balance",), field_path="futures"),
         available_balance=_strict_account_float(
@@ -264,6 +386,8 @@ def _load_v2_account_snapshot(raw: dict[str, Any]) -> AccountSnapshot:
     if not isinstance(meta, Mapping):
         raise ValueError("meta must be an object")
 
+    positions = _positions_from_rows(open_positions)
+    _validate_open_order_position_reconciliation(positions, open_orders)
     equity = _strict_account_float(raw, ("equity", "total_wallet_balance"), field_path="account")
     available_balance = _strict_account_float(raw, ("available_balance",), field_path="account", default=equity)
     if available_balance <= 0:
@@ -278,7 +402,7 @@ def _load_v2_account_snapshot(raw: dict[str, Any]) -> AccountSnapshot:
         equity=equity,
         available_balance=available_balance,
         futures_wallet_balance=futures_wallet_balance,
-        open_positions=_positions_from_rows(open_positions),
+        open_positions=positions,
         open_orders=open_orders,
         meta=dict(meta),
     )
