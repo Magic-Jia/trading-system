@@ -202,6 +202,81 @@ def test_microstructure_gate_rejects_unsafe_interval_artifact_ref() -> None:
         )
 
 
+@pytest.mark.parametrize(
+    ("field_name", "field_value"),
+    [
+        ("source", "historical/l2/archive"),
+        ("symbol", "../BTCUSDT"),
+        ("venue", "binance\x00futures"),
+        ("interval", "1m/../../5m"),
+        ("artifact_ref", "l2//BTCUSDT.jsonl"),
+    ],
+)
+def test_microstructure_gate_rejects_unsafe_interval_identity_fields(
+    field_name: str, field_value: str
+) -> None:
+    row = {
+        "source": "historical_l2_tick_archive",
+        "symbol": "BTCUSDT",
+        "venue": "binance_futures",
+        "interval": "1m",
+        "generated_at": "2026-05-12T09:00:00Z",
+        "coverage": {
+            "l2_snapshot_coverage": 1.0,
+            "l2_update_coverage": 1.0,
+            "tick_coverage": 1.0,
+        },
+        "artifact_ref": "l2/BTCUSDT/binance_futures/1m.jsonl",
+    }
+    row[field_name] = field_value
+
+    expected_field = "artifact_ref" if field_name == "artifact_ref" else field_name
+    with pytest.raises(
+        ValueError,
+        match=f"interval_coverage\\[1\\] {expected_field} must be path-safe",
+    ):
+        build_microstructure_gate(
+            {
+                "coverage": {
+                    "l2_snapshot_coverage": 1.0,
+                    "l2_update_coverage": 1.0,
+                    "tick_coverage": 1.0,
+                },
+                "required_intervals": ["1m"],
+                "interval_coverage": [row],
+            }
+        )
+
+
+def test_microstructure_gate_rejects_duplicate_interval_identity_rows() -> None:
+    row = {
+        "source": "historical_l2_tick_archive",
+        "symbol": "BTCUSDT",
+        "venue": "binance_futures",
+        "interval": "1m",
+        "generated_at": "2026-05-12T09:00:00Z",
+        "coverage": {
+            "l2_snapshot_coverage": 1.0,
+            "l2_update_coverage": 1.0,
+            "tick_coverage": 1.0,
+        },
+        "artifact_ref": "l2/BTCUSDT/binance_futures/1m.jsonl",
+    }
+
+    with pytest.raises(ValueError, match="interval_coverage\\[2\\] duplicates interval identity"):
+        build_microstructure_gate(
+            {
+                "coverage": {
+                    "l2_snapshot_coverage": 1.0,
+                    "l2_update_coverage": 1.0,
+                    "tick_coverage": 1.0,
+                },
+                "required_intervals": ["1m"],
+                "interval_coverage": [row, dict(row)],
+            }
+        )
+
+
 def test_rejects_invalid_coverage_values() -> None:
     with pytest.raises(ValueError, match="l2_snapshot_coverage"):
         build_microstructure_gate(

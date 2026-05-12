@@ -16,6 +16,7 @@ _DEFAULT_COVERAGE_KEYS = (
     "tick_coverage",
 )
 _INTERVAL_IDENTITY_KEYS = ("source", "symbol", "venue", "interval", "generated_at")
+_INTERVAL_PATH_COMPONENT_KEYS = ("source", "symbol", "venue", "interval")
 
 
 def _is_exact_string(value: Any) -> bool:
@@ -34,11 +35,26 @@ def _is_canonical_utc_timestamp(value: str) -> bool:
 
 def _artifact_ref_is_path_safe(value: str) -> bool:
     path = Path(value)
-    return bool(value.strip()) and not path.is_absolute() and ".." not in path.parts
+    return (
+        bool(value.strip())
+        and "\x00" not in value
+        and not path.is_absolute()
+        and ".." not in path.parts
+        and "" not in path.parts
+    )
 
 
 def _artifact_ref_is_canonical(value: str) -> bool:
     return value == value.strip() and value == str(Path(value))
+
+
+def _path_component_is_safe(value: str) -> bool:
+    return (
+        bool(value.strip())
+        and "\x00" not in value
+        and len(Path(value).parts) == 1
+        and value not in {".", ".."}
+    )
 
 
 def _normalise_canonical_string(name: str, value: Any) -> str:
@@ -82,6 +98,7 @@ def _normalise_interval_coverage(value: Any) -> list[dict[str, Any]]:
     if not isinstance(value, list):
         raise ValueError("interval_coverage must be a list")
     normalised: list[dict[str, Any]] = []
+    interval_identities: set[tuple[str, str, str, str, str]] = set()
     for index, item in enumerate(value, start=1):
         if not isinstance(item, Mapping):
             raise ValueError(f"interval_coverage[{index}] must be an object")
@@ -94,8 +111,15 @@ def _normalise_interval_coverage(value: Any) -> list[dict[str, Any]]:
             key: _normalise_canonical_string(f"interval_coverage[{index}] {key}", item.get(key))
             for key in _INTERVAL_IDENTITY_KEYS
         }
+        for key in _INTERVAL_PATH_COMPONENT_KEYS:
+            if not _path_component_is_safe(row[key]):
+                raise ValueError(f"interval_coverage[{index}] {key} must be path-safe")
         if not _is_canonical_utc_timestamp(row["generated_at"]):
             raise ValueError(f"interval_coverage[{index}] generated_at must be a canonical UTC timestamp")
+        identity = tuple(row[key] for key in _INTERVAL_IDENTITY_KEYS)
+        if identity in interval_identities:
+            raise ValueError(f"interval_coverage[{index}] duplicates interval identity")
+        interval_identities.add(identity)
         coverage_input = item.get("coverage")
         if not isinstance(coverage_input, Mapping):
             raise ValueError(f"interval_coverage[{index}] coverage must be an object")
