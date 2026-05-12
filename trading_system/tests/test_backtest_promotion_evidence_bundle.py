@@ -47,6 +47,24 @@ def test_collects_required_evidence_artifacts_with_checksums(tmp_path: Path) -> 
     assert (bundle_dir / first["path"]).exists()
 
 
+def test_collect_persists_relative_artifact_source_paths(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    for name in REQUIRED_ARTIFACTS:
+        _write_json(source / name, {"artifact": name})
+
+    bundle_dir = collect_promotion_evidence_bundle(
+        source,
+        tmp_path / "bundle",
+        candidate_id="candidate-1",
+        evidence_source={"type": "promotion_bundle_export", "run_id": "bundle-1"},
+    )
+
+    manifest = json.loads((bundle_dir / "promotion_evidence_manifest.json").read_text())
+    assert [artifact["source_path"] for artifact in manifest["artifacts"]] == list(REQUIRED_ARTIFACTS)
+    assert all(not Path(artifact["source_path"]).is_absolute() for artifact in manifest["artifacts"])
+
+
 def test_collect_rejects_noncanonical_candidate_id(tmp_path: Path) -> None:
     source = tmp_path / "source"
     source.mkdir()
@@ -1258,6 +1276,58 @@ def test_collect_rejects_non_live_grade_evidence_source_type(tmp_path: Path) -> 
             evidence_source={"type": "synthetic_fixture", "run_id": "bundle-1"},
         )
 
+def test_collect_rejects_unsafe_evidence_source_type_before_copying(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    for name in REQUIRED_ARTIFACTS:
+        _write_json(source / name, {"artifact": name})
+    bundle = tmp_path / "bundle"
+
+    with pytest.raises(ValueError, match="evidence_source type must be a safe identifier"):
+        collect_promotion_evidence_bundle(
+            source,
+            bundle,
+            candidate_id="candidate-1",
+            evidence_source={"type": "../promotion_bundle_export", "run_id": "bundle-1"},
+        )
+
+    assert not bundle.exists()
+
+def test_collect_rejects_unsafe_evidence_source_run_id_before_copying(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    for name in REQUIRED_ARTIFACTS:
+        _write_json(source / name, {"artifact": name})
+    bundle = tmp_path / "bundle"
+
+    with pytest.raises(ValueError, match="evidence_source run_id must be a safe identifier"):
+        collect_promotion_evidence_bundle(
+            source,
+            bundle,
+            candidate_id="candidate-1",
+            evidence_source={"type": "promotion_bundle_export", "run_id": "../bundle-1"},
+        )
+
+    assert not bundle.exists()
+
+def test_bundle_collector_rejects_duplicate_required_artifact_paths_before_copying(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    for name in REQUIRED_ARTIFACTS:
+        _write_json(source / name, {"artifact": name})
+    bundle = tmp_path / "bundle"
+
+    with pytest.raises(ValueError, match="duplicate required artifact path"):
+        collect_promotion_evidence_bundle(
+            source,
+            bundle,
+            candidate_id="candidate-1",
+            evidence_source={"type": "promotion_bundle_export", "run_id": "bundle-1"},
+            required_artifacts=(REQUIRED_ARTIFACTS[0], REQUIRED_ARTIFACTS[0]),
+        )
+
+    assert not bundle.exists()
+
 def test_bundle_collector_rejects_padded_required_artifact_paths(tmp_path: Path) -> None:
     source = tmp_path / "source"
     source.mkdir()
@@ -1797,7 +1867,7 @@ def test_bundle_verify_only_cli_rejects_artifact_source_path_identity_drift_with
     manifest_path = bundle_dir / "promotion_evidence_manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     artifact_path = REQUIRED_ARTIFACTS[0]
-    manifest["artifacts"][0]["source_path"] = str(source / REQUIRED_ARTIFACTS[1])
+    manifest["artifacts"][0]["source_path"] = REQUIRED_ARTIFACTS[1]
     _write_json(manifest_path, manifest)
     (bundle_dir / artifact_path).write_text("tampered\n", encoding="utf-8")
     report_path = tmp_path / "reports" / "promotion_bundle_verification.json"

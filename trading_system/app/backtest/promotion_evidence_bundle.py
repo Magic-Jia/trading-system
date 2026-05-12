@@ -42,7 +42,12 @@ def _artifact_path_is_canonical(rel_path: str) -> bool:
 
 def _artifact_source_path_is_canonical(source_path: str) -> bool:
     path = Path(source_path)
-    return source_path == source_path.strip() and source_path == str(path) and ".." not in path.parts
+    return (
+        source_path == source_path.strip()
+        and source_path == str(path)
+        and not path.is_absolute()
+        and ".." not in path.parts
+    )
 
 
 def _is_canonical_utc_timestamp(value: str) -> bool:
@@ -61,6 +66,10 @@ def _canonical_utc_timestamp_from_epoch(epoch_seconds: float) -> str:
 
 def _is_exact_string(value: Any) -> bool:
     return type(value) is str
+
+
+def _is_safe_manifest_identifier(value: str) -> bool:
+    return bool(_CANDIDATE_ID_RE.fullmatch(value))
 
 
 def _coerce_bundle_root_path(value: str | Path, field_name: str) -> Path:
@@ -105,6 +114,14 @@ def collect_promotion_evidence_bundle(
     noncanonical_required = [name for name in required_artifacts if not _artifact_path_is_canonical(name)]
     if noncanonical_required:
         raise ValueError("noncanonical required artifact path(s): " + ", ".join(noncanonical_required))
+    seen_required: set[str] = set()
+    duplicate_required = []
+    for name in required_artifacts:
+        if name in seen_required:
+            duplicate_required.append(name)
+        seen_required.add(name)
+    if duplicate_required:
+        raise ValueError("duplicate required artifact path(s): " + ", ".join(duplicate_required))
     source = _coerce_bundle_root_path(source_dir, "source_dir")
     destination = _coerce_bundle_root_path(bundle_dir, "bundle_dir")
     missing = [name for name in required_artifacts if not (source / name).is_file()]
@@ -131,6 +148,8 @@ def collect_promotion_evidence_bundle(
         raise ValueError("evidence_source type must be non-empty")
     if source_payload["type"] != source_payload["type"].strip():
         raise ValueError("evidence_source type must be canonical")
+    if not _is_safe_manifest_identifier(source_payload["type"]):
+        raise ValueError("evidence_source type must be a safe identifier")
     if source_payload["type"].strip().lower() in {
         "synthetic",
         "synthetic_fixture",
@@ -149,6 +168,12 @@ def collect_promotion_evidence_bundle(
         if _is_exact_string(optional_value) and optional_value != optional_value.strip():
             raise ValueError(f"evidence_source {optional_field} must be canonical")
         if (
+            optional_field == "run_id"
+            and _is_exact_string(optional_value)
+            and not _is_safe_manifest_identifier(optional_value)
+        ):
+            raise ValueError("evidence_source run_id must be a safe identifier")
+        if (
             optional_field == "exported_at"
             and _is_exact_string(optional_value)
             and not _is_canonical_utc_timestamp(optional_value)
@@ -165,7 +190,7 @@ def collect_promotion_evidence_bundle(
         artifacts.append(
             {
                 "path": name,
-                "source_path": str(src),
+                "source_path": name,
                 "modified_at": _canonical_utc_timestamp_from_epoch(src.stat().st_mtime),
                 "bytes": src.stat().st_size,
                 "sha256": _sha256(src),
@@ -328,6 +353,9 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
         if _is_exact_string(evidence_source_type) and evidence_source_type != evidence_source_type.strip():
             schema_valid = False
             manifest_errors.append("evidence_source_type_noncanonical")
+        if _is_exact_string(evidence_source_type) and not _is_safe_manifest_identifier(evidence_source_type):
+            schema_valid = False
+            manifest_errors.append("evidence_source_type_unsafe")
         if _is_exact_string(evidence_source_type) and evidence_source_type.strip().lower() in {
             "synthetic",
             "synthetic_fixture",
@@ -349,6 +377,13 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
             elif _is_exact_string(optional_value) and optional_value != optional_value.strip():
                 schema_valid = False
                 manifest_errors.append(f"evidence_source_{optional_field}_noncanonical")
+            elif (
+                optional_field == "run_id"
+                and _is_exact_string(optional_value)
+                and not _is_safe_manifest_identifier(optional_value)
+            ):
+                schema_valid = False
+                manifest_errors.append("evidence_source_run_id_unsafe")
             elif (
                 optional_field == "exported_at"
                 and _is_exact_string(optional_value)
@@ -472,27 +507,25 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
         source_path_raw = artifact.get("source_path")
         if source_path_raw is None:
             missing_metadata.append(f"{rel_path}:source_path")
-        elif not isinstance(source_path_raw, str):
+        elif not _is_exact_string(source_path_raw):
             invalid_metadata.append(f"{rel_path}:source_path")
-        if isinstance(source_path_raw, str) and not source_path_raw.strip():
+        if _is_exact_string(source_path_raw) and not source_path_raw.strip():
             source_path_blank_metadata.append(f"{rel_path}:source_path")
         if (
-            isinstance(source_path_raw, str)
+            _is_exact_string(source_path_raw)
             and source_path_raw.strip()
             and not _artifact_source_path_is_canonical(source_path_raw)
         ):
             invalid_metadata.append(f"{rel_path}:source_path")
             source_path_noncanonical_metadata.append(f"{rel_path}:source_path")
         if (
-            isinstance(source_path_raw, str)
+            _is_exact_string(source_path_raw)
             and source_path_raw.strip()
             and _artifact_source_path_is_canonical(source_path_raw)
             and _artifact_path_is_safe(rel_path)
             and _artifact_path_is_canonical(rel_path)
         ):
-            source_parts = Path(source_path_raw).parts
-            rel_parts = Path(rel_path).parts
-            if len(source_parts) < len(rel_parts) or source_parts[-len(rel_parts) :] != rel_parts:
+            if Path(source_path_raw) != Path(rel_path):
                 invalid_metadata.append(f"{rel_path}:source_path")
                 source_path_identity_mismatch_metadata.append(f"{rel_path}:source_path")
         modified_at_raw = artifact.get("modified_at")
