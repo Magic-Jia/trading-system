@@ -7,13 +7,17 @@ from trading_system.app.backtest.portfolio import (
     decision_to_ledger_row,
     evaluate_candidate,
     position_size_from_risk,
+    validate_portfolio_lifecycle,
 )
 from trading_system.app.backtest.types import (
     CapitalModelConfig,
+    FundingMarginLiquidationEvidence,
     PortfolioCandidate,
     PortfolioDecision,
+    PortfolioLifecycleEvidence,
     PortfolioPosition,
     PortfolioState,
+    ProtectiveStopEvidence,
 )
 
 
@@ -54,6 +58,7 @@ def make_position(
     position_notional: float = 20_000.0,
     qty: float = 0.4,
     side: str = "long",
+    protective_stop_id: str | None = None,
 ) -> PortfolioPosition:
     return PortfolioPosition(
         symbol=symbol,
@@ -63,6 +68,7 @@ def make_position(
         risk_budget=risk_budget,
         position_notional=position_notional,
         qty=qty,
+        protective_stop_id=protective_stop_id,
     )
 
 
@@ -73,6 +79,7 @@ def make_portfolio_state(
     open_risk_fraction: float | None = None,
     capital_usage_fraction: float | None = None,
     active_positions: int | None = None,
+    lifecycle_evidence: PortfolioLifecycleEvidence | None = None,
 ) -> PortfolioState:
     return PortfolioState(
         initial_equity=initial_equity,
@@ -80,6 +87,7 @@ def make_portfolio_state(
         open_risk_fraction=open_risk_fraction,
         capital_usage_fraction=capital_usage_fraction,
         active_positions=active_positions,
+        lifecycle_evidence=lifecycle_evidence,
     )
 
 
@@ -278,3 +286,192 @@ def test_decision_ledgers_capture_accept_resize_and_reject_statuses() -> None:
     assert resized_row.reasons == ("open_risk_budget_limited",)
     assert rejected_row.status == "rejected"
     assert rejected_row.reasons == ("base_asset_same_direction_crowding",)
+
+
+def test_lifecycle_validation_rejects_duplicate_protective_stop_evidence() -> None:
+    state = make_portfolio_state(
+        initial_equity=100_000.0,
+        open_positions=[
+            make_position(
+                symbol="BTCUSDT",
+                market_type="spot",
+                base_asset="BTC",
+                protective_stop_id="stop-btc-1",
+            )
+        ],
+        lifecycle_evidence=PortfolioLifecycleEvidence(
+            protective_stops=(
+                ProtectiveStopEvidence(
+                    stop_id="stop-btc-1",
+                    symbol="BTCUSDT",
+                    status="active",
+                    stop_loss=47_500.0,
+                    updated_at_counter=1,
+                ),
+                ProtectiveStopEvidence(
+                    stop_id="stop-btc-1",
+                    symbol="BTCUSDT",
+                    status="active",
+                    stop_loss=47_400.0,
+                    updated_at_counter=2,
+                ),
+            ),
+            funding_margin_liquidation=(
+                FundingMarginLiquidationEvidence(
+                    evidence_id="risk-btc-1",
+                    symbol="BTCUSDT",
+                    timestamp_ms=1_700_000_000_000,
+                    order_counter=10,
+                    funding_rate_bps=0.25,
+                    margin_ratio=0.5,
+                    liquidation_price=42_000.0,
+                    liquidation_distance_fraction=0.12,
+                ),
+            ),
+        ),
+    )
+
+    report = validate_portfolio_lifecycle(state, promotion_grade=True)
+
+    assert report.valid is False
+    assert report.reasons == ("duplicate_protective_stop_evidence",)
+
+
+def test_lifecycle_validation_rejects_missing_stop_state_for_promotion_grade() -> None:
+    state = make_portfolio_state(
+        initial_equity=100_000.0,
+        open_positions=[
+            make_position(symbol="ETHUSDT", market_type="futures", base_asset="ETH")
+        ],
+        lifecycle_evidence=PortfolioLifecycleEvidence(
+            funding_margin_liquidation=(
+                FundingMarginLiquidationEvidence(
+                    evidence_id="risk-eth-1",
+                    symbol="ETHUSDT",
+                    timestamp_ms=1_700_000_000_000,
+                    order_counter=11,
+                    funding_rate_bps=0.1,
+                    margin_ratio=0.4,
+                    liquidation_price=2_500.0,
+                    liquidation_distance_fraction=0.15,
+                ),
+            ),
+        ),
+    )
+
+    report = validate_portfolio_lifecycle(state, promotion_grade=True)
+
+    assert report.valid is False
+    assert report.reasons == ("missing_protective_stop_state",)
+
+
+def test_lifecycle_validation_rejects_missing_liquidation_risk_for_promotion_grade() -> None:
+    state = make_portfolio_state(
+        initial_equity=100_000.0,
+        open_positions=[
+            make_position(
+                symbol="ETHUSDT",
+                market_type="futures",
+                base_asset="ETH",
+                protective_stop_id="stop-eth-1",
+            )
+        ],
+        lifecycle_evidence=PortfolioLifecycleEvidence(
+            protective_stops=(
+                ProtectiveStopEvidence(
+                    stop_id="stop-eth-1",
+                    symbol="ETHUSDT",
+                    status="active",
+                    stop_loss=2_850.0,
+                    updated_at_counter=2,
+                ),
+            ),
+        ),
+    )
+
+    report = validate_portfolio_lifecycle(state, promotion_grade=True)
+
+    assert report.valid is False
+    assert report.reasons == ("missing_liquidation_risk_evidence",)
+
+
+def test_lifecycle_validation_rejects_bool_and_string_numeric_evidence() -> None:
+    state = make_portfolio_state(
+        initial_equity=100_000.0,
+        open_positions=[
+            make_position(
+                symbol="SOLUSDT",
+                market_type="futures",
+                base_asset="SOL",
+                protective_stop_id="stop-sol-1",
+            )
+        ],
+        lifecycle_evidence=PortfolioLifecycleEvidence(
+            protective_stops=(
+                ProtectiveStopEvidence(
+                    stop_id="stop-sol-1",
+                    symbol="SOLUSDT",
+                    status="active",
+                    stop_loss="190.0",
+                    updated_at_counter=True,
+                ),
+            ),
+            funding_margin_liquidation=(
+                FundingMarginLiquidationEvidence(
+                    evidence_id="risk-sol-1",
+                    symbol="SOLUSDT",
+                    timestamp_ms=True,
+                    order_counter=12,
+                    funding_rate_bps="0.1",
+                    margin_ratio=0.4,
+                    liquidation_price=150.0,
+                    liquidation_distance_fraction=0.2,
+                ),
+            ),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="protective_stop.stop_loss must be a finite number"):
+        validate_portfolio_lifecycle(state, promotion_grade=True)
+
+
+def test_lifecycle_validation_accepts_valid_promotion_grade_evidence() -> None:
+    state = make_portfolio_state(
+        initial_equity=100_000.0,
+        open_positions=[
+            make_position(
+                symbol="BTCUSDT",
+                market_type="futures",
+                base_asset="BTC",
+                protective_stop_id="stop-btc-1",
+            )
+        ],
+        lifecycle_evidence=PortfolioLifecycleEvidence(
+            protective_stops=(
+                ProtectiveStopEvidence(
+                    stop_id="stop-btc-1",
+                    symbol="BTCUSDT",
+                    status="active",
+                    stop_loss=47_500.0,
+                    updated_at_counter=1,
+                ),
+            ),
+            funding_margin_liquidation=(
+                FundingMarginLiquidationEvidence(
+                    evidence_id="risk-btc-1",
+                    symbol="BTCUSDT",
+                    timestamp_ms=1_700_000_000_000,
+                    order_counter=10,
+                    funding_rate_bps=0.25,
+                    margin_ratio=0.5,
+                    liquidation_price=42_000.0,
+                    liquidation_distance_fraction=0.12,
+                ),
+            ),
+        ),
+    )
+
+    report = validate_portfolio_lifecycle(state, promotion_grade=True)
+
+    assert report.valid is True
+    assert report.reasons == ()

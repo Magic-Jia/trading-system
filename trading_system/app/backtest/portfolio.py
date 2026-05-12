@@ -4,12 +4,15 @@ from math import ceil, isfinite
 
 from .types import (
     CapitalModelConfig,
+    FundingMarginLiquidationEvidence,
     PortfolioCandidate,
     PortfolioDecision,
     PortfolioDecisionLedgerRow,
+    PortfolioLifecycleValidationReport,
     PortfolioPosition,
     PortfolioSizing,
     PortfolioState,
+    ProtectiveStopEvidence,
 )
 
 _EPSILON = 1e-12
@@ -43,6 +46,12 @@ def _non_negative_int(value: object, *, field_name: str) -> int:
         raise ValueError(f"{field_name} must be a non-negative integer")
     if value < 0:
         raise ValueError(f"{field_name} must be a non-negative integer")
+    return value
+
+
+def _integer(value: object, *, field_name: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"{field_name} must be an integer")
     return value
 
 
@@ -120,6 +129,76 @@ def _portfolio_side(value: object, *, field_name: str) -> str:
     if side not in {"long", "short"}:
         raise ValueError(f"{field_name} must be a portfolio side")
     return side
+
+
+def _protective_stop_status(value: object) -> str:
+    status = _canonical_string(value, field_name="protective_stop.status")
+    if status not in {"active", "triggered", "cancelled", "replaced"}:
+        raise ValueError("protective_stop.status must be a protective stop status")
+    return status
+
+
+def _validate_protective_stop_evidence(evidence: ProtectiveStopEvidence) -> None:
+    _canonical_string(evidence.stop_id, field_name="protective_stop.stop_id")
+    _canonical_string(evidence.symbol, field_name="protective_stop.symbol")
+    _protective_stop_status(evidence.status)
+    _positive_number(evidence.stop_loss, field_name="protective_stop.stop_loss")
+    _non_negative_int(evidence.updated_at_counter, field_name="protective_stop.updated_at_counter")
+
+
+def _validate_funding_margin_liquidation_evidence(evidence: FundingMarginLiquidationEvidence) -> None:
+    _canonical_string(evidence.evidence_id, field_name="funding_margin_liquidation.evidence_id")
+    _canonical_string(evidence.symbol, field_name="funding_margin_liquidation.symbol")
+    _non_negative_int(evidence.timestamp_ms, field_name="funding_margin_liquidation.timestamp_ms")
+    _integer(evidence.order_counter, field_name="funding_margin_liquidation.order_counter")
+    _finite_number(evidence.funding_rate_bps, field_name="funding_margin_liquidation.funding_rate_bps")
+    _non_negative_number(evidence.margin_ratio, field_name="funding_margin_liquidation.margin_ratio")
+    _positive_number(evidence.liquidation_price, field_name="funding_margin_liquidation.liquidation_price")
+    _non_negative_number(
+        evidence.liquidation_distance_fraction,
+        field_name="funding_margin_liquidation.liquidation_distance_fraction",
+    )
+
+
+def validate_portfolio_lifecycle(
+    state: PortfolioState,
+    *,
+    promotion_grade: bool = False,
+) -> PortfolioLifecycleValidationReport:
+    evidence = state.lifecycle_evidence
+    if evidence is None:
+        if promotion_grade and state.open_positions:
+            return PortfolioLifecycleValidationReport(
+                valid=False,
+                reasons=("missing_lifecycle_evidence",),
+            )
+        return PortfolioLifecycleValidationReport(valid=True, reasons=())
+
+    reasons: list[str] = []
+    seen_stop_ids: set[str] = set()
+    duplicated_stop = False
+    for stop in evidence.protective_stops:
+        _validate_protective_stop_evidence(stop)
+        if stop.stop_id in seen_stop_ids:
+            duplicated_stop = True
+        seen_stop_ids.add(stop.stop_id)
+    if duplicated_stop:
+        reasons.append("duplicate_protective_stop_evidence")
+
+    for risk_evidence in evidence.funding_margin_liquidation:
+        _validate_funding_margin_liquidation_evidence(risk_evidence)
+
+    if promotion_grade and state.open_positions:
+        missing_stop_state = any(
+            position.protective_stop_id is None or position.protective_stop_id not in seen_stop_ids
+            for position in state.open_positions
+        )
+        if missing_stop_state:
+            reasons.append("missing_protective_stop_state")
+        if not evidence.funding_margin_liquidation:
+            reasons.append("missing_liquidation_risk_evidence")
+
+    return PortfolioLifecycleValidationReport(valid=not reasons, reasons=tuple(reasons))
 
 
 def _same_direction(a: PortfolioPosition | PortfolioCandidate, b: PortfolioCandidate) -> bool:

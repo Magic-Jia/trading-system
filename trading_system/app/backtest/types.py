@@ -186,6 +186,34 @@ class PortfolioPosition:
     risk_budget: float
     position_notional: float
     qty: float
+    protective_stop_id: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ProtectiveStopEvidence:
+    stop_id: str
+    symbol: str
+    status: str
+    stop_loss: float
+    updated_at_counter: int
+
+
+@dataclass(frozen=True, slots=True)
+class FundingMarginLiquidationEvidence:
+    evidence_id: str
+    symbol: str
+    timestamp_ms: int
+    order_counter: int
+    funding_rate_bps: float
+    margin_ratio: float
+    liquidation_price: float
+    liquidation_distance_fraction: float
+
+
+@dataclass(frozen=True, slots=True)
+class PortfolioLifecycleEvidence:
+    protective_stops: tuple[ProtectiveStopEvidence, ...] = ()
+    funding_margin_liquidation: tuple[FundingMarginLiquidationEvidence, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -195,6 +223,7 @@ class PortfolioState:
     open_risk_fraction: float | None = None
     capital_usage_fraction: float | None = None
     active_positions: int | None = None
+    lifecycle_evidence: PortfolioLifecycleEvidence | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -223,6 +252,12 @@ class PortfolioDecisionLedgerRow:
     final_risk_budget: float
     position_notional: float
     qty: float
+
+
+@dataclass(frozen=True, slots=True)
+class PortfolioLifecycleValidationReport:
+    valid: bool
+    reasons: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
