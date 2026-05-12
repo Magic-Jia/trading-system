@@ -117,8 +117,10 @@ def render_backtest_evaluation_report(
     evaluation: Mapping[str, Any],
     metadata: Mapping[str, Any],
 ) -> dict[str, Any]:
+    experiment_name = _canonical_report_string(experiment_name, field_name="experiment_name")
     if not isinstance(metadata, Mapping):
         raise ValueError("metadata must be an object")
+    report_metadata = _report_metadata_copy(metadata)
     walk_forward = _mapping_field(evaluation, "walk_forward")
     regimes = _mapping_field(evaluation, "regimes")
     cost_stress = _mapping_field(evaluation, "cost_stress")
@@ -128,19 +130,25 @@ def render_backtest_evaluation_report(
     walk_forward_metadata = dict(raw_walk_forward_metadata)
     regime_buckets = _list_field(regimes, "buckets", label="regimes.buckets")
     validated_regime_buckets = []
+    regime_bucket_labels: set[str] = set()
     for index, bucket in enumerate(regime_buckets):
         if not isinstance(bucket, Mapping):
             raise ValueError(f"regimes.buckets[{index}] must be an object")
         validated_bucket = dict(bucket)
         if "label" in validated_bucket:
-            validated_bucket["label"] = _canonical_report_string(
+            label = _canonical_report_string(
                 validated_bucket["label"],
                 field_name=f"regimes.buckets[{index}].label",
             )
+            if label in regime_bucket_labels:
+                raise ValueError("regimes.buckets labels must be unique")
+            regime_bucket_labels.add(label)
+            validated_bucket["label"] = label
         validated_regime_buckets.append(validated_bucket)
     validated_regimes = dict(regimes)
     validated_regimes["buckets"] = validated_regime_buckets
     stress_scenarios = []
+    stress_scenario_names: set[str] = set()
     validated_cost_scenarios = []
     for index, scenario_payload in enumerate(_list_field(cost_stress, "scenarios", label="cost_stress.scenarios")):
         if not isinstance(scenario_payload, Mapping):
@@ -151,9 +159,13 @@ def render_backtest_evaluation_report(
             raise ValueError(f"cost_stress.scenarios[{index}].scenario must be an object")
         if "name" in scenario:
             name = scenario["name"]
-            stress_scenarios.append(
-                _canonical_report_string(name, field_name=f"cost_stress.scenarios[{index}].scenario.name")
+            scenario_name = _canonical_report_string(
+                name, field_name=f"cost_stress.scenarios[{index}].scenario.name"
             )
+            if scenario_name in stress_scenario_names:
+                raise ValueError("cost_stress.scenarios scenario.name values must be unique")
+            stress_scenario_names.add(scenario_name)
+            stress_scenarios.append(scenario_name)
         for metrics_field in ("base_metrics", "stressed_metrics"):
             if metrics_field not in scenario_payload:
                 continue
@@ -178,7 +190,7 @@ def render_backtest_evaluation_report(
     return {
         "summary": {
             "metadata": {
-                **dict(metadata),
+                **report_metadata,
                 "experiment_name": experiment_name,
                 "evaluation_layer": "walk_forward_oos_regime_cost_stress",
             },
@@ -392,6 +404,25 @@ def _scorecard_metadata(*, experiment_name: str, metadata: Mapping[str, Any]) ->
         "sample_period": metadata.get("sample_period"),
         "evaluation_window": metadata.get("evaluation_window"),
     }
+
+
+_REPORT_METADATA_IDENTIFIER_FIELDS = frozenset(
+    {
+        "dataset_root",
+        "baseline_name",
+        "variant_name",
+        "sample_period",
+        "evaluation_window",
+    }
+)
+
+
+def _report_metadata_copy(metadata: Mapping[str, Any]) -> dict[str, Any]:
+    copied = _strict_mapping_copy(metadata, field_name="metadata")
+    for field in _REPORT_METADATA_IDENTIFIER_FIELDS:
+        if field in copied and copied[field] is not None:
+            copied[field] = _canonical_report_string(copied[field], field_name=f"metadata.{field}")
+    return copied
 
 
 def _decision_summary(*, decision: str, summary: str) -> dict[str, str]:

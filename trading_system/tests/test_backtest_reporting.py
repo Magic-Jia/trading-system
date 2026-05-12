@@ -60,6 +60,64 @@ def test_backtest_evaluation_report_rejects_invalid_cost_stress_scenario_name() 
         )
 
 
+def test_backtest_evaluation_report_rejects_padded_experiment_name() -> None:
+    with pytest.raises(ValueError, match="experiment_name must be a canonical string"):
+        reporting.render_backtest_evaluation_report(
+            experiment_name=" evaluation ",
+            evaluation={
+                "walk_forward": {"metadata": {"window_count": 1}},
+                "regimes": {"buckets": []},
+                "cost_stress": {"scenarios": []},
+            },
+            metadata={"dataset_root": "dataset"},
+        )
+
+
+@pytest.mark.parametrize("field", ("dataset_root", "baseline_name", "variant_name", "sample_period"))
+def test_backtest_evaluation_report_rejects_padded_report_metadata_identifiers(field: str) -> None:
+    with pytest.raises(ValueError, match=rf"metadata\.{field} must be a canonical string"):
+        reporting.render_backtest_evaluation_report(
+            experiment_name="evaluation",
+            evaluation={
+                "walk_forward": {"metadata": {"window_count": 1}},
+                "regimes": {"buckets": []},
+                "cost_stress": {"scenarios": []},
+            },
+            metadata={field: " padded "},
+        )
+
+
+def test_backtest_evaluation_report_rejects_duplicate_regime_bucket_labels() -> None:
+    with pytest.raises(ValueError, match="regimes.buckets labels must be unique"):
+        reporting.render_backtest_evaluation_report(
+            experiment_name="evaluation",
+            evaluation={
+                "walk_forward": {"metadata": {"window_count": 1}},
+                "regimes": {"buckets": [{"label": "low_vol_uptrend"}, {"label": "low_vol_uptrend"}]},
+                "cost_stress": {"scenarios": []},
+            },
+            metadata={"dataset_root": "dataset"},
+        )
+
+
+def test_backtest_evaluation_report_rejects_duplicate_cost_stress_scenario_names() -> None:
+    with pytest.raises(ValueError, match="cost_stress.scenarios scenario.name values must be unique"):
+        reporting.render_backtest_evaluation_report(
+            experiment_name="evaluation",
+            evaluation={
+                "walk_forward": {"metadata": {"window_count": 1}},
+                "regimes": {"buckets": []},
+                "cost_stress": {
+                    "scenarios": [
+                        {"scenario": {"name": "fees_2x"}},
+                        {"scenario": {"name": "fees_2x"}},
+                    ]
+                },
+            },
+            metadata={"dataset_root": "dataset"},
+        )
+
+
 def test_backtest_evaluation_report_rejects_false_cost_stress_scenario_name() -> None:
     with pytest.raises(ValueError, match=r"cost_stress.scenarios\[0\].scenario.name must be a canonical string"):
         reporting.render_backtest_evaluation_report(
