@@ -2783,6 +2783,8 @@ def _phase1_root_manifest_path_string(manifest: Mapping[str, Any], field: str, *
 
 def _phase1_root_manifest_path_strings(manifest: Mapping[str, Any], field: str, *, manifest_path: Path) -> tuple[str, ...]:
     values = _phase1_root_manifest_canonical_strings(manifest, field, manifest_path=manifest_path)
+    if len(set(values)) != len(values):
+        raise ValueError(f"materialized dataset root manifest {field} must not contain duplicate entries: {manifest_path}")
     for value in values:
         if ".." in Path(value).parts:
             raise ValueError(f"materialized dataset root manifest {field} must not contain parent traversal: {manifest_path}")
