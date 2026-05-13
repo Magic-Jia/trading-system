@@ -8953,7 +8953,7 @@ def test_live_readiness_gate_rejects_unsafe_microstructure_interval_artifact_ref
                             "l2_update_coverage": 1.0,
                             "tick_coverage": 1.0,
                         },
-                        "artifact_ref": "../BTCUSDT-1m.jsonl",
+                        "artifact_ref": "../escape.jsonl",
                     }
                 ],
             }
@@ -8965,8 +8965,12 @@ def test_live_readiness_gate_rejects_unsafe_microstructure_interval_artifact_ref
 
     artifact = report["microstructure_gate"]["artifacts"][0]
     assert artifact["schema_valid"] is False
+    assert artifact["provenance_present"] is True
     assert artifact["parse_error"] == "interval_coverage_artifact_ref_not_path_safe"
+    assert report["microstructure_gate"]["checks"]["microstructure_artifact_schema_valid"] is False
+    assert report["microstructure_gate"]["checks"]["microstructure_artifact_provenance_present"] is True
     assert "microstructure_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
+    assert "microstructure_artifact_provenance_missing" not in report["promotion_gate"]["reasons"]
 
 
 def test_live_readiness_gate_rejects_present_failing_microstructure_checks(tmp_path: Path) -> None:
