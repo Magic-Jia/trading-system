@@ -152,6 +152,8 @@ class ExecutionFill:
         object.__setattr__(self, "quantity", _non_negative_finite_float("quantity", self.quantity))
         if self.fill_price is not None:
             _coerce_positive_finite_float("fill_price", self.fill_price)
+        if self.fill_quality == "no_fill" and self.fill_price is not None:
+            raise ValueError("no-fill execution cannot include fill_price")
         for field_name in (
             "requested_quantity",
             "requested_notional",

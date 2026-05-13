@@ -885,6 +885,21 @@ def test_execution_fill_rejects_non_canonical_maker_status() -> None:
         )
 
 
+def test_execution_fill_rejects_no_fill_with_fill_price() -> None:
+    with pytest.raises(ValueError, match="no-fill execution cannot include fill_price"):
+        ExecutionFill(
+            symbol="BTCUSDT",
+            side="buy",
+            quantity=1.0,
+            filled=False,
+            fill_price=100.0,
+            fill_model="maker_orderbook_trade_evidence",
+            execution_price_source="no_crossing_evidence",
+            fill_quality="no_fill",
+            outcome="missed_alpha",
+        )
+
+
 @pytest.mark.parametrize(
     ("field", "value", "match"),
     [
