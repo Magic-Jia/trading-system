@@ -7989,6 +7989,42 @@ def test_live_readiness_gate_accepts_microstructure_interval_identity_artifact(t
     assert "microstructure_artifact_schema_invalid" not in report["promotion_gate"]["reasons"]
 
 
+@pytest.mark.parametrize(
+    ("run_id", "parse_error"),
+    [
+        (" ", "evidence_source_run_id_blank"),
+        (" microstructure-1 ", "evidence_source_run_id_noncanonical"),
+    ],
+)
+def test_live_readiness_gate_rejects_invalid_microstructure_evidence_run_id(
+    tmp_path: Path,
+    run_id: str,
+    parse_error: str,
+) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    (chunk / "market_microstructure_gate.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "market_microstructure_gate_input.v1",
+                "evidence_source": {"type": "historical_l2_tick_archive", "run_id": run_id},
+                "checks": {"l2_tick_coverage_met": True, "depth_driven_taker_met": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_live_readiness_gate_report(tmp_path, require_microstructure_evidence=True)
+
+    microstructure = report["microstructure_gate"]
+    assert microstructure["artifacts"][0]["schema_valid"] is False
+    assert microstructure["artifacts"][0]["parse_error"] == parse_error
+    assert microstructure["checks"]["microstructure_artifact_schema_valid"] is False
+    assert microstructure["checks"]["microstructure_artifact_provenance_present"] is False
+    assert "microstructure_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
+    assert "microstructure_artifact_provenance_missing" in report["promotion_gate"]["reasons"]
+
+
 def test_live_readiness_gate_rejects_unsafe_microstructure_interval_artifact_ref(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     _write_profitable_trade_chunk(chunk)

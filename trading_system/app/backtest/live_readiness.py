@@ -2727,7 +2727,9 @@ def _microstructure_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
             and not interval_coverage_schema_error
             and not unknown_check_fields
         )
-        chunk_provenance_present = (not parse_error) and _artifact_provenance_present(payload) is True
+        chunk_provenance_present = (
+            (not parse_error) and not evidence_source_schema_error and _artifact_provenance_present(payload) is True
+        )
         parse_error_message = str(parse_error or "")
         if not parse_error:
             if not checks_object_valid:
