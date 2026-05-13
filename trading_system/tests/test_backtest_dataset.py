@@ -2904,6 +2904,85 @@ def test_load_historical_dataset_rejects_active_open_order_with_terminal_event_c
         load_historical_dataset(dataset_root)
 
 
+def test_load_historical_dataset_rejects_active_open_order_with_rejected_counter_alias(
+    tmp_path: Path,
+) -> None:
+    dataset_root = _write_minimal_dataset_bundle(
+        tmp_path,
+        {
+            "equity": 100000.0,
+            "open_positions": [],
+            "open_orders": [
+                {
+                    "symbol": "BTCUSDT",
+                    "status": "OPEN",
+                    "created_at": 20,
+                    "updated_at": 21,
+                    "rejected_qty": 1,
+                }
+            ],
+        },
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"account\.open_orders\[0\]\.rejected_qty must be omitted for active status",
+    ):
+        load_historical_dataset(dataset_root)
+
+
+def test_load_historical_dataset_accepts_rejected_open_order_with_rejected_counter_alias(
+    tmp_path: Path,
+) -> None:
+    open_order = {
+        "symbol": "BTCUSDT",
+        "status": "REJECTED",
+        "created_at": 20,
+        "updated_at": 21,
+        "rejectedQty": 1,
+    }
+    account_snapshot = {
+        "equity": 100000.0,
+        "open_positions": [],
+        "open_orders": [open_order],
+    }
+    dataset_root = _write_minimal_dataset_bundle(tmp_path, account_snapshot)
+
+    rows = load_historical_dataset(dataset_root)
+
+    assert rows[0].account["open_orders"] == [open_order]
+
+
+@pytest.mark.parametrize("value", [True, "1", float("inf"), -1])
+def test_load_historical_dataset_rejects_invalid_rejected_counter_alias(
+    tmp_path: Path,
+    value: object,
+) -> None:
+    dataset_root = _write_minimal_dataset_bundle(
+        tmp_path,
+        {
+            "equity": 100000.0,
+            "open_positions": [],
+            "open_orders": [
+                {
+                    "symbol": "BTCUSDT",
+                    "status": "REJECTED",
+                    "created_at": 20,
+                    "updated_at": 21,
+                    "rejected_at": 22,
+                    "rejected_qty": value,
+                }
+            ],
+        },
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"account\.open_orders\[0\]\.rejected_qty must be a non-negative finite number",
+    ):
+        load_historical_dataset(dataset_root)
+
+
 def test_load_historical_dataset_rejects_open_order_terminal_counter_before_updated_counter(
     tmp_path: Path,
 ) -> None:

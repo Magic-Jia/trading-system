@@ -533,6 +533,7 @@ _ACCOUNT_OPEN_ORDER_REJECTED_EVENT_COUNTER_FIELDS = (
 _ACCOUNT_OPEN_ORDER_FILLED_COUNTER_FIELDS = ("filled_qty", "filledQty", "executed_qty", "executedQty")
 _ACCOUNT_OPEN_ORDER_CANCELED_COUNTER_FIELDS = ("canceled_qty", "canceledQty")
 _ACCOUNT_OPEN_ORDER_EXPIRED_COUNTER_FIELDS = ("expired_qty", "expiredQty")
+_ACCOUNT_OPEN_ORDER_REJECTED_COUNTER_FIELDS = ("rejected_qty", "rejectedQty")
 _ACCOUNT_OPEN_ORDER_LIFECYCLE_COUNTER_FIELDS = (
     *_ACCOUNT_OPEN_ORDER_CREATED_COUNTER_FIELDS,
     *_ACCOUNT_OPEN_ORDER_UPDATED_COUNTER_FIELDS,
@@ -543,6 +544,7 @@ _ACCOUNT_OPEN_ORDER_LIFECYCLE_COUNTER_FIELDS = (
     *_ACCOUNT_OPEN_ORDER_FILLED_COUNTER_FIELDS,
     *_ACCOUNT_OPEN_ORDER_CANCELED_COUNTER_FIELDS,
     *_ACCOUNT_OPEN_ORDER_EXPIRED_COUNTER_FIELDS,
+    *_ACCOUNT_OPEN_ORDER_REJECTED_COUNTER_FIELDS,
 )
 _ACCOUNT_OPEN_ORDER_TERMINAL_STATUS_EVIDENCE = {
     "FILLED": (
@@ -567,7 +569,7 @@ _ACCOUNT_OPEN_ORDER_TERMINAL_STATUS_EVIDENCE = {
     ),
     "REJECTED": (
         _ACCOUNT_OPEN_ORDER_REJECTED_TIME_FIELDS,
-        _ACCOUNT_OPEN_ORDER_REJECTED_EVENT_COUNTER_FIELDS,
+        (*_ACCOUNT_OPEN_ORDER_REJECTED_EVENT_COUNTER_FIELDS, *_ACCOUNT_OPEN_ORDER_REJECTED_COUNTER_FIELDS),
         "rejected_at or reject_time",
     ),
 }
@@ -1069,6 +1071,7 @@ def _validate_open_order_lifecycle(order: dict, *, field_prefix: str, path: Path
             _ACCOUNT_OPEN_ORDER_FILLED_EVENT_COUNTER_FIELDS,
             _ACCOUNT_OPEN_ORDER_EXPIRED_EVENT_COUNTER_FIELDS,
             _ACCOUNT_OPEN_ORDER_REJECTED_EVENT_COUNTER_FIELDS,
+            _ACCOUNT_OPEN_ORDER_REJECTED_COUNTER_FIELDS,
         ):
             terminal = _account_order_lifecycle_number(order, fields, field_prefix=field_prefix, path=path)
             if terminal is None:
@@ -1092,6 +1095,7 @@ def _validate_open_order_lifecycle(order: dict, *, field_prefix: str, path: Path
             _ACCOUNT_OPEN_ORDER_FILLED_EVENT_COUNTER_FIELDS,
             _ACCOUNT_OPEN_ORDER_EXPIRED_EVENT_COUNTER_FIELDS,
             _ACCOUNT_OPEN_ORDER_REJECTED_EVENT_COUNTER_FIELDS,
+            _ACCOUNT_OPEN_ORDER_REJECTED_COUNTER_FIELDS,
         ):
             terminal = _account_order_lifecycle_number(order, fields, field_prefix=field_prefix, path=path)
             if terminal is not None:

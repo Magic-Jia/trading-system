@@ -371,6 +371,7 @@ _OPEN_ORDER_REJECTED_EVENT_COUNTER_FIELDS = (
 _OPEN_ORDER_FILLED_COUNTER_FIELDS = ("filled_qty", "filledQty", "executed_qty", "executedQty")
 _OPEN_ORDER_CANCELED_COUNTER_FIELDS = ("canceled_qty", "canceledQty")
 _OPEN_ORDER_EXPIRED_COUNTER_FIELDS = ("expired_qty", "expiredQty")
+_OPEN_ORDER_REJECTED_COUNTER_FIELDS = ("rejected_qty", "rejectedQty")
 _OPEN_ORDER_LIFECYCLE_COUNTER_FIELDS = (
     *_OPEN_ORDER_CREATED_COUNTER_FIELDS,
     *_OPEN_ORDER_UPDATED_COUNTER_FIELDS,
@@ -381,6 +382,7 @@ _OPEN_ORDER_LIFECYCLE_COUNTER_FIELDS = (
     *_OPEN_ORDER_FILLED_COUNTER_FIELDS,
     *_OPEN_ORDER_CANCELED_COUNTER_FIELDS,
     *_OPEN_ORDER_EXPIRED_COUNTER_FIELDS,
+    *_OPEN_ORDER_REJECTED_COUNTER_FIELDS,
 )
 _OPEN_ORDER_TERMINAL_STATUS_EVIDENCE = {
     "FILLED": (
@@ -403,7 +405,11 @@ _OPEN_ORDER_TERMINAL_STATUS_EVIDENCE = {
         (*_OPEN_ORDER_EXPIRED_EVENT_COUNTER_FIELDS, *_OPEN_ORDER_EXPIRED_COUNTER_FIELDS),
         "expired_at or expire_time",
     ),
-    "REJECTED": (_OPEN_ORDER_REJECTED_TIME_FIELDS, _OPEN_ORDER_REJECTED_EVENT_COUNTER_FIELDS, "rejected_at or reject_time"),
+    "REJECTED": (
+        _OPEN_ORDER_REJECTED_TIME_FIELDS,
+        (*_OPEN_ORDER_REJECTED_EVENT_COUNTER_FIELDS, *_OPEN_ORDER_REJECTED_COUNTER_FIELDS),
+        "rejected_at or reject_time",
+    ),
 }
 _OPEN_ORDER_ACTIVE_STATUS_VALUES = {"NEW", "OPEN", "PENDING", "PARTIALLY_FILLED"}
 
@@ -461,6 +467,7 @@ def _validate_open_order_lifecycle(row: Mapping[str, Any], field_path: str) -> N
             _OPEN_ORDER_FILLED_EVENT_COUNTER_FIELDS,
             _OPEN_ORDER_EXPIRED_EVENT_COUNTER_FIELDS,
             _OPEN_ORDER_REJECTED_EVENT_COUNTER_FIELDS,
+            _OPEN_ORDER_REJECTED_COUNTER_FIELDS,
         ):
             terminal = _open_order_lifecycle_number(row, fields, field_path)
             if terminal is None:
@@ -486,6 +493,7 @@ def _validate_open_order_lifecycle(row: Mapping[str, Any], field_path: str) -> N
             _OPEN_ORDER_FILLED_EVENT_COUNTER_FIELDS,
             _OPEN_ORDER_EXPIRED_EVENT_COUNTER_FIELDS,
             _OPEN_ORDER_REJECTED_EVENT_COUNTER_FIELDS,
+            _OPEN_ORDER_REJECTED_COUNTER_FIELDS,
         ):
             terminal = _open_order_lifecycle_number(row, fields, field_path)
             if terminal is not None:

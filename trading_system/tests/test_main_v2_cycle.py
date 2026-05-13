@@ -4937,6 +4937,86 @@ def test_load_account_snapshot_rejects_active_open_order_with_terminal_event_cou
         main_module.load_account_snapshot(account_path)
 
 
+def test_load_account_snapshot_rejects_active_open_order_with_rejected_counter_alias(tmp_path):
+    account_path = tmp_path / "account_snapshot.json"
+    account_path.write_text(
+        json.dumps(
+            {
+                "equity": 1000.0,
+                "available_balance": 900.0,
+                "futures_wallet_balance": 1000.0,
+                "open_positions": [],
+                "open_orders": [
+                    {
+                        "symbol": "BTCUSDT",
+                        "status": "OPEN",
+                        "created_at": 20,
+                        "updated_at": 21,
+                        "rejected_qty": 1,
+                    }
+                ],
+            }
+        )
+    )
+
+    with pytest.raises(ValueError, match=r"open_orders\[0\]\.rejected_qty must be omitted for active status"):
+        main_module.load_account_snapshot(account_path)
+
+
+def test_load_account_snapshot_accepts_rejected_open_order_with_rejected_counter_alias(tmp_path):
+    account_path = tmp_path / "account_snapshot.json"
+    open_order = {
+        "symbol": "BTCUSDT",
+        "status": "REJECTED",
+        "created_at": 20,
+        "updated_at": 21,
+        "rejectedQty": 1,
+    }
+    account_path.write_text(
+        json.dumps(
+            {
+                "equity": 1000.0,
+                "available_balance": 900.0,
+                "futures_wallet_balance": 1000.0,
+                "open_positions": [],
+                "open_orders": [open_order],
+            }
+        )
+    )
+
+    account = main_module.load_account_snapshot(account_path)
+
+    assert account.open_orders == [open_order]
+
+
+@pytest.mark.parametrize("value", [True, "1", float("inf"), -1])
+def test_load_account_snapshot_rejects_invalid_rejected_counter_alias(tmp_path, value):
+    account_path = tmp_path / "account_snapshot.json"
+    account_path.write_text(
+        json.dumps(
+            {
+                "equity": 1000.0,
+                "available_balance": 900.0,
+                "futures_wallet_balance": 1000.0,
+                "open_positions": [],
+                "open_orders": [
+                    {
+                        "symbol": "BTCUSDT",
+                        "status": "REJECTED",
+                        "created_at": 20,
+                        "updated_at": 21,
+                        "rejected_at": 22,
+                        "rejected_qty": value,
+                    }
+                ],
+            }
+        )
+    )
+
+    with pytest.raises(ValueError, match=r"open_orders\[0\]\.rejected_qty must be a non-negative finite number"):
+        main_module.load_account_snapshot(account_path)
+
+
 def test_load_account_snapshot_rejects_open_order_terminal_counter_before_updated_counter(tmp_path):
     account_path = tmp_path / "account_snapshot.json"
     account_path.write_text(
