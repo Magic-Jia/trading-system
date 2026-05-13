@@ -8973,6 +8973,53 @@ def test_live_readiness_gate_rejects_non_string_microstructure_interval_artifact
     assert "microstructure_artifact_provenance_missing" not in report["promotion_gate"]["reasons"]
 
 
+def test_live_readiness_gate_rejects_missing_microstructure_interval_artifact_ref(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    (chunk / "market_microstructure_gate.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "market_microstructure_gate_input.v1",
+                "evidence_source": {"type": "historical_l2_tick_archive", "run_id": "micro-intervals-1"},
+                "checks": {"l2_tick_coverage_met": True, "depth_driven_taker_met": True},
+                "coverage": {
+                    "l2_snapshot_coverage": 1.0,
+                    "l2_update_coverage": 1.0,
+                    "tick_coverage": 1.0,
+                    "min_required_coverage": 0.99,
+                },
+                "required_intervals": ["1m"],
+                "interval_coverage": [
+                    {
+                        "source": "historical_l2_tick_archive",
+                        "symbol": "BTCUSDT",
+                        "venue": "binance_futures",
+                        "interval": "1m",
+                        "generated_at": "2026-05-12T09:00:00Z",
+                        "coverage": {
+                            "l2_snapshot_coverage": 1.0,
+                            "l2_update_coverage": 1.0,
+                            "tick_coverage": 1.0,
+                        },
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_live_readiness_gate_report(tmp_path, require_microstructure_evidence=True)
+
+    artifact = report["microstructure_gate"]["artifacts"][0]
+    assert artifact["schema_valid"] is False
+    assert artifact["provenance_present"] is True
+    assert artifact["parse_error"] == "interval_coverage_artifact_ref_not_string"
+    assert report["microstructure_gate"]["checks"]["microstructure_artifact_schema_valid"] is False
+    assert report["microstructure_gate"]["checks"]["microstructure_artifact_provenance_present"] is True
+    assert "microstructure_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
+    assert "microstructure_artifact_provenance_missing" not in report["promotion_gate"]["reasons"]
+
+
 def test_live_readiness_gate_rejects_blank_microstructure_interval_artifact_ref(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     _write_profitable_trade_chunk(chunk)
