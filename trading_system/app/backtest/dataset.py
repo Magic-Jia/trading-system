@@ -1793,6 +1793,42 @@ def _manifest_object_field(manifest: dict[str, object], key: str) -> dict[str, o
     return dict(value)
 
 
+def _manifest_coverage_field(manifest: dict[str, object]) -> dict[str, object]:
+    coverage = _manifest_object_field(manifest, "coverage")
+    _validate_manifest_coverage_value(coverage, field_path="import manifest coverage")
+    return coverage
+
+
+def _validate_manifest_coverage_value(value: object, *, field_path: str) -> None:
+    if isinstance(value, dict):
+        for raw_key, raw_value in value.items():
+            if not isinstance(raw_key, str) or not raw_key.strip() or raw_key != raw_key.strip():
+                raise ValueError(f"{field_path} keys must be canonical strings")
+            _validate_manifest_coverage_value(raw_value, field_path=f"{field_path}.{raw_key}")
+        return
+    if isinstance(value, list):
+        for index, item in enumerate(value):
+            _validate_manifest_coverage_value(item, field_path=f"{field_path}[{index}]")
+        return
+    if isinstance(value, bool):
+        if field_path.endswith(".available"):
+            return
+        raise ValueError(f"{field_path} must be a finite numeric value")
+    if isinstance(value, str):
+        if not value.strip() or value != value.strip():
+            raise ValueError(f"{field_path} must be a canonical string")
+        if "[" in field_path or ".not_materialized." in field_path:
+            return
+        raise ValueError(f"{field_path} must be a finite numeric value")
+    if value is None:
+        raise ValueError(f"{field_path} must not be null")
+    if isinstance(value, (int, float)):
+        if not math.isfinite(float(value)):
+            raise ValueError(f"{field_path} must be a finite numeric value")
+        return
+    raise ValueError(f"{field_path} contains unsupported metadata value")
+
+
 def _manifest_non_negative_int(manifest: dict[str, object], key: str) -> int:
     value = manifest.get(key, 0)
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
@@ -1846,7 +1882,7 @@ def load_dataset_root_metadata(dataset_root: str | Path) -> dict[str, object]:
             "end_timestamp": _manifest_canonical_string(manifest, "end_timestamp"),
             "bundle_count": _manifest_list_count(manifest, "bundle_dirs"),
             "source": _manifest_object_field(manifest, "source"),
-            "coverage": _manifest_object_field(manifest, "coverage"),
+            "coverage": _manifest_coverage_field(manifest),
         },
     }
 
