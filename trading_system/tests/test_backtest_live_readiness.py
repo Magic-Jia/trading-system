@@ -28,6 +28,7 @@ from trading_system.app.backtest.live_readiness import (
     render_live_readiness_markdown,
     write_live_readiness_smoke_report,
     write_offline_rollout_readiness_checklist,
+    write_read_validate_offline_rollout_readiness_checklist,
 )
 from trading_system.app.backtest.microstructure_evidence import build_microstructure_gate
 from trading_system.app.backtest.promotion_evidence_bundle import (
@@ -1101,7 +1102,7 @@ def test_live_readiness_gate_rejects_missing_offline_rollout_checklist(tmp_path:
 
 
 def test_offline_rollout_checklist_producer_writes_gate_accepted_schema(tmp_path: Path) -> None:
-    checklist = write_offline_rollout_readiness_checklist(
+    checklist, verification = write_read_validate_offline_rollout_readiness_checklist(
         tmp_path,
         paper_evidence={"paper-fill-reconciliation": "paper-run-20260513"},
         shadow_evidence={"shadow-order-parity": "shadow-run-20260513"},
@@ -1118,12 +1119,18 @@ def test_offline_rollout_checklist_producer_writes_gate_accepted_schema(tmp_path
     )
 
     assert checklist["schema_version"] == "offline_rollout_readiness_checklist.v1"
+    assert checklist["metadata"] == {
+        "source": "trading_system.app.backtest.live_readiness",
+        "materialization": "offline_rollout_readiness_checklist.json",
+    }
     assert checklist["paper"]["evidence_complete"] is True
     assert checklist["shadow"]["evidence_complete"] is True
     assert checklist["canary"]["evidence_complete"] is True
 
     persisted = json.loads((tmp_path / "offline_rollout_readiness_checklist.json").read_text(encoding="utf-8"))
     assert persisted == checklist
+    assert verification["schema_valid"] is True
+    assert verification["metadata"] == checklist["metadata"]
 
     report = build_live_readiness_gate_report(tmp_path)
     assert report["offline_rollout_readiness"]["schema_valid"] is True
@@ -1158,6 +1165,31 @@ def test_offline_rollout_checklist_producer_lists_missing_evidence_requirements(
     }
     assert checklist["canary"]["evidence_complete"] is False
     assert checklist["canary"]["remaining_requirements"] == ["canary-rollback-drill"]
+
+
+def test_offline_rollout_checklist_roundtrip_preserves_missing_evidence_as_remaining(tmp_path: Path) -> None:
+    checklist, verification = write_read_validate_offline_rollout_readiness_checklist(
+        tmp_path,
+        paper_evidence={"paper-fill-reconciliation": None},
+        shadow_evidence={"shadow-order-parity": "shadow-run-20260513"},
+        canary_evidence={"canary-rollback-drill": None},
+        canary_guard_manifest={
+            "max_notional": 100.0,
+            "symbol_allowlist": ["BTCUSDT"],
+            "timeout_seconds": 300.0,
+            "rollback_evidence": "rollback-runbook-v1",
+            "alerting_evidence": "alerts-dry-run-v1",
+            "notification_evidence": "pager-dry-run-v1",
+            "kill_switch_evidence": "kill-switch-dry-run-v1",
+        },
+    )
+
+    assert checklist["paper"]["evidence_complete"] is False
+    assert checklist["canary"]["evidence_complete"] is False
+    assert verification["paper"]["evidence_complete"] is False
+    assert verification["paper"]["remaining_requirements"] == ["paper-fill-reconciliation"]
+    assert verification["canary"]["evidence_complete"] is False
+    assert verification["canary"]["remaining_requirements"] == ["canary-rollback-drill"]
 
 
 @pytest.mark.parametrize(
@@ -1273,11 +1305,104 @@ def test_live_readiness_gate_rejects_malformed_canary_guard_fields(
     assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
 
 
+@pytest.mark.parametrize(
+    ("payload_patch", "parse_error"),
+    [
+        ({"paper": {"evidence_complete": "true", "remaining_requirements": ["paper-fill-reconciliation"]}}, "paper_evidence_complete_not_bool"),
+        ({"paper": {"evidence_complete": True, "remaining_requirements": [" paper-fill-reconciliation "]}}, "paper_remaining_requirement_noncanonical"),
+        ({"paper": {"evidence_complete": True, "remaining_requirements": ["paper fill reconciliation"]}}, "paper_remaining_requirement_not_identifier"),
+        ({"paper": {"evidence_complete": True, "remaining_requirements": ["paper-fill-reconciliation"], "extra": True}}, "paper_readiness_unknown_field: extra"),
+        ({"metadata": {"source": " trading_system.app.backtest.live_readiness ", "materialization": "offline_rollout_readiness_checklist.json"}}, "offline_rollout_metadata_source_noncanonical"),
+        ({"metadata": {"source": "trading_system.app.backtest.live_readiness", "materialization": "checklist.json"}}, "offline_rollout_metadata_materialization_invalid"),
+    ],
+)
+def test_live_readiness_gate_rejects_malformed_offline_rollout_checklist_fields(
+    tmp_path: Path,
+    payload_patch: dict[str, object],
+    parse_error: str,
+) -> None:
+    payload: dict[str, object] = {
+        "schema_version": "offline_rollout_readiness_checklist.v1",
+        "metadata": {
+            "source": "trading_system.app.backtest.live_readiness",
+            "materialization": "offline_rollout_readiness_checklist.json",
+        },
+        "paper": {"evidence_complete": True, "remaining_requirements": ["paper-fill-reconciliation"]},
+        "shadow": {"evidence_complete": True, "remaining_requirements": ["shadow-order-parity"]},
+        "canary": {
+            "evidence_complete": True,
+            "remaining_requirements": ["canary-rollback-drill"],
+            "guard_manifest": {
+                "max_notional": 100.0,
+                "symbol_allowlist": ["BTCUSDT"],
+                "timeout_seconds": 300.0,
+                "rollback_evidence": "rollback-runbook-v1",
+                "alerting_evidence": "alerts-dry-run-v1",
+                "notification_evidence": "pager-dry-run-v1",
+                "kill_switch_evidence": "kill-switch-dry-run-v1",
+            },
+        },
+    }
+    payload.update(payload_patch)
+    (tmp_path / "offline_rollout_readiness_checklist.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    checklist = report["offline_rollout_readiness"]
+    assert checklist["schema_valid"] is False
+    assert checklist["parse_error"] == parse_error
+    assert "offline_rollout_checklist_invalid" in report["promotion_gate"]["reasons"]
+
+
+def test_live_readiness_gate_rejects_duplicate_offline_rollout_json_keys(tmp_path: Path) -> None:
+    (tmp_path / "offline_rollout_readiness_checklist.json").write_text(
+        """
+{
+  "schema_version": "offline_rollout_readiness_checklist.v1",
+  "metadata": {
+    "source": "trading_system.app.backtest.live_readiness",
+    "materialization": "offline_rollout_readiness_checklist.json"
+  },
+  "paper": {
+    "evidence_complete": true,
+    "remaining_requirements": ["paper-fill-reconciliation"],
+    "remaining_requirements": ["shadow-order-parity"]
+  },
+  "shadow": {"evidence_complete": true, "remaining_requirements": ["shadow-order-parity"]},
+  "canary": {
+    "evidence_complete": true,
+    "remaining_requirements": ["canary-rollback-drill"],
+    "guard_manifest": {
+      "max_notional": 100.0,
+      "symbol_allowlist": ["BTCUSDT"],
+      "timeout_seconds": 300.0,
+      "rollback_evidence": "rollback-runbook-v1",
+      "alerting_evidence": "alerts-dry-run-v1",
+      "notification_evidence": "pager-dry-run-v1",
+      "kill_switch_evidence": "kill-switch-dry-run-v1"
+    }
+  }
+}
+""".lstrip(),
+        encoding="utf-8",
+    )
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    assert report["offline_rollout_readiness"]["schema_valid"] is False
+    assert report["offline_rollout_readiness"]["parse_error"] == "duplicate_json_key: paper.remaining_requirements"
+    assert "offline_rollout_checklist_invalid" in report["promotion_gate"]["reasons"]
+
+
 def test_live_readiness_gate_accepts_valid_offline_rollout_checklist_and_canary_guard(tmp_path: Path) -> None:
     (tmp_path / "offline_rollout_readiness_checklist.json").write_text(
         json.dumps(
             {
                 "schema_version": "offline_rollout_readiness_checklist.v1",
+                "metadata": {
+                    "source": "trading_system.app.backtest.live_readiness",
+                    "materialization": "offline_rollout_readiness_checklist.json",
+                },
                 "paper": {"evidence_complete": True, "remaining_requirements": ["paper-fill-reconciliation"]},
                 "shadow": {"evidence_complete": True, "remaining_requirements": ["shadow-order-parity"]},
                 "canary": {
@@ -1303,6 +1428,10 @@ def test_live_readiness_gate_accepts_valid_offline_rollout_checklist_and_canary_
     checklist = report["offline_rollout_readiness"]
     assert checklist["present"] is True
     assert checklist["schema_valid"] is True
+    assert checklist["metadata"] == {
+        "source": "trading_system.app.backtest.live_readiness",
+        "materialization": "offline_rollout_readiness_checklist.json",
+    }
     assert checklist["checks"] == {
         "offline_rollout_checklist_present": True,
         "offline_rollout_checklist_schema_valid": True,

@@ -152,6 +152,9 @@ NOTIONAL_CONSISTENCY_ABS_TOLERANCE = 1e-9
 NOTIONAL_CONSISTENCY_REL_TOLERANCE = 1e-6
 PNL_CONSISTENCY_ABS_TOLERANCE = 1e-9
 PNL_CONSISTENCY_REL_TOLERANCE = 1e-6
+OFFLINE_ROLLOUT_READINESS_CHECKLIST_SCHEMA_VERSION = "offline_rollout_readiness_checklist.v1"
+OFFLINE_ROLLOUT_READINESS_CHECKLIST_FILENAME = "offline_rollout_readiness_checklist.json"
+OFFLINE_ROLLOUT_READINESS_CHECKLIST_SOURCE = "trading_system.app.backtest.live_readiness"
 
 EXIT_CLASSIFICATIONS = (
     "fixed_horizon_only",
@@ -182,6 +185,55 @@ def _load_json(path: Path) -> dict[str, Any]:
     except json.JSONDecodeError as exc:
         return {"_parse_error": f"invalid_json: {exc.msg}"}
     return dict(payload) if isinstance(payload, Mapping) else {"_parse_error": "json_payload_not_object"}
+
+
+class _JsonObjectWithDuplicateKeys(dict[str, Any]):
+    def __init__(self, pairs: Sequence[tuple[str, Any]]) -> None:
+        super().__init__()
+        seen: set[str] = set()
+        duplicate_keys: list[str] = []
+        for key, value in pairs:
+            if key in seen and key not in duplicate_keys:
+                duplicate_keys.append(key)
+            seen.add(key)
+            self[key] = value
+        self.duplicate_keys = duplicate_keys
+
+
+def _json_object_pairs_with_duplicate_metadata(pairs: Sequence[tuple[str, Any]]) -> _JsonObjectWithDuplicateKeys:
+    return _JsonObjectWithDuplicateKeys(pairs)
+
+
+def _first_duplicate_json_key(value: Any, path: tuple[str, ...] = ()) -> str:
+    if isinstance(value, _JsonObjectWithDuplicateKeys) and value.duplicate_keys:
+        return ".".join((*path, value.duplicate_keys[0]))
+    if isinstance(value, Mapping):
+        for key, child in value.items():
+            child_path = (*path, str(key))
+            duplicate = _first_duplicate_json_key(child, child_path)
+            if duplicate:
+                return duplicate
+    if isinstance(value, list):
+        for index, child in enumerate(value):
+            duplicate = _first_duplicate_json_key(child, (*path, str(index)))
+            if duplicate:
+                return duplicate
+    return ""
+
+
+def _load_json_rejecting_duplicate_keys(path: Path) -> tuple[Mapping[str, Any], str]:
+    if not path.exists():
+        return {}, ""
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=_json_object_pairs_with_duplicate_metadata)
+    except json.JSONDecodeError as exc:
+        return {}, f"invalid_json: {exc.msg}"
+    duplicate_key = _first_duplicate_json_key(payload)
+    if duplicate_key:
+        return {}, f"duplicate_json_key: {duplicate_key}"
+    if not isinstance(payload, Mapping):
+        return {}, "json_payload_not_object"
+    return payload, ""
 
 
 def _json_parse_error(payload: Mapping[str, Any]) -> str:
@@ -1994,6 +2046,40 @@ def _validate_offline_rollout_stage(value: Any, stage: str) -> tuple[dict[str, A
     return parsed, ""
 
 
+def _offline_rollout_metadata() -> dict[str, str]:
+    return {
+        "source": OFFLINE_ROLLOUT_READINESS_CHECKLIST_SOURCE,
+        "materialization": OFFLINE_ROLLOUT_READINESS_CHECKLIST_FILENAME,
+    }
+
+
+def _validate_offline_rollout_metadata(value: Any) -> tuple[dict[str, str], str]:
+    if not isinstance(value, Mapping):
+        return {}, "offline_rollout_metadata_not_object"
+    unknown_fields = sorted(set(value) - {"source", "materialization"})
+    if unknown_fields:
+        return {}, "offline_rollout_metadata_unknown_field: " + ", ".join(unknown_fields)
+    source = value.get("source")
+    if not _is_exact_string(source):
+        return {}, "offline_rollout_metadata_source_not_string"
+    if not source.strip():
+        return {}, "offline_rollout_metadata_source_blank"
+    if source != source.strip():
+        return {}, "offline_rollout_metadata_source_noncanonical"
+    if source != OFFLINE_ROLLOUT_READINESS_CHECKLIST_SOURCE:
+        return {}, "offline_rollout_metadata_source_invalid"
+    materialization = value.get("materialization")
+    if not _is_exact_string(materialization):
+        return {}, "offline_rollout_metadata_materialization_not_string"
+    if not materialization.strip():
+        return {}, "offline_rollout_metadata_materialization_blank"
+    if materialization != materialization.strip():
+        return {}, "offline_rollout_metadata_materialization_noncanonical"
+    if materialization != OFFLINE_ROLLOUT_READINESS_CHECKLIST_FILENAME:
+        return {}, "offline_rollout_metadata_materialization_invalid"
+    return {"source": source, "materialization": materialization}, ""
+
+
 def _producer_stage_from_evidence(stage: str, evidence: Mapping[str, Any]) -> dict[str, Any]:
     if not isinstance(evidence, Mapping):
         raise ValueError(f"{stage}.evidence must be a mapping")
@@ -2044,7 +2130,8 @@ def build_offline_rollout_readiness_checklist(
         raise ValueError(error)
 
     return {
-        "schema_version": "offline_rollout_readiness_checklist.v1",
+        "schema_version": OFFLINE_ROLLOUT_READINESS_CHECKLIST_SCHEMA_VERSION,
+        "metadata": _offline_rollout_metadata(),
         "paper": _producer_stage_from_evidence("paper", paper_evidence),
         "shadow": _producer_stage_from_evidence("shadow", shadow_evidence),
         "canary": {
@@ -2070,15 +2157,34 @@ def write_offline_rollout_readiness_checklist(
     )
     root_path = Path(root)
     root_path.mkdir(parents=True, exist_ok=True)
-    (root_path / "offline_rollout_readiness_checklist.json").write_text(
+    (root_path / OFFLINE_ROLLOUT_READINESS_CHECKLIST_FILENAME).write_text(
         json.dumps(checklist, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
     return checklist
 
 
+def write_read_validate_offline_rollout_readiness_checklist(
+    root: str | Path,
+    *,
+    paper_evidence: Mapping[str, Any],
+    shadow_evidence: Mapping[str, Any],
+    canary_evidence: Mapping[str, Any],
+    canary_guard_manifest: Mapping[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    checklist = write_offline_rollout_readiness_checklist(
+        root,
+        paper_evidence=paper_evidence,
+        shadow_evidence=shadow_evidence,
+        canary_evidence=canary_evidence,
+        canary_guard_manifest=canary_guard_manifest,
+    )
+    verification = _offline_rollout_readiness(Path(root))
+    return checklist, verification
+
+
 def _offline_rollout_readiness(root: Path) -> dict[str, Any]:
-    path = root / "offline_rollout_readiness_checklist.json"
+    path = root / OFFLINE_ROLLOUT_READINESS_CHECKLIST_FILENAME
     checks = {
         "offline_rollout_checklist_present": path.exists(),
         "offline_rollout_checklist_schema_valid": False,
@@ -2095,16 +2201,16 @@ def _offline_rollout_readiness(root: Path) -> dict[str, Any]:
             "parse_error": "offline_rollout_checklist_missing",
             "checks": checks,
         }
-    payload = _load_json(path)
-    if not isinstance(payload, Mapping):
+    payload, parse_error = _load_json_rejecting_duplicate_keys(path)
+    if parse_error:
         return {
             "schema_version": "offline_rollout_readiness_checklist_verification.v1",
             "present": True,
             "schema_valid": False,
-            "parse_error": "offline_rollout_checklist_not_object",
+            "parse_error": parse_error,
             "checks": checks,
         }
-    allowed_fields = {"schema_version", "paper", "shadow", "canary"}
+    allowed_fields = {"schema_version", "metadata", "paper", "shadow", "canary"}
     top_level_error = _artifact_top_level_schema_error(payload, allowed_fields)
     if top_level_error:
         return {
@@ -2114,7 +2220,7 @@ def _offline_rollout_readiness(root: Path) -> dict[str, Any]:
             "parse_error": top_level_error,
             "checks": checks,
         }
-    if not _artifact_schema_valid(payload, "offline_rollout_readiness_checklist.v1"):
+    if not _artifact_schema_valid(payload, OFFLINE_ROLLOUT_READINESS_CHECKLIST_SCHEMA_VERSION):
         return {
             "schema_version": "offline_rollout_readiness_checklist_verification.v1",
             "present": True,
@@ -2122,6 +2228,17 @@ def _offline_rollout_readiness(root: Path) -> dict[str, Any]:
             "parse_error": "offline_rollout_checklist_schema_version_invalid",
             "checks": checks,
         }
+    metadata: dict[str, str] = {}
+    if "metadata" in payload:
+        metadata, error = _validate_offline_rollout_metadata(payload.get("metadata"))
+        if error:
+            return {
+                "schema_version": "offline_rollout_readiness_checklist_verification.v1",
+                "present": True,
+                "schema_valid": False,
+                "parse_error": error,
+                "checks": checks,
+            }
     parsed_stages: dict[str, Any] = {}
     for stage in ("paper", "shadow", "canary"):
         parsed_stage, error = _validate_offline_rollout_stage(payload.get(stage), stage)
@@ -2142,6 +2259,7 @@ def _offline_rollout_readiness(root: Path) -> dict[str, Any]:
         "present": True,
         "schema_valid": True,
         "parse_error": "",
+        "metadata": metadata,
         "paper": parsed_stages["paper"],
         "shadow": parsed_stages["shadow"],
         "canary": parsed_stages["canary"],
