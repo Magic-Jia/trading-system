@@ -1863,8 +1863,10 @@ def _microstructure_interval_coverage_schema_error(value: Any) -> str:
         if not _is_canonical_utc_timestamp(generated_at):
             return "interval_coverage_generated_at_noncanonical_timestamp"
         artifact_ref = row.get("artifact_ref")
-        if not _artifact_ref_is_path_safe(artifact_ref) or not _artifact_ref_is_canonical(artifact_ref):
+        if not _artifact_ref_is_path_safe(artifact_ref):
             return "interval_coverage_artifact_ref_not_path_safe"
+        if not _artifact_ref_is_canonical(artifact_ref):
+            return "interval_coverage_artifact_ref_noncanonical"
         coverage = row.get("coverage")
         if not isinstance(coverage, Mapping):
             return "interval_coverage_coverage_not_object"
