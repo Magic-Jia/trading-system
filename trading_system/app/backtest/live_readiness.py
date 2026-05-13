@@ -2827,9 +2827,12 @@ def _validation_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[str,
         ):
             numeric_value = summary.get(numeric_field)
             if numeric_value is not None:
-                _, numeric_valid = _strict_float_value(numeric_value)
+                parsed_numeric, numeric_valid = _strict_float_value(numeric_value)
                 if not numeric_valid:
                     summary_schema_error = f"summary_{numeric_field}_not_number"
+                    break
+                if numeric_field == "oos_degradation_fraction" and not 0.0 <= parsed_numeric <= 1.0:
+                    summary_schema_error = "summary_oos_degradation_fraction_out_of_range"
                     break
         summary_audit_id = summary.get("forward_contamination_audit_id")
         if not summary_schema_error and summary_audit_id is not None:
