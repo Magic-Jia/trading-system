@@ -1013,6 +1013,14 @@ def _walk_forward_performance_dispersion(payload: Mapping[str, Any]) -> dict[str
                 field,
                 label="performance_dispersion",
             )
+    if (
+        "positive_window_ratio" in performance_dispersion
+        and performance_dispersion["positive_window_ratio"] is not None
+    ):
+        performance_dispersion["positive_window_ratio"] = _strict_bounded_ratio_float(
+            performance_dispersion["positive_window_ratio"],
+            field_name="performance_dispersion.positive_window_ratio",
+        )
     for field in _WALK_FORWARD_DURATION_FIELDS:
         if field in performance_dispersion and performance_dispersion[field] is not None:
             performance_dispersion[field] = _strict_positive_int_field(
