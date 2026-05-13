@@ -238,7 +238,7 @@ def _trades_in_period(
 
 
 def _metric_number(value: Any, path: str) -> float:
-    if isinstance(value, bool):
+    if isinstance(value, bool) or isinstance(value, str):
         raise ValueError(f"{path} must be a finite number")
     try:
         number = float(value)
@@ -369,16 +369,16 @@ def _daily_symbol_metric(row: DatasetSnapshotRow, key: str) -> list[float]:
     if not isinstance(symbols, Mapping):
         return []
     values: list[float] = []
-    for payload in symbols.values():
+    for raw_symbol, payload in symbols.items():
         if not isinstance(payload, Mapping):
             continue
         daily = payload.get("daily")
         if not isinstance(daily, Mapping):
             continue
-        try:
-            values.append(float(daily[key]))
-        except (KeyError, TypeError, ValueError):
+        if key not in daily:
             continue
+        symbol = str(raw_symbol)
+        values.append(_metric_number(daily[key], f"{row.run_id}.{symbol}.daily.{key}"))
     return values
 
 

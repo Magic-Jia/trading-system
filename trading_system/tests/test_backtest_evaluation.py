@@ -246,6 +246,27 @@ def test_regime_buckets_reject_rows_that_reuse_run_ids_with_different_labels() -
         evaluate_regime_buckets(rows, ())
 
 
+@pytest.mark.parametrize(
+    ("field_name", "bad_value"),
+    (
+        ("return_pct_7d", True),
+        ("atr_pct", "0.07"),
+        ("close", float("nan")),
+        ("ema_50", float("inf")),
+    ),
+)
+def test_regime_buckets_reject_invalid_present_daily_regime_metrics(
+    field_name: str,
+    bad_value: object,
+) -> None:
+    row = _row(0)
+    corrupted_row = dataclasses.replace(row)
+    corrupted_row.market["symbols"]["BTCUSDT"]["daily"][field_name] = bad_value
+
+    with pytest.raises(ValueError, match=rf"row-000\.BTCUSDT\.daily\.{field_name} must be a finite number"):
+        evaluate_regime_buckets((corrupted_row,), ())
+
+
 def test_evaluation_report_labels_walk_forward_regimes_and_cost_stress() -> None:
     rows = [_row(index) for index in range(4)]
     trades = (
