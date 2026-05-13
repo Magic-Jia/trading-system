@@ -3725,6 +3725,26 @@ def test_load_historical_dataset_rejects_noncanonical_metadata_identity_fields(t
         load_historical_dataset(dataset_root)
 
 
+def test_load_historical_dataset_rejects_duplicate_temporal_identity(tmp_path: Path) -> None:
+    dataset_root = tmp_path / "sample_dataset"
+    for bundle_name in ("2026-03-10T00-00-00Z__sample-001", "duplicate-physical-copy"):
+        bundle = dataset_root / bundle_name
+        bundle.mkdir(parents=True)
+        (bundle / "metadata.json").write_text(
+            json.dumps({"timestamp": "2026-03-10T00:00:00Z", "run_id": "sample-001"}),
+            encoding="utf-8",
+        )
+        (bundle / "market_context.json").write_text('{"symbols": {"BTCUSDT": {}}}', encoding="utf-8")
+        (bundle / "derivatives_snapshot.json").write_text('{"rows": []}', encoding="utf-8")
+        (bundle / "account_snapshot.json").write_text('{"equity": 100000.0}', encoding="utf-8")
+
+    with pytest.raises(
+        ValueError,
+        match="duplicate dataset snapshot temporal identity: timestamp=2026-03-10T00:00:00Z run_id=sample-001",
+    ):
+        load_historical_dataset(dataset_root)
+
+
 def test_load_historical_dataset_rejects_non_boolean_instrument_funding_flag(tmp_path: Path) -> None:
     dataset_root = tmp_path / "sample_dataset"
     bundle = dataset_root / "2026-03-10T00-00-00Z__sample-001"

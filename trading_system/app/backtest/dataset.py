@@ -582,6 +582,10 @@ def _parse_timestamp(value: str) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
+def _canonical_utc_timestamp(value: datetime) -> str:
+    return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
 def _load_json(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
@@ -1759,6 +1763,15 @@ def load_historical_dataset(dataset_root: str | Path) -> list[DatasetSnapshotRow
     root = Path(dataset_root)
     fallback_account = _baseline_account(root)
     rows = [_row_from_bundle(bundle_path, fallback_account=fallback_account) for bundle_path in _bundle_dirs(root)]
+    seen: set[tuple[datetime, str]] = set()
+    for row in rows:
+        identity = (row.timestamp, row.run_id)
+        if identity in seen:
+            raise ValueError(
+                "duplicate dataset snapshot temporal identity: "
+                f"timestamp={_canonical_utc_timestamp(row.timestamp)} run_id={row.run_id}"
+            )
+        seen.add(identity)
     return sorted(rows, key=lambda row: (row.timestamp, row.run_id))
 
 
