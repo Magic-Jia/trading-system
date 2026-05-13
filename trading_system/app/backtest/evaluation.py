@@ -485,8 +485,12 @@ def run_cost_stress_tests(
         seen_scenario_names.add(scenario.name)
         stressed_net_pnls = [_stressed_net_pnl(trade, scenario) for trade in trades]
         stressed_net_returns = [
-            (stressed_net_pnl / float(trade.position_notional)) if float(trade.position_notional) else 0.0
-            for trade, stressed_net_pnl in zip(trades, stressed_net_pnls, strict=True)
+            (
+                stressed_net_pnl / position_notional
+                if (position_notional := _metric_number(trade.position_notional, f"trades[{index}].position_notional"))
+                else 0.0
+            )
+            for index, (trade, stressed_net_pnl) in enumerate(zip(trades, stressed_net_pnls, strict=True))
         ]
         stressed_trades = tuple(
             {

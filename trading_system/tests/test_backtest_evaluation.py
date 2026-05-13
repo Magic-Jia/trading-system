@@ -186,6 +186,19 @@ def test_cost_stress_rejects_duplicate_scenario_names() -> None:
         )
 
 
+def test_cost_stress_rejects_boolean_position_notional_before_stressed_risk_metrics() -> None:
+    trade = dataclasses.replace(
+        _trade("BTCUSDT", "2026-01-01T12:00:00Z", net_pnl=20.0),
+        position_notional=True,
+    )
+
+    with pytest.raises(ValueError, match=r"trades\[0\]\.position_notional must be a finite number"):
+        run_cost_stress_tests(
+            (trade,),
+            (CostStressScenario(name="fees_2x", fee_multiplier=2.0),),
+        )
+
+
 def test_regime_buckets_are_deterministic_and_report_per_regime_metrics() -> None:
     rows = [
         _row(0, close=110.0, ema_50=100.0, ret=0.06, atr=0.02),
