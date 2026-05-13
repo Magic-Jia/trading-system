@@ -33,6 +33,23 @@ PHASE1_IMPORTER_BUNDLE_SCHEMA = "phase1_import_bundle.v1"
 PHASE1_IMPORTER_ROOT_SCHEMA = "phase1_imported_dataset_root.v1"
 PHASE1_IMPORTER_OHLCV_TIMEFRAME = "1h"
 PHASE1_IMPORTER_ROOT_MANIFEST = "import_manifest.json"
+PHASE1_IMPORTER_ROOT_MANIFEST_FIELDS = frozenset(
+    {
+        "schema_version",
+        "scope",
+        "archive_root",
+        "dataset_root",
+        "snapshot_count",
+        "symbols",
+        "start_timestamp",
+        "end_timestamp",
+        "bundle_dirs",
+        "bundle_timestamps",
+        "source",
+        "data_quality_report",
+        "coverage",
+    }
+)
 PHASE1_IMPORTER_OPTIONAL_INTRADAY_OHLCV_TIMEFRAMES = ("1m", "5m", "15m", "30m")
 PHASE1_IMPORTER_KNOWN_OHLCV_TIMEFRAMES = (
     "daily",
@@ -2774,6 +2791,15 @@ def _phase1_root_manifest_canonical_string(manifest: Mapping[str, Any], field: s
     return value
 
 
+def _reject_unknown_phase1_root_manifest_fields(manifest: Mapping[str, Any], *, manifest_path: Path) -> None:
+    unknown_fields = sorted(set(manifest) - PHASE1_IMPORTER_ROOT_MANIFEST_FIELDS)
+    if unknown_fields:
+        raise ValueError(
+            "materialized dataset root manifest contains unknown fields: "
+            f"{', '.join(unknown_fields)}: {manifest_path}"
+        )
+
+
 def _phase1_root_manifest_path_string(manifest: Mapping[str, Any], field: str, *, manifest_path: Path) -> str:
     value = _phase1_root_manifest_canonical_string(manifest, field, manifest_path=manifest_path)
     if ".." in Path(value).parts:
@@ -2901,6 +2927,7 @@ def validate_phase1_imported_dataset_root(
     explicit_bundle_dirs = tuple(Path(bundle_dir) for bundle_dir in expected_bundle_dirs) if expected_bundle_dirs is not None else None
     explicit_timestamps = tuple(expected_timestamps) if expected_timestamps is not None else None
     if root_manifest is not None:
+        _reject_unknown_phase1_root_manifest_fields(root_manifest, manifest_path=manifest_path)
         schema_version = _phase1_root_manifest_canonical_string(root_manifest, "schema_version", manifest_path=manifest_path)
         if schema_version != PHASE1_IMPORTER_ROOT_SCHEMA:
             raise ValueError(f"unsupported phase1 dataset root manifest schema: {manifest_path}")

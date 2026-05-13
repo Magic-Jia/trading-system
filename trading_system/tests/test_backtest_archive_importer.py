@@ -107,6 +107,64 @@ def test_phase1_root_manifest_rejects_present_invalid_falsy_source(
         archive_importer.validate_phase1_imported_dataset_root(dataset_root)
 
 
+def test_phase1_root_manifest_rejects_unknown_top_level_fields(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    dataset_root = tmp_path / "dataset"
+    dataset_root.mkdir()
+    bundle_dir = dataset_root / "bundle"
+    bundle_dir.mkdir()
+    timestamp = datetime(2024, 4, 1, tzinfo=UTC)
+    manifest_path = dataset_root / archive_importer.PHASE1_IMPORTER_ROOT_MANIFEST
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "schema_version": archive_importer.PHASE1_IMPORTER_ROOT_SCHEMA,
+                "scope": archive_importer.PHASE1_IMPORTER_SCOPE,
+                "dataset_root": str(dataset_root),
+                "snapshot_count": 1,
+                "symbols": ["BTCUSDT"],
+                "archive_root": str(tmp_path / "archive"),
+                "bundle_dirs": [str(bundle_dir)],
+                "bundle_timestamps": ["2024-04-01T00:00:00Z"],
+                "start_timestamp": "2024-04-01T00:00:00Z",
+                "end_timestamp": "2024-04-01T00:00:00Z",
+                "source": {
+                    "scope": archive_importer.PHASE1_IMPORTER_SCOPE,
+                    "exchange": "binance",
+                    "market": "futures",
+                    "symbols": ["BTCUSDT"],
+                    "series_keys": ["binance:futures:ohlcv:BTCUSDT:1h"],
+                    "manifest_paths": [
+                        str(tmp_path / "archive/raw-market/binance/futures/ohlcv/BTCUSDT/1h/a.manifest.json")
+                    ],
+                },
+                "data_quality_report_alias": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    row = SimpleNamespace(
+        timestamp=timestamp,
+        source_path=bundle_dir,
+        meta={"source": json.loads(manifest_path.read_text(encoding="utf-8"))["source"]},
+        market={"symbols": {"BTCUSDT": {}}},
+    )
+    monkeypatch.setattr(archive_importer, "load_historical_dataset", lambda _dataset_path: [row])
+    monkeypatch.setattr(archive_importer, "_validate_bundle_payloads", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        archive_importer,
+        "_validated_source_trace_against_manifests",
+        lambda source, *, context: dict(source),
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="materialized dataset root manifest contains unknown fields: data_quality_report_alias",
+    ):
+        archive_importer.validate_phase1_imported_dataset_root(dataset_root)
+
+
 def test_archive_raw_market_payload_writes_manifest_and_canonical_futures_ohlcv_path(tmp_path: Path) -> None:
     archive_root = tmp_path / "archive"
     payload = {
