@@ -971,8 +971,29 @@ _WALK_FORWARD_DURATION_FIELDS = (
     "bars_since_entry",
 )
 
+_WALK_FORWARD_SCORECARD_NUMERIC_FIELDS = (
+    "total_return",
+    "max_drawdown",
+    "sharpe",
+    "sortino",
+    "calmar",
+    "win_rate",
+    "payoff_ratio",
+    "expectancy",
+)
+
 
 def _walk_forward_scorecard_counts(scorecard: dict[str, Any], *, label: str) -> dict[str, Any]:
+    for field in _WALK_FORWARD_SCORECARD_NUMERIC_FIELDS:
+        if field not in scorecard or scorecard[field] is None:
+            continue
+        field_name = f"{label}.{field}"
+        if field == "win_rate":
+            scorecard[field] = _strict_bounded_ratio_float(scorecard[field], field_name=field_name)
+        elif field == "payoff_ratio":
+            scorecard[field] = _strict_non_negative_finite_float(scorecard[field], field_name=field_name)
+        else:
+            scorecard[field] = _strict_present_finite_float(scorecard[field], field_name=field_name)
     for field in ("trade_count", "win_count", "loss_count"):
         if field in scorecard and scorecard[field] is not None:
             scorecard[field] = _non_negative_int_field(scorecard, field, label=label)
