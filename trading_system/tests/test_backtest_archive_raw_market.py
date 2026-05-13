@@ -105,6 +105,39 @@ def test_load_raw_market_manifest_fails_fast_on_duplicate_file_timestamps(tmp_pa
         load_phase1_raw_market_manifest(archived.manifest_path)
 
 
+def test_load_raw_market_manifest_rejects_unknown_file_provenance_fields(tmp_path: Path) -> None:
+    archived = archive_raw_market_payload(
+        archive_root=tmp_path / "archive",
+        exchange="binance",
+        market="futures",
+        dataset="ohlcv",
+        symbol="BTCUSDT",
+        timeframe="1h",
+        coverage_start="2026-01-01T00:00:00Z",
+        coverage_end="2026-01-01T01:00:00Z",
+        fetched_at="2026-01-01T01:01:00Z",
+        endpoint="/fapi/v1/klines",
+        payload={
+            "rows": [
+                {
+                    "open_time": "2026-01-01T00:00:00Z",
+                    "open": 100.0,
+                    "high": 101.0,
+                    "low": 99.0,
+                    "close": 100.5,
+                    "volume": 10.0,
+                },
+            ]
+        },
+    )
+    manifest = json.loads(archived.manifest_path.read_text(encoding="utf-8"))
+    manifest["file"]["path_alias"] = str(archived.data_path)
+    archived.manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="raw-market manifest file metadata contains unknown fields: path_alias"):
+        load_phase1_raw_market_manifest(archived.manifest_path)
+
+
 def test_archive_raw_market_payload_rejects_empty_list_metadata(tmp_path: Path) -> None:
     archive_root = tmp_path / "archive"
     expected_dir = archive_root / "raw-market" / "binance" / "futures" / "ohlcv" / "BTCUSDT" / "1h"

@@ -329,6 +329,11 @@ def _manifest_data_path(manifest: dict[str, Any], *, manifest_path: Path) -> Pat
     file_payload = manifest.get("file")
     if not isinstance(file_payload, dict):
         raise ValueError(f"raw-market manifest missing file metadata: {manifest_path}")
+    unknown_fields = sorted(set(file_payload) - {"path", "sha256", "size_bytes"})
+    if unknown_fields:
+        raise ValueError(
+            "raw-market manifest file metadata contains unknown fields: " + ", ".join(unknown_fields)
+        )
     raw_path = file_payload.get("path")
     if not isinstance(raw_path, str) or not raw_path.strip():
         raise ValueError(f"raw-market manifest missing file.path: {manifest_path}")
