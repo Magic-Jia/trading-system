@@ -227,6 +227,8 @@ def _l2_coverage_ratio_value(report: Mapping[str, Any]) -> float:
     parsed = float(value)
     if not parsed == parsed or parsed in {float("inf"), float("-inf")}:
         raise ValueError("l2 coverage_ratio must be finite")
+    if parsed < 0.0 or parsed > 1.0:
+        raise ValueError("l2 coverage_ratio must be between 0 and 1")
     return parsed
 
 

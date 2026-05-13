@@ -490,6 +490,24 @@ def test_l2_tick_coverage_rejects_non_finite_report_coverage_ratio() -> None:
         _l2_tick_coverage(reports, required_coverage=0.99)
 
 
+@pytest.mark.parametrize("coverage_ratio", [-0.01, 1.01])
+def test_l2_tick_coverage_rejects_out_of_range_report_coverage_ratio(coverage_ratio: float) -> None:
+    reports = {
+        "trades:BTCUSDT": {
+            "series_key": "trades:BTCUSDT",
+            "dataset": "trades",
+            "symbol": "BTCUSDT",
+            "timeframe": None,
+            "coverage_ratio": coverage_ratio,
+            "has_missing_intervals": False,
+            "missing_intervals": [],
+        }
+    }
+
+    with pytest.raises(ValueError, match="l2 coverage_ratio must be between 0 and 1"):
+        _l2_tick_coverage(reports, required_coverage=0.99)
+
+
 def test_l2_tick_coverage_rejects_boolean_record_count() -> None:
     reports = {
         "trades:BTCUSDT": {
