@@ -4518,6 +4518,8 @@ def test_merged_import_trace_rejects_malformed_series_key_path_shapes(series_key
 @pytest.mark.parametrize(
     "manifest_path",
     [
+        "../raw-market/binance/futures/ohlcv/BTCUSDT/1h/2026/01.manifest.json",
+        "raw-market/binance/futures/ohlcv/BTCUSDT/1h/2026/../01.manifest.json",
         "raw-market/binance/futures/ohlcv/BTCUSDT/1h//2026/01.manifest.json",
         "raw-market\\binance\\futures\\ohlcv\\BTCUSDT\\1h\\2026\\01.manifest.json",
         "raw-market/binance/futures/ohlcv/BTCUSDT/1h/2026/\n01.manifest.json",

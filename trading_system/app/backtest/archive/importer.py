@@ -1421,7 +1421,7 @@ def _require_manifest_path_shape_items(values: Any, *, field: str) -> tuple[str,
             raise ValueError(f"{field}[{index}] must be a valid manifest path")
         path_parts = value.split("/")
         checked_parts = path_parts[1:] if value.startswith("/") else path_parts
-        if any(part in {"", "."} for part in checked_parts):
+        if any(part in {"", ".", ".."} for part in checked_parts):
             raise ValueError(f"{field}[{index}] must be a valid manifest path")
     return manifest_paths
 
@@ -2434,6 +2434,8 @@ def _materialized_source_trace_item(value: Any, *, context: str) -> dict[str, An
                 raise ValueError(f"{context}.{key} must be a list")
             for index, item in enumerate(field_value):
                 _require_canonical_string(item, field=f"{context}.{key}[{index}]")
+            if key == "manifest_paths":
+                _reject_parent_traversal_path_strings(field_value, field=f"{context}.{key}")
             continue
         if key in _MATERIALIZED_SOURCE_TRACE_OBJECT_FIELDS:
             _require_materialized_source_trace_json_value(field_value, field=f"{context}.{key}")
