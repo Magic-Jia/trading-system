@@ -66,6 +66,17 @@ def test_validation_gate_result_provenance_has_canonical_shape() -> None:
     assert "forward_contamination_audit_id" in gate["summary"]
 
 
+def test_validation_gate_accepts_absent_forward_contamination_without_audit_id() -> None:
+    manifest = _passing_manifest()
+    manifest["forward_contamination"] = {"absent": True}
+
+    gate = build_validation_gate(manifest)
+
+    assert gate["checks"]["forward_contamination_absent_met"] is True
+    assert gate["summary"]["forward_contamination_audit_id"] is None
+    assert gate["reasons"] == []
+
+
 @pytest.mark.parametrize(
     ("field_name", "bad_identifier", "expected_error"),
     [
@@ -450,6 +461,14 @@ def test_validation_gate_rejects_unknown_forward_contamination_fields() -> None:
         assert str(exc) == "unknown validation forward_contamination field: legacy_audit_complete"
     else:  # pragma: no cover - RED path until nested producer schema is hardened
         raise AssertionError("expected unknown validation forward_contamination field to be rejected")
+
+@pytest.mark.parametrize("bad_key", [123, None])
+def test_validation_gate_rejects_non_string_forward_contamination_keys(bad_key: object) -> None:
+    manifest = _passing_manifest()
+    manifest["forward_contamination"] = {"absent": True, bad_key: "audit-1"}
+
+    with pytest.raises(ValueError, match=r"^forward_contamination\.<key> must be a string$"):
+        build_validation_gate(manifest)
 
 def test_validation_gate_rejects_padded_evidence_source_type() -> None:
     try:
