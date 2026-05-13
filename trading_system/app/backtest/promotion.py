@@ -348,6 +348,7 @@ def _validate_manifest(bundle_dir: Path, manifest: Mapping[str, Any]) -> None:
     artifacts = manifest.get("artifacts")
     if not isinstance(artifacts, list):
         raise ValueError(f"{bundle_dir}/manifest.json.artifacts must be a list of strings")
+    seen_artifacts: set[str] = set()
     for index, artifact in enumerate(artifacts):
         if not isinstance(artifact, str) or not artifact.strip():
             raise ValueError(f"{bundle_dir}/manifest.json.artifacts must be a list of strings")
@@ -356,6 +357,9 @@ def _validate_manifest(bundle_dir: Path, manifest: Mapping[str, Any]) -> None:
         artifact_path = Path(artifact)
         if artifact_path.is_absolute() or ".." in artifact_path.parts or any(part == "" for part in artifact_path.parts):
             raise ValueError(f"{bundle_dir}/manifest.json.artifacts[{index}] must be a safe relative path")
+        if artifact in seen_artifacts:
+            raise ValueError(f"{bundle_dir}/manifest.json.artifacts[{index}] duplicates {artifact}")
+        seen_artifacts.add(artifact)
 
     experiment_kind = str(manifest["experiment_kind"])
     required_artifacts = _REQUIRED_ARTIFACTS.get(experiment_kind)
