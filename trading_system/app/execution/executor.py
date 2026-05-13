@@ -62,7 +62,12 @@ def _entry_executed_qty(order_status: dict[str, Any]) -> float:
 
 
 def _entry_status(order_status: dict[str, Any]) -> str:
-    return str(order_status.get("status", "")).upper()
+    value = order_status.get("status", "")
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise ExecutionError("entry order status must be a string")
+    return value.upper()
 
 
 def _has_open_entry_remainder(order_status: dict[str, Any]) -> bool:
