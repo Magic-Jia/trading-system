@@ -119,6 +119,22 @@ def _string_key_mapping(value: Any, *, field_name: str) -> dict[str, Any]:
     return dict(value)
 
 
+def _safe_artifact_filename(value: Any) -> str:
+    if not isinstance(value, str):
+        raise ValueError("artifact filename must be a safe relative filename")
+    path = Path(value)
+    if (
+        not value.strip()
+        or value != value.strip()
+        or "\\" in value
+        or path.is_absolute()
+        or path.name != value
+        or ".." in path.parts
+    ):
+        raise ValueError("artifact filename must be a safe relative filename")
+    return value
+
+
 def _experiment_metadata(experiment: Mapping[str, Any]) -> dict[str, Any]:
     if "metadata" not in experiment:
         return {}
@@ -160,11 +176,12 @@ def _optional_postmortem_bool(trade: Mapping[str, Any], field: str, *, index: in
 
 def _manifest(config: BacktestConfig, rows: list[DatasetSnapshotRow], artifacts: dict[str, dict[str, Any]], metadata: dict[str, Any] | None = None) -> dict[str, Any]:
     base = _string_key_mapping(metadata, field_name="metadata") if metadata is not None else _base_metadata(config, rows)
+    artifact_filenames = [_safe_artifact_filename(name) for name in artifacts]
     return {
         **base,
         "bundle_name": _bundle_name(config),
         "snapshot_count": len(rows),
-        "artifacts": ["manifest.json", *artifacts.keys()],
+        "artifacts": ["manifest.json", *artifact_filenames],
     }
 
 

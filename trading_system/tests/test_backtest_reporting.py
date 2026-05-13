@@ -320,6 +320,13 @@ def test_backtest_cli_manifest_rejects_list_of_pairs_metadata(tmp_path: Path) ->
         cli._manifest(config, [], {}, metadata=[("generated_by", "test")])  # type: ignore[arg-type]
 
 
+def test_backtest_cli_manifest_rejects_unsafe_artifact_filename(tmp_path: Path) -> None:
+    config = _minimal_cli_config(tmp_path)
+
+    with pytest.raises(ValueError, match="artifact filename must be a safe relative filename"):
+        cli._manifest(config, [], {"../summary.json": {"summary": {}}})
+
+
 def test_regime_research_outputs_rejects_list_of_pairs_experiment_metadata(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
