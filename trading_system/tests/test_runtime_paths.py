@@ -1,4 +1,5 @@
 from trading_system.app.runtime_paths import build_runtime_paths
+import pytest
 
 
 def test_build_runtime_paths_buckets_paper_outputs_under_env_directory(tmp_path):
@@ -36,3 +37,9 @@ def test_build_runtime_paths_isolates_paper_outputs_across_runtime_envs(monkeypa
     assert prod_paths.derivatives_snapshot_file != testnet_paths.derivatives_snapshot_file
     assert prod_paths.latest_summary_file != testnet_paths.latest_summary_file
     assert prod_paths.error_summary_file != testnet_paths.error_summary_file
+
+
+@pytest.mark.parametrize("runtime_env", ["../prod", "prod/testnet", "prod testnet"])
+def test_build_runtime_paths_rejects_non_canonical_runtime_env(runtime_env, tmp_path):
+    with pytest.raises(ValueError, match="runtime_env must be a canonical runtime path segment"):
+        build_runtime_paths("paper", runtime_root=tmp_path, runtime_env=runtime_env)

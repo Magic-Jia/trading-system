@@ -11,10 +11,15 @@ RUNTIME_ENV_ENV = "TRADING_RUNTIME_ENV"
 DEFAULT_RUNTIME_ENV = "default"
 
 
+_CANONICAL_SEGMENT_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+
+
 def _normalize_segment(value: str, *, name: str) -> str:
     normalized = re.sub(r"[^a-z0-9]+", "-", value.strip().lower()).strip("-")
     if not normalized:
         raise ValueError(f"{name} must contain at least one alphanumeric character")
+    if value != normalized or not _CANONICAL_SEGMENT_RE.fullmatch(value):
+        raise ValueError(f"{name} must be a canonical runtime path segment")
     return normalized
 
 
