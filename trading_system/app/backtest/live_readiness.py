@@ -2837,6 +2837,8 @@ def _validation_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[str,
                 summary_schema_error = "summary_forward_contamination_audit_id_blank"
             elif summary_audit_id != summary_audit_id.strip():
                 summary_schema_error = "summary_forward_contamination_audit_id_noncanonical"
+            elif not _is_safe_evidence_identifier(summary_audit_id):
+                summary_schema_error = "summary_forward_contamination_audit_id_not_identifier"
         unknown_check_fields = sorted(set(checks) - set(required_checks))
         check_schema_error = ""
         for check_name in required_checks:
