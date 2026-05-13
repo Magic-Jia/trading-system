@@ -2790,6 +2790,46 @@ def test_walk_forward_validation_report_preserves_zero_performance_dispersion_ra
     )
 
 
+@pytest.mark.parametrize("parameter_stability_score", [True, "0.75", float("nan"), float("inf"), -0.01, 1.01])
+def test_walk_forward_validation_report_rejects_malformed_parameter_stability_score(
+    parameter_stability_score: object,
+) -> None:
+    with pytest.raises(
+        ValueError,
+        match=r"parameter_stability\.parameter_stability_score must be a bounded ratio strict number",
+    ):
+        cli.render_walk_forward_validation_report(
+            experiment_name="walk_forward_validation",
+            metadata={"snapshot_count": 1, "window_count": 1},
+            experiment={
+                "windows": [],
+                "robustness_summary": {
+                    "out_of_sample_scorecard": {"total_return": 0.03},
+                    "performance_dispersion": {"positive_window_ratio": 1.0},
+                },
+                "parameter_stability": {"parameter_stability_score": parameter_stability_score},
+            },
+        )
+
+
+def test_walk_forward_validation_report_preserves_zero_parameter_stability_score() -> None:
+    report = cli.render_walk_forward_validation_report(
+        experiment_name="walk_forward_validation",
+        metadata={"snapshot_count": 1, "window_count": 1},
+        experiment={
+            "windows": [],
+            "robustness_summary": {
+                "out_of_sample_scorecard": {"total_return": 0.0},
+                "performance_dispersion": {"positive_window_ratio": 0.0},
+            },
+            "parameter_stability": {"parameter_stability_score": 0.0},
+        },
+    )
+
+    assert report["summary"]["parameter_stability"]["parameter_stability_score"] == pytest.approx(0.0)
+    assert report["scorecard"]["key_metrics"]["parameter_stability_score"] == pytest.approx(0.0)
+
+
 @pytest.mark.parametrize(
     ("field", "value", "match"),
     [
