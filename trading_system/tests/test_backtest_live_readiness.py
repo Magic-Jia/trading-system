@@ -145,6 +145,15 @@ def test_postmortem_reconciliation_rejects_non_strict_trade_counts() -> None:
         live_readiness._postmortem_reconciliation(report, postmortem_summary)
 
 
+@pytest.mark.parametrize("invalid_net_pnl", ["0.0", float("nan"), float("inf")])
+def test_postmortem_reconciliation_rejects_non_strict_net_pnl(invalid_net_pnl: object) -> None:
+    report = {"totals": {"trade_count": 1, "net_pnl": 0.0}}
+    postmortem_summary = {"summary": {"trades": 1, "net_pnl": invalid_net_pnl}}
+
+    with pytest.raises(ValueError, match=r"postmortem\.summary\.net_pnl must be a finite strict number"):
+        live_readiness._postmortem_reconciliation(report, postmortem_summary)
+
+
 @pytest.mark.parametrize("execution_lag_bars", ["1", True, -1])
 def test_trade_postmortem_rejects_invalid_execution_lag_bars(execution_lag_bars: object) -> None:
     trade = {

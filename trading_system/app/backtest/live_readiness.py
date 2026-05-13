@@ -4331,8 +4331,12 @@ def _postmortem_reconciliation(report: Mapping[str, Any], postmortem_summary: Ma
     summary = _as_mapping(postmortem_summary.get("summary"))
     gate_trade_count = _strict_count_int(totals, "trade_count", field_path="totals.trade_count")
     postmortem_trade_count = _strict_count_int(summary, "trades", field_path="postmortem.summary.trades")
-    gate_net_pnl = _float_value(totals.get("net_pnl"))
-    postmortem_net_pnl = _float_value(summary.get("net_pnl", summary.get("net")))
+    gate_net_pnl, gate_net_pnl_valid = _strict_float_value(totals.get("net_pnl"))
+    if not gate_net_pnl_valid:
+        raise ValueError("totals.net_pnl must be a finite strict number")
+    postmortem_net_pnl, postmortem_net_pnl_valid = _strict_float_value(summary.get("net_pnl", summary.get("net")))
+    if not postmortem_net_pnl_valid:
+        raise ValueError("postmortem.summary.net_pnl must be a finite strict number")
     trade_count_delta = postmortem_trade_count - gate_trade_count
     net_pnl_delta = postmortem_net_pnl - gate_net_pnl
     return {
