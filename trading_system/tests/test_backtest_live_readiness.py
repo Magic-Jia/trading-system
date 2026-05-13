@@ -1339,9 +1339,25 @@ def test_live_readiness_gate_rejects_malformed_canary_guard_fields(
 @pytest.mark.parametrize(
     ("payload_patch", "parse_error"),
     [
+        ({"paper": ["paper-fill-reconciliation"]}, "paper_readiness_not_object"),
+        ({"shadow": "shadow-order-parity"}, "shadow_readiness_not_object"),
+        ({"canary": None}, "canary_readiness_not_object"),
+        ({"paper": True}, "paper_readiness_not_object"),
         ({"paper": {"evidence_complete": "true", "remaining_requirements": ["paper-fill-reconciliation"]}}, "paper_evidence_complete_not_bool"),
+        ({"shadow": {"evidence_complete": True, "remaining_requirements": "shadow-order-parity"}}, "shadow_remaining_requirements_not_list"),
+        ({"canary": {"evidence_complete": True, "remaining_requirements": None}}, "canary_remaining_requirements_not_list"),
+        ({"paper": {"evidence_complete": True, "remaining_requirements": [123]}}, "paper_remaining_requirement_not_string"),
         ({"paper": {"evidence_complete": True, "remaining_requirements": [" paper-fill-reconciliation "]}}, "paper_remaining_requirement_noncanonical"),
         ({"paper": {"evidence_complete": True, "remaining_requirements": ["paper fill reconciliation"]}}, "paper_remaining_requirement_not_identifier"),
+        (
+            {
+                "paper": {
+                    "evidence_complete": True,
+                    "remaining_requirements": ["paper-fill-reconciliation", "paper-fill-reconciliation"],
+                }
+            },
+            "paper_remaining_requirement_duplicate",
+        ),
         ({"paper": {"evidence_complete": True, "remaining_requirements": ["paper-fill-reconciliation"], "extra": True}}, "paper_readiness_unknown_field: extra"),
         (
             {

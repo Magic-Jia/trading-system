@@ -2024,6 +2024,7 @@ def _validate_offline_rollout_stage(value: Any, stage: str) -> tuple[dict[str, A
     if not raw_requirements:
         return {}, f"{stage}_remaining_requirements_empty"
     requirements: list[str] = []
+    seen_requirements: set[str] = set()
     for requirement in raw_requirements:
         if not _is_exact_string(requirement):
             return {}, f"{stage}_remaining_requirement_not_string"
@@ -2033,6 +2034,9 @@ def _validate_offline_rollout_stage(value: Any, stage: str) -> tuple[dict[str, A
             return {}, f"{stage}_remaining_requirement_noncanonical"
         if not _is_safe_evidence_identifier(requirement):
             return {}, f"{stage}_remaining_requirement_not_identifier"
+        if requirement in seen_requirements:
+            return {}, f"{stage}_remaining_requirement_duplicate"
+        seen_requirements.add(requirement)
         requirements.append(requirement)
     parsed: dict[str, Any] = {
         "evidence_complete": evidence_complete,
