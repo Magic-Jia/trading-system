@@ -8253,6 +8253,42 @@ def test_live_readiness_gate_rejects_invalid_validation_evidence_run_id(
     assert "validation_artifact_provenance_missing" in report["promotion_gate"]["reasons"]
 
 
+def test_live_readiness_gate_rejects_validation_evidence_source_exported_at_noncanonical(
+    tmp_path: Path,
+) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    (chunk / "validation_gate.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "validation_gate_input.v1",
+                "evidence_source": {
+                    "type": "walk_forward_oos_report",
+                    "run_id": "validation-exported-at-noncanonical",
+                    "exported_at": "2026-03-10T00:00:00+00:00",
+                },
+                "checks": {
+                    "oos_non_degraded_met": True,
+                    "multi_regime_resilience_met": True,
+                    "cost_stress_positive_met": True,
+                    "forward_contamination_absent_met": True,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_live_readiness_gate_report(tmp_path, require_validation_evidence=True)
+
+    validation = report["validation_gate"]
+    assert validation["artifacts"][0]["schema_valid"] is False
+    assert validation["artifacts"][0]["provenance_present"] is False
+    assert validation["artifacts"][0]["parse_error"] == "evidence_source_exported_at_noncanonical_timestamp"
+    assert validation["checks"]["validation_artifact_schema_valid"] is False
+    assert validation["checks"]["validation_artifact_provenance_present"] is False
+    assert "validation_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
+    assert "validation_artifact_provenance_missing" in report["promotion_gate"]["reasons"]
+
 
 def test_live_readiness_gate_rejects_present_failing_validation_checks(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
