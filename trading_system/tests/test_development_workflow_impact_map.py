@@ -90,6 +90,15 @@ def test_registered_suite_test_files_have_impact_mapping() -> None:
     assert missing == []
 
 
+def test_run_cycle_entrypoint_has_runtime_support_impact_mapping() -> None:
+    verify = load_verify_module()
+
+    tests = verify.tests_for_changed(["trading_system/run_cycle.py"])
+
+    assert "trading_system/tests/test_run_cycle.py" in tests
+    assert "trading_system/tests/test_main_v2_cycle.py" in tests
+
+
 def test_management_execution_test_file_has_portfolio_impact_mapping() -> None:
     verify = load_verify_module()
 
