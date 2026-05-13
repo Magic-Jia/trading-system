@@ -582,6 +582,8 @@ def _strict_mapping_copy(payload: Mapping[Any, Any], *, field_name: str) -> dict
     for key, value in payload.items():
         if not isinstance(key, str):
             raise ValueError(f"{field_name} key must be a string")
+        if key in copied:
+            raise ValueError(f"{field_name} keys must be unique")
         copied[key] = value
     return copied
 

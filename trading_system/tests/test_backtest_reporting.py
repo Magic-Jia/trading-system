@@ -67,6 +67,24 @@ def test_backtest_evaluation_report_rejects_non_object_metadata() -> None:
         )
 
 
+def test_backtest_evaluation_report_rejects_duplicate_metadata_keys() -> None:
+    with pytest.raises(ValueError, match="metadata keys must be unique"):
+        reporting.render_backtest_evaluation_report(
+            experiment_name="evaluation",
+            evaluation={
+                "walk_forward": {"metadata": {"window_count": 1}},
+                "regimes": {"buckets": []},
+                "cost_stress": {"scenarios": []},
+            },
+            metadata=_DuplicateKeyMapping(
+                [
+                    ("dataset_root", "dataset-a"),
+                    ("dataset_root", "dataset-b"),
+                ]
+            ),
+        )
+
+
 def test_backtest_evaluation_report_rejects_invalid_cost_stress_scenario_name() -> None:
     with pytest.raises(ValueError, match=r"cost_stress.scenarios\[0\].scenario.name must be a canonical string"):
         reporting.render_backtest_evaluation_report(
