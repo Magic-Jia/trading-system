@@ -66,11 +66,11 @@ class RuntimeSafetyReason:
         if not isinstance(raw_reasons, list):
             raise ValueError("runtime safety reasons must be a list")
         reasons: list[RuntimeSafetyReason] = []
-        seen: dict[str, tuple[str, str]] = {}
+        seen: dict[str, tuple[str, str, str]] = {}
         for raw_reason in raw_reasons:
-            code, severity, category, _source = _canonical_reason_fields(raw_reason)
+            code, severity, category, source = _canonical_reason_fields(raw_reason)
             previous = seen.get(code)
-            current = (severity, category)
+            current = (severity, category, source)
             if previous is not None and previous != current:
                 raise ValueError(f"runtime safety reason duplicate conflicts for code: {code}")
             seen[code] = current
@@ -88,26 +88,27 @@ class RuntimeSafetyReason:
             raise ValueError(f"unknown runtime safety reason severity: {severity}")
         if category not in _RUNTIME_SAFETY_REASON_CATEGORIES:
             raise ValueError(f"unknown runtime safety reason category: {category}")
-        if severity != expected["severity"] or category != expected["category"]:
+        if severity != expected["severity"] or category != expected["category"] or source != expected["source"]:
             raise ValueError(f"runtime safety reason taxonomy mismatch for code: {code}")
         return cls(code=code, severity=severity, category=category, source=source)
 
 
 def _required_event_reason_taxonomy() -> dict[str, dict[str, str]]:
     return {
-        reason_code: {"severity": "block", "category": "runtime_safety"}
+        reason_code: {"severity": "block", "category": "runtime_safety", "source": "runtime_safety_gate"}
         for _, reason_code in _REQUIRED_EVENTS.values()
     }
 
 
 def _execution_preview_reason_taxonomy() -> dict[str, dict[str, str]]:
     return {
-        reason_code: {"severity": "block", "category": "execution_preview"}
+        reason_code: {"severity": "block", "category": "execution_preview", "source": "execution_preview"}
         for _, reason_code in EXECUTION_PREVIEW_UNSUPPORTED_REASON_PREFIXES
     } | {
         "unsupported_preview_payload": {
             "severity": "block",
             "category": "execution_preview",
+            "source": "execution_preview",
         }
     }
 

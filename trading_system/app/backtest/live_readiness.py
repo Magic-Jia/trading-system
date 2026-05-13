@@ -2388,7 +2388,7 @@ def _runtime_reasons_schema_error(value: Any) -> str:
         return ""
     if not isinstance(value, list):
         return "runtime_reasons_not_list"
-    seen: dict[str, tuple[str, str]] = {}
+    seen: dict[str, tuple[str, str, str]] = {}
     for reason in value:
         if not isinstance(reason, Mapping):
             return "runtime_reason_not_object"
@@ -2408,7 +2408,7 @@ def _runtime_reasons_schema_error(value: Any) -> str:
             if not _is_safe_evidence_identifier(item):
                 return f"runtime_reason_{field}_invalid"
         code = reason["code"]
-        current = (reason["severity"], reason["category"])
+        current = (reason["severity"], reason["category"], reason["source"])
         previous = seen.get(code)
         if previous is not None and previous != current:
             return "runtime_reason_duplicate_conflict"
@@ -2416,7 +2416,11 @@ def _runtime_reasons_schema_error(value: Any) -> str:
         expected = RUNTIME_SAFETY_REASON_TAXONOMY.get(code)
         if expected is None:
             return f"unknown_runtime_reason_code: {code}"
-        if reason["severity"] != expected["severity"] or reason["category"] != expected["category"]:
+        if (
+            reason["severity"] != expected["severity"]
+            or reason["category"] != expected["category"]
+            or reason["source"] != expected["source"]
+        ):
             return f"runtime_reason_taxonomy_mismatch: {code}"
     return ""
 

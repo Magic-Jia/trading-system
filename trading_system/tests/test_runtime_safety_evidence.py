@@ -474,6 +474,48 @@ def test_runtime_safety_gate_writer_preserves_runtime_reason_taxonomy_roundtrip(
     }
 
 
+def test_runtime_safety_reason_taxonomy_rejects_wrong_source_for_code() -> None:
+    try:
+        RuntimeSafetyReason.canonicalize_many(
+            [
+                {
+                    "code": "symbol_not_allowed",
+                    "severity": "block",
+                    "category": "execution_preview",
+                    "source": "runtime_safety_gate",
+                }
+            ]
+        )
+    except ValueError as exc:
+        assert str(exc) == "runtime safety reason taxonomy mismatch for code: symbol_not_allowed"
+    else:
+        raise AssertionError("expected runtime safety reason source taxonomy mismatch to be rejected")
+
+
+def test_runtime_safety_gate_preserves_identical_duplicate_reason_counts() -> None:
+    manifest = _passing_manifest()
+    manifest["reasons"] = [
+        {
+            "code": "symbol_not_allowed",
+            "severity": "block",
+            "category": "execution_preview",
+            "source": "execution_preview",
+        },
+        {
+            "code": "symbol_not_allowed",
+            "severity": "block",
+            "category": "execution_preview",
+            "source": "execution_preview",
+        },
+    ]
+
+    gate = build_runtime_safety_gate(manifest)
+
+    assert gate["summary"]["reason_count"] == 2
+    assert gate["summary"]["reasons_by_code"] == {"symbol_not_allowed": 2}
+    assert gate["runtime_reasons"] == manifest["reasons"]
+
+
 def test_runtime_safety_reason_taxonomy_rejects_conflicting_duplicate_code() -> None:
     try:
         RuntimeSafetyReason.canonicalize_many(
