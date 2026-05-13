@@ -1857,6 +1857,8 @@ def _microstructure_interval_coverage_schema_error(value: Any) -> str:
                 return f"interval_coverage_{field}_blank"
             if item != item.strip():
                 return f"interval_coverage_{field}_noncanonical"
+            if field == "symbol" and not re.fullmatch(r"[A-Z0-9]{2,20}", item):
+                return "interval_coverage_symbol_noncanonical"
         generated_at = row.get("generated_at")
         if not _is_canonical_utc_timestamp(generated_at):
             return "interval_coverage_generated_at_noncanonical_timestamp"
