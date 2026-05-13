@@ -232,7 +232,7 @@ def _reason_taxonomy_violations(reason_codes: list[str]) -> tuple[list[str], lis
 
 def _artifact_path_is_safe(rel_path: str) -> bool:
     path = Path(rel_path)
-    return bool(rel_path.strip()) and not path.is_absolute() and ".." not in path.parts
+    return bool(rel_path.strip()) and "\\" not in rel_path and not path.is_absolute() and ".." not in path.parts
 
 
 def _artifact_path_is_canonical(rel_path: str) -> bool:

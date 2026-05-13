@@ -317,6 +317,30 @@ def test_bundle_verifier_detects_missing_and_tampered_artifacts(tmp_path: Path) 
     assert REQUIRED_ARTIFACTS[1] in missing["missing_artifacts"]
 
 
+def test_bundle_verifier_rejects_backslash_artifact_path(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    for name in REQUIRED_ARTIFACTS:
+        _write_json(source / name, {"artifact": name, "synthetic": True})
+    bundle_dir = collect_promotion_evidence_bundle(
+        source,
+        tmp_path / "bundle",
+        candidate_id="candidate-1",
+        evidence_source={"type": "promotion_bundle_export", "run_id": "bundle-1"},
+    )
+    manifest_path = bundle_dir / "promotion_evidence_manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["artifacts"][0]["path"] = "nested\\trades.json"
+    manifest_path.write_text(json.dumps(manifest, sort_keys=True) + "\n")
+
+    result = verify_promotion_evidence_bundle(bundle_dir)
+
+    assert result["verified"] is False
+    assert "unsafe_artifact_path" in result["manifest_errors"]
+    assert result["unsafe_artifact_paths"] == ["nested\\trades.json"]
+    assert "unsafe_artifact_path" in result["reason_codes"]
+
+
 def test_bundle_verifier_rejects_tampered_reproducibility_hash_chain(tmp_path: Path) -> None:
     source = tmp_path / "source"
     source.mkdir()
