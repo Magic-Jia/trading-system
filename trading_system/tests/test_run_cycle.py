@@ -333,6 +333,21 @@ def test_run_cycle_fails_closed_for_invalid_execution_mode(monkeypatch, tmp_path
         _run_cycle_with_runtime_state(monkeypatch, tmp_path, runtime_state)
 
 
+def test_run_cycle_fails_closed_for_duplicate_runtime_state_keys(monkeypatch, tmp_path):
+    _disable_paper_runtime_input_preparation(monkeypatch)
+
+    def fake_main() -> None:
+        Path(os.environ["TRADING_STATE_FILE"]).write_text(
+            '{"execution_mode":"paper","latest_candidates":[],"latest_candidates":[{"symbol":"BTCUSDT"}],"latest_allocations":[]}',
+            encoding="utf-8",
+        )
+
+    monkeypatch.setattr(run_cycle_module, "run_main", fake_main)
+
+    with pytest.raises(ValueError, match=r"runtime_state duplicate key: latest_candidates"):
+        run_cycle_module.run_cycle("paper", runtime_root=tmp_path / "runtime", runtime_env="prod")
+
+
 def test_run_cycle_latest_summary_defaults_missing_execution_mode(monkeypatch, tmp_path):
     runtime_root = tmp_path / "runtime"
 

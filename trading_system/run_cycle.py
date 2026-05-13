@@ -53,6 +53,19 @@ def _write_json(path: Path, payload: Mapping[str, Any]) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def _reject_duplicate_runtime_state_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    payload: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in payload:
+            raise ValueError(f"runtime_state duplicate key: {key}")
+        payload[key] = value
+    return payload
+
+
+def _read_runtime_state(path: Path) -> Any:
+    return json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=_reject_duplicate_runtime_state_keys)
+
+
 @contextmanager
 def _temporary_env(overrides: Mapping[str, str]) -> Iterator[None]:
     previous = {key: os.environ.get(key) for key in overrides}
@@ -188,7 +201,7 @@ def _state_summary(paths: RuntimePaths) -> dict[str, Any]:
             "paper_trading": {},
         }
 
-    state = json.loads(paths.state_file.read_text(encoding="utf-8"))
+    state = _read_runtime_state(paths.state_file)
     if not isinstance(state, ABCMapping):
         raise ValueError("runtime_state must be a mapping")
 
