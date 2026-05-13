@@ -4013,6 +4013,18 @@ def test_load_dataset_root_metadata_rejects_noncanonical_manifest_identity_field
         load_dataset_root_metadata(dataset_root)
 
 
+def test_load_dataset_root_metadata_rejects_non_object_import_manifest(tmp_path: Path) -> None:
+    dataset_root = tmp_path / "imported_dataset"
+    dataset_root.mkdir()
+    (dataset_root / "import_manifest.json").write_text(
+        json.dumps([["schema_version", "phase1_imported_dataset_root.v1"]]),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="import manifest must be a JSON object"):
+        load_dataset_root_metadata(dataset_root)
+
+
 def test_load_dataset_root_metadata_rejects_non_object_manifest_source(tmp_path: Path) -> None:
     dataset_root = tmp_path / "imported_dataset"
     dataset_root.mkdir()

@@ -1817,6 +1817,8 @@ def load_dataset_root_metadata(dataset_root: str | Path) -> dict[str, object]:
         return {}
 
     manifest = _load_json(manifest_path)
+    if not isinstance(manifest, dict):
+        raise ValueError(f"import manifest must be a JSON object: {manifest_path}")
     return {
         "dataset_root_type": "imported_archive",
         "import_manifest_path": str(manifest_path),
