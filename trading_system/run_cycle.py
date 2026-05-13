@@ -44,6 +44,11 @@ def _timestamp() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
+def _run_id(paths: RuntimePaths, finished_at: str) -> str:
+    timestamp_fragment = finished_at.replace(":", "-").replace("+", "-").replace(".", "-").lower()
+    return f"{paths.mode}-{paths.runtime_env}-{timestamp_fragment}"
+
+
 def _write_json(path: Path, payload: Mapping[str, Any]) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
@@ -74,6 +79,7 @@ def _base_summary(paths: RuntimePaths, *, status: str, finished_at: str) -> dict
         "bucket_dir": str(paths.bucket_dir),
         "state_file": str(paths.state_file),
         "finished_at": finished_at,
+        "run_id": _run_id(paths, finished_at),
     }
 
 

@@ -85,6 +85,8 @@ def test_run_cycle_prepares_runtime_bucket_calls_main_and_writes_latest_summary(
     assert latest["candidate_count"] == 1
     assert latest["allocation_count"] == 1
     assert "finished_at" in latest
+    timestamp_fragment = latest["finished_at"].replace(":", "-").replace(".", "-").lower()
+    assert latest["run_id"] == f"paper-testnet-{timestamp_fragment}"
 
 
 def test_run_cycle_latest_summary_includes_disabled_setup_types(monkeypatch, tmp_path):
