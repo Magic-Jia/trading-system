@@ -186,12 +186,14 @@ def validate_portfolio_lifecycle(
         reasons.append("duplicate_protective_stop_evidence")
 
     seen_risk_evidence_ids: set[str] = set()
+    risk_evidence_symbols: set[str] = set()
     duplicated_risk_evidence = False
     for risk_evidence in evidence.funding_margin_liquidation:
         _validate_funding_margin_liquidation_evidence(risk_evidence)
         if risk_evidence.evidence_id in seen_risk_evidence_ids:
             duplicated_risk_evidence = True
         seen_risk_evidence_ids.add(risk_evidence.evidence_id)
+        risk_evidence_symbols.add(risk_evidence.symbol)
     if duplicated_risk_evidence:
         reasons.append("duplicate_funding_margin_liquidation_evidence")
 
@@ -202,7 +204,14 @@ def validate_portfolio_lifecycle(
         )
         if missing_stop_state:
             reasons.append("missing_protective_stop_state")
-        if not evidence.funding_margin_liquidation:
+        missing_liquidation_risk = (
+            not evidence.funding_margin_liquidation
+            or any(
+                _canonical_string(position.symbol, field_name="position.symbol") not in risk_evidence_symbols
+                for position in state.open_positions
+            )
+        )
+        if missing_liquidation_risk:
             reasons.append("missing_liquidation_risk_evidence")
 
     return PortfolioLifecycleValidationReport(valid=not reasons, reasons=tuple(reasons))

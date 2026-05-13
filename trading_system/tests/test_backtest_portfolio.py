@@ -395,6 +395,48 @@ def test_lifecycle_validation_rejects_missing_liquidation_risk_for_promotion_gra
     assert report.reasons == ("missing_liquidation_risk_evidence",)
 
 
+def test_lifecycle_validation_rejects_liquidation_risk_for_uncovered_open_position() -> None:
+    state = make_portfolio_state(
+        initial_equity=100_000.0,
+        open_positions=[
+            make_position(
+                symbol="ETHUSDT",
+                market_type="futures",
+                base_asset="ETH",
+                protective_stop_id="stop-eth-1",
+            )
+        ],
+        lifecycle_evidence=PortfolioLifecycleEvidence(
+            protective_stops=(
+                ProtectiveStopEvidence(
+                    stop_id="stop-eth-1",
+                    symbol="ETHUSDT",
+                    status="active",
+                    stop_loss=2_850.0,
+                    updated_at_counter=2,
+                ),
+            ),
+            funding_margin_liquidation=(
+                FundingMarginLiquidationEvidence(
+                    evidence_id="risk-btc-1",
+                    symbol="BTCUSDT",
+                    timestamp_ms=1_700_000_000_000,
+                    order_counter=11,
+                    funding_rate_bps=0.1,
+                    margin_ratio=0.4,
+                    liquidation_price=42_000.0,
+                    liquidation_distance_fraction=0.15,
+                ),
+            ),
+        ),
+    )
+
+    report = validate_portfolio_lifecycle(state, promotion_grade=True)
+
+    assert report.valid is False
+    assert report.reasons == ("missing_liquidation_risk_evidence",)
+
+
 def test_lifecycle_validation_rejects_duplicate_liquidation_risk_evidence_identity() -> None:
     state = make_portfolio_state(
         initial_equity=100_000.0,
