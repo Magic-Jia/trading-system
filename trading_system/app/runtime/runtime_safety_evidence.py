@@ -12,6 +12,7 @@ SCHEMA_VERSION = "runtime_safety_gate_input.v1"
 _RUNTIME_SAFETY_REASON_SEVERITIES = {"block", "warn", "info"}
 _RUNTIME_SAFETY_REASON_CATEGORIES = {"runtime_safety", "execution_preview"}
 _CANONICAL_UTC_TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z$")
+_SAFE_EVIDENCE_IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
 _REQUIRED_EVENTS = {
     "kill_switch_dry_run": ("kill_switch_dry_run_met", "kill_switch_dry_run_missing"),
     "order_position_reconciliation": (
@@ -126,6 +127,10 @@ def _is_canonical_utc_timestamp(value: str) -> bool:
     return parsed.tzinfo is not None and parsed.astimezone(UTC).isoformat().replace("+00:00", "Z") == value
 
 
+def _is_safe_evidence_identifier(value: str) -> bool:
+    return _SAFE_EVIDENCE_IDENTIFIER_RE.fullmatch(value) is not None
+
+
 def _require_reason_string(raw_reason: Mapping[str, Any], field: str) -> str:
     if field not in raw_reason:
         raise ValueError(f"runtime safety reason {field} must be present")
@@ -182,6 +187,8 @@ def build_runtime_safety_gate(manifest: Mapping[str, Any]) -> dict[str, Any]:
         raise ValueError("evidence_source type must be non-empty")
     if source["type"] != source["type"].strip():
         raise ValueError("evidence_source type must be canonical")
+    if not _is_safe_evidence_identifier(source["type"]):
+        raise ValueError("evidence_source type must be a safe identifier")
     for optional_field in ("run_id", "exported_at"):
         optional_value = source.get(optional_field)
         if optional_value is not None and not isinstance(optional_value, str):
@@ -190,6 +197,12 @@ def build_runtime_safety_gate(manifest: Mapping[str, Any]) -> dict[str, Any]:
             raise ValueError(f"evidence_source {optional_field} must be non-empty")
         if isinstance(optional_value, str) and optional_value != optional_value.strip():
             raise ValueError(f"evidence_source {optional_field} must be canonical")
+        if (
+            optional_field == "run_id"
+            and isinstance(optional_value, str)
+            and not _is_safe_evidence_identifier(optional_value)
+        ):
+            raise ValueError("evidence_source run_id must be a safe identifier")
         if (
             optional_field == "exported_at"
             and isinstance(optional_value, str)

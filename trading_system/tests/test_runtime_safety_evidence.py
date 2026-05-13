@@ -231,6 +231,18 @@ def test_runtime_safety_gate_copies_valid_evidence_source_payload() -> None:
     assert gate["evidence_source"] is not source
 
 
+def test_runtime_safety_gate_rejects_unsafe_evidence_source_run_id() -> None:
+    manifest = _passing_manifest()
+    manifest["evidence_source"] = {"type": "paper_runtime_logs", "run_id": "runtime 1"}
+
+    try:
+        build_runtime_safety_gate(manifest)
+    except ValueError as exc:
+        assert str(exc) == "evidence_source run_id must be a safe identifier"
+    else:  # pragma: no cover - RED path until runtime provenance identity is hardened
+        raise AssertionError("expected unsafe evidence_source run_id to be rejected")
+
+
 def test_runtime_safety_gate_writer_rejects_noncanonical_evidence_source_exported_at_without_artifact_write(
     tmp_path: Path,
 ) -> None:
