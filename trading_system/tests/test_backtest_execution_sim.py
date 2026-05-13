@@ -268,6 +268,36 @@ def test_maker_cancel_replace_before_fill_stops_later_prints() -> None:
     assert "cancel_replace_before_fill" in fill.maker_reasons
 
 
+def test_maker_cancel_replace_at_same_timestamp_as_trade_fails_closed_without_fill() -> None:
+    fill = simulate_maker_limit_fill(
+        symbol="BTCUSDT",
+        side="buy",
+        limit_price=99.5,
+        quantity=1.0,
+        queue_ahead_quantity=0.0,
+        placement_timestamp=_ts("2026-03-10T00:00:00Z"),
+        cancel_replace_timestamp=_ts("2026-03-10T00:00:02Z"),
+        timeout_seconds=10.0,
+        trades=(
+            TradePrint(
+                timestamp=_ts("2026-03-10T00:00:02Z"),
+                symbol="BTCUSDT",
+                price=99.5,
+                quantity=1.0,
+                side="sell",
+            ),
+        ),
+    )
+
+    assert fill.maker_status == "cancelled_replaced"
+    assert fill.filled is False
+    assert fill.fill_price is None
+    assert fill.filled_quantity == pytest.approx(0.0)
+    assert fill.unfilled_quantity == pytest.approx(1.0)
+    assert fill.execution_price_source == "no_crossing_evidence"
+    assert "cancel_replace_before_fill" in fill.maker_reasons
+
+
 def test_maker_buy_limit_misses_when_no_trade_or_book_evidence_crosses_limit() -> None:
     fill = simulate_maker_limit_fill(
         symbol="BTCUSDT",

@@ -592,7 +592,9 @@ def _simulate_maker_queue_fill(
         trade_quantity = _positive_finite_float("trade.quantity", trade.quantity)
         if effective_placement is not None and trade.timestamp < effective_placement:
             continue
-        if cutoff is not None and trade.timestamp > cutoff:
+        # Cutoff timestamps are exclusive so cancel/replace or timeout ties
+        # do not get coerced into deterministic fills.
+        if cutoff is not None and trade.timestamp >= cutoff:
             continue
         if not _crosses_limit(side=side, price=trade_price, limit_price=limit_price):
             continue
