@@ -288,6 +288,45 @@ def test_decision_ledgers_capture_accept_resize_and_reject_statuses() -> None:
     assert rejected_row.reasons == ("base_asset_same_direction_crowding",)
 
 
+def test_decision_ledger_enforces_status_quantity_notional_consistency() -> None:
+    candidate = make_candidate(
+        symbol="SOLUSDT",
+        market_type="spot",
+        base_asset="SOL",
+        entry_price=200.0,
+        stop_loss=190.0,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="rejected portfolio decisions must have zero risk budget, quantity, and notional",
+    ):
+        decision_to_ledger_row(
+            candidate,
+            PortfolioDecision(
+                status="rejected",
+                reasons=("capital_usage_exhausted",),
+                final_risk_budget=0.0,
+                position_notional=1_000.0,
+                qty=5.0,
+            ),
+        )
+
+    with pytest.raises(
+        ValueError,
+        match="accepted portfolio decisions must have positive risk budget, quantity, and notional",
+    ):
+        decision_to_ledger_row(
+            candidate,
+            PortfolioDecision(
+                status="accepted",
+                reasons=(),
+                final_risk_budget=0.005,
+                position_notional=0.0,
+                qty=0.0,
+            ),
+        )
+
 def test_lifecycle_validation_rejects_duplicate_protective_stop_evidence() -> None:
     state = make_portfolio_state(
         initial_equity=100_000.0,

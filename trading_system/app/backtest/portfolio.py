@@ -387,13 +387,23 @@ def decision_to_ledger_row(
     candidate: PortfolioCandidate,
     decision: PortfolioDecision,
 ) -> PortfolioDecisionLedgerRow:
+    status = _decision_status(decision.status)
+    final_risk_budget = _non_negative_number(decision.final_risk_budget, field_name="decision.final_risk_budget")
+    position_notional = _non_negative_number(decision.position_notional, field_name="decision.position_notional")
+    qty = _non_negative_number(decision.qty, field_name="decision.qty")
+    if status == "rejected":
+        if final_risk_budget > _EPSILON or position_notional > _EPSILON or qty > _EPSILON:
+            raise ValueError("rejected portfolio decisions must have zero risk budget, quantity, and notional")
+    else:
+        if final_risk_budget <= _EPSILON or position_notional <= _EPSILON or qty <= _EPSILON:
+            raise ValueError("accepted portfolio decisions must have positive risk budget, quantity, and notional")
     return PortfolioDecisionLedgerRow(
         symbol=_canonical_string(candidate.symbol, field_name="candidate.symbol"),
         market_type=_canonical_string(candidate.market_type, field_name="candidate.market_type"),
         base_asset=_canonical_string(candidate.base_asset, field_name="candidate.base_asset"),
-        status=_decision_status(decision.status),
+        status=status,
         reasons=_decision_reasons(decision.reasons),
-        final_risk_budget=_non_negative_number(decision.final_risk_budget, field_name="decision.final_risk_budget"),
-        position_notional=_non_negative_number(decision.position_notional, field_name="decision.position_notional"),
-        qty=_non_negative_number(decision.qty, field_name="decision.qty"),
+        final_risk_budget=final_risk_budget,
+        position_notional=position_notional,
+        qty=qty,
     )
