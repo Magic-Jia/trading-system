@@ -14,6 +14,8 @@ _ASSET_CODE_RE = re.compile(r"^[A-Z0-9]+$")
 _SYMBOL_RE = re.compile(r"^[A-Z0-9]+$")
 _LOWER_TOKEN_RE = re.compile(r"^[a-z0-9_]+$")
 _UPPER_TOKEN_RE = re.compile(r"^[A-Z0-9_]+$")
+_SAFE_EVIDENCE_IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
+_CANONICAL_UTC_TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z$")
 _FEE_ASSET_FIELDS = (
     "fee_asset",
     "feeAsset",
@@ -325,6 +327,62 @@ def _group(records: tuple[PassiveOrderCalibrationRecord, ...], field_name: str) 
     return {key: _summary(value) for key, value in sorted(buckets.items())}
 
 
+def _is_canonical_utc_timestamp(value: str) -> bool:
+    if _CANONICAL_UTC_TIMESTAMP_RE.fullmatch(value) is None:
+        return False
+    try:
+        parsed = datetime.fromisoformat(value[:-1] + "+00:00")
+    except ValueError:
+        return False
+    return parsed.tzinfo is not None and parsed.astimezone(timezone.utc).isoformat().replace("+00:00", "Z") == value
+
+
+def _validate_calibration_summary_evidence_source(evidence_source: Mapping[str, Any] | None) -> dict[str, Any]:
+    if evidence_source is not None and not isinstance(evidence_source, Mapping):
+        raise ValueError("calibration summary evidence_source must be an object")
+    raw_source = evidence_source or {"type": "unknown_offline_records"}
+    for key in raw_source:
+        if type(key) is not str:
+            raise ValueError("calibration summary evidence_source.<key> must be a string")
+        if not key.strip():
+            raise ValueError("calibration summary evidence_source.<key> must be non-empty")
+        if key != key.strip():
+            raise ValueError("calibration summary evidence_source.<key> must be canonical")
+
+    source = dict(raw_source)
+    source.setdefault("type", "unknown_offline_records")
+    unknown_source_fields = sorted(set(source) - {"type", "run_id", "exported_at"})
+    if unknown_source_fields:
+        raise ValueError("unknown calibration summary evidence_source field: " + ", ".join(unknown_source_fields))
+
+    source_type = source["type"]
+    if type(source_type) is not str:
+        raise ValueError("calibration summary evidence_source.type must be a string")
+    if not source_type.strip():
+        raise ValueError("calibration summary evidence_source.type must be non-empty")
+    if source_type != source_type.strip():
+        raise ValueError("calibration summary evidence_source.type must be canonical")
+    if _SAFE_EVIDENCE_IDENTIFIER_RE.fullmatch(source_type) is None:
+        raise ValueError("calibration summary evidence_source.type must be a safe identifier")
+
+    for optional_field in ("run_id", "exported_at"):
+        optional_value = source.get(optional_field)
+        if optional_value is None:
+            continue
+        if type(optional_value) is not str:
+            raise ValueError(f"calibration summary evidence_source.{optional_field} must be a string")
+        if not optional_value.strip():
+            raise ValueError(f"calibration summary evidence_source.{optional_field} must be non-empty")
+        if optional_value != optional_value.strip():
+            raise ValueError(f"calibration summary evidence_source.{optional_field} must be canonical")
+        if optional_field == "run_id" and _SAFE_EVIDENCE_IDENTIFIER_RE.fullmatch(optional_value) is None:
+            raise ValueError("calibration summary evidence_source.run_id must be a safe identifier")
+        if optional_field == "exported_at" and not _is_canonical_utc_timestamp(optional_value):
+            raise ValueError("calibration summary evidence_source.exported_at must be a canonical UTC timestamp")
+
+    return source
+
+
 def summarize_calibration_records(
     records: Iterable[PassiveOrderCalibrationRecord],
     *,
@@ -333,13 +391,7 @@ def summarize_calibration_records(
     rows = tuple(records)
     maker_rows = tuple(record for record in rows if record.maker_taker == "maker")
     taker_rows = tuple(record for record in rows if record.maker_taker == "taker")
-    if evidence_source is not None and not isinstance(evidence_source, Mapping):
-        raise ValueError("calibration summary evidence_source must be an object")
-    source = dict(evidence_source or {"type": "unknown_offline_records"})
-    source.setdefault("type", "unknown_offline_records")
-    source_type = source["type"]
-    if type(source_type) is not str or _LOWER_TOKEN_RE.fullmatch(source_type) is None:
-        raise ValueError("calibration summary evidence_source.type must be canonical")
+    source = _validate_calibration_summary_evidence_source(evidence_source)
     return {
         "schema_version": "passive_order_calibration_summary.v1",
         "evidence_source": source,

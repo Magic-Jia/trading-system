@@ -389,6 +389,75 @@ def test_rejects_non_mapping_evidence_source_before_summary() -> None:
         summarize_calibration_records([], evidence_source="synthetic_fixture")  # type: ignore[arg-type]
 
 
+def test_preserves_valid_calibration_summary_evidence_source_payload() -> None:
+    evidence_source = {
+        "type": "passive_order_probe",
+        "run_id": "calibration-1",
+        "exported_at": "2026-05-08T12:00:00Z",
+    }
+
+    summary = summarize_calibration_records([], evidence_source=evidence_source)
+
+    assert summary["evidence_source"] == evidence_source
+
+
 def test_rejects_noncanonical_evidence_source_type_before_summary() -> None:
     with pytest.raises(ValueError, match="calibration summary evidence_source.type must be canonical"):
-        summarize_calibration_records([], evidence_source={"type": "Synthetic Fixture"})
+        summarize_calibration_records([], evidence_source={"type": " synthetic_fixture "})
+
+
+@pytest.mark.parametrize(
+    ("field_name", "bad_identifier", "expected_error"),
+    [
+        ("type", "passive order probe", "calibration summary evidence_source.type must be a safe identifier"),
+        ("run_id", "calibration 1", "calibration summary evidence_source.run_id must be a safe identifier"),
+    ],
+)
+def test_rejects_unsafe_calibration_summary_evidence_source_identifiers(
+    field_name: str, bad_identifier: str, expected_error: str
+) -> None:
+    evidence_source = {"type": "passive_order_probe", "run_id": "calibration-1"}
+    evidence_source[field_name] = bad_identifier
+
+    with pytest.raises(ValueError, match=f"^{expected_error}$"):
+        summarize_calibration_records([], evidence_source=evidence_source)
+
+
+@pytest.mark.parametrize(
+    ("exported_at", "expected_error"),
+    [
+        ("2026-05-08T12:00:00+00:00", "calibration summary evidence_source.exported_at must be a canonical UTC timestamp"),
+        (123, "calibration summary evidence_source.exported_at must be a string"),
+    ],
+)
+def test_rejects_invalid_calibration_summary_evidence_source_exported_at(
+    exported_at: object, expected_error: str
+) -> None:
+    with pytest.raises(ValueError, match=f"^{expected_error}$"):
+        summarize_calibration_records(
+            [],
+            evidence_source={
+                "type": "passive_order_probe",
+                "run_id": "calibration-1",
+                "exported_at": exported_at,
+            },
+        )
+
+
+def test_rejects_unknown_calibration_summary_evidence_source_fields() -> None:
+    with pytest.raises(ValueError, match="^unknown calibration summary evidence_source field: extra$"):
+        summarize_calibration_records([], evidence_source={"type": "passive_order_probe", "extra": "not-allowed"})
+
+
+@pytest.mark.parametrize("bad_key", [123, ""])
+def test_rejects_noncanonical_calibration_summary_evidence_source_keys(bad_key: object) -> None:
+    with pytest.raises(ValueError, match=r"^calibration summary evidence_source\.<key> must be"):
+        summarize_calibration_records([], evidence_source={"type": "passive_order_probe", bad_key: "not-allowed"})
+
+
+def test_rejects_calibration_summary_evidence_source_string_subclasses() -> None:
+    class SourceType(str):
+        pass
+
+    with pytest.raises(ValueError, match="^calibration summary evidence_source.type must be a string$"):
+        summarize_calibration_records([], evidence_source={"type": SourceType("passive_order_probe")})
