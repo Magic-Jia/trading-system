@@ -4124,6 +4124,32 @@ def test_load_dataset_root_metadata_rejects_string_manifest_coverage_counts(tmp_
         load_dataset_root_metadata(dataset_root)
 
 
+def test_load_dataset_root_metadata_rejects_inverted_manifest_window_timestamps(tmp_path: Path) -> None:
+    dataset_root = tmp_path / "imported_dataset"
+    dataset_root.mkdir()
+    (dataset_root / "import_manifest.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "phase1_imported_dataset_root.v1",
+                "scope": "phase1_binance_futures",
+                "archive_root": "/tmp/archive",
+                "dataset_root": "/tmp/imported_dataset",
+                "snapshot_count": 2,
+                "symbols": ["BTCUSDT"],
+                "start_timestamp": "2025-02-11T00:00:00Z",
+                "end_timestamp": "2025-01-01T00:00:00Z",
+                "bundle_dirs": ["bundle-a", "bundle-b"],
+                "source": {},
+                "coverage": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="import manifest start_timestamp must be at or before end_timestamp"):
+        load_dataset_root_metadata(dataset_root)
+
+
 def test_load_backtest_config(fixture_dir: Path) -> None:
     config = load_backtest_config(fixture_dir / "backtest" / "minimal_config.json")
 

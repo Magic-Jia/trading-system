@@ -1784,6 +1784,19 @@ def _manifest_canonical_string(manifest: dict[str, object], key: str) -> str | N
     return value
 
 
+def _manifest_canonical_utc_timestamp(manifest: dict[str, object], key: str) -> str | None:
+    value = _manifest_canonical_string(manifest, key)
+    if value is None:
+        return None
+    try:
+        parsed = _parse_timestamp(value)
+    except ValueError as exc:
+        raise ValueError(f"import manifest {key} must be a canonical UTC ISO timestamp") from exc
+    if _canonical_utc_timestamp(parsed) != value:
+        raise ValueError(f"import manifest {key} must be a canonical UTC ISO timestamp")
+    return value
+
+
 def _manifest_object_field(manifest: dict[str, object], key: str) -> dict[str, object]:
     value = manifest.get(key)
     if value is None:
@@ -1868,6 +1881,11 @@ def load_dataset_root_metadata(dataset_root: str | Path) -> dict[str, object]:
     manifest = _load_json(manifest_path)
     if not isinstance(manifest, dict):
         raise ValueError(f"import manifest must be a JSON object: {manifest_path}")
+    start_timestamp = _manifest_canonical_utc_timestamp(manifest, "start_timestamp")
+    end_timestamp = _manifest_canonical_utc_timestamp(manifest, "end_timestamp")
+    if start_timestamp is not None and end_timestamp is not None:
+        if _parse_timestamp(start_timestamp) > _parse_timestamp(end_timestamp):
+            raise ValueError("import manifest start_timestamp must be at or before end_timestamp")
     return {
         "dataset_root_type": "imported_archive",
         "import_manifest_path": str(manifest_path),
@@ -1878,8 +1896,8 @@ def load_dataset_root_metadata(dataset_root: str | Path) -> dict[str, object]:
             "dataset_root": _manifest_canonical_string(manifest, "dataset_root"),
             "manifest_snapshot_count": _manifest_non_negative_int(manifest, "snapshot_count"),
             "symbols": _manifest_string_list(manifest, "symbols"),
-            "start_timestamp": _manifest_canonical_string(manifest, "start_timestamp"),
-            "end_timestamp": _manifest_canonical_string(manifest, "end_timestamp"),
+            "start_timestamp": start_timestamp,
+            "end_timestamp": end_timestamp,
             "bundle_count": _manifest_list_count(manifest, "bundle_dirs"),
             "source": _manifest_object_field(manifest, "source"),
             "coverage": _manifest_coverage_field(manifest),
