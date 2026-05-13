@@ -11473,6 +11473,56 @@ def test_live_readiness_rejects_non_string_validation_summary_audit_id(tmp_path:
     assert "validation_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
 
 
+def test_live_readiness_rejects_blank_validation_summary_audit_id(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    chunk = source / "chunk_001"
+    chunk.mkdir(parents=True)
+    (chunk / "trades.json").write_text(json.dumps({"trades": []}), encoding="utf-8")
+    gate = build_validation_gate(
+        {
+            "evidence_source": {"type": "walk_forward_oos_report", "run_id": "validation-1"},
+            "oos": {"baseline_net_pnl": 100.0, "oos_net_pnl": 90.0},
+            "regimes": [{"trade_count": 1, "net_pnl": 20.0}, {"trade_count": 1, "net_pnl": 10.0}],
+            "cost_stress": {"stressed_net_pnl": 5.0},
+            "forward_contamination": {"absent": True, "audit_id": "audit-1"},
+        }
+    )
+    gate["summary"]["forward_contamination_audit_id"] = " "
+    (chunk / "validation_gate.json").write_text(json.dumps(gate), encoding="utf-8")
+
+    report = build_live_readiness_gate_report(source, require_validation_evidence=True)
+
+    artifact = report["validation_gate"]["artifacts"][0]
+    assert artifact["schema_valid"] is False
+    assert artifact["parse_error"] == "summary_forward_contamination_audit_id_blank"
+    assert "validation_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
+
+
+def test_live_readiness_rejects_noncanonical_validation_summary_audit_id(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    chunk = source / "chunk_001"
+    chunk.mkdir(parents=True)
+    (chunk / "trades.json").write_text(json.dumps({"trades": []}), encoding="utf-8")
+    gate = build_validation_gate(
+        {
+            "evidence_source": {"type": "walk_forward_oos_report", "run_id": "validation-1"},
+            "oos": {"baseline_net_pnl": 100.0, "oos_net_pnl": 90.0},
+            "regimes": [{"trade_count": 1, "net_pnl": 20.0}, {"trade_count": 1, "net_pnl": 10.0}],
+            "cost_stress": {"stressed_net_pnl": 5.0},
+            "forward_contamination": {"absent": True, "audit_id": "audit-1"},
+        }
+    )
+    gate["summary"]["forward_contamination_audit_id"] = " audit-1 "
+    (chunk / "validation_gate.json").write_text(json.dumps(gate), encoding="utf-8")
+
+    report = build_live_readiness_gate_report(source, require_validation_evidence=True)
+
+    artifact = report["validation_gate"]["artifacts"][0]
+    assert artifact["schema_valid"] is False
+    assert artifact["parse_error"] == "summary_forward_contamination_audit_id_noncanonical"
+    assert "validation_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
+
+
 def test_live_readiness_rejects_unsafe_validation_summary_audit_id(tmp_path: Path) -> None:
     source = tmp_path / "source"
     chunk = source / "chunk_001"
