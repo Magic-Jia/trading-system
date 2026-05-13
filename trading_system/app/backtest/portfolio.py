@@ -185,8 +185,15 @@ def validate_portfolio_lifecycle(
     if duplicated_stop:
         reasons.append("duplicate_protective_stop_evidence")
 
+    seen_risk_evidence_ids: set[str] = set()
+    duplicated_risk_evidence = False
     for risk_evidence in evidence.funding_margin_liquidation:
         _validate_funding_margin_liquidation_evidence(risk_evidence)
+        if risk_evidence.evidence_id in seen_risk_evidence_ids:
+            duplicated_risk_evidence = True
+        seen_risk_evidence_ids.add(risk_evidence.evidence_id)
+    if duplicated_risk_evidence:
+        reasons.append("duplicate_funding_margin_liquidation_evidence")
 
     if promotion_grade and state.open_positions:
         missing_stop_state = any(
