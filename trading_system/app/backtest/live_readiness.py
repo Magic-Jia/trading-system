@@ -2664,6 +2664,8 @@ def _microstructure_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
                 summary_schema_error = "summary_taker_fill_model_blank"
             elif taker_fill_model != taker_fill_model.strip():
                 summary_schema_error = "summary_taker_fill_model_noncanonical"
+            elif not _is_safe_evidence_identifier(taker_fill_model):
+                summary_schema_error = "summary_taker_fill_model_not_identifier"
         coverage_schema_error = ""
         unknown_coverage_fields = sorted(
             set(coverage)
