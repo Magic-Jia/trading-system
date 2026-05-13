@@ -151,7 +151,7 @@ class ExecutionFill:
             )
         object.__setattr__(self, "quantity", _non_negative_finite_float("quantity", self.quantity))
         if self.fill_price is not None:
-            _coerce_positive_finite_float("fill_price", self.fill_price)
+            _positive_finite_float("fill_price", self.fill_price)
         if self.fill_quality == "no_fill" and self.fill_price is not None:
             raise ValueError("no-fill execution cannot include fill_price")
         for field_name in (
@@ -167,7 +167,7 @@ class ExecutionFill:
         ):
             value = getattr(self, field_name)
             if value is not None:
-                _coerce_non_negative_finite_float(field_name, value)
+                _non_negative_finite_float(field_name, value)
         if self.slippage_bps is not None:
             object.__setattr__(self, "slippage_bps", _finite_float("slippage_bps", self.slippage_bps))
 
@@ -797,18 +797,6 @@ def _finite_float(name: str, value: Any) -> float:
     return result
 
 
-def _coerce_positive_finite_float(name: str, value: Any) -> float:
-    if isinstance(value, bool):
-        raise ValueError(f"{name} must be a positive finite number")
-    try:
-        result = float(value)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"{name} must be a positive finite number") from exc
-    if not math.isfinite(result) or result <= 0.0:
-        raise ValueError(f"{name} must be a positive finite number")
-    return result
-
-
 def _positive_finite_float(name: str, value: Any) -> float:
     if isinstance(value, (bool, str)):
         raise ValueError(f"{name} must be a positive finite number")
@@ -853,18 +841,6 @@ def _strict_positive_finite_float(name: str, value: Any) -> float:
     result = _finite_float(name, value)
     if result <= 0.0:
         raise ValueError(f"{name} must be a positive finite number")
-    return result
-
-
-def _coerce_non_negative_finite_float(name: str, value: Any) -> float:
-    if isinstance(value, bool):
-        raise ValueError(f"{name} must be a non-negative finite number")
-    try:
-        result = float(value)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"{name} must be a non-negative finite number") from exc
-    if not math.isfinite(result) or result < 0.0:
-        raise ValueError(f"{name} must be a non-negative finite number")
     return result
 
 

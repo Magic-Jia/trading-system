@@ -338,42 +338,20 @@ def test_candidate_setup_type_rejects_coerced_fields() -> None:
         backtest_engine._candidate_setup_type({"setup_type": True})
 
 
-def test_depth_fill_adjustment_rejects_coerced_fill_fields() -> None:
-    decision = PortfolioDecision(
-        status="accepted",
-        reasons=(),
-        final_risk_budget=0.02,
-        position_notional=100.0,
-        qty=1.0,
-    )
-    fill = backtest_engine.ExecutionFill(
-        symbol="BTCUSDT",
-        side="buy",
-        quantity=1.0,
-        filled=True,
-        fill_price=100.0,
-        fill_model="taker_orderbook_depth",
-        execution_price_source="ask_depth",
-        fill_quality="partial_evidence_backed",
-        outcome="filled",
-        filled_quantity="1",
-        filled_notional=100.0,
-    )
-    candidate = PortfolioCandidate(
-        symbol="BTCUSDT",
-        market_type="futures",
-        base_asset="BTC",
-        side="long",
-        entry_price=100.0,
-        stop_loss=90.0,
-    )
-
-    with pytest.raises(ValueError, match="filled_quantity must be a positive number"):
-        backtest_engine._decision_with_depth_fill(
-            decision=decision,
-            fill=fill,
-            candidate=candidate,
-            equity=10_000.0,
+def test_execution_fill_rejects_coerced_depth_fill_fields() -> None:
+    with pytest.raises(ValueError, match="filled_quantity must be a non-negative finite number"):
+        backtest_engine.ExecutionFill(
+            symbol="BTCUSDT",
+            side="buy",
+            quantity=1.0,
+            filled=True,
+            fill_price=100.0,
+            fill_model="taker_orderbook_depth",
+            execution_price_source="ask_depth",
+            fill_quality="partial_evidence_backed",
+            outcome="filled",
+            filled_quantity="1",
+            filled_notional=100.0,
         )
 
 
@@ -386,28 +364,18 @@ def test_candidate_take_profit_rejects_coerced_prices() -> None:
 
 
 def test_candidate_execution_fill_rejects_coerced_fill_price() -> None:
-    candidate = PortfolioCandidate(
-        symbol="BTCUSDT",
-        market_type="futures",
-        base_asset="BTC",
-        side="long",
-        entry_price=100.0,
-        stop_loss=90.0,
-    )
-    fill = backtest_engine.ExecutionFill(
-        symbol="BTCUSDT",
-        side="buy",
-        quantity=1.0,
-        filled=True,
-        fill_price="101",
-        fill_model="taker_orderbook_depth",
-        execution_price_source="ask_depth",
-        fill_quality="evidence_backed",
-        outcome="filled",
-    )
-
-    with pytest.raises(ValueError, match="fill_price must be a positive number"):
-        backtest_engine._candidate_with_execution_fill(candidate, fill)
+    with pytest.raises(ValueError, match="fill_price must be a positive finite number"):
+        backtest_engine.ExecutionFill(
+            symbol="BTCUSDT",
+            side="buy",
+            quantity=1.0,
+            filled=True,
+            fill_price="101",
+            fill_model="taker_orderbook_depth",
+            execution_price_source="ask_depth",
+            fill_quality="evidence_backed",
+            outcome="filled",
+        )
 
 
 def test_candidate_cost_coverage_rejects_coerced_prices() -> None:
