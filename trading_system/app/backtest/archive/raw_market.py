@@ -103,6 +103,15 @@ def _archive_timestamp(value: Any, *, field: str) -> str:
     return value
 
 
+def _manifest_archive_datetime(manifest: dict[str, Any], key: str, *, manifest_path: Path) -> datetime:
+    return _utc_datetime(
+        _archive_timestamp(
+            _required_manifest_value(manifest, key, manifest_path=manifest_path),
+            field=key,
+        )
+    )
+
+
 def _utc_datetime(value: str | int | float) -> datetime:
     if isinstance(value, bool):
         raise ValueError("timestamp value must not be boolean")
@@ -561,8 +570,8 @@ def _load_import_file(
     normalized_exchange, normalized_market, canonical_dataset, normalized_symbol, normalized_timeframe, series_key = (
         _validated_import_scope(manifest, manifest_path=manifest_path)
     )
-    coverage_start = _utc_datetime(_required_manifest_value(manifest, "coverage_start", manifest_path=manifest_path))
-    coverage_end = _utc_datetime(_required_manifest_value(manifest, "coverage_end", manifest_path=manifest_path))
+    coverage_start = _manifest_archive_datetime(manifest, "coverage_start", manifest_path=manifest_path)
+    coverage_end = _manifest_archive_datetime(manifest, "coverage_end", manifest_path=manifest_path)
     data_path = _manifest_data_path(manifest, manifest_path=manifest_path)
     if not data_path.exists():
         raise FileNotFoundError(f"raw-market data file missing: {data_path}")
@@ -610,7 +619,7 @@ def _load_import_file(
         symbol_metadata=_normalized_symbol_metadata(manifest.get("symbol_metadata"), context=manifest_path),
         coverage_start=coverage_start,
         coverage_end=coverage_end,
-        fetched_at=_utc_datetime(_required_manifest_value(manifest, "fetched_at", manifest_path=manifest_path)),
+        fetched_at=_manifest_archive_datetime(manifest, "fetched_at", manifest_path=manifest_path),
         records=records,
     )
 
