@@ -1192,6 +1192,37 @@ def test_offline_rollout_checklist_roundtrip_preserves_missing_evidence_as_remai
     assert verification["canary"]["remaining_requirements"] == ["canary-rollback-drill"]
 
 
+def test_offline_rollout_checklist_producer_roundtrip_preserves_evidence_map(tmp_path: Path) -> None:
+    checklist, verification = write_read_validate_offline_rollout_readiness_checklist(
+        tmp_path,
+        paper_evidence={
+            "paper-fill-reconciliation": "paper-run-20260513",
+            "paper-risk-controls": None,
+        },
+        shadow_evidence={"shadow-order-parity": "shadow-run-20260513"},
+        canary_evidence={"canary-rollback-drill": "canary-drill-20260513"},
+        canary_guard_manifest={
+            "max_notional": 100.0,
+            "symbol_allowlist": ["BTCUSDT"],
+            "timeout_seconds": 300.0,
+            "rollback_evidence": "rollback-runbook-v1",
+            "alerting_evidence": "alerts-dry-run-v1",
+            "notification_evidence": "pager-dry-run-v1",
+            "kill_switch_evidence": "kill-switch-dry-run-v1",
+        },
+    )
+
+    assert checklist["evidence_map"]["paper"] == {
+        "paper-fill-reconciliation": "paper-run-20260513",
+        "paper-risk-controls": None,
+    }
+    assert checklist["paper"]["evidence_complete"] is False
+    assert checklist["paper"]["remaining_requirements"] == ["paper-risk-controls"]
+    assert verification["evidence_map"]["paper"] == checklist["evidence_map"]["paper"]
+    assert verification["paper"]["evidence_complete"] is False
+    assert verification["paper"]["remaining_requirements"] == ["paper-risk-controls"]
+
+
 @pytest.mark.parametrize(
     ("kwargs", "match"),
     [
@@ -1312,6 +1343,48 @@ def test_live_readiness_gate_rejects_malformed_canary_guard_fields(
         ({"paper": {"evidence_complete": True, "remaining_requirements": [" paper-fill-reconciliation "]}}, "paper_remaining_requirement_noncanonical"),
         ({"paper": {"evidence_complete": True, "remaining_requirements": ["paper fill reconciliation"]}}, "paper_remaining_requirement_not_identifier"),
         ({"paper": {"evidence_complete": True, "remaining_requirements": ["paper-fill-reconciliation"], "extra": True}}, "paper_readiness_unknown_field: extra"),
+        (
+            {
+                "evidence_map": {"paper": {"paper fill reconciliation": "paper-run-20260513"}},
+            },
+            "paper_evidence_map_requirement_not_identifier",
+        ),
+        (
+            {
+                "evidence_map": {"paper": {"paper-fill-reconciliation": " paper-run-20260513 "}},
+            },
+            "paper_evidence_map_evidence_id_noncanonical",
+        ),
+        (
+            {
+                "evidence_map": {"paper": {"paper-fill-reconciliation": None}},
+            },
+            "paper_evidence_complete_mismatch",
+        ),
+        (
+            {
+                "paper": {
+                    "evidence_complete": False,
+                    "remaining_requirements": ["paper-risk-controls"],
+                },
+                "evidence_map": {"paper": {"paper-fill-reconciliation": "paper-run-20260513"}},
+            },
+            "paper_remaining_requirement_not_in_evidence_map",
+        ),
+        (
+            {
+                "paper": {
+                    "evidence_complete": False,
+                    "remaining_requirements": ["paper-fill-reconciliation"],
+                },
+                "evidence_map": {"paper": {"paper-fill-reconciliation": "paper-run-20260513"}},
+            },
+            "paper_evidence_complete_mismatch",
+        ),
+        (
+            {"evidence_map": {"dress-rehearsal": {"paper-fill-reconciliation": "paper-run-20260513"}}},
+            "offline_rollout_evidence_map_unknown_stage: dress-rehearsal",
+        ),
         ({"metadata": {"source": " trading_system.app.backtest.live_readiness ", "materialization": "offline_rollout_readiness_checklist.json"}}, "offline_rollout_metadata_source_noncanonical"),
         ({"metadata": {"source": "trading_system.app.backtest.live_readiness", "materialization": "checklist.json"}}, "offline_rollout_metadata_materialization_invalid"),
     ],

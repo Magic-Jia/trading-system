@@ -2046,6 +2046,71 @@ def _validate_offline_rollout_stage(value: Any, stage: str) -> tuple[dict[str, A
     return parsed, ""
 
 
+def _validate_offline_rollout_stage_evidence_map(value: Any, stage: str) -> tuple[dict[str, str | None], str]:
+    if not isinstance(value, Mapping):
+        return {}, f"{stage}_evidence_map_not_object"
+    if not value:
+        return {}, f"{stage}_evidence_map_empty"
+
+    parsed: dict[str, str | None] = {}
+    for requirement, evidence_id in value.items():
+        if not _is_exact_string(requirement):
+            return {}, f"{stage}_evidence_map_requirement_not_string"
+        if not requirement.strip():
+            return {}, f"{stage}_evidence_map_requirement_blank"
+        if requirement != requirement.strip():
+            return {}, f"{stage}_evidence_map_requirement_noncanonical"
+        if not _is_safe_evidence_identifier(requirement):
+            return {}, f"{stage}_evidence_map_requirement_not_identifier"
+
+        if evidence_id is None:
+            parsed[requirement] = None
+            continue
+        if not _is_exact_string(evidence_id):
+            return {}, f"{stage}_evidence_map_evidence_id_not_string"
+        if not evidence_id.strip():
+            return {}, f"{stage}_evidence_map_evidence_id_blank"
+        if evidence_id != evidence_id.strip():
+            return {}, f"{stage}_evidence_map_evidence_id_noncanonical"
+        if not _is_safe_evidence_identifier(evidence_id):
+            return {}, f"{stage}_evidence_map_evidence_id_not_identifier"
+        parsed[requirement] = evidence_id
+    return parsed, ""
+
+
+def _validate_offline_rollout_evidence_map(
+    value: Any,
+    parsed_stages: Mapping[str, Mapping[str, Any]],
+) -> tuple[dict[str, dict[str, str | None]], str]:
+    if not isinstance(value, Mapping):
+        return {}, "offline_rollout_evidence_map_not_object"
+    unknown_stages = sorted(set(value) - {"paper", "shadow", "canary"})
+    if unknown_stages:
+        return {}, "offline_rollout_evidence_map_unknown_stage: " + ", ".join(unknown_stages)
+
+    parsed: dict[str, dict[str, str | None]] = {}
+    for stage in ("paper", "shadow", "canary"):
+        if stage not in value:
+            continue
+        stage_map, error = _validate_offline_rollout_stage_evidence_map(value.get(stage), stage)
+        if error:
+            return {}, error
+
+        stage_remaining = parsed_stages[stage]["remaining_requirements"]
+        stage_complete = parsed_stages[stage]["evidence_complete"]
+        derived_remaining = [requirement for requirement, evidence_id in stage_map.items() if evidence_id is None]
+        for requirement in stage_remaining:
+            if requirement not in stage_map:
+                return {}, f"{stage}_remaining_requirement_not_in_evidence_map"
+        if stage_complete != (not derived_remaining):
+            return {}, f"{stage}_evidence_complete_mismatch"
+        expected_requirements = stage_map.keys() if stage_complete else derived_remaining
+        if sorted(stage_remaining) != sorted(expected_requirements):
+            return {}, f"{stage}_evidence_complete_mismatch"
+        parsed[stage] = stage_map
+    return parsed, ""
+
+
 def _offline_rollout_metadata() -> dict[str, str]:
     return {
         "source": OFFLINE_ROLLOUT_READINESS_CHECKLIST_SOURCE,
@@ -2129,13 +2194,25 @@ def build_offline_rollout_readiness_checklist(
     if error:
         raise ValueError(error)
 
+    evidence_map: dict[str, dict[str, str | None]] = {}
+    stages: dict[str, dict[str, Any]] = {}
+    for stage, stage_evidence in (
+        ("paper", paper_evidence),
+        ("shadow", shadow_evidence),
+        ("canary", canary_evidence),
+    ):
+        stage_payload = _producer_stage_from_evidence(stage, stage_evidence)
+        stages[stage] = stage_payload
+        evidence_map[stage] = dict(stage_evidence)
+
     return {
         "schema_version": OFFLINE_ROLLOUT_READINESS_CHECKLIST_SCHEMA_VERSION,
         "metadata": _offline_rollout_metadata(),
-        "paper": _producer_stage_from_evidence("paper", paper_evidence),
-        "shadow": _producer_stage_from_evidence("shadow", shadow_evidence),
+        "evidence_map": evidence_map,
+        "paper": stages["paper"],
+        "shadow": stages["shadow"],
         "canary": {
-            **_producer_stage_from_evidence("canary", canary_evidence),
+            **stages["canary"],
             "guard_manifest": guard_manifest,
         },
     }
@@ -2210,7 +2287,7 @@ def _offline_rollout_readiness(root: Path) -> dict[str, Any]:
             "parse_error": parse_error,
             "checks": checks,
         }
-    allowed_fields = {"schema_version", "metadata", "paper", "shadow", "canary"}
+    allowed_fields = {"schema_version", "metadata", "evidence_map", "paper", "shadow", "canary"}
     top_level_error = _artifact_top_level_schema_error(payload, allowed_fields)
     if top_level_error:
         return {
@@ -2252,6 +2329,17 @@ def _offline_rollout_readiness(root: Path) -> dict[str, Any]:
             }
         parsed_stages[stage] = parsed_stage
         checks[f"{stage}_evidence_requirements_listed"] = True
+    evidence_map: dict[str, dict[str, str | None]] = {}
+    if "evidence_map" in payload:
+        evidence_map, error = _validate_offline_rollout_evidence_map(payload.get("evidence_map"), parsed_stages)
+        if error:
+            return {
+                "schema_version": "offline_rollout_readiness_checklist_verification.v1",
+                "present": True,
+                "schema_valid": False,
+                "parse_error": error,
+                "checks": checks,
+            }
     checks["offline_rollout_checklist_schema_valid"] = True
     checks["canary_guard_manifest_valid"] = True
     return {
@@ -2260,6 +2348,7 @@ def _offline_rollout_readiness(root: Path) -> dict[str, Any]:
         "schema_valid": True,
         "parse_error": "",
         "metadata": metadata,
+        "evidence_map": evidence_map,
         "paper": parsed_stages["paper"],
         "shadow": parsed_stages["shadow"],
         "canary": parsed_stages["canary"],
