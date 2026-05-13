@@ -4846,7 +4846,124 @@ def test_load_account_snapshot_rejects_terminal_open_order_without_terminal_time
         main_module.load_account_snapshot(account_path)
 
 
-@pytest.mark.parametrize("field,value", [("created_at", True), ("updated_at", "21")])
+@pytest.mark.parametrize(
+    ("status", "match"),
+    [
+        ("CANCELED", r"open_orders\[0\]\.status requires canceled_at or cancel_time"),
+        ("CANCELLED", r"open_orders\[0\]\.status requires canceled_at or cancel_time"),
+        ("EXPIRED", r"open_orders\[0\]\.status requires expired_at or expire_time"),
+        ("REJECTED", r"open_orders\[0\]\.status requires rejected_at or reject_time"),
+    ],
+)
+def test_load_account_snapshot_rejects_terminal_open_order_variants_without_terminal_evidence(
+    tmp_path,
+    status,
+    match,
+):
+    account_path = tmp_path / "account_snapshot.json"
+    account_path.write_text(
+        json.dumps(
+            {
+                "equity": 1000.0,
+                "available_balance": 900.0,
+                "futures_wallet_balance": 1000.0,
+                "open_positions": [],
+                "open_orders": [
+                    {
+                        "symbol": "BTCUSDT",
+                        "status": status,
+                        "created_at": 20,
+                        "updated_at": 21,
+                    }
+                ],
+            }
+        )
+    )
+
+    with pytest.raises(ValueError, match=match):
+        main_module.load_account_snapshot(account_path)
+
+
+@pytest.mark.parametrize("status", ["NEW", "OPEN", "PENDING", "PARTIALLY_FILLED"])
+def test_load_account_snapshot_rejects_active_open_order_with_terminal_timestamp(tmp_path, status):
+    account_path = tmp_path / "account_snapshot.json"
+    account_path.write_text(
+        json.dumps(
+            {
+                "equity": 1000.0,
+                "available_balance": 900.0,
+                "futures_wallet_balance": 1000.0,
+                "open_positions": [],
+                "open_orders": [
+                    {
+                        "symbol": "BTCUSDT",
+                        "status": status,
+                        "created_at": 20,
+                        "updated_at": 21,
+                        "canceled_at": 22,
+                    }
+                ],
+            }
+        )
+    )
+
+    with pytest.raises(ValueError, match=r"open_orders\[0\]\.canceled_at must be omitted for active status"):
+        main_module.load_account_snapshot(account_path)
+
+
+def test_load_account_snapshot_rejects_active_open_order_with_terminal_event_counter(tmp_path):
+    account_path = tmp_path / "account_snapshot.json"
+    account_path.write_text(
+        json.dumps(
+            {
+                "equity": 1000.0,
+                "available_balance": 900.0,
+                "futures_wallet_balance": 1000.0,
+                "open_positions": [],
+                "open_orders": [
+                    {
+                        "symbol": "BTCUSDT",
+                        "status": "OPEN",
+                        "created_at_counter": 20,
+                        "updated_at_counter": 21,
+                        "canceled_at_counter": 22,
+                    }
+                ],
+            }
+        )
+    )
+
+    with pytest.raises(ValueError, match=r"open_orders\[0\]\.canceled_at_counter must be omitted for active status"):
+        main_module.load_account_snapshot(account_path)
+
+
+def test_load_account_snapshot_rejects_open_order_terminal_counter_before_updated_counter(tmp_path):
+    account_path = tmp_path / "account_snapshot.json"
+    account_path.write_text(
+        json.dumps(
+            {
+                "equity": 1000.0,
+                "available_balance": 900.0,
+                "futures_wallet_balance": 1000.0,
+                "open_positions": [],
+                "open_orders": [
+                    {
+                        "symbol": "BTCUSDT",
+                        "status": "CANCELED",
+                        "created_at_counter": 10,
+                        "updated_at_counter": 12,
+                        "canceled_at_counter": 11,
+                    }
+                ],
+            }
+        )
+    )
+
+    with pytest.raises(ValueError, match=r"open_orders\[0\]\.canceled_at_counter must be at or after updated_at_counter"):
+        main_module.load_account_snapshot(account_path)
+
+
+@pytest.mark.parametrize("field,value", [("created_at", True), ("updated_at", "21"), ("created_at_counter", -1)])
 def test_load_account_snapshot_rejects_non_strict_open_order_lifecycle_numbers(tmp_path, field, value):
     account_path = tmp_path / "account_snapshot.json"
     account_path.write_text(

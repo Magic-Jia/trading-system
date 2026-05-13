@@ -483,17 +483,63 @@ _ACCOUNT_OPEN_ORDER_UPDATED_TIME_FIELDS = ("updated_at", "updatedAt", "update_ti
 _ACCOUNT_OPEN_ORDER_FILLED_TIME_FIELDS = ("filled_at", "filledAt", "fill_time", "fillTime")
 _ACCOUNT_OPEN_ORDER_CANCELED_TIME_FIELDS = ("canceled_at", "canceledAt", "cancel_time", "cancelTime")
 _ACCOUNT_OPEN_ORDER_EXPIRED_TIME_FIELDS = ("expired_at", "expiredAt", "expire_time", "expireTime")
+_ACCOUNT_OPEN_ORDER_REJECTED_TIME_FIELDS = ("rejected_at", "rejectedAt", "reject_time", "rejectTime")
 _ACCOUNT_OPEN_ORDER_LIFECYCLE_TIME_FIELDS = (
     *_ACCOUNT_OPEN_ORDER_CREATED_TIME_FIELDS,
     *_ACCOUNT_OPEN_ORDER_UPDATED_TIME_FIELDS,
     *_ACCOUNT_OPEN_ORDER_FILLED_TIME_FIELDS,
     *_ACCOUNT_OPEN_ORDER_CANCELED_TIME_FIELDS,
     *_ACCOUNT_OPEN_ORDER_EXPIRED_TIME_FIELDS,
+    *_ACCOUNT_OPEN_ORDER_REJECTED_TIME_FIELDS,
+)
+_ACCOUNT_OPEN_ORDER_CREATED_COUNTER_FIELDS = (
+    "created_at_counter",
+    "createdAtCounter",
+    "create_time_counter",
+    "createTimeCounter",
+    "time_counter",
+    "timeCounter",
+)
+_ACCOUNT_OPEN_ORDER_UPDATED_COUNTER_FIELDS = (
+    "updated_at_counter",
+    "updatedAtCounter",
+    "update_time_counter",
+    "updateTimeCounter",
+)
+_ACCOUNT_OPEN_ORDER_FILLED_EVENT_COUNTER_FIELDS = (
+    "filled_at_counter",
+    "filledAtCounter",
+    "fill_time_counter",
+    "fillTimeCounter",
+)
+_ACCOUNT_OPEN_ORDER_CANCELED_EVENT_COUNTER_FIELDS = (
+    "canceled_at_counter",
+    "canceledAtCounter",
+    "cancel_time_counter",
+    "cancelTimeCounter",
+)
+_ACCOUNT_OPEN_ORDER_EXPIRED_EVENT_COUNTER_FIELDS = (
+    "expired_at_counter",
+    "expiredAtCounter",
+    "expire_time_counter",
+    "expireTimeCounter",
+)
+_ACCOUNT_OPEN_ORDER_REJECTED_EVENT_COUNTER_FIELDS = (
+    "rejected_at_counter",
+    "rejectedAtCounter",
+    "reject_time_counter",
+    "rejectTimeCounter",
 )
 _ACCOUNT_OPEN_ORDER_FILLED_COUNTER_FIELDS = ("filled_qty", "filledQty", "executed_qty", "executedQty")
 _ACCOUNT_OPEN_ORDER_CANCELED_COUNTER_FIELDS = ("canceled_qty", "canceledQty")
 _ACCOUNT_OPEN_ORDER_EXPIRED_COUNTER_FIELDS = ("expired_qty", "expiredQty")
 _ACCOUNT_OPEN_ORDER_LIFECYCLE_COUNTER_FIELDS = (
+    *_ACCOUNT_OPEN_ORDER_CREATED_COUNTER_FIELDS,
+    *_ACCOUNT_OPEN_ORDER_UPDATED_COUNTER_FIELDS,
+    *_ACCOUNT_OPEN_ORDER_FILLED_EVENT_COUNTER_FIELDS,
+    *_ACCOUNT_OPEN_ORDER_CANCELED_EVENT_COUNTER_FIELDS,
+    *_ACCOUNT_OPEN_ORDER_EXPIRED_EVENT_COUNTER_FIELDS,
+    *_ACCOUNT_OPEN_ORDER_REJECTED_EVENT_COUNTER_FIELDS,
     *_ACCOUNT_OPEN_ORDER_FILLED_COUNTER_FIELDS,
     *_ACCOUNT_OPEN_ORDER_CANCELED_COUNTER_FIELDS,
     *_ACCOUNT_OPEN_ORDER_EXPIRED_COUNTER_FIELDS,
@@ -501,25 +547,31 @@ _ACCOUNT_OPEN_ORDER_LIFECYCLE_COUNTER_FIELDS = (
 _ACCOUNT_OPEN_ORDER_TERMINAL_STATUS_EVIDENCE = {
     "FILLED": (
         _ACCOUNT_OPEN_ORDER_FILLED_TIME_FIELDS,
-        _ACCOUNT_OPEN_ORDER_FILLED_COUNTER_FIELDS,
+        (*_ACCOUNT_OPEN_ORDER_FILLED_EVENT_COUNTER_FIELDS, *_ACCOUNT_OPEN_ORDER_FILLED_COUNTER_FIELDS),
         "filled_at or fill_time",
     ),
     "CANCELED": (
         _ACCOUNT_OPEN_ORDER_CANCELED_TIME_FIELDS,
-        _ACCOUNT_OPEN_ORDER_CANCELED_COUNTER_FIELDS,
+        (*_ACCOUNT_OPEN_ORDER_CANCELED_EVENT_COUNTER_FIELDS, *_ACCOUNT_OPEN_ORDER_CANCELED_COUNTER_FIELDS),
         "canceled_at or cancel_time",
     ),
     "CANCELLED": (
         _ACCOUNT_OPEN_ORDER_CANCELED_TIME_FIELDS,
-        _ACCOUNT_OPEN_ORDER_CANCELED_COUNTER_FIELDS,
+        (*_ACCOUNT_OPEN_ORDER_CANCELED_EVENT_COUNTER_FIELDS, *_ACCOUNT_OPEN_ORDER_CANCELED_COUNTER_FIELDS),
         "canceled_at or cancel_time",
     ),
     "EXPIRED": (
         _ACCOUNT_OPEN_ORDER_EXPIRED_TIME_FIELDS,
-        _ACCOUNT_OPEN_ORDER_EXPIRED_COUNTER_FIELDS,
+        (*_ACCOUNT_OPEN_ORDER_EXPIRED_EVENT_COUNTER_FIELDS, *_ACCOUNT_OPEN_ORDER_EXPIRED_COUNTER_FIELDS),
         "expired_at or expire_time",
     ),
+    "REJECTED": (
+        _ACCOUNT_OPEN_ORDER_REJECTED_TIME_FIELDS,
+        _ACCOUNT_OPEN_ORDER_REJECTED_EVENT_COUNTER_FIELDS,
+        "rejected_at or reject_time",
+    ),
 }
+_ACCOUNT_OPEN_ORDER_ACTIVE_STATUS_VALUES = {"NEW", "OPEN", "PENDING", "PARTIALLY_FILLED"}
 _ACCOUNT_OPEN_POSITION_TERMINAL_STATUS_VALUES = {"CLOSED", "SKIPPED", "FAILED", "CANCELLED", "CANCELED", "FILLED"}
 _ACCOUNT_OPEN_POSITION_OPEN_STATUS_VALUES = {"OPEN"}
 
@@ -982,6 +1034,41 @@ def _validate_open_order_lifecycle(order: dict, *, field_prefix: str, path: Path
             _ACCOUNT_OPEN_ORDER_CANCELED_TIME_FIELDS,
             _ACCOUNT_OPEN_ORDER_FILLED_TIME_FIELDS,
             _ACCOUNT_OPEN_ORDER_EXPIRED_TIME_FIELDS,
+            _ACCOUNT_OPEN_ORDER_REJECTED_TIME_FIELDS,
+        ):
+            terminal = _account_order_lifecycle_number(order, fields, field_prefix=field_prefix, path=path)
+            if terminal is None:
+                continue
+            terminal_field, terminal_value = terminal
+            if terminal_value < lower_value:
+                raise ValueError(f"{field_prefix}.{terminal_field} must be at or after {lower_field}: {path}")
+
+    created_counter = _account_order_lifecycle_number(
+        order,
+        _ACCOUNT_OPEN_ORDER_CREATED_COUNTER_FIELDS,
+        field_prefix=field_prefix,
+        path=path,
+    )
+    updated_counter = _account_order_lifecycle_number(
+        order,
+        _ACCOUNT_OPEN_ORDER_UPDATED_COUNTER_FIELDS,
+        field_prefix=field_prefix,
+        path=path,
+    )
+    if created_counter is not None and updated_counter is not None:
+        created_field, created_value = created_counter
+        updated_field, updated_value = updated_counter
+        if updated_value < created_value:
+            raise ValueError(f"{field_prefix}.{updated_field} must be at or after {created_field}: {path}")
+
+    counter_lower_bound = updated_counter if updated_counter is not None else created_counter
+    if counter_lower_bound is not None:
+        lower_field, lower_value = counter_lower_bound
+        for fields in (
+            _ACCOUNT_OPEN_ORDER_CANCELED_EVENT_COUNTER_FIELDS,
+            _ACCOUNT_OPEN_ORDER_FILLED_EVENT_COUNTER_FIELDS,
+            _ACCOUNT_OPEN_ORDER_EXPIRED_EVENT_COUNTER_FIELDS,
+            _ACCOUNT_OPEN_ORDER_REJECTED_EVENT_COUNTER_FIELDS,
         ):
             terminal = _account_order_lifecycle_number(order, fields, field_prefix=field_prefix, path=path)
             if terminal is None:
@@ -995,6 +1082,22 @@ def _validate_open_order_lifecycle(order: dict, *, field_prefix: str, path: Path
         return
     status_field, status_value = status
     status_text = _require_account_canonical_string(status_value, field_path=f"{field_prefix}.{status_field}", path=path)
+    if status_text.upper() in _ACCOUNT_OPEN_ORDER_ACTIVE_STATUS_VALUES:
+        for fields in (
+            _ACCOUNT_OPEN_ORDER_CANCELED_TIME_FIELDS,
+            _ACCOUNT_OPEN_ORDER_FILLED_TIME_FIELDS,
+            _ACCOUNT_OPEN_ORDER_EXPIRED_TIME_FIELDS,
+            _ACCOUNT_OPEN_ORDER_REJECTED_TIME_FIELDS,
+            _ACCOUNT_OPEN_ORDER_CANCELED_EVENT_COUNTER_FIELDS,
+            _ACCOUNT_OPEN_ORDER_FILLED_EVENT_COUNTER_FIELDS,
+            _ACCOUNT_OPEN_ORDER_EXPIRED_EVENT_COUNTER_FIELDS,
+            _ACCOUNT_OPEN_ORDER_REJECTED_EVENT_COUNTER_FIELDS,
+        ):
+            terminal = _account_order_lifecycle_number(order, fields, field_prefix=field_prefix, path=path)
+            if terminal is not None:
+                terminal_field, _ = terminal
+                raise ValueError(f"{field_prefix}.{terminal_field} must be omitted for active status: {path}")
+        return
     terminal = _ACCOUNT_OPEN_ORDER_TERMINAL_STATUS_EVIDENCE.get(status_text.upper())
     if terminal is None:
         return

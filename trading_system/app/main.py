@@ -321,27 +321,91 @@ _OPEN_ORDER_UPDATED_TIME_FIELDS = ("updated_at", "updatedAt", "update_time", "up
 _OPEN_ORDER_FILLED_TIME_FIELDS = ("filled_at", "filledAt", "fill_time", "fillTime")
 _OPEN_ORDER_CANCELED_TIME_FIELDS = ("canceled_at", "canceledAt", "cancel_time", "cancelTime")
 _OPEN_ORDER_EXPIRED_TIME_FIELDS = ("expired_at", "expiredAt", "expire_time", "expireTime")
+_OPEN_ORDER_REJECTED_TIME_FIELDS = ("rejected_at", "rejectedAt", "reject_time", "rejectTime")
 _OPEN_ORDER_LIFECYCLE_TIME_FIELDS = (
     *_OPEN_ORDER_CREATED_TIME_FIELDS,
     *_OPEN_ORDER_UPDATED_TIME_FIELDS,
     *_OPEN_ORDER_FILLED_TIME_FIELDS,
     *_OPEN_ORDER_CANCELED_TIME_FIELDS,
     *_OPEN_ORDER_EXPIRED_TIME_FIELDS,
+    *_OPEN_ORDER_REJECTED_TIME_FIELDS,
+)
+_OPEN_ORDER_CREATED_COUNTER_FIELDS = (
+    "created_at_counter",
+    "createdAtCounter",
+    "create_time_counter",
+    "createTimeCounter",
+    "time_counter",
+    "timeCounter",
+)
+_OPEN_ORDER_UPDATED_COUNTER_FIELDS = (
+    "updated_at_counter",
+    "updatedAtCounter",
+    "update_time_counter",
+    "updateTimeCounter",
+)
+_OPEN_ORDER_FILLED_EVENT_COUNTER_FIELDS = (
+    "filled_at_counter",
+    "filledAtCounter",
+    "fill_time_counter",
+    "fillTimeCounter",
+)
+_OPEN_ORDER_CANCELED_EVENT_COUNTER_FIELDS = (
+    "canceled_at_counter",
+    "canceledAtCounter",
+    "cancel_time_counter",
+    "cancelTimeCounter",
+)
+_OPEN_ORDER_EXPIRED_EVENT_COUNTER_FIELDS = (
+    "expired_at_counter",
+    "expiredAtCounter",
+    "expire_time_counter",
+    "expireTimeCounter",
+)
+_OPEN_ORDER_REJECTED_EVENT_COUNTER_FIELDS = (
+    "rejected_at_counter",
+    "rejectedAtCounter",
+    "reject_time_counter",
+    "rejectTimeCounter",
 )
 _OPEN_ORDER_FILLED_COUNTER_FIELDS = ("filled_qty", "filledQty", "executed_qty", "executedQty")
 _OPEN_ORDER_CANCELED_COUNTER_FIELDS = ("canceled_qty", "canceledQty")
 _OPEN_ORDER_EXPIRED_COUNTER_FIELDS = ("expired_qty", "expiredQty")
 _OPEN_ORDER_LIFECYCLE_COUNTER_FIELDS = (
+    *_OPEN_ORDER_CREATED_COUNTER_FIELDS,
+    *_OPEN_ORDER_UPDATED_COUNTER_FIELDS,
+    *_OPEN_ORDER_FILLED_EVENT_COUNTER_FIELDS,
+    *_OPEN_ORDER_CANCELED_EVENT_COUNTER_FIELDS,
+    *_OPEN_ORDER_EXPIRED_EVENT_COUNTER_FIELDS,
+    *_OPEN_ORDER_REJECTED_EVENT_COUNTER_FIELDS,
     *_OPEN_ORDER_FILLED_COUNTER_FIELDS,
     *_OPEN_ORDER_CANCELED_COUNTER_FIELDS,
     *_OPEN_ORDER_EXPIRED_COUNTER_FIELDS,
 )
 _OPEN_ORDER_TERMINAL_STATUS_EVIDENCE = {
-    "FILLED": (_OPEN_ORDER_FILLED_TIME_FIELDS, _OPEN_ORDER_FILLED_COUNTER_FIELDS, "filled_at or fill_time"),
-    "CANCELED": (_OPEN_ORDER_CANCELED_TIME_FIELDS, _OPEN_ORDER_CANCELED_COUNTER_FIELDS, "canceled_at or cancel_time"),
-    "CANCELLED": (_OPEN_ORDER_CANCELED_TIME_FIELDS, _OPEN_ORDER_CANCELED_COUNTER_FIELDS, "canceled_at or cancel_time"),
-    "EXPIRED": (_OPEN_ORDER_EXPIRED_TIME_FIELDS, _OPEN_ORDER_EXPIRED_COUNTER_FIELDS, "expired_at or expire_time"),
+    "FILLED": (
+        _OPEN_ORDER_FILLED_TIME_FIELDS,
+        (*_OPEN_ORDER_FILLED_EVENT_COUNTER_FIELDS, *_OPEN_ORDER_FILLED_COUNTER_FIELDS),
+        "filled_at or fill_time",
+    ),
+    "CANCELED": (
+        _OPEN_ORDER_CANCELED_TIME_FIELDS,
+        (*_OPEN_ORDER_CANCELED_EVENT_COUNTER_FIELDS, *_OPEN_ORDER_CANCELED_COUNTER_FIELDS),
+        "canceled_at or cancel_time",
+    ),
+    "CANCELLED": (
+        _OPEN_ORDER_CANCELED_TIME_FIELDS,
+        (*_OPEN_ORDER_CANCELED_EVENT_COUNTER_FIELDS, *_OPEN_ORDER_CANCELED_COUNTER_FIELDS),
+        "canceled_at or cancel_time",
+    ),
+    "EXPIRED": (
+        _OPEN_ORDER_EXPIRED_TIME_FIELDS,
+        (*_OPEN_ORDER_EXPIRED_EVENT_COUNTER_FIELDS, *_OPEN_ORDER_EXPIRED_COUNTER_FIELDS),
+        "expired_at or expire_time",
+    ),
+    "REJECTED": (_OPEN_ORDER_REJECTED_TIME_FIELDS, _OPEN_ORDER_REJECTED_EVENT_COUNTER_FIELDS, "rejected_at or reject_time"),
 }
+_OPEN_ORDER_ACTIVE_STATUS_VALUES = {"NEW", "OPEN", "PENDING", "PARTIALLY_FILLED"}
 
 
 def _open_order_lifecycle_number(row: Mapping[str, Any], fields: tuple[str, ...], field_path: str) -> tuple[str, float] | None:
@@ -372,6 +436,31 @@ def _validate_open_order_lifecycle(row: Mapping[str, Any], field_path: str) -> N
             _OPEN_ORDER_CANCELED_TIME_FIELDS,
             _OPEN_ORDER_FILLED_TIME_FIELDS,
             _OPEN_ORDER_EXPIRED_TIME_FIELDS,
+            _OPEN_ORDER_REJECTED_TIME_FIELDS,
+        ):
+            terminal = _open_order_lifecycle_number(row, fields, field_path)
+            if terminal is None:
+                continue
+            terminal_field, terminal_value = terminal
+            if terminal_value < lower_value:
+                raise ValueError(f"{field_path}.{terminal_field} must be at or after {lower_field}")
+
+    created_counter = _open_order_lifecycle_number(row, _OPEN_ORDER_CREATED_COUNTER_FIELDS, field_path)
+    updated_counter = _open_order_lifecycle_number(row, _OPEN_ORDER_UPDATED_COUNTER_FIELDS, field_path)
+    if created_counter is not None and updated_counter is not None:
+        created_field, created_value = created_counter
+        updated_field, updated_value = updated_counter
+        if updated_value < created_value:
+            raise ValueError(f"{field_path}.{updated_field} must be at or after {created_field}")
+
+    counter_lower_bound = updated_counter if updated_counter is not None else created_counter
+    if counter_lower_bound is not None:
+        lower_field, lower_value = counter_lower_bound
+        for fields in (
+            _OPEN_ORDER_CANCELED_EVENT_COUNTER_FIELDS,
+            _OPEN_ORDER_FILLED_EVENT_COUNTER_FIELDS,
+            _OPEN_ORDER_EXPIRED_EVENT_COUNTER_FIELDS,
+            _OPEN_ORDER_REJECTED_EVENT_COUNTER_FIELDS,
         ):
             terminal = _open_order_lifecycle_number(row, fields, field_path)
             if terminal is None:
@@ -386,7 +475,24 @@ def _validate_open_order_lifecycle(row: Mapping[str, Any], field_path: str) -> N
     status_field, status_value = status
     if not isinstance(status_value, str) or not status_value or status_value != status_value.strip():
         raise ValueError(f"{field_path}.{status_field} must be a canonical string")
-    terminal = _OPEN_ORDER_TERMINAL_STATUS_EVIDENCE.get(status_value.upper())
+    status_text = status_value.upper()
+    if status_text in _OPEN_ORDER_ACTIVE_STATUS_VALUES:
+        for fields in (
+            _OPEN_ORDER_CANCELED_TIME_FIELDS,
+            _OPEN_ORDER_FILLED_TIME_FIELDS,
+            _OPEN_ORDER_EXPIRED_TIME_FIELDS,
+            _OPEN_ORDER_REJECTED_TIME_FIELDS,
+            _OPEN_ORDER_CANCELED_EVENT_COUNTER_FIELDS,
+            _OPEN_ORDER_FILLED_EVENT_COUNTER_FIELDS,
+            _OPEN_ORDER_EXPIRED_EVENT_COUNTER_FIELDS,
+            _OPEN_ORDER_REJECTED_EVENT_COUNTER_FIELDS,
+        ):
+            terminal = _open_order_lifecycle_number(row, fields, field_path)
+            if terminal is not None:
+                terminal_field, _ = terminal
+                raise ValueError(f"{field_path}.{terminal_field} must be omitted for active status")
+        return
+    terminal = _OPEN_ORDER_TERMINAL_STATUS_EVIDENCE.get(status_text)
     if terminal is None:
         return
     time_fields, counter_fields, evidence_label = terminal
