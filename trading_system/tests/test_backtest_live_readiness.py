@@ -11251,6 +11251,212 @@ def test_live_readiness_rejects_negative_runtime_summary_event_count(tmp_path: P
     assert "runtime_safety_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
 
 
+def test_live_readiness_preserves_runtime_reason_taxonomy_in_artifact_summary(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    chunk = source / "chunk_001"
+    chunk.mkdir(parents=True)
+    (chunk / "trades.json").write_text(json.dumps({"trades": []}), encoding="utf-8")
+    gate = build_runtime_safety_gate(
+        {
+            "evidence_source": {"type": "paper_runtime_logs", "run_id": "runtime-1"},
+            "events": [
+                {"event_type": "kill_switch_dry_run", "passed": True},
+                {"event_type": "order_position_reconciliation", "passed": True},
+                {"event_type": "runtime_fail_closed", "passed": True},
+                {"event_type": "live_dust_before_scale", "passed": True},
+                {"event_type": "live_trade_ledger", "passed": True},
+                {"event_type": "runtime_explainability", "passed": True},
+                {"event_type": "drift_guard", "passed": True},
+            ],
+            "reasons": [
+                {
+                    "code": "symbol_not_allowed",
+                    "severity": "block",
+                    "category": "execution_preview",
+                    "source": "execution_preview",
+                },
+                {
+                    "code": "runtime_fail_closed_missing",
+                    "severity": "block",
+                    "category": "runtime_safety",
+                    "source": "runtime_safety_gate",
+                },
+            ],
+        }
+    )
+    (chunk / "runtime_safety_gate.json").write_text(json.dumps(gate), encoding="utf-8")
+
+    report = write_live_readiness_smoke_report(source, tmp_path / "out", require_runtime_safety_evidence=True)
+
+    artifact = report["runtime_safety_gate"]["artifacts"][0]
+    assert artifact["schema_valid"] is True
+    assert artifact["runtime_reasons"] == gate["runtime_reasons"]
+    assert artifact["summary"]["reason_count"] == 2
+    assert artifact["summary"]["reasons_by_code"] == {
+        "symbol_not_allowed": 1,
+        "runtime_fail_closed_missing": 1,
+    }
+    assert "runtime_safety_artifact_schema_invalid" not in report["promotion_gate"]["reasons"]
+
+
+@pytest.mark.parametrize(
+    ("runtime_reasons", "parse_error"),
+    [
+        (
+            [
+                {
+                    "code": "unknown_preview_reason",
+                    "severity": "block",
+                    "category": "execution_preview",
+                    "source": "execution_preview",
+                }
+            ],
+            "unknown_runtime_reason_code: unknown_preview_reason",
+        ),
+        (
+            [
+                {
+                    "code": "symbol_not_allowed",
+                    "severity": "warn",
+                    "category": "execution_preview",
+                    "source": "execution_preview",
+                }
+            ],
+            "runtime_reason_taxonomy_mismatch: symbol_not_allowed",
+        ),
+        (
+            [
+                {
+                    "code": "symbol_not_allowed",
+                    "severity": "block",
+                    "category": "runtime_safety",
+                    "source": "execution_preview",
+                }
+            ],
+            "runtime_reason_taxonomy_mismatch: symbol_not_allowed",
+        ),
+        (
+            [{"code": "symbol_not_allowed", "severity": "block", "category": "execution_preview"}],
+            "runtime_reason_source_missing",
+        ),
+        (
+            [{"code": "symbol_not_allowed", "category": "execution_preview", "source": "execution_preview"}],
+            "runtime_reason_severity_missing",
+        ),
+        (
+            [{"code": "symbol_not_allowed", "severity": "block", "source": "execution_preview"}],
+            "runtime_reason_category_missing",
+        ),
+        (
+            [
+                {
+                    "code": "symbol_not_allowed",
+                    "severity": "block",
+                    "category": "execution_preview",
+                    "source": "execution_preview",
+                },
+                {
+                    "code": "symbol_not_allowed",
+                    "severity": "warn",
+                    "category": "execution_preview",
+                    "source": "execution_preview",
+                },
+            ],
+            "runtime_reason_duplicate_conflict",
+        ),
+    ],
+)
+def test_live_readiness_rejects_noncanonical_runtime_reason_taxonomy(
+    tmp_path: Path,
+    runtime_reasons: list[dict[str, object]],
+    parse_error: str,
+) -> None:
+    source = tmp_path / "source"
+    chunk = source / "chunk_001"
+    chunk.mkdir(parents=True)
+    (chunk / "trades.json").write_text(json.dumps({"trades": []}), encoding="utf-8")
+    gate = build_runtime_safety_gate(
+        {
+            "evidence_source": {"type": "paper_runtime_logs", "run_id": "runtime-1"},
+            "events": [
+                {"event_type": "kill_switch_dry_run", "passed": True},
+                {"event_type": "order_position_reconciliation", "passed": True},
+                {"event_type": "runtime_fail_closed", "passed": True},
+                {"event_type": "live_dust_before_scale", "passed": True},
+                {"event_type": "live_trade_ledger", "passed": True},
+                {"event_type": "runtime_explainability", "passed": True},
+                {"event_type": "drift_guard", "passed": True},
+            ],
+            "reasons": [
+                {
+                    "code": "symbol_not_allowed",
+                    "severity": "block",
+                    "category": "execution_preview",
+                    "source": "execution_preview",
+                }
+            ],
+        }
+    )
+    gate["runtime_reasons"] = runtime_reasons
+    (chunk / "runtime_safety_gate.json").write_text(json.dumps(gate), encoding="utf-8")
+
+    report = write_live_readiness_smoke_report(source, tmp_path / "out", require_runtime_safety_evidence=True)
+
+    artifact = report["runtime_safety_gate"]["artifacts"][0]
+    assert artifact["schema_valid"] is False
+    assert artifact["parse_error"] == parse_error
+    assert "runtime_safety_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
+
+
+@pytest.mark.parametrize(
+    ("summary_update", "parse_error"),
+    [
+        ({"reason_count": 0}, "summary_reason_count_mismatch"),
+        ({"reasons_by_code": {"symbol_not_allowed": 2}}, "summary_reasons_by_code_mismatch"),
+    ],
+)
+def test_live_readiness_rejects_runtime_reason_summary_mismatch(
+    tmp_path: Path,
+    summary_update: dict[str, object],
+    parse_error: str,
+) -> None:
+    source = tmp_path / "source"
+    chunk = source / "chunk_001"
+    chunk.mkdir(parents=True)
+    (chunk / "trades.json").write_text(json.dumps({"trades": []}), encoding="utf-8")
+    gate = build_runtime_safety_gate(
+        {
+            "evidence_source": {"type": "paper_runtime_logs", "run_id": "runtime-1"},
+            "events": [
+                {"event_type": "kill_switch_dry_run", "passed": True},
+                {"event_type": "order_position_reconciliation", "passed": True},
+                {"event_type": "runtime_fail_closed", "passed": True},
+                {"event_type": "live_dust_before_scale", "passed": True},
+                {"event_type": "live_trade_ledger", "passed": True},
+                {"event_type": "runtime_explainability", "passed": True},
+                {"event_type": "drift_guard", "passed": True},
+            ],
+            "reasons": [
+                {
+                    "code": "symbol_not_allowed",
+                    "severity": "block",
+                    "category": "execution_preview",
+                    "source": "execution_preview",
+                }
+            ],
+        }
+    )
+    gate["summary"].update(summary_update)
+    (chunk / "runtime_safety_gate.json").write_text(json.dumps(gate), encoding="utf-8")
+
+    report = write_live_readiness_smoke_report(source, tmp_path / "out", require_runtime_safety_evidence=True)
+
+    artifact = report["runtime_safety_gate"]["artifacts"][0]
+    assert artifact["schema_valid"] is False
+    assert artifact["parse_error"] == parse_error
+    assert "runtime_safety_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
+
+
 def test_live_readiness_rejects_unsafe_runtime_counts_by_type_identifier(tmp_path: Path) -> None:
     source = tmp_path / "source"
     chunk = source / "chunk_001"

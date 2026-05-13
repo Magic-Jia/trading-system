@@ -12,6 +12,7 @@ from typing import Any, Iterable, Mapping, Sequence
 
 from trading_system.app.backtest.promotion_evidence_bundle import verify_promotion_evidence_bundle
 from trading_system.app.backtest.types import ExecutionFillModel
+from trading_system.app.runtime.runtime_safety_evidence import RUNTIME_SAFETY_REASON_TAXONOMY
 
 
 DEPTH_CLASSIFICATIONS = (
@@ -2188,6 +2189,8 @@ def _runtime_reasons_schema_error(value: Any) -> str:
         if unknown_fields:
             return "unknown_runtime_reason_field: " + ", ".join(unknown_fields)
         for field in ("code", "severity", "category", "source"):
+            if field not in reason:
+                return f"runtime_reason_{field}_missing"
             item = reason.get(field)
             if not _is_exact_string(item):
                 return f"runtime_reason_{field}_not_string"
@@ -2203,7 +2206,26 @@ def _runtime_reasons_schema_error(value: Any) -> str:
         if previous is not None and previous != current:
             return "runtime_reason_duplicate_conflict"
         seen[code] = current
+        expected = RUNTIME_SAFETY_REASON_TAXONOMY.get(code)
+        if expected is None:
+            return f"unknown_runtime_reason_code: {code}"
+        if reason["severity"] != expected["severity"] or reason["category"] != expected["category"]:
+            return f"runtime_reason_taxonomy_mismatch: {code}"
     return ""
+
+
+def _runtime_reasons_by_code(value: Any) -> dict[str, int]:
+    if not isinstance(value, list):
+        return {}
+    counts: dict[str, int] = {}
+    for reason in value:
+        if not isinstance(reason, Mapping):
+            continue
+        code = reason.get("code")
+        if not isinstance(code, str):
+            continue
+        counts[code] = counts.get(code, 0) + 1
+    return counts
 
 
 def _runtime_safety_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[str, Any]:
@@ -2281,6 +2303,12 @@ def _runtime_safety_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
                         summary_schema_error = "summary_reasons_by_code_count_invalid"
                         break
         runtime_reasons_schema_error = _runtime_reasons_schema_error(payload.get("runtime_reasons"))
+        runtime_reasons_by_code = _runtime_reasons_by_code(payload.get("runtime_reasons"))
+        if not summary_schema_error and not runtime_reasons_schema_error and isinstance(payload.get("runtime_reasons"), list):
+            if reason_count is not None and reason_count != len(payload["runtime_reasons"]):
+                summary_schema_error = "summary_reason_count_mismatch"
+            elif reasons_by_code is not None and dict(reasons_by_code) != runtime_reasons_by_code:
+                summary_schema_error = "summary_reasons_by_code_mismatch"
         unknown_check_fields = sorted(set(checks) - set(required_checks))
         check_schema_error = ""
         for check_name in required_checks:
@@ -2336,6 +2364,9 @@ def _runtime_safety_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
                 "evidence_source": _as_mapping(payload.get("evidence_source")),
                 "checks": {key: _strict_check_bool(checks.get(key)) for key in required_checks},
                 "summary": _as_mapping(payload.get("summary")),
+                "runtime_reasons": list(payload.get("runtime_reasons", []))
+                if isinstance(payload.get("runtime_reasons"), list)
+                else [],
             }
         )
     if artifacts:

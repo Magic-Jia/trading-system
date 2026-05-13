@@ -432,6 +432,48 @@ def test_runtime_safety_gate_accepts_execution_preview_reason_codes() -> None:
     ]
 
 
+def test_runtime_safety_gate_writer_preserves_runtime_reason_taxonomy_roundtrip(tmp_path: Path) -> None:
+    manifest = _passing_manifest()
+    manifest["reasons"] = [
+        {
+            "code": "symbol_not_allowed",
+            "severity": "block",
+            "category": "execution_preview",
+            "source": "execution_preview",
+        },
+        {
+            "code": "runtime_fail_closed_missing",
+            "severity": "block",
+            "category": "runtime_safety",
+            "source": "runtime_safety_gate",
+        },
+    ]
+
+    output = write_runtime_safety_gate(manifest, tmp_path)
+    payload = json.loads(output.read_text(encoding="utf-8"))
+
+    assert payload["runtime_reasons"] == manifest["reasons"]
+    assert RuntimeSafetyReason.canonicalize_many(payload["runtime_reasons"]) == [
+        RuntimeSafetyReason(
+            code="symbol_not_allowed",
+            severity="block",
+            category="execution_preview",
+            source="execution_preview",
+        ),
+        RuntimeSafetyReason(
+            code="runtime_fail_closed_missing",
+            severity="block",
+            category="runtime_safety",
+            source="runtime_safety_gate",
+        ),
+    ]
+    assert payload["summary"]["reason_count"] == 2
+    assert payload["summary"]["reasons_by_code"] == {
+        "symbol_not_allowed": 1,
+        "runtime_fail_closed_missing": 1,
+    }
+
+
 def test_runtime_safety_reason_taxonomy_rejects_conflicting_duplicate_code() -> None:
     try:
         RuntimeSafetyReason.canonicalize_many(
