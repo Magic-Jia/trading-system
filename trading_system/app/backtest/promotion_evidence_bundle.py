@@ -90,6 +90,7 @@ PROMOTION_BUNDLE_REASON_CODE_ALIASES: dict[str, str] = {
     "missing_manifest": "missing_manifest",
     "invalid_manifest_json": "invalid_manifest_json",
     "manifest_not_object": "manifest_not_object",
+    "duplicate_manifest_field": "duplicate_manifest_field",
     "reproducibility_not_object": "reproducibility_not_object",
     "reproducibility_schema_version_invalid": "reproducibility_schema_version_invalid",
     "reproducibility_algorithm_invalid": "reproducibility_algorithm_invalid",
@@ -418,6 +419,7 @@ def collect_promotion_evidence_bundle(
 
 def _empty_promotion_bundle_audit_fields() -> dict[str, list[Any]]:
     return {
+        "duplicate_manifest_fields": [],
         "declared_missing_artifacts": [],
         "invalid_declared_missing_artifacts": [],
         "unsafe_declared_missing_artifacts": [],
@@ -461,6 +463,26 @@ def _promotion_artifact_metadata_reason_keys(metadata_entries: list[Any]) -> lis
     return reasons
 
 
+def _decode_manifest_json(manifest_text: str) -> tuple[Any, list[str]]:
+    duplicate_fields_by_object: list[list[str]] = []
+
+    def reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        seen: set[str] = set()
+        duplicate_fields: list[str] = []
+        payload: dict[str, Any] = {}
+        for key, value in pairs:
+            if key in seen:
+                duplicate_fields.append(key)
+            seen.add(key)
+            payload[key] = value
+        duplicate_fields_by_object.append(duplicate_fields)
+        return payload
+
+    payload = json.loads(manifest_text, object_pairs_hook=reject_duplicate_keys)
+    top_level_duplicate_fields = duplicate_fields_by_object[-1] if type(payload) is dict else []
+    return payload, top_level_duplicate_fields
+
+
 def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
     bundle = Path(bundle_dir)
     manifest_path = bundle / "promotion_evidence_manifest.json"
@@ -486,7 +508,9 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
         }
     manifest_errors: list[str] = []
     try:
-        manifest_payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest_payload, duplicate_manifest_fields = _decode_manifest_json(
+            manifest_path.read_text(encoding="utf-8")
+        )
     except json.JSONDecodeError as exc:
         reason_codes = ["invalid_manifest_json"]
         unknown_reason_codes, noncanonical_reason_codes = _reason_taxonomy_violations(reason_codes)
@@ -508,11 +532,16 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
             "expected_reproducibility_digest": None,
             **_empty_promotion_bundle_audit_fields(),
         }
+    except TypeError:
+        manifest_payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+        duplicate_manifest_fields = []
     manifest = dict(manifest_payload) if isinstance(manifest_payload, Mapping) else {}
     if type(manifest_payload) is not dict:
         manifest_errors.append("manifest_not_object")
     schema_valid = manifest.get("schema_version") == SCHEMA_VERSION
     if type(manifest_payload) is not dict:
+        schema_valid = False
+    if duplicate_manifest_fields:
         schema_valid = False
     allowed_manifest_fields = {
         "schema_version",
@@ -529,6 +558,8 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
         schema_valid = False
     for field in unknown_manifest_fields:
         manifest_errors.append(f"unknown_top_level_field: {field}")
+    for field in sorted(set(duplicate_manifest_fields)):
+        manifest_errors.append(f"duplicate_manifest_field: {field}")
     if not schema_valid:
         manifest_errors.append("invalid_schema_version")
     manifest_decision = manifest.get("decision")
@@ -1008,6 +1039,7 @@ def verify_promotion_evidence_bundle(bundle_dir: str | Path) -> dict[str, Any]:
         "reproducibility_digest": reproducibility_digest,
         "expected_reproducibility_digest": expected_reproducibility_digest,
         "reproducibility_chain_errors": sorted(set(reproducibility_chain_errors)),
+        "duplicate_manifest_fields": sorted(set(duplicate_manifest_fields)),
         "declared_missing_artifacts": sorted(canonical_declared_missing_artifacts),
         "invalid_declared_missing_artifacts": sorted(invalid_declared_missing_artifacts),
         "unsafe_declared_missing_artifacts": sorted(unsafe_declared_missing_artifacts),

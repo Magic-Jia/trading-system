@@ -706,6 +706,37 @@ def test_bundle_verifier_rejects_manifest_that_is_not_json_object(tmp_path: Path
     assert result["schema_valid"] is False
 
 
+def test_bundle_verifier_rejects_duplicate_top_level_candidate_id(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    for name in REQUIRED_ARTIFACTS:
+        _write_json(source / name, {"artifact": name, "synthetic": True})
+    bundle_dir = collect_promotion_evidence_bundle(
+        source,
+        tmp_path / "bundle",
+        candidate_id="candidate-1",
+        evidence_source={"type": "promotion_bundle_export", "run_id": "bundle-1"},
+    )
+    manifest_path = bundle_dir / "promotion_evidence_manifest.json"
+    manifest_text = manifest_path.read_text(encoding="utf-8")
+    manifest_path.write_text(
+        manifest_text.replace(
+            '"candidate_id": "candidate-1",',
+            '"candidate_id": "candidate-1",\n  "candidate_id": "candidate-2",',
+            1,
+        ),
+        encoding="utf-8",
+    )
+
+    result = verify_promotion_evidence_bundle(bundle_dir)
+
+    assert result["verified"] is False
+    assert result["schema_valid"] is False
+    assert result["duplicate_manifest_fields"] == ["candidate_id"]
+    assert "duplicate_manifest_field: candidate_id" in result["manifest_errors"]
+    assert "duplicate_manifest_field" in result["reason_codes"]
+
+
 def test_bundle_verifier_rejects_invalid_manifest_schema_version(tmp_path: Path) -> None:
     source = tmp_path / "source"
     source.mkdir()
