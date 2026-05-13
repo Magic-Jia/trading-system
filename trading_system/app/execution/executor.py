@@ -126,7 +126,10 @@ class OrderExecutor:
                 preview = {}
 
             submission_enabled = bool(self.config.execution.testnet_order_submission_enabled)
-            submission_prerequisites_passed = bool(preview.get("submission_prerequisites_passed", False))
+            raw_submission_prerequisites_passed = preview.get("submission_prerequisites_passed", False)
+            if not isinstance(raw_submission_prerequisites_passed, bool):
+                raise ExecutionError("validated_order_preview.submission_prerequisites_passed must be a boolean")
+            submission_prerequisites_passed = raw_submission_prerequisites_passed
             would_submit = submission_enabled and submission_prerequisites_passed
             result = {
                 "mode": "testnet",

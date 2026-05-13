@@ -399,6 +399,27 @@ def test_order_executor_testnet_does_not_notify_when_feishu_disabled(monkeypatch
     assert calls == []
 
 
+def test_order_executor_testnet_rejects_non_boolean_submission_prerequisite(monkeypatch, tmp_path):
+    config = build_testnet_config(tmp_path, monkeypatch)
+    config = replace(
+        config,
+        execution=replace(
+            config.execution,
+            testnet_order_submission_enabled=True,
+            feishu_notifications_enabled=False,
+        ),
+    )
+    order = _sample_order()
+    order.meta["validated_order_preview"] = {
+        "submission_prerequisites_passed": "false",
+        "payloads": _testnet_preview_payloads(),
+    }
+    executor = OrderExecutor(config)
+
+    with pytest.raises(Exception, match="validated_order_preview.submission_prerequisites_passed must be a boolean"):
+        executor.execute(order, RuntimeStateV2.empty())
+
+
 def test_order_executor_testnet_success_notifies_when_feishu_enabled(monkeypatch, tmp_path):
     from trading_system.app.execution import executor as executor_module
 
