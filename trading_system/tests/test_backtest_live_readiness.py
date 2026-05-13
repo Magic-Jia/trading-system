@@ -8212,6 +8212,47 @@ def test_live_readiness_gate_report_accepts_validation_evidence_artifact(tmp_pat
     assert "forward_contamination_unproven" not in report["promotion_gate"]["reasons"]
 
 
+@pytest.mark.parametrize(
+    ("run_id", "parse_error"),
+    [
+        (" ", "evidence_source_run_id_blank"),
+        (" validation-1 ", "evidence_source_run_id_noncanonical"),
+    ],
+)
+def test_live_readiness_gate_rejects_invalid_validation_evidence_run_id(
+    tmp_path: Path,
+    run_id: str,
+    parse_error: str,
+) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    (chunk / "validation_gate.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "validation_gate_input.v1",
+                "evidence_source": {"type": "walk_forward_oos_report", "run_id": run_id},
+                "checks": {
+                    "oos_non_degraded_met": True,
+                    "multi_regime_resilience_met": True,
+                    "cost_stress_positive_met": True,
+                    "forward_contamination_absent_met": True,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_live_readiness_gate_report(tmp_path, require_validation_evidence=True)
+
+    validation = report["validation_gate"]
+    assert validation["artifacts"][0]["schema_valid"] is False
+    assert validation["artifacts"][0]["parse_error"] == parse_error
+    assert validation["checks"]["validation_artifact_schema_valid"] is False
+    assert validation["checks"]["validation_artifact_provenance_present"] is False
+    assert "validation_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
+    assert "validation_artifact_provenance_missing" in report["promotion_gate"]["reasons"]
+
+
 
 def test_live_readiness_gate_rejects_present_failing_validation_checks(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
