@@ -585,6 +585,69 @@ def test_order_executor_testnet_market_submission_appends_execution_telemetry(mo
     assert row["post_only"] is False
 
 
+def test_order_executor_testnet_rejects_bool_exchange_executed_qty_in_telemetry(monkeypatch, tmp_path):
+    from trading_system.app.execution import executor as executor_module
+
+    exec_log = tmp_path / "execution_log.jsonl"
+    monkeypatch.setattr(executor_module, "EXEC_LOG", exec_log)
+    config = build_testnet_config(tmp_path, monkeypatch)
+    config = replace(
+        config,
+        execution=replace(
+            config.execution,
+            testnet_order_submission_enabled=True,
+            feishu_notifications_enabled=False,
+            entry_order_policy="taker_market",
+        ),
+    )
+    submitted_algo_payloads = []
+
+    def fake_submit_entry(payload):
+        return {
+            "orderId": 12345,
+            "clientOrderId": payload["newClientOrderId"],
+            "status": "FILLED",
+            "executedQty": True,
+            "type": "MARKET",
+        }
+
+    monkeypatch.setattr(executor_module, "submit_futures_testnet_order", fake_submit_entry)
+    monkeypatch.setattr(
+        executor_module,
+        "submit_futures_testnet_conditional_algo_order",
+        lambda payload: submitted_algo_payloads.append(payload) or {"algoId": 67890},
+    )
+    order = _sample_order()
+    order.meta["validated_order_preview"] = {
+        "submission_prerequisites_passed": True,
+        "payloads": {
+            "entry": {
+                "symbol": "BTCUSDT",
+                "side": "BUY",
+                "type": "MARKET",
+                "quantity": 0.01,
+                "newClientOrderId": "intent-btc-long",
+            },
+            "stop": {
+                "symbol": "BTCUSDT",
+                "side": "SELL",
+                "type": "STOP_MARKET",
+                "stopPrice": 58000.0,
+                "closePosition": "true",
+                "workingType": "MARK_PRICE",
+                "newClientOrderId": "intent-btc-long-sl",
+            },
+        },
+    }
+    executor = OrderExecutor(config)
+
+    with pytest.raises(Exception, match="execution telemetry executedQty must be a finite non-bool number when present"):
+        executor.execute(order, RuntimeStateV2.empty())
+
+    assert submitted_algo_payloads == []
+    assert not (tmp_path / "execution_telemetry.jsonl").exists()
+
+
 
 def test_order_executor_testnet_submits_entry_and_stop_algo_order(monkeypatch, tmp_path):
     from trading_system.app.execution import executor as executor_module

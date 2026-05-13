@@ -463,8 +463,11 @@ class OrderExecutor:
         final_status = entry_order_status if entry_order_status is not None else exchange_response
         final_status = final_status if isinstance(final_status, dict) else {}
         response = exchange_response if isinstance(exchange_response, dict) else {}
-        executed_qty = _float_or_none(final_status.get("executedQty", response.get("executedQty"))) or 0.0
-        avg_price = _float_or_none(final_status.get("avgPrice", response.get("avgPrice")))
+        executed_qty = _float_or_none(
+            final_status.get("executedQty", response.get("executedQty")),
+            field="executedQty",
+        ) or 0.0
+        avg_price = _float_or_none(final_status.get("avgPrice", response.get("avgPrice")), field="avgPrice")
         status = str(final_status.get("status") or response.get("status") or ("ERROR" if error else "UNKNOWN")).upper()
         post_only = entry_payload.get("timeInForce") == "GTX"
         fill_state = _fill_state(status=status, executed_qty=executed_qty)
@@ -477,8 +480,8 @@ class OrderExecutor:
             "entry_reference_price": order.entry_price,
             "order_type": entry_payload.get("type"),
             "time_in_force": entry_payload.get("timeInForce"),
-            "submitted_price": _float_or_none(entry_payload.get("price")),
-            "submitted_qty": _float_or_none(entry_payload.get("quantity")),
+            "submitted_price": _float_or_none(entry_payload.get("price"), field="submitted_price"),
+            "submitted_qty": _float_or_none(entry_payload.get("quantity"), field="submitted_qty"),
             "submit_timestamp": submit_timestamp,
             "ack_timestamp": ack_timestamp,
             "fill_timestamp": ack_timestamp if fill_state in {"filled", "partial_fill"} else None,
@@ -520,13 +523,18 @@ def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
-def _float_or_none(value: Any) -> float | None:
-    try:
-        if value is None:
-            return None
-        return float(value)
-    except (TypeError, ValueError):
+def _float_or_none(value: Any, *, field: str) -> float | None:
+    if value is None:
         return None
+    if isinstance(value, bool):
+        raise ExecutionError(f"execution telemetry {field} must be a finite non-bool number when present")
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ExecutionError(f"execution telemetry {field} must be a finite non-bool number when present") from exc
+    if not math.isfinite(numeric):
+        raise ExecutionError(f"execution telemetry {field} must be a finite non-bool number when present")
+    return numeric
 
 
 def _fill_state(*, status: str, executed_qty: float) -> str:
