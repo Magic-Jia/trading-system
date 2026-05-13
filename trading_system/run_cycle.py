@@ -150,6 +150,25 @@ def _non_negative_int(summary: ABCMapping[str, Any], field_path: str) -> int:
     return value
 
 
+def _validate_optional_non_negative_int(summary: ABCMapping[str, Any], field_name: str, field_path: str) -> None:
+    if field_name not in summary:
+        return
+    value = summary[field_name]
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ValueError(f"{field_path} must be a non-negative int")
+
+
+def _paper_trading_summary(state: ABCMapping[str, Any]) -> dict[str, Any]:
+    paper_trading = _mapping_field(state, "paper_trading")
+    for field_name in ("ledger_event_count", "emitted_count", "replayed_count"):
+        _validate_optional_non_negative_int(
+            paper_trading,
+            field_name,
+            f"runtime_state.paper_trading.{field_name}",
+        )
+    return paper_trading
+
+
 def _entry_profile_name(state: ABCMapping[str, Any], *, env_entry_profile: str) -> str:
     if "latest_entry_profile" not in state:
         return env_entry_profile
@@ -212,7 +231,7 @@ def _state_summary(paths: RuntimePaths) -> dict[str, Any]:
     trend_summary = _mapping_field(state, "trend_summary")
     rotation_summary = _mapping_field(state, "rotation_summary")
     short_summary = _mapping_field(state, "short_summary")
-    paper_trading = _mapping_field(state, "paper_trading")
+    paper_trading = _paper_trading_summary(state)
     suppression_rules = _sequence_of_strings(
         regime, "suppression_rules", field_path="runtime_state.latest_regime.suppression_rules"
     )

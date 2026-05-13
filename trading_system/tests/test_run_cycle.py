@@ -296,6 +296,45 @@ def test_run_cycle_fails_closed_for_invalid_candidate_counts(monkeypatch, tmp_pa
     [
         (
             {
+                "execution_mode": "paper",
+                "latest_candidates": [],
+                "latest_allocations": [],
+                "paper_trading": {"ledger_event_count": True},
+            },
+            r"runtime_state\.paper_trading\.ledger_event_count must be a non-negative int",
+        ),
+        (
+            {
+                "execution_mode": "paper",
+                "latest_candidates": [],
+                "latest_allocations": [],
+                "paper_trading": {"emitted_count": "1"},
+            },
+            r"runtime_state\.paper_trading\.emitted_count must be a non-negative int",
+        ),
+        (
+            {
+                "execution_mode": "paper",
+                "latest_candidates": [],
+                "latest_allocations": [],
+                "paper_trading": {"replayed_count": -1},
+            },
+            r"runtime_state\.paper_trading\.replayed_count must be a non-negative int",
+        ),
+    ],
+)
+def test_run_cycle_fails_closed_for_invalid_paper_trading_counts(
+    monkeypatch, tmp_path, runtime_state, error_message
+):
+    with pytest.raises(ValueError, match=error_message):
+        _run_cycle_with_runtime_state(monkeypatch, tmp_path, runtime_state)
+
+
+@pytest.mark.parametrize(
+    ("runtime_state", "error_message"),
+    [
+        (
+            {
                 "execution_mode": None,
                 "latest_candidates": [],
                 "latest_allocations": [],
