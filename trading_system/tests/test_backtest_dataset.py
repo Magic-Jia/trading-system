@@ -2931,6 +2931,38 @@ def test_load_historical_dataset_rejects_active_open_order_with_rejected_counter
         load_historical_dataset(dataset_root)
 
 
+@pytest.mark.parametrize(
+    "field",
+    ["filled_qty", "filledQty", "executed_qty", "executedQty", "canceled_qty", "canceledQty", "expired_qty", "expiredQty"],
+)
+def test_load_historical_dataset_rejects_active_open_order_with_terminal_qty_alias(
+    tmp_path: Path,
+    field: str,
+) -> None:
+    dataset_root = _write_minimal_dataset_bundle(
+        tmp_path,
+        {
+            "equity": 100000.0,
+            "open_positions": [],
+            "open_orders": [
+                {
+                    "symbol": "BTCUSDT",
+                    "status": "OPEN",
+                    "created_at": 20,
+                    "updated_at": 21,
+                    field: 1,
+                }
+            ],
+        },
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=rf"account\.open_orders\[0\]\.{field} must be omitted for active status",
+    ):
+        load_historical_dataset(dataset_root)
+
+
 def test_load_historical_dataset_accepts_rejected_open_order_with_rejected_counter_alias(
     tmp_path: Path,
 ) -> None:
@@ -2940,6 +2972,40 @@ def test_load_historical_dataset_accepts_rejected_open_order_with_rejected_count
         "created_at": 20,
         "updated_at": 21,
         "rejectedQty": 1,
+    }
+    account_snapshot = {
+        "equity": 100000.0,
+        "open_positions": [],
+        "open_orders": [open_order],
+    }
+    dataset_root = _write_minimal_dataset_bundle(tmp_path, account_snapshot)
+
+    rows = load_historical_dataset(dataset_root)
+
+    assert rows[0].account["open_orders"] == [open_order]
+
+
+@pytest.mark.parametrize(
+    ("status", "field"),
+    [
+        ("FILLED", "filledQty"),
+        ("FILLED", "executedQty"),
+        ("CANCELED", "canceledQty"),
+        ("CANCELLED", "canceled_qty"),
+        ("EXPIRED", "expiredQty"),
+    ],
+)
+def test_load_historical_dataset_accepts_terminal_open_order_with_qty_alias_evidence(
+    tmp_path: Path,
+    status: str,
+    field: str,
+) -> None:
+    open_order = {
+        "symbol": "BTCUSDT",
+        "status": status,
+        "created_at": 20,
+        "updated_at": 21,
+        field: 1,
     }
     account_snapshot = {
         "equity": 100000.0,
@@ -2979,6 +3045,47 @@ def test_load_historical_dataset_rejects_invalid_rejected_counter_alias(
     with pytest.raises(
         ValueError,
         match=r"account\.open_orders\[0\]\.rejected_qty must be a non-negative finite number",
+    ):
+        load_historical_dataset(dataset_root)
+
+
+@pytest.mark.parametrize(
+    ("status", "field", "value"),
+    [
+        ("FILLED", "filled_qty", True),
+        ("FILLED", "executedQty", "1"),
+        ("CANCELED", "canceled_qty", float("inf")),
+        ("CANCELLED", "canceledQty", -1),
+        ("EXPIRED", "expired_qty", True),
+        ("EXPIRED", "expiredQty", "1"),
+    ],
+)
+def test_load_historical_dataset_rejects_invalid_terminal_qty_alias(
+    tmp_path: Path,
+    status: str,
+    field: str,
+    value: object,
+) -> None:
+    dataset_root = _write_minimal_dataset_bundle(
+        tmp_path,
+        {
+            "equity": 100000.0,
+            "open_positions": [],
+            "open_orders": [
+                {
+                    "symbol": "BTCUSDT",
+                    "status": status,
+                    "created_at": 20,
+                    "updated_at": 21,
+                    field: value,
+                }
+            ],
+        },
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=rf"account\.open_orders\[0\]\.{field} must be a non-negative finite number",
     ):
         load_historical_dataset(dataset_root)
 

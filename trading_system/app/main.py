@@ -467,6 +467,9 @@ def _validate_open_order_lifecycle(row: Mapping[str, Any], field_path: str) -> N
             _OPEN_ORDER_FILLED_EVENT_COUNTER_FIELDS,
             _OPEN_ORDER_EXPIRED_EVENT_COUNTER_FIELDS,
             _OPEN_ORDER_REJECTED_EVENT_COUNTER_FIELDS,
+            _OPEN_ORDER_FILLED_COUNTER_FIELDS,
+            _OPEN_ORDER_CANCELED_COUNTER_FIELDS,
+            _OPEN_ORDER_EXPIRED_COUNTER_FIELDS,
             _OPEN_ORDER_REJECTED_COUNTER_FIELDS,
         ):
             terminal = _open_order_lifecycle_number(row, fields, field_path)
@@ -493,6 +496,9 @@ def _validate_open_order_lifecycle(row: Mapping[str, Any], field_path: str) -> N
             _OPEN_ORDER_FILLED_EVENT_COUNTER_FIELDS,
             _OPEN_ORDER_EXPIRED_EVENT_COUNTER_FIELDS,
             _OPEN_ORDER_REJECTED_EVENT_COUNTER_FIELDS,
+            _OPEN_ORDER_FILLED_COUNTER_FIELDS,
+            _OPEN_ORDER_CANCELED_COUNTER_FIELDS,
+            _OPEN_ORDER_EXPIRED_COUNTER_FIELDS,
             _OPEN_ORDER_REJECTED_COUNTER_FIELDS,
         ):
             terminal = _open_order_lifecycle_number(row, fields, field_path)

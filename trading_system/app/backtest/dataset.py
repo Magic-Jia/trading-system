@@ -1071,6 +1071,9 @@ def _validate_open_order_lifecycle(order: dict, *, field_prefix: str, path: Path
             _ACCOUNT_OPEN_ORDER_FILLED_EVENT_COUNTER_FIELDS,
             _ACCOUNT_OPEN_ORDER_EXPIRED_EVENT_COUNTER_FIELDS,
             _ACCOUNT_OPEN_ORDER_REJECTED_EVENT_COUNTER_FIELDS,
+            _ACCOUNT_OPEN_ORDER_FILLED_COUNTER_FIELDS,
+            _ACCOUNT_OPEN_ORDER_CANCELED_COUNTER_FIELDS,
+            _ACCOUNT_OPEN_ORDER_EXPIRED_COUNTER_FIELDS,
             _ACCOUNT_OPEN_ORDER_REJECTED_COUNTER_FIELDS,
         ):
             terminal = _account_order_lifecycle_number(order, fields, field_prefix=field_prefix, path=path)
@@ -1095,6 +1098,9 @@ def _validate_open_order_lifecycle(order: dict, *, field_prefix: str, path: Path
             _ACCOUNT_OPEN_ORDER_FILLED_EVENT_COUNTER_FIELDS,
             _ACCOUNT_OPEN_ORDER_EXPIRED_EVENT_COUNTER_FIELDS,
             _ACCOUNT_OPEN_ORDER_REJECTED_EVENT_COUNTER_FIELDS,
+            _ACCOUNT_OPEN_ORDER_FILLED_COUNTER_FIELDS,
+            _ACCOUNT_OPEN_ORDER_CANCELED_COUNTER_FIELDS,
+            _ACCOUNT_OPEN_ORDER_EXPIRED_COUNTER_FIELDS,
             _ACCOUNT_OPEN_ORDER_REJECTED_COUNTER_FIELDS,
         ):
             terminal = _account_order_lifecycle_number(order, fields, field_prefix=field_prefix, path=path)

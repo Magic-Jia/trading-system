@@ -4963,6 +4963,36 @@ def test_load_account_snapshot_rejects_active_open_order_with_rejected_counter_a
         main_module.load_account_snapshot(account_path)
 
 
+@pytest.mark.parametrize(
+    "field",
+    ["filled_qty", "filledQty", "executed_qty", "executedQty", "canceled_qty", "canceledQty", "expired_qty", "expiredQty"],
+)
+def test_load_account_snapshot_rejects_active_open_order_with_terminal_qty_alias(tmp_path, field):
+    account_path = tmp_path / "account_snapshot.json"
+    account_path.write_text(
+        json.dumps(
+            {
+                "equity": 1000.0,
+                "available_balance": 900.0,
+                "futures_wallet_balance": 1000.0,
+                "open_positions": [],
+                "open_orders": [
+                    {
+                        "symbol": "BTCUSDT",
+                        "status": "OPEN",
+                        "created_at": 20,
+                        "updated_at": 21,
+                        field: 1,
+                    }
+                ],
+            }
+        )
+    )
+
+    with pytest.raises(ValueError, match=rf"open_orders\[0\]\.{field} must be omitted for active status"):
+        main_module.load_account_snapshot(account_path)
+
+
 def test_load_account_snapshot_accepts_rejected_open_order_with_rejected_counter_alias(tmp_path):
     account_path = tmp_path / "account_snapshot.json"
     open_order = {
@@ -4971,6 +5001,42 @@ def test_load_account_snapshot_accepts_rejected_open_order_with_rejected_counter
         "created_at": 20,
         "updated_at": 21,
         "rejectedQty": 1,
+    }
+    account_path.write_text(
+        json.dumps(
+            {
+                "equity": 1000.0,
+                "available_balance": 900.0,
+                "futures_wallet_balance": 1000.0,
+                "open_positions": [],
+                "open_orders": [open_order],
+            }
+        )
+    )
+
+    account = main_module.load_account_snapshot(account_path)
+
+    assert account.open_orders == [open_order]
+
+
+@pytest.mark.parametrize(
+    ("status", "field"),
+    [
+        ("FILLED", "filledQty"),
+        ("FILLED", "executedQty"),
+        ("CANCELED", "canceledQty"),
+        ("CANCELLED", "canceled_qty"),
+        ("EXPIRED", "expiredQty"),
+    ],
+)
+def test_load_account_snapshot_accepts_terminal_open_order_with_qty_alias_evidence(tmp_path, status, field):
+    account_path = tmp_path / "account_snapshot.json"
+    open_order = {
+        "symbol": "BTCUSDT",
+        "status": status,
+        "created_at": 20,
+        "updated_at": 21,
+        field: 1,
     }
     account_path.write_text(
         json.dumps(
@@ -5014,6 +5080,43 @@ def test_load_account_snapshot_rejects_invalid_rejected_counter_alias(tmp_path, 
     )
 
     with pytest.raises(ValueError, match=r"open_orders\[0\]\.rejected_qty must be a non-negative finite number"):
+        main_module.load_account_snapshot(account_path)
+
+
+@pytest.mark.parametrize(
+    ("status", "field", "value"),
+    [
+        ("FILLED", "filled_qty", True),
+        ("FILLED", "executedQty", "1"),
+        ("CANCELED", "canceled_qty", float("inf")),
+        ("CANCELLED", "canceledQty", -1),
+        ("EXPIRED", "expired_qty", True),
+        ("EXPIRED", "expiredQty", "1"),
+    ],
+)
+def test_load_account_snapshot_rejects_invalid_terminal_qty_alias(tmp_path, status, field, value):
+    account_path = tmp_path / "account_snapshot.json"
+    account_path.write_text(
+        json.dumps(
+            {
+                "equity": 1000.0,
+                "available_balance": 900.0,
+                "futures_wallet_balance": 1000.0,
+                "open_positions": [],
+                "open_orders": [
+                    {
+                        "symbol": "BTCUSDT",
+                        "status": status,
+                        "created_at": 20,
+                        "updated_at": 21,
+                        field: value,
+                    }
+                ],
+            }
+        )
+    )
+
+    with pytest.raises(ValueError, match=rf"open_orders\[0\]\.{field} must be a non-negative finite number"):
         main_module.load_account_snapshot(account_path)
 
 
