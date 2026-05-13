@@ -1335,6 +1335,46 @@ def test_load_raw_market_manifest_rejects_short_ohlcv_array_rows(tmp_path: Path)
         load_phase1_raw_market_manifest(archived.manifest_path)
 
 
+def test_load_raw_market_manifest_rejects_ohlcv_high_below_open_while_preserving_zero_volume(
+    tmp_path: Path,
+) -> None:
+    archived = archive_raw_market_payload(
+        archive_root=tmp_path / "archive",
+        exchange="binance",
+        market="futures",
+        dataset="ohlcv",
+        symbol="BTCUSDT",
+        timeframe="1h",
+        coverage_start="2026-01-01T00:00:00Z",
+        coverage_end="2026-01-01T02:00:00Z",
+        fetched_at="2026-01-01T02:01:00Z",
+        endpoint="/fapi/v1/klines",
+        payload={
+            "rows": [
+                {
+                    "open_time": "2026-01-01T00:00:00Z",
+                    "open": 100.0,
+                    "high": 99.0,
+                    "low": 98.0,
+                    "close": 98.5,
+                    "volume": 0.0,
+                },
+                {
+                    "open_time": "2026-01-01T01:00:00Z",
+                    "open": 98.5,
+                    "high": 100.0,
+                    "low": 98.0,
+                    "close": 99.5,
+                    "volume": 12.0,
+                },
+            ]
+        },
+    )
+
+    with pytest.raises(ValueError, match="ohlcv row high must cover open and close"):
+        load_phase1_raw_market_manifest(archived.manifest_path)
+
+
 def test_importer_rejects_imported_ohlcv_rows_missing_explicit_price_bounds(tmp_path: Path) -> None:
     archived = archive_raw_market_payload(
         archive_root=tmp_path / "archive",

@@ -441,7 +441,45 @@ def _validate_raw_numeric_field(value: Any, *, dataset: str, field: str, data_pa
         raise ValueError(f"{dataset} row {field} must be non-negative: {data_path} rows[{index}]")
 
 
+def _optional_ohlcv_bound(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not parsed == parsed or parsed in {float("inf"), float("-inf")}:
+        return None
+    return parsed
+
+
+def _validate_ohlcv_price_bounds(*, row: Any, data_path: Path, index: int) -> None:
+    if isinstance(row, dict):
+        values = (
+            row.get("open"),
+            row.get("high"),
+            row.get("low"),
+            row.get("close"),
+        )
+    elif isinstance(row, (list, tuple)) and len(row) >= 5:
+        values = (row[1], row[2], row[3], row[4])
+    else:
+        return
+    open_value, high, low, close = (_optional_ohlcv_bound(value) for value in values)
+    if None in {open_value, high, low, close}:
+        return
+    if high < max(open_value, close):
+        raise ValueError(f"ohlcv row high must cover open and close: {data_path} rows[{index}]")
+    if low > min(open_value, close):
+        raise ValueError(f"ohlcv row low must cover open and close: {data_path} rows[{index}]")
+    if low <= 0.0 or high <= 0.0:
+        raise ValueError(f"ohlcv row price bounds must be positive: {data_path} rows[{index}]")
+
+
 def _validate_raw_context_row(*, dataset: str, row: Any, data_path: Path, index: int) -> None:
+    if dataset == "ohlcv":
+        _validate_ohlcv_price_bounds(row=row, data_path=data_path, index=index)
+        return
     if dataset != "open-interest":
         return
     if not isinstance(row, dict):
