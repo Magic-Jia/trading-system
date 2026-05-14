@@ -80,6 +80,91 @@ def test_evidence_contract_rejects_non_monotonic_same_symbol_order_book_timestam
         )
 
 
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("bid", True),
+        ("bid", "99.9"),
+        ("bid", math.nan),
+        ("bid", math.inf),
+        ("bid", -math.inf),
+        ("bid", 0.0),
+        ("bid", -1.0),
+        ("ask", True),
+        ("ask", "100.1"),
+        ("ask", math.nan),
+        ("ask", math.inf),
+        ("ask", -math.inf),
+        ("ask", 0.0),
+        ("ask", -1.0),
+    ],
+)
+def test_evidence_contract_rejects_invalid_order_book_bid_ask(field: str, value: object) -> None:
+    book_kwargs = {"bid": 99.9, "ask": 100.1}
+    book_kwargs[field] = value
+
+    with pytest.raises(ValueError, match=f"order_book.{field} must be a positive finite number"):
+        _validate_evidence_contract(
+            symbol="BTCUSDT",
+            order_books=(
+                OrderBookSnapshot(timestamp=_ts("2026-03-10T00:00:01Z"), symbol="BTCUSDT", **book_kwargs),
+            ),
+            trades=(),
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("bid_size", True),
+        ("bid_size", "1.0"),
+        ("bid_size", -1.0),
+        ("ask_size", True),
+        ("ask_size", "1.0"),
+        ("ask_size", -1.0),
+    ],
+)
+def test_evidence_contract_rejects_invalid_order_book_optional_size(field: str, value: object) -> None:
+    book_kwargs = {"bid_size": None, "ask_size": None}
+    book_kwargs[field] = value
+
+    with pytest.raises(ValueError, match=f"order_book.{field} must be a non-negative finite number"):
+        _validate_evidence_contract(
+            symbol="BTCUSDT",
+            order_books=(
+                OrderBookSnapshot(
+                    timestamp=_ts("2026-03-10T00:00:01Z"),
+                    symbol="BTCUSDT",
+                    bid=99.9,
+                    ask=100.1,
+                    **book_kwargs,
+                ),
+            ),
+            trades=(),
+        )
+
+
+@pytest.mark.parametrize(("field", "value"), [("price", 0.0), ("price", -1.0), ("quantity", 0.0), ("quantity", -1.0)])
+def test_evidence_contract_rejects_non_positive_depth_level_values(field: str, value: object) -> None:
+    level_kwargs = {"price": 99.9, "quantity": 1.0}
+    level_kwargs[field] = value
+
+    with pytest.raises(ValueError, match=f"depth level {field} must be a positive finite number"):
+        _validate_evidence_contract(
+            symbol="BTCUSDT",
+            order_books=(
+                OrderBookSnapshot(
+                    timestamp=_ts("2026-03-10T00:00:01Z"),
+                    symbol="BTCUSDT",
+                    bid=99.9,
+                    ask=100.1,
+                    bid_levels=(DepthLevel(**level_kwargs),),
+                ),
+            ),
+            trades=(),
+        )
+
+
 def test_maker_buy_limit_fills_when_trade_path_crosses_limit_with_evidence() -> None:
     fill = simulate_maker_limit_fill(
         symbol="BTCUSDT",
