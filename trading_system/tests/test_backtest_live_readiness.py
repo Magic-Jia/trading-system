@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
 import re
@@ -39,6 +40,35 @@ from trading_system.app.backtest.validation_evidence import build_validation_gat
 from trading_system.app.backtest.types import DatasetSnapshotRow
 from trading_system.app.execution.calibration import load_calibration_records, summarize_calibration_records
 from trading_system.app.runtime.runtime_safety_evidence import build_runtime_safety_gate
+
+
+def test_live_readiness_schema_error_literals_have_consumer_coverage() -> None:
+    source_path = Path(live_readiness.__file__)
+    source_tree = ast.parse(source_path.read_text(encoding="utf-8"))
+    test_source = Path(__file__).read_text(encoding="utf-8")
+
+    required_literals: list[tuple[str, int]] = []
+    for node in ast.walk(source_tree):
+        if not isinstance(node, ast.FunctionDef) or not node.name.endswith("_schema_error"):
+            continue
+        for child in ast.walk(node):
+            if not isinstance(child, ast.Return):
+                continue
+            value = child.value
+            if not isinstance(value, ast.Constant) or not isinstance(value.value, str):
+                continue
+            literal = value.value
+            if not literal or "{" in literal or literal.startswith("unknown_"):
+                continue
+            required_literals.append((literal, child.lineno))
+
+    missing = [(literal, line_number) for literal, line_number in required_literals if literal not in test_source]
+
+    assert not missing, (
+        "live_readiness schema-error literals need consumer-side coverage in "
+        "test_backtest_live_readiness.py:\n"
+        + "\n".join(f"- line {line_number}: {literal}" for literal, line_number in missing)
+    )
 
 
 def test_calibration_jsonl_summary_groups_passive_order_quality(tmp_path: Path) -> None:
