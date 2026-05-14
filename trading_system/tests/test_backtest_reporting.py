@@ -3367,6 +3367,108 @@ def test_engine_filter_ablation_report_rejects_list_coerced_performance_payload(
         )
 
 
+def _rotation_suppression_contract_experiment() -> dict[str, object]:
+    return {
+        "policies": {
+            "current": {"bucket_level_pnl": 0.01},
+            "soft_suppression": {"bucket_level_pnl": 0.02},
+            "no_suppression": {"bucket_level_pnl": 0.0},
+        },
+        "opportunity_kill_rate": 0.1,
+        "avoid_loss_rate": 0.2,
+    }
+
+
+def _allocator_friction_contract_experiment() -> dict[str, object]:
+    return {
+        "variants": {
+            "current_allocator": {
+                "frictions": {
+                    "base": {"net_bucket_pnl": 0.01, "cost_drag": 0.005},
+                    "stressed": {"net_bucket_pnl": 0.01},
+                },
+            },
+            "low_friction": {
+                "frictions": {
+                    "base": {"net_bucket_pnl": 0.02, "cost_drag": 0.005},
+                    "stressed": {"net_bucket_pnl": 0.01},
+                },
+            },
+        }
+    }
+
+
+def test_rotation_suppression_report_rejects_non_object_policies() -> None:
+    experiment = _rotation_suppression_contract_experiment()
+    experiment["policies"] = [("current", {"bucket_level_pnl": 0.01})]
+
+    with pytest.raises(ValueError, match="policies must be an object"):
+        cli.render_rotation_suppression_report(
+            experiment_name="rotation_suppression",
+            metadata={"snapshot_count": 1},
+            experiment=experiment,
+        )
+
+
+def test_allocator_friction_report_rejects_non_canonical_variant_name() -> None:
+    experiment = _allocator_friction_contract_experiment()
+    experiment["variants"] = {
+        "current_allocator": {
+            "frictions": {
+                "base": {"net_bucket_pnl": 0.01, "cost_drag": 0.005},
+                "stressed": {"net_bucket_pnl": 0.01},
+            },
+        },
+        " low_friction": {
+            "frictions": {
+                "base": {"net_bucket_pnl": 0.02, "cost_drag": 0.005},
+                "stressed": {"net_bucket_pnl": 0.01},
+            },
+        },
+    }
+
+    with pytest.raises(ValueError, match="variant names must be canonical strings"):
+        cli.render_allocator_friction_report(
+            experiment_name="allocator_friction",
+            metadata={"snapshot_count": 1},
+            experiment=experiment,
+        )
+
+
+def test_allocator_friction_report_rejects_non_object_current_allocator_frictions() -> None:
+    experiment = _allocator_friction_contract_experiment()
+    variants = experiment["variants"]
+    assert isinstance(variants, dict)
+    current_allocator = variants["current_allocator"]
+    assert isinstance(current_allocator, dict)
+    current_allocator["frictions"] = [("base", {"net_bucket_pnl": 0.01, "cost_drag": 0.005})]
+
+    with pytest.raises(ValueError, match="variants.current_allocator.frictions must be an object"):
+        cli.render_allocator_friction_report(
+            experiment_name="allocator_friction",
+            metadata={"snapshot_count": 1},
+            experiment=experiment,
+        )
+
+
+def test_allocator_friction_report_rejects_non_object_current_allocator_base_frictions() -> None:
+    experiment = _allocator_friction_contract_experiment()
+    variants = experiment["variants"]
+    assert isinstance(variants, dict)
+    current_allocator = variants["current_allocator"]
+    assert isinstance(current_allocator, dict)
+    frictions = current_allocator["frictions"]
+    assert isinstance(frictions, dict)
+    frictions["base"] = [("net_bucket_pnl", 0.01), ("cost_drag", 0.005)]
+
+    with pytest.raises(ValueError, match="variants.current_allocator.frictions.base must be an object"):
+        cli.render_allocator_friction_report(
+            experiment_name="allocator_friction",
+            metadata={"snapshot_count": 1},
+            experiment=experiment,
+        )
+
+
 
 def test_rotation_suppression_report_rejects_boolean_policy_pnl() -> None:
     with pytest.raises(ValueError, match="policies.current.bucket_level_pnl must be a finite number"):
