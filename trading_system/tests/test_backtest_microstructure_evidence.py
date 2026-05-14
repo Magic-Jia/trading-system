@@ -155,6 +155,13 @@ def test_microstructure_gate_normalises_valid_interval_coverage_manifest() -> No
     assert gate["interval_coverage"] == [_valid_interval_row()]
 
 
+def test_microstructure_gate_rejects_duplicate_required_interval() -> None:
+    with pytest.raises(ValueError, match="^required_intervals\\[2\\] must be unique$"):
+        build_microstructure_gate(
+            _complete_coverage_manifest(required_intervals=["1m", "1m"])
+        )
+
+
 def test_microstructure_gate_rejects_non_list_required_intervals() -> None:
     with pytest.raises(ValueError, match="^required_intervals must be a list$"):
         build_microstructure_gate(
@@ -188,6 +195,50 @@ def test_microstructure_gate_rejects_non_object_second_interval_coverage_coverag
         build_microstructure_gate(
             _complete_coverage_manifest(
                 interval_coverage=[_valid_interval_row(), invalid_row]
+            )
+        )
+
+
+@pytest.mark.parametrize(
+    ("row_updates", "expected_error"),
+    [
+        (
+            {"unexpected": "not-allowed"},
+            r"^unknown interval_coverage\[1\] field: unexpected$",
+        ),
+        (
+            {"source": "historical/l2/archive"},
+            r"^interval_coverage\[1\] source must be path-safe$",
+        ),
+        (
+            {"generated_at": "2026-05-12T09:00:00+00:00"},
+            r"^interval_coverage\[1\] generated_at must be a canonical UTC timestamp$",
+        ),
+        (
+            {"coverage": {"l2_snapshot_coverage": 1.0, "stale_coverage_alias": 1.0}},
+            r"^unknown interval_coverage\[1\] coverage field: stale_coverage_alias$",
+        ),
+        (
+            {"artifact_ref": r"l2\BTCUSDT\binance_futures\1m.jsonl"},
+            r"^interval_coverage\[1\] artifact_ref must use / separators$",
+        ),
+        (
+            {"artifact_ref": "../BTCUSDT-1m.jsonl"},
+            r"^interval_coverage\[1\] artifact_ref must be path-safe$",
+        ),
+    ],
+)
+def test_microstructure_gate_rejects_invalid_first_interval_coverage_contracts(
+    row_updates: dict[str, object], expected_error: str
+) -> None:
+    row = _valid_interval_row()
+    row.update(row_updates)
+
+    with pytest.raises(ValueError, match=expected_error):
+        build_microstructure_gate(
+            _complete_coverage_manifest(
+                required_intervals=["1m"],
+                interval_coverage=[row],
             )
         )
 
@@ -759,6 +810,26 @@ def test_microstructure_gate_rejects_non_string_evidence_source_type() -> None:
                     "tick_coverage": 1.0,
                 },
             }
+        )
+
+
+@pytest.mark.parametrize(
+    ("evidence_source", "expected_error"),
+    [
+        ("historical_l2_tick_archive", r"^evidence_source must be an object$"),
+        ({"type": ""}, r"^evidence_source type must be non-empty$"),
+        (
+            {"type": "historical_l2_tick_archive", "run_id": " micro-1 "},
+            r"^evidence_source run_id must be canonical$",
+        ),
+    ],
+)
+def test_microstructure_gate_rejects_invalid_evidence_source_contracts(
+    evidence_source: object, expected_error: str
+) -> None:
+    with pytest.raises(ValueError, match=expected_error):
+        build_microstructure_gate(
+            _complete_coverage_manifest(evidence_source=evidence_source)
         )
 
 
