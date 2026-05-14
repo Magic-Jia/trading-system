@@ -364,6 +364,17 @@ def _evaluation_walk_forward_payload(walk_forward: Mapping[str, Any]) -> dict[st
                 split_payload,
                 field_name=f"walk_forward.windows[{window_index}].splits.{split_label}",
             )
+            if "label" in validated_split:
+                label = _canonical_report_string(
+                    validated_split["label"],
+                    field_name=f"walk_forward.windows[{window_index}].splits.{split_label}.label",
+                )
+                expected_label = "IS" if split_label == "in_sample" else "OOS"
+                if label != expected_label:
+                    raise ValueError(
+                        f"walk_forward.windows[{window_index}].splits.{split_label}.label must match split key"
+                    )
+                validated_split["label"] = label
             metrics = validated_split.get("metrics")
             if metrics is not None:
                 if not isinstance(metrics, Mapping):

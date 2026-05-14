@@ -452,6 +452,76 @@ def test_backtest_evaluation_report_rejects_unknown_walk_forward_split_key() -> 
         )
 
 
+def test_backtest_evaluation_report_rejects_mismatched_walk_forward_split_label() -> None:
+    with pytest.raises(
+        ValueError,
+        match=r"walk_forward.windows\[0\].splits.in_sample.label must match split key",
+    ):
+        reporting.render_backtest_evaluation_report(
+            experiment_name="evaluation",
+            evaluation={
+                "walk_forward": {
+                    "metadata": {"window_count": 1},
+                    "windows": [
+                        {
+                            "window_index": 1,
+                            "splits": {
+                                "in_sample": {
+                                    "label": "OOS",
+                                    "trade_ids": [],
+                                    "metrics": {"total_net_return": 0.01},
+                                },
+                                "out_of_sample": {
+                                    "label": "OOS",
+                                    "trade_ids": [],
+                                    "metrics": {"total_net_return": 0.02},
+                                },
+                            },
+                        }
+                    ],
+                },
+                "regimes": {"buckets": []},
+                "cost_stress": {"scenarios": []},
+            },
+            metadata={"dataset_root": "dataset"},
+        )
+
+
+def test_backtest_evaluation_report_rejects_non_canonical_walk_forward_split_label() -> None:
+    with pytest.raises(
+        ValueError,
+        match=r"walk_forward.windows\[0\].splits.out_of_sample.label must be a canonical string",
+    ):
+        reporting.render_backtest_evaluation_report(
+            experiment_name="evaluation",
+            evaluation={
+                "walk_forward": {
+                    "metadata": {"window_count": 1},
+                    "windows": [
+                        {
+                            "window_index": 1,
+                            "splits": {
+                                "in_sample": {
+                                    "label": "IS",
+                                    "trade_ids": [],
+                                    "metrics": {"total_net_return": 0.01},
+                                },
+                                "out_of_sample": {
+                                    "label": " OOS ",
+                                    "trade_ids": [],
+                                    "metrics": {"total_net_return": 0.02},
+                                },
+                            },
+                        }
+                    ],
+                },
+                "regimes": {"buckets": []},
+                "cost_stress": {"scenarios": []},
+            },
+            metadata={"dataset_root": "dataset"},
+        )
+
+
 def test_backtest_evaluation_report_rejects_non_object_cost_stress_payload() -> None:
     with pytest.raises(ValueError, match="cost_stress must be an object"):
         reporting.render_backtest_evaluation_report(
