@@ -264,6 +264,35 @@ def test_backtest_evaluation_report_rejects_duplicate_cost_stress_scenario_names
         )
 
 
+def test_backtest_evaluation_report_orders_cost_stress_scenarios_by_name() -> None:
+    report = reporting.render_backtest_evaluation_report(
+        experiment_name="evaluation",
+        evaluation={
+            "walk_forward": {"metadata": {"window_count": 1}},
+            "regimes": {"buckets": []},
+            "cost_stress": {
+                "scenarios": [
+                    {
+                        "label": "cost_stress:slippage_2x",
+                        "scenario": {"name": "slippage_2x"},
+                    },
+                    {
+                        "label": "cost_stress:fees_2x",
+                        "scenario": {"name": "fees_2x"},
+                    },
+                ]
+            },
+        },
+        metadata={"dataset_root": "dataset"},
+    )
+
+    assert report["summary"]["cost_stress_scenarios"] == ["fees_2x", "slippage_2x"]
+    assert [payload["scenario"]["name"] for payload in report["cost_stress"]["scenarios"]] == [
+        "fees_2x",
+        "slippage_2x",
+    ]
+
+
 def test_backtest_evaluation_report_rejects_mismatched_cost_stress_scenario_label() -> None:
     with pytest.raises(
         ValueError,

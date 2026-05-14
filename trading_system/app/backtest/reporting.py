@@ -274,6 +274,12 @@ def render_backtest_evaluation_report(
                 validated_stressed_trades.append(validated_trade_payload)
             validated_scenario_payload["stressed_trades"] = validated_stressed_trades
         validated_cost_scenarios.append(validated_scenario_payload)
+    validated_cost_scenarios.sort(key=_cost_stress_scenario_sort_key)
+    stress_scenarios = [
+        scenario_name
+        for scenario_payload in validated_cost_scenarios
+        if (scenario_name := _cost_stress_scenario_name(scenario_payload)) is not None
+    ]
     validated_cost_stress = dict(cost_stress)
     validated_cost_stress["scenarios"] = validated_cost_scenarios
 
@@ -295,6 +301,20 @@ def render_backtest_evaluation_report(
         "regimes": validated_regimes,
         "cost_stress": validated_cost_stress,
     }
+
+
+def _cost_stress_scenario_name(payload: Mapping[str, Any]) -> str | None:
+    scenario = payload.get("scenario", {})
+    if not isinstance(scenario, Mapping) or "name" not in scenario:
+        return None
+    return scenario["name"]
+
+
+def _cost_stress_scenario_sort_key(payload: Mapping[str, Any]) -> tuple[int, str]:
+    scenario_name = _cost_stress_scenario_name(payload)
+    if scenario_name is None:
+        return (1, "")
+    return (0, scenario_name)
 
 
 def _evaluation_walk_forward_payload(walk_forward: Mapping[str, Any]) -> dict[str, Any]:
