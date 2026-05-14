@@ -1854,6 +1854,7 @@ def test_replay_full_market_baseline_simulates_short_stop_loss_conservatively(
     assert short_trade.simulated_exit_reason == "stop_loss"
     assert short_trade.simulated_exit_price == pytest.approx(110.0)
     assert short_trade.simulated_exit_move_pct == pytest.approx(-0.10)
+    assert short_trade.simulated_exit_ordering == "ambiguous_conservative_stop"
     assert short_trade.simulated_gross_pnl < short_trade.gross_pnl
 
 
