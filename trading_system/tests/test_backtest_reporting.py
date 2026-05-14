@@ -399,6 +399,28 @@ def test_backtest_evaluation_report_rejects_invalid_walk_forward_window_count() 
         )
 
 
+@pytest.mark.parametrize(
+    "windows",
+    (
+        [{"window_index": 1}, {"window_index": 1}],
+        [{"window_index": 2}, {"window_index": 1}],
+    ),
+)
+def test_backtest_evaluation_report_rejects_non_increasing_walk_forward_window_indices(
+    windows: list[dict[str, int]],
+) -> None:
+    with pytest.raises(ValueError, match="walk_forward.windows window_index values must be strictly increasing"):
+        reporting.render_backtest_evaluation_report(
+            experiment_name="evaluation",
+            evaluation={
+                "walk_forward": {"metadata": {"window_count": len(windows)}, "windows": windows},
+                "regimes": {"buckets": []},
+                "cost_stress": {"scenarios": []},
+            },
+            metadata={"dataset_root": "dataset"},
+        )
+
+
 def test_backtest_evaluation_report_rejects_list_pair_walk_forward_metadata() -> None:
     with pytest.raises(ValueError, match="walk_forward.metadata must be an object"):
         reporting.render_backtest_evaluation_report(

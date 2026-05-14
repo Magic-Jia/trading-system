@@ -226,6 +226,7 @@ def _evaluation_walk_forward_payload(walk_forward: Mapping[str, Any]) -> dict[st
         return validated
     windows = _list_field(validated, "windows", label="walk_forward.windows")
     validated_windows = []
+    previous_payload_window_index: int | None = None
     for window_index, window in enumerate(windows):
         if not isinstance(window, Mapping):
             raise ValueError(f"walk_forward.windows[{window_index}] must be an object")
@@ -233,6 +234,16 @@ def _evaluation_walk_forward_payload(walk_forward: Mapping[str, Any]) -> dict[st
             window,
             field_name=f"walk_forward.windows[{window_index}]",
         )
+        if "window_index" in validated_window and validated_window["window_index"] is not None:
+            payload_window_index = _positive_int_field(
+                validated_window,
+                "window_index",
+                label=f"walk_forward.windows[{window_index}]",
+            )
+            if previous_payload_window_index is not None and payload_window_index <= previous_payload_window_index:
+                raise ValueError("walk_forward.windows window_index values must be strictly increasing")
+            previous_payload_window_index = payload_window_index
+            validated_window["window_index"] = payload_window_index
         splits = validated_window.get("splits")
         if splits is None:
             validated_windows.append(validated_window)
