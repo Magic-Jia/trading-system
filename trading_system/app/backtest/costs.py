@@ -9,7 +9,7 @@ _FUNDING_INTERVAL_HOURS = 8.0
 
 
 def _canonical_string(value: object, *, field_name: str) -> str:
-    if not isinstance(value, str) or not value or value != value.strip():
+    if type(value) is not str or not value or value != value.strip():
         raise ValueError(f"{field_name} must be a string")
     return value
 
@@ -58,7 +58,7 @@ def _funding_mode(value: object) -> str | None:
 
 
 def fee_bps_for_market(costs: BacktestCosts, market_type: str) -> float:
-    market = _canonical_string(market_type, field_name="market_type")
+    market = _funding_market_type(market_type)
     return _non_negative_finite_number(
         costs.fee_bps_by_market.get(market, 0.0),
         field_name=f"fee_bps_by_market.{market}",

@@ -12,15 +12,15 @@ class _StringSubclass(str):
     pass
 
 
-@pytest.mark.parametrize("market_type", [True, "", " futures", "futures "])
+@pytest.mark.parametrize("market_type", [True, "", " futures", "futures ", _StringSubclass("futures"), "perps"])
 def test_fee_bps_rejects_noncanonical_market_type(market_type: object) -> None:
     costs = BacktestCosts(fee_bps_by_market={"True": 99.0})
 
-    with pytest.raises(ValueError, match="market_type must be a string"):
+    with pytest.raises(ValueError, match="market_type must be a string|market_type must be spot or futures"):
         fee_bps_for_market(costs, market_type)  # type: ignore[arg-type]
 
 
-@pytest.mark.parametrize("liquidity_tier", [True, "", " high", "high "])
+@pytest.mark.parametrize("liquidity_tier", [True, "", " high", "high ", _StringSubclass("high")])
 def test_slippage_bps_rejects_noncanonical_liquidity_tier(liquidity_tier: object) -> None:
     costs = BacktestCosts(slippage_bps_by_tier={"true": 99.0})
 
@@ -184,6 +184,7 @@ def test_funding_cost_rejects_invalid_domain_inputs_before_zero_funding_short_ci
     ("market_type", "funding_mode", "funding_rate", "holding_hours"),
     [
         ("spot", "historical_series", 0.001, 8.0),
+        ("futures", "historical_series", 0.001, 8.0),
         ("futures", None, 0.001, 8.0),
         ("futures", "historical_series", 0.001, 0.0),
         ("futures", "historical_series", 0.0, 8.0),
@@ -199,7 +200,7 @@ def test_funding_cost_returns_zero_for_inactive_funding_cases(
 
     assert (
         funding_cost(
-            position_notional=1_000.0,
+            position_notional=0.0 if market_type == "futures" and funding_mode == "historical_series" else 1_000.0,
             market_type=market_type,
             side="long",
             funding_rate=funding_rate,
@@ -240,4 +241,26 @@ def test_costs_apply_two_sided_fee_slippage_and_directional_historical_funding()
             costs=costs,
         )
         == -2.0
+    )
+    assert (
+        funding_cost(
+            position_notional=1_000.0,
+            market_type="futures",
+            side="long",
+            funding_rate=-0.001,
+            holding_hours=16.0,
+            costs=costs,
+        )
+        == -2.0
+    )
+    assert (
+        funding_cost(
+            position_notional=1_000.0,
+            market_type="futures",
+            side="short",
+            funding_rate=-0.001,
+            holding_hours=16.0,
+            costs=costs,
+        )
+        == 2.0
     )
