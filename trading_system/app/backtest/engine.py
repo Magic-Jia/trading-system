@@ -1327,6 +1327,9 @@ def _replay_full_market_baseline_rows(
 ) -> BaselineReplayResult:
     if len(rows) < 2:
         return _empty_replay_result(config)
+    for previous, current in zip(rows, rows[1:], strict=False):
+        if current.timestamp <= previous.timestamp:
+            raise ValueError("full-market replay snapshot timestamps must be strictly increasing")
     disabled_engines = frozenset(config.experiment_params.disabled_engines) if config.experiment_params is not None else frozenset()
     allowed_short_setup_types = (
         frozenset(config.experiment_params.allowed_short_setup_types) if config.experiment_params is not None else frozenset()
