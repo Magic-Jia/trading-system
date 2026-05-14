@@ -486,9 +486,17 @@ def run_cost_stress_tests(
     scenarios: Iterable[CostStressScenario],
 ) -> tuple[CostStressResult, ...]:
     trades = tuple(trade_ledger)
+    scenario_tuple = tuple(scenarios)
+    if scenario_tuple:
+        seen_trade_ids: set[str] = set()
+        for trade in trades:
+            trade_id = _trade_id(trade)
+            if trade_id in seen_trade_ids:
+                raise ValueError(f"duplicate cost stress trade_id: {trade_id}")
+            seen_trade_ids.add(trade_id)
     results: list[CostStressResult] = []
     seen_scenario_names: set[str] = set()
-    for scenario in scenarios:
+    for scenario in scenario_tuple:
         if scenario.name in seen_scenario_names:
             raise ValueError(f"duplicate cost stress scenario name: {scenario.name}")
         seen_scenario_names.add(scenario.name)

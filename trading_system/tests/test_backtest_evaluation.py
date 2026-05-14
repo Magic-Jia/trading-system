@@ -269,6 +269,19 @@ def test_cost_stress_rejects_duplicate_scenario_names() -> None:
         )
 
 
+def test_cost_stress_rejects_duplicate_trade_ids() -> None:
+    trades = (
+        _trade("BTCUSDT", "2026-01-01T12:00:00Z", net_pnl=20.0),
+        _trade("BTCUSDT", "2026-01-01T12:00:00Z", net_pnl=-4.0),
+    )
+
+    with pytest.raises(ValueError, match=r"duplicate cost stress trade_id: BTCUSDT@2026-01-01T12:00:00\+00:00"):
+        run_cost_stress_tests(
+            trades,
+            (CostStressScenario(name="fees_2x", fee_multiplier=2.0),),
+        )
+
+
 def test_cost_stress_rejects_boolean_position_notional_before_stressed_risk_metrics() -> None:
     trade = dataclasses.replace(
         _trade("BTCUSDT", "2026-01-01T12:00:00Z", net_pnl=20.0),
