@@ -148,15 +148,14 @@ def render_backtest_evaluation_report(
         if not isinstance(bucket, Mapping):
             raise ValueError(f"regimes.buckets[{index}] must be an object")
         validated_bucket = dict(bucket)
-        if "label" in validated_bucket:
-            label = _canonical_report_string(
-                validated_bucket["label"],
-                field_name=f"regimes.buckets[{index}].label",
-            )
-            if label in regime_bucket_labels:
-                raise ValueError("regimes.buckets labels must be unique")
-            regime_bucket_labels.add(label)
-            validated_bucket["label"] = label
+        label = _canonical_report_string(
+            validated_bucket.get("label"),
+            field_name=f"regimes.buckets[{index}].label",
+        )
+        if label in regime_bucket_labels:
+            raise ValueError("regimes.buckets labels must be unique")
+        regime_bucket_labels.add(label)
+        validated_bucket["label"] = label
         if "trade_ids" in validated_bucket:
             trade_ids = _list_field(validated_bucket, "trade_ids", label=f"regimes.buckets[{index}].trade_ids")
             validated_bucket["trade_ids"] = [

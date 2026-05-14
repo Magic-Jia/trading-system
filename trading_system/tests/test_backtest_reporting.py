@@ -360,6 +360,19 @@ def test_backtest_evaluation_report_rejects_invalid_regime_buckets_shape() -> No
         )
 
 
+def test_backtest_evaluation_report_requires_regime_bucket_label() -> None:
+    with pytest.raises(ValueError, match=r"regimes\.buckets\[0\]\.label must be a canonical string"):
+        reporting.render_backtest_evaluation_report(
+            experiment_name="evaluation",
+            evaluation={
+                "walk_forward": {"metadata": {"window_count": 1}},
+                "regimes": {"buckets": [{"row_count": 1}]},
+                "cost_stress": {"scenarios": []},
+            },
+            metadata={"dataset_root": "dataset"},
+        )
+
+
 def test_backtest_evaluation_report_rejects_non_object_regime_bucket_row() -> None:
     with pytest.raises(ValueError, match=r"regimes\.buckets\[0\] must be an object"):
         reporting.render_backtest_evaluation_report(
