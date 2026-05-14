@@ -1092,6 +1092,34 @@ def test_execution_fill_rejects_no_fill_with_fill_price() -> None:
 
 
 @pytest.mark.parametrize(
+    ("filled_quantity", "unfilled_quantity"),
+    [
+        (1.5, 0.4),
+        (2.1, 0.0),
+    ],
+)
+def test_execution_fill_rejects_quantity_conservation_break(
+    filled_quantity: float,
+    unfilled_quantity: float,
+) -> None:
+    with pytest.raises(ValueError, match="fill quantities must conserve requested quantity"):
+        ExecutionFill(
+            symbol="BTCUSDT",
+            side="buy",
+            quantity=2.0,
+            filled=True,
+            fill_price=100.0,
+            fill_model="taker_orderbook_depth",
+            execution_price_source="ask_depth",
+            fill_quality="partial_evidence_backed",
+            outcome="filled",
+            requested_quantity=2.0,
+            filled_quantity=filled_quantity,
+            unfilled_quantity=unfilled_quantity,
+        )
+
+
+@pytest.mark.parametrize(
     ("field", "value", "match"),
     [
         ("quantity", True, "quantity must be a non-negative finite number"),

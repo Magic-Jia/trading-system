@@ -170,6 +170,19 @@ class ExecutionFill:
                 _non_negative_finite_float(field_name, value)
         if self.slippage_bps is not None:
             object.__setattr__(self, "slippage_bps", _finite_float("slippage_bps", self.slippage_bps))
+        if (
+            self.requested_quantity is not None
+            and self.requested_notional is None
+            and self.filled_quantity is not None
+            and self.unfilled_quantity is not None
+            and not math.isclose(
+                float(self.requested_quantity),
+                float(self.filled_quantity) + float(self.unfilled_quantity),
+                rel_tol=0.0,
+                abs_tol=1e-9,
+            )
+        ):
+            raise ValueError("fill quantities must conserve requested quantity")
 
     @property
     def execution_provenance(self) -> dict[str, str]:
