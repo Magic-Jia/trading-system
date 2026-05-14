@@ -66,6 +66,7 @@ def _validate_source_path(value: Path, *, field_name: str) -> None:
 
 
 def _validate_source_paths(source_paths: RuntimeBundleSourcePaths) -> None:
+    resolved_paths: list[Path] = []
     for source_path, field_name in (
         (source_paths.account_snapshot, "account_snapshot"),
         (source_paths.market_context, "market_context"),
@@ -73,6 +74,9 @@ def _validate_source_paths(source_paths: RuntimeBundleSourcePaths) -> None:
         (source_paths.runtime_state, "runtime_state"),
     ):
         _validate_source_path(source_path, field_name=field_name)
+        resolved_paths.append(source_path.resolve())
+    if len(set(resolved_paths)) != len(resolved_paths):
+        raise ValueError("runtime bundle source artifact paths must be unique")
 
 
 def _optional_timestamp_string(payload: dict[str, Any], key: str, *, source_name: str) -> str:

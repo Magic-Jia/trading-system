@@ -294,6 +294,32 @@ def test_archive_runtime_bundle_rejects_unsafe_source_path_metadata_before_writi
     assert not paths.archive_runtime_bundles_dir.exists()
 
 
+def test_archive_runtime_bundle_rejects_duplicate_source_artifacts_before_writing_metadata(
+    tmp_path: Path,
+    account_snapshot_v2: dict,
+    market_context_v2: dict,
+    derivatives_snapshot_v2: dict,
+) -> None:
+    paths = build_runtime_paths("paper", runtime_root=tmp_path / "runtime", runtime_env="testnet")
+    valid_source_paths = _write_runtime_bundle_sources(
+        paths,
+        account_payload=account_snapshot_v2,
+        market_payload=market_context_v2,
+        derivatives_payload=derivatives_snapshot_v2,
+    )
+    source_paths = RuntimeBundleSourcePaths(
+        account_snapshot=valid_source_paths.account_snapshot,
+        market_context=valid_source_paths.account_snapshot,
+        derivatives_snapshot=valid_source_paths.derivatives_snapshot,
+        runtime_state=valid_source_paths.runtime_state,
+    )
+
+    with pytest.raises(ValueError, match="source artifact paths must be unique"):
+        archive_runtime_bundle(paths, source_paths, archived_at="2026-04-01T01:02:03Z")
+
+    assert not paths.archive_runtime_bundles_dir.exists()
+
+
 def test_archive_runtime_bundle_copies_inputs_into_immutable_strategy_bundle(
     tmp_path: Path,
     account_snapshot_v2: dict,
