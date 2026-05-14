@@ -41,12 +41,21 @@ def test_engine_rejects_coerced_futures_context_fields() -> None:
     with pytest.raises(ValueError, match="invalid futures context numeric field funding_rate"):
         backtest_engine._optional_futures_float("0.001", "funding_rate")
 
+    with pytest.raises(ValueError, match="invalid futures context numeric field funding_rate: True"):
+        backtest_engine._optional_futures_float(True, "funding_rate")
+
+    with pytest.raises(ValueError, match="invalid futures context numeric field funding_rate: non-finite value"):
+        backtest_engine._optional_futures_float(float("nan"), "funding_rate")
+
     with pytest.raises(ValueError, match="invalid futures context integer field funding_age_seconds"):
         backtest_engine._optional_futures_int(1.5, "funding_age_seconds")
 
+    with pytest.raises(ValueError, match="invalid futures context integer field funding_age_seconds: True"):
+        backtest_engine._optional_futures_int(True, "funding_age_seconds")
+
 
 def test_engine_rejects_negative_futures_context_age_seconds() -> None:
-    with pytest.raises(ValueError, match="invalid futures context integer field funding_age_seconds"):
+    with pytest.raises(ValueError, match="invalid futures context integer field funding_age_seconds: -1"):
         backtest_engine._optional_futures_int(-1, "funding_age_seconds")
 
 
@@ -115,6 +124,15 @@ def test_regime_dict_rejects_invalid_regime_override_shapes(override: Any) -> No
 
 
 def test_engine_funding_rate_rejects_coerced_derivative_fields() -> None:
+    row = DatasetSnapshotRow(
+        timestamp=backtest_engine._datetime_or_none("2026-03-10T00:00:00Z"),
+        run_id="run-1",
+        market={},
+        derivatives=["BTCUSDT"],
+    )
+    with pytest.raises(ValueError, match="derivative row must be an object"):
+        backtest_engine._funding_rate(row, "BTCUSDT")
+
     row = DatasetSnapshotRow(
         timestamp=backtest_engine._datetime_or_none("2026-03-10T00:00:00Z"),
         run_id="run-1",
@@ -460,6 +478,39 @@ def test_futures_context_rejects_non_string_derivative_context_keys() -> None:
 
     with pytest.raises(ValueError, match="derivative futures context keys must be strings"):
         backtest_engine._futures_context(row, "BTCUSDT")
+
+
+def test_futures_context_combines_symbol_overrides_with_derivative_context() -> None:
+    row = DatasetSnapshotRow(
+        timestamp=backtest_engine._datetime_or_none("2026-03-10T00:00:00Z"),
+        run_id="run-1",
+        market={
+            "symbols": {
+                "BTCUSDT": {
+                    "futures_context": {
+                        "funding_rate": 0.0003,
+                        "mark_price": 101.0,
+                    }
+                }
+            }
+        },
+        derivatives=[
+            {
+                "symbol": "BTCUSDT",
+                "funding_rate": 0.0001,
+                "mark_price": 100.5,
+                "open_interest_usdt": 25_000_000.0,
+                "open_interest_age_seconds": 4,
+            }
+        ],
+    )
+
+    context = backtest_engine._futures_context(row, "BTCUSDT")
+
+    assert context["funding_rate"] == pytest.approx(0.0003)
+    assert context["mark_price"] == pytest.approx(101.0)
+    assert context["open_interest_usdt"] == pytest.approx(25_000_000.0)
+    assert context["open_interest_age_seconds"] == 4
 
 
 def test_candidate_setup_type_rejects_coerced_fields() -> None:
