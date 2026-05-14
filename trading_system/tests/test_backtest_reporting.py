@@ -51,6 +51,10 @@ class _DuplicateKeyMapping(Mapping):
         return iter(self._pairs)
 
 
+class _StringSubclass(str):
+    pass
+
+
 def _ts(value: str) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(timezone.utc)
 
@@ -1240,11 +1244,41 @@ def test_full_market_report_rejects_string_cost_drag_return_metric() -> None:
         reporting.render_full_market_baseline_report(bad_result)
 
 
-def test_full_market_report_rejects_non_string_trade_symbol() -> None:
+def test_full_market_report_exposes_canonical_trade_ledger_payload() -> None:
+    report = reporting.render_full_market_baseline_report(sample_baseline_result())
+
+    assert {
+        key: report["trades"][0][key]
+        for key in (
+            "symbol",
+            "market_type",
+            "base_asset",
+            "side",
+            "status",
+            "engine",
+            "setup_type",
+            "entry_timestamp",
+            "exit_timestamp",
+        )
+    } == {
+        "symbol": "BTCUSDT",
+        "market_type": "spot",
+        "base_asset": "BTC",
+        "side": "long",
+        "status": "accepted",
+        "engine": "",
+        "setup_type": "",
+        "entry_timestamp": "2026-03-10T00:00:00+00:00",
+        "exit_timestamp": "2026-03-11T00:00:00+00:00",
+    }
+
+
+@pytest.mark.parametrize("symbol", [True, "", " BTCUSDT ", _StringSubclass("BTCUSDT")])
+def test_full_market_report_rejects_noncanonical_trade_symbol(symbol: object) -> None:
     result = sample_baseline_result()
     bad_result = BaselineReplayResult(
         portfolio_summary=result.portfolio_summary,
-        trade_ledger=(replace(result.trade_ledger[0], symbol=True),),  # type: ignore[arg-type]
+        trade_ledger=(replace(result.trade_ledger[0], symbol=symbol),),  # type: ignore[arg-type]
         rejection_ledger=result.rejection_ledger,
         cost_breakdown=result.cost_breakdown,
         gross_period_returns=result.gross_period_returns,
@@ -1255,11 +1289,12 @@ def test_full_market_report_rejects_non_string_trade_symbol() -> None:
         reporting.render_full_market_baseline_report(bad_result)
 
 
-def test_full_market_report_rejects_non_string_trade_market_type() -> None:
+@pytest.mark.parametrize("market_type", [True, "", " spot ", _StringSubclass("spot")])
+def test_full_market_report_rejects_noncanonical_trade_market_type(market_type: object) -> None:
     result = sample_baseline_result()
     bad_result = BaselineReplayResult(
         portfolio_summary=result.portfolio_summary,
-        trade_ledger=(replace(result.trade_ledger[0], market_type=True),),  # type: ignore[arg-type]
+        trade_ledger=(replace(result.trade_ledger[0], market_type=market_type),),  # type: ignore[arg-type]
         rejection_ledger=result.rejection_ledger,
         cost_breakdown=result.cost_breakdown,
         gross_period_returns=result.gross_period_returns,
@@ -1270,11 +1305,12 @@ def test_full_market_report_rejects_non_string_trade_market_type() -> None:
         reporting.render_full_market_baseline_report(bad_result)
 
 
-def test_full_market_report_rejects_non_string_trade_base_asset() -> None:
+@pytest.mark.parametrize("base_asset", [True, "", " BTC ", _StringSubclass("BTC")])
+def test_full_market_report_rejects_noncanonical_trade_base_asset(base_asset: object) -> None:
     result = sample_baseline_result()
     bad_result = BaselineReplayResult(
         portfolio_summary=result.portfolio_summary,
-        trade_ledger=(replace(result.trade_ledger[0], base_asset=True),),  # type: ignore[arg-type]
+        trade_ledger=(replace(result.trade_ledger[0], base_asset=base_asset),),  # type: ignore[arg-type]
         rejection_ledger=result.rejection_ledger,
         cost_breakdown=result.cost_breakdown,
         gross_period_returns=result.gross_period_returns,
@@ -1285,11 +1321,12 @@ def test_full_market_report_rejects_non_string_trade_base_asset() -> None:
         reporting.render_full_market_baseline_report(bad_result)
 
 
-def test_full_market_report_rejects_non_string_trade_side() -> None:
+@pytest.mark.parametrize("side", [True, "", " long ", _StringSubclass("long")])
+def test_full_market_report_rejects_noncanonical_trade_side(side: object) -> None:
     result = sample_baseline_result()
     bad_result = BaselineReplayResult(
         portfolio_summary=result.portfolio_summary,
-        trade_ledger=(replace(result.trade_ledger[0], side=True),),  # type: ignore[arg-type]
+        trade_ledger=(replace(result.trade_ledger[0], side=side),),  # type: ignore[arg-type]
         rejection_ledger=result.rejection_ledger,
         cost_breakdown=result.cost_breakdown,
         gross_period_returns=result.gross_period_returns,
@@ -1300,11 +1337,12 @@ def test_full_market_report_rejects_non_string_trade_side() -> None:
         reporting.render_full_market_baseline_report(bad_result)
 
 
-def test_full_market_report_rejects_invalid_trade_status() -> None:
+@pytest.mark.parametrize("status", [True, "", " accepted ", _StringSubclass("accepted")])
+def test_full_market_report_rejects_noncanonical_trade_status(status: object) -> None:
     result = sample_baseline_result()
     bad_result = BaselineReplayResult(
         portfolio_summary=result.portfolio_summary,
-        trade_ledger=(replace(result.trade_ledger[0], status=" accepted "),),
+        trade_ledger=(replace(result.trade_ledger[0], status=status),),  # type: ignore[arg-type]
         rejection_ledger=result.rejection_ledger,
         cost_breakdown=result.cost_breakdown,
         gross_period_returns=result.gross_period_returns,
@@ -1315,11 +1353,12 @@ def test_full_market_report_rejects_invalid_trade_status() -> None:
         reporting.render_full_market_baseline_report(bad_result)
 
 
-def test_full_market_report_rejects_whitespace_trade_engine() -> None:
+@pytest.mark.parametrize("engine", [True, " trend ", _StringSubclass("trend")])
+def test_full_market_report_rejects_noncanonical_trade_engine(engine: object) -> None:
     result = sample_baseline_result()
     bad_result = BaselineReplayResult(
         portfolio_summary=result.portfolio_summary,
-        trade_ledger=(replace(result.trade_ledger[0], engine=" trend "),),
+        trade_ledger=(replace(result.trade_ledger[0], engine=engine),),  # type: ignore[arg-type]
         rejection_ledger=result.rejection_ledger,
         cost_breakdown=result.cost_breakdown,
         gross_period_returns=result.gross_period_returns,
@@ -1330,7 +1369,7 @@ def test_full_market_report_rejects_whitespace_trade_engine() -> None:
         reporting.render_full_market_baseline_report(bad_result)
 
 
-@pytest.mark.parametrize("setup_type", [" TREND_PULLBACK ", True])
+@pytest.mark.parametrize("setup_type", [" TREND_PULLBACK ", True, _StringSubclass("TREND_PULLBACK")])
 def test_full_market_report_rejects_invalid_trade_setup_type(setup_type: object) -> None:
     result = sample_baseline_result()
     bad_result = BaselineReplayResult(
@@ -1344,6 +1383,146 @@ def test_full_market_report_rejects_invalid_trade_setup_type(setup_type: object)
 
     with pytest.raises(ValueError, match=r"trades\[0\]\.setup_type must be a canonical string"):
         reporting.render_full_market_baseline_report(bad_result)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("entry_price", True),
+        ("entry_price", "100.0"),
+        ("exit_price", float("nan")),
+        ("qty", True),
+        ("position_notional", float("inf")),
+        ("gross_pnl", True),
+        ("net_pnl", float("-inf")),
+        ("fee_paid", True),
+        ("slippage_paid", "4.0"),
+        ("funding_paid", float("nan")),
+    ],
+)
+def test_full_market_report_rejects_nonfinite_or_coerced_trade_evidence_numbers(
+    field: str,
+    value: object,
+) -> None:
+    result = sample_baseline_result()
+    bad_result = BaselineReplayResult(
+        portfolio_summary=result.portfolio_summary,
+        trade_ledger=(replace(result.trade_ledger[0], **{field: value}),),  # type: ignore[arg-type]
+        rejection_ledger=result.rejection_ledger,
+        cost_breakdown=result.cost_breakdown,
+        gross_period_returns=result.gross_period_returns,
+        net_period_returns=result.net_period_returns,
+    )
+
+    with pytest.raises(ValueError, match=rf"trades\[0\]\.{field} must be a finite number"):
+        reporting.render_full_market_baseline_report(bad_result)
+
+
+def test_full_market_report_breakdowns_aggregate_from_trade_ledger_with_deterministic_keys() -> None:
+    result = sample_baseline_result()
+    first = replace(result.trade_ledger[0], engine="trend", setup_type="TREND_PULLBACK")
+    second = replace(
+        result.trade_ledger[1],
+        market_type="spot",
+        engine="mean_reversion",
+        setup_type="RANGE_REVERSION",
+        gross_pnl=7.0,
+        net_pnl=3.0,
+        fee_paid=1.25,
+        slippage_paid=0.5,
+        funding_paid=0.75,
+    )
+    third = replace(
+        result.trade_ledger[2],
+        market_type="futures",
+        engine="trend",
+        setup_type="TREND_PULLBACK",
+        gross_pnl=-2.0,
+        net_pnl=-5.0,
+        fee_paid=0.25,
+        slippage_paid=0.75,
+        funding_paid=2.0,
+    )
+    focused_result = BaselineReplayResult(
+        portfolio_summary=result.portfolio_summary,
+        trade_ledger=(first, second, third),
+        rejection_ledger=result.rejection_ledger,
+        cost_breakdown=result.cost_breakdown,
+        gross_period_returns=result.gross_period_returns,
+        net_period_returns=result.net_period_returns,
+    )
+
+    report = reporting.render_full_market_baseline_report(focused_result)
+
+    assert report["breakdowns"]["by_market"] == [
+        {
+            "market_type": "futures",
+            "trade_count": 1,
+            "gross_pnl": -2.0,
+            "net_pnl": -5.0,
+            "fees": 0.25,
+            "slippage": 0.75,
+            "funding": 2.0,
+        },
+        {
+            "market_type": "spot",
+            "trade_count": 2,
+            "gross_pnl": 107.0,
+            "net_pnl": 93.0,
+            "fees": 2.25,
+            "slippage": 4.5,
+            "funding": 0.75,
+        },
+    ]
+    assert report["breakdowns"]["by_symbol"] == [
+        {
+            "symbol": "BTCUSDT",
+            "trade_count": 1,
+            "gross_pnl": 100.0,
+            "net_pnl": 90.0,
+            "fees": 1.0,
+            "slippage": 4.0,
+            "funding": 0.0,
+        },
+        {
+            "symbol": "BTCUSDTPERP",
+            "trade_count": 1,
+            "gross_pnl": 7.0,
+            "net_pnl": 3.0,
+            "fees": 1.25,
+            "slippage": 0.5,
+            "funding": 0.75,
+        },
+        {
+            "symbol": "ETHUSDT",
+            "trade_count": 1,
+            "gross_pnl": -2.0,
+            "net_pnl": -5.0,
+            "fees": 0.25,
+            "slippage": 0.75,
+            "funding": 2.0,
+        },
+    ]
+    assert report["breakdowns"]["by_setup_type"] == [
+        {
+            "setup_type": "RANGE_REVERSION",
+            "trade_count": 1,
+            "gross_pnl": 7.0,
+            "net_pnl": 3.0,
+            "fees": 1.25,
+            "slippage": 0.5,
+            "funding": 0.75,
+        },
+        {
+            "setup_type": "TREND_PULLBACK",
+            "trade_count": 2,
+            "gross_pnl": 98.0,
+            "net_pnl": 85.0,
+            "fees": 1.25,
+            "slippage": 4.75,
+            "funding": 2.0,
+        },
+    ]
 
 
 def test_full_market_report_rejects_non_string_rejection_reason() -> None:

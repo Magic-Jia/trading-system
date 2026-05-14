@@ -225,15 +225,20 @@ def _trade_breakdown_rows(
     key_name: str,
     key_fn: Callable[[TradeLedgerRow], Any],
     canonical_string_key: bool = False,
+    optional_empty_string_key: bool = False,
 ) -> list[dict[str, Any]]:
     buckets: dict[str, dict[str, float | int | str]] = {}
     for index, row in enumerate(trade_ledger):
         raw_bucket_key = key_fn(row)
-        bucket_key = (
-            _canonical_report_string(raw_bucket_key, field_name=f"trades[{index}].{key_name}")
-            if canonical_string_key
-            else str(raw_bucket_key)
-        )
+        if optional_empty_string_key:
+            bucket_key = _canonical_optional_empty_report_string(
+                raw_bucket_key,
+                field_name=f"trades[{index}].{key_name}",
+            )
+        elif canonical_string_key:
+            bucket_key = _canonical_report_string(raw_bucket_key, field_name=f"trades[{index}].{key_name}")
+        else:
+            bucket_key = str(raw_bucket_key)
         bucket = buckets.setdefault(
             bucket_key,
             {
@@ -247,11 +252,26 @@ def _trade_breakdown_rows(
             },
         )
         bucket["trade_count"] = int(bucket["trade_count"]) + 1
-        bucket["gross_pnl"] = float(bucket["gross_pnl"]) + row.gross_pnl
-        bucket["net_pnl"] = float(bucket["net_pnl"]) + row.net_pnl
-        bucket["fees"] = float(bucket["fees"]) + row.fee_paid
-        bucket["slippage"] = float(bucket["slippage"]) + row.slippage_paid
-        bucket["funding"] = float(bucket["funding"]) + row.funding_paid
+        bucket["gross_pnl"] = float(bucket["gross_pnl"]) + _trade_finite_float(
+            row.gross_pnl,
+            field_name=f"trades[{index}].gross_pnl",
+        )
+        bucket["net_pnl"] = float(bucket["net_pnl"]) + _trade_finite_float(
+            row.net_pnl,
+            field_name=f"trades[{index}].net_pnl",
+        )
+        bucket["fees"] = float(bucket["fees"]) + _trade_finite_float(
+            row.fee_paid,
+            field_name=f"trades[{index}].fee_paid",
+        )
+        bucket["slippage"] = float(bucket["slippage"]) + _trade_finite_float(
+            row.slippage_paid,
+            field_name=f"trades[{index}].slippage_paid",
+        )
+        bucket["funding"] = float(bucket["funding"]) + _trade_finite_float(
+            row.funding_paid,
+            field_name=f"trades[{index}].funding_paid",
+        )
     return [buckets[key] for key in sorted(buckets)]
 
 
@@ -265,15 +285,21 @@ def _trade_ledger_payload(trade_ledger: tuple[TradeLedgerRow, ...]) -> list[dict
             "status": _canonical_report_string(row.status, field_name=f"trades[{index}].status"),
             "entry_timestamp": row.entry_timestamp.isoformat(),
             "exit_timestamp": row.exit_timestamp.isoformat(),
-            "entry_price": row.entry_price,
-            "exit_price": row.exit_price,
-            "qty": row.qty,
-            "position_notional": row.position_notional,
-            "gross_pnl": row.gross_pnl,
-            "net_pnl": row.net_pnl,
-            "fee_paid": row.fee_paid,
-            "slippage_paid": row.slippage_paid,
-            "funding_paid": row.funding_paid,
+            "entry_price": _trade_finite_float(row.entry_price, field_name=f"trades[{index}].entry_price"),
+            "exit_price": _trade_finite_float(row.exit_price, field_name=f"trades[{index}].exit_price"),
+            "qty": _trade_finite_float(row.qty, field_name=f"trades[{index}].qty"),
+            "position_notional": _trade_finite_float(
+                row.position_notional,
+                field_name=f"trades[{index}].position_notional",
+            ),
+            "gross_pnl": _trade_finite_float(row.gross_pnl, field_name=f"trades[{index}].gross_pnl"),
+            "net_pnl": _trade_finite_float(row.net_pnl, field_name=f"trades[{index}].net_pnl"),
+            "fee_paid": _trade_finite_float(row.fee_paid, field_name=f"trades[{index}].fee_paid"),
+            "slippage_paid": _trade_finite_float(
+                row.slippage_paid,
+                field_name=f"trades[{index}].slippage_paid",
+            ),
+            "funding_paid": _trade_finite_float(row.funding_paid, field_name=f"trades[{index}].funding_paid"),
             "engine": _canonical_optional_empty_report_string(row.engine, field_name=f"trades[{index}].engine"),
             "setup_type": _canonical_optional_empty_report_string(
                 row.setup_type, field_name=f"trades[{index}].setup_type"
@@ -394,6 +420,18 @@ def render_full_market_baseline_report(result: BaselineReplayResult) -> dict[str
                 key_fn=lambda row: row.market_type,
                 canonical_string_key=True,
             ),
+            "by_symbol": _trade_breakdown_rows(
+                result.trade_ledger,
+                key_name="symbol",
+                key_fn=lambda row: row.symbol,
+                canonical_string_key=True,
+            ),
+            "by_setup_type": _trade_breakdown_rows(
+                result.trade_ledger,
+                key_name="setup_type",
+                key_fn=lambda row: row.setup_type,
+                optional_empty_string_key=True,
+            ),
             "by_year": _trade_breakdown_rows(result.trade_ledger, key_name="year", key_fn=lambda row: row.exit_timestamp.year),
         },
         "audit": {
@@ -512,7 +550,7 @@ def _promotion_metadata_sections(metadata: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _canonical_report_string(value: object, *, field_name: str) -> str:
-    if not isinstance(value, str):
+    if type(value) is not str:
         raise ValueError(f"{field_name} must be a canonical string")
     if not value or value.strip() != value:
         raise ValueError(f"{field_name} must be a canonical string")
@@ -528,13 +566,13 @@ def _optional_canonical_report_string(value: object, *, field_name: str) -> str 
 def _optional_supported_report_string(value: object, *, field_name: str, allowed: frozenset[str]) -> str | None:
     if value is None:
         return None
-    if not isinstance(value, str) or not value or value.strip() != value or value not in allowed:
+    if type(value) is not str or not value or value.strip() != value or value not in allowed:
         raise ValueError(f"{field_name} must be a supported canonical string")
     return value
 
 
 def _canonical_optional_empty_report_string(value: object, *, field_name: str) -> str:
-    if not isinstance(value, str):
+    if type(value) is not str:
         raise ValueError(f"{field_name} must be a canonical string")
     if value.strip() != value:
         raise ValueError(f"{field_name} must be a canonical string")
@@ -768,6 +806,10 @@ def _strict_present_finite_float(value: Any, *, field_name: str) -> float:
     if not math.isfinite(parsed):
         raise ValueError(f"{field_name} must be a finite number")
     return parsed
+
+
+def _trade_finite_float(value: Any, *, field_name: str) -> float:
+    return _strict_present_finite_float(value, field_name=field_name)
 
 
 def _strict_bounded_ratio_float(value: Any, *, field_name: str) -> float:
