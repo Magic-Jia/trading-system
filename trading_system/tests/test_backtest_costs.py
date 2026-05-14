@@ -12,18 +12,20 @@ class _StringSubclass(str):
     pass
 
 
-def test_fee_bps_rejects_non_string_market_type() -> None:
+@pytest.mark.parametrize("market_type", [True, "", " futures", "futures "])
+def test_fee_bps_rejects_noncanonical_market_type(market_type: object) -> None:
     costs = BacktestCosts(fee_bps_by_market={"True": 99.0})
 
     with pytest.raises(ValueError, match="market_type must be a string"):
-        fee_bps_for_market(costs, True)  # type: ignore[arg-type]
+        fee_bps_for_market(costs, market_type)  # type: ignore[arg-type]
 
 
-def test_slippage_bps_rejects_non_string_liquidity_tier() -> None:
+@pytest.mark.parametrize("liquidity_tier", [True, "", " high", "high "])
+def test_slippage_bps_rejects_noncanonical_liquidity_tier(liquidity_tier: object) -> None:
     costs = BacktestCosts(slippage_bps_by_tier={"true": 99.0})
 
     with pytest.raises(ValueError, match="liquidity_tier must be a string"):
-        slippage_bps_for_tier(costs, True)  # type: ignore[arg-type]
+        slippage_bps_for_tier(costs, liquidity_tier)  # type: ignore[arg-type]
 
 
 @pytest.mark.parametrize("fee_bps", [True, "7.5", math.nan, math.inf, -math.inf, -1.0])
@@ -51,6 +53,13 @@ def test_trade_costs_reject_invalid_position_notional(position_notional: object)
 
     with pytest.raises(ValueError, match="position_notional must be a non-negative finite number"):
         slippage_cost(position_notional=position_notional, liquidity_tier="high", costs=costs)  # type: ignore[arg-type]
+
+
+def test_trade_costs_return_zero_for_zero_notional() -> None:
+    costs = BacktestCosts(fee_bps_by_market={"futures": 5.0}, slippage_bps_by_tier={"high": 10.0})
+
+    assert fee_cost(position_notional=0.0, market_type="futures", costs=costs) == 0.0
+    assert slippage_cost(position_notional=0.0, liquidity_tier="high", costs=costs) == 0.0
 
 
 def test_funding_cost_rejects_negative_position_notional() -> None:
@@ -142,6 +151,10 @@ def test_funding_cost_rejects_invalid_numeric_inputs_before_zero_funding_short_c
         ("spot", "LONG", None, "side must be a valid portfolio side"),
         ("spot", "", None, "side must be a valid portfolio side"),
         ("spot", _StringSubclass("long"), None, "side must be a valid portfolio side"),
+        (True, "long", None, "market_type must be a string"),
+        ("", "long", None, "market_type must be a string"),
+        (" futures", "long", None, "market_type must be a string"),
+        ("futures ", "long", None, "market_type must be a string"),
         ("perps", "long", None, "market_type must be spot or futures"),
         (_StringSubclass("spot"), "long", None, "market_type must be a string"),
         ("spot", "long", "disabled", "funding_mode must be historical_series or None"),
@@ -165,3 +178,66 @@ def test_funding_cost_rejects_invalid_domain_inputs_before_zero_funding_short_ci
             holding_hours=0.0,
             costs=costs,
         )
+
+
+@pytest.mark.parametrize(
+    ("market_type", "funding_mode", "funding_rate", "holding_hours"),
+    [
+        ("spot", "historical_series", 0.001, 8.0),
+        ("futures", None, 0.001, 8.0),
+        ("futures", "historical_series", 0.001, 0.0),
+        ("futures", "historical_series", 0.0, 8.0),
+    ],
+)
+def test_funding_cost_returns_zero_for_inactive_funding_cases(
+    market_type: str,
+    funding_mode: str | None,
+    funding_rate: float,
+    holding_hours: float,
+) -> None:
+    costs = BacktestCosts(funding_mode=funding_mode)  # type: ignore[arg-type]
+
+    assert (
+        funding_cost(
+            position_notional=1_000.0,
+            market_type=market_type,
+            side="long",
+            funding_rate=funding_rate,
+            holding_hours=holding_hours,
+            costs=costs,
+        )
+        == 0.0
+    )
+
+
+def test_costs_apply_two_sided_fee_slippage_and_directional_historical_funding() -> None:
+    costs = BacktestCosts(
+        fee_bps_by_market={"futures": 5.0},
+        slippage_bps_by_tier={"high": 10.0},
+        funding_mode="historical_series",
+    )
+
+    assert fee_cost(position_notional=1_000.0, market_type="futures", costs=costs) == 1.0
+    assert slippage_cost(position_notional=1_000.0, liquidity_tier="HIGH", costs=costs) == 2.0
+    assert (
+        funding_cost(
+            position_notional=1_000.0,
+            market_type="futures",
+            side="long",
+            funding_rate=0.001,
+            holding_hours=16.0,
+            costs=costs,
+        )
+        == 2.0
+    )
+    assert (
+        funding_cost(
+            position_notional=1_000.0,
+            market_type="futures",
+            side="short",
+            funding_rate=0.001,
+            holding_hours=16.0,
+            costs=costs,
+        )
+        == -2.0
+    )
