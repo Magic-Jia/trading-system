@@ -40,6 +40,26 @@ def test_backtest_metrics_are_deterministic() -> None:
     assert cost_drag([0.06, -0.01, 0.04], [0.05, -0.015, 0.032]) == pytest.approx(0.02403, rel=1e-4)
 
 
+@pytest.mark.parametrize(
+    ("metric_fn", "bad_returns", "expected_message"),
+    [
+        (total_return, [0.01, float("nan")], r"returns\[1\] must be a finite number"),
+        (max_drawdown, [0.01, float("inf")], r"returns\[1\] must be a finite number"),
+        (sharpe_ratio, [0.01, True], r"returns\[1\] must be a finite number"),
+        (sortino_ratio, [0.01, float("-inf")], r"returns\[1\] must be a finite number"),
+        (expectancy, [0.01, True], r"trade_returns\[1\] must be a finite number"),
+        (payoff_ratio, [0.01, float("nan")], r"trade_returns\[1\] must be a finite number"),
+    ],
+)
+def test_backtest_metrics_reject_nonfinite_or_boolean_series_values(
+    metric_fn: Any,
+    bad_returns: list[object],
+    expected_message: str,
+) -> None:
+    with pytest.raises(ValueError, match=expected_message):
+        metric_fn(bad_returns)
+
+
 def _write_market_bundle(
     dataset_root: Path,
     *,
