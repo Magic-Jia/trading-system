@@ -274,6 +274,43 @@ def test_microstructure_gate_fails_closed_for_zero_required_interval_coverage() 
     assert "required_interval_coverage_zero:1m" in gate["reasons"]
 
 
+@pytest.mark.parametrize(
+    ("manifest_updates", "expected_reason"),
+    [
+        (
+            {"required_intervals": ["1m"], "interval_coverage": []},
+            "required_interval_coverage_missing:1m",
+        ),
+        (
+            {
+                "required_intervals": ["1m"],
+                "interval_coverage": [
+                    {
+                        **_valid_interval_row(),
+                        "coverage": {
+                            "l2_snapshot_coverage": 1.0,
+                            "l2_update_coverage": 0.98,
+                            "tick_coverage": 1.0,
+                        },
+                    }
+                ],
+            },
+            "required_interval_coverage_below_threshold:1m",
+        ),
+    ],
+)
+def test_microstructure_gate_fails_closed_for_required_interval_coverage_reasons(
+    manifest_updates: dict[str, object], expected_reason: str
+) -> None:
+    gate = build_microstructure_gate(
+        _complete_coverage_manifest(**manifest_updates),
+        min_coverage=0.99,
+    )
+
+    assert gate["checks"]["l2_tick_coverage_met"] is False
+    assert expected_reason in gate["reasons"]
+
+
 def test_microstructure_gate_rejects_string_interval_coverage_counter() -> None:
     with pytest.raises(ValueError, match="interval_coverage\\[1\\] l2_update_coverage must be a number"):
         build_microstructure_gate(
@@ -472,6 +509,11 @@ def test_rejects_invalid_coverage_values() -> None:
         )
 
 
+def test_microstructure_gate_rejects_non_mapping_coverage() -> None:
+    with pytest.raises(ValueError, match="^coverage must be a mapping$"):
+        build_microstructure_gate({"coverage": "not-a-mapping"})
+
+
 @pytest.mark.parametrize("non_finite", [math.nan, math.inf, -math.inf])
 def test_rejects_non_finite_coverage_values(non_finite: float) -> None:
     with pytest.raises(ValueError, match="l2_snapshot_coverage must be between 0 and 1"):
@@ -608,6 +650,31 @@ def test_depth_fill_rejects_crossed_book() -> None:
             reference_price=100.0,
             bids=[{"price": 100.2, "quantity": 1.0}],
             asks=[{"price": 100.1, "quantity": 1.0}],
+        )
+
+
+@pytest.mark.parametrize(
+    ("level", "expected_error"),
+    [
+        ("not-a-level", "book level 0 must be a mapping"),
+        ({"price": "100.0", "quantity": 1.0}, "book level 0 price must be a positive number"),
+        ({"price": 0.0, "quantity": 1.0}, "book level 0 price must be a positive number"),
+        ({"price": -100.0, "quantity": 1.0}, "book level 0 price must be a positive number"),
+        ({"price": 100.0, "quantity": "1.0"}, "book level 0 quantity must be a positive number"),
+        ({"price": 100.0, "quantity": 0.0}, "book level 0 quantity must be a positive number"),
+        ({"price": 100.0, "quantity": -1.0}, "book level 0 quantity must be a positive number"),
+    ],
+)
+def test_depth_fill_rejects_invalid_book_level_contracts(
+    level: object, expected_error: str
+) -> None:
+    with pytest.raises(ValueError, match=f"^{expected_error}$"):
+        simulate_depth_driven_taker_fill(
+            side="buy",
+            quantity=1.0,
+            reference_price=100.0,
+            bids=[],
+            asks=[level],
         )
 
 
@@ -1095,6 +1162,30 @@ def test_microstructure_gate_rejects_string_consumed_level_price() -> None:
         assert "depth_driven_taker_fills consumed_levels price must be a number" in str(exc)
     else:
         raise AssertionError("expected string consumed level price to be rejected")
+
+
+def test_microstructure_gate_rejects_string_consumed_level_quantity() -> None:
+    with pytest.raises(
+        ValueError,
+        match="depth_driven_taker_fills consumed_levels quantity must be a number",
+    ):
+        build_microstructure_gate(
+            {
+                "coverage": {
+                    "l2_snapshot_coverage": 0.99,
+                    "l2_update_coverage": 0.99,
+                    "tick_coverage": 0.99,
+                },
+                "depth_driven_taker_fills": [
+                    {
+                        "complete": True,
+                        "side": "buy",
+                        "consumed_levels": [{"price": 100.0, "quantity": "1.0"}],
+                    }
+                ],
+            }
+        )
+
 
 @pytest.mark.parametrize("non_finite", [math.nan, math.inf, -math.inf])
 def test_microstructure_gate_rejects_non_finite_consumed_level_price(non_finite: float) -> None:
