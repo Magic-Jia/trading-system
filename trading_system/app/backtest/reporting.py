@@ -157,6 +157,33 @@ def render_backtest_evaluation_report(
                 raise ValueError("regimes.buckets labels must be unique")
             regime_bucket_labels.add(label)
             validated_bucket["label"] = label
+        if "trade_ids" in validated_bucket:
+            trade_ids = _list_field(validated_bucket, "trade_ids", label=f"regimes.buckets[{index}].trade_ids")
+            validated_bucket["trade_ids"] = [
+                _canonical_report_string(
+                    trade_id,
+                    field_name=f"regimes.buckets[{index}].trade_ids[{trade_id_index}]",
+                )
+                for trade_id_index, trade_id in enumerate(trade_ids)
+            ]
+            metrics = validated_bucket.get("metrics")
+            if metrics is not None:
+                if not isinstance(metrics, Mapping):
+                    raise ValueError(f"regimes.buckets[{index}].metrics must be an object")
+                validated_metrics = _strict_mapping_copy(metrics, field_name=f"regimes.buckets[{index}].metrics")
+                if "trade_count" in validated_metrics:
+                    trade_count = _non_negative_int_field(
+                        validated_metrics,
+                        "trade_count",
+                        label=f"regimes.buckets[{index}].metrics",
+                    )
+                    if trade_count != len(trade_ids):
+                        raise ValueError(
+                            f"regimes.buckets[{index}].metrics.trade_count must match "
+                            f"regimes.buckets[{index}].trade_ids length"
+                        )
+                    validated_metrics["trade_count"] = trade_count
+                validated_bucket["metrics"] = validated_metrics
         validated_regime_buckets.append(validated_bucket)
     validated_regimes = dict(regimes)
     validated_regimes["buckets"] = validated_regime_buckets
