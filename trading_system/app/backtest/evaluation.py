@@ -254,6 +254,9 @@ def _ledger_metrics(
     *,
     net_pnls: Sequence[float] | None = None,
     net_returns: Sequence[float] | None = None,
+    fees: Sequence[float] | None = None,
+    slippage: Sequence[float] | None = None,
+    funding: Sequence[float] | None = None,
 ) -> dict[str, float | int]:
     effective_net_pnls = (
         [_metric_number(value, f"net_pnls[{index}]") for index, value in enumerate(net_pnls)]
@@ -268,6 +271,27 @@ def _ledger_metrics(
             for index, trade in enumerate(trades)
         ]
     )
+    effective_fees = (
+        [_metric_number(value, f"fees[{index}]") for index, value in enumerate(fees)]
+        if fees is not None
+        else [_metric_number(trade.fee_paid, f"trades[{index}].fee_paid") for index, trade in enumerate(trades)]
+    )
+    effective_slippage = (
+        [_metric_number(value, f"slippage[{index}]") for index, value in enumerate(slippage)]
+        if slippage is not None
+        else [
+            _metric_number(trade.slippage_paid, f"trades[{index}].slippage_paid")
+            for index, trade in enumerate(trades)
+        ]
+    )
+    effective_funding = (
+        [_metric_number(value, f"funding[{index}]") for index, value in enumerate(funding)]
+        if funding is not None
+        else [
+            _metric_number(trade.funding_paid, f"trades[{index}].funding_paid")
+            for index, trade in enumerate(trades)
+        ]
+    )
     gross_returns = [
         _metric_number(trade.gross_return_pct, f"trades[{index}].gross_return_pct")
         for index, trade in enumerate(trades)
@@ -276,15 +300,9 @@ def _ledger_metrics(
         "trade_count": len(trades),
         "gross_pnl": round(sum(_metric_number(trade.gross_pnl, f"trades[{index}].gross_pnl") for index, trade in enumerate(trades)), 6),
         "net_pnl": round(sum(effective_net_pnls), 6),
-        "fees": round(sum(_metric_number(trade.fee_paid, f"trades[{index}].fee_paid") for index, trade in enumerate(trades)), 6),
-        "slippage": round(
-            sum(_metric_number(trade.slippage_paid, f"trades[{index}].slippage_paid") for index, trade in enumerate(trades)),
-            6,
-        ),
-        "funding": round(
-            sum(_metric_number(trade.funding_paid, f"trades[{index}].funding_paid") for index, trade in enumerate(trades)),
-            6,
-        ),
+        "fees": round(sum(effective_fees), 6),
+        "slippage": round(sum(effective_slippage), 6),
+        "funding": round(sum(effective_funding), 6),
         "total_gross_return": round(total_return(gross_returns), 6),
         "total_net_return": round(total_return(effective_net_returns), 6),
         "max_drawdown": round(max_drawdown(effective_net_returns), 6),
@@ -463,15 +481,6 @@ def evaluate_regime_buckets(
     )
 
 
-def _stressed_net_pnl(trade: TradeLedgerRow, scenario: CostStressScenario) -> float:
-    return (
-        float(trade.gross_pnl)
-        - float(trade.fee_paid) * scenario.fee_multiplier
-        - float(trade.slippage_paid) * scenario.slippage_multiplier
-        - float(trade.funding_paid) * scenario.funding_multiplier
-    )
-
-
 def run_cost_stress_tests(
     trade_ledger: Iterable[TradeLedgerRow],
     scenarios: Iterable[CostStressScenario],
@@ -483,7 +492,27 @@ def run_cost_stress_tests(
         if scenario.name in seen_scenario_names:
             raise ValueError(f"duplicate cost stress scenario name: {scenario.name}")
         seen_scenario_names.add(scenario.name)
-        stressed_net_pnls = [_stressed_net_pnl(trade, scenario) for trade in trades]
+        stressed_fees = [
+            _metric_number(trade.fee_paid, f"trades[{index}].fee_paid") * scenario.fee_multiplier
+            for index, trade in enumerate(trades)
+        ]
+        stressed_slippage = [
+            _metric_number(trade.slippage_paid, f"trades[{index}].slippage_paid") * scenario.slippage_multiplier
+            for index, trade in enumerate(trades)
+        ]
+        stressed_funding = [
+            _metric_number(trade.funding_paid, f"trades[{index}].funding_paid") * scenario.funding_multiplier
+            for index, trade in enumerate(trades)
+        ]
+        stressed_net_pnls = [
+            _metric_number(trade.gross_pnl, f"trades[{index}].gross_pnl")
+            - stressed_fee
+            - stressed_slippage_paid
+            - stressed_funding_paid
+            for index, (trade, stressed_fee, stressed_slippage_paid, stressed_funding_paid) in enumerate(
+                zip(trades, stressed_fees, stressed_slippage, stressed_funding, strict=True)
+            )
+        ]
         stressed_net_returns = [
             (
                 stressed_net_pnl / position_notional
@@ -499,17 +528,31 @@ def run_cost_stress_tests(
                 "entry_timestamp": trade.entry_timestamp.isoformat(),
                 "base_net_pnl": round(float(trade.net_pnl), 6),
                 "stressed_net_pnl": round(stressed_net_pnl, 6),
-                "fee_paid": trade.fee_paid,
-                "slippage_paid": trade.slippage_paid,
-                "funding_paid": trade.funding_paid,
+                "fee_paid": round(stressed_fee, 6),
+                "slippage_paid": round(stressed_slippage_paid, 6),
+                "funding_paid": round(stressed_funding_paid, 6),
             }
-            for trade, stressed_net_pnl in zip(trades, stressed_net_pnls, strict=True)
+            for trade, stressed_net_pnl, stressed_fee, stressed_slippage_paid, stressed_funding_paid in zip(
+                trades,
+                stressed_net_pnls,
+                stressed_fees,
+                stressed_slippage,
+                stressed_funding,
+                strict=True,
+            )
         )
         results.append(
             CostStressResult(
                 scenario=scenario,
                 base_metrics=_ledger_metrics(trades),
-                stressed_metrics=_ledger_metrics(trades, net_pnls=stressed_net_pnls, net_returns=stressed_net_returns),
+                stressed_metrics=_ledger_metrics(
+                    trades,
+                    net_pnls=stressed_net_pnls,
+                    net_returns=stressed_net_returns,
+                    fees=stressed_fees,
+                    slippage=stressed_slippage,
+                    funding=stressed_funding,
+                ),
                 stressed_trades=stressed_trades,
             )
         )

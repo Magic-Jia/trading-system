@@ -124,6 +124,14 @@ def test_walk_forward_evaluation_returns_insufficient_status_for_short_dataset()
     assert result.reason == "dataset shorter than train_size + test_size"
     assert result.windows == ()
     assert result.to_dict()["status"] == "insufficient_data"
+    assert result.metadata == {
+        "row_count": 2,
+        "window_count": 0,
+        "train_size": 2,
+        "test_size": 2,
+        "step_size": 2,
+        "trade_timestamp_basis": "entry_timestamp",
+    }
 
 
 def test_walk_forward_metrics_use_train_and_test_period_trades_separately() -> None:
@@ -153,6 +161,28 @@ def test_walk_forward_metrics_use_train_and_test_period_trades_separately() -> N
     assert result.windows[1].out_of_sample_metrics["trade_count"] == 0
 
 
+def test_walk_forward_evaluation_uses_entry_timestamp_with_end_exclusive_boundaries() -> None:
+    rows = [_row(0), _row(1)]
+    trades = (
+        _trade("BTCUSDT", "2026-01-01T00:00:00Z", net_pnl=1.0),
+        _trade("ETHUSDT", "2026-01-02T00:00:00Z", net_pnl=2.0),
+        _trade("SOLUSDT", "2026-01-03T00:00:00Z", net_pnl=3.0),
+    )
+
+    result = build_walk_forward_evaluation(
+        rows=rows,
+        trade_ledger=trades,
+        train_size=1,
+        test_size=1,
+    )
+
+    assert result.status == "ok"
+    assert result.windows[0].in_sample_trade_ids == ("BTCUSDT@2026-01-01T00:00:00+00:00",)
+    assert result.windows[0].out_of_sample_trade_ids == ("ETHUSDT@2026-01-02T00:00:00+00:00",)
+    assert result.windows[0].in_sample_metrics["net_pnl"] == pytest.approx(1.0)
+    assert result.windows[0].out_of_sample_metrics["net_pnl"] == pytest.approx(2.0)
+
+
 def test_cost_stress_scenarios_do_not_mutate_original_trades() -> None:
     trades = (_trade("BTCUSDT", "2026-01-01T12:00:00Z", net_pnl=20.0, costs=(1.0, 2.0, 3.0)),)
     scenario = CostStressScenario(name="double_costs", fee_multiplier=2.0, slippage_multiplier=2.0, funding_multiplier=2.0)
@@ -167,6 +197,30 @@ def test_cost_stress_scenarios_do_not_mutate_original_trades() -> None:
     assert stressed[0].stressed_metrics["total_net_return"] == pytest.approx(0.14)
     assert stressed[0].stressed_trades[0]["base_net_pnl"] == pytest.approx(20.0)
     assert stressed[0].stressed_trades[0]["stressed_net_pnl"] == pytest.approx(14.0)
+
+
+def test_cost_stress_applies_multipliers_to_cost_outputs_and_recomputed_net_pnl() -> None:
+    trades = (_trade("BTCUSDT", "2026-01-01T12:00:00Z", net_pnl=20.0, costs=(1.0, 2.0, 3.0)),)
+    scenario = CostStressScenario(name="mixed_costs", fee_multiplier=2, slippage_multiplier=3, funding_multiplier=4)
+
+    result = run_cost_stress_tests(trades, [scenario])[0]
+
+    assert scenario.to_dict() == {
+        "name": "mixed_costs",
+        "fee_multiplier": 2.0,
+        "slippage_multiplier": 3.0,
+        "funding_multiplier": 4.0,
+    }
+    assert result.stressed_trades[0]["fee_paid"] == pytest.approx(2.0)
+    assert result.stressed_trades[0]["slippage_paid"] == pytest.approx(6.0)
+    assert result.stressed_trades[0]["funding_paid"] == pytest.approx(12.0)
+    assert result.stressed_trades[0]["stressed_net_pnl"] == pytest.approx(6.0)
+    assert result.stressed_metrics["fees"] == pytest.approx(2.0)
+    assert result.stressed_metrics["slippage"] == pytest.approx(6.0)
+    assert result.stressed_metrics["funding"] == pytest.approx(12.0)
+    assert result.stressed_metrics["net_pnl"] == pytest.approx(6.0)
+    assert all(value == value and value not in (float("inf"), float("-inf")) for value in result.base_metrics.values())
+    assert all(value == value and value not in (float("inf"), float("-inf")) for value in result.stressed_metrics.values())
 
 
 @pytest.mark.parametrize(
