@@ -651,6 +651,41 @@ def test_backtest_evaluation_report_rejects_duplicate_regime_bucket_trade_ids() 
         )
 
 
+def test_backtest_evaluation_report_rejects_overlapping_walk_forward_split_trade_ids() -> None:
+    with pytest.raises(
+        ValueError,
+        match=r"duplicate walk_forward\.windows\[0\]\.split trade_id: BTCUSDT@2026-01-01T00:00:00\+00:00",
+    ):
+        reporting.render_backtest_evaluation_report(
+            experiment_name="evaluation",
+            evaluation={
+                "walk_forward": {
+                    "metadata": {"window_count": 1},
+                    "windows": [
+                        {
+                            "window_index": 1,
+                            "splits": {
+                                "in_sample": {
+                                    "label": "IS",
+                                    "trade_ids": ["BTCUSDT@2026-01-01T00:00:00+00:00"],
+                                    "metrics": {"trade_count": 1},
+                                },
+                                "out_of_sample": {
+                                    "label": "OOS",
+                                    "trade_ids": ["BTCUSDT@2026-01-01T00:00:00+00:00"],
+                                    "metrics": {"trade_count": 1},
+                                },
+                            },
+                        }
+                    ],
+                },
+                "regimes": {"buckets": []},
+                "cost_stress": {"scenarios": []},
+            },
+            metadata={"dataset_root": "dataset"},
+        )
+
+
 def test_backtest_evaluation_report_rejects_invalid_walk_forward_window_count() -> None:
     with pytest.raises(ValueError, match="walk_forward.metadata.window_count must be a non-negative integer"):
         reporting.render_backtest_evaluation_report(

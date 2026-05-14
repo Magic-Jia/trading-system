@@ -353,6 +353,7 @@ def _evaluation_walk_forward_payload(walk_forward: Mapping[str, Any]) -> dict[st
         )
         if set(validated_splits) != {"in_sample", "out_of_sample"}:
             raise ValueError(f"walk_forward.windows[{window_index}].splits keys must be in_sample/out_of_sample")
+        split_trade_ids: set[str] = set()
         for split_name, split_payload in list(validated_splits.items()):
             split_label = _canonical_report_string(
                 split_name,
@@ -385,6 +386,27 @@ def _evaluation_walk_forward_payload(walk_forward: Mapping[str, Any]) -> dict[st
                     metrics,
                     field_name=f"walk_forward.windows[{window_index}].splits.{split_label}.metrics",
                 )
+            if "trade_ids" in validated_split:
+                trade_ids = _list_field(
+                    validated_split,
+                    "trade_ids",
+                    label=f"walk_forward.windows[{window_index}].splits.{split_label}.trade_ids",
+                )
+                validated_trade_ids = [
+                    _canonical_report_string(
+                        trade_id,
+                        field_name=(
+                            f"walk_forward.windows[{window_index}].splits.{split_label}"
+                            f".trade_ids[{trade_id_index}]"
+                        ),
+                    )
+                    for trade_id_index, trade_id in enumerate(trade_ids)
+                ]
+                for trade_id in validated_trade_ids:
+                    if trade_id in split_trade_ids:
+                        raise ValueError(f"duplicate walk_forward.windows[{window_index}].split trade_id: {trade_id}")
+                    split_trade_ids.add(trade_id)
+                validated_split["trade_ids"] = validated_trade_ids
             validated_splits[split_label] = validated_split
         validated_window["splits"] = validated_splits
         validated_windows.append(validated_window)
