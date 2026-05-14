@@ -581,11 +581,25 @@ def _load_import_file(
     rows = _rows_payload(payload, dataset=canonical_dataset, data_path=data_path)
     materialized_records: list[ImportedRawMarketRecord] = []
     last_index = len(rows) - 1
+    previous_observed_at: datetime | None = None
     for index, row in enumerate(rows):
         _validate_raw_context_row(dataset=canonical_dataset, row=row, data_path=data_path, index=index)
         observed_at = _utc_datetime(
             _timestamp_value_for_row(dataset=canonical_dataset, row=row, data_path=data_path, index=index)
         )
+        if canonical_dataset != "trades" and previous_observed_at is not None:
+            if observed_at == previous_observed_at:
+                raise ValueError(
+                    "raw-market duplicate record timestamp for series "
+                    f"{series_key}: {observed_at.isoformat()}"
+                )
+            if observed_at < previous_observed_at:
+                raise ValueError(
+                    "raw-market record timestamps must be strictly increasing for series "
+                    f"{series_key}: {data_path} rows[{index}] "
+                    f"observed_at={observed_at.isoformat()} previous_observed_at={previous_observed_at.isoformat()}"
+                )
+        previous_observed_at = observed_at
         if observed_at < coverage_start or observed_at > coverage_end:
             raise ValueError(
                 "raw-market record timestamp outside declared coverage window: "
