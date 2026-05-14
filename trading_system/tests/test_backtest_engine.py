@@ -154,6 +154,18 @@ def test_execution_evidence_rejects_coerced_order_book_fields() -> None:
         backtest_engine._execution_evidence(row, "BTCUSDT")
 
 
+def test_execution_evidence_rejects_invalid_single_order_book_container() -> None:
+    row = DatasetSnapshotRow(
+        timestamp=backtest_engine._datetime_or_none("2026-03-10T00:00:00Z"),
+        run_id="run-1",
+        market={"symbols": {"BTCUSDT": {"execution": {"order_book": [("bid", 1.0), ("ask", 2.0)]}}}},
+        derivatives=[],
+    )
+
+    with pytest.raises(ValueError, match="execution.order_book must be an object when present"):
+        backtest_engine._execution_evidence(row, "BTCUSDT")
+
+
 def test_execution_evidence_rejects_coerced_trade_fields() -> None:
     row = DatasetSnapshotRow(
         timestamp=backtest_engine._datetime_or_none("2026-03-10T00:00:00Z"),
@@ -196,6 +208,28 @@ def test_execution_evidence_rejects_coerced_trade_fields() -> None:
         backtest_engine._execution_evidence(row, "BTCUSDT")
 
 
+def test_execution_evidence_rejects_invalid_trade_side_value() -> None:
+    row = DatasetSnapshotRow(
+        timestamp=backtest_engine._datetime_or_none("2026-03-10T00:00:00Z"),
+        run_id="run-1",
+        market={
+            "symbols": {
+                "BTCUSDT": {
+                    "execution": {
+                        "trades": [
+                            {"timestamp": "2026-03-10T00:00:00Z", "price": 1.0, "quantity": 2.0, "side": "hold"}
+                        ]
+                    }
+                }
+            }
+        },
+        derivatives=[],
+    )
+
+    with pytest.raises(ValueError, match="trade.side must be buy or sell when present"):
+        backtest_engine._execution_evidence(row, "BTCUSDT")
+
+
 def test_execution_evidence_rejects_coerced_depth_level_fields() -> None:
     row = DatasetSnapshotRow(
         timestamp=backtest_engine._datetime_or_none("2026-03-10T00:00:00Z"),
@@ -219,6 +253,88 @@ def test_execution_evidence_rejects_coerced_depth_level_fields() -> None:
 
     with pytest.raises(ValueError, match="depth_level.price must be a positive number"):
         backtest_engine._execution_evidence(row, "BTCUSDT")
+
+
+def test_execution_evidence_rejects_invalid_depth_level_row_shape() -> None:
+    row = DatasetSnapshotRow(
+        timestamp=backtest_engine._datetime_or_none("2026-03-10T00:00:00Z"),
+        run_id="run-1",
+        market={
+            "symbols": {
+                "BTCUSDT": {
+                    "execution": {
+                        "order_book": {
+                            "timestamp": "2026-03-10T00:00:00Z",
+                            "bid": 1.0,
+                            "ask": 2.0,
+                            "asks": [[2.0]],
+                        }
+                    }
+                }
+            }
+        },
+        derivatives=[],
+    )
+
+    with pytest.raises(ValueError, match="depth_level row must be an object or pair"):
+        backtest_engine._execution_evidence(row, "BTCUSDT")
+
+
+def test_execution_evidence_accepts_valid_books_and_trades_for_taker_fill() -> None:
+    row = DatasetSnapshotRow(
+        timestamp=backtest_engine._datetime_or_none("2026-03-10T00:00:00Z"),
+        run_id="run-1",
+        market={
+            "symbols": {
+                "BTCUSDT": {
+                    "execution": {
+                        "order_book": {
+                            "timestamp": "2026-03-10T00:00:01Z",
+                            "bid": 99.5,
+                            "ask": 100.5,
+                            "bid_size": 4.0,
+                            "ask_size": 5.0,
+                            "bids": [{"price": 99.5, "quantity": 4.0}],
+                            "asks": [[100.5, 5.0]],
+                        },
+                        "order_books": [
+                            {
+                                "timestamp": "2026-03-10T00:00:02Z",
+                                "bid": 99.75,
+                                "ask": 100.25,
+                                "bids": [[99.75, 3.0]],
+                                "asks": [{"price": 100.25, "quantity": 3.0}],
+                            }
+                        ],
+                        "trades": [
+                            {
+                                "timestamp": "2026-03-10T00:00:03Z",
+                                "price": 100.4,
+                                "quantity": 1.0,
+                                "side": "buy",
+                            }
+                        ],
+                    }
+                }
+            }
+        },
+        derivatives=[],
+    )
+
+    fill = backtest_engine._entry_execution_fill(
+        row=row,
+        symbol="BTCUSDT",
+        order_side="buy",
+        entry_price=100.0,
+        candidate_row={},
+        entry_reference_timeframe="daily",
+    )
+
+    assert fill.fill_model == "taker_orderbook_depth"
+    assert fill.execution_price_source == "ask_depth"
+    assert fill.fill_quality == "evidence_backed"
+    assert fill.fill_price == pytest.approx(100.5)
+    assert fill.evidence_timestamp == _ts("2026-03-10T00:00:01Z")
 
 
 def test_execution_evidence_rejects_invalid_evidence_containers() -> None:
