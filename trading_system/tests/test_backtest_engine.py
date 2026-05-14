@@ -67,23 +67,67 @@ def test_engine_optional_int_rejects_present_invalid_evidence_values() -> None:
             backtest_engine._optional_int(value, "execution_lag_bars")
 
 
-def test_engine_rejects_coerced_timeframe_and_execution_policy_fields() -> None:
+@pytest.mark.parametrize("value", [" 1h", ""])
+def test_timeframe_metadata_rejects_non_canonical_string(value: str) -> None:
+    with pytest.raises(ValueError, match="timeframe metadata must contain only canonical strings"):
+        backtest_engine._string_tuple(value)
+
+
+@pytest.mark.parametrize("value", [["1h", True], ["1h", ""], ["1h", " 4h"]])
+def test_timeframe_metadata_rejects_invalid_list_entries(value: list[Any]) -> None:
     with pytest.raises(ValueError, match="timeframe metadata must contain only strings"):
+        backtest_engine._string_tuple(value)
+
+
+@pytest.mark.parametrize("value", [True, {"timeframe": "1h"}])
+def test_timeframe_metadata_rejects_invalid_container(value: Any) -> None:
+    with pytest.raises(ValueError, match="timeframe metadata must be a string or list of strings"):
+        backtest_engine._string_tuple(value)
+
+
+def test_entry_reference_timeframes_prefers_valid_explicit_metadata() -> None:
+    assert (
         backtest_engine._entry_reference_timeframes(
-            {"timeframe_meta": {"entry_reference_timeframes": ["1h", True]}}
+            {"timeframe_meta": {"entry_reference_timeframes": ["4h", "1h"], "trigger_timeframes": ["15m"]}}
         )
+        == ("4h", "1h")
+    )
 
+
+def test_entry_reference_timeframes_expands_intraday_triggers() -> None:
+    assert (
+        backtest_engine._entry_reference_timeframes({"timeframe_meta": {"trigger_timeframes": ["30m"]}})
+        == ("15m", "30m", "1h", "4h", "daily")
+    )
+
+
+@pytest.mark.parametrize(
+    "candidate_row",
+    [
+        {"timeframe_meta": {"trigger_timeframes": ["15m"]}},
+        {"timeframe_meta": {"entry_reference_timeframes": ["30m"]}},
+    ],
+)
+def test_has_intraday_entry_metadata_uses_timeframe_metadata(candidate_row: dict[str, Any]) -> None:
+    assert backtest_engine._has_intraday_entry_metadata(candidate_row, "daily") is True
+
+
+@pytest.mark.parametrize("candidate_row", [{"execution_policy": True}, {"timeframe_meta": {"execution_policy": True}}])
+def test_entry_execution_policy_rejects_invalid_raw_policy(candidate_row: dict[str, Any]) -> None:
     with pytest.raises(ValueError, match="execution_policy must be a string"):
-        backtest_engine._entry_execution_policy({"execution_policy": True})
+        backtest_engine._entry_execution_policy(candidate_row)
 
 
-def test_engine_rank_key_rejects_coerced_candidate_fields() -> None:
-    with pytest.raises(ValueError, match="candidate score must be a finite number"):
-        backtest_engine._rank_key({"score": True, "symbol": "BTCUSDT", "engine": "trend"})
+@pytest.mark.parametrize("value", [True, "", " BTCUSDT"])
+def test_candidate_canonical_string_rejects_invalid_symbol(value: Any) -> None:
     with pytest.raises(ValueError, match="candidate symbol must be a canonical string"):
-        backtest_engine._rank_key({"score": 0.7, "symbol": True, "engine": "trend"})
-    with pytest.raises(ValueError, match="candidate engine must be a canonical string"):
-        backtest_engine._rank_key({"score": 0.7, "symbol": "BTCUSDT", "engine": True})
+        backtest_engine._candidate_canonical_string({"symbol": value}, "symbol")
+
+
+@pytest.mark.parametrize("value", [True, "0.7", float("nan"), float("inf")])
+def test_candidate_finite_number_rejects_invalid_score(value: Any) -> None:
+    with pytest.raises(ValueError, match="candidate score must be a finite number"):
+        backtest_engine._candidate_finite_number({"score": value}, "score")
 
 
 def test_suppression_payload_rejects_coerced_regime_fields() -> None:
