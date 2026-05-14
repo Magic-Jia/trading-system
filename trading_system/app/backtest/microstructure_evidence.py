@@ -195,9 +195,9 @@ def _ensure_sorted_book_side(name: str, levels: list[dict[str, float]], *, desce
         previous_price = levels[index - 1]["price"]
         current_price = levels[index]["price"]
         if descending:
-            if current_price > previous_price:
+            if current_price >= previous_price:
                 raise ValueError(f"{name} must be sorted by descending price")
-        elif current_price < previous_price:
+        elif current_price <= previous_price:
             raise ValueError(f"{name} must be sorted by ascending price")
 
 

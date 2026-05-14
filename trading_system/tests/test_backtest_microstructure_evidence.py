@@ -631,6 +631,17 @@ def test_depth_fill_rejects_unsorted_asks() -> None:
         )
 
 
+def test_depth_fill_rejects_duplicate_ask_price_levels() -> None:
+    with pytest.raises(ValueError, match="asks must be sorted by ascending price"):
+        simulate_depth_driven_taker_fill(
+            side="buy",
+            quantity=2.0,
+            reference_price=100.0,
+            bids=[{"price": 99.9, "quantity": 1.0}],
+            asks=[{"price": 100.1, "quantity": 1.0}, {"price": 100.1, "quantity": 1.0}],
+        )
+
+
 def test_depth_fill_rejects_unsorted_bids() -> None:
     with pytest.raises(ValueError, match="bids must be sorted by descending price"):
         simulate_depth_driven_taker_fill(
