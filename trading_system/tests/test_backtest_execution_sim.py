@@ -10,6 +10,7 @@ from trading_system.app.backtest.execution_sim import (
     ExecutionFill,
     OrderBookSnapshot,
     TradePrint,
+    _validate_evidence_contract,
     reference_close_fill,
     next_bar_ohlcv_fill,
     simulate_maker_limit_fill,
@@ -20,6 +21,63 @@ from trading_system.app.backtest.execution_sim import (
 
 def _ts(value: str) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(timezone.utc)
+
+
+def test_evidence_contract_rejects_duplicate_same_symbol_trade_fill_id() -> None:
+    with pytest.raises(ValueError, match="duplicate trade.fill_id: fill-001"):
+        _validate_evidence_contract(
+            symbol="BTCUSDT",
+            order_books=(),
+            trades=(
+                TradePrint(
+                    timestamp=_ts("2026-03-10T00:00:01Z"),
+                    symbol="BTCUSDT",
+                    price=99.5,
+                    quantity=0.5,
+                    fill_id="fill-001",
+                ),
+                TradePrint(
+                    timestamp=_ts("2026-03-10T00:00:02Z"),
+                    symbol="ETHUSDT",
+                    price=99.5,
+                    quantity=0.5,
+                    fill_id="fill-001",
+                ),
+                TradePrint(
+                    timestamp=_ts("2026-03-10T00:00:03Z"),
+                    symbol="BTCUSDT",
+                    price=99.5,
+                    quantity=0.5,
+                    fill_id="fill-001",
+                ),
+            ),
+        )
+
+
+def test_evidence_contract_rejects_non_monotonic_same_symbol_trade_timestamps() -> None:
+    with pytest.raises(ValueError, match="trade timestamps must be monotonic for BTCUSDT"):
+        _validate_evidence_contract(
+            symbol="BTCUSDT",
+            order_books=(),
+            trades=(
+                TradePrint(timestamp=_ts("2026-03-10T00:00:02Z"), symbol="BTCUSDT", price=100.1, quantity=1.0),
+                TradePrint(timestamp=_ts("2026-03-10T00:00:01Z"), symbol="ETHUSDT", price=100.2, quantity=1.0),
+                TradePrint(timestamp=_ts("2026-03-10T00:00:01Z"), symbol="BTCUSDT", price=100.2, quantity=1.0),
+            ),
+        )
+
+
+def test_evidence_contract_rejects_non_monotonic_same_symbol_order_book_timestamps() -> None:
+    with pytest.raises(ValueError, match="order book timestamps must be monotonic for BTCUSDT"):
+        _validate_evidence_contract(
+            symbol="BTCUSDT",
+            order_books=(
+                OrderBookSnapshot(timestamp=_ts("2026-03-10T00:00:02Z"), symbol="BTCUSDT", bid=99.9, ask=100.1),
+                OrderBookSnapshot(timestamp=_ts("2026-03-10T00:00:01Z"), symbol="ETHUSDT", bid=99.9, ask=100.1),
+                OrderBookSnapshot(timestamp=_ts("2026-03-10T00:00:01Z"), symbol="BTCUSDT", bid=99.8, ask=100.0),
+            ),
+            trades=(),
+        )
 
 
 def test_maker_buy_limit_fills_when_trade_path_crosses_limit_with_evidence() -> None:
