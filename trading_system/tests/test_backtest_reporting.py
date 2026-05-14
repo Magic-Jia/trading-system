@@ -410,6 +410,33 @@ def test_backtest_evaluation_report_rejects_regime_bucket_trade_count_mismatch()
         )
 
 
+def test_backtest_evaluation_report_rejects_duplicate_regime_bucket_trade_ids() -> None:
+    with pytest.raises(
+        ValueError,
+        match=r"duplicate regimes\.buckets\[0\]\.trade_id: BTCUSDT@2026-01-01T00:00:00\+00:00",
+    ):
+        reporting.render_backtest_evaluation_report(
+            experiment_name="evaluation",
+            evaluation={
+                "walk_forward": {"metadata": {"window_count": 1}},
+                "regimes": {
+                    "buckets": [
+                        {
+                            "label": "low_vol_uptrend",
+                            "trade_ids": [
+                                "BTCUSDT@2026-01-01T00:00:00+00:00",
+                                "BTCUSDT@2026-01-01T00:00:00+00:00",
+                            ],
+                            "metrics": {"trade_count": 2},
+                        }
+                    ]
+                },
+                "cost_stress": {"scenarios": []},
+            },
+            metadata={"dataset_root": "dataset"},
+        )
+
+
 def test_backtest_evaluation_report_rejects_invalid_walk_forward_window_count() -> None:
     with pytest.raises(ValueError, match="walk_forward.metadata.window_count must be a non-negative integer"):
         reporting.render_backtest_evaluation_report(

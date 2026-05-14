@@ -166,6 +166,11 @@ def render_backtest_evaluation_report(
                 )
                 for trade_id_index, trade_id in enumerate(trade_ids)
             ]
+            seen_trade_ids: set[str] = set()
+            for trade_id in validated_bucket["trade_ids"]:
+                if trade_id in seen_trade_ids:
+                    raise ValueError(f"duplicate regimes.buckets[{index}].trade_id: {trade_id}")
+                seen_trade_ids.add(trade_id)
             metrics = validated_bucket.get("metrics")
             if metrics is not None:
                 if not isinstance(metrics, Mapping):
