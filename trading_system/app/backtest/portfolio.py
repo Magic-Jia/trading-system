@@ -307,6 +307,25 @@ def evaluate_candidate(
             qty=0.0,
         )
 
+    remaining_risk = max(_non_negative_number(capital.max_open_risk, field_name="capital.max_open_risk") - _used_open_risk(state), 0.0)
+    remaining_capital_fraction = max(1.0 - _used_capital_fraction(state, equity=equity), 0.0)
+    if remaining_risk <= _EPSILON:
+        return _decision(
+            status="rejected",
+            reasons=("open_risk_budget_exhausted",),
+            final_risk_budget=0.0,
+            position_notional=0.0,
+            qty=0.0,
+        )
+    if remaining_capital_fraction <= _EPSILON:
+        return _decision(
+            status="rejected",
+            reasons=("capital_usage_exhausted",),
+            final_risk_budget=0.0,
+            position_notional=0.0,
+            qty=0.0,
+        )
+
     if _active_positions(state) >= calculate_dynamic_position_cap(candidate, state=state, capital=capital):
         return _decision(
             status="rejected",
@@ -324,9 +343,6 @@ def evaluate_candidate(
             position_notional=0.0,
             qty=0.0,
         )
-
-    remaining_risk = max(_non_negative_number(capital.max_open_risk, field_name="capital.max_open_risk") - _used_open_risk(state), 0.0)
-    remaining_capital_fraction = max(1.0 - _used_capital_fraction(state, equity=equity), 0.0)
 
     risk_per_trade = _non_negative_number(capital.risk_per_trade, field_name="capital.risk_per_trade")
     final_risk_budget = min(risk_per_trade, remaining_risk)

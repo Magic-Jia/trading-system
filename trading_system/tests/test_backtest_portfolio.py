@@ -104,6 +104,36 @@ def test_position_size_from_risk_rejects_coerced_candidate_prices() -> None:
         position_size_from_risk(candidate, equity=100_000.0, risk_budget=0.01)
 
 
+@pytest.mark.parametrize(
+    ("equity", "entry_price", "risk_budget", "message"),
+    [
+        (0.0, 50_000.0, 0.01, "equity must be positive"),
+        (-1.0, 50_000.0, 0.01, "equity must be positive"),
+        (100_000.0, 0.0, 0.01, "candidate.entry_price must be positive"),
+        (100_000.0, -1.0, 0.01, "candidate.entry_price must be positive"),
+        (100_000.0, 50_000.0, -0.01, "risk_budget must be non-negative"),
+        (100_000.0, 50_000.0, float("inf"), "risk_budget must be a finite number"),
+        (100_000.0, 50_000.0, float("nan"), "risk_budget must be a finite number"),
+    ],
+)
+def test_position_size_from_risk_rejects_invalid_equity_entry_and_risk_budget(
+    equity: float,
+    entry_price: float,
+    risk_budget: float,
+    message: str,
+) -> None:
+    candidate = make_candidate(
+        symbol="BTCUSDT",
+        market_type="spot",
+        base_asset="BTC",
+        entry_price=entry_price,
+        stop_loss=47_500.0,
+    )
+
+    with pytest.raises(ValueError, match=message):
+        position_size_from_risk(candidate, equity=equity, risk_budget=risk_budget)
+
+
 def test_position_size_from_risk_uses_stop_distance() -> None:
     candidate = make_candidate(
         symbol="BTCUSDT",
@@ -117,6 +147,60 @@ def test_position_size_from_risk_uses_stop_distance() -> None:
 
     assert sizing.qty == pytest.approx(0.4)
     assert sizing.position_notional == pytest.approx(20_000.0)
+
+
+@pytest.mark.parametrize(
+    ("side", "entry_price", "stop_loss"),
+    [
+        ("long", 50_000.0, 47_500.0),
+        ("short", 50_000.0, 52_500.0),
+    ],
+)
+def test_position_size_from_risk_calculates_long_and_short_from_stop_distance(
+    side: str,
+    entry_price: float,
+    stop_loss: float,
+) -> None:
+    candidate = make_candidate(
+        symbol="BTCUSDT",
+        market_type="spot",
+        base_asset="BTC",
+        side=side,
+        entry_price=entry_price,
+        stop_loss=stop_loss,
+    )
+
+    sizing = position_size_from_risk(candidate, equity=100_000.0, risk_budget=0.01)
+
+    assert sizing.qty == pytest.approx(0.4)
+    assert sizing.position_notional == pytest.approx(20_000.0)
+
+
+@pytest.mark.parametrize(
+    ("risk_budget", "entry_price", "stop_loss"),
+    [
+        (0.0, 50_000.0, 47_500.0),
+        (0.01, 50_000.0, 50_000.0),
+    ],
+)
+def test_position_size_from_risk_returns_zero_for_zero_risk_or_zero_stop_distance(
+    risk_budget: float,
+    entry_price: float,
+    stop_loss: float,
+) -> None:
+    candidate = make_candidate(
+        symbol="BTCUSDT",
+        market_type="spot",
+        base_asset="BTC",
+        entry_price=entry_price,
+        stop_loss=stop_loss,
+    )
+
+    sizing = position_size_from_risk(candidate, equity=100_000.0, risk_budget=risk_budget)
+
+    assert sizing.risk_budget == pytest.approx(risk_budget)
+    assert sizing.qty == pytest.approx(0.0)
+    assert sizing.position_notional == pytest.approx(0.0)
 
 
 def test_allocate_candidate_rejects_coerced_base_asset_identity() -> None:
@@ -202,6 +286,77 @@ def test_allocate_candidate_resizes_when_risk_budget_is_partially_available() ->
     assert decision.qty == pytest.approx(5_000.0 / 3_000.0)
 
 
+def test_evaluate_candidate_rejects_when_open_risk_budget_is_exhausted() -> None:
+    state = make_portfolio_state(
+        initial_equity=100_000.0,
+        open_risk_fraction=0.03,
+        capital_usage_fraction=0.50,
+    )
+    candidate = make_candidate(
+        symbol="ETHUSDT",
+        market_type="spot",
+        base_asset="ETH",
+        entry_price=3_000.0,
+        stop_loss=2_850.0,
+    )
+
+    decision = evaluate_candidate(candidate, state=state, capital=sample_capital_config())
+
+    assert decision.status == "rejected"
+    assert decision.reasons == ("open_risk_budget_exhausted",)
+    assert decision.final_risk_budget == pytest.approx(0.0)
+    assert decision.position_notional == pytest.approx(0.0)
+    assert decision.qty == pytest.approx(0.0)
+
+
+def test_evaluate_candidate_rejects_when_capital_usage_is_exhausted() -> None:
+    state = make_portfolio_state(
+        initial_equity=100_000.0,
+        open_risk_fraction=0.01,
+        capital_usage_fraction=1.0,
+    )
+    candidate = make_candidate(
+        symbol="ETHUSDT",
+        market_type="spot",
+        base_asset="ETH",
+        entry_price=3_000.0,
+        stop_loss=2_850.0,
+    )
+
+    decision = evaluate_candidate(candidate, state=state, capital=sample_capital_config())
+
+    assert decision.status == "rejected"
+    assert decision.reasons == ("capital_usage_exhausted",)
+    assert decision.final_risk_budget == pytest.approx(0.0)
+    assert decision.position_notional == pytest.approx(0.0)
+    assert decision.qty == pytest.approx(0.0)
+
+
+def test_evaluate_candidate_resizes_when_capital_usage_is_limited() -> None:
+    state = make_portfolio_state(
+        initial_equity=100_000.0,
+        open_risk_fraction=0.01,
+        capital_usage_fraction=0.95,
+    )
+    candidate = make_candidate(
+        symbol="ETHUSDT",
+        market_type="spot",
+        base_asset="ETH",
+        entry_price=3_000.0,
+        stop_loss=2_850.0,
+    )
+
+    decision = evaluate_candidate(candidate, state=state, capital=sample_capital_config())
+
+    assert decision.status == "resized"
+    assert decision.reasons == ("capital_usage_limited",)
+    assert decision.position_notional == pytest.approx(5_000.0)
+    assert decision.qty == pytest.approx(5_000.0 / 3_000.0)
+    assert decision.final_risk_budget == pytest.approx(
+        decision.qty * abs(candidate.entry_price - candidate.stop_loss) / state.initial_equity
+    )
+
+
 def test_calculate_dynamic_position_cap_uses_open_risk_capital_usage_and_active_positions() -> None:
     state = make_portfolio_state(
         initial_equity=100_000.0,
@@ -224,6 +379,26 @@ def test_calculate_dynamic_position_cap_uses_open_risk_capital_usage_and_active_
     cap = calculate_dynamic_position_cap(candidate, state=state, capital=sample_capital_config())
 
     assert cap == 4
+
+
+def test_calculate_dynamic_position_cap_uses_capital_as_binding_constraint() -> None:
+    state = make_portfolio_state(
+        initial_equity=100_000.0,
+        open_risk_fraction=0.005,
+        capital_usage_fraction=0.91,
+        active_positions=1,
+    )
+    candidate = make_candidate(
+        symbol="ETHUSDT",
+        market_type="spot",
+        base_asset="ETH",
+        entry_price=3_000.0,
+        stop_loss=2_850.0,
+    )
+
+    cap = calculate_dynamic_position_cap(candidate, state=state, capital=sample_capital_config())
+
+    assert cap == 2
 
 
 def test_decision_ledger_rejects_coerced_identity_and_status_fields() -> None:
@@ -387,6 +562,44 @@ def test_decision_ledger_enforces_status_quantity_notional_consistency() -> None
                 qty=0.0,
             ),
         )
+
+    with pytest.raises(
+        ValueError,
+        match="accepted portfolio decisions must have positive risk budget, quantity, and notional",
+    ):
+        decision_to_ledger_row(
+            candidate,
+            PortfolioDecision(
+                status="resized",
+                reasons=("capital_usage_limited",),
+                final_risk_budget=0.0,
+                position_notional=1_000.0,
+                qty=5.0,
+            ),
+        )
+
+
+def test_decision_ledger_canonicalizes_candidate_identity_fields() -> None:
+    candidate = make_candidate(
+        symbol="SOLUSDT",
+        market_type="spot",
+        base_asset="SOL",
+        entry_price=200.0,
+        stop_loss=190.0,
+    )
+    decision = PortfolioDecision(
+        status="accepted",
+        reasons=(),
+        final_risk_budget=0.005,
+        position_notional=10_000.0,
+        qty=50.0,
+    )
+
+    row = decision_to_ledger_row(candidate, decision)
+
+    assert row.symbol == "SOLUSDT"
+    assert row.market_type == "spot"
+    assert row.base_asset == "SOL"
 
 
 def test_candidate_side_rejected_through_public_lifecycle_path() -> None:
