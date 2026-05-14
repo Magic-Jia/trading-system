@@ -309,6 +309,34 @@ def test_backtest_evaluation_report_rejects_string_cost_stress_base_metric() -> 
         )
 
 
+def test_backtest_evaluation_report_rejects_non_finite_cost_stress_trade_metric() -> None:
+    with pytest.raises(
+        ValueError,
+        match=r"cost_stress.scenarios\[0\].stressed_trades\[0\].fee_paid must be a finite number",
+    ):
+        reporting.render_backtest_evaluation_report(
+            experiment_name="evaluation",
+            evaluation={
+                "walk_forward": {"metadata": {"window_count": 1}},
+                "regimes": {"buckets": []},
+                "cost_stress": {
+                    "scenarios": [
+                        {
+                            "scenario": {"name": "fees_2x"},
+                            "stressed_trades": [
+                                {
+                                    "trade_id": "BTCUSDT@2026-01-01T12:00:00+00:00",
+                                    "fee_paid": float("nan"),
+                                }
+                            ],
+                        }
+                    ]
+                },
+            },
+            metadata={"dataset_root": "dataset"},
+        )
+
+
 def test_backtest_evaluation_report_rejects_boolean_walk_forward_split_metric() -> None:
     with pytest.raises(
         ValueError,

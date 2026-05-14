@@ -9,6 +9,13 @@ from .types import BaselineReplayResult, PromotionMetadata, TradeLedgerRow
 
 
 _MAKER_STATUS_VALUES = frozenset({"filled", "partial", "no_fill", "expired", "cancelled_replaced"})
+_COST_STRESS_TRADE_NUMERIC_FIELDS = (
+    "base_net_pnl",
+    "stressed_net_pnl",
+    "fee_paid",
+    "slippage_paid",
+    "funding_paid",
+)
 
 
 def _report_finite_float(value: Any, *, field_name: str) -> float:
@@ -238,6 +245,34 @@ def render_backtest_evaluation_report(
                     field_name=f"cost_stress.scenarios[{index}].{metrics_field}.{metric_key}",
                 )
             validated_scenario_payload[metrics_field] = validated_metrics
+        if "stressed_trades" in scenario_payload:
+            stressed_trades = _list_field(
+                scenario_payload,
+                "stressed_trades",
+                label=f"cost_stress.scenarios[{index}].stressed_trades",
+            )
+            validated_stressed_trades = []
+            for trade_index, trade_payload in enumerate(stressed_trades):
+                if not isinstance(trade_payload, Mapping):
+                    raise ValueError(
+                        f"cost_stress.scenarios[{index}].stressed_trades[{trade_index}] must be an object"
+                    )
+                validated_trade_payload = _strict_mapping_copy(
+                    trade_payload,
+                    field_name=f"cost_stress.scenarios[{index}].stressed_trades[{trade_index}]",
+                )
+                for numeric_field in _COST_STRESS_TRADE_NUMERIC_FIELDS:
+                    if numeric_field not in validated_trade_payload:
+                        continue
+                    validated_trade_payload[numeric_field] = _strict_present_finite_float(
+                        validated_trade_payload[numeric_field],
+                        field_name=(
+                            f"cost_stress.scenarios[{index}].stressed_trades"
+                            f"[{trade_index}].{numeric_field}"
+                        ),
+                    )
+                validated_stressed_trades.append(validated_trade_payload)
+            validated_scenario_payload["stressed_trades"] = validated_stressed_trades
         validated_cost_scenarios.append(validated_scenario_payload)
     validated_cost_stress = dict(cost_stress)
     validated_cost_stress["scenarios"] = validated_cost_scenarios
