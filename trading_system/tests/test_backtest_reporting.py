@@ -250,6 +250,29 @@ def test_backtest_evaluation_report_rejects_duplicate_cost_stress_scenario_names
         )
 
 
+def test_backtest_evaluation_report_rejects_mismatched_cost_stress_scenario_label() -> None:
+    with pytest.raises(
+        ValueError,
+        match=r"cost_stress.scenarios\[0\].label must match cost_stress.scenarios\[0\].scenario.name",
+    ):
+        reporting.render_backtest_evaluation_report(
+            experiment_name="evaluation",
+            evaluation={
+                "walk_forward": {"metadata": {"window_count": 1}},
+                "regimes": {"buckets": []},
+                "cost_stress": {
+                    "scenarios": [
+                        {
+                            "label": "cost_stress:slippage_2x",
+                            "scenario": {"name": "fees_2x"},
+                        }
+                    ]
+                },
+            },
+            metadata={"dataset_root": "dataset"},
+        )
+
+
 def test_backtest_evaluation_report_rejects_false_cost_stress_scenario_name() -> None:
     with pytest.raises(ValueError, match=r"cost_stress.scenarios\[0\].scenario.name must be a canonical string"):
         reporting.render_backtest_evaluation_report(
