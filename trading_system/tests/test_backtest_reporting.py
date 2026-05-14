@@ -415,6 +415,44 @@ def test_backtest_evaluation_report_rejects_boolean_walk_forward_split_metric() 
         )
 
 
+def test_backtest_evaluation_report_rejects_walk_forward_split_trade_count_mismatch() -> None:
+    with pytest.raises(
+        ValueError,
+        match=(
+            r"walk_forward\.windows\[0\]\.splits\.in_sample\.metrics\.trade_count must match "
+            r"walk_forward\.windows\[0\]\.splits\.in_sample\.trade_ids length"
+        ),
+    ):
+        reporting.render_backtest_evaluation_report(
+            experiment_name="evaluation",
+            evaluation={
+                "walk_forward": {
+                    "metadata": {"window_count": 1},
+                    "windows": [
+                        {
+                            "window_index": 1,
+                            "splits": {
+                                "in_sample": {
+                                    "label": "IS",
+                                    "trade_ids": ["BTCUSDT@2026-01-01T00:00:00+00:00"],
+                                    "metrics": {"trade_count": 2},
+                                },
+                                "out_of_sample": {
+                                    "label": "OOS",
+                                    "trade_ids": [],
+                                    "metrics": {"trade_count": 0},
+                                },
+                            },
+                        }
+                    ],
+                },
+                "regimes": {"buckets": []},
+                "cost_stress": {"scenarios": []},
+            },
+            metadata={"dataset_root": "dataset"},
+        )
+
+
 def test_backtest_evaluation_report_rejects_unknown_walk_forward_split_key() -> None:
     with pytest.raises(ValueError, match=r"walk_forward.windows\[0\].splits keys must be in_sample/out_of_sample"):
         reporting.render_backtest_evaluation_report(

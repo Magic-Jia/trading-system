@@ -382,10 +382,11 @@ def _evaluation_walk_forward_payload(walk_forward: Mapping[str, Any]) -> dict[st
                     raise ValueError(
                         f"walk_forward.windows[{window_index}].splits.{split_label}.metrics must be an object"
                     )
-                validated_split["metrics"] = _evaluation_metric_payload(
+                validated_metrics = _evaluation_metric_payload(
                     metrics,
                     field_name=f"walk_forward.windows[{window_index}].splits.{split_label}.metrics",
                 )
+                validated_split["metrics"] = validated_metrics
             if "trade_ids" in validated_split:
                 trade_ids = _list_field(
                     validated_split,
@@ -407,6 +408,19 @@ def _evaluation_walk_forward_payload(walk_forward: Mapping[str, Any]) -> dict[st
                         raise ValueError(f"duplicate walk_forward.windows[{window_index}].split trade_id: {trade_id}")
                     split_trade_ids.add(trade_id)
                 validated_split["trade_ids"] = validated_trade_ids
+                metrics = validated_split.get("metrics")
+                if isinstance(metrics, Mapping) and "trade_count" in metrics:
+                    trade_count = _non_negative_int_field(
+                        metrics,
+                        "trade_count",
+                        label=f"walk_forward.windows[{window_index}].splits.{split_label}.metrics",
+                    )
+                    if trade_count != len(validated_trade_ids):
+                        raise ValueError(
+                            f"walk_forward.windows[{window_index}].splits.{split_label}.metrics.trade_count "
+                            f"must match walk_forward.windows[{window_index}].splits.{split_label}.trade_ids length"
+                        )
+                    validated_split["metrics"]["trade_count"] = trade_count
             validated_splits[split_label] = validated_split
         validated_window["splits"] = validated_splits
         validated_windows.append(validated_window)
@@ -414,14 +428,21 @@ def _evaluation_walk_forward_payload(walk_forward: Mapping[str, Any]) -> dict[st
     return validated
 
 
-def _evaluation_metric_payload(metrics: Mapping[str, Any], *, field_name: str) -> dict[str, float]:
-    validated_metrics: dict[str, float] = {}
+def _evaluation_metric_payload(metrics: Mapping[str, Any], *, field_name: str) -> dict[str, float | int]:
+    validated_metrics: dict[str, float | int] = {}
     for metric_name, metric_value in metrics.items():
         metric_key = _canonical_report_string(metric_name, field_name=f"{field_name} key")
-        validated_metrics[metric_key] = _strict_present_finite_float(
-            metric_value,
-            field_name=f"{field_name}.{metric_key}",
-        )
+        if metric_key == "trade_count":
+            validated_metrics[metric_key] = _non_negative_int_field(
+                {metric_key: metric_value},
+                metric_key,
+                label=field_name,
+            )
+        else:
+            validated_metrics[metric_key] = _strict_present_finite_float(
+                metric_value,
+                field_name=f"{field_name}.{metric_key}",
+            )
     return validated_metrics
 
 
