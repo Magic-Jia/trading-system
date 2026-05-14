@@ -14110,6 +14110,44 @@ def test_live_readiness_rejects_noncanonical_runtime_reason_taxonomy(
     assert "runtime_safety_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
 
 
+def test_live_readiness_rejects_runtime_reasons_container_object(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    chunk = source / "chunk_001"
+    chunk.mkdir(parents=True)
+    (chunk / "trades.json").write_text(json.dumps({"trades": []}), encoding="utf-8")
+    gate = build_runtime_safety_gate(
+        {
+            "evidence_source": {"type": "paper_runtime_logs", "run_id": "runtime-1"},
+            "events": [
+                {"event_type": "kill_switch_dry_run", "passed": True},
+                {"event_type": "order_position_reconciliation", "passed": True},
+                {"event_type": "runtime_fail_closed", "passed": True},
+                {"event_type": "live_dust_before_scale", "passed": True},
+                {"event_type": "live_trade_ledger", "passed": True},
+                {"event_type": "runtime_explainability", "passed": True},
+                {"event_type": "drift_guard", "passed": True},
+            ],
+            "reasons": [
+                {
+                    "code": "symbol_not_allowed",
+                    "severity": "block",
+                    "category": "execution_preview",
+                    "source": "execution_preview",
+                }
+            ],
+        }
+    )
+    gate["runtime_reasons"] = {"code": "symbol_not_allowed"}
+    (chunk / "runtime_safety_gate.json").write_text(json.dumps(gate), encoding="utf-8")
+
+    report = write_live_readiness_smoke_report(source, tmp_path / "out", require_runtime_safety_evidence=True)
+
+    artifact = report["runtime_safety_gate"]["artifacts"][0]
+    assert artifact["schema_valid"] is False
+    assert artifact["parse_error"] == "runtime_reasons_not_list"
+    assert "runtime_safety_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
+
+
 def test_live_readiness_preserves_identical_duplicate_runtime_reason_counts(tmp_path: Path) -> None:
     source = tmp_path / "source"
     chunk = source / "chunk_001"
