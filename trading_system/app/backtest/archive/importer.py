@@ -2990,6 +2990,18 @@ def validate_phase1_imported_dataset_root(
             ),
             context="materialized dataset bundle metadata source",
         )
+        loaded_symbols = tuple(sorted({symbol for row in rows for symbol in _row_market_symbol_keys(row)}))
+        source_symbols = tuple(
+            _require_uppercase_exchange_symbol_items(
+                loaded_source.get("symbols"),
+                field="materialized dataset root source symbols",
+            )
+        )
+        if loaded_symbols != source_symbols:
+            raise ValueError(
+                "materialized dataset root row market symbols did not match source trace: "
+                f"expected {source_symbols}, loaded {loaded_symbols}"
+            )
         manifest_scope = _phase1_root_manifest_canonical_string(root_manifest, "scope", manifest_path=manifest_path)
         if manifest_scope != PHASE1_IMPORTER_SCOPE:
             raise ValueError(
@@ -3011,7 +3023,6 @@ def validate_phase1_imported_dataset_root(
             "symbols",
             manifest_path=manifest_path,
         )
-        loaded_symbols = tuple(sorted({symbol for row in rows for symbol in _row_market_symbol_keys(row)}))
         if manifest_symbols != loaded_symbols:
             raise ValueError(
                 "materialized dataset root manifest symbols did not round-trip: "

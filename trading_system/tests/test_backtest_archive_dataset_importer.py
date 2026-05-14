@@ -8027,6 +8027,29 @@ def test_validate_phase1_imported_dataset_root_rejects_parent_traversal_bundle_m
         validate_phase1_imported_dataset_root(dataset_root)
 
 
+def test_validate_phase1_imported_dataset_root_rejects_row_market_symbol_mismatch_with_source(
+    tmp_path: Path,
+) -> None:
+    archive_root = tmp_path / "archive"
+    dataset_root = tmp_path / "dataset"
+    _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT")
+    import_phase1_archive_dataset_root(archive_root, dataset_root)
+
+    for bundle_dir in (path for path in dataset_root.iterdir() if path.is_dir()):
+        market_context_path = bundle_dir / "market_context.json"
+        market_context = json.loads(market_context_path.read_text(encoding="utf-8"))
+        market_context["symbols"] = {"ETHUSDT": market_context["symbols"]["BTCUSDT"]}
+        market_context_path.write_text(json.dumps(market_context, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    manifest_path = dataset_root / "import_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["symbols"] = ["ETHUSDT"]
+    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="row market symbols did not match source trace"):
+        validate_phase1_imported_dataset_root(dataset_root)
+
+
 def test_validate_phase1_imported_dataset_root_rejects_missing_instrument_snapshot(tmp_path: Path) -> None:
     archive_root = tmp_path / "archive"
     dataset_root = tmp_path / "dataset"
