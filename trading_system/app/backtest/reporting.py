@@ -597,13 +597,14 @@ def render_full_market_baseline_report(result: BaselineReplayResult) -> dict[str
 
 
 def _scorecard_metadata(*, experiment_name: str, metadata: Mapping[str, Any]) -> dict[str, Any]:
+    report_metadata = _report_metadata_copy(metadata)
     return {
         "experiment_name": experiment_name,
-        "dataset_root": metadata.get("dataset_root"),
-        "baseline_name": metadata.get("baseline_name"),
-        "variant_name": metadata.get("variant_name"),
-        "sample_period": metadata.get("sample_period"),
-        "evaluation_window": metadata.get("evaluation_window"),
+        "dataset_root": report_metadata.get("dataset_root"),
+        "baseline_name": report_metadata.get("baseline_name"),
+        "variant_name": report_metadata.get("variant_name"),
+        "sample_period": report_metadata.get("sample_period"),
+        "evaluation_window": report_metadata.get("evaluation_window"),
     }
 
 

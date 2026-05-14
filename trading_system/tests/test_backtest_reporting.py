@@ -3792,6 +3792,15 @@ def test_rotation_suppression_report_rejects_non_object_policies() -> None:
         )
 
 
+def test_rotation_suppression_report_rejects_noncanonical_scorecard_evaluation_window() -> None:
+    with pytest.raises(ValueError, match=r"metadata\.evaluation_window must be a canonical string"):
+        cli.render_rotation_suppression_report(
+            experiment_name="rotation_suppression",
+            metadata={"snapshot_count": 1, "evaluation_window": " 3d "},
+            experiment=_rotation_suppression_contract_experiment(),
+        )
+
+
 def test_allocator_friction_report_rejects_non_canonical_variant_name() -> None:
     experiment = _allocator_friction_contract_experiment()
     experiment["variants"] = {
