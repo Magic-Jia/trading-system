@@ -1,20 +1,25 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import NamedTuple
 
 import pytest
 
-from trading_system.app.backtest.execution_sim import TradePrint
 from trading_system.app.backtest.exit_policies import evaluate_exit_policy
 from trading_system.app.backtest.types import ExitPolicyParams
+
+
+class TradePrintFixture(NamedTuple):
+    timestamp: datetime
+    price: float
 
 
 def _ts(value: str) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(timezone.utc)
 
 
-def _trade(timestamp: str, price: float) -> TradePrint:
-    return TradePrint(timestamp=_ts(timestamp), symbol="BTCUSDT", price=price, quantity=1.0)
+def _trade(timestamp: str, price: float) -> TradePrintFixture:
+    return TradePrintFixture(timestamp=_ts(timestamp), price=price)
 
 
 def test_long_after_cost_breakeven_uses_first_trade_print_covering_cost_and_buffer() -> None:
@@ -181,7 +186,7 @@ def test_no_eligible_trade_print_returns_not_triggered_without_fallback() -> Non
     assert result.fill_quality == "no_evidence"
 
 
-def test_unsorted_input_is_processed_chronologically() -> None:
+def test_eligible_trade_prints_are_bounded_and_processed_chronologically() -> None:
     result = evaluate_exit_policy(
         side="long",
         entry_price=100.0,
@@ -189,9 +194,11 @@ def test_unsorted_input_is_processed_chronologically() -> None:
         fixed_exit_timestamp=_ts("2026-03-10T00:10:00Z"),
         costs_bps=10.0,
         trade_prints=(
+            _trade("2026-03-09T23:59:00Z", 100.12),
             _trade("2026-03-10T00:03:00Z", 100.30),
             _trade("2026-03-10T00:01:00Z", 100.13),
             _trade("2026-03-10T00:02:00Z", 100.20),
+            _trade("2026-03-10T00:11:00Z", 100.12),
         ),
         policy=ExitPolicyParams(name="after_cost_breakeven_stop", after_cost_buffer_bps=2.0),
     )
@@ -202,7 +209,7 @@ def test_unsorted_input_is_processed_chronologically() -> None:
 
 
 def test_unknown_exit_policy_name_is_rejected() -> None:
-    with pytest.raises(ValueError, match="Unknown exit policy"):
+    with pytest.raises(ValueError, match="^Unknown exit policy: not_real$"):
         evaluate_exit_policy(
             side="long",
             entry_price=100.0,
@@ -211,4 +218,52 @@ def test_unknown_exit_policy_name_is_rejected() -> None:
             costs_bps=10.0,
             trade_prints=(_trade("2026-03-10T00:01:00Z", 100.13),),
             policy=ExitPolicyParams(name="not_real"),
+        )
+
+
+def test_unknown_side_is_rejected() -> None:
+    with pytest.raises(ValueError, match="^Unknown side: flat$"):
+        evaluate_exit_policy(
+            side="flat",
+            entry_price=100.0,
+            entry_timestamp=_ts("2026-03-10T00:00:00Z"),
+            fixed_exit_timestamp=_ts("2026-03-10T00:10:00Z"),
+            costs_bps=10.0,
+            trade_prints=(_trade("2026-03-10T00:01:00Z", 100.13),),
+            policy=ExitPolicyParams(name="after_cost_breakeven_stop"),
+        )
+
+
+@pytest.mark.parametrize("entry_price", [0.0, -1.0])
+def test_entry_price_must_be_positive(entry_price: float) -> None:
+    with pytest.raises(ValueError, match="^entry_price must be positive$"):
+        evaluate_exit_policy(
+            side="long",
+            entry_price=entry_price,
+            entry_timestamp=_ts("2026-03-10T00:00:00Z"),
+            fixed_exit_timestamp=_ts("2026-03-10T00:10:00Z"),
+            costs_bps=10.0,
+            trade_prints=(_trade("2026-03-10T00:01:00Z", 100.13),),
+            policy=ExitPolicyParams(name="after_cost_breakeven_stop"),
+        )
+
+
+@pytest.mark.parametrize(
+    "policy",
+    [
+        ExitPolicyParams(name="after_cost_breakeven_stop"),
+        ExitPolicyParams(name="mfe_giveback_cut"),
+        ExitPolicyParams(name="no_breakeven_time_stop", no_breakeven_time_stop_minute=5),
+    ],
+)
+def test_trade_print_price_must_be_positive_for_exit_policies(policy: ExitPolicyParams) -> None:
+    with pytest.raises(ValueError, match="^trade print price must be positive$"):
+        evaluate_exit_policy(
+            side="long",
+            entry_price=100.0,
+            entry_timestamp=_ts("2026-03-10T00:00:00Z"),
+            fixed_exit_timestamp=_ts("2026-03-10T00:10:00Z"),
+            costs_bps=10.0,
+            trade_prints=(_trade("2026-03-10T00:01:00Z", 0.0),),
+            policy=policy,
         )
