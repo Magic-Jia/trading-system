@@ -2420,6 +2420,59 @@ def test_render_long_gate_telemetry_rejects_tuple_snapshot_rows_payload() -> Non
 
 
 
+def _minimal_walk_forward_validation_experiment() -> dict[str, object]:
+    return {
+        "windows": [],
+        "robustness_summary": {
+            "out_of_sample_scorecard": {"total_return": 0.03, "trade_count": 1},
+            "in_sample_scorecard": {"total_return": 0.04, "trade_count": 1},
+            "performance_dispersion": {"positive_window_ratio": 1.0},
+        },
+        "parameter_stability": {"parameter_stability_score": 0.8},
+    }
+
+
+def test_walk_forward_validation_report_accepts_stability_scorecard_object_contracts() -> None:
+    report = cli.render_walk_forward_validation_report(
+        experiment_name="walk_forward_validation",
+        metadata={"snapshot_count": 1, "window_count": 1},
+        experiment=_minimal_walk_forward_validation_experiment(),
+    )
+
+    assert report["summary"]["parameter_stability"]["parameter_stability_score"] == pytest.approx(0.8)
+    robustness_summary = report["summary"]["robustness_summary"]
+    assert robustness_summary["performance_dispersion"]["positive_window_ratio"] == pytest.approx(1.0)
+    assert robustness_summary["out_of_sample_scorecard"]["trade_count"] == 1
+    assert robustness_summary["in_sample_scorecard"]["trade_count"] == 1
+
+
+@pytest.mark.parametrize(
+    ("path", "match"),
+    [
+        (("parameter_stability",), "parameter_stability must be an object"),
+        (("robustness_summary", "performance_dispersion"), "performance_dispersion must be an object"),
+        (("robustness_summary", "out_of_sample_scorecard"), "out_of_sample_scorecard must be an object"),
+        (("robustness_summary", "in_sample_scorecard"), "in_sample_scorecard must be an object"),
+    ],
+)
+def test_walk_forward_validation_report_rejects_non_object_stability_scorecard_contracts(
+    path: tuple[str, ...],
+    match: str,
+) -> None:
+    experiment = _minimal_walk_forward_validation_experiment()
+    cursor: object = experiment
+    for part in path[:-1]:
+        cursor = cursor[part]  # type: ignore[index]
+    cursor[path[-1]] = []  # type: ignore[index]
+
+    with pytest.raises(ValueError, match=match):
+        cli.render_walk_forward_validation_report(
+            experiment_name="walk_forward_validation",
+            metadata={"snapshot_count": 1, "window_count": 1},
+            experiment=experiment,
+        )
+
+
 def test_walk_forward_validation_report_rejects_invalid_scorecard_numerics() -> None:
     with pytest.raises(ValueError, match="out_of_sample_scorecard.total_return must be a finite number"):
         cli.render_walk_forward_validation_report(
