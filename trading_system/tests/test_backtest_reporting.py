@@ -415,6 +415,43 @@ def test_backtest_evaluation_report_rejects_boolean_walk_forward_split_metric() 
         )
 
 
+def test_backtest_evaluation_report_rejects_unknown_walk_forward_split_key() -> None:
+    with pytest.raises(ValueError, match=r"walk_forward.windows\[0\].splits keys must be in_sample/out_of_sample"):
+        reporting.render_backtest_evaluation_report(
+            experiment_name="evaluation",
+            evaluation={
+                "walk_forward": {
+                    "metadata": {"window_count": 1},
+                    "windows": [
+                        {
+                            "window_index": 1,
+                            "splits": {
+                                "in_sample": {
+                                    "label": "IS",
+                                    "trade_ids": [],
+                                    "metrics": {"total_net_return": 0.01},
+                                },
+                                "out_of_sample": {
+                                    "label": "OOS",
+                                    "trade_ids": [],
+                                    "metrics": {"total_net_return": 0.02},
+                                },
+                                "validation": {
+                                    "label": "OOS",
+                                    "trade_ids": [],
+                                    "metrics": {"total_net_return": 0.03},
+                                },
+                            },
+                        }
+                    ],
+                },
+                "regimes": {"buckets": []},
+                "cost_stress": {"scenarios": []},
+            },
+            metadata={"dataset_root": "dataset"},
+        )
+
+
 def test_backtest_evaluation_report_rejects_non_object_cost_stress_payload() -> None:
     with pytest.raises(ValueError, match="cost_stress must be an object"):
         reporting.render_backtest_evaluation_report(

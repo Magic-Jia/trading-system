@@ -351,6 +351,8 @@ def _evaluation_walk_forward_payload(walk_forward: Mapping[str, Any]) -> dict[st
             splits,
             field_name=f"walk_forward.windows[{window_index}].splits",
         )
+        if set(validated_splits) != {"in_sample", "out_of_sample"}:
+            raise ValueError(f"walk_forward.windows[{window_index}].splits keys must be in_sample/out_of_sample")
         for split_name, split_payload in list(validated_splits.items()):
             split_label = _canonical_report_string(
                 split_name,
