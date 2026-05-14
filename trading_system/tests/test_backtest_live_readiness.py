@@ -8361,6 +8361,57 @@ def test_live_readiness_gate_rejects_microstructure_interval_missing_symbol(
     assert "microstructure_artifact_provenance_missing" not in report["promotion_gate"]["reasons"]
 
 
+def test_live_readiness_gate_rejects_microstructure_interval_non_string_symbol(
+    tmp_path: Path,
+) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    (chunk / "market_microstructure_gate.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "market_microstructure_gate_input.v1",
+                "evidence_source": {"type": "historical_l2_tick_archive", "run_id": "micro-intervals-1"},
+                "checks": {"l2_tick_coverage_met": True, "depth_driven_taker_met": True},
+                "coverage": {
+                    "l2_snapshot_coverage": 1.0,
+                    "l2_update_coverage": 1.0,
+                    "tick_coverage": 1.0,
+                    "min_required_coverage": 0.99,
+                },
+                "required_intervals": ["1m"],
+                "interval_coverage": [
+                    {
+                        "source": "historical_l2_tick_archive",
+                        "symbol": 123,
+                        "venue": "binance_futures",
+                        "interval": "1m",
+                        "generated_at": "2026-05-12T09:00:00Z",
+                        "coverage": {
+                            "l2_snapshot_coverage": 1.0,
+                            "l2_update_coverage": 1.0,
+                            "tick_coverage": 1.0,
+                        },
+                        "artifact_ref": "l2/BTCUSDT/binance_futures/1m.jsonl",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_live_readiness_gate_report(tmp_path, require_microstructure_evidence=True)
+
+    microstructure = report["microstructure_gate"]
+    artifact = microstructure["artifacts"][0]
+    assert artifact["schema_valid"] is False
+    assert artifact["provenance_present"] is True
+    assert artifact["parse_error"] == "interval_coverage_symbol_not_string"
+    assert microstructure["checks"]["microstructure_artifact_schema_valid"] is False
+    assert microstructure["checks"]["microstructure_artifact_provenance_present"] is True
+    assert "microstructure_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
+    assert "microstructure_artifact_provenance_missing" not in report["promotion_gate"]["reasons"]
+
+
 def test_live_readiness_gate_rejects_microstructure_interval_blank_symbol(
     tmp_path: Path,
 ) -> None:
