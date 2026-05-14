@@ -127,6 +127,66 @@ def test_backtest_evaluation_report_rejects_malformed_sample_period_shape() -> N
         )
 
 
+def test_backtest_evaluation_report_rejects_non_object_sample_period() -> None:
+    with pytest.raises(ValueError, match="metadata.sample_period must be an object or canonical string"):
+        reporting.render_backtest_evaluation_report(
+            experiment_name="evaluation",
+            evaluation={
+                "walk_forward": {"metadata": {"window_count": 1}},
+                "regimes": {"buckets": []},
+                "cost_stress": {"scenarios": []},
+            },
+            metadata={"sample_period": ["2026-03-10T00:00:00Z", "2026-03-11T00:00:00Z"]},
+        )
+
+
+@pytest.mark.parametrize("boundary", ("start", "end"))
+def test_backtest_evaluation_report_rejects_sample_period_missing_boundary(boundary: str) -> None:
+    sample_period = {
+        "start": "2026-03-10T00:00:00Z",
+        "end": "2026-03-11T00:00:00Z",
+    }
+    del sample_period[boundary]
+
+    with pytest.raises(ValueError, match=rf"metadata\.sample_period\.{boundary} must be present"):
+        reporting.render_backtest_evaluation_report(
+            experiment_name="evaluation",
+            evaluation={
+                "walk_forward": {"metadata": {"window_count": 1}},
+                "regimes": {"buckets": []},
+                "cost_stress": {"scenarios": []},
+            },
+            metadata={"sample_period": sample_period},
+        )
+
+
+@pytest.mark.parametrize(
+    ("sample_period", "expected"),
+    [
+        ("2026-03-10T00:00:00Z/2026-03-11T00:00:00Z", "2026-03-10T00:00:00Z/2026-03-11T00:00:00Z"),
+        (
+            {"start": "2026-03-10T00:00:00Z", "end": "2026-03-11T00:00:00Z"},
+            {"start": "2026-03-10T00:00:00Z", "end": "2026-03-11T00:00:00Z"},
+        ),
+    ],
+)
+def test_backtest_evaluation_report_accepts_canonical_sample_period_shapes(
+    sample_period: object,
+    expected: object,
+) -> None:
+    report = reporting.render_backtest_evaluation_report(
+        experiment_name="evaluation",
+        evaluation={
+            "walk_forward": {"metadata": {"window_count": 1}},
+            "regimes": {"buckets": []},
+            "cost_stress": {"scenarios": []},
+        },
+        metadata={"sample_period": sample_period},
+    )
+
+    assert report["summary"]["metadata"]["sample_period"] == expected
+
+
 @pytest.mark.parametrize("field", ("dataset_root", "baseline_name", "variant_name"))
 def test_backtest_evaluation_report_rejects_padded_report_metadata_identifiers(field: str) -> None:
     with pytest.raises(ValueError, match=rf"metadata\.{field} must be a canonical string"):
@@ -2606,6 +2666,98 @@ def test_walk_forward_validation_report_rejects_malformed_present_count_domains(
             metadata={"snapshot_count": 1, "window_count": 1},
             experiment=experiment,
         )
+
+
+@pytest.mark.parametrize(
+    ("worst_window", "match"),
+    [
+        (["window-1"], "worst_window must be an object"),
+        (
+            {"window_index": 1, "scorecard": ["total_return", 0.03]},
+            r"worst_window\.scorecard must be an object",
+        ),
+    ],
+)
+def test_walk_forward_validation_report_rejects_malformed_worst_window_contracts(
+    worst_window: object,
+    match: str,
+) -> None:
+    experiment: dict[str, object] = {
+        "windows": [
+            {
+                "window_index": 1,
+                "out_of_sample": {
+                    "snapshot_count": 1,
+                    "scorecard": {"total_return": 0.03, "trade_count": 1},
+                    "run_ids": ["row-002"],
+                },
+            }
+        ],
+        "robustness_summary": {
+            "out_of_sample_scorecard": {"total_return": 0.03, "trade_count": 1},
+            "performance_dispersion": {
+                "window_count": 1,
+                "positive_window_count": 1,
+                "positive_window_ratio": 1.0,
+            },
+            "worst_window": worst_window,
+        },
+        "parameter_stability": {"parameter_stability_score": 0.8},
+    }
+
+    with pytest.raises(ValueError, match=match):
+        cli.render_walk_forward_validation_report(
+            experiment_name="walk_forward_validation",
+            metadata={"snapshot_count": 1, "window_count": 1},
+            experiment=experiment,
+        )
+
+
+def test_walk_forward_validation_report_preserves_valid_worst_window_scorecard() -> None:
+    report = cli.render_walk_forward_validation_report(
+        experiment_name="walk_forward_validation",
+        metadata={"snapshot_count": 1, "window_count": 1},
+        experiment={
+            "windows": [
+                {
+                    "window_index": 1,
+                    "out_of_sample": {
+                        "snapshot_count": 1,
+                        "scorecard": {"total_return": 0.03, "trade_count": 1},
+                        "run_ids": ["row-002"],
+                    },
+                }
+            ],
+            "robustness_summary": {
+                "out_of_sample_scorecard": {"total_return": 0.03, "trade_count": 1},
+                "performance_dispersion": {
+                    "window_count": 1,
+                    "positive_window_count": 1,
+                    "positive_window_ratio": 1.0,
+                },
+                "worst_window": {
+                    "window_index": 1,
+                    "scorecard": {
+                        "total_return": 0.03,
+                        "trade_count": 1,
+                        "win_count": 1,
+                        "loss_count": 0,
+                    },
+                },
+            },
+            "parameter_stability": {"parameter_stability_score": 0.8},
+        },
+    )
+
+    assert report["summary"]["robustness_summary"]["worst_window"] == {
+        "window_index": 1,
+        "scorecard": {
+            "total_return": 0.03,
+            "trade_count": 1,
+            "win_count": 1,
+            "loss_count": 0,
+        },
+    }
 
 
 @pytest.mark.parametrize(
