@@ -273,6 +273,19 @@ def test_intraday_path_rejects_coerced_high_low_fields() -> None:
         backtest_engine._path_high_low(row, "BTCUSDT")
 
 
+@pytest.mark.parametrize("path_row", [{"high": 2.0}, {"low": 1.0}])
+def test_intraday_path_rejects_incomplete_high_low_pairs(path_row: dict[str, float]) -> None:
+    row = DatasetSnapshotRow(
+        timestamp=backtest_engine._datetime_or_none("2026-03-10T00:00:00Z"),
+        run_id="run-1",
+        market={"symbols": {"BTCUSDT": {"1m": path_row}}},
+        derivatives=[],
+    )
+
+    with pytest.raises(ValueError, match=r"path\.1m high/low must both be present"):
+        backtest_engine._path_high_low(row, "BTCUSDT")
+
+
 def test_reference_price_rejects_coerced_close_fields() -> None:
     row = DatasetSnapshotRow(
         timestamp=backtest_engine._datetime_or_none("2026-03-10T00:00:00Z"),
