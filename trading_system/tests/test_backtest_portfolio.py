@@ -246,6 +246,67 @@ def test_decision_ledger_rejects_coerced_identity_and_status_fields() -> None:
         decision_to_ledger_row(candidate, decision)
 
 
+def test_decision_ledger_rejects_non_portfolio_decision_status() -> None:
+    candidate = make_candidate(
+        symbol="SOLUSDT",
+        market_type="spot",
+        base_asset="SOL",
+        entry_price=200.0,
+        stop_loss=190.0,
+    )
+    decision = PortfolioDecision(
+        status="filled",
+        reasons=(),
+        final_risk_budget=0.005,
+        position_notional=10_000.0,
+        qty=50.0,
+    )
+
+    with pytest.raises(ValueError, match="decision.status must be a portfolio decision status"):
+        decision_to_ledger_row(candidate, decision)
+
+
+def test_decision_ledger_rejects_non_tuple_reasons() -> None:
+    candidate = make_candidate(
+        symbol="SOLUSDT",
+        market_type="spot",
+        base_asset="SOL",
+        entry_price=200.0,
+        stop_loss=190.0,
+    )
+    decision = PortfolioDecision(
+        status="accepted",
+        reasons=["open_risk_budget_limited"],
+        final_risk_budget=0.005,
+        position_notional=10_000.0,
+        qty=50.0,
+    )
+
+    with pytest.raises(ValueError, match="decision.reasons must be a tuple"):
+        decision_to_ledger_row(candidate, decision)
+
+
+@pytest.mark.parametrize("reason", ["", " capital_usage_limited", True])
+def test_decision_ledger_rejects_non_canonical_reasons(reason: object) -> None:
+    candidate = make_candidate(
+        symbol="SOLUSDT",
+        market_type="spot",
+        base_asset="SOL",
+        entry_price=200.0,
+        stop_loss=190.0,
+    )
+    decision = PortfolioDecision(
+        status="resized",
+        reasons=(reason,),
+        final_risk_budget=0.005,
+        position_notional=10_000.0,
+        qty=50.0,
+    )
+
+    with pytest.raises(ValueError, match=r"decision\.reasons\[\] must be a canonical string"):
+        decision_to_ledger_row(candidate, decision)
+
+
 def test_decision_ledgers_capture_accept_resize_and_reject_statuses() -> None:
     accepted = PortfolioDecision(
         status="accepted",
@@ -326,6 +387,266 @@ def test_decision_ledger_enforces_status_quantity_notional_consistency() -> None
                 qty=0.0,
             ),
         )
+
+
+def test_candidate_side_rejected_through_public_lifecycle_path() -> None:
+    state = make_portfolio_state(
+        initial_equity=100_000.0,
+        open_positions=[
+            make_position(symbol="BTCUSDT", market_type="spot", base_asset="BTC")
+        ],
+    )
+    candidate = make_candidate(
+        symbol="BTCUSDT_PERP",
+        market_type="futures",
+        base_asset="BTC",
+        entry_price=200.0,
+        stop_loss=190.0,
+        side="flat",
+    )
+
+    with pytest.raises(ValueError, match="candidate.side must be a portfolio side"):
+        evaluate_candidate(candidate, state=state, capital=sample_capital_config())
+
+
+def make_protective_stop_evidence(
+    **overrides: object,
+) -> ProtectiveStopEvidence:
+    values = {
+        "stop_id": "stop-btc-1",
+        "symbol": "BTCUSDT",
+        "status": "active",
+        "stop_loss": 47_500.0,
+        "updated_at_counter": 1,
+    }
+    values.update(overrides)
+    return ProtectiveStopEvidence(**values)
+
+
+def make_funding_margin_liquidation_evidence(
+    **overrides: object,
+) -> FundingMarginLiquidationEvidence:
+    values = {
+        "evidence_id": "risk-btc-1",
+        "symbol": "BTCUSDT",
+        "timestamp_ms": 1_700_000_000_000,
+        "order_counter": 10,
+        "funding_rate_bps": 0.25,
+        "margin_ratio": 0.5,
+        "liquidation_price": 42_000.0,
+        "liquidation_distance_fraction": 0.12,
+    }
+    values.update(overrides)
+    return FundingMarginLiquidationEvidence(**values)
+
+
+def state_with_lifecycle_evidence(
+    *,
+    stop: ProtectiveStopEvidence | None = None,
+    funding_margin_liquidation: FundingMarginLiquidationEvidence | None = None,
+) -> PortfolioState:
+    return make_portfolio_state(
+        initial_equity=100_000.0,
+        open_positions=[
+            make_position(
+                symbol="BTCUSDT",
+                market_type="futures",
+                base_asset="BTC",
+                protective_stop_id="stop-btc-1",
+            )
+        ],
+        lifecycle_evidence=PortfolioLifecycleEvidence(
+            protective_stops=(stop or make_protective_stop_evidence(),),
+            funding_margin_liquidation=(
+                funding_margin_liquidation or make_funding_margin_liquidation_evidence(),
+            ),
+        ),
+    )
+
+
+def test_lifecycle_validation_rejects_non_protective_stop_status() -> None:
+    state = state_with_lifecycle_evidence(
+        stop=make_protective_stop_evidence(status="pending")
+    )
+
+    with pytest.raises(ValueError, match="protective_stop.status must be a protective stop status"):
+        validate_portfolio_lifecycle(state, promotion_grade=True)
+
+
+@pytest.mark.parametrize(
+    ("field_name", "value", "message"),
+    [
+        ("stop_id", "", "protective_stop.stop_id must be a canonical string"),
+        ("stop_id", " stop-btc-1", "protective_stop.stop_id must be a canonical string"),
+        ("stop_id", True, "protective_stop.stop_id must be a canonical string"),
+        ("symbol", "", "protective_stop.symbol must be a canonical string"),
+        ("symbol", " BTCUSDT", "protective_stop.symbol must be a canonical string"),
+        ("symbol", True, "protective_stop.symbol must be a canonical string"),
+    ],
+)
+def test_lifecycle_validation_rejects_non_canonical_protective_stop_identity(
+    field_name: str,
+    value: object,
+    message: str,
+) -> None:
+    state = state_with_lifecycle_evidence(
+        stop=make_protective_stop_evidence(**{field_name: value})
+    )
+
+    with pytest.raises(ValueError, match=message):
+        validate_portfolio_lifecycle(state, promotion_grade=True)
+
+
+@pytest.mark.parametrize("stop_loss", [0.0, -1.0])
+def test_lifecycle_validation_rejects_non_positive_protective_stop_loss(
+    stop_loss: float,
+) -> None:
+    state = state_with_lifecycle_evidence(
+        stop=make_protective_stop_evidence(stop_loss=stop_loss)
+    )
+
+    with pytest.raises(ValueError, match="protective_stop.stop_loss must be positive"):
+        validate_portfolio_lifecycle(state, promotion_grade=True)
+
+
+@pytest.mark.parametrize("updated_at_counter", [-1, 1.5, True])
+def test_lifecycle_validation_rejects_non_non_negative_protective_stop_counter(
+    updated_at_counter: object,
+) -> None:
+    state = state_with_lifecycle_evidence(
+        stop=make_protective_stop_evidence(updated_at_counter=updated_at_counter)
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="protective_stop.updated_at_counter must be a non-negative integer",
+    ):
+        validate_portfolio_lifecycle(state, promotion_grade=True)
+
+
+@pytest.mark.parametrize(
+    ("field_name", "value", "message"),
+    [
+        (
+            "evidence_id",
+            "",
+            "funding_margin_liquidation.evidence_id must be a canonical string",
+        ),
+        (
+            "evidence_id",
+            " risk-btc-1",
+            "funding_margin_liquidation.evidence_id must be a canonical string",
+        ),
+        (
+            "evidence_id",
+            True,
+            "funding_margin_liquidation.evidence_id must be a canonical string",
+        ),
+        ("symbol", "", "funding_margin_liquidation.symbol must be a canonical string"),
+        (
+            "symbol",
+            " BTCUSDT",
+            "funding_margin_liquidation.symbol must be a canonical string",
+        ),
+        ("symbol", True, "funding_margin_liquidation.symbol must be a canonical string"),
+    ],
+)
+def test_lifecycle_validation_rejects_non_canonical_funding_margin_identity(
+    field_name: str,
+    value: object,
+    message: str,
+) -> None:
+    state = state_with_lifecycle_evidence(
+        funding_margin_liquidation=make_funding_margin_liquidation_evidence(
+            **{field_name: value}
+        )
+    )
+
+    with pytest.raises(ValueError, match=message):
+        validate_portfolio_lifecycle(state, promotion_grade=True)
+
+
+@pytest.mark.parametrize("timestamp_ms", [-1, 1.5, True])
+def test_lifecycle_validation_rejects_non_non_negative_funding_margin_timestamp(
+    timestamp_ms: object,
+) -> None:
+    state = state_with_lifecycle_evidence(
+        funding_margin_liquidation=make_funding_margin_liquidation_evidence(
+            timestamp_ms=timestamp_ms
+        )
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="funding_margin_liquidation.timestamp_ms must be a non-negative integer",
+    ):
+        validate_portfolio_lifecycle(state, promotion_grade=True)
+
+
+@pytest.mark.parametrize("order_counter", [1.5, True])
+def test_lifecycle_validation_rejects_non_integer_funding_margin_order_counter(
+    order_counter: object,
+) -> None:
+    state = state_with_lifecycle_evidence(
+        funding_margin_liquidation=make_funding_margin_liquidation_evidence(
+            order_counter=order_counter
+        )
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="funding_margin_liquidation.order_counter must be an integer",
+    ):
+        validate_portfolio_lifecycle(state, promotion_grade=True)
+
+
+@pytest.mark.parametrize("funding_rate_bps", [float("inf"), float("nan"), "0.25", True])
+def test_lifecycle_validation_rejects_non_finite_funding_rate(
+    funding_rate_bps: object,
+) -> None:
+    state = state_with_lifecycle_evidence(
+        funding_margin_liquidation=make_funding_margin_liquidation_evidence(
+            funding_rate_bps=funding_rate_bps
+        )
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="funding_margin_liquidation.funding_rate_bps must be a finite number",
+    ):
+        validate_portfolio_lifecycle(state, promotion_grade=True)
+
+
+def test_lifecycle_validation_rejects_negative_margin_ratio() -> None:
+    state = state_with_lifecycle_evidence(
+        funding_margin_liquidation=make_funding_margin_liquidation_evidence(
+            margin_ratio=-0.01
+        )
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="funding_margin_liquidation.margin_ratio must be non-negative",
+    ):
+        validate_portfolio_lifecycle(state, promotion_grade=True)
+
+
+@pytest.mark.parametrize("liquidation_price", [0.0, -1.0])
+def test_lifecycle_validation_rejects_non_positive_liquidation_price(
+    liquidation_price: float,
+) -> None:
+    state = state_with_lifecycle_evidence(
+        funding_margin_liquidation=make_funding_margin_liquidation_evidence(
+            liquidation_price=liquidation_price
+        )
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="funding_margin_liquidation.liquidation_price must be positive",
+    ):
+        validate_portfolio_lifecycle(state, promotion_grade=True)
+
 
 def test_lifecycle_validation_rejects_duplicate_protective_stop_evidence() -> None:
     state = make_portfolio_state(
