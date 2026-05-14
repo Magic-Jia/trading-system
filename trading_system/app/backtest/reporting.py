@@ -140,6 +140,7 @@ def render_backtest_evaluation_report(
     if not isinstance(raw_walk_forward_metadata, Mapping):
         raise ValueError("walk_forward.metadata must be an object")
     walk_forward_metadata = dict(raw_walk_forward_metadata)
+    validated_walk_forward = _evaluation_walk_forward_payload(walk_forward)
     regime_buckets = _list_field(regimes, "buckets", label="regimes.buckets")
     validated_regime_buckets = []
     regime_bucket_labels: set[str] = set()
@@ -213,10 +214,72 @@ def render_backtest_evaluation_report(
             "regime_bucket_count": len(regime_buckets),
             "cost_stress_scenarios": stress_scenarios,
         },
-        "walk_forward": walk_forward,
+        "walk_forward": validated_walk_forward,
         "regimes": validated_regimes,
         "cost_stress": validated_cost_stress,
     }
+
+
+def _evaluation_walk_forward_payload(walk_forward: Mapping[str, Any]) -> dict[str, Any]:
+    validated = dict(walk_forward)
+    if "windows" not in validated:
+        return validated
+    windows = _list_field(validated, "windows", label="walk_forward.windows")
+    validated_windows = []
+    for window_index, window in enumerate(windows):
+        if not isinstance(window, Mapping):
+            raise ValueError(f"walk_forward.windows[{window_index}] must be an object")
+        validated_window = _strict_mapping_copy(
+            window,
+            field_name=f"walk_forward.windows[{window_index}]",
+        )
+        splits = validated_window.get("splits")
+        if splits is None:
+            validated_windows.append(validated_window)
+            continue
+        if not isinstance(splits, Mapping):
+            raise ValueError(f"walk_forward.windows[{window_index}].splits must be an object")
+        validated_splits = _strict_mapping_copy(
+            splits,
+            field_name=f"walk_forward.windows[{window_index}].splits",
+        )
+        for split_name, split_payload in list(validated_splits.items()):
+            split_label = _canonical_report_string(
+                split_name,
+                field_name=f"walk_forward.windows[{window_index}].splits key",
+            )
+            if not isinstance(split_payload, Mapping):
+                raise ValueError(f"walk_forward.windows[{window_index}].splits.{split_label} must be an object")
+            validated_split = _strict_mapping_copy(
+                split_payload,
+                field_name=f"walk_forward.windows[{window_index}].splits.{split_label}",
+            )
+            metrics = validated_split.get("metrics")
+            if metrics is not None:
+                if not isinstance(metrics, Mapping):
+                    raise ValueError(
+                        f"walk_forward.windows[{window_index}].splits.{split_label}.metrics must be an object"
+                    )
+                validated_split["metrics"] = _evaluation_metric_payload(
+                    metrics,
+                    field_name=f"walk_forward.windows[{window_index}].splits.{split_label}.metrics",
+                )
+            validated_splits[split_label] = validated_split
+        validated_window["splits"] = validated_splits
+        validated_windows.append(validated_window)
+    validated["windows"] = validated_windows
+    return validated
+
+
+def _evaluation_metric_payload(metrics: Mapping[str, Any], *, field_name: str) -> dict[str, float]:
+    validated_metrics: dict[str, float] = {}
+    for metric_name, metric_value in metrics.items():
+        metric_key = _canonical_report_string(metric_name, field_name=f"{field_name} key")
+        validated_metrics[metric_key] = _strict_present_finite_float(
+            metric_value,
+            field_name=f"{field_name}.{metric_key}",
+        )
+    return validated_metrics
 
 
 def _trade_breakdown_rows(
