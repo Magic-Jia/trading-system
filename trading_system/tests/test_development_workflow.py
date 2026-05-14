@@ -212,6 +212,7 @@ def test_verify_maps_backtest_tail_tests_to_backtest_core_regression() -> None:
         "trading_system/tests/test_backtest_ablation_experiments.py",
         "trading_system/tests/test_backtest_execution_sim.py",
         "trading_system/tests/test_backtest_exit_policy_experiment.py",
+        "trading_system/tests/test_backtest_exit_policies.py",
     ):
         result = run_verify("--dry-run", "--changed", changed)
 
@@ -219,6 +220,7 @@ def test_verify_maps_backtest_tail_tests_to_backtest_core_regression() -> None:
         assert "trading_system/tests/test_backtest_ablation_experiments.py" in result.stdout
         assert "trading_system/tests/test_backtest_execution_sim.py" in result.stdout
         assert "trading_system/tests/test_backtest_exit_policy_experiment.py" in result.stdout
+        assert "trading_system/tests/test_backtest_exit_policies.py" in result.stdout
         assert "trading_system/tests/test_backtest_evaluation.py" in result.stdout
 
 
