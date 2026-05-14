@@ -8,6 +8,7 @@ import pytest
 
 from trading_system.app.backtest.microstructure_evidence import (
     build_microstructure_gate,
+    main,
     simulate_depth_driven_taker_fill,
     write_microstructure_gate,
 )
@@ -139,6 +140,56 @@ def test_microstructure_gate_emits_strict_interval_coverage_identity() -> None:
             "artifact_ref": "l2/BTCUSDT/binance_futures/1m.jsonl",
         }
     ]
+
+
+def test_microstructure_gate_normalises_valid_interval_coverage_manifest() -> None:
+    gate = build_microstructure_gate(
+        _complete_coverage_manifest(
+            required_intervals=["1m"],
+            interval_coverage=[_valid_interval_row()],
+        )
+    )
+
+    assert gate["checks"]["l2_tick_coverage_met"] is True
+    assert gate["required_intervals"] == ["1m"]
+    assert gate["interval_coverage"] == [_valid_interval_row()]
+
+
+def test_microstructure_gate_rejects_non_list_required_intervals() -> None:
+    with pytest.raises(ValueError, match="^required_intervals must be a list$"):
+        build_microstructure_gate(
+            _complete_coverage_manifest(required_intervals="1m")
+        )
+
+
+def test_microstructure_gate_rejects_non_list_interval_coverage() -> None:
+    with pytest.raises(ValueError, match="^interval_coverage must be a list$"):
+        build_microstructure_gate(
+            _complete_coverage_manifest(interval_coverage={"interval": "1m"})
+        )
+
+
+def test_microstructure_gate_rejects_non_object_second_interval_coverage_row() -> None:
+    with pytest.raises(ValueError, match="^interval_coverage\\[2\\] must be an object$"):
+        build_microstructure_gate(
+            _complete_coverage_manifest(
+                interval_coverage=[_valid_interval_row(), "not-an-object"]
+            )
+        )
+
+
+def test_microstructure_gate_rejects_non_object_second_interval_coverage_coverage() -> None:
+    invalid_row = _valid_interval_row()
+    invalid_row["interval"] = "5m"
+    invalid_row["artifact_ref"] = "l2/BTCUSDT/binance_futures/5m.jsonl"
+    invalid_row["coverage"] = "not-an-object"
+
+    with pytest.raises(ValueError, match="^interval_coverage\\[2\\] coverage must be an object$"):
+        build_microstructure_gate(
+            _complete_coverage_manifest(
+                interval_coverage=[_valid_interval_row(), invalid_row]
+            )
+        )
 
 
 def test_microstructure_gate_fails_closed_for_zero_required_interval_coverage() -> None:
@@ -462,6 +513,17 @@ def test_depth_fill_rejects_empty_actionable_top_of_book() -> None:
             reference_price=100.0,
             bids=[{"price": 99.9, "quantity": 1.0}],
             asks=[],
+        )
+
+
+def test_depth_fill_rejects_empty_bid_side_for_sell_taker() -> None:
+    with pytest.raises(ValueError, match="bids must contain at least one level"):
+        simulate_depth_driven_taker_fill(
+            side="sell",
+            quantity=1.0,
+            reference_price=100.0,
+            bids=[],
+            asks=[{"price": 100.1, "quantity": 1.0}],
         )
 
 
@@ -831,6 +893,15 @@ def test_microstructure_gate_rejects_unknown_manifest_fields() -> None:
                 },
             }
         )
+
+
+def test_microstructure_gate_cli_rejects_non_object_manifest_json(tmp_path: Path) -> None:
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text("[]")
+
+    with pytest.raises(ValueError, match="^manifest JSON must be an object$"):
+        main(["--manifest", str(manifest_path), "--output-dir", str(tmp_path / "out")])
+
 
 def test_microstructure_gate_rejects_unknown_coverage_fields() -> None:
     with pytest.raises(ValueError, match="unknown microstructure coverage field: stale_coverage_alias"):
