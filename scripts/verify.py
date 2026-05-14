@@ -57,6 +57,7 @@ SUITES: dict[str, list[str]] = {
         "trading_system/tests/test_backtest_promotion.py",
         "trading_system/tests/test_backtest_execution_sim.py",
         "trading_system/tests/test_backtest_evaluation.py",
+        "trading_system/tests/test_backtest_metrics.py",
         "trading_system/tests/test_backtest_ablation_experiments.py",
         "trading_system/tests/test_backtest_regime_experiments.py",
         "trading_system/tests/test_backtest_exit_policy_experiment.py",
