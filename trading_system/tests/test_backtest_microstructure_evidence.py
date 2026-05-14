@@ -29,6 +29,18 @@ def _valid_interval_row() -> dict[str, object]:
     }
 
 
+def _complete_coverage_manifest(**extra: object) -> dict[str, object]:
+    manifest: dict[str, object] = {
+        "coverage": {
+            "l2_snapshot_coverage": 1.0,
+            "l2_update_coverage": 1.0,
+            "tick_coverage": 1.0,
+        }
+    }
+    manifest.update(extra)
+    return manifest
+
+
 def test_builds_synthetic_microstructure_gate_when_coverage_is_sufficient(tmp_path: Path) -> None:
     manifest = {
         "evidence_source": {"type": "synthetic_fixture", "run_id": "unit-test-only"},
@@ -556,28 +568,28 @@ def test_incomplete_depth_fill_keeps_gate_conservative() -> None:
     assert "depth_driven_taker_incomplete_fill" in gate["reasons"]
 
 
-def test_complete_depth_fills_satisfy_depth_driven_taker_gate() -> None:
-    fill = simulate_depth_driven_taker_fill(
+def test_complete_buy_and_sell_depth_fills_satisfy_depth_driven_taker_gate() -> None:
+    buy_fill = simulate_depth_driven_taker_fill(
         side="buy",
         quantity=1.0,
         reference_price=100.0,
         bids=[],
         asks=[{"price": 100.2, "quantity": 1.0}],
     )
+    sell_fill = simulate_depth_driven_taker_fill(
+        side="sell",
+        quantity=2.0,
+        reference_price=100.0,
+        bids=[{"price": 99.8, "quantity": 2.0}],
+        asks=[],
+    )
     gate = build_microstructure_gate(
-        {
-            "coverage": {
-                "l2_snapshot_coverage": 1.0,
-                "l2_update_coverage": 1.0,
-                "tick_coverage": 1.0,
-            },
-            "depth_driven_taker_fills": [fill],
-        }
+        _complete_coverage_manifest(depth_driven_taker_fills=[buy_fill, sell_fill])
     )
 
     assert gate["checks"] == {"l2_tick_coverage_met": True, "depth_driven_taker_met": True}
     assert gate["reasons"] == []
-    assert gate["depth_driven_taker"] == {"fill_count": 1, "complete_fill_count": 1, "incomplete_fill_count": 0}
+    assert gate["depth_driven_taker"] == {"fill_count": 2, "complete_fill_count": 2, "incomplete_fill_count": 0}
 
 
 def test_rejects_non_boolean_depth_driven_taker_override() -> None:
@@ -632,6 +644,46 @@ def test_rejects_non_object_depth_driven_fill_entries() -> None:
                 "depth_driven_taker_fills": ["not-a-fill"],
             }
         )
+
+
+@pytest.mark.parametrize(
+    ("manifest", "expected_error"),
+    [
+        (
+            _complete_coverage_manifest(depth_driven_taker_fills="not-a-list"),
+            "depth_driven_taker_fills must be a list",
+        ),
+        (
+            _complete_coverage_manifest(depth_driven_taker_fills=[{"complete": True, "side": 1}]),
+            "depth_driven_taker_fills side must be a string",
+        ),
+        (
+            _complete_coverage_manifest(depth_driven_taker_fills=[{"complete": True, "side": "hold"}]),
+            "depth_driven_taker_fills side must be buy or sell",
+        ),
+        (
+            _complete_coverage_manifest(
+                depth_driven_taker_fills=[{"complete": True, "consumed_levels": "not-a-list"}]
+            ),
+            "depth_driven_taker_fills consumed_levels must be a list",
+        ),
+        (
+            _complete_coverage_manifest(
+                depth_driven_taker_fills=[{"complete": True, "consumed_levels": ["not-a-level"]}]
+            ),
+            "depth_driven_taker_fills consumed_levels entries must be mappings",
+        ),
+        (
+            _complete_coverage_manifest(depth_driven_taker_fills=[{"complete": "true"}]),
+            "depth_driven_taker_fills complete must be a boolean",
+        ),
+    ],
+)
+def test_microstructure_gate_rejects_invalid_depth_driven_taker_fill_contracts(
+    manifest: dict[str, object], expected_error: str
+) -> None:
+    with pytest.raises(ValueError, match=f"^{expected_error}$"):
+        build_microstructure_gate(manifest)
 
 
 def test_microstructure_gate_rejects_non_string_evidence_source_type() -> None:
