@@ -54,6 +54,24 @@ def test_evidence_contract_rejects_duplicate_same_symbol_trade_fill_id() -> None
         )
 
 
+@pytest.mark.parametrize("fill_id", ["", " fill-001", "fill-001 ", 123])
+def test_evidence_contract_rejects_noncanonical_trade_fill_id(fill_id: object) -> None:
+    with pytest.raises(ValueError, match="trade.fill_id must be a canonical string"):
+        _validate_evidence_contract(
+            symbol="BTCUSDT",
+            order_books=(),
+            trades=(
+                TradePrint(
+                    timestamp=_ts("2026-03-10T00:00:01Z"),
+                    symbol="BTCUSDT",
+                    price=99.5,
+                    quantity=0.5,
+                    fill_id=fill_id,
+                ),
+            ),
+        )
+
+
 def test_evidence_contract_rejects_non_monotonic_same_symbol_trade_timestamps() -> None:
     with pytest.raises(ValueError, match="trade timestamps must be monotonic for BTCUSDT"):
         _validate_evidence_contract(
