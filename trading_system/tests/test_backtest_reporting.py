@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Iterator, Mapping
 from dataclasses import replace
 from datetime import datetime, timezone
@@ -591,6 +592,22 @@ def test_regime_scorecard_rejects_non_object_by_regime() -> None:
         reporting.render_regime_scorecard(
             experiment_name="regime_dispersion",
             experiment={"metadata": {"snapshot_count": 2}, "by_regime": []},
+            metadata={"dataset_root": "dataset"},
+        )
+
+
+def test_regime_scorecard_rejects_non_object_duration_stats() -> None:
+    with pytest.raises(ValueError, match="duration_stats must be an object"):
+        reporting.render_regime_scorecard(
+            experiment_name="regime_dispersion",
+            experiment={
+                "metadata": {"snapshot_count": 2},
+                "by_regime": {
+                    "bull": {"forward_return_by_window": {"3d": 0.01}},
+                    "bear": {"forward_return_by_window": {"3d": -0.01}},
+                },
+                "duration_stats": [],
+            },
             metadata={"dataset_root": "dataset"},
         )
 
@@ -2727,7 +2744,7 @@ def test_walk_forward_validation_report_rejects_malformed_present_count_domains(
         (["window-1"], "worst_window must be an object"),
         (
             {"window_index": 1, "scorecard": ["total_return", 0.03]},
-            r"worst_window\.scorecard must be an object",
+            re.escape("worst_window.scorecard must be an object"),
         ),
     ],
 )
