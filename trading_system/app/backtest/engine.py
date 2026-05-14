@@ -1169,6 +1169,11 @@ def _trade_row(
     exit_row: DatasetSnapshotRow,
     costs: BacktestCosts,
 ) -> tuple[TradeLedgerRow, float, float, float, float, float]:
+    qty = _positive_float(open_trade.qty, field_name="open_trade.qty")
+    position_notional = _positive_float(
+        open_trade.position_notional,
+        field_name="open_trade.position_notional",
+    )
     reference_price = _reference_price(exit_row, open_trade.symbol) or open_trade.entry_price
     exit_fill = _exit_execution_fill(exit_row, open_trade, reference_price)
     exit_price = exit_fill.fill_price if exit_fill.fill_price is not None else reference_price
@@ -1204,15 +1209,15 @@ def _trade_row(
         simulated_exit_price = exit_price
         simulated_exit_move_pct = exit_move_pct
         simulated_exit_ordering = "no_intraday_path"
-    gross_pnl = (exit_price - open_trade.entry_price) * open_trade.qty * direction
-    fees = fee_cost(position_notional=open_trade.position_notional, market_type=open_trade.market_type, costs=costs)
+    gross_pnl = (exit_price - open_trade.entry_price) * qty * direction
+    fees = fee_cost(position_notional=position_notional, market_type=open_trade.market_type, costs=costs)
     slippage = slippage_cost(
-        position_notional=open_trade.position_notional,
+        position_notional=position_notional,
         liquidity_tier=open_trade.liquidity_tier,
         costs=costs,
     )
     funding = funding_cost(
-        position_notional=open_trade.position_notional,
+        position_notional=position_notional,
         market_type=open_trade.market_type,
         side=open_trade.side,
         funding_rate=open_trade.funding_rate,
@@ -1220,9 +1225,8 @@ def _trade_row(
         costs=costs,
     )
     net_pnl = gross_pnl - fees - slippage - funding
-    simulated_gross_pnl = (simulated_exit_price - open_trade.entry_price) * open_trade.qty * direction
+    simulated_gross_pnl = (simulated_exit_price - open_trade.entry_price) * qty * direction
     simulated_net_pnl = simulated_gross_pnl - fees - slippage - funding
-    denominator = open_trade.position_notional if open_trade.position_notional > 0.0 else 1.0
     return (
         TradeLedgerRow(
             symbol=open_trade.symbol,
@@ -1234,13 +1238,13 @@ def _trade_row(
             exit_timestamp=exit_row.timestamp,
             entry_price=open_trade.entry_price,
             exit_price=exit_price,
-            qty=open_trade.qty,
-            position_notional=open_trade.position_notional,
+            qty=qty,
+            position_notional=position_notional,
             holding_hours=holding_hours,
             gross_pnl=gross_pnl,
             net_pnl=net_pnl,
-            gross_return_pct=gross_pnl / denominator,
-            net_return_pct=net_pnl / denominator,
+            gross_return_pct=gross_pnl / position_notional,
+            net_return_pct=net_pnl / position_notional,
             fee_paid=fees,
             slippage_paid=slippage,
             funding_paid=funding,

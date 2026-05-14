@@ -860,6 +860,45 @@ def test_exit_execution_fill_rejects_coerced_trade_print_price(monkeypatch: pyte
         backtest_engine._exit_execution_fill(row, open_trade, 100.0)
 
 
+@pytest.mark.parametrize(
+    ("qty", "position_notional", "message"),
+    [
+        (0.0, 100.0, "open_trade.qty must be a positive number"),
+        (-1.0, 100.0, "open_trade.qty must be a positive number"),
+        (1.0, 0.0, "open_trade.position_notional must be a positive number"),
+        (1.0, -100.0, "open_trade.position_notional must be a positive number"),
+        (float("nan"), 100.0, "open_trade.qty must be a positive number"),
+    ],
+)
+def test_trade_row_rejects_invalid_open_trade_exposure(
+    qty: float,
+    position_notional: float,
+    message: str,
+) -> None:
+    row = DatasetSnapshotRow(
+        timestamp=_ts("2026-03-10T00:01:00Z"),
+        run_id="run-1",
+        market={"symbols": {"BTCUSDT": {"close": 101.0}}},
+        derivatives=[],
+    )
+    open_trade = backtest_engine._OpenTrade(
+        symbol="BTCUSDT",
+        market_type="futures",
+        base_asset="BTC",
+        side="long",
+        status="accepted",
+        entry_timestamp=_ts("2026-03-10T00:00:00Z"),
+        entry_price=100.0,
+        qty=qty,
+        position_notional=position_notional,
+        liquidity_tier="high",
+        funding_rate=0.0,
+    )
+
+    with pytest.raises(ValueError, match=message):
+        backtest_engine._trade_row(open_trade, exit_row=row, costs=BacktestCosts())
+
+
 def test_replay_snapshot_records_layer_artifacts(fixture_dir: Path) -> None:
     rows = load_historical_dataset(fixture_dir / "backtest" / "sample_dataset")
 
