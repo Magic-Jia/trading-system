@@ -68,16 +68,45 @@ def _trade(symbol: str, entry: str, *, net_pnl: float, costs: tuple[float, float
     )
 
 
-def test_window_builder_creates_chronological_non_overlapping_windows() -> None:
-    rows = [_row(index) for index in (3, 0, 2, 1, 4)]
+@pytest.mark.parametrize(
+    ("kwargs", "expected_message"),
+    (
+        ({"train_size": 0, "test_size": 1, "step_size": 1}, "train_size must be positive"),
+        ({"train_size": 1, "test_size": 0, "step_size": 1}, "test_size must be positive"),
+        ({"train_size": 1, "test_size": 1, "step_size": 0}, "step_size must be positive"),
+    ),
+)
+def test_window_builder_rejects_non_positive_sizes(kwargs: dict[str, int], expected_message: str) -> None:
+    with pytest.raises(ValueError, match=expected_message):
+        build_walk_forward_windows([_row(0), _row(1)], **kwargs)
+
+
+def test_window_builder_rejects_train_rows_that_do_not_end_before_test_rows_start() -> None:
+    rows = [
+        dataclasses.replace(_row(0), run_id="row-a"),
+        dataclasses.replace(_row(0), run_id="row-b"),
+    ]
+
+    with pytest.raises(ValueError, match="walk-forward train rows must end before test rows start"):
+        build_walk_forward_windows(rows, train_size=1, test_size=1, step_size=1)
+
+
+def test_window_builder_sorts_by_timestamp_and_run_id_for_non_overlapping_windows() -> None:
+    rows = [
+        dataclasses.replace(_row(2), run_id="row-002"),
+        dataclasses.replace(_row(0), run_id="row-b"),
+        dataclasses.replace(_row(1), run_id="row-001"),
+        dataclasses.replace(_row(0), run_id="row-a"),
+        dataclasses.replace(_row(3), run_id="row-003"),
+    ]
 
     windows = build_walk_forward_windows(rows, train_size=2, test_size=1, step_size=1)
 
     assert [window.window_index for window in windows] == [1, 2, 3]
-    assert [row.run_id for row in windows[0].train_rows] == ["row-000", "row-001"]
-    assert [row.run_id for row in windows[0].test_rows] == ["row-002"]
-    assert [row.run_id for row in windows[-1].train_rows] == ["row-002", "row-003"]
-    assert [row.run_id for row in windows[-1].test_rows] == ["row-004"]
+    assert [row.run_id for row in windows[0].train_rows] == ["row-a", "row-b"]
+    assert [row.run_id for row in windows[0].test_rows] == ["row-001"]
+    assert [row.run_id for row in windows[-1].train_rows] == ["row-001", "row-002"]
+    assert [row.run_id for row in windows[-1].test_rows] == ["row-003"]
     for window in windows:
         assert window.train_end < window.test_start
         assert {row.run_id for row in window.train_rows}.isdisjoint(row.run_id for row in window.test_rows)
