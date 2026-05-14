@@ -613,6 +613,7 @@ _REPORT_METADATA_IDENTIFIER_FIELDS = frozenset(
         "baseline_name",
         "variant_name",
         "evaluation_window",
+        "schema_version",
     }
 )
 

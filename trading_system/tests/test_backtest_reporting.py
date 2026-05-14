@@ -206,6 +206,20 @@ def test_backtest_evaluation_report_rejects_padded_report_metadata_identifiers(f
         )
 
 
+@pytest.mark.parametrize("schema_version", [True, " reporting.v1 "])
+def test_backtest_evaluation_report_rejects_invalid_metadata_schema_version(schema_version: object) -> None:
+    with pytest.raises(ValueError, match=r"metadata\.schema_version must be a canonical string"):
+        reporting.render_backtest_evaluation_report(
+            experiment_name="evaluation",
+            evaluation={
+                "walk_forward": {"metadata": {"window_count": 1}},
+                "regimes": {"buckets": []},
+                "cost_stress": {"scenarios": []},
+            },
+            metadata={"schema_version": schema_version},
+        )
+
+
 def test_backtest_evaluation_report_rejects_noncanonical_sample_period_string() -> None:
     with pytest.raises(ValueError, match=r"metadata\.sample_period must be a canonical string"):
         reporting.render_backtest_evaluation_report(
