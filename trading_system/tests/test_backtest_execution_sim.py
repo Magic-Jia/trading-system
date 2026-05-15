@@ -3462,6 +3462,28 @@ def test_execution_fill_rejects_full_evidence_backed_trade_print_with_unfilled_q
         )
 
 
+@pytest.mark.parametrize("field", ["evidence_timestamp", "first_fill_timestamp", "last_fill_timestamp"])
+def test_execution_fill_rejects_naive_evidence_timestamps(field: str) -> None:
+    kwargs = {
+        "symbol": "BTCUSDT",
+        "side": "buy",
+        "quantity": 1.0,
+        "filled": True,
+        "fill_price": 100.0,
+        "fill_model": "maker_post_only_queue",
+        "execution_price_source": "trade_print",
+        "fill_quality": "evidence_backed",
+        "outcome": "filled",
+        "evidence_timestamp": _ts("2026-03-10T00:00:01Z"),
+        "first_fill_timestamp": _ts("2026-03-10T00:00:01Z"),
+        "last_fill_timestamp": _ts("2026-03-10T00:00:01Z"),
+    }
+    kwargs[field] = datetime(2026, 3, 10, 0, 0, 1)
+
+    with pytest.raises(ValueError, match=rf"{field} must be timezone-aware for BTCUSDT"):
+        ExecutionFill(**kwargs)
+
+
 def test_execution_fill_rejects_fill_timestamp_interval_inversion() -> None:
     with pytest.raises(ValueError, match="first_fill_timestamp cannot be after last_fill_timestamp"):
         ExecutionFill(

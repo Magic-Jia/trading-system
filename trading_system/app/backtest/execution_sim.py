@@ -205,6 +205,10 @@ class ExecutionFill:
             raise ValueError("filled notional must equal filled quantity times fill_price")
         if self.slippage_bps is not None:
             object.__setattr__(self, "slippage_bps", _finite_float("slippage_bps", self.slippage_bps))
+        for field_name in ("evidence_timestamp", "first_fill_timestamp", "last_fill_timestamp"):
+            value = getattr(self, field_name)
+            if value is not None:
+                _timezone_aware_datetime(field_name, value, symbol=self.symbol)
         if (
             self.requested_quantity is not None
             and self.requested_notional is None
