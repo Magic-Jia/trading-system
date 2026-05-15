@@ -3462,6 +3462,24 @@ def test_taker_depth_rejects_order_book_symbol_mismatch_before_using_depth() -> 
         )
 
 
+def test_taker_depth_rejects_order_book_symbol_mismatch_before_lag_validation() -> None:
+    with pytest.raises(ValueError, match="order_book.symbol ETHUSDT does not match requested symbol BTCUSDT"):
+        simulate_taker_depth_fill(
+            symbol="BTCUSDT",
+            side="buy",
+            quantity=1.0,
+            reference_price=100.0,
+            max_evidence_lag=timedelta(seconds=1),
+            order_book=OrderBookSnapshot(
+                timestamp=_ts("2026-03-10T00:00:01Z"),
+                symbol="ETHUSDT",
+                bid=99.9,
+                ask=100.0,
+                ask_levels=(DepthLevel(price=100.0, quantity=1.0),),
+            ),
+        )
+
+
 def test_taker_depth_sell_consumes_multiple_bid_levels_with_weighted_average() -> None:
     book_timestamp = _ts("2026-03-10T00:00:01Z")
     fill = simulate_taker_depth_fill(
