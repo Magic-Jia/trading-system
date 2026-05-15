@@ -287,6 +287,8 @@ def simulate_taker_fill(
     _canonical_domain("order_type", order_type, _TAKER_ORDER_TYPES)
     quantity = _non_negative_finite_float("quantity", quantity)
     _positive_finite_float("reference_price", reference_price)
+    if placement_timestamp is not None:
+        placement_timestamp = _placement_timestamp_datetime(placement_timestamp)
     if max_evidence_lag is not None:
         max_evidence_lag = _non_negative_timedelta("max_evidence_lag", max_evidence_lag)
         if placement_timestamp is None:
@@ -1019,6 +1021,14 @@ def _non_negative_timedelta(name: str, value: Any) -> timedelta:
         raise ValueError(f"{name} must be a non-negative timedelta")
     if value < timedelta(0):
         raise ValueError(f"{name} must be non-negative")
+    return value
+
+
+def _placement_timestamp_datetime(value: Any) -> datetime:
+    if not isinstance(value, datetime):
+        raise ValueError("placement_timestamp must be a timezone-aware datetime")
+    if value.tzinfo is None or value.utcoffset() is None:
+        raise ValueError("placement_timestamp must be timezone-aware")
     return value
 
 
