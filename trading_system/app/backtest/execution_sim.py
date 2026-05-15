@@ -563,6 +563,8 @@ def simulate_maker_limit_fill(
     validated_timeout_seconds = (
         _non_negative_finite_float("timeout_seconds", timeout_seconds) if timeout_seconds is not None else None
     )
+    if placement_timestamp is not None:
+        placement_timestamp = _placement_timestamp_datetime(placement_timestamp)
     uses_queue_model = (
         queue_ahead_quantity is not None
         or placement_timestamp is not None

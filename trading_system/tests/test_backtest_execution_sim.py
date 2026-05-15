@@ -377,6 +377,51 @@ def test_maker_latency_ignores_trade_prints_before_effective_placement_time() ->
     assert "latency_applied" in fill.maker_reasons
 
 
+def test_maker_limit_rejects_naive_placement_timestamp_before_using_evidence() -> None:
+    with pytest.raises(ValueError, match="placement_timestamp must be timezone-aware"):
+        simulate_maker_limit_fill(
+            symbol="BTCUSDT",
+            side="buy",
+            limit_price=99.5,
+            quantity=1.0,
+            placement_timestamp=datetime(2026, 3, 10, 0, 0, 0),
+            timeout_seconds=10.0,
+            trades=(
+                TradePrint(
+                    timestamp=_ts("2026-03-10T00:00:01Z"),
+                    symbol="BTCUSDT",
+                    price=99.5,
+                    quantity=1.0,
+                    side="sell",
+                ),
+            ),
+        )
+
+
+@pytest.mark.parametrize("placement_timestamp", ["2026-03-10T00:00:00Z", 1, True])
+def test_maker_limit_rejects_non_datetime_placement_timestamp_before_using_evidence(
+    placement_timestamp: object,
+) -> None:
+    with pytest.raises(ValueError, match="placement_timestamp must be a timezone-aware datetime"):
+        simulate_maker_limit_fill(
+            symbol="BTCUSDT",
+            side="buy",
+            limit_price=99.5,
+            quantity=1.0,
+            placement_timestamp=placement_timestamp,
+            timeout_seconds=10.0,
+            trades=(
+                TradePrint(
+                    timestamp=_ts("2026-03-10T00:00:01Z"),
+                    symbol="BTCUSDT",
+                    price=99.5,
+                    quantity=1.0,
+                    side="sell",
+                ),
+            ),
+        )
+
+
 @pytest.mark.parametrize("latency_ms", [True, "50", math.nan, math.inf, -math.inf, -1.0])
 def test_maker_latency_rejects_invalid_latency_ms(latency_ms: object) -> None:
     with pytest.raises(ValueError, match="latency_ms must be a non-negative finite number"):
