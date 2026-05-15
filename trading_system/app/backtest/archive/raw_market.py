@@ -117,6 +117,16 @@ def _validate_coverage_window_order(coverage_start: datetime, coverage_end: date
         raise ValueError(f"raw-market coverage_start must not be after coverage_end: {context}")
 
 
+def _validate_fetched_at_not_before_coverage_end(
+    fetched_at: datetime,
+    coverage_end: datetime,
+    *,
+    context: Path | str,
+) -> None:
+    if fetched_at < coverage_end:
+        raise ValueError(f"raw-market fetched_at must not be before coverage_end: {context}")
+
+
 def _utc_datetime(value: str | int | float) -> datetime:
     if isinstance(value, bool):
         raise ValueError("timestamp value must not be boolean")
@@ -615,6 +625,8 @@ def _load_import_file(
     coverage_start = _manifest_archive_datetime(manifest, "coverage_start", manifest_path=manifest_path)
     coverage_end = _manifest_archive_datetime(manifest, "coverage_end", manifest_path=manifest_path)
     _validate_coverage_window_order(coverage_start, coverage_end, context=manifest_path)
+    fetched_at = _manifest_archive_datetime(manifest, "fetched_at", manifest_path=manifest_path)
+    _validate_fetched_at_not_before_coverage_end(fetched_at, coverage_end, context=manifest_path)
     data_path = _manifest_data_path(manifest, manifest_path=manifest_path)
     if not data_path.exists():
         raise FileNotFoundError(f"raw-market data file missing: {data_path}")
@@ -676,7 +688,7 @@ def _load_import_file(
         symbol_metadata=_normalized_symbol_metadata(manifest.get("symbol_metadata"), context=manifest_path),
         coverage_start=coverage_start,
         coverage_end=coverage_end,
-        fetched_at=_manifest_archive_datetime(manifest, "fetched_at", manifest_path=manifest_path),
+        fetched_at=fetched_at,
         records=records,
     )
 
@@ -830,9 +842,15 @@ def archive_raw_market_payload(
     normalized_coverage_start = _archive_timestamp(coverage_start, field="coverage_start")
     normalized_coverage_end = _archive_timestamp(coverage_end, field="coverage_end")
     normalized_fetched_at = _archive_timestamp(fetched_at, field="fetched_at")
+    parsed_coverage_end = _utc_datetime(normalized_coverage_end)
     _validate_coverage_window_order(
         _utc_datetime(normalized_coverage_start),
-        _utc_datetime(normalized_coverage_end),
+        parsed_coverage_end,
+        context=Path(archive_root),
+    )
+    _validate_fetched_at_not_before_coverage_end(
+        _utc_datetime(normalized_fetched_at),
+        parsed_coverage_end,
         context=Path(archive_root),
     )
     storage_dir = raw_market_storage_dir(
