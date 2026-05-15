@@ -908,6 +908,44 @@ def test_taker_trade_print_rejects_invalid_quantity(quantity: object) -> None:
         )
 
 
+@pytest.mark.parametrize(
+    ("side", "price", "message"),
+    [
+        ("buy", 99.4, "trade.price cannot be below contemporaneous order_book.bid for BTCUSDT"),
+        ("sell", 100.6, "trade.price cannot be above contemporaneous order_book.ask for BTCUSDT"),
+    ],
+)
+def test_trade_print_rejects_same_timestamp_price_outside_order_book_bounds(
+    side: str,
+    price: float,
+    message: str,
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        simulate_taker_fill(
+            symbol="BTCUSDT",
+            side=side,
+            quantity=1.0,
+            reference_price=100.0,
+            order_books=(
+                OrderBookSnapshot(
+                    timestamp=_ts("2026-03-10T00:00:01Z"),
+                    symbol="BTCUSDT",
+                    bid=99.5,
+                    ask=100.5,
+                ),
+            ),
+            trades=(
+                TradePrint(
+                    timestamp=_ts("2026-03-10T00:00:01Z"),
+                    symbol="BTCUSDT",
+                    price=price,
+                    quantity=1.0,
+                    side=side,
+                ),
+            ),
+        )
+
+
 @pytest.mark.parametrize("trade_side", [True, "BUY", " sell ", "hold", "", 1])
 def test_maker_limit_rejects_non_canonical_trade_print_side(trade_side: object) -> None:
     with pytest.raises(ValueError, match="trade.side must be one of: buy, sell"):

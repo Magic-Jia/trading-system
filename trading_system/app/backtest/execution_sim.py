@@ -907,10 +907,11 @@ def _validate_evidence_contract(
 ) -> None:
     seen_fill_ids: set[str] = set()
     previous_trade_timestamp: datetime | None = None
+    validated_trades: list[tuple[datetime, float]] = []
     for trade in trades:
         if trade.symbol != symbol:
             continue
-        _positive_finite_float("trade.price", trade.price)
+        trade_price = _positive_finite_float("trade.price", trade.price)
         _positive_finite_float("trade.quantity", trade.quantity)
         trade_timestamp = _timezone_aware_datetime("trade.timestamp", trade.timestamp, symbol=symbol)
         if trade.side is not None:
@@ -923,8 +924,10 @@ def _validate_evidence_contract(
         if previous_trade_timestamp is not None and trade_timestamp < previous_trade_timestamp:
             raise ValueError(f"trade timestamps must be monotonic for {symbol}")
         previous_trade_timestamp = trade_timestamp
+        validated_trades.append((trade_timestamp, trade_price))
 
     previous_book_timestamp: datetime | None = None
+    books_by_timestamp: dict[datetime, list[tuple[float, float]]] = {}
     for book in order_books:
         if book.symbol != symbol:
             continue
@@ -946,6 +949,14 @@ def _validate_evidence_contract(
         if previous_book_timestamp is not None and book_timestamp < previous_book_timestamp:
             raise ValueError(f"order book timestamps must be monotonic for {symbol}")
         previous_book_timestamp = book_timestamp
+        books_by_timestamp.setdefault(book_timestamp, []).append((bid, ask))
+
+    for trade_timestamp, trade_price in validated_trades:
+        for bid, ask in books_by_timestamp.get(trade_timestamp, ()):
+            if trade_price < bid:
+                raise ValueError(f"trade.price cannot be below contemporaneous order_book.bid for {symbol}")
+            if trade_price > ask:
+                raise ValueError(f"trade.price cannot be above contemporaneous order_book.ask for {symbol}")
 
 
 def _datetime_or_none(value: Any) -> datetime | None:
