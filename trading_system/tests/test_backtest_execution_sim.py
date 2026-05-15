@@ -179,6 +179,48 @@ def test_execution_fill_rejects_queue_remaining_above_initial() -> None:
         )
 
 
+@pytest.mark.parametrize(
+    ("overrides", "match"),
+    [
+        (
+            {"queue_ahead_initial": 1.0, "maker_status": "expired"},
+            "maker queue evidence requires both queue_ahead_initial and queue_ahead_remaining",
+        ),
+        (
+            {"queue_ahead_remaining": 0.5, "maker_status": "expired"},
+            "maker queue evidence requires both queue_ahead_initial and queue_ahead_remaining",
+        ),
+        (
+            {"queue_ahead_initial": 1.0, "queue_ahead_remaining": 0.5},
+            "maker queue evidence requires maker_status",
+        ),
+        (
+            {"maker_wait_seconds": 1.0},
+            "maker_wait_seconds requires maker_status",
+        ),
+    ],
+)
+def test_execution_fill_rejects_incomplete_maker_queue_evidence(
+    overrides: dict[str, object],
+    match: str,
+) -> None:
+    kwargs: dict[str, object] = {
+        "symbol": "BTCUSDT",
+        "side": "buy",
+        "quantity": 1.0,
+        "filled": False,
+        "fill_price": None,
+        "fill_model": "maker_post_only_queue",
+        "execution_price_source": "no_crossing_evidence",
+        "fill_quality": "no_fill",
+        "outcome": "missed_alpha",
+    }
+    kwargs.update(overrides)
+
+    with pytest.raises(ValueError, match=match):
+        ExecutionFill(**kwargs)
+
+
 @pytest.mark.parametrize("maker_field, value", [
     ("maker_status", "expired"),
     ("queue_ahead_initial", 1.0),

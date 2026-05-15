@@ -248,6 +248,15 @@ class ExecutionFill:
         )
         if maker_fields_present and not self.fill_model.startswith("maker_"):
             raise ValueError("maker fields require maker fill model")
+        queue_evidence_present = self.queue_ahead_initial is not None or self.queue_ahead_remaining is not None
+        if queue_evidence_present and (
+            self.queue_ahead_initial is None or self.queue_ahead_remaining is None
+        ):
+            raise ValueError("maker queue evidence requires both queue_ahead_initial and queue_ahead_remaining")
+        if queue_evidence_present and self.maker_status is None:
+            raise ValueError("maker queue evidence requires maker_status")
+        if self.maker_wait_seconds is not None and self.maker_status is None:
+            raise ValueError("maker_wait_seconds requires maker_status")
         positive_fill_request = (
             self.quantity > 0.0
             or (self.requested_quantity is not None and float(self.requested_quantity) > 0.0)
