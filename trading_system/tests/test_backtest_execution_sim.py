@@ -418,6 +418,76 @@ def test_execution_fill_rejects_filled_state_without_positive_accounting(
         ExecutionFill(**kwargs)
 
 
+@pytest.mark.parametrize(
+    ("field", "value", "match"),
+    [
+        ("filled_quantity", 1.1, "fill quantities must conserve requested quantity"),
+        ("unfilled_quantity", None, "fill quantities must include unfilled quantity"),
+        ("unfilled_quantity", 0.2, "fill quantities must conserve requested quantity"),
+        ("unfilled_quantity", -0.1, "unfilled_quantity must be a non-negative finite number"),
+        ("unfilled_quantity", math.nan, "unfilled_quantity must be a non-negative finite number"),
+        ("unfilled_quantity", math.inf, "unfilled_quantity must be a non-negative finite number"),
+    ],
+)
+def test_execution_fill_rejects_non_conserved_requested_fill_quantities(
+    field: str,
+    value: object,
+    match: str,
+) -> None:
+    kwargs = {
+        "symbol": "BTCUSDT",
+        "side": "buy",
+        "quantity": 1.0,
+        "filled": True,
+        "fill_price": 100.0,
+        "fill_model": "reference_close",
+        "execution_price_source": "ohlcv_close",
+        "fill_quality": "approximate",
+        "outcome": "filled",
+        "requested_quantity": 1.0,
+        "requested_notional": 100.0,
+        "filled_quantity": 0.75,
+        "filled_notional": 75.0,
+        "unfilled_quantity": 0.25,
+    }
+    kwargs[field] = value
+
+    with pytest.raises(ValueError, match=match):
+        ExecutionFill(**kwargs)
+
+
+@pytest.mark.parametrize(
+    ("filled_quantity", "unfilled_quantity"),
+    [
+        (1.0, 0.0),
+        (0.75, 0.25),
+    ],
+)
+def test_execution_fill_accepts_conserved_full_and_partial_requested_fill_quantities(
+    filled_quantity: float,
+    unfilled_quantity: float,
+) -> None:
+    fill = ExecutionFill(
+        symbol="BTCUSDT",
+        side="buy",
+        quantity=1.0,
+        filled=True,
+        fill_price=100.0,
+        fill_model="reference_close",
+        execution_price_source="ohlcv_close",
+        fill_quality="approximate",
+        outcome="filled",
+        requested_quantity=1.0,
+        requested_notional=100.0,
+        filled_quantity=filled_quantity,
+        filled_notional=filled_quantity * 100.0,
+        unfilled_quantity=unfilled_quantity,
+    )
+
+    assert fill.filled_quantity == pytest.approx(filled_quantity)
+    assert fill.unfilled_quantity == pytest.approx(unfilled_quantity)
+
+
 def test_execution_fill_rejects_orderbook_depth_accounting_price_identity_mismatch() -> None:
     with pytest.raises(ValueError, match="filled notional must equal filled quantity times fill_price"):
         ExecutionFill(

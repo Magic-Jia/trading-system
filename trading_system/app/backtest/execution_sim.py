@@ -263,7 +263,14 @@ class ExecutionFill:
             object.__setattr__(self, "slippage_bps", _finite_float("slippage_bps", self.slippage_bps))
         if (
             self.requested_quantity is not None
-            and self.requested_notional is None
+            and float(self.requested_quantity) > 0.0
+            and self.filled_quantity is not None
+            and self.unfilled_quantity is None
+        ):
+            raise ValueError("fill quantities must include unfilled quantity")
+        if (
+            self.requested_quantity is not None
+            and float(self.requested_quantity) > 0.0
             and self.filled_quantity is not None
             and self.unfilled_quantity is not None
             and not math.isclose(
