@@ -1201,7 +1201,7 @@ def test_full_market_baseline_uses_trade_print_execution_evidence_for_entry_fill
     assert btc_trade.fill_quality == "evidence_backed"
 
 
-def test_full_market_baseline_uses_trade_print_execution_evidence_for_fixed_horizon_exit(
+def test_full_market_baseline_ignores_trade_print_evidence_before_fixed_horizon_exit(
     tmp_path: Path,
     monkeypatch: Any,
 ) -> None:
@@ -1253,12 +1253,12 @@ def test_full_market_baseline_uses_trade_print_execution_evidence_for_fixed_hori
     assert btc_trade.exit_price == pytest.approx(108.75)
     assert btc_trade.exit_fill_model == "taker_trade_print"
     assert btc_trade.exit_price_source == "trade_print"
-    assert btc_trade.exit_fill_quality == "evidence_backed"
+    assert btc_trade.exit_fill_quality == "partial_evidence_backed"
     assert btc_trade.exit_fill_timestamp == _ts("2026-03-11T00:00:02Z")
     assert btc_trade.exit_slippage_vs_reference_bps == pytest.approx(((108.75 - 110.0) / 110.0) * 10_000.0)
 
 
-def test_full_market_baseline_uses_nearby_pre_exit_trade_print_when_no_post_exit_print(
+def test_full_market_baseline_ignores_nearby_pre_exit_trade_print_without_post_exit_print(
     tmp_path: Path,
     monkeypatch: Any,
 ) -> None:
@@ -1286,11 +1286,11 @@ def test_full_market_baseline_uses_nearby_pre_exit_trade_print_when_no_post_exit
 
     btc_trade = next(row for row in result.trade_ledger if row.symbol == "BTCUSDT")
     assert btc_trade.exit_timestamp == _ts("2026-03-11T00:00:00Z")
-    assert btc_trade.exit_price == pytest.approx(109.25)
-    assert btc_trade.exit_fill_model == "taker_trade_print"
-    assert btc_trade.exit_price_source == "trade_print"
-    assert btc_trade.exit_fill_quality == "evidence_backed"
-    assert btc_trade.exit_fill_timestamp == _ts("2026-03-10T23:59:59.700Z")
+    assert btc_trade.exit_price == pytest.approx(110.0)
+    assert btc_trade.exit_fill_model == "reference_close"
+    assert btc_trade.exit_price_source == "ohlcv_close"
+    assert btc_trade.exit_fill_quality == "approximate"
+    assert btc_trade.exit_fill_timestamp is None
 
 
 def test_backtest_cli_rejects_invalid_config(

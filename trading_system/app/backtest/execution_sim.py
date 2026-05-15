@@ -278,6 +278,7 @@ def simulate_taker_fill(
     quantity: float,
     reference_price: float,
     order_type: OrderType = "market",
+    placement_timestamp: datetime | None = None,
     order_books: tuple[OrderBookSnapshot, ...] = (),
     trades: tuple[TradePrint, ...] = (),
 ) -> ExecutionFill:
@@ -286,8 +287,14 @@ def simulate_taker_fill(
     quantity = _non_negative_finite_float("quantity", quantity)
     _positive_finite_float("reference_price", reference_price)
     _validate_evidence_contract(symbol=symbol, order_books=order_books, trades=trades)
-    _validate_taker_evidence_timestamp_skew(symbol=symbol, order_books=order_books, trades=trades)
-    book = _first_symbol_book(symbol, order_books)
+    eligible_books = _eligible_symbol_order_books(symbol, order_books, placement_timestamp=placement_timestamp)
+    eligible_trades = _eligible_symbol_trade_prints(symbol, trades, placement_timestamp=placement_timestamp)
+    _validate_taker_evidence_timestamp_skew(
+        symbol=symbol,
+        order_books=tuple(eligible_books),
+        trades=tuple(eligible_trades),
+    )
+    book = eligible_books[0] if eligible_books else None
     if book is not None:
         if _side_levels(book, side=side):
             depth_quantity = None if not isinstance(quantity, bool) and quantity == 0.0 else quantity
@@ -297,6 +304,7 @@ def simulate_taker_fill(
                 quantity=depth_quantity,
                 reference_price=reference_price,
                 order_book=book,
+                placement_timestamp=placement_timestamp,
             )
         if side == "buy":
             price = _positive_finite_float("order_book.ask", book.ask)
@@ -324,7 +332,12 @@ def simulate_taker_fill(
             last_fill_timestamp=book.timestamp,
         )
 
-    trade_fill = _conservative_trade_print_taker_fill(symbol=symbol, side=side, quantity=quantity, trades=trades)
+    trade_fill = _conservative_trade_print_taker_fill(
+        symbol=symbol,
+        side=side,
+        quantity=quantity,
+        trades=tuple(eligible_trades),
+    )
     if trade_fill is not None:
         return trade_fill
 
@@ -349,6 +362,7 @@ def simulate_taker_depth_fill(
     requested_notional: float | None = None,
     reference_price: float,
     order_book: OrderBookSnapshot,
+    placement_timestamp: datetime | None = None,
 ) -> ExecutionFill:
     side = _canonical_order_side(side)
     _positive_finite_float("reference_price", reference_price)
@@ -357,6 +371,25 @@ def simulate_taker_depth_fill(
     if requested_notional is not None:
         notional_request = _positive_finite_float("requested_notional", requested_notional)
     requested_quantity = 0.0 if quantity is None else _depth_quantity_float("quantity", quantity)
+    if placement_timestamp is not None and order_book.timestamp < placement_timestamp:
+        return ExecutionFill(
+            symbol=symbol,
+            side=side,
+            quantity=requested_quantity,
+            filled=False,
+            fill_price=None,
+            fill_model="taker_orderbook_depth",
+            execution_price_source="no_crossing_evidence",
+            fill_quality="no_fill",
+            outcome="missed_alpha",
+            evidence_timestamp=order_book.timestamp,
+            requested_quantity=requested_quantity,
+            requested_notional=notional_request,
+            filled_quantity=0.0,
+            filled_notional=0.0,
+            unfilled_quantity=requested_quantity,
+            depth_levels_consumed=0,
+        )
     levels = _side_levels(order_book, side=side)
     source: ExecutionPriceSource = "ask_depth" if side == "buy" else "bid_depth"
     if not levels:
@@ -745,8 +778,28 @@ def _maker_cutoff(
     return min(deadline, cancel_replace_timestamp)
 
 
-def _first_symbol_book(symbol: str, order_books: tuple[OrderBookSnapshot, ...]) -> OrderBookSnapshot | None:
-    return next((book for book in order_books if book.symbol == symbol), None)
+def _eligible_symbol_order_books(
+    symbol: str,
+    order_books: tuple[OrderBookSnapshot, ...],
+    *,
+    placement_timestamp: datetime | None,
+) -> list[OrderBookSnapshot]:
+    eligible_books = [book for book in order_books if book.symbol == symbol]
+    if placement_timestamp is not None:
+        eligible_books = [book for book in eligible_books if book.timestamp >= placement_timestamp]
+    return sorted(eligible_books, key=lambda item: item.timestamp)
+
+
+def _eligible_symbol_trade_prints(
+    symbol: str,
+    trades: tuple[TradePrint, ...],
+    *,
+    placement_timestamp: datetime | None,
+) -> list[TradePrint]:
+    eligible_trades = [trade for trade in trades if trade.symbol == symbol]
+    if placement_timestamp is not None:
+        eligible_trades = [trade for trade in eligible_trades if trade.timestamp >= placement_timestamp]
+    return eligible_trades
 
 
 def _side_levels(order_book: OrderBookSnapshot, *, side: OrderSide) -> tuple[DepthLevel, ...]:
@@ -775,12 +828,15 @@ def _conservative_trade_print_taker_fill(
     side: OrderSide,
     quantity: float,
     trades: tuple[TradePrint, ...],
+    placement_timestamp: datetime | None = None,
 ) -> ExecutionFill | None:
     requested_quantity = quantity
     side_known_trades: list[TradePrint] = []
     unsigned_trades: list[TradePrint] = []
     for trade in trades:
         if trade.symbol != symbol:
+            continue
+        if placement_timestamp is not None and trade.timestamp < placement_timestamp:
             continue
         price = _positive_finite_float("trade.price", trade.price)
         trade_quantity = _positive_finite_float("trade.quantity", trade.quantity)

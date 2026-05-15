@@ -339,51 +339,38 @@ def _reference_price(row: DatasetSnapshotRow, symbol: str) -> float:
 def _exit_execution_fill(row: DatasetSnapshotRow, open_trade: _OpenTrade, reference_price: float):
     """Return fixed-horizon exit fill evidence.
 
-    Prefer the first executable trade print at or after the scheduled exit
-    timestamp. This avoids treating higher-timeframe reference closes as if
-    they were actual executable exits when aggTrades/trade-print evidence is
-    present in the exit row.
+    Evidence-backed taker exits must be auditable at the scheduled exit
+    timestamp; later prints are future evidence, not placement evidence.
     """
     exit_side = "sell" if open_trade.side == "long" else "buy"
-    _order_books, trades = _execution_evidence(row, open_trade.symbol)
-    symbol_trades = []
-    for trade in trades:
-        if trade.symbol != open_trade.symbol:
-            continue
-        trade_price = _positive_float(trade.price, field_name="trade.price")
-        symbol_trades.append(replace(trade, price=trade_price))
-    symbol_trades = sorted(symbol_trades, key=lambda trade: trade.timestamp)
-    post_exit_trades = [trade for trade in symbol_trades if trade.timestamp >= row.timestamp]
-    if post_exit_trades:
-        trade = post_exit_trades[0]
-    else:
-        pre_exit_floor = row.timestamp - timedelta(seconds=1)
-        pre_exit_trades = [trade for trade in symbol_trades if pre_exit_floor <= trade.timestamp < row.timestamp]
-        trade = pre_exit_trades[-1] if pre_exit_trades else None
-    if trade is not None:
-        trade_price = trade.price
-        return ExecutionFill(
-            symbol=open_trade.symbol,
-            side=exit_side,
-            quantity=open_trade.qty,
-            filled=True,
-            fill_price=trade_price,
-            fill_model="taker_trade_print",
-            execution_price_source="trade_print",
-            fill_quality="evidence_backed",
-            outcome="filled",
-            evidence_timestamp=trade.timestamp,
-            requested_quantity=open_trade.qty,
-            requested_notional=open_trade.position_notional,
-            filled_quantity=open_trade.qty,
-            filled_notional=open_trade.qty * trade_price,
-            unfilled_quantity=0.0,
-            slippage_bps=_exit_slippage_vs_reference_bps(
-                side=open_trade.side,
-                fill_price=trade_price,
+    order_books, trades = _execution_evidence(row, open_trade.symbol)
+    if order_books or trades:
+        try:
+            fill = simulate_taker_fill(
+                symbol=open_trade.symbol,
+                side=exit_side,
+                quantity=open_trade.qty,
                 reference_price=reference_price,
-            ),
-        )
+                placement_timestamp=row.timestamp,
+                order_books=order_books,
+                trades=trades,
+            )
+        except ValueError as exc:
+            if str(exc) == "trade.price must be a positive finite number":
+                raise ValueError("trade.price must be a positive number") from exc
+            raise
+        if fill.fill_model != "taker_ohlcv_approx":
+            return replace(
+                fill,
+                requested_notional=open_trade.position_notional,
+                slippage_bps=_exit_slippage_vs_reference_bps(
+                    side=open_trade.side,
+                    fill_price=fill.fill_price,
+                    reference_price=reference_price,
+                )
+                if fill.fill_price is not None
+                else fill.slippage_bps,
+            )
     return reference_close_fill(
         symbol=open_trade.symbol,
         side=exit_side,
@@ -878,6 +865,7 @@ def _entry_execution_fill(
             side="sell" if order_side == "sell" else "buy",
             quantity=0.0,
             reference_price=entry_price,
+            placement_timestamp=row.timestamp,
             order_books=order_books,
             trades=trades,
         )
@@ -1069,6 +1057,7 @@ def _depth_fill_for_decision(
         quantity=decision.qty,
         reference_price=reference_price,
         order_book=book,
+        placement_timestamp=row.timestamp,
     )
 
 

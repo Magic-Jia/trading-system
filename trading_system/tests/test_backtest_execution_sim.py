@@ -596,6 +596,32 @@ def test_taker_uses_best_ask_for_buy_when_orderbook_is_available() -> None:
     assert fill.fill_quality == "evidence_backed"
 
 
+def test_taker_fill_ignores_evidence_before_placement_timestamp() -> None:
+    fill = simulate_taker_fill(
+        symbol="BTCUSDT",
+        side="buy",
+        quantity=1.0,
+        reference_price=100.0,
+        placement_timestamp=_ts("2026-03-10T00:00:02Z"),
+        order_books=(
+            OrderBookSnapshot(timestamp=_ts("2026-03-10T00:00:01Z"), symbol="BTCUSDT", bid=99.9, ask=100.1),
+        ),
+        trades=(
+            TradePrint(
+                timestamp=_ts("2026-03-10T00:00:01Z"),
+                symbol="BTCUSDT",
+                price=100.1,
+                quantity=1.0,
+                side="buy",
+            ),
+        ),
+    )
+
+    assert fill.fill_model == "taker_ohlcv_approx"
+    assert fill.fill_quality == "approximate"
+    assert fill.evidence_timestamp is None
+
+
 def test_taker_orderbook_fill_interval_is_bounded_by_supporting_book_timestamp() -> None:
     fill = simulate_taker_fill(
         symbol="BTCUSDT",
