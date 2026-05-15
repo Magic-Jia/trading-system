@@ -103,6 +103,19 @@ def test_backtest_evaluation_report_rejects_invalid_cost_stress_scenario_name() 
         )
 
 
+def test_backtest_evaluation_report_rejects_missing_cost_stress_scenario_name() -> None:
+    with pytest.raises(ValueError, match=r"cost_stress.scenarios\[0\].scenario.name must be a canonical string"):
+        reporting.render_backtest_evaluation_report(
+            experiment_name="evaluation",
+            evaluation={
+                "walk_forward": {"metadata": {"window_count": 1}},
+                "regimes": {"buckets": []},
+                "cost_stress": {"scenarios": [{"scenario": {}}]},
+            },
+            metadata={"dataset_root": "dataset"},
+        )
+
+
 def test_backtest_evaluation_report_rejects_padded_experiment_name() -> None:
     with pytest.raises(ValueError, match="experiment_name must be a canonical string"):
         reporting.render_backtest_evaluation_report(

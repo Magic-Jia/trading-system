@@ -216,26 +216,25 @@ def render_backtest_evaluation_report(
         scenario = scenario_payload.get("scenario", {})
         if not isinstance(scenario, Mapping):
             raise ValueError(f"cost_stress.scenarios[{index}].scenario must be an object")
-        if "name" in scenario:
-            name = scenario["name"]
-            scenario_name = _canonical_report_string(
-                name, field_name=f"cost_stress.scenarios[{index}].scenario.name"
+        scenario_name = _canonical_report_string(
+            scenario.get("name"),
+            field_name=f"cost_stress.scenarios[{index}].scenario.name",
+        )
+        if "label" in scenario_payload:
+            label = _canonical_report_string(
+                scenario_payload["label"],
+                field_name=f"cost_stress.scenarios[{index}].label",
             )
-            if "label" in scenario_payload:
-                label = _canonical_report_string(
-                    scenario_payload["label"],
-                    field_name=f"cost_stress.scenarios[{index}].label",
+            if label != f"cost_stress:{scenario_name}":
+                raise ValueError(
+                    f"cost_stress.scenarios[{index}].label must match "
+                    f"cost_stress.scenarios[{index}].scenario.name"
                 )
-                if label != f"cost_stress:{scenario_name}":
-                    raise ValueError(
-                        f"cost_stress.scenarios[{index}].label must match "
-                        f"cost_stress.scenarios[{index}].scenario.name"
-                    )
-                validated_scenario_payload["label"] = label
-            if scenario_name in stress_scenario_names:
-                raise ValueError("cost_stress.scenarios scenario.name values must be unique")
-            stress_scenario_names.add(scenario_name)
-            stress_scenarios.append(scenario_name)
+            validated_scenario_payload["label"] = label
+        if scenario_name in stress_scenario_names:
+            raise ValueError("cost_stress.scenarios scenario.name values must be unique")
+        stress_scenario_names.add(scenario_name)
+        stress_scenarios.append(scenario_name)
         for metrics_field in ("base_metrics", "stressed_metrics"):
             if metrics_field not in scenario_payload:
                 continue
