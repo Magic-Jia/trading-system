@@ -1331,6 +1331,9 @@ def _replay_full_market_baseline_rows(
 ) -> BaselineReplayResult:
     if len(rows) < 2:
         return _empty_replay_result(config)
+    for row in rows:
+        if row.timestamp.tzinfo is None or row.timestamp.utcoffset() is None:
+            raise ValueError("full-market replay snapshot timestamps must be timezone-aware")
     for previous, current in zip(rows, rows[1:], strict=False):
         if current.timestamp <= previous.timestamp:
             raise ValueError("full-market replay snapshot timestamps must be strictly increasing")

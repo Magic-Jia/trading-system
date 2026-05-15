@@ -2011,6 +2011,35 @@ def test_replay_full_market_baseline_rejects_duplicate_snapshot_timestamps(tmp_p
         backtest_engine._replay_full_market_baseline_rows(config, rows)
 
 
+def test_replay_full_market_baseline_rejects_naive_snapshot_timestamps(tmp_path: Path) -> None:
+    config = BacktestConfig(
+        dataset_root=tmp_path,
+        experiment_kind="full_market_baseline",
+        sample_windows=(),
+        forward_return_windows=(),
+        costs=BacktestCosts(),
+        baseline_name="current_system",
+        variant_name="timezone_aware_timestamp_contract",
+        universe=UniverseFilterConfig(
+            listing_age_days=30,
+            min_quote_volume_usdt_24h={"spot": 1_000_000.0, "futures": 1_000_000.0},
+        ),
+        capital=CapitalModelConfig(
+            model="shared_pool",
+            initial_equity=100_000.0,
+            risk_per_trade=0.02,
+            max_open_risk=0.03,
+        ),
+    )
+    rows = [
+        DatasetSnapshotRow(timestamp=datetime(2026, 3, 10), run_id="row-001", market={}, derivatives=[]),
+        DatasetSnapshotRow(timestamp=_ts("2026-03-11T00:00:00+00:00"), run_id="row-002", market={}, derivatives=[]),
+    ]
+
+    with pytest.raises(ValueError, match="full-market replay snapshot timestamps must be timezone-aware"):
+        backtest_engine._replay_full_market_baseline_rows(config, rows)
+
+
 def test_replay_full_market_baseline_rejects_candidates_below_minimum_cost_coverage(
     tmp_path: Path,
     monkeypatch: Any,
