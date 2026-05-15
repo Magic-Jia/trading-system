@@ -769,18 +769,21 @@ def _conservative_trade_print_taker_fill(
     quantity: float,
     trades: tuple[TradePrint, ...],
 ) -> ExecutionFill | None:
+    requested_quantity = quantity
     symbol_trades: list[TradePrint] = []
     for trade in trades:
         if trade.symbol != symbol:
             continue
         price = _positive_finite_float("trade.price", trade.price)
-        quantity = _positive_finite_float("trade.quantity", trade.quantity)
+        trade_quantity = _positive_finite_float("trade.quantity", trade.quantity)
+        if trade.side is not None and trade.side != side:
+            continue
         symbol_trades.append(
             TradePrint(
                 timestamp=trade.timestamp,
                 symbol=trade.symbol,
                 price=price,
-                quantity=quantity,
+                quantity=trade_quantity,
                 side=trade.side,
                 fill_id=trade.fill_id,
             )
@@ -791,7 +794,7 @@ def _conservative_trade_print_taker_fill(
     return ExecutionFill(
         symbol=symbol,
         side=side,
-        quantity=quantity,
+        quantity=requested_quantity,
         filled=True,
         fill_price=float(trade.price),
         fill_model="taker_trade_print",
@@ -799,6 +802,12 @@ def _conservative_trade_print_taker_fill(
         fill_quality="evidence_backed",
         outcome="filled",
         evidence_timestamp=trade.timestamp,
+        requested_quantity=requested_quantity,
+        filled_quantity=requested_quantity if requested_quantity > 0.0 else None,
+        filled_notional=(requested_quantity * float(trade.price)) if requested_quantity > 0.0 else None,
+        unfilled_quantity=0.0 if requested_quantity > 0.0 else None,
+        first_fill_timestamp=trade.timestamp,
+        last_fill_timestamp=trade.timestamp,
     )
 
 

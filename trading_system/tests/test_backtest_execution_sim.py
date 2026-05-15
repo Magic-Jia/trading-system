@@ -899,6 +899,41 @@ def test_taker_without_orderbook_keeps_ohlcv_approximation_label() -> None:
     assert fill.fill_quality == "approximate"
 
 
+def test_taker_buy_trade_print_fill_uses_buy_aggressor_evidence_and_preserves_request() -> None:
+    fill = simulate_taker_fill(
+        symbol="BTCUSDT",
+        side="buy",
+        quantity=2.0,
+        reference_price=100.0,
+        trades=(
+            TradePrint(
+                timestamp=_ts("2026-03-10T00:00:01Z"),
+                symbol="BTCUSDT",
+                price=100.5,
+                quantity=10.0,
+                side="sell",
+            ),
+            TradePrint(
+                timestamp=_ts("2026-03-10T00:00:02Z"),
+                symbol="BTCUSDT",
+                price=100.2,
+                quantity=1.0,
+                side="buy",
+            ),
+        ),
+    )
+
+    assert fill.filled is True
+    assert fill.quantity == pytest.approx(2.0)
+    assert fill.fill_price == pytest.approx(100.2)
+    assert fill.fill_model == "taker_trade_print"
+    assert fill.execution_price_source == "trade_print"
+    assert fill.fill_quality == "evidence_backed"
+    assert fill.evidence_timestamp == _ts("2026-03-10T00:00:02Z")
+    assert fill.first_fill_timestamp == _ts("2026-03-10T00:00:02Z")
+    assert fill.last_fill_timestamp == _ts("2026-03-10T00:00:02Z")
+
+
 @pytest.mark.parametrize("price", [True, "100.0", math.nan, math.inf, -math.inf, 0.0, -1.0])
 def test_taker_trade_print_rejects_invalid_price(price: object) -> None:
     with pytest.raises(ValueError, match="trade.price must be a positive finite number"):
