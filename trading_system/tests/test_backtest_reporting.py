@@ -246,6 +246,53 @@ def test_backtest_evaluation_report_rejects_duplicate_regime_bucket_labels() -> 
         )
 
 
+@pytest.mark.parametrize("bad_metric", [True, float("nan"), float("inf"), -float("inf")])
+def test_backtest_evaluation_report_rejects_invalid_regime_bucket_metric_values(bad_metric: object) -> None:
+    with pytest.raises(
+        ValueError,
+        match=r"regimes\.buckets\[0\]\.metrics\.net_pnl must be a finite number",
+    ):
+        reporting.render_backtest_evaluation_report(
+            experiment_name="evaluation",
+            evaluation={
+                "walk_forward": {"metadata": {"window_count": 1}},
+                "regimes": {
+                    "buckets": [
+                        {
+                            "label": "low_vol_uptrend",
+                            "metrics": {"trade_count": 0, "net_pnl": bad_metric},
+                        }
+                    ]
+                },
+                "cost_stress": {"scenarios": []},
+            },
+            metadata={"dataset_root": "dataset"},
+        )
+
+
+def test_backtest_evaluation_report_rejects_bool_regime_bucket_trade_count() -> None:
+    with pytest.raises(
+        ValueError,
+        match=r"regimes\.buckets\[0\]\.metrics\.trade_count must be a non-negative integer",
+    ):
+        reporting.render_backtest_evaluation_report(
+            experiment_name="evaluation",
+            evaluation={
+                "walk_forward": {"metadata": {"window_count": 1}},
+                "regimes": {
+                    "buckets": [
+                        {
+                            "label": "low_vol_uptrend",
+                            "metrics": {"trade_count": True, "net_pnl": 0.0},
+                        }
+                    ]
+                },
+                "cost_stress": {"scenarios": []},
+            },
+            metadata={"dataset_root": "dataset"},
+        )
+
+
 def test_backtest_evaluation_report_rejects_duplicate_cost_stress_scenario_names() -> None:
     with pytest.raises(ValueError, match="cost_stress.scenarios scenario.name values must be unique"):
         reporting.render_backtest_evaluation_report(
