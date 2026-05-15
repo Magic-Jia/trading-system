@@ -860,6 +860,28 @@ def test_execution_fill_rejects_negative_taker_depth_slippage_bps() -> None:
         )
 
 
+def test_execution_fill_preserves_negative_non_depth_slippage_bps() -> None:
+    fill = ExecutionFill(
+        symbol="BTCUSDT",
+        side="buy",
+        quantity=1.0,
+        filled=True,
+        fill_price=99.5,
+        fill_model="taker_orderbook",
+        execution_price_source="best_ask",
+        fill_quality="evidence_backed",
+        outcome="filled",
+        evidence_timestamp=_ts("2026-03-10T00:00:01Z"),
+        requested_quantity=1.0,
+        filled_quantity=1.0,
+        filled_notional=99.5,
+        unfilled_quantity=0.0,
+        slippage_bps=-5.0,
+    )
+
+    assert fill.slippage_bps == pytest.approx(-5.0)
+
+
 def test_execution_fill_rejects_no_fill_with_fill_timestamps_or_filled_flag() -> None:
     timestamp = _ts("2026-03-10T00:00:01Z")
     with pytest.raises(ValueError, match="no-fill execution cannot include fill timestamps"):

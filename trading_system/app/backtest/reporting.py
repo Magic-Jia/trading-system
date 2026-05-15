@@ -697,7 +697,7 @@ def _trade_ledger_payload(trade_ledger: tuple[TradeLedgerRow, ...]) -> list[dict
                 row.execution_impact_bps,
                 field_name=f"trades[{index}].execution_impact_bps",
             ),
-            "slippage_bps": _optional_non_negative_finite_float(
+            "slippage_bps": _optional_finite_float(
                 row.slippage_bps,
                 field_name=f"trades[{index}].slippage_bps",
             ),
@@ -1180,6 +1180,17 @@ def _optional_non_negative_finite_float(value: Any, *, field_name: str) -> float
     parsed = float(value)
     if not math.isfinite(parsed) or parsed < 0.0:
         raise ValueError(f"{field_name} must be a non-negative finite number")
+    return parsed
+
+
+def _optional_finite_float(value: Any, *, field_name: str) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise ValueError(f"{field_name} must be a finite number")
+    parsed = float(value)
+    if not math.isfinite(parsed):
+        raise ValueError(f"{field_name} must be a finite number")
     return parsed
 
 
