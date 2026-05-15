@@ -3170,6 +3170,12 @@ def _reject_parent_traversal_path_strings(paths: Sequence[str], *, field: str) -
 
 def _normalized_phase1_source_trace(dataset_path: Path, source: Mapping[str, Any], *, context: str) -> dict[str, Any]:
     normalized = _json_object_field(source, context=context)
+    for identity_field in ("scope", "exchange", "market"):
+        if identity_field in normalized:
+            normalized[identity_field] = _require_canonical_string(
+                normalized[identity_field],
+                field=f"{context} {identity_field}",
+            )
     normalized["symbols"] = list(
         _require_uppercase_exchange_symbol_items(
             normalized.get("symbols"),
