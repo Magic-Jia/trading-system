@@ -236,9 +236,7 @@ def render_backtest_evaluation_report(
         stress_scenario_names.add(scenario_name)
         stress_scenarios.append(scenario_name)
         for metrics_field in ("base_metrics", "stressed_metrics"):
-            if metrics_field not in scenario_payload:
-                continue
-            metrics = scenario_payload[metrics_field]
+            metrics = scenario_payload.get(metrics_field)
             if not isinstance(metrics, Mapping):
                 raise ValueError(f"cost_stress.scenarios[{index}].{metrics_field} must be an object")
             validated_metrics = _cost_stress_metric_payload(

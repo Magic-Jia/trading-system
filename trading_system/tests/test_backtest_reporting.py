@@ -315,8 +315,16 @@ def test_backtest_evaluation_report_rejects_duplicate_cost_stress_scenario_names
                 "regimes": {"buckets": []},
                 "cost_stress": {
                     "scenarios": [
-                        {"scenario": {"name": "fees_2x"}},
-                        {"scenario": {"name": "fees_2x"}},
+                        {
+                            "scenario": {"name": "fees_2x"},
+                            "base_metrics": {"net_pnl": 1.0},
+                            "stressed_metrics": {"net_pnl": 0.5},
+                        },
+                        {
+                            "scenario": {"name": "fees_2x"},
+                            "base_metrics": {"net_pnl": 1.0},
+                            "stressed_metrics": {"net_pnl": 0.5},
+                        },
                     ]
                 },
             },
@@ -335,10 +343,14 @@ def test_backtest_evaluation_report_orders_cost_stress_scenarios_by_name() -> No
                     {
                         "label": "cost_stress:slippage_2x",
                         "scenario": {"name": "slippage_2x"},
+                        "base_metrics": {"net_pnl": 1.0},
+                        "stressed_metrics": {"net_pnl": 0.5},
                     },
                     {
                         "label": "cost_stress:fees_2x",
                         "scenario": {"name": "fees_2x"},
+                        "base_metrics": {"net_pnl": 1.0},
+                        "stressed_metrics": {"net_pnl": 0.5},
                     },
                 ]
             },
@@ -384,6 +396,30 @@ def test_backtest_evaluation_report_rejects_false_cost_stress_scenario_name() ->
                 "walk_forward": {"metadata": {"window_count": 1}},
                 "regimes": {"buckets": []},
                 "cost_stress": {"scenarios": [{"scenario": {"name": False}}]},
+            },
+            metadata={"dataset_root": "dataset"},
+        )
+
+
+@pytest.mark.parametrize("metrics_field", ("base_metrics", "stressed_metrics"))
+def test_backtest_evaluation_report_requires_cost_stress_metric_sides(metrics_field: str) -> None:
+    scenario_payload = {
+        "scenario": {"name": "fees_2x"},
+        "base_metrics": {"net_pnl": 1.0},
+        "stressed_metrics": {"net_pnl": 0.5},
+    }
+    del scenario_payload[metrics_field]
+
+    with pytest.raises(
+        ValueError,
+        match=rf"cost_stress.scenarios\[0\].{metrics_field} must be an object",
+    ):
+        reporting.render_backtest_evaluation_report(
+            experiment_name="evaluation",
+            evaluation={
+                "walk_forward": {"metadata": {"window_count": 1}},
+                "regimes": {"buckets": []},
+                "cost_stress": {"scenarios": [scenario_payload]},
             },
             metadata={"dataset_root": "dataset"},
         )
@@ -452,6 +488,8 @@ def test_backtest_evaluation_report_rejects_non_finite_cost_stress_trade_metric(
                     "scenarios": [
                         {
                             "scenario": {"name": "fees_2x"},
+                            "base_metrics": {"net_pnl": 1.0},
+                            "stressed_metrics": {"net_pnl": 0.5},
                             "stressed_trades": [
                                 {
                                     "trade_id": "BTCUSDT@2026-01-01T12:00:00+00:00",
