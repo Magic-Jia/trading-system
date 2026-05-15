@@ -251,9 +251,7 @@ class ExecutionFill:
             raise ValueError("maker fields require maker fill model")
         if self.maker_status is not None:
             if self.filled:
-                if self.fill_quality == "evidence_backed" and self.maker_status != "filled":
-                    raise ValueError("maker_status must agree with filled execution state")
-                if self.fill_quality == "partial_evidence_backed" and self.maker_status == "no_fill":
+                if self.maker_status in {"no_fill", "expired", "cancelled_replaced"}:
                     raise ValueError("maker_status must agree with filled execution state")
             elif self.fill_quality == "no_fill" and self.maker_status in {"filled", "partial"}:
                 raise ValueError("maker_status must agree with filled execution state")
@@ -383,6 +381,16 @@ class ExecutionFill:
             and self.unfilled_quantity > 1e-12
         ):
             raise ValueError("evidence-backed trade-print fills cannot leave unfilled quantity")
+        if self.maker_status is not None:
+            expected_quality_by_status = {
+                "partial": "partial_evidence_backed",
+                "filled": "evidence_backed",
+                "no_fill": "no_fill",
+                "expired": "no_fill",
+                "cancelled_replaced": "no_fill",
+            }
+            if self.fill_quality != expected_quality_by_status[self.maker_status]:
+                raise ValueError("maker_status must agree with fill_quality")
         if (
             self.fill_quality in {"evidence_backed", "partial_evidence_backed"}
             and self.evidence_timestamp is None
@@ -1035,14 +1043,18 @@ def _simulate_maker_queue_fill(
     status: MakerStatus
     if full_fill:
         status = "filled"
+    elif filled_quantity > 0.0:
+        status = "partial"
+        if cancel_replace_timestamp is not None and (deadline is None or cancel_replace_timestamp <= deadline):
+            reasons.append("cancel_replace_after_partial")
+        elif deadline is not None:
+            reasons.append("timeout_expired")
     elif cancel_replace_timestamp is not None and (deadline is None or cancel_replace_timestamp <= deadline):
         status = "cancelled_replaced"
-        reasons.append("cancel_replace_after_partial" if filled_quantity > 0.0 else "cancel_replace_before_fill")
+        reasons.append("cancel_replace_before_fill")
     elif deadline is not None:
         status = "expired"
         reasons.append("timeout_expired")
-    elif filled_quantity > 0.0:
-        status = "partial"
     else:
         status = "no_fill"
         reasons.append("no_crossing_evidence")

@@ -1645,8 +1645,8 @@ def test_maker_queue_full_fill_evidence_timestamp_is_last_actual_fill_print() ->
 @pytest.mark.parametrize(
     ("cancel_replace_timestamp", "timeout_seconds", "expected_status", "expected_reason"),
     [
-        (None, 2.0, "expired", "timeout_expired"),
-        (_ts("2026-03-10T00:00:02Z"), 10.0, "cancelled_replaced", "cancel_replace_after_partial"),
+        (None, 2.0, "partial", "timeout_expired"),
+        (_ts("2026-03-10T00:00:02Z"), 10.0, "partial", "cancel_replace_after_partial"),
     ],
 )
 def test_maker_queue_partial_fill_conserves_limit_price_notional_and_unfilled_identity(
@@ -1698,8 +1698,8 @@ def test_maker_queue_partial_fill_conserves_limit_price_notional_and_unfilled_id
 @pytest.mark.parametrize(
     ("cancel_replace_timestamp", "timeout_seconds", "expected_status"),
     [
-        (_ts("2026-03-10T00:00:02Z"), 10.0, "cancelled_replaced"),
-        (None, 2.0, "expired"),
+        (_ts("2026-03-10T00:00:02Z"), 10.0, "partial"),
+        (None, 2.0, "partial"),
     ],
 )
 def test_maker_queue_partial_fill_evidence_timestamp_remains_last_actual_fill_print(
@@ -1932,7 +1932,7 @@ def test_maker_reasons_are_duplicate_free_when_multiple_prints_deplete_empty_que
         ),
     )
 
-    assert fill.maker_status == "expired"
+    assert fill.maker_status == "partial"
     assert fill.filled_quantity == pytest.approx(1.5)
     assert fill.maker_reasons == ("latency_applied", "queue_depleted", "timeout_expired")
     assert len(fill.maker_reasons) == len(set(fill.maker_reasons))
@@ -2127,7 +2127,7 @@ def test_maker_timeout_returns_expired_partial_with_unfilled_quantity() -> None:
         ),
     )
 
-    assert fill.maker_status == "expired"
+    assert fill.maker_status == "partial"
     assert fill.filled is True
     assert fill.fill_quality == "partial_evidence_backed"
     assert fill.filled_quantity == pytest.approx(1.0)
@@ -2188,7 +2188,7 @@ def test_maker_latency_ignores_trade_prints_before_effective_placement_time() ->
             ),
             "filled",
         ),
-        (2.0, (), "cancelled_replaced"),
+        (2.0, (), "partial"),
     ],
 )
 def test_maker_queue_wait_seconds_for_fills_uses_first_fill_after_effective_placement(
@@ -4917,6 +4917,74 @@ def test_execution_fill_accepts_partial_maker_fill_with_partial_status() -> None
 
     assert fill.maker_status == "partial"
     assert fill.fill_quality == "partial_evidence_backed"
+
+
+def test_execution_fill_rejects_partial_maker_status_with_full_fill_quality() -> None:
+    with pytest.raises(ValueError, match="maker_status must agree with fill_quality"):
+        ExecutionFill(
+            symbol="BTCUSDT",
+            side="buy",
+            quantity=2.0,
+            filled=True,
+            fill_price=100.0,
+            fill_model="maker_post_only_queue",
+            execution_price_source="trade_print",
+            fill_quality="evidence_backed",
+            outcome="filled",
+            evidence_timestamp=_ts("2026-03-10T00:00:01Z"),
+            requested_quantity=2.0,
+            filled_quantity=0.75,
+            filled_notional=75.0,
+            unfilled_quantity=1.25,
+            maker_status="partial",
+            first_fill_timestamp=_ts("2026-03-10T00:00:01Z"),
+            last_fill_timestamp=_ts("2026-03-10T00:00:01Z"),
+        )
+
+
+def test_execution_fill_rejects_filled_maker_status_with_partial_fill_quality() -> None:
+    with pytest.raises(ValueError, match="maker_status must agree with fill_quality"):
+        ExecutionFill(
+            symbol="BTCUSDT",
+            side="buy",
+            quantity=2.0,
+            filled=True,
+            fill_price=100.0,
+            fill_model="maker_post_only_queue",
+            execution_price_source="trade_print",
+            fill_quality="partial_evidence_backed",
+            outcome="filled",
+            evidence_timestamp=_ts("2026-03-10T00:00:01Z"),
+            requested_quantity=2.0,
+            filled_quantity=2.0,
+            filled_notional=200.0,
+            unfilled_quantity=0.0,
+            maker_status="filled",
+            first_fill_timestamp=_ts("2026-03-10T00:00:01Z"),
+            last_fill_timestamp=_ts("2026-03-10T00:00:01Z"),
+        )
+
+
+@pytest.mark.parametrize("maker_status", ["expired", "cancelled_replaced"])
+def test_execution_fill_rejects_terminal_maker_no_fill_status_with_non_no_fill_quality(maker_status: str) -> None:
+    with pytest.raises(ValueError, match="maker_status must agree with fill_quality"):
+        ExecutionFill(
+            symbol="BTCUSDT",
+            side="buy",
+            quantity=1.0,
+            filled=False,
+            fill_price=None,
+            fill_model="maker_post_only_queue",
+            execution_price_source="no_crossing_evidence",
+            fill_quality="evidence_backed",
+            outcome="missed_alpha",
+            evidence_timestamp=_ts("2026-03-10T00:00:01Z"),
+            requested_quantity=1.0,
+            filled_quantity=0.0,
+            filled_notional=0.0,
+            unfilled_quantity=1.0,
+            maker_status=maker_status,
+        )
 
 
 def test_execution_fill_rejects_partial_maker_status_without_unfilled_quantity() -> None:

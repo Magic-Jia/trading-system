@@ -2953,7 +2953,7 @@ def test_replay_full_market_baseline_post_only_uses_queue_evidence_fields(
     assert trade.fill_quality == "partial_evidence_backed"
     assert trade.filled_quantity == pytest.approx(1.0)
     assert trade.unfilled_quantity == pytest.approx(399.0)
-    assert trade.maker_status == "expired"
+    assert trade.maker_status == "partial"
     assert trade.queue_ahead_initial == pytest.approx(2.0)
     assert trade.queue_ahead_remaining == pytest.approx(0.0)
     assert trade.maker_wait_seconds == pytest.approx(1.0)
