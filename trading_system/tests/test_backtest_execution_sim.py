@@ -334,6 +334,50 @@ def test_execution_fill_rejects_depth_consumption_on_non_orderbook_models(fill_m
         )
 
 
+@pytest.mark.parametrize("price_source", ["best_ask", "best_bid"])
+def test_execution_fill_rejects_depth_consumption_on_best_top_of_book_source(price_source: str) -> None:
+    with pytest.raises(ValueError, match="depth_levels_consumed requires depth price source"):
+        ExecutionFill(
+            symbol="BTCUSDT",
+            side="buy",
+            quantity=1.0,
+            filled=True,
+            fill_price=100.0,
+            fill_model="taker_orderbook",
+            execution_price_source=price_source,
+            fill_quality="evidence_backed",
+            outcome="filled",
+            requested_quantity=1.0,
+            filled_quantity=1.0,
+            filled_notional=100.0,
+            unfilled_quantity=0.0,
+            depth_levels_consumed=1,
+            evidence_timestamp=_ts("2026-03-10T00:00:01Z"),
+        )
+
+
+def test_execution_fill_accepts_depth_consumption_on_depth_price_source() -> None:
+    fill = ExecutionFill(
+        symbol="BTCUSDT",
+        side="buy",
+        quantity=1.0,
+        filled=True,
+        fill_price=100.0,
+        fill_model="taker_orderbook_depth",
+        execution_price_source="ask_depth",
+        fill_quality="evidence_backed",
+        outcome="filled",
+        requested_quantity=1.0,
+        filled_quantity=1.0,
+        filled_notional=100.0,
+        unfilled_quantity=0.0,
+        depth_levels_consumed=1,
+        evidence_timestamp=_ts("2026-03-10T00:00:01Z"),
+    )
+
+    assert fill.depth_levels_consumed == 1
+
+
 @pytest.mark.parametrize("evidence_timestamp", [
     _ts("2026-03-10T00:00:00Z"),
     _ts("2026-03-10T00:00:04Z"),
@@ -2890,6 +2934,35 @@ def test_taker_uses_best_ask_for_buy_when_orderbook_is_available() -> None:
     assert fill.fill_model == "taker_orderbook"
     assert fill.execution_price_source == "best_ask"
     assert fill.fill_quality == "evidence_backed"
+
+
+@pytest.mark.parametrize(
+    ("side", "expected_price", "expected_source"),
+    [
+        ("buy", 100.1, "best_ask"),
+        ("sell", 99.9, "best_bid"),
+    ],
+)
+def test_taker_top_of_book_fallback_does_not_claim_consumed_depth_without_side_ladder(
+    side: str,
+    expected_price: float,
+    expected_source: str,
+) -> None:
+    fill = simulate_taker_fill(
+        symbol="BTCUSDT",
+        side=side,
+        quantity=1.0,
+        reference_price=100.0,
+        order_books=(
+            OrderBookSnapshot(timestamp=_ts("2026-03-10T00:00:01Z"), symbol="BTCUSDT", bid=99.9, ask=100.1),
+        ),
+    )
+
+    assert fill.filled is True
+    assert fill.fill_price == pytest.approx(expected_price)
+    assert fill.fill_model == "taker_orderbook"
+    assert fill.execution_price_source == expected_source
+    assert fill.depth_levels_consumed is None
 
 
 def test_taker_fill_ignores_evidence_before_placement_timestamp() -> None:

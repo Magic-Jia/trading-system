@@ -190,6 +190,8 @@ class ExecutionFill:
             raise ValueError("depth_levels_consumed must be a non-negative integer")
         if self.depth_levels_consumed is not None and self.fill_model not in {"taker_orderbook", "taker_orderbook_depth"}:
             raise ValueError("depth_levels_consumed requires taker orderbook fill model")
+        if self.depth_levels_consumed is not None and self.execution_price_source in {"best_ask", "best_bid"}:
+            raise ValueError("depth_levels_consumed requires depth price source")
         if self.fill_quality == "no_fill" and self.fill_price is not None:
             raise ValueError("no-fill execution cannot include fill_price")
         if self.fill_quality == "no_fill":
@@ -534,7 +536,6 @@ def simulate_taker_fill(
             filled_quantity=quantity if quantity > 0.0 else None,
             filled_notional=(quantity * price) if quantity > 0.0 else None,
             unfilled_quantity=0.0 if quantity > 0.0 else None,
-            depth_levels_consumed=1 if quantity > 0.0 else None,
             first_fill_timestamp=book.timestamp,
             last_fill_timestamp=book.timestamp,
         )
