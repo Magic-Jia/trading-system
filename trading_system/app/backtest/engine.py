@@ -498,7 +498,16 @@ def _execution_evidence(
                 side = raw_side.strip().lower()
             else:
                 raise ValueError("trade.side must be buy or sell when present")
-            trades.append(TradePrint(timestamp=timestamp, symbol=symbol, price=price, quantity=quantity, side=side))
+            trades.append(
+                TradePrint(
+                    timestamp=timestamp,
+                    symbol=symbol,
+                    price=price,
+                    quantity=quantity,
+                    side=side,
+                    fill_id=item.get("fill_id"),
+                )
+            )
     return tuple(order_books), tuple(trades)
 
 

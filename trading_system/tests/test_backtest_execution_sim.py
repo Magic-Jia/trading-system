@@ -251,6 +251,7 @@ def test_maker_buy_queue_ahead_consumes_sell_trade_volume_before_own_fill() -> N
                 price=99.5,
                 quantity=3.0,
                 side="sell",
+                fill_id="maker-print-001",
             ),
         ),
     )
@@ -302,6 +303,7 @@ def test_maker_queue_ignores_unsigned_trade_prints_before_signed_fill(
                 price=limit_price,
                 quantity=3.0,
                 side=signed_trade_side,
+                fill_id="maker-print-001",
             ),
         ),
     )
@@ -345,6 +347,7 @@ def test_maker_sell_queue_fills_only_on_buy_aggressor_trades_at_or_above_limit()
                 price=100.5,
                 quantity=1.5,
                 side="buy",
+                fill_id="maker-print-001",
             ),
         ),
     )
@@ -352,6 +355,52 @@ def test_maker_sell_queue_fills_only_on_buy_aggressor_trades_at_or_above_limit()
     assert fill.maker_status == "filled"
     assert fill.filled_quantity == pytest.approx(1.0)
     assert fill.first_fill_timestamp == _ts("2026-03-10T00:00:03Z")
+
+
+def test_maker_queue_rejects_missing_trade_fill_id_before_consuming_queue() -> None:
+    with pytest.raises(ValueError, match="trade.fill_id is required"):
+        simulate_maker_limit_fill(
+            symbol="BTCUSDT",
+            side="buy",
+            limit_price=99.5,
+            quantity=1.0,
+            queue_ahead_quantity=2.0,
+            placement_timestamp=_ts("2026-03-10T00:00:00Z"),
+            timeout_seconds=10.0,
+            trades=(
+                TradePrint(
+                    timestamp=_ts("2026-03-10T00:00:01Z"),
+                    symbol="BTCUSDT",
+                    price=99.5,
+                    quantity=3.0,
+                    side="sell",
+                ),
+            ),
+        )
+
+
+def test_maker_queue_rejects_blank_trade_fill_id_before_consuming_queue() -> None:
+    trade = TradePrint(
+        timestamp=_ts("2026-03-10T00:00:01Z"),
+        symbol="BTCUSDT",
+        price=99.5,
+        quantity=3.0,
+        side="sell",
+        fill_id="maker-print-001",
+    )
+    object.__setattr__(trade, "fill_id", " ")
+
+    with pytest.raises(ValueError, match="trade.fill_id is required"):
+        simulate_maker_limit_fill(
+            symbol="BTCUSDT",
+            side="buy",
+            limit_price=99.5,
+            quantity=1.0,
+            queue_ahead_quantity=2.0,
+            placement_timestamp=_ts("2026-03-10T00:00:00Z"),
+            timeout_seconds=10.0,
+            trades=(trade,),
+        )
 
 
 def test_maker_timeout_returns_expired_partial_with_unfilled_quantity() -> None:
@@ -370,6 +419,7 @@ def test_maker_timeout_returns_expired_partial_with_unfilled_quantity() -> None:
                 price=99.5,
                 quantity=2.0,
                 side="sell",
+                fill_id="maker-print-001",
             ),
             TradePrint(
                 timestamp=_ts("2026-03-10T00:00:03Z"),
@@ -377,6 +427,7 @@ def test_maker_timeout_returns_expired_partial_with_unfilled_quantity() -> None:
                 price=99.4,
                 quantity=10.0,
                 side="sell",
+                fill_id="maker-print-002",
             ),
         ),
     )
@@ -414,6 +465,7 @@ def test_maker_latency_ignores_trade_prints_before_effective_placement_time() ->
                 price=99.5,
                 quantity=1.0,
                 side="sell",
+                fill_id="maker-print-001",
             ),
         ),
     )
@@ -477,6 +529,7 @@ def test_maker_queue_explicit_queue_ahead_does_not_require_placement_timestamp()
                 price=99.5,
                 quantity=5.0,
                 side="sell",
+                fill_id="maker-print-001",
             ),
         ),
     )
@@ -525,6 +578,7 @@ def test_maker_queue_infers_queue_ahead_from_book_at_effective_placement() -> No
                 price=99.5,
                 quantity=4.0,
                 side="sell",
+                fill_id="maker-print-001",
             ),
         ),
     )
@@ -603,6 +657,7 @@ def test_maker_queue_explicit_queue_ahead_allows_missing_visible_size() -> None:
                 price=99.5,
                 quantity=1.0,
                 side="sell",
+                fill_id="maker-print-001",
             ),
         ),
     )
@@ -647,6 +702,7 @@ def test_maker_queue_inference_accepts_zero_visible_size(
                 price=99.5 if side == "buy" else 100.5,
                 quantity=1.0,
                 side=trade_side,
+                fill_id="maker-print-001",
             ),
         ),
     )
@@ -753,6 +809,7 @@ def test_maker_queue_inference_uses_latest_book_before_effective_placement() -> 
                 price=99.5,
                 quantity=4.0,
                 side="sell",
+                fill_id="maker-print-001",
             ),
         ),
     )
@@ -948,6 +1005,7 @@ def test_maker_cancel_replace_before_fill_stops_later_prints() -> None:
                 price=99.5,
                 quantity=1.0,
                 side="sell",
+                fill_id="maker-print-001",
             ),
             TradePrint(
                 timestamp=_ts("2026-03-10T00:00:03Z"),

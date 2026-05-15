@@ -2903,7 +2903,13 @@ def test_replay_full_market_baseline_post_only_uses_queue_evidence_fields(
             "ask_size": 12.0,
         },
         "trades": [
-            {"timestamp": "2026-03-10T00:00:01Z", "price": 100.0, "quantity": 3.0, "side": "sell"}
+            {
+                "timestamp": "2026-03-10T00:00:01Z",
+                "price": 100.0,
+                "quantity": 3.0,
+                "side": "sell",
+                "fill_id": "maker-print-001",
+            }
         ],
     }
     row1_market_path.write_text(json.dumps(row1_payload), encoding="utf-8")

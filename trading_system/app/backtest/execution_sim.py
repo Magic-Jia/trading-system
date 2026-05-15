@@ -580,6 +580,26 @@ def simulate_maker_limit_fill(
         or validated_latency_ms > 0.0
         or cancel_replace_timestamp is not None
     )
+    if uses_queue_model:
+        effective_placement = placement_timestamp
+        if placement_timestamp is not None and validated_latency_ms > 0.0:
+            effective_placement = placement_timestamp + timedelta(milliseconds=validated_latency_ms)
+        _maker_queue_ahead(
+            side=side,
+            queue_ahead_quantity=queue_ahead_quantity,
+            order_books=order_books,
+            effective_placement=effective_placement,
+        )
+        _validate_maker_queue_trade_fill_ids(
+            symbol=symbol,
+            side=side,
+            limit_price=validated_limit_price,
+            placement_timestamp=placement_timestamp,
+            timeout_seconds=validated_timeout_seconds,
+            latency_ms=validated_latency_ms,
+            cancel_replace_timestamp=cancel_replace_timestamp,
+            trades=trades,
+        )
     _validate_evidence_contract(symbol=symbol, order_books=order_books, trades=trades)
     if uses_queue_model:
         return _simulate_maker_queue_fill(
@@ -687,6 +707,7 @@ def _simulate_maker_queue_fill(
         else None
     )
     cutoff = _maker_cutoff(deadline=deadline, cancel_replace_timestamp=cancel_replace_timestamp)
+    seen_candidate_fill_ids: set[str] = set()
 
     for trade in (trade for trade in trades if trade.symbol == symbol):
         trade_price = _positive_finite_float("trade.price", trade.price)
@@ -701,6 +722,12 @@ def _simulate_maker_queue_fill(
             continue
         if not _maker_trade_side_consumes_queue(side=side, trade_side=trade.side):
             continue
+        if not isinstance(trade.fill_id, str) or not trade.fill_id.strip():
+            raise ValueError("trade.fill_id is required")
+        fill_id = _canonical_string("trade.fill_id", trade.fill_id)
+        if fill_id in seen_candidate_fill_ids:
+            raise ValueError(f"duplicate trade.fill_id: {fill_id}")
+        seen_candidate_fill_ids.add(fill_id)
         remaining_print_quantity = trade_quantity
         if remaining_print_quantity <= 0.0:
             continue
@@ -778,6 +805,47 @@ def _simulate_maker_queue_fill(
         maker_wait_seconds=maker_wait_seconds,
         maker_reasons=tuple(dict.fromkeys(reasons)),
     )
+
+
+def _validate_maker_queue_trade_fill_ids(
+    *,
+    symbol: str,
+    side: OrderSide,
+    limit_price: float,
+    placement_timestamp: datetime | None,
+    timeout_seconds: float | None,
+    latency_ms: float,
+    cancel_replace_timestamp: datetime | None,
+    trades: tuple[TradePrint, ...],
+) -> None:
+    effective_placement = placement_timestamp
+    if placement_timestamp is not None and latency_ms > 0.0:
+        effective_placement = placement_timestamp + timedelta(milliseconds=latency_ms)
+    deadline = (
+        effective_placement + timedelta(seconds=timeout_seconds)
+        if effective_placement is not None and timeout_seconds is not None
+        else None
+    )
+    cutoff = _maker_cutoff(deadline=deadline, cancel_replace_timestamp=cancel_replace_timestamp)
+    seen_fill_ids: set[str] = set()
+    for trade in trades:
+        if trade.symbol != symbol:
+            continue
+        trade_price = _positive_finite_float("trade.price", trade.price)
+        if effective_placement is not None and trade.timestamp < effective_placement:
+            continue
+        if cutoff is not None and trade.timestamp >= cutoff:
+            continue
+        if not _crosses_limit(side=side, price=trade_price, limit_price=limit_price):
+            continue
+        if not _maker_trade_side_consumes_queue(side=side, trade_side=trade.side):
+            continue
+        if not isinstance(trade.fill_id, str) or not trade.fill_id.strip():
+            raise ValueError("trade.fill_id is required")
+        fill_id = _canonical_string("trade.fill_id", trade.fill_id)
+        if fill_id in seen_fill_ids:
+            raise ValueError(f"duplicate trade.fill_id: {fill_id}")
+        seen_fill_ids.add(fill_id)
 
 
 def _maker_queue_ahead(
