@@ -596,6 +596,17 @@ def _load_import_file(
     normalized_exchange, normalized_market, canonical_dataset, normalized_symbol, normalized_timeframe, series_key = (
         _validated_import_scope(manifest, manifest_path=manifest_path)
     )
+    metadata = manifest.get("metadata")
+    if metadata is not None:
+        if not isinstance(metadata, Mapping):
+            raise ValueError(f"raw-market metadata must be a JSON object: {manifest_path}")
+        _normalized_metadata(
+            metadata,
+            context=manifest_path,
+            symbol=normalized_symbol,
+            venue=normalized_exchange,
+            interval=normalized_timeframe,
+        )
     coverage_start = _manifest_archive_datetime(manifest, "coverage_start", manifest_path=manifest_path)
     coverage_end = _manifest_archive_datetime(manifest, "coverage_end", manifest_path=manifest_path)
     data_path = _manifest_data_path(manifest, manifest_path=manifest_path)
