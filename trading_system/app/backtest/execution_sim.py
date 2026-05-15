@@ -180,6 +180,29 @@ class ExecutionFill:
             value = getattr(self, field_name)
             if value is not None:
                 _non_negative_finite_float(field_name, value)
+        positive_fill_request = self.quantity > 0.0 or self.requested_notional is not None
+        if self.filled:
+            if self.fill_price is None:
+                raise ValueError("filled executions must include fill_price")
+            if positive_fill_request and self.filled_quantity is not None and float(self.filled_quantity) <= 0.0:
+                raise ValueError("filled executions must include positive filled quantity")
+            if positive_fill_request and self.filled_notional is not None and float(self.filled_notional) <= 0.0:
+                raise ValueError("filled executions must include positive filled notional")
+        if (
+            self.fill_model == "taker_orderbook_depth"
+            and self.fill_price is not None
+            and self.filled_quantity is not None
+            and float(self.filled_quantity) > 0.0
+            and self.filled_notional is not None
+            and self.fill_quality in {"evidence_backed", "partial_evidence_backed"}
+            and not math.isclose(
+                float(self.filled_notional),
+                float(self.filled_quantity) * float(self.fill_price),
+                rel_tol=1e-12,
+                abs_tol=1e-9,
+            )
+        ):
+            raise ValueError("filled notional must equal filled quantity times fill_price")
         if self.slippage_bps is not None:
             object.__setattr__(self, "slippage_bps", _finite_float("slippage_bps", self.slippage_bps))
         if (

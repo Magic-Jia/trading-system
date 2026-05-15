@@ -115,6 +115,78 @@ def test_execution_fill_rejects_no_fill_with_fill_timestamps_or_filled_flag() ->
         )
 
 
+def test_execution_fill_rejects_filled_state_without_price_or_quantity_accounting() -> None:
+    with pytest.raises(ValueError, match="filled executions must include fill_price"):
+        ExecutionFill(
+            symbol="BTCUSDT",
+            side="buy",
+            quantity=1.0,
+            filled=True,
+            fill_price=None,
+            fill_model="taker_orderbook_depth",
+            execution_price_source="ask_depth",
+            fill_quality="evidence_backed",
+            outcome="filled",
+            requested_quantity=1.0,
+            filled_quantity=1.0,
+            filled_notional=100.0,
+            unfilled_quantity=0.0,
+        )
+
+    with pytest.raises(ValueError, match="filled executions must include positive filled quantity"):
+        ExecutionFill(
+            symbol="BTCUSDT",
+            side="buy",
+            quantity=1.0,
+            filled=True,
+            fill_price=100.0,
+            fill_model="taker_orderbook_depth",
+            execution_price_source="ask_depth",
+            fill_quality="evidence_backed",
+            outcome="filled",
+            requested_quantity=1.0,
+            filled_quantity=0.0,
+            filled_notional=100.0,
+            unfilled_quantity=1.0,
+        )
+
+    with pytest.raises(ValueError, match="filled executions must include positive filled notional"):
+        ExecutionFill(
+            symbol="BTCUSDT",
+            side="buy",
+            quantity=1.0,
+            filled=True,
+            fill_price=100.0,
+            fill_model="taker_orderbook_depth",
+            execution_price_source="ask_depth",
+            fill_quality="evidence_backed",
+            outcome="filled",
+            requested_quantity=1.0,
+            filled_quantity=1.0,
+            filled_notional=0.0,
+            unfilled_quantity=0.0,
+        )
+
+
+def test_execution_fill_rejects_orderbook_depth_accounting_price_identity_mismatch() -> None:
+    with pytest.raises(ValueError, match="filled notional must equal filled quantity times fill_price"):
+        ExecutionFill(
+            symbol="BTCUSDT",
+            side="buy",
+            quantity=1.0,
+            filled=True,
+            fill_price=100.0,
+            fill_model="taker_orderbook_depth",
+            execution_price_source="ask_depth",
+            fill_quality="evidence_backed",
+            outcome="filled",
+            requested_quantity=1.0,
+            filled_quantity=1.0,
+            filled_notional=99.0,
+            unfilled_quantity=0.0,
+        )
+
+
 def test_evidence_contract_rejects_duplicate_same_symbol_trade_fill_id() -> None:
     with pytest.raises(ValueError, match="duplicate trade.fill_id: fill-001"):
         _validate_evidence_contract(
