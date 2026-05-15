@@ -67,6 +67,7 @@ _PRICE_SOURCES = frozenset(
 _FILL_QUALITIES = frozenset(("approximate", "evidence_backed", "partial_evidence_backed", "no_fill"))
 _FILL_OUTCOMES = frozenset(("filled", "missed_alpha"))
 _MAKER_STATUSES = frozenset(("filled", "partial", "no_fill", "expired", "cancelled_replaced"))
+_TAKER_EVIDENCE_MAX_SKEW = timedelta(seconds=1)
 
 
 @dataclass(frozen=True, slots=True)
@@ -278,6 +279,7 @@ def simulate_taker_fill(
     quantity = _non_negative_finite_float("quantity", quantity)
     _positive_finite_float("reference_price", reference_price)
     _validate_evidence_contract(symbol=symbol, order_books=order_books, trades=trades)
+    _validate_taker_evidence_timestamp_skew(symbol=symbol, order_books=order_books, trades=trades)
     book = _first_symbol_book(symbol, order_books)
     if book is not None:
         if _side_levels(book, side=side):
@@ -957,6 +959,24 @@ def _validate_evidence_contract(
                 raise ValueError(f"trade.price cannot be below contemporaneous order_book.bid for {symbol}")
             if trade_price > ask:
                 raise ValueError(f"trade.price cannot be above contemporaneous order_book.ask for {symbol}")
+
+
+def _validate_taker_evidence_timestamp_skew(
+    *,
+    symbol: str,
+    order_books: tuple[OrderBookSnapshot, ...],
+    trades: tuple[TradePrint, ...],
+) -> None:
+    symbol_books = [book for book in order_books if book.symbol == symbol]
+    symbol_trades = [trade for trade in trades if trade.symbol == symbol]
+    if not symbol_books or not symbol_trades:
+        return
+
+    for book in symbol_books:
+        for trade in symbol_trades:
+            if abs(book.timestamp - trade.timestamp) <= _TAKER_EVIDENCE_MAX_SKEW:
+                return
+    raise ValueError(f"taker evidence timestamp skew exceeds tolerance for {symbol}")
 
 
 def _datetime_or_none(value: Any) -> datetime | None:

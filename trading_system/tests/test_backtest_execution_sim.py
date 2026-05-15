@@ -1018,6 +1018,28 @@ def test_taker_fill_rejects_non_monotonic_trade_print_timestamps() -> None:
         )
 
 
+def test_taker_fill_rejects_stale_trade_book_evidence_skew() -> None:
+    with pytest.raises(ValueError, match="taker evidence timestamp skew exceeds tolerance for BTCUSDT"):
+        simulate_taker_fill(
+            symbol="BTCUSDT",
+            side="buy",
+            quantity=1.0,
+            reference_price=100.0,
+            order_books=(
+                OrderBookSnapshot(timestamp=_ts("2026-03-10T00:00:01Z"), symbol="BTCUSDT", bid=99.9, ask=100.1),
+            ),
+            trades=(
+                TradePrint(
+                    timestamp=_ts("2026-03-10T00:00:06Z"),
+                    symbol="BTCUSDT",
+                    price=100.0,
+                    quantity=1.0,
+                    side="buy",
+                ),
+            ),
+        )
+
+
 def test_maker_limit_validates_all_trade_rows_before_returning_fill() -> None:
     with pytest.raises(ValueError, match="trade.price must be a positive finite number"):
         simulate_maker_limit_fill(
