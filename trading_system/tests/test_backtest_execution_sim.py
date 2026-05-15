@@ -23,6 +23,26 @@ def _ts(value: str) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(timezone.utc)
 
 
+def _filled_execution_kwargs(**overrides: object) -> dict[str, object]:
+    kwargs: dict[str, object] = {
+        "symbol": "BTCUSDT",
+        "side": "buy",
+        "quantity": 1.0,
+        "filled": True,
+        "fill_price": 100.0,
+        "fill_model": "reference_close",
+        "execution_price_source": "ohlcv_close",
+        "fill_quality": "approximate",
+        "outcome": "filled",
+        "requested_quantity": 1.0,
+        "filled_quantity": 1.0,
+        "filled_notional": 100.0,
+        "unfilled_quantity": 0.0,
+    }
+    kwargs.update(overrides)
+    return kwargs
+
+
 @pytest.mark.parametrize("symbol", ["", " BTCUSDT", "BTCUSDT ", 123])
 def test_execution_fill_rejects_noncanonical_symbol(symbol: object) -> None:
     with pytest.raises(ValueError, match="symbol must be a canonical string"):
@@ -37,6 +57,86 @@ def test_execution_fill_rejects_noncanonical_symbol(symbol: object) -> None:
             fill_quality="approximate",
             outcome="filled",
         )
+
+
+@pytest.mark.parametrize("execution_lag_bars", [True, 1.0, "1", -1])
+def test_execution_fill_rejects_invalid_execution_lag_bars(execution_lag_bars: object) -> None:
+    with pytest.raises(ValueError, match="execution_lag_bars must be a non-negative integer"):
+        ExecutionFill(**_filled_execution_kwargs(execution_lag_bars=execution_lag_bars))
+
+
+@pytest.mark.parametrize("execution_timeframe", [" 1m", "1m ", 123])
+def test_execution_fill_rejects_noncanonical_execution_timeframe(execution_timeframe: object) -> None:
+    with pytest.raises(ValueError, match="execution_timeframe must be a canonical string"):
+        ExecutionFill(**_filled_execution_kwargs(execution_timeframe=execution_timeframe))
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "match"),
+    [
+        ("execution_timeframe", "", "next-bar OHLCV executions must include execution timeframe and positive lag"),
+        ("execution_lag_bars", 0, "next-bar OHLCV executions must include execution timeframe and positive lag"),
+        ("execution_lag_bars", -1, "execution_lag_bars must be a non-negative integer"),
+    ],
+)
+def test_execution_fill_rejects_next_bar_ohlcv_without_timing_evidence(
+    field: str,
+    value: object,
+    match: str,
+) -> None:
+    kwargs = _filled_execution_kwargs(
+        fill_model="next_bar_ohlcv",
+        execution_price_source="ohlcv_next_open",
+        fill_quality="evidence_backed",
+        evidence_timestamp=_ts("2026-03-10T00:01:00Z"),
+        execution_timeframe="1m",
+        execution_lag_bars=1,
+    )
+    kwargs[field] = value
+
+    with pytest.raises(ValueError, match=match):
+        ExecutionFill(**kwargs)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("execution_timeframe", "1m"),
+        ("execution_lag_bars", 1),
+    ],
+)
+def test_execution_fill_rejects_reference_close_with_timing_evidence_claim(
+    field: str,
+    value: object,
+) -> None:
+    kwargs = _filled_execution_kwargs()
+    kwargs[field] = value
+
+    with pytest.raises(ValueError, match="reference-close executions cannot include execution timing metadata"):
+        ExecutionFill(**kwargs)
+
+
+def test_execution_fill_accepts_next_bar_ohlcv_with_canonical_timeframe_and_lag() -> None:
+    fill = ExecutionFill(
+        **_filled_execution_kwargs(
+            fill_model="next_bar_ohlcv",
+            execution_price_source="ohlcv_next_open",
+            fill_quality="evidence_backed",
+            evidence_timestamp=_ts("2026-03-10T00:01:00Z"),
+            execution_timeframe="1m",
+            execution_lag_bars=1,
+        )
+    )
+
+    assert fill.execution_timeframe == "1m"
+    assert fill.execution_lag_bars == 1
+
+
+def test_execution_fill_accepts_reference_close_without_timing_evidence_claim() -> None:
+    fill = ExecutionFill(**_filled_execution_kwargs())
+
+    assert fill.execution_timeframe == ""
+    assert fill.execution_lag_bars == 0
 
 
 @pytest.mark.parametrize("depth_levels_consumed", [-1, 1.5, True, "1"])

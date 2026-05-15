@@ -146,6 +146,23 @@ class ExecutionFill:
         )
         object.__setattr__(self, "fill_quality", _canonical_domain("fill_quality", self.fill_quality, _FILL_QUALITIES))
         object.__setattr__(self, "outcome", _canonical_domain("outcome", self.outcome, _FILL_OUTCOMES))
+        if not isinstance(self.execution_timeframe, str) or self.execution_timeframe.strip() != self.execution_timeframe:
+            raise ValueError("execution_timeframe must be a canonical string")
+        if (
+            isinstance(self.execution_lag_bars, bool)
+            or not isinstance(self.execution_lag_bars, int)
+            or self.execution_lag_bars < 0
+        ):
+            raise ValueError("execution_lag_bars must be a non-negative integer")
+        if (
+            self.fill_model == "next_bar_ohlcv" or self.execution_price_source == "ohlcv_next_open"
+        ) and (not self.execution_timeframe or self.execution_lag_bars <= 0):
+            raise ValueError("next-bar OHLCV executions must include execution timeframe and positive lag")
+        if (
+            self.fill_model == "reference_close"
+            and (self.execution_timeframe or self.execution_lag_bars > 0)
+        ):
+            raise ValueError("reference-close executions cannot include execution timing metadata")
         if self.filled and self.fill_quality != "no_fill" and self.outcome != "filled":
             raise ValueError("filled executions must have filled outcome")
         if not self.filled and self.outcome == "filled":
