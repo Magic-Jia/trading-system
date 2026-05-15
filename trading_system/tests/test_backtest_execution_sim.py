@@ -57,6 +57,31 @@ def test_execution_fill_preserves_canonical_symbol_identity() -> None:
     assert fill.symbol == "BTCUSDT"
 
 
+def test_execution_fill_rejects_maker_fields_when_fill_model_string_subclass_spoofs_scope() -> None:
+    class SpoofedFillModel(str):
+        def startswith(self, prefix: str, *args: object) -> bool:
+            if prefix == "maker_":
+                return True
+            return super().startswith(prefix, *args)
+
+    with pytest.raises(ValueError, match="maker_status requires maker fill model"):
+        ExecutionFill(
+            **_filled_execution_kwargs(
+                filled=False,
+                fill_price=None,
+                fill_model=SpoofedFillModel("taker_orderbook"),
+                execution_price_source="no_crossing_evidence",
+                fill_quality="no_fill",
+                outcome="missed_alpha",
+                filled_quantity=0.0,
+                filled_notional=0.0,
+                unfilled_quantity=1.0,
+                evidence_timestamp=_ts("2026-03-10T00:00:01Z"),
+                maker_status="expired",
+            )
+        )
+
+
 def test_execution_fill_preserves_domain_error_when_symbol_and_side_are_invalid() -> None:
     with pytest.raises(ValueError, match="side must be one of: buy, sell"):
         ExecutionFill(**_filled_execution_kwargs(symbol=" BTCUSDT ", side="long"))

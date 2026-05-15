@@ -1446,7 +1446,7 @@ def _canonical_order_side(value: Any) -> OrderSide:
 def _canonical_domain(name: str, value: Any, allowed: frozenset[str]) -> str:
     if not isinstance(value, str) or value not in allowed:
         raise ValueError(f"{name} must be one of: {', '.join(sorted(allowed))}")
-    return value
+    return str(value)
 
 
 def _canonical_string(name: str, value: Any) -> str:
