@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter
+from datetime import datetime
 import math
 from typing import Any, Callable, Mapping
 
@@ -352,6 +353,7 @@ def _evaluation_walk_forward_payload(walk_forward: Mapping[str, Any]) -> dict[st
             previous_payload_window_index = payload_window_index
             payload_window_indices.append(payload_window_index)
             validated_window["window_index"] = payload_window_index
+        _validate_walk_forward_window_periods(validated_window, window_index=window_index)
         splits = validated_window.get("splits")
         if splits is None:
             validated_windows.append(validated_window)
@@ -438,6 +440,58 @@ def _evaluation_walk_forward_payload(walk_forward: Mapping[str, Any]) -> dict[st
         raise ValueError("walk_forward.windows window_index values must be contiguous from 1")
     validated["windows"] = validated_windows
     return validated
+
+
+def _validate_walk_forward_window_periods(window: dict[str, Any], *, window_index: int) -> None:
+    parsed_periods: dict[str, dict[str, datetime]] = {}
+    for period_name in ("train_period", "test_period"):
+        if period_name not in window:
+            continue
+        raw_period = window[period_name]
+        if not isinstance(raw_period, Mapping):
+            raise ValueError(f"walk_forward.windows[{window_index}].{period_name} must be an object")
+        period = _strict_mapping_copy(
+            raw_period,
+            field_name=f"walk_forward.windows[{window_index}].{period_name}",
+        )
+        for boundary in ("start", "end"):
+            if boundary not in period:
+                raise ValueError(f"walk_forward.windows[{window_index}].{period_name}.{boundary} must be present")
+            period[boundary] = _canonical_report_string(
+                period[boundary],
+                field_name=f"walk_forward.windows[{window_index}].{period_name}.{boundary}",
+            )
+        parsed = {
+            "start": _walk_forward_period_datetime(
+                period["start"],
+                field_name=f"walk_forward.windows[{window_index}].{period_name}.start",
+            ),
+            "end": _walk_forward_period_datetime(
+                period["end"],
+                field_name=f"walk_forward.windows[{window_index}].{period_name}.end",
+            ),
+        }
+        if parsed["start"] > parsed["end"]:
+            raise ValueError(
+                f"walk_forward.windows[{window_index}].{period_name}.start must be on or before "
+                f"walk_forward.windows[{window_index}].{period_name}.end"
+            )
+        window[period_name] = period
+        parsed_periods[period_name] = parsed
+    if {"train_period", "test_period"}.issubset(parsed_periods) and (
+        parsed_periods["train_period"]["end"] >= parsed_periods["test_period"]["start"]
+    ):
+        raise ValueError(
+            f"walk_forward.windows[{window_index}].train_period.end must be before "
+            f"walk_forward.windows[{window_index}].test_period.start"
+        )
+
+
+def _walk_forward_period_datetime(value: str, *, field_name: str) -> datetime:
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError as exc:
+        raise ValueError(f"{field_name} must be an ISO timestamp string") from exc
 
 
 def _evaluation_metric_payload(metrics: Mapping[str, Any], *, field_name: str) -> dict[str, float | int]:

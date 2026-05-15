@@ -594,6 +594,49 @@ def test_backtest_evaluation_report_rejects_non_canonical_walk_forward_split_lab
         )
 
 
+def test_backtest_evaluation_report_rejects_overlapping_walk_forward_periods() -> None:
+    with pytest.raises(
+        ValueError,
+        match=r"walk_forward.windows\[0\].train_period.end must be before walk_forward.windows\[0\].test_period.start",
+    ):
+        reporting.render_backtest_evaluation_report(
+            experiment_name="evaluation",
+            evaluation={
+                "walk_forward": {
+                    "metadata": {"window_count": 1},
+                    "windows": [
+                        {
+                            "window_index": 1,
+                            "train_period": {
+                                "start": "2026-01-01T00:00:00+00:00",
+                                "end": "2026-01-02T00:00:00+00:00",
+                            },
+                            "test_period": {
+                                "start": "2026-01-02T00:00:00+00:00",
+                                "end": "2026-01-03T00:00:00+00:00",
+                            },
+                            "splits": {
+                                "in_sample": {
+                                    "label": "IS",
+                                    "trade_ids": [],
+                                    "metrics": {"total_net_return": 0.01},
+                                },
+                                "out_of_sample": {
+                                    "label": "OOS",
+                                    "trade_ids": [],
+                                    "metrics": {"total_net_return": 0.02},
+                                },
+                            },
+                        }
+                    ],
+                },
+                "regimes": {"buckets": []},
+                "cost_stress": {"scenarios": []},
+            },
+            metadata={"dataset_root": "dataset"},
+        )
+
+
 def test_backtest_evaluation_report_rejects_non_object_cost_stress_payload() -> None:
     with pytest.raises(ValueError, match="cost_stress must be an object"):
         reporting.render_backtest_evaluation_report(
