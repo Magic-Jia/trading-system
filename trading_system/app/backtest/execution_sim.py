@@ -160,6 +160,8 @@ class ExecutionFill:
             or self.depth_levels_consumed < 0
         ):
             raise ValueError("depth_levels_consumed must be a non-negative integer")
+        if self.depth_levels_consumed is not None and self.fill_model not in {"taker_orderbook", "taker_orderbook_depth"}:
+            raise ValueError("depth_levels_consumed requires taker orderbook fill model")
         if self.fill_quality == "no_fill" and self.fill_price is not None:
             raise ValueError("no-fill execution cannot include fill_price")
         if self.fill_quality == "no_fill":

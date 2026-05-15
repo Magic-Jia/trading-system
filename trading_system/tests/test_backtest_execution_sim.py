@@ -109,6 +109,34 @@ def test_execution_fill_rejects_maker_fields_on_non_maker_models(maker_field: st
         ExecutionFill(**kwargs)
 
 
+@pytest.mark.parametrize("fill_model, price_source", [
+    ("taker_trade_print", "trade_print"),
+    ("maker_post_only_queue", "no_crossing_evidence"),
+    ("reference_close", "ohlcv_close"),
+])
+def test_execution_fill_rejects_depth_consumption_on_non_orderbook_models(fill_model: str, price_source: str) -> None:
+    with pytest.raises(ValueError, match="depth_levels_consumed requires taker orderbook fill model"):
+        ExecutionFill(
+            symbol="BTCUSDT",
+            side="buy",
+            quantity=1.0,
+            filled=True,
+            fill_price=100.0,
+            fill_model=fill_model,
+            execution_price_source=price_source,
+            fill_quality="evidence_backed" if fill_model != "reference_close" else "approximate",
+            outcome="filled",
+            requested_quantity=1.0,
+            filled_quantity=1.0,
+            filled_notional=100.0,
+            unfilled_quantity=0.0,
+            depth_levels_consumed=1,
+            evidence_timestamp=_ts("2026-03-10T00:00:01Z") if fill_model != "reference_close" else None,
+            first_fill_timestamp=_ts("2026-03-10T00:00:01Z") if fill_model == "taker_trade_print" else None,
+            last_fill_timestamp=_ts("2026-03-10T00:00:01Z") if fill_model == "taker_trade_print" else None,
+        )
+
+
 def test_execution_fill_rejects_no_fill_with_positive_accounting() -> None:
     with pytest.raises(ValueError, match="no-fill execution cannot include filled quantity"):
         ExecutionFill(
