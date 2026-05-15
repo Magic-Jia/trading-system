@@ -771,6 +771,25 @@ def test_backtest_evaluation_report_rejects_invalid_walk_forward_window_count() 
         )
 
 
+def test_backtest_evaluation_report_rejects_mismatched_walk_forward_window_count() -> None:
+    with pytest.raises(
+        ValueError,
+        match=r"walk_forward.metadata.window_count must match walk_forward.windows length",
+    ):
+        reporting.render_backtest_evaluation_report(
+            experiment_name="evaluation",
+            evaluation={
+                "walk_forward": {
+                    "metadata": {"window_count": 1},
+                    "windows": [{"window_index": 1}, {"window_index": 2}],
+                },
+                "regimes": {"buckets": []},
+                "cost_stress": {"scenarios": []},
+            },
+            metadata={"dataset_root": "dataset"},
+        )
+
+
 @pytest.mark.parametrize(
     "windows",
     (

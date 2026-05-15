@@ -148,6 +148,15 @@ def render_backtest_evaluation_report(
         raise ValueError("walk_forward.metadata must be an object")
     walk_forward_metadata = dict(raw_walk_forward_metadata)
     validated_walk_forward = _evaluation_walk_forward_payload(walk_forward)
+    if "windows" in validated_walk_forward and "window_count" in walk_forward_metadata:
+        window_count = _non_negative_int_field(
+            walk_forward_metadata,
+            "window_count",
+            label="walk_forward.metadata",
+        )
+        if window_count != len(validated_walk_forward["windows"]):
+            raise ValueError("walk_forward.metadata.window_count must match walk_forward.windows length")
+        walk_forward_metadata["window_count"] = window_count
     regime_buckets = _list_field(regimes, "buckets", label="regimes.buckets")
     validated_regime_buckets = []
     regime_bucket_labels: set[str] = set()
