@@ -622,6 +622,29 @@ def test_taker_fill_ignores_evidence_before_placement_timestamp() -> None:
     assert fill.evidence_timestamp is None
 
 
+def test_taker_fill_rejects_unanchored_max_evidence_lag_before_using_evidence() -> None:
+    with pytest.raises(ValueError, match="max_evidence_lag requires placement_timestamp"):
+        simulate_taker_fill(
+            symbol="BTCUSDT",
+            side="buy",
+            quantity=1.0,
+            reference_price=100.0,
+            max_evidence_lag=timedelta(seconds=1),
+            order_books=(
+                OrderBookSnapshot(timestamp=_ts("2026-03-10T00:00:01Z"), symbol="BTCUSDT", bid=99.9, ask=100.1),
+            ),
+            trades=(
+                TradePrint(
+                    timestamp=_ts("2026-03-10T00:00:01Z"),
+                    symbol="BTCUSDT",
+                    price=100.1,
+                    quantity=1.0,
+                    side="buy",
+                ),
+            ),
+        )
+
+
 @pytest.mark.parametrize(
     "evidence_kind",
     [

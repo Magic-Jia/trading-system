@@ -287,6 +287,8 @@ def simulate_taker_fill(
     _canonical_domain("order_type", order_type, _TAKER_ORDER_TYPES)
     quantity = _non_negative_finite_float("quantity", quantity)
     _positive_finite_float("reference_price", reference_price)
+    if max_evidence_lag is not None and placement_timestamp is None:
+        raise ValueError("max_evidence_lag requires placement_timestamp")
     _validate_evidence_contract(symbol=symbol, order_books=order_books, trades=trades)
     eligible_books = _eligible_symbol_order_books(
         symbol,
