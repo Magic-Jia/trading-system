@@ -383,7 +383,7 @@ def test_execution_fill_accepts_depth_consumption_on_depth_price_source() -> Non
     _ts("2026-03-10T00:00:04Z"),
 ])
 def test_execution_fill_rejects_trade_print_evidence_timestamp_outside_fill_interval(evidence_timestamp: datetime) -> None:
-    with pytest.raises(ValueError, match="trade-print evidence_timestamp must fall within fill timestamp interval"):
+    with pytest.raises(ValueError, match="evidence_timestamp must fall within fill timestamp interval"):
         ExecutionFill(
             symbol="BTCUSDT",
             side="buy",
@@ -401,6 +401,44 @@ def test_execution_fill_rejects_trade_print_evidence_timestamp_outside_fill_inte
             evidence_timestamp=evidence_timestamp,
             first_fill_timestamp=_ts("2026-03-10T00:00:01Z"),
             last_fill_timestamp=_ts("2026-03-10T00:00:03Z"),
+        )
+
+
+@pytest.mark.parametrize(
+    ("fill_model", "execution_price_source"),
+    [
+        ("maker_orderbook_trade_evidence", "book_cross"),
+        ("maker_post_only_queue", "trade_print"),
+    ],
+)
+@pytest.mark.parametrize("evidence_timestamp", [
+    _ts("2026-03-10T00:00:00Z"),
+    _ts("2026-03-10T00:00:04Z"),
+])
+def test_execution_fill_rejects_maker_evidence_timestamp_outside_fill_interval(
+    fill_model: str,
+    execution_price_source: str,
+    evidence_timestamp: datetime,
+) -> None:
+    with pytest.raises(ValueError, match="evidence_timestamp must fall within fill timestamp interval"):
+        ExecutionFill(
+            symbol="BTCUSDT",
+            side="buy",
+            quantity=1.0,
+            filled=True,
+            fill_price=100.0,
+            fill_model=fill_model,
+            execution_price_source=execution_price_source,
+            fill_quality="evidence_backed",
+            outcome="filled",
+            requested_quantity=1.0,
+            filled_quantity=1.0,
+            filled_notional=100.0,
+            unfilled_quantity=0.0,
+            evidence_timestamp=evidence_timestamp,
+            first_fill_timestamp=_ts("2026-03-10T00:00:01Z"),
+            last_fill_timestamp=_ts("2026-03-10T00:00:03Z"),
+            maker_status="filled",
         )
 
 

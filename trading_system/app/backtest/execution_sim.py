@@ -213,13 +213,12 @@ class ExecutionFill:
             if self.first_fill_timestamp > self.last_fill_timestamp:
                 raise ValueError("first_fill_timestamp cannot be after last_fill_timestamp")
         if (
-            self.fill_model == "taker_trade_print"
-            and self.evidence_timestamp is not None
+            self.evidence_timestamp is not None
             and self.first_fill_timestamp is not None
             and self.last_fill_timestamp is not None
             and not (self.first_fill_timestamp <= self.evidence_timestamp <= self.last_fill_timestamp)
         ):
-            raise ValueError("trade-print evidence_timestamp must fall within fill timestamp interval")
+            raise ValueError("evidence_timestamp must fall within fill timestamp interval")
         for field_name in (
             "requested_quantity",
             "requested_notional",
