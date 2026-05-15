@@ -385,11 +385,12 @@ def simulate_taker_depth_fill(
 ) -> ExecutionFill:
     side = _canonical_order_side(side)
     _positive_finite_float("reference_price", reference_price)
+    if placement_timestamp is not None:
+        placement_timestamp = _placement_timestamp_datetime(placement_timestamp)
     if max_evidence_lag is not None:
         max_evidence_lag = _non_negative_timedelta("max_evidence_lag", max_evidence_lag)
         if placement_timestamp is None:
             raise ValueError("max_evidence_lag requires placement_timestamp")
-        placement_timestamp = _placement_timestamp_datetime(placement_timestamp)
     _validate_evidence_contract(symbol=symbol, order_books=(order_book,), trades=())
     notional_request = None
     if requested_notional is not None:

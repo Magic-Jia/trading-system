@@ -965,6 +965,45 @@ def test_taker_depth_returns_no_fill_after_placement_window() -> None:
     assert fill.depth_levels_consumed == 0
 
 
+def test_taker_depth_rejects_naive_placement_timestamp_before_using_evidence() -> None:
+    with pytest.raises(ValueError, match="placement_timestamp must be timezone-aware"):
+        simulate_taker_depth_fill(
+            symbol="BTCUSDT",
+            side="buy",
+            quantity=1.0,
+            reference_price=100.0,
+            placement_timestamp=datetime(2026, 3, 10, 0, 0, 1),
+            order_book=OrderBookSnapshot(
+                timestamp=_ts("2026-03-10T00:00:01Z"),
+                symbol="BTCUSDT",
+                bid=99.9,
+                ask=100.0,
+                ask_levels=(DepthLevel(price=100.0, quantity=1.0),),
+            ),
+        )
+
+
+@pytest.mark.parametrize("placement_timestamp", ["2026-03-10T00:00:01Z", 1, True])
+def test_taker_depth_rejects_non_datetime_placement_timestamp_before_using_evidence(
+    placement_timestamp: object,
+) -> None:
+    with pytest.raises(ValueError, match="placement_timestamp must be a timezone-aware datetime"):
+        simulate_taker_depth_fill(
+            symbol="BTCUSDT",
+            side="buy",
+            quantity=1.0,
+            reference_price=100.0,
+            placement_timestamp=placement_timestamp,
+            order_book=OrderBookSnapshot(
+                timestamp=_ts("2026-03-10T00:00:01Z"),
+                symbol="BTCUSDT",
+                bid=99.9,
+                ask=100.0,
+                ask_levels=(DepthLevel(price=100.0, quantity=1.0),),
+            ),
+        )
+
+
 def test_taker_depth_rejects_unanchored_max_evidence_lag_before_using_evidence() -> None:
     with pytest.raises(ValueError, match="max_evidence_lag requires placement_timestamp"):
         simulate_taker_depth_fill(
