@@ -79,6 +79,36 @@ def test_execution_fill_rejects_queue_remaining_above_initial() -> None:
         )
 
 
+@pytest.mark.parametrize("maker_field, value", [
+    ("maker_status", "expired"),
+    ("queue_ahead_initial", 1.0),
+    ("queue_ahead_remaining", 0.5),
+    ("maker_wait_seconds", 1.0),
+    ("maker_reasons", ("resting",)),
+])
+def test_execution_fill_rejects_maker_fields_on_non_maker_models(maker_field: str, value: object) -> None:
+    kwargs = {
+        "symbol": "BTCUSDT",
+        "side": "buy",
+        "quantity": 1.0,
+        "filled": True,
+        "fill_price": 100.0,
+        "fill_model": "taker_orderbook_depth",
+        "execution_price_source": "ask_depth",
+        "fill_quality": "evidence_backed",
+        "outcome": "filled",
+        "requested_quantity": 1.0,
+        "filled_quantity": 1.0,
+        "filled_notional": 100.0,
+        "unfilled_quantity": 0.0,
+        "evidence_timestamp": _ts("2026-03-10T00:00:01Z"),
+    }
+    kwargs[maker_field] = value
+
+    with pytest.raises(ValueError, match="maker fields require maker fill model"):
+        ExecutionFill(**kwargs)
+
+
 def test_execution_fill_rejects_no_fill_with_positive_accounting() -> None:
     with pytest.raises(ValueError, match="no-fill execution cannot include filled quantity"):
         ExecutionFill(
