@@ -2518,6 +2518,158 @@ def test_taker_trade_print_fill_aggregates_multiple_eligible_prints_to_cover_req
     assert fill.last_fill_timestamp == _ts("2026-03-10T00:00:02Z")
 
 
+def test_taker_trade_print_fill_selects_earliest_eligible_directional_print_identity() -> None:
+    fill = simulate_taker_fill(
+        symbol="BTCUSDT",
+        side="buy",
+        quantity=2.0,
+        reference_price=100.0,
+        placement_timestamp=_ts("2026-03-10T00:00:00Z"),
+        trades=(
+            TradePrint(
+                timestamp=_ts("2026-03-10T00:00:00.500000Z"),
+                symbol="ETHUSDT",
+                price=200.0,
+                quantity=10.0,
+                side="buy",
+            ),
+            TradePrint(
+                timestamp=_ts("2026-03-10T00:00:01Z"),
+                symbol="BTCUSDT",
+                price=100.8,
+                quantity=1.0,
+                side="buy",
+                fill_id="print-001",
+            ),
+            TradePrint(
+                timestamp=_ts("2026-03-10T00:00:02Z"),
+                symbol="BTCUSDT",
+                price=100.2,
+                quantity=1.0,
+                side="buy",
+                fill_id="print-002",
+            ),
+        ),
+    )
+
+    assert fill.fill_model == "taker_trade_print"
+    assert fill.fill_quality == "evidence_backed"
+    assert fill.fill_price == pytest.approx(100.8)
+    assert fill.evidence_timestamp == _ts("2026-03-10T00:00:01Z")
+    assert fill.first_fill_timestamp == _ts("2026-03-10T00:00:01Z")
+    assert fill.last_fill_timestamp == _ts("2026-03-10T00:00:02Z")
+
+
+def test_taker_trade_print_fill_ignores_earlier_ineligible_prints_before_selected_identity() -> None:
+    fill = simulate_taker_fill(
+        symbol="BTCUSDT",
+        side="sell",
+        quantity=1.0,
+        reference_price=100.0,
+        placement_timestamp=_ts("2026-03-10T00:00:00Z"),
+        trades=(
+            TradePrint(
+                timestamp=_ts("2026-03-10T00:00:00.250000Z"),
+                symbol="ETHUSDT",
+                price=100.9,
+                quantity=10.0,
+                side="sell",
+            ),
+            TradePrint(
+                timestamp=_ts("2026-03-10T00:00:00.500000Z"),
+                symbol="BTCUSDT",
+                price=100.7,
+                quantity=10.0,
+                side="buy",
+                fill_id="print-001",
+            ),
+            TradePrint(
+                timestamp=_ts("2026-03-10T00:00:00.750000Z"),
+                symbol="BTCUSDT",
+                price=100.5,
+                quantity=10.0,
+                side=None,
+                fill_id="print-002",
+            ),
+            TradePrint(
+                timestamp=_ts("2026-03-10T00:00:01Z"),
+                symbol="BTCUSDT",
+                price=99.8,
+                quantity=1.0,
+                side="sell",
+                fill_id="print-003",
+            ),
+            TradePrint(
+                timestamp=_ts("2026-03-10T00:00:02Z"),
+                symbol="BTCUSDT",
+                price=99.2,
+                quantity=1.0,
+                side="sell",
+                fill_id="print-004",
+            ),
+        ),
+    )
+
+    assert fill.fill_model == "taker_trade_print"
+    assert fill.fill_quality == "evidence_backed"
+    assert fill.fill_price == pytest.approx(99.8)
+    assert fill.evidence_timestamp == _ts("2026-03-10T00:00:01Z")
+    assert fill.first_fill_timestamp == _ts("2026-03-10T00:00:01Z")
+    assert fill.last_fill_timestamp == _ts("2026-03-10T00:00:01Z")
+
+
+def test_taker_trade_print_fill_selects_earliest_in_window_directional_print_identity() -> None:
+    fill = simulate_taker_fill(
+        symbol="BTCUSDT",
+        side="buy",
+        quantity=2.0,
+        reference_price=100.0,
+        placement_timestamp=_ts("2026-03-10T00:00:01Z"),
+        max_evidence_lag=timedelta(seconds=1),
+        trades=(
+            TradePrint(
+                timestamp=_ts("2026-03-10T00:00:00.999999Z"),
+                symbol="BTCUSDT",
+                price=101.5,
+                quantity=10.0,
+                side="buy",
+                fill_id="print-001",
+            ),
+            TradePrint(
+                timestamp=_ts("2026-03-10T00:00:01.250000Z"),
+                symbol="BTCUSDT",
+                price=100.9,
+                quantity=1.0,
+                side="buy",
+                fill_id="print-002",
+            ),
+            TradePrint(
+                timestamp=_ts("2026-03-10T00:00:01.750000Z"),
+                symbol="BTCUSDT",
+                price=100.4,
+                quantity=1.0,
+                side="buy",
+                fill_id="print-003",
+            ),
+            TradePrint(
+                timestamp=_ts("2026-03-10T00:00:02.000001Z"),
+                symbol="BTCUSDT",
+                price=99.9,
+                quantity=10.0,
+                side="buy",
+                fill_id="print-004",
+            ),
+        ),
+    )
+
+    assert fill.fill_model == "taker_trade_print"
+    assert fill.fill_quality == "evidence_backed"
+    assert fill.fill_price == pytest.approx(100.9)
+    assert fill.evidence_timestamp == _ts("2026-03-10T00:00:01.250000Z")
+    assert fill.first_fill_timestamp == _ts("2026-03-10T00:00:01.250000Z")
+    assert fill.last_fill_timestamp == _ts("2026-03-10T00:00:01.750000Z")
+
+
 def test_taker_trade_print_fill_does_not_use_unsigned_print_to_complete_side_known_fill() -> None:
     fill = simulate_taker_fill(
         symbol="BTCUSDT",

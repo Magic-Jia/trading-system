@@ -998,7 +998,7 @@ def _conservative_trade_print_taker_fill(
         fill_quality = "evidence_backed"
     if selected_trades:
         trade = max(selected_trades, key=lambda item: item.price) if side == "buy" else min(selected_trades, key=lambda item: item.price)
-        evidence_timestamp = selected_trades[-1].timestamp
+        evidence_timestamp = trade.timestamp
         first_fill_timestamp = selected_trades[0].timestamp
         last_fill_timestamp = selected_trades[-1].timestamp
     else:
