@@ -2394,9 +2394,53 @@ def test_taker_buy_trade_print_fill_uses_buy_aggressor_evidence_and_preserves_re
     assert fill.fill_model == "taker_trade_print"
     assert fill.execution_price_source == "trade_print"
     assert fill.fill_quality == "evidence_backed"
+    assert fill.requested_quantity == pytest.approx(2.0)
+    assert fill.filled_quantity == pytest.approx(2.0)
+    assert fill.filled_notional == pytest.approx(2.0 * 100.2)
+    assert fill.unfilled_quantity == pytest.approx(0.0)
     assert fill.evidence_timestamp == _ts("2026-03-10T00:00:02Z")
     assert fill.first_fill_timestamp == _ts("2026-03-10T00:00:02Z")
     assert fill.last_fill_timestamp == _ts("2026-03-10T00:00:02Z")
+
+
+@pytest.mark.parametrize(
+    ("side", "trade_side"),
+    [
+        ("buy", "sell"),
+        ("buy", None),
+        ("sell", "buy"),
+        ("sell", None),
+    ],
+)
+def test_taker_trade_print_fallback_requires_directional_aggressor_evidence(
+    side: str,
+    trade_side: str | None,
+) -> None:
+    fill = simulate_taker_fill(
+        symbol="BTCUSDT",
+        side=side,
+        quantity=2.0,
+        reference_price=100.0,
+        trades=(
+            TradePrint(
+                timestamp=_ts("2026-03-10T00:00:01Z"),
+                symbol="BTCUSDT",
+                price=100.2,
+                quantity=10.0,
+                side=trade_side,
+                fill_id="print-001",
+            ),
+        ),
+    )
+
+    assert fill.filled is True
+    assert fill.fill_price == pytest.approx(100.0)
+    assert fill.fill_model == "taker_ohlcv_approx"
+    assert fill.execution_price_source == "ohlcv_reference"
+    assert fill.fill_quality == "approximate"
+    assert fill.evidence_timestamp is None
+    assert fill.first_fill_timestamp is None
+    assert fill.last_fill_timestamp is None
 
 
 def test_taker_trade_print_fill_is_partial_when_print_quantity_is_smaller_than_request() -> None:
