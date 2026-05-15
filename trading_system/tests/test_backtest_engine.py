@@ -2658,7 +2658,7 @@ def test_replay_full_market_baseline_long_entry_uses_depth_when_levels_exist(
             "bid": 99.9,
             "ask": 100.0,
             "bid_size": 10,
-            "ask_size": 12,
+            "ask_size": 1,
             "bids": [[99.9, 10.0]],
             "asks": [[100.0, 1.0], [101.0, 500.0]],
         }

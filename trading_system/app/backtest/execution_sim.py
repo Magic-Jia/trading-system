@@ -1405,6 +1405,17 @@ def _validate_depth_top_price(
         raise ValueError(f"first {side_name} depth level price must match order_book.{side_name} for {symbol}")
 
 
+def _validate_depth_top_size(
+    side_name: Literal["bid", "ask"],
+    levels: tuple[DepthLevel, ...],
+    *,
+    top_size: float | None,
+    symbol: str,
+) -> None:
+    if top_size is not None and levels and levels[0].quantity != top_size:
+        raise ValueError(f"order_book.{side_name}_size must match first {side_name} depth level quantity for {symbol}")
+
+
 def _timezone_aware_datetime(name: str, value: Any, *, symbol: str) -> datetime:
     if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() is None:
         raise ValueError(f"{name} must be timezone-aware for {symbol}")
@@ -1455,6 +1466,8 @@ def _validate_evidence_contract(
         _validate_depth_ladder_order("ask", book.ask_levels, symbol=symbol)
         _validate_depth_top_price("bid", book.bid_levels, top_price=bid, symbol=symbol)
         _validate_depth_top_price("ask", book.ask_levels, top_price=ask, symbol=symbol)
+        _validate_depth_top_size("bid", book.bid_levels, top_size=book.bid_size, symbol=symbol)
+        _validate_depth_top_size("ask", book.ask_levels, top_size=book.ask_size, symbol=symbol)
         book_timestamp = _timezone_aware_datetime("order_book.timestamp", book.timestamp, symbol=symbol)
         if previous_book_timestamp is not None and book_timestamp < previous_book_timestamp:
             raise ValueError(f"order book timestamps must be monotonic for {symbol}")

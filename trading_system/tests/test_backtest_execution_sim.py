@@ -1288,6 +1288,47 @@ def test_evidence_contract_rejects_bid_depth_top_price_mismatch() -> None:
         )
 
 
+@pytest.mark.parametrize(
+    ("size_field", "levels_field", "levels", "match"),
+    [
+        (
+            "bid_size",
+            "bid_levels",
+            (DepthLevel(price=99.9, quantity=1.0),),
+            "order_book.bid_size must match first bid depth level quantity for BTCUSDT",
+        ),
+        (
+            "ask_size",
+            "ask_levels",
+            (DepthLevel(price=100.0, quantity=1.0),),
+            "order_book.ask_size must match first ask depth level quantity for BTCUSDT",
+        ),
+    ],
+)
+def test_evidence_contract_rejects_depth_top_size_mismatch(
+    size_field: str,
+    levels_field: str,
+    levels: tuple[DepthLevel, ...],
+    match: str,
+) -> None:
+    book_kwargs = {size_field: 2.0, levels_field: levels}
+
+    with pytest.raises(ValueError, match=match):
+        _validate_evidence_contract(
+            symbol="BTCUSDT",
+            order_books=(
+                OrderBookSnapshot(
+                    timestamp=_ts("2026-03-10T00:00:01Z"),
+                    symbol="BTCUSDT",
+                    bid=99.9,
+                    ask=100.0,
+                    **book_kwargs,
+                ),
+            ),
+            trades=(),
+        )
+
+
 def test_evidence_contract_accepts_depth_top_prices_matching_best_bid_ask() -> None:
     _validate_evidence_contract(
         symbol="BTCUSDT",
@@ -1299,6 +1340,44 @@ def test_evidence_contract_accepts_depth_top_prices_matching_best_bid_ask() -> N
                 ask=100.0,
                 bid_levels=(DepthLevel(price=99.9, quantity=1.0), DepthLevel(price=99.8, quantity=1.0)),
                 ask_levels=(DepthLevel(price=100.0, quantity=1.0), DepthLevel(price=100.1, quantity=1.0)),
+            ),
+        ),
+        trades=(),
+    )
+
+
+def test_evidence_contract_accepts_depth_top_sizes_matching_first_level_quantities() -> None:
+    _validate_evidence_contract(
+        symbol="BTCUSDT",
+        order_books=(
+            OrderBookSnapshot(
+                timestamp=_ts("2026-03-10T00:00:01Z"),
+                symbol="BTCUSDT",
+                bid=99.9,
+                ask=100.0,
+                bid_size=1.5,
+                ask_size=2.5,
+                bid_levels=(DepthLevel(price=99.9, quantity=1.5), DepthLevel(price=99.8, quantity=1.0)),
+                ask_levels=(DepthLevel(price=100.0, quantity=2.5), DepthLevel(price=100.1, quantity=1.0)),
+            ),
+        ),
+        trades=(),
+    )
+
+
+def test_evidence_contract_accepts_missing_top_size_or_empty_depth_side_without_size_match() -> None:
+    _validate_evidence_contract(
+        symbol="BTCUSDT",
+        order_books=(
+            OrderBookSnapshot(
+                timestamp=_ts("2026-03-10T00:00:01Z"),
+                symbol="BTCUSDT",
+                bid=99.9,
+                ask=100.0,
+                bid_size=None,
+                ask_size=2.0,
+                bid_levels=(DepthLevel(price=99.9, quantity=1.0),),
+                ask_levels=(),
             ),
         ),
         trades=(),
