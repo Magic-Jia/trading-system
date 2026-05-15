@@ -701,8 +701,6 @@ def _simulate_maker_queue_fill(
             continue
         if not _maker_trade_side_consumes_queue(side=side, trade_side=trade.side):
             continue
-        if trade.side is None:
-            reasons.append("ambiguous_trade_side_assumed")
         remaining_print_quantity = trade_quantity
         if remaining_print_quantity <= 0.0:
             continue
@@ -1184,5 +1182,5 @@ def _crosses_limit(*, side: OrderSide, price: float, limit_price: float) -> bool
 
 def _maker_trade_side_consumes_queue(*, side: OrderSide, trade_side: TradePrintSide | None) -> bool:
     if trade_side is None:
-        return True
+        return False
     return trade_side == ("sell" if side == "buy" else "buy")

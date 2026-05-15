@@ -268,6 +268,53 @@ def test_maker_buy_queue_ahead_consumes_sell_trade_volume_before_own_fill() -> N
     assert "queue_depleted" in fill.maker_reasons
 
 
+@pytest.mark.parametrize(
+    ("side", "limit_price", "signed_trade_side"),
+    [
+        ("buy", 99.5, "sell"),
+        ("sell", 100.5, "buy"),
+    ],
+)
+def test_maker_queue_ignores_unsigned_trade_prints_before_signed_fill(
+    side: str,
+    limit_price: float,
+    signed_trade_side: str,
+) -> None:
+    fill = simulate_maker_limit_fill(
+        symbol="BTCUSDT",
+        side=side,
+        limit_price=limit_price,
+        quantity=1.0,
+        queue_ahead_quantity=2.0,
+        placement_timestamp=_ts("2026-03-10T00:00:00Z"),
+        timeout_seconds=10.0,
+        trades=(
+            TradePrint(
+                timestamp=_ts("2026-03-10T00:00:01Z"),
+                symbol="BTCUSDT",
+                price=limit_price,
+                quantity=10.0,
+                side=None,
+            ),
+            TradePrint(
+                timestamp=_ts("2026-03-10T00:00:02Z"),
+                symbol="BTCUSDT",
+                price=limit_price,
+                quantity=3.0,
+                side=signed_trade_side,
+            ),
+        ),
+    )
+
+    assert fill.maker_status == "filled"
+    assert fill.filled_quantity == pytest.approx(1.0)
+    assert fill.queue_ahead_initial == pytest.approx(2.0)
+    assert fill.queue_ahead_remaining == pytest.approx(0.0)
+    assert fill.first_fill_timestamp == _ts("2026-03-10T00:00:02Z")
+    assert "queue_depleted" in fill.maker_reasons
+    assert "ambiguous_trade_side_assumed" not in fill.maker_reasons
+
+
 def test_maker_sell_queue_fills_only_on_buy_aggressor_trades_at_or_above_limit() -> None:
     fill = simulate_maker_limit_fill(
         symbol="BTCUSDT",
