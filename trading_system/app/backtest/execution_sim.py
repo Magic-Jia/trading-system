@@ -1376,6 +1376,24 @@ def _validate_maker_reasons(value: Any) -> None:
         seen.add(reason)
 
 
+def _validate_depth_ladder_order(
+    side_name: Literal["bid", "ask"],
+    levels: tuple[DepthLevel, ...],
+    *,
+    symbol: str,
+) -> None:
+    previous_price: float | None = None
+    for level in levels:
+        price = _strict_positive_finite_float("depth level price", level.price)
+        _strict_positive_finite_float("depth level quantity", level.quantity)
+        if previous_price is not None:
+            if side_name == "ask" and price <= previous_price:
+                raise ValueError(f"ask depth levels must be strictly ascending by price for {symbol}")
+            if side_name == "bid" and price >= previous_price:
+                raise ValueError(f"bid depth levels must be strictly descending by price for {symbol}")
+        previous_price = price
+
+
 def _timezone_aware_datetime(name: str, value: Any, *, symbol: str) -> datetime:
     if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() is None:
         raise ValueError(f"{name} must be timezone-aware for {symbol}")
@@ -1422,12 +1440,8 @@ def _validate_evidence_contract(
             _non_negative_finite_float("order_book.bid_size", book.bid_size)
         if book.ask_size is not None:
             _non_negative_finite_float("order_book.ask_size", book.ask_size)
-        for level in book.bid_levels:
-            _strict_positive_finite_float("depth level price", level.price)
-            _strict_positive_finite_float("depth level quantity", level.quantity)
-        for level in book.ask_levels:
-            _strict_positive_finite_float("depth level price", level.price)
-            _strict_positive_finite_float("depth level quantity", level.quantity)
+        _validate_depth_ladder_order("bid", book.bid_levels, symbol=symbol)
+        _validate_depth_ladder_order("ask", book.ask_levels, symbol=symbol)
         book_timestamp = _timezone_aware_datetime("order_book.timestamp", book.timestamp, symbol=symbol)
         if previous_book_timestamp is not None and book_timestamp < previous_book_timestamp:
             raise ValueError(f"order book timestamps must be monotonic for {symbol}")

@@ -1188,6 +1188,72 @@ def test_evidence_contract_rejects_non_positive_depth_level_values(field: str, v
         )
 
 
+@pytest.mark.parametrize(
+    ("levels", "match"),
+    [
+        (
+            (DepthLevel(price=100.1, quantity=1.0), DepthLevel(price=100.0, quantity=1.0)),
+            "ask depth levels must be strictly ascending by price for BTCUSDT",
+        ),
+        (
+            (DepthLevel(price=100.0, quantity=1.0), DepthLevel(price=100.0, quantity=1.0)),
+            "ask depth levels must be strictly ascending by price for BTCUSDT",
+        ),
+    ],
+)
+def test_evidence_contract_rejects_non_canonical_ask_depth_prices(
+    levels: tuple[DepthLevel, ...],
+    match: str,
+) -> None:
+    with pytest.raises(ValueError, match=match):
+        _validate_evidence_contract(
+            symbol="BTCUSDT",
+            order_books=(
+                OrderBookSnapshot(
+                    timestamp=_ts("2026-03-10T00:00:01Z"),
+                    symbol="BTCUSDT",
+                    bid=99.9,
+                    ask=100.0,
+                    ask_levels=levels,
+                ),
+            ),
+            trades=(),
+        )
+
+
+@pytest.mark.parametrize(
+    ("levels", "match"),
+    [
+        (
+            (DepthLevel(price=99.9, quantity=1.0), DepthLevel(price=100.0, quantity=1.0)),
+            "bid depth levels must be strictly descending by price for BTCUSDT",
+        ),
+        (
+            (DepthLevel(price=99.9, quantity=1.0), DepthLevel(price=99.9, quantity=1.0)),
+            "bid depth levels must be strictly descending by price for BTCUSDT",
+        ),
+    ],
+)
+def test_evidence_contract_rejects_non_canonical_bid_depth_prices(
+    levels: tuple[DepthLevel, ...],
+    match: str,
+) -> None:
+    with pytest.raises(ValueError, match=match):
+        _validate_evidence_contract(
+            symbol="BTCUSDT",
+            order_books=(
+                OrderBookSnapshot(
+                    timestamp=_ts("2026-03-10T00:00:01Z"),
+                    symbol="BTCUSDT",
+                    bid=99.9,
+                    ask=100.0,
+                    bid_levels=levels,
+                ),
+            ),
+            trades=(),
+        )
+
+
 def test_maker_buy_limit_fills_when_trade_path_crosses_limit_with_evidence() -> None:
     fill = simulate_maker_limit_fill(
         symbol="BTCUSDT",
@@ -2941,6 +3007,48 @@ def test_taker_depth_sell_consumes_multiple_bid_levels_with_weighted_average() -
     assert fill.last_fill_timestamp == book_timestamp
     assert fill.execution_impact_bps == pytest.approx((100.0 - fill.fill_price) / 100.0 * 10_000.0)
     assert fill.slippage_bps == pytest.approx((100.0 - fill.fill_price) / 100.0 * 10_000.0)
+
+
+@pytest.mark.parametrize(
+    ("side", "book_kwargs", "match"),
+    [
+        (
+            "buy",
+            {
+                "bid": 99.9,
+                "ask": 100.0,
+                "ask_levels": (DepthLevel(price=101.0, quantity=1.0), DepthLevel(price=100.0, quantity=1.0)),
+            },
+            "ask depth levels must be strictly ascending by price for BTCUSDT",
+        ),
+        (
+            "sell",
+            {
+                "bid": 99.9,
+                "ask": 100.0,
+                "bid_levels": (DepthLevel(price=99.9, quantity=1.0), DepthLevel(price=100.0, quantity=1.0)),
+            },
+            "bid depth levels must be strictly descending by price for BTCUSDT",
+        ),
+    ],
+)
+def test_taker_depth_rejects_non_canonical_depth_before_sorting(
+    side: str,
+    book_kwargs: dict[str, object],
+    match: str,
+) -> None:
+    with pytest.raises(ValueError, match=match):
+        simulate_taker_depth_fill(
+            symbol="BTCUSDT",
+            side=side,
+            quantity=1.0,
+            reference_price=100.0,
+            order_book=OrderBookSnapshot(
+                timestamp=_ts("2026-03-10T00:00:01Z"),
+                symbol="BTCUSDT",
+                **book_kwargs,
+            ),
+        )
 
 
 def test_taker_depth_buy_can_consume_by_requested_notional() -> None:
