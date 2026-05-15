@@ -812,6 +812,22 @@ def test_backtest_evaluation_report_rejects_non_increasing_walk_forward_window_i
         )
 
 
+def test_backtest_evaluation_report_rejects_gapped_walk_forward_window_indices() -> None:
+    with pytest.raises(ValueError, match="walk_forward.windows window_index values must be contiguous from 1"):
+        reporting.render_backtest_evaluation_report(
+            experiment_name="evaluation",
+            evaluation={
+                "walk_forward": {
+                    "metadata": {"window_count": 2},
+                    "windows": [{"window_index": 1}, {"window_index": 3}],
+                },
+                "regimes": {"buckets": []},
+                "cost_stress": {"scenarios": []},
+            },
+            metadata={"dataset_root": "dataset"},
+        )
+
+
 def test_backtest_evaluation_report_rejects_list_pair_walk_forward_metadata() -> None:
     with pytest.raises(ValueError, match="walk_forward.metadata must be an object"):
         reporting.render_backtest_evaluation_report(
