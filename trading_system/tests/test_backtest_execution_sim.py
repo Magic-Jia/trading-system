@@ -269,6 +269,143 @@ def test_maker_buy_queue_ahead_consumes_sell_trade_volume_before_own_fill() -> N
     assert "queue_depleted" in fill.maker_reasons
 
 
+def test_maker_queue_full_fill_conserves_limit_price_notional_identity() -> None:
+    limit_price = 99.5
+    requested_quantity = 1.0
+
+    fill = simulate_maker_limit_fill(
+        symbol="BTCUSDT",
+        side="buy",
+        limit_price=limit_price,
+        quantity=requested_quantity,
+        queue_ahead_quantity=2.0,
+        placement_timestamp=_ts("2026-03-10T00:00:00Z"),
+        timeout_seconds=10.0,
+        trades=(
+            TradePrint(
+                timestamp=_ts("2026-03-10T00:00:01Z"),
+                symbol="BTCUSDT",
+                price=limit_price,
+                quantity=3.0,
+                side="sell",
+                fill_id="maker-print-001",
+            ),
+        ),
+    )
+
+    assert fill.maker_status == "filled"
+    assert fill.fill_price == pytest.approx(limit_price)
+    assert fill.filled_quantity == pytest.approx(requested_quantity)
+    assert fill.filled_notional == pytest.approx(fill.filled_quantity * fill.fill_price)
+    assert fill.unfilled_quantity == pytest.approx(0.0)
+
+
+@pytest.mark.parametrize(
+    ("cancel_replace_timestamp", "timeout_seconds", "expected_status", "expected_reason"),
+    [
+        (None, 2.0, "expired", "timeout_expired"),
+        (_ts("2026-03-10T00:00:02Z"), 10.0, "cancelled_replaced", "cancel_replace_after_partial"),
+    ],
+)
+def test_maker_queue_partial_fill_conserves_limit_price_notional_and_unfilled_identity(
+    cancel_replace_timestamp: datetime | None,
+    timeout_seconds: float,
+    expected_status: str,
+    expected_reason: str,
+) -> None:
+    limit_price = 99.5
+    requested_quantity = 2.0
+
+    fill = simulate_maker_limit_fill(
+        symbol="BTCUSDT",
+        side="buy",
+        limit_price=limit_price,
+        quantity=requested_quantity,
+        queue_ahead_quantity=1.0,
+        placement_timestamp=_ts("2026-03-10T00:00:00Z"),
+        cancel_replace_timestamp=cancel_replace_timestamp,
+        timeout_seconds=timeout_seconds,
+        trades=(
+            TradePrint(
+                timestamp=_ts("2026-03-10T00:00:01Z"),
+                symbol="BTCUSDT",
+                price=limit_price,
+                quantity=2.0,
+                side="sell",
+                fill_id="maker-print-001",
+            ),
+            TradePrint(
+                timestamp=_ts("2026-03-10T00:00:03Z"),
+                symbol="BTCUSDT",
+                price=limit_price,
+                quantity=10.0,
+                side="sell",
+                fill_id="maker-print-002",
+            ),
+        ),
+    )
+
+    assert fill.maker_status == expected_status
+    assert fill.fill_price == pytest.approx(limit_price)
+    assert fill.filled_quantity == pytest.approx(1.0)
+    assert fill.filled_notional == pytest.approx(fill.filled_quantity * fill.fill_price)
+    assert fill.unfilled_quantity == pytest.approx(requested_quantity - fill.filled_quantity)
+    assert expected_reason in fill.maker_reasons
+
+
+@pytest.mark.parametrize(
+    ("cancel_replace_timestamp", "timeout_seconds", "expected_status", "expected_reason"),
+    [
+        (None, 2.0, "expired", "timeout_expired"),
+        (_ts("2026-03-10T00:00:02Z"), 10.0, "cancelled_replaced", "cancel_replace_before_fill"),
+    ],
+)
+def test_maker_queue_no_fill_conserves_zero_fill_accounting_identity(
+    cancel_replace_timestamp: datetime | None,
+    timeout_seconds: float,
+    expected_status: str,
+    expected_reason: str,
+) -> None:
+    requested_quantity = 1.0
+
+    fill = simulate_maker_limit_fill(
+        symbol="BTCUSDT",
+        side="buy",
+        limit_price=99.5,
+        quantity=requested_quantity,
+        queue_ahead_quantity=2.0,
+        placement_timestamp=_ts("2026-03-10T00:00:00Z"),
+        cancel_replace_timestamp=cancel_replace_timestamp,
+        timeout_seconds=timeout_seconds,
+        trades=(
+            TradePrint(
+                timestamp=_ts("2026-03-10T00:00:01Z"),
+                symbol="BTCUSDT",
+                price=99.5,
+                quantity=1.0,
+                side="sell",
+                fill_id="maker-print-001",
+            ),
+            TradePrint(
+                timestamp=_ts("2026-03-10T00:00:03Z"),
+                symbol="BTCUSDT",
+                price=99.5,
+                quantity=10.0,
+                side="sell",
+                fill_id="maker-print-002",
+            ),
+        ),
+    )
+
+    assert fill.maker_status == expected_status
+    assert fill.filled is False
+    assert fill.fill_price is None
+    assert fill.filled_quantity == pytest.approx(0.0)
+    assert fill.filled_notional == pytest.approx(0.0)
+    assert fill.unfilled_quantity == pytest.approx(requested_quantity)
+    assert expected_reason in fill.maker_reasons
+
+
 @pytest.mark.parametrize(
     ("side", "limit_price", "signed_trade_side"),
     [
