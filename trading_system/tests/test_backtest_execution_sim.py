@@ -1221,6 +1221,23 @@ def test_evidence_contract_rejects_non_canonical_ask_depth_prices(
         )
 
 
+def test_evidence_contract_rejects_ask_depth_top_price_mismatch() -> None:
+    with pytest.raises(ValueError, match="first ask depth level price must match order_book.ask for BTCUSDT"):
+        _validate_evidence_contract(
+            symbol="BTCUSDT",
+            order_books=(
+                OrderBookSnapshot(
+                    timestamp=_ts("2026-03-10T00:00:01Z"),
+                    symbol="BTCUSDT",
+                    bid=99.9,
+                    ask=100.0,
+                    ask_levels=(DepthLevel(price=100.1, quantity=1.0),),
+                ),
+            ),
+            trades=(),
+        )
+
+
 @pytest.mark.parametrize(
     ("levels", "match"),
     [
@@ -1252,6 +1269,40 @@ def test_evidence_contract_rejects_non_canonical_bid_depth_prices(
             ),
             trades=(),
         )
+
+
+def test_evidence_contract_rejects_bid_depth_top_price_mismatch() -> None:
+    with pytest.raises(ValueError, match="first bid depth level price must match order_book.bid for BTCUSDT"):
+        _validate_evidence_contract(
+            symbol="BTCUSDT",
+            order_books=(
+                OrderBookSnapshot(
+                    timestamp=_ts("2026-03-10T00:00:01Z"),
+                    symbol="BTCUSDT",
+                    bid=99.9,
+                    ask=100.0,
+                    bid_levels=(DepthLevel(price=99.8, quantity=1.0),),
+                ),
+            ),
+            trades=(),
+        )
+
+
+def test_evidence_contract_accepts_depth_top_prices_matching_best_bid_ask() -> None:
+    _validate_evidence_contract(
+        symbol="BTCUSDT",
+        order_books=(
+            OrderBookSnapshot(
+                timestamp=_ts("2026-03-10T00:00:01Z"),
+                symbol="BTCUSDT",
+                bid=99.9,
+                ask=100.0,
+                bid_levels=(DepthLevel(price=99.9, quantity=1.0), DepthLevel(price=99.8, quantity=1.0)),
+                ask_levels=(DepthLevel(price=100.0, quantity=1.0), DepthLevel(price=100.1, quantity=1.0)),
+            ),
+        ),
+        trades=(),
+    )
 
 
 def test_maker_buy_limit_fills_when_trade_path_crosses_limit_with_evidence() -> None:
@@ -3227,7 +3278,7 @@ def test_taker_depth_partial_fill_uses_side_correct_adverse_cost_sign(
         "timestamp": book_timestamp,
         "symbol": "BTCUSDT",
         "bid": 100.0,
-        "ask": 100.2,
+        "ask": levels[0].price if side == "buy" else 100.2,
         "bid_levels" if side == "sell" else "ask_levels": levels,
     }
 
@@ -3525,7 +3576,7 @@ def test_taker_depth_caps_notional_fill_quantity_to_available_requested_notional
             timestamp=_ts("2026-03-10T00:00:01Z"),
             symbol="BTCUSDT",
             bid=99.9,
-            ask=100.0,
+            ask=99.99,
             ask_levels=(DepthLevel(price=99.99, quantity=2.0),),
         ),
     )
