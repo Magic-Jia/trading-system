@@ -249,6 +249,14 @@ class ExecutionFill:
         )
         if maker_fields_present and not self.fill_model.startswith("maker_"):
             raise ValueError("maker fields require maker fill model")
+        if self.maker_status is not None:
+            if self.filled:
+                if self.fill_quality == "evidence_backed" and self.maker_status != "filled":
+                    raise ValueError("maker_status must agree with filled execution state")
+                if self.fill_quality == "partial_evidence_backed" and self.maker_status == "no_fill":
+                    raise ValueError("maker_status must agree with filled execution state")
+            elif self.fill_quality == "no_fill" and self.maker_status in {"filled", "partial"}:
+                raise ValueError("maker_status must agree with filled execution state")
         queue_evidence_present = self.queue_ahead_initial is not None or self.queue_ahead_remaining is not None
         if queue_evidence_present and (
             self.queue_ahead_initial is None or self.queue_ahead_remaining is None

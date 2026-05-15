@@ -4848,6 +4848,77 @@ def test_execution_fill_rejects_non_canonical_maker_status() -> None:
         )
 
 
+@pytest.mark.parametrize("maker_status", ["no_fill", "expired", "cancelled_replaced"])
+def test_execution_fill_rejects_full_maker_fill_with_non_filled_status(maker_status: str) -> None:
+    with pytest.raises(ValueError, match="maker_status must agree with filled execution state"):
+        ExecutionFill(
+            symbol="BTCUSDT",
+            side="buy",
+            quantity=1.0,
+            filled=True,
+            fill_price=100.0,
+            fill_model="maker_post_only_queue",
+            execution_price_source="trade_print",
+            fill_quality="evidence_backed",
+            outcome="filled",
+            evidence_timestamp=_ts("2026-03-10T00:00:01Z"),
+            requested_quantity=1.0,
+            filled_quantity=1.0,
+            filled_notional=100.0,
+            unfilled_quantity=0.0,
+            maker_status=maker_status,
+            first_fill_timestamp=_ts("2026-03-10T00:00:01Z"),
+            last_fill_timestamp=_ts("2026-03-10T00:00:01Z"),
+        )
+
+
+@pytest.mark.parametrize("maker_status", ["filled", "partial"])
+def test_execution_fill_rejects_unfilled_maker_no_fill_with_filled_status(maker_status: str) -> None:
+    with pytest.raises(ValueError, match="maker_status must agree with filled execution state"):
+        ExecutionFill(
+            symbol="BTCUSDT",
+            side="buy",
+            quantity=1.0,
+            filled=False,
+            fill_price=None,
+            fill_model="maker_post_only_queue",
+            execution_price_source="no_crossing_evidence",
+            fill_quality="no_fill",
+            outcome="missed_alpha",
+            evidence_timestamp=_ts("2026-03-10T00:00:01Z"),
+            requested_quantity=1.0,
+            filled_quantity=0.0,
+            filled_notional=0.0,
+            unfilled_quantity=1.0,
+            maker_status=maker_status,
+        )
+
+
+def test_execution_fill_accepts_partial_maker_fill_with_partial_status() -> None:
+    fill = ExecutionFill(
+        symbol="BTCUSDT",
+        side="buy",
+        quantity=2.0,
+        filled=True,
+        fill_price=100.0,
+        fill_model="maker_post_only_queue",
+        execution_price_source="trade_print",
+        fill_quality="partial_evidence_backed",
+        outcome="filled",
+        evidence_timestamp=_ts("2026-03-10T00:00:01Z"),
+        requested_quantity=2.0,
+        filled_quantity=0.75,
+        filled_notional=75.0,
+        unfilled_quantity=1.25,
+        maker_status="partial",
+        first_fill_timestamp=_ts("2026-03-10T00:00:01Z"),
+        last_fill_timestamp=_ts("2026-03-10T00:00:01Z"),
+    )
+
+    assert fill.maker_status == "partial"
+    assert fill.fill_quality == "partial_evidence_backed"
+
+
 def test_execution_fill_rejects_no_fill_with_fill_price() -> None:
     with pytest.raises(ValueError, match="no-fill execution cannot include fill_price"):
         ExecutionFill(
