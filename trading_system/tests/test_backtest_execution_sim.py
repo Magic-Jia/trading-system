@@ -10,6 +10,7 @@ from trading_system.app.backtest.execution_sim import (
     ExecutionFill,
     OrderBookSnapshot,
     TradePrint,
+    _conservative_trade_print_taker_fill,
     _validate_evidence_contract,
     _validate_taker_evidence_timestamp_skew,
     reference_close_fill,
@@ -3869,6 +3870,75 @@ def test_taker_trade_print_fill_aggregates_multiple_eligible_prints_to_cover_req
     assert fill.evidence_timestamp == _ts("2026-03-10T00:00:02Z")
     assert fill.first_fill_timestamp == _ts("2026-03-10T00:00:01Z")
     assert fill.last_fill_timestamp == _ts("2026-03-10T00:00:02Z")
+
+
+def test_taker_trade_print_fallback_rejects_out_of_order_same_symbol_side_prints() -> None:
+    with pytest.raises(ValueError, match="trade-print timestamps must be strictly increasing for BTCUSDT buy"):
+        _conservative_trade_print_taker_fill(
+            symbol="BTCUSDT",
+            side="buy",
+            quantity=2.0,
+            trades=(
+                TradePrint(
+                    timestamp=_ts("2026-03-10T00:00:02Z"),
+                    symbol="BTCUSDT",
+                    price=100.2,
+                    quantity=1.0,
+                    side="buy",
+                ),
+                TradePrint(
+                    timestamp=_ts("2026-03-10T00:00:01Z"),
+                    symbol="BTCUSDT",
+                    price=100.6,
+                    quantity=1.0,
+                    side="buy",
+                ),
+            ),
+        )
+
+
+def test_taker_trade_print_fallback_ordering_ignores_other_symbols_and_opposite_side() -> None:
+    fill = _conservative_trade_print_taker_fill(
+        symbol="BTCUSDT",
+        side="buy",
+        quantity=2.0,
+        trades=(
+            TradePrint(
+                timestamp=_ts("2026-03-10T00:00:02Z"),
+                symbol="BTCUSDT",
+                price=100.2,
+                quantity=1.0,
+                side="buy",
+            ),
+            TradePrint(
+                timestamp=_ts("2026-03-10T00:00:01Z"),
+                symbol="ETHUSDT",
+                price=200.0,
+                quantity=10.0,
+                side="buy",
+            ),
+            TradePrint(
+                timestamp=_ts("2026-03-10T00:00:01Z"),
+                symbol="BTCUSDT",
+                price=100.6,
+                quantity=10.0,
+                side="sell",
+            ),
+            TradePrint(
+                timestamp=_ts("2026-03-10T00:00:03Z"),
+                symbol="BTCUSDT",
+                price=100.4,
+                quantity=1.0,
+                side="buy",
+            ),
+        ),
+    )
+
+    assert fill is not None
+    assert fill.fill_model == "taker_trade_print"
+    assert fill.fill_price == pytest.approx(100.4)
+    assert fill.first_fill_timestamp == _ts("2026-03-10T00:00:02Z")
+    assert fill.last_fill_timestamp == _ts("2026-03-10T00:00:03Z")
 
 
 def test_taker_trade_print_fill_selects_earliest_eligible_directional_print_identity() -> None:

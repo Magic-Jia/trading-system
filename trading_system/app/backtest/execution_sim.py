@@ -1169,6 +1169,7 @@ def _conservative_trade_print_taker_fill(
 ) -> ExecutionFill | None:
     requested_quantity = quantity
     side_known_trades: list[TradePrint] = []
+    previous_trade_timestamp: datetime | None = None
     for trade in trades:
         if trade.symbol != symbol:
             continue
@@ -1178,8 +1179,12 @@ def _conservative_trade_print_taker_fill(
         trade_quantity = _positive_finite_float("trade.quantity", trade.quantity)
         if trade.side != side:
             continue
+        trade_timestamp = _timezone_aware_datetime("trade.timestamp", trade.timestamp, symbol=symbol)
+        if previous_trade_timestamp is not None and trade_timestamp <= previous_trade_timestamp:
+            raise ValueError(f"trade-print timestamps must be strictly increasing for {symbol} {side}")
+        previous_trade_timestamp = trade_timestamp
         validated_trade = TradePrint(
-            timestamp=trade.timestamp,
+            timestamp=trade_timestamp,
             symbol=trade.symbol,
             price=price,
             quantity=trade_quantity,
