@@ -796,6 +796,10 @@ def _maker_queue_ahead(
         raise ValueError("queue_ahead_quantity inference requires placement_timestamp")
     eligible_books = [book for book in order_books if effective_placement is None or book.timestamp <= effective_placement]
     if not eligible_books:
+        if effective_placement is not None and order_books:
+            raise ValueError(
+                "queue_ahead_quantity inference requires order book at or before placement_timestamp"
+            )
         return 0.0
     book = sorted(eligible_books, key=lambda item: item.timestamp)[-1]
     size = book.bid_size if side == "buy" else book.ask_size

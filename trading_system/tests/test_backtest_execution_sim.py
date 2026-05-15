@@ -488,6 +488,88 @@ def test_maker_queue_infers_queue_ahead_from_book_at_effective_placement() -> No
     assert fill.maker_wait_seconds == pytest.approx(0.9)
 
 
+def test_maker_queue_inference_rejects_future_only_books_after_effective_placement() -> None:
+    with pytest.raises(
+        ValueError,
+        match="queue_ahead_quantity inference requires order book at or before placement_timestamp",
+    ):
+        simulate_maker_limit_fill(
+            symbol="BTCUSDT",
+            side="buy",
+            limit_price=99.5,
+            quantity=1.0,
+            placement_timestamp=_ts("2026-03-10T00:00:00Z"),
+            latency_ms=100,
+            timeout_seconds=10.0,
+            order_books=(
+                OrderBookSnapshot(
+                    timestamp=_ts("2026-03-10T00:00:00.101000Z"),
+                    symbol="BTCUSDT",
+                    bid=99.5,
+                    ask=99.7,
+                    bid_size=99.0,
+                ),
+            ),
+            trades=(
+                TradePrint(
+                    timestamp=_ts("2026-03-10T00:00:01Z"),
+                    symbol="BTCUSDT",
+                    price=99.5,
+                    quantity=100.0,
+                    side="sell",
+                ),
+            ),
+        )
+
+
+def test_maker_queue_inference_uses_latest_book_before_effective_placement() -> None:
+    fill = simulate_maker_limit_fill(
+        symbol="BTCUSDT",
+        side="buy",
+        limit_price=99.5,
+        quantity=1.0,
+        placement_timestamp=_ts("2026-03-10T00:00:00Z"),
+        latency_ms=100,
+        timeout_seconds=10.0,
+        order_books=(
+            OrderBookSnapshot(
+                timestamp=_ts("2026-03-10T00:00:00.050000Z"),
+                symbol="BTCUSDT",
+                bid=99.5,
+                ask=99.7,
+                bid_size=2.0,
+            ),
+            OrderBookSnapshot(
+                timestamp=_ts("2026-03-10T00:00:00.099000Z"),
+                symbol="BTCUSDT",
+                bid=99.5,
+                ask=99.7,
+                bid_size=3.0,
+            ),
+            OrderBookSnapshot(
+                timestamp=_ts("2026-03-10T00:00:00.101000Z"),
+                symbol="BTCUSDT",
+                bid=99.5,
+                ask=99.7,
+                bid_size=99.0,
+            ),
+        ),
+        trades=(
+            TradePrint(
+                timestamp=_ts("2026-03-10T00:00:01Z"),
+                symbol="BTCUSDT",
+                price=99.5,
+                quantity=4.0,
+                side="sell",
+            ),
+        ),
+    )
+
+    assert fill.maker_status == "filled"
+    assert fill.queue_ahead_initial == pytest.approx(3.0)
+    assert fill.filled_quantity == pytest.approx(1.0)
+
+
 def test_maker_limit_rejects_naive_placement_timestamp_before_using_evidence() -> None:
     with pytest.raises(ValueError, match="placement_timestamp must be timezone-aware"):
         simulate_maker_limit_fill(

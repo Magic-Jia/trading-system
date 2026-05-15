@@ -2839,7 +2839,7 @@ def test_replay_full_market_baseline_post_only_without_crossing_evidence_is_reje
     row1_payload["candidate_symbols"] = ["BTCUSDT"]
     row1_payload["symbols"]["BTCUSDT"]["execution"] = {
         "order_book": {
-            "timestamp": "2026-03-10T00:00:05Z",
+            "timestamp": "2026-03-10T00:00:00Z",
             "bid": 99.8,
             "ask": 100.2,
             "bid_size": 10,
