@@ -422,6 +422,53 @@ def test_maker_limit_rejects_non_datetime_placement_timestamp_before_using_evide
         )
 
 
+def test_maker_limit_rejects_naive_cancel_replace_timestamp_before_using_evidence() -> None:
+    with pytest.raises(ValueError, match="cancel_replace_timestamp must be timezone-aware"):
+        simulate_maker_limit_fill(
+            symbol="BTCUSDT",
+            side="buy",
+            limit_price=99.5,
+            quantity=1.0,
+            placement_timestamp=_ts("2026-03-10T00:00:00Z"),
+            cancel_replace_timestamp=datetime(2026, 3, 10, 0, 0, 2),
+            timeout_seconds=10.0,
+            trades=(
+                TradePrint(
+                    timestamp=_ts("2026-03-10T00:00:01Z"),
+                    symbol="BTCUSDT",
+                    price=99.5,
+                    quantity=1.0,
+                    side="sell",
+                ),
+            ),
+        )
+
+
+@pytest.mark.parametrize("cancel_replace_timestamp", ["2026-03-10T00:00:02Z", 1, True])
+def test_maker_limit_rejects_non_datetime_cancel_replace_timestamp_before_using_evidence(
+    cancel_replace_timestamp: object,
+) -> None:
+    with pytest.raises(ValueError, match="cancel_replace_timestamp must be a timezone-aware datetime"):
+        simulate_maker_limit_fill(
+            symbol="BTCUSDT",
+            side="buy",
+            limit_price=99.5,
+            quantity=1.0,
+            placement_timestamp=_ts("2026-03-10T00:00:00Z"),
+            cancel_replace_timestamp=cancel_replace_timestamp,
+            timeout_seconds=10.0,
+            trades=(
+                TradePrint(
+                    timestamp=_ts("2026-03-10T00:00:01Z"),
+                    symbol="BTCUSDT",
+                    price=99.5,
+                    quantity=1.0,
+                    side="sell",
+                ),
+            ),
+        )
+
+
 @pytest.mark.parametrize("latency_ms", [True, "50", math.nan, math.inf, -math.inf, -1.0])
 def test_maker_latency_rejects_invalid_latency_ms(latency_ms: object) -> None:
     with pytest.raises(ValueError, match="latency_ms must be a non-negative finite number"):

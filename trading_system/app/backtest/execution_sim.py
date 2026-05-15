@@ -565,6 +565,8 @@ def simulate_maker_limit_fill(
     )
     if placement_timestamp is not None:
         placement_timestamp = _placement_timestamp_datetime(placement_timestamp)
+    if cancel_replace_timestamp is not None:
+        cancel_replace_timestamp = _cancel_replace_timestamp_datetime(cancel_replace_timestamp)
     uses_queue_model = (
         queue_ahead_quantity is not None
         or placement_timestamp is not None
@@ -1042,6 +1044,14 @@ def _placement_timestamp_datetime(value: Any) -> datetime:
         raise ValueError("placement_timestamp must be a timezone-aware datetime")
     if value.tzinfo is None or value.utcoffset() is None:
         raise ValueError("placement_timestamp must be timezone-aware")
+    return value
+
+
+def _cancel_replace_timestamp_datetime(value: Any) -> datetime:
+    if not isinstance(value, datetime):
+        raise ValueError("cancel_replace_timestamp must be a timezone-aware datetime")
+    if value.tzinfo is None or value.utcoffset() is None:
+        raise ValueError("cancel_replace_timestamp must be timezone-aware")
     return value
 
 
