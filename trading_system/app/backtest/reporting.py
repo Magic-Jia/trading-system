@@ -716,7 +716,13 @@ def _trade_ledger_payload(trade_ledger: tuple[TradeLedgerRow, ...]) -> list[dict
                 field_name=f"trades[{index}].maker_status",
                 allowed=_MAKER_STATUS_VALUES,
             ),
-            "first_fill_timestamp": row.first_fill_timestamp.isoformat() if row.first_fill_timestamp is not None else None,
+            "first_fill_timestamp": _validated_first_fill_timestamp(
+                row.first_fill_timestamp,
+                row.last_fill_timestamp,
+                field_name=f"trades[{index}].first_fill_timestamp",
+            ).isoformat()
+            if row.first_fill_timestamp is not None
+            else None,
             "last_fill_timestamp": row.last_fill_timestamp.isoformat() if row.last_fill_timestamp is not None else None,
             "queue_ahead_initial": row.queue_ahead_initial,
             "queue_ahead_remaining": row.queue_ahead_remaining,
@@ -1008,6 +1014,21 @@ def _validated_execution_price_source(
     if value not in _EXECUTION_PRICE_SOURCES_BY_FILL_MODEL[canonical_fill_model]:
         raise ValueError(f"{source_field_name} must agree with fill_model")
     return value
+
+
+def _validated_first_fill_timestamp(
+    first_fill_timestamp: datetime | None,
+    last_fill_timestamp: datetime | None,
+    *,
+    field_name: str,
+) -> datetime | None:
+    if (
+        first_fill_timestamp is not None
+        and last_fill_timestamp is not None
+        and first_fill_timestamp > last_fill_timestamp
+    ):
+        raise ValueError(f"{field_name} must be at or before last_fill_timestamp")
+    return first_fill_timestamp
 
 
 def _canonical_optional_empty_report_string(value: object, *, field_name: str) -> str:

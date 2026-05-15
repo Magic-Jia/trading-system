@@ -2213,6 +2213,26 @@ def test_full_market_report_rejects_execution_price_source_that_disagrees_with_f
         reporting.render_full_market_baseline_report(bad_result)
 
 
+def test_full_market_report_rejects_fill_timestamp_order_drift() -> None:
+    result = sample_baseline_result()
+    bad_result = replace(
+        result,
+        trade_ledger=(
+            replace(
+                result.trade_ledger[0],
+                first_fill_timestamp=_ts("2026-03-10T00:00:02Z"),
+                last_fill_timestamp=_ts("2026-03-10T00:00:01Z"),
+            ),
+        ),
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"trades\[0\]\.first_fill_timestamp must be at or before last_fill_timestamp",
+    ):
+        reporting.render_full_market_baseline_report(bad_result)
+
+
 @pytest.mark.parametrize("engine", [True, " trend ", _StringSubclass("trend")])
 def test_full_market_report_rejects_noncanonical_trade_engine(engine: object) -> None:
     result = sample_baseline_result()
