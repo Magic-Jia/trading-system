@@ -1009,6 +1009,42 @@ def test_taker_trade_print_fill_aggregates_multiple_eligible_prints_to_cover_req
     assert fill.last_fill_timestamp == _ts("2026-03-10T00:00:02Z")
 
 
+def test_taker_trade_print_fill_does_not_use_unsigned_print_to_complete_side_known_fill() -> None:
+    fill = simulate_taker_fill(
+        symbol="BTCUSDT",
+        side="buy",
+        quantity=2.0,
+        reference_price=100.0,
+        trades=(
+            TradePrint(
+                timestamp=_ts("2026-03-10T00:00:01Z"),
+                symbol="BTCUSDT",
+                price=100.4,
+                quantity=0.75,
+                side="buy",
+            ),
+            TradePrint(
+                timestamp=_ts("2026-03-10T00:00:02Z"),
+                symbol="BTCUSDT",
+                price=100.1,
+                quantity=10.0,
+            ),
+        ),
+    )
+
+    assert fill.filled is True
+    assert fill.fill_model == "taker_trade_print"
+    assert fill.fill_price == pytest.approx(100.4)
+    assert fill.fill_quality == "partial_evidence_backed"
+    assert fill.requested_quantity == pytest.approx(2.0)
+    assert fill.filled_quantity == pytest.approx(0.75)
+    assert fill.filled_notional == pytest.approx(75.3)
+    assert fill.unfilled_quantity == pytest.approx(1.25)
+    assert fill.evidence_timestamp == _ts("2026-03-10T00:00:01Z")
+    assert fill.first_fill_timestamp == _ts("2026-03-10T00:00:01Z")
+    assert fill.last_fill_timestamp == _ts("2026-03-10T00:00:01Z")
+
+
 def test_taker_trade_print_fill_rejects_duplicate_trade_print_identity_before_aggregation() -> None:
     with pytest.raises(ValueError, match="duplicate trade.fill_id: print-A"):
         simulate_taker_fill(

@@ -777,7 +777,8 @@ def _conservative_trade_print_taker_fill(
     trades: tuple[TradePrint, ...],
 ) -> ExecutionFill | None:
     requested_quantity = quantity
-    symbol_trades: list[TradePrint] = []
+    side_known_trades: list[TradePrint] = []
+    unsigned_trades: list[TradePrint] = []
     for trade in trades:
         if trade.symbol != symbol:
             continue
@@ -785,16 +786,19 @@ def _conservative_trade_print_taker_fill(
         trade_quantity = _positive_finite_float("trade.quantity", trade.quantity)
         if trade.side is not None and trade.side != side:
             continue
-        symbol_trades.append(
-            TradePrint(
-                timestamp=trade.timestamp,
-                symbol=trade.symbol,
-                price=price,
-                quantity=trade_quantity,
-                side=trade.side,
-                fill_id=trade.fill_id,
-            )
+        validated_trade = TradePrint(
+            timestamp=trade.timestamp,
+            symbol=trade.symbol,
+            price=price,
+            quantity=trade_quantity,
+            side=trade.side,
+            fill_id=trade.fill_id,
         )
+        if trade.side is None:
+            unsigned_trades.append(validated_trade)
+        else:
+            side_known_trades.append(validated_trade)
+    symbol_trades = side_known_trades if side_known_trades else unsigned_trades
     if not symbol_trades:
         return None
     selected_trades: list[TradePrint] = []
