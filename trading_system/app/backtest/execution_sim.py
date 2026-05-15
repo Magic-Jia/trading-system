@@ -1493,11 +1493,10 @@ def _validate_taker_evidence_timestamp_skew(
     if not symbol_books or not symbol_trades:
         return
 
-    for book in symbol_books:
-        for trade in symbol_trades:
-            if abs(book.timestamp - trade.timestamp) <= _TAKER_EVIDENCE_MAX_SKEW:
-                return
-    raise ValueError(f"taker evidence timestamp skew exceeds tolerance for {symbol}")
+    evidence_timestamps = [book.timestamp for book in symbol_books]
+    evidence_timestamps.extend(trade.timestamp for trade in symbol_trades)
+    if max(evidence_timestamps) - min(evidence_timestamps) > _TAKER_EVIDENCE_MAX_SKEW:
+        raise ValueError(f"taker evidence timestamp skew exceeds tolerance for {symbol}")
 
 
 def _datetime_or_none(value: Any) -> datetime | None:

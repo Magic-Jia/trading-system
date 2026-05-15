@@ -11,6 +11,7 @@ from trading_system.app.backtest.execution_sim import (
     OrderBookSnapshot,
     TradePrint,
     _validate_evidence_contract,
+    _validate_taker_evidence_timestamp_skew,
     reference_close_fill,
     next_bar_ohlcv_fill,
     simulate_maker_limit_fill,
@@ -4333,6 +4334,51 @@ def test_taker_fill_rejects_stale_trade_book_evidence_skew() -> None:
                 ),
             ),
         )
+
+
+def test_taker_evidence_timestamp_skew_rejects_stale_member_despite_near_pair() -> None:
+    with pytest.raises(ValueError, match="taker evidence timestamp skew exceeds tolerance for BTCUSDT"):
+        _validate_taker_evidence_timestamp_skew(
+            symbol="BTCUSDT",
+            order_books=(
+                OrderBookSnapshot(timestamp=_ts("2026-03-10T00:00:01Z"), symbol="BTCUSDT", bid=99.9, ask=100.1),
+            ),
+            trades=(
+                TradePrint(
+                    timestamp=_ts("2026-03-10T00:00:01.500000Z"),
+                    symbol="BTCUSDT",
+                    price=100.0,
+                    quantity=1.0,
+                    side="buy",
+                ),
+                TradePrint(
+                    timestamp=_ts("2026-03-10T00:00:03Z"),
+                    symbol="BTCUSDT",
+                    price=100.0,
+                    quantity=1.0,
+                    side="buy",
+                ),
+            ),
+        )
+
+
+def test_taker_evidence_timestamp_skew_accepts_compact_same_symbol_evidence_set() -> None:
+    _validate_taker_evidence_timestamp_skew(
+        symbol="BTCUSDT",
+        order_books=(
+            OrderBookSnapshot(timestamp=_ts("2026-03-10T00:00:01Z"), symbol="BTCUSDT", bid=99.9, ask=100.1),
+            OrderBookSnapshot(timestamp=_ts("2026-03-10T00:00:01.400000Z"), symbol="BTCUSDT", bid=99.9, ask=100.1),
+        ),
+        trades=(
+            TradePrint(
+                timestamp=_ts("2026-03-10T00:00:01.900000Z"),
+                symbol="BTCUSDT",
+                price=100.0,
+                quantity=1.0,
+                side="buy",
+            ),
+        ),
+    )
 
 
 def test_maker_limit_validates_all_trade_rows_before_returning_fill() -> None:

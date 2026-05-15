@@ -370,7 +370,7 @@ def test_execution_evidence_accepts_valid_books_and_trades_for_taker_fill() -> N
                         ],
                         "trades": [
                             {
-                                "timestamp": "2026-03-10T00:00:03Z",
+                                "timestamp": "2026-03-10T00:00:01.500000Z",
                                 "price": 100.4,
                                 "quantity": 1.0,
                                 "side": "buy",
