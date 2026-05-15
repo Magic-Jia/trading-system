@@ -510,9 +510,12 @@ def _validate_walk_forward_window_periods(
 
 def _walk_forward_period_datetime(value: str, *, field_name: str) -> datetime:
     try:
-        return datetime.fromisoformat(value)
+        parsed = datetime.fromisoformat(value)
     except ValueError as exc:
         raise ValueError(f"{field_name} must be an ISO timestamp string") from exc
+    if parsed.isoformat() != value:
+        raise ValueError(f"{field_name} must match datetime.isoformat()")
+    return parsed
 
 
 def _evaluation_metric_payload(metrics: Mapping[str, Any], *, field_name: str) -> dict[str, float | int]:
