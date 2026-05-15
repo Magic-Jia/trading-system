@@ -866,21 +866,21 @@ def _report_sample_period(value: object) -> dict[str, str | None] | str:
     }
 
 
-def _report_raw_market_provenance(value: object) -> dict[str, Any]:
+def _report_raw_market_provenance(value: object, *, field_name: str = "metadata.raw_market") -> dict[str, Any]:
     if not isinstance(value, Mapping):
-        raise ValueError("metadata.raw_market must be an object")
-    provenance = _strict_mapping_copy(value, field_name="metadata.raw_market")
+        raise ValueError(f"{field_name} must be an object")
+    provenance = _strict_mapping_copy(value, field_name=field_name)
     for field in _RAW_MARKET_PROVENANCE_IDENTITY_FIELDS:
         if field not in provenance:
-            raise ValueError(f"metadata.raw_market.{field} must be present")
+            raise ValueError(f"{field_name}.{field} must be present")
         provenance[field] = _canonical_report_string(
             provenance[field],
-            field_name=f"metadata.raw_market.{field}",
+            field_name=f"{field_name}.{field}",
         )
     for field in _RAW_MARKET_PROVENANCE_TIMESTAMP_FIELDS:
         _canonical_utc_report_timestamp(
             provenance[field],
-            field_name=f"metadata.raw_market.{field}",
+            field_name=f"{field_name}.{field}",
         )
     return provenance
 
@@ -1360,6 +1360,7 @@ def _walk_forward_window_rows(rows: list[Any]) -> list[dict[str, Any]]:
         "bars_since_entry",
     )
     validated_rows: list[dict[str, Any]] = []
+    raw_market_identity: tuple[str, str, str, str, str] | None = None
     for index, window in enumerate(rows):
         if not isinstance(window, Mapping):
             raise ValueError(f"windows[{index}] must be an object")
@@ -1370,6 +1371,18 @@ def _walk_forward_window_rows(rows: list[Any]) -> list[dict[str, Any]]:
                 "window_index",
                 label=f"windows[{index}]",
             )
+        if "raw_market" in validated and validated["raw_market"] is not None:
+            validated["raw_market"] = _report_raw_market_provenance(
+                validated["raw_market"],
+                field_name=f"windows[{index}].raw_market",
+            )
+            current_raw_market_identity = tuple(
+                validated["raw_market"][field] for field in _RAW_MARKET_PROVENANCE_IDENTITY_FIELDS
+            )
+            if raw_market_identity is None:
+                raw_market_identity = current_raw_market_identity
+            elif current_raw_market_identity != raw_market_identity:
+                raise ValueError("windows raw_market source identity must be consistent across walk-forward windows")
         for segment_name in ("in_sample", "out_of_sample"):
             segment = validated.get(segment_name)
             if segment is None:

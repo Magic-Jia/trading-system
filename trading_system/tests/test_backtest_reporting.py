@@ -3628,6 +3628,84 @@ def test_walk_forward_validation_report_rejects_boolean_window_index() -> None:
         )
 
 
+def test_walk_forward_validation_report_rejects_non_canonical_window_raw_market_timestamp() -> None:
+    with pytest.raises(
+        ValueError,
+        match=r"windows\[0\]\.raw_market\.fetched_at must be a canonical UTC Z timestamp",
+    ):
+        cli.render_walk_forward_validation_report(
+            experiment_name="walk_forward_validation",
+            metadata={"snapshot_count": 1, "window_count": 1},
+            experiment={
+                "windows": [
+                    {
+                        "window_index": 1,
+                        "raw_market": {
+                            "source": "phase1_raw_market_archive",
+                            "archive_root": "archive/raw-market",
+                            "coverage_start": "2026-03-10T00:00:00Z",
+                            "coverage_end": "2026-03-11T00:00:00Z",
+                            "fetched_at": "2026-03-11T00:05:00+00:00",
+                        },
+                        "out_of_sample": {
+                            "scorecard": {"total_return": 0.03, "trade_count": 1},
+                            "run_ids": ["row-002"],
+                        },
+                    }
+                ],
+                "robustness_summary": {
+                    "out_of_sample_scorecard": {"total_return": 0.03},
+                    "performance_dispersion": {"positive_window_ratio": 1.0},
+                },
+                "parameter_stability": {"parameter_stability_score": 0.8},
+            },
+        )
+
+
+def test_walk_forward_validation_report_rejects_mixed_window_raw_market_source_identity() -> None:
+    raw_market = {
+        "source": "phase1_raw_market_archive",
+        "archive_root": "archive/raw-market",
+        "coverage_start": "2026-03-10T00:00:00Z",
+        "coverage_end": "2026-03-11T00:00:00Z",
+        "fetched_at": "2026-03-11T00:05:00Z",
+    }
+
+    with pytest.raises(
+        ValueError,
+        match="windows raw_market source identity must be consistent across walk-forward windows",
+    ):
+        cli.render_walk_forward_validation_report(
+            experiment_name="walk_forward_validation",
+            metadata={"snapshot_count": 2, "window_count": 2},
+            experiment={
+                "windows": [
+                    {
+                        "window_index": 1,
+                        "raw_market": raw_market,
+                        "out_of_sample": {
+                            "scorecard": {"total_return": 0.03, "trade_count": 1},
+                            "run_ids": ["row-002"],
+                        },
+                    },
+                    {
+                        "window_index": 2,
+                        "raw_market": {**raw_market, "archive_root": "archive/other-raw-market"},
+                        "out_of_sample": {
+                            "scorecard": {"total_return": 0.02, "trade_count": 1},
+                            "run_ids": ["row-003"],
+                        },
+                    },
+                ],
+                "robustness_summary": {
+                    "out_of_sample_scorecard": {"total_return": 0.05},
+                    "performance_dispersion": {"positive_window_ratio": 1.0},
+                },
+                "parameter_stability": {"parameter_stability_score": 0.8},
+            },
+        )
+
+
 def test_walk_forward_validation_report_rejects_string_window_scorecard_metric() -> None:
     with pytest.raises(ValueError, match=r"windows\[0\]\.out_of_sample\.scorecard\.total_return must be a finite number"):
         cli.render_walk_forward_validation_report(
