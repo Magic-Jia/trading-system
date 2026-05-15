@@ -928,8 +928,10 @@ def _validate_evidence_contract(
     for book in order_books:
         if book.symbol != symbol:
             continue
-        _positive_finite_float("order_book.bid", book.bid)
-        _positive_finite_float("order_book.ask", book.ask)
+        bid = _positive_finite_float("order_book.bid", book.bid)
+        ask = _positive_finite_float("order_book.ask", book.ask)
+        if ask < bid:
+            raise ValueError("order_book.ask must be greater than or equal to bid")
         if book.bid_size is not None:
             _non_negative_finite_float("order_book.bid_size", book.bid_size)
         if book.ask_size is not None:

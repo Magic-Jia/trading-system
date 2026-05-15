@@ -174,6 +174,22 @@ def test_evidence_contract_rejects_invalid_order_book_optional_size(field: str, 
         )
 
 
+def test_evidence_contract_rejects_crossed_order_book_bid_ask() -> None:
+    with pytest.raises(ValueError, match="order_book.ask must be greater than or equal to bid"):
+        _validate_evidence_contract(
+            symbol="BTCUSDT",
+            order_books=(
+                OrderBookSnapshot(
+                    timestamp=_ts("2026-03-10T00:00:01Z"),
+                    symbol="BTCUSDT",
+                    bid=100.1,
+                    ask=99.9,
+                ),
+            ),
+            trades=(),
+        )
+
+
 @pytest.mark.parametrize(("field", "value"), [("price", 0.0), ("price", -1.0), ("quantity", 0.0), ("quantity", -1.0)])
 def test_evidence_contract_rejects_non_positive_depth_level_values(field: str, value: object) -> None:
     level_kwargs = {"price": 99.9, "quantity": 1.0}
