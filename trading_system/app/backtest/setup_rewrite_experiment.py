@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from datetime import datetime
 import math
 from numbers import Integral
 from numbers import Real
@@ -190,6 +191,7 @@ def _evaluate_row(*, index: int, row: Mapping[str, Any], params: SetupRewritePar
         "net_pnl": _net_pnl_or_none(row.get("net_pnl"), field_path=f"rows[{index}].net_pnl"),
         "source_chunk": _source_chunk(row, index=index),
     }
+    _validate_execution_evidence_timestamps(row, index=index)
     for rule in params.rules:
         status, reason, keep = _evaluate_rule(identity=identity, raw_row=row, rule=rule)
         if status != "evaluated" or not keep:
@@ -340,6 +342,48 @@ def _net_pnl_or_none(value: Any, *, field_path: str) -> float | None:
     if not math.isfinite(result):
         raise ValueError(f"{field_path} must be a finite number")
     return result
+
+
+def _validate_execution_evidence_timestamps(row: Mapping[str, Any], *, index: int) -> None:
+    evidence_timestamp = _optional_timestamp(
+        row.get("evidence_timestamp"),
+        field_path=f"rows[{index}].evidence_timestamp",
+    )
+    first_fill_timestamp = _optional_timestamp(
+        row.get("first_fill_timestamp"),
+        field_path=f"rows[{index}].first_fill_timestamp",
+    )
+    last_fill_timestamp = _optional_timestamp(
+        row.get("last_fill_timestamp"),
+        field_path=f"rows[{index}].last_fill_timestamp",
+    )
+    if first_fill_timestamp is not None and last_fill_timestamp is not None:
+        if first_fill_timestamp > last_fill_timestamp:
+            raise ValueError(f"rows[{index}].first_fill_timestamp must be at or before last_fill_timestamp")
+        if evidence_timestamp is not None and not (first_fill_timestamp <= evidence_timestamp <= last_fill_timestamp):
+            raise ValueError(f"rows[{index}].evidence_timestamp must fall within fill timestamp interval")
+
+
+def _optional_timestamp(value: Any, *, field_path: str) -> datetime | None:
+    if value is None:
+        return None
+    timestamp = _parse_timestamp(value)
+    if timestamp is None:
+        raise ValueError(f"{field_path} must be an ISO timestamp")
+    if timestamp.tzinfo is None or timestamp.utcoffset() is None:
+        raise ValueError(f"{field_path} must include a timezone offset")
+    return timestamp
+
+
+def _parse_timestamp(value: Any) -> datetime | None:
+    if isinstance(value, datetime):
+        return value
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
 
 
 def _string_or_none(value: Any, *, field_path: str) -> str | None:

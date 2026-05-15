@@ -407,6 +407,82 @@ def test_setup_rewrite_experiment_rejects_string_score_with_field_path() -> None
         )
 
 
+def test_setup_rewrite_experiment_rejects_evidence_timestamp_outside_fill_interval() -> None:
+    module = importlib.import_module("trading_system.app.backtest.setup_rewrite_experiment")
+
+    with pytest.raises(
+        ValueError,
+        match=r"rows\[1\]\.evidence_timestamp must fall within fill timestamp interval",
+    ):
+        module.build_setup_rewrite_experiment(
+            rows=[
+                {
+                    "symbol": "BTCUSDT",
+                    "setup_type": "TREND_PULLBACK",
+                    "side": "long",
+                    "entry_timestamp": "2026-03-10T00:00:00Z",
+                    "score": 0.82,
+                    "net_pnl": 12.5,
+                    "cost_coverage_ratio": 1.4,
+                    "evidence_timestamp": "2026-03-10T00:00:03Z",
+                    "first_fill_timestamp": "2026-03-10T00:00:00Z",
+                    "last_fill_timestamp": "2026-03-10T00:00:02Z",
+                }
+            ],
+            setup_rewrite=_params(),
+        )
+
+
+def test_setup_rewrite_experiment_rejects_timezone_naive_execution_evidence_timestamp() -> None:
+    module = importlib.import_module("trading_system.app.backtest.setup_rewrite_experiment")
+
+    with pytest.raises(
+        ValueError,
+        match=r"rows\[1\]\.evidence_timestamp must include a timezone offset",
+    ):
+        module.build_setup_rewrite_experiment(
+            rows=[
+                {
+                    "symbol": "BTCUSDT",
+                    "setup_type": "TREND_PULLBACK",
+                    "side": "long",
+                    "entry_timestamp": "2026-03-10T00:00:00Z",
+                    "score": 0.82,
+                    "net_pnl": 12.5,
+                    "cost_coverage_ratio": 1.4,
+                    "evidence_timestamp": "2026-03-10T00:00:01",
+                }
+            ],
+            setup_rewrite=_params(),
+        )
+
+
+def test_setup_rewrite_experiment_rejects_inverted_fill_timestamp_interval() -> None:
+    module = importlib.import_module("trading_system.app.backtest.setup_rewrite_experiment")
+
+    with pytest.raises(
+        ValueError,
+        match=r"rows\[1\]\.first_fill_timestamp must be at or before last_fill_timestamp",
+    ):
+        module.build_setup_rewrite_experiment(
+            rows=[
+                {
+                    "symbol": "BTCUSDT",
+                    "setup_type": "TREND_PULLBACK",
+                    "side": "long",
+                    "entry_timestamp": "2026-03-10T00:00:00Z",
+                    "score": 0.82,
+                    "net_pnl": 12.5,
+                    "cost_coverage_ratio": 1.4,
+                    "evidence_timestamp": "2026-03-10T00:00:01Z",
+                    "first_fill_timestamp": "2026-03-10T00:00:02Z",
+                    "last_fill_timestamp": "2026-03-10T00:00:00Z",
+                }
+            ],
+            setup_rewrite=_params(),
+        )
+
+
 @pytest.mark.parametrize("net_pnl", [True, math.nan, math.inf])
 def test_setup_rewrite_experiment_rejects_invalid_net_pnl_with_field_path(net_pnl: object) -> None:
     module = importlib.import_module("trading_system.app.backtest.setup_rewrite_experiment")
