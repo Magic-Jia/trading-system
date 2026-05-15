@@ -488,6 +488,127 @@ def test_maker_queue_infers_queue_ahead_from_book_at_effective_placement() -> No
     assert fill.maker_wait_seconds == pytest.approx(0.9)
 
 
+@pytest.mark.parametrize(
+    ("side", "book_kwargs", "trade_side"),
+    [
+        ("buy", {"bid_size": None, "ask_size": 5.0}, "sell"),
+        ("sell", {"bid_size": 5.0, "ask_size": None}, "buy"),
+    ],
+)
+def test_maker_queue_inference_requires_visible_size_for_relevant_side(
+    side: str,
+    book_kwargs: dict[str, float | None],
+    trade_side: str,
+) -> None:
+    with pytest.raises(
+        ValueError,
+        match="queue_ahead_quantity inference requires visible order book size",
+    ):
+        simulate_maker_limit_fill(
+            symbol="BTCUSDT",
+            side=side,
+            limit_price=99.5 if side == "buy" else 100.5,
+            quantity=1.0,
+            placement_timestamp=_ts("2026-03-10T00:00:00Z"),
+            timeout_seconds=10.0,
+            order_books=(
+                OrderBookSnapshot(
+                    timestamp=_ts("2026-03-10T00:00:00Z"),
+                    symbol="BTCUSDT",
+                    bid=99.5,
+                    ask=100.5,
+                    **book_kwargs,
+                ),
+            ),
+            trades=(
+                TradePrint(
+                    timestamp=_ts("2026-03-10T00:00:01Z"),
+                    symbol="BTCUSDT",
+                    price=99.5 if side == "buy" else 100.5,
+                    quantity=1.0,
+                    side=trade_side,
+                ),
+            ),
+        )
+
+
+def test_maker_queue_explicit_queue_ahead_allows_missing_visible_size() -> None:
+    fill = simulate_maker_limit_fill(
+        symbol="BTCUSDT",
+        side="buy",
+        limit_price=99.5,
+        quantity=1.0,
+        queue_ahead_quantity=0.0,
+        placement_timestamp=_ts("2026-03-10T00:00:00Z"),
+        timeout_seconds=10.0,
+        order_books=(
+            OrderBookSnapshot(
+                timestamp=_ts("2026-03-10T00:00:00Z"),
+                symbol="BTCUSDT",
+                bid=99.5,
+                ask=100.5,
+            ),
+        ),
+        trades=(
+            TradePrint(
+                timestamp=_ts("2026-03-10T00:00:01Z"),
+                symbol="BTCUSDT",
+                price=99.5,
+                quantity=1.0,
+                side="sell",
+            ),
+        ),
+    )
+
+    assert fill.maker_status == "filled"
+    assert fill.queue_ahead_initial == pytest.approx(0.0)
+    assert fill.filled_quantity == pytest.approx(1.0)
+
+
+@pytest.mark.parametrize(
+    ("side", "book_kwargs", "trade_side"),
+    [
+        ("buy", {"bid_size": 0.0}, "sell"),
+        ("sell", {"ask_size": 0.0}, "buy"),
+    ],
+)
+def test_maker_queue_inference_accepts_zero_visible_size(
+    side: str,
+    book_kwargs: dict[str, float],
+    trade_side: str,
+) -> None:
+    fill = simulate_maker_limit_fill(
+        symbol="BTCUSDT",
+        side=side,
+        limit_price=99.5 if side == "buy" else 100.5,
+        quantity=1.0,
+        placement_timestamp=_ts("2026-03-10T00:00:00Z"),
+        timeout_seconds=10.0,
+        order_books=(
+            OrderBookSnapshot(
+                timestamp=_ts("2026-03-10T00:00:00Z"),
+                symbol="BTCUSDT",
+                bid=99.5,
+                ask=100.5,
+                **book_kwargs,
+            ),
+        ),
+        trades=(
+            TradePrint(
+                timestamp=_ts("2026-03-10T00:00:01Z"),
+                symbol="BTCUSDT",
+                price=99.5 if side == "buy" else 100.5,
+                quantity=1.0,
+                side=trade_side,
+            ),
+        ),
+    )
+
+    assert fill.maker_status == "filled"
+    assert fill.queue_ahead_initial == pytest.approx(0.0)
+    assert fill.filled_quantity == pytest.approx(1.0)
+
+
 def test_maker_queue_inference_rejects_future_only_books_after_effective_placement() -> None:
     with pytest.raises(
         ValueError,

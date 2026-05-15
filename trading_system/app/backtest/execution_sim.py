@@ -804,7 +804,7 @@ def _maker_queue_ahead(
     book = sorted(eligible_books, key=lambda item: item.timestamp)[-1]
     size = book.bid_size if side == "buy" else book.ask_size
     if size is None:
-        return 0.0
+        raise ValueError("queue_ahead_quantity inference requires visible order book size")
     return _non_negative_finite_float("order_book.bid_size" if side == "buy" else "order_book.ask_size", size)
 
 
