@@ -1914,13 +1914,14 @@ def test_taker_depth_buy_consumes_multiple_ask_levels_with_weighted_average() ->
 
 
 def test_taker_depth_sell_consumes_multiple_bid_levels_with_weighted_average() -> None:
+    book_timestamp = _ts("2026-03-10T00:00:01Z")
     fill = simulate_taker_depth_fill(
         symbol="BTCUSDT",
         side="sell",
         quantity=4.0,
         reference_price=100.0,
         order_book=OrderBookSnapshot(
-            timestamp=_ts("2026-03-10T00:00:01Z"),
+            timestamp=book_timestamp,
             symbol="BTCUSDT",
             bid=100.0,
             ask=100.2,
@@ -1928,15 +1929,24 @@ def test_taker_depth_sell_consumes_multiple_bid_levels_with_weighted_average() -
         ),
     )
 
+    expected_fill_price = (100.0 * 1.5 + 99.5 * 2.5) / 4.0
     assert fill.filled is True
-    assert fill.fill_price == pytest.approx((100.0 * 1.5 + 99.5 * 2.5) / 4.0)
+    assert fill.fill_price == pytest.approx(expected_fill_price)
     assert fill.fill_model == "taker_orderbook_depth"
     assert fill.execution_price_source == "bid_depth"
     assert fill.fill_quality == "evidence_backed"
+    assert fill.requested_quantity == pytest.approx(4.0)
     assert fill.filled_quantity == pytest.approx(4.0)
+    assert fill.filled_notional == pytest.approx(100.0 * 1.5 + 99.5 * 2.5)
     assert fill.unfilled_quantity == pytest.approx(0.0)
     assert fill.depth_levels_consumed == 2
+    assert fill.fill_price == pytest.approx(fill.filled_notional / fill.filled_quantity)
+    assert fill.unfilled_quantity == pytest.approx(fill.requested_quantity - fill.filled_quantity)
+    assert fill.evidence_timestamp == book_timestamp
+    assert fill.first_fill_timestamp == book_timestamp
+    assert fill.last_fill_timestamp == book_timestamp
     assert fill.execution_impact_bps == pytest.approx((100.0 - fill.fill_price) / 100.0 * 10_000.0)
+    assert fill.slippage_bps == pytest.approx((100.0 - fill.fill_price) / 100.0 * 10_000.0)
 
 
 def test_taker_depth_buy_can_consume_by_requested_notional() -> None:
@@ -2069,6 +2079,66 @@ def test_taker_depth_returns_partial_fill_when_depth_is_insufficient() -> None:
     assert fill.evidence_timestamp == book_timestamp
     assert fill.first_fill_timestamp == book_timestamp
     assert fill.last_fill_timestamp == book_timestamp
+
+
+@pytest.mark.parametrize(
+    ("side", "levels", "reference_price", "expected_source", "expected_fill_price", "expected_cost_bps"),
+    [
+        (
+            "buy",
+            (DepthLevel(price=100.0, quantity=1.0), DepthLevel(price=101.0, quantity=2.0)),
+            100.0,
+            "ask_depth",
+            302.0 / 3.0,
+            ((302.0 / 3.0) - 100.0) / 100.0 * 10_000.0,
+        ),
+        (
+            "sell",
+            (DepthLevel(price=100.0, quantity=1.0), DepthLevel(price=99.0, quantity=2.0)),
+            100.0,
+            "bid_depth",
+            298.0 / 3.0,
+            (100.0 - (298.0 / 3.0)) / 100.0 * 10_000.0,
+        ),
+    ],
+)
+def test_taker_depth_partial_fill_uses_side_correct_adverse_cost_sign(
+    side: str,
+    levels: tuple[DepthLevel, ...],
+    reference_price: float,
+    expected_source: str,
+    expected_fill_price: float,
+    expected_cost_bps: float,
+) -> None:
+    book_timestamp = _ts("2026-03-10T00:00:01Z")
+    book_kwargs = {
+        "timestamp": book_timestamp,
+        "symbol": "BTCUSDT",
+        "bid": 100.0,
+        "ask": 100.2,
+        "bid_levels" if side == "sell" else "ask_levels": levels,
+    }
+
+    fill = simulate_taker_depth_fill(
+        symbol="BTCUSDT",
+        side=side,
+        quantity=5.0,
+        reference_price=reference_price,
+        order_book=OrderBookSnapshot(**book_kwargs),
+    )
+
+    assert fill.filled is True
+    assert fill.fill_quality == "partial_evidence_backed"
+    assert fill.execution_price_source == expected_source
+    assert fill.fill_price == pytest.approx(expected_fill_price)
+    assert fill.fill_price == pytest.approx(fill.filled_notional / fill.filled_quantity)
+    assert fill.filled_quantity == pytest.approx(3.0)
+    assert fill.unfilled_quantity == pytest.approx(2.0)
+    assert fill.depth_levels_consumed == 2
+    assert fill.execution_impact_bps == pytest.approx(expected_cost_bps)
+    assert fill.slippage_bps == pytest.approx(expected_cost_bps)
+    assert fill.execution_impact_bps > 0.0
+    assert fill.slippage_bps > 0.0
 
 
 def test_taker_depth_requested_notional_partial_fill_preserves_accounting_identity() -> None:
