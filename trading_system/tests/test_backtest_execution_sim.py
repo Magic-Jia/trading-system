@@ -1131,6 +1131,23 @@ def test_execution_fill_rejects_quantity_conservation_break(
         )
 
 
+def test_execution_fill_rejects_fill_timestamp_interval_inversion() -> None:
+    with pytest.raises(ValueError, match="first_fill_timestamp cannot be after last_fill_timestamp"):
+        ExecutionFill(
+            symbol="BTCUSDT",
+            side="buy",
+            quantity=1.0,
+            filled=True,
+            fill_price=100.0,
+            fill_model="maker_post_only_queue",
+            execution_price_source="trade_print",
+            fill_quality="evidence_backed",
+            outcome="filled",
+            first_fill_timestamp=_ts("2026-03-10T00:00:02Z"),
+            last_fill_timestamp=_ts("2026-03-10T00:00:01Z"),
+        )
+
+
 @pytest.mark.parametrize(
     ("field", "value", "match"),
     [

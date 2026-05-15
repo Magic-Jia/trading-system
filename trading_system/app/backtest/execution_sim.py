@@ -183,6 +183,12 @@ class ExecutionFill:
             )
         ):
             raise ValueError("fill quantities must conserve requested quantity")
+        if (
+            self.first_fill_timestamp is not None
+            and self.last_fill_timestamp is not None
+            and self.first_fill_timestamp > self.last_fill_timestamp
+        ):
+            raise ValueError("first_fill_timestamp cannot be after last_fill_timestamp")
 
     @property
     def execution_provenance(self) -> dict[str, str]:
