@@ -645,6 +645,48 @@ def test_taker_fill_rejects_unanchored_max_evidence_lag_before_using_evidence() 
         )
 
 
+def test_taker_fill_rejects_negative_max_evidence_lag_before_using_evidence() -> None:
+    with pytest.raises(ValueError, match="max_evidence_lag must be non-negative"):
+        simulate_taker_fill(
+            symbol="BTCUSDT",
+            side="buy",
+            quantity=1.0,
+            reference_price=100.0,
+            placement_timestamp=_ts("2026-03-10T00:00:01Z"),
+            max_evidence_lag=timedelta(microseconds=-1),
+            order_books=(
+                OrderBookSnapshot(timestamp=_ts("2026-03-10T00:00:01Z"), symbol="BTCUSDT", bid=99.9, ask=100.1),
+            ),
+            trades=(
+                TradePrint(
+                    timestamp=_ts("2026-03-10T00:00:01Z"),
+                    symbol="BTCUSDT",
+                    price=100.1,
+                    quantity=1.0,
+                    side="buy",
+                ),
+            ),
+        )
+
+
+@pytest.mark.parametrize("max_evidence_lag", [True, 1, 1.0, "PT1S"])
+def test_taker_fill_rejects_non_timedelta_max_evidence_lag_before_using_evidence(
+    max_evidence_lag: object,
+) -> None:
+    with pytest.raises(ValueError, match="max_evidence_lag must be a non-negative timedelta"):
+        simulate_taker_fill(
+            symbol="BTCUSDT",
+            side="buy",
+            quantity=1.0,
+            reference_price=100.0,
+            placement_timestamp=_ts("2026-03-10T00:00:01Z"),
+            max_evidence_lag=max_evidence_lag,
+            order_books=(
+                OrderBookSnapshot(timestamp=_ts("2026-03-10T00:00:01Z"), symbol="BTCUSDT", bid=99.9, ask=100.1),
+            ),
+        )
+
+
 @pytest.mark.parametrize(
     "evidence_kind",
     [

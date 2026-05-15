@@ -287,8 +287,10 @@ def simulate_taker_fill(
     _canonical_domain("order_type", order_type, _TAKER_ORDER_TYPES)
     quantity = _non_negative_finite_float("quantity", quantity)
     _positive_finite_float("reference_price", reference_price)
-    if max_evidence_lag is not None and placement_timestamp is None:
-        raise ValueError("max_evidence_lag requires placement_timestamp")
+    if max_evidence_lag is not None:
+        max_evidence_lag = _non_negative_timedelta("max_evidence_lag", max_evidence_lag)
+        if placement_timestamp is None:
+            raise ValueError("max_evidence_lag requires placement_timestamp")
     _validate_evidence_contract(symbol=symbol, order_books=order_books, trades=trades)
     eligible_books = _eligible_symbol_order_books(
         symbol,
@@ -1010,6 +1012,14 @@ def _non_negative_finite_float(name: str, value: Any) -> float:
     if not math.isfinite(result) or result < 0.0:
         raise ValueError(f"{name} must be a non-negative finite number")
     return result
+
+
+def _non_negative_timedelta(name: str, value: Any) -> timedelta:
+    if not isinstance(value, timedelta):
+        raise ValueError(f"{name} must be a non-negative timedelta")
+    if value < timedelta(0):
+        raise ValueError(f"{name} must be non-negative")
+    return value
 
 
 def _canonical_order_side(value: Any) -> OrderSide:
