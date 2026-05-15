@@ -175,6 +175,21 @@ class ExecutionFill:
                 raise ValueError("no-fill execution cannot consume depth levels")
             if self.first_fill_timestamp is not None or self.last_fill_timestamp is not None:
                 raise ValueError("no-fill execution cannot include fill timestamps")
+        for field_name in ("evidence_timestamp", "first_fill_timestamp", "last_fill_timestamp"):
+            value = getattr(self, field_name)
+            if value is not None:
+                _timezone_aware_datetime(field_name, value, symbol=self.symbol)
+        if self.first_fill_timestamp is not None and self.last_fill_timestamp is not None:
+            if self.first_fill_timestamp > self.last_fill_timestamp:
+                raise ValueError("first_fill_timestamp cannot be after last_fill_timestamp")
+        if (
+            self.fill_model == "taker_trade_print"
+            and self.evidence_timestamp is not None
+            and self.first_fill_timestamp is not None
+            and self.last_fill_timestamp is not None
+            and not (self.first_fill_timestamp <= self.evidence_timestamp <= self.last_fill_timestamp)
+        ):
+            raise ValueError("trade-print evidence_timestamp must fall within fill timestamp interval")
         for field_name in (
             "requested_quantity",
             "requested_notional",
@@ -229,10 +244,6 @@ class ExecutionFill:
             raise ValueError("filled notional must equal filled quantity times fill_price")
         if self.slippage_bps is not None:
             object.__setattr__(self, "slippage_bps", _finite_float("slippage_bps", self.slippage_bps))
-        for field_name in ("evidence_timestamp", "first_fill_timestamp", "last_fill_timestamp"):
-            value = getattr(self, field_name)
-            if value is not None:
-                _timezone_aware_datetime(field_name, value, symbol=self.symbol)
         if (
             self.requested_quantity is not None
             and self.requested_notional is None
