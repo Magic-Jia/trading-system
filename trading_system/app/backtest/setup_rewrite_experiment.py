@@ -192,6 +192,7 @@ def _evaluate_row(*, index: int, row: Mapping[str, Any], params: SetupRewritePar
         "source_chunk": _source_chunk(row, index=index),
     }
     _validate_execution_evidence_timestamps(row, index=index)
+    _validate_execution_scalars(row, index=index)
     for rule in params.rules:
         status, reason, keep = _evaluate_rule(identity=identity, raw_row=row, rule=rule)
         if status != "evaluated" or not keep:
@@ -322,14 +323,14 @@ def _empty_bucket() -> dict[str, Any]:
     }
 
 
-def _float_or_none(value: Any, *, field_path: str) -> float | None:
+def _float_or_none(value: Any, *, field_path: str, present_suffix: str = "") -> float | None:
     if value is None:
         return None
     if isinstance(value, bool) or not isinstance(value, Real):
-        raise ValueError(f"{field_path} must be a finite number")
+        raise ValueError(f"{field_path} must be a finite number{present_suffix}")
     result = float(value)
     if not math.isfinite(result):
-        raise ValueError(f"{field_path} must be a finite number")
+        raise ValueError(f"{field_path} must be a finite number{present_suffix}")
     return result
 
 
@@ -362,6 +363,16 @@ def _validate_execution_evidence_timestamps(row: Mapping[str, Any], *, index: in
             raise ValueError(f"rows[{index}].first_fill_timestamp must be at or before last_fill_timestamp")
         if evidence_timestamp is not None and not (first_fill_timestamp <= evidence_timestamp <= last_fill_timestamp):
             raise ValueError(f"rows[{index}].evidence_timestamp must fall within fill timestamp interval")
+
+
+def _validate_execution_scalars(row: Mapping[str, Any], *, index: int) -> None:
+    for field_name in ("execution_impact_bps", "slippage_bps"):
+        if field_name in row and row[field_name] is not None:
+            _float_or_none(
+                row[field_name],
+                field_path=f"rows[{index}].{field_name}",
+                present_suffix=" when present",
+            )
 
 
 def _optional_timestamp(value: Any, *, field_path: str) -> datetime | None:
