@@ -209,6 +209,59 @@ def test_execution_fill_rejects_maker_fields_on_non_maker_models(maker_field: st
         ExecutionFill(**kwargs)
 
 
+@pytest.mark.parametrize(
+    ("maker_reasons", "match"),
+    [
+        (["resting"], "maker_reasons must be a tuple"),
+        (("",), "maker_reasons must contain canonical strings"),
+        ((" resting",), "maker_reasons must contain canonical strings"),
+        (("resting ",), "maker_reasons must contain canonical strings"),
+        ((123,), "maker_reasons must contain canonical strings"),
+        (("resting", "resting"), "maker_reasons must contain unique labels"),
+    ],
+)
+def test_execution_fill_rejects_noncanonical_maker_reasons(
+    maker_reasons: object,
+    match: str,
+) -> None:
+    with pytest.raises(ValueError, match=match):
+        ExecutionFill(
+            symbol="BTCUSDT",
+            side="buy",
+            quantity=1.0,
+            filled=False,
+            fill_price=None,
+            fill_model="maker_post_only_queue",
+            execution_price_source="no_crossing_evidence",
+            fill_quality="no_fill",
+            outcome="missed_alpha",
+            maker_status="expired",
+            queue_ahead_initial=1.0,
+            queue_ahead_remaining=1.0,
+            maker_reasons=maker_reasons,
+        )
+
+
+def test_execution_fill_accepts_canonical_unique_maker_reasons_tuple() -> None:
+    fill = ExecutionFill(
+        symbol="BTCUSDT",
+        side="buy",
+        quantity=1.0,
+        filled=False,
+        fill_price=None,
+        fill_model="maker_post_only_queue",
+        execution_price_source="no_crossing_evidence",
+        fill_quality="no_fill",
+        outcome="missed_alpha",
+        maker_status="expired",
+        queue_ahead_initial=1.0,
+        queue_ahead_remaining=1.0,
+        maker_reasons=("latency_applied", "timeout_expired"),
+    )
+
+    assert fill.maker_reasons == ("latency_applied", "timeout_expired")
+
+
 @pytest.mark.parametrize("fill_model, price_source", [
     ("taker_trade_print", "trade_print"),
     ("maker_post_only_queue", "no_crossing_evidence"),

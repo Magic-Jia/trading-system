@@ -173,6 +173,7 @@ class ExecutionFill:
                 "maker_status",
                 _canonical_domain("maker_status", self.maker_status, _MAKER_STATUSES),
             )
+        _validate_maker_reasons(self.maker_reasons)
         object.__setattr__(self, "quantity", _non_negative_finite_float("quantity", self.quantity))
         if self.fill_price is not None:
             _positive_finite_float("fill_price", self.fill_price)
@@ -1334,6 +1335,18 @@ def _canonical_string(name: str, value: Any) -> str:
     if not isinstance(value, str) or not value or value.strip() != value:
         raise ValueError(f"{name} must be a canonical string")
     return value
+
+
+def _validate_maker_reasons(value: Any) -> None:
+    if not isinstance(value, tuple):
+        raise ValueError("maker_reasons must be a tuple")
+    seen: set[str] = set()
+    for reason in value:
+        if not isinstance(reason, str) or not reason or reason.strip() != reason:
+            raise ValueError("maker_reasons must contain canonical strings")
+        if reason in seen:
+            raise ValueError("maker_reasons must contain unique labels")
+        seen.add(reason)
 
 
 def _timezone_aware_datetime(name: str, value: Any, *, symbol: str) -> datetime:
