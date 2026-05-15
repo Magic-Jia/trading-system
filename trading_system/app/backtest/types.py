@@ -165,6 +165,7 @@ class PortfolioCandidate:
     filled_quantity: float | None = None
     filled_notional: float | None = None
     unfilled_quantity: float | None = None
+    unfilled_notional: float | None = None
     depth_levels_consumed: int | None = None
     execution_impact_bps: float | None = None
     slippage_bps: float | None = None
@@ -311,6 +312,7 @@ class TradeLedgerRow:
     filled_quantity: float | None = None
     filled_notional: float | None = None
     unfilled_quantity: float | None = None
+    unfilled_notional: float | None = None
     depth_levels_consumed: int | None = None
     execution_impact_bps: float | None = None
     slippage_bps: float | None = None

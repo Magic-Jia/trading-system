@@ -250,6 +250,7 @@ class _OpenTrade:
     filled_quantity: float | None = None
     filled_notional: float | None = None
     unfilled_quantity: float | None = None
+    unfilled_notional: float | None = None
     depth_levels_consumed: int | None = None
     execution_impact_bps: float | None = None
     slippage_bps: float | None = None
@@ -360,9 +361,11 @@ def _exit_execution_fill(row: DatasetSnapshotRow, open_trade: _OpenTrade, refere
                 raise ValueError("trade.price must be a positive number") from exc
             raise
         if fill.fill_model != "taker_ohlcv_approx":
+            filled_notional = fill.filled_notional
             return replace(
                 fill,
-                requested_notional=open_trade.position_notional,
+                requested_notional=filled_notional,
+                unfilled_notional=0.0,
                 slippage_bps=_exit_slippage_vs_reference_bps(
                     side=open_trade.side,
                     fill_price=fill.fill_price,
@@ -981,6 +984,7 @@ def _portfolio_candidate(
         filled_quantity=entry_fill.filled_quantity,
         filled_notional=entry_fill.filled_notional,
         unfilled_quantity=entry_fill.unfilled_quantity,
+        unfilled_notional=entry_fill.unfilled_notional,
         depth_levels_consumed=entry_fill.depth_levels_consumed,
         execution_impact_bps=entry_fill.execution_impact_bps,
         slippage_bps=entry_fill.slippage_bps,
@@ -1011,6 +1015,7 @@ def _candidate_with_execution_fill(candidate: PortfolioCandidate, fill: Executio
         filled_quantity=fill.filled_quantity,
         filled_notional=fill.filled_notional,
         unfilled_quantity=fill.unfilled_quantity,
+        unfilled_notional=fill.unfilled_notional,
         depth_levels_consumed=fill.depth_levels_consumed,
         execution_impact_bps=fill.execution_impact_bps,
         slippage_bps=fill.slippage_bps,
@@ -1276,6 +1281,7 @@ def _trade_row(
             filled_quantity=open_trade.filled_quantity,
             filled_notional=open_trade.filled_notional,
             unfilled_quantity=open_trade.unfilled_quantity,
+            unfilled_notional=open_trade.unfilled_notional,
             depth_levels_consumed=open_trade.depth_levels_consumed,
             execution_impact_bps=open_trade.execution_impact_bps,
             slippage_bps=open_trade.slippage_bps,
@@ -1491,6 +1497,7 @@ def _replay_full_market_baseline_rows(
                     filled_quantity=candidate.filled_quantity,
                     filled_notional=candidate.filled_notional,
                     unfilled_quantity=candidate.unfilled_quantity,
+                    unfilled_notional=candidate.unfilled_notional,
                     depth_levels_consumed=candidate.depth_levels_consumed,
                     execution_impact_bps=candidate.execution_impact_bps,
                     slippage_bps=candidate.slippage_bps,

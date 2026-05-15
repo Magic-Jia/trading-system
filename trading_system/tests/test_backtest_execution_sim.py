@@ -482,10 +482,87 @@ def test_execution_fill_accepts_conserved_full_and_partial_requested_fill_quanti
         filled_quantity=filled_quantity,
         filled_notional=filled_quantity * 100.0,
         unfilled_quantity=unfilled_quantity,
+        unfilled_notional=unfilled_quantity * 100.0,
     )
 
     assert fill.filled_quantity == pytest.approx(filled_quantity)
     assert fill.unfilled_quantity == pytest.approx(unfilled_quantity)
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "match"),
+    [
+        ("filled_notional", 100.01, "fill notionals must conserve requested notional"),
+        ("unfilled_notional", "omit", "fill notionals must include unfilled notional"),
+        ("unfilled_notional", None, "fill notionals must include unfilled notional"),
+        ("unfilled_notional", 24.0, "fill notionals must conserve requested notional"),
+        ("unfilled_notional", -0.1, "unfilled_notional must be a non-negative finite number"),
+        ("unfilled_notional", math.nan, "unfilled_notional must be a non-negative finite number"),
+        ("unfilled_notional", math.inf, "unfilled_notional must be a non-negative finite number"),
+    ],
+)
+def test_execution_fill_rejects_non_conserved_requested_fill_notionals(
+    field: str,
+    value: object,
+    match: str,
+) -> None:
+    kwargs = {
+        "symbol": "BTCUSDT",
+        "side": "buy",
+        "quantity": 1.0,
+        "filled": True,
+        "fill_price": 100.0,
+        "fill_model": "reference_close",
+        "execution_price_source": "ohlcv_close",
+        "fill_quality": "approximate",
+        "outcome": "filled",
+        "requested_quantity": 1.0,
+        "requested_notional": 100.0,
+        "filled_quantity": 0.75,
+        "filled_notional": 75.0,
+        "unfilled_quantity": 0.25,
+        "unfilled_notional": 25.0,
+    }
+    if value == "omit":
+        kwargs.pop(field)
+    else:
+        kwargs[field] = value
+
+    with pytest.raises(ValueError, match=match):
+        ExecutionFill(**kwargs)
+
+
+@pytest.mark.parametrize(
+    ("filled_notional", "unfilled_notional"),
+    [
+        (100.0, 0.0),
+        (75.0, 25.0),
+    ],
+)
+def test_execution_fill_accepts_conserved_full_and_partial_requested_fill_notionals(
+    filled_notional: float,
+    unfilled_notional: float,
+) -> None:
+    fill = ExecutionFill(
+        symbol="BTCUSDT",
+        side="buy",
+        quantity=1.0,
+        filled=True,
+        fill_price=100.0,
+        fill_model="reference_close",
+        execution_price_source="ohlcv_close",
+        fill_quality="approximate",
+        outcome="filled",
+        requested_quantity=1.0,
+        requested_notional=100.0,
+        filled_quantity=filled_notional / 100.0,
+        filled_notional=filled_notional,
+        unfilled_quantity=unfilled_notional / 100.0,
+        unfilled_notional=unfilled_notional,
+    )
+
+    assert fill.filled_notional == pytest.approx(filled_notional)
+    assert fill.unfilled_notional == pytest.approx(unfilled_notional)
 
 
 def test_execution_fill_rejects_orderbook_depth_accounting_price_identity_mismatch() -> None:

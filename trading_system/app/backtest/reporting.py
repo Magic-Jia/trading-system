@@ -679,6 +679,7 @@ def _trade_ledger_payload(trade_ledger: tuple[TradeLedgerRow, ...]) -> list[dict
             "filled_quantity": row.filled_quantity,
             "filled_notional": row.filled_notional,
             "unfilled_quantity": row.unfilled_quantity,
+            "unfilled_notional": row.unfilled_notional,
             "depth_levels_consumed": row.depth_levels_consumed,
             "execution_impact_bps": _optional_non_negative_finite_float(
                 row.execution_impact_bps,

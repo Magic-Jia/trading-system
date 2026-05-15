@@ -123,6 +123,7 @@ class ExecutionFill:
     filled_quantity: float | None = None
     filled_notional: float | None = None
     unfilled_quantity: float | None = None
+    unfilled_notional: float | None = None
     depth_levels_consumed: int | None = None
     execution_impact_bps: float | None = None
     slippage_bps: float | None = None
@@ -200,6 +201,7 @@ class ExecutionFill:
             "filled_quantity",
             "filled_notional",
             "unfilled_quantity",
+            "unfilled_notional",
             "execution_impact_bps",
             "queue_ahead_initial",
             "queue_ahead_remaining",
@@ -281,6 +283,26 @@ class ExecutionFill:
             )
         ):
             raise ValueError("fill quantities must conserve requested quantity")
+        if (
+            self.requested_notional is not None
+            and float(self.requested_notional) > 0.0
+            and self.filled_notional is not None
+            and self.unfilled_notional is None
+        ):
+            raise ValueError("fill notionals must include unfilled notional")
+        if (
+            self.requested_notional is not None
+            and float(self.requested_notional) > 0.0
+            and self.filled_notional is not None
+            and self.unfilled_notional is not None
+            and not math.isclose(
+                float(self.requested_notional),
+                float(self.filled_notional) + float(self.unfilled_notional),
+                rel_tol=0.0,
+                abs_tol=1e-9,
+            )
+        ):
+            raise ValueError("fill notionals must conserve requested notional")
         if (
             self.fill_model == "taker_trade_print"
             and self.fill_quality == "evidence_backed"
@@ -538,6 +560,7 @@ def simulate_taker_depth_fill(
             filled_quantity=0.0,
             filled_notional=0.0,
             unfilled_quantity=requested_quantity,
+            unfilled_notional=notional_request,
             depth_levels_consumed=0,
         )
     levels = _side_levels(order_book, side=side)
@@ -559,6 +582,7 @@ def simulate_taker_depth_fill(
             filled_quantity=0.0,
             filled_notional=0.0,
             unfilled_quantity=requested_quantity,
+            unfilled_notional=notional_request,
             depth_levels_consumed=0,
         )
     if requested_quantity <= 0.0 and notional_request is None:
@@ -578,6 +602,7 @@ def simulate_taker_depth_fill(
             filled_quantity=0.0,
             filled_notional=0.0,
             unfilled_quantity=0.0,
+            unfilled_notional=None,
             depth_levels_consumed=0,
             execution_impact_bps=0.0,
             slippage_bps=_side_slippage_bps(side=side, fill_price=float(levels[0].price), reference_price=reference_price),
@@ -630,12 +655,14 @@ def simulate_taker_depth_fill(
             filled_quantity=0.0,
             filled_notional=0.0,
             unfilled_quantity=requested_quantity,
+            unfilled_notional=notional_request,
             depth_levels_consumed=0,
         )
 
     average_price = filled_notional / filled_quantity
     top_price = float(levels[0].price)
     unfilled_quantity = 0.0 if remaining_notional is not None and remaining_notional <= 0.0 else remaining
+    unfilled_notional = remaining_notional if remaining_notional is not None else None
     if remaining_notional is not None and remaining_notional > 0.0:
         fill_quality: FillQuality = "partial_evidence_backed"
     else:
@@ -656,6 +683,7 @@ def simulate_taker_depth_fill(
         filled_quantity=filled_quantity,
         filled_notional=filled_notional,
         unfilled_quantity=unfilled_quantity,
+        unfilled_notional=unfilled_notional,
         depth_levels_consumed=levels_consumed,
         execution_impact_bps=_side_slippage_bps(side=side, fill_price=average_price, reference_price=top_price),
         slippage_bps=_side_slippage_bps(side=side, fill_price=average_price, reference_price=reference_price),
