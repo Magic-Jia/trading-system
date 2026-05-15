@@ -247,15 +247,17 @@ class ExecutionFill:
             and float(self.queue_ahead_remaining) > float(self.queue_ahead_initial)
         ):
             raise ValueError("queue_ahead_remaining cannot exceed queue_ahead_initial")
-        maker_fields_present = (
-            self.maker_status is not None
-            or self.queue_ahead_initial is not None
-            or self.queue_ahead_remaining is not None
-            or self.maker_wait_seconds is not None
-            or bool(self.maker_reasons)
-        )
-        if maker_fields_present and not self.fill_model.startswith("maker_"):
-            raise ValueError("maker fields require maker fill model")
+        if not self.fill_model.startswith("maker_"):
+            for field_name in (
+                "maker_status",
+                "queue_ahead_initial",
+                "queue_ahead_remaining",
+                "maker_wait_seconds",
+            ):
+                if getattr(self, field_name) is not None:
+                    raise ValueError(f"{field_name} requires maker fill model")
+            if self.maker_reasons:
+                raise ValueError("maker_reasons requires maker fill model")
         if self.maker_status is not None:
             if self.filled:
                 if self.maker_status in {"no_fill", "expired", "cancelled_replaced"}:

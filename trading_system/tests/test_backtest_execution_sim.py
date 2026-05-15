@@ -250,7 +250,7 @@ def test_execution_fill_rejects_maker_fields_on_non_maker_models(maker_field: st
     }
     kwargs[maker_field] = value
 
-    with pytest.raises(ValueError, match="maker fields require maker fill model"):
+    with pytest.raises(ValueError, match=f"{maker_field} requires maker fill model"):
         ExecutionFill(**kwargs)
 
 
