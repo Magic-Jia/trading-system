@@ -266,6 +266,35 @@ def test_backtest_evaluation_report_requires_raw_market_source_identity_when_pre
         )
 
 
+def test_backtest_evaluation_report_rejects_walk_forward_raw_market_source_identity_drift() -> None:
+    raw_market = {
+        "source": "phase1_raw_market_archive",
+        "archive_root": "archive/raw-market",
+        "coverage_start": "2026-03-10T00:00:00Z",
+        "coverage_end": "2026-03-11T00:00:00Z",
+        "fetched_at": "2026-03-11T00:05:00Z",
+    }
+
+    with pytest.raises(
+        ValueError,
+        match="walk_forward.metadata.raw_market must match metadata.raw_market source identity",
+    ):
+        reporting.render_backtest_evaluation_report(
+            experiment_name="evaluation",
+            evaluation={
+                "walk_forward": {
+                    "metadata": {
+                        "window_count": 1,
+                        "raw_market": {**raw_market, "archive_root": "archive/other-raw-market"},
+                    }
+                },
+                "regimes": {"buckets": []},
+                "cost_stress": {"scenarios": []},
+            },
+            metadata={"dataset_root": "dataset", "raw_market": raw_market},
+        )
+
+
 def test_backtest_evaluation_report_rejects_duplicate_regime_bucket_labels() -> None:
     with pytest.raises(ValueError, match="regimes.buckets labels must be unique"):
         reporting.render_backtest_evaluation_report(

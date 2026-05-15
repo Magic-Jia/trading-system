@@ -184,6 +184,17 @@ def render_backtest_evaluation_report(
         if window_count != len(validated_walk_forward["windows"]):
             raise ValueError("walk_forward.metadata.window_count must match walk_forward.windows length")
         walk_forward_metadata["window_count"] = window_count
+    if "raw_market" in walk_forward_metadata and walk_forward_metadata["raw_market"] is not None:
+        walk_forward_metadata["raw_market"] = _report_raw_market_provenance(
+            walk_forward_metadata["raw_market"],
+            field_name="walk_forward.metadata.raw_market",
+        )
+        if report_metadata.get("raw_market") is not None and _raw_market_provenance_identity(
+            walk_forward_metadata["raw_market"]
+        ) != _raw_market_provenance_identity(report_metadata["raw_market"]):
+            raise ValueError("walk_forward.metadata.raw_market must match metadata.raw_market source identity")
+    if "metadata" in validated_walk_forward:
+        validated_walk_forward["metadata"] = walk_forward_metadata
     regime_buckets = _list_field(regimes, "buckets", label="regimes.buckets")
     validated_regime_buckets = []
     regime_bucket_labels: set[str] = set()
@@ -883,6 +894,10 @@ def _report_raw_market_provenance(value: object, *, field_name: str = "metadata.
             field_name=f"{field_name}.{field}",
         )
     return provenance
+
+
+def _raw_market_provenance_identity(provenance: Mapping[str, Any]) -> tuple[str, str, str, str, str]:
+    return tuple(provenance[field] for field in _RAW_MARKET_PROVENANCE_IDENTITY_FIELDS)
 
 
 def _canonical_utc_report_timestamp(value: str, *, field_name: str) -> str:
