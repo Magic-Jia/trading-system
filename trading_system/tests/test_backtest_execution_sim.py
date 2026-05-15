@@ -744,6 +744,134 @@ def test_maker_latency_ignores_trade_prints_before_effective_placement_time() ->
     assert "latency_applied" in fill.maker_reasons
 
 
+@pytest.mark.parametrize(
+    ("quantity", "extra_trades", "expected_status"),
+    [
+        (
+            1.0,
+            (
+                TradePrint(
+                    timestamp=_ts("2026-03-10T00:00:00.750000Z"),
+                    symbol="BTCUSDT",
+                    price=99.5,
+                    quantity=1.0,
+                    side="sell",
+                    fill_id="maker-print-002",
+                ),
+            ),
+            "filled",
+        ),
+        (2.0, (), "cancelled_replaced"),
+    ],
+)
+def test_maker_queue_wait_seconds_for_fills_uses_first_fill_after_effective_placement(
+    quantity: float,
+    extra_trades: tuple[TradePrint, ...],
+    expected_status: str,
+) -> None:
+    placement = _ts("2026-03-10T00:00:00Z")
+    first_fill = _ts("2026-03-10T00:00:00.250000Z")
+
+    fill = simulate_maker_limit_fill(
+        symbol="BTCUSDT",
+        side="buy",
+        limit_price=99.5,
+        quantity=quantity,
+        queue_ahead_quantity=0.0,
+        placement_timestamp=placement,
+        latency_ms=100,
+        cancel_replace_timestamp=_ts("2026-03-10T00:00:01Z"),
+        trades=(
+            TradePrint(
+                timestamp=first_fill,
+                symbol="BTCUSDT",
+                price=99.5,
+                quantity=1.0,
+                side="sell",
+                fill_id="maker-print-001",
+            ),
+        )
+        + extra_trades,
+    )
+
+    assert fill.maker_status == expected_status
+    assert fill.first_fill_timestamp == first_fill
+    assert fill.maker_wait_seconds == pytest.approx(0.15)
+
+
+@pytest.mark.parametrize(
+    ("cancel_replace_timestamp", "timeout_seconds", "expected_status", "expected_wait_seconds"),
+    [
+        (_ts("2026-03-10T00:00:00.400000Z"), 1.0, "cancelled_replaced", 0.15),
+        (None, 0.4, "expired", 0.4),
+    ],
+)
+def test_maker_queue_wait_seconds_for_no_fill_uses_cutoff_after_effective_placement(
+    cancel_replace_timestamp: datetime | None,
+    timeout_seconds: float,
+    expected_status: str,
+    expected_wait_seconds: float,
+) -> None:
+    fill = simulate_maker_limit_fill(
+        symbol="BTCUSDT",
+        side="buy",
+        limit_price=99.5,
+        quantity=1.0,
+        queue_ahead_quantity=1.0,
+        placement_timestamp=_ts("2026-03-10T00:00:00Z"),
+        latency_ms=250,
+        cancel_replace_timestamp=cancel_replace_timestamp,
+        timeout_seconds=timeout_seconds,
+        trades=(
+            TradePrint(
+                timestamp=_ts("2026-03-10T00:00:00.300000Z"),
+                symbol="BTCUSDT",
+                price=99.5,
+                quantity=0.5,
+                side="sell",
+                fill_id="maker-print-001",
+            ),
+            TradePrint(
+                timestamp=_ts("2026-03-10T00:00:02Z"),
+                symbol="BTCUSDT",
+                price=99.5,
+                quantity=10.0,
+                side="sell",
+                fill_id="maker-print-002",
+            ),
+        ),
+    )
+
+    assert fill.maker_status == expected_status
+    assert fill.first_fill_timestamp is None
+    assert fill.maker_wait_seconds == pytest.approx(expected_wait_seconds)
+
+
+def test_maker_queue_wait_seconds_is_none_without_placement_anchor() -> None:
+    fill = simulate_maker_limit_fill(
+        symbol="BTCUSDT",
+        side="buy",
+        limit_price=99.5,
+        quantity=1.0,
+        queue_ahead_quantity=0.0,
+        cancel_replace_timestamp=_ts("2026-03-10T00:00:01Z"),
+        trades=(
+            TradePrint(
+                timestamp=_ts("2026-03-10T00:00:00.500000Z"),
+                symbol="BTCUSDT",
+                price=99.5,
+                quantity=1.0,
+                side="sell",
+                fill_id="maker-print-001",
+            ),
+        ),
+    )
+
+    assert fill.maker_status == "filled"
+    assert fill.first_fill_timestamp == _ts("2026-03-10T00:00:00.500000Z")
+    assert fill.maker_wait_seconds is None
+
+
 def test_maker_queue_inference_requires_placement_timestamp_anchor() -> None:
     with pytest.raises(ValueError, match="queue_ahead_quantity inference requires placement_timestamp"):
         simulate_maker_limit_fill(
