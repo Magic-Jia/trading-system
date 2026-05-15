@@ -1469,8 +1469,8 @@ def _validate_evidence_contract(
         _validate_depth_top_size("bid", book.bid_levels, top_size=book.bid_size, symbol=symbol)
         _validate_depth_top_size("ask", book.ask_levels, top_size=book.ask_size, symbol=symbol)
         book_timestamp = _timezone_aware_datetime("order_book.timestamp", book.timestamp, symbol=symbol)
-        if previous_book_timestamp is not None and book_timestamp < previous_book_timestamp:
-            raise ValueError(f"order book timestamps must be monotonic for {symbol}")
+        if previous_book_timestamp is not None and book_timestamp <= previous_book_timestamp:
+            raise ValueError(f"order book timestamps must be strictly increasing for {symbol}")
         previous_book_timestamp = book_timestamp
         books_by_timestamp.setdefault(book_timestamp, []).append((bid, ask))
 

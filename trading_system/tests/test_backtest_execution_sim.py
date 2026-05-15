@@ -1075,7 +1075,7 @@ def test_evidence_contract_rejects_mixed_trade_timestamp_timezone_awareness() ->
 
 
 def test_evidence_contract_rejects_non_monotonic_same_symbol_order_book_timestamps() -> None:
-    with pytest.raises(ValueError, match="order book timestamps must be monotonic for BTCUSDT"):
+    with pytest.raises(ValueError, match="order book timestamps must be strictly increasing for BTCUSDT"):
         _validate_evidence_contract(
             symbol="BTCUSDT",
             order_books=(
@@ -1085,6 +1085,42 @@ def test_evidence_contract_rejects_non_monotonic_same_symbol_order_book_timestam
             ),
             trades=(),
         )
+
+
+def test_evidence_contract_rejects_duplicate_same_symbol_order_book_timestamps() -> None:
+    with pytest.raises(ValueError, match="order book timestamps must be strictly increasing for BTCUSDT"):
+        _validate_evidence_contract(
+            symbol="BTCUSDT",
+            order_books=(
+                OrderBookSnapshot(timestamp=_ts("2026-03-10T00:00:01Z"), symbol="BTCUSDT", bid=99.9, ask=100.1),
+                OrderBookSnapshot(timestamp=_ts("2026-03-10T00:00:01Z"), symbol="ETHUSDT", bid=199.9, ask=200.1),
+                OrderBookSnapshot(timestamp=_ts("2026-03-10T00:00:01Z"), symbol="BTCUSDT", bid=99.8, ask=100.2),
+            ),
+            trades=(),
+        )
+
+
+def test_evidence_contract_accepts_equal_order_book_timestamps_for_different_symbols() -> None:
+    _validate_evidence_contract(
+        symbol="BTCUSDT",
+        order_books=(
+            OrderBookSnapshot(timestamp=_ts("2026-03-10T00:00:01Z"), symbol="ETHUSDT", bid=199.9, ask=200.1),
+            OrderBookSnapshot(timestamp=_ts("2026-03-10T00:00:01Z"), symbol="BTCUSDT", bid=99.9, ask=100.1),
+        ),
+        trades=(),
+    )
+
+
+def test_evidence_contract_accepts_strictly_increasing_same_symbol_order_book_timestamps() -> None:
+    _validate_evidence_contract(
+        symbol="BTCUSDT",
+        order_books=(
+            OrderBookSnapshot(timestamp=_ts("2026-03-10T00:00:01Z"), symbol="BTCUSDT", bid=99.9, ask=100.1),
+            OrderBookSnapshot(timestamp=_ts("2026-03-10T00:00:01Z"), symbol="ETHUSDT", bid=199.9, ask=200.1),
+            OrderBookSnapshot(timestamp=_ts("2026-03-10T00:00:02Z"), symbol="BTCUSDT", bid=99.8, ask=100.2),
+        ),
+        trades=(),
+    )
 
 
 @pytest.mark.parametrize(
