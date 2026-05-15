@@ -5075,7 +5075,7 @@ def test_execution_fill_rejects_filled_maker_status_with_partial_fill_quality() 
         )
 
 
-@pytest.mark.parametrize("maker_status", ["expired", "cancelled_replaced"])
+@pytest.mark.parametrize("maker_status", ["no_fill", "expired", "cancelled_replaced"])
 def test_execution_fill_rejects_terminal_maker_no_fill_status_with_non_no_fill_quality(maker_status: str) -> None:
     with pytest.raises(ValueError, match="maker_status must agree with fill_quality"):
         ExecutionFill(
