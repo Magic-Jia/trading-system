@@ -85,6 +85,18 @@ def test_evidence_contract_rejects_non_monotonic_same_symbol_trade_timestamps() 
         )
 
 
+def test_evidence_contract_rejects_mixed_trade_timestamp_timezone_awareness() -> None:
+    with pytest.raises(ValueError, match="trade.timestamp must be timezone-aware for BTCUSDT"):
+        _validate_evidence_contract(
+            symbol="BTCUSDT",
+            order_books=(),
+            trades=(
+                TradePrint(timestamp=_ts("2026-03-10T00:00:01Z"), symbol="BTCUSDT", price=100.1, quantity=1.0),
+                TradePrint(timestamp=datetime(2026, 3, 10, 0, 0, 2), symbol="BTCUSDT", price=100.2, quantity=1.0),
+            ),
+        )
+
+
 def test_evidence_contract_rejects_non_monotonic_same_symbol_order_book_timestamps() -> None:
     with pytest.raises(ValueError, match="order book timestamps must be monotonic for BTCUSDT"):
         _validate_evidence_contract(

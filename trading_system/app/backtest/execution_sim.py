@@ -887,6 +887,12 @@ def _canonical_string(name: str, value: Any) -> str:
     return value
 
 
+def _timezone_aware_datetime(name: str, value: Any, *, symbol: str) -> datetime:
+    if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() is None:
+        raise ValueError(f"{name} must be timezone-aware for {symbol}")
+    return value
+
+
 def _validate_evidence_contract(
     *,
     symbol: str,
@@ -900,6 +906,7 @@ def _validate_evidence_contract(
             continue
         _positive_finite_float("trade.price", trade.price)
         _positive_finite_float("trade.quantity", trade.quantity)
+        trade_timestamp = _timezone_aware_datetime("trade.timestamp", trade.timestamp, symbol=symbol)
         if trade.side is not None:
             _canonical_domain("trade.side", trade.side, _TRADE_PRINT_SIDES)
         if trade.fill_id is not None:
@@ -907,9 +914,9 @@ def _validate_evidence_contract(
             if fill_id in seen_fill_ids:
                 raise ValueError(f"duplicate trade.fill_id: {fill_id}")
             seen_fill_ids.add(fill_id)
-        if previous_trade_timestamp is not None and trade.timestamp < previous_trade_timestamp:
+        if previous_trade_timestamp is not None and trade_timestamp < previous_trade_timestamp:
             raise ValueError(f"trade timestamps must be monotonic for {symbol}")
-        previous_trade_timestamp = trade.timestamp
+        previous_trade_timestamp = trade_timestamp
 
     previous_book_timestamp: datetime | None = None
     for book in order_books:
@@ -927,9 +934,10 @@ def _validate_evidence_contract(
         for level in book.ask_levels:
             _strict_positive_finite_float("depth level price", level.price)
             _strict_positive_finite_float("depth level quantity", level.quantity)
-        if previous_book_timestamp is not None and book.timestamp < previous_book_timestamp:
+        book_timestamp = _timezone_aware_datetime("order_book.timestamp", book.timestamp, symbol=symbol)
+        if previous_book_timestamp is not None and book_timestamp < previous_book_timestamp:
             raise ValueError(f"order book timestamps must be monotonic for {symbol}")
-        previous_book_timestamp = book.timestamp
+        previous_book_timestamp = book_timestamp
 
 
 def _datetime_or_none(value: Any) -> datetime | None:
