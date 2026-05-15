@@ -1962,6 +1962,66 @@ def test_taker_depth_buy_can_consume_by_requested_notional() -> None:
     assert fill.depth_levels_consumed == 2
 
 
+def test_taker_depth_requested_notional_shortfall_uses_total_executable_side_depth() -> None:
+    requested_notional = 305.0
+
+    fill = simulate_taker_depth_fill(
+        symbol="BTCUSDT",
+        side="buy",
+        requested_notional=requested_notional,
+        reference_price=100.0,
+        order_book=OrderBookSnapshot(
+            timestamp=_ts("2026-03-10T00:00:01Z"),
+            symbol="BTCUSDT",
+            bid=99.9,
+            ask=100.0,
+            ask_levels=(
+                DepthLevel(price=100.0, quantity=1.0),
+                DepthLevel(price=101.0, quantity=2.0),
+            ),
+        ),
+    )
+
+    assert fill.filled is True
+    assert fill.fill_quality == "partial_evidence_backed"
+    assert fill.requested_notional == pytest.approx(requested_notional)
+    assert fill.filled_notional == pytest.approx(302.0)
+    assert fill.filled_notional < requested_notional
+    assert fill.filled_quantity == pytest.approx(3.0)
+    assert fill.unfilled_quantity == pytest.approx(0.0)
+    assert fill.depth_levels_consumed == 2
+
+
+def test_taker_depth_requested_notional_exact_depth_satisfaction_is_evidence_backed() -> None:
+    requested_notional = 302.0
+
+    fill = simulate_taker_depth_fill(
+        symbol="BTCUSDT",
+        side="buy",
+        requested_notional=requested_notional,
+        reference_price=100.0,
+        order_book=OrderBookSnapshot(
+            timestamp=_ts("2026-03-10T00:00:01Z"),
+            symbol="BTCUSDT",
+            bid=99.9,
+            ask=100.0,
+            ask_levels=(
+                DepthLevel(price=100.0, quantity=1.0),
+                DepthLevel(price=101.0, quantity=2.0),
+            ),
+        ),
+    )
+
+    assert fill.filled is True
+    assert fill.fill_quality == "evidence_backed"
+    assert fill.requested_notional == pytest.approx(requested_notional)
+    assert fill.filled_notional == pytest.approx(requested_notional)
+    assert fill.filled_notional <= requested_notional + 1e-12
+    assert fill.filled_quantity == pytest.approx(3.0)
+    assert fill.unfilled_quantity == pytest.approx(0.0)
+    assert fill.depth_levels_consumed == 2
+
+
 @pytest.mark.parametrize("requested_notional", [True, "251.0", math.nan, math.inf, -math.inf, 0.0, -1.0])
 def test_taker_depth_rejects_invalid_requested_notional(requested_notional: object) -> None:
     with pytest.raises(ValueError, match="requested_notional must be a positive finite number"):
