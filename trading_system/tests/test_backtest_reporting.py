@@ -2147,6 +2147,23 @@ def test_full_market_report_rejects_noncanonical_trade_status(status: object) ->
         reporting.render_full_market_baseline_report(bad_result)
 
 
+def test_full_market_report_rejects_execution_price_source_that_disagrees_with_fill_model() -> None:
+    result = sample_baseline_result()
+    bad_result = replace(
+        result,
+        trade_ledger=(
+            replace(
+                result.trade_ledger[0],
+                fill_model="reference_close",
+                execution_price_source="best_ask",
+            ),
+        ),
+    )
+
+    with pytest.raises(ValueError, match=r"trades\[0\]\.execution_price_source must agree with fill_model"):
+        reporting.render_full_market_baseline_report(bad_result)
+
+
 @pytest.mark.parametrize("engine", [True, " trend ", _StringSubclass("trend")])
 def test_full_market_report_rejects_noncanonical_trade_engine(engine: object) -> None:
     result = sample_baseline_result()

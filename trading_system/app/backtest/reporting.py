@@ -10,6 +10,16 @@ from .types import BaselineReplayResult, PromotionMetadata, TradeLedgerRow
 
 
 _MAKER_STATUS_VALUES = frozenset({"filled", "partial", "no_fill", "expired", "cancelled_replaced"})
+_EXECUTION_PRICE_SOURCES_BY_FILL_MODEL = {
+    "reference_close": frozenset(("ohlcv_close",)),
+    "next_bar_ohlcv": frozenset(("ohlcv_next_open",)),
+    "taker_ohlcv_approx": frozenset(("ohlcv_reference",)),
+    "taker_orderbook": frozenset(("best_bid", "best_ask", "no_crossing_evidence")),
+    "taker_orderbook_depth": frozenset(("bid_depth", "ask_depth", "no_crossing_evidence")),
+    "taker_trade_print": frozenset(("trade_print",)),
+    "maker_orderbook_trade_evidence": frozenset(("trade_print", "book_cross", "no_crossing_evidence")),
+    "maker_post_only_queue": frozenset(("trade_print", "no_crossing_evidence")),
+}
 _COST_STRESS_TRADE_NUMERIC_FIELDS = (
     "base_net_pnl",
     "stressed_net_pnl",
@@ -656,8 +666,16 @@ def _trade_ledger_payload(trade_ledger: tuple[TradeLedgerRow, ...]) -> list[dict
             "entry_reference_price": row.entry_reference_price,
             "gate_timeframes": list(row.gate_timeframes),
             "trigger_timeframes": list(row.trigger_timeframes),
-            "execution_price_source": row.execution_price_source,
-            "fill_model": row.fill_model,
+            "execution_price_source": _validated_execution_price_source(
+                row.execution_price_source,
+                fill_model=row.fill_model,
+                source_field_name=f"trades[{index}].execution_price_source",
+                fill_model_field_name=f"trades[{index}].fill_model",
+            ),
+            "fill_model": _canonical_execution_fill_model(
+                row.fill_model,
+                field_name=f"trades[{index}].fill_model",
+            ),
             "fill_quality": row.fill_quality,
             "exit_fill_model": row.exit_fill_model,
             "exit_price_source": row.exit_price_source,
@@ -902,6 +920,29 @@ def _optional_supported_report_string(value: object, *, field_name: str, allowed
         return None
     if type(value) is not str or not value or value.strip() != value or value not in allowed:
         raise ValueError(f"{field_name} must be a supported canonical string")
+    return value
+
+
+def _canonical_execution_fill_model(value: object, *, field_name: str) -> str:
+    if type(value) is not str or not value or value.strip() != value:
+        raise ValueError(f"{field_name} must be a supported canonical string")
+    if value not in _EXECUTION_PRICE_SOURCES_BY_FILL_MODEL:
+        raise ValueError(f"{field_name} must be a supported canonical string")
+    return value
+
+
+def _validated_execution_price_source(
+    value: object,
+    *,
+    fill_model: object,
+    source_field_name: str,
+    fill_model_field_name: str,
+) -> str:
+    canonical_fill_model = _canonical_execution_fill_model(fill_model, field_name=fill_model_field_name)
+    if type(value) is not str or not value or value.strip() != value:
+        raise ValueError(f"{source_field_name} must be a supported canonical string")
+    if value not in _EXECUTION_PRICE_SOURCES_BY_FILL_MODEL[canonical_fill_model]:
+        raise ValueError(f"{source_field_name} must agree with fill_model")
     return value
 
 
