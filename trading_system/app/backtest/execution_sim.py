@@ -381,6 +381,13 @@ class ExecutionFill:
             and self.unfilled_quantity > 1e-12
         ):
             raise ValueError("evidence-backed trade-print fills cannot leave unfilled quantity")
+        if (
+            self.fill_model == "taker_orderbook_depth"
+            and self.fill_quality == "evidence_backed"
+            and self.unfilled_quantity is not None
+            and self.unfilled_quantity > 1e-12
+        ):
+            raise ValueError("evidence-backed orderbook-depth fills cannot leave unfilled quantity")
         if self.maker_status is not None:
             expected_quality_by_status = {
                 "partial": "partial_evidence_backed",

@@ -1042,6 +1042,31 @@ def test_execution_fill_rejects_orderbook_depth_accounting_price_identity_mismat
         )
 
 
+def test_execution_fill_rejects_full_quality_taker_depth_with_depth_exhaustion() -> None:
+    with pytest.raises(ValueError, match="evidence-backed orderbook-depth fills cannot leave unfilled quantity"):
+        ExecutionFill(
+            symbol="BTCUSDT",
+            side="buy",
+            quantity=3.0,
+            filled=True,
+            fill_price=100.5,
+            fill_model="taker_orderbook_depth",
+            execution_price_source="ask_depth",
+            fill_quality="evidence_backed",
+            outcome="filled",
+            evidence_timestamp=_ts("2026-03-10T00:00:01Z"),
+            requested_quantity=3.0,
+            requested_notional=301.5,
+            filled_quantity=2.0,
+            filled_notional=201.0,
+            unfilled_quantity=1.0,
+            unfilled_notional=100.5,
+            depth_levels_consumed=2,
+            first_fill_timestamp=_ts("2026-03-10T00:00:01Z"),
+            last_fill_timestamp=_ts("2026-03-10T00:00:01Z"),
+        )
+
+
 def test_execution_fill_rejects_evidence_backed_fill_without_evidence_timestamp() -> None:
     with pytest.raises(ValueError, match="evidence-backed executions must include evidence_timestamp"):
         ExecutionFill(
