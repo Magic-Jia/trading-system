@@ -187,6 +187,48 @@ def test_execution_fill_rejects_orderbook_depth_accounting_price_identity_mismat
         )
 
 
+def test_execution_fill_rejects_evidence_backed_fill_without_evidence_timestamp() -> None:
+    with pytest.raises(ValueError, match="evidence-backed executions must include evidence_timestamp"):
+        ExecutionFill(
+            symbol="BTCUSDT",
+            side="buy",
+            quantity=1.0,
+            filled=True,
+            fill_price=100.0,
+            fill_model="taker_orderbook_depth",
+            execution_price_source="ask_depth",
+            fill_quality="evidence_backed",
+            outcome="filled",
+            requested_quantity=1.0,
+            filled_quantity=1.0,
+            filled_notional=100.0,
+            unfilled_quantity=0.0,
+            evidence_timestamp=None,
+        )
+
+
+def test_execution_fill_rejects_trade_print_evidence_without_fill_timestamps() -> None:
+    with pytest.raises(ValueError, match="trade-print evidence-backed executions must include fill timestamps"):
+        ExecutionFill(
+            symbol="BTCUSDT",
+            side="buy",
+            quantity=1.0,
+            filled=True,
+            fill_price=100.0,
+            fill_model="taker_trade_print",
+            execution_price_source="trade_print",
+            fill_quality="evidence_backed",
+            outcome="filled",
+            requested_quantity=1.0,
+            filled_quantity=1.0,
+            filled_notional=100.0,
+            unfilled_quantity=0.0,
+            evidence_timestamp=_ts("2026-03-10T00:00:01Z"),
+            first_fill_timestamp=None,
+            last_fill_timestamp=_ts("2026-03-10T00:00:01Z"),
+        )
+
+
 def test_evidence_contract_rejects_duplicate_same_symbol_trade_fill_id() -> None:
     with pytest.raises(ValueError, match="duplicate trade.fill_id: fill-001"):
         _validate_evidence_contract(
@@ -3432,6 +3474,7 @@ def test_execution_fill_rejects_fill_timestamp_interval_inversion() -> None:
             execution_price_source="trade_print",
             fill_quality="evidence_backed",
             outcome="filled",
+            evidence_timestamp=_ts("2026-03-10T00:00:02Z"),
             first_fill_timestamp=_ts("2026-03-10T00:00:02Z"),
             last_fill_timestamp=_ts("2026-03-10T00:00:01Z"),
         )

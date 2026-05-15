@@ -687,6 +687,7 @@ def test_depth_fill_adjustment_rejects_coerced_risk_fields() -> None:
         execution_price_source="ask_depth",
         fill_quality="partial_evidence_backed",
         outcome="filled",
+        evidence_timestamp=backtest_engine._datetime_or_none("2026-03-10T00:00:01Z"),
         filled_quantity=1.0,
         filled_notional=100.0,
     )

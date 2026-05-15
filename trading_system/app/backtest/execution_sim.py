@@ -226,6 +226,17 @@ class ExecutionFill:
         ):
             raise ValueError("evidence-backed trade-print fills cannot leave unfilled quantity")
         if (
+            self.fill_quality in {"evidence_backed", "partial_evidence_backed"}
+            and self.evidence_timestamp is None
+        ):
+            raise ValueError("evidence-backed executions must include evidence_timestamp")
+        if (
+            self.fill_model == "taker_trade_print"
+            and self.fill_quality in {"evidence_backed", "partial_evidence_backed"}
+            and (self.first_fill_timestamp is None or self.last_fill_timestamp is None)
+        ):
+            raise ValueError("trade-print evidence-backed executions must include fill timestamps")
+        if (
             self.first_fill_timestamp is not None
             and self.last_fill_timestamp is not None
             and self.first_fill_timestamp > self.last_fill_timestamp
