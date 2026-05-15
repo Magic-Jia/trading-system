@@ -163,6 +163,128 @@ def test_execution_fill_rejects_trade_print_evidence_timestamp_outside_fill_inte
         )
 
 
+@pytest.mark.parametrize(
+    ("first_fill_timestamp", "last_fill_timestamp"),
+    [
+        (_ts("2026-03-10T00:00:01Z"), None),
+        (None, _ts("2026-03-10T00:00:01Z")),
+    ],
+)
+def test_execution_fill_rejects_partial_fill_timestamp_pair(
+    first_fill_timestamp: datetime | None,
+    last_fill_timestamp: datetime | None,
+) -> None:
+    with pytest.raises(ValueError, match="fill timestamps must be provided as a pair"):
+        ExecutionFill(
+            symbol="BTCUSDT",
+            side="buy",
+            quantity=1.0,
+            filled=True,
+            fill_price=100.0,
+            fill_model="reference_close",
+            execution_price_source="ohlcv_close",
+            fill_quality="approximate",
+            outcome="filled",
+            requested_quantity=1.0,
+            filled_quantity=1.0,
+            filled_notional=100.0,
+            unfilled_quantity=0.0,
+            first_fill_timestamp=first_fill_timestamp,
+            last_fill_timestamp=last_fill_timestamp,
+        )
+
+
+@pytest.mark.parametrize(
+    "override",
+    [
+        {"filled": False, "outcome": "missed_alpha"},
+        {"filled": False, "outcome": "missed_alpha", "fill_price": None},
+        {"fill_quality": "no_fill", "filled": False, "fill_price": None, "outcome": "missed_alpha"},
+    ],
+)
+def test_execution_fill_rejects_fill_timestamps_on_non_filled_states(override: dict[str, object]) -> None:
+    kwargs = {
+        "symbol": "BTCUSDT",
+        "side": "buy",
+        "quantity": 1.0,
+        "filled": True,
+        "fill_price": 100.0,
+        "fill_model": "reference_close",
+        "execution_price_source": "ohlcv_close",
+        "fill_quality": "approximate",
+        "outcome": "filled",
+        "requested_quantity": 1.0,
+        "filled_quantity": 0.0,
+        "filled_notional": 0.0,
+        "unfilled_quantity": 1.0,
+        "first_fill_timestamp": _ts("2026-03-10T00:00:01Z"),
+        "last_fill_timestamp": _ts("2026-03-10T00:00:01Z"),
+    }
+    kwargs.update(override)
+
+    with pytest.raises(ValueError, match="fill timestamps require a filled execution state|no-fill execution"):
+        ExecutionFill(**kwargs)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("filled_quantity", None),
+        ("filled_notional", None),
+    ],
+)
+def test_execution_fill_rejects_fill_timestamps_without_complete_positive_fill_accounting(
+    field: str,
+    value: object,
+) -> None:
+    kwargs = {
+        "symbol": "BTCUSDT",
+        "side": "buy",
+        "quantity": 1.0,
+        "filled": True,
+        "fill_price": 100.0,
+        "fill_model": "reference_close",
+        "execution_price_source": "ohlcv_close",
+        "fill_quality": "approximate",
+        "outcome": "filled",
+        "requested_quantity": 1.0,
+        "filled_quantity": 1.0,
+        "filled_notional": 100.0,
+        "unfilled_quantity": 0.0,
+        "first_fill_timestamp": _ts("2026-03-10T00:00:01Z"),
+        "last_fill_timestamp": _ts("2026-03-10T00:00:01Z"),
+    }
+    kwargs[field] = value
+
+    with pytest.raises(ValueError, match="fill timestamps require complete positive fill accounting"):
+        ExecutionFill(**kwargs)
+
+
+def test_execution_fill_accepts_trade_print_fill_with_timestamp_interval() -> None:
+    fill = ExecutionFill(
+        symbol="BTCUSDT",
+        side="buy",
+        quantity=1.0,
+        filled=True,
+        fill_price=100.0,
+        fill_model="taker_trade_print",
+        execution_price_source="trade_print",
+        fill_quality="evidence_backed",
+        outcome="filled",
+        requested_quantity=1.0,
+        filled_quantity=1.0,
+        filled_notional=100.0,
+        unfilled_quantity=0.0,
+        evidence_timestamp=_ts("2026-03-10T00:00:02Z"),
+        first_fill_timestamp=_ts("2026-03-10T00:00:01Z"),
+        last_fill_timestamp=_ts("2026-03-10T00:00:03Z"),
+    )
+
+    assert fill.evidence_timestamp == _ts("2026-03-10T00:00:02Z")
+    assert fill.first_fill_timestamp == _ts("2026-03-10T00:00:01Z")
+    assert fill.last_fill_timestamp == _ts("2026-03-10T00:00:03Z")
+
+
 def test_execution_fill_rejects_filled_state_with_missed_alpha_outcome() -> None:
     with pytest.raises(ValueError, match="filled executions must have filled outcome"):
         ExecutionFill(
@@ -299,6 +421,7 @@ def test_execution_fill_rejects_no_fill_with_fill_timestamps_or_filled_flag() ->
             filled_notional=0.0,
             unfilled_quantity=1.0,
             first_fill_timestamp=timestamp,
+            last_fill_timestamp=timestamp,
         )
 
     with pytest.raises(ValueError, match="filled executions cannot have no_fill quality"):
@@ -622,7 +745,7 @@ def test_execution_fill_rejects_trade_print_evidence_without_fill_timestamps() -
             unfilled_quantity=0.0,
             evidence_timestamp=_ts("2026-03-10T00:00:01Z"),
             first_fill_timestamp=None,
-            last_fill_timestamp=_ts("2026-03-10T00:00:01Z"),
+            last_fill_timestamp=None,
         )
 
 

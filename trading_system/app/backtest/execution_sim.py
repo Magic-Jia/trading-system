@@ -159,6 +159,11 @@ class ExecutionFill:
         object.__setattr__(self, "quantity", _non_negative_finite_float("quantity", self.quantity))
         if self.fill_price is not None:
             _positive_finite_float("fill_price", self.fill_price)
+        fill_timestamps_present = self.first_fill_timestamp is not None or self.last_fill_timestamp is not None
+        if fill_timestamps_present and (
+            self.first_fill_timestamp is None or self.last_fill_timestamp is None
+        ):
+            raise ValueError("fill timestamps must be provided as a pair")
         if self.depth_levels_consumed is not None and (
             isinstance(self.depth_levels_consumed, bool)
             or not isinstance(self.depth_levels_consumed, int)
@@ -230,6 +235,17 @@ class ExecutionFill:
             or (self.requested_quantity is not None and float(self.requested_quantity) > 0.0)
             or (self.requested_notional is not None and float(self.requested_notional) > 0.0)
         )
+        if fill_timestamps_present:
+            if not self.filled or self.outcome != "filled" or self.fill_quality == "no_fill":
+                raise ValueError("fill timestamps require a filled execution state")
+            if positive_fill_request and (
+                self.fill_price is None
+                or self.filled_quantity is None
+                or float(self.filled_quantity) <= 0.0
+                or self.filled_notional is None
+                or float(self.filled_notional) <= 0.0
+            ):
+                raise ValueError("fill timestamps require complete positive fill accounting")
         if self.filled:
             if self.fill_price is None:
                 raise ValueError("filled executions must include fill_price")
