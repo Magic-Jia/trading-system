@@ -252,7 +252,12 @@ def test_backtest_evaluation_report_rejects_duplicate_regime_bucket_labels() -> 
             experiment_name="evaluation",
             evaluation={
                 "walk_forward": {"metadata": {"window_count": 1}},
-                "regimes": {"buckets": [{"label": "low_vol_uptrend"}, {"label": "low_vol_uptrend"}]},
+                "regimes": {
+                    "buckets": [
+                        {"label": "low_vol_uptrend", "metrics": {"trade_count": 0}},
+                        {"label": "low_vol_uptrend", "metrics": {"trade_count": 0}},
+                    ]
+                },
                 "cost_stress": {"scenarios": []},
             },
             metadata={"dataset_root": "dataset"},
@@ -931,6 +936,19 @@ def test_backtest_evaluation_report_rejects_invalid_regime_bucket_label() -> Non
             evaluation={
                 "walk_forward": {"metadata": {"window_count": 1}},
                 "regimes": {"buckets": [{"label": " low_vol_uptrend "}]},
+                "cost_stress": {"scenarios": []},
+            },
+            metadata={"dataset_root": "dataset"},
+        )
+
+
+def test_backtest_evaluation_report_requires_regime_bucket_metrics() -> None:
+    with pytest.raises(ValueError, match=r"regimes\.buckets\[0\]\.metrics must be an object"):
+        reporting.render_backtest_evaluation_report(
+            experiment_name="evaluation",
+            evaluation={
+                "walk_forward": {"metadata": {"window_count": 1}},
+                "regimes": {"buckets": [{"label": "low_vol_uptrend"}]},
                 "cost_stress": {"scenarios": []},
             },
             metadata={"dataset_root": "dataset"},

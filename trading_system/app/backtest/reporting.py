@@ -187,22 +187,21 @@ def render_backtest_evaluation_report(
                 if trade_id in seen_trade_ids:
                     raise ValueError(f"duplicate regimes.buckets[{index}].trade_id: {trade_id}")
                 seen_trade_ids.add(trade_id)
-        if "metrics" in validated_bucket:
-            metrics = validated_bucket["metrics"]
-            if not isinstance(metrics, Mapping):
-                raise ValueError(f"regimes.buckets[{index}].metrics must be an object")
-            validated_metrics = _evaluation_metric_payload(
-                metrics,
-                field_name=f"regimes.buckets[{index}].metrics",
-            )
-            if "trade_ids" in validated_bucket and "trade_count" in validated_metrics:
-                trade_count = validated_metrics["trade_count"]
-                if trade_count != len(validated_bucket["trade_ids"]):
-                    raise ValueError(
-                        f"regimes.buckets[{index}].metrics.trade_count must match "
-                        f"regimes.buckets[{index}].trade_ids length"
-                    )
-            validated_bucket["metrics"] = validated_metrics
+        metrics = validated_bucket.get("metrics")
+        if not isinstance(metrics, Mapping):
+            raise ValueError(f"regimes.buckets[{index}].metrics must be an object")
+        validated_metrics = _evaluation_metric_payload(
+            metrics,
+            field_name=f"regimes.buckets[{index}].metrics",
+        )
+        if "trade_ids" in validated_bucket and "trade_count" in validated_metrics:
+            trade_count = validated_metrics["trade_count"]
+            if trade_count != len(validated_bucket["trade_ids"]):
+                raise ValueError(
+                    f"regimes.buckets[{index}].metrics.trade_count must match "
+                    f"regimes.buckets[{index}].trade_ids length"
+                )
+        validated_bucket["metrics"] = validated_metrics
         validated_regime_buckets.append(validated_bucket)
     validated_regimes = dict(regimes)
     validated_regimes["buckets"] = validated_regime_buckets
