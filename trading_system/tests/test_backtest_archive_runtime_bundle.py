@@ -41,6 +41,16 @@ def _bundle_state_payload() -> dict:
     }
 
 
+def _raw_market_provenance() -> dict:
+    return {
+        "source": "phase1_raw_market_archive",
+        "archive_root": "/archive/phase1",
+        "coverage_start": "2026-03-01T00:00:00Z",
+        "coverage_end": "2026-03-15T00:00:00Z",
+        "fetched_at": "2026-03-15T00:01:00Z",
+    }
+
+
 def _runtime_bundle_metadata(
     *,
     source: object | None = None,
@@ -385,6 +395,90 @@ def test_archive_runtime_bundle_copies_inputs_into_immutable_strategy_bundle(
             ),
             archived_at="2026-04-01T01:02:03Z",
         )
+
+
+def test_archive_runtime_bundle_preserves_raw_market_provenance_in_metadata(
+    tmp_path: Path,
+    account_snapshot_v2: dict,
+    market_context_v2: dict,
+    derivatives_snapshot_v2: dict,
+) -> None:
+    paths = build_runtime_paths("paper", runtime_root=tmp_path / "runtime", runtime_env="testnet")
+    raw_market = _raw_market_provenance()
+    source_paths = _write_runtime_bundle_sources(
+        paths,
+        account_payload=account_snapshot_v2,
+        market_payload={**market_context_v2, "raw_market": raw_market},
+        derivatives_payload=derivatives_snapshot_v2,
+    )
+
+    archived = archive_runtime_bundle(paths, source_paths, archived_at="2026-04-01T01:02:03Z")
+
+    metadata = _load_json(archived.bundle_dir / "metadata.json")
+    assert metadata["raw_market"] == raw_market
+
+
+def test_archive_runtime_bundle_rejects_raw_market_provenance_drift_before_writing_metadata(
+    tmp_path: Path,
+    account_snapshot_v2: dict,
+    market_context_v2: dict,
+    derivatives_snapshot_v2: dict,
+) -> None:
+    paths = build_runtime_paths("paper", runtime_root=tmp_path / "runtime", runtime_env="testnet")
+    raw_market = _raw_market_provenance()
+    source_paths = _write_runtime_bundle_sources(
+        paths,
+        account_payload={**account_snapshot_v2, "raw_market": raw_market},
+        market_payload={**market_context_v2, "raw_market": {**raw_market, "archive_root": "/archive/other"}},
+        derivatives_payload=derivatives_snapshot_v2,
+    )
+
+    with pytest.raises(ValueError, match="market_context.json raw_market provenance must match"):
+        archive_runtime_bundle(paths, source_paths, archived_at="2026-04-01T01:02:03Z")
+
+    assert not paths.archive_runtime_bundles_dir.exists()
+
+
+@pytest.mark.parametrize(
+    ("field_name", "field_value", "expected_message"),
+    [
+        ("source", "", r"runtime bundle metadata raw_market\.source must be canonical"),
+        ("source", 1, r"runtime bundle metadata raw_market\.source must be a string"),
+        ("archive_root", True, r"runtime bundle metadata raw_market\.archive_root must be a string"),
+        (
+            "coverage_start",
+            "2026-03-01T01:00:00+01:00",
+            r"runtime bundle metadata raw_market\.coverage_start must be a canonical UTC Z timestamp",
+        ),
+        (
+            "fetched_at",
+            False,
+            r"runtime bundle metadata raw_market\.fetched_at must be a string",
+        ),
+    ],
+)
+def test_archive_runtime_bundle_rejects_ambiguous_raw_market_provenance_before_writing_metadata(
+    tmp_path: Path,
+    account_snapshot_v2: dict,
+    market_context_v2: dict,
+    derivatives_snapshot_v2: dict,
+    field_name: str,
+    field_value: object,
+    expected_message: str,
+) -> None:
+    paths = build_runtime_paths("paper", runtime_root=tmp_path / "runtime", runtime_env="testnet")
+    raw_market = {**_raw_market_provenance(), field_name: field_value}
+    source_paths = _write_runtime_bundle_sources(
+        paths,
+        account_payload=account_snapshot_v2,
+        market_payload={**market_context_v2, "raw_market": raw_market},
+        derivatives_payload=derivatives_snapshot_v2,
+    )
+
+    with pytest.raises(ValueError, match=expected_message):
+        archive_runtime_bundle(paths, source_paths, archived_at="2026-04-01T01:02:03Z")
+
+    assert not paths.archive_runtime_bundles_dir.exists()
 
 
 @pytest.mark.parametrize(

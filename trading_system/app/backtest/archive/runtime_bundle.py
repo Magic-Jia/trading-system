@@ -113,6 +113,29 @@ def _bundle_timestamp(
     return archived_at
 
 
+def _raw_market_provenance(
+    *,
+    account_payload: dict[str, Any],
+    market_payload: dict[str, Any],
+    derivatives_payload: dict[str, Any],
+) -> dict[str, str] | None:
+    raw_market_items: list[dict[str, str]] = []
+    for payload, source_name in (
+        (account_payload, "account_snapshot.json"),
+        (market_payload, "market_context.json"),
+        (derivatives_payload, "derivatives_snapshot.json"),
+    ):
+        if "raw_market" not in payload or payload["raw_market"] is None:
+            continue
+        raw_market = RuntimeBundleMetadata._canonical_raw_market_provenance(payload["raw_market"])
+        if raw_market_items and raw_market != raw_market_items[0]:
+            raise ValueError(f"{source_name} raw_market provenance must match runtime bundle raw_market identity")
+        raw_market_items.append(raw_market)
+    if not raw_market_items:
+        return None
+    return raw_market_items[0]
+
+
 def _run_id(paths: RuntimePaths, archived_at: str) -> str:
     archived_fragment = archived_at.replace(":", "-").replace("+", "-").replace(".", "-").lower()
     return f"{paths.mode}-{paths.runtime_env}-{archived_fragment}"
@@ -187,6 +210,11 @@ def archive_runtime_bundle(
                 source_name="runtime_state.json",
             ),
         },
+        raw_market=_raw_market_provenance(
+            account_payload=account_payload,
+            market_payload=market_payload,
+            derivatives_payload=derivatives_payload,
+        ),
     )
     bundle_dir = runtime_bundle_dir(paths.archive_runtime_bundles_dir, timestamp=metadata.timestamp, run_id=metadata.run_id)
     bundle_dir.parent.mkdir(parents=True, exist_ok=True)
