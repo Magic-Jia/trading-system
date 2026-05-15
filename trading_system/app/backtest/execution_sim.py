@@ -145,6 +145,10 @@ class ExecutionFill:
         )
         object.__setattr__(self, "fill_quality", _canonical_domain("fill_quality", self.fill_quality, _FILL_QUALITIES))
         object.__setattr__(self, "outcome", _canonical_domain("outcome", self.outcome, _FILL_OUTCOMES))
+        if self.filled and self.fill_quality != "no_fill" and self.outcome != "filled":
+            raise ValueError("filled executions must have filled outcome")
+        if not self.filled and self.outcome == "filled":
+            raise ValueError("unfilled executions cannot have filled outcome")
         if self.maker_status is not None:
             object.__setattr__(
                 self,

@@ -163,6 +163,44 @@ def test_execution_fill_rejects_trade_print_evidence_timestamp_outside_fill_inte
         )
 
 
+def test_execution_fill_rejects_filled_state_with_missed_alpha_outcome() -> None:
+    with pytest.raises(ValueError, match="filled executions must have filled outcome"):
+        ExecutionFill(
+            symbol="BTCUSDT",
+            side="buy",
+            quantity=1.0,
+            filled=True,
+            fill_price=100.0,
+            fill_model="taker_orderbook",
+            execution_price_source="best_ask",
+            fill_quality="evidence_backed",
+            outcome="missed_alpha",
+            requested_quantity=1.0,
+            filled_quantity=1.0,
+            filled_notional=100.0,
+            unfilled_quantity=0.0,
+            evidence_timestamp=_ts("2026-03-10T00:00:01Z"),
+        )
+
+
+def test_execution_fill_rejects_no_fill_state_with_filled_outcome() -> None:
+    with pytest.raises(ValueError, match="unfilled executions cannot have filled outcome"):
+        ExecutionFill(
+            symbol="BTCUSDT",
+            side="buy",
+            quantity=1.0,
+            filled=False,
+            fill_price=None,
+            fill_model="maker_post_only_queue",
+            execution_price_source="no_crossing_evidence",
+            fill_quality="no_fill",
+            outcome="filled",
+            maker_status="expired",
+            queue_ahead_initial=1.0,
+            queue_ahead_remaining=1.0,
+        )
+
+
 def test_execution_fill_rejects_no_fill_with_positive_accounting() -> None:
     with pytest.raises(ValueError, match="no-fill execution cannot include filled quantity"):
         ExecutionFill(
