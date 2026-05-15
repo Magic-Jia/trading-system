@@ -538,6 +538,127 @@ def test_maker_queue_no_fill_evidence_timestamps_are_empty(
 
 
 @pytest.mark.parametrize(
+    ("cancel_replace_timestamp", "timeout_seconds", "expected_status", "expected_reasons"),
+    [
+        (
+            _ts("2026-03-10T00:00:00.400000Z"),
+            1.0,
+            "cancelled_replaced",
+            ("latency_applied", "queue_depleted", "cancel_replace_before_fill"),
+        ),
+        (
+            None,
+            0.4,
+            "expired",
+            ("latency_applied", "queue_depleted", "timeout_expired"),
+        ),
+    ],
+)
+def test_maker_reasons_preserve_order_from_latency_queue_depletion_to_terminal_no_fill(
+    cancel_replace_timestamp: datetime | None,
+    timeout_seconds: float,
+    expected_status: str,
+    expected_reasons: tuple[str, ...],
+) -> None:
+    fill = simulate_maker_limit_fill(
+        symbol="BTCUSDT",
+        side="buy",
+        limit_price=99.5,
+        quantity=1.0,
+        queue_ahead_quantity=1.0,
+        placement_timestamp=_ts("2026-03-10T00:00:00Z"),
+        latency_ms=100,
+        cancel_replace_timestamp=cancel_replace_timestamp,
+        timeout_seconds=timeout_seconds,
+        trades=(
+            TradePrint(
+                timestamp=_ts("2026-03-10T00:00:00.200000Z"),
+                symbol="BTCUSDT",
+                price=99.5,
+                quantity=1.0,
+                side="sell",
+                fill_id="maker-print-001",
+            ),
+            TradePrint(
+                timestamp=_ts("2026-03-10T00:00:00.300000Z"),
+                symbol="BTCUSDT",
+                price=99.5,
+                quantity=10.0,
+                side="buy",
+                fill_id="maker-print-002",
+            ),
+        ),
+    )
+
+    assert fill.maker_status == expected_status
+    assert fill.filled is False
+    assert fill.maker_reasons == expected_reasons
+    assert len(fill.maker_reasons) == len(set(fill.maker_reasons))
+
+
+def test_maker_reasons_are_duplicate_free_when_multiple_prints_deplete_empty_queue() -> None:
+    fill = simulate_maker_limit_fill(
+        symbol="BTCUSDT",
+        side="buy",
+        limit_price=99.5,
+        quantity=2.0,
+        queue_ahead_quantity=0.5,
+        placement_timestamp=_ts("2026-03-10T00:00:00Z"),
+        latency_ms=100,
+        timeout_seconds=1.0,
+        trades=(
+            TradePrint(
+                timestamp=_ts("2026-03-10T00:00:00.200000Z"),
+                symbol="BTCUSDT",
+                price=99.5,
+                quantity=1.0,
+                side="sell",
+                fill_id="maker-print-001",
+            ),
+            TradePrint(
+                timestamp=_ts("2026-03-10T00:00:00.300000Z"),
+                symbol="BTCUSDT",
+                price=99.5,
+                quantity=1.0,
+                side="sell",
+                fill_id="maker-print-002",
+            ),
+        ),
+    )
+
+    assert fill.maker_status == "expired"
+    assert fill.filled_quantity == pytest.approx(1.5)
+    assert fill.maker_reasons == ("latency_applied", "queue_depleted", "timeout_expired")
+    assert len(fill.maker_reasons) == len(set(fill.maker_reasons))
+
+
+def test_maker_reasons_include_stable_terminal_reason_for_no_crossing_evidence() -> None:
+    fill = simulate_maker_limit_fill(
+        symbol="BTCUSDT",
+        side="buy",
+        limit_price=99.5,
+        quantity=1.0,
+        queue_ahead_quantity=0.0,
+        placement_timestamp=_ts("2026-03-10T00:00:00Z"),
+        latency_ms=100,
+        trades=(
+            TradePrint(
+                timestamp=_ts("2026-03-10T00:00:00.200000Z"),
+                symbol="BTCUSDT",
+                price=100.5,
+                quantity=10.0,
+                side="sell",
+                fill_id="maker-print-001",
+            ),
+        ),
+    )
+
+    assert fill.maker_status == "no_fill"
+    assert fill.maker_reasons == ("latency_applied", "no_crossing_evidence")
+    assert len(fill.maker_reasons) == len(set(fill.maker_reasons))
+
+
+@pytest.mark.parametrize(
     ("side", "limit_price", "signed_trade_side"),
     [
         ("buy", 99.5, "sell"),
