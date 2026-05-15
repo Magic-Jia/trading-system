@@ -3014,6 +3014,51 @@ def test_taker_top_of_book_fallback_is_partial_when_visible_top_size_is_smaller_
 
 
 @pytest.mark.parametrize(
+    ("side", "top_size_field"),
+    [
+        ("buy", "ask_size"),
+        ("sell", "bid_size"),
+    ],
+)
+def test_taker_top_of_book_fallback_is_no_fill_when_visible_top_size_is_zero(
+    side: str,
+    top_size_field: str,
+) -> None:
+    book_timestamp = _ts("2026-03-10T00:00:01Z")
+    requested_quantity = 1.0
+    book_kwargs = {top_size_field: 0.0}
+
+    fill = simulate_taker_fill(
+        symbol="BTCUSDT",
+        side=side,
+        quantity=requested_quantity,
+        reference_price=100.0,
+        order_books=(
+            OrderBookSnapshot(
+                timestamp=book_timestamp,
+                symbol="BTCUSDT",
+                bid=99.9,
+                ask=100.1,
+                **book_kwargs,
+            ),
+        ),
+    )
+
+    assert fill.filled is False
+    assert fill.fill_price is None
+    assert fill.fill_model == "taker_orderbook"
+    assert fill.execution_price_source == "no_crossing_evidence"
+    assert fill.fill_quality == "no_fill"
+    assert fill.outcome == "missed_alpha"
+    assert fill.requested_quantity == pytest.approx(requested_quantity)
+    assert fill.filled_quantity == pytest.approx(0.0)
+    assert fill.filled_notional == pytest.approx(0.0)
+    assert fill.unfilled_quantity == pytest.approx(requested_quantity)
+    assert fill.depth_levels_consumed is None
+    assert fill.evidence_timestamp == book_timestamp
+
+
+@pytest.mark.parametrize(
     ("side", "top_size_field", "top_size", "expected_price", "expected_source"),
     [
         ("buy", "ask_size", 1.0, 100.1, "best_ask"),

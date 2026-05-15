@@ -529,6 +529,23 @@ def simulate_taker_fill(
             filled_quantity = quantity
         else:
             visible_quantity = _non_negative_finite_float(top_size_field, top_size)
+            if visible_quantity <= 0.0:
+                return ExecutionFill(
+                    symbol=symbol,
+                    side=side,
+                    quantity=quantity,
+                    filled=False,
+                    fill_price=None,
+                    fill_model="taker_orderbook",
+                    execution_price_source="no_crossing_evidence",
+                    fill_quality="no_fill",
+                    outcome="missed_alpha",
+                    evidence_timestamp=book.timestamp,
+                    requested_quantity=quantity,
+                    filled_quantity=0.0,
+                    filled_notional=0.0,
+                    unfilled_quantity=quantity,
+                )
             filled_quantity = min(quantity, visible_quantity)
         unfilled_quantity = quantity - filled_quantity
         fill_quality: FillQuality = (
