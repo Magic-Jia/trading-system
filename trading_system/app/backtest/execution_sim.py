@@ -313,6 +313,8 @@ def simulate_taker_fill(
             filled_notional=(quantity * price) if quantity > 0.0 else None,
             unfilled_quantity=0.0 if quantity > 0.0 else None,
             depth_levels_consumed=1 if quantity > 0.0 else None,
+            first_fill_timestamp=book.timestamp,
+            last_fill_timestamp=book.timestamp,
         )
 
     trade_fill = _conservative_trade_print_taker_fill(symbol=symbol, side=side, quantity=quantity, trades=trades)

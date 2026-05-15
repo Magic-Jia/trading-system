@@ -596,6 +596,25 @@ def test_taker_uses_best_ask_for_buy_when_orderbook_is_available() -> None:
     assert fill.fill_quality == "evidence_backed"
 
 
+def test_taker_orderbook_fill_interval_is_bounded_by_supporting_book_timestamp() -> None:
+    fill = simulate_taker_fill(
+        symbol="BTCUSDT",
+        side="buy",
+        quantity=1.0,
+        reference_price=100.0,
+        order_books=(
+            OrderBookSnapshot(timestamp=_ts("2026-03-10T00:00:01Z"), symbol="ETHUSDT", bid=99.0, ask=100.0),
+            OrderBookSnapshot(timestamp=_ts("2026-03-10T00:00:02Z"), symbol="BTCUSDT", bid=99.9, ask=100.1),
+            OrderBookSnapshot(timestamp=_ts("2026-03-10T00:00:03Z"), symbol="BTCUSDT", bid=99.8, ask=100.2),
+        ),
+    )
+
+    assert fill.fill_model == "taker_orderbook"
+    assert fill.evidence_timestamp == _ts("2026-03-10T00:00:02Z")
+    assert fill.first_fill_timestamp == _ts("2026-03-10T00:00:02Z")
+    assert fill.last_fill_timestamp == _ts("2026-03-10T00:00:02Z")
+
+
 @pytest.mark.parametrize("ask", [True, "100.1", math.nan, math.inf, -math.inf, 0.0, -1.0])
 def test_taker_rejects_invalid_best_ask_price(ask: object) -> None:
     with pytest.raises(ValueError, match="order_book.ask must be a positive finite number"):
