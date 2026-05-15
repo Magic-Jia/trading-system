@@ -306,6 +306,14 @@ class ExecutionFill:
             raise ValueError("filled notional must equal filled quantity times fill_price")
         if self.slippage_bps is not None:
             object.__setattr__(self, "slippage_bps", _finite_float("slippage_bps", self.slippage_bps))
+        for field_name in ("execution_impact_bps", "slippage_bps"):
+            if getattr(self, field_name) is not None and (
+                not self.filled
+                or self.outcome != "filled"
+                or self.fill_quality not in {"evidence_backed", "partial_evidence_backed"}
+                or self.evidence_timestamp is None
+            ):
+                raise ValueError(f"{field_name} requires an evidence-backed filled execution")
         if (
             self.requested_quantity is not None
             and float(self.requested_quantity) > 0.0

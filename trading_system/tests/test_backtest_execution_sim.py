@@ -598,6 +598,62 @@ def test_execution_fill_rejects_no_fill_with_positive_accounting() -> None:
         )
 
 
+@pytest.mark.parametrize("field", ["execution_impact_bps", "slippage_bps"])
+def test_execution_fill_rejects_no_fill_with_impact_or_slippage_evidence(field: str) -> None:
+    kwargs = {
+        "symbol": "BTCUSDT",
+        "side": "buy",
+        "quantity": 1.0,
+        "filled": False,
+        "fill_price": None,
+        "fill_model": "taker_orderbook_depth",
+        "execution_price_source": "ask_depth",
+        "fill_quality": "no_fill",
+        "outcome": "missed_alpha",
+        "evidence_timestamp": _ts("2026-03-10T00:00:01Z"),
+        "requested_quantity": 1.0,
+        "filled_quantity": 0.0,
+        "filled_notional": 0.0,
+        "unfilled_quantity": 1.0,
+        "depth_levels_consumed": 0,
+        field: 0.0,
+    }
+
+    with pytest.raises(ValueError, match=rf"{field} requires an evidence-backed filled execution"):
+        ExecutionFill(**kwargs)
+
+
+@pytest.mark.parametrize("field", ["execution_impact_bps", "slippage_bps"])
+def test_execution_fill_rejects_reference_close_with_impact_or_slippage_evidence(field: str) -> None:
+    with pytest.raises(ValueError, match=rf"{field} requires an evidence-backed filled execution"):
+        ExecutionFill(**_filled_execution_kwargs(**{field: 0.0}))
+
+
+def test_execution_fill_accepts_evidence_backed_taker_depth_impact_and_slippage() -> None:
+    fill = ExecutionFill(
+        symbol="BTCUSDT",
+        side="buy",
+        quantity=1.0,
+        filled=True,
+        fill_price=100.5,
+        fill_model="taker_orderbook_depth",
+        execution_price_source="ask_depth",
+        fill_quality="evidence_backed",
+        outcome="filled",
+        evidence_timestamp=_ts("2026-03-10T00:00:01Z"),
+        requested_quantity=1.0,
+        filled_quantity=1.0,
+        filled_notional=100.5,
+        unfilled_quantity=0.0,
+        depth_levels_consumed=1,
+        execution_impact_bps=5.0,
+        slippage_bps=-2.5,
+    )
+
+    assert fill.execution_impact_bps == pytest.approx(5.0)
+    assert fill.slippage_bps == pytest.approx(-2.5)
+
+
 def test_execution_fill_rejects_no_fill_with_fill_timestamps_or_filled_flag() -> None:
     timestamp = _ts("2026-03-10T00:00:01Z")
     with pytest.raises(ValueError, match="no-fill execution cannot include fill timestamps"):
