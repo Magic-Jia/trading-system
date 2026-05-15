@@ -322,6 +322,7 @@ def simulate_taker_fill(
                 reference_price=reference_price,
                 order_book=book,
                 placement_timestamp=placement_timestamp,
+                max_evidence_lag=max_evidence_lag,
             )
         if side == "buy":
             price = _positive_finite_float("order_book.ask", book.ask)
@@ -380,15 +381,24 @@ def simulate_taker_depth_fill(
     reference_price: float,
     order_book: OrderBookSnapshot,
     placement_timestamp: datetime | None = None,
+    max_evidence_lag: timedelta | None = None,
 ) -> ExecutionFill:
     side = _canonical_order_side(side)
     _positive_finite_float("reference_price", reference_price)
+    if max_evidence_lag is not None:
+        max_evidence_lag = _non_negative_timedelta("max_evidence_lag", max_evidence_lag)
+        if placement_timestamp is None:
+            raise ValueError("max_evidence_lag requires placement_timestamp")
+        placement_timestamp = _placement_timestamp_datetime(placement_timestamp)
     _validate_evidence_contract(symbol=symbol, order_books=(order_book,), trades=())
     notional_request = None
     if requested_notional is not None:
         notional_request = _positive_finite_float("requested_notional", requested_notional)
     requested_quantity = 0.0 if quantity is None else _depth_quantity_float("quantity", quantity)
-    if placement_timestamp is not None and order_book.timestamp < placement_timestamp:
+    if placement_timestamp is not None and (
+        order_book.timestamp < placement_timestamp
+        or (max_evidence_lag is not None and order_book.timestamp > placement_timestamp + max_evidence_lag)
+    ):
         return ExecutionFill(
             symbol=symbol,
             side=side,

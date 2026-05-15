@@ -936,6 +936,73 @@ def test_taker_depth_returns_no_fill_without_side_liquidity() -> None:
     assert fill.depth_levels_consumed == 0
 
 
+def test_taker_depth_returns_no_fill_after_placement_window() -> None:
+    fill = simulate_taker_depth_fill(
+        symbol="BTCUSDT",
+        side="buy",
+        quantity=1.0,
+        reference_price=100.0,
+        placement_timestamp=_ts("2026-03-10T00:00:00Z"),
+        max_evidence_lag=timedelta(seconds=1),
+        order_book=OrderBookSnapshot(
+            timestamp=_ts("2026-03-10T00:00:01.001Z"),
+            symbol="BTCUSDT",
+            bid=99.9,
+            ask=100.0,
+            ask_levels=(DepthLevel(price=100.0, quantity=1.0),),
+        ),
+    )
+
+    assert fill.filled is False
+    assert fill.fill_price is None
+    assert fill.fill_model == "taker_orderbook_depth"
+    assert fill.execution_price_source == "no_crossing_evidence"
+    assert fill.fill_quality == "no_fill"
+    assert fill.outcome == "missed_alpha"
+    assert fill.evidence_timestamp == _ts("2026-03-10T00:00:01.001Z")
+    assert fill.filled_quantity == pytest.approx(0.0)
+    assert fill.unfilled_quantity == pytest.approx(1.0)
+    assert fill.depth_levels_consumed == 0
+
+
+def test_taker_depth_rejects_unanchored_max_evidence_lag_before_using_evidence() -> None:
+    with pytest.raises(ValueError, match="max_evidence_lag requires placement_timestamp"):
+        simulate_taker_depth_fill(
+            symbol="BTCUSDT",
+            side="buy",
+            quantity=1.0,
+            reference_price=100.0,
+            max_evidence_lag=timedelta(seconds=1),
+            order_book=OrderBookSnapshot(
+                timestamp=_ts("2026-03-10T00:00:01Z"),
+                symbol="BTCUSDT",
+                bid=99.9,
+                ask=100.0,
+                ask_levels=(DepthLevel(price=100.0, quantity=1.0),),
+            ),
+        )
+
+
+@pytest.mark.parametrize("max_evidence_lag", [timedelta(microseconds=-1), True, 1, 1.0, "PT1S"])
+def test_taker_depth_rejects_invalid_max_evidence_lag_before_using_evidence(max_evidence_lag: object) -> None:
+    with pytest.raises(ValueError, match="max_evidence_lag must be"):
+        simulate_taker_depth_fill(
+            symbol="BTCUSDT",
+            side="buy",
+            quantity=1.0,
+            reference_price=100.0,
+            placement_timestamp=_ts("2026-03-10T00:00:00Z"),
+            max_evidence_lag=max_evidence_lag,
+            order_book=OrderBookSnapshot(
+                timestamp=_ts("2026-03-10T00:00:01Z"),
+                symbol="BTCUSDT",
+                bid=99.9,
+                ask=100.0,
+                ask_levels=(DepthLevel(price=100.0, quantity=1.0),),
+            ),
+        )
+
+
 @pytest.mark.parametrize("quantity", [True, False, math.nan, math.inf, -math.inf])
 def test_taker_depth_rejects_bool_and_non_finite_requested_quantity(quantity: float | bool) -> None:
     with pytest.raises(ValueError, match="quantity must be a finite number"):
