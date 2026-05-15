@@ -246,6 +246,26 @@ def test_backtest_evaluation_report_rejects_noncanonical_sample_period_string() 
         )
 
 
+def test_backtest_evaluation_report_requires_raw_market_source_identity_when_present() -> None:
+    with pytest.raises(ValueError, match=r"metadata\.raw_market\.source must be present"):
+        reporting.render_backtest_evaluation_report(
+            experiment_name="evaluation",
+            evaluation={
+                "walk_forward": {"metadata": {"window_count": 1}},
+                "regimes": {"buckets": []},
+                "cost_stress": {"scenarios": []},
+            },
+            metadata={
+                "raw_market": {
+                    "archive_root": "archive/raw-market",
+                    "coverage_start": "2026-03-10T00:00:00Z",
+                    "coverage_end": "2026-03-11T00:00:00Z",
+                    "fetched_at": "2026-03-11T00:05:00Z",
+                }
+            },
+        )
+
+
 def test_backtest_evaluation_report_rejects_duplicate_regime_bucket_labels() -> None:
     with pytest.raises(ValueError, match="regimes.buckets labels must be unique"):
         reporting.render_backtest_evaluation_report(

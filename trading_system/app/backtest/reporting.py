@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import Counter
 from datetime import datetime
 import math
+import re
 from typing import Any, Callable, Mapping
 
 from .metrics import cost_drag
@@ -27,6 +28,21 @@ _COST_STRESS_TRADE_NUMERIC_FIELDS = (
     "slippage_paid",
     "funding_paid",
 )
+_RAW_MARKET_PROVENANCE_IDENTITY_FIELDS = (
+    "source",
+    "archive_root",
+    "coverage_start",
+    "coverage_end",
+    "fetched_at",
+)
+_RAW_MARKET_PROVENANCE_TIMESTAMP_FIELDS = frozenset(
+    {
+        "coverage_start",
+        "coverage_end",
+        "fetched_at",
+    }
+)
+_CANONICAL_UTC_TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$")
 
 
 def _report_finite_float(value: Any, *, field_name: str) -> float:
@@ -825,6 +841,8 @@ def _report_metadata_copy(metadata: Mapping[str, Any]) -> dict[str, Any]:
             copied[field] = _canonical_report_string(copied[field], field_name=f"metadata.{field}")
     if "sample_period" in copied and copied["sample_period"] is not None:
         copied["sample_period"] = _report_sample_period(copied["sample_period"])
+    if "raw_market" in copied and copied["raw_market"] is not None:
+        copied["raw_market"] = _report_raw_market_provenance(copied["raw_market"])
     return copied
 
 
@@ -846,6 +864,37 @@ def _report_sample_period(value: object) -> dict[str, str | None] | str:
         "start": period["start"],
         "end": period["end"],
     }
+
+
+def _report_raw_market_provenance(value: object) -> dict[str, Any]:
+    if not isinstance(value, Mapping):
+        raise ValueError("metadata.raw_market must be an object")
+    provenance = _strict_mapping_copy(value, field_name="metadata.raw_market")
+    for field in _RAW_MARKET_PROVENANCE_IDENTITY_FIELDS:
+        if field not in provenance:
+            raise ValueError(f"metadata.raw_market.{field} must be present")
+        provenance[field] = _canonical_report_string(
+            provenance[field],
+            field_name=f"metadata.raw_market.{field}",
+        )
+    for field in _RAW_MARKET_PROVENANCE_TIMESTAMP_FIELDS:
+        _canonical_utc_report_timestamp(
+            provenance[field],
+            field_name=f"metadata.raw_market.{field}",
+        )
+    return provenance
+
+
+def _canonical_utc_report_timestamp(value: str, *, field_name: str) -> str:
+    if not _CANONICAL_UTC_TIMESTAMP_RE.fullmatch(value):
+        raise ValueError(f"{field_name} must be a canonical UTC Z timestamp")
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError(f"{field_name} must be a canonical UTC Z timestamp") from exc
+    if parsed.isoformat().replace("+00:00", "Z") != value:
+        raise ValueError(f"{field_name} must be a canonical UTC Z timestamp")
+    return value
 
 
 def _decision_summary(*, decision: str, summary: str) -> dict[str, str]:
