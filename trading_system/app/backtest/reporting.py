@@ -515,6 +515,8 @@ def _walk_forward_period_datetime(value: str, *, field_name: str) -> datetime:
         raise ValueError(f"{field_name} must be an ISO timestamp string") from exc
     if parsed.isoformat() != value:
         raise ValueError(f"{field_name} must match datetime.isoformat()")
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ValueError(f"{field_name} must include a timezone offset")
     return parsed
 
 

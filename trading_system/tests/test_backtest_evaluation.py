@@ -183,6 +183,21 @@ def test_walk_forward_evaluation_uses_entry_timestamp_with_end_exclusive_boundar
     assert result.windows[0].out_of_sample_metrics["net_pnl"] == pytest.approx(2.0)
 
 
+def test_walk_forward_evaluation_rejects_naive_row_boundary_timestamps() -> None:
+    rows = [
+        dataclasses.replace(_row(0), timestamp=datetime(2026, 1, 1, 0, 0, 0)),
+        _row(1),
+    ]
+
+    with pytest.raises(ValueError, match=r"row-000 timestamp must include a timezone offset"):
+        build_walk_forward_evaluation(
+            rows=rows,
+            trade_ledger=[],
+            train_size=1,
+            test_size=1,
+        )
+
+
 def test_cost_stress_scenarios_do_not_mutate_original_trades() -> None:
     trades = (_trade("BTCUSDT", "2026-01-01T12:00:00Z", net_pnl=20.0, costs=(1.0, 2.0, 3.0)),)
     scenario = CostStressScenario(name="double_costs", fee_multiplier=2.0, slippage_multiplier=2.0, funding_multiplier=2.0)

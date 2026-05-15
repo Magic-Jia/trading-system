@@ -168,8 +168,16 @@ def _trade_id(trade: TradeLedgerRow) -> str:
     return f"{trade.symbol}@{trade.entry_timestamp.isoformat()}"
 
 
+def _require_timezone_aware_datetime(value: Any, *, field_name: str) -> None:
+    if value.tzinfo is None or value.utcoffset() is None:
+        raise ValueError(f"{field_name} must include a timezone offset")
+
+
 def _ordered_rows(rows: Iterable[DatasetSnapshotRow]) -> list[DatasetSnapshotRow]:
-    return sorted(rows, key=_row_key)
+    ordered = list(rows)
+    for row in ordered:
+        _require_timezone_aware_datetime(row.timestamp, field_name=f"{row.run_id} timestamp")
+    return sorted(ordered, key=_row_key)
 
 
 def build_walk_forward_windows(
