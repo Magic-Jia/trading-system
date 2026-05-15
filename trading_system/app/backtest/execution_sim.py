@@ -792,9 +792,9 @@ def _maker_queue_ahead(
     if queue_ahead_quantity is not None:
         explicit = _non_negative_finite_float("queue_ahead_quantity", queue_ahead_quantity)
         return explicit
+    if order_books and effective_placement is None:
+        raise ValueError("queue_ahead_quantity inference requires placement_timestamp")
     eligible_books = [book for book in order_books if effective_placement is None or book.timestamp <= effective_placement]
-    if not eligible_books:
-        eligible_books = list(order_books)
     if not eligible_books:
         return 0.0
     book = sorted(eligible_books, key=lambda item: item.timestamp)[-1]
