@@ -326,9 +326,24 @@ def test_regime_buckets_are_deterministic_and_report_per_regime_metrics() -> Non
     assert [bucket.label for bucket in buckets] == ["high_vol_downtrend", "low_vol_range", "low_vol_uptrend"]
     by_label = {bucket.label: bucket for bucket in buckets}
     assert by_label["low_vol_uptrend"].row_count == 1
+    assert by_label["low_vol_uptrend"].trade_ids == ("BTCUSDT@2026-01-01T12:00:00+00:00",)
     assert by_label["low_vol_uptrend"].metrics["trade_count"] == 1
     assert by_label["low_vol_uptrend"].metrics["net_pnl"] == pytest.approx(9.0)
+    assert by_label["high_vol_downtrend"].trade_ids == ("ETHUSDT@2026-01-02T12:00:00+00:00",)
     assert by_label["high_vol_downtrend"].metrics["net_pnl"] == pytest.approx(-4.0)
+    assert by_label["low_vol_range"].trade_ids == ()
+    assert by_label["low_vol_range"].metrics["trade_count"] == 0
+
+
+def test_regime_buckets_reject_duplicate_trade_ids_within_bucket() -> None:
+    rows = (dataclasses.replace(_row(0), meta={"regime_label": "risk_on"}),)
+    trades = (
+        _trade("BTCUSDT", "2026-01-01T12:00:00Z", net_pnl=9.0),
+        _trade("BTCUSDT", "2026-01-01T12:00:00Z", net_pnl=-4.0),
+    )
+
+    with pytest.raises(ValueError, match=r"duplicate regime bucket trade_id for risk_on: BTCUSDT@2026-01-01T12:00:00\+00:00"):
+        evaluate_regime_buckets(rows, trades)
 
 
 @pytest.mark.parametrize(
@@ -397,6 +412,11 @@ def test_evaluation_report_labels_walk_forward_regimes_and_cost_stress() -> None
     assert report["walk_forward"]["windows"][0]["splits"]["in_sample"]["label"] == "IS"
     assert report["walk_forward"]["windows"][0]["splits"]["out_of_sample"]["label"] == "OOS"
     assert report["regimes"]["buckets"]
+    assert report["regimes"]["buckets"][0]["trade_ids"] == [
+        "BTCUSDT@2026-01-01T12:00:00+00:00",
+        "ETHUSDT@2026-01-03T12:00:00+00:00",
+    ]
+    assert report["regimes"]["buckets"][0]["metrics"]["trade_count"] == 2
     assert report["cost_stress"]["scenarios"][0]["scenario"]["name"] == "fees_2x"
     assert report["cost_stress"]["scenarios"][0]["label"] == "cost_stress:fees_2x"
 

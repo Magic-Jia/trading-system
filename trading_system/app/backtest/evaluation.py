@@ -149,6 +149,7 @@ class RegimeBucket:
     label: str
     row_count: int
     row_ids: tuple[str, ...]
+    trade_ids: tuple[str, ...]
     metrics: dict[str, float | int]
 
     def to_dict(self) -> dict[str, Any]:
@@ -156,6 +157,7 @@ class RegimeBucket:
             "label": self.label,
             "row_count": self.row_count,
             "row_ids": list(self.row_ids),
+            "trade_ids": list(self.trade_ids),
             "metrics": dict(self.metrics),
         }
 
@@ -478,15 +480,26 @@ def evaluate_regime_buckets(
         label = labels_by_run_id[ordered[row_index].run_id]
         trades_by_label.setdefault(label, []).append(trade)
 
-    return tuple(
-        RegimeBucket(
-            label=label,
-            row_count=len(row_ids),
-            row_ids=tuple(row_ids),
-            metrics=_ledger_metrics(trades_by_label.get(label, ())),
+    buckets: list[RegimeBucket] = []
+    for label, row_ids in sorted(row_ids_by_label.items()):
+        bucket_trades = tuple(trades_by_label.get(label, ()))
+        trade_ids = tuple(_trade_id(trade) for trade in bucket_trades)
+        if len(set(trade_ids)) != len(trade_ids):
+            seen_trade_ids: set[str] = set()
+            for trade_id in trade_ids:
+                if trade_id in seen_trade_ids:
+                    raise ValueError(f"duplicate regime bucket trade_id for {label}: {trade_id}")
+                seen_trade_ids.add(trade_id)
+        buckets.append(
+            RegimeBucket(
+                label=label,
+                row_count=len(row_ids),
+                row_ids=tuple(row_ids),
+                trade_ids=trade_ids,
+                metrics=_ledger_metrics(bucket_trades),
+            )
         )
-        for label, row_ids in sorted(row_ids_by_label.items())
-    )
+    return tuple(buckets)
 
 
 def run_cost_stress_tests(
