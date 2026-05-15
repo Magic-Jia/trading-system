@@ -192,6 +192,8 @@ class ExecutionFill:
             raise ValueError("depth_levels_consumed requires taker orderbook fill model")
         if self.depth_levels_consumed is not None and self.execution_price_source in {"best_ask", "best_bid"}:
             raise ValueError("depth_levels_consumed requires depth price source")
+        if self.depth_levels_consumed is not None and self.fill_model != "taker_orderbook_depth":
+            raise ValueError("depth_levels_consumed requires taker orderbook depth fill model")
         if self.fill_quality == "no_fill" and self.fill_price is not None:
             raise ValueError("no-fill execution cannot include fill_price")
         if self.fill_quality == "no_fill":
