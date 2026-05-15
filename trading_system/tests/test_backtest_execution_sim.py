@@ -167,6 +167,22 @@ def test_execution_fill_accepts_reference_close_without_timing_evidence_claim() 
     assert fill.execution_lag_bars == 0
 
 
+@pytest.mark.parametrize(
+    ("fill_model", "execution_price_source"),
+    [
+        ("reference_close", "best_ask"),
+        ("taker_trade_print", "best_bid"),
+        ("taker_orderbook", "ask_depth"),
+    ],
+)
+def test_execution_fill_rejects_price_source_incompatible_with_fill_model(
+    fill_model: str,
+    execution_price_source: str,
+) -> None:
+    with pytest.raises(ValueError, match="execution_price_source must agree with fill_model"):
+        ExecutionFill(**_filled_execution_kwargs(fill_model=fill_model, execution_price_source=execution_price_source))
+
+
 def test_execution_fill_rejects_approximate_fill_with_evidence_timestamp() -> None:
     with pytest.raises(ValueError, match="evidence_timestamp requires market evidence or no-fill evidence"):
         ExecutionFill(

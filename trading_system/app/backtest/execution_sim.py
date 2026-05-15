@@ -67,6 +67,16 @@ _PRICE_SOURCES = frozenset(
 _FILL_QUALITIES = frozenset(("approximate", "evidence_backed", "partial_evidence_backed", "no_fill"))
 _FILL_OUTCOMES = frozenset(("filled", "missed_alpha"))
 _MAKER_STATUSES = frozenset(("filled", "partial", "no_fill", "expired", "cancelled_replaced"))
+_PRICE_SOURCES_BY_FILL_MODEL = {
+    "reference_close": frozenset(("ohlcv_close",)),
+    "next_bar_ohlcv": frozenset(("ohlcv_next_open",)),
+    "taker_ohlcv_approx": frozenset(("ohlcv_reference",)),
+    "taker_orderbook": frozenset(("best_bid", "best_ask", "no_crossing_evidence")),
+    "taker_orderbook_depth": frozenset(("bid_depth", "ask_depth", "no_crossing_evidence")),
+    "taker_trade_print": frozenset(("trade_print",)),
+    "maker_orderbook_trade_evidence": frozenset(("trade_print", "book_cross", "no_crossing_evidence")),
+    "maker_post_only_queue": frozenset(("trade_print", "no_crossing_evidence")),
+}
 _TAKER_EVIDENCE_MAX_SKEW = timedelta(seconds=1)
 
 
@@ -194,6 +204,8 @@ class ExecutionFill:
             raise ValueError("depth_levels_consumed requires depth price source")
         if self.depth_levels_consumed is not None and self.fill_model != "taker_orderbook_depth":
             raise ValueError("depth_levels_consumed requires taker orderbook depth fill model")
+        if self.execution_price_source not in _PRICE_SOURCES_BY_FILL_MODEL[self.fill_model]:
+            raise ValueError("execution_price_source must agree with fill_model")
         if self.fill_quality == "no_fill" and self.fill_price is not None:
             raise ValueError("no-fill execution cannot include fill_price")
         if self.fill_quality == "no_fill":
