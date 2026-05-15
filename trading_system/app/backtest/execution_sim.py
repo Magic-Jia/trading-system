@@ -344,6 +344,19 @@ class ExecutionFill:
         ):
             raise ValueError("fill quantities must conserve requested quantity")
         if (
+            self.fill_model.startswith("maker_")
+            and self.maker_status in {"filled", "partial"}
+            and self.requested_quantity is not None
+            and float(self.requested_quantity) > 0.0
+            and self.filled_quantity is not None
+            and float(self.filled_quantity) > 0.0
+            and self.unfilled_quantity is not None
+        ):
+            if self.maker_status == "partial" and float(self.unfilled_quantity) <= 0.0:
+                raise ValueError("partial maker fills require positive unfilled quantity")
+            if self.maker_status == "filled" and float(self.unfilled_quantity) > 0.0:
+                raise ValueError("filled maker status requires zero unfilled quantity")
+        if (
             self.requested_notional is not None
             and float(self.requested_notional) > 0.0
             and self.filled_notional is not None
