@@ -421,6 +421,29 @@ def test_evaluation_report_labels_walk_forward_regimes_and_cost_stress() -> None
     assert report["cost_stress"]["scenarios"][0]["label"] == "cost_stress:fees_2x"
 
 
+def test_evaluation_report_rejects_conflicting_dataset_source_identity() -> None:
+    source = {
+        "scope": "phase1_binance_futures",
+        "exchange": "binance",
+        "market": "futures",
+    }
+    rows = [
+        dataclasses.replace(_row(0), meta={"source": source}),
+        dataclasses.replace(_row(1), meta={"source": {**source, "exchange": "coinbase"}}),
+    ]
+
+    with pytest.raises(
+        ValueError,
+        match="dataset source identity must be consistent across evaluation rows",
+    ):
+        build_evaluation_report(
+            rows=rows,
+            trade_ledger=(),
+            train_size=1,
+            test_size=1,
+        )
+
+
 @pytest.mark.parametrize(
     ("field_name", "bad_value"),
     (

@@ -14,6 +14,7 @@ from .types import DatasetSnapshotRow, TradeLedgerRow
 EvaluationStatus = Literal["ok", "insufficient_data"]
 _COST_STRESS_NAME_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
 _REGIME_LABEL_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
+_DATASET_SOURCE_IDENTITY_FIELDS = ("scope", "exchange", "market")
 
 
 @dataclass(frozen=True, slots=True)
@@ -455,6 +456,33 @@ def _canonical_regime_label(value: Any, *, row_id: str) -> str:
     return value
 
 
+def _validate_dataset_source_identity(rows: Sequence[DatasetSnapshotRow]) -> None:
+    expected_identity: tuple[tuple[str, str], ...] | None = None
+    for row in rows:
+        source = row.meta.get("source")
+        if source is None:
+            continue
+        if not isinstance(source, Mapping):
+            raise ValueError(f"{row.run_id} dataset source trace must be an object")
+        identity = []
+        for field_name in _DATASET_SOURCE_IDENTITY_FIELDS:
+            if field_name not in source:
+                continue
+            value = source[field_name]
+            if not isinstance(value, str) or not value or value != value.strip():
+                raise ValueError(
+                    f"{row.run_id} dataset source identity {field_name} must be a canonical non-empty string"
+                )
+            identity.append((field_name, value))
+        if not identity:
+            continue
+        identity_tuple = tuple(identity)
+        if expected_identity is None:
+            expected_identity = identity_tuple
+        elif identity_tuple != expected_identity:
+            raise ValueError("dataset source identity must be consistent across evaluation rows")
+
+
 def evaluate_regime_buckets(
     rows: Iterable[DatasetSnapshotRow],
     trade_ledger: Iterable[TradeLedgerRow],
@@ -608,6 +636,7 @@ def build_evaluation_report(
     )
     regimes = evaluate_regime_buckets(ordered_rows, trades)
     stress_results = run_cost_stress_tests(trades, cost_scenarios)
+    _validate_dataset_source_identity(ordered_rows)
     return {
         "walk_forward": walk_forward.to_dict(),
         "regimes": {
