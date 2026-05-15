@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import math
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -615,6 +615,48 @@ def test_taker_fill_ignores_evidence_before_placement_timestamp() -> None:
                 side="buy",
             ),
         ),
+    )
+
+    assert fill.fill_model == "taker_ohlcv_approx"
+    assert fill.fill_quality == "approximate"
+    assert fill.evidence_timestamp is None
+
+
+@pytest.mark.parametrize(
+    "evidence_kind",
+    [
+        "order_book",
+        "trade_print",
+    ],
+)
+def test_taker_fill_ignores_evidence_after_placement_window(evidence_kind: str) -> None:
+    placement_timestamp = _ts("2026-03-10T00:00:00Z")
+    order_books = ()
+    trades = ()
+    if evidence_kind == "order_book":
+        order_books = (
+            OrderBookSnapshot(timestamp=_ts("2026-03-10T00:00:01.001Z"), symbol="BTCUSDT", bid=99.9, ask=100.1),
+        )
+    else:
+        trades = (
+            TradePrint(
+                timestamp=_ts("2026-03-10T00:00:01.001Z"),
+                symbol="BTCUSDT",
+                price=100.1,
+                quantity=1.0,
+                side="buy",
+            ),
+        )
+
+    fill = simulate_taker_fill(
+        symbol="BTCUSDT",
+        side="buy",
+        quantity=1.0,
+        reference_price=100.0,
+        placement_timestamp=placement_timestamp,
+        max_evidence_lag=timedelta(seconds=1),
+        order_books=order_books,
+        trades=trades,
     )
 
     assert fill.fill_model == "taker_ohlcv_approx"

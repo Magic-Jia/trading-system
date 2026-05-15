@@ -279,6 +279,7 @@ def simulate_taker_fill(
     reference_price: float,
     order_type: OrderType = "market",
     placement_timestamp: datetime | None = None,
+    max_evidence_lag: timedelta | None = None,
     order_books: tuple[OrderBookSnapshot, ...] = (),
     trades: tuple[TradePrint, ...] = (),
 ) -> ExecutionFill:
@@ -287,8 +288,18 @@ def simulate_taker_fill(
     quantity = _non_negative_finite_float("quantity", quantity)
     _positive_finite_float("reference_price", reference_price)
     _validate_evidence_contract(symbol=symbol, order_books=order_books, trades=trades)
-    eligible_books = _eligible_symbol_order_books(symbol, order_books, placement_timestamp=placement_timestamp)
-    eligible_trades = _eligible_symbol_trade_prints(symbol, trades, placement_timestamp=placement_timestamp)
+    eligible_books = _eligible_symbol_order_books(
+        symbol,
+        order_books,
+        placement_timestamp=placement_timestamp,
+        max_evidence_lag=max_evidence_lag,
+    )
+    eligible_trades = _eligible_symbol_trade_prints(
+        symbol,
+        trades,
+        placement_timestamp=placement_timestamp,
+        max_evidence_lag=max_evidence_lag,
+    )
     _validate_taker_evidence_timestamp_skew(
         symbol=symbol,
         order_books=tuple(eligible_books),
@@ -783,10 +794,14 @@ def _eligible_symbol_order_books(
     order_books: tuple[OrderBookSnapshot, ...],
     *,
     placement_timestamp: datetime | None,
+    max_evidence_lag: timedelta | None,
 ) -> list[OrderBookSnapshot]:
     eligible_books = [book for book in order_books if book.symbol == symbol]
     if placement_timestamp is not None:
         eligible_books = [book for book in eligible_books if book.timestamp >= placement_timestamp]
+        if max_evidence_lag is not None:
+            deadline = placement_timestamp + max_evidence_lag
+            eligible_books = [book for book in eligible_books if book.timestamp <= deadline]
     return sorted(eligible_books, key=lambda item: item.timestamp)
 
 
@@ -795,10 +810,14 @@ def _eligible_symbol_trade_prints(
     trades: tuple[TradePrint, ...],
     *,
     placement_timestamp: datetime | None,
+    max_evidence_lag: timedelta | None,
 ) -> list[TradePrint]:
     eligible_trades = [trade for trade in trades if trade.symbol == symbol]
     if placement_timestamp is not None:
         eligible_trades = [trade for trade in eligible_trades if trade.timestamp >= placement_timestamp]
+        if max_evidence_lag is not None:
+            deadline = placement_timestamp + max_evidence_lag
+            eligible_trades = [trade for trade in eligible_trades if trade.timestamp <= deadline]
     return eligible_trades
 
 
