@@ -39,6 +39,28 @@ def test_execution_fill_rejects_noncanonical_symbol(symbol: object) -> None:
         )
 
 
+@pytest.mark.parametrize("depth_levels_consumed", [-1, 1.5, True, "1"])
+def test_execution_fill_rejects_invalid_depth_levels_consumed(depth_levels_consumed: object) -> None:
+    with pytest.raises(ValueError, match="depth_levels_consumed must be a non-negative integer"):
+        ExecutionFill(
+            symbol="BTCUSDT",
+            side="buy",
+            quantity=1.0,
+            filled=True,
+            fill_price=100.0,
+            fill_model="taker_orderbook_depth",
+            execution_price_source="ask_depth",
+            fill_quality="evidence_backed",
+            outcome="filled",
+            requested_quantity=1.0,
+            filled_quantity=1.0,
+            filled_notional=100.0,
+            unfilled_quantity=0.0,
+            depth_levels_consumed=depth_levels_consumed,
+            evidence_timestamp=_ts("2026-03-10T00:00:01Z"),
+        )
+
+
 def test_execution_fill_rejects_no_fill_with_positive_accounting() -> None:
     with pytest.raises(ValueError, match="no-fill execution cannot include filled quantity"):
         ExecutionFill(
