@@ -372,6 +372,52 @@ def test_execution_fill_rejects_filled_state_without_price_or_quantity_accountin
         )
 
 
+@pytest.mark.parametrize(
+    ("field", "value", "match"),
+    [
+        ("filled_quantity", "omit", "filled executions must include positive filled quantity"),
+        ("filled_quantity", None, "filled executions must include positive filled quantity"),
+        ("filled_quantity", 0.0, "filled executions must include positive filled quantity"),
+        ("filled_quantity", -1.0, "filled_quantity must be a non-negative finite number"),
+        ("filled_quantity", math.nan, "filled_quantity must be a non-negative finite number"),
+        ("filled_quantity", math.inf, "filled_quantity must be a non-negative finite number"),
+        ("filled_notional", "omit", "filled executions must include positive filled notional"),
+        ("filled_notional", None, "filled executions must include positive filled notional"),
+        ("filled_notional", 0.0, "filled executions must include positive filled notional"),
+        ("filled_notional", -100.0, "filled_notional must be a non-negative finite number"),
+        ("filled_notional", math.nan, "filled_notional must be a non-negative finite number"),
+        ("filled_notional", math.inf, "filled_notional must be a non-negative finite number"),
+    ],
+)
+def test_execution_fill_rejects_filled_state_without_positive_accounting(
+    field: str,
+    value: object,
+    match: str,
+) -> None:
+    kwargs = {
+        "symbol": "BTCUSDT",
+        "side": "buy",
+        "quantity": 1.0,
+        "filled": True,
+        "fill_price": 100.0,
+        "fill_model": "reference_close",
+        "execution_price_source": "ohlcv_close",
+        "fill_quality": "approximate",
+        "outcome": "filled",
+        "requested_quantity": 1.0,
+        "filled_quantity": 1.0,
+        "filled_notional": 100.0,
+        "unfilled_quantity": 0.0,
+    }
+    if value == "omit":
+        kwargs.pop(field)
+    else:
+        kwargs[field] = value
+
+    with pytest.raises(ValueError, match=match):
+        ExecutionFill(**kwargs)
+
+
 def test_execution_fill_rejects_orderbook_depth_accounting_price_identity_mismatch() -> None:
     with pytest.raises(ValueError, match="filled notional must equal filled quantity times fill_price"):
         ExecutionFill(
@@ -3643,6 +3689,7 @@ def test_execution_fill_rejects_quantity_conservation_break(
             outcome="filled",
             requested_quantity=2.0,
             filled_quantity=filled_quantity,
+            filled_notional=filled_quantity * 100.0,
             unfilled_quantity=unfilled_quantity,
         )
 
@@ -3738,6 +3785,10 @@ def test_execution_fill_rejects_invalid_numeric_contract_fields(field: str, valu
         "execution_price_source": "best_ask",
         "fill_quality": "evidence_backed",
         "outcome": "filled",
+        "requested_quantity": 1.0,
+        "filled_quantity": 1.0,
+        "filled_notional": 100.0,
+        "unfilled_quantity": 0.0,
     }
     fill_kwargs[field] = value
 

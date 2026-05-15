@@ -223,13 +223,21 @@ class ExecutionFill:
         )
         if maker_fields_present and not self.fill_model.startswith("maker_"):
             raise ValueError("maker fields require maker fill model")
-        positive_fill_request = self.quantity > 0.0 or self.requested_notional is not None
+        positive_fill_request = (
+            self.quantity > 0.0
+            or (self.requested_quantity is not None and float(self.requested_quantity) > 0.0)
+            or (self.requested_notional is not None and float(self.requested_notional) > 0.0)
+        )
         if self.filled:
             if self.fill_price is None:
                 raise ValueError("filled executions must include fill_price")
-            if positive_fill_request and self.filled_quantity is not None and float(self.filled_quantity) <= 0.0:
+            if positive_fill_request and (
+                self.filled_quantity is None or float(self.filled_quantity) <= 0.0
+            ):
                 raise ValueError("filled executions must include positive filled quantity")
-            if positive_fill_request and self.filled_notional is not None and float(self.filled_notional) <= 0.0:
+            if positive_fill_request and (
+                self.filled_notional is None or float(self.filled_notional) <= 0.0
+            ):
                 raise ValueError("filled executions must include positive filled notional")
         else:
             if self.filled_quantity is not None and float(self.filled_quantity) > 0.0:
@@ -321,6 +329,10 @@ def reference_close_fill(*, symbol: str, side: OrderSide, quantity: float, close
         execution_price_source="ohlcv_close",
         fill_quality="approximate",
         outcome="filled",
+        requested_quantity=quantity,
+        filled_quantity=quantity if quantity > 0.0 else None,
+        filled_notional=(quantity * float(close_price)) if quantity > 0.0 else None,
+        unfilled_quantity=0.0 if quantity > 0.0 else None,
     )
 
 
@@ -359,6 +371,10 @@ def next_bar_ohlcv_fill(
             evidence_timestamp=_datetime_or_none(next_bar.get("timestamp")),
             execution_timeframe=timeframe,
             execution_lag_bars=1,
+            requested_quantity=quantity,
+            filled_quantity=quantity if quantity > 0.0 else None,
+            filled_notional=(quantity * open_price) if quantity > 0.0 else None,
+            unfilled_quantity=0.0 if quantity > 0.0 else None,
         )
 
     return reference_close_fill(symbol=symbol, side=side, quantity=quantity, close_price=reference_close)
@@ -462,6 +478,10 @@ def simulate_taker_fill(
         execution_price_source="ohlcv_reference",
         fill_quality="approximate",
         outcome="filled",
+        requested_quantity=quantity,
+        filled_quantity=quantity if quantity > 0.0 else None,
+        filled_notional=(quantity * float(reference_price)) if quantity > 0.0 else None,
+        unfilled_quantity=0.0 if quantity > 0.0 else None,
     )
 
 
@@ -733,6 +753,10 @@ def simulate_maker_limit_fill(
                 fill_quality="evidence_backed",
                 outcome="filled",
                 evidence_timestamp=trade.timestamp,
+                requested_quantity=validated_quantity,
+                filled_quantity=validated_quantity,
+                filled_notional=validated_quantity * validated_limit_price,
+                unfilled_quantity=0.0,
             )
 
     sorted_books = tuple(book for book in order_books if book.symbol == symbol)
@@ -753,6 +777,10 @@ def simulate_maker_limit_fill(
                 fill_quality="evidence_backed",
                 outcome="filled",
                 evidence_timestamp=book.timestamp,
+                requested_quantity=validated_quantity,
+                filled_quantity=validated_quantity,
+                filled_notional=validated_quantity * validated_limit_price,
+                unfilled_quantity=0.0,
             )
 
     return ExecutionFill(
