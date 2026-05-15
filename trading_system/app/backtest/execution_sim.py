@@ -155,6 +155,17 @@ class ExecutionFill:
             _positive_finite_float("fill_price", self.fill_price)
         if self.fill_quality == "no_fill" and self.fill_price is not None:
             raise ValueError("no-fill execution cannot include fill_price")
+        if self.fill_quality == "no_fill":
+            if self.filled:
+                raise ValueError("filled executions cannot have no_fill quality")
+            if self.filled_quantity is not None and self.filled_quantity > 0.0:
+                raise ValueError("no-fill execution cannot include filled quantity")
+            if self.filled_notional is not None and self.filled_notional > 0.0:
+                raise ValueError("no-fill execution cannot include filled notional")
+            if self.depth_levels_consumed is not None and self.depth_levels_consumed > 0:
+                raise ValueError("no-fill execution cannot consume depth levels")
+            if self.first_fill_timestamp is not None or self.last_fill_timestamp is not None:
+                raise ValueError("no-fill execution cannot include fill timestamps")
         for field_name in (
             "requested_quantity",
             "requested_notional",

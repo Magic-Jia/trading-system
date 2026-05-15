@@ -23,6 +23,98 @@ def _ts(value: str) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(timezone.utc)
 
 
+def test_execution_fill_rejects_no_fill_with_positive_accounting() -> None:
+    with pytest.raises(ValueError, match="no-fill execution cannot include filled quantity"):
+        ExecutionFill(
+            symbol="BTCUSDT",
+            side="buy",
+            quantity=1.0,
+            filled=False,
+            fill_price=None,
+            fill_model="taker_orderbook_depth",
+            execution_price_source="ask_depth",
+            fill_quality="no_fill",
+            outcome="missed_alpha",
+            requested_quantity=1.0,
+            filled_quantity=0.1,
+            filled_notional=0.0,
+            unfilled_quantity=0.9,
+        )
+
+    with pytest.raises(ValueError, match="no-fill execution cannot include filled notional"):
+        ExecutionFill(
+            symbol="BTCUSDT",
+            side="buy",
+            quantity=1.0,
+            filled=False,
+            fill_price=None,
+            fill_model="taker_orderbook_depth",
+            execution_price_source="ask_depth",
+            fill_quality="no_fill",
+            outcome="missed_alpha",
+            requested_quantity=1.0,
+            filled_quantity=0.0,
+            filled_notional=10.0,
+            unfilled_quantity=1.0,
+        )
+
+    with pytest.raises(ValueError, match="no-fill execution cannot consume depth levels"):
+        ExecutionFill(
+            symbol="BTCUSDT",
+            side="buy",
+            quantity=1.0,
+            filled=False,
+            fill_price=None,
+            fill_model="taker_orderbook_depth",
+            execution_price_source="ask_depth",
+            fill_quality="no_fill",
+            outcome="missed_alpha",
+            requested_quantity=1.0,
+            filled_quantity=0.0,
+            filled_notional=0.0,
+            unfilled_quantity=1.0,
+            depth_levels_consumed=1,
+        )
+
+
+def test_execution_fill_rejects_no_fill_with_fill_timestamps_or_filled_flag() -> None:
+    timestamp = _ts("2026-03-10T00:00:01Z")
+    with pytest.raises(ValueError, match="no-fill execution cannot include fill timestamps"):
+        ExecutionFill(
+            symbol="BTCUSDT",
+            side="buy",
+            quantity=1.0,
+            filled=False,
+            fill_price=None,
+            fill_model="taker_orderbook_depth",
+            execution_price_source="ask_depth",
+            fill_quality="no_fill",
+            outcome="missed_alpha",
+            requested_quantity=1.0,
+            filled_quantity=0.0,
+            filled_notional=0.0,
+            unfilled_quantity=1.0,
+            first_fill_timestamp=timestamp,
+        )
+
+    with pytest.raises(ValueError, match="filled executions cannot have no_fill quality"):
+        ExecutionFill(
+            symbol="BTCUSDT",
+            side="buy",
+            quantity=1.0,
+            filled=True,
+            fill_price=None,
+            fill_model="taker_orderbook_depth",
+            execution_price_source="ask_depth",
+            fill_quality="no_fill",
+            outcome="missed_alpha",
+            requested_quantity=1.0,
+            filled_quantity=0.0,
+            filled_notional=0.0,
+            unfilled_quantity=1.0,
+        )
+
+
 def test_evidence_contract_rejects_duplicate_same_symbol_trade_fill_id() -> None:
     with pytest.raises(ValueError, match="duplicate trade.fill_id: fill-001"):
         _validate_evidence_contract(
