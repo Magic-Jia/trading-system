@@ -469,6 +469,39 @@ def test_maker_limit_rejects_non_datetime_cancel_replace_timestamp_before_using_
         )
 
 
+@pytest.mark.parametrize(
+    ("latency_ms", "cancel_replace_timestamp"),
+    [
+        (0, _ts("2026-03-09T23:59:59.999000Z")),
+        (50, _ts("2026-03-10T00:00:00.049000Z")),
+    ],
+)
+def test_maker_limit_rejects_cancel_replace_timestamp_before_effective_placement(
+    latency_ms: int,
+    cancel_replace_timestamp: datetime,
+) -> None:
+    with pytest.raises(ValueError, match="cancel_replace_timestamp cannot be before placement_timestamp"):
+        simulate_maker_limit_fill(
+            symbol="BTCUSDT",
+            side="buy",
+            limit_price=99.5,
+            quantity=1.0,
+            placement_timestamp=_ts("2026-03-10T00:00:00Z"),
+            latency_ms=latency_ms,
+            cancel_replace_timestamp=cancel_replace_timestamp,
+            timeout_seconds=10.0,
+            trades=(
+                TradePrint(
+                    timestamp=_ts("2026-03-10T00:00:00.060000Z"),
+                    symbol="BTCUSDT",
+                    price=99.5,
+                    quantity=1.0,
+                    side="sell",
+                ),
+            ),
+        )
+
+
 @pytest.mark.parametrize("latency_ms", [True, "50", math.nan, math.inf, -math.inf, -1.0])
 def test_maker_latency_rejects_invalid_latency_ms(latency_ms: object) -> None:
     with pytest.raises(ValueError, match="latency_ms must be a non-negative finite number"):

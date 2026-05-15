@@ -567,6 +567,12 @@ def simulate_maker_limit_fill(
         placement_timestamp = _placement_timestamp_datetime(placement_timestamp)
     if cancel_replace_timestamp is not None:
         cancel_replace_timestamp = _cancel_replace_timestamp_datetime(cancel_replace_timestamp)
+    if placement_timestamp is not None and cancel_replace_timestamp is not None:
+        effective_placement = placement_timestamp
+        if validated_latency_ms > 0.0:
+            effective_placement = placement_timestamp + timedelta(milliseconds=validated_latency_ms)
+        if cancel_replace_timestamp < effective_placement:
+            raise ValueError("cancel_replace_timestamp cannot be before placement_timestamp")
     uses_queue_model = (
         queue_ahead_quantity is not None
         or placement_timestamp is not None
