@@ -377,16 +377,15 @@ def _evaluation_walk_forward_payload(walk_forward: Mapping[str, Any]) -> dict[st
                     )
                 validated_split["label"] = label
             metrics = validated_split.get("metrics")
-            if metrics is not None:
-                if not isinstance(metrics, Mapping):
-                    raise ValueError(
-                        f"walk_forward.windows[{window_index}].splits.{split_label}.metrics must be an object"
-                    )
-                validated_metrics = _evaluation_metric_payload(
-                    metrics,
-                    field_name=f"walk_forward.windows[{window_index}].splits.{split_label}.metrics",
+            if not isinstance(metrics, Mapping):
+                raise ValueError(
+                    f"walk_forward.windows[{window_index}].splits.{split_label}.metrics must be an object"
                 )
-                validated_split["metrics"] = validated_metrics
+            validated_metrics = _evaluation_metric_payload(
+                metrics,
+                field_name=f"walk_forward.windows[{window_index}].splits.{split_label}.metrics",
+            )
+            validated_split["metrics"] = validated_metrics
             if "trade_ids" in validated_split:
                 trade_ids = _list_field(
                     validated_split,
