@@ -2153,8 +2153,11 @@ def test_taker_depth_returns_no_fill_after_placement_window() -> None:
     assert fill.outcome == "missed_alpha"
     assert fill.evidence_timestamp == _ts("2026-03-10T00:00:01.001Z")
     assert fill.filled_quantity == pytest.approx(0.0)
+    assert fill.filled_notional == pytest.approx(0.0)
     assert fill.unfilled_quantity == pytest.approx(1.0)
     assert fill.depth_levels_consumed == 0
+    assert fill.first_fill_timestamp is None
+    assert fill.last_fill_timestamp is None
 
 
 def test_taker_depth_rejects_naive_placement_timestamp_before_using_evidence() -> None:
