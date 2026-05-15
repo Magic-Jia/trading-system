@@ -522,6 +522,30 @@ def test_maker_queue_inference_rejects_future_only_books_after_effective_placeme
         )
 
 
+def test_maker_queue_inference_rejects_missing_order_books_at_placement() -> None:
+    with pytest.raises(
+        ValueError,
+        match="queue_ahead_quantity inference requires order book at or before placement_timestamp",
+    ):
+        simulate_maker_limit_fill(
+            symbol="BTCUSDT",
+            side="buy",
+            limit_price=99.5,
+            quantity=1.0,
+            placement_timestamp=_ts("2026-03-10T00:00:00Z"),
+            timeout_seconds=10.0,
+            trades=(
+                TradePrint(
+                    timestamp=_ts("2026-03-10T00:00:01Z"),
+                    symbol="BTCUSDT",
+                    price=99.5,
+                    quantity=1.0,
+                    side="sell",
+                ),
+            ),
+        )
+
+
 def test_maker_queue_inference_uses_latest_book_before_effective_placement() -> None:
     fill = simulate_maker_limit_fill(
         symbol="BTCUSDT",
