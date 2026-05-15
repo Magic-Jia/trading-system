@@ -187,6 +187,12 @@ class ExecutionFill:
             value = getattr(self, field_name)
             if value is not None:
                 _non_negative_finite_float(field_name, value)
+        if (
+            self.queue_ahead_initial is not None
+            and self.queue_ahead_remaining is not None
+            and float(self.queue_ahead_remaining) > float(self.queue_ahead_initial)
+        ):
+            raise ValueError("queue_ahead_remaining cannot exceed queue_ahead_initial")
         positive_fill_request = self.quantity > 0.0 or self.requested_notional is not None
         if self.filled:
             if self.fill_price is None:

@@ -61,6 +61,24 @@ def test_execution_fill_rejects_invalid_depth_levels_consumed(depth_levels_consu
         )
 
 
+def test_execution_fill_rejects_queue_remaining_above_initial() -> None:
+    with pytest.raises(ValueError, match="queue_ahead_remaining cannot exceed queue_ahead_initial"):
+        ExecutionFill(
+            symbol="BTCUSDT",
+            side="buy",
+            quantity=1.0,
+            filled=False,
+            fill_price=None,
+            fill_model="maker_post_only_queue",
+            execution_price_source="no_crossing_evidence",
+            fill_quality="no_fill",
+            outcome="missed_alpha",
+            maker_status="expired",
+            queue_ahead_initial=1.0,
+            queue_ahead_remaining=1.1,
+        )
+
+
 def test_execution_fill_rejects_no_fill_with_positive_accounting() -> None:
     with pytest.raises(ValueError, match="no-fill execution cannot include filled quantity"):
         ExecutionFill(
