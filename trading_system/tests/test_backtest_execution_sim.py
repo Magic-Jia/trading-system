@@ -2944,10 +2944,12 @@ def test_taker_depth_sell_consumes_multiple_bid_levels_with_weighted_average() -
 
 
 def test_taker_depth_buy_can_consume_by_requested_notional() -> None:
+    requested_notional = 251.0
+
     fill = simulate_taker_depth_fill(
         symbol="BTCUSDT",
         side="buy",
-        requested_notional=251.0,
+        requested_notional=requested_notional,
         reference_price=100.0,
         order_book=OrderBookSnapshot(
             timestamp=_ts("2026-03-10T00:00:01Z"),
@@ -2959,10 +2961,13 @@ def test_taker_depth_buy_can_consume_by_requested_notional() -> None:
     )
 
     assert fill.filled is True
-    assert fill.requested_notional == pytest.approx(251.0)
-    assert fill.filled_notional == pytest.approx(251.0)
+    assert fill.fill_quality == "evidence_backed"
+    assert fill.requested_notional == pytest.approx(requested_notional)
+    assert fill.filled_notional == pytest.approx(requested_notional)
     assert fill.filled_quantity == pytest.approx(1.0 + 151.0 / 101.0)
     assert fill.unfilled_quantity == pytest.approx(0.0)
+    assert fill.unfilled_notional == pytest.approx(0.0)
+    assert fill.filled_notional + fill.unfilled_notional == pytest.approx(requested_notional)
     assert fill.depth_levels_consumed == 2
 
 
@@ -2992,7 +2997,10 @@ def test_taker_depth_requested_notional_shortfall_uses_total_executable_side_dep
     assert fill.filled_notional == pytest.approx(302.0)
     assert fill.filled_notional < requested_notional
     assert fill.filled_quantity == pytest.approx(3.0)
-    assert fill.unfilled_quantity == pytest.approx(0.0)
+    assert fill.unfilled_notional == pytest.approx(3.0)
+    assert fill.filled_notional + fill.unfilled_notional == pytest.approx(requested_notional)
+    assert fill.unfilled_quantity == pytest.approx(3.0 / 101.0)
+    assert fill.unfilled_quantity > 0.0
     assert fill.depth_levels_consumed == 2
 
 
@@ -3023,6 +3031,8 @@ def test_taker_depth_requested_notional_exact_depth_satisfaction_is_evidence_bac
     assert fill.filled_notional <= requested_notional + 1e-12
     assert fill.filled_quantity == pytest.approx(3.0)
     assert fill.unfilled_quantity == pytest.approx(0.0)
+    assert fill.unfilled_notional == pytest.approx(0.0)
+    assert fill.filled_notional + fill.unfilled_notional == pytest.approx(requested_notional)
     assert fill.depth_levels_consumed == 2
 
 
@@ -3159,6 +3169,10 @@ def test_taker_depth_requested_notional_partial_fill_preserves_accounting_identi
     assert fill.filled_quantity == pytest.approx(3.0)
     assert fill.filled_notional == pytest.approx(302.0)
     assert fill.filled_notional <= requested_notional + 1e-12
+    assert fill.unfilled_notional == pytest.approx(48.0)
+    assert fill.filled_notional + fill.unfilled_notional == pytest.approx(requested_notional)
+    assert fill.unfilled_quantity == pytest.approx(48.0 / 101.0)
+    assert fill.unfilled_quantity > 0.0
     assert fill.fill_price == pytest.approx(fill.filled_notional / fill.filled_quantity)
     assert fill.depth_levels_consumed == 2
     assert fill.evidence_timestamp == book_timestamp

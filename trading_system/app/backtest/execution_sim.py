@@ -664,19 +664,22 @@ def simulate_taker_depth_fill(
     filled_quantity = 0.0
     filled_notional = 0.0
     levels_consumed = 0
+    last_consumed_price: float | None = None
     for level in levels:
         available = max(float(level.quantity), 0.0)
         if available <= 0.0:
             continue
+        level_price = float(level.price)
         if remaining_notional is not None:
-            take_quantity = min(available, remaining_notional / float(level.price))
+            take_quantity = min(available, remaining_notional / level_price)
         else:
             take_quantity = min(remaining, available)
         if take_quantity <= 0.0:
             continue
         filled_quantity += take_quantity
-        level_notional = take_quantity * float(level.price)
+        level_notional = take_quantity * level_price
         filled_notional += level_notional
+        last_consumed_price = level_price
         if remaining_notional is not None:
             remaining_notional -= level_notional
         else:
@@ -712,8 +715,15 @@ def simulate_taker_depth_fill(
 
     average_price = filled_notional / filled_quantity
     top_price = float(levels[0].price)
-    unfilled_quantity = 0.0 if remaining_notional is not None and remaining_notional <= 0.0 else remaining
     unfilled_notional = remaining_notional if remaining_notional is not None else None
+    if remaining_notional is not None:
+        if remaining_notional <= 0.0:
+            unfilled_quantity = 0.0
+        else:
+            evidence_price = last_consumed_price if last_consumed_price is not None else average_price
+            unfilled_quantity = remaining_notional / evidence_price
+    else:
+        unfilled_quantity = remaining
     if remaining_notional is not None and remaining_notional > 0.0:
         fill_quality: FillQuality = "partial_evidence_backed"
     else:
