@@ -193,6 +193,7 @@ def _normalized_symbol_metadata(payload: Any, *, context: Path | str) -> dict[st
         not isinstance(listing_timestamp, str)
         or not listing_timestamp.strip()
         or listing_timestamp != listing_timestamp.strip()
+        or not _is_canonical_utc_timestamp(listing_timestamp)
     ):
         raise ValueError(f"raw-market symbol_metadata listing_timestamp must be canonical: {context}")
 
