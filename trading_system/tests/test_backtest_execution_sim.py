@@ -201,6 +201,32 @@ def test_execution_fill_rejects_no_fill_state_with_filled_outcome() -> None:
         )
 
 
+@pytest.mark.parametrize(("field", "value", "match"), [
+    ("filled_quantity", 0.01, "unfilled executions cannot include positive filled quantity"),
+    ("filled_notional", 1.0, "unfilled executions cannot include positive filled notional"),
+])
+def test_execution_fill_rejects_unfilled_state_with_positive_accounting(field: str, value: float, match: str) -> None:
+    kwargs = {
+        "symbol": "BTCUSDT",
+        "side": "buy",
+        "quantity": 1.0,
+        "filled": False,
+        "fill_price": None,
+        "fill_model": "reference_close",
+        "execution_price_source": "ohlcv_close",
+        "fill_quality": "approximate",
+        "outcome": "missed_alpha",
+        "requested_quantity": 1.0,
+        "filled_quantity": 0.0,
+        "filled_notional": 0.0,
+        "unfilled_quantity": 1.0,
+    }
+    kwargs[field] = value
+
+    with pytest.raises(ValueError, match=match):
+        ExecutionFill(**kwargs)
+
+
 def test_execution_fill_rejects_no_fill_with_positive_accounting() -> None:
     with pytest.raises(ValueError, match="no-fill execution cannot include filled quantity"):
         ExecutionFill(

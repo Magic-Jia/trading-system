@@ -231,6 +231,11 @@ class ExecutionFill:
                 raise ValueError("filled executions must include positive filled quantity")
             if positive_fill_request and self.filled_notional is not None and float(self.filled_notional) <= 0.0:
                 raise ValueError("filled executions must include positive filled notional")
+        else:
+            if self.filled_quantity is not None and float(self.filled_quantity) > 0.0:
+                raise ValueError("unfilled executions cannot include positive filled quantity")
+            if self.filled_notional is not None and float(self.filled_notional) > 0.0:
+                raise ValueError("unfilled executions cannot include positive filled notional")
         if (
             self.fill_model == "taker_orderbook_depth"
             and self.fill_price is not None
