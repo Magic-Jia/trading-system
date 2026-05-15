@@ -185,6 +185,13 @@ class ExecutionFill:
         ):
             raise ValueError("fill quantities must conserve requested quantity")
         if (
+            self.fill_model == "taker_trade_print"
+            and self.fill_quality == "evidence_backed"
+            and self.unfilled_quantity is not None
+            and self.unfilled_quantity > 1e-12
+        ):
+            raise ValueError("evidence-backed trade-print fills cannot leave unfilled quantity")
+        if (
             self.first_fill_timestamp is not None
             and self.last_fill_timestamp is not None
             and self.first_fill_timestamp > self.last_fill_timestamp
@@ -791,6 +798,14 @@ def _conservative_trade_print_taker_fill(
     if not symbol_trades:
         return None
     trade = max(symbol_trades, key=lambda item: item.price) if side == "buy" else min(symbol_trades, key=lambda item: item.price)
+    if requested_quantity > 0.0:
+        filled_quantity = min(requested_quantity, float(trade.quantity))
+        unfilled_quantity = max(requested_quantity - filled_quantity, 0.0)
+        fill_quality: FillQuality = "evidence_backed" if unfilled_quantity <= 1e-12 else "partial_evidence_backed"
+    else:
+        filled_quantity = None
+        unfilled_quantity = None
+        fill_quality = "evidence_backed"
     return ExecutionFill(
         symbol=symbol,
         side=side,
@@ -799,13 +814,13 @@ def _conservative_trade_print_taker_fill(
         fill_price=float(trade.price),
         fill_model="taker_trade_print",
         execution_price_source="trade_print",
-        fill_quality="evidence_backed",
+        fill_quality=fill_quality,
         outcome="filled",
         evidence_timestamp=trade.timestamp,
         requested_quantity=requested_quantity,
-        filled_quantity=requested_quantity if requested_quantity > 0.0 else None,
-        filled_notional=(requested_quantity * float(trade.price)) if requested_quantity > 0.0 else None,
-        unfilled_quantity=0.0 if requested_quantity > 0.0 else None,
+        filled_quantity=filled_quantity,
+        filled_notional=(filled_quantity * float(trade.price)) if filled_quantity is not None else None,
+        unfilled_quantity=unfilled_quantity,
         first_fill_timestamp=trade.timestamp,
         last_fill_timestamp=trade.timestamp,
     )
