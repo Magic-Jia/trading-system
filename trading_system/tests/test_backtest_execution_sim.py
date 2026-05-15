@@ -23,6 +23,22 @@ def _ts(value: str) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(timezone.utc)
 
 
+@pytest.mark.parametrize("symbol", ["", " BTCUSDT", "BTCUSDT ", 123])
+def test_execution_fill_rejects_noncanonical_symbol(symbol: object) -> None:
+    with pytest.raises(ValueError, match="symbol must be a canonical string"):
+        ExecutionFill(
+            symbol=symbol,
+            side="buy",
+            quantity=1.0,
+            filled=True,
+            fill_price=100.0,
+            fill_model="reference_close",
+            execution_price_source="ohlcv_close",
+            fill_quality="approximate",
+            outcome="filled",
+        )
+
+
 def test_execution_fill_rejects_no_fill_with_positive_accounting() -> None:
     with pytest.raises(ValueError, match="no-fill execution cannot include filled quantity"):
         ExecutionFill(

@@ -135,6 +135,7 @@ class ExecutionFill:
     maker_reasons: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, "symbol", _canonical_string("symbol", self.symbol))
         object.__setattr__(self, "side", _canonical_domain("side", self.side, _ORDER_SIDES))
         object.__setattr__(self, "fill_model", _canonical_domain("fill_model", self.fill_model, _FILL_MODELS))
         object.__setattr__(
