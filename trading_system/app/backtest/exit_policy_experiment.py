@@ -73,6 +73,7 @@ def _evaluate_trade(*, index: int, trade: Mapping[str, Any], policy: ExitPolicyP
         "baseline_exit_price": _optional_present_finite_number(trade, field="exit_price", index=index),
         "qty": _optional_present_finite_number(trade, field="qty", index=index),
     }
+    _validate_serialized_fill_timestamps(trade, index=index)
     side = identity["side"]
     entry_timestamp = _parse_timestamp(trade.get("entry_timestamp"))
     fixed_exit_timestamp = _parse_timestamp(trade.get("exit_timestamp"))
@@ -161,6 +162,25 @@ def _trade_print_source(trade: Mapping[str, Any]) -> tuple[str | None, Any]:
     return None, None
 
 
+def _validate_serialized_fill_timestamps(trade: Mapping[str, Any], *, index: int) -> None:
+    first_fill_timestamp = _optional_present_timestamp(
+        trade,
+        field="first_fill_timestamp",
+        index=index,
+    )
+    last_fill_timestamp = _optional_present_timestamp(
+        trade,
+        field="last_fill_timestamp",
+        index=index,
+    )
+    if (
+        first_fill_timestamp is not None
+        and last_fill_timestamp is not None
+        and first_fill_timestamp > last_fill_timestamp
+    ):
+        raise ValueError(f"trades[{index}].first_fill_timestamp must be at or before last_fill_timestamp")
+
+
 def _trade_print_points(raw_trade_prints: Any, *, path: str) -> tuple[_TradePrintPoint, ...]:
     if not isinstance(raw_trade_prints, Sequence) or isinstance(raw_trade_prints, (str, bytes, bytearray)):
         raise ValueError(f"{path} must be a sequence of trade print mappings")
@@ -191,6 +211,17 @@ def _optional_present_finite_number(trade: Mapping[str, Any], *, field: str, ind
     if not _is_finite_number(value):
         raise ValueError(f"trades[{index}].{field} must be a finite number when present")
     return float(value)
+
+
+def _optional_present_timestamp(trade: Mapping[str, Any], *, field: str, index: int) -> datetime | None:
+    if field not in trade or trade[field] is None:
+        return None
+    timestamp = _parse_timestamp(trade[field])
+    if timestamp is None:
+        raise ValueError(f"trades[{index}].{field} must be an ISO timestamp when present")
+    if timestamp.tzinfo is None or timestamp.utcoffset() is None:
+        raise ValueError(f"trades[{index}].{field} must include a timezone offset")
+    return timestamp
 
 
 def _required_present_timestamp(row: Mapping[str, Any], *, field: str, path: str) -> datetime:

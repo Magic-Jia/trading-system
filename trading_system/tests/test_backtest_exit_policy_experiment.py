@@ -108,6 +108,19 @@ def test_exit_policy_experiment_records_evidence_backed_trigger_and_diagnostic_p
     assert row["diagnostic_policy_net_pnl"] == pytest.approx(0.3)
 
 
+def test_exit_policy_experiment_rejects_inverted_serialized_fill_timestamps() -> None:
+    module = importlib.import_module("trading_system.app.backtest.exit_policy_experiment")
+    trade = _valid_trade()
+    trade["first_fill_timestamp"] = "2026-03-10T00:00:02Z"
+    trade["last_fill_timestamp"] = "2026-03-10T00:00:01Z"
+
+    with pytest.raises(
+        ValueError,
+        match=r"trades\[1\]\.first_fill_timestamp must be at or before last_fill_timestamp",
+    ):
+        module.build_exit_policy_experiment(trades=[trade], policy=_policy())
+
+
 def test_exit_policy_experiment_marks_missing_trade_print_path_as_no_evidence_without_fallback() -> None:
     module = importlib.import_module("trading_system.app.backtest.exit_policy_experiment")
 
