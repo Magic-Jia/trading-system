@@ -112,6 +112,11 @@ def _manifest_archive_datetime(manifest: dict[str, Any], key: str, *, manifest_p
     )
 
 
+def _validate_coverage_window_order(coverage_start: datetime, coverage_end: datetime, *, context: Path | str) -> None:
+    if coverage_start > coverage_end:
+        raise ValueError(f"raw-market coverage_start must not be after coverage_end: {context}")
+
+
 def _utc_datetime(value: str | int | float) -> datetime:
     if isinstance(value, bool):
         raise ValueError("timestamp value must not be boolean")
@@ -609,6 +614,7 @@ def _load_import_file(
         )
     coverage_start = _manifest_archive_datetime(manifest, "coverage_start", manifest_path=manifest_path)
     coverage_end = _manifest_archive_datetime(manifest, "coverage_end", manifest_path=manifest_path)
+    _validate_coverage_window_order(coverage_start, coverage_end, context=manifest_path)
     data_path = _manifest_data_path(manifest, manifest_path=manifest_path)
     if not data_path.exists():
         raise FileNotFoundError(f"raw-market data file missing: {data_path}")
@@ -824,6 +830,11 @@ def archive_raw_market_payload(
     normalized_coverage_start = _archive_timestamp(coverage_start, field="coverage_start")
     normalized_coverage_end = _archive_timestamp(coverage_end, field="coverage_end")
     normalized_fetched_at = _archive_timestamp(fetched_at, field="fetched_at")
+    _validate_coverage_window_order(
+        _utc_datetime(normalized_coverage_start),
+        _utc_datetime(normalized_coverage_end),
+        context=Path(archive_root),
+    )
     storage_dir = raw_market_storage_dir(
         archive_root,
         exchange=normalized_exchange,

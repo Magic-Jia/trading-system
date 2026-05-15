@@ -316,6 +316,29 @@ def test_archive_raw_market_payload_rejects_boolean_coverage_start_before_archiv
     assert not archive_root.exists()
 
 
+def test_archive_raw_market_payload_rejects_reversed_coverage_window_before_archive_side_effects(
+    tmp_path: Path,
+) -> None:
+    archive_root = tmp_path / "archive"
+
+    with pytest.raises(ValueError, match="raw-market coverage_start must not be after coverage_end"):
+        archive_raw_market_payload(
+            archive_root=archive_root,
+            exchange="binance",
+            market="futures",
+            dataset="ohlcv",
+            symbol="BTCUSDT",
+            timeframe="1h",
+            coverage_start="2026-01-01T02:00:00Z",
+            coverage_end="2026-01-01T01:00:00Z",
+            fetched_at="2026-01-01T02:01:00Z",
+            endpoint="/fapi/v1/klines",
+            payload={"rows": []},
+        )
+
+    assert not archive_root.exists()
+
+
 @pytest.mark.parametrize(
     ("field", "value"),
     [
