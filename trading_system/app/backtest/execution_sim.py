@@ -884,6 +884,8 @@ def simulate_maker_limit_fill(
                 filled_quantity=validated_quantity,
                 filled_notional=validated_quantity * validated_limit_price,
                 unfilled_quantity=0.0,
+                first_fill_timestamp=trade.timestamp,
+                last_fill_timestamp=trade.timestamp,
             )
 
     sorted_books = tuple(book for book in order_books if book.symbol == symbol)
@@ -908,6 +910,8 @@ def simulate_maker_limit_fill(
                 filled_quantity=validated_quantity,
                 filled_notional=validated_quantity * validated_limit_price,
                 unfilled_quantity=0.0,
+                first_fill_timestamp=book.timestamp,
+                last_fill_timestamp=book.timestamp,
             )
 
     return ExecutionFill(

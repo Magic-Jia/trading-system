@@ -1467,6 +1467,7 @@ def test_evidence_contract_accepts_missing_top_size_or_empty_depth_side_without_
 
 
 def test_maker_buy_limit_fills_when_trade_path_crosses_limit_with_evidence() -> None:
+    crossing_trade_timestamp = _ts("2026-03-10T00:00:03Z")
     fill = simulate_maker_limit_fill(
         symbol="BTCUSDT",
         side="buy",
@@ -1477,7 +1478,7 @@ def test_maker_buy_limit_fills_when_trade_path_crosses_limit_with_evidence() -> 
         ),
         trades=(
             TradePrint(timestamp=_ts("2026-03-10T00:00:02Z"), symbol="BTCUSDT", price=99.5, quantity=1.0),
-            TradePrint(timestamp=_ts("2026-03-10T00:00:03Z"), symbol="BTCUSDT", price=99.4, quantity=1.5),
+            TradePrint(timestamp=crossing_trade_timestamp, symbol="BTCUSDT", price=99.4, quantity=1.5),
         ),
     )
 
@@ -1487,6 +1488,12 @@ def test_maker_buy_limit_fills_when_trade_path_crosses_limit_with_evidence() -> 
     assert fill.execution_price_source == "trade_print"
     assert fill.fill_quality == "evidence_backed"
     assert fill.outcome == "filled"
+    assert fill.evidence_timestamp == crossing_trade_timestamp
+    assert fill.first_fill_timestamp == crossing_trade_timestamp
+    assert fill.last_fill_timestamp == crossing_trade_timestamp
+    assert fill.filled_quantity == pytest.approx(2.0)
+    assert fill.filled_notional == pytest.approx(199.0)
+    assert fill.unfilled_quantity == pytest.approx(0.0)
 
 
 def test_maker_buy_queue_ahead_consumes_sell_trade_volume_before_own_fill() -> None:
@@ -2847,16 +2854,19 @@ def test_maker_buy_limit_misses_when_no_trade_or_book_evidence_crosses_limit() -
     assert fill.execution_price_source == "no_crossing_evidence"
     assert fill.fill_quality == "no_fill"
     assert fill.outcome == "missed_alpha"
+    assert fill.first_fill_timestamp is None
+    assert fill.last_fill_timestamp is None
 
 
 def test_maker_sell_limit_fills_when_bid_crosses_limit_with_orderbook_evidence() -> None:
+    crossing_book_timestamp = _ts("2026-03-10T00:00:01Z")
     fill = simulate_maker_limit_fill(
         symbol="BTCUSDT",
         side="sell",
         limit_price=100.5,
         quantity=1.0,
         order_books=(
-            OrderBookSnapshot(timestamp=_ts("2026-03-10T00:00:01Z"), symbol="BTCUSDT", bid=100.6, ask=100.8),
+            OrderBookSnapshot(timestamp=crossing_book_timestamp, symbol="BTCUSDT", bid=100.6, ask=100.8),
         ),
         trades=(),
     )
@@ -2866,6 +2876,9 @@ def test_maker_sell_limit_fills_when_bid_crosses_limit_with_orderbook_evidence()
     assert fill.fill_model == "maker_orderbook_trade_evidence"
     assert fill.execution_price_source == "book_cross"
     assert fill.fill_quality == "evidence_backed"
+    assert fill.evidence_timestamp == crossing_book_timestamp
+    assert fill.first_fill_timestamp == crossing_book_timestamp
+    assert fill.last_fill_timestamp == crossing_book_timestamp
 
 
 @pytest.mark.parametrize("limit_price", [True, "99.5", math.nan, math.inf, -math.inf, 0.0, -1.0])
