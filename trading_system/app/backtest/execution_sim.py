@@ -797,15 +797,38 @@ def _conservative_trade_print_taker_fill(
         )
     if not symbol_trades:
         return None
-    trade = max(symbol_trades, key=lambda item: item.price) if side == "buy" else min(symbol_trades, key=lambda item: item.price)
+    selected_trades: list[TradePrint] = []
+    filled_quantity = 0.0
+    if requested_quantity <= 0.0:
+        selected_trades = list(symbol_trades)
+    else:
+        for trade in symbol_trades:
+            if filled_quantity >= requested_quantity:
+                break
+            selected_trades.append(trade)
+            filled_quantity += float(trade.quantity)
+            if filled_quantity >= requested_quantity:
+                break
     if requested_quantity > 0.0:
-        filled_quantity = min(requested_quantity, float(trade.quantity))
+        filled_quantity = min(requested_quantity, filled_quantity)
         unfilled_quantity = max(requested_quantity - filled_quantity, 0.0)
         fill_quality: FillQuality = "evidence_backed" if unfilled_quantity <= 1e-12 else "partial_evidence_backed"
     else:
         filled_quantity = None
         unfilled_quantity = None
         fill_quality = "evidence_backed"
+    if selected_trades:
+        trade = max(selected_trades, key=lambda item: item.price) if side == "buy" else min(selected_trades, key=lambda item: item.price)
+        evidence_timestamp = selected_trades[-1].timestamp
+        first_fill_timestamp = selected_trades[0].timestamp
+        last_fill_timestamp = selected_trades[-1].timestamp
+        filled_notional = (filled_quantity * float(trade.price)) if filled_quantity is not None else None
+    else:
+        trade = symbol_trades[0]
+        evidence_timestamp = trade.timestamp
+        first_fill_timestamp = trade.timestamp
+        last_fill_timestamp = trade.timestamp
+        filled_notional = None if filled_quantity is None else filled_quantity * float(trade.price)
     return ExecutionFill(
         symbol=symbol,
         side=side,
@@ -816,13 +839,13 @@ def _conservative_trade_print_taker_fill(
         execution_price_source="trade_print",
         fill_quality=fill_quality,
         outcome="filled",
-        evidence_timestamp=trade.timestamp,
+        evidence_timestamp=evidence_timestamp,
         requested_quantity=requested_quantity,
         filled_quantity=filled_quantity,
-        filled_notional=(filled_quantity * float(trade.price)) if filled_quantity is not None else None,
+        filled_notional=filled_notional,
         unfilled_quantity=unfilled_quantity,
-        first_fill_timestamp=trade.timestamp,
-        last_fill_timestamp=trade.timestamp,
+        first_fill_timestamp=first_fill_timestamp,
+        last_fill_timestamp=last_fill_timestamp,
     )
 
 

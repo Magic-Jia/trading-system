@@ -963,6 +963,52 @@ def test_taker_trade_print_fill_is_partial_when_print_quantity_is_smaller_than_r
     assert fill.unfilled_quantity == pytest.approx(1.25)
 
 
+def test_taker_trade_print_fill_aggregates_multiple_eligible_prints_to_cover_request() -> None:
+    fill = simulate_taker_fill(
+        symbol="BTCUSDT",
+        side="buy",
+        quantity=2.0,
+        reference_price=100.0,
+        trades=(
+            TradePrint(
+                timestamp=_ts("2026-03-10T00:00:01Z"),
+                symbol="BTCUSDT",
+                price=100.2,
+                quantity=0.75,
+                side="buy",
+            ),
+            TradePrint(
+                timestamp=_ts("2026-03-10T00:00:02Z"),
+                symbol="BTCUSDT",
+                price=100.6,
+                quantity=1.25,
+                side="buy",
+            ),
+            TradePrint(
+                timestamp=_ts("2026-03-10T00:00:03Z"),
+                symbol="BTCUSDT",
+                price=99.9,
+                quantity=10.0,
+                side="sell",
+            ),
+        ),
+    )
+
+    assert fill.filled is True
+    assert fill.quantity == pytest.approx(2.0)
+    assert fill.fill_price == pytest.approx(100.6)
+    assert fill.fill_model == "taker_trade_print"
+    assert fill.execution_price_source == "trade_print"
+    assert fill.fill_quality == "evidence_backed"
+    assert fill.requested_quantity == pytest.approx(2.0)
+    assert fill.filled_quantity == pytest.approx(2.0)
+    assert fill.filled_notional == pytest.approx(201.2)
+    assert fill.unfilled_quantity == pytest.approx(0.0)
+    assert fill.evidence_timestamp == _ts("2026-03-10T00:00:02Z")
+    assert fill.first_fill_timestamp == _ts("2026-03-10T00:00:01Z")
+    assert fill.last_fill_timestamp == _ts("2026-03-10T00:00:02Z")
+
+
 @pytest.mark.parametrize("price", [True, "100.0", math.nan, math.inf, -math.inf, 0.0, -1.0])
 def test_taker_trade_print_rejects_invalid_price(price: object) -> None:
     with pytest.raises(ValueError, match="trade.price must be a positive finite number"):
