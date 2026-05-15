@@ -1009,6 +1009,42 @@ def test_taker_trade_print_fill_aggregates_multiple_eligible_prints_to_cover_req
     assert fill.last_fill_timestamp == _ts("2026-03-10T00:00:02Z")
 
 
+def test_taker_trade_print_fill_rejects_duplicate_trade_print_identity_before_aggregation() -> None:
+    with pytest.raises(ValueError, match="duplicate trade.fill_id: print-A"):
+        simulate_taker_fill(
+            symbol="BTCUSDT",
+            side="buy",
+            quantity=2.0,
+            reference_price=100.0,
+            trades=(
+                TradePrint(
+                    timestamp=_ts("2026-03-10T00:00:01Z"),
+                    symbol="BTCUSDT",
+                    price=100.2,
+                    quantity=1.25,
+                    side="buy",
+                    fill_id="print-A",
+                ),
+                TradePrint(
+                    timestamp=_ts("2026-03-10T00:00:02Z"),
+                    symbol="BTCUSDT",
+                    price=100.2,
+                    quantity=1.25,
+                    side="buy",
+                    fill_id="print-A",
+                ),
+                TradePrint(
+                    timestamp=_ts("2026-03-10T00:00:03Z"),
+                    symbol="BTCUSDT",
+                    price=100.6,
+                    quantity=1.0,
+                    side="buy",
+                    fill_id="print-B",
+                ),
+            ),
+        )
+
+
 def test_taker_trade_print_fill_clips_overshoot_on_final_selected_print() -> None:
     fill = simulate_taker_fill(
         symbol="BTCUSDT",
