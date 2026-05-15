@@ -234,6 +234,11 @@ class ExecutionFill:
             value = getattr(self, field_name)
             if value is not None:
                 _non_negative_finite_float(field_name, value)
+        if self.slippage_bps is not None:
+            if self.fill_model == "taker_orderbook_depth":
+                _non_negative_finite_float("slippage_bps", self.slippage_bps)
+            else:
+                _finite_float("slippage_bps", self.slippage_bps)
         if (
             self.queue_ahead_initial is not None
             and self.queue_ahead_remaining is not None
@@ -311,8 +316,6 @@ class ExecutionFill:
             )
         ):
             raise ValueError("filled notional must equal filled quantity times fill_price")
-        if self.slippage_bps is not None:
-            object.__setattr__(self, "slippage_bps", _finite_float("slippage_bps", self.slippage_bps))
         for field_name in ("execution_impact_bps", "slippage_bps"):
             if getattr(self, field_name) is not None and (
                 not self.filled

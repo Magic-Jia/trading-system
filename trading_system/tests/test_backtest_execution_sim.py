@@ -731,11 +731,34 @@ def test_execution_fill_accepts_evidence_backed_taker_depth_impact_and_slippage(
         unfilled_quantity=0.0,
         depth_levels_consumed=1,
         execution_impact_bps=5.0,
-        slippage_bps=-2.5,
+        slippage_bps=2.5,
     )
 
     assert fill.execution_impact_bps == pytest.approx(5.0)
-    assert fill.slippage_bps == pytest.approx(-2.5)
+    assert fill.slippage_bps == pytest.approx(2.5)
+
+
+def test_execution_fill_rejects_negative_taker_depth_slippage_bps() -> None:
+    with pytest.raises(ValueError, match="slippage_bps must be a non-negative finite number"):
+        ExecutionFill(
+            symbol="BTCUSDT",
+            side="sell",
+            quantity=1.0,
+            filled=True,
+            fill_price=99.5,
+            fill_model="taker_orderbook_depth",
+            execution_price_source="bid_depth",
+            fill_quality="evidence_backed",
+            outcome="filled",
+            evidence_timestamp=_ts("2026-03-10T00:00:01Z"),
+            requested_quantity=1.0,
+            filled_quantity=1.0,
+            filled_notional=99.5,
+            unfilled_quantity=0.0,
+            depth_levels_consumed=1,
+            execution_impact_bps=5.0,
+            slippage_bps=-5.0,
+        )
 
 
 def test_execution_fill_rejects_no_fill_with_fill_timestamps_or_filled_flag() -> None:
