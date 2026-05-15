@@ -862,11 +862,14 @@ def simulate_maker_limit_fill(
 
     sorted_trades = tuple(trade for trade in trades if trade.symbol == symbol)
     filled_qty = 0.0
+    first_fill_timestamp: datetime | None = None
     for trade in sorted_trades:
         trade_price = _positive_finite_float("trade.price", trade.price)
         trade_quantity = _positive_finite_float("trade.quantity", trade.quantity)
         if not _crosses_limit(side=side, price=trade_price, limit_price=validated_limit_price):
             continue
+        if first_fill_timestamp is None:
+            first_fill_timestamp = trade.timestamp
         filled_qty += trade_quantity
         if filled_qty >= validated_quantity:
             return ExecutionFill(
@@ -884,7 +887,7 @@ def simulate_maker_limit_fill(
                 filled_quantity=validated_quantity,
                 filled_notional=validated_quantity * validated_limit_price,
                 unfilled_quantity=0.0,
-                first_fill_timestamp=trade.timestamp,
+                first_fill_timestamp=first_fill_timestamp,
                 last_fill_timestamp=trade.timestamp,
             )
 

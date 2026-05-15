@@ -1466,33 +1466,39 @@ def test_evidence_contract_accepts_missing_top_size_or_empty_depth_side_without_
     )
 
 
-def test_maker_buy_limit_fills_when_trade_path_crosses_limit_with_evidence() -> None:
-    crossing_trade_timestamp = _ts("2026-03-10T00:00:03Z")
+def test_maker_buy_limit_fill_records_multi_print_fill_interval() -> None:
+    first_contributing_trade_timestamp = _ts("2026-03-10T00:00:03Z")
+    final_contributing_trade_timestamp = _ts("2026-03-10T00:00:05Z")
+    requested_quantity = 2.0
+    limit_price = 99.5
     fill = simulate_maker_limit_fill(
         symbol="BTCUSDT",
         side="buy",
-        limit_price=99.5,
-        quantity=2.0,
+        limit_price=limit_price,
+        quantity=requested_quantity,
         order_books=(
             OrderBookSnapshot(timestamp=_ts("2026-03-10T00:00:01Z"), symbol="BTCUSDT", bid=99.4, ask=100.0),
         ),
         trades=(
-            TradePrint(timestamp=_ts("2026-03-10T00:00:02Z"), symbol="BTCUSDT", price=99.5, quantity=1.0),
-            TradePrint(timestamp=crossing_trade_timestamp, symbol="BTCUSDT", price=99.4, quantity=1.5),
+            TradePrint(timestamp=_ts("2026-03-10T00:00:02Z"), symbol="BTCUSDT", price=99.6, quantity=100.0),
+            TradePrint(timestamp=first_contributing_trade_timestamp, symbol="BTCUSDT", price=99.5, quantity=0.75),
+            TradePrint(timestamp=_ts("2026-03-10T00:00:04Z"), symbol="ETHUSDT", price=99.4, quantity=100.0),
+            TradePrint(timestamp=final_contributing_trade_timestamp, symbol="BTCUSDT", price=99.4, quantity=1.5),
+            TradePrint(timestamp=_ts("2026-03-10T00:00:06Z"), symbol="BTCUSDT", price=99.4, quantity=100.0),
         ),
     )
 
     assert fill.filled is True
-    assert fill.fill_price == pytest.approx(99.5)
+    assert fill.fill_price == pytest.approx(limit_price)
     assert fill.fill_model == "maker_orderbook_trade_evidence"
     assert fill.execution_price_source == "trade_print"
     assert fill.fill_quality == "evidence_backed"
     assert fill.outcome == "filled"
-    assert fill.evidence_timestamp == crossing_trade_timestamp
-    assert fill.first_fill_timestamp == crossing_trade_timestamp
-    assert fill.last_fill_timestamp == crossing_trade_timestamp
-    assert fill.filled_quantity == pytest.approx(2.0)
-    assert fill.filled_notional == pytest.approx(199.0)
+    assert fill.evidence_timestamp == final_contributing_trade_timestamp
+    assert fill.first_fill_timestamp == first_contributing_trade_timestamp
+    assert fill.last_fill_timestamp == final_contributing_trade_timestamp
+    assert fill.filled_quantity == pytest.approx(requested_quantity)
+    assert fill.filled_notional == pytest.approx(requested_quantity * limit_price)
     assert fill.unfilled_quantity == pytest.approx(0.0)
 
 
