@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
-from .raw_market import ImportedRawMarketSeries, load_phase1_raw_market_imports, raw_market_series_key
+from .raw_market import ImportedRawMarketFile, ImportedRawMarketSeries, load_phase1_raw_market_imports, raw_market_series_key
 
 RAW_MARKET_DATA_QUALITY_SCHEMA_VERSION = "raw_market_data_quality_report.v1"
 
@@ -100,6 +100,30 @@ def _provenance_path(value: Path, field: str) -> str:
     return rendered
 
 
+def _provenance_timestamp(value: datetime, field: str) -> str:
+    if value.tzinfo is None or value.utcoffset() is None:
+        raise ValueError(f"raw-market provenance {field} must be timezone-aware")
+    return _utc_timestamp(value)
+
+
+def _file_raw_market_provenance(item: ImportedRawMarketSeries, file_item: ImportedRawMarketFile) -> dict[str, Any]:
+    source = _canonical_series_string(file_item.manifest.get("source"), "provenance source")
+    if source != item.exchange:
+        raise ValueError("raw-market provenance source must match series exchange")
+    return {
+        "source": source,
+        "exchange": item.exchange,
+        "market": item.market,
+        "dataset": item.dataset,
+        "symbol": item.symbol,
+        "timeframe": item.timeframe,
+        "series_key": item.series_key,
+        "coverage_start": _provenance_timestamp(file_item.coverage_start, "coverage_start"),
+        "coverage_end": _provenance_timestamp(file_item.coverage_end, "coverage_end"),
+        "fetched_at": _provenance_timestamp(file_item.fetched_at, "fetched_at"),
+    }
+
+
 def _missing_intervals(series: ImportedRawMarketSeries, expected_interval: timedelta | None) -> list[dict[str, Any]]:
     if expected_interval is None or expected_interval.total_seconds() <= 0 or not series.records:
         return []
@@ -173,10 +197,12 @@ def _series_report(series: ImportedRawMarketSeries, expected_interval: timedelta
     }
     provenance = [
         {
+            "raw_market": _file_raw_market_provenance(series, item),
             "manifest_path": _provenance_path(item.manifest_path, "manifest_path"),
             "data_path": _provenance_path(item.data_path, "data_path"),
-            "coverage_start": _utc_timestamp(item.coverage_start),
-            "coverage_end": _utc_timestamp(item.coverage_end),
+            "coverage_start": _provenance_timestamp(item.coverage_start, "coverage_start"),
+            "coverage_end": _provenance_timestamp(item.coverage_end, "coverage_end"),
+            "fetched_at": _provenance_timestamp(item.fetched_at, "fetched_at"),
             "sha256": _provenance_sha256(_provenance_file_metadata(item.manifest).get("sha256")),
         }
         for item in files
