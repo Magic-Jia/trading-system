@@ -211,6 +211,8 @@ class ExecutionFill:
             value = getattr(self, field_name)
             if value is not None:
                 _timezone_aware_datetime(field_name, value, symbol=self.symbol)
+        if self.evidence_timestamp is not None and self.fill_quality == "approximate":
+            raise ValueError("evidence_timestamp requires market evidence or no-fill evidence")
         if self.first_fill_timestamp is not None and self.last_fill_timestamp is not None:
             if self.first_fill_timestamp > self.last_fill_timestamp:
                 raise ValueError("first_fill_timestamp cannot be after last_fill_timestamp")

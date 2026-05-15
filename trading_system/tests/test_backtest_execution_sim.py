@@ -142,6 +142,18 @@ def test_execution_fill_accepts_reference_close_without_timing_evidence_claim() 
     assert fill.execution_lag_bars == 0
 
 
+def test_execution_fill_rejects_approximate_fill_with_evidence_timestamp() -> None:
+    with pytest.raises(ValueError, match="evidence_timestamp requires market evidence or no-fill evidence"):
+        ExecutionFill(
+            **_filled_execution_kwargs(
+                fill_model="reference_close",
+                execution_price_source="ohlcv_close",
+                fill_quality="approximate",
+                evidence_timestamp=_ts("2026-03-10T00:00:01Z"),
+            )
+        )
+
+
 @pytest.mark.parametrize("depth_levels_consumed", [-1, 1.5, True, "1"])
 def test_execution_fill_rejects_invalid_depth_levels_consumed(depth_levels_consumed: object) -> None:
     with pytest.raises(ValueError, match="depth_levels_consumed must be a non-negative integer"):
