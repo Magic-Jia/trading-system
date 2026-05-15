@@ -241,16 +241,10 @@ def render_backtest_evaluation_report(
             metrics = scenario_payload[metrics_field]
             if not isinstance(metrics, Mapping):
                 raise ValueError(f"cost_stress.scenarios[{index}].{metrics_field} must be an object")
-            validated_metrics = dict(metrics)
-            for metric_name, metric_value in validated_metrics.items():
-                metric_key = _canonical_report_string(
-                    metric_name,
-                    field_name=f"cost_stress.scenarios[{index}].{metrics_field} key",
-                )
-                validated_metrics[metric_key] = _strict_present_finite_float(
-                    metric_value,
-                    field_name=f"cost_stress.scenarios[{index}].{metrics_field}.{metric_key}",
-                )
+            validated_metrics = _cost_stress_metric_payload(
+                metrics,
+                field_name=f"cost_stress.scenarios[{index}].{metrics_field}",
+            )
             validated_scenario_payload[metrics_field] = validated_metrics
         if "stressed_trades" in scenario_payload:
             stressed_trades = _list_field(
@@ -533,6 +527,30 @@ def _evaluation_metric_payload(metrics: Mapping[str, Any], *, field_name: str) -
                 field_name=f"{field_name}.{metric_key}",
             )
     return validated_metrics
+
+
+def _cost_stress_metric_payload(metrics: Mapping[str, Any], *, field_name: str) -> dict[str, Any]:
+    validated_metrics: dict[str, Any] = {}
+    for metric_name, metric_value in metrics.items():
+        metric_key = _canonical_report_string(metric_name, field_name=f"{field_name} key")
+        validated_metrics[metric_key] = _cost_stress_metric_value(
+            metric_value,
+            field_name=f"{field_name}.{metric_key}",
+        )
+    return validated_metrics
+
+
+def _cost_stress_metric_value(value: Any, *, field_name: str) -> Any:
+    if isinstance(value, bool):
+        raise ValueError(f"{field_name} must not be a boolean")
+    if isinstance(value, Mapping):
+        return _cost_stress_metric_payload(value, field_name=field_name)
+    if isinstance(value, list):
+        return [
+            _cost_stress_metric_value(item, field_name=f"{field_name}[{index}]")
+            for index, item in enumerate(value)
+        ]
+    return _strict_present_finite_float(value, field_name=field_name)
 
 
 def _trade_breakdown_rows(

@@ -412,6 +412,32 @@ def test_backtest_evaluation_report_rejects_string_cost_stress_base_metric() -> 
         )
 
 
+def test_backtest_evaluation_report_rejects_nested_boolean_cost_stress_base_metric() -> None:
+    with pytest.raises(
+        ValueError,
+        match=r"cost_stress.scenarios\[0\].base_metrics.by_symbol.BTCUSDT.trade_count must not be a boolean",
+    ):
+        reporting.render_backtest_evaluation_report(
+            experiment_name="evaluation",
+            evaluation={
+                "walk_forward": {"metadata": {"window_count": 1}},
+                "regimes": {"buckets": []},
+                "cost_stress": {
+                    "scenarios": [
+                        {
+                            "scenario": {"name": "fees_2x"},
+                            "base_metrics": {
+                                "net_pnl": 1.0,
+                                "by_symbol": {"BTCUSDT": {"trade_count": True}},
+                            },
+                        }
+                    ]
+                },
+            },
+            metadata={"dataset_root": "dataset"},
+        )
+
+
 def test_backtest_evaluation_report_rejects_non_finite_cost_stress_trade_metric() -> None:
     with pytest.raises(
         ValueError,
