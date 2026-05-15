@@ -799,14 +799,19 @@ def _conservative_trade_print_taker_fill(
         return None
     selected_trades: list[TradePrint] = []
     filled_quantity = 0.0
+    filled_notional: float | None = 0.0
     if requested_quantity <= 0.0:
         selected_trades = list(symbol_trades)
+        filled_notional = None
     else:
         for trade in symbol_trades:
             if filled_quantity >= requested_quantity:
                 break
+            remaining_quantity = max(requested_quantity - filled_quantity, 0.0)
+            fill_quantity = min(float(trade.quantity), remaining_quantity)
             selected_trades.append(trade)
-            filled_quantity += float(trade.quantity)
+            filled_quantity += fill_quantity
+            filled_notional += fill_quantity * float(trade.price)
             if filled_quantity >= requested_quantity:
                 break
     if requested_quantity > 0.0:
@@ -822,13 +827,11 @@ def _conservative_trade_print_taker_fill(
         evidence_timestamp = selected_trades[-1].timestamp
         first_fill_timestamp = selected_trades[0].timestamp
         last_fill_timestamp = selected_trades[-1].timestamp
-        filled_notional = (filled_quantity * float(trade.price)) if filled_quantity is not None else None
     else:
         trade = symbol_trades[0]
         evidence_timestamp = trade.timestamp
         first_fill_timestamp = trade.timestamp
         last_fill_timestamp = trade.timestamp
-        filled_notional = None if filled_quantity is None else filled_quantity * float(trade.price)
     return ExecutionFill(
         symbol=symbol,
         side=side,

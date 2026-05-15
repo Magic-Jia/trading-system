@@ -1002,7 +1002,43 @@ def test_taker_trade_print_fill_aggregates_multiple_eligible_prints_to_cover_req
     assert fill.fill_quality == "evidence_backed"
     assert fill.requested_quantity == pytest.approx(2.0)
     assert fill.filled_quantity == pytest.approx(2.0)
-    assert fill.filled_notional == pytest.approx(201.2)
+    assert fill.filled_notional == pytest.approx(200.9)
+    assert fill.unfilled_quantity == pytest.approx(0.0)
+    assert fill.evidence_timestamp == _ts("2026-03-10T00:00:02Z")
+    assert fill.first_fill_timestamp == _ts("2026-03-10T00:00:01Z")
+    assert fill.last_fill_timestamp == _ts("2026-03-10T00:00:02Z")
+
+
+def test_taker_trade_print_fill_clips_overshoot_on_final_selected_print() -> None:
+    fill = simulate_taker_fill(
+        symbol="BTCUSDT",
+        side="buy",
+        quantity=2.0,
+        reference_price=100.0,
+        trades=(
+            TradePrint(
+                timestamp=_ts("2026-03-10T00:00:01Z"),
+                symbol="BTCUSDT",
+                price=100.2,
+                quantity=1.5,
+                side="buy",
+            ),
+            TradePrint(
+                timestamp=_ts("2026-03-10T00:00:02Z"),
+                symbol="BTCUSDT",
+                price=100.6,
+                quantity=1.0,
+                side="buy",
+            ),
+        ),
+    )
+
+    assert fill.filled is True
+    assert fill.fill_model == "taker_trade_print"
+    assert fill.fill_price == pytest.approx(100.6)
+    assert fill.requested_quantity == pytest.approx(2.0)
+    assert fill.filled_quantity == pytest.approx(2.0)
+    assert fill.filled_notional == pytest.approx(200.6)
     assert fill.unfilled_quantity == pytest.approx(0.0)
     assert fill.evidence_timestamp == _ts("2026-03-10T00:00:02Z")
     assert fill.first_fill_timestamp == _ts("2026-03-10T00:00:01Z")
