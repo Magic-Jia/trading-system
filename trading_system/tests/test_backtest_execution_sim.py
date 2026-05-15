@@ -1045,6 +1045,51 @@ def test_taker_trade_print_fill_clips_overshoot_on_final_selected_print() -> Non
     assert fill.last_fill_timestamp == _ts("2026-03-10T00:00:02Z")
 
 
+def test_taker_sell_trade_print_fill_uses_worst_selected_price_with_clipped_final_print() -> None:
+    fill = simulate_taker_fill(
+        symbol="BTCUSDT",
+        side="sell",
+        quantity=2.0,
+        reference_price=100.0,
+        trades=(
+            TradePrint(
+                timestamp=_ts("2026-03-10T00:00:01Z"),
+                symbol="BTCUSDT",
+                price=99.8,
+                quantity=1.25,
+                side="sell",
+            ),
+            TradePrint(
+                timestamp=_ts("2026-03-10T00:00:02Z"),
+                symbol="BTCUSDT",
+                price=100.4,
+                quantity=10.0,
+                side="buy",
+            ),
+            TradePrint(
+                timestamp=_ts("2026-03-10T00:00:03Z"),
+                symbol="BTCUSDT",
+                price=99.2,
+                quantity=1.0,
+                side="sell",
+            ),
+        ),
+    )
+
+    assert fill.filled is True
+    assert fill.fill_model == "taker_trade_print"
+    assert fill.fill_price == pytest.approx(99.2)
+    assert fill.execution_price_source == "trade_print"
+    assert fill.fill_quality == "evidence_backed"
+    assert fill.requested_quantity == pytest.approx(2.0)
+    assert fill.filled_quantity == pytest.approx(2.0)
+    assert fill.filled_notional == pytest.approx(99.8 * 1.25 + 99.2 * 0.75)
+    assert fill.unfilled_quantity == pytest.approx(0.0)
+    assert fill.evidence_timestamp == _ts("2026-03-10T00:00:03Z")
+    assert fill.first_fill_timestamp == _ts("2026-03-10T00:00:01Z")
+    assert fill.last_fill_timestamp == _ts("2026-03-10T00:00:03Z")
+
+
 @pytest.mark.parametrize("price", [True, "100.0", math.nan, math.inf, -math.inf, 0.0, -1.0])
 def test_taker_trade_print_rejects_invalid_price(price: object) -> None:
     with pytest.raises(ValueError, match="trade.price must be a positive finite number"):
