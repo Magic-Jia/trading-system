@@ -191,12 +191,38 @@ def _normalized_symbol_metadata(payload: Any, *, context: Path | str) -> dict[st
     }
 
 
-def _normalized_metadata(payload: Mapping[str, Any], *, context: Path | str) -> dict[str, Any]:
+def _metadata_identity_value(
+    metadata: Mapping[str, Any],
+    key: str,
+    *,
+    expected: str | None,
+    context: Path | str,
+) -> None:
+    if key not in metadata:
+        return
+    value = metadata[key]
+    if not isinstance(value, str) or not value.strip() or value != value.strip():
+        raise ValueError(f"raw-market metadata {key} must be a canonical string: {context}")
+    if expected is None or value != expected:
+        raise ValueError(f"raw-market metadata {key} must match archive identity: {context}")
+
+
+def _normalized_metadata(
+    payload: Mapping[str, Any],
+    *,
+    context: Path | str,
+    symbol: str,
+    venue: str,
+    interval: str | None,
+) -> dict[str, Any]:
     normalized: dict[str, Any] = {}
     for key, value in payload.items():
         if not isinstance(key, str) or not key.strip() or key != key.strip():
             raise ValueError(f"raw-market metadata keys must be canonical strings: {context}")
         normalized[key] = value
+    _metadata_identity_value(normalized, "symbol", expected=symbol, context=context)
+    _metadata_identity_value(normalized, "venue", expected=venue, context=context)
+    _metadata_identity_value(normalized, "interval", expected=interval, context=context)
     return normalized
 
 
@@ -800,7 +826,13 @@ def archive_raw_market_payload(
     if metadata is not None:
         if not isinstance(metadata, Mapping):
             raise ValueError(f"raw-market metadata must be a JSON object: {storage_dir}")
-        normalized_metadata = _normalized_metadata(metadata, context=storage_dir)
+        normalized_metadata = _normalized_metadata(
+            metadata,
+            context=storage_dir,
+            symbol=normalized_symbol,
+            venue=normalized_exchange,
+            interval=normalized_timeframe,
+        )
     storage_dir.mkdir(parents=True, exist_ok=True)
     duplicate_manifest = _existing_manifest_for_coverage(
         storage_dir,
