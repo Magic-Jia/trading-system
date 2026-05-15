@@ -45,20 +45,21 @@ def _filled_execution_kwargs(**overrides: object) -> dict[str, object]:
     return kwargs
 
 
-@pytest.mark.parametrize("symbol", ["", " BTCUSDT", "BTCUSDT ", 123])
+@pytest.mark.parametrize("symbol", ["", "   ", " BTCUSDT ", "btcusdt", "BTC-USDT", 123])
 def test_execution_fill_rejects_noncanonical_symbol(symbol: object) -> None:
-    with pytest.raises(ValueError, match="symbol must be a canonical string"):
-        ExecutionFill(
-            symbol=symbol,
-            side="buy",
-            quantity=1.0,
-            filled=True,
-            fill_price=100.0,
-            fill_model="reference_close",
-            execution_price_source="ohlcv_close",
-            fill_quality="approximate",
-            outcome="filled",
-        )
+    with pytest.raises(ValueError, match="symbol must be an uppercase alphanumeric canonical string"):
+        ExecutionFill(**_filled_execution_kwargs(symbol=symbol))
+
+
+def test_execution_fill_preserves_canonical_symbol_identity() -> None:
+    fill = ExecutionFill(**_filled_execution_kwargs(symbol="BTCUSDT"))
+
+    assert fill.symbol == "BTCUSDT"
+
+
+def test_execution_fill_preserves_domain_error_when_symbol_and_side_are_invalid() -> None:
+    with pytest.raises(ValueError, match="side must be one of: buy, sell"):
+        ExecutionFill(**_filled_execution_kwargs(symbol=" BTCUSDT ", side="long"))
 
 
 @pytest.mark.parametrize("execution_lag_bars", [True, 1.0, "1", -1])

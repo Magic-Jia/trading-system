@@ -136,8 +136,8 @@ class ExecutionFill:
     maker_reasons: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "symbol", _canonical_string("symbol", self.symbol))
         object.__setattr__(self, "side", _canonical_domain("side", self.side, _ORDER_SIDES))
+        object.__setattr__(self, "symbol", _canonical_symbol("symbol", self.symbol))
         object.__setattr__(self, "fill_model", _canonical_domain("fill_model", self.fill_model, _FILL_MODELS))
         object.__setattr__(
             self,
@@ -1448,6 +1448,12 @@ def _canonical_domain(name: str, value: Any, allowed: frozenset[str]) -> str:
 def _canonical_string(name: str, value: Any) -> str:
     if not isinstance(value, str) or not value or value.strip() != value:
         raise ValueError(f"{name} must be a canonical string")
+    return value
+
+
+def _canonical_symbol(name: str, value: Any) -> str:
+    if not isinstance(value, str) or not value or value.strip() != value or value.upper() != value or not value.isalnum():
+        raise ValueError(f"{name} must be an uppercase alphanumeric canonical string")
     return value
 
 
