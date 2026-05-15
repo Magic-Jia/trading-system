@@ -391,6 +391,8 @@ def simulate_taker_depth_fill(
         max_evidence_lag = _non_negative_timedelta("max_evidence_lag", max_evidence_lag)
         if placement_timestamp is None:
             raise ValueError("max_evidence_lag requires placement_timestamp")
+    if order_book.symbol != symbol:
+        raise ValueError(f"order_book.symbol {order_book.symbol} does not match requested symbol {symbol}")
     _validate_evidence_contract(symbol=symbol, order_books=(order_book,), trades=())
     notional_request = None
     if requested_notional is not None:
