@@ -1879,13 +1879,14 @@ def test_taker_rejects_invalid_best_ask_price(ask: object) -> None:
 
 
 def test_taker_depth_buy_consumes_multiple_ask_levels_with_weighted_average() -> None:
+    book_timestamp = _ts("2026-03-10T00:00:01Z")
     fill = simulate_taker_depth_fill(
         symbol="BTCUSDT",
         side="buy",
         quantity=3.0,
         reference_price=100.0,
         order_book=OrderBookSnapshot(
-            timestamp=_ts("2026-03-10T00:00:01Z"),
+            timestamp=book_timestamp,
             symbol="BTCUSDT",
             bid=99.9,
             ask=100.0,
@@ -1903,6 +1904,11 @@ def test_taker_depth_buy_consumes_multiple_ask_levels_with_weighted_average() ->
     assert fill.filled_notional == pytest.approx(302.0)
     assert fill.unfilled_quantity == pytest.approx(0.0)
     assert fill.depth_levels_consumed == 2
+    assert fill.fill_price == pytest.approx(fill.filled_notional / fill.filled_quantity)
+    assert fill.unfilled_quantity == pytest.approx(fill.requested_quantity - fill.filled_quantity)
+    assert fill.evidence_timestamp == book_timestamp
+    assert fill.first_fill_timestamp == book_timestamp
+    assert fill.last_fill_timestamp == book_timestamp
     assert fill.execution_impact_bps == pytest.approx(((302.0 / 3.0) - 100.0) / 100.0 * 10_000.0)
     assert fill.slippage_bps == pytest.approx(((302.0 / 3.0) - 100.0) / 100.0 * 10_000.0)
 
@@ -1975,13 +1981,14 @@ def test_taker_depth_rejects_invalid_requested_notional(requested_notional: obje
 
 
 def test_taker_depth_returns_partial_fill_when_depth_is_insufficient() -> None:
+    book_timestamp = _ts("2026-03-10T00:00:01Z")
     fill = simulate_taker_depth_fill(
         symbol="BTCUSDT",
         side="buy",
         quantity=5.0,
         reference_price=100.0,
         order_book=OrderBookSnapshot(
-            timestamp=_ts("2026-03-10T00:00:01Z"),
+            timestamp=book_timestamp,
             symbol="BTCUSDT",
             bid=99.9,
             ask=100.0,
@@ -1994,8 +2001,45 @@ def test_taker_depth_returns_partial_fill_when_depth_is_insufficient() -> None:
     assert fill.fill_quality == "partial_evidence_backed"
     assert fill.requested_quantity == pytest.approx(5.0)
     assert fill.filled_quantity == pytest.approx(3.0)
+    assert fill.filled_notional == pytest.approx(302.0)
     assert fill.unfilled_quantity == pytest.approx(2.0)
     assert fill.depth_levels_consumed == 2
+    assert fill.fill_price == pytest.approx(fill.filled_notional / fill.filled_quantity)
+    assert fill.unfilled_quantity == pytest.approx(fill.requested_quantity - fill.filled_quantity)
+    assert fill.evidence_timestamp == book_timestamp
+    assert fill.first_fill_timestamp == book_timestamp
+    assert fill.last_fill_timestamp == book_timestamp
+
+
+def test_taker_depth_requested_notional_partial_fill_preserves_accounting_identity() -> None:
+    requested_notional = 350.0
+    book_timestamp = _ts("2026-03-10T00:00:01Z")
+
+    fill = simulate_taker_depth_fill(
+        symbol="BTCUSDT",
+        side="buy",
+        requested_notional=requested_notional,
+        reference_price=100.0,
+        order_book=OrderBookSnapshot(
+            timestamp=book_timestamp,
+            symbol="BTCUSDT",
+            bid=99.9,
+            ask=100.0,
+            ask_levels=(DepthLevel(price=100.0, quantity=1.0), DepthLevel(price=101.0, quantity=2.0)),
+        ),
+    )
+
+    assert fill.filled is True
+    assert fill.fill_quality == "partial_evidence_backed"
+    assert fill.requested_notional == pytest.approx(requested_notional)
+    assert fill.filled_quantity == pytest.approx(3.0)
+    assert fill.filled_notional == pytest.approx(302.0)
+    assert fill.filled_notional <= requested_notional + 1e-12
+    assert fill.fill_price == pytest.approx(fill.filled_notional / fill.filled_quantity)
+    assert fill.depth_levels_consumed == 2
+    assert fill.evidence_timestamp == book_timestamp
+    assert fill.first_fill_timestamp == book_timestamp
+    assert fill.last_fill_timestamp == book_timestamp
 
 
 def test_taker_depth_returns_no_fill_without_side_liquidity() -> None:
@@ -2017,8 +2061,11 @@ def test_taker_depth_returns_no_fill_without_side_liquidity() -> None:
     assert fill.fill_price is None
     assert fill.fill_quality == "no_fill"
     assert fill.filled_quantity == pytest.approx(0.0)
+    assert fill.filled_notional == pytest.approx(0.0)
     assert fill.unfilled_quantity == pytest.approx(1.0)
     assert fill.depth_levels_consumed == 0
+    assert fill.first_fill_timestamp is None
+    assert fill.last_fill_timestamp is None
 
 
 def test_taker_depth_returns_no_fill_after_placement_window() -> None:

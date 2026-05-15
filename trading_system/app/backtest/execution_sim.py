@@ -537,6 +537,8 @@ def simulate_taker_depth_fill(
         depth_levels_consumed=levels_consumed,
         execution_impact_bps=_side_slippage_bps(side=side, fill_price=average_price, reference_price=top_price),
         slippage_bps=_side_slippage_bps(side=side, fill_price=average_price, reference_price=reference_price),
+        first_fill_timestamp=order_book.timestamp,
+        last_fill_timestamp=order_book.timestamp,
     )
 
 
