@@ -871,6 +871,53 @@ def test_backtest_evaluation_report_rejects_gapped_walk_forward_window_indices()
         )
 
 
+def test_backtest_evaluation_report_rejects_walk_forward_windows_that_move_backward_in_time() -> None:
+    with pytest.raises(ValueError, match=r"walk_forward.windows temporal ranges must be strictly increasing"):
+        reporting.render_backtest_evaluation_report(
+            experiment_name="evaluation",
+            evaluation={
+                "walk_forward": {
+                    "metadata": {"window_count": 2},
+                    "windows": [
+                        {
+                            "window_index": 1,
+                            "train_period": {
+                                "start": "2026-01-03T00:00:00+00:00",
+                                "end": "2026-01-04T00:00:00+00:00",
+                            },
+                            "test_period": {
+                                "start": "2026-01-05T00:00:00+00:00",
+                                "end": "2026-01-06T00:00:00+00:00",
+                            },
+                            "splits": {
+                                "in_sample": {"label": "IS", "trade_ids": [], "metrics": {"trade_count": 0}},
+                                "out_of_sample": {"label": "OOS", "trade_ids": [], "metrics": {"trade_count": 0}},
+                            },
+                        },
+                        {
+                            "window_index": 2,
+                            "train_period": {
+                                "start": "2026-01-01T00:00:00+00:00",
+                                "end": "2026-01-02T00:00:00+00:00",
+                            },
+                            "test_period": {
+                                "start": "2026-01-03T00:00:00+00:00",
+                                "end": "2026-01-04T00:00:00+00:00",
+                            },
+                            "splits": {
+                                "in_sample": {"label": "IS", "trade_ids": [], "metrics": {"trade_count": 0}},
+                                "out_of_sample": {"label": "OOS", "trade_ids": [], "metrics": {"trade_count": 0}},
+                            },
+                        },
+                    ],
+                },
+                "regimes": {"buckets": []},
+                "cost_stress": {"scenarios": []},
+            },
+            metadata={"dataset_root": "dataset"},
+        )
+
+
 def test_backtest_evaluation_report_rejects_list_pair_walk_forward_metadata() -> None:
     with pytest.raises(ValueError, match="walk_forward.metadata must be an object"):
         reporting.render_backtest_evaluation_report(

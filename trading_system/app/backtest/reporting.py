@@ -335,6 +335,7 @@ def _evaluation_walk_forward_payload(walk_forward: Mapping[str, Any]) -> dict[st
     validated_windows = []
     previous_payload_window_index: int | None = None
     payload_window_indices: list[int] = []
+    previous_period_boundaries: tuple[datetime, datetime, datetime, datetime] | None = None
     for window_index, window in enumerate(windows):
         if not isinstance(window, Mapping):
             raise ValueError(f"walk_forward.windows[{window_index}] must be an object")
@@ -353,7 +354,11 @@ def _evaluation_walk_forward_payload(walk_forward: Mapping[str, Any]) -> dict[st
             previous_payload_window_index = payload_window_index
             payload_window_indices.append(payload_window_index)
             validated_window["window_index"] = payload_window_index
-        _validate_walk_forward_window_periods(validated_window, window_index=window_index)
+        period_boundaries = _validate_walk_forward_window_periods(validated_window, window_index=window_index)
+        if period_boundaries is not None:
+            if previous_period_boundaries is not None and period_boundaries < previous_period_boundaries:
+                raise ValueError("walk_forward.windows temporal ranges must be strictly increasing")
+            previous_period_boundaries = period_boundaries
         splits = validated_window.get("splits")
         if splits is None:
             validated_windows.append(validated_window)
@@ -442,7 +447,11 @@ def _evaluation_walk_forward_payload(walk_forward: Mapping[str, Any]) -> dict[st
     return validated
 
 
-def _validate_walk_forward_window_periods(window: dict[str, Any], *, window_index: int) -> None:
+def _validate_walk_forward_window_periods(
+    window: dict[str, Any],
+    *,
+    window_index: int,
+) -> tuple[datetime, datetime, datetime, datetime] | None:
     parsed_periods: dict[str, dict[str, datetime]] = {}
     for period_name in ("train_period", "test_period"):
         if period_name not in window:
@@ -485,6 +494,14 @@ def _validate_walk_forward_window_periods(window: dict[str, Any], *, window_inde
             f"walk_forward.windows[{window_index}].train_period.end must be before "
             f"walk_forward.windows[{window_index}].test_period.start"
         )
+    if {"train_period", "test_period"}.issubset(parsed_periods):
+        return (
+            parsed_periods["train_period"]["start"],
+            parsed_periods["train_period"]["end"],
+            parsed_periods["test_period"]["start"],
+            parsed_periods["test_period"]["end"],
+        )
+    return None
 
 
 def _walk_forward_period_datetime(value: str, *, field_name: str) -> datetime:
