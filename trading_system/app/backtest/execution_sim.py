@@ -517,10 +517,23 @@ def simulate_taker_fill(
             )
         if side == "buy":
             price = _positive_finite_float("order_book.ask", book.ask)
+            top_size = book.ask_size
+            top_size_field = "order_book.ask_size"
             source: ExecutionPriceSource = "best_ask"
         else:
             price = _positive_finite_float("order_book.bid", book.bid)
+            top_size = book.bid_size
+            top_size_field = "order_book.bid_size"
             source = "best_bid"
+        if top_size is None:
+            filled_quantity = quantity
+        else:
+            visible_quantity = _non_negative_finite_float(top_size_field, top_size)
+            filled_quantity = min(quantity, visible_quantity)
+        unfilled_quantity = quantity - filled_quantity
+        fill_quality: FillQuality = (
+            "evidence_backed" if unfilled_quantity <= 0.0 else "partial_evidence_backed"
+        )
         return ExecutionFill(
             symbol=symbol,
             side=side,
@@ -529,13 +542,13 @@ def simulate_taker_fill(
             fill_price=price,
             fill_model="taker_orderbook",
             execution_price_source=source,
-            fill_quality="evidence_backed",
+            fill_quality=fill_quality,
             outcome="filled",
             evidence_timestamp=book.timestamp,
             requested_quantity=quantity,
-            filled_quantity=quantity if quantity > 0.0 else None,
-            filled_notional=(quantity * price) if quantity > 0.0 else None,
-            unfilled_quantity=0.0 if quantity > 0.0 else None,
+            filled_quantity=filled_quantity if quantity > 0.0 else None,
+            filled_notional=(filled_quantity * price) if quantity > 0.0 else None,
+            unfilled_quantity=unfilled_quantity if quantity > 0.0 else None,
             first_fill_timestamp=book.timestamp,
             last_fill_timestamp=book.timestamp,
         )
