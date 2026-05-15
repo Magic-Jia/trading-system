@@ -452,6 +452,10 @@ def _validate_walk_forward_window_periods(
     *,
     window_index: int,
 ) -> tuple[datetime, datetime, datetime, datetime] | None:
+    present_period_names = {period_name for period_name in ("train_period", "test_period") if period_name in window}
+    if present_period_names and present_period_names != {"train_period", "test_period"}:
+        missing_period_name = ({"train_period", "test_period"} - present_period_names).pop()
+        raise ValueError(f"walk_forward.windows[{window_index}].{missing_period_name} must be present")
     parsed_periods: dict[str, dict[str, datetime]] = {}
     for period_name in ("train_period", "test_period"):
         if period_name not in window:
