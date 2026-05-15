@@ -1466,7 +1466,7 @@ def _validate_maker_reasons(value: Any) -> None:
         raise ValueError("maker_reasons must be a tuple")
     seen: set[str] = set()
     for reason in value:
-        if not isinstance(reason, str) or not reason or reason.strip() != reason:
+        if not isinstance(reason, str) or not reason or reason.strip() != reason or any(char.isspace() for char in reason):
             raise ValueError("maker_reasons must contain canonical strings")
         if reason in seen:
             raise ValueError("maker_reasons must contain unique labels")

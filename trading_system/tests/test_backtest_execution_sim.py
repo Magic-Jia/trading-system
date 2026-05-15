@@ -273,6 +273,8 @@ def test_execution_fill_rejects_maker_fields_on_non_maker_models(maker_field: st
         (("",), "maker_reasons must contain canonical strings"),
         ((" resting",), "maker_reasons must contain canonical strings"),
         (("resting ",), "maker_reasons must contain canonical strings"),
+        (("queue depleted",), "maker_reasons must contain canonical strings"),
+        (("queue\ndepleted",), "maker_reasons must contain canonical strings"),
         ((123,), "maker_reasons must contain canonical strings"),
         (("resting", "resting"), "maker_reasons must contain unique labels"),
     ],
