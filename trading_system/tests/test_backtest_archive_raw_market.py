@@ -240,6 +240,7 @@ def test_archive_raw_market_payload_rejects_noncanonical_metadata_keys_before_ar
         ({"symbol": True}, "raw-market metadata symbol must be a canonical string"),
         ({"venue": " binance "}, "raw-market metadata venue must be a canonical string"),
         ({"interval": 60}, "raw-market metadata interval must be a canonical string"),
+        ({"source": "coinbase"}, "raw-market metadata source must match archive identity"),
         ({"symbol": "ETHUSDT"}, "raw-market metadata symbol must match archive identity"),
         ({"venue": "coinbase"}, "raw-market metadata venue must match archive identity"),
         ({"interval": "5m"}, "raw-market metadata interval must match archive identity"),
@@ -1692,6 +1693,34 @@ def test_load_raw_market_manifest_rejects_metadata_symbol_identity_drift(tmp_pat
     archived.manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
 
     with pytest.raises(ValueError, match="raw-market metadata symbol must match archive identity"):
+        load_phase1_raw_market_manifest(archived.manifest_path)
+
+
+def test_load_raw_market_manifest_rejects_metadata_source_identity_drift(tmp_path: Path) -> None:
+    archived = archive_raw_market_payload(
+        archive_root=tmp_path / "archive",
+        exchange="binance",
+        market="futures",
+        dataset="ohlcv",
+        symbol="BTCUSDT",
+        timeframe="1h",
+        coverage_start="2026-01-01T00:00:00Z",
+        coverage_end="2026-01-01T02:00:00Z",
+        fetched_at="2026-01-01T02:01:00Z",
+        endpoint="/fapi/v1/klines",
+        metadata={"source": "binance"},
+        payload={
+            "rows": [
+                {"open_time": "2026-01-01T00:00:00Z", "open": 100.0, "high": 101.0, "low": 99.0, "close": 100.5, "volume": 10.0},
+                {"open_time": "2026-01-01T01:00:00Z", "open": 100.5, "high": 102.0, "low": 100.0, "close": 101.0, "volume": 12.0},
+            ]
+        },
+    )
+    manifest = json.loads(archived.manifest_path.read_text(encoding="utf-8"))
+    manifest["metadata"]["source"] = "coinbase"
+    archived.manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="raw-market metadata source must match archive identity"):
         load_phase1_raw_market_manifest(archived.manifest_path)
 
 

@@ -236,6 +236,7 @@ def _normalized_metadata(
             raise ValueError(f"raw-market metadata keys must be canonical strings: {context}")
         normalized[key] = value
     _metadata_identity_value(normalized, "symbol", expected=symbol, context=context)
+    _metadata_identity_value(normalized, "source", expected=venue, context=context)
     _metadata_identity_value(normalized, "venue", expected=venue, context=context)
     _metadata_identity_value(normalized, "interval", expected=interval, context=context)
     return normalized
