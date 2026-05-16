@@ -62,6 +62,27 @@ def _legacy_account() -> dict[str, object]:
     }
 
 
+def _legacy_exchange_account() -> dict[str, object]:
+    account = _legacy_account()
+    account["futures"] = {
+        "positions": [
+            {
+                "symbol": "BTCUSDT",
+                "side": "LONG",
+                "amt": 0.5,
+                "entry": 100.0,
+                "mark": 101.0,
+                "upl": 0.5,
+                "notional": 50.5,
+                "roi_pct": 1.0,
+                "leverage": 2,
+                "liquidation_price": "0",
+            }
+        ]
+    }
+    return account
+
+
 def _legacy_market() -> dict[str, object]:
     return {
         "as_of": "2026-05-16T10:00:00Z",
@@ -188,6 +209,96 @@ def test_bootstrap_outputs_allow_scheduled_generation_to_run(tmp_path: Path) -> 
     gate = json.loads((paths.optimization_dir / "daily_quality_gate_report.json").read_text())
     assert result["status"] == "ok"
     assert gate["decision"] == "pass_for_continued_paper"
+
+
+def test_bootstrap_accepts_legacy_exchange_decimal_string_liquidation_price(tmp_path: Path) -> None:
+    legacy_root = tmp_path / "legacy"
+    runtime_root = tmp_path / "runtime"
+    _write_legacy_artifacts(legacy_root)
+    account = _legacy_exchange_account()
+    _write_json(legacy_root / "account_snapshot.json", account)
+
+    result = bootstrap_live_sim_generation_inputs(
+        legacy_root=legacy_root,
+        mode="paper",
+        runtime_root=runtime_root,
+        runtime_env="paper",
+        generated_at="2026-05-16T10:01:00Z",
+        max_evidence_age_seconds=120,
+    )
+
+    paths = build_runtime_paths("paper", runtime_root=runtime_root, runtime_env="paper")
+    metadata_path = paths.optimization_dir / "bootstrap_input_metadata.json"
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    assert result["status"] == "ok"
+    assert result["generated_artifacts"]["bootstrap_input_metadata.json"] == str(metadata_path)
+    assert json.loads(paths.account_snapshot_file.read_text()) == account
+    assert metadata["accepted_decimal_string_fields"] == [
+        {
+            "field_path": "account_snapshot.json.futures.positions[0].liquidation_price",
+            "source_type": "str",
+            "decimal_value": "0",
+            "normalized_type": "decimal",
+        }
+    ]
+
+
+@pytest.mark.parametrize(
+    "raw_value",
+    ["", "   ", "nan", "NaN", "inf", "-Infinity", "1,2", "1 2", "abc", "+1", "01", "1.", ".1", "1e3"],
+)
+def test_bootstrap_rejects_malformed_legacy_exchange_decimal_string_liquidation_price(
+    tmp_path: Path, raw_value: str
+) -> None:
+    legacy_root = tmp_path / "legacy"
+    _write_legacy_artifacts(legacy_root)
+    account = _legacy_exchange_account()
+    futures = account["futures"]
+    assert isinstance(futures, dict)
+    positions = futures["positions"]
+    assert isinstance(positions, list)
+    position = positions[0]
+    assert isinstance(position, dict)
+    position["liquidation_price"] = raw_value
+    _write_json(legacy_root / "account_snapshot.json", account)
+
+    with pytest.raises(
+        ValueError, match=r"account_snapshot\.json\.futures\.positions\[0\]\.liquidation_price must be a canonical decimal string"
+    ):
+        bootstrap_live_sim_generation_inputs(
+            legacy_root=legacy_root,
+            mode="paper",
+            runtime_root=tmp_path / "runtime",
+            runtime_env="paper",
+            generated_at="2026-05-16T10:01:00Z",
+            max_evidence_age_seconds=120,
+        )
+
+
+def test_bootstrap_rejects_bool_legacy_exchange_decimal_string_liquidation_price(tmp_path: Path) -> None:
+    legacy_root = tmp_path / "legacy"
+    _write_legacy_artifacts(legacy_root)
+    account = _legacy_exchange_account()
+    futures = account["futures"]
+    assert isinstance(futures, dict)
+    positions = futures["positions"]
+    assert isinstance(positions, list)
+    position = positions[0]
+    assert isinstance(position, dict)
+    position["liquidation_price"] = False
+    _write_json(legacy_root / "account_snapshot.json", account)
+
+    with pytest.raises(
+        ValueError, match=r"account_snapshot\.json\.futures\.positions\[0\]\.liquidation_price must be numeric, not boolean"
+    ):
+        bootstrap_live_sim_generation_inputs(
+            legacy_root=legacy_root,
+            mode="paper",
+            runtime_root=tmp_path / "runtime",
+            runtime_env="paper",
+            generated_at="2026-05-16T10:01:00Z",
+            max_evidence_age_seconds=120,
+        )
 
 
 def test_bootstrap_fails_closed_for_bool_numeric_legacy_input(tmp_path: Path) -> None:

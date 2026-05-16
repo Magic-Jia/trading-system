@@ -4,8 +4,10 @@ import argparse
 import hashlib
 import json
 import math
+import re
 import shutil
 from datetime import UTC, datetime
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -42,6 +44,10 @@ _NUMERIC_FIELD_HINTS = (
     "usdt",
     "volume",
 )
+_LEGACY_DECIMAL_STRING_PATHS = (
+    "account_snapshot.json.futures.positions[].liquidation_price",
+)
+_CANONICAL_DECIMAL_STRING_RE = re.compile(r"-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?")
 
 
 def _canonical_now() -> str:
@@ -104,19 +110,59 @@ def _require_number(value: Any, field_path: str) -> float:
     return number
 
 
-def _validate_json_value(value: Any, field_path: str) -> Any:
+def _legacy_decimal_string_path(field_path: str) -> str | None:
+    canonical = []
+    for token in field_path.split("."):
+        if "[" in token:
+            token = token[: token.index("[")] + "[]"
+        canonical.append(token)
+    normalized = ".".join(canonical)
+    return normalized if normalized in _LEGACY_DECIMAL_STRING_PATHS else None
+
+
+def _parse_legacy_decimal_string(value: str, field_path: str) -> Decimal:
+    if not _CANONICAL_DECIMAL_STRING_RE.fullmatch(value):
+        raise ValueError(f"{field_path} must be a canonical decimal string")
+    try:
+        decimal_value = Decimal(value)
+    except (InvalidOperation, ValueError) as exc:
+        raise ValueError(f"{field_path} must be a canonical decimal string") from exc
+    if not decimal_value.is_finite():
+        raise ValueError(f"{field_path} must be a canonical decimal string")
+    return decimal_value
+
+
+def _validate_json_value(
+    value: Any, field_path: str, accepted_decimal_string_fields: list[dict[str, str]] | None = None
+) -> Any:
     if isinstance(value, Mapping):
         payload: dict[str, Any] = {}
         for key, child in value.items():
             canonical_key = _validate_key(key, f"{field_path}.<key>")
             child_path = f"{field_path}.{canonical_key}"
-            if child is not None and _numeric_key_hint(canonical_key):
+            legacy_decimal_path = _legacy_decimal_string_path(child_path)
+            if child is not None and legacy_decimal_path is not None and type(child) is str:
+                decimal_value = _parse_legacy_decimal_string(child, child_path)
+                if accepted_decimal_string_fields is not None:
+                    accepted_decimal_string_fields.append(
+                        {
+                            "field_path": child_path,
+                            "source_type": "str",
+                            "decimal_value": format(decimal_value, "f"),
+                            "normalized_type": "decimal",
+                        }
+                    )
+                payload[canonical_key] = float(decimal_value)
+            elif child is not None and _numeric_key_hint(canonical_key):
                 payload[canonical_key] = _require_number(child, child_path)
             else:
-                payload[canonical_key] = _validate_json_value(child, child_path)
+                payload[canonical_key] = _validate_json_value(child, child_path, accepted_decimal_string_fields)
         return payload
     if isinstance(value, list):
-        return [_validate_json_value(child, f"{field_path}[{index}]") for index, child in enumerate(value)]
+        return [
+            _validate_json_value(child, f"{field_path}[{index}]", accepted_decimal_string_fields)
+            for index, child in enumerate(value)
+        ]
     if isinstance(value, bool) or value is None or type(value) is str:
         return value
     if isinstance(value, (int, float)):
@@ -137,8 +183,14 @@ def _validate_key(value: Any, field_path: str) -> str:
     return value
 
 
-def _validate_snapshot(name: str, payload: Mapping[str, Any], generated_at: str, max_evidence_age_seconds: int) -> None:
-    _validate_json_value(payload, name)
+def _validate_snapshot(
+    name: str,
+    payload: Mapping[str, Any],
+    generated_at: str,
+    max_evidence_age_seconds: int,
+    accepted_decimal_string_fields: list[dict[str, str]] | None = None,
+) -> None:
+    _validate_json_value(payload, name, accepted_decimal_string_fields)
     as_of = _parse_canonical_utc(payload.get("as_of"), f"{name}.as_of")
     generated = _parse_canonical_utc(generated_at, "generated_at")
     age = (generated - as_of).total_seconds()
@@ -402,9 +454,16 @@ def bootstrap_live_sim_generation_inputs(
     )
     _parse_canonical_utc(evaluated_at, "generated_at")
 
-    _validate_snapshot("account_snapshot.json", account, evaluated_at, max_evidence_age_seconds)
-    _validate_snapshot("market_context.json", market, evaluated_at, max_evidence_age_seconds)
-    _validate_snapshot("derivatives_snapshot.json", derivatives, evaluated_at, max_evidence_age_seconds)
+    accepted_decimal_string_fields: list[dict[str, str]] = []
+    _validate_snapshot(
+        "account_snapshot.json", account, evaluated_at, max_evidence_age_seconds, accepted_decimal_string_fields
+    )
+    _validate_snapshot(
+        "market_context.json", market, evaluated_at, max_evidence_age_seconds, accepted_decimal_string_fields
+    )
+    _validate_snapshot(
+        "derivatives_snapshot.json", derivatives, evaluated_at, max_evidence_age_seconds, accepted_decimal_string_fields
+    )
     _validate_json_value(runtime_state, "runtime_state.json")
     load_calibration_records(source_root / "paper_trades.jsonl")
     _validate_calibration_rows_fresh(trades, evaluated_at, max_evidence_age_seconds)
@@ -414,7 +473,14 @@ def bootstrap_live_sim_generation_inputs(
         shutil.copyfile(source_root / name, paths.bucket_dir / name)
 
     source = _source(source_root, evaluated_at)
+    input_metadata = {
+        "schema_version": "bootstrap_input_metadata.v1",
+        "generated_at": evaluated_at,
+        "evidence_source": source,
+        "accepted_decimal_string_fields": accepted_decimal_string_fields,
+    }
     generated_artifacts = {
+        "bootstrap_input_metadata.json": input_metadata,
         "paper_live_sim_evidence_manifest.json": _build_evidence_manifest(
             legacy_root=source_root,
             runtime_state=runtime_state,
