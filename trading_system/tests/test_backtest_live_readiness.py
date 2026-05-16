@@ -12547,6 +12547,95 @@ def test_live_readiness_gate_rejects_setup_rewrite_noncanonical_row_strings(tmp_
     assert "setup_rewrite_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
 
 
+@pytest.mark.parametrize("field", ("trade_id", "fill_id"))
+def test_live_readiness_gate_rejects_setup_rewrite_noncanonical_row_identity(
+    tmp_path: Path, field: str
+) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    (chunk / "setup_rewrite_experiment.json").write_text(
+        json.dumps(
+            {
+                "summary": {
+                    "total_rows": 1,
+                    "evaluated_count": 1,
+                    "would_keep_count": 1,
+                    "would_filter_count": 0,
+                    "skipped_count": 0,
+                },
+                "evaluation_rows": [
+                    {
+                        field: " trade-001 ",
+                        "symbol": "BTCUSDT",
+                        "setup_type": "TREND_PULLBACK",
+                        "evaluation_status": "evaluated",
+                        "evaluation_reason": "passed",
+                        "would_keep": True,
+                        "net_pnl": 10.0,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    diagnostic = report["setup_rewrite_diagnostic"]
+    assert diagnostic["checks"]["setup_rewrite_artifact_schema_valid"] is False
+    assert diagnostic["chunks"][0]["parse_error"] == f"invalid_field_type: evaluation_rows[1].{field}"
+    assert "setup_rewrite_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
+
+
+@pytest.mark.parametrize("field", ("trade_id", "fill_id"))
+def test_live_readiness_gate_rejects_setup_rewrite_duplicate_row_identity(
+    tmp_path: Path, field: str
+) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    (chunk / "setup_rewrite_experiment.json").write_text(
+        json.dumps(
+            {
+                "summary": {
+                    "total_rows": 2,
+                    "evaluated_count": 2,
+                    "would_keep_count": 2,
+                    "would_filter_count": 0,
+                    "skipped_count": 0,
+                },
+                "evaluation_rows": [
+                    {
+                        field: "trade-001",
+                        "symbol": "BTCUSDT",
+                        "setup_type": "TREND_PULLBACK",
+                        "evaluation_status": "evaluated",
+                        "evaluation_reason": "passed",
+                        "would_keep": True,
+                        "net_pnl": 10.0,
+                    },
+                    {
+                        field: "trade-001",
+                        "symbol": "ETHUSDT",
+                        "setup_type": "TREND_PULLBACK",
+                        "evaluation_status": "evaluated",
+                        "evaluation_reason": "passed",
+                        "would_keep": True,
+                        "net_pnl": 8.0,
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    diagnostic = report["setup_rewrite_diagnostic"]
+    assert diagnostic["checks"]["setup_rewrite_artifact_schema_valid"] is False
+    assert diagnostic["chunks"][0]["parse_error"] == f"duplicate_evaluation_row_identity: evaluation_rows[2].{field}"
+    assert "setup_rewrite_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
+
+
 def test_live_readiness_gate_rejects_setup_rewrite_unknown_evaluation_row_field(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     _write_profitable_trade_chunk(chunk)

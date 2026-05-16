@@ -30,6 +30,7 @@ def build_setup_rewrite_experiment(
     setup_rewrite: SetupRewriteParams,
     metadata: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
+    _validate_serialized_trade_identity(rows)
     evaluation_rows = [_evaluate_row(index=index, row=row, params=setup_rewrite) for index, row in enumerate(rows, start=1)]
     summary = {
         "total_rows": len(evaluation_rows),
@@ -183,6 +184,7 @@ def _is_finite_number(value: Any) -> bool:
 def _evaluate_row(*, index: int, row: Mapping[str, Any], params: SetupRewriteParams) -> dict[str, Any]:
     identity = {
         "row_index": index,
+        **_serialized_trade_identity(row, index=index),
         "symbol": _string_or_none(row.get("symbol"), field_path=f"rows[{index}].symbol"),
         "setup_type": _string_or_none(row.get("setup_type"), field_path=f"rows[{index}].setup_type"),
         "side": _string_or_none(row.get("side"), field_path=f"rows[{index}].side"),
@@ -283,6 +285,36 @@ def _evaluate_rule(
         return "evaluated", "after_cost_breakeven_evidence_present", True
 
     return "no_evidence", f"unknown_rule:{rule.name}", False
+
+
+def _validate_serialized_trade_identity(rows: Sequence[Mapping[str, Any]]) -> None:
+    seen_by_field: dict[str, set[str]] = {"trade_id": set(), "fill_id": set()}
+    for index, row in enumerate(rows, start=1):
+        for field in ("trade_id", "fill_id"):
+            identity = _optional_canonical_identifier(row, field=field, index=index)
+            if identity is None:
+                continue
+            if identity in seen_by_field[field]:
+                raise ValueError(f"duplicate rows[{index}].{field}: {identity}")
+            seen_by_field[field].add(identity)
+
+
+def _serialized_trade_identity(row: Mapping[str, Any], *, index: int) -> dict[str, str]:
+    identity: dict[str, str] = {}
+    for field in ("trade_id", "fill_id"):
+        value = _optional_canonical_identifier(row, field=field, index=index)
+        if value is not None:
+            identity[field] = value
+    return identity
+
+
+def _optional_canonical_identifier(row: Mapping[str, Any], *, field: str, index: int) -> str | None:
+    if field not in row or row[field] is None:
+        return None
+    value = row[field]
+    if not isinstance(value, str) or not value or value != value.strip():
+        raise ValueError(f"rows[{index}].{field} must be a canonical non-blank string when present")
+    return value
 
 
 def _setup_type_matches(*, identity: Mapping[str, Any], rule: SetupRewriteRule) -> bool:

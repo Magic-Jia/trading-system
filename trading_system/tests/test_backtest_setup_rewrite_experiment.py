@@ -407,6 +407,79 @@ def test_setup_rewrite_experiment_rejects_string_score_with_field_path() -> None
         )
 
 
+@pytest.mark.parametrize("field", ("trade_id", "fill_id"))
+@pytest.mark.parametrize("invalid_value", (123, "", "   ", " trade-001", "trade-001 "))
+def test_setup_rewrite_experiment_rejects_present_noncanonical_serialized_trade_identity(
+    field: str, invalid_value: object
+) -> None:
+    module = importlib.import_module("trading_system.app.backtest.setup_rewrite_experiment")
+
+    with pytest.raises(ValueError, match=rf"rows\[1\]\.{field} must be a canonical non-blank string when present"):
+        module.build_setup_rewrite_experiment(
+            rows=[
+                {
+                    "symbol": "BTCUSDT",
+                    "setup_type": "TREND_PULLBACK",
+                    "score": 0.82,
+                    "net_pnl": 12.5,
+                    "cost_coverage_ratio": 1.4,
+                    field: invalid_value,
+                }
+            ],
+            setup_rewrite=_params(),
+        )
+
+
+@pytest.mark.parametrize("field", ("trade_id", "fill_id"))
+def test_setup_rewrite_experiment_rejects_duplicate_present_serialized_trade_identity(field: str) -> None:
+    module = importlib.import_module("trading_system.app.backtest.setup_rewrite_experiment")
+    first_row = {
+        "symbol": "BTCUSDT",
+        "setup_type": "TREND_PULLBACK",
+        "score": 0.82,
+        "net_pnl": 12.5,
+        "cost_coverage_ratio": 1.4,
+        field: "trade-001",
+    }
+    second_row = {
+        "symbol": "ETHUSDT",
+        "setup_type": "TREND_PULLBACK",
+        "score": 0.74,
+        "net_pnl": 4.0,
+        "cost_coverage_ratio": 1.2,
+        field: "trade-001",
+    }
+
+    with pytest.raises(ValueError, match=rf"duplicate rows\[2\]\.{field}: trade-001"):
+        module.build_setup_rewrite_experiment(
+            rows=[first_row, second_row],
+            setup_rewrite=_params(),
+        )
+
+
+def test_setup_rewrite_experiment_preserves_present_serialized_trade_identity() -> None:
+    module = importlib.import_module("trading_system.app.backtest.setup_rewrite_experiment")
+
+    artifact = module.build_setup_rewrite_experiment(
+        rows=[
+            {
+                "symbol": "BTCUSDT",
+                "setup_type": "TREND_PULLBACK",
+                "score": 0.82,
+                "net_pnl": 12.5,
+                "cost_coverage_ratio": 1.4,
+                "trade_id": "trade-001",
+                "fill_id": "fill-001",
+            }
+        ],
+        setup_rewrite=_params(),
+    )
+
+    row = artifact["evaluation_rows"][0]
+    assert row["trade_id"] == "trade-001"
+    assert row["fill_id"] == "fill-001"
+
+
 def test_setup_rewrite_experiment_rejects_evidence_timestamp_outside_fill_interval() -> None:
     module = importlib.import_module("trading_system.app.backtest.setup_rewrite_experiment")
 

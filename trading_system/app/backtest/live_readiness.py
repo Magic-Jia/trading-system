@@ -1672,8 +1672,18 @@ def _setup_rewrite_diagnostic(chunk_dirs: Iterable[Path]) -> dict[str, Any] | No
             if expected_count != row_count:
                 parse_error = "row_count_mismatch: evaluation_rows"
         if not parse_error:
-            allowed_row_fields = {"symbol", "setup_type", "evaluation_status", "evaluation_reason", "would_keep", "net_pnl"}
+            allowed_row_fields = {
+                "trade_id",
+                "fill_id",
+                "symbol",
+                "setup_type",
+                "evaluation_status",
+                "evaluation_reason",
+                "would_keep",
+                "net_pnl",
+            }
             allowed_evaluation_statuses = {"evaluated", "no_evidence"}
+            seen_row_identity_by_field: dict[str, set[str]] = {"trade_id": set(), "fill_id": set()}
             for row_index, row in enumerate(evaluation_rows, start=1):
                 if not isinstance(row, Mapping):
                     parse_error = f"invalid_row_type: evaluation_rows[{row_index}]"
@@ -1691,6 +1701,19 @@ def _setup_rewrite_diagnostic(chunk_dirs: Iterable[Path]) -> dict[str, Any] | No
                     ):
                         parse_error = f"invalid_field_type: evaluation_rows[{row_index}].{field}"
                         break
+                if parse_error:
+                    break
+                for field in ("trade_id", "fill_id"):
+                    value = row.get(field)
+                    if field not in row or value is None:
+                        continue
+                    if not isinstance(value, str) or not value.strip() or value != value.strip():
+                        parse_error = f"invalid_field_type: evaluation_rows[{row_index}].{field}"
+                        break
+                    if value in seen_row_identity_by_field[field]:
+                        parse_error = f"duplicate_evaluation_row_identity: evaluation_rows[{row_index}].{field}"
+                        break
+                    seen_row_identity_by_field[field].add(value)
                 if parse_error:
                     break
                 evaluation_status = row.get("evaluation_status")
