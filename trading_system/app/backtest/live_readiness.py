@@ -1962,6 +1962,7 @@ def _artifact_provenance_present(payload: Mapping[str, Any]) -> bool:
         "walk_forward_oos_report",
         "paper_runtime_logs",
         "capacity_analysis_report",
+        "offline_stress_replay",
     }
 
 
@@ -3554,6 +3555,199 @@ def _validation_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[str,
     }
 
 
+def _stress_scenario_as_of_schema_error(value: Any) -> str:
+    if not _is_exact_string(value):
+        return "as_of_not_string"
+    if not _is_canonical_utc_timestamp(value):
+        return "as_of_noncanonical_timestamp"
+    as_of_dt = datetime.fromisoformat(value[:-1] + "+00:00").astimezone(UTC)
+    current_date = datetime(2026, 5, 16, tzinfo=UTC).date()
+    if as_of_dt.date() > current_date:
+        return "as_of_future"
+    if as_of_dt.date() != current_date:
+        return "as_of_stale"
+    return ""
+
+
+def _stress_scenarios_schema_error(value: Any) -> tuple[str, set[str]]:
+    required_types = {"flash_crash", "exchange_outage"}
+    scenario_types: set[str] = set()
+    if not isinstance(value, list) or not value:
+        return "scenarios_not_non_empty_list", scenario_types
+    for index, raw_scenario in enumerate(value):
+        if not isinstance(raw_scenario, Mapping):
+            return f"scenarios[{index}]_not_object", scenario_types
+        scenario = _as_mapping(raw_scenario)
+        unknown_fields = sorted(
+            set(scenario)
+            - {
+                "scenario_id",
+                "scenario_type",
+                "source",
+                "status",
+                "max_drawdown_pct",
+                "net_pnl",
+                "rejected_order_count",
+                "fail_closed_event_count",
+                "fixture_ref",
+            }
+        )
+        if unknown_fields:
+            return f"scenarios[{index}]_unknown_field: " + ", ".join(unknown_fields), scenario_types
+        scenario_id = scenario.get("scenario_id")
+        if not _is_exact_string(scenario_id) or not scenario_id.strip():
+            return f"scenarios[{index}]_scenario_id_blank", scenario_types
+        if scenario_id != scenario_id.strip() or not _is_safe_evidence_identifier(scenario_id):
+            return f"scenarios[{index}]_scenario_id_noncanonical", scenario_types
+        scenario_type = scenario.get("scenario_type")
+        if scenario_type not in required_types:
+            return f"scenarios[{index}]_scenario_type_unknown", scenario_types
+        scenario_types.add(str(scenario_type))
+        for field_name in ("source", "fixture_ref"):
+            field_value = scenario.get(field_name)
+            if not _is_exact_string(field_value) or not field_value.strip():
+                return f"scenarios[{index}]_{field_name}_blank", scenario_types
+            if field_value != field_value.strip():
+                return f"scenarios[{index}]_{field_name}_noncanonical", scenario_types
+        if scenario.get("source") != "offline_replay_fixture":
+            return f"scenarios[{index}]_source_not_offline_replay_fixture", scenario_types
+        if scenario.get("status") != "pass":
+            return f"scenarios[{index}]_status_not_pass", scenario_types
+        for field_name in ("max_drawdown_pct", "net_pnl"):
+            parsed, valid = _strict_float_value(scenario.get(field_name))
+            if not valid:
+                return f"scenarios[{index}]_{field_name}_not_number", scenario_types
+            if field_name == "max_drawdown_pct" and not 0.0 <= parsed <= 1.0:
+                return f"scenarios[{index}]_{field_name}_out_of_range", scenario_types
+        for field_name in ("rejected_order_count", "fail_closed_event_count"):
+            value_int, valid = _strict_absent_or_non_negative_int(scenario, field_name)
+            if not valid:
+                return f"scenarios[{index}]_{field_name}_not_non_negative_int", scenario_types
+            if field_name == "fail_closed_event_count" and value_int <= 0:
+                return f"scenarios[{index}]_{field_name}_not_positive", scenario_types
+    for scenario_type in sorted(required_types - scenario_types):
+        return f"scenario_type_{scenario_type}_missing", scenario_types
+    return "", scenario_types
+
+
+def _stress_scenario_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[str, Any]:
+    required_checks = (
+        "flash_crash_replay_met",
+        "exchange_outage_replay_met",
+        "fail_closed_behavior_met",
+        "scenario_provenance_met",
+    )
+    artifacts: list[dict[str, Any]] = []
+    aggregate_checks = {key: False for key in required_checks}
+    schema_valid = False
+    provenance_present = False
+    scenario_types: set[str] = set()
+    for chunk_dir in chunk_dirs:
+        path = chunk_dir / "stress_scenario_gate.json"
+        if not path.exists():
+            continue
+        payload = _load_json(path)
+        parse_error = _json_parse_error(payload)
+        checks_payload = payload.get("checks")
+        evidence_source_payload = payload.get("evidence_source")
+        scenarios_payload = payload.get("scenarios")
+        checks_object_valid = isinstance(checks_payload, Mapping)
+        evidence_source_object_valid = isinstance(evidence_source_payload, Mapping)
+        checks = _as_mapping(checks_payload)
+        unknown_check_fields = sorted(set(checks) - set(required_checks))
+        check_schema_error = ""
+        for check_name in required_checks:
+            if check_name in checks and not isinstance(checks.get(check_name), bool):
+                check_schema_error = f"check_{check_name}_not_bool"
+                break
+        evidence_source_schema_error = _artifact_provenance_schema_error(payload)
+        top_level_schema_error = _artifact_top_level_schema_error(
+            payload, {"schema_version", "evidence_source", "as_of", "checks", "scenarios", "reasons"}
+        )
+        as_of_schema_error = _stress_scenario_as_of_schema_error(payload.get("as_of"))
+        scenarios_schema_error, artifact_scenario_types = _stress_scenarios_schema_error(scenarios_payload)
+        scenario_types.update(artifact_scenario_types)
+        artifact_checks = {key: _strict_check_bool(checks.get(key)) for key in required_checks}
+        if "flash_crash" not in artifact_scenario_types:
+            artifact_checks["flash_crash_replay_met"] = False
+        if "exchange_outage" not in artifact_scenario_types:
+            artifact_checks["exchange_outage_replay_met"] = False
+        if scenarios_schema_error:
+            artifact_checks["scenario_provenance_met"] = False
+        if any(_as_mapping(scenario).get("fail_closed_event_count") == 0 for scenario in scenarios_payload if isinstance(scenario, Mapping)) if isinstance(scenarios_payload, list) else True:
+            artifact_checks["fail_closed_behavior_met"] = False
+        failing_checks = [check_name for check_name in required_checks if checks.get(check_name) is False]
+        chunk_schema_valid = (
+            (not parse_error)
+            and _artifact_schema_valid(payload, "stress_scenario_gate_input.v1") is True
+            and checks_object_valid
+            and evidence_source_object_valid
+            and not evidence_source_schema_error
+            and not top_level_schema_error
+            and not unknown_check_fields
+            and not check_schema_error
+            and not as_of_schema_error
+            and not scenarios_schema_error
+            and not failing_checks
+        )
+        chunk_provenance_present = (
+            (not parse_error) and not evidence_source_schema_error and _artifact_provenance_present(payload) is True
+        )
+        parse_error_message = str(parse_error or "")
+        if not parse_error:
+            if not checks_object_valid:
+                parse_error_message = "checks_not_object"
+            elif not evidence_source_object_valid:
+                parse_error_message = "evidence_source_not_object"
+            elif evidence_source_schema_error:
+                parse_error_message = evidence_source_schema_error
+            elif top_level_schema_error:
+                parse_error_message = top_level_schema_error
+            elif unknown_check_fields:
+                parse_error_message = "unknown_check_field: " + ", ".join(unknown_check_fields)
+            elif check_schema_error:
+                parse_error_message = check_schema_error
+            elif as_of_schema_error:
+                parse_error_message = as_of_schema_error
+            elif scenarios_schema_error:
+                parse_error_message = scenarios_schema_error
+            elif failing_checks:
+                parse_error_message = "failing_check: " + ", ".join(failing_checks)
+        artifacts.append(
+            {
+                "chunk": chunk_dir.name,
+                "path": str(path),
+                "parse_error": parse_error_message,
+                "schema_version": payload.get("schema_version"),
+                "schema_valid": chunk_schema_valid,
+                "provenance_present": chunk_provenance_present,
+                "evidence_source": _as_mapping(payload.get("evidence_source")),
+                "as_of": payload.get("as_of"),
+                "checks": artifact_checks,
+                "scenarios": list(scenarios_payload) if isinstance(scenarios_payload, list) else [],
+            }
+        )
+    if artifacts:
+        schema_valid = all(artifact.get("schema_valid") is True for artifact in artifacts)
+        provenance_present = all(artifact.get("provenance_present") is True for artifact in artifacts)
+        aggregate_checks = {
+            key: all(_as_mapping(artifact.get("checks")).get(key) is True for artifact in artifacts)
+            for key in required_checks
+        }
+    return {
+        "schema_version": "stress_scenario_gate.v1",
+        "required": required,
+        "artifact_count": len(artifacts),
+        "scenario_types": sorted(scenario_types),
+        "artifacts": artifacts,
+        "checks": {
+            **aggregate_checks,
+            "stress_scenario_artifact_schema_valid": schema_valid if artifacts else not required,
+            "stress_scenario_artifact_provenance_present": provenance_present if artifacts else not required,
+        },
+    }
+
+
 def _capacity_provenance_schema_error(value: Any) -> str:
     if not isinstance(value, Mapping):
         return "provenance_not_object"
@@ -4285,6 +4479,7 @@ def build_live_readiness_gate_report(
     require_validation_evidence: bool = False,
     require_microstructure_evidence: bool = False,
     require_capacity_evidence: bool = False,
+    require_stress_scenario_evidence: bool = False,
     require_runtime_safety_evidence: bool = False,
     require_promotion_bundle_integrity: bool = False,
 ) -> dict[str, Any]:
@@ -4353,6 +4548,7 @@ def build_live_readiness_gate_report(
         ("require_validation_evidence", require_validation_evidence),
         ("require_microstructure_evidence", require_microstructure_evidence),
         ("require_capacity_evidence", require_capacity_evidence),
+        ("require_stress_scenario_evidence", require_stress_scenario_evidence),
         ("require_runtime_safety_evidence", require_runtime_safety_evidence),
         ("require_promotion_bundle_integrity", require_promotion_bundle_integrity),
     ):
@@ -4415,6 +4611,10 @@ def build_live_readiness_gate_report(
     capacity_analysis_gate = _capacity_analysis_gate(
         chunk_dirs,
         required=policy_requirements["require_capacity_evidence"],
+    )
+    stress_scenario_gate = _stress_scenario_gate(
+        chunk_dirs,
+        required=policy_requirements["require_stress_scenario_evidence"],
     )
     validation_gate = _validation_gate(chunk_dirs, required=policy_requirements["require_validation_evidence"])
     offline_rollout_readiness = _offline_rollout_readiness(root)
@@ -4780,6 +4980,53 @@ def build_live_readiness_gate_report(
         reasons.append("capacity_turnover_slippage_sensitivity_missing")
     if (require_capacity_evidence_policy or capacity_artifact_present) and not capacity_checks.get("assumptions_provenance_met", False):
         reasons.append("capacity_assumptions_provenance_missing")
+    require_stress_scenario_evidence_policy = policy_requirements["require_stress_scenario_evidence"]
+    stress_scenario_checks = _as_mapping(stress_scenario_gate.get("checks"))
+    stress_scenario_artifact_count, stress_scenario_artifact_count_valid = _optional_gate_artifact_count(
+        stress_scenario_gate
+    )
+    stress_scenario_artifact_present = stress_scenario_artifact_count > 0
+    stress_scenario_parse_errors = [
+        str(_as_mapping(artifact).get("parse_error"))
+        for artifact in stress_scenario_gate.get("artifacts", [])
+        if isinstance(artifact, Mapping) and _as_mapping(artifact).get("parse_error")
+    ]
+    if not stress_scenario_artifact_count_valid:
+        reasons.append("stress_scenario_artifact_count_invalid")
+    if require_stress_scenario_evidence_policy and not stress_scenario_artifact_present:
+        reasons.append("stress_scenario_evidence_missing")
+    if stress_scenario_artifact_present and not stress_scenario_checks.get(
+        "stress_scenario_artifact_schema_valid", False
+    ):
+        if any(
+            error in {"as_of_future", "as_of_stale", "as_of_not_string", "as_of_noncanonical_timestamp"}
+            for error in stress_scenario_parse_errors
+        ):
+            reasons.append("stress_scenario_as_of_invalid")
+        elif any(error == "scenarios[0]_status_not_pass" or "_status_not_pass" in error for error in stress_scenario_parse_errors):
+            reasons.append("stress_scenario_failed")
+        else:
+            reasons.append("stress_scenario_artifact_schema_invalid")
+    if stress_scenario_artifact_present and not stress_scenario_checks.get(
+        "stress_scenario_artifact_provenance_present", False
+    ):
+        reasons.append("stress_scenario_artifact_provenance_missing")
+    if (require_stress_scenario_evidence_policy or stress_scenario_artifact_present) and not stress_scenario_checks.get(
+        "flash_crash_replay_met", False
+    ):
+        reasons.append("flash_crash_replay_missing")
+    if (require_stress_scenario_evidence_policy or stress_scenario_artifact_present) and not stress_scenario_checks.get(
+        "exchange_outage_replay_met", False
+    ):
+        reasons.append("exchange_outage_replay_missing")
+    if (require_stress_scenario_evidence_policy or stress_scenario_artifact_present) and not stress_scenario_checks.get(
+        "fail_closed_behavior_met", False
+    ):
+        reasons.append("stress_fail_closed_behavior_missing")
+    if (require_stress_scenario_evidence_policy or stress_scenario_artifact_present) and not stress_scenario_checks.get(
+        "scenario_provenance_met", False
+    ):
+        reasons.append("stress_scenario_provenance_missing")
     require_validation_evidence_policy = policy_requirements["require_validation_evidence"]
     validation_checks = _as_mapping(validation_gate.get("checks"))
     validation_artifact_count, validation_artifact_count_valid = _optional_gate_artifact_count(validation_gate)
@@ -4947,6 +5194,7 @@ def build_live_readiness_gate_report(
         "runtime_safety_gate": runtime_safety_gate,
         "microstructure_gate": microstructure_gate,
         "capacity_analysis_gate": capacity_analysis_gate,
+        "stress_scenario_gate": stress_scenario_gate,
         "validation_gate": validation_gate,
         "offline_rollout_readiness": offline_rollout_readiness,
         "paper_live_shadow_drift_contract": paper_live_shadow_drift_contract,
@@ -4984,6 +5232,7 @@ def build_live_readiness_gate_report(
                 **runtime_safety_checks,
                 **microstructure_checks,
                 **capacity_checks,
+                **stress_scenario_checks,
                 **validation_checks,
                 **offline_rollout_checks,
                 **paper_live_shadow_drift_checks,
@@ -5438,6 +5687,19 @@ def _apply_smoke_report_policy_invalid_config(
     invalid_fields = {item.get("field") for item in invalid_config if isinstance(item, Mapping)}
     if "require_runtime_safety_evidence" in invalid_fields:
         suppressed_reasons.update(_runtime_safety_missing_reasons_for_invalid_requirement(report))
+    if "require_stress_scenario_evidence" in invalid_fields:
+        stress_gate = _as_mapping(report.get("stress_scenario_gate"))
+        artifact_count, artifact_count_valid = _optional_gate_artifact_count(stress_gate)
+        if artifact_count_valid and artifact_count == 0:
+            suppressed_reasons.update(
+                {
+                    "stress_scenario_evidence_missing",
+                    "flash_crash_replay_missing",
+                    "exchange_outage_replay_missing",
+                    "stress_fail_closed_behavior_missing",
+                    "stress_scenario_provenance_missing",
+                }
+            )
     if suppressed_reasons:
         normalized_reasons = [reason for reason in normalized_reasons if reason not in suppressed_reasons]
     normalized_checks["live_readiness_policy_config_valid"] = False
@@ -5473,6 +5735,7 @@ def write_live_readiness_smoke_report(
     require_validation_evidence: bool = False,
     require_microstructure_evidence: bool = False,
     require_capacity_evidence: bool = False,
+    require_stress_scenario_evidence: bool = False,
     require_runtime_safety_evidence: bool = False,
     require_promotion_bundle_integrity: bool = False,
 ) -> dict[str, Any]:
@@ -5502,6 +5765,7 @@ def write_live_readiness_smoke_report(
             "passive_order_calibration_summary.json",
             "market_microstructure_gate.json",
             "capacity_analysis_gate.json",
+            "stress_scenario_gate.json",
             "validation_gate.json",
             "runtime_safety_gate.json",
             "offline_rollout_readiness_checklist.json",
@@ -5542,6 +5806,7 @@ def write_live_readiness_smoke_report(
         require_validation_evidence=require_validation_evidence,
         require_microstructure_evidence=require_microstructure_evidence,
         require_capacity_evidence=require_capacity_evidence,
+        require_stress_scenario_evidence=require_stress_scenario_evidence,
         require_runtime_safety_evidence=require_runtime_safety_evidence,
         require_promotion_bundle_integrity=require_promotion_bundle_integrity,
     )
@@ -5553,6 +5818,7 @@ def write_live_readiness_smoke_report(
             require_validation_evidence=require_validation_evidence,
             require_microstructure_evidence=require_microstructure_evidence,
             require_capacity_evidence=require_capacity_evidence,
+            require_stress_scenario_evidence=require_stress_scenario_evidence,
             require_runtime_safety_evidence=require_runtime_safety_evidence,
             require_promotion_bundle_integrity=require_promotion_bundle_integrity,
         ),
@@ -5836,6 +6102,24 @@ def render_live_readiness_markdown(report: Mapping[str, Any]) -> str:
                 f"- capacity_artifact_parse_errors: {_parse_error_summary(capacity.get('artifacts'))}",
             ]
         )
+    stress = _as_mapping(report.get("stress_scenario_gate"))
+    if stress:
+        checks = _as_mapping(stress.get("checks"))
+        lines.extend(
+            [
+                "",
+                "## Stress Scenario Gate",
+                f"- schema_version: {stress.get('schema_version')}",
+                f"- required: {_format_strict_bool(stress, 'required')}",
+                f"- artifact_count: {_strict_bucket_int(stress, 'artifact_count')}",
+                f"- scenario_types: {', '.join(str(item) for item in stress.get('scenario_types', []))}",
+                f"- flash_crash_replay_met: {_format_strict_bool(checks, 'flash_crash_replay_met')}",
+                f"- exchange_outage_replay_met: {_format_strict_bool(checks, 'exchange_outage_replay_met')}",
+                f"- fail_closed_behavior_met: {_format_strict_bool(checks, 'fail_closed_behavior_met')}",
+                f"- scenario_provenance_met: {_format_strict_bool(checks, 'scenario_provenance_met')}",
+                f"- stress_scenario_artifact_parse_errors: {_parse_error_summary(stress.get('artifacts'))}",
+            ]
+        )
     validation = _as_mapping(report.get("validation_gate"))
     if validation:
         checks = _as_mapping(validation.get("checks"))
@@ -5987,6 +6271,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--banned-setup-type", action="append", default=[])
     parser.add_argument("--require-validation-evidence", action="store_true")
     parser.add_argument("--require-microstructure-evidence", action="store_true")
+    parser.add_argument("--require-stress-scenario-evidence", action="store_true")
     parser.add_argument("--require-runtime-safety-evidence", action="store_true")
     parser.add_argument("--require-promotion-bundle-integrity", action="store_true")
     return parser.parse_args()
@@ -6059,6 +6344,7 @@ def main() -> int:
         banned_setup_types=args.banned_setup_type,
         require_validation_evidence=args.require_validation_evidence,
         require_microstructure_evidence=args.require_microstructure_evidence,
+        require_stress_scenario_evidence=args.require_stress_scenario_evidence,
         require_runtime_safety_evidence=args.require_runtime_safety_evidence,
         require_promotion_bundle_integrity=args.require_promotion_bundle_integrity,
     )

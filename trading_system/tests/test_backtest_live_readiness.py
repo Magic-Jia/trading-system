@@ -11134,6 +11134,188 @@ def _capacity_analysis_artifact(**overrides: object) -> dict[str, object]:
     return payload
 
 
+def _stress_scenario_artifact(**overrides: object) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "schema_version": "stress_scenario_gate_input.v1",
+        "evidence_source": {
+            "type": "offline_stress_replay",
+            "run_id": "stress-scenarios-1",
+            "exported_at": "2026-05-16T09:00:00Z",
+        },
+        "as_of": "2026-05-16T08:00:00Z",
+        "checks": {
+            "flash_crash_replay_met": True,
+            "exchange_outage_replay_met": True,
+            "fail_closed_behavior_met": True,
+            "scenario_provenance_met": True,
+        },
+        "scenarios": [
+            {
+                "scenario_id": "flash-crash-001",
+                "scenario_type": "flash_crash",
+                "source": "offline_replay_fixture",
+                "status": "pass",
+                "max_drawdown_pct": 0.12,
+                "net_pnl": 5.0,
+                "rejected_order_count": 2,
+                "fail_closed_event_count": 1,
+                "fixture_ref": "fixtures/stress/flash_crash.json",
+            },
+            {
+                "scenario_id": "exchange-outage-001",
+                "scenario_type": "exchange_outage",
+                "source": "offline_replay_fixture",
+                "status": "pass",
+                "max_drawdown_pct": 0.03,
+                "net_pnl": 1.0,
+                "rejected_order_count": 4,
+                "fail_closed_event_count": 3,
+                "fixture_ref": "fixtures/stress/exchange_outage.json",
+            },
+        ],
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_live_readiness_gate_report_accepts_offline_flash_crash_and_exchange_outage_stress_evidence(
+    tmp_path: Path,
+) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    (chunk / "stress_scenario_gate.json").write_text(
+        json.dumps(_stress_scenario_artifact()),
+        encoding="utf-8",
+    )
+
+    report = build_live_readiness_gate_report(tmp_path, require_stress_scenario_evidence=True)
+
+    stress = report["stress_scenario_gate"]
+    assert stress["schema_version"] == "stress_scenario_gate.v1"
+    assert stress["required"] is True
+    assert stress["artifact_count"] == 1
+    assert all(stress["checks"].values())
+    assert stress["scenario_types"] == ["exchange_outage", "flash_crash"]
+    reasons = report["promotion_gate"]["reasons"]
+    assert "stress_scenario_evidence_missing" not in reasons
+    assert "stress_scenario_artifact_schema_invalid" not in reasons
+    assert "flash_crash_replay_missing" not in reasons
+    assert "exchange_outage_replay_missing" not in reasons
+    markdown = render_live_readiness_markdown(report)
+    assert "## Stress Scenario Gate" in markdown
+    assert "flash_crash_replay_met: true" in markdown
+    assert "exchange_outage_replay_met: true" in markdown
+
+
+def test_live_readiness_gate_report_rejects_missing_required_stress_scenario_evidence(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+
+    report = build_live_readiness_gate_report(tmp_path, require_stress_scenario_evidence=True)
+
+    stress = report["stress_scenario_gate"]
+    assert stress["schema_version"] == "stress_scenario_gate.v1"
+    assert stress["required"] is True
+    assert stress["artifact_count"] == 0
+    assert stress["checks"]["flash_crash_replay_met"] is False
+    assert stress["checks"]["exchange_outage_replay_met"] is False
+    assert "stress_scenario_evidence_missing" in report["promotion_gate"]["reasons"]
+    assert "flash_crash_replay_missing" in report["promotion_gate"]["reasons"]
+    assert "exchange_outage_replay_missing" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
+@pytest.mark.parametrize(
+    ("mutate", "parse_error", "reason"),
+    [
+        (
+            lambda payload: payload.update({"checks": {"flash_crash_replay_met": "true"}}),
+            "check_flash_crash_replay_met_not_bool",
+            "stress_scenario_artifact_schema_invalid",
+        ),
+        (
+            lambda payload: payload["scenarios"][0].update({"net_pnl": float("nan")}),  # type: ignore[index,union-attr]
+            "scenarios[0]_net_pnl_not_number",
+            "stress_scenario_artifact_schema_invalid",
+        ),
+        (
+            lambda payload: payload.update({"as_of": "2026-05-15T23:59:59Z"}),
+            "as_of_stale",
+            "stress_scenario_as_of_invalid",
+        ),
+        (
+            lambda payload: payload.update({"as_of": 123}),
+            "as_of_not_string",
+            "stress_scenario_as_of_invalid",
+        ),
+        (
+            lambda payload: payload.update({"as_of": "2026-05-16T08:00:00+00:00"}),
+            "as_of_noncanonical_timestamp",
+            "stress_scenario_as_of_invalid",
+        ),
+        (
+            lambda payload: payload["scenarios"][0].update({"status": "fail"}),  # type: ignore[index,union-attr]
+            "scenarios[0]_status_not_pass",
+            "stress_scenario_failed",
+        ),
+        (
+            lambda payload: payload.update(
+                {
+                    "scenarios": [
+                        scenario
+                        for scenario in payload["scenarios"]  # type: ignore[index]
+                        if scenario["scenario_type"] != "exchange_outage"
+                    ]
+                }
+            ),
+            "scenario_type_exchange_outage_missing",
+            "exchange_outage_replay_missing",
+        ),
+    ],
+)
+def test_live_readiness_gate_rejects_invalid_stress_scenario_evidence(
+    tmp_path: Path,
+    mutate,
+    parse_error: str,
+    reason: str,
+) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    payload = _stress_scenario_artifact()
+    mutate(payload)
+    (chunk / "stress_scenario_gate.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    report = build_live_readiness_gate_report(tmp_path, require_stress_scenario_evidence=True)
+
+    stress = report["stress_scenario_gate"]
+    assert stress["artifacts"][0]["schema_valid"] is False
+    assert stress["artifacts"][0]["parse_error"] == parse_error
+    assert reason in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
+@pytest.mark.parametrize("required", ["false", 1, float("nan"), float("inf")])
+def test_live_readiness_gate_rejects_non_bool_stress_scenario_requirement_policy_config(
+    tmp_path: Path,
+    required: object,
+) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+
+    report = build_live_readiness_gate_report(
+        tmp_path,
+        require_stress_scenario_evidence=required,  # type: ignore[arg-type]
+    )
+
+    assert report["stress_scenario_gate"]["required"] is False
+    assert report["promotion_gate"]["checks"]["live_readiness_policy_config_valid"] is False
+    assert report["promotion_gate"]["invalid_config"] == [
+        {"field": "require_stress_scenario_evidence", "value": required, "error": "invalid_bool"}
+    ]
+    assert "live_readiness_policy_config_invalid" in report["promotion_gate"]["reasons"]
+    assert "stress_scenario_evidence_missing" not in report["promotion_gate"]["reasons"]
+
+
 def test_live_readiness_gate_report_rejects_missing_required_capacity_evidence(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     _write_profitable_trade_chunk(chunk)
