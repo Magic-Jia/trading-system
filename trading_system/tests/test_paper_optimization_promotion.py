@@ -1,12 +1,39 @@
 from __future__ import annotations
 
 import json
+import math
 
 from trading_system.app.paper_optimization.promotion import (
     build_promotion_decision,
     materialize_env_overrides,
     write_promotion_decision,
 )
+
+
+def _valid_decision_audit_evidence(**overrides):
+    payload = {
+        "schema_version": "decision_audit_evidence.v1",
+        "decision": "promote",
+        "decision_recorded_at_bj": "2026-04-24T12:05:00+08:00",
+        "entry_reason": "walk_forward_improvement",
+        "exit_reason": "fixed_horizon",
+        "as_of_inputs": [
+            {
+                "name": "baseline_bundle",
+                "as_of": "2026-04-24T11:55:00+08:00",
+                "source": "offline_backtest_bundle",
+                "value": 1.24,
+            },
+            {
+                "name": "variant_bundle",
+                "as_of": "2026-04-24T12:00:00+08:00",
+                "source": "offline_backtest_bundle",
+                "value": 1.31,
+            },
+        ],
+    }
+    payload.update(overrides)
+    return payload
 
 
 def test_materialize_env_overrides_applies_multiply_and_set_operations() -> None:
@@ -104,11 +131,13 @@ def test_build_promotion_decision_uses_compare_result_when_validation_bundles_ar
                 "decision": "promote",
                 "why": "fixture",
                 "dynamic_sizing_evidence": {"schema_version": "dynamic_sizing_evidence.v1"},
+                "decision_audit_evidence": _valid_decision_audit_evidence(),
             },
             "decision_summary": {
                 "decision": "promote",
                 "summary": "validated",
                 "dynamic_sizing_evidence": {"schema_version": "dynamic_sizing_evidence.v1"},
+                "decision_audit_evidence": _valid_decision_audit_evidence(),
             },
         }
 
@@ -148,6 +177,158 @@ def test_build_promotion_decision_uses_compare_result_when_validation_bundles_ar
     assert payload["variant"]["env_overrides"] == {"TRADING_ALLOCATOR_TREND_BUCKET_WEIGHT": "0.525"}
     assert payload["promotion_gate"]["dynamic_sizing_evidence"] == {"schema_version": "dynamic_sizing_evidence.v1"}
     assert payload["decision_summary"]["dynamic_sizing_evidence"] == {"schema_version": "dynamic_sizing_evidence.v1"}
+    assert payload["decision_audit_evidence"]["entry_reason"] == "walk_forward_improvement"
+    assert payload["decision_audit_evidence"]["exit_reason"] == "fixed_horizon"
+    assert payload["decision_audit_evidence"]["as_of_inputs"] == _valid_decision_audit_evidence()["as_of_inputs"]
+
+
+def test_build_promotion_decision_rejects_positive_claim_without_decision_audit_evidence() -> None:
+    import pytest
+
+    def fake_compare(*, baseline_bundle, variant_bundle):
+        return {
+            "promotion_gate": {"decision": "promote"},
+            "decision_summary": {"decision": "promote", "summary": "validated"},
+        }
+
+    with pytest.raises(ValueError, match="decision_audit_evidence is required for positive decisions"):
+        build_promotion_decision(
+            recommendations_payload={"recommendations": [{"id": "rec", "overlay_ops": []}]},
+            baseline_bundle="/tmp/baseline",
+            variant_bundle="/tmp/variant",
+            compare_backtest_bundles_fn=fake_compare,
+            recorded_at_bj="2026-04-24T12:05:00+08:00",
+        )
+
+
+def test_build_promotion_decision_rejects_post_decision_asof_evidence() -> None:
+    import pytest
+
+    def fake_compare(*, baseline_bundle, variant_bundle):
+        return {
+            "promotion_gate": {
+                "decision": "promote",
+                "decision_audit_evidence": _valid_decision_audit_evidence(
+                    as_of_inputs=[
+                        {
+                            "name": "variant_bundle",
+                            "as_of": "2026-04-24T12:06:00+08:00",
+                            "source": "offline_backtest_bundle",
+                            "value": 1.31,
+                        }
+                    ]
+                ),
+            },
+            "decision_summary": {"decision": "promote", "summary": "validated"},
+        }
+
+    with pytest.raises(ValueError, match=r"decision_audit_evidence.as_of_inputs\[0\].as_of must be at or before decision time"):
+        build_promotion_decision(
+            recommendations_payload={"recommendations": [{"id": "rec", "overlay_ops": []}]},
+            baseline_bundle="/tmp/baseline",
+            variant_bundle="/tmp/variant",
+            compare_backtest_bundles_fn=fake_compare,
+            recorded_at_bj="2026-04-24T12:05:00+08:00",
+        )
+
+
+def test_build_promotion_decision_rejects_noncanonical_audit_reasons() -> None:
+    import pytest
+
+    def fake_compare(*, baseline_bundle, variant_bundle):
+        return {
+            "promotion_gate": {
+                "decision": "promote",
+                "decision_audit_evidence": _valid_decision_audit_evidence(entry_reason=" Walk Forward "),
+            },
+            "decision_summary": {"decision": "promote", "summary": "validated"},
+        }
+
+    with pytest.raises(ValueError, match="decision_audit_evidence.entry_reason must be canonical"):
+        build_promotion_decision(
+            recommendations_payload={"recommendations": [{"id": "rec", "overlay_ops": []}]},
+            baseline_bundle="/tmp/baseline",
+            variant_bundle="/tmp/variant",
+            compare_backtest_bundles_fn=fake_compare,
+            recorded_at_bj="2026-04-24T12:05:00+08:00",
+        )
+
+
+def test_build_promotion_decision_rejects_bool_nan_inf_and_empty_audit_inputs() -> None:
+    import pytest
+
+    bad_values = [
+        ({"entry_reason": True}, "decision_audit_evidence.entry_reason must be a string"),
+        ({"entry_reason": ""}, "decision_audit_evidence.entry_reason must be non-empty"),
+        ({"as_of_inputs": []}, "decision_audit_evidence.as_of_inputs must be non-empty"),
+        (
+            {
+                "as_of_inputs": [
+                    {
+                        "name": "baseline_bundle",
+                        "as_of": "2026-04-24T11:55:00+08:00",
+                        "source": "offline_backtest_bundle",
+                        "value": math.nan,
+                    }
+                ]
+            },
+            r"decision_audit_evidence.as_of_inputs\[0\].value must be finite",
+        ),
+        (
+            {
+                "as_of_inputs": [
+                    {
+                        "name": "baseline_bundle",
+                        "as_of": "2026-04-24T11:55:00+08:00",
+                        "source": "offline_backtest_bundle",
+                        "value": math.inf,
+                    }
+                ]
+            },
+            r"decision_audit_evidence.as_of_inputs\[0\].value must be finite",
+        ),
+    ]
+
+    for overrides, message in bad_values:
+        def fake_compare(*, baseline_bundle, variant_bundle):
+            return {
+                "promotion_gate": {
+                    "decision": "promote",
+                    "decision_audit_evidence": _valid_decision_audit_evidence(**overrides),
+                },
+                "decision_summary": {"decision": "promote", "summary": "validated"},
+            }
+
+        with pytest.raises(ValueError, match=message):
+            build_promotion_decision(
+                recommendations_payload={"recommendations": [{"id": "rec", "overlay_ops": []}]},
+                baseline_bundle="/tmp/baseline",
+                variant_bundle="/tmp/variant",
+                compare_backtest_bundles_fn=fake_compare,
+                recorded_at_bj="2026-04-24T12:05:00+08:00",
+            )
+
+
+def test_build_promotion_decision_rejects_inconsistent_decision_audit_evidence() -> None:
+    import pytest
+
+    def fake_compare(*, baseline_bundle, variant_bundle):
+        return {
+            "promotion_gate": {
+                "decision": "promote",
+                "decision_audit_evidence": _valid_decision_audit_evidence(decision="hold"),
+            },
+            "decision_summary": {"decision": "promote", "summary": "validated"},
+        }
+
+    with pytest.raises(ValueError, match="decision_audit_evidence.decision must match promotion decision"):
+        build_promotion_decision(
+            recommendations_payload={"recommendations": [{"id": "rec", "overlay_ops": []}]},
+            baseline_bundle="/tmp/baseline",
+            variant_bundle="/tmp/variant",
+            compare_backtest_bundles_fn=fake_compare,
+            recorded_at_bj="2026-04-24T12:05:00+08:00",
+        )
 
 
 def test_write_promotion_decision_persists_json_payload(tmp_path) -> None:

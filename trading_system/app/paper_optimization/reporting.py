@@ -4,6 +4,10 @@ import json
 from pathlib import Path
 from typing import Any
 
+from .promotion import validate_decision_audit_evidence
+
+POSITIVE_PROMOTION_DECISIONS = {"promote"}
+
 
 def _read_json(path: Path) -> dict[str, Any]:
     if not path.exists():
@@ -52,6 +56,67 @@ def _optional_str(payload: dict[str, Any], field_name: str, *, source_name: str)
     return value
 
 
+def _promotion_audit_summary(promotion_decision: dict[str, Any]) -> dict[str, Any]:
+    decision = _optional_str(promotion_decision, "decision", source_name="promotion_decision")
+    if decision not in POSITIVE_PROMOTION_DECISIONS:
+        return {
+            "promotion_entry_reason": None,
+            "promotion_exit_reason": None,
+            "promotion_as_of_inputs": [],
+        }
+    recorded_at_bj = _optional_str(promotion_decision, "recorded_at_bj", source_name="promotion_decision")
+    audit_evidence = promotion_decision.get("decision_audit_evidence")
+    if audit_evidence is None:
+        raise ValueError("promotion_decision.decision_audit_evidence is required for positive decisions")
+    if recorded_at_bj is None and isinstance(audit_evidence, dict):
+        recorded_at_bj = audit_evidence.get("decision_recorded_at_bj")
+    if recorded_at_bj is None:
+        raise ValueError("promotion_decision.recorded_at_bj is required for positive decisions")
+    validated = validate_decision_audit_evidence(
+        audit_evidence,
+        decision=decision,
+        decision_recorded_at_bj=recorded_at_bj,
+        field_name="promotion_decision.decision_audit_evidence",
+    )
+    return {
+        "promotion_entry_reason": validated["entry_reason"],
+        "promotion_exit_reason": validated["exit_reason"],
+        "promotion_as_of_inputs": validated["as_of_inputs"],
+    }
+
+
+
+
+def _promotion_decision_audit_fields(promotion_decision: dict[str, Any]) -> dict[str, Any]:
+    status = promotion_decision.get("status")
+    decision = promotion_decision.get("decision")
+    positive = status == "promote" or decision == "promote"
+    evidence = promotion_decision.get("decision_audit_evidence")
+    if evidence is None:
+        if positive:
+            raise ValueError("promotion_decision.decision_audit_evidence is required for positive decisions")
+        return {
+            "promotion_entry_reason": None,
+            "promotion_exit_reason": None,
+            "promotion_as_of_inputs": [],
+        }
+    if not isinstance(evidence, dict):
+        raise ValueError("promotion_decision.decision_audit_evidence must be an object")
+    entry_reason = evidence.get("entry_reason")
+    if entry_reason is not None and not isinstance(entry_reason, str):
+        raise ValueError("promotion_decision.decision_audit_evidence.entry_reason must be a string")
+    exit_reason = evidence.get("exit_reason")
+    if exit_reason is not None and not isinstance(exit_reason, str):
+        raise ValueError("promotion_decision.decision_audit_evidence.exit_reason must be a string")
+    as_of_inputs = evidence.get("as_of_inputs", [])
+    if not isinstance(as_of_inputs, list):
+        raise ValueError("promotion_decision.decision_audit_evidence.as_of_inputs must be a list")
+    return {
+        "promotion_entry_reason": entry_reason,
+        "promotion_exit_reason": exit_reason,
+        "promotion_as_of_inputs": as_of_inputs,
+    }
+
 def build_optimization_summary(
     *,
     signal_facts_path: Path,
@@ -81,6 +146,7 @@ def build_optimization_summary(
     optimization_alerts = _optional_list(recommendations, "alerts", source_name="recommendations")
     warning_count = len(warnings)
     recommendation_count = len(recommendation_items)
+    audit_summary = _promotion_audit_summary(promotion_decision)
 
     return {
         "signal_fact_count": signal_fact_count,
@@ -94,6 +160,7 @@ def build_optimization_summary(
         "optimization_alerts": optimization_alerts,
         "promotion_status": _optional_str(promotion_decision, "status", source_name="promotion_decision"),
         "promotion_decision": _optional_str(promotion_decision, "decision", source_name="promotion_decision"),
+        **audit_summary,
     }
 
 

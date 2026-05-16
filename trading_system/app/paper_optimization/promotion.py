@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import math
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Mapping
@@ -9,6 +11,8 @@ from ..backtest.promotion import compare_backtest_bundles
 from ..types import BJ
 
 CompareBacktestBundlesFn = Callable[..., dict[str, dict[str, Any]]]
+POSITIVE_PROMOTION_DECISIONS = {"promote"}
+_CANONICAL_TOKEN_RE = re.compile(r"^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)*$")
 
 
 def _recorded_at_bj(value: str | None) -> str:
@@ -21,6 +25,21 @@ def _recorded_at_bj(value: str | None) -> str:
     return datetime.now(BJ).isoformat()
 
 
+def _parse_timestamp(value: str, *, field_name: str) -> datetime:
+    if not isinstance(value, str):
+        raise ValueError(f"{field_name} must be a string")
+    if not value:
+        raise ValueError(f"{field_name} must be non-empty")
+    normalized = value.replace("Z", "+00:00")
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError as exc:
+        raise ValueError(f"{field_name} must be an ISO-8601 timestamp") from exc
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ValueError(f"{field_name} must include a timezone offset")
+    return parsed
+
+
 def _read_json(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
@@ -28,6 +47,119 @@ def _read_json(path: Path) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValueError(f"{path} must contain a JSON object")
     return payload
+
+
+def _is_positive_promotion_decision(decision: str | None) -> bool:
+    return decision in POSITIVE_PROMOTION_DECISIONS
+
+
+def _canonical_string(value: Any, *, field_name: str) -> str:
+    if not isinstance(value, str):
+        raise ValueError(f"{field_name} must be a string")
+    if not value:
+        raise ValueError(f"{field_name} must be non-empty")
+    if value.strip() != value or not _CANONICAL_TOKEN_RE.fullmatch(value):
+        raise ValueError(f"{field_name} must be canonical")
+    return value
+
+
+def _reject_non_json_scalar(value: Any, *, field_name: str) -> None:
+    if isinstance(value, bool):
+        raise ValueError(f"{field_name} must not be boolean")
+    if isinstance(value, float) and not math.isfinite(value):
+        raise ValueError(f"{field_name} must be finite")
+
+
+def _validate_json_value(value: Any, *, field_name: str) -> Any:
+    _reject_non_json_scalar(value, field_name=field_name)
+    if value is None or isinstance(value, (str, int, float)):
+        return value
+    if isinstance(value, list):
+        if not value:
+            raise ValueError(f"{field_name} must be non-empty")
+        return [_validate_json_value(item, field_name=f"{field_name}[{index}]") for index, item in enumerate(value)]
+    if isinstance(value, Mapping):
+        if not value:
+            raise ValueError(f"{field_name} must be non-empty")
+        return {
+            _canonical_string(key, field_name=f"{field_name} key"): _validate_json_value(
+                item,
+                field_name=f"{field_name}.{key}",
+            )
+            for key, item in value.items()
+        }
+    raise ValueError(f"{field_name} must be JSON-compatible")
+
+
+def validate_decision_audit_evidence(
+    value: Any,
+    *,
+    decision: str,
+    decision_recorded_at_bj: str,
+    field_name: str = "decision_audit_evidence",
+) -> dict[str, Any]:
+    if not isinstance(value, Mapping):
+        raise ValueError(f"{field_name} must be an object")
+
+    evidence = dict(value)
+    schema_version = evidence.get("schema_version")
+    if schema_version != "decision_audit_evidence.v1":
+        raise ValueError(f"{field_name}.schema_version must be decision_audit_evidence.v1")
+
+    evidence_decision = _canonical_string(evidence.get("decision"), field_name=f"{field_name}.decision")
+    if evidence_decision != decision:
+        raise ValueError(f"{field_name}.decision must match promotion decision")
+
+    decision_time_text = evidence.get("decision_recorded_at_bj")
+    if decision_time_text != decision_recorded_at_bj:
+        raise ValueError(f"{field_name}.decision_recorded_at_bj must match promotion decision time")
+    decision_time = _parse_timestamp(decision_recorded_at_bj, field_name=f"{field_name}.decision_recorded_at_bj")
+
+    entry_reason = _canonical_string(evidence.get("entry_reason"), field_name=f"{field_name}.entry_reason")
+    exit_reason = _canonical_string(evidence.get("exit_reason"), field_name=f"{field_name}.exit_reason")
+
+    as_of_inputs = evidence.get("as_of_inputs")
+    if not isinstance(as_of_inputs, list):
+        raise ValueError(f"{field_name}.as_of_inputs must be a list")
+    if not as_of_inputs:
+        raise ValueError(f"{field_name}.as_of_inputs must be non-empty")
+
+    validated_inputs: list[dict[str, Any]] = []
+    seen_names: set[str] = set()
+    for index, raw_input in enumerate(as_of_inputs):
+        input_field = f"{field_name}.as_of_inputs[{index}]"
+        if not isinstance(raw_input, Mapping):
+            raise ValueError(f"{input_field} must be an object")
+        input_payload = dict(raw_input)
+        name = _canonical_string(input_payload.get("name"), field_name=f"{input_field}.name")
+        if name in seen_names:
+            raise ValueError(f"{input_field}.name must be unique")
+        seen_names.add(name)
+        source = _canonical_string(input_payload.get("source"), field_name=f"{input_field}.source")
+        as_of_text = input_payload.get("as_of")
+        as_of_time = _parse_timestamp(as_of_text, field_name=f"{input_field}.as_of")
+        if as_of_time > decision_time:
+            raise ValueError(f"{input_field}.as_of must be at or before decision time")
+        validated_input = {
+            "name": name,
+            "as_of": as_of_text,
+            "source": source,
+        }
+        for key, item in input_payload.items():
+            if key in validated_input:
+                continue
+            canonical_key = _canonical_string(key, field_name=f"{input_field} key")
+            validated_input[canonical_key] = _validate_json_value(item, field_name=f"{input_field}.{canonical_key}")
+        validated_inputs.append(validated_input)
+
+    return {
+        "schema_version": "decision_audit_evidence.v1",
+        "decision": evidence_decision,
+        "decision_recorded_at_bj": decision_recorded_at_bj,
+        "entry_reason": entry_reason,
+        "exit_reason": exit_reason,
+        "as_of_inputs": validated_inputs,
+    }
 
 
 def _format_float(value: float, precision: int) -> str:
@@ -168,7 +300,6 @@ def materialize_env_overrides(
         if baseline_env is None or baseline_snapshot.get(key) != value or key not in baseline_snapshot
     }
 
-
 def build_promotion_decision(
     *,
     recommendations_payload: Mapping[str, Any],
@@ -231,6 +362,18 @@ def build_promotion_decision(
     payload["decision"] = payload["status"]
     payload["baseline_bundle"] = str(baseline_bundle)
     payload["variant_bundle"] = str(variant_bundle)
+    if _is_positive_promotion_decision(payload["decision"]):
+        audit_source = promotion_gate.get("decision_audit_evidence") or decision_summary.get("decision_audit_evidence")
+        if audit_source is None:
+            raise ValueError("decision_audit_evidence is required for positive decisions")
+        audit_evidence = validate_decision_audit_evidence(
+            audit_source,
+            decision=payload["decision"],
+            decision_recorded_at_bj=payload["recorded_at_bj"],
+        )
+        promotion_gate["decision_audit_evidence"] = audit_evidence
+        decision_summary["decision_audit_evidence"] = audit_evidence
+        payload["decision_audit_evidence"] = audit_evidence
     payload["promotion_gate"] = promotion_gate
     payload["decision_summary"] = decision_summary
     payload["summary"] = _optional_section_str(decision_summary, "summary", section_name="decision_summary") or payload["summary"]
@@ -264,4 +407,9 @@ def write_promotion_decision(
     return payload
 
 
-__all__ = ["build_promotion_decision", "materialize_env_overrides", "write_promotion_decision"]
+__all__ = [
+    "build_promotion_decision",
+    "materialize_env_overrides",
+    "validate_decision_audit_evidence",
+    "write_promotion_decision",
+]

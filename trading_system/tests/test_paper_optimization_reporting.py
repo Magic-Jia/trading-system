@@ -30,7 +30,31 @@ def test_build_optimization_summary_uses_daily_metrics_and_related_artifacts(tmp
         json.dumps({"recorded_at_bj": "2026-04-24T12:05:00+08:00", "recommendations": [{"id": "lower-total-risk-budget"}]}),
         encoding="utf-8",
     )
-    promotion_decision_path.write_text(json.dumps({"status": "recommend", "decision": "awaiting_backtest"}), encoding="utf-8")
+    decision_audit_evidence = {
+        "schema_version": "decision_audit_evidence.v1",
+        "decision": "promote",
+        "decision_recorded_at_bj": "2026-04-24T12:05:00+08:00",
+        "entry_reason": "walk_forward_improvement",
+        "exit_reason": "fixed_horizon",
+        "as_of_inputs": [
+            {
+                "name": "variant_bundle",
+                "as_of": "2026-04-24T12:00:00+08:00",
+                "source": "offline_backtest_bundle",
+                "value": 1.31,
+            }
+        ],
+    }
+    promotion_decision_path.write_text(
+        json.dumps(
+            {
+                "status": "promote",
+                "decision": "promote",
+                "decision_audit_evidence": decision_audit_evidence,
+            }
+        ),
+        encoding="utf-8",
+    )
 
     summary = build_optimization_summary(
         signal_facts_path=signal_facts_path,
@@ -51,8 +75,11 @@ def test_build_optimization_summary_uses_daily_metrics_and_related_artifacts(tmp
         "recommendation_count": 1,
         "optimization_alert_count": 0,
         "optimization_alerts": [],
-        "promotion_status": "recommend",
-        "promotion_decision": "awaiting_backtest",
+        "promotion_status": "promote",
+        "promotion_decision": "promote",
+        "promotion_entry_reason": "walk_forward_improvement",
+        "promotion_exit_reason": "fixed_horizon",
+        "promotion_as_of_inputs": decision_audit_evidence["as_of_inputs"],
     }
 
 
@@ -123,7 +150,27 @@ def test_build_optimization_summary_falls_back_to_jsonl_counts_when_metrics_are_
         "optimization_alerts": [],
         "promotion_status": None,
         "promotion_decision": None,
+        "promotion_entry_reason": None,
+        "promotion_exit_reason": None,
+        "promotion_as_of_inputs": [],
     }
+
+
+def test_build_optimization_summary_rejects_positive_promotion_without_audit_evidence(tmp_path) -> None:
+    import pytest
+
+    promotion_decision_path = tmp_path / "promotion_decision.json"
+    promotion_decision_path.write_text(json.dumps({"status": "promote", "decision": "promote"}), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="promotion_decision.decision_audit_evidence is required for positive decisions"):
+        build_optimization_summary(
+            signal_facts_path=tmp_path / "signal_facts.jsonl",
+            trade_outcomes_path=tmp_path / "trade_outcomes.jsonl",
+            daily_metrics_path=tmp_path / "daily_metrics.json",
+            health_report_path=tmp_path / "health_report.json",
+            recommendations_path=tmp_path / "recommendations.json",
+            promotion_decision_path=promotion_decision_path,
+        )
 
 def test_build_optimization_summary_rejects_boolean_daily_metric_counts(tmp_path) -> None:
     import pytest
