@@ -127,6 +127,54 @@ def _pnl_attribution_evidence(*, reported_pnl: float = 0.08) -> dict[str, object
     }
 
 
+def _drawdown_anatomy_evidence(
+    *,
+    severity_pct: object = 0.08,
+    as_of: object = "2026-01-31T00:30:00Z",
+    decision_timestamp: object = "2026-01-31T00:30:00Z",
+    mitigation_evidence: object = ("reduce_cluster_exposure", "tighten_execution_gate"),
+) -> dict[str, object]:
+    return {
+        "schema_version": "drawdown_anatomy.v1",
+        "as_of": as_of,
+        "decision_timestamp": decision_timestamp,
+        "max_age_seconds": 3600,
+        "severe_drawdown_threshold_pct": 0.1,
+        "drawdowns": [
+            {
+                "drawdown_id": "dd-001",
+                "severity_pct": severity_pct,
+                "peak_timestamp": "2026-01-31T00:00:00Z",
+                "trough_timestamp": "2026-01-31T00:10:00Z",
+                "recovery_timestamp": "2026-01-31T00:25:00Z",
+                "regime_cluster_id": "regime-crash",
+                "symbol_cluster_id": "majors",
+                "trade_cluster_id": "trade-cluster-001",
+                "attribution": {
+                    "edge_failure_pct": 0.02,
+                    "execution_failure_pct": 0.05,
+                    "risk_control_failure_pct": 0.01,
+                    "primary_failure": "execution_failure",
+                },
+                "exposure_concentration": {
+                    "max_symbol_exposure_pct": 0.22,
+                    "max_cluster_exposure_pct": 0.42,
+                    "crowded_risk_score": 0.31,
+                },
+                "mitigation_evidence": list(mitigation_evidence) if isinstance(mitigation_evidence, tuple) else mitigation_evidence,
+            }
+        ],
+    }
+
+
+def _walk_forward_split_metadata() -> dict[str, object]:
+    return {
+        "schema_version": "walk_forward_split_metadata.v1",
+        "purge_bars": 1,
+        "embargo_bars": 0,
+    }
+
+
 def _dynamic_sizing_evidence(*, final_risk_fraction: float = 0.015) -> dict[str, object]:
     return {
         "schema_version": "dynamic_sizing_evidence.v1",
@@ -340,6 +388,8 @@ def _write_walk_forward_bundle(
     include_dynamic_sizing_evidence: bool = True,
     portfolio_correlation_exposure: dict[str, object] | None = None,
     capacity_analysis_evidence: dict[str, object] | None = None,
+    drawdown_anatomy: dict[str, object] | None = None,
+    include_drawdown_anatomy: bool = True,
     include_pnl_attribution: bool = True,
 ) -> Path:
     root.mkdir(parents=True, exist_ok=True)
@@ -398,6 +448,8 @@ def _write_walk_forward_bundle(
         summary_payload["portfolio_correlation_exposure"] = portfolio_correlation_exposure
     if capacity_analysis_evidence is not None:
         summary_payload["capacity_analysis_evidence"] = capacity_analysis_evidence
+    if include_drawdown_anatomy and out_of_sample_total_return > 0.0:
+        summary_payload["drawdown_anatomy"] = drawdown_anatomy or _drawdown_anatomy_evidence()
     if runtime_fields:
         summary_payload["runtime_observability"] = {"runtime_fields": runtime_fields}
     if rollback_target and (rollback_trigger or observation_window):
@@ -468,6 +520,11 @@ def _write_walk_forward_bundle(
             **(
                 {"capacity_analysis_evidence": capacity_analysis_evidence}
                 if capacity_analysis_evidence is not None
+                else {}
+            ),
+            **(
+                {"drawdown_anatomy": drawdown_anatomy or _drawdown_anatomy_evidence()}
+                if include_drawdown_anatomy and out_of_sample_total_return > 0.0
                 else {}
             ),
             **(
@@ -1220,6 +1277,7 @@ def test_compare_backtest_bundles_promotes_walk_forward_when_all_checks_pass(tmp
         "rejects_portfolio_correlation_exposure_breach": True,
         "has_capacity_analysis_evidence": True,
         "rejects_capacity_limit_breach": True,
+        "has_drawdown_anatomy_evidence": True,
     }
     assert gate["why"] == []
     assert gate["regime_stratified_oos"]["buckets"][0]["bucket"] == "volatility"
@@ -1228,6 +1286,129 @@ def test_compare_backtest_bundles_promotes_walk_forward_when_all_checks_pass(tmp
     assert result["decision_summary"]["dynamic_sizing_evidence"]["decisions"][0]["decision_id"] == "sizing-001"
     assert gate["portfolio_correlation_exposure"]["portfolio"]["gross_exposure_pct"] == 0.42
     assert gate["capacity_analysis_evidence"]["summary"]["claimed_capacity_usdt"] == 50000.0
+    assert gate["drawdown_anatomy"]["drawdowns"][0]["regime_cluster_id"] == "regime-crash"
+    assert result["decision_summary"]["drawdown_anatomy"]["drawdowns"][0]["trade_cluster_id"] == "trade-cluster-001"
+
+
+def test_compare_backtest_bundles_rejects_positive_walk_forward_without_drawdown_anatomy(
+    tmp_path: Path,
+) -> None:
+    baseline_bundle = _write_walk_forward_bundle(
+        tmp_path / "baseline",
+        baseline_name="paper",
+        variant_name="baseline",
+        out_of_sample_total_return=0.03,
+        positive_window_ratio=0.7,
+        parameter_stability_score=0.8,
+        worst_window_return=0.01,
+        split_metadata=_walk_forward_split_metadata(),
+        runtime_fields=["optimization_summary"],
+        rollback_target="baseline",
+        rollback_trigger="regression",
+        observation_window="14d",
+        regime_stratified_oos=_regime_stratified_oos_evidence(),
+        pnl_attribution=_pnl_attribution_evidence(reported_pnl=0.03),
+        portfolio_correlation_exposure=_portfolio_correlation_exposure_evidence(),
+    )
+    variant_bundle = _write_walk_forward_bundle(
+        tmp_path / "variant",
+        baseline_name="paper",
+        variant_name="candidate",
+        out_of_sample_total_return=0.08,
+        positive_window_ratio=0.8,
+        parameter_stability_score=0.9,
+        worst_window_return=0.02,
+        split_metadata=_walk_forward_split_metadata(),
+        runtime_fields=["optimization_summary"],
+        rollback_target="baseline",
+        rollback_trigger="regression",
+        observation_window="14d",
+        regime_stratified_oos=_regime_stratified_oos_evidence(),
+        pnl_attribution=_pnl_attribution_evidence(reported_pnl=0.08),
+        portfolio_correlation_exposure=_portfolio_correlation_exposure_evidence(),
+        include_drawdown_anatomy=False,
+    )
+
+    result = promotion.compare_backtest_bundles(
+        baseline_bundle=baseline_bundle,
+        variant_bundle=variant_bundle,
+    )
+
+    gate = result["promotion_gate"]
+    assert gate["decision"] == "reject"
+    assert gate["checks"]["has_drawdown_anatomy_evidence"] is False
+    assert "missing drawdown anatomy evidence" in gate["why"]
+
+
+@pytest.mark.parametrize(
+    ("mutator", "expected_message"),
+    [
+        (
+            lambda evidence: evidence["drawdowns"][0].__setitem__("severity_pct", "0.08"),  # type: ignore[index,union-attr]
+            "drawdown_anatomy.drawdowns[0].severity_pct must be a finite strict number",
+        ),
+        (
+            lambda evidence: evidence["drawdowns"][0].__setitem__("severity_pct", True),  # type: ignore[index,union-attr]
+            "drawdown_anatomy.drawdowns[0].severity_pct must be a finite strict number",
+        ),
+        (
+            lambda evidence: evidence["drawdowns"][0].__setitem__("severity_pct", float("inf")),  # type: ignore[index,union-attr]
+            "drawdown_anatomy.drawdowns[0].severity_pct must be a finite strict number",
+        ),
+        (
+            lambda evidence: evidence.__setitem__("as_of", "2026-01-31T00:30:00+00:00"),
+            "drawdown_anatomy.as_of must be a canonical UTC Z timestamp",
+        ),
+        (
+            lambda evidence: evidence.__setitem__("as_of", "2026-01-31T01:31:00Z"),
+            "drawdown_anatomy.as_of must be at or before decision_timestamp",
+        ),
+        (
+            lambda evidence: evidence.__setitem__("as_of", "2026-01-30T23:00:00Z"),
+            "drawdown_anatomy.as_of must not be stale",
+        ),
+        (
+            lambda evidence: evidence["drawdowns"][0].__setitem__("trough_timestamp", "2026-01-30T23:59:00Z"),  # type: ignore[index,union-attr]
+            "drawdown_anatomy.drawdowns[0].peak_timestamp must be at or before trough_timestamp",
+        ),
+        (
+            lambda evidence: evidence["drawdowns"].append(dict(evidence["drawdowns"][0])),  # type: ignore[index,union-attr]
+            "drawdown_anatomy.drawdowns cluster ids must be unique",
+        ),
+        (
+            lambda evidence: evidence["drawdowns"][0].__setitem__("mitigation_evidence", []),  # type: ignore[index,union-attr]
+            "drawdown_anatomy.drawdowns[0] severe drawdown must include mitigation evidence",
+        ),
+        (
+            lambda evidence: evidence["drawdowns"][0]["attribution"].__setitem__("primary_failure", "unknown"),  # type: ignore[index,union-attr]
+            "drawdown_anatomy.drawdowns[0].attribution.primary_failure must explain severe drawdown",
+        ),
+    ],
+)
+def test_load_backtest_bundle_rejects_malformed_drawdown_anatomy(
+    tmp_path: Path,
+    mutator,
+    expected_message: str,
+) -> None:
+    evidence = _drawdown_anatomy_evidence(severity_pct=0.12)
+    mutator(evidence)
+    bundle = _write_walk_forward_bundle(
+        tmp_path / "variant",
+        baseline_name="paper",
+        variant_name="candidate",
+        out_of_sample_total_return=0.08,
+        positive_window_ratio=0.8,
+        parameter_stability_score=0.9,
+        worst_window_return=0.02,
+        split_metadata=_walk_forward_split_metadata(),
+        regime_stratified_oos=_regime_stratified_oos_evidence(),
+        pnl_attribution=_pnl_attribution_evidence(reported_pnl=0.08),
+        portfolio_correlation_exposure=_portfolio_correlation_exposure_evidence(),
+        drawdown_anatomy=evidence,
+    )
+
+    with pytest.raises(ValueError, match=re.escape(expected_message)):
+        promotion.load_backtest_bundle(bundle)
 
 
 def test_compare_backtest_bundles_rejects_positive_walk_forward_without_portfolio_exposure_evidence(

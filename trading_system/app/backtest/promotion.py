@@ -81,6 +81,8 @@ _REQUIRED_CAPACITY_CHECKS = (
     "turnover_slippage_sensitivity_met",
     "assumptions_provenance_met",
 )
+_DRAWDOWN_ANATOMY_SCHEMA_VERSION = "drawdown_anatomy.v1"
+_DRAWDOWN_FAILURE_TYPES = frozenset({"edge_failure", "execution_failure", "risk_control_failure"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -1235,6 +1237,144 @@ def _capacity_symbol_rows(
     return normalized
 
 
+def _require_drawdown_anatomy_evidence(payload: Any, *, context: str) -> dict[str, Any]:
+    if not isinstance(payload, Mapping):
+        raise ValueError(f"{context}.drawdown_anatomy must be present for positive OOS evidence")
+    evidence = dict(payload)
+    if evidence.get("schema_version") != _DRAWDOWN_ANATOMY_SCHEMA_VERSION:
+        raise ValueError(f"{context}.drawdown_anatomy.schema_version must be {_DRAWDOWN_ANATOMY_SCHEMA_VERSION}")
+    field_context = f"{context}.drawdown_anatomy"
+    as_of = _require_canonical_utc_timestamp(evidence.get("as_of"), context=f"{field_context}.as_of")
+    decision_timestamp = _require_canonical_utc_timestamp(
+        evidence.get("decision_timestamp"),
+        context=f"{field_context}.decision_timestamp",
+    )
+    if as_of > decision_timestamp:
+        raise ValueError(f"{field_context}.as_of must be at or before decision_timestamp")
+    max_age_seconds = _require_non_negative_int(evidence, "max_age_seconds", context=field_context)
+    if (decision_timestamp - as_of).total_seconds() > max_age_seconds:
+        raise ValueError(f"{field_context}.as_of must not be stale")
+    severe_threshold = _require_non_negative_strict_number(
+        evidence.get("severe_drawdown_threshold_pct"),
+        context=f"{field_context}.severe_drawdown_threshold_pct",
+    )
+    raw_drawdowns = evidence.get("drawdowns")
+    if not isinstance(raw_drawdowns, list) or not raw_drawdowns:
+        raise ValueError(f"{field_context}.drawdowns must be a non-empty list")
+    seen_cluster_ids: set[tuple[str, str, str]] = set()
+    drawdowns: list[dict[str, Any]] = []
+    for index, raw_drawdown in enumerate(raw_drawdowns):
+        row_context = f"{field_context}.drawdowns[{index}]"
+        if not isinstance(raw_drawdown, Mapping):
+            raise ValueError(f"{row_context} must be an object")
+        row = dict(raw_drawdown)
+        drawdown_id = _require_canonical_bucket_identity(row.get("drawdown_id"), context=f"{row_context}.drawdown_id")
+        severity_pct = _require_non_negative_strict_number(
+            row.get("severity_pct"),
+            context=f"{row_context}.severity_pct",
+        )
+        peak_timestamp = _require_canonical_utc_timestamp(
+            row.get("peak_timestamp"),
+            context=f"{row_context}.peak_timestamp",
+        )
+        trough_timestamp = _require_canonical_utc_timestamp(
+            row.get("trough_timestamp"),
+            context=f"{row_context}.trough_timestamp",
+        )
+        recovery_timestamp = _require_canonical_utc_timestamp(
+            row.get("recovery_timestamp"),
+            context=f"{row_context}.recovery_timestamp",
+        )
+        if peak_timestamp > trough_timestamp:
+            raise ValueError(f"{row_context}.peak_timestamp must be at or before trough_timestamp")
+        if trough_timestamp > recovery_timestamp:
+            raise ValueError(f"{row_context}.trough_timestamp must be at or before recovery_timestamp")
+        regime_cluster_id = _require_canonical_bucket_identity(
+            row.get("regime_cluster_id"),
+            context=f"{row_context}.regime_cluster_id",
+        )
+        symbol_cluster_id = _require_canonical_bucket_identity(
+            row.get("symbol_cluster_id"),
+            context=f"{row_context}.symbol_cluster_id",
+        )
+        trade_cluster_id = _require_canonical_bucket_identity(
+            row.get("trade_cluster_id"),
+            context=f"{row_context}.trade_cluster_id",
+        )
+        cluster_key = (regime_cluster_id, symbol_cluster_id, trade_cluster_id)
+        if cluster_key in seen_cluster_ids:
+            raise ValueError(f"{field_context}.drawdowns cluster ids must be unique")
+        seen_cluster_ids.add(cluster_key)
+        attribution = _require_mapping(row, "attribution", context=row_context)
+        normalized_attribution = {
+            "edge_failure_pct": _require_non_negative_strict_number(
+                attribution.get("edge_failure_pct"),
+                context=f"{row_context}.attribution.edge_failure_pct",
+            ),
+            "execution_failure_pct": _require_non_negative_strict_number(
+                attribution.get("execution_failure_pct"),
+                context=f"{row_context}.attribution.execution_failure_pct",
+            ),
+            "risk_control_failure_pct": _require_non_negative_strict_number(
+                attribution.get("risk_control_failure_pct"),
+                context=f"{row_context}.attribution.risk_control_failure_pct",
+            ),
+            "primary_failure": _require_canonical_bucket_identity(
+                attribution.get("primary_failure"),
+                context=f"{row_context}.attribution.primary_failure",
+            ),
+        }
+        if severity_pct >= severe_threshold and normalized_attribution["primary_failure"] not in _DRAWDOWN_FAILURE_TYPES:
+            raise ValueError(f"{row_context}.attribution.primary_failure must explain severe drawdown")
+        exposure = _require_mapping(row, "exposure_concentration", context=row_context)
+        normalized_exposure = {
+            "max_symbol_exposure_pct": _require_non_negative_strict_number(
+                exposure.get("max_symbol_exposure_pct"),
+                context=f"{row_context}.exposure_concentration.max_symbol_exposure_pct",
+            ),
+            "max_cluster_exposure_pct": _require_non_negative_strict_number(
+                exposure.get("max_cluster_exposure_pct"),
+                context=f"{row_context}.exposure_concentration.max_cluster_exposure_pct",
+            ),
+            "crowded_risk_score": _require_non_negative_strict_number(
+                exposure.get("crowded_risk_score"),
+                context=f"{row_context}.exposure_concentration.crowded_risk_score",
+            ),
+        }
+        raw_mitigation_evidence = row.get("mitigation_evidence")
+        if not isinstance(raw_mitigation_evidence, list):
+            raise ValueError(f"{row_context}.mitigation_evidence must be a list")
+        mitigation_evidence = [
+            _require_canonical_bucket_identity(item, context=f"{row_context}.mitigation_evidence[{item_index}]")
+            for item_index, item in enumerate(raw_mitigation_evidence)
+        ]
+        if severity_pct >= severe_threshold and not mitigation_evidence:
+            raise ValueError(f"{row_context} severe drawdown must include mitigation evidence")
+        drawdowns.append(
+            {
+                "drawdown_id": drawdown_id,
+                "severity_pct": severity_pct,
+                "peak_timestamp": row["peak_timestamp"],
+                "trough_timestamp": row["trough_timestamp"],
+                "recovery_timestamp": row["recovery_timestamp"],
+                "regime_cluster_id": regime_cluster_id,
+                "symbol_cluster_id": symbol_cluster_id,
+                "trade_cluster_id": trade_cluster_id,
+                "attribution": normalized_attribution,
+                "exposure_concentration": normalized_exposure,
+                "mitigation_evidence": mitigation_evidence,
+            }
+        )
+    return {
+        "schema_version": _DRAWDOWN_ANATOMY_SCHEMA_VERSION,
+        "as_of": evidence["as_of"],
+        "decision_timestamp": evidence["decision_timestamp"],
+        "max_age_seconds": max_age_seconds,
+        "severe_drawdown_threshold_pct": severe_threshold,
+        "drawdowns": drawdowns,
+    }
+
+
 def _require_capacity_analysis_evidence(payload: Any, *, context: str) -> dict[str, Any]:
     if not isinstance(payload, Mapping):
         raise ValueError(f"{context}.capacity_analysis_evidence must be present for positive capacity claims")
@@ -1657,6 +1797,11 @@ def _validate_walk_forward_bundle(bundle: BacktestBundle) -> None:
             summary.get("capacity_analysis_evidence"),
             context=f"{bundle.root}/summary.json",
         )
+    if "drawdown_anatomy" in summary:
+        summary["drawdown_anatomy"] = _require_drawdown_anatomy_evidence(
+            summary.get("drawdown_anatomy"),
+            context=f"{bundle.root}/summary.json",
+        )
     windows = _require_rows(bundle.artifacts["windows.json"], context=f"{bundle.root}/windows.json")
     _require_multiple_testing_correction(
         bundle.artifacts["scorecard.json"],
@@ -1696,6 +1841,11 @@ def _validate_walk_forward_bundle(bundle: BacktestBundle) -> None:
     if "capacity_analysis_evidence" in scorecard:
         scorecard["capacity_analysis_evidence"] = _require_capacity_analysis_evidence(
             scorecard["capacity_analysis_evidence"],
+            context=f"{bundle.root}/scorecard.json",
+        )
+    if "drawdown_anatomy" in scorecard:
+        scorecard["drawdown_anatomy"] = _require_drawdown_anatomy_evidence(
+            scorecard["drawdown_anatomy"],
             context=f"{bundle.root}/scorecard.json",
         )
 
@@ -2178,6 +2328,24 @@ def _capacity_analysis_evidence(bundle: BacktestBundle) -> dict[str, Any] | None
     return None
 
 
+def _drawdown_anatomy_evidence(bundle: BacktestBundle) -> dict[str, Any] | None:
+    if bundle.experiment_kind != "walk_forward_validation":
+        return None
+    summary = bundle.artifacts["summary.json"]
+    if "drawdown_anatomy" in summary:
+        return _require_drawdown_anatomy_evidence(
+            summary["drawdown_anatomy"],
+            context=f"{bundle.root}/summary.json",
+        )
+    scorecard = bundle.artifacts["scorecard.json"]
+    if "drawdown_anatomy" in scorecard:
+        return _require_drawdown_anatomy_evidence(
+            scorecard["drawdown_anatomy"],
+            context=f"{bundle.root}/scorecard.json",
+        )
+    return None
+
+
 def _has_capacity_analysis_evidence(bundle: BacktestBundle) -> bool:
     if bundle.experiment_kind != "walk_forward_validation":
         return True
@@ -2185,6 +2353,15 @@ def _has_capacity_analysis_evidence(bundle: BacktestBundle) -> bool:
     if snapshot.get("total_return", 0.0) <= 0.0:
         return True
     return _capacity_analysis_evidence(bundle) is not None
+
+
+def _has_drawdown_anatomy_evidence(bundle: BacktestBundle) -> bool:
+    if bundle.experiment_kind != "walk_forward_validation":
+        return True
+    snapshot = _metric_snapshot(bundle)
+    if snapshot.get("total_return", 0.0) <= 0.0:
+        return True
+    return _drawdown_anatomy_evidence(bundle) is not None
 
 
 def _capacity_analysis_breaches(bundle: BacktestBundle) -> list[str]:
@@ -2278,6 +2455,8 @@ def _why(
         reasons.append("missing capacity analysis evidence")
     if "rejects_capacity_limit_breach" in checks and not checks["rejects_capacity_limit_breach"]:
         reasons.append("capacity analysis evidence breaches configured limits")
+    if "has_drawdown_anatomy_evidence" in checks and not checks["has_drawdown_anatomy_evidence"]:
+        reasons.append("missing drawdown anatomy evidence")
     return reasons
 
 
@@ -2322,6 +2501,8 @@ def _decision(
     if "has_capacity_analysis_evidence" in checks and not checks["has_capacity_analysis_evidence"]:
         return "reject"
     if "rejects_capacity_limit_breach" in checks and not checks["rejects_capacity_limit_breach"]:
+        return "reject"
+    if "has_drawdown_anatomy_evidence" in checks and not checks["has_drawdown_anatomy_evidence"]:
         return "reject"
     if not checks["has_purged_embargoed_split_metadata"]:
         return "reject"
@@ -2374,6 +2555,7 @@ def compare_backtest_bundles(*, baseline_bundle: str | Path, variant_bundle: str
         )
         checks["has_capacity_analysis_evidence"] = _has_capacity_analysis_evidence(variant)
         checks["rejects_capacity_limit_breach"] = not _capacity_analysis_breaches(variant)
+        checks["has_drawdown_anatomy_evidence"] = _has_drawdown_anatomy_evidence(variant)
     metric_deltas = _metric_deltas(baseline, variant)
     out_of_sample_collapses = _out_of_sample_collapses(variant)
     isolated_spike_rejection_reason = _isolated_spike_rejection_reason(variant)
@@ -2435,6 +2617,9 @@ def compare_backtest_bundles(*, baseline_bundle: str | Path, variant_bundle: str
     capacity_analysis_evidence = _capacity_analysis_evidence(variant)
     if capacity_analysis_evidence is not None:
         promotion_gate["capacity_analysis_evidence"] = capacity_analysis_evidence
+    drawdown_anatomy = _drawdown_anatomy_evidence(variant)
+    if drawdown_anatomy is not None:
+        promotion_gate["drawdown_anatomy"] = drawdown_anatomy
     decision_summary = {
         "experiment_kind": variant.experiment_kind,
         "baseline_bundle": str(baseline.root),
@@ -2448,4 +2633,6 @@ def compare_backtest_bundles(*, baseline_bundle: str | Path, variant_bundle: str
         decision_summary["dynamic_sizing_evidence"] = dynamic_sizing_evidence
     if capacity_analysis_evidence is not None:
         decision_summary["capacity_analysis_evidence"] = capacity_analysis_evidence
+    if drawdown_anatomy is not None:
+        decision_summary["drawdown_anatomy"] = drawdown_anatomy
     return {"promotion_gate": promotion_gate, "decision_summary": decision_summary}

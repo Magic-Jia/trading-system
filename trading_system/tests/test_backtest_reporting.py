@@ -3752,6 +3752,51 @@ def _minimal_walk_forward_validation_experiment() -> dict[str, object]:
         "regime_stratified_oos": _regime_stratified_oos_evidence(),
         "pnl_attribution": _pnl_attribution_evidence(),
         "portfolio_correlation_exposure": _portfolio_correlation_exposure_evidence(),
+        "drawdown_anatomy": _drawdown_anatomy_evidence(),
+    }
+
+
+def _drawdown_anatomy_evidence(
+    *,
+    severity_pct: object = 0.08,
+    peak_timestamp: object = "2026-03-11T00:00:00Z",
+    trough_timestamp: object = "2026-03-11T00:10:00Z",
+    recovery_timestamp: object = "2026-03-11T00:25:00Z",
+    as_of: object = "2026-03-11T00:30:00Z",
+    decision_timestamp: object = "2026-03-11T00:30:00Z",
+    explanation: object = "execution_failure",
+    mitigation_evidence: object = ("reduce_cluster_exposure", "tighten_execution_gate"),
+) -> dict[str, object]:
+    return {
+        "schema_version": "drawdown_anatomy.v1",
+        "as_of": as_of,
+        "decision_timestamp": decision_timestamp,
+        "max_age_seconds": 3600,
+        "severe_drawdown_threshold_pct": 0.1,
+        "drawdowns": [
+            {
+                "drawdown_id": "dd-001",
+                "severity_pct": severity_pct,
+                "peak_timestamp": peak_timestamp,
+                "trough_timestamp": trough_timestamp,
+                "recovery_timestamp": recovery_timestamp,
+                "regime_cluster_id": "regime-crash",
+                "symbol_cluster_id": "majors",
+                "trade_cluster_id": "trade-cluster-001",
+                "attribution": {
+                    "edge_failure_pct": 0.02,
+                    "execution_failure_pct": 0.05,
+                    "risk_control_failure_pct": 0.01,
+                    "primary_failure": explanation,
+                },
+                "exposure_concentration": {
+                    "max_symbol_exposure_pct": 0.22,
+                    "max_cluster_exposure_pct": 0.42,
+                    "crowded_risk_score": 0.31,
+                },
+                "mitigation_evidence": list(mitigation_evidence) if isinstance(mitigation_evidence, tuple) else mitigation_evidence,
+            }
+        ],
     }
 
 
@@ -4036,6 +4081,123 @@ def test_walk_forward_validation_report_preserves_portfolio_correlation_exposure
     assert evidence["schema_version"] == "portfolio_correlation_exposure.v1"
     assert evidence["portfolio"]["net_exposure_pct"] == pytest.approx(0.18)
     assert evidence["crowded_risk"]["evidence"] == ["funding_neutral", "open_interest_stable"]
+
+
+def test_walk_forward_validation_report_preserves_drawdown_anatomy_in_summary_and_scorecard() -> None:
+    report = cli.render_walk_forward_validation_report(
+        experiment_name="walk_forward_validation",
+        metadata={
+            "snapshot_count": 1,
+            "window_count": 1,
+            "split_metadata": {
+                "schema_version": "walk_forward_split_metadata.v1",
+                "purge_bars": 0,
+                "embargo_bars": 0,
+            },
+        },
+        experiment=_minimal_walk_forward_validation_experiment(),
+    )
+
+    assert report["summary"]["drawdown_anatomy"]["schema_version"] == "drawdown_anatomy.v1"
+    assert report["scorecard"]["drawdown_anatomy"]["drawdowns"][0]["trade_cluster_id"] == "trade-cluster-001"
+    assert report["scorecard"]["drawdown_anatomy"]["drawdowns"][0]["mitigation_evidence"] == [
+        "reduce_cluster_exposure",
+        "tighten_execution_gate",
+    ]
+
+
+def test_walk_forward_validation_report_requires_drawdown_anatomy_for_positive_oos() -> None:
+    experiment = _minimal_walk_forward_validation_experiment()
+    del experiment["drawdown_anatomy"]
+
+    with pytest.raises(ValueError, match="drawdown_anatomy must be present for positive OOS evidence"):
+        cli.render_walk_forward_validation_report(
+            experiment_name="walk_forward_validation",
+            metadata={
+                "snapshot_count": 1,
+                "window_count": 1,
+                "split_metadata": {
+                    "schema_version": "walk_forward_split_metadata.v1",
+                    "purge_bars": 0,
+                    "embargo_bars": 0,
+                },
+            },
+            experiment=experiment,
+        )
+
+
+@pytest.mark.parametrize(
+    ("mutator", "expected_message"),
+    [
+        (
+            lambda evidence: evidence["drawdowns"][0].__setitem__("severity_pct", "0.08"),  # type: ignore[index,union-attr]
+            "drawdown_anatomy.drawdowns[0].severity_pct must be a finite strict number",
+        ),
+        (
+            lambda evidence: evidence["drawdowns"][0].__setitem__("severity_pct", True),  # type: ignore[index,union-attr]
+            "drawdown_anatomy.drawdowns[0].severity_pct must be a finite strict number",
+        ),
+        (
+            lambda evidence: evidence["drawdowns"][0].__setitem__("severity_pct", float("nan")),  # type: ignore[index,union-attr]
+            "drawdown_anatomy.drawdowns[0].severity_pct must be a finite strict number",
+        ),
+        (
+            lambda evidence: evidence.__setitem__("as_of", "2026-03-11T00:30:00+00:00"),
+            "drawdown_anatomy.as_of must be a canonical UTC Z timestamp",
+        ),
+        (
+            lambda evidence: evidence.__setitem__("as_of", "2026-03-11T01:31:00Z"),
+            "drawdown_anatomy.as_of must be at or before decision_timestamp",
+        ),
+        (
+            lambda evidence: evidence.__setitem__("as_of", "2026-03-10T23:00:00Z"),
+            "drawdown_anatomy.as_of must not be stale",
+        ),
+        (
+            lambda evidence: evidence["drawdowns"][0].__setitem__("trough_timestamp", "2026-03-10T23:59:00Z"),  # type: ignore[index,union-attr]
+            "drawdown_anatomy.drawdowns[0].peak_timestamp must be at or before trough_timestamp",
+        ),
+        (
+            lambda evidence: evidence["drawdowns"][0].__setitem__("recovery_timestamp", "2026-03-11T00:05:00Z"),  # type: ignore[index,union-attr]
+            "drawdown_anatomy.drawdowns[0].trough_timestamp must be at or before recovery_timestamp",
+        ),
+        (
+            lambda evidence: evidence["drawdowns"].append(dict(evidence["drawdowns"][0])),  # type: ignore[index,union-attr]
+            "drawdown_anatomy.drawdowns cluster ids must be unique",
+        ),
+        (
+            lambda evidence: evidence["drawdowns"][0].__setitem__("mitigation_evidence", []),  # type: ignore[index,union-attr]
+            "drawdown_anatomy.drawdowns[0] severe drawdown must include mitigation evidence",
+        ),
+        (
+            lambda evidence: evidence["drawdowns"][0]["attribution"].__setitem__("primary_failure", "unknown"),  # type: ignore[index,union-attr]
+            "drawdown_anatomy.drawdowns[0].attribution.primary_failure must explain severe drawdown",
+        ),
+    ],
+)
+def test_walk_forward_validation_report_rejects_malformed_drawdown_anatomy(
+    mutator,
+    expected_message: str,
+) -> None:
+    experiment = _minimal_walk_forward_validation_experiment()
+    evidence = _drawdown_anatomy_evidence(severity_pct=0.12)
+    mutator(evidence)
+    experiment["drawdown_anatomy"] = evidence
+
+    with pytest.raises(ValueError, match=re.escape(expected_message)):
+        cli.render_walk_forward_validation_report(
+            experiment_name="walk_forward_validation",
+            metadata={
+                "snapshot_count": 1,
+                "window_count": 1,
+                "split_metadata": {
+                    "schema_version": "walk_forward_split_metadata.v1",
+                    "purge_bars": 0,
+                    "embargo_bars": 0,
+                },
+            },
+            experiment=experiment,
+        )
 
 
 def test_walk_forward_validation_report_holds_when_regime_bucket_collapses() -> None:
@@ -4837,6 +4999,7 @@ def test_walk_forward_validation_report_preserves_valid_worst_window_scorecard()
             "regime_stratified_oos": _regime_stratified_oos_evidence(),
             "pnl_attribution": _pnl_attribution_evidence(),
             "portfolio_correlation_exposure": _portfolio_correlation_exposure_evidence(),
+            "drawdown_anatomy": _drawdown_anatomy_evidence(),
 
         },
     )
@@ -5298,6 +5461,7 @@ def test_walk_forward_validation_report_preserves_valid_coverage_scorecard_value
             "regime_stratified_oos": _regime_stratified_oos_evidence(),
             "pnl_attribution": _pnl_attribution_evidence(),
             "portfolio_correlation_exposure": _portfolio_correlation_exposure_evidence(),
+            "drawdown_anatomy": _drawdown_anatomy_evidence(),
 
         },
     )
@@ -5921,6 +6085,7 @@ def test_backtest_cli_writes_walk_forward_validation_bundle(monkeypatch: pytest.
                 "regime_stratified_oos": _regime_stratified_oos_evidence(),
                 "pnl_attribution": _pnl_attribution_evidence(),
                 "portfolio_correlation_exposure": _portfolio_correlation_exposure_evidence(),
+                "drawdown_anatomy": _drawdown_anatomy_evidence(),
 
             },
             raising=False,

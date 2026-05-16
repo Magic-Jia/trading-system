@@ -58,6 +58,8 @@ _REQUIRED_PNL_ATTRIBUTION_BUCKETS = (
 )
 _PNL_ATTRIBUTION_TOLERANCE = 1e-9
 _PORTFOLIO_CORRELATION_EXPOSURE_SCHEMA_VERSION = "portfolio_correlation_exposure.v1"
+_DRAWDOWN_ANATOMY_SCHEMA_VERSION = "drawdown_anatomy.v1"
+_DRAWDOWN_FAILURE_TYPES = frozenset({"edge_failure", "execution_failure", "risk_control_failure"})
 
 
 def _report_finite_float(value: Any, *, field_name: str) -> float:
@@ -955,6 +957,172 @@ def _portfolio_correlation_exposure_evidence(value: Any, *, field_name: str) -> 
             "reason": _canonical_bucket_identity(risk_hold.get("reason"), field_name=f"{field_name}.risk_hold.reason"),
         }
     return result
+
+
+def _drawdown_anatomy_finite_float(value: Any, *, field_name: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise ValueError(f"{field_name} must be a finite strict number")
+    parsed = float(value)
+    if not math.isfinite(parsed):
+        raise ValueError(f"{field_name} must be a finite strict number")
+    return parsed
+
+
+def _drawdown_anatomy_non_negative_float(value: Any, *, field_name: str) -> float:
+    parsed = _drawdown_anatomy_finite_float(value, field_name=field_name)
+    if parsed < 0.0:
+        raise ValueError(f"{field_name} must be a non-negative finite strict number")
+    return parsed
+
+
+def _drawdown_anatomy_timestamp(value: Any, *, field_name: str) -> tuple[str, datetime]:
+    timestamp = _canonical_utc_report_timestamp(
+        _canonical_report_string(value, field_name=field_name),
+        field_name=field_name,
+    )
+    return timestamp, datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+
+
+def _drawdown_anatomy_evidence(value: Any, *, field_name: str) -> dict[str, Any]:
+    if not isinstance(value, Mapping):
+        raise ValueError(f"{field_name} must be present for positive OOS evidence")
+    evidence = _strict_mapping_copy(value, field_name=field_name)
+    if evidence.get("schema_version") != _DRAWDOWN_ANATOMY_SCHEMA_VERSION:
+        raise ValueError(f"{field_name}.schema_version must be {_DRAWDOWN_ANATOMY_SCHEMA_VERSION}")
+    as_of, parsed_as_of = _drawdown_anatomy_timestamp(evidence.get("as_of"), field_name=f"{field_name}.as_of")
+    decision_timestamp, parsed_decision_timestamp = _drawdown_anatomy_timestamp(
+        evidence.get("decision_timestamp"),
+        field_name=f"{field_name}.decision_timestamp",
+    )
+    if parsed_as_of > parsed_decision_timestamp:
+        raise ValueError(f"{field_name}.as_of must be at or before decision_timestamp")
+    max_age_seconds = _non_negative_int_field(evidence, "max_age_seconds", label=field_name)
+    if (parsed_decision_timestamp - parsed_as_of).total_seconds() > max_age_seconds:
+        raise ValueError(f"{field_name}.as_of must not be stale")
+    severe_threshold = _drawdown_anatomy_non_negative_float(
+        evidence.get("severe_drawdown_threshold_pct"),
+        field_name=f"{field_name}.severe_drawdown_threshold_pct",
+    )
+    raw_drawdowns = _list_field(evidence, "drawdowns", label=f"{field_name}.drawdowns")
+    if not raw_drawdowns:
+        raise ValueError(f"{field_name}.drawdowns must be a non-empty list")
+    seen_cluster_ids: set[tuple[str, str, str]] = set()
+    drawdowns: list[dict[str, Any]] = []
+    for index, raw_drawdown in enumerate(raw_drawdowns):
+        row_field = f"{field_name}.drawdowns[{index}]"
+        if not isinstance(raw_drawdown, Mapping):
+            raise ValueError(f"{row_field} must be an object")
+        row = _strict_mapping_copy(raw_drawdown, field_name=row_field)
+        drawdown_id = _canonical_bucket_identity(row.get("drawdown_id"), field_name=f"{row_field}.drawdown_id")
+        severity_pct = _drawdown_anatomy_non_negative_float(
+            row.get("severity_pct"),
+            field_name=f"{row_field}.severity_pct",
+        )
+        peak_timestamp, parsed_peak = _drawdown_anatomy_timestamp(
+            row.get("peak_timestamp"),
+            field_name=f"{row_field}.peak_timestamp",
+        )
+        trough_timestamp, parsed_trough = _drawdown_anatomy_timestamp(
+            row.get("trough_timestamp"),
+            field_name=f"{row_field}.trough_timestamp",
+        )
+        recovery_timestamp, parsed_recovery = _drawdown_anatomy_timestamp(
+            row.get("recovery_timestamp"),
+            field_name=f"{row_field}.recovery_timestamp",
+        )
+        if parsed_peak > parsed_trough:
+            raise ValueError(f"{row_field}.peak_timestamp must be at or before trough_timestamp")
+        if parsed_trough > parsed_recovery:
+            raise ValueError(f"{row_field}.trough_timestamp must be at or before recovery_timestamp")
+        regime_cluster_id = _canonical_bucket_identity(
+            row.get("regime_cluster_id"),
+            field_name=f"{row_field}.regime_cluster_id",
+        )
+        symbol_cluster_id = _canonical_bucket_identity(
+            row.get("symbol_cluster_id"),
+            field_name=f"{row_field}.symbol_cluster_id",
+        )
+        trade_cluster_id = _canonical_bucket_identity(
+            row.get("trade_cluster_id"),
+            field_name=f"{row_field}.trade_cluster_id",
+        )
+        cluster_key = (regime_cluster_id, symbol_cluster_id, trade_cluster_id)
+        if cluster_key in seen_cluster_ids:
+            raise ValueError(f"{field_name}.drawdowns cluster ids must be unique")
+        seen_cluster_ids.add(cluster_key)
+        raw_attribution = row.get("attribution")
+        if not isinstance(raw_attribution, Mapping):
+            raise ValueError(f"{row_field}.attribution must be an object")
+        attribution = _strict_mapping_copy(raw_attribution, field_name=f"{row_field}.attribution")
+        normalized_attribution = {
+            "edge_failure_pct": _drawdown_anatomy_non_negative_float(
+                attribution.get("edge_failure_pct"),
+                field_name=f"{row_field}.attribution.edge_failure_pct",
+            ),
+            "execution_failure_pct": _drawdown_anatomy_non_negative_float(
+                attribution.get("execution_failure_pct"),
+                field_name=f"{row_field}.attribution.execution_failure_pct",
+            ),
+            "risk_control_failure_pct": _drawdown_anatomy_non_negative_float(
+                attribution.get("risk_control_failure_pct"),
+                field_name=f"{row_field}.attribution.risk_control_failure_pct",
+            ),
+            "primary_failure": _canonical_bucket_identity(
+                attribution.get("primary_failure"),
+                field_name=f"{row_field}.attribution.primary_failure",
+            ),
+        }
+        if severity_pct >= severe_threshold and normalized_attribution["primary_failure"] not in _DRAWDOWN_FAILURE_TYPES:
+            raise ValueError(f"{row_field}.attribution.primary_failure must explain severe drawdown")
+        raw_exposure = row.get("exposure_concentration")
+        if not isinstance(raw_exposure, Mapping):
+            raise ValueError(f"{row_field}.exposure_concentration must be an object")
+        exposure = _strict_mapping_copy(raw_exposure, field_name=f"{row_field}.exposure_concentration")
+        normalized_exposure = {
+            "max_symbol_exposure_pct": _drawdown_anatomy_non_negative_float(
+                exposure.get("max_symbol_exposure_pct"),
+                field_name=f"{row_field}.exposure_concentration.max_symbol_exposure_pct",
+            ),
+            "max_cluster_exposure_pct": _drawdown_anatomy_non_negative_float(
+                exposure.get("max_cluster_exposure_pct"),
+                field_name=f"{row_field}.exposure_concentration.max_cluster_exposure_pct",
+            ),
+            "crowded_risk_score": _drawdown_anatomy_non_negative_float(
+                exposure.get("crowded_risk_score"),
+                field_name=f"{row_field}.exposure_concentration.crowded_risk_score",
+            ),
+        }
+        mitigation_evidence = [
+            _canonical_bucket_identity(item, field_name=f"{row_field}.mitigation_evidence[{item_index}]")
+            for item_index, item in enumerate(
+                _list_field(row, "mitigation_evidence", label=f"{row_field}.mitigation_evidence")
+            )
+        ]
+        if severity_pct >= severe_threshold and not mitigation_evidence:
+            raise ValueError(f"{row_field} severe drawdown must include mitigation evidence")
+        drawdowns.append(
+            {
+                "drawdown_id": drawdown_id,
+                "severity_pct": severity_pct,
+                "peak_timestamp": peak_timestamp,
+                "trough_timestamp": trough_timestamp,
+                "recovery_timestamp": recovery_timestamp,
+                "regime_cluster_id": regime_cluster_id,
+                "symbol_cluster_id": symbol_cluster_id,
+                "trade_cluster_id": trade_cluster_id,
+                "attribution": normalized_attribution,
+                "exposure_concentration": normalized_exposure,
+                "mitigation_evidence": mitigation_evidence,
+            }
+        )
+    return {
+        "schema_version": _DRAWDOWN_ANATOMY_SCHEMA_VERSION,
+        "as_of": as_of,
+        "decision_timestamp": decision_timestamp,
+        "max_age_seconds": max_age_seconds,
+        "severe_drawdown_threshold_pct": severe_threshold,
+        "drawdowns": drawdowns,
+    }
 
 
 def _cost_stress_metric_payload(metrics: Mapping[str, Any], *, field_name: str) -> dict[str, Any]:
@@ -2999,6 +3167,12 @@ def render_walk_forward_validation_report(
             experiment.get("portfolio_correlation_exposure"),
             field_name="portfolio_correlation_exposure",
         )
+    drawdown_anatomy = None
+    if positive_oos_claim or "drawdown_anatomy" in experiment:
+        drawdown_anatomy = _drawdown_anatomy_evidence(
+            experiment.get("drawdown_anatomy"),
+            field_name="drawdown_anatomy",
+        )
 
     if (
         out_of_sample_total_return > 0.0
@@ -3024,6 +3198,7 @@ def render_walk_forward_validation_report(
             "robustness_summary": robustness_summary,
             "parameter_stability": parameter_stability,
             **({"pnl_attribution": pnl_attribution} if pnl_attribution is not None else {}),
+            **({"drawdown_anatomy": drawdown_anatomy} if drawdown_anatomy is not None else {}),
         },
         "windows": {
             "metadata": report_metadata,
@@ -3047,6 +3222,7 @@ def render_walk_forward_validation_report(
                 if portfolio_correlation_exposure is not None
                 else {}
             ),
+            **({"drawdown_anatomy": drawdown_anatomy} if drawdown_anatomy is not None else {}),
             **_promotion_metadata_sections(report_metadata),
         },
     }

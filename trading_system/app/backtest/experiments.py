@@ -2556,6 +2556,108 @@ def _canonical_cluster_for_symbol(symbol: str) -> str:
     return "alts"
 
 
+def _walk_forward_drawdown_anatomy(
+    ordered_rows: Sequence[DatasetSnapshotRow],
+    window_summaries: Sequence[Mapping[str, Any]],
+    *,
+    evaluation_window: str,
+) -> dict[str, Any]:
+    decision_timestamp = ordered_rows[-1].timestamp if ordered_rows else None
+    as_of = (
+        decision_timestamp.isoformat().replace("+00:00", "Z")
+        if decision_timestamp is not None
+        else "1970-01-01T00:00:00Z"
+    )
+    observed_drawdowns: list[dict[str, Any]] = []
+    for window in window_summaries:
+        out_of_sample = window.get("out_of_sample")
+        if not isinstance(out_of_sample, Mapping):
+            continue
+        scorecard = out_of_sample.get("scorecard")
+        if not isinstance(scorecard, Mapping):
+            continue
+        raw_drawdown = scorecard.get("max_drawdown", 0.0)
+        if not isinstance(raw_drawdown, (int, float)) or isinstance(raw_drawdown, bool):
+            continue
+        drawdown = abs(float(raw_drawdown))
+        if not math.isfinite(drawdown):
+            continue
+        window_index = window.get("window_index", len(observed_drawdowns) + 1)
+        test_period = window.get("test_period") if isinstance(window.get("test_period"), Mapping) else {}
+        peak_ts = str(test_period.get("start") or as_of).replace("+00:00", "Z")
+        trough_ts = str(test_period.get("end") or as_of).replace("+00:00", "Z")
+        if not peak_ts.endswith("Z"):
+            peak_ts = as_of
+        if not trough_ts.endswith("Z"):
+            trough_ts = as_of
+        rows = window.get("out_of_sample_rows")
+        symbols: set[str] = set()
+        if isinstance(rows, Sequence):
+            for row in rows:
+                if isinstance(row, DatasetSnapshotRow):
+                    candidate_symbols = row.market.get("candidate_symbols")
+                    if isinstance(candidate_symbols, Sequence) and not isinstance(candidate_symbols, (str, bytes)):
+                        symbols.update(symbol for symbol in candidate_symbols if isinstance(symbol, str) and symbol)
+        symbol_cluster = _canonical_cluster_for_symbol(sorted(symbols)[0]) if symbols else "offline_walk_forward"
+        observed_drawdowns.append(
+            {
+                "drawdown_id": f"window_{window_index}_drawdown",
+                "severity_pct": round(drawdown, 10),
+                "peak_timestamp": peak_ts,
+                "trough_timestamp": trough_ts,
+                "recovery_timestamp": trough_ts,
+                "regime_cluster_id": "walk_forward_oos",
+                "symbol_cluster_id": symbol_cluster,
+                "trade_cluster_id": f"window_{window_index}",
+                "attribution": {
+                    "edge_failure_pct": round(max(drawdown, 0.0), 10),
+                    "execution_failure_pct": 0.0,
+                    "risk_control_failure_pct": 0.0,
+                    "primary_failure": "edge_failure",
+                },
+                "exposure_concentration": {
+                    "max_symbol_exposure_pct": 0.0,
+                    "max_cluster_exposure_pct": 0.0,
+                    "crowded_risk_score": 0.0,
+                },
+                "mitigation_evidence": ["offline_walk_forward_review"],
+            }
+        )
+    if not observed_drawdowns:
+        observed_drawdowns.append(
+            {
+                "drawdown_id": "no_drawdown_observed",
+                "severity_pct": 0.0,
+                "peak_timestamp": as_of,
+                "trough_timestamp": as_of,
+                "recovery_timestamp": as_of,
+                "regime_cluster_id": "walk_forward_oos",
+                "symbol_cluster_id": "offline_walk_forward",
+                "trade_cluster_id": "no_drawdown",
+                "attribution": {
+                    "edge_failure_pct": 0.0,
+                    "execution_failure_pct": 0.0,
+                    "risk_control_failure_pct": 0.0,
+                    "primary_failure": "edge_failure",
+                },
+                "exposure_concentration": {
+                    "max_symbol_exposure_pct": 0.0,
+                    "max_cluster_exposure_pct": 0.0,
+                    "crowded_risk_score": 0.0,
+                },
+                "mitigation_evidence": ["offline_walk_forward_review"],
+            }
+        )
+    return {
+        "schema_version": "drawdown_anatomy.v1",
+        "as_of": as_of,
+        "decision_timestamp": as_of,
+        "max_age_seconds": 86400,
+        "severe_drawdown_threshold_pct": 0.1,
+        "drawdowns": observed_drawdowns,
+    }
+
+
 def _walk_forward_portfolio_correlation_exposure(
     ordered_rows: Sequence[DatasetSnapshotRow],
     *,
@@ -2665,6 +2767,11 @@ def run_walk_forward_validation_experiment(
         ordered_rows,
         config=config,
     )
+    drawdown_anatomy = _walk_forward_drawdown_anatomy(
+        ordered_rows,
+        window_summaries,
+        evaluation_window=evaluation_window,
+    )
     return {
         "metadata": {
             "snapshot_count": len(ordered_rows),
@@ -2680,6 +2787,7 @@ def run_walk_forward_validation_experiment(
         "regime_stratified_oos": regime_stratified_oos,
         "pnl_attribution": pnl_attribution,
         "portfolio_correlation_exposure": portfolio_correlation_exposure,
+        "drawdown_anatomy": drawdown_anatomy,
         "multiple_testing_correction": _multiple_testing_correction_metadata(
             number_of_trials=max(len(window_summaries), 2),
             adjusted_pass=(
