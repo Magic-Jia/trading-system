@@ -11895,8 +11895,8 @@ def test_live_readiness_gate_rejects_setup_rewrite_summary_count_mismatch(tmp_pa
                     "total_rows": 2,
                 },
                 "evaluation_rows": [
-                    {"symbol": "BTCUSDT", "setup_type": "BREAKOUT_CONTINUATION", "evaluation_status": "evaluated", "evaluation_reason": "kept", "would_keep": True, "net_pnl": 10.0},
-                    {"symbol": "ETHUSDT", "setup_type": "BREAKOUT_CONTINUATION", "evaluation_status": "evaluated", "evaluation_reason": "kept", "would_keep": True, "net_pnl": 5.0},
+                    {"symbol": "BTCUSDT", "setup_type": "BREAKOUT_CONTINUATION", "evaluation_status": "evaluated", "evaluation_reason": "passed_all_rules", "would_keep": True, "net_pnl": 10.0},
+                    {"symbol": "ETHUSDT", "setup_type": "BREAKOUT_CONTINUATION", "evaluation_status": "evaluated", "evaluation_reason": "passed_all_rules", "would_keep": True, "net_pnl": 5.0},
                 ],
             }
         ),
@@ -11931,7 +11931,7 @@ def test_live_readiness_gate_rejects_setup_rewrite_evaluated_missing_would_keep(
                         "symbol": "BTCUSDT",
                         "setup_type": "BREAKOUT_CONTINUATION",
                         "evaluation_status": "evaluated",
-                        "evaluation_reason": "filtered",
+                        "evaluation_reason": "score_below_minimum",
                         "net_pnl": -5.0,
                     }
                 ],
@@ -12006,7 +12006,7 @@ def test_live_readiness_gate_rejects_unknown_setup_rewrite_evaluation_status(tmp
                         "symbol": "BTCUSDT",
                         "setup_type": "BREAKOUT_CONTINUATION",
                         "evaluation_status": "manual_override",
-                        "evaluation_reason": "kept",
+                        "evaluation_reason": "passed_all_rules",
                         "would_keep": True,
                         "net_pnl": 10.0,
                     }
@@ -12040,8 +12040,8 @@ def test_live_readiness_gate_rejects_setup_rewrite_would_keep_count_mismatch(tmp
                     "total_rows": 2,
                 },
                 "evaluation_rows": [
-                    {"symbol": "BTCUSDT", "setup_type": "BREAKOUT_CONTINUATION", "evaluation_status": "evaluated", "evaluation_reason": "kept", "would_keep": True, "net_pnl": 10.0},
-                    {"symbol": "ETHUSDT", "setup_type": "BREAKOUT_CONTINUATION", "evaluation_status": "evaluated", "evaluation_reason": "filtered", "would_keep": False, "net_pnl": -5.0},
+                    {"symbol": "BTCUSDT", "setup_type": "BREAKOUT_CONTINUATION", "evaluation_status": "evaluated", "evaluation_reason": "passed_all_rules", "would_keep": True, "net_pnl": 10.0},
+                    {"symbol": "ETHUSDT", "setup_type": "BREAKOUT_CONTINUATION", "evaluation_status": "evaluated", "evaluation_reason": "score_below_minimum", "would_keep": False, "net_pnl": -5.0},
                 ],
             }
         ),
@@ -12076,7 +12076,7 @@ def test_live_readiness_gate_rejects_setup_rewrite_evaluation_row_count_mismatch
                         "symbol": "BTCUSDT",
                         "setup_type": "BREAKOUT_CONTINUATION",
                         "evaluation_status": "evaluated",
-                        "evaluation_reason": "kept",
+                        "evaluation_reason": "passed_all_rules",
                         "would_keep": True,
                         "net_pnl": 10.0,
                     }
@@ -12274,7 +12274,7 @@ def test_live_readiness_gate_rejects_setup_rewrite_by_symbol_numeric_strings(tmp
                         "symbol": "BTCUSDT",
                         "setup_type": "TREND_PULLBACK",
                         "evaluation_status": "evaluated",
-                        "evaluation_reason": "passed",
+                        "evaluation_reason": "passed_all_rules",
                         "would_keep": True,
                         "net_pnl": 10.0,
                     }
@@ -12334,7 +12334,7 @@ def test_live_readiness_gate_rejects_present_invalid_setup_rewrite_by_setup_coun
                         "symbol": "BTCUSDT",
                         "setup_type": "TREND_PULLBACK",
                         "evaluation_status": "evaluated",
-                        "evaluation_reason": "kept",
+                        "evaluation_reason": "passed_all_rules",
                         "would_keep": True,
                         "net_pnl": 10.0,
                     }
@@ -12542,7 +12542,7 @@ def test_live_readiness_gate_rejects_setup_rewrite_total_trades_mismatch(tmp_pat
                         "symbol": "BTCUSDT",
                         "setup_type": "BREAKOUT_CONTINUATION",
                         "evaluation_status": "evaluated",
-                        "evaluation_reason": "kept",
+                        "evaluation_reason": "passed_all_rules",
                         "would_keep": True,
                         "net_pnl": 10.0,
                     }
@@ -12648,7 +12648,7 @@ def test_live_readiness_gate_rejects_setup_rewrite_evaluation_would_keep_not_boo
                         "symbol": "BTCUSDT",
                         "setup_type": "TREND_PULLBACK",
                         "evaluation_status": "evaluated",
-                        "evaluation_reason": "passed",
+                        "evaluation_reason": "passed_all_rules",
                         "would_keep": "true",
                         "net_pnl": 10.0,
                     }
@@ -12665,6 +12665,98 @@ def test_live_readiness_gate_rejects_setup_rewrite_evaluation_would_keep_not_boo
     assert diagnostic["chunks"][0]["parse_error"] == "invalid_field_type: evaluation_rows[1].would_keep"
     assert "setup_rewrite_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
     assert report["promotion_gate"]["checks"]["setup_rewrite_artifact_schema_valid"] is False
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
+@pytest.mark.parametrize("reason_payload", ["omitted", None])
+def test_live_readiness_gate_rejects_setup_rewrite_evaluated_row_missing_reason(
+    tmp_path: Path, reason_payload: object
+) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    evaluation_row = {
+        "symbol": "BTCUSDT",
+        "setup_type": "TREND_PULLBACK",
+        "evaluation_status": "evaluated",
+        "would_keep": True,
+        "net_pnl": 10.0,
+    }
+    if reason_payload != "omitted":
+        evaluation_row["evaluation_reason"] = reason_payload
+    (chunk / "setup_rewrite_experiment.json").write_text(
+        json.dumps(
+            {
+                "summary": {
+                    "total_rows": 1,
+                    "evaluated_count": 1,
+                    "would_keep_count": 1,
+                    "would_filter_count": 0,
+                    "skipped_count": 0,
+                },
+                "evaluation_rows": [evaluation_row],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    diagnostic = report["setup_rewrite_diagnostic"]
+    assert diagnostic["checks"]["setup_rewrite_artifact_schema_valid"] is False
+    assert diagnostic["chunks"][0]["parse_error"] == "missing_required_field: evaluation_rows[1].evaluation_reason"
+    assert "setup_rewrite_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["checks"]["setup_rewrite_artifact_schema_valid"] is False
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
+@pytest.mark.parametrize(
+    ("evaluation_status", "evaluation_reason", "would_keep"),
+    [
+        ("evaluated", "missing_score", True),
+        ("evaluated", "missing_score", False),
+        ("no_evidence", "passed_all_rules", False),
+        ("no_evidence", "score_below_minimum", False),
+    ],
+)
+def test_live_readiness_gate_rejects_setup_rewrite_status_reason_drift(
+    tmp_path: Path,
+    evaluation_status: str,
+    evaluation_reason: str,
+    would_keep: bool,
+) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    (chunk / "setup_rewrite_experiment.json").write_text(
+        json.dumps(
+            {
+                "summary": {
+                    "total_rows": 1,
+                    "evaluated_count": 1 if evaluation_status == "evaluated" else 0,
+                    "would_keep_count": 1 if would_keep else 0,
+                    "would_filter_count": 1 if evaluation_status == "evaluated" and not would_keep else 0,
+                    "skipped_count": 1 if evaluation_status == "no_evidence" else 0,
+                },
+                "evaluation_rows": [
+                    {
+                        "symbol": "BTCUSDT",
+                        "setup_type": "TREND_PULLBACK",
+                        "evaluation_status": evaluation_status,
+                        "evaluation_reason": evaluation_reason,
+                        "would_keep": would_keep,
+                        "net_pnl": 10.0,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    diagnostic = report["setup_rewrite_diagnostic"]
+    assert diagnostic["checks"]["setup_rewrite_artifact_schema_valid"] is False
+    assert diagnostic["chunks"][0]["parse_error"] == "inconsistent_evaluation_row: evaluation_rows[1]"
+    assert "setup_rewrite_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
     assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
 
 
@@ -12687,7 +12779,7 @@ def test_live_readiness_gate_rejects_setup_rewrite_row_index_drift_from_row_posi
                         "symbol": "BTCUSDT",
                         "setup_type": "TREND_PULLBACK",
                         "evaluation_status": "evaluated",
-                        "evaluation_reason": "passed",
+                        "evaluation_reason": "passed_all_rules",
                         "would_keep": True,
                         "net_pnl": 10.0,
                     },
@@ -12696,7 +12788,7 @@ def test_live_readiness_gate_rejects_setup_rewrite_row_index_drift_from_row_posi
                         "symbol": "ETHUSDT",
                         "setup_type": "TREND_PULLBACK",
                         "evaluation_status": "evaluated",
-                        "evaluation_reason": "passed",
+                        "evaluation_reason": "passed_all_rules",
                         "would_keep": True,
                         "net_pnl": 8.0,
                     },
@@ -12736,7 +12828,7 @@ def test_live_readiness_gate_rejects_setup_rewrite_noncanonical_row_strings(tmp_
                         "symbol": "BTCUSDT",
                         "setup_type": " TREND_PULLBACK ",
                         "evaluation_status": "evaluated",
-                        "evaluation_reason": "passed",
+                        "evaluation_reason": "passed_all_rules",
                         "would_keep": True,
                         "net_pnl": 1.0,
                     }
@@ -12773,7 +12865,7 @@ def test_live_readiness_gate_rejects_setup_rewrite_lowercase_row_setup_type(tmp_
                         "symbol": "BTCUSDT",
                         "setup_type": "trend_pullback",
                         "evaluation_status": "evaluated",
-                        "evaluation_reason": "passed",
+                        "evaluation_reason": "passed_all_rules",
                         "would_keep": True,
                         "net_pnl": 1.0,
                     }
@@ -12810,7 +12902,7 @@ def test_live_readiness_gate_accepts_setup_rewrite_canonical_row_side(tmp_path: 
                         "side": "long",
                         "setup_type": "TREND_PULLBACK",
                         "evaluation_status": "evaluated",
-                        "evaluation_reason": "passed",
+                        "evaluation_reason": "passed_all_rules",
                         "would_keep": True,
                         "net_pnl": 10.0,
                     }
@@ -12847,7 +12939,7 @@ def test_live_readiness_gate_rejects_setup_rewrite_noncanonical_row_side(tmp_pat
                         "side": side,
                         "setup_type": "TREND_PULLBACK",
                         "evaluation_status": "evaluated",
-                        "evaluation_reason": "passed",
+                        "evaluation_reason": "passed_all_rules",
                         "would_keep": True,
                         "net_pnl": 10.0,
                     }
@@ -12887,7 +12979,7 @@ def test_live_readiness_gate_rejects_setup_rewrite_noncanonical_row_identity(
                         "symbol": "BTCUSDT",
                         "setup_type": "TREND_PULLBACK",
                         "evaluation_status": "evaluated",
-                        "evaluation_reason": "passed",
+                        "evaluation_reason": "passed_all_rules",
                         "would_keep": True,
                         "net_pnl": 10.0,
                     }
@@ -12927,7 +13019,7 @@ def test_live_readiness_gate_rejects_setup_rewrite_duplicate_row_identity(
                         "symbol": "BTCUSDT",
                         "setup_type": "TREND_PULLBACK",
                         "evaluation_status": "evaluated",
-                        "evaluation_reason": "passed",
+                        "evaluation_reason": "passed_all_rules",
                         "would_keep": True,
                         "net_pnl": 10.0,
                     },
@@ -12936,7 +13028,7 @@ def test_live_readiness_gate_rejects_setup_rewrite_duplicate_row_identity(
                         "symbol": "ETHUSDT",
                         "setup_type": "TREND_PULLBACK",
                         "evaluation_status": "evaluated",
-                        "evaluation_reason": "passed",
+                        "evaluation_reason": "passed_all_rules",
                         "would_keep": True,
                         "net_pnl": 8.0,
                     },
@@ -12971,7 +13063,7 @@ def test_live_readiness_gate_rejects_setup_rewrite_unknown_evaluation_row_field(
                         "symbol": "BTCUSDT",
                         "setup_type": "TREND_PULLBACK",
                         "evaluation_status": "evaluated",
-                        "evaluation_reason": "passed",
+                        "evaluation_reason": "passed_all_rules",
                         "would_keep": True,
                         "net_pnl": 10.0,
                         "manual_override": True,

@@ -1554,6 +1554,23 @@ def _chunk_report(chunk_dir: Path) -> dict[str, Any]:
 
 
 SETUP_REWRITE_COUNT_FIELDS = ("evaluated_count", "would_keep_count", "would_filter_count", "skipped_count")
+SETUP_REWRITE_KEEP_REASONS = {"passed_all_rules"}
+SETUP_REWRITE_FILTER_REASONS = {
+    "excluded_setup_type",
+    "insufficient_after_cost_breakeven_evidence",
+    "score_below_minimum",
+    "setup_cost_coverage_below_minimum",
+    "setup_score_below_minimum",
+    "setup_symbol_not_allowed",
+}
+SETUP_REWRITE_NO_EVIDENCE_REASONS = {
+    "missing_cost_coverage_ratio",
+    "missing_min_cost_coverage_ratio_rule_value",
+    "missing_min_score_rule_value",
+    "missing_score",
+    "missing_setup_type",
+    "missing_symbol",
+}
 
 
 def _setup_rewrite_counts(summary: Mapping[str, Any]) -> tuple[dict[str, int], str]:
@@ -1670,6 +1687,29 @@ def _empty_setup_rewrite_bucket() -> dict[str, Any]:
         "skipped_count": 0,
         "net_pnl": 0.0,
     }
+
+
+def _setup_rewrite_row_reason_error(row: Mapping[str, Any], *, row_index: int) -> str | None:
+    evaluation_status = row.get("evaluation_status")
+    if evaluation_status is None:
+        return None
+    if "evaluation_reason" not in row:
+        return f"missing_required_field: evaluation_rows[{row_index}].evaluation_reason"
+    reason = row.get("evaluation_reason")
+    if reason is None:
+        return f"missing_required_field: evaluation_rows[{row_index}].evaluation_reason"
+    if not isinstance(reason, str):
+        return None
+    if evaluation_status == "evaluated":
+        if row.get("would_keep") is True and reason not in SETUP_REWRITE_KEEP_REASONS:
+            return f"inconsistent_evaluation_row: evaluation_rows[{row_index}]"
+        if row.get("would_keep") is False and reason not in SETUP_REWRITE_FILTER_REASONS:
+            return f"inconsistent_evaluation_row: evaluation_rows[{row_index}]"
+    if evaluation_status == "no_evidence" and not (
+        reason in SETUP_REWRITE_NO_EVIDENCE_REASONS or reason.startswith("unknown_rule:")
+    ):
+        return f"inconsistent_evaluation_row: evaluation_rows[{row_index}]"
+    return None
 
 
 def _setup_rewrite_diagnostic(chunk_dirs: Iterable[Path]) -> dict[str, Any] | None:
@@ -1812,6 +1852,10 @@ def _setup_rewrite_diagnostic(chunk_dirs: Iterable[Path]) -> dict[str, Any] | No
                     break
                 if "would_keep" in row and not isinstance(row.get("would_keep"), bool):
                     parse_error = f"invalid_field_type: evaluation_rows[{row_index}].would_keep"
+                    break
+                reason_error = _setup_rewrite_row_reason_error(row, row_index=row_index)
+                if reason_error:
+                    parse_error = reason_error
                     break
                 if "score" in row and row.get("score") is not None:
                     _, score_valid = _strict_float_value(row.get("score"))
