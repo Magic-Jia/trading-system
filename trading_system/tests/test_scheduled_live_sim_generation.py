@@ -296,6 +296,90 @@ def test_scheduled_generation_holds_when_calibration_records_are_marked_unavaila
     assert gate["inputs"]["tca"]["availability_reason"] == "calibration_records_unavailable"
 
 
+def test_scheduled_generation_uses_valid_records_and_removes_stale_unavailable_marker(tmp_path: Path) -> None:
+    paths = build_runtime_paths("paper", runtime_root=tmp_path / "runtime", runtime_env="paper")
+    _write_inputs(paths)
+    _write_json(paths.optimization_dir / "calibration_records_unavailable.json", {
+        "schema_version": "calibration_records_unavailable.v1",
+        "generated_at": "2026-05-16T09:00:00Z",
+        "reason": "calibration_records_unavailable",
+        "source_record_count": 0,
+    })
+
+    result = run_scheduled_generation(
+        mode="paper",
+        runtime_root=tmp_path / "runtime",
+        runtime_env="paper",
+        generated_at="2026-05-16T10:00:10Z",
+        max_evidence_age_seconds=300,
+        min_tca_samples=4,
+        max_p95_slippage_bps=5.0,
+    )
+
+    gate = json.loads((paths.optimization_dir / "daily_quality_gate_report.json").read_text())
+    assert result["daily_quality_gate_decision"] == "pass_for_continued_paper"
+    assert "calibration_records_unavailable" not in result["generated_artifacts"]
+    assert "tca_calibration_report" in result["generated_artifacts"]
+    assert not (paths.optimization_dir / "calibration_records_unavailable.json").exists()
+    assert gate["checks"]["calibration_records_available"] is True
+    assert gate["inputs"]["tca"]["availability_reason"] is None
+    assert gate["inputs"]["tca"]["sample_size"] == 4
+    assert gate["inputs"]["tca"]["p95_slippage_bps"] == 3.0
+
+
+def test_scheduled_generation_holds_on_measured_insufficient_samples_without_fabricating_tca(tmp_path: Path) -> None:
+    paths = build_runtime_paths("paper", runtime_root=tmp_path / "runtime", runtime_env="paper")
+    _write_inputs(paths)
+
+    result = run_scheduled_generation(
+        mode="paper",
+        runtime_root=tmp_path / "runtime",
+        runtime_env="paper",
+        generated_at="2026-05-16T10:00:10Z",
+        max_evidence_age_seconds=300,
+        min_tca_samples=5,
+        max_p95_slippage_bps=5.0,
+    )
+
+    gate = json.loads((paths.optimization_dir / "daily_quality_gate_report.json").read_text())
+    tca = json.loads((paths.optimization_dir / "tca_calibration_report.json").read_text())
+    assert result["daily_quality_gate_decision"] == "hold_for_review"
+    assert tca["decision"] == "fail_closed"
+    assert tca["reasons"] == ["insufficient_sample_count"]
+    assert gate["reasons"] == ["insufficient_sample_size"]
+    assert gate["checks"]["calibration_records_available"] is True
+    assert gate["checks"]["tca_slippage_within_threshold"] is True
+    assert gate["inputs"]["tca"]["availability_reason"] is None
+    assert gate["inputs"]["tca"]["sample_size"] == 4
+    assert gate["inputs"]["tca"]["p95_slippage_bps"] == 3.0
+
+
+def test_scheduled_generation_fails_closed_for_empty_records_without_unavailable_marker(tmp_path: Path) -> None:
+    paths = build_runtime_paths("paper", runtime_root=tmp_path / "runtime", runtime_env="paper")
+    _write_inputs(paths)
+    _write_jsonl(paths.optimization_dir / "passive_order_calibration_records.jsonl", [])
+
+    exit_code = main(
+        [
+            "--mode",
+            "paper",
+            "--runtime-root",
+            str(tmp_path / "runtime"),
+            "--runtime-env",
+            "paper",
+            "--generated-at",
+            "2026-05-16T10:00:10Z",
+        ]
+    )
+
+    failure = json.loads((paths.optimization_dir / "scheduled_live_sim_generation_error.json").read_text())
+    assert exit_code == 1
+    assert failure["status"] == "fail_closed"
+    assert failure["error_type"] == "ValueError"
+    assert failure["error_message"] == "passive_order_calibration_records.jsonl contains no calibration records"
+    assert not (paths.optimization_dir / "tca_calibration_report.json").exists()
+
+
 def test_scheduled_generation_fails_closed_for_malformed_calibration_rows(tmp_path: Path) -> None:
     paths = build_runtime_paths("paper", runtime_root=tmp_path / "runtime", runtime_env="paper")
     _write_inputs(paths)

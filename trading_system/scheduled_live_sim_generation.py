@@ -6,7 +6,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Mapping
 
-from trading_system.app.execution.calibration import write_calibration_summary, write_tca_calibration_report
+from trading_system.app.execution.calibration import (
+    load_calibration_records,
+    write_calibration_summary,
+    write_tca_calibration_report,
+)
 from trading_system.app.reporting.daily_quality_gate_report import write_daily_quality_gate_report
 from trading_system.app.runtime.paper_live_sim_evidence import write_paper_live_sim_evidence_bundle
 from trading_system.app.runtime_paths import build_runtime_paths
@@ -61,12 +65,6 @@ def _p95_slippage_from_tca(report: Mapping[str, Any]) -> float:
 
 
 def _daily_tca_input(report: Mapping[str, Any], *, max_p95_slippage_bps: float) -> dict[str, Any]:
-    if report.get("decision") != "pass":
-        return {
-            "sample_size": report.get("sample_count", 0),
-            "p95_slippage_bps": max_p95_slippage_bps + 1.0,
-            "max_p95_slippage_bps": max_p95_slippage_bps,
-        }
     return {
         "sample_size": report.get("sample_count"),
         "p95_slippage_bps": _p95_slippage_from_tca(report),
@@ -154,12 +152,18 @@ def run_scheduled_generation(
     reconciliation = _read_json_object(output_dir / RECONCILIATION_NAME)
     tolerances = _optional_json_object(output_dir / TCA_TOLERANCES_NAME)
     calibration_unavailable = _optional_json_object(output_dir / CALIBRATION_UNAVAILABLE_NAME)
+    calibration_record_rows = load_calibration_records(calibration_records)
+    calibration_records_available = bool(calibration_record_rows)
+    if not calibration_records_available and calibration_unavailable is None:
+        raise ValueError(f"{CALIBRATION_RECORDS_NAME} contains no calibration records")
 
     evidence_path = write_paper_live_sim_evidence_bundle(evidence_manifest, output_dir)
     generated_artifacts = {
         "paper_live_sim_evidence_bundle": str(evidence_path),
     }
-    if calibration_unavailable is None:
+    if calibration_records_available:
+        if calibration_unavailable is not None:
+            (output_dir / CALIBRATION_UNAVAILABLE_NAME).unlink(missing_ok=True)
         calibration_summary_path = write_calibration_summary(
             calibration_records,
             output_dir,
