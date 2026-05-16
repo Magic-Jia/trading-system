@@ -389,6 +389,30 @@ def test_setup_rewrite_experiment_rejects_numeric_symbol_with_field_path() -> No
         )
 
 
+def test_setup_rewrite_experiment_rejects_noncanonical_symbol_used_for_allowed_symbol_comparison() -> None:
+    module = importlib.import_module("trading_system.app.backtest.setup_rewrite_experiment")
+
+    with pytest.raises(ValueError, match=r"rows\[1\]\.symbol must be a canonical uppercase string"):
+        module.build_setup_rewrite_experiment(
+            rows=[
+                {
+                    "symbol": "btcusdt",
+                    "setup_type": "RS_PULLBACK",
+                    "score": 0.8,
+                }
+            ],
+            setup_rewrite=SetupRewriteParams(
+                rules=(
+                    SetupRewriteRule(
+                        name="require_setup_allowed_symbols",
+                        setup_types=("RS_PULLBACK",),
+                        symbols=("BTCUSDT",),
+                    ),
+                )
+            ),
+        )
+
+
 def test_setup_rewrite_experiment_rejects_string_score_with_field_path() -> None:
     module = importlib.import_module("trading_system.app.backtest.setup_rewrite_experiment")
 

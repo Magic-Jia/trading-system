@@ -185,7 +185,7 @@ def _evaluate_row(*, index: int, row: Mapping[str, Any], params: SetupRewritePar
     identity = {
         "row_index": index,
         **_serialized_trade_identity(row, index=index),
-        "symbol": _string_or_none(row.get("symbol"), field_path=f"rows[{index}].symbol"),
+        "symbol": _canonical_symbol_or_none(row.get("symbol"), field_path=f"rows[{index}].symbol"),
         "setup_type": _string_or_none(row.get("setup_type"), field_path=f"rows[{index}].setup_type"),
         "side": _string_or_none(row.get("side"), field_path=f"rows[{index}].side"),
         "entry_timestamp": _string_or_none(row.get("entry_timestamp"), field_path=f"rows[{index}].entry_timestamp"),
@@ -436,6 +436,18 @@ def _string_or_none(value: Any, *, field_path: str) -> str | None:
         raise ValueError(f"{field_path} must be a string")
     text = str(value).strip()
     return text or None
+
+
+def _canonical_symbol_or_none(value: Any, *, field_path: str) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError(f"{field_path} must be a string")
+    if not value.strip():
+        return None
+    if value != value.strip() or value != value.upper():
+        raise ValueError(f"{field_path} must be a canonical uppercase string")
+    return value
 
 
 def _source_chunk(row: Mapping[str, Any], *, index: int) -> str | None:
