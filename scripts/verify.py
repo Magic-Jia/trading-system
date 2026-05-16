@@ -19,6 +19,7 @@ SUITES: dict[str, list[str]] = {
     "evidence-chain": [
         "trading_system/tests/test_backtest_live_readiness.py",
         "trading_system/tests/test_runtime_safety_evidence.py",
+        "trading_system/tests/test_runtime_incident_bundle_schema.py",
         "trading_system/tests/test_backtest_microstructure_evidence.py",
         "trading_system/tests/test_backtest_validation_evidence.py",
         "trading_system/tests/test_execution_calibration_evidence.py",

@@ -90,6 +90,15 @@ def test_registered_suite_test_files_have_impact_mapping() -> None:
     assert missing == []
 
 
+def test_runtime_incident_bundle_contract_is_in_evidence_chain() -> None:
+    verify = load_verify_module()
+
+    tests = verify.tests_for_changed(["trading_system/tests/test_runtime_incident_bundle_schema.py"])
+
+    assert "trading_system/tests/test_runtime_incident_bundle_schema.py" in tests
+    assert "trading_system/tests/test_runtime_safety_evidence.py" in tests
+
+
 def test_run_cycle_entrypoint_has_runtime_support_impact_mapping() -> None:
     verify = load_verify_module()
 

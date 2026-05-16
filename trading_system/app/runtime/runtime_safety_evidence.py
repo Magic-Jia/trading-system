@@ -10,10 +10,41 @@ from pathlib import Path
 from typing import Any, Mapping
 
 SCHEMA_VERSION = "runtime_safety_gate_input.v1"
+INCIDENT_BUNDLE_SCHEMA_VERSION = "runtime_incident_replay_bundle.v1"
 _RUNTIME_SAFETY_REASON_SEVERITIES = {"block", "warn", "info"}
 _RUNTIME_SAFETY_REASON_CATEGORIES = {"runtime_safety", "execution_preview"}
 _CANONICAL_UTC_TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z$")
 _SAFE_EVIDENCE_IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
+_INCIDENT_CRITICAL_PATH = [
+    "signal",
+    "order_intent",
+    "risk_check",
+    "kill_switch_decision",
+    "submit",
+    "ack",
+    "fill",
+    "cancel",
+    "reconcile",
+]
+_INCIDENT_REQUIRED_SECTIONS = {
+    "schema_version",
+    "incident_id",
+    "runtime_config_hash",
+    "generated_at",
+    "replay_window",
+    "clocks",
+    "evidence_refs",
+    "remediation",
+    "events",
+}
+_INCIDENT_EVENT_NUMERIC_FIELDS = {
+    "score",
+    "quantity",
+    "max_notional",
+    "filled_quantity",
+    "price",
+}
+_INCIDENT_EVENT_BOOL_FIELDS = {"passed", "fail_closed"}
 _REQUIRED_EVENTS = {
     "kill_switch_dry_run": ("kill_switch_dry_run_met", "kill_switch_dry_run_missing"),
     "order_position_reconciliation": (
@@ -293,6 +324,256 @@ def _canonical_reason_fields(raw_reason: Any) -> tuple[str, str, str, str]:
         _require_reason_string(raw_reason, "category"),
         _require_reason_string(raw_reason, "source"),
     )
+
+
+def _require_incident_mapping(value: Any, field_path: str) -> Mapping[str, Any]:
+    if value is None:
+        raise ValueError(f"{field_path} must be present")
+    if not isinstance(value, Mapping):
+        raise ValueError(f"{field_path} must be an object")
+    return value
+
+
+def _require_incident_string(value: Any, field_path: str) -> str:
+    if not _is_exact_string(value):
+        raise ValueError(f"{field_path} must be a string")
+    if not value.strip():
+        raise ValueError(f"{field_path} must be non-empty")
+    if value != value.strip():
+        raise ValueError(f"{field_path} must be canonical")
+    return value
+
+
+def _require_incident_number(value: Any, field_path: str) -> float:
+    if isinstance(value, bool):
+        raise ValueError(f"{field_path} must be numeric, not boolean")
+    if not isinstance(value, (int, float)):
+        raise ValueError(f"{field_path} must be numeric")
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError(f"{field_path} must be finite")
+    return number
+
+
+def _require_incident_bool(value: Any, field_path: str) -> bool:
+    if not isinstance(value, bool):
+        raise ValueError(f"{field_path} must be a boolean")
+    return value
+
+
+def _canonical_incident_reference_list(value: Any, field_path: str) -> list[str]:
+    if not isinstance(value, list) or not value:
+        raise ValueError(f"{field_path} must be a non-empty list")
+    return [_require_incident_string(item, f"{field_path}[{index}]") for index, item in enumerate(value)]
+
+
+def _canonicalize_incident_event_payload(raw_payload: Any, field_path: str) -> dict[str, Any]:
+    payload = _require_incident_mapping(raw_payload, field_path)
+    canonical: dict[str, Any] = {}
+    for key, value in payload.items():
+        key_path = f"{field_path}.{key}"
+        if not _is_exact_string(key):
+            raise ValueError(f"{field_path}.<key> must be a string")
+        if key != key.strip() or not key:
+            raise ValueError(f"{field_path}.<key> must be canonical")
+        if key in _INCIDENT_EVENT_BOOL_FIELDS:
+            canonical[key] = _require_incident_bool(value, key_path)
+        elif key in _INCIDENT_EVENT_NUMERIC_FIELDS:
+            _require_incident_number(value, key_path)
+            canonical[key] = value
+        elif isinstance(value, bool) or value is None:
+            canonical[key] = value
+        elif isinstance(value, (int, float)):
+            _require_incident_number(value, key_path)
+            canonical[key] = value
+        elif _is_exact_string(value):
+            canonical[key] = _require_incident_string(value, key_path)
+        else:
+            raise ValueError(f"{key_path} must be a scalar")
+    return canonical
+
+
+def _canonicalize_incident_events(
+    raw_events: Any,
+    *,
+    window_start: datetime,
+    window_end: datetime,
+) -> tuple[list[dict[str, Any]], bool]:
+    if raw_events is None:
+        raise ValueError("events must be present")
+    if not isinstance(raw_events, list) or not raw_events:
+        raise ValueError("events must be a non-empty list")
+
+    canonical_events: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+    critical_cursor = 0
+    fail_closed = False
+    previous_occurred_at: datetime | None = None
+
+    for index, raw_event in enumerate(raw_events):
+        field_path = f"events[{index}]"
+        event = _require_incident_mapping(raw_event, field_path)
+        unknown_fields = sorted(set(event) - {"event_id", "event_type", "occurred_at", "payload"})
+        if unknown_fields:
+            raise ValueError(f"unknown {field_path} field: " + ", ".join(unknown_fields))
+        event_id = _require_incident_string(event.get("event_id"), f"{field_path}.event_id")
+        if event_id in seen_ids:
+            raise ValueError(f"duplicate incident event_id: {event_id}")
+        seen_ids.add(event_id)
+
+        event_type = _require_incident_string(event.get("event_type"), f"{field_path}.event_type")
+        occurred_at = _parse_canonical_timestamp(event.get("occurred_at"), f"{field_path}.occurred_at")
+        if occurred_at < window_start or occurred_at > window_end:
+            raise ValueError(f"{field_path}.occurred_at must be inside replay_window")
+        if previous_occurred_at is not None and occurred_at < previous_occurred_at:
+            raise ValueError("incident events cannot replay critical path ordering")
+        previous_occurred_at = occurred_at
+
+        if critical_cursor >= len(_INCIDENT_CRITICAL_PATH) or event_type != _INCIDENT_CRITICAL_PATH[critical_cursor]:
+            raise ValueError("incident events cannot replay critical path ordering")
+        critical_cursor += 1
+
+        payload = _canonicalize_incident_event_payload(event.get("payload"), f"{field_path}.payload")
+        unknown_state = payload.get("decision") == "unknown" or payload.get("state") == "unknown"
+        event_fail_closed = payload.get("fail_closed") is True
+        if unknown_state and not event_fail_closed:
+            raise ValueError("unknown incident state must have fail_closed outcome")
+        fail_closed = fail_closed or event_fail_closed
+
+        canonical_events.append(
+            {
+                "event_id": event_id,
+                "event_type": event_type,
+                "occurred_at": event["occurred_at"],
+                "payload": payload,
+            }
+        )
+
+    if critical_cursor != len(_INCIDENT_CRITICAL_PATH):
+        raise ValueError("incident events cannot replay critical path ordering")
+    return canonical_events, fail_closed
+
+
+def validate_runtime_incident_bundle(bundle: Mapping[str, Any]) -> dict[str, Any]:
+    if not isinstance(bundle, Mapping):
+        raise ValueError("runtime incident bundle must be an object")
+    missing_sections = [section for section in sorted(_INCIDENT_REQUIRED_SECTIONS) if section not in bundle]
+    if missing_sections:
+        raise ValueError(f"{missing_sections[0]} must be present")
+    unknown_sections = sorted(set(bundle) - _INCIDENT_REQUIRED_SECTIONS)
+    if unknown_sections:
+        raise ValueError("unknown runtime incident bundle field: " + ", ".join(unknown_sections))
+
+    schema_version = _require_incident_string(bundle.get("schema_version"), "schema_version")
+    if schema_version != INCIDENT_BUNDLE_SCHEMA_VERSION:
+        raise ValueError(f"schema_version must be {INCIDENT_BUNDLE_SCHEMA_VERSION}")
+    incident_id = _require_incident_string(bundle.get("incident_id"), "incident_id")
+    runtime_config_hash = _require_incident_string(bundle.get("runtime_config_hash"), "runtime_config_hash")
+    generated_at = _parse_canonical_timestamp(bundle.get("generated_at"), "generated_at")
+
+    replay_window = _require_incident_mapping(bundle.get("replay_window"), "replay_window")
+    unknown_window_fields = sorted(
+        set(replay_window) - {"started_at", "ended_at", "max_clock_skew_seconds", "max_event_age_seconds"}
+    )
+    if unknown_window_fields:
+        raise ValueError("unknown replay_window field: " + ", ".join(unknown_window_fields))
+    window_start = _parse_canonical_timestamp(replay_window.get("started_at"), "replay_window started_at")
+    window_end = _parse_canonical_timestamp(replay_window.get("ended_at"), "replay_window ended_at")
+    if window_end < window_start:
+        raise ValueError("replay_window ended_at must not be before started_at")
+    max_clock_skew_seconds = _require_incident_number(
+        replay_window.get("max_clock_skew_seconds"),
+        "replay_window max_clock_skew_seconds",
+    )
+    max_event_age_seconds = _require_incident_number(
+        replay_window.get("max_event_age_seconds"),
+        "replay_window max_event_age_seconds",
+    )
+    if max_clock_skew_seconds < 0 or max_event_age_seconds < 0:
+        raise ValueError("replay_window limits must be non-negative")
+    if (generated_at - window_end).total_seconds() > max_event_age_seconds:
+        raise ValueError("replay_window ended_at is stale")
+    if generated_at < window_end:
+        raise ValueError("generated_at must not precede replay_window ended_at")
+
+    clocks = _require_incident_mapping(bundle.get("clocks"), "clocks")
+    unknown_clock_fields = sorted(
+        set(clocks) - {"runtime_observed_at", "exchange_observed_at", "monotonic_started_ns", "monotonic_ended_ns"}
+    )
+    if unknown_clock_fields:
+        raise ValueError("unknown clocks field: " + ", ".join(unknown_clock_fields))
+    runtime_observed_at = _parse_canonical_timestamp(clocks.get("runtime_observed_at"), "clocks runtime_observed_at")
+    exchange_observed_at = _parse_canonical_timestamp(
+        clocks.get("exchange_observed_at"),
+        "clocks exchange_observed_at",
+    )
+    if abs((exchange_observed_at - runtime_observed_at).total_seconds()) > max_clock_skew_seconds:
+        raise ValueError("clocks exchange_observed_at exceeds max_clock_skew_seconds")
+    monotonic_started_ns = _require_incident_number(clocks.get("monotonic_started_ns"), "clocks monotonic_started_ns")
+    monotonic_ended_ns = _require_incident_number(clocks.get("monotonic_ended_ns"), "clocks monotonic_ended_ns")
+    if monotonic_ended_ns < monotonic_started_ns:
+        raise ValueError("clocks monotonic_ended_ns must not be before monotonic_started_ns")
+
+    refs = _require_incident_mapping(bundle.get("evidence_refs"), "evidence_refs")
+    unknown_ref_fields = sorted(set(refs) - {"logs", "metrics", "traces"})
+    if unknown_ref_fields:
+        raise ValueError("unknown evidence_refs field: " + ", ".join(unknown_ref_fields))
+    evidence_refs = {
+        "logs": _canonical_incident_reference_list(refs.get("logs"), "evidence_refs.logs"),
+        "metrics": _canonical_incident_reference_list(refs.get("metrics"), "evidence_refs.metrics"),
+        "traces": _canonical_incident_reference_list(refs.get("traces"), "evidence_refs.traces"),
+    }
+
+    remediation = _require_incident_mapping(bundle.get("remediation"), "remediation")
+    unknown_remediation_fields = sorted(set(remediation) - {"status", "owner", "updated_at", "fail_closed"})
+    if unknown_remediation_fields:
+        raise ValueError("unknown remediation field: " + ", ".join(unknown_remediation_fields))
+    remediation_status = _require_incident_string(remediation.get("status"), "remediation status")
+    if remediation_status not in {"open", "in_progress", "complete", "failed_closed"}:
+        raise ValueError("remediation status must be open, in_progress, complete, or failed_closed")
+    remediation_owner = _require_incident_string(remediation.get("owner"), "remediation owner")
+    remediation_updated_at = _parse_canonical_timestamp(remediation.get("updated_at"), "remediation updated_at")
+    if remediation_updated_at < window_start or remediation_updated_at > generated_at:
+        raise ValueError("remediation updated_at must be between replay_window started_at and generated_at")
+    remediation_fail_closed = _require_incident_bool(remediation.get("fail_closed"), "remediation fail_closed")
+
+    events, events_fail_closed = _canonicalize_incident_events(
+        bundle.get("events"),
+        window_start=window_start,
+        window_end=window_end,
+    )
+
+    return {
+        "schema_version": schema_version,
+        "incident_id": incident_id,
+        "runtime_config_hash": runtime_config_hash,
+        "generated_at": bundle["generated_at"],
+        "replay_window": {
+            "started_at": replay_window["started_at"],
+            "ended_at": replay_window["ended_at"],
+            "max_clock_skew_seconds": replay_window["max_clock_skew_seconds"],
+            "max_event_age_seconds": replay_window["max_event_age_seconds"],
+        },
+        "clocks": {
+            "runtime_observed_at": clocks["runtime_observed_at"],
+            "exchange_observed_at": clocks["exchange_observed_at"],
+            "monotonic_started_ns": clocks["monotonic_started_ns"],
+            "monotonic_ended_ns": clocks["monotonic_ended_ns"],
+        },
+        "evidence_refs": evidence_refs,
+        "remediation": {
+            "status": remediation_status,
+            "owner": remediation_owner,
+            "updated_at": remediation["updated_at"],
+            "fail_closed": remediation_fail_closed,
+        },
+        "events": events,
+        "summary": {
+            "event_count": len(events),
+            "critical_path": list(_INCIDENT_CRITICAL_PATH),
+            "fail_closed": remediation_fail_closed or events_fail_closed,
+        },
+    }
 
 
 def build_runtime_safety_gate(manifest: Mapping[str, Any]) -> dict[str, Any]:
