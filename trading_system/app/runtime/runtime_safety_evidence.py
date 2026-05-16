@@ -57,6 +57,7 @@ _ALLOWED_ENDPOINT_CLASSES = {"none", "testnet", "live"}
 _ALLOWED_KEY_SCOPES = {"none", "testnet", "live"}
 _REQUIRED_EVENTS = {
     "kill_switch_dry_run": ("kill_switch_dry_run_met", "kill_switch_dry_run_missing"),
+    "execution_event_chain": ("execution_event_chain_met", "execution_event_chain_missing"),
     "order_position_reconciliation": (
         "order_position_reconciliation_met",
         "order_position_reconciliation_missing",

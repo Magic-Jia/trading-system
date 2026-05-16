@@ -73,6 +73,7 @@ def _runtime_kill_switch_decision() -> dict[str, object]:
 def _runtime_safety_events() -> list[dict[str, object]]:
     return [
         {"event_type": "kill_switch_dry_run", "passed": True},
+        {"event_type": "execution_event_chain", "passed": True},
         {"event_type": "order_position_reconciliation", "passed": True},
         {"event_type": "runtime_fail_closed", "passed": True},
         {"event_type": "live_dust_before_scale", "passed": True},
@@ -1268,6 +1269,28 @@ def test_live_readiness_gate_rejects_runtime_safety_without_environment_permissi
     assert "order_routing_current_approval_missing" in reasons
 
 
+def test_live_readiness_gate_rejects_runtime_safety_without_event_chain_evidence(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    chunk = source / "chunk_001"
+    chunk.mkdir(parents=True)
+    (chunk / "trades.json").write_text(json.dumps({"trades": []}), encoding="utf-8")
+    (chunk / "summary.json").write_text(json.dumps({"net_pnl": 0.0}), encoding="utf-8")
+    manifest = _runtime_safety_manifest()
+    manifest["events"] = [
+        event for event in manifest["events"] if event["event_type"] != "execution_event_chain"
+    ]
+    gate = build_runtime_safety_gate(manifest)
+    (chunk / "runtime_safety_gate.json").write_text(json.dumps(gate), encoding="utf-8")
+
+    report = build_live_readiness_gate_report(source, require_runtime_safety_evidence=True)
+
+    runtime_gate = report["runtime_safety_gate"]
+    assert runtime_gate["checks"]["execution_event_chain_met"] is False
+    reasons = set(report["promotion_gate"]["reasons"])
+    assert "execution_event_chain_missing" in reasons
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
 @pytest.mark.parametrize(
     ("updates", "parse_error"),
     [
@@ -2270,6 +2293,7 @@ def test_live_readiness_smoke_report_rejects_tampered_promotion_bundle(tmp_path:
             {
                 "checks": {
                     "kill_switch_dry_run_met": True,
+                    "execution_event_chain_met": True,
                     "order_position_reconciliation_met": True,
                     "runtime_fail_closed_met": True,
                     "live_dust_before_scale_met": True,
@@ -3977,6 +4001,7 @@ def test_live_readiness_markdown_shows_bundle_manifest_and_metadata_errors(tmp_p
                 "kill_switch_decision": _runtime_kill_switch_decision(),
                 "checks": {
                     "kill_switch_dry_run_met": True,
+                    "execution_event_chain_met": True,
                     "order_position_reconciliation_met": True,
                     "runtime_fail_closed_met": True,
                     "live_dust_before_scale_met": True,
@@ -5657,10 +5682,11 @@ def test_live_readiness_gate_rejects_runtime_safety_unknown_check_fields(tmp_pat
         "evidence_source": {"type": "exchange_export", "run_id": "runtime-unknown-check"},
         "environment_permission_evidence": _runtime_environment_permission_evidence(),
         "kill_switch_decision": _runtime_kill_switch_decision(),
-        "checks": {
-            **_runtime_environment_permission_checks(),
-            "kill_switch_dry_run_met": True,
-            "order_position_reconciliation_met": True,
+                    "checks": {
+                        **_runtime_environment_permission_checks(),
+                        "kill_switch_dry_run_met": True,
+                        "execution_event_chain_met": True,
+                        "order_position_reconciliation_met": True,
             "runtime_fail_closed_met": True,
             "live_dust_before_scale_met": True,
             "live_trade_ledger_met": True,
@@ -8497,10 +8523,11 @@ def test_live_readiness_gate_rejects_non_live_runtime_safety_provenance(tmp_path
                 "schema_version": "runtime_safety_gate.v1",
                 "evidence_source": {"type": "backtest"},
                 "environment_permission_evidence": _runtime_environment_permission_evidence(),
-                "checks": {
-                    **_runtime_environment_permission_checks(),
-                    "kill_switch_dry_run_met": True,
-                    "order_position_reconciliation_met": True,
+                    "checks": {
+                        **_runtime_environment_permission_checks(),
+                        "kill_switch_dry_run_met": True,
+                        "execution_event_chain_met": True,
+                        "order_position_reconciliation_met": True,
                     "runtime_fail_closed_met": True,
                     "live_dust_before_scale_met": True,
                     "live_trade_ledger_met": True,
@@ -8564,6 +8591,7 @@ def test_live_readiness_gate_report_accepts_runtime_safety_evidence_artifact(tmp
                 "checks": {
                     **_runtime_environment_permission_checks(),
                     "kill_switch_dry_run_met": True,
+                    "execution_event_chain_met": True,
                     "order_position_reconciliation_met": True,
                     "runtime_fail_closed_met": True,
                     "live_dust_before_scale_met": True,

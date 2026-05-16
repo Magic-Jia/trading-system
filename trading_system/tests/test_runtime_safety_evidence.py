@@ -51,6 +51,7 @@ def _passing_manifest() -> dict:
         "kill_switch_decision": _passing_kill_switch_decision(),
         "events": [
             {"type": "kill_switch_dry_run", "passed": True},
+            {"type": "execution_event_chain", "passed": True},
             {"type": "order_position_reconciliation", "passed": True},
             {"type": "runtime_fail_closed", "passed": True},
             {"type": "live_dust_before_scale", "passed": True},
@@ -72,6 +73,7 @@ def test_builds_runtime_safety_gate_when_all_required_events_pass(tmp_path: Path
         "permission_scope_isolated": True,
         "order_routing_current_approval_met": True,
         "kill_switch_dry_run_met": True,
+        "execution_event_chain_met": True,
         "order_position_reconciliation_met": True,
         "runtime_fail_closed_met": True,
         "live_dust_before_scale_met": True,
@@ -86,7 +88,7 @@ def test_builds_runtime_safety_gate_when_all_required_events_pass(tmp_path: Path
         "max_notional_within_limit_met": True,
         "exchange_account_state_unambiguous_met": True,
     }
-    assert gate["summary"]["event_count"] == 7
+    assert gate["summary"]["event_count"] == 8
     assert gate["kill_switch_decision"] == _passing_kill_switch_decision()
     assert gate["reasons"] == []
 
@@ -99,6 +101,7 @@ def test_runtime_safety_gate_reports_missing_or_failed_events() -> None:
     manifest = _passing_manifest()
     manifest["events"] = [
         {"type": "kill_switch_dry_run", "passed": False},
+        {"type": "execution_event_chain", "passed": True},
         {"type": "order_position_reconciliation", "passed": True},
     ]
     gate = build_runtime_safety_gate(manifest)
@@ -107,6 +110,7 @@ def test_runtime_safety_gate_reports_missing_or_failed_events() -> None:
     assert gate["checks"]["environment_identity_present"] is True
     assert gate["checks"]["permission_scope_isolated"] is True
     assert gate["checks"]["order_routing_current_approval_met"] is True
+    assert gate["checks"]["execution_event_chain_met"] is True
     assert gate["checks"]["order_position_reconciliation_met"] is True
     assert gate["checks"]["runtime_fail_closed_met"] is False
     assert gate["reasons"] == [
@@ -117,6 +121,16 @@ def test_runtime_safety_gate_reports_missing_or_failed_events() -> None:
         "runtime_explainability_missing",
         "drift_guard_missing",
     ]
+
+
+def test_runtime_safety_gate_rejects_missing_execution_event_chain() -> None:
+    manifest = _passing_manifest()
+    manifest["events"] = [event for event in manifest["events"] if event["type"] != "execution_event_chain"]
+
+    gate = build_runtime_safety_gate(manifest)
+
+    assert gate["checks"]["execution_event_chain_met"] is False
+    assert "execution_event_chain_missing" in gate["reasons"]
 
 
 def test_runtime_safety_gate_rejects_non_object_evidence_source() -> None:

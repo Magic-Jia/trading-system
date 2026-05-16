@@ -28,6 +28,26 @@ _TIMESTAMP_FIELDS = {
     "created_at",
     "as_of",
 }
+_EVENT_CHAIN_STAGES = (
+    "signal",
+    "order_intent",
+    "risk_check",
+    "submit",
+    "exchange_ack",
+    "fill",
+    "position_reconcile",
+)
+_EVENT_CHAIN_STATUSES = {
+    "signal": "accepted",
+    "order_intent": "created",
+    "risk_check": "passed",
+    "submit": "submitted",
+    "exchange_ack": "acknowledged",
+    "fill": "filled",
+    "position_reconcile": "reconciled",
+}
+_EVENT_CHAIN_IDENTITY_FIELDS = ("intent_id", "order_id", "trade_id", "position_id", "symbol", "side")
+_EVENT_CHAIN_NUMERIC_FIELDS = ("quantity", "price")
 
 
 def _is_canonical_utc_timestamp(value: str) -> bool:
@@ -201,6 +221,116 @@ def _positions_match(ledger_events: list[Any], positions: list[Any], reasons: li
             _append_reason(reasons, "position_snapshot_mismatch")
 
 
+def _event_chain_identity(value: Any, field: str, reasons: list[str]) -> str | None:
+    if not isinstance(value, str) or not value.strip() or value != value.strip():
+        _append_reason(reasons, "event_chain_identity_mismatch")
+        return None
+    if field == "symbol":
+        return value.upper()
+    if field == "side":
+        return value.upper()
+    return value
+
+
+def _snapshot_ids(rows: list[Any], field: str) -> set[str]:
+    ids: set[str] = set()
+    for row in rows:
+        if not isinstance(row, Mapping):
+            continue
+        value = row.get(field)
+        if isinstance(value, str) and value.strip() and value == value.strip():
+            ids.add(value)
+    return ids
+
+
+def _validate_event_chain(
+    manifest: Mapping[str, Any],
+    *,
+    order_snapshot: list[Any],
+    trade_snapshot: list[Any],
+    position_snapshot: list[Any],
+    reasons: list[str],
+) -> None:
+    raw_chain = manifest.get("event_chain")
+    if raw_chain is None:
+        _append_reason(reasons, "event_chain_missing_stage")
+        return
+    if not isinstance(raw_chain, list):
+        _append_reason(reasons, "event_chain_not_list")
+        return
+
+    by_stage: dict[str, Mapping[str, Any]] = {}
+    previous_timestamp: datetime | None = None
+    baseline_identity: dict[str, str] = {}
+    for item in raw_chain:
+        if not isinstance(item, Mapping):
+            _append_reason(reasons, "event_chain_event_not_object")
+            continue
+        stage = item.get("stage")
+        status = item.get("status")
+        if stage not in _EVENT_CHAIN_STAGES:
+            _append_reason(reasons, "event_chain_missing_stage")
+            continue
+        if stage in by_stage:
+            _append_reason(reasons, "event_chain_duplicate_stage")
+        by_stage[str(stage)] = item
+        if status != _EVENT_CHAIN_STATUSES[stage]:
+            if stage == "position_reconcile":
+                _append_reason(reasons, "event_chain_unreconciled_final_state")
+            else:
+                _append_reason(reasons, "event_chain_noncanonical_status")
+
+        occurred_at = _parse_timestamp(item.get("occurred_at"))
+        if occurred_at is None:
+            _append_reason(reasons, "noncanonical_timestamp")
+        elif previous_timestamp is not None and occurred_at < previous_timestamp:
+            _append_reason(reasons, "event_chain_nonmonotonic_timestamp")
+        if occurred_at is not None:
+            previous_timestamp = occurred_at
+
+        for field in _EVENT_CHAIN_NUMERIC_FIELDS:
+            if field in item:
+                _validate_numeric(item[field], reasons)
+        for field in _EVENT_CHAIN_IDENTITY_FIELDS:
+            identity = _event_chain_identity(item.get(field), field, reasons)
+            if identity is None:
+                continue
+            previous = baseline_identity.setdefault(field, identity)
+            if identity != previous:
+                _append_reason(reasons, "event_chain_identity_mismatch")
+
+    for stage in _EVENT_CHAIN_STAGES:
+        if stage not in by_stage:
+            _append_reason(reasons, "event_chain_missing_stage")
+
+    final_event = by_stage.get("position_reconcile")
+    if final_event is None:
+        _append_reason(reasons, "event_chain_unreconciled_final_state")
+        return
+    if final_event.get("status") != "reconciled":
+        _append_reason(reasons, "event_chain_unreconciled_final_state")
+
+    order_id = baseline_identity.get("order_id")
+    trade_id = baseline_identity.get("trade_id")
+    position_id = baseline_identity.get("position_id")
+    symbol = baseline_identity.get("symbol")
+    if order_id is not None and order_id not in _snapshot_ids(order_snapshot, "order_id"):
+        _append_reason(reasons, "event_chain_identity_mismatch")
+    if trade_id is not None and trade_id not in _snapshot_ids(trade_snapshot, "trade_id"):
+        _append_reason(reasons, "event_chain_identity_mismatch")
+    position_ids = _snapshot_ids(position_snapshot, "position_id")
+    if position_id is not None and position_ids and position_id not in position_ids:
+        _append_reason(reasons, "event_chain_identity_mismatch")
+    if symbol is not None:
+        snapshot_symbols = {
+            str(row.get("symbol")).strip().upper()
+            for row in position_snapshot
+            if isinstance(row, Mapping) and isinstance(row.get("symbol"), str) and row.get("symbol").strip()
+        }
+        if symbol not in snapshot_symbols:
+            _append_reason(reasons, "event_chain_identity_mismatch")
+
+
 def _account_matches_ledger(account: Mapping[str, Any], reasons: list[str]) -> None:
     equity = account.get("equity")
     futures_wallet_balance = account.get("futures_wallet_balance")
@@ -230,6 +360,7 @@ def build_ledger_reconciliation_evidence(manifest: Mapping[str, Any]) -> dict[st
 
     _walk_contract_values(
         {
+            "event_chain": manifest.get("event_chain", []),
             "ledger_events": ledger_events,
             "order_snapshot": order_snapshot,
             "trade_snapshot": trade_snapshot,
@@ -237,6 +368,13 @@ def build_ledger_reconciliation_evidence(manifest: Mapping[str, Any]) -> dict[st
             "account_snapshot": account_snapshot,
             "snapshot_metadata": snapshot_metadata,
         },
+        reasons=reasons,
+    )
+    _validate_event_chain(
+        manifest,
+        order_snapshot=order_snapshot,
+        trade_snapshot=trade_snapshot,
+        position_snapshot=position_snapshot,
         reasons=reasons,
     )
 
@@ -272,6 +410,11 @@ def build_ledger_reconciliation_evidence(manifest: Mapping[str, Any]) -> dict[st
         _append_reason(reasons, "exchange_account_state_unresolved")
 
     checks = {
+        "event_chain_complete_met": "event_chain_missing_stage" not in reasons and "event_chain_not_list" not in reasons and "event_chain_event_not_object" not in reasons and "event_chain_duplicate_stage" not in reasons,
+        "event_chain_canonical_met": "event_chain_noncanonical_status" not in reasons,
+        "event_chain_monotonic_met": "event_chain_nonmonotonic_timestamp" not in reasons,
+        "event_chain_identity_consistent_met": "event_chain_identity_mismatch" not in reasons,
+        "event_chain_final_state_reconciled_met": "event_chain_unreconciled_final_state" not in reasons,
         "snapshots_present_met": not any(reason.startswith("missing_") for reason in reasons),
         "order_ids_known_unique_met": "unknown_order_id" not in reasons and "duplicate_order_id" not in reasons,
         "trade_ids_known_unique_met": "unknown_trade_id" not in reasons and "duplicate_trade_id" not in reasons,
@@ -315,6 +458,7 @@ def reconciliation_runtime_safety_events(evidence: Mapping[str, Any]) -> list[di
     checks = evidence.get("checks")
     passed = isinstance(checks, Mapping) and checks.get("ledger_exchange_reconciliation_met") is True
     return [
+        {"type": "execution_event_chain", "passed": passed},
         {"type": "order_position_reconciliation", "passed": passed},
         {"type": "live_trade_ledger", "passed": passed},
         {"type": "runtime_fail_closed", "passed": True},

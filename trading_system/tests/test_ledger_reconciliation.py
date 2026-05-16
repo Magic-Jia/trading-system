@@ -84,31 +84,69 @@ def _ledger_event(ts: str = "2026-05-16T10:00:00Z") -> dict:
     }
 
 
+def _event_chain() -> list[dict]:
+    base = {
+        "intent_id": "intent-1",
+        "order_id": "ord-1",
+        "trade_id": "trade-1",
+        "position_id": "pos-1",
+        "symbol": "BTCUSDT",
+        "side": "LONG",
+        "quantity": 0.1,
+        "price": 100.0,
+    }
+    stages = [
+        ("signal", "accepted", "2026-05-16T10:00:00Z"),
+        ("order_intent", "created", "2026-05-16T10:00:01Z"),
+        ("risk_check", "passed", "2026-05-16T10:00:02Z"),
+        ("submit", "submitted", "2026-05-16T10:00:03Z"),
+        ("exchange_ack", "acknowledged", "2026-05-16T10:00:04Z"),
+        ("fill", "filled", "2026-05-16T10:00:05Z"),
+        ("position_reconcile", "reconciled", "2026-05-16T10:00:06Z"),
+    ]
+    return [{**base, "stage": stage, "status": status, "occurred_at": ts} for stage, status, ts in stages]
+
+
+def _reconciliation_manifest() -> dict:
+    return {
+        "evidence_source": {
+            "type": "offline_fixture",
+            "run_id": "reconcile-1",
+            "exported_at": "2026-05-16T10:00:30Z",
+        },
+        "evaluated_at": "2026-05-16T10:00:30Z",
+        "event_chain": _event_chain(),
+        "ledger_events": [_ledger_event()],
+        "order_snapshot": _snapshot()["orders"],
+        "trade_snapshot": _snapshot()["trades"],
+        "position_snapshot": [
+            {
+                **_snapshot()["positions"][0],
+                "position_id": "pos-1",
+                "order_id": "ord-1",
+                "intent_id": "intent-1",
+            }
+        ],
+        "account_snapshot": _snapshot()["account"],
+        "snapshot_metadata": {
+            "captured_at": "2026-05-16T10:00:00Z",
+            "max_evidence_age_seconds": 120,
+            "exchange_account_state": "known",
+        },
+    }
+
+
 def test_builds_fail_closed_reconciliation_evidence_for_matching_local_snapshots(tmp_path: Path) -> None:
-    evidence = build_ledger_reconciliation_evidence(
-        {
-            "evidence_source": {
-                "type": "offline_fixture",
-                "run_id": "reconcile-1",
-                "exported_at": "2026-05-16T10:00:30Z",
-            },
-            "evaluated_at": "2026-05-16T10:00:30Z",
-            "ledger_events": [_ledger_event()],
-            "order_snapshot": _snapshot()["orders"],
-            "trade_snapshot": _snapshot()["trades"],
-            "position_snapshot": _snapshot()["positions"],
-            "account_snapshot": _snapshot()["account"],
-            "snapshot_metadata": {
-                "captured_at": "2026-05-16T10:00:00Z",
-                "max_evidence_age_seconds": 120,
-                "exchange_account_state": "known",
-            },
-        }
-    )
+    evidence = build_ledger_reconciliation_evidence(_reconciliation_manifest())
 
     assert evidence["schema_version"] == "ledger_exchange_reconciliation.v1"
     assert evidence["checks"] == {
         "ledger_exchange_reconciliation_met": True,
+        "event_chain_complete_met": True,
+        "event_chain_canonical_met": True,
+        "event_chain_monotonic_met": True,
+        "event_chain_identity_consistent_met": True,
+        "event_chain_final_state_reconciled_met": True,
         "snapshots_present_met": True,
         "order_ids_known_unique_met": True,
         "trade_ids_known_unique_met": True,
@@ -124,6 +162,7 @@ def test_builds_fail_closed_reconciliation_evidence_for_matching_local_snapshots
 
     events = reconciliation_runtime_safety_events(evidence)
     assert events == [
+        {"type": "execution_event_chain", "passed": True},
         {"type": "order_position_reconciliation", "passed": True},
         {"type": "live_trade_ledger", "passed": True},
         {"type": "runtime_fail_closed", "passed": True},
@@ -151,6 +190,19 @@ def test_builds_fail_closed_reconciliation_evidence_for_matching_local_snapshots
         ),
         (lambda manifest: manifest["trade_snapshot"][0].__setitem__("qty", "0.1"), "numeric_string"),
         (lambda manifest: manifest["position_snapshot"][0].__setitem__("qty", math.inf), "nonfinite_numeric"),
+        (lambda manifest: manifest["event_chain"].pop(2), "event_chain_missing_stage"),
+        (lambda manifest: manifest["event_chain"][0].__setitem__("status", "Accepted"), "event_chain_noncanonical_status"),
+        (
+            lambda manifest: manifest["event_chain"][3].__setitem__("occurred_at", "2026-05-16T10:00:01Z"),
+            "event_chain_nonmonotonic_timestamp",
+        ),
+        (lambda manifest: manifest["event_chain"][4].__setitem__("order_id", "ord-2"), "event_chain_identity_mismatch"),
+        (lambda manifest: manifest["event_chain"][5].__setitem__("quantity", True), "bool_numeric"),
+        (lambda manifest: manifest["event_chain"][5].__setitem__("price", math.nan), "nonfinite_numeric"),
+        (
+            lambda manifest: manifest["event_chain"][-1].__setitem__("status", "pending"),
+            "event_chain_unreconciled_final_state",
+        ),
         (
             lambda manifest: manifest["snapshot_metadata"].__setitem__("captured_at", "2026-05-16T10:00:31Z"),
             "future_evidence",
@@ -166,20 +218,7 @@ def test_builds_fail_closed_reconciliation_evidence_for_matching_local_snapshots
     ],
 )
 def test_reconciliation_fails_closed_for_invalid_snapshot_contracts(mutation, reason: str) -> None:
-    manifest = {
-        "evidence_source": {"type": "offline_fixture"},
-        "evaluated_at": "2026-05-16T10:00:30Z",
-        "ledger_events": [_ledger_event()],
-        "order_snapshot": _snapshot()["orders"],
-        "trade_snapshot": _snapshot()["trades"],
-        "position_snapshot": _snapshot()["positions"],
-        "account_snapshot": _snapshot()["account"],
-        "snapshot_metadata": {
-            "captured_at": "2026-05-16T10:00:00Z",
-            "max_evidence_age_seconds": 120,
-            "exchange_account_state": "known",
-        },
-    }
+    manifest = _reconciliation_manifest()
     mutation(manifest)
 
     evidence = build_ledger_reconciliation_evidence(manifest)
@@ -187,6 +226,7 @@ def test_reconciliation_fails_closed_for_invalid_snapshot_contracts(mutation, re
     assert evidence["checks"]["ledger_exchange_reconciliation_met"] is False
     assert reason in evidence["reasons"]
     assert reconciliation_runtime_safety_events(evidence) == [
+        {"type": "execution_event_chain", "passed": False},
         {"type": "order_position_reconciliation", "passed": False},
         {"type": "live_trade_ledger", "passed": False},
         {"type": "runtime_fail_closed", "passed": True},

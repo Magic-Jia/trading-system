@@ -3176,6 +3176,7 @@ def _runtime_safety_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
     required_checks = (
         *_RUNTIME_ENVIRONMENT_PERMISSION_CHECKS,
         "kill_switch_dry_run_met",
+        "execution_event_chain_met",
         "order_position_reconciliation_met",
         "runtime_fail_closed_met",
         "live_dust_before_scale_met",
@@ -5176,6 +5177,7 @@ def build_live_readiness_gate_report(
     runtime_safety_reason_by_check = {
         **_RUNTIME_ENVIRONMENT_PERMISSION_REASON_BY_CHECK,
         "kill_switch_dry_run_met": "kill_switch_dry_run_missing",
+        "execution_event_chain_met": "execution_event_chain_missing",
         "order_position_reconciliation_met": "order_position_reconciliation_missing",
         "runtime_fail_closed_met": "runtime_fail_closed_missing",
         "live_dust_before_scale_met": "live_dust_before_scale_missing",
