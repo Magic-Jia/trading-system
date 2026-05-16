@@ -65,6 +65,9 @@ def _legacy_account() -> dict[str, object]:
 def _legacy_exchange_account() -> dict[str, object]:
     account = _legacy_account()
     account["futures"] = {
+        "total_margin_balance": 10000.0,
+        "total_wallet_balance": 9500.0,
+        "available_balance": 9000.0,
         "positions": [
             {
                 "symbol": "BTCUSDT",
@@ -80,6 +83,12 @@ def _legacy_exchange_account() -> dict[str, object]:
             }
         ]
     }
+    return account
+
+
+def _legacy_exchange_account_without_top_level_equity() -> dict[str, object]:
+    account = _legacy_exchange_account()
+    del account["equity"]
     return account
 
 
@@ -342,6 +351,92 @@ def test_bootstrap_accepts_legacy_exchange_decimal_string_liquidation_price(tmp_
             "normalized_type": "decimal",
         }
     ]
+
+
+def test_bootstrap_derives_missing_top_level_equity_from_futures_total_margin_balance(tmp_path: Path) -> None:
+    legacy_root = tmp_path / "legacy"
+    runtime_root = tmp_path / "runtime"
+    _write_legacy_artifacts(legacy_root)
+    account = _legacy_exchange_account_without_top_level_equity()
+    _write_json(legacy_root / "account_snapshot.json", account)
+
+    result = bootstrap_live_sim_generation_inputs(
+        legacy_root=legacy_root,
+        mode="paper",
+        runtime_root=runtime_root,
+        runtime_env="paper",
+        generated_at="2026-05-16T10:01:00Z",
+        max_evidence_age_seconds=120,
+    )
+
+    paths = build_runtime_paths("paper", runtime_root=runtime_root, runtime_env="paper")
+    runtime_account = json.loads(paths.account_snapshot_file.read_text(encoding="utf-8"))
+    metadata = json.loads((paths.optimization_dir / "bootstrap_input_metadata.json").read_text(encoding="utf-8"))
+    manifest = json.loads((paths.optimization_dir / "paper_live_sim_evidence_manifest.json").read_text(encoding="utf-8"))
+    assert result["status"] == "ok"
+    assert runtime_account["equity"] == 10000.0
+    assert runtime_account["meta"]["equity_provenance"] == "account_equity_derived_from_futures_total_margin_balance"
+    assert runtime_account["meta"]["equity_source_field"] == "futures.total_margin_balance"
+    assert metadata["account_equity"] == {
+        "field": "equity",
+        "source_field": "futures.total_margin_balance",
+        "reason": "account_equity_derived_from_futures_total_margin_balance",
+        "derived": True,
+    }
+    paper_snapshot = next(stage for stage in manifest["stages"] if stage["stage"] == "paper_snapshot")
+    assert paper_snapshot["payload"]["equity"] == 10000.0
+
+
+@pytest.mark.parametrize(
+    ("raw_value", "expected_message"),
+    [
+        (True, "account_snapshot.json.futures.total_margin_balance must be numeric, not boolean"),
+        ("10000.0", "account_snapshot.json.futures.total_margin_balance must be numeric"),
+        (float("nan"), "account_snapshot.json.futures.total_margin_balance must be finite"),
+        (0.0, "account_snapshot.json.futures.total_margin_balance must be greater than zero"),
+        (-1.0, "account_snapshot.json.futures.total_margin_balance must be greater than zero"),
+    ],
+)
+def test_bootstrap_rejects_malformed_derived_account_equity_source(
+    tmp_path: Path, raw_value: object, expected_message: str
+) -> None:
+    legacy_root = tmp_path / "legacy"
+    _write_legacy_artifacts(legacy_root)
+    account = _legacy_exchange_account_without_top_level_equity()
+    futures = account["futures"]
+    assert isinstance(futures, dict)
+    futures["total_margin_balance"] = raw_value
+    _write_json(legacy_root / "account_snapshot.json", account)
+
+    with pytest.raises(ValueError, match=expected_message):
+        bootstrap_live_sim_generation_inputs(
+            legacy_root=legacy_root,
+            mode="paper",
+            runtime_root=tmp_path / "runtime",
+            runtime_env="paper",
+            generated_at="2026-05-16T10:01:00Z",
+            max_evidence_age_seconds=120,
+        )
+
+
+def test_bootstrap_rejects_missing_derived_account_equity_source(tmp_path: Path) -> None:
+    legacy_root = tmp_path / "legacy"
+    _write_legacy_artifacts(legacy_root)
+    account = _legacy_exchange_account_without_top_level_equity()
+    futures = account["futures"]
+    assert isinstance(futures, dict)
+    del futures["total_margin_balance"]
+    _write_json(legacy_root / "account_snapshot.json", account)
+
+    with pytest.raises(ValueError, match=r"account_snapshot\.json\.equity must be numeric"):
+        bootstrap_live_sim_generation_inputs(
+            legacy_root=legacy_root,
+            mode="paper",
+            runtime_root=tmp_path / "runtime",
+            runtime_env="paper",
+            generated_at="2026-05-16T10:01:00Z",
+            max_evidence_age_seconds=120,
+        )
 
 
 @pytest.mark.parametrize(

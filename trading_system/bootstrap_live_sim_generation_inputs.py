@@ -47,6 +47,8 @@ _NUMERIC_FIELD_HINTS = (
 _LEGACY_DECIMAL_STRING_PATHS = (
     "account_snapshot.json.futures.positions[].liquidation_price",
 )
+_ACCOUNT_EQUITY_DERIVATION_FIELD = ("futures", "total_margin_balance")
+_ACCOUNT_EQUITY_DERIVATION_REASON = "account_equity_derived_from_futures_total_margin_balance"
 _CANONICAL_DECIMAL_STRING_RE = re.compile(r"-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?")
 
 
@@ -110,6 +112,43 @@ def _require_number(value: Any, field_path: str) -> float:
     return number
 
 
+def _require_positive_number(value: Any, field_path: str) -> float:
+    number = _require_number(value, field_path)
+    if number <= 0.0:
+        raise ValueError(f"{field_path} must be greater than zero")
+    return number
+
+
+def _derive_account_equity(account: Mapping[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    if "equity" in account:
+        equity = _require_positive_number(account.get("equity"), "account_snapshot.json.equity")
+        return dict(account), {"field": "equity", "derived": False, "value": equity}
+
+    futures = account.get("futures")
+    if not isinstance(futures, Mapping) or _ACCOUNT_EQUITY_DERIVATION_FIELD[1] not in futures:
+        raise ValueError("account_snapshot.json.equity must be numeric")
+
+    source_field = ".".join(_ACCOUNT_EQUITY_DERIVATION_FIELD)
+    field_path = f"account_snapshot.json.{source_field}"
+    equity = _require_positive_number(futures.get(_ACCOUNT_EQUITY_DERIVATION_FIELD[1]), field_path)
+    normalized = dict(account)
+    normalized["equity"] = equity
+    meta = normalized.get("meta")
+    normalized["meta"] = dict(meta) if isinstance(meta, Mapping) else {}
+    normalized["meta"].update(
+        {
+            "equity_provenance": _ACCOUNT_EQUITY_DERIVATION_REASON,
+            "equity_source_field": source_field,
+        }
+    )
+    return normalized, {
+        "field": "equity",
+        "source_field": source_field,
+        "reason": _ACCOUNT_EQUITY_DERIVATION_REASON,
+        "derived": True,
+    }
+
+
 def _legacy_decimal_string_path(field_path: str) -> str | None:
     canonical = []
     for token in field_path.split("."):
@@ -171,6 +210,8 @@ def _validate_json_value(
 
 
 def _numeric_key_hint(key: str) -> bool:
+    if key in {"equity_provenance", "equity_source_field"}:
+        return False
     tokens = [token for token in key.lower().replace("-", "_").split("_") if token]
     return any(token in _NUMERIC_FIELD_HINTS for token in tokens)
 
@@ -192,7 +233,7 @@ def _validate_snapshot(
 ) -> dict[str, Any]:
     _validate_json_value(payload, name, accepted_decimal_string_fields)
     if "as_of" not in payload and name == "account_snapshot.json":
-        _require_number(payload.get("equity"), f"{name}.equity")
+        _require_positive_number(payload.get("equity"), f"{name}.equity")
         return {
             "as_of_present": False,
             "freshness_met": False,
@@ -207,7 +248,7 @@ def _validate_snapshot(
     if age > max_evidence_age_seconds:
         raise ValueError(f"{name}.as_of is stale")
     if name == "account_snapshot.json":
-        _require_number(payload.get("equity"), f"{name}.equity")
+        _require_positive_number(payload.get("equity"), f"{name}.equity")
     if name == "market_context.json":
         symbols = payload.get("symbols")
         if not isinstance(symbols, Mapping) or not symbols:
@@ -463,6 +504,7 @@ def bootstrap_live_sim_generation_inputs(
     ]
     evaluated_at = generated_at or max(source_as_of_values)
     _parse_canonical_utc(evaluated_at, "generated_at")
+    account, account_equity_metadata = _derive_account_equity(account)
 
     accepted_decimal_string_fields: list[dict[str, str]] = []
     source_timestamp_quality: dict[str, Any] = {}
@@ -480,7 +522,10 @@ def bootstrap_live_sim_generation_inputs(
     _validate_calibration_rows_fresh(trades, evaluated_at, max_evidence_age_seconds)
 
     paths.bucket_dir.mkdir(parents=True, exist_ok=True)
+    _write_json(paths.account_snapshot_file, account)
     for name in _SNAPSHOT_NAMES:
+        if name == "account_snapshot.json":
+            continue
         shutil.copyfile(source_root / name, paths.bucket_dir / name)
 
     source = _source(source_root, evaluated_at)
@@ -488,6 +533,7 @@ def bootstrap_live_sim_generation_inputs(
         "schema_version": "bootstrap_input_metadata.v1",
         "generated_at": evaluated_at,
         "evidence_source": source,
+        "account_equity": account_equity_metadata,
         "accepted_decimal_string_fields": accepted_decimal_string_fields,
         "source_timestamp_quality": source_timestamp_quality,
         "quality_reasons": [
