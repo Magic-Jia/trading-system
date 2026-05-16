@@ -106,6 +106,7 @@ def build_report_payload(
     health_report = _read_json(optimization_dir / "health_report.json", {})
     recommendations = _read_json(optimization_dir / "recommendations.json", {})
     promotion = _read_json(optimization_dir / "promotion_decision.json", {})
+    daily_quality_gate = _read_json(optimization_dir / "daily_quality_gate_report.json", {})
 
     runtime = _runtime_positions(state if isinstance(state, dict) else {})
     account_pos = _account_positions(account if isinstance(account, dict) else {})
@@ -127,6 +128,7 @@ def build_report_payload(
         "health_report": health_report if isinstance(health_report, dict) else {},
         "recommendations": recommendations if isinstance(recommendations, dict) else {},
         "promotion_decision": promotion if isinstance(promotion, dict) else {},
+        "daily_quality_gate_report": daily_quality_gate if isinstance(daily_quality_gate, dict) else {},
         "optimization_summary": state.get("optimization_summary", {}) if isinstance(state, dict) else {},
     }
 
@@ -166,8 +168,14 @@ def render_markdown(payload: dict[str, Any]) -> str:
     health = payload.get("health_report") or {}
     rec = payload.get("recommendations") or {}
     promo = payload.get("promotion_decision") or {}
+    quality_gate = payload.get("daily_quality_gate_report") or {}
     lines.append(f"- metrics_scope：{metrics.get('scope', 'legacy_or_missing')}")
     lines.append(f"- health：{health.get('status')} warnings={len(health.get('warnings') or [])}")
     lines.append(f"- recommendation_count：{rec.get('recommendation_count')}")
     lines.append(f"- promotion_decision：{promo.get('decision') or promo.get('status')}")
+    if quality_gate:
+        lines.append(f"- daily_quality_gate：{quality_gate.get('decision')}")
+        reasons = quality_gate.get("reasons") or []
+        if reasons:
+            lines.append(f"- daily_quality_gate_reasons：{', '.join(str(reason) for reason in reasons)}")
     return "\n".join(lines) + "\n"
