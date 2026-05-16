@@ -3750,6 +3750,7 @@ def _minimal_walk_forward_validation_experiment() -> dict[str, object]:
         },
         "multiple_testing_correction": _multiple_testing_correction(2),
         "regime_stratified_oos": _regime_stratified_oos_evidence(),
+        "pnl_attribution": _pnl_attribution_evidence(),
     }
 
 
@@ -3778,6 +3779,23 @@ def _regime_stratified_oos_evidence(*, crash_total_return: float = 0.01) -> dict
                 "bucket": "squeeze",
                 "metrics": {"total_return": 0.018, "max_drawdown": -0.03, "sharpe": 0.4, "trade_count": 1},
             },
+        ],
+    }
+
+
+def _pnl_attribution_evidence(*, reported_pnl: float = 0.03) -> dict[str, object]:
+    return {
+        "schema_version": "pnl_attribution.v1",
+        "reported_pnl": reported_pnl,
+        "buckets": [
+            {"bucket": "entry_alpha", "contribution": 0.01},
+            {"bucket": "exit_alpha", "contribution": 0.005},
+            {"bucket": "sizing", "contribution": 0.006},
+            {"bucket": "fees", "contribution": -0.001},
+            {"bucket": "funding", "contribution": -0.001},
+            {"bucket": "slippage_execution_impact", "contribution": -0.002},
+            {"bucket": "regime", "contribution": 0.008},
+            {"bucket": "symbol_selection", "contribution": 0.005},
         ],
     }
 
@@ -3863,6 +3881,100 @@ def test_walk_forward_validation_report_rejects_positive_aggregate_oos_without_s
             },
             experiment=experiment,
         )
+
+
+def test_walk_forward_validation_report_requires_pnl_attribution_for_positive_oos() -> None:
+    experiment = _minimal_walk_forward_validation_experiment()
+    del experiment["pnl_attribution"]
+
+    with pytest.raises(ValueError, match="pnl_attribution must be present for positive PnL claims"):
+        cli.render_walk_forward_validation_report(
+            experiment_name="walk_forward_validation",
+            metadata={
+                "snapshot_count": 1,
+                "window_count": 1,
+                "split_metadata": {
+                    "schema_version": "walk_forward_split_metadata.v1",
+                    "purge_bars": 0,
+                    "embargo_bars": 0,
+                },
+            },
+            experiment=experiment,
+        )
+
+
+@pytest.mark.parametrize(
+    ("mutator", "expected_message"),
+    [
+        (
+            lambda evidence: evidence["buckets"][0].__setitem__("bucket", "entry alpha"),  # type: ignore[index,union-attr]
+            "pnl_attribution.buckets[0].bucket must be canonical",
+        ),
+        (
+            lambda evidence: evidence["buckets"].append(evidence["buckets"][0]),  # type: ignore[index,union-attr]
+            "pnl_attribution.buckets bucket values must be unique",
+        ),
+        (
+            lambda evidence: evidence["buckets"][0].__setitem__("contribution", "0.01"),  # type: ignore[index,union-attr]
+            "pnl_attribution.buckets[0].contribution must be a finite strict number",
+        ),
+        (
+            lambda evidence: evidence["buckets"][0].__setitem__("contribution", True),  # type: ignore[index,union-attr]
+            "pnl_attribution.buckets[0].contribution must be a finite strict number",
+        ),
+        (
+            lambda evidence: evidence["buckets"][0].__setitem__("contribution", float("inf")),  # type: ignore[index,union-attr]
+            "pnl_attribution.buckets[0].contribution must be a finite strict number",
+        ),
+        (
+            lambda evidence: evidence["buckets"][0].__setitem__("contribution", 0.10),  # type: ignore[index,union-attr]
+            "pnl_attribution.total_contribution must materially match reported_pnl",
+        ),
+    ],
+)
+def test_walk_forward_validation_report_rejects_malformed_pnl_attribution(
+    mutator,
+    expected_message: str,
+) -> None:
+    experiment = _minimal_walk_forward_validation_experiment()
+    evidence = _pnl_attribution_evidence()
+    mutator(evidence)
+    experiment["pnl_attribution"] = evidence
+
+    with pytest.raises(ValueError, match=re.escape(expected_message)):
+        cli.render_walk_forward_validation_report(
+            experiment_name="walk_forward_validation",
+            metadata={
+                "snapshot_count": 1,
+                "window_count": 1,
+                "split_metadata": {
+                    "schema_version": "walk_forward_split_metadata.v1",
+                    "purge_bars": 0,
+                    "embargo_bars": 0,
+                },
+            },
+            experiment=experiment,
+        )
+
+
+def test_walk_forward_validation_report_preserves_pnl_attribution_in_summary_and_scorecard() -> None:
+    report = cli.render_walk_forward_validation_report(
+        experiment_name="walk_forward_validation",
+        metadata={
+            "snapshot_count": 1,
+            "window_count": 1,
+            "split_metadata": {
+                "schema_version": "walk_forward_split_metadata.v1",
+                "purge_bars": 0,
+                "embargo_bars": 0,
+            },
+        },
+        experiment=_minimal_walk_forward_validation_experiment(),
+    )
+
+    assert report["summary"]["pnl_attribution"]["schema_version"] == "pnl_attribution.v1"
+    assert report["scorecard"]["pnl_attribution"]["buckets"][0]["bucket"] == "entry_alpha"
+    assert report["scorecard"]["pnl_attribution"]["total_contribution"] == pytest.approx(0.03)
 
 
 def test_walk_forward_validation_report_holds_when_regime_bucket_collapses() -> None:
@@ -4662,6 +4774,7 @@ def test_walk_forward_validation_report_preserves_valid_worst_window_scorecard()
             "parameter_stability": _canonical_parameter_stability(),
             "multiple_testing_correction": _multiple_testing_correction(2),
             "regime_stratified_oos": _regime_stratified_oos_evidence(),
+            "pnl_attribution": _pnl_attribution_evidence(),
 
         },
     )
@@ -5121,6 +5234,7 @@ def test_walk_forward_validation_report_preserves_valid_coverage_scorecard_value
             "parameter_stability": _canonical_parameter_stability(),
             "multiple_testing_correction": _multiple_testing_correction(2),
             "regime_stratified_oos": _regime_stratified_oos_evidence(),
+            "pnl_attribution": _pnl_attribution_evidence(),
 
         },
     )
@@ -5742,6 +5856,7 @@ def test_backtest_cli_writes_walk_forward_validation_bundle(monkeypatch: pytest.
             "parameter_stability": _canonical_parameter_stability(),
             "multiple_testing_correction": _multiple_testing_correction(2),
             "regime_stratified_oos": _regime_stratified_oos_evidence(),
+            "pnl_attribution": _pnl_attribution_evidence(),
 
         },
         raising=False,

@@ -46,6 +46,17 @@ _RAW_MARKET_PROVENANCE_TIMESTAMP_FIELDS = frozenset(
 _CANONICAL_UTC_TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$")
 _REQUIRED_REGIME_STRATIFIED_OOS_BUCKETS = ("volatility", "liquidity", "funding", "crash", "squeeze")
 _REGIME_STRATIFIED_OOS_NUMERIC_METRICS = ("total_return", "max_drawdown", "sharpe")
+_REQUIRED_PNL_ATTRIBUTION_BUCKETS = (
+    "entry_alpha",
+    "exit_alpha",
+    "sizing",
+    "fees",
+    "funding",
+    "slippage_execution_impact",
+    "regime",
+    "symbol_selection",
+)
+_PNL_ATTRIBUTION_TOLERANCE = 1e-9
 
 
 def _report_finite_float(value: Any, *, field_name: str) -> float:
@@ -1368,6 +1379,12 @@ def _canonical_report_string(value: object, *, field_name: str) -> str:
     return value
 
 
+def _canonical_bucket_identity(value: object, *, field_name: str) -> str:
+    if type(value) is not str or not value or value.strip() != value or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}", value):
+        raise ValueError(f"{field_name} must be canonical")
+    return value
+
+
 def _optional_canonical_report_string(value: object, *, field_name: str) -> str | None:
     if value is None:
         return None
@@ -1724,6 +1741,58 @@ def _strict_present_finite_float(value: Any, *, field_name: str) -> float:
     if not math.isfinite(parsed):
         raise ValueError(f"{field_name} must be a finite number")
     return parsed
+
+
+def _strict_attribution_float(value: Any, *, field_name: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise ValueError(f"{field_name} must be a finite strict number")
+    parsed = float(value)
+    if not math.isfinite(parsed):
+        raise ValueError(f"{field_name} must be a finite strict number")
+    return parsed
+
+
+def _pnl_attribution_payload(raw_value: Any, *, field_name: str, reported_pnl: float) -> dict[str, Any]:
+    if not isinstance(raw_value, Mapping):
+        raise ValueError(f"{field_name} must be present for positive PnL claims")
+    payload = _strict_mapping_copy(raw_value, field_name=field_name)
+    if payload.get("schema_version") != "pnl_attribution.v1":
+        raise ValueError(f"{field_name}.schema_version must be pnl_attribution.v1")
+    evidence_reported_pnl = _strict_attribution_float(payload.get("reported_pnl"), field_name=f"{field_name}.reported_pnl")
+    if abs(evidence_reported_pnl - reported_pnl) > _PNL_ATTRIBUTION_TOLERANCE:
+        raise ValueError(f"{field_name}.reported_pnl must match reported PnL")
+    buckets = _list_field(payload, "buckets", label=f"{field_name}.buckets")
+    if not buckets:
+        raise ValueError(f"{field_name}.buckets must be a non-empty list")
+    seen_buckets: set[str] = set()
+    validated_buckets: list[dict[str, Any]] = []
+    total_contribution = 0.0
+    for index, raw_bucket in enumerate(buckets):
+        bucket_field = f"{field_name}.buckets[{index}]"
+        if not isinstance(raw_bucket, Mapping):
+            raise ValueError(f"{bucket_field} must be an object")
+        bucket_payload = _strict_mapping_copy(raw_bucket, field_name=bucket_field)
+        bucket = _canonical_bucket_identity(bucket_payload.get("bucket"), field_name=f"{bucket_field}.bucket")
+        if bucket in seen_buckets:
+            raise ValueError(f"{field_name}.buckets bucket values must be unique")
+        seen_buckets.add(bucket)
+        contribution = _strict_attribution_float(
+            bucket_payload.get("contribution"),
+            field_name=f"{bucket_field}.contribution",
+        )
+        total_contribution += contribution
+        validated_buckets.append({"bucket": bucket, "contribution": contribution})
+    for required_bucket in _REQUIRED_PNL_ATTRIBUTION_BUCKETS:
+        if required_bucket not in seen_buckets:
+            raise ValueError(f"{field_name}.buckets must include required bucket {required_bucket}")
+    if abs(total_contribution - reported_pnl) > _PNL_ATTRIBUTION_TOLERANCE:
+        raise ValueError(f"{field_name}.total_contribution must materially match reported_pnl")
+    return {
+        "schema_version": "pnl_attribution.v1",
+        "reported_pnl": evidence_reported_pnl,
+        "buckets": validated_buckets,
+        "total_contribution": total_contribution,
+    }
 
 
 def _trade_finite_float(value: Any, *, field_name: str) -> float:
@@ -2753,6 +2822,14 @@ def render_walk_forward_validation_report(
             if "train_period" not in window or "test_period" not in window:
                 raise ValueError(f"windows[{index}] train/test periods must be present for positive OOS evidence")
 
+    pnl_attribution = None
+    if out_of_sample_total_return > 0.0 or "pnl_attribution" in experiment:
+        pnl_attribution = _pnl_attribution_payload(
+            experiment.get("pnl_attribution"),
+            field_name="pnl_attribution",
+            reported_pnl=out_of_sample_total_return,
+        )
+
     regime_stratified_oos = None
     if positive_oos_claim or "regime_stratified_oos" in experiment:
         regime_stratified_oos = _regime_stratified_oos_evidence(
@@ -2783,6 +2860,7 @@ def render_walk_forward_validation_report(
             "metadata": report_metadata,
             "robustness_summary": robustness_summary,
             "parameter_stability": parameter_stability,
+            **({"pnl_attribution": pnl_attribution} if pnl_attribution is not None else {}),
         },
         "windows": {
             "metadata": report_metadata,
@@ -2800,6 +2878,7 @@ def render_walk_forward_validation_report(
             "decision_summary": _decision_summary(decision=decision, summary=summary),
             "multiple_testing_correction": multiple_testing_correction,
             **({"regime_stratified_oos": regime_stratified_oos} if regime_stratified_oos is not None else {}),
+            **({"pnl_attribution": pnl_attribution} if pnl_attribution is not None else {}),
             **_promotion_metadata_sections(report_metadata),
         },
     }

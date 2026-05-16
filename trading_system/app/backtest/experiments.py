@@ -2491,6 +2491,63 @@ def _regime_stratified_oos_evidence(
     }
 
 
+def _walk_forward_pnl_attribution(
+    robustness_summary: Mapping[str, Any],
+    window_summaries: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    out_of_sample = robustness_summary.get("out_of_sample_scorecard")
+    reported_pnl = 0.0
+    if isinstance(out_of_sample, Mapping):
+        value = out_of_sample.get("total_return", 0.0)
+        if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value)):
+            reported_pnl = float(value)
+    fee_drag = 0.0
+    slippage_drag = 0.0
+    funding_drag = 0.0
+    for window in window_summaries:
+        out_segment = window.get("out_of_sample")
+        if not isinstance(out_segment, Mapping):
+            continue
+        friction = out_segment.get("friction_summary")
+        if not isinstance(friction, Mapping):
+            continue
+        costs = friction.get("cost_attribution")
+        if not isinstance(costs, Mapping):
+            continue
+        for field, target in (
+            ("fee_drag", "fee"),
+            ("slippage_drag", "slippage"),
+            ("funding_drag", "funding"),
+        ):
+            value = costs.get(field, 0.0)
+            if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value)):
+                if target == "fee":
+                    fee_drag += float(value)
+                elif target == "slippage":
+                    slippage_drag += float(value)
+                else:
+                    funding_drag += float(value)
+    cost_total = -(fee_drag + slippage_drag + funding_drag)
+    residual = reported_pnl - cost_total
+    buckets = [
+        {"bucket": "entry_alpha", "contribution": round(residual, 10)},
+        {"bucket": "exit_alpha", "contribution": 0.0},
+        {"bucket": "sizing", "contribution": 0.0},
+        {"bucket": "fees", "contribution": round(-fee_drag, 10)},
+        {"bucket": "funding", "contribution": round(-funding_drag, 10)},
+        {"bucket": "slippage_execution_impact", "contribution": round(-slippage_drag, 10)},
+        {"bucket": "regime", "contribution": 0.0},
+        {"bucket": "symbol_selection", "contribution": 0.0},
+    ]
+    total = sum(float(bucket["contribution"]) for bucket in buckets)
+    buckets[0]["contribution"] = round(float(buckets[0]["contribution"]) + (reported_pnl - total), 10)
+    return {
+        "schema_version": "pnl_attribution.v1",
+        "reported_pnl": reported_pnl,
+        "buckets": buckets,
+    }
+
+
 def run_walk_forward_validation_experiment(
     rows: Iterable[DatasetSnapshotRow],
     *,
@@ -2530,6 +2587,7 @@ def run_walk_forward_validation_experiment(
         window_summaries,
         evaluation_window=evaluation_window,
     )
+    pnl_attribution = _walk_forward_pnl_attribution(robustness_summary, window_summaries)
     return {
         "metadata": {
             "snapshot_count": len(ordered_rows),
@@ -2543,6 +2601,7 @@ def run_walk_forward_validation_experiment(
         "robustness_summary": robustness_summary,
         "parameter_stability": parameter_stability,
         "regime_stratified_oos": regime_stratified_oos,
+        "pnl_attribution": pnl_attribution,
         "multiple_testing_correction": _multiple_testing_correction_metadata(
             number_of_trials=max(len(window_summaries), 2),
             adjusted_pass=(

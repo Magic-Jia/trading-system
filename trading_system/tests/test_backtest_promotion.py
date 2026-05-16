@@ -99,6 +99,23 @@ def _regime_stratified_oos_evidence(*, crash_total_return: float = 0.01) -> dict
     }
 
 
+def _pnl_attribution_evidence(*, reported_pnl: float = 0.08) -> dict[str, object]:
+    return {
+        "schema_version": "pnl_attribution.v1",
+        "reported_pnl": reported_pnl,
+        "buckets": [
+            {"bucket": "entry_alpha", "contribution": 0.02},
+            {"bucket": "exit_alpha", "contribution": 0.01},
+            {"bucket": "sizing", "contribution": 0.02},
+            {"bucket": "fees", "contribution": -0.005},
+            {"bucket": "funding", "contribution": -0.002},
+            {"bucket": "slippage_execution_impact", "contribution": -0.003},
+            {"bucket": "regime", "contribution": 0.025},
+            {"bucket": "symbol_selection", "contribution": reported_pnl - 0.065},
+        ],
+    }
+
+
 def _write_full_market_bundle(
     root: Path,
     *,
@@ -108,6 +125,8 @@ def _write_full_market_bundle(
     max_drawdown: float,
     sharpe: float,
     cost_drag: float,
+    pnl_attribution: dict[str, object] | None = None,
+    include_pnl_attribution: bool = True,
 ) -> Path:
     root.mkdir(parents=True, exist_ok=True)
     artifacts = ["manifest.json", "summary.json", "breakdowns.json", "audit.json"]
@@ -135,6 +154,11 @@ def _write_full_market_bundle(
                 "trade_count": 5,
                 "cost_drag": cost_drag,
                 "cost_breakdown": {"fees": 0.01, "slippage": 0.005, "funding": 0.0},
+                **(
+                    {"pnl_attribution": pnl_attribution or _pnl_attribution_evidence(reported_pnl=total_return)}
+                    if include_pnl_attribution and total_return > 0.0
+                    else {}
+                ),
             },
         },
     )
@@ -182,6 +206,8 @@ def _write_walk_forward_bundle(
     multiple_testing_correction: dict[str, object] | None = None,
     include_multiple_testing_correction: bool = True,
     regime_stratified_oos: dict[str, object] | None = None,
+    pnl_attribution: dict[str, object] | None = None,
+    include_pnl_attribution: bool = True,
 ) -> Path:
     root.mkdir(parents=True, exist_ok=True)
     artifacts = ["manifest.json", "summary.json", "windows.json", "scorecard.json"]
@@ -229,6 +255,10 @@ def _write_walk_forward_bundle(
         summary_payload["multiple_testing_correction"] = multiple_testing_correction
     if regime_stratified_oos is not None:
         summary_payload["regime_stratified_oos"] = regime_stratified_oos
+    if include_pnl_attribution and out_of_sample_total_return > 0.0:
+        summary_payload["pnl_attribution"] = pnl_attribution or _pnl_attribution_evidence(
+            reported_pnl=out_of_sample_total_return
+        )
     if runtime_fields:
         summary_payload["runtime_observability"] = {"runtime_fields": runtime_fields}
     if rollback_target and (rollback_trigger or observation_window):
@@ -291,6 +321,14 @@ def _write_walk_forward_bundle(
             "decision_summary": {"decision": "keep_researching", "summary": "fixture"},
             **({"multiple_testing_correction": multiple_testing_correction} if multiple_testing_correction is not None else {}),
             **({"regime_stratified_oos": regime_stratified_oos} if regime_stratified_oos is not None else {}),
+            **(
+                {
+                    "pnl_attribution": pnl_attribution
+                    or _pnl_attribution_evidence(reported_pnl=out_of_sample_total_return)
+                }
+                if include_pnl_attribution and out_of_sample_total_return > 0.0
+                else {}
+            ),
         },
     )
     return root
@@ -815,6 +853,7 @@ def test_compare_backtest_bundles_holds_when_out_of_sample_evidence_is_missing(t
         "has_out_of_sample_evidence": False,
         "has_purged_embargoed_split_metadata": True,
         "has_attribution_or_funnel_explanation": True,
+        "has_pnl_attribution_evidence": True,
         "has_runtime_observability_plan": False,
         "has_rollback_plan": False,
     }
@@ -858,6 +897,100 @@ def test_compare_backtest_bundles_rejects_walk_forward_when_oos_direction_revers
     assert "out-of-sample direction reverses or clearly collapses" in gate["why"]
 
 
+def test_load_backtest_bundle_rejects_positive_pnl_without_attribution(tmp_path: Path) -> None:
+    bundle = _write_full_market_bundle(
+        tmp_path / "positive",
+        baseline_name="current_system",
+        variant_name="candidate_policy",
+        total_return=0.10,
+        max_drawdown=-0.08,
+        sharpe=1.20,
+        cost_drag=0.015,
+        include_pnl_attribution=False,
+    )
+
+    with pytest.raises(ValueError, match="summary.json.summary.pnl_attribution must be present for positive PnL claims"):
+        promotion.load_backtest_bundle(bundle)
+
+
+@pytest.mark.parametrize(
+    ("mutate", "expected"),
+    [
+        (
+            lambda payload: payload["buckets"].pop(),
+            "pnl_attribution.buckets must include required bucket symbol_selection",
+        ),
+        (
+            lambda payload: payload["buckets"].append({"bucket": "entry_alpha", "contribution": 0.0}),
+            "pnl_attribution.buckets bucket values must be unique",
+        ),
+        (
+            lambda payload: payload["buckets"][0].update({"bucket": " entry_alpha "}),
+            r"pnl_attribution.buckets\[0\].bucket must be canonical",
+        ),
+        (
+            lambda payload: payload["buckets"][0].update({"contribution": "0.02"}),
+            r"pnl_attribution.buckets\[0\].contribution must be a finite strict number",
+        ),
+        (
+            lambda payload: payload["buckets"][0].update({"contribution": True}),
+            r"pnl_attribution.buckets\[0\].contribution must be a finite strict number",
+        ),
+        (
+            lambda payload: payload["buckets"][0].update({"contribution": float("nan")}),
+            r"pnl_attribution.buckets\[0\].contribution must be a finite strict number",
+        ),
+        (
+            lambda payload: payload["buckets"][0].update({"contribution": 0.50}),
+            "pnl_attribution.total_contribution must materially match reported_pnl",
+        ),
+    ],
+)
+def test_load_backtest_bundle_rejects_malformed_pnl_attribution(
+    tmp_path: Path,
+    mutate,
+    expected: str,
+) -> None:
+    attribution = _pnl_attribution_evidence()
+    mutate(attribution)
+    bundle = _write_full_market_bundle(
+        tmp_path / "positive",
+        baseline_name="current_system",
+        variant_name="candidate_policy",
+        total_return=0.08,
+        max_drawdown=-0.08,
+        sharpe=1.20,
+        cost_drag=0.015,
+        pnl_attribution=attribution,
+    )
+
+    with pytest.raises(ValueError, match=expected):
+        promotion.load_backtest_bundle(bundle)
+
+
+def test_load_backtest_bundle_rejects_missing_cost_attribution_when_costs_are_nonzero(tmp_path: Path) -> None:
+    attribution = _pnl_attribution_evidence()
+    attribution["buckets"] = [
+        bucket for bucket in attribution["buckets"] if bucket["bucket"] != "funding"  # type: ignore[index]
+    ]
+    bundle = _write_full_market_bundle(
+        tmp_path / "positive",
+        baseline_name="current_system",
+        variant_name="candidate_policy",
+        total_return=0.08,
+        max_drawdown=-0.08,
+        sharpe=1.20,
+        cost_drag=0.015,
+        pnl_attribution=attribution,
+    )
+    summary = json.loads((bundle / "summary.json").read_text(encoding="utf-8"))
+    summary["summary"]["cost_breakdown"]["funding"] = 0.001
+    _write_json(bundle / "summary.json", summary)
+
+    with pytest.raises(ValueError, match="pnl_attribution.buckets must include required bucket funding"):
+        promotion.load_backtest_bundle(bundle)
+
+
 def test_compare_backtest_bundles_promotes_walk_forward_when_all_checks_pass(tmp_path: Path) -> None:
     split_metadata = {
         "schema_version": "walk_forward_split_metadata.v1",
@@ -878,6 +1011,7 @@ def test_compare_backtest_bundles_promotes_walk_forward_when_all_checks_pass(tmp
         rollback_trigger="oos_total_return_below_zero",
         observation_window="14d",
         regime_stratified_oos=_regime_stratified_oos_evidence(),
+        pnl_attribution=_pnl_attribution_evidence(reported_pnl=0.03),
     )
     variant_bundle = _write_walk_forward_bundle(
         tmp_path / "variant",
@@ -893,6 +1027,7 @@ def test_compare_backtest_bundles_promotes_walk_forward_when_all_checks_pass(tmp
         rollback_trigger="oos_total_return_below_zero",
         observation_window="14d",
         regime_stratified_oos=_regime_stratified_oos_evidence(),
+        pnl_attribution=_pnl_attribution_evidence(reported_pnl=0.08),
     )
 
     result = promotion.compare_backtest_bundles(
@@ -908,6 +1043,7 @@ def test_compare_backtest_bundles_promotes_walk_forward_when_all_checks_pass(tmp
         "has_out_of_sample_evidence": True,
         "has_purged_embargoed_split_metadata": True,
         "has_attribution_or_funnel_explanation": True,
+        "has_pnl_attribution_evidence": True,
         "has_runtime_observability_plan": True,
         "has_rollback_plan": True,
         "has_parameter_stability_surface": True,
@@ -917,6 +1053,7 @@ def test_compare_backtest_bundles_promotes_walk_forward_when_all_checks_pass(tmp
     }
     assert gate["why"] == []
     assert gate["regime_stratified_oos"]["buckets"][0]["bucket"] == "volatility"
+    assert gate["pnl_attribution"]["buckets"][0]["bucket"] == "entry_alpha"
 
 
 def test_compare_backtest_bundles_rejects_positive_walk_forward_without_regime_stratified_oos(

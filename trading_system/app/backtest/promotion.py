@@ -50,6 +50,17 @@ _EXPECTED_MARGIN_LIQUIDATION_CONTRACT_FIELDS = {
 }
 _REQUIRED_REGIME_STRATIFIED_OOS_BUCKETS = ("volatility", "liquidity", "funding", "crash", "squeeze")
 _REGIME_STRATIFIED_OOS_NUMERIC_METRICS = ("total_return", "max_drawdown", "sharpe")
+_REQUIRED_PNL_ATTRIBUTION_BUCKETS = (
+    "entry_alpha",
+    "exit_alpha",
+    "sizing",
+    "fees",
+    "funding",
+    "slippage_execution_impact",
+    "regime",
+    "symbol_selection",
+)
+_PNL_ATTRIBUTION_TOLERANCE = 1e-9
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,6 +129,17 @@ def _require_bounded_ratio(value: Any, *, context: str) -> float:
 def _require_canonical_string_value(value: Any, *, context: str) -> str:
     if not isinstance(value, str) or not value.strip() or value != value.strip():
         raise ValueError(f"{context} must be a canonical string")
+    return value
+
+
+def _require_canonical_bucket_identity(value: Any, *, context: str) -> str:
+    if (
+        not isinstance(value, str)
+        or not value.strip()
+        or value != value.strip()
+        or not _is_safe_evidence_identifier(value)
+    ):
+        raise ValueError(f"{context} must be canonical")
     return value
 
 
@@ -703,6 +725,56 @@ def _require_regime_stratified_oos_evidence(payload: Any, *, context: str) -> di
     }
 
 
+def _require_pnl_attribution_evidence(
+    raw_evidence: Any,
+    *,
+    context: str,
+    reported_pnl: float,
+) -> dict[str, Any]:
+    if not isinstance(raw_evidence, Mapping):
+        raise ValueError(f"{context}.pnl_attribution must be present for positive PnL claims")
+    evidence = dict(raw_evidence)
+    if evidence.get("schema_version") != "pnl_attribution.v1":
+        raise ValueError(f"{context}.pnl_attribution.schema_version must be pnl_attribution.v1")
+    evidence_reported_pnl = _require_strict_real_number(
+        evidence.get("reported_pnl"),
+        context=f"{context}.pnl_attribution.reported_pnl",
+    )
+    if abs(evidence_reported_pnl - reported_pnl) > _PNL_ATTRIBUTION_TOLERANCE:
+        raise ValueError(f"{context}.pnl_attribution.reported_pnl must match reported PnL")
+    buckets = evidence.get("buckets")
+    if not isinstance(buckets, list) or not buckets:
+        raise ValueError(f"{context}.pnl_attribution.buckets must be a non-empty list")
+    seen_buckets: set[str] = set()
+    validated_buckets: list[dict[str, Any]] = []
+    total_contribution = 0.0
+    for index, raw_bucket in enumerate(buckets):
+        bucket_context = f"{context}.pnl_attribution.buckets[{index}]"
+        if not isinstance(raw_bucket, Mapping):
+            raise ValueError(f"{bucket_context} must be an object")
+        bucket = _require_canonical_bucket_identity(raw_bucket.get("bucket"), context=f"{bucket_context}.bucket")
+        if bucket in seen_buckets:
+            raise ValueError(f"{context}.pnl_attribution.buckets bucket values must be unique")
+        seen_buckets.add(bucket)
+        contribution = _require_strict_real_number(
+            raw_bucket.get("contribution"),
+            context=f"{bucket_context}.contribution",
+        )
+        total_contribution += contribution
+        validated_buckets.append({"bucket": bucket, "contribution": contribution})
+    for required_bucket in _REQUIRED_PNL_ATTRIBUTION_BUCKETS:
+        if required_bucket not in seen_buckets:
+            raise ValueError(f"{context}.pnl_attribution.buckets must include required bucket {required_bucket}")
+    if abs(total_contribution - reported_pnl) > _PNL_ATTRIBUTION_TOLERANCE:
+        raise ValueError(f"{context}.pnl_attribution.total_contribution must materially match reported_pnl")
+    return {
+        "schema_version": "pnl_attribution.v1",
+        "reported_pnl": evidence_reported_pnl,
+        "buckets": validated_buckets,
+        "total_contribution": total_contribution,
+    }
+
+
 def _require_rows(payload: Mapping[str, Any], *, context: str) -> list[dict[str, Any]]:
     rows = payload.get("rows")
     if not isinstance(rows, list):
@@ -811,6 +883,12 @@ def _validate_full_market_bundle(bundle: BacktestBundle) -> None:
     for numeric_key in ("total_return", "max_drawdown", "sharpe", "turnover", "cost_drag"):
         _require_real_number(summary, numeric_key, context=f"{bundle.root}/summary.json.summary")
     _require_non_negative_int(summary, "trade_count", context=f"{bundle.root}/summary.json.summary")
+    if float(summary["total_return"]) > 0.0:
+        summary["pnl_attribution"] = _require_pnl_attribution_evidence(
+            summary.get("pnl_attribution"),
+            context=f"{bundle.root}/summary.json.summary",
+            reported_pnl=float(summary["total_return"]),
+        )
 
     breakdowns_json = bundle.artifacts["breakdowns.json"]
     breakdowns = _require_mapping(breakdowns_json, "breakdowns", context=f"{bundle.root}/breakdowns.json")
@@ -958,6 +1036,19 @@ def _validate_walk_forward_bundle(bundle: BacktestBundle) -> None:
             numeric_key,
             context=f"{bundle.root}/summary.json.robustness_summary.out_of_sample_scorecard",
         )
+    if float(out_of_sample_scorecard["total_return"]) > 0.0:
+        attribution = _require_pnl_attribution_evidence(
+            summary.get("pnl_attribution"),
+            context=f"{bundle.root}/summary.json",
+            reported_pnl=float(out_of_sample_scorecard["total_return"]),
+        )
+        summary["pnl_attribution"] = attribution
+        if "pnl_attribution" in bundle.artifacts["scorecard.json"]:
+            bundle.artifacts["scorecard.json"]["pnl_attribution"] = _require_pnl_attribution_evidence(
+                bundle.artifacts["scorecard.json"]["pnl_attribution"],
+                context=f"{bundle.root}/scorecard.json",
+                reported_pnl=float(out_of_sample_scorecard["total_return"]),
+            )
     performance_dispersion = _require_mapping(robustness_summary, "performance_dispersion", context=f"{bundle.root}/summary.json.robustness_summary")
     _require_keys(
         performance_dispersion,
@@ -1377,6 +1468,48 @@ def _regime_stratified_oos_evidence(bundle: BacktestBundle) -> dict[str, Any] | 
     return None
 
 
+def _pnl_attribution_evidence(bundle: BacktestBundle) -> dict[str, Any] | None:
+    if bundle.experiment_kind == "full_market_baseline":
+        summary = _require_mapping(bundle.artifacts["summary.json"], "summary", context=f"{bundle.root}/summary.json")
+        if "pnl_attribution" in summary:
+            return _require_pnl_attribution_evidence(
+                summary["pnl_attribution"],
+                context=f"{bundle.root}/summary.json.summary",
+                reported_pnl=float(summary.get("total_return", 0.0)),
+            )
+        return None
+    if bundle.experiment_kind == "walk_forward_validation":
+        summary = bundle.artifacts["summary.json"]
+        robustness_summary = _require_mapping(summary, "robustness_summary", context=f"{bundle.root}/summary.json")
+        out_of_sample = _require_mapping(
+            robustness_summary,
+            "out_of_sample_scorecard",
+            context=f"{bundle.root}/summary.json.robustness_summary",
+        )
+        reported_pnl = float(out_of_sample.get("total_return", 0.0))
+        if "pnl_attribution" in summary:
+            return _require_pnl_attribution_evidence(
+                summary["pnl_attribution"],
+                context=f"{bundle.root}/summary.json",
+                reported_pnl=reported_pnl,
+            )
+        scorecard = bundle.artifacts["scorecard.json"]
+        if "pnl_attribution" in scorecard:
+            return _require_pnl_attribution_evidence(
+                scorecard["pnl_attribution"],
+                context=f"{bundle.root}/scorecard.json",
+                reported_pnl=reported_pnl,
+            )
+    return None
+
+
+def _has_pnl_attribution_evidence(bundle: BacktestBundle) -> bool:
+    snapshot = _metric_snapshot(bundle)
+    if snapshot.get("total_return", 0.0) <= 0.0:
+        return True
+    return _pnl_attribution_evidence(bundle) is not None
+
+
 def _has_regime_stratified_oos_evidence(bundle: BacktestBundle) -> bool:
     if bundle.experiment_kind != "walk_forward_validation":
         return True
@@ -1429,6 +1562,8 @@ def _why(
         reasons.append("out-of-sample direction reverses or clearly collapses")
     if not checks["has_attribution_or_funnel_explanation"]:
         reasons.append("missing attribution or funnel explanation")
+    if "has_pnl_attribution_evidence" in checks and not checks["has_pnl_attribution_evidence"]:
+        reasons.append("missing pnl attribution evidence")
     if not checks["has_runtime_observability_plan"]:
         reasons.append("missing runtime observability plan")
     if not checks["has_rollback_plan"]:
@@ -1475,6 +1610,8 @@ def _decision(
     if not checks["has_purged_embargoed_split_metadata"]:
         return "reject"
         return "reject"
+    if "has_pnl_attribution_evidence" in checks and not checks["has_pnl_attribution_evidence"]:
+        return "reject"
     if not checks["has_out_of_sample_evidence"]:
         return "hold"
     if experiment_kind == "walk_forward_validation" and _walk_forward_regresses_against_baseline(metric_deltas):
@@ -1501,6 +1638,7 @@ def compare_backtest_bundles(*, baseline_bundle: str | Path, variant_bundle: str
         "has_out_of_sample_evidence": _has_out_of_sample_evidence(variant),
         "has_purged_embargoed_split_metadata": _has_purged_embargoed_split_metadata(variant),
         "has_attribution_or_funnel_explanation": _has_explanation(variant),
+        "has_pnl_attribution_evidence": _has_pnl_attribution_evidence(variant),
         "has_runtime_observability_plan": _has_runtime_observability_plan(variant),
         "has_rollback_plan": _has_rollback_plan(variant),
     }
@@ -1542,6 +1680,9 @@ def compare_backtest_bundles(*, baseline_bundle: str | Path, variant_bundle: str
     regime_evidence = _regime_stratified_oos_evidence(variant)
     if regime_evidence is not None:
         promotion_gate["regime_stratified_oos"] = regime_evidence
+    pnl_attribution = _pnl_attribution_evidence(variant)
+    if pnl_attribution is not None:
+        promotion_gate["pnl_attribution"] = pnl_attribution
     decision_summary = {
         "experiment_kind": variant.experiment_kind,
         "baseline_bundle": str(baseline.root),
