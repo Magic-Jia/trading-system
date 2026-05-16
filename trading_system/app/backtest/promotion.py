@@ -22,6 +22,7 @@ _REQUIRED_MANIFEST_FIELDS = (
     "universe_asof_contract",
     "margin_liquidation_path_contract",
     "dynamic_sizing_evidence_contract",
+    "tail_risk_report_contract",
 )
 
 _REQUIRED_ARTIFACTS: dict[str, tuple[str, ...]] = {
@@ -72,6 +73,21 @@ _REQUIRED_PNL_ATTRIBUTION_BUCKETS = (
 )
 _PNL_ATTRIBUTION_TOLERANCE = 1e-9
 _PORTFOLIO_CORRELATION_EXPOSURE_SCHEMA_VERSION = "portfolio_correlation_exposure.v1"
+_TAIL_RISK_REPORT_SCHEMA_VERSION = "tail_risk_report.v1"
+_EXPECTED_TAIL_RISK_REPORT_CONTRACT_FIELDS = {
+    "scope": "walk_forward_oos_tail_risk",
+    "report_field": "summary.tail_risk_report",
+    "scorecard_field": "scorecard.tail_risk_report",
+}
+_REQUIRED_TAIL_RISK_REPORT_SECTIONS = (
+    "cvar",
+    "worst_n_days",
+    "worst_n_trades",
+    "stress_loss",
+    "liquidation_proximity",
+    "correlated_loss_clusters",
+    "scenario_provenance",
+)
 _CAPACITY_ANALYSIS_EVIDENCE_SCHEMA_VERSION = "capacity_analysis_evidence.v1"
 _REQUIRED_CAPACITY_CHECKS = (
     "capital_limits_met",
@@ -502,6 +518,32 @@ def _validate_dynamic_sizing_evidence_contract(payload: Mapping[str, Any], *, co
             )
     if contract.get("fail_closed") is not True:
         raise ValueError(f"{context}.dynamic_sizing_evidence_contract.fail_closed must be true")
+
+
+def _validate_tail_risk_report_contract(payload: Mapping[str, Any], *, context: str) -> None:
+    contract = payload.get("tail_risk_report_contract")
+    if not isinstance(contract, Mapping):
+        raise ValueError(f"{context}.tail_risk_report_contract must be an object")
+    if contract.get("schema_version") != "tail_risk_report_contract.v1":
+        raise ValueError(
+            f"{context}.tail_risk_report_contract.schema_version must be tail_risk_report_contract.v1"
+        )
+    for field_name, expected in _EXPECTED_TAIL_RISK_REPORT_CONTRACT_FIELDS.items():
+        if contract.get(field_name) != expected:
+            raise ValueError(f"{context}.tail_risk_report_contract.{field_name} must be {expected}")
+    required_sections = contract.get("required_sections")
+    if not isinstance(required_sections, list):
+        raise ValueError(f"{context}.tail_risk_report_contract.required_sections must be a list")
+    if tuple(required_sections) != _REQUIRED_TAIL_RISK_REPORT_SECTIONS:
+        joined = ", ".join(_REQUIRED_TAIL_RISK_REPORT_SECTIONS)
+        raise ValueError(f"{context}.tail_risk_report_contract.required_sections must be {joined}")
+    for index, section in enumerate(required_sections):
+        _require_canonical_bucket_identity(
+            section,
+            context=f"{context}.tail_risk_report_contract.required_sections[{index}]",
+        )
+    if contract.get("fail_closed") is not True:
+        raise ValueError(f"{context}.tail_risk_report_contract.fail_closed must be true")
 
 
 def _require_dynamic_sizing_evidence(value: Any, *, context: str) -> dict[str, Any]:
@@ -1469,6 +1511,215 @@ def _require_capacity_analysis_evidence(payload: Any, *, context: str) -> dict[s
     }
 
 
+def _tail_risk_limits(limits: Any, *, context: str) -> dict[str, float]:
+    if not isinstance(limits, Mapping):
+        raise ValueError(f"{context}.limits must be an object")
+    raw_limits = dict(limits)
+    required = (
+        "max_cvar_loss_pct",
+        "max_stress_loss_pct",
+        "min_liquidation_distance_pct",
+        "max_correlated_cluster_loss_pct",
+    )
+    return {
+        field: _require_non_negative_strict_number(raw_limits.get(field), context=f"{context}.limits.{field}")
+        for field in required
+    }
+
+
+def _tail_risk_worst_n_rows(
+    raw_section: Any,
+    *,
+    context: str,
+    id_field: str,
+) -> dict[str, Any]:
+    if not isinstance(raw_section, Mapping):
+        raise ValueError(f"{context} must be an object")
+    section = dict(raw_section)
+    n = _require_positive_int(section, "n", context=context)
+    rows = section.get("rows")
+    if not isinstance(rows, list) or not rows:
+        raise ValueError(f"{context}.rows must be a non-empty list")
+    if n != len(rows):
+        raise ValueError(f"{context}.n must match rows length")
+    validated: list[dict[str, Any]] = []
+    previous_loss: float | None = None
+    seen_ids: set[str] = set()
+    for index, raw_row in enumerate(rows):
+        row_context = f"{context}.rows[{index}]"
+        if not isinstance(raw_row, Mapping):
+            raise ValueError(f"{row_context} must be an object")
+        row_id = _require_canonical_bucket_identity(raw_row.get(id_field), context=f"{row_context}.{id_field}")
+        if row_id in seen_ids:
+            raise ValueError(f"{context}.rows {id_field} values must be unique")
+        seen_ids.add(row_id)
+        loss = _require_non_negative_strict_number(raw_row.get("loss_pct"), context=f"{row_context}.loss_pct")
+        if previous_loss is not None and loss > previous_loss:
+            raise ValueError(f"{context}.rows must be sorted by descending loss_pct")
+        previous_loss = loss
+        validated.append({id_field: row_id, "loss_pct": loss})
+    return {"n": n, "rows": validated}
+
+
+def _explicit_tail_risk_hold(raw_value: Any, *, context: str) -> dict[str, Any] | None:
+    if raw_value is None:
+        return None
+    if not isinstance(raw_value, Mapping):
+        raise ValueError(f"{context}.risk_hold must be an object")
+    if raw_value.get("active") is not True:
+        raise ValueError(f"{context}.risk_hold.active must be true")
+    reason = _require_canonical_bucket_identity(raw_value.get("reason"), context=f"{context}.risk_hold.reason")
+    return {"active": True, "reason": reason}
+
+
+def _require_tail_risk_report(payload: Any, *, context: str) -> dict[str, Any]:
+    if not isinstance(payload, Mapping):
+        raise ValueError(f"{context}.tail_risk_report must be present for positive OOS evidence")
+    evidence = dict(payload)
+    if evidence.get("schema_version") != _TAIL_RISK_REPORT_SCHEMA_VERSION:
+        raise ValueError(f"{context}.tail_risk_report.schema_version must be {_TAIL_RISK_REPORT_SCHEMA_VERSION}")
+    field_context = f"{context}.tail_risk_report"
+    as_of = _require_canonical_utc_timestamp(evidence.get("as_of"), context=f"{field_context}.as_of")
+    decision_timestamp = _require_canonical_utc_timestamp(
+        evidence.get("decision_timestamp"),
+        context=f"{field_context}.decision_timestamp",
+    )
+    if as_of > decision_timestamp:
+        raise ValueError(f"{field_context}.as_of must be at or before decision_timestamp")
+    max_age_seconds = _require_non_negative_int(evidence, "max_age_seconds", context=field_context)
+    if (decision_timestamp - as_of).total_seconds() > max_age_seconds:
+        raise ValueError(f"{field_context}.as_of must not be stale")
+    limits = _tail_risk_limits(evidence.get("limits"), context=field_context)
+    breaches: list[str] = []
+
+    cvar = _require_mapping(evidence, "cvar", context=field_context)
+    cvar_confidence = _require_strict_real_number(cvar.get("confidence"), context=f"{field_context}.cvar.confidence")
+    if cvar_confidence <= 0.0 or cvar_confidence >= 1.0:
+        raise ValueError(f"{field_context}.cvar.confidence must be between 0 and 1")
+    cvar_loss = _require_non_negative_strict_number(cvar.get("loss_pct"), context=f"{field_context}.cvar.loss_pct")
+    cvar_sample_size = _require_positive_int(cvar, "sample_size", context=f"{field_context}.cvar")
+    if cvar_loss > limits["max_cvar_loss_pct"]:
+        breaches.append("CVaR loss exceeds configured limit")
+
+    worst_n_days = _tail_risk_worst_n_rows(
+        evidence.get("worst_n_days"),
+        context=f"{field_context}.worst_n_days",
+        id_field="date",
+    )
+    worst_n_trades = _tail_risk_worst_n_rows(
+        evidence.get("worst_n_trades"),
+        context=f"{field_context}.worst_n_trades",
+        id_field="trade_id",
+    )
+
+    stress_loss = _require_mapping(evidence, "stress_loss", context=field_context)
+    stress_scenario_id = _require_canonical_bucket_identity(
+        stress_loss.get("scenario_id"),
+        context=f"{field_context}.stress_loss.scenario_id",
+    )
+    stress_loss_pct = _require_non_negative_strict_number(
+        stress_loss.get("loss_pct"),
+        context=f"{field_context}.stress_loss.loss_pct",
+    )
+    if stress_loss_pct > limits["max_stress_loss_pct"]:
+        breaches.append("stress loss exceeds configured limit")
+
+    liquidation = _require_mapping(evidence, "liquidation_proximity", context=field_context)
+    nearest_symbol = _require_canonical_bucket_identity(
+        liquidation.get("nearest_symbol"),
+        context=f"{field_context}.liquidation_proximity.nearest_symbol",
+    )
+    liquidation_distance = _require_non_negative_strict_number(
+        liquidation.get("distance_to_liquidation_pct"),
+        context=f"{field_context}.liquidation_proximity.distance_to_liquidation_pct",
+    )
+    if liquidation_distance < limits["min_liquidation_distance_pct"]:
+        breaches.append("liquidation proximity breaches configured limit")
+
+    raw_clusters = evidence.get("correlated_loss_clusters")
+    if not isinstance(raw_clusters, list) or not raw_clusters:
+        raise ValueError(f"{field_context}.correlated_loss_clusters must be a non-empty list")
+    clusters: list[dict[str, Any]] = []
+    seen_clusters: set[str] = set()
+    for index, raw_cluster in enumerate(raw_clusters):
+        cluster_context = f"{field_context}.correlated_loss_clusters[{index}]"
+        if not isinstance(raw_cluster, Mapping):
+            raise ValueError(f"{cluster_context} must be an object")
+        cluster_id = _require_canonical_bucket_identity(
+            raw_cluster.get("cluster_id"),
+            context=f"{cluster_context}.cluster_id",
+        )
+        if cluster_id in seen_clusters:
+            raise ValueError(f"{field_context}.correlated_loss_clusters cluster_id values must be unique")
+        seen_clusters.add(cluster_id)
+        cluster_loss = _require_non_negative_strict_number(
+            raw_cluster.get("loss_pct"),
+            context=f"{cluster_context}.loss_pct",
+        )
+        if cluster_loss > limits["max_correlated_cluster_loss_pct"]:
+            breaches.append(f"{cluster_id} correlated loss cluster exceeds configured limit")
+        members = raw_cluster.get("members")
+        if not isinstance(members, list) or not members:
+            raise ValueError(f"{cluster_context}.members must be a non-empty list")
+        clusters.append(
+            {
+                "cluster_id": cluster_id,
+                "loss_pct": cluster_loss,
+                "members": [
+                    _require_canonical_bucket_identity(member, context=f"{cluster_context}.members[{member_index}]")
+                    for member_index, member in enumerate(members)
+                ],
+            }
+        )
+
+    raw_provenance = evidence.get("scenario_provenance")
+    if not isinstance(raw_provenance, list) or not raw_provenance:
+        raise ValueError(f"{field_context}.scenario_provenance must be a non-empty list")
+    provenance: list[dict[str, Any]] = []
+    seen_scenarios: set[str] = set()
+    for index, raw_scenario in enumerate(raw_provenance):
+        scenario_context = f"{field_context}.scenario_provenance[{index}]"
+        if not isinstance(raw_scenario, Mapping):
+            raise ValueError(f"{scenario_context} must be an object")
+        scenario_id = _require_canonical_bucket_identity(
+            raw_scenario.get("scenario_id"),
+            context=f"{scenario_context}.scenario_id",
+        )
+        if scenario_id in seen_scenarios:
+            raise ValueError(f"{field_context}.scenario_provenance scenario_id values must be unique")
+        seen_scenarios.add(scenario_id)
+        source = _require_canonical_bucket_identity(raw_scenario.get("source"), context=f"{scenario_context}.source")
+        generated_at = _require_canonical_utc_timestamp(
+            raw_scenario.get("generated_at"),
+            context=f"{scenario_context}.generated_at",
+        )
+        if generated_at > as_of:
+            raise ValueError(f"{scenario_context}.generated_at must be at or before tail_risk_report.as_of")
+        provenance.append({"scenario_id": scenario_id, "source": source, "generated_at": raw_scenario["generated_at"]})
+    if stress_scenario_id not in seen_scenarios:
+        raise ValueError(f"{field_context}.scenario_provenance must include stress_loss.scenario_id")
+    risk_hold = _explicit_tail_risk_hold(evidence.get("risk_hold"), context=field_context)
+    return {
+        "schema_version": _TAIL_RISK_REPORT_SCHEMA_VERSION,
+        "as_of": evidence["as_of"],
+        "decision_timestamp": evidence["decision_timestamp"],
+        "max_age_seconds": max_age_seconds,
+        "limits": limits,
+        "cvar": {"confidence": cvar_confidence, "loss_pct": cvar_loss, "sample_size": cvar_sample_size},
+        "worst_n_days": worst_n_days,
+        "worst_n_trades": worst_n_trades,
+        "stress_loss": {"scenario_id": stress_scenario_id, "loss_pct": stress_loss_pct},
+        "liquidation_proximity": {
+            "nearest_symbol": nearest_symbol,
+            "distance_to_liquidation_pct": liquidation_distance,
+        },
+        "correlated_loss_clusters": clusters,
+        "scenario_provenance": provenance,
+        "breaches": breaches,
+        **({"risk_hold": risk_hold} if risk_hold is not None else {}),
+    }
+
+
 def _require_rows(payload: Mapping[str, Any], *, context: str) -> list[dict[str, Any]]:
     rows = payload.get("rows")
     if not isinstance(rows, list):
@@ -1563,6 +1814,7 @@ def _validate_manifest(bundle_dir: Path, manifest: Mapping[str, Any]) -> None:
     _validate_universe_asof_contract(manifest, context=f"{bundle_dir}/manifest.json")
     _validate_margin_liquidation_path_contract(manifest, context=f"{bundle_dir}/manifest.json")
     _validate_dynamic_sizing_evidence_contract(manifest, context=f"{bundle_dir}/manifest.json")
+    _validate_tail_risk_report_contract(manifest, context=f"{bundle_dir}/manifest.json")
 
 
 
@@ -1802,6 +2054,11 @@ def _validate_walk_forward_bundle(bundle: BacktestBundle) -> None:
             summary.get("drawdown_anatomy"),
             context=f"{bundle.root}/summary.json",
         )
+    if "tail_risk_report" in summary:
+        summary["tail_risk_report"] = _require_tail_risk_report(
+            summary.get("tail_risk_report"),
+            context=f"{bundle.root}/summary.json",
+        )
     windows = _require_rows(bundle.artifacts["windows.json"], context=f"{bundle.root}/windows.json")
     _require_multiple_testing_correction(
         bundle.artifacts["scorecard.json"],
@@ -1846,6 +2103,11 @@ def _validate_walk_forward_bundle(bundle: BacktestBundle) -> None:
     if "drawdown_anatomy" in scorecard:
         scorecard["drawdown_anatomy"] = _require_drawdown_anatomy_evidence(
             scorecard["drawdown_anatomy"],
+            context=f"{bundle.root}/scorecard.json",
+        )
+    if "tail_risk_report" in scorecard:
+        scorecard["tail_risk_report"] = _require_tail_risk_report(
+            scorecard["tail_risk_report"],
             context=f"{bundle.root}/scorecard.json",
         )
 
@@ -2379,6 +2641,33 @@ def _capacity_analysis_breaches(bundle: BacktestBundle) -> list[str]:
     return breaches
 
 
+def _tail_risk_report(bundle: BacktestBundle) -> dict[str, Any] | None:
+    if bundle.experiment_kind != "walk_forward_validation":
+        return None
+    summary = bundle.artifacts["summary.json"]
+    if "tail_risk_report" in summary:
+        return _require_tail_risk_report(summary["tail_risk_report"], context=f"{bundle.root}/summary.json")
+    scorecard = bundle.artifacts["scorecard.json"]
+    if "tail_risk_report" in scorecard:
+        return _require_tail_risk_report(scorecard["tail_risk_report"], context=f"{bundle.root}/scorecard.json")
+    return None
+
+
+def _has_tail_risk_report(bundle: BacktestBundle) -> bool:
+    if bundle.experiment_kind != "walk_forward_validation":
+        return True
+    return _tail_risk_report(bundle) is not None
+
+
+def _tail_risk_breaches(bundle: BacktestBundle) -> list[str]:
+    evidence = _tail_risk_report(bundle)
+    if evidence is None:
+        return []
+    if evidence.get("risk_hold", {}).get("active") is True:
+        return []
+    return list(evidence.get("breaches", []))
+
+
 def _collapsed_regime_oos_buckets(bundle: BacktestBundle) -> list[str]:
     evidence = _regime_stratified_oos_evidence(bundle)
     if evidence is None:
@@ -2457,6 +2746,10 @@ def _why(
         reasons.append("capacity analysis evidence breaches configured limits")
     if "has_drawdown_anatomy_evidence" in checks and not checks["has_drawdown_anatomy_evidence"]:
         reasons.append("missing drawdown anatomy evidence")
+    if "has_tail_risk_report" in checks and not checks["has_tail_risk_report"]:
+        reasons.append("missing tail-risk report evidence")
+    if "rejects_tail_risk_limit_breach" in checks and not checks["rejects_tail_risk_limit_breach"]:
+        reasons.append("tail-risk report breaches configured limits")
     return reasons
 
 
@@ -2504,8 +2797,11 @@ def _decision(
         return "reject"
     if "has_drawdown_anatomy_evidence" in checks and not checks["has_drawdown_anatomy_evidence"]:
         return "reject"
-    if not checks["has_purged_embargoed_split_metadata"]:
+    if "has_tail_risk_report" in checks and not checks["has_tail_risk_report"]:
         return "reject"
+    if "rejects_tail_risk_limit_breach" in checks and not checks["rejects_tail_risk_limit_breach"]:
+        return "reject"
+    if not checks["has_purged_embargoed_split_metadata"]:
         return "reject"
     if "has_pnl_attribution_evidence" in checks and not checks["has_pnl_attribution_evidence"]:
         return "reject"
@@ -2556,12 +2852,15 @@ def compare_backtest_bundles(*, baseline_bundle: str | Path, variant_bundle: str
         checks["has_capacity_analysis_evidence"] = _has_capacity_analysis_evidence(variant)
         checks["rejects_capacity_limit_breach"] = not _capacity_analysis_breaches(variant)
         checks["has_drawdown_anatomy_evidence"] = _has_drawdown_anatomy_evidence(variant)
+        checks["has_tail_risk_report"] = _has_tail_risk_report(variant)
+        checks["rejects_tail_risk_limit_breach"] = not _tail_risk_breaches(variant)
     metric_deltas = _metric_deltas(baseline, variant)
     out_of_sample_collapses = _out_of_sample_collapses(variant)
     isolated_spike_rejection_reason = _isolated_spike_rejection_reason(variant)
     collapsed_regime_buckets = _collapsed_regime_oos_buckets(variant)
     portfolio_exposure_breaches = _portfolio_correlation_exposure_breaches(variant)
     capacity_analysis_breaches = _capacity_analysis_breaches(variant)
+    tail_risk_breaches = _tail_risk_breaches(variant)
     why = _why(
         checks,
         out_of_sample_collapses=out_of_sample_collapses,
@@ -2585,6 +2884,9 @@ def compare_backtest_bundles(*, baseline_bundle: str | Path, variant_bundle: str
             if reason != "capacity analysis evidence breaches configured limits"
         ]
         why.extend(capacity_analysis_breaches)
+    if tail_risk_breaches:
+        why = [reason for reason in why if reason != "tail-risk report breaches configured limits"]
+        why.extend(tail_risk_breaches)
     decision = _decision(
         checks,
         experiment_kind=variant.experiment_kind,
@@ -2620,6 +2922,9 @@ def compare_backtest_bundles(*, baseline_bundle: str | Path, variant_bundle: str
     drawdown_anatomy = _drawdown_anatomy_evidence(variant)
     if drawdown_anatomy is not None:
         promotion_gate["drawdown_anatomy"] = drawdown_anatomy
+    tail_risk_report = _tail_risk_report(variant)
+    if tail_risk_report is not None:
+        promotion_gate["tail_risk_report"] = tail_risk_report
     decision_summary = {
         "experiment_kind": variant.experiment_kind,
         "baseline_bundle": str(baseline.root),
@@ -2635,4 +2940,6 @@ def compare_backtest_bundles(*, baseline_bundle: str | Path, variant_bundle: str
         decision_summary["capacity_analysis_evidence"] = capacity_analysis_evidence
     if drawdown_anatomy is not None:
         decision_summary["drawdown_anatomy"] = drawdown_anatomy
+    if tail_risk_report is not None:
+        decision_summary["tail_risk_report"] = tail_risk_report
     return {"promotion_gate": promotion_gate, "decision_summary": decision_summary}

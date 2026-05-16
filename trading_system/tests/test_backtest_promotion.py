@@ -63,6 +63,22 @@ def _manifest(*, experiment_kind: str, baseline_name: str, variant_name: str, ar
             "required_degradation_axes": ["liquidity", "volatility", "drawdown", "execution"],
             "fail_closed": True,
         },
+        "tail_risk_report_contract": {
+            "schema_version": "tail_risk_report_contract.v1",
+            "scope": "walk_forward_oos_tail_risk",
+            "report_field": "summary.tail_risk_report",
+            "scorecard_field": "scorecard.tail_risk_report",
+            "required_sections": [
+                "cvar",
+                "worst_n_days",
+                "worst_n_trades",
+                "stress_loss",
+                "liquidation_proximity",
+                "correlated_loss_clusters",
+                "scenario_provenance",
+            ],
+            "fail_closed": True,
+        },
     }
 
 
@@ -293,6 +309,67 @@ def _capacity_analysis_evidence(**overrides: object) -> dict[str, object]:
     return payload
 
 
+def _tail_risk_report(
+    *,
+    cvar_loss_pct: object = 0.08,
+    stress_loss_pct: object = 0.11,
+    liquidation_distance_pct: object = 0.32,
+    cluster_loss_pct: object = 0.06,
+    risk_hold: dict[str, object] | None = None,
+) -> dict[str, object]:
+    return {
+        "schema_version": "tail_risk_report.v1",
+        "as_of": "2026-01-31T00:00:00Z",
+        "decision_timestamp": "2026-01-31T00:30:00Z",
+        "max_age_seconds": 3600,
+        "limits": {
+            "max_cvar_loss_pct": 0.12,
+            "max_stress_loss_pct": 0.18,
+            "min_liquidation_distance_pct": 0.20,
+            "max_correlated_cluster_loss_pct": 0.10,
+        },
+        "cvar": {"confidence": 0.95, "loss_pct": cvar_loss_pct, "sample_size": 40},
+        "worst_n_days": {
+            "n": 3,
+            "rows": [
+                {"date": "2026-01-12", "loss_pct": 0.07},
+                {"date": "2026-01-18", "loss_pct": 0.05},
+                {"date": "2026-01-27", "loss_pct": 0.03},
+            ],
+        },
+        "worst_n_trades": {
+            "n": 3,
+            "rows": [
+                {"trade_id": "trade-003", "loss_pct": 0.06},
+                {"trade_id": "trade-007", "loss_pct": 0.04},
+                {"trade_id": "trade-011", "loss_pct": 0.02},
+            ],
+        },
+        "stress_loss": {"scenario_id": "stress-crash-001", "loss_pct": stress_loss_pct},
+        "liquidation_proximity": {
+            "nearest_symbol": "BTCUSDT",
+            "distance_to_liquidation_pct": liquidation_distance_pct,
+        },
+        "correlated_loss_clusters": [
+            {"cluster_id": "majors", "loss_pct": cluster_loss_pct, "members": ["BTCUSDT", "ETHUSDT"]},
+            {"cluster_id": "alts", "loss_pct": 0.04, "members": ["SOLUSDT"]},
+        ],
+        "scenario_provenance": [
+            {
+                "scenario_id": "stress-crash-001",
+                "source": "offline_backtest_fixture",
+                "generated_at": "2026-01-30T00:00:00Z",
+            },
+            {
+                "scenario_id": "stress-correlation-001",
+                "source": "offline_backtest_fixture",
+                "generated_at": "2026-01-30T00:00:00Z",
+            },
+        ],
+        **({"risk_hold": risk_hold} if risk_hold is not None else {}),
+    }
+
+
 def _write_full_market_bundle(
     root: Path,
     *,
@@ -390,6 +467,7 @@ def _write_walk_forward_bundle(
     capacity_analysis_evidence: dict[str, object] | None = None,
     drawdown_anatomy: dict[str, object] | None = None,
     include_drawdown_anatomy: bool = True,
+    tail_risk_report: dict[str, object] | None = None,
     include_pnl_attribution: bool = True,
 ) -> Path:
     root.mkdir(parents=True, exist_ok=True)
@@ -450,6 +528,8 @@ def _write_walk_forward_bundle(
         summary_payload["capacity_analysis_evidence"] = capacity_analysis_evidence
     if include_drawdown_anatomy and out_of_sample_total_return > 0.0:
         summary_payload["drawdown_anatomy"] = drawdown_anatomy or _drawdown_anatomy_evidence()
+    if tail_risk_report is not None:
+        summary_payload["tail_risk_report"] = tail_risk_report
     if runtime_fields:
         summary_payload["runtime_observability"] = {"runtime_fields": runtime_fields}
     if rollback_target and (rollback_trigger or observation_window):
@@ -543,6 +623,7 @@ def _write_walk_forward_bundle(
                 if include_dynamic_sizing_evidence and out_of_sample_total_return > 0.0
                 else {}
             ),
+            **({"tail_risk_report": tail_risk_report} if tail_risk_report is not None else {}),
         },
     )
     return root
@@ -1250,6 +1331,7 @@ def test_compare_backtest_bundles_promotes_walk_forward_when_all_checks_pass(tmp
         pnl_attribution=_pnl_attribution_evidence(reported_pnl=0.08),
         portfolio_correlation_exposure=_portfolio_correlation_exposure_evidence(),
         capacity_analysis_evidence=_capacity_analysis_evidence(),
+        tail_risk_report=_tail_risk_report(),
     )
 
     result = promotion.compare_backtest_bundles(
@@ -1278,6 +1360,8 @@ def test_compare_backtest_bundles_promotes_walk_forward_when_all_checks_pass(tmp
         "has_capacity_analysis_evidence": True,
         "rejects_capacity_limit_breach": True,
         "has_drawdown_anatomy_evidence": True,
+        "has_tail_risk_report": True,
+        "rejects_tail_risk_limit_breach": True,
     }
     assert gate["why"] == []
     assert gate["regime_stratified_oos"]["buckets"][0]["bucket"] == "volatility"
@@ -1288,6 +1372,8 @@ def test_compare_backtest_bundles_promotes_walk_forward_when_all_checks_pass(tmp
     assert gate["capacity_analysis_evidence"]["summary"]["claimed_capacity_usdt"] == 50000.0
     assert gate["drawdown_anatomy"]["drawdowns"][0]["regime_cluster_id"] == "regime-crash"
     assert result["decision_summary"]["drawdown_anatomy"]["drawdowns"][0]["trade_cluster_id"] == "trade-cluster-001"
+    assert gate["tail_risk_report"]["cvar"]["loss_pct"] == 0.08
+    assert result["decision_summary"]["tail_risk_report"]["scenario_provenance"][0]["scenario_id"] == "stress-crash-001"
 
 
 def test_compare_backtest_bundles_rejects_positive_walk_forward_without_drawdown_anatomy(
@@ -1438,6 +1524,7 @@ def test_compare_backtest_bundles_rejects_positive_walk_forward_without_portfoli
             net_exposure_pct=0.16,
             gross_exposure_pct=0.39,
         ),
+        tail_risk_report=_tail_risk_report(),
     )
     variant_bundle = _write_walk_forward_bundle(
         tmp_path / "variant",
@@ -1508,6 +1595,7 @@ def test_compare_backtest_bundles_rejects_positive_walk_forward_without_capacity
         regime_stratified_oos=_regime_stratified_oos_evidence(),
         pnl_attribution=_pnl_attribution_evidence(reported_pnl=0.08),
         portfolio_correlation_exposure=_portfolio_correlation_exposure_evidence(),
+        tail_risk_report=_tail_risk_report(),
     )
 
     result = promotion.compare_backtest_bundles(
@@ -1562,6 +1650,7 @@ def test_compare_backtest_bundles_preserves_capacity_evidence_when_all_checks_pa
         pnl_attribution=_pnl_attribution_evidence(reported_pnl=0.08),
         portfolio_correlation_exposure=_portfolio_correlation_exposure_evidence(),
         capacity_analysis_evidence=_capacity_analysis_evidence(),
+        tail_risk_report=_tail_risk_report(),
     )
 
     result = promotion.compare_backtest_bundles(
@@ -1604,6 +1693,7 @@ def test_load_backtest_bundle_rejects_malformed_capacity_evidence(tmp_path: Path
                 "liquidity_regime": "normal",
             }
         ),
+        tail_risk_report=_tail_risk_report(),
     )
 
     with pytest.raises(
@@ -1676,6 +1766,61 @@ def test_compare_backtest_bundles_rejects_capacity_limit_breach_without_hold(tmp
     assert "claimed capacity exceeds max capital" in gate["why"]
 
 
+def test_compare_backtest_bundles_rejects_positive_walk_forward_without_tail_risk_report(
+    tmp_path: Path,
+) -> None:
+    split_metadata = {
+        "schema_version": "walk_forward_split_metadata.v1",
+        "purge_bars": 1,
+        "embargo_bars": 0,
+    }
+    baseline_bundle = _write_walk_forward_bundle(
+        tmp_path / "baseline",
+        baseline_name="current_policy",
+        variant_name="baseline_walk_forward",
+        out_of_sample_total_return=0.03,
+        positive_window_ratio=0.75,
+        parameter_stability_score=0.7,
+        worst_window_return=0.01,
+        split_metadata=split_metadata,
+        runtime_fields=["regime", "allocator_decision_reason"],
+        rollback_target="baseline_walk_forward",
+        rollback_trigger="oos_total_return_below_zero",
+        observation_window="14d",
+        regime_stratified_oos=_regime_stratified_oos_evidence(),
+        pnl_attribution=_pnl_attribution_evidence(reported_pnl=0.03),
+        portfolio_correlation_exposure=_portfolio_correlation_exposure_evidence(),
+        tail_risk_report=_tail_risk_report(),
+    )
+    variant_bundle = _write_walk_forward_bundle(
+        tmp_path / "variant",
+        baseline_name="current_policy",
+        variant_name="candidate_walk_forward",
+        out_of_sample_total_return=0.08,
+        positive_window_ratio=0.9,
+        parameter_stability_score=0.9,
+        worst_window_return=0.02,
+        split_metadata=split_metadata,
+        runtime_fields=["regime", "allocator_decision_reason"],
+        rollback_target="baseline_walk_forward",
+        rollback_trigger="oos_total_return_below_zero",
+        observation_window="14d",
+        regime_stratified_oos=_regime_stratified_oos_evidence(),
+        pnl_attribution=_pnl_attribution_evidence(reported_pnl=0.08),
+        portfolio_correlation_exposure=_portfolio_correlation_exposure_evidence(),
+    )
+
+    result = promotion.compare_backtest_bundles(
+        baseline_bundle=baseline_bundle,
+        variant_bundle=variant_bundle,
+    )
+
+    gate = result["promotion_gate"]
+    assert gate["decision"] == "reject"
+    assert gate["checks"]["has_tail_risk_report"] is False
+    assert "missing tail-risk report evidence" in gate["why"]
+
+
 @pytest.mark.parametrize(
     ("mutate", "match"),
     [
@@ -1724,10 +1869,202 @@ def test_load_backtest_bundle_rejects_invalid_portfolio_correlation_exposure_con
         regime_stratified_oos=_regime_stratified_oos_evidence(),
         pnl_attribution=_pnl_attribution_evidence(reported_pnl=0.08),
         portfolio_correlation_exposure=evidence,
+        tail_risk_report=_tail_risk_report(),
     )
 
     with pytest.raises(ValueError, match=re.escape(match)):
         promotion.load_backtest_bundle(bundle)
+
+
+@pytest.mark.parametrize(
+    ("mutate", "match"),
+    [
+        (
+            lambda evidence: evidence.__setitem__("schema_version", "tail_risk_report.v0"),
+            "tail_risk_report.schema_version must be tail_risk_report.v1",
+        ),
+        (
+            lambda evidence: evidence["cvar"].__setitem__("loss_pct", "0.08"),  # type: ignore[index,union-attr]
+            "tail_risk_report.cvar.loss_pct must be a finite strict number",
+        ),
+        (
+            lambda evidence: evidence["stress_loss"].__setitem__("loss_pct", True),  # type: ignore[index,union-attr]
+            "tail_risk_report.stress_loss.loss_pct must be a finite strict number",
+        ),
+        (
+            lambda evidence: evidence["liquidation_proximity"].__setitem__("distance_to_liquidation_pct", float("nan")),  # type: ignore[index,union-attr]
+            "tail_risk_report.liquidation_proximity.distance_to_liquidation_pct must be a finite strict number",
+        ),
+        (
+            lambda evidence: evidence.__setitem__("as_of", "2026-01-31T00:30:01Z"),
+            "tail_risk_report.as_of must be at or before decision_timestamp",
+        ),
+        (
+            lambda evidence: evidence.__setitem__("as_of", "2026-01-30T00:00:00Z"),
+            "tail_risk_report.as_of must not be stale",
+        ),
+        (
+            lambda evidence: evidence["worst_n_days"]["rows"].reverse(),  # type: ignore[index,union-attr]
+            "tail_risk_report.worst_n_days.rows must be sorted by descending loss_pct",
+        ),
+        (
+            lambda evidence: evidence["worst_n_trades"].__setitem__("n", 2),  # type: ignore[index,union-attr]
+            "tail_risk_report.worst_n_trades.n must match rows length",
+        ),
+        (
+            lambda evidence: evidence["correlated_loss_clusters"].append(dict(evidence["correlated_loss_clusters"][0])),  # type: ignore[index,union-attr]
+            "tail_risk_report.correlated_loss_clusters cluster_id values must be unique",
+        ),
+        (
+            lambda evidence: evidence["scenario_provenance"].append(dict(evidence["scenario_provenance"][0])),  # type: ignore[index,union-attr]
+            "tail_risk_report.scenario_provenance scenario_id values must be unique",
+        ),
+    ],
+)
+def test_load_backtest_bundle_rejects_invalid_tail_risk_report_contract(
+    tmp_path: Path,
+    mutate,
+    match: str,
+) -> None:
+    tail_risk_report = _tail_risk_report()
+    mutate(tail_risk_report)
+    bundle = _write_walk_forward_bundle(
+        tmp_path / "bundle",
+        baseline_name="current_policy",
+        variant_name="candidate_walk_forward",
+        out_of_sample_total_return=0.08,
+        positive_window_ratio=0.9,
+        parameter_stability_score=0.9,
+        worst_window_return=0.02,
+        split_metadata={
+            "schema_version": "walk_forward_split_metadata.v1",
+            "purge_bars": 1,
+            "embargo_bars": 0,
+        },
+        regime_stratified_oos=_regime_stratified_oos_evidence(),
+        pnl_attribution=_pnl_attribution_evidence(reported_pnl=0.08),
+        portfolio_correlation_exposure=_portfolio_correlation_exposure_evidence(),
+        tail_risk_report=tail_risk_report,
+    )
+
+    with pytest.raises(ValueError, match=re.escape(match)):
+        promotion.load_backtest_bundle(bundle)
+
+
+def test_compare_backtest_bundles_rejects_tail_risk_limit_breach_without_risk_hold(
+    tmp_path: Path,
+) -> None:
+    split_metadata = {
+        "schema_version": "walk_forward_split_metadata.v1",
+        "purge_bars": 1,
+        "embargo_bars": 0,
+    }
+    baseline_bundle = _write_walk_forward_bundle(
+        tmp_path / "baseline",
+        baseline_name="current_policy",
+        variant_name="baseline_walk_forward",
+        out_of_sample_total_return=0.03,
+        positive_window_ratio=0.75,
+        parameter_stability_score=0.7,
+        worst_window_return=0.01,
+        split_metadata=split_metadata,
+        runtime_fields=["regime", "allocator_decision_reason"],
+        rollback_target="baseline_walk_forward",
+        rollback_trigger="oos_total_return_below_zero",
+        observation_window="14d",
+        regime_stratified_oos=_regime_stratified_oos_evidence(),
+        pnl_attribution=_pnl_attribution_evidence(reported_pnl=0.03),
+        portfolio_correlation_exposure=_portfolio_correlation_exposure_evidence(),
+        tail_risk_report=_tail_risk_report(),
+    )
+    variant_bundle = _write_walk_forward_bundle(
+        tmp_path / "variant",
+        baseline_name="current_policy",
+        variant_name="candidate_walk_forward",
+        out_of_sample_total_return=0.08,
+        positive_window_ratio=0.9,
+        parameter_stability_score=0.9,
+        worst_window_return=0.02,
+        split_metadata=split_metadata,
+        runtime_fields=["regime", "allocator_decision_reason"],
+        rollback_target="baseline_walk_forward",
+        rollback_trigger="oos_total_return_below_zero",
+        observation_window="14d",
+        regime_stratified_oos=_regime_stratified_oos_evidence(),
+        pnl_attribution=_pnl_attribution_evidence(reported_pnl=0.08),
+        portfolio_correlation_exposure=_portfolio_correlation_exposure_evidence(),
+        tail_risk_report=_tail_risk_report(cvar_loss_pct=0.16),
+    )
+
+    result = promotion.compare_backtest_bundles(
+        baseline_bundle=baseline_bundle,
+        variant_bundle=variant_bundle,
+    )
+
+    gate = result["promotion_gate"]
+    assert gate["decision"] == "reject"
+    assert gate["checks"]["rejects_tail_risk_limit_breach"] is False
+    assert "CVaR loss exceeds configured limit" in gate["why"]
+
+
+def test_compare_backtest_bundles_allows_tail_risk_limit_breach_with_explicit_risk_hold(
+    tmp_path: Path,
+) -> None:
+    split_metadata = {
+        "schema_version": "walk_forward_split_metadata.v1",
+        "purge_bars": 1,
+        "embargo_bars": 0,
+    }
+    baseline_bundle = _write_walk_forward_bundle(
+        tmp_path / "baseline",
+        baseline_name="current_policy",
+        variant_name="baseline_walk_forward",
+        out_of_sample_total_return=0.03,
+        positive_window_ratio=0.75,
+        parameter_stability_score=0.7,
+        worst_window_return=0.01,
+        split_metadata=split_metadata,
+        runtime_fields=["regime", "allocator_decision_reason"],
+        rollback_target="baseline_walk_forward",
+        rollback_trigger="oos_total_return_below_zero",
+        observation_window="14d",
+        regime_stratified_oos=_regime_stratified_oos_evidence(),
+        pnl_attribution=_pnl_attribution_evidence(reported_pnl=0.03),
+        portfolio_correlation_exposure=_portfolio_correlation_exposure_evidence(),
+        tail_risk_report=_tail_risk_report(),
+    )
+    variant_bundle = _write_walk_forward_bundle(
+        tmp_path / "variant",
+        baseline_name="current_policy",
+        variant_name="candidate_walk_forward",
+        out_of_sample_total_return=0.08,
+        positive_window_ratio=0.9,
+        parameter_stability_score=0.9,
+        worst_window_return=0.02,
+        split_metadata=split_metadata,
+        runtime_fields=["regime", "allocator_decision_reason"],
+        rollback_target="baseline_walk_forward",
+        rollback_trigger="oos_total_return_below_zero",
+        observation_window="14d",
+        regime_stratified_oos=_regime_stratified_oos_evidence(),
+        pnl_attribution=_pnl_attribution_evidence(reported_pnl=0.08),
+        portfolio_correlation_exposure=_portfolio_correlation_exposure_evidence(),
+        capacity_analysis_evidence=_capacity_analysis_evidence(),
+        tail_risk_report=_tail_risk_report(
+            cvar_loss_pct=0.16,
+            risk_hold={"active": True, "reason": "tail_risk_review_hold"},
+        ),
+    )
+
+    result = promotion.compare_backtest_bundles(
+        baseline_bundle=baseline_bundle,
+        variant_bundle=variant_bundle,
+    )
+
+    gate = result["promotion_gate"]
+    assert gate["decision"] == "candidate_for_promotion"
+    assert gate["checks"]["rejects_tail_risk_limit_breach"] is True
+    assert gate["tail_risk_report"]["risk_hold"] == {"active": True, "reason": "tail_risk_review_hold"}
 
 
 def test_compare_backtest_bundles_rejects_portfolio_exposure_limit_breach_without_risk_hold(
@@ -1754,6 +2091,7 @@ def test_compare_backtest_bundles_rejects_portfolio_exposure_limit_breach_withou
         regime_stratified_oos=_regime_stratified_oos_evidence(),
         pnl_attribution=_pnl_attribution_evidence(reported_pnl=0.03),
         portfolio_correlation_exposure=_portfolio_correlation_exposure_evidence(),
+        tail_risk_report=_tail_risk_report(),
     )
     variant_bundle = _write_walk_forward_bundle(
         tmp_path / "variant",
@@ -1771,6 +2109,7 @@ def test_compare_backtest_bundles_rejects_portfolio_exposure_limit_breach_withou
         regime_stratified_oos=_regime_stratified_oos_evidence(),
         pnl_attribution=_pnl_attribution_evidence(reported_pnl=0.08),
         portfolio_correlation_exposure=_portfolio_correlation_exposure_evidence(gross_exposure_pct=1.4),
+        tail_risk_report=_tail_risk_report(),
     )
 
     result = promotion.compare_backtest_bundles(
@@ -1826,6 +2165,7 @@ def test_compare_backtest_bundles_rejects_positive_walk_forward_without_dynamic_
         pnl_attribution=_pnl_attribution_evidence(reported_pnl=0.08),
         include_dynamic_sizing_evidence=False,
         portfolio_correlation_exposure=_portfolio_correlation_exposure_evidence(),
+        tail_risk_report=_tail_risk_report(),
     )
 
     result = promotion.compare_backtest_bundles(
@@ -2048,6 +2388,7 @@ def test_compare_backtest_bundles_rejects_regime_bucket_level_collapse(tmp_path:
         regime_stratified_oos=_regime_stratified_oos_evidence(),
         portfolio_correlation_exposure=_portfolio_correlation_exposure_evidence(),
         capacity_analysis_evidence=_capacity_analysis_evidence(),
+        tail_risk_report=_tail_risk_report(),
     )
     variant_bundle = _write_walk_forward_bundle(
         tmp_path / "variant",
@@ -2093,6 +2434,7 @@ def test_compare_backtest_bundles_rejects_walk_forward_without_split_metadata(tm
         regime_stratified_oos=_regime_stratified_oos_evidence(),
         portfolio_correlation_exposure=_portfolio_correlation_exposure_evidence(),
         capacity_analysis_evidence=_capacity_analysis_evidence(),
+        tail_risk_report=_tail_risk_report(),
     )
     variant_bundle = _write_walk_forward_bundle(
         tmp_path / "variant",
@@ -2421,6 +2763,7 @@ def test_compare_backtest_bundles_holds_walk_forward_when_stability_regresses_vs
         regime_stratified_oos=_regime_stratified_oos_evidence(),
         portfolio_correlation_exposure=_portfolio_correlation_exposure_evidence(),
         capacity_analysis_evidence=_capacity_analysis_evidence(),
+        tail_risk_report=_tail_risk_report(),
     )
     variant_bundle = _write_walk_forward_bundle(
         tmp_path / "variant",
@@ -2438,6 +2781,7 @@ def test_compare_backtest_bundles_holds_walk_forward_when_stability_regresses_vs
         regime_stratified_oos=_regime_stratified_oos_evidence(),
         portfolio_correlation_exposure=_portfolio_correlation_exposure_evidence(),
         capacity_analysis_evidence=_capacity_analysis_evidence(),
+        tail_risk_report=_tail_risk_report(),
     )
 
     result = promotion.compare_backtest_bundles(
