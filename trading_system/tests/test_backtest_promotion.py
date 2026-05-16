@@ -56,6 +56,35 @@ def _multiple_testing_correction(*, number_of_trials: int, adjusted_pass: bool =
     }
 
 
+def _regime_stratified_oos_evidence(*, crash_total_return: float = 0.01) -> dict[str, object]:
+    return {
+        "schema_version": "regime_stratified_oos.v1",
+        "required_buckets": ["volatility", "liquidity", "funding", "crash", "squeeze"],
+        "buckets": [
+            {
+                "bucket": "volatility",
+                "metrics": {"total_return": 0.03, "max_drawdown": -0.04, "sharpe": 0.7, "trade_count": 2},
+            },
+            {
+                "bucket": "liquidity",
+                "metrics": {"total_return": 0.02, "max_drawdown": -0.03, "sharpe": 0.6, "trade_count": 2},
+            },
+            {
+                "bucket": "funding",
+                "metrics": {"total_return": 0.015, "max_drawdown": -0.02, "sharpe": 0.5, "trade_count": 1},
+            },
+            {
+                "bucket": "crash",
+                "metrics": {"total_return": crash_total_return, "max_drawdown": -0.05, "sharpe": 0.2, "trade_count": 1},
+            },
+            {
+                "bucket": "squeeze",
+                "metrics": {"total_return": 0.018, "max_drawdown": -0.03, "sharpe": 0.4, "trade_count": 1},
+            },
+        ],
+    }
+
+
 def _write_full_market_bundle(
     root: Path,
     *,
@@ -138,6 +167,7 @@ def _write_walk_forward_bundle(
     observation_window: str | None = None,
     multiple_testing_correction: dict[str, object] | None = None,
     include_multiple_testing_correction: bool = True,
+    regime_stratified_oos: dict[str, object] | None = None,
 ) -> Path:
     root.mkdir(parents=True, exist_ok=True)
     artifacts = ["manifest.json", "summary.json", "windows.json", "scorecard.json"]
@@ -183,6 +213,8 @@ def _write_walk_forward_bundle(
         multiple_testing_correction = _multiple_testing_correction(number_of_trials=2)
     if multiple_testing_correction is not None:
         summary_payload["multiple_testing_correction"] = multiple_testing_correction
+    if regime_stratified_oos is not None:
+        summary_payload["regime_stratified_oos"] = regime_stratified_oos
     if runtime_fields:
         summary_payload["runtime_observability"] = {"runtime_fields": runtime_fields}
     if rollback_target and (rollback_trigger or observation_window):
@@ -244,6 +276,7 @@ def _write_walk_forward_bundle(
             },
             "decision_summary": {"decision": "keep_researching", "summary": "fixture"},
             **({"multiple_testing_correction": multiple_testing_correction} if multiple_testing_correction is not None else {}),
+            **({"regime_stratified_oos": regime_stratified_oos} if regime_stratified_oos is not None else {}),
         },
     )
     return root
@@ -773,6 +806,69 @@ def test_compare_backtest_bundles_promotes_walk_forward_when_all_checks_pass(tmp
         rollback_target="baseline_walk_forward",
         rollback_trigger="oos_total_return_below_zero",
         observation_window="14d",
+        regime_stratified_oos=_regime_stratified_oos_evidence(),
+    )
+    variant_bundle = _write_walk_forward_bundle(
+        tmp_path / "variant",
+        baseline_name="current_policy",
+        variant_name="candidate_walk_forward",
+        out_of_sample_total_return=0.08,
+        positive_window_ratio=0.9,
+        parameter_stability_score=0.9,
+        worst_window_return=0.02,
+        split_metadata=split_metadata,
+        runtime_fields=["regime", "allocator_decision_reason"],
+        rollback_target="baseline_walk_forward",
+        rollback_trigger="oos_total_return_below_zero",
+        observation_window="14d",
+        regime_stratified_oos=_regime_stratified_oos_evidence(),
+    )
+
+    result = promotion.compare_backtest_bundles(
+        baseline_bundle=baseline_bundle,
+        variant_bundle=variant_bundle,
+    )
+
+    gate = result["promotion_gate"]
+    assert gate["decision"] == "candidate_for_promotion"
+    assert gate["checks"] == {
+        "has_baseline_variant_pair": True,
+        "has_cost_adjusted_edge": True,
+        "has_out_of_sample_evidence": True,
+        "has_purged_embargoed_split_metadata": True,
+        "has_attribution_or_funnel_explanation": True,
+        "has_runtime_observability_plan": True,
+        "has_rollback_plan": True,
+        "has_parameter_stability_surface": True,
+        "rejects_isolated_spike_optimum": True,
+        "has_regime_stratified_oos_evidence": True,
+        "rejects_regime_bucket_collapse": True,
+    }
+    assert gate["why"] == []
+    assert gate["regime_stratified_oos"]["buckets"][0]["bucket"] == "volatility"
+
+
+def test_compare_backtest_bundles_rejects_positive_walk_forward_without_regime_stratified_oos(
+    tmp_path: Path,
+) -> None:
+    split_metadata = {
+        "schema_version": "walk_forward_split_metadata.v1",
+        "purge_bars": 1,
+        "embargo_bars": 0,
+    }
+    baseline_bundle = _write_walk_forward_bundle(
+        tmp_path / "baseline",
+        baseline_name="current_policy",
+        variant_name="baseline_walk_forward",
+        out_of_sample_total_return=0.03,
+        positive_window_ratio=0.75,
+        parameter_stability_score=0.7,
+        worst_window_return=0.01,
+        split_metadata=split_metadata,
+        runtime_fields=["regime", "allocator_decision_reason"],
+        rollback_target="baseline_walk_forward",
+        rollback_trigger="oos_total_return_below_zero",
+        observation_window="14d",
     )
     variant_bundle = _write_walk_forward_bundle(
         tmp_path / "variant",
@@ -795,19 +891,113 @@ def test_compare_backtest_bundles_promotes_walk_forward_when_all_checks_pass(tmp
     )
 
     gate = result["promotion_gate"]
-    assert gate["decision"] == "candidate_for_promotion"
-    assert gate["checks"] == {
-        "has_baseline_variant_pair": True,
-        "has_cost_adjusted_edge": True,
-        "has_out_of_sample_evidence": True,
-        "has_purged_embargoed_split_metadata": True,
-        "has_attribution_or_funnel_explanation": True,
-        "has_runtime_observability_plan": True,
-        "has_rollback_plan": True,
-        "has_parameter_stability_surface": True,
-        "rejects_isolated_spike_optimum": True,
+    assert gate["decision"] == "reject"
+    assert gate["checks"]["has_regime_stratified_oos_evidence"] is False
+    assert "missing regime-stratified OOS evidence" in gate["why"]
+
+
+@pytest.mark.parametrize(
+    ("mutator", "expected_message"),
+    [
+        (
+            lambda evidence: evidence.update({"schema_version": "regime_stratified_oos.v0"}),
+            "regime_stratified_oos.schema_version must be regime_stratified_oos.v1",
+        ),
+        (
+            lambda evidence: evidence.__setitem__("required_buckets", ["volatility", "liquidity", "funding", "crash"]),
+            "regime_stratified_oos.required_buckets must include volatility, liquidity, funding, crash, squeeze",
+        ),
+        (
+            lambda evidence: evidence["buckets"].pop(),  # type: ignore[index,union-attr]
+            "regime_stratified_oos.buckets must include required bucket squeeze",
+        ),
+        (
+            lambda evidence: evidence["buckets"].append(evidence["buckets"][0]),  # type: ignore[index,union-attr]
+            "regime_stratified_oos.buckets bucket values must be unique",
+        ),
+        (
+            lambda evidence: evidence["buckets"][0].__setitem__("bucket", " volatility "),  # type: ignore[index,union-attr]
+            "regime_stratified_oos.buckets[0].bucket must be a canonical string",
+        ),
+        (
+            lambda evidence: evidence["buckets"][0]["metrics"].__setitem__("total_return", "0.03"),  # type: ignore[index,union-attr]
+            "regime_stratified_oos.buckets[0].metrics.total_return must be a finite strict number",
+        ),
+        (
+            lambda evidence: evidence["buckets"][0]["metrics"].__setitem__("trade_count", True),  # type: ignore[index,union-attr]
+            "regime_stratified_oos.buckets[0].metrics.trade_count must be a non-negative integer",
+        ),
+    ],
+)
+def test_load_backtest_bundle_rejects_malformed_regime_stratified_oos_evidence(
+    tmp_path: Path,
+    mutator,
+    expected_message: str,
+) -> None:
+    evidence = _regime_stratified_oos_evidence()
+    mutator(evidence)
+    bundle = _write_walk_forward_bundle(
+        tmp_path / "bundle",
+        baseline_name="current_policy",
+        variant_name="candidate_walk_forward",
+        out_of_sample_total_return=0.03,
+        positive_window_ratio=0.75,
+        parameter_stability_score=0.7,
+        worst_window_return=0.01,
+        regime_stratified_oos=evidence,
+    )
+
+    with pytest.raises(ValueError, match=re.escape(expected_message)):
+        promotion.load_backtest_bundle(bundle)
+
+
+def test_compare_backtest_bundles_rejects_regime_bucket_level_collapse(tmp_path: Path) -> None:
+    split_metadata = {
+        "schema_version": "walk_forward_split_metadata.v1",
+        "purge_bars": 1,
+        "embargo_bars": 0,
     }
-    assert gate["why"] == []
+    baseline_bundle = _write_walk_forward_bundle(
+        tmp_path / "baseline",
+        baseline_name="current_policy",
+        variant_name="baseline_walk_forward",
+        out_of_sample_total_return=0.03,
+        positive_window_ratio=0.75,
+        parameter_stability_score=0.7,
+        worst_window_return=0.01,
+        split_metadata=split_metadata,
+        runtime_fields=["regime", "allocator_decision_reason"],
+        rollback_target="baseline_walk_forward",
+        rollback_trigger="oos_total_return_below_zero",
+        observation_window="14d",
+        regime_stratified_oos=_regime_stratified_oos_evidence(),
+    )
+    variant_bundle = _write_walk_forward_bundle(
+        tmp_path / "variant",
+        baseline_name="current_policy",
+        variant_name="candidate_walk_forward",
+        out_of_sample_total_return=0.08,
+        positive_window_ratio=0.9,
+        parameter_stability_score=0.9,
+        worst_window_return=0.02,
+        split_metadata=split_metadata,
+        runtime_fields=["regime", "allocator_decision_reason"],
+        rollback_target="baseline_walk_forward",
+        rollback_trigger="oos_total_return_below_zero",
+        observation_window="14d",
+        regime_stratified_oos=_regime_stratified_oos_evidence(crash_total_return=-0.02),
+    )
+
+    result = promotion.compare_backtest_bundles(
+        baseline_bundle=baseline_bundle,
+        variant_bundle=variant_bundle,
+    )
+
+    gate = result["promotion_gate"]
+    assert gate["decision"] == "reject"
+    assert gate["checks"]["has_regime_stratified_oos_evidence"] is True
+    assert gate["checks"]["rejects_regime_bucket_collapse"] is False
+    assert "regime-stratified OOS bucket collapses: crash" in gate["why"]
 
 
 def test_compare_backtest_bundles_rejects_walk_forward_without_split_metadata(tmp_path: Path) -> None:
@@ -823,6 +1013,7 @@ def test_compare_backtest_bundles_rejects_walk_forward_without_split_metadata(tm
         rollback_target="baseline_walk_forward",
         rollback_trigger="oos_total_return_below_zero",
         observation_window="14d",
+        regime_stratified_oos=_regime_stratified_oos_evidence(),
     )
     variant_bundle = _write_walk_forward_bundle(
         tmp_path / "variant",
@@ -836,6 +1027,7 @@ def test_compare_backtest_bundles_rejects_walk_forward_without_split_metadata(tm
         rollback_target="baseline_walk_forward",
         rollback_trigger="oos_total_return_below_zero",
         observation_window="14d",
+        regime_stratified_oos=_regime_stratified_oos_evidence(),
     )
 
     result = promotion.compare_backtest_bundles(
@@ -954,6 +1146,7 @@ def test_compare_backtest_bundles_rejects_walk_forward_isolated_spike_optimum(tm
         rollback_target="baseline_walk_forward",
         rollback_trigger="oos_total_return_below_zero",
         observation_window="14d",
+        regime_stratified_oos=_regime_stratified_oos_evidence(),
     )
     variant_bundle = _write_walk_forward_bundle(
         tmp_path / "variant",
@@ -967,6 +1160,7 @@ def test_compare_backtest_bundles_rejects_walk_forward_isolated_spike_optimum(tm
         rollback_target="baseline_walk_forward",
         rollback_trigger="oos_total_return_below_zero",
         observation_window="14d",
+        regime_stratified_oos=_regime_stratified_oos_evidence(),
     )
     summary_path = variant_bundle / "summary.json"
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
@@ -1141,6 +1335,7 @@ def test_compare_backtest_bundles_holds_walk_forward_when_stability_regresses_vs
         rollback_target="baseline_walk_forward",
         rollback_trigger="oos_total_return_below_zero",
         observation_window="14d",
+        regime_stratified_oos=_regime_stratified_oos_evidence(),
     )
     variant_bundle = _write_walk_forward_bundle(
         tmp_path / "variant",
@@ -1155,6 +1350,7 @@ def test_compare_backtest_bundles_holds_walk_forward_when_stability_regresses_vs
         rollback_target="baseline_walk_forward",
         rollback_trigger="oos_total_return_below_zero",
         observation_window="14d",
+        regime_stratified_oos=_regime_stratified_oos_evidence(),
     )
 
     result = promotion.compare_backtest_bundles(

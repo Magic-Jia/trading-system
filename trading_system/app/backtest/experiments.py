@@ -18,6 +18,7 @@ from trading_system.app.signals.trend_engine import generate_trend_candidates
 from trading_system.app.universe.builder import build_universes
 
 from .engine import _allocation_rows, _rank_key, _replay_full_market_baseline_rows, _validated_candidates
+from .evaluation import deterministic_regime_label
 from .metrics import expectancy, payoff_ratio, win_rate
 from .types import BacktestConfig, BacktestCosts, DatasetSnapshotRow
 from .walk_forward import (
@@ -37,6 +38,7 @@ _REGIME_BASE_RISK_MULTIPLIERS = {
     "HIGH_VOL_DEFENSIVE": 0.55,
     "CRASH_DEFENSIVE": 0.45,
 }
+_REGIME_STRATIFIED_OOS_BUCKETS = ("volatility", "liquidity", "funding", "crash", "squeeze")
 
 _FUNNEL_KEYS = (
     "input_universe",
@@ -2421,6 +2423,71 @@ def _summarize_walk_forward_window_with_strategy(
         },
         "in_sample": _summarize_strategy_walk_forward_segment(window.in_sample, config=config),
         "out_of_sample": _summarize_strategy_walk_forward_segment(window.out_of_sample, config=config),
+        "out_of_sample_rows": tuple(window.out_of_sample),
+    }
+
+
+def _regime_stratified_oos_bucket(row: DatasetSnapshotRow) -> str:
+    label = deterministic_regime_label(row).lower()
+    if "crash" in label or "risk_off" in label or "defensive" in label:
+        return "crash"
+    if "squeeze" in label or "compression" in label or "cascade" in label:
+        return "squeeze"
+    if "funding" in label or "basis" in label:
+        return "funding"
+    if "liquidity" in label or "volume" in label or "rotation" in label:
+        return "liquidity"
+    return "volatility"
+
+
+def _regime_stratified_oos_evidence(
+    window_summaries: Sequence[Mapping[str, Any]],
+    *,
+    evaluation_window: str,
+) -> dict[str, Any]:
+    returns_by_bucket: dict[str, list[float]] = {bucket: [] for bucket in _REGIME_STRATIFIED_OOS_BUCKETS}
+    for window in window_summaries:
+        rows = window.get("out_of_sample_rows")
+        if isinstance(rows, Sequence):
+            iterable_rows = rows
+        else:
+            iterable_rows = ()
+        for row in iterable_rows:
+            if not isinstance(row, DatasetSnapshotRow):
+                continue
+            if evaluation_window not in row.forward_returns:
+                continue
+            returns_by_bucket[_regime_stratified_oos_bucket(row)].append(float(row.forward_returns[evaluation_window]))
+        out_of_sample = window.get("out_of_sample")
+        if not isinstance(out_of_sample, Mapping):
+            continue
+        scorecard = out_of_sample.get("scorecard")
+        run_ids = out_of_sample.get("run_ids")
+        if returns_by_bucket["volatility"] or not isinstance(scorecard, Mapping) or not isinstance(run_ids, list):
+            continue
+        total_return_value = scorecard.get("total_return")
+        if not isinstance(total_return_value, (int, float)) or isinstance(total_return_value, bool):
+            continue
+        returns_by_bucket["volatility"].append(float(total_return_value))
+
+    buckets = []
+    for bucket in _REGIME_STRATIFIED_OOS_BUCKETS:
+        scorecard = summarize_return_scorecard(returns_by_bucket[bucket])
+        buckets.append(
+            {
+                "bucket": bucket,
+                "metrics": {
+                    "total_return": scorecard["total_return"],
+                    "max_drawdown": scorecard["max_drawdown"],
+                    "sharpe": scorecard["sharpe"],
+                    "trade_count": scorecard["trade_count"],
+                },
+            }
+        )
+    return {
+        "schema_version": "regime_stratified_oos.v1",
+        "required_buckets": list(_REGIME_STRATIFIED_OOS_BUCKETS),
+        "buckets": buckets,
     }
 
 
@@ -2459,6 +2526,10 @@ def run_walk_forward_validation_experiment(
 
     parameter_stability = summarize_parameter_stability(window_summaries)
     robustness_summary = summarize_walk_forward_robustness(window_summaries)
+    regime_stratified_oos = _regime_stratified_oos_evidence(
+        window_summaries,
+        evaluation_window=evaluation_window,
+    )
     return {
         "metadata": {
             "snapshot_count": len(ordered_rows),
@@ -2471,6 +2542,7 @@ def run_walk_forward_validation_experiment(
         "windows": window_summaries,
         "robustness_summary": robustness_summary,
         "parameter_stability": parameter_stability,
+        "regime_stratified_oos": regime_stratified_oos,
         "multiple_testing_correction": _multiple_testing_correction_metadata(
             number_of_trials=max(len(window_summaries), 2),
             adjusted_pass=(

@@ -3638,6 +3638,36 @@ def _minimal_walk_forward_validation_experiment() -> dict[str, object]:
             },
         },
         "multiple_testing_correction": _multiple_testing_correction(2),
+        "regime_stratified_oos": _regime_stratified_oos_evidence(),
+    }
+
+
+def _regime_stratified_oos_evidence(*, crash_total_return: float = 0.01) -> dict[str, object]:
+    return {
+        "schema_version": "regime_stratified_oos.v1",
+        "required_buckets": ["volatility", "liquidity", "funding", "crash", "squeeze"],
+        "buckets": [
+            {
+                "bucket": "volatility",
+                "metrics": {"total_return": 0.03, "max_drawdown": -0.04, "sharpe": 0.7, "trade_count": 2},
+            },
+            {
+                "bucket": "liquidity",
+                "metrics": {"total_return": 0.02, "max_drawdown": -0.03, "sharpe": 0.6, "trade_count": 2},
+            },
+            {
+                "bucket": "funding",
+                "metrics": {"total_return": 0.015, "max_drawdown": -0.02, "sharpe": 0.5, "trade_count": 1},
+            },
+            {
+                "bucket": "crash",
+                "metrics": {"total_return": crash_total_return, "max_drawdown": -0.05, "sharpe": 0.2, "trade_count": 1},
+            },
+            {
+                "bucket": "squeeze",
+                "metrics": {"total_return": 0.018, "max_drawdown": -0.03, "sharpe": 0.4, "trade_count": 1},
+            },
+        ],
     }
 
 
@@ -3670,6 +3700,7 @@ def _canonical_parameter_stability(score: float = 0.8) -> dict[str, object]:
 
 
 def test_walk_forward_validation_report_accepts_stability_scorecard_object_contracts() -> None:
+    experiment = _minimal_walk_forward_validation_experiment()
     report = cli.render_walk_forward_validation_report(
         experiment_name="walk_forward_validation",
         metadata={
@@ -3681,7 +3712,7 @@ def test_walk_forward_validation_report_accepts_stability_scorecard_object_contr
                 "embargo_bars": 0,
             },
         },
-        experiment=_minimal_walk_forward_validation_experiment(),
+        experiment=experiment,
     )
 
     assert report["summary"]["parameter_stability"]["parameter_stability_score"] == pytest.approx(0.8)
@@ -3701,6 +3732,102 @@ def test_walk_forward_validation_report_accepts_stability_scorecard_object_contr
             },
         }
     ]
+    assert report["scorecard"]["regime_stratified_oos"]["buckets"][0]["bucket"] == "volatility"
+
+
+def test_walk_forward_validation_report_rejects_positive_aggregate_oos_without_stratified_evidence() -> None:
+    experiment = _minimal_walk_forward_validation_experiment()
+    del experiment["regime_stratified_oos"]
+    with pytest.raises(ValueError, match="regime_stratified_oos must be present for positive OOS evidence"):
+        cli.render_walk_forward_validation_report(
+            experiment_name="walk_forward_validation",
+            metadata={
+                "snapshot_count": 1,
+                "window_count": 1,
+                "split_metadata": {
+                    "schema_version": "walk_forward_split_metadata.v1",
+                    "purge_bars": 0,
+                    "embargo_bars": 0,
+                },
+            },
+            experiment=experiment,
+        )
+
+
+def test_walk_forward_validation_report_holds_when_regime_bucket_collapses() -> None:
+    experiment = _minimal_walk_forward_validation_experiment()
+    experiment["regime_stratified_oos"] = _regime_stratified_oos_evidence(crash_total_return=-0.02)
+
+    report = cli.render_walk_forward_validation_report(
+        experiment_name="walk_forward_validation",
+        metadata={
+            "snapshot_count": 1,
+            "window_count": 1,
+            "split_metadata": {
+                "schema_version": "walk_forward_split_metadata.v1",
+                "purge_bars": 0,
+                "embargo_bars": 0,
+            },
+        },
+        experiment=experiment,
+    )
+
+    assert report["scorecard"]["decision_summary"]["decision"] == "keep_researching"
+    assert report["scorecard"]["regime_stratified_oos"]["collapsed_buckets"] == ["crash"]
+
+
+@pytest.mark.parametrize(
+    ("mutator", "expected_message"),
+    [
+        (
+            lambda evidence: evidence.update({"schema_version": "regime_stratified_oos.v0"}),
+            "regime_stratified_oos.schema_version must be regime_stratified_oos.v1",
+        ),
+        (
+            lambda evidence: evidence.__setitem__("required_buckets", ["volatility", "liquidity", "funding", "crash"]),
+            "regime_stratified_oos.required_buckets must include volatility, liquidity, funding, crash, squeeze",
+        ),
+        (
+            lambda evidence: evidence["buckets"].pop(),  # type: ignore[index,union-attr]
+            "regime_stratified_oos.buckets must include required bucket squeeze",
+        ),
+        (
+            lambda evidence: evidence["buckets"].append(evidence["buckets"][0]),  # type: ignore[index,union-attr]
+            "regime_stratified_oos.buckets bucket values must be unique",
+        ),
+        (
+            lambda evidence: evidence["buckets"][0].__setitem__("bucket", " volatility "),  # type: ignore[index,union-attr]
+            "regime_stratified_oos.buckets[0].bucket must be a canonical string",
+        ),
+        (
+            lambda evidence: evidence["buckets"][0]["metrics"].__setitem__("total_return", True),  # type: ignore[index,union-attr]
+            "regime_stratified_oos.buckets[0].metrics.total_return must be a finite strict number",
+        ),
+    ],
+)
+def test_walk_forward_validation_report_rejects_malformed_regime_stratified_oos_evidence(
+    mutator,
+    expected_message: str,
+) -> None:
+    experiment = _minimal_walk_forward_validation_experiment()
+    evidence = _regime_stratified_oos_evidence()
+    mutator(evidence)
+    experiment["regime_stratified_oos"] = evidence
+
+    with pytest.raises(ValueError, match=re.escape(expected_message)):
+        cli.render_walk_forward_validation_report(
+            experiment_name="walk_forward_validation",
+            metadata={
+                "snapshot_count": 1,
+                "window_count": 1,
+                "split_metadata": {
+                    "schema_version": "walk_forward_split_metadata.v1",
+                    "purge_bars": 0,
+                    "embargo_bars": 0,
+                },
+            },
+            experiment=experiment,
+        )
 
 
 @pytest.mark.parametrize(
@@ -4423,6 +4550,7 @@ def test_walk_forward_validation_report_preserves_valid_worst_window_scorecard()
 
             "parameter_stability": _canonical_parameter_stability(),
             "multiple_testing_correction": _multiple_testing_correction(2),
+            "regime_stratified_oos": _regime_stratified_oos_evidence(),
 
         },
     )
@@ -4881,6 +5009,7 @@ def test_walk_forward_validation_report_preserves_valid_coverage_scorecard_value
 
             "parameter_stability": _canonical_parameter_stability(),
             "multiple_testing_correction": _multiple_testing_correction(2),
+            "regime_stratified_oos": _regime_stratified_oos_evidence(),
 
         },
     )
@@ -5501,6 +5630,7 @@ def test_backtest_cli_writes_walk_forward_validation_bundle(monkeypatch: pytest.
 
             "parameter_stability": _canonical_parameter_stability(),
             "multiple_testing_correction": _multiple_testing_correction(2),
+            "regime_stratified_oos": _regime_stratified_oos_evidence(),
 
         },
         raising=False,

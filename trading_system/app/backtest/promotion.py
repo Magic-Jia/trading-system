@@ -37,6 +37,8 @@ _SUPPORTED_EXECUTION_PREVIEW_TIME_IN_FORCE = frozenset({"GTC", "IOC", "FOK", "GT
 _REQUIRED_UNIVERSE_ASOF_LIFECYCLE_FIELDS = frozenset(
     {"lifecycle_status", "delisted_at", "previous_symbol", "renamed_at", "contract_migration"}
 )
+_REQUIRED_REGIME_STRATIFIED_OOS_BUCKETS = ("volatility", "liquidity", "funding", "crash", "squeeze")
+_REGIME_STRATIFIED_OOS_NUMERIC_METRICS = ("total_return", "max_drawdown", "sharpe")
 
 
 @dataclass(frozen=True, slots=True)
@@ -599,6 +601,64 @@ def _validate_parameter_stability_payload(payload: Mapping[str, Any], *, context
     return validated
 
 
+def _require_regime_stratified_oos_evidence(payload: Any, *, context: str) -> dict[str, Any]:
+    if not isinstance(payload, Mapping):
+        raise ValueError(f"{context}.regime_stratified_oos must be present")
+    evidence = dict(payload)
+    if evidence.get("schema_version") != "regime_stratified_oos.v1":
+        raise ValueError(f"{context}.regime_stratified_oos.schema_version must be regime_stratified_oos.v1")
+    required_buckets = evidence.get("required_buckets")
+    if not isinstance(required_buckets, list):
+        raise ValueError(f"{context}.regime_stratified_oos.required_buckets must be a list")
+    normalized_required = [
+        _require_canonical_string_value(bucket, context=f"{context}.regime_stratified_oos.required_buckets[{index}]")
+        for index, bucket in enumerate(required_buckets)
+    ]
+    expected_required = set(_REQUIRED_REGIME_STRATIFIED_OOS_BUCKETS)
+    if set(normalized_required) != expected_required:
+        raise ValueError(
+            f"{context}.regime_stratified_oos.required_buckets must include "
+            f"{', '.join(_REQUIRED_REGIME_STRATIFIED_OOS_BUCKETS)}"
+        )
+    buckets = evidence.get("buckets")
+    if not isinstance(buckets, list) or not buckets:
+        raise ValueError(f"{context}.regime_stratified_oos.buckets must be a non-empty list")
+    seen_buckets: set[str] = set()
+    validated_buckets: list[dict[str, Any]] = []
+    collapsed_buckets: list[str] = []
+    for index, raw_bucket in enumerate(buckets):
+        bucket_context = f"{context}.regime_stratified_oos.buckets[{index}]"
+        if not isinstance(raw_bucket, Mapping):
+            raise ValueError(f"{bucket_context} must be an object")
+        bucket_name = _require_canonical_string_value(raw_bucket.get("bucket"), context=f"{bucket_context}.bucket")
+        if bucket_name in seen_buckets:
+            raise ValueError(f"{context}.regime_stratified_oos.buckets bucket values must be unique")
+        seen_buckets.add(bucket_name)
+        metrics = _require_mapping(raw_bucket, "metrics", context=bucket_context)
+        validated_metrics: dict[str, Any] = {}
+        for metric_name in _REGIME_STRATIFIED_OOS_NUMERIC_METRICS:
+            validated_metrics[metric_name] = _require_strict_real_number(
+                metrics.get(metric_name),
+                context=f"{bucket_context}.metrics.{metric_name}",
+            )
+        validated_metrics["trade_count"] = _require_non_negative_int(
+            metrics,
+            "trade_count",
+            context=f"{bucket_context}.metrics",
+        )
+        if validated_metrics["total_return"] < 0.0:
+            collapsed_buckets.append(bucket_name)
+        validated_buckets.append({"bucket": bucket_name, "metrics": validated_metrics})
+    for required_bucket in _REQUIRED_REGIME_STRATIFIED_OOS_BUCKETS:
+        if required_bucket not in seen_buckets:
+            raise ValueError(f"{context}.regime_stratified_oos.buckets must include required bucket {required_bucket}")
+    return {
+        "schema_version": "regime_stratified_oos.v1",
+        "required_buckets": list(_REQUIRED_REGIME_STRATIFIED_OOS_BUCKETS),
+        "buckets": validated_buckets,
+        "collapsed_buckets": collapsed_buckets,
+    }
+
 
 def _require_rows(payload: Mapping[str, Any], *, context: str) -> list[dict[str, Any]]:
     rows = payload.get("rows")
@@ -882,6 +942,11 @@ def _validate_walk_forward_bundle(bundle: BacktestBundle) -> None:
         parameter_stability,
         context=f"{bundle.root}/summary.json.parameter_stability",
     )
+    if "regime_stratified_oos" in summary:
+        summary["regime_stratified_oos"] = _require_regime_stratified_oos_evidence(
+            summary.get("regime_stratified_oos"),
+            context=f"{bundle.root}/summary.json",
+        )
     windows = _require_rows(bundle.artifacts["windows.json"], context=f"{bundle.root}/windows.json")
     _require_multiple_testing_correction(
         bundle.artifacts["scorecard.json"],
@@ -908,6 +973,11 @@ def _validate_walk_forward_bundle(bundle: BacktestBundle) -> None:
     )
     for numeric_key in ("out_of_sample_total_return", "positive_window_ratio", "parameter_stability_score"):
         _require_real_number(key_metrics, numeric_key, context=f"{bundle.root}/scorecard.json.key_metrics")
+    if "regime_stratified_oos" in scorecard:
+        scorecard["regime_stratified_oos"] = _require_regime_stratified_oos_evidence(
+            scorecard["regime_stratified_oos"],
+            context=f"{bundle.root}/scorecard.json",
+        )
 
 
 
@@ -1251,6 +1321,31 @@ def _isolated_spike_rejection_reason(bundle: BacktestBundle) -> str | None:
     return rejection_reason if isinstance(rejection_reason, str) else "isolated_spike_optimum"
 
 
+def _regime_stratified_oos_evidence(bundle: BacktestBundle) -> dict[str, Any] | None:
+    if bundle.experiment_kind != "walk_forward_validation":
+        return None
+    summary = bundle.artifacts["summary.json"]
+    if "regime_stratified_oos" in summary:
+        return _require_regime_stratified_oos_evidence(summary["regime_stratified_oos"], context=f"{bundle.root}/summary.json")
+    scorecard = bundle.artifacts["scorecard.json"]
+    if "regime_stratified_oos" in scorecard:
+        return _require_regime_stratified_oos_evidence(scorecard["regime_stratified_oos"], context=f"{bundle.root}/scorecard.json")
+    return None
+
+
+def _has_regime_stratified_oos_evidence(bundle: BacktestBundle) -> bool:
+    if bundle.experiment_kind != "walk_forward_validation":
+        return True
+    return _regime_stratified_oos_evidence(bundle) is not None
+
+
+def _collapsed_regime_oos_buckets(bundle: BacktestBundle) -> list[str]:
+    evidence = _regime_stratified_oos_evidence(bundle)
+    if evidence is None:
+        return []
+    return list(evidence.get("collapsed_buckets", []))
+
+
 
 def _out_of_sample_collapses(bundle: BacktestBundle) -> bool:
     if bundle.experiment_kind != "walk_forward_validation":
@@ -1298,6 +1393,10 @@ def _why(
         reasons.append("missing parameter stability surface")
     if isolated_spike_rejection_reason is not None:
         reasons.append(f"isolated spike optimum: {isolated_spike_rejection_reason}")
+    if "has_regime_stratified_oos_evidence" in checks and not checks["has_regime_stratified_oos_evidence"]:
+        reasons.append("missing regime-stratified OOS evidence")
+    if "rejects_regime_bucket_collapse" in checks and not checks["rejects_regime_bucket_collapse"]:
+        reasons.append("regime-stratified OOS bucket collapses")
     return reasons
 
 
@@ -1324,6 +1423,10 @@ def _decision(
     if out_of_sample_collapses:
         return "reject"
     if isolated_spike_rejection_reason is not None:
+        return "reject"
+    if "has_regime_stratified_oos_evidence" in checks and not checks["has_regime_stratified_oos_evidence"]:
+        return "reject"
+    if "rejects_regime_bucket_collapse" in checks and not checks["rejects_regime_bucket_collapse"]:
         return "reject"
     if not checks["has_purged_embargoed_split_metadata"]:
         return "reject"
@@ -1360,14 +1463,21 @@ def compare_backtest_bundles(*, baseline_bundle: str | Path, variant_bundle: str
     if variant.experiment_kind == "walk_forward_validation":
         checks["has_parameter_stability_surface"] = _has_parameter_stability_surface(variant)
         checks["rejects_isolated_spike_optimum"] = _isolated_spike_rejection_reason(variant) is None
+        checks["has_regime_stratified_oos_evidence"] = _has_regime_stratified_oos_evidence(variant)
+        checks["rejects_regime_bucket_collapse"] = not _collapsed_regime_oos_buckets(variant)
     metric_deltas = _metric_deltas(baseline, variant)
     out_of_sample_collapses = _out_of_sample_collapses(variant)
     isolated_spike_rejection_reason = _isolated_spike_rejection_reason(variant)
+    collapsed_regime_buckets = _collapsed_regime_oos_buckets(variant)
     why = _why(
         checks,
         out_of_sample_collapses=out_of_sample_collapses,
         isolated_spike_rejection_reason=isolated_spike_rejection_reason,
     )
+    if collapsed_regime_buckets:
+        collapse_reason = f"regime-stratified OOS bucket collapses: {', '.join(collapsed_regime_buckets)}"
+        why = [reason for reason in why if reason != "regime-stratified OOS bucket collapses"]
+        why.append(collapse_reason)
     decision = _decision(
         checks,
         experiment_kind=variant.experiment_kind,
@@ -1385,6 +1495,9 @@ def compare_backtest_bundles(*, baseline_bundle: str | Path, variant_bundle: str
         "metric_deltas": metric_deltas,
         "why": why,
     }
+    regime_evidence = _regime_stratified_oos_evidence(variant)
+    if regime_evidence is not None:
+        promotion_gate["regime_stratified_oos"] = regime_evidence
     decision_summary = {
         "experiment_kind": variant.experiment_kind,
         "baseline_bundle": str(baseline.root),

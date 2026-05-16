@@ -161,6 +161,7 @@ def summarize_walk_forward_window(
             window.out_of_sample,
             evaluation_window=evaluation_window,
         ),
+        "out_of_sample_rows": tuple(window.out_of_sample),
     }
 
 

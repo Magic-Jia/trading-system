@@ -43,6 +43,8 @@ _RAW_MARKET_PROVENANCE_TIMESTAMP_FIELDS = frozenset(
     }
 )
 _CANONICAL_UTC_TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$")
+_REQUIRED_REGIME_STRATIFIED_OOS_BUCKETS = ("volatility", "liquidity", "funding", "crash", "squeeze")
+_REGIME_STRATIFIED_OOS_NUMERIC_METRICS = ("total_return", "max_drawdown", "sharpe")
 
 
 def _report_finite_float(value: Any, *, field_name: str) -> float:
@@ -715,6 +717,75 @@ def _parameter_stability_payload(parameter_stability: Mapping[str, Any], *, fiel
         field_name=f"{field_name}.isolated_spike",
     )
     return validated
+
+
+def _regime_stratified_oos_metric(value: Any, *, field_name: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise ValueError(f"{field_name} must be a finite strict number")
+    parsed = float(value)
+    if not math.isfinite(parsed):
+        raise ValueError(f"{field_name} must be a finite strict number")
+    return parsed
+
+
+def _regime_stratified_oos_evidence(value: Any, *, field_name: str) -> dict[str, Any]:
+    if not isinstance(value, Mapping):
+        raise ValueError(f"{field_name} must be present for positive OOS evidence")
+    evidence = _strict_mapping_copy(value, field_name=field_name)
+    if evidence.get("schema_version") != "regime_stratified_oos.v1":
+        raise ValueError(f"{field_name}.schema_version must be regime_stratified_oos.v1")
+    required_buckets = _list_field(evidence, "required_buckets", label=f"{field_name}.required_buckets")
+    normalized_required = [
+        _canonical_report_string(bucket, field_name=f"{field_name}.required_buckets[{index}]")
+        for index, bucket in enumerate(required_buckets)
+    ]
+    if set(normalized_required) != set(_REQUIRED_REGIME_STRATIFIED_OOS_BUCKETS):
+        raise ValueError(
+            f"{field_name}.required_buckets must include "
+            f"{', '.join(_REQUIRED_REGIME_STRATIFIED_OOS_BUCKETS)}"
+        )
+    raw_buckets = _list_field(evidence, "buckets", label=f"{field_name}.buckets")
+    if not raw_buckets:
+        raise ValueError(f"{field_name}.buckets must be a non-empty list")
+    seen_buckets: set[str] = set()
+    collapsed_buckets: list[str] = []
+    validated_buckets: list[dict[str, Any]] = []
+    for index, raw_bucket in enumerate(raw_buckets):
+        bucket_field = f"{field_name}.buckets[{index}]"
+        if not isinstance(raw_bucket, Mapping):
+            raise ValueError(f"{bucket_field} must be an object")
+        bucket = _strict_mapping_copy(raw_bucket, field_name=bucket_field)
+        bucket_name = _canonical_report_string(bucket.get("bucket"), field_name=f"{bucket_field}.bucket")
+        if bucket_name in seen_buckets:
+            raise ValueError(f"{field_name}.buckets bucket values must be unique")
+        seen_buckets.add(bucket_name)
+        raw_metrics = bucket.get("metrics")
+        if not isinstance(raw_metrics, Mapping):
+            raise ValueError(f"{bucket_field}.metrics must be an object")
+        metrics = _strict_mapping_copy(raw_metrics, field_name=f"{bucket_field}.metrics")
+        validated_metrics: dict[str, Any] = {}
+        for metric_name in _REGIME_STRATIFIED_OOS_NUMERIC_METRICS:
+            validated_metrics[metric_name] = _regime_stratified_oos_metric(
+                metrics.get(metric_name),
+                field_name=f"{bucket_field}.metrics.{metric_name}",
+            )
+        validated_metrics["trade_count"] = _non_negative_int_field(
+            metrics,
+            "trade_count",
+            label=f"{bucket_field}.metrics",
+        )
+        if validated_metrics["total_return"] < 0.0:
+            collapsed_buckets.append(bucket_name)
+        validated_buckets.append({"bucket": bucket_name, "metrics": validated_metrics})
+    for required_bucket in _REQUIRED_REGIME_STRATIFIED_OOS_BUCKETS:
+        if required_bucket not in seen_buckets:
+            raise ValueError(f"{field_name}.buckets must include required bucket {required_bucket}")
+    return {
+        "schema_version": "regime_stratified_oos.v1",
+        "required_buckets": list(_REQUIRED_REGIME_STRATIFIED_OOS_BUCKETS),
+        "buckets": validated_buckets,
+        "collapsed_buckets": collapsed_buckets,
+    }
 
 
 def _cost_stress_metric_payload(metrics: Mapping[str, Any], *, field_name: str) -> dict[str, Any]:
@@ -1718,6 +1789,7 @@ def _walk_forward_window_rows(rows: list[Any]) -> list[dict[str, Any]]:
         if not isinstance(window, Mapping):
             raise ValueError(f"windows[{index}] must be an object")
         validated = dict(window)
+        validated.pop("out_of_sample_rows", None)
         if "window_index" in validated and validated["window_index"] is not None:
             validated["window_index"] = _non_negative_int_field(
                 validated,
@@ -2596,6 +2668,11 @@ def render_walk_forward_validation_report(
         expected_trials=max(len(windows), 2),
     )
     parameter_stability["parameter_stability_score"] = parameter_stability_score
+    positive_oos_claim = (
+        out_of_sample_total_return > 0.0
+        and positive_window_ratio >= 0.6
+        and parameter_stability_score >= 0.5
+    )
     if out_of_sample_total_return > 0.0 and positive_window_ratio >= 0.6 and parameter_stability_score >= 0.5:
         if "split_metadata" not in report_metadata:
             raise ValueError("walk_forward.split_metadata must be present for positive OOS evidence")
@@ -2605,10 +2682,19 @@ def render_walk_forward_validation_report(
             if "train_period" not in window or "test_period" not in window:
                 raise ValueError(f"windows[{index}] train/test periods must be present for positive OOS evidence")
 
+    regime_stratified_oos = None
+    if positive_oos_claim or "regime_stratified_oos" in experiment:
+        regime_stratified_oos = _regime_stratified_oos_evidence(
+            experiment.get("regime_stratified_oos"),
+            field_name="regime_stratified_oos",
+        )
+
     if (
         out_of_sample_total_return > 0.0
         and positive_window_ratio >= 0.6
         and parameter_stability_score >= 0.5
+        and regime_stratified_oos is not None
+        and not regime_stratified_oos["collapsed_buckets"]
         and _multiple_testing_decision_allowed(multiple_testing_correction)
     ):
         decision = "candidate_for_promotion"
@@ -2642,6 +2728,7 @@ def render_walk_forward_validation_report(
             },
             "decision_summary": _decision_summary(decision=decision, summary=summary),
             "multiple_testing_correction": multiple_testing_correction,
+            **({"regime_stratified_oos": regime_stratified_oos} if regime_stratified_oos is not None else {}),
             **_promotion_metadata_sections(report_metadata),
         },
     }
