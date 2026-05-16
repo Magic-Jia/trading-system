@@ -92,6 +92,8 @@ _REQUIRED_TAIL_RISK_REPORT_SECTIONS = (
     "scenario_provenance",
 )
 _CAPACITY_ANALYSIS_EVIDENCE_SCHEMA_VERSION = "capacity_analysis_evidence.v1"
+_DEGRADATION_REPLAY_EVIDENCE_SCHEMA_VERSION = "degradation_replay_evidence.v1"
+_REQUIRED_DEGRADATION_REPLAY_SCENARIOS = ("websocket_lag", "rest_rate_limit_degradation")
 _REQUIRED_CAPACITY_CHECKS = (
     "capital_limits_met",
     "liquidity_regime_capacity_met",
@@ -1598,6 +1600,112 @@ def _require_capacity_analysis_evidence(payload: Any, *, context: str) -> dict[s
     }
 
 
+def _require_degradation_replay_evidence(payload: Any, *, context: str) -> dict[str, Any]:
+    if not isinstance(payload, Mapping):
+        raise ValueError(f"{context}.degradation_replay_evidence must be present")
+    evidence = dict(payload)
+    field_context = f"{context}.degradation_replay_evidence"
+    if evidence.get("schema_version") != _DEGRADATION_REPLAY_EVIDENCE_SCHEMA_VERSION:
+        raise ValueError(
+            f"{field_context}.schema_version must be {_DEGRADATION_REPLAY_EVIDENCE_SCHEMA_VERSION}"
+        )
+    if evidence.get("mode") != "offline_replay":
+        raise ValueError(f"{field_context}.mode must be offline_replay")
+    source = _require_mapping(evidence, "evidence_source", context=field_context)
+    source_type = _require_canonical_bucket_identity(source.get("type"), context=f"{field_context}.evidence_source.type")
+    if source_type != "offline_replay_fixture":
+        raise ValueError(f"{field_context}.evidence_source.type must be offline_replay_fixture")
+    _require_canonical_bucket_identity(source.get("run_id"), context=f"{field_context}.evidence_source.run_id")
+    if "exported_at" in source:
+        _require_canonical_utc_timestamp(source["exported_at"], context=f"{field_context}.evidence_source.exported_at")
+    as_of = _require_canonical_utc_timestamp(evidence.get("as_of"), context=f"{field_context}.as_of")
+    decision_timestamp = _require_canonical_utc_timestamp(
+        evidence.get("decision_timestamp"),
+        context=f"{field_context}.decision_timestamp",
+    )
+    if as_of > decision_timestamp:
+        raise ValueError(f"{field_context}.as_of must be at or before decision_timestamp")
+    max_age_seconds = _require_non_negative_int(evidence, "max_age_seconds", context=field_context)
+    if (decision_timestamp - as_of).total_seconds() > max_age_seconds:
+        raise ValueError(f"{field_context}.as_of must not be stale")
+    raw_scenarios = evidence.get("scenarios")
+    if not isinstance(raw_scenarios, list) or not raw_scenarios:
+        raise ValueError(f"{field_context}.scenarios must be a non-empty list")
+
+    scenarios: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    failures: list[str] = []
+    for index, raw_scenario in enumerate(raw_scenarios):
+        scenario_context = f"{field_context}.scenarios[{index}]"
+        if not isinstance(raw_scenario, Mapping):
+            raise ValueError(f"{scenario_context} must be an object")
+        scenario_name = _require_canonical_bucket_identity(
+            raw_scenario.get("scenario"),
+            context=f"{scenario_context}.scenario",
+        )
+        if scenario_name not in _REQUIRED_DEGRADATION_REPLAY_SCENARIOS:
+            raise ValueError(f"{scenario_context}.scenario must be supported")
+        if scenario_name in seen:
+            raise ValueError(f"{field_context}.scenarios scenario values must be unique")
+        seen.add(scenario_name)
+        if not isinstance(raw_scenario.get("passed"), bool):
+            raise ValueError(f"{scenario_context}.passed must be a bool")
+        if not isinstance(raw_scenario.get("fail_closed_triggered"), bool):
+            raise ValueError(f"{scenario_context}.fail_closed_triggered must be a bool")
+        normalized: dict[str, Any] = {
+            "scenario": scenario_name,
+            "passed": bool(raw_scenario["passed"]),
+            "fail_closed_triggered": bool(raw_scenario["fail_closed_triggered"]),
+        }
+        if scenario_name == "websocket_lag":
+            for field_name in ("max_lag_ms", "max_allowed_lag_ms"):
+                normalized[field_name] = _require_non_negative_strict_number(
+                    raw_scenario.get(field_name),
+                    context=f"{scenario_context}.{field_name}",
+                )
+            normalized["dropped_message_count"] = _require_non_negative_int(
+                raw_scenario,
+                "dropped_message_count",
+                context=scenario_context,
+            )
+            normalized["replay_event_count"] = _require_positive_int(
+                raw_scenario,
+                "replay_event_count",
+                context=scenario_context,
+            )
+            if normalized["max_lag_ms"] > normalized["max_allowed_lag_ms"]:
+                failures.append("websocket lag exceeds replay threshold")
+        else:
+            for field_name in ("retry_after_seconds", "recovery_seconds", "max_allowed_recovery_seconds"):
+                normalized[field_name] = _require_non_negative_strict_number(
+                    raw_scenario.get(field_name),
+                    context=f"{scenario_context}.{field_name}",
+                )
+            normalized["rate_limit_event_count"] = _require_positive_int(
+                raw_scenario,
+                "rate_limit_event_count",
+                context=scenario_context,
+            )
+            if normalized["recovery_seconds"] > normalized["max_allowed_recovery_seconds"]:
+                failures.append("REST rate-limit recovery exceeds replay threshold")
+        if raw_scenario["passed"] is not True:
+            raise ValueError(f"{scenario_context} did not pass")
+        scenarios.append(normalized)
+    for scenario_name in _REQUIRED_DEGRADATION_REPLAY_SCENARIOS:
+        if scenario_name not in seen:
+            raise ValueError(f"{field_context}.scenarios must include {scenario_name}")
+    return {
+        "schema_version": _DEGRADATION_REPLAY_EVIDENCE_SCHEMA_VERSION,
+        "mode": "offline_replay",
+        "evidence_source": dict(source),
+        "as_of": evidence["as_of"],
+        "decision_timestamp": evidence["decision_timestamp"],
+        "max_age_seconds": max_age_seconds,
+        "scenarios": scenarios,
+        "failures": failures,
+    }
+
+
 def _tail_risk_limits(limits: Any, *, context: str) -> dict[str, float]:
     if not isinstance(limits, Mapping):
         raise ValueError(f"{context}.limits must be an object")
@@ -2136,6 +2244,11 @@ def _validate_walk_forward_bundle(bundle: BacktestBundle) -> None:
             summary.get("capacity_analysis_evidence"),
             context=f"{bundle.root}/summary.json",
         )
+    if "degradation_replay_evidence" in summary:
+        summary["degradation_replay_evidence"] = _require_degradation_replay_evidence(
+            summary.get("degradation_replay_evidence"),
+            context=f"{bundle.root}/summary.json",
+        )
     if "drawdown_anatomy" in summary:
         summary["drawdown_anatomy"] = _require_drawdown_anatomy_evidence(
             summary.get("drawdown_anatomy"),
@@ -2190,6 +2303,11 @@ def _validate_walk_forward_bundle(bundle: BacktestBundle) -> None:
     if "capacity_analysis_evidence" in scorecard:
         scorecard["capacity_analysis_evidence"] = _require_capacity_analysis_evidence(
             scorecard["capacity_analysis_evidence"],
+            context=f"{bundle.root}/scorecard.json",
+        )
+    if "degradation_replay_evidence" in scorecard:
+        scorecard["degradation_replay_evidence"] = _require_degradation_replay_evidence(
+            scorecard["degradation_replay_evidence"],
             context=f"{bundle.root}/scorecard.json",
         )
     if "drawdown_anatomy" in scorecard:
@@ -2721,6 +2839,24 @@ def _capacity_analysis_evidence(bundle: BacktestBundle) -> dict[str, Any] | None
     return None
 
 
+def _degradation_replay_evidence(bundle: BacktestBundle) -> dict[str, Any] | None:
+    if bundle.experiment_kind != "walk_forward_validation":
+        return None
+    summary = bundle.artifacts["summary.json"]
+    if "degradation_replay_evidence" in summary:
+        return _require_degradation_replay_evidence(
+            summary["degradation_replay_evidence"],
+            context=f"{bundle.root}/summary.json",
+        )
+    scorecard = bundle.artifacts["scorecard.json"]
+    if "degradation_replay_evidence" in scorecard:
+        return _require_degradation_replay_evidence(
+            scorecard["degradation_replay_evidence"],
+            context=f"{bundle.root}/scorecard.json",
+        )
+    return None
+
+
 def _drawdown_anatomy_evidence(bundle: BacktestBundle) -> dict[str, Any] | None:
     if bundle.experiment_kind != "walk_forward_validation":
         return None
@@ -2748,6 +2884,15 @@ def _has_capacity_analysis_evidence(bundle: BacktestBundle) -> bool:
     return _capacity_analysis_evidence(bundle) is not None
 
 
+def _has_degradation_replay_evidence(bundle: BacktestBundle) -> bool:
+    if bundle.experiment_kind != "walk_forward_validation":
+        return True
+    snapshot = _metric_snapshot(bundle)
+    if snapshot.get("total_return", 0.0) <= 0.0:
+        return True
+    return _degradation_replay_evidence(bundle) is not None
+
+
 def _has_drawdown_anatomy_evidence(bundle: BacktestBundle) -> bool:
     if bundle.experiment_kind != "walk_forward_validation":
         return True
@@ -2770,6 +2915,13 @@ def _capacity_analysis_breaches(bundle: BacktestBundle) -> list[str]:
             if checks.get(check_name) is not True
         )
     return breaches
+
+
+def _degradation_replay_failures(bundle: BacktestBundle) -> list[str]:
+    evidence = _degradation_replay_evidence(bundle)
+    if evidence is None:
+        return []
+    return list(evidence.get("failures", []))
 
 
 def _tail_risk_report(bundle: BacktestBundle) -> dict[str, Any] | None:
@@ -2934,6 +3086,10 @@ def _why(
         reasons.append("missing capacity analysis evidence")
     if "rejects_capacity_limit_breach" in checks and not checks["rejects_capacity_limit_breach"]:
         reasons.append("capacity analysis evidence breaches configured limits")
+    if "has_degradation_replay_evidence" in checks and not checks["has_degradation_replay_evidence"]:
+        reasons.append("missing websocket/rest degradation replay evidence")
+    if "rejects_degradation_replay_failure" in checks and not checks["rejects_degradation_replay_failure"]:
+        reasons.append("websocket/rest degradation replay evidence failed")
     if "has_drawdown_anatomy_evidence" in checks and not checks["has_drawdown_anatomy_evidence"]:
         reasons.append("missing drawdown anatomy evidence")
     if "has_tail_risk_report" in checks and not checks["has_tail_risk_report"]:
@@ -2987,6 +3143,10 @@ def _decision(
     if "has_capacity_analysis_evidence" in checks and not checks["has_capacity_analysis_evidence"]:
         return "reject"
     if "rejects_capacity_limit_breach" in checks and not checks["rejects_capacity_limit_breach"]:
+        return "reject"
+    if "has_degradation_replay_evidence" in checks and not checks["has_degradation_replay_evidence"]:
+        return "reject"
+    if "rejects_degradation_replay_failure" in checks and not checks["rejects_degradation_replay_failure"]:
         return "reject"
     if "has_drawdown_anatomy_evidence" in checks and not checks["has_drawdown_anatomy_evidence"]:
         return "reject"
@@ -3052,6 +3212,8 @@ def compare_backtest_bundles(*, baseline_bundle: str | Path, variant_bundle: str
         )
         checks["has_capacity_analysis_evidence"] = _has_capacity_analysis_evidence(variant)
         checks["rejects_capacity_limit_breach"] = not _capacity_analysis_breaches(variant)
+        checks["has_degradation_replay_evidence"] = _has_degradation_replay_evidence(variant)
+        checks["rejects_degradation_replay_failure"] = not _degradation_replay_failures(variant)
         checks["has_drawdown_anatomy_evidence"] = _has_drawdown_anatomy_evidence(variant)
         checks["has_tail_risk_report"] = _has_tail_risk_report(variant)
         checks["rejects_tail_risk_limit_breach"] = not _tail_risk_breaches(variant)
@@ -3063,6 +3225,7 @@ def compare_backtest_bundles(*, baseline_bundle: str | Path, variant_bundle: str
     collapsed_regime_buckets = _collapsed_regime_oos_buckets(variant)
     portfolio_exposure_breaches = _portfolio_correlation_exposure_breaches(variant)
     capacity_analysis_breaches = _capacity_analysis_breaches(variant)
+    degradation_replay_failures = _degradation_replay_failures(variant)
     tail_risk_breaches = _tail_risk_breaches(variant)
     false_discovery_guardrail_failure = _false_discovery_guardrail_failure(variant)
     why = _why(
@@ -3089,6 +3252,9 @@ def compare_backtest_bundles(*, baseline_bundle: str | Path, variant_bundle: str
             if reason != "capacity analysis evidence breaches configured limits"
         ]
         why.extend(capacity_analysis_breaches)
+    if degradation_replay_failures:
+        why = [reason for reason in why if reason != "websocket/rest degradation replay evidence failed"]
+        why.extend(degradation_replay_failures)
     if tail_risk_breaches:
         why = [reason for reason in why if reason != "tail-risk report breaches configured limits"]
         why.extend(tail_risk_breaches)
@@ -3128,6 +3294,9 @@ def compare_backtest_bundles(*, baseline_bundle: str | Path, variant_bundle: str
     capacity_analysis_evidence = _capacity_analysis_evidence(variant)
     if capacity_analysis_evidence is not None:
         promotion_gate["capacity_analysis_evidence"] = capacity_analysis_evidence
+    degradation_replay_evidence = _degradation_replay_evidence(variant)
+    if degradation_replay_evidence is not None:
+        promotion_gate["degradation_replay_evidence"] = degradation_replay_evidence
     drawdown_anatomy = _drawdown_anatomy_evidence(variant)
     if drawdown_anatomy is not None:
         promotion_gate["drawdown_anatomy"] = drawdown_anatomy
@@ -3154,6 +3323,8 @@ def compare_backtest_bundles(*, baseline_bundle: str | Path, variant_bundle: str
         decision_summary["stress_replay_contract"] = stress_replay_contract
     if capacity_analysis_evidence is not None:
         decision_summary["capacity_analysis_evidence"] = capacity_analysis_evidence
+    if degradation_replay_evidence is not None:
+        decision_summary["degradation_replay_evidence"] = degradation_replay_evidence
     if drawdown_anatomy is not None:
         decision_summary["drawdown_anatomy"] = drawdown_anatomy
     if tail_risk_report is not None:

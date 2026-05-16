@@ -332,6 +332,48 @@ def _capacity_analysis_evidence(**overrides: object) -> dict[str, object]:
     return payload
 
 
+def _degradation_replay_evidence(
+    *,
+    websocket_passed: bool = True,
+    rest_passed: bool = True,
+    as_of: object = "2026-05-16T09:00:00Z",
+    websocket_max_lag_ms: object = 850.0,
+    rest_recovery_seconds: object = 42.0,
+) -> dict[str, object]:
+    return {
+        "schema_version": "degradation_replay_evidence.v1",
+        "mode": "offline_replay",
+        "evidence_source": {
+            "type": "offline_replay_fixture",
+            "run_id": "degradation-replay-1",
+            "exported_at": "2026-05-16T09:10:00Z",
+        },
+        "as_of": as_of,
+        "decision_timestamp": "2026-05-16T09:30:00Z",
+        "max_age_seconds": 3600,
+        "scenarios": [
+            {
+                "scenario": "websocket_lag",
+                "passed": websocket_passed,
+                "max_lag_ms": websocket_max_lag_ms,
+                "max_allowed_lag_ms": 1000.0,
+                "dropped_message_count": 0,
+                "replay_event_count": 12,
+                "fail_closed_triggered": not websocket_passed,
+            },
+            {
+                "scenario": "rest_rate_limit_degradation",
+                "passed": rest_passed,
+                "retry_after_seconds": 30.0,
+                "recovery_seconds": rest_recovery_seconds,
+                "max_allowed_recovery_seconds": 60.0,
+                "rate_limit_event_count": 4,
+                "fail_closed_triggered": not rest_passed,
+            },
+        ],
+    }
+
+
 def _tail_risk_report(
     *,
     cvar_loss_pct: object = 0.08,
@@ -546,6 +588,8 @@ def _write_walk_forward_bundle(
     include_dynamic_sizing_evidence: bool = True,
     portfolio_correlation_exposure: dict[str, object] | None = None,
     capacity_analysis_evidence: dict[str, object] | None = None,
+    degradation_replay_evidence: dict[str, object] | None = None,
+    include_degradation_replay_evidence: bool = True,
     drawdown_anatomy: dict[str, object] | None = None,
     include_drawdown_anatomy: bool = True,
     tail_risk_report: dict[str, object] | None = None,
@@ -615,6 +659,8 @@ def _write_walk_forward_bundle(
         summary_payload["portfolio_correlation_exposure"] = portfolio_correlation_exposure
     if capacity_analysis_evidence is not None:
         summary_payload["capacity_analysis_evidence"] = capacity_analysis_evidence
+    if include_degradation_replay_evidence and out_of_sample_total_return > 0.0:
+        summary_payload["degradation_replay_evidence"] = degradation_replay_evidence or _degradation_replay_evidence()
     if include_drawdown_anatomy and out_of_sample_total_return > 0.0:
         summary_payload["drawdown_anatomy"] = drawdown_anatomy or _drawdown_anatomy_evidence()
     if tail_risk_report is not None:
@@ -692,6 +738,11 @@ def _write_walk_forward_bundle(
             **(
                 {"capacity_analysis_evidence": capacity_analysis_evidence}
                 if capacity_analysis_evidence is not None
+                else {}
+            ),
+            **(
+                {"degradation_replay_evidence": degradation_replay_evidence or _degradation_replay_evidence()}
+                if include_degradation_replay_evidence and out_of_sample_total_return > 0.0
                 else {}
             ),
             **(
@@ -1412,6 +1463,7 @@ def test_compare_backtest_bundles_promotes_walk_forward_when_all_checks_pass(tmp
             gross_exposure_pct=0.39,
         ),
         capacity_analysis_evidence=_capacity_analysis_evidence(),
+        degradation_replay_evidence=_degradation_replay_evidence(),
     )
     variant_bundle = _write_walk_forward_bundle(
         tmp_path / "variant",
@@ -1430,6 +1482,7 @@ def test_compare_backtest_bundles_promotes_walk_forward_when_all_checks_pass(tmp
         pnl_attribution=_pnl_attribution_evidence(reported_pnl=0.08),
         portfolio_correlation_exposure=_portfolio_correlation_exposure_evidence(),
         capacity_analysis_evidence=_capacity_analysis_evidence(),
+        degradation_replay_evidence=_degradation_replay_evidence(),
         tail_risk_report=_tail_risk_report(),
     )
 
@@ -1460,6 +1513,8 @@ def test_compare_backtest_bundles_promotes_walk_forward_when_all_checks_pass(tmp
         "rejects_portfolio_correlation_exposure_breach": True,
         "has_capacity_analysis_evidence": True,
         "rejects_capacity_limit_breach": True,
+        "has_degradation_replay_evidence": True,
+        "rejects_degradation_replay_failure": True,
         "has_drawdown_anatomy_evidence": True,
         "has_tail_risk_report": True,
         "rejects_tail_risk_limit_breach": True,
@@ -1473,10 +1528,124 @@ def test_compare_backtest_bundles_promotes_walk_forward_when_all_checks_pass(tmp
     assert result["decision_summary"]["dynamic_sizing_evidence"]["decisions"][0]["decision_id"] == "sizing-001"
     assert gate["portfolio_correlation_exposure"]["portfolio"]["gross_exposure_pct"] == 0.42
     assert gate["capacity_analysis_evidence"]["summary"]["claimed_capacity_usdt"] == 50000.0
+    assert gate["degradation_replay_evidence"]["scenarios"][0]["scenario"] == "websocket_lag"
     assert gate["drawdown_anatomy"]["drawdowns"][0]["regime_cluster_id"] == "regime-crash"
     assert result["decision_summary"]["drawdown_anatomy"]["drawdowns"][0]["trade_cluster_id"] == "trade-cluster-001"
     assert gate["tail_risk_report"]["cvar"]["loss_pct"] == 0.08
     assert result["decision_summary"]["tail_risk_report"]["scenario_provenance"][0]["scenario_id"] == "stress-crash-001"
+
+
+def test_compare_backtest_bundles_rejects_positive_walk_forward_without_degradation_replay_evidence(
+    tmp_path: Path,
+) -> None:
+    split_metadata = _walk_forward_split_metadata()
+    baseline_bundle = _write_walk_forward_bundle(
+        tmp_path / "baseline",
+        baseline_name="paper",
+        variant_name="baseline",
+        out_of_sample_total_return=0.03,
+        positive_window_ratio=0.75,
+        parameter_stability_score=0.7,
+        worst_window_return=0.01,
+        split_metadata=split_metadata,
+        runtime_fields=["regime", "allocator_decision_reason"],
+        rollback_target="baseline",
+        rollback_trigger="oos_total_return_below_zero",
+        observation_window="14d",
+        regime_stratified_oos=_regime_stratified_oos_evidence(),
+        portfolio_correlation_exposure=_portfolio_correlation_exposure_evidence(),
+        capacity_analysis_evidence=_capacity_analysis_evidence(),
+        degradation_replay_evidence=_degradation_replay_evidence(),
+    )
+    variant_bundle = _write_walk_forward_bundle(
+        tmp_path / "variant",
+        baseline_name="paper",
+        variant_name="candidate",
+        out_of_sample_total_return=0.08,
+        positive_window_ratio=0.9,
+        parameter_stability_score=0.9,
+        worst_window_return=0.02,
+        split_metadata=split_metadata,
+        runtime_fields=["regime", "allocator_decision_reason"],
+        rollback_target="baseline",
+        rollback_trigger="oos_total_return_below_zero",
+        observation_window="14d",
+        regime_stratified_oos=_regime_stratified_oos_evidence(),
+        portfolio_correlation_exposure=_portfolio_correlation_exposure_evidence(),
+        capacity_analysis_evidence=_capacity_analysis_evidence(),
+        tail_risk_report=_tail_risk_report(),
+        include_degradation_replay_evidence=False,
+    )
+
+    result = promotion.compare_backtest_bundles(
+        baseline_bundle=baseline_bundle,
+        variant_bundle=variant_bundle,
+    )
+
+    gate = result["promotion_gate"]
+    assert gate["decision"] == "reject"
+    assert gate["checks"]["has_degradation_replay_evidence"] is False
+    assert "missing websocket/rest degradation replay evidence" in gate["why"]
+
+
+@pytest.mark.parametrize(
+    ("mutate", "match"),
+    [
+        (
+            lambda evidence: evidence.__setitem__("mode", "testnet_probe"),
+            "degradation_replay_evidence.mode must be offline_replay",
+        ),
+        (
+            lambda evidence: evidence.__setitem__("as_of", "2026-05-16T08:00:00Z"),
+            "degradation_replay_evidence.as_of must not be stale",
+        ),
+        (
+            lambda evidence: evidence["scenarios"].__delitem__(0),  # type: ignore[index,union-attr]
+            "degradation_replay_evidence.scenarios must include websocket_lag",
+        ),
+        (
+            lambda evidence: evidence["scenarios"][0].__setitem__("max_lag_ms", float("nan")),  # type: ignore[index,union-attr]
+            "degradation_replay_evidence.scenarios[0].max_lag_ms must be a finite strict number",
+        ),
+        (
+            lambda evidence: evidence["scenarios"][1].__setitem__("passed", "true"),  # type: ignore[index,union-attr]
+            "degradation_replay_evidence.scenarios[1].passed must be a bool",
+        ),
+        (
+            lambda evidence: evidence["scenarios"][1].__setitem__("passed", False),  # type: ignore[index,union-attr]
+            "degradation_replay_evidence.scenarios[1] did not pass",
+        ),
+    ],
+)
+def test_load_backtest_bundle_rejects_malformed_or_failing_degradation_replay_evidence(
+    tmp_path: Path,
+    mutate: object,
+    match: str,
+) -> None:
+    evidence = _degradation_replay_evidence()
+    mutate(evidence)  # type: ignore[operator]
+    bundle = _write_walk_forward_bundle(
+        tmp_path / "bundle",
+        baseline_name="paper",
+        variant_name="candidate",
+        out_of_sample_total_return=0.08,
+        positive_window_ratio=0.9,
+        parameter_stability_score=0.9,
+        worst_window_return=0.02,
+        split_metadata=_walk_forward_split_metadata(),
+        runtime_fields=["regime", "allocator_decision_reason"],
+        rollback_target="baseline",
+        rollback_trigger="oos_total_return_below_zero",
+        observation_window="14d",
+        regime_stratified_oos=_regime_stratified_oos_evidence(),
+        portfolio_correlation_exposure=_portfolio_correlation_exposure_evidence(),
+        capacity_analysis_evidence=_capacity_analysis_evidence(),
+        degradation_replay_evidence=evidence,
+        tail_risk_report=_tail_risk_report(),
+    )
+
+    with pytest.raises(ValueError, match=re.escape(match)):
+        promotion.load_backtest_bundle(bundle)
 
 
 def test_compare_backtest_bundles_rejects_positive_walk_forward_without_false_discovery_guardrail(
@@ -1500,6 +1669,7 @@ def test_compare_backtest_bundles_rejects_positive_walk_forward_without_false_di
         pnl_attribution=_pnl_attribution_evidence(reported_pnl=0.03),
         portfolio_correlation_exposure=_portfolio_correlation_exposure_evidence(),
         capacity_analysis_evidence=_capacity_analysis_evidence(),
+        degradation_replay_evidence=_degradation_replay_evidence(),
         tail_risk_report=_tail_risk_report(),
     )
     variant_bundle = _write_walk_forward_bundle(
@@ -1519,6 +1689,7 @@ def test_compare_backtest_bundles_rejects_positive_walk_forward_without_false_di
         pnl_attribution=_pnl_attribution_evidence(reported_pnl=0.08),
         portfolio_correlation_exposure=_portfolio_correlation_exposure_evidence(),
         capacity_analysis_evidence=_capacity_analysis_evidence(),
+        degradation_replay_evidence=_degradation_replay_evidence(),
         tail_risk_report=_tail_risk_report(),
         include_false_discovery_guardrail=False,
     )
@@ -2055,6 +2226,7 @@ def test_compare_backtest_bundles_rejects_positive_walk_forward_without_tail_ris
         pnl_attribution=_pnl_attribution_evidence(reported_pnl=0.03),
         portfolio_correlation_exposure=_portfolio_correlation_exposure_evidence(),
         tail_risk_report=_tail_risk_report(),
+        degradation_replay_evidence=_degradation_replay_evidence(),
     )
     variant_bundle = _write_walk_forward_bundle(
         tmp_path / "variant",
@@ -2314,6 +2486,7 @@ def test_compare_backtest_bundles_allows_tail_risk_limit_breach_with_explicit_ri
         pnl_attribution=_pnl_attribution_evidence(reported_pnl=0.08),
         portfolio_correlation_exposure=_portfolio_correlation_exposure_evidence(),
         capacity_analysis_evidence=_capacity_analysis_evidence(),
+        degradation_replay_evidence=_degradation_replay_evidence(),
         tail_risk_report=_tail_risk_report(
             cvar_loss_pct=0.16,
             risk_hold={"active": True, "reason": "tail_risk_review_hold"},
@@ -2821,6 +2994,7 @@ def test_compare_backtest_bundles_rejects_regime_bucket_level_collapse(tmp_path:
         regime_stratified_oos=_regime_stratified_oos_evidence(),
         portfolio_correlation_exposure=_portfolio_correlation_exposure_evidence(),
         capacity_analysis_evidence=_capacity_analysis_evidence(),
+        degradation_replay_evidence=_degradation_replay_evidence(),
         tail_risk_report=_tail_risk_report(),
     )
     variant_bundle = _write_walk_forward_bundle(
@@ -2867,6 +3041,7 @@ def test_compare_backtest_bundles_rejects_walk_forward_without_split_metadata(tm
         regime_stratified_oos=_regime_stratified_oos_evidence(),
         portfolio_correlation_exposure=_portfolio_correlation_exposure_evidence(),
         capacity_analysis_evidence=_capacity_analysis_evidence(),
+        degradation_replay_evidence=_degradation_replay_evidence(),
         tail_risk_report=_tail_risk_report(),
     )
     variant_bundle = _write_walk_forward_bundle(

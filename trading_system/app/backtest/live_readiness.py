@@ -163,6 +163,8 @@ PNL_CONSISTENCY_REL_TOLERANCE = 1e-6
 OFFLINE_ROLLOUT_READINESS_CHECKLIST_SCHEMA_VERSION = "offline_rollout_readiness_checklist.v1"
 OFFLINE_ROLLOUT_READINESS_CHECKLIST_FILENAME = "offline_rollout_readiness_checklist.json"
 OFFLINE_ROLLOUT_READINESS_CHECKLIST_SOURCE = "trading_system.app.backtest.live_readiness"
+DEGRADATION_REPLAY_EVIDENCE_SCHEMA_VERSION = "degradation_replay_evidence.v1"
+REQUIRED_DEGRADATION_REPLAY_SCENARIOS = ("websocket_lag", "rest_rate_limit_degradation")
 
 EXIT_CLASSIFICATIONS = (
     "fixed_horizon_only",
@@ -2342,6 +2344,165 @@ def _validate_offline_rollout_metadata(value: Any) -> tuple[dict[str, str], str]
     return {"source": source, "materialization": materialization}, ""
 
 
+def _degradation_replay_non_negative_number(value: Any, field: str, scenario: str) -> tuple[float, str]:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return 0.0, f"degradation_replay_{scenario}_{field}_not_number"
+    parsed = float(value)
+    if not math.isfinite(parsed):
+        return 0.0, f"degradation_replay_{scenario}_{field}_not_finite"
+    if parsed < 0.0:
+        return 0.0, f"degradation_replay_{scenario}_{field}_negative"
+    return parsed, ""
+
+
+def _degradation_replay_int(value: Any, field: str, scenario: str, *, positive: bool) -> tuple[int, str]:
+    if isinstance(value, bool) or not isinstance(value, int):
+        return 0, f"degradation_replay_{scenario}_{field}_not_int"
+    if value < 0 or (positive and value <= 0):
+        suffix = "not_positive" if positive else "negative"
+        return 0, f"degradation_replay_{scenario}_{field}_{suffix}"
+    return value, ""
+
+
+def _validate_degradation_replay_evidence(value: Any) -> tuple[dict[str, Any], str]:
+    if not isinstance(value, Mapping):
+        return {}, "degradation_replay_evidence_not_object"
+    allowed_fields = {
+        "schema_version",
+        "mode",
+        "evidence_source",
+        "as_of",
+        "decision_timestamp",
+        "max_age_seconds",
+        "scenarios",
+    }
+    unknown_fields = sorted(set(value) - allowed_fields)
+    if unknown_fields:
+        return {}, "unknown_degradation_replay_field: " + ", ".join(unknown_fields)
+    if value.get("schema_version") != DEGRADATION_REPLAY_EVIDENCE_SCHEMA_VERSION:
+        return {}, "degradation_replay_schema_version_invalid"
+    if value.get("mode") != "offline_replay":
+        return {}, "degradation_replay_mode_not_offline_replay"
+    evidence_source = value.get("evidence_source")
+    if not isinstance(evidence_source, Mapping):
+        return {}, "degradation_replay_evidence_source_not_object"
+    if evidence_source.get("type") != "offline_replay_fixture":
+        return {}, "degradation_replay_evidence_source_not_offline_replay_fixture"
+    run_id = evidence_source.get("run_id")
+    if not _is_exact_string(run_id) or not run_id.strip():
+        return {}, "degradation_replay_evidence_source_run_id_invalid"
+    if run_id != run_id.strip() or not _is_safe_evidence_identifier(run_id):
+        return {}, "degradation_replay_evidence_source_run_id_invalid"
+    exported_at = evidence_source.get("exported_at")
+    if exported_at is not None and (not _is_exact_string(exported_at) or not _is_canonical_utc_timestamp(exported_at)):
+        return {}, "degradation_replay_evidence_source_exported_at_noncanonical_timestamp"
+    as_of = value.get("as_of")
+    if not _is_exact_string(as_of):
+        return {}, "degradation_replay_as_of_not_string"
+    if not _is_canonical_utc_timestamp(as_of):
+        return {}, "degradation_replay_as_of_noncanonical_timestamp"
+    decision_timestamp = value.get("decision_timestamp")
+    if not _is_exact_string(decision_timestamp):
+        return {}, "degradation_replay_decision_timestamp_not_string"
+    if not _is_canonical_utc_timestamp(decision_timestamp):
+        return {}, "degradation_replay_decision_timestamp_noncanonical_timestamp"
+    as_of_dt = datetime.fromisoformat(as_of[:-1] + "+00:00").astimezone(UTC)
+    decision_dt = datetime.fromisoformat(decision_timestamp[:-1] + "+00:00").astimezone(UTC)
+    if as_of_dt > decision_dt:
+        return {}, "degradation_replay_as_of_after_decision_timestamp"
+    max_age_seconds, error = _degradation_replay_non_negative_number(
+        value.get("max_age_seconds"),
+        "max_age_seconds",
+        "evidence",
+    )
+    if error:
+        return {}, error
+    if (decision_dt - as_of_dt).total_seconds() > max_age_seconds:
+        return {}, "degradation_replay_as_of_stale"
+    raw_scenarios = value.get("scenarios")
+    if not isinstance(raw_scenarios, list) or not raw_scenarios:
+        return {}, "degradation_replay_scenarios_not_list"
+
+    scenarios: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for raw_scenario in raw_scenarios:
+        if not isinstance(raw_scenario, Mapping):
+            return {}, "degradation_replay_scenario_not_object"
+        scenario_name = raw_scenario.get("scenario")
+        if not _is_exact_string(scenario_name) or scenario_name not in REQUIRED_DEGRADATION_REPLAY_SCENARIOS:
+            return {}, "degradation_replay_scenario_unsupported"
+        if scenario_name in seen:
+            return {}, "degradation_replay_scenario_duplicate"
+        seen.add(scenario_name)
+        if not isinstance(raw_scenario.get("passed"), bool):
+            return {}, f"degradation_replay_{scenario_name}_passed_not_bool"
+        if not isinstance(raw_scenario.get("fail_closed_triggered"), bool):
+            return {}, f"degradation_replay_{scenario_name}_fail_closed_triggered_not_bool"
+        normalized: dict[str, Any] = {
+            "scenario": scenario_name,
+            "passed": bool(raw_scenario["passed"]),
+            "fail_closed_triggered": bool(raw_scenario["fail_closed_triggered"]),
+        }
+        if scenario_name == "websocket_lag":
+            for field in ("max_lag_ms", "max_allowed_lag_ms"):
+                parsed, error = _degradation_replay_non_negative_number(raw_scenario.get(field), field, scenario_name)
+                if error:
+                    return {}, error
+                normalized[field] = parsed
+            dropped, error = _degradation_replay_int(
+                raw_scenario.get("dropped_message_count"),
+                "dropped_message_count",
+                scenario_name,
+                positive=False,
+            )
+            if error:
+                return {}, error
+            replay_count, error = _degradation_replay_int(
+                raw_scenario.get("replay_event_count"),
+                "replay_event_count",
+                scenario_name,
+                positive=True,
+            )
+            if error:
+                return {}, error
+            normalized["dropped_message_count"] = dropped
+            normalized["replay_event_count"] = replay_count
+            if normalized["max_lag_ms"] > normalized["max_allowed_lag_ms"]:
+                return {}, "degradation_replay_websocket_lag_failed"
+        else:
+            for field in ("retry_after_seconds", "recovery_seconds", "max_allowed_recovery_seconds"):
+                parsed, error = _degradation_replay_non_negative_number(raw_scenario.get(field), field, scenario_name)
+                if error:
+                    return {}, error
+                normalized[field] = parsed
+            rate_limit_count, error = _degradation_replay_int(
+                raw_scenario.get("rate_limit_event_count"),
+                "rate_limit_event_count",
+                scenario_name,
+                positive=True,
+            )
+            if error:
+                return {}, error
+            normalized["rate_limit_event_count"] = rate_limit_count
+            if normalized["recovery_seconds"] > normalized["max_allowed_recovery_seconds"]:
+                return {}, "degradation_replay_rest_rate_limit_degradation_failed"
+        if raw_scenario["passed"] is not True:
+            return {}, f"degradation_replay_{scenario_name}_failed"
+        scenarios.append(normalized)
+    for scenario_name in REQUIRED_DEGRADATION_REPLAY_SCENARIOS:
+        if scenario_name not in seen:
+            return {}, f"degradation_replay_missing_{scenario_name}"
+    return {
+        "schema_version": DEGRADATION_REPLAY_EVIDENCE_SCHEMA_VERSION,
+        "mode": "offline_replay",
+        "evidence_source": dict(evidence_source),
+        "as_of": as_of,
+        "decision_timestamp": decision_timestamp,
+        "max_age_seconds": max_age_seconds,
+        "scenarios": scenarios,
+    }, ""
+
+
 def _producer_stage_from_evidence(stage: str, evidence: Mapping[str, Any]) -> dict[str, Any]:
     if not isinstance(evidence, Mapping):
         raise ValueError(f"{stage}.evidence must be a mapping")
@@ -2384,10 +2545,14 @@ def build_offline_rollout_readiness_checklist(
     shadow_evidence: Mapping[str, Any],
     canary_evidence: Mapping[str, Any],
     canary_guard_manifest: Mapping[str, Any],
+    degradation_replay_evidence: Mapping[str, Any],
 ) -> dict[str, Any]:
     """Build the offline rollout readiness checklist accepted by the live gate."""
 
     guard_manifest, error = _validate_canary_guard_manifest(canary_guard_manifest)
+    if error:
+        raise ValueError(error)
+    degradation_replay, error = _validate_degradation_replay_evidence(degradation_replay_evidence)
     if error:
         raise ValueError(error)
 
@@ -2412,6 +2577,7 @@ def build_offline_rollout_readiness_checklist(
             **stages["canary"],
             "guard_manifest": guard_manifest,
         },
+        "degradation_replay_evidence": degradation_replay,
     }
 
 
@@ -2422,12 +2588,14 @@ def write_offline_rollout_readiness_checklist(
     shadow_evidence: Mapping[str, Any],
     canary_evidence: Mapping[str, Any],
     canary_guard_manifest: Mapping[str, Any],
+    degradation_replay_evidence: Mapping[str, Any],
 ) -> dict[str, Any]:
     checklist = build_offline_rollout_readiness_checklist(
         paper_evidence=paper_evidence,
         shadow_evidence=shadow_evidence,
         canary_evidence=canary_evidence,
         canary_guard_manifest=canary_guard_manifest,
+        degradation_replay_evidence=degradation_replay_evidence,
     )
     root_path = Path(root)
     root_path.mkdir(parents=True, exist_ok=True)
@@ -2445,6 +2613,7 @@ def write_read_validate_offline_rollout_readiness_checklist(
     shadow_evidence: Mapping[str, Any],
     canary_evidence: Mapping[str, Any],
     canary_guard_manifest: Mapping[str, Any],
+    degradation_replay_evidence: Mapping[str, Any],
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     checklist = write_offline_rollout_readiness_checklist(
         root,
@@ -2452,6 +2621,7 @@ def write_read_validate_offline_rollout_readiness_checklist(
         shadow_evidence=shadow_evidence,
         canary_evidence=canary_evidence,
         canary_guard_manifest=canary_guard_manifest,
+        degradation_replay_evidence=degradation_replay_evidence,
     )
     verification = _offline_rollout_readiness(Path(root))
     return checklist, verification
@@ -2466,6 +2636,7 @@ def _offline_rollout_readiness(root: Path) -> dict[str, Any]:
         "shadow_evidence_requirements_listed": False,
         "canary_evidence_requirements_listed": False,
         "canary_guard_manifest_valid": False,
+        "degradation_replay_evidence_valid": False,
     }
     if not path.exists():
         return {
@@ -2484,7 +2655,15 @@ def _offline_rollout_readiness(root: Path) -> dict[str, Any]:
             "parse_error": parse_error,
             "checks": checks,
         }
-    allowed_fields = {"schema_version", "metadata", "evidence_map", "paper", "shadow", "canary"}
+    allowed_fields = {
+        "schema_version",
+        "metadata",
+        "evidence_map",
+        "paper",
+        "shadow",
+        "canary",
+        "degradation_replay_evidence",
+    }
     top_level_error = _artifact_top_level_schema_error(payload, allowed_fields)
     if top_level_error:
         return {
@@ -2537,8 +2716,18 @@ def _offline_rollout_readiness(root: Path) -> dict[str, Any]:
                 "parse_error": error,
                 "checks": checks,
             }
+    degradation_replay, error = _validate_degradation_replay_evidence(payload.get("degradation_replay_evidence"))
+    if error:
+        return {
+            "schema_version": "offline_rollout_readiness_checklist_verification.v1",
+            "present": True,
+            "schema_valid": False,
+            "parse_error": error,
+            "checks": checks,
+        }
     checks["offline_rollout_checklist_schema_valid"] = True
     checks["canary_guard_manifest_valid"] = True
+    checks["degradation_replay_evidence_valid"] = True
     return {
         "schema_version": "offline_rollout_readiness_checklist_verification.v1",
         "present": True,
@@ -2549,6 +2738,7 @@ def _offline_rollout_readiness(root: Path) -> dict[str, Any]:
         "paper": parsed_stages["paper"],
         "shadow": parsed_stages["shadow"],
         "canary": parsed_stages["canary"],
+        "degradation_replay_evidence": degradation_replay,
         "checks": checks,
     }
 
@@ -5128,6 +5318,7 @@ def build_live_readiness_gate_report(
         ("shadow_evidence_requirements_listed", "shadow_evidence_requirements_missing"),
         ("canary_evidence_requirements_listed", "canary_evidence_requirements_missing"),
         ("canary_guard_manifest_valid", "canary_guard_manifest_invalid"),
+        ("degradation_replay_evidence_valid", "degradation_replay_evidence_invalid"),
     ):
         if not offline_rollout_checks.get(check, False):
             reasons.append(reason)

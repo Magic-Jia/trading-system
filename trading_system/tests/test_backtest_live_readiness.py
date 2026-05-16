@@ -1341,6 +1341,7 @@ def test_offline_rollout_checklist_producer_writes_gate_accepted_schema(tmp_path
             "notification_evidence": "pager-dry-run-v1",
             "kill_switch_evidence": "kill-switch-dry-run-v1",
         },
+        degradation_replay_evidence=_offline_degradation_replay_evidence(),
     )
 
     assert checklist["schema_version"] == "offline_rollout_readiness_checklist.v1"
@@ -1351,6 +1352,7 @@ def test_offline_rollout_checklist_producer_writes_gate_accepted_schema(tmp_path
     assert checklist["paper"]["evidence_complete"] is True
     assert checklist["shadow"]["evidence_complete"] is True
     assert checklist["canary"]["evidence_complete"] is True
+    assert checklist["degradation_replay_evidence"]["scenarios"][0]["scenario"] == "websocket_lag"
 
     persisted = json.loads((tmp_path / "offline_rollout_readiness_checklist.json").read_text(encoding="utf-8"))
     assert persisted == checklist
@@ -1362,6 +1364,7 @@ def test_offline_rollout_checklist_producer_writes_gate_accepted_schema(tmp_path
     reasons = set(report["promotion_gate"]["reasons"])
     assert "offline_rollout_checklist_invalid" not in reasons
     assert "canary_guard_manifest_invalid" not in reasons
+    assert "degradation_replay_evidence_invalid" not in reasons
 
 
 def _drift_metrics(**overrides: object) -> dict[str, object]:
@@ -1449,6 +1452,41 @@ def _write_valid_stress_replay_contract(root: Path) -> None:
             _valid_stuck_partial_order_scenario(),
         ],
     )
+def _offline_degradation_replay_evidence(**overrides: object) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "schema_version": "degradation_replay_evidence.v1",
+        "mode": "offline_replay",
+        "evidence_source": {
+            "type": "offline_replay_fixture",
+            "run_id": "degradation-replay-1",
+            "exported_at": "2026-05-16T09:10:00Z",
+        },
+        "as_of": "2026-05-16T09:00:00Z",
+        "decision_timestamp": "2026-05-16T09:30:00Z",
+        "max_age_seconds": 3600,
+        "scenarios": [
+            {
+                "scenario": "websocket_lag",
+                "passed": True,
+                "max_lag_ms": 850.0,
+                "max_allowed_lag_ms": 1000.0,
+                "dropped_message_count": 0,
+                "replay_event_count": 12,
+                "fail_closed_triggered": False,
+            },
+            {
+                "scenario": "rest_rate_limit_degradation",
+                "passed": True,
+                "retry_after_seconds": 30.0,
+                "recovery_seconds": 42.0,
+                "max_allowed_recovery_seconds": 60.0,
+                "rate_limit_event_count": 4,
+                "fail_closed_triggered": False,
+            },
+        ],
+    }
+    payload.update(overrides)
+    return payload
 
 
 def test_paper_live_shadow_drift_contract_producer_writes_gate_accepted_schema(tmp_path: Path) -> None:
@@ -1712,6 +1750,7 @@ def test_offline_rollout_checklist_producer_lists_missing_evidence_requirements(
             "notification_evidence": "pager-dry-run-v1",
             "kill_switch_evidence": "kill-switch-dry-run-v1",
         },
+        degradation_replay_evidence=_offline_degradation_replay_evidence(),
     )
 
     assert checklist["paper"] == {
@@ -1741,6 +1780,7 @@ def test_offline_rollout_checklist_roundtrip_preserves_missing_evidence_as_remai
             "notification_evidence": "pager-dry-run-v1",
             "kill_switch_evidence": "kill-switch-dry-run-v1",
         },
+        degradation_replay_evidence=_offline_degradation_replay_evidence(),
     )
 
     assert checklist["paper"]["evidence_complete"] is False
@@ -1769,6 +1809,7 @@ def test_offline_rollout_checklist_producer_roundtrip_preserves_evidence_map(tmp
             "notification_evidence": "pager-dry-run-v1",
             "kill_switch_evidence": "kill-switch-dry-run-v1",
         },
+        degradation_replay_evidence=_offline_degradation_replay_evidence(),
     )
 
     assert checklist["evidence_map"]["paper"] == {
@@ -1828,6 +1869,7 @@ def test_offline_rollout_checklist_producer_rejects_malformed_inputs(
             "notification_evidence": "pager-dry-run-v1",
             "kill_switch_evidence": "kill-switch-dry-run-v1",
         },
+        "degradation_replay_evidence": _offline_degradation_replay_evidence(),
     }
     if "canary_guard_manifest" in kwargs:
         base_kwargs["canary_guard_manifest"] = {
@@ -1990,6 +2032,7 @@ def test_live_readiness_gate_rejects_malformed_offline_rollout_checklist_fields(
                 "kill_switch_evidence": "kill-switch-dry-run-v1",
             },
         },
+        "degradation_replay_evidence": _offline_degradation_replay_evidence(),
     }
     payload.update(payload_patch)
     (tmp_path / "offline_rollout_readiness_checklist.json").write_text(json.dumps(payload), encoding="utf-8")
@@ -2066,6 +2109,7 @@ def test_live_readiness_gate_accepts_valid_offline_rollout_checklist_and_canary_
                         "kill_switch_evidence": "kill-switch-dry-run-v1",
                     },
                 },
+                "degradation_replay_evidence": _offline_degradation_replay_evidence(),
             }
         ),
         encoding="utf-8",
@@ -2087,11 +2131,100 @@ def test_live_readiness_gate_accepts_valid_offline_rollout_checklist_and_canary_
         "shadow_evidence_requirements_listed": True,
         "canary_evidence_requirements_listed": True,
         "canary_guard_manifest_valid": True,
+        "degradation_replay_evidence_valid": True,
     }
     reasons = set(report["promotion_gate"]["reasons"])
     assert "offline_rollout_checklist_missing" not in reasons
     assert "offline_rollout_checklist_invalid" not in reasons
     assert "canary_guard_manifest_invalid" not in reasons
+    assert "degradation_replay_evidence_invalid" not in reasons
+
+
+@pytest.mark.parametrize(
+    ("evidence_patch", "parse_error"),
+    [
+        (None, "degradation_replay_evidence_not_object"),
+        ({"mode": "testnet_probe"}, "degradation_replay_mode_not_offline_replay"),
+        ({"as_of": "2026-05-16T08:00:00Z"}, "degradation_replay_as_of_stale"),
+        (
+            {"scenarios": [_offline_degradation_replay_evidence()["scenarios"][1]]},
+            "degradation_replay_missing_websocket_lag",
+        ),
+        (
+            {"scenarios": [_offline_degradation_replay_evidence()["scenarios"][0]]},
+            "degradation_replay_missing_rest_rate_limit_degradation",
+        ),
+        (
+            {
+                "scenarios": [
+                    {
+                        **_offline_degradation_replay_evidence()["scenarios"][0],  # type: ignore[index]
+                        "max_lag_ms": float("nan"),
+                    },
+                    _offline_degradation_replay_evidence()["scenarios"][1],
+                ]
+            },
+            "degradation_replay_websocket_lag_max_lag_ms_not_finite",
+        ),
+        (
+            {
+                "scenarios": [
+                    _offline_degradation_replay_evidence()["scenarios"][0],
+                    {
+                        **_offline_degradation_replay_evidence()["scenarios"][1],  # type: ignore[index]
+                        "passed": False,
+                    },
+                ]
+            },
+            "degradation_replay_rest_rate_limit_degradation_failed",
+        ),
+    ],
+)
+def test_live_readiness_gate_rejects_malformed_degradation_replay_evidence(
+    tmp_path: Path,
+    evidence_patch: dict[str, object] | None,
+    parse_error: str,
+) -> None:
+    payload: dict[str, object] = {
+        "schema_version": "offline_rollout_readiness_checklist.v1",
+        "metadata": {
+            "source": "trading_system.app.backtest.live_readiness",
+            "materialization": "offline_rollout_readiness_checklist.json",
+        },
+        "paper": {"evidence_complete": True, "remaining_requirements": ["paper-fill-reconciliation"]},
+        "shadow": {"evidence_complete": True, "remaining_requirements": ["shadow-order-parity"]},
+        "canary": {
+            "evidence_complete": True,
+            "remaining_requirements": ["canary-rollback-drill"],
+            "guard_manifest": {
+                "max_notional": 100.0,
+                "symbol_allowlist": ["BTCUSDT", "ETHUSDT"],
+                "timeout_seconds": 300.0,
+                "rollback_evidence": "rollback-runbook-v1",
+                "alerting_evidence": "alerts-dry-run-v1",
+                "notification_evidence": "pager-dry-run-v1",
+                "kill_switch_evidence": "kill-switch-dry-run-v1",
+            },
+        },
+    }
+    if evidence_patch is not None:
+        payload["degradation_replay_evidence"] = {
+            **_offline_degradation_replay_evidence(),
+            **evidence_patch,
+        }
+    (tmp_path / "offline_rollout_readiness_checklist.json").write_text(
+        json.dumps(payload, allow_nan=True),
+        encoding="utf-8",
+    )
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    checklist = report["offline_rollout_readiness"]
+    assert checklist["schema_valid"] is False
+    assert checklist["parse_error"] == parse_error
+    assert checklist["checks"]["degradation_replay_evidence_valid"] is False
+    assert "degradation_replay_evidence_invalid" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
 
 
 def test_live_readiness_smoke_report_rejects_tampered_promotion_bundle(tmp_path: Path) -> None:
@@ -4724,6 +4857,7 @@ def _write_valid_offline_rollout_checklist(root: Path) -> None:
                         "kill_switch_evidence": "kill-switch-dry-run-v1",
                     },
                 },
+                "degradation_replay_evidence": _offline_degradation_replay_evidence(),
             }
         ),
         encoding="utf-8",
