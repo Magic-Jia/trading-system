@@ -837,6 +837,59 @@ def test_rejects_non_object_depth_driven_fill_entries() -> None:
         )
 
 
+def test_microstructure_gate_rejects_complete_depth_fill_with_residual_quantity() -> None:
+    with pytest.raises(
+        ValueError,
+        match=r"^complete depth_driven_taker_fills must have zero residual quantity$",
+    ):
+        build_microstructure_gate(
+            _complete_coverage_manifest(
+                depth_driven_taker_fills=[
+                    {
+                        "side": "buy",
+                        "requested_quantity": 2.0,
+                        "filled_quantity": 1.0,
+                        "residual_quantity": 1.0,
+                        "complete": True,
+                        "vwap": 100.1,
+                        "slippage_bps": 10.0,
+                        "consumed_levels": [{"price": 100.1, "quantity": 1.0}],
+                    }
+                ]
+            )
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "expected_error"),
+    [
+        ("requested_quantity", -1.0, "depth_driven_taker_fills requested_quantity must be a positive number"),
+        ("requested_quantity", 0.0, "depth_driven_taker_fills requested_quantity must be a positive number"),
+        ("filled_quantity", -1.0, "depth_driven_taker_fills filled_quantity must be a non-negative number"),
+        ("residual_quantity", -1.0, "depth_driven_taker_fills residual_quantity must be a non-negative number"),
+        ("vwap", -100.0, "depth_driven_taker_fills vwap must be a positive number"),
+        ("vwap", 0.0, "depth_driven_taker_fills vwap must be a positive number"),
+    ],
+)
+def test_microstructure_gate_rejects_physically_invalid_depth_fill_scalars(
+    field: str, value: float, expected_error: str
+) -> None:
+    fill = {
+        "side": "buy",
+        "requested_quantity": 1.0,
+        "filled_quantity": 1.0,
+        "residual_quantity": 0.0,
+        "complete": True,
+        "vwap": 100.1,
+        "slippage_bps": 10.0,
+        "consumed_levels": [{"price": 100.1, "quantity": 1.0}],
+    }
+    fill[field] = value
+
+    with pytest.raises(ValueError, match=f"^{expected_error}$"):
+        build_microstructure_gate(_complete_coverage_manifest(depth_driven_taker_fills=[fill]))
+
+
 @pytest.mark.parametrize(
     ("manifest", "expected_error"),
     [

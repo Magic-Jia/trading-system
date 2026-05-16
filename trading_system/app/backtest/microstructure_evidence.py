@@ -412,7 +412,13 @@ def build_microstructure_gate(
             ):
                 numeric_value = fill.get(numeric_field)
                 if numeric_value is not None:
-                    _normalise_finite_float(f"depth_driven_taker_fills {numeric_field}", numeric_value)
+                    normalised_value = _normalise_finite_float(
+                        f"depth_driven_taker_fills {numeric_field}", numeric_value
+                    )
+                    if numeric_field in {"requested_quantity", "vwap"} and normalised_value <= 0:
+                        raise ValueError(f"depth_driven_taker_fills {numeric_field} must be a positive number")
+                    if numeric_field in {"filled_quantity", "residual_quantity"} and normalised_value < 0:
+                        raise ValueError(f"depth_driven_taker_fills {numeric_field} must be a non-negative number")
             consumed_levels = fill.get("consumed_levels")
             if consumed_levels is not None:
                 if not isinstance(consumed_levels, list):
@@ -443,6 +449,13 @@ def build_microstructure_gate(
             complete = fill.get("complete", False)
             if not isinstance(complete, bool):
                 raise ValueError("depth_driven_taker_fills complete must be a boolean")
+            residual_quantity = fill.get("residual_quantity")
+            if (
+                complete
+                and residual_quantity is not None
+                and float(residual_quantity) > 1e-12
+            ):
+                raise ValueError("complete depth_driven_taker_fills must have zero residual quantity")
             if complete:
                 complete_fill_count += 1
         incomplete_fill_count = fill_count - complete_fill_count
