@@ -12668,6 +12668,54 @@ def test_live_readiness_gate_rejects_setup_rewrite_evaluation_would_keep_not_boo
     assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
 
 
+def test_live_readiness_gate_rejects_setup_rewrite_row_index_drift_from_row_position(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    (chunk / "setup_rewrite_experiment.json").write_text(
+        json.dumps(
+            {
+                "summary": {
+                    "total_rows": 2,
+                    "evaluated_count": 2,
+                    "would_keep_count": 2,
+                    "would_filter_count": 0,
+                    "skipped_count": 0,
+                },
+                "evaluation_rows": [
+                    {
+                        "row_index": 1,
+                        "symbol": "BTCUSDT",
+                        "setup_type": "TREND_PULLBACK",
+                        "evaluation_status": "evaluated",
+                        "evaluation_reason": "passed",
+                        "would_keep": True,
+                        "net_pnl": 10.0,
+                    },
+                    {
+                        "row_index": 1,
+                        "symbol": "ETHUSDT",
+                        "setup_type": "TREND_PULLBACK",
+                        "evaluation_status": "evaluated",
+                        "evaluation_reason": "passed",
+                        "would_keep": True,
+                        "net_pnl": 8.0,
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    diagnostic = report["setup_rewrite_diagnostic"]
+    assert diagnostic["checks"]["setup_rewrite_artifact_schema_valid"] is False
+    assert diagnostic["chunks"][0]["parse_error"] == "row_index_mismatch: evaluation_rows[2].row_index"
+    assert "setup_rewrite_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["checks"]["setup_rewrite_artifact_schema_valid"] is False
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
 
 def test_live_readiness_gate_rejects_setup_rewrite_noncanonical_row_strings(tmp_path: Path) -> None:
     source = tmp_path / "source"

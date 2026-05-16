@@ -1755,6 +1755,9 @@ def _setup_rewrite_diagnostic(chunk_dirs: Iterable[Path]) -> dict[str, Any] | No
                     if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
                         parse_error = f"invalid_field_type: evaluation_rows[{row_index}].row_index"
                         break
+                    if value != row_index:
+                        parse_error = f"row_index_mismatch: evaluation_rows[{row_index}].row_index"
+                        break
                 for field in ("symbol", "setup_type", "evaluation_status", "evaluation_reason"):
                     value = row.get(field)
                     if field in row and value is not None and (
