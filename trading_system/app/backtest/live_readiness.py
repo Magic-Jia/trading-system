@@ -1876,6 +1876,15 @@ def _setup_rewrite_diagnostic(chunk_dirs: Iterable[Path]) -> dict[str, Any] | No
             observed_keep_count = sum(1 for row in evaluation_rows if isinstance(row, Mapping) and row.get("would_keep") is True)
             if observed_keep_count != counts.get("would_keep_count", 0):
                 parse_error = "would_keep_count_mismatch"
+        if not parse_error and "by_source_chunk" in summary:
+            summary_source_chunks = set(_as_mapping(summary.get("by_source_chunk")))
+            row_source_chunks = {
+                row.get("source_chunk")
+                for row in evaluation_rows
+                if isinstance(row, Mapping) and isinstance(row.get("source_chunk"), str)
+            }
+            if row_source_chunks and summary_source_chunks != row_source_chunks:
+                parse_error = "source_chunk_summary_mismatch"
         chunk = {
             "chunk": chunk_dir.name,
             "path": str(path),
