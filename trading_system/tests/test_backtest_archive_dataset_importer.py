@@ -8253,7 +8253,10 @@ def test_validate_phase1_imported_dataset_root_rejects_bundle_payload_as_of_drif
     market_context["as_of"] = "2024-03-01T00:00:00Z"
     market_context_path.write_text(json.dumps(market_context, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    with pytest.raises(ValueError, match="bundle payload as_of did not round-trip"):
+    with pytest.raises(
+        ValueError,
+        match="market_context.json as_of must be at or before metadata.timestamp",
+    ):
         validate_phase1_imported_dataset_root(
             dataset_root,
             expected_bundle_dirs=(bundle_dir,),

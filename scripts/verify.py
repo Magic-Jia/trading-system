@@ -117,6 +117,13 @@ IMPACT_RULES: tuple[tuple[str, list[str]], ...] = (
     ("trading_system/run_cycle.py", SUITES["runtime-support"]),
     ("trading_system/app/backtest/archive/", SUITES["archive-data"]),
     ("trading_system/app/backtest/live_readiness.py", SUITES["evidence-chain"]),
+    (
+        "trading_system/app/backtest/dataset.py",
+        [
+            *SUITES["backtest-core"],
+            *[test for test in SUITES["archive-data"] if test not in SUITES["backtest-core"]],
+        ],
+    ),
     ("trading_system/app/backtest/microstructure_evidence.py", SUITES["evidence-chain"]),
     ("trading_system/app/backtest/validation_evidence.py", SUITES["evidence-chain"]),
     ("trading_system/app/backtest/promotion_evidence_bundle.py", SUITES["evidence-chain"]),
