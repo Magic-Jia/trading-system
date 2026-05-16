@@ -1,6 +1,6 @@
 # Paper/Live-Sim Evidence Phase 2 Ledger
 
-Status: batch_1_integrated
+Status: batch_2_integrated
 Base: bbd3c0ab
 Scope: simulated live / paper-live only. In this project context `live` means simulated live unless explicitly stated otherwise.
 
@@ -35,3 +35,16 @@ Move from offline fail-closed contracts to operational evidence loops for simula
 - Wire daily scheduled generation for simulated-live evidence bundle, TCA report, and daily quality gate from current runtime artifacts.
 - Add longitudinal trend report over multiple simulated-live days.
 - Add alert/hold workflow for quality-gate regressions.
+
+
+## Completed batch 2
+
+- `scheduled-live-sim-generation` — `754df312`, periodic generation for paper/live-sim evidence bundle, TCA calibration, and daily quality gate; main exact 1800 passed + diff-check.
+- `longitudinal-live-sim-trend-report` — `e71f09ce`, multi-day trend report over quality gate, TCA, drift, reconciliation, latency, slippage, fill quality, and freshness; focused exact 4 passed + diff-check.
+- `quality-gate-alert-hold-workflow` — `32fdf5d3`, quality gate regression hold/alert workflow surfaced in testnet daily report; focused exact 16 passed + diff-check.
+
+## Next frontiers after batch 2
+
+- Run the scheduled simulated-live generation against real local simulated runtime artifacts and inspect produced evidence.
+- Add external data-source cross-checks if multiple simulated/live feeds are available.
+- Add operator runbook/acknowledgement persistence if hold workflows need human release tracking beyond JSON artifacts.
