@@ -335,6 +335,29 @@ def test_setup_rewrite_experiment_valid_corrected_multi_setup_is_promotion_grade
     assert artifact["summary"]["would_keep_count"] == 2
 
 
+def test_setup_rewrite_experiment_rejects_future_evidence_timestamp() -> None:
+    module = importlib.import_module("trading_system.app.backtest.setup_rewrite_experiment")
+
+    with pytest.raises(
+        ValueError,
+        match=r"rows\[1\]\.evidence_timestamp must be at or before entry_timestamp",
+    ):
+        module.build_setup_rewrite_experiment(
+            rows=[
+                {
+                    "symbol": "BTCUSDT",
+                    "setup_type": "TREND_PULLBACK",
+                    "side": "long",
+                    "entry_timestamp": "2026-03-10T00:00:00Z",
+                    "evidence_timestamp": "2026-03-10T00:00:01Z",
+                    "score": 0.82,
+                    "cost_coverage_ratio": 1.4,
+                },
+            ],
+            setup_rewrite=_params(),
+        )
+
+
 def test_setup_rewrite_experiment_applies_setup_scoped_allowed_symbols_filter() -> None:
     module = importlib.import_module("trading_system.app.backtest.setup_rewrite_experiment")
 

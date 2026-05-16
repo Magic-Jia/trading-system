@@ -379,6 +379,10 @@ def _net_pnl_or_none(value: Any, *, field_path: str) -> float | None:
 
 
 def _validate_execution_evidence_timestamps(row: Mapping[str, Any], *, index: int) -> None:
+    entry_timestamp = _optional_timestamp(
+        row.get("entry_timestamp"),
+        field_path=f"rows[{index}].entry_timestamp",
+    )
     evidence_timestamp = _optional_timestamp(
         row.get("evidence_timestamp"),
         field_path=f"rows[{index}].evidence_timestamp",
@@ -396,6 +400,11 @@ def _validate_execution_evidence_timestamps(row: Mapping[str, Any], *, index: in
             raise ValueError(f"rows[{index}].first_fill_timestamp must be at or before last_fill_timestamp")
         if evidence_timestamp is not None and not (first_fill_timestamp <= evidence_timestamp <= last_fill_timestamp):
             raise ValueError(f"rows[{index}].evidence_timestamp must fall within fill timestamp interval")
+    if evidence_timestamp is not None:
+        if entry_timestamp is None:
+            raise ValueError(f"rows[{index}].evidence_timestamp requires entry_timestamp")
+        if evidence_timestamp > entry_timestamp:
+            raise ValueError(f"rows[{index}].evidence_timestamp must be at or before entry_timestamp")
 
 
 def _validate_execution_scalars(row: Mapping[str, Any], *, index: int) -> None:
