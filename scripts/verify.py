@@ -131,6 +131,7 @@ IMPACT_RULES: tuple[tuple[str, list[str]], ...] = (
         "trading_system/tests/test_backtest_promotion.py",
         "trading_system/tests/test_backtest_live_readiness.py",
     ]),
+    ("trading_system/tests/fixtures/backtest/full_market_baseline_dataset/", SUITES["backtest-core"]),
     ("trading_system/app/backtest/", SUITES["backtest-core"]),
     ("scripts/audit_worker_commit.py", SUITES["workflow-meta"]),
     ("scripts/ci_verify.py", SUITES["workflow-meta"]),

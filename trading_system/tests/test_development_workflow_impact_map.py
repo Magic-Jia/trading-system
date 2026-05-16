@@ -106,3 +106,17 @@ def test_management_execution_test_file_has_portfolio_impact_mapping() -> None:
 
     assert "trading_system/tests/test_management_execution.py" in tests
     assert "trading_system/tests/test_target_management_state.py" in tests
+
+
+def test_full_market_baseline_dataset_fixtures_have_backtest_impact_mapping() -> None:
+    verify = load_verify_module()
+
+    tests = verify.tests_for_changed(
+        [
+            "trading_system/tests/fixtures/backtest/full_market_baseline_dataset/"
+            "2026-03-10T00-00-00Z__row-001/instrument_snapshot.json"
+        ]
+    )
+
+    assert "trading_system/tests/test_backtest_dataset.py" in tests
+    assert "trading_system/tests/test_backtest_engine.py" in tests
