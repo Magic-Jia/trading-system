@@ -72,6 +72,15 @@ _REQUIRED_PNL_ATTRIBUTION_BUCKETS = (
 )
 _PNL_ATTRIBUTION_TOLERANCE = 1e-9
 _PORTFOLIO_CORRELATION_EXPOSURE_SCHEMA_VERSION = "portfolio_correlation_exposure.v1"
+_CAPACITY_ANALYSIS_EVIDENCE_SCHEMA_VERSION = "capacity_analysis_evidence.v1"
+_REQUIRED_CAPACITY_CHECKS = (
+    "capital_limits_met",
+    "liquidity_regime_capacity_met",
+    "impact_deterioration_met",
+    "symbol_level_capacity_met",
+    "turnover_slippage_sensitivity_met",
+    "assumptions_provenance_met",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -1138,6 +1147,188 @@ def _require_portfolio_correlation_exposure_evidence(payload: Any, *, context: s
     }
 
 
+def _capacity_limits(raw_value: Any, *, context: str) -> dict[str, float]:
+    if not isinstance(raw_value, Mapping):
+        raise ValueError(f"{context}.limits must be an object")
+    required = (
+        "max_capital_usdt",
+        "max_position_notional_usdt",
+        "max_turnover_ratio",
+        "max_slippage_bps",
+        "max_impact_deterioration_bps",
+    )
+    limits: dict[str, float] = {}
+    for field in required:
+        parsed = _require_non_negative_strict_number(raw_value.get(field), context=f"{context}.limits.{field}")
+        if parsed <= 0.0:
+            raise ValueError(f"{context}.limits.{field} must be positive")
+        limits[field] = parsed
+    return limits
+
+
+def _capacity_provenance(raw_value: Any, *, context: str) -> dict[str, dict[str, str]]:
+    if not isinstance(raw_value, Mapping):
+        raise ValueError(f"{context}.provenance must be an object")
+    normalized: dict[str, dict[str, str]] = {}
+    for field in ("liquidity", "impact", "assumptions"):
+        item = raw_value.get(field)
+        if not isinstance(item, Mapping):
+            raise ValueError(f"{context}.provenance.{field} must be an object")
+        source = _require_canonical_bucket_identity(item.get("source"), context=f"{context}.provenance.{field}.source")
+        artifact_ref = _require_canonical_string_value(
+            item.get("artifact_ref"),
+            context=f"{context}.provenance.{field}.artifact_ref",
+        )
+        if Path(artifact_ref).is_absolute() or ".." in Path(artifact_ref).parts or artifact_ref != str(Path(artifact_ref)):
+            raise ValueError(f"{context}.provenance.{field}.artifact_ref must be a safe canonical relative path")
+        normalized[field] = {"source": source, "artifact_ref": artifact_ref}
+    return normalized
+
+
+def _capacity_symbol_rows(
+    rows: Any,
+    *,
+    context: str,
+    breaches: list[str],
+) -> list[dict[str, Any]]:
+    if not isinstance(rows, list) or not rows:
+        raise ValueError(f"{context}.symbols must be a non-empty list")
+    seen_symbols: set[str] = set()
+    normalized: list[dict[str, Any]] = []
+    for index, raw_row in enumerate(rows):
+        row_context = f"{context}.symbols[{index}]"
+        if not isinstance(raw_row, Mapping):
+            raise ValueError(f"{row_context} must be an object")
+        symbol = _require_canonical_bucket_identity(raw_row.get("symbol"), context=f"{row_context}.symbol")
+        if symbol in seen_symbols:
+            raise ValueError(f"{context}.symbols symbol values must be unique")
+        seen_symbols.add(symbol)
+        claimed = _require_non_negative_strict_number(
+            raw_row.get("claimed_capacity_usdt"),
+            context=f"{row_context}.claimed_capacity_usdt",
+        )
+        max_capacity = _require_non_negative_strict_number(
+            raw_row.get("max_capacity_usdt"),
+            context=f"{row_context}.max_capacity_usdt",
+        )
+        if claimed > max_capacity:
+            breaches.append(f"{symbol} claimed capacity exceeds symbol limit")
+        liquidity_regime = _require_canonical_bucket_identity(
+            raw_row.get("liquidity_regime"),
+            context=f"{row_context}.liquidity_regime",
+        )
+        impact_bps = _require_non_negative_strict_number(raw_row.get("impact_bps"), context=f"{row_context}.impact_bps")
+        slippage_bps = _require_non_negative_strict_number(
+            raw_row.get("slippage_bps"),
+            context=f"{row_context}.slippage_bps",
+        )
+        normalized.append(
+            {
+                "symbol": symbol,
+                "claimed_capacity_usdt": claimed,
+                "max_capacity_usdt": max_capacity,
+                "liquidity_regime": liquidity_regime,
+                "impact_bps": impact_bps,
+                "slippage_bps": slippage_bps,
+            }
+        )
+    return normalized
+
+
+def _require_capacity_analysis_evidence(payload: Any, *, context: str) -> dict[str, Any]:
+    if not isinstance(payload, Mapping):
+        raise ValueError(f"{context}.capacity_analysis_evidence must be present for positive capacity claims")
+    evidence = dict(payload)
+    field_context = f"{context}.capacity_analysis_evidence"
+    if evidence.get("schema_version") != _CAPACITY_ANALYSIS_EVIDENCE_SCHEMA_VERSION:
+        raise ValueError(
+            f"{field_context}.schema_version must be {_CAPACITY_ANALYSIS_EVIDENCE_SCHEMA_VERSION}"
+        )
+    source = _require_mapping(evidence, "evidence_source", context=field_context)
+    source_type = _require_canonical_bucket_identity(source.get("type"), context=f"{field_context}.evidence_source.type")
+    if source_type != "capacity_analysis_report":
+        raise ValueError(f"{field_context}.evidence_source.type must be capacity_analysis_report")
+    _require_canonical_bucket_identity(source.get("run_id"), context=f"{field_context}.evidence_source.run_id")
+    if "exported_at" in source:
+        _require_canonical_utc_timestamp(source["exported_at"], context=f"{field_context}.evidence_source.exported_at")
+    as_of = _require_canonical_utc_timestamp(evidence.get("as_of"), context=f"{field_context}.as_of")
+    decision_timestamp = _require_canonical_utc_timestamp(
+        evidence.get("decision_timestamp"),
+        context=f"{field_context}.decision_timestamp",
+    )
+    if as_of > decision_timestamp:
+        raise ValueError(f"{field_context}.as_of must be at or before decision_timestamp")
+    current_date = datetime(2026, 5, 16, tzinfo=as_of.tzinfo).date()
+    if as_of.date() > current_date:
+        raise ValueError(f"{field_context}.as_of must not be future dated")
+    if as_of.date() != current_date:
+        raise ValueError(f"{field_context}.as_of must be current")
+    checks = _require_mapping(evidence, "checks", context=field_context)
+    normalized_checks: dict[str, bool] = {}
+    for check_name in _REQUIRED_CAPACITY_CHECKS:
+        if not isinstance(checks.get(check_name), bool):
+            raise ValueError(f"{field_context}.checks.{check_name} must be a bool")
+        normalized_checks[check_name] = bool(checks[check_name])
+    limits = _capacity_limits(evidence.get("limits"), context=field_context)
+    summary = _require_mapping(evidence, "summary", context=field_context)
+    claimed_capacity = _require_non_negative_strict_number(
+        summary.get("claimed_capacity_usdt"),
+        context=f"{field_context}.summary.claimed_capacity_usdt",
+    )
+    capital_required = _require_non_negative_strict_number(
+        summary.get("capital_required_usdt"),
+        context=f"{field_context}.summary.capital_required_usdt",
+    )
+    turnover = _require_non_negative_strict_number(
+        summary.get("estimated_turnover_ratio"),
+        context=f"{field_context}.summary.estimated_turnover_ratio",
+    )
+    slippage = _require_non_negative_strict_number(
+        summary.get("estimated_slippage_bps"),
+        context=f"{field_context}.summary.estimated_slippage_bps",
+    )
+    impact = _require_non_negative_strict_number(
+        summary.get("impact_deterioration_bps"),
+        context=f"{field_context}.summary.impact_deterioration_bps",
+    )
+    liquidity_regime = _require_canonical_bucket_identity(
+        summary.get("liquidity_regime"),
+        context=f"{field_context}.summary.liquidity_regime",
+    )
+    breaches: list[str] = []
+    if claimed_capacity > limits["max_capital_usdt"]:
+        breaches.append("claimed capacity exceeds max capital")
+    if capital_required > limits["max_position_notional_usdt"]:
+        breaches.append("capital required exceeds max position notional")
+    if turnover > limits["max_turnover_ratio"]:
+        breaches.append("turnover exceeds configured limit")
+    if slippage > limits["max_slippage_bps"]:
+        breaches.append("slippage exceeds configured limit")
+    if impact > limits["max_impact_deterioration_bps"]:
+        breaches.append("impact deterioration exceeds configured limit")
+    symbols = _capacity_symbol_rows(evidence.get("symbols"), context=field_context, breaches=breaches)
+    provenance = _capacity_provenance(evidence.get("provenance"), context=field_context)
+    return {
+        "schema_version": _CAPACITY_ANALYSIS_EVIDENCE_SCHEMA_VERSION,
+        "evidence_source": dict(source),
+        "as_of": evidence["as_of"],
+        "decision_timestamp": evidence["decision_timestamp"],
+        "checks": normalized_checks,
+        "limits": limits,
+        "summary": {
+            "claimed_capacity_usdt": claimed_capacity,
+            "capital_required_usdt": capital_required,
+            "estimated_turnover_ratio": turnover,
+            "estimated_slippage_bps": slippage,
+            "impact_deterioration_bps": impact,
+            "liquidity_regime": liquidity_regime,
+        },
+        "symbols": symbols,
+        "provenance": provenance,
+        "breaches": breaches,
+    }
+
+
 def _require_rows(payload: Mapping[str, Any], *, context: str) -> list[dict[str, Any]]:
     rows = payload.get("rows")
     if not isinstance(rows, list):
@@ -1461,6 +1652,11 @@ def _validate_walk_forward_bundle(bundle: BacktestBundle) -> None:
             summary.get("portfolio_correlation_exposure"),
             context=f"{bundle.root}/summary.json",
         )
+    if "capacity_analysis_evidence" in summary:
+        summary["capacity_analysis_evidence"] = _require_capacity_analysis_evidence(
+            summary.get("capacity_analysis_evidence"),
+            context=f"{bundle.root}/summary.json",
+        )
     windows = _require_rows(bundle.artifacts["windows.json"], context=f"{bundle.root}/windows.json")
     _require_multiple_testing_correction(
         bundle.artifacts["scorecard.json"],
@@ -1495,6 +1691,11 @@ def _validate_walk_forward_bundle(bundle: BacktestBundle) -> None:
     if "portfolio_correlation_exposure" in scorecard:
         scorecard["portfolio_correlation_exposure"] = _require_portfolio_correlation_exposure_evidence(
             scorecard["portfolio_correlation_exposure"],
+            context=f"{bundle.root}/scorecard.json",
+        )
+    if "capacity_analysis_evidence" in scorecard:
+        scorecard["capacity_analysis_evidence"] = _require_capacity_analysis_evidence(
+            scorecard["capacity_analysis_evidence"],
             context=f"{bundle.root}/scorecard.json",
         )
 
@@ -1959,6 +2160,48 @@ def _portfolio_correlation_exposure_breaches(bundle: BacktestBundle) -> list[str
     return list(evidence.get("breaches", []))
 
 
+def _capacity_analysis_evidence(bundle: BacktestBundle) -> dict[str, Any] | None:
+    if bundle.experiment_kind != "walk_forward_validation":
+        return None
+    summary = bundle.artifacts["summary.json"]
+    if "capacity_analysis_evidence" in summary:
+        return _require_capacity_analysis_evidence(
+            summary["capacity_analysis_evidence"],
+            context=f"{bundle.root}/summary.json",
+        )
+    scorecard = bundle.artifacts["scorecard.json"]
+    if "capacity_analysis_evidence" in scorecard:
+        return _require_capacity_analysis_evidence(
+            scorecard["capacity_analysis_evidence"],
+            context=f"{bundle.root}/scorecard.json",
+        )
+    return None
+
+
+def _has_capacity_analysis_evidence(bundle: BacktestBundle) -> bool:
+    if bundle.experiment_kind != "walk_forward_validation":
+        return True
+    snapshot = _metric_snapshot(bundle)
+    if snapshot.get("total_return", 0.0) <= 0.0:
+        return True
+    return _capacity_analysis_evidence(bundle) is not None
+
+
+def _capacity_analysis_breaches(bundle: BacktestBundle) -> list[str]:
+    evidence = _capacity_analysis_evidence(bundle)
+    if evidence is None:
+        return []
+    breaches = list(evidence.get("breaches", []))
+    checks = evidence.get("checks", {})
+    if isinstance(checks, Mapping):
+        breaches.extend(
+            check_name
+            for check_name in _REQUIRED_CAPACITY_CHECKS
+            if checks.get(check_name) is not True
+        )
+    return breaches
+
+
 def _collapsed_regime_oos_buckets(bundle: BacktestBundle) -> list[str]:
     evidence = _regime_stratified_oos_evidence(bundle)
     if evidence is None:
@@ -2031,6 +2274,10 @@ def _why(
         and not checks["rejects_portfolio_correlation_exposure_breach"]
     ):
         reasons.append("portfolio correlation/exposure evidence breaches configured limits")
+    if "has_capacity_analysis_evidence" in checks and not checks["has_capacity_analysis_evidence"]:
+        reasons.append("missing capacity analysis evidence")
+    if "rejects_capacity_limit_breach" in checks and not checks["rejects_capacity_limit_breach"]:
+        reasons.append("capacity analysis evidence breaches configured limits")
     return reasons
 
 
@@ -2071,6 +2318,10 @@ def _decision(
         "rejects_portfolio_correlation_exposure_breach" in checks
         and not checks["rejects_portfolio_correlation_exposure_breach"]
     ):
+        return "reject"
+    if "has_capacity_analysis_evidence" in checks and not checks["has_capacity_analysis_evidence"]:
+        return "reject"
+    if "rejects_capacity_limit_breach" in checks and not checks["rejects_capacity_limit_breach"]:
         return "reject"
     if not checks["has_purged_embargoed_split_metadata"]:
         return "reject"
@@ -2121,11 +2372,14 @@ def compare_backtest_bundles(*, baseline_bundle: str | Path, variant_bundle: str
         checks["rejects_portfolio_correlation_exposure_breach"] = not _portfolio_correlation_exposure_breaches(
             variant
         )
+        checks["has_capacity_analysis_evidence"] = _has_capacity_analysis_evidence(variant)
+        checks["rejects_capacity_limit_breach"] = not _capacity_analysis_breaches(variant)
     metric_deltas = _metric_deltas(baseline, variant)
     out_of_sample_collapses = _out_of_sample_collapses(variant)
     isolated_spike_rejection_reason = _isolated_spike_rejection_reason(variant)
     collapsed_regime_buckets = _collapsed_regime_oos_buckets(variant)
     portfolio_exposure_breaches = _portfolio_correlation_exposure_breaches(variant)
+    capacity_analysis_breaches = _capacity_analysis_breaches(variant)
     why = _why(
         checks,
         out_of_sample_collapses=out_of_sample_collapses,
@@ -2142,6 +2396,13 @@ def compare_backtest_bundles(*, baseline_bundle: str | Path, variant_bundle: str
             if reason != "portfolio correlation/exposure evidence breaches configured limits"
         ]
         why.extend(portfolio_exposure_breaches)
+    if capacity_analysis_breaches:
+        why = [
+            reason
+            for reason in why
+            if reason != "capacity analysis evidence breaches configured limits"
+        ]
+        why.extend(capacity_analysis_breaches)
     decision = _decision(
         checks,
         experiment_kind=variant.experiment_kind,
@@ -2171,6 +2432,9 @@ def compare_backtest_bundles(*, baseline_bundle: str | Path, variant_bundle: str
     portfolio_correlation_exposure = _portfolio_correlation_exposure_evidence(variant)
     if portfolio_correlation_exposure is not None:
         promotion_gate["portfolio_correlation_exposure"] = portfolio_correlation_exposure
+    capacity_analysis_evidence = _capacity_analysis_evidence(variant)
+    if capacity_analysis_evidence is not None:
+        promotion_gate["capacity_analysis_evidence"] = capacity_analysis_evidence
     decision_summary = {
         "experiment_kind": variant.experiment_kind,
         "baseline_bundle": str(baseline.root),
@@ -2182,4 +2446,6 @@ def compare_backtest_bundles(*, baseline_bundle: str | Path, variant_bundle: str
     }
     if dynamic_sizing_evidence is not None:
         decision_summary["dynamic_sizing_evidence"] = dynamic_sizing_evidence
+    if capacity_analysis_evidence is not None:
+        decision_summary["capacity_analysis_evidence"] = capacity_analysis_evidence
     return {"promotion_gate": promotion_gate, "decision_summary": decision_summary}

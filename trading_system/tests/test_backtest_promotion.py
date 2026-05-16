@@ -192,6 +192,59 @@ def _portfolio_correlation_exposure_evidence(
     }
 
 
+def _capacity_analysis_evidence(**overrides: object) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "schema_version": "capacity_analysis_evidence.v1",
+        "evidence_source": {
+            "type": "capacity_analysis_report",
+            "run_id": "capacity-1",
+            "exported_at": "2026-05-16T09:00:00Z",
+        },
+        "as_of": "2026-05-16T08:00:00Z",
+        "decision_timestamp": "2026-05-16T09:30:00Z",
+        "checks": {
+            "capital_limits_met": True,
+            "liquidity_regime_capacity_met": True,
+            "impact_deterioration_met": True,
+            "symbol_level_capacity_met": True,
+            "turnover_slippage_sensitivity_met": True,
+            "assumptions_provenance_met": True,
+        },
+        "limits": {
+            "max_capital_usdt": 100000.0,
+            "max_position_notional_usdt": 25000.0,
+            "max_turnover_ratio": 3.0,
+            "max_slippage_bps": 12.0,
+            "max_impact_deterioration_bps": 8.0,
+        },
+        "summary": {
+            "claimed_capacity_usdt": 50000.0,
+            "capital_required_usdt": 20000.0,
+            "estimated_turnover_ratio": 1.4,
+            "estimated_slippage_bps": 5.0,
+            "impact_deterioration_bps": 4.0,
+            "liquidity_regime": "normal",
+        },
+        "symbols": [
+            {
+                "symbol": "BTCUSDT",
+                "claimed_capacity_usdt": 30000.0,
+                "max_capacity_usdt": 50000.0,
+                "liquidity_regime": "normal",
+                "impact_bps": 3.0,
+                "slippage_bps": 4.0,
+            }
+        ],
+        "provenance": {
+            "liquidity": {"source": "historical_l2_tick_archive", "artifact_ref": "capacity/liquidity.json"},
+            "impact": {"source": "depth_impact_replay", "artifact_ref": "capacity/impact.json"},
+            "assumptions": {"source": "capacity_assumptions", "artifact_ref": "capacity/assumptions.json"},
+        },
+    }
+    payload.update(overrides)
+    return payload
+
+
 def _write_full_market_bundle(
     root: Path,
     *,
@@ -286,6 +339,7 @@ def _write_walk_forward_bundle(
     dynamic_sizing_evidence: dict[str, object] | None = None,
     include_dynamic_sizing_evidence: bool = True,
     portfolio_correlation_exposure: dict[str, object] | None = None,
+    capacity_analysis_evidence: dict[str, object] | None = None,
     include_pnl_attribution: bool = True,
 ) -> Path:
     root.mkdir(parents=True, exist_ok=True)
@@ -342,6 +396,8 @@ def _write_walk_forward_bundle(
         summary_payload["dynamic_sizing_evidence"] = dynamic_sizing_evidence or _dynamic_sizing_evidence()
     if portfolio_correlation_exposure is not None:
         summary_payload["portfolio_correlation_exposure"] = portfolio_correlation_exposure
+    if capacity_analysis_evidence is not None:
+        summary_payload["capacity_analysis_evidence"] = capacity_analysis_evidence
     if runtime_fields:
         summary_payload["runtime_observability"] = {"runtime_fields": runtime_fields}
     if rollback_target and (rollback_trigger or observation_window):
@@ -407,6 +463,11 @@ def _write_walk_forward_bundle(
             **(
                 {"portfolio_correlation_exposure": portfolio_correlation_exposure}
                 if portfolio_correlation_exposure is not None
+                else {}
+            ),
+            **(
+                {"capacity_analysis_evidence": capacity_analysis_evidence}
+                if capacity_analysis_evidence is not None
                 else {}
             ),
             **(
@@ -1113,6 +1174,7 @@ def test_compare_backtest_bundles_promotes_walk_forward_when_all_checks_pass(tmp
             net_exposure_pct=0.16,
             gross_exposure_pct=0.39,
         ),
+        capacity_analysis_evidence=_capacity_analysis_evidence(),
     )
     variant_bundle = _write_walk_forward_bundle(
         tmp_path / "variant",
@@ -1130,6 +1192,7 @@ def test_compare_backtest_bundles_promotes_walk_forward_when_all_checks_pass(tmp
         regime_stratified_oos=_regime_stratified_oos_evidence(),
         pnl_attribution=_pnl_attribution_evidence(reported_pnl=0.08),
         portfolio_correlation_exposure=_portfolio_correlation_exposure_evidence(),
+        capacity_analysis_evidence=_capacity_analysis_evidence(),
     )
 
     result = promotion.compare_backtest_bundles(
@@ -1155,6 +1218,8 @@ def test_compare_backtest_bundles_promotes_walk_forward_when_all_checks_pass(tmp
         "rejects_regime_bucket_collapse": True,
         "has_portfolio_correlation_exposure_evidence": True,
         "rejects_portfolio_correlation_exposure_breach": True,
+        "has_capacity_analysis_evidence": True,
+        "rejects_capacity_limit_breach": True,
     }
     assert gate["why"] == []
     assert gate["regime_stratified_oos"]["buckets"][0]["bucket"] == "volatility"
@@ -1162,6 +1227,7 @@ def test_compare_backtest_bundles_promotes_walk_forward_when_all_checks_pass(tmp
     assert gate["dynamic_sizing_evidence"]["decisions"][0]["decision_id"] == "sizing-001"
     assert result["decision_summary"]["dynamic_sizing_evidence"]["decisions"][0]["decision_id"] == "sizing-001"
     assert gate["portfolio_correlation_exposure"]["portfolio"]["gross_exposure_pct"] == 0.42
+    assert gate["capacity_analysis_evidence"]["summary"]["claimed_capacity_usdt"] == 50000.0
 
 
 def test_compare_backtest_bundles_rejects_positive_walk_forward_without_portfolio_exposure_evidence(
@@ -1218,6 +1284,215 @@ def test_compare_backtest_bundles_rejects_positive_walk_forward_without_portfoli
     assert gate["decision"] == "reject"
     assert gate["checks"]["has_portfolio_correlation_exposure_evidence"] is False
     assert "missing portfolio correlation/exposure evidence" in gate["why"]
+
+
+def test_compare_backtest_bundles_rejects_positive_walk_forward_without_capacity_evidence(
+    tmp_path: Path,
+) -> None:
+    split_metadata = {
+        "schema_version": "walk_forward_split_metadata.v1",
+        "purge_bars": 1,
+        "embargo_bars": 0,
+    }
+    baseline_bundle = _write_walk_forward_bundle(
+        tmp_path / "baseline",
+        baseline_name="current_policy",
+        variant_name="baseline_walk_forward",
+        out_of_sample_total_return=0.03,
+        positive_window_ratio=0.75,
+        parameter_stability_score=0.7,
+        worst_window_return=0.01,
+        split_metadata=split_metadata,
+        runtime_fields=["regime", "allocator_decision_reason"],
+        rollback_target="baseline_walk_forward",
+        rollback_trigger="oos_total_return_below_zero",
+        observation_window="14d",
+        regime_stratified_oos=_regime_stratified_oos_evidence(),
+        pnl_attribution=_pnl_attribution_evidence(reported_pnl=0.03),
+        portfolio_correlation_exposure=_portfolio_correlation_exposure_evidence(),
+    )
+    variant_bundle = _write_walk_forward_bundle(
+        tmp_path / "variant",
+        baseline_name="current_policy",
+        variant_name="candidate_walk_forward",
+        out_of_sample_total_return=0.08,
+        positive_window_ratio=0.9,
+        parameter_stability_score=0.9,
+        worst_window_return=0.02,
+        split_metadata=split_metadata,
+        runtime_fields=["regime", "allocator_decision_reason"],
+        rollback_target="baseline_walk_forward",
+        rollback_trigger="oos_total_return_below_zero",
+        observation_window="14d",
+        regime_stratified_oos=_regime_stratified_oos_evidence(),
+        pnl_attribution=_pnl_attribution_evidence(reported_pnl=0.08),
+        portfolio_correlation_exposure=_portfolio_correlation_exposure_evidence(),
+    )
+
+    result = promotion.compare_backtest_bundles(
+        baseline_bundle=baseline_bundle,
+        variant_bundle=variant_bundle,
+    )
+
+    gate = result["promotion_gate"]
+    assert gate["decision"] == "reject"
+    assert gate["checks"]["has_capacity_analysis_evidence"] is False
+    assert "missing capacity analysis evidence" in gate["why"]
+
+
+def test_compare_backtest_bundles_preserves_capacity_evidence_when_all_checks_pass(tmp_path: Path) -> None:
+    split_metadata = {
+        "schema_version": "walk_forward_split_metadata.v1",
+        "purge_bars": 1,
+        "embargo_bars": 0,
+    }
+    baseline_bundle = _write_walk_forward_bundle(
+        tmp_path / "baseline",
+        baseline_name="current_policy",
+        variant_name="baseline_walk_forward",
+        out_of_sample_total_return=0.03,
+        positive_window_ratio=0.75,
+        parameter_stability_score=0.7,
+        worst_window_return=0.01,
+        split_metadata=split_metadata,
+        runtime_fields=["regime", "allocator_decision_reason"],
+        rollback_target="baseline_walk_forward",
+        rollback_trigger="oos_total_return_below_zero",
+        observation_window="14d",
+        regime_stratified_oos=_regime_stratified_oos_evidence(),
+        pnl_attribution=_pnl_attribution_evidence(reported_pnl=0.03),
+        portfolio_correlation_exposure=_portfolio_correlation_exposure_evidence(),
+        capacity_analysis_evidence=_capacity_analysis_evidence(),
+    )
+    variant_bundle = _write_walk_forward_bundle(
+        tmp_path / "variant",
+        baseline_name="current_policy",
+        variant_name="candidate_walk_forward",
+        out_of_sample_total_return=0.08,
+        positive_window_ratio=0.9,
+        parameter_stability_score=0.9,
+        worst_window_return=0.02,
+        split_metadata=split_metadata,
+        runtime_fields=["regime", "allocator_decision_reason"],
+        rollback_target="baseline_walk_forward",
+        rollback_trigger="oos_total_return_below_zero",
+        observation_window="14d",
+        regime_stratified_oos=_regime_stratified_oos_evidence(),
+        pnl_attribution=_pnl_attribution_evidence(reported_pnl=0.08),
+        portfolio_correlation_exposure=_portfolio_correlation_exposure_evidence(),
+        capacity_analysis_evidence=_capacity_analysis_evidence(),
+    )
+
+    result = promotion.compare_backtest_bundles(
+        baseline_bundle=baseline_bundle,
+        variant_bundle=variant_bundle,
+    )
+
+    gate = result["promotion_gate"]
+    assert gate["decision"] == "candidate_for_promotion"
+    assert gate["checks"]["has_capacity_analysis_evidence"] is True
+    assert gate["checks"]["rejects_capacity_limit_breach"] is True
+    assert gate["capacity_analysis_evidence"]["summary"]["claimed_capacity_usdt"] == 50000.0
+    assert result["decision_summary"]["capacity_analysis_evidence"]["provenance"]["impact"]["source"] == "depth_impact_replay"
+
+
+def test_load_backtest_bundle_rejects_malformed_capacity_evidence(tmp_path: Path) -> None:
+    bundle = _write_walk_forward_bundle(
+        tmp_path / "candidate",
+        baseline_name="current_policy",
+        variant_name="candidate_walk_forward",
+        out_of_sample_total_return=0.08,
+        positive_window_ratio=0.9,
+        parameter_stability_score=0.9,
+        worst_window_return=0.02,
+        split_metadata={
+            "schema_version": "walk_forward_split_metadata.v1",
+            "purge_bars": 1,
+            "embargo_bars": 0,
+        },
+        regime_stratified_oos=_regime_stratified_oos_evidence(),
+        pnl_attribution=_pnl_attribution_evidence(reported_pnl=0.08),
+        portfolio_correlation_exposure=_portfolio_correlation_exposure_evidence(),
+        capacity_analysis_evidence=_capacity_analysis_evidence(
+            summary={
+                "claimed_capacity_usdt": "50000",
+                "capital_required_usdt": 20000.0,
+                "estimated_turnover_ratio": 1.4,
+                "estimated_slippage_bps": 5.0,
+                "impact_deterioration_bps": 4.0,
+                "liquidity_regime": "normal",
+            }
+        ),
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="capacity_analysis_evidence.summary.claimed_capacity_usdt must be a finite strict number",
+    ):
+        promotion.load_backtest_bundle(bundle)
+
+
+def test_compare_backtest_bundles_rejects_capacity_limit_breach_without_hold(tmp_path: Path) -> None:
+    split_metadata = {
+        "schema_version": "walk_forward_split_metadata.v1",
+        "purge_bars": 1,
+        "embargo_bars": 0,
+    }
+    baseline_bundle = _write_walk_forward_bundle(
+        tmp_path / "baseline",
+        baseline_name="current_policy",
+        variant_name="baseline_walk_forward",
+        out_of_sample_total_return=0.03,
+        positive_window_ratio=0.75,
+        parameter_stability_score=0.7,
+        worst_window_return=0.01,
+        split_metadata=split_metadata,
+        runtime_fields=["regime", "allocator_decision_reason"],
+        rollback_target="baseline_walk_forward",
+        rollback_trigger="oos_total_return_below_zero",
+        observation_window="14d",
+        regime_stratified_oos=_regime_stratified_oos_evidence(),
+        pnl_attribution=_pnl_attribution_evidence(reported_pnl=0.03),
+        portfolio_correlation_exposure=_portfolio_correlation_exposure_evidence(),
+        capacity_analysis_evidence=_capacity_analysis_evidence(),
+    )
+    variant_bundle = _write_walk_forward_bundle(
+        tmp_path / "variant",
+        baseline_name="current_policy",
+        variant_name="candidate_walk_forward",
+        out_of_sample_total_return=0.08,
+        positive_window_ratio=0.9,
+        parameter_stability_score=0.9,
+        worst_window_return=0.02,
+        split_metadata=split_metadata,
+        runtime_fields=["regime", "allocator_decision_reason"],
+        rollback_target="baseline_walk_forward",
+        rollback_trigger="oos_total_return_below_zero",
+        observation_window="14d",
+        regime_stratified_oos=_regime_stratified_oos_evidence(),
+        pnl_attribution=_pnl_attribution_evidence(reported_pnl=0.08),
+        portfolio_correlation_exposure=_portfolio_correlation_exposure_evidence(),
+        capacity_analysis_evidence=_capacity_analysis_evidence(
+            summary={
+                "claimed_capacity_usdt": 150000.0,
+                "capital_required_usdt": 20000.0,
+                "estimated_turnover_ratio": 1.4,
+                "estimated_slippage_bps": 5.0,
+                "impact_deterioration_bps": 4.0,
+                "liquidity_regime": "normal",
+            }
+        ),
+    )
+
+    result = promotion.compare_backtest_bundles(
+        baseline_bundle=baseline_bundle,
+        variant_bundle=variant_bundle,
+    )
+
+    gate = result["promotion_gate"]
+    assert gate["decision"] == "reject"
+    assert gate["checks"]["rejects_capacity_limit_breach"] is False
+    assert "claimed capacity exceeds max capital" in gate["why"]
 
 
 @pytest.mark.parametrize(
@@ -1591,6 +1866,7 @@ def test_compare_backtest_bundles_rejects_regime_bucket_level_collapse(tmp_path:
         observation_window="14d",
         regime_stratified_oos=_regime_stratified_oos_evidence(),
         portfolio_correlation_exposure=_portfolio_correlation_exposure_evidence(),
+        capacity_analysis_evidence=_capacity_analysis_evidence(),
     )
     variant_bundle = _write_walk_forward_bundle(
         tmp_path / "variant",
@@ -1635,6 +1911,7 @@ def test_compare_backtest_bundles_rejects_walk_forward_without_split_metadata(tm
         observation_window="14d",
         regime_stratified_oos=_regime_stratified_oos_evidence(),
         portfolio_correlation_exposure=_portfolio_correlation_exposure_evidence(),
+        capacity_analysis_evidence=_capacity_analysis_evidence(),
     )
     variant_bundle = _write_walk_forward_bundle(
         tmp_path / "variant",
@@ -1650,6 +1927,7 @@ def test_compare_backtest_bundles_rejects_walk_forward_without_split_metadata(tm
         observation_window="14d",
         regime_stratified_oos=_regime_stratified_oos_evidence(),
         portfolio_correlation_exposure=_portfolio_correlation_exposure_evidence(),
+        capacity_analysis_evidence=_capacity_analysis_evidence(),
     )
 
     result = promotion.compare_backtest_bundles(
@@ -1770,6 +2048,7 @@ def test_compare_backtest_bundles_rejects_walk_forward_isolated_spike_optimum(tm
         observation_window="14d",
         regime_stratified_oos=_regime_stratified_oos_evidence(),
         portfolio_correlation_exposure=_portfolio_correlation_exposure_evidence(),
+        capacity_analysis_evidence=_capacity_analysis_evidence(),
     )
     variant_bundle = _write_walk_forward_bundle(
         tmp_path / "variant",
@@ -1960,6 +2239,7 @@ def test_compare_backtest_bundles_holds_walk_forward_when_stability_regresses_vs
         observation_window="14d",
         regime_stratified_oos=_regime_stratified_oos_evidence(),
         portfolio_correlation_exposure=_portfolio_correlation_exposure_evidence(),
+        capacity_analysis_evidence=_capacity_analysis_evidence(),
     )
     variant_bundle = _write_walk_forward_bundle(
         tmp_path / "variant",
@@ -1976,6 +2256,7 @@ def test_compare_backtest_bundles_holds_walk_forward_when_stability_regresses_vs
         observation_window="14d",
         regime_stratified_oos=_regime_stratified_oos_evidence(),
         portfolio_correlation_exposure=_portfolio_correlation_exposure_evidence(),
+        capacity_analysis_evidence=_capacity_analysis_evidence(),
     )
 
     result = promotion.compare_backtest_bundles(
