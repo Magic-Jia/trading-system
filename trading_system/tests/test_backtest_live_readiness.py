@@ -14199,6 +14199,51 @@ def test_live_readiness_gate_report_rejects_missing_real_passive_calibration_for
     assert "passive_calibration_missing_real_records" in report["promotion_gate"]["reasons"]
 
 
+def test_live_readiness_blocks_maker_full_fill_without_queue_evidence(
+    tmp_path: Path,
+) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    payload = json.loads((chunk / "trades.json").read_text(encoding="utf-8"))
+    payload["trades"][0].update(
+        {
+            "fill_model": "maker_post_only_queue",
+            "maker_status": "filled",
+            "fill_quality": "evidence_backed",
+            "execution_price_source": "trade_print",
+        }
+    )
+    (chunk / "trades.json").write_text(json.dumps(payload), encoding="utf-8")
+    (chunk / "market_microstructure_gate.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "market_microstructure_gate_input.v1",
+                "evidence_source": {"type": "historical_l2_tick_archive", "run_id": "microstructure-1"},
+                "checks": {
+                    "l2_tick_coverage_met": True,
+                    "depth_driven_taker_met": True,
+                    "passive_maker_queue_met": False,
+                },
+                "passive_maker_queue": {
+                    "fill_count": 1,
+                    "complete_fill_count": 0,
+                    "incomplete_fill_count": 1,
+                    "missing_evidence_count": 1,
+                },
+                "reasons": ["passive_maker_queue_evidence_missing"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    _write_valid_offline_rollout_checklist(tmp_path)
+
+    report = build_live_readiness_gate_report(tmp_path, require_microstructure_evidence=True)
+
+    assert report["microstructure_gate"]["checks"]["passive_maker_queue_met"] is False
+    assert "passive_maker_queue_evidence_missing" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
 def test_trade_postmortem_summary_buckets_failure_taxonomy_and_setups() -> None:
     report = summarize_trade_postmortem(
         [

@@ -82,6 +82,23 @@ def test_execution_fill_rejects_maker_fields_when_fill_model_string_subclass_spo
         )
 
 
+def test_execution_fill_rejects_full_maker_fill_without_queue_touch_and_fill_evidence() -> None:
+    with pytest.raises(ValueError, match="maker full fills require queue/touch/fill eligibility evidence"):
+        ExecutionFill(
+            **_filled_execution_kwargs(
+                fill_model="maker_post_only_queue",
+                execution_price_source="trade_print",
+                fill_quality="evidence_backed",
+                evidence_timestamp=_ts("2026-03-10T00:00:01Z"),
+                maker_status="filled",
+                queue_ahead_initial=None,
+                queue_ahead_remaining=None,
+                first_fill_timestamp=None,
+                last_fill_timestamp=None,
+            )
+        )
+
+
 def test_execution_fill_preserves_domain_error_when_symbol_and_side_are_invalid() -> None:
     with pytest.raises(ValueError, match="side must be one of: buy, sell"):
         ExecutionFill(**_filled_execution_kwargs(symbol=" BTCUSDT ", side="long"))
@@ -5147,6 +5164,8 @@ def test_execution_fill_rejects_filled_maker_status_with_partial_fill_quality() 
             filled_notional=200.0,
             unfilled_quantity=0.0,
             maker_status="filled",
+            queue_ahead_initial=1.0,
+            queue_ahead_remaining=0.0,
             first_fill_timestamp=_ts("2026-03-10T00:00:01Z"),
             last_fill_timestamp=_ts("2026-03-10T00:00:01Z"),
         )
@@ -5215,6 +5234,8 @@ def test_execution_fill_rejects_filled_maker_status_with_unfilled_quantity() -> 
             filled_notional=75.0,
             unfilled_quantity=1.25,
             maker_status="filled",
+            queue_ahead_initial=1.0,
+            queue_ahead_remaining=0.0,
             first_fill_timestamp=_ts("2026-03-10T00:00:01Z"),
             last_fill_timestamp=_ts("2026-03-10T00:00:01Z"),
         )
@@ -5237,6 +5258,8 @@ def test_execution_fill_accepts_filled_maker_status_with_zero_unfilled_quantity(
         filled_notional=200.0,
         unfilled_quantity=0.0,
         maker_status="filled",
+        queue_ahead_initial=1.0,
+        queue_ahead_remaining=0.0,
         first_fill_timestamp=_ts("2026-03-10T00:00:01Z"),
         last_fill_timestamp=_ts("2026-03-10T00:00:01Z"),
     )

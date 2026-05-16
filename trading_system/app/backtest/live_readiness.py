@@ -2788,7 +2788,7 @@ def _runtime_safety_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
 
 
 def _microstructure_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[str, Any]:
-    required_checks = ("l2_tick_coverage_met", "depth_driven_taker_met")
+    required_checks = ("l2_tick_coverage_met", "depth_driven_taker_met", "passive_maker_queue_met")
     artifacts: list[dict[str, Any]] = []
     aggregate_checks = {key: False for key in required_checks}
     schema_valid = False
@@ -2804,11 +2804,13 @@ def _microstructure_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
         summary_payload = payload.get("summary")
         coverage_payload = payload.get("coverage")
         depth_payload = payload.get("depth_driven_taker")
+        passive_maker_payload = payload.get("passive_maker_queue")
         required_intervals_payload = payload.get("required_intervals")
         interval_coverage_payload = payload.get("interval_coverage")
         summary_object_valid = summary_payload is None or isinstance(summary_payload, Mapping)
         coverage_object_valid = coverage_payload is None or isinstance(coverage_payload, Mapping)
         depth_object_valid = depth_payload is None or isinstance(depth_payload, Mapping)
+        passive_maker_object_valid = passive_maker_payload is None or isinstance(passive_maker_payload, Mapping)
         checks_object_valid = isinstance(checks_payload, Mapping)
         evidence_source_object_valid = isinstance(evidence_source_payload, Mapping)
         evidence_source_schema_error = _artifact_provenance_schema_error(payload)
@@ -2823,6 +2825,7 @@ def _microstructure_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
                 "required_intervals",
                 "interval_coverage",
                 "depth_driven_taker",
+                "passive_maker_queue",
                 "reasons",
             },
         )
@@ -2831,6 +2834,7 @@ def _microstructure_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
         summary = _as_mapping(summary_payload)
         coverage = _as_mapping(coverage_payload)
         depth = _as_mapping(depth_payload)
+        passive_maker = _as_mapping(passive_maker_payload)
         summary_schema_error = ""
         min_l2_tick_coverage = summary.get("min_l2_tick_coverage")
         if min_l2_tick_coverage is not None:
@@ -2947,6 +2951,58 @@ def _microstructure_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
                 )
             ):
                 depth_schema_error = "depth_driven_taker_partial_fill_contradiction"
+        passive_maker_schema_error = ""
+        unknown_passive_maker_fields = sorted(
+            set(passive_maker)
+            - {
+                "fill_count",
+                "complete_fill_count",
+                "incomplete_fill_count",
+                "missing_evidence_count",
+                "malformed_evidence_count",
+            }
+        )
+        if unknown_passive_maker_fields:
+            passive_maker_schema_error = "unknown_passive_maker_queue_field: " + ", ".join(
+                unknown_passive_maker_fields
+            )
+        parsed_passive_maker_values: dict[str, int] = {}
+        for passive_field in (
+            "fill_count",
+            "complete_fill_count",
+            "incomplete_fill_count",
+            "missing_evidence_count",
+            "malformed_evidence_count",
+        ):
+            if passive_maker_schema_error:
+                break
+            passive_value = passive_maker.get(passive_field)
+            if passive_value is not None:
+                parsed_passive, passive_valid = _strict_summary_int_value(passive_value)
+                if not passive_valid:
+                    passive_maker_schema_error = f"passive_maker_queue_{passive_field}_not_int"
+                elif parsed_passive < 0:
+                    passive_maker_schema_error = f"passive_maker_queue_{passive_field}_negative"
+                else:
+                    parsed_passive_maker_values[passive_field] = parsed_passive
+        if not passive_maker_schema_error and passive_maker:
+            fill_count = parsed_passive_maker_values.get("fill_count")
+            complete_fill_count = parsed_passive_maker_values.get("complete_fill_count")
+            incomplete_fill_count = parsed_passive_maker_values.get("incomplete_fill_count")
+            missing_evidence_count = parsed_passive_maker_values.get("missing_evidence_count")
+            if (
+                isinstance(fill_count, int)
+                and isinstance(complete_fill_count, int)
+                and isinstance(incomplete_fill_count, int)
+                and fill_count != complete_fill_count + incomplete_fill_count
+            ):
+                passive_maker_schema_error = "passive_maker_queue_fill_count_mismatch"
+            elif (
+                checks.get("passive_maker_queue_met") is True
+                and isinstance(missing_evidence_count, int)
+                and missing_evidence_count > 0
+            ):
+                passive_maker_schema_error = "passive_maker_queue_missing_evidence_contradiction"
         required_intervals_schema_error = _microstructure_required_intervals_schema_error(
             required_intervals_payload
         )
@@ -2966,6 +3022,8 @@ def _microstructure_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
             and not coverage_schema_error
             and depth_object_valid
             and not depth_schema_error
+            and passive_maker_object_valid
+            and not passive_maker_schema_error
             and not required_intervals_schema_error
             and not interval_coverage_schema_error
             and not unknown_check_fields
@@ -2995,6 +3053,10 @@ def _microstructure_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
                 parse_error_message = "depth_driven_taker_not_object"
             elif depth_schema_error:
                 parse_error_message = depth_schema_error
+            elif not passive_maker_object_valid:
+                parse_error_message = "passive_maker_queue_not_object"
+            elif passive_maker_schema_error:
+                parse_error_message = passive_maker_schema_error
             elif required_intervals_schema_error:
                 parse_error_message = required_intervals_schema_error
             elif interval_coverage_schema_error:
@@ -3018,7 +3080,14 @@ def _microstructure_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
         schema_valid = all(artifact.get("schema_valid") is True for artifact in artifacts)
         provenance_present = all(artifact.get("provenance_present") is True for artifact in artifacts)
         aggregate_checks = {
-            key: all(_as_mapping(artifact.get("checks")).get(key) is True for artifact in artifacts)
+            key: (
+                all(_as_mapping(artifact.get("checks")).get(key) is True for artifact in artifacts)
+                if key != "passive_maker_queue_met"
+                else all(
+                    _as_mapping(artifact.get("checks")).get(key, True) is True
+                    for artifact in artifacts
+                )
+            )
             for key in required_checks
         }
     return {
@@ -4048,6 +4117,10 @@ def build_live_readiness_gate_report(
         reasons.append("l2_tick_coverage_below_threshold")
     if (require_microstructure_evidence_policy or microstructure_artifact_present) and not microstructure_checks.get("depth_driven_taker_met", False):
         reasons.append("taker_depth_driven_missing")
+    if (
+        require_microstructure_evidence_policy or microstructure_artifact_present
+    ) and not microstructure_checks.get("passive_maker_queue_met", True):
+        reasons.append("passive_maker_queue_evidence_missing")
     require_validation_evidence_policy = policy_requirements["require_validation_evidence"]
     validation_checks = _as_mapping(validation_gate.get("checks"))
     validation_artifact_count, validation_artifact_count_valid = _optional_gate_artifact_count(validation_gate)

@@ -287,6 +287,14 @@ class ExecutionFill:
             raise ValueError("maker queue evidence requires maker_status")
         if self.maker_wait_seconds is not None and self.maker_status is None:
             raise ValueError("maker_wait_seconds requires maker_status")
+        if self.fill_model.startswith("maker_") and self.maker_status == "filled":
+            if (
+                self.queue_ahead_initial is None
+                or self.queue_ahead_remaining is None
+                or self.first_fill_timestamp is None
+                or self.last_fill_timestamp is None
+            ):
+                raise ValueError("maker full fills require queue/touch/fill eligibility evidence")
         positive_fill_request = (
             self.quantity > 0.0
             or (self.requested_quantity is not None and float(self.requested_quantity) > 0.0)

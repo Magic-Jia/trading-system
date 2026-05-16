@@ -59,6 +59,7 @@ def test_builds_synthetic_microstructure_gate_when_coverage_is_sufficient(tmp_pa
     assert gate["checks"] == {
         "l2_tick_coverage_met": True,
         "depth_driven_taker_met": False,
+        "passive_maker_queue_met": True,
     }
     assert gate["coverage"] == {
         "l2_snapshot_coverage": 0.995,
@@ -803,7 +804,11 @@ def test_complete_buy_and_sell_depth_fills_satisfy_depth_driven_taker_gate() -> 
         _complete_coverage_manifest(depth_driven_taker_fills=[buy_fill, sell_fill])
     )
 
-    assert gate["checks"] == {"l2_tick_coverage_met": True, "depth_driven_taker_met": True}
+    assert gate["checks"] == {
+        "l2_tick_coverage_met": True,
+        "depth_driven_taker_met": True,
+        "passive_maker_queue_met": True,
+    }
     assert gate["reasons"] == []
     assert gate["depth_driven_taker"] == {
         "fill_count": 2,
@@ -1022,6 +1027,58 @@ def test_microstructure_gate_rejects_complete_depth_fill_with_residual_quantity(
                 ]
             )
         )
+
+
+def test_microstructure_gate_fails_closed_when_maker_queue_evidence_missing_for_passive_fills() -> None:
+    gate = build_microstructure_gate(
+        _complete_coverage_manifest(
+            depth_driven_taker_fills=[
+                simulate_depth_driven_taker_fill(
+                    side="buy",
+                    quantity=1.0,
+                    reference_price=100.0,
+                    bids=[],
+                    asks=[{"price": 100.0, "quantity": 1.0}],
+                )
+            ],
+            passive_maker_fills=[
+                {
+                    "complete": True,
+                    "requested_quantity": 1.0,
+                    "filled_quantity": 1.0,
+                    "residual_quantity": 0.0,
+                }
+            ],
+        )
+    )
+
+    assert gate["checks"]["passive_maker_queue_met"] is False
+    assert "passive_maker_queue_evidence_missing" in gate["reasons"]
+
+
+def test_microstructure_gate_fails_closed_when_maker_queue_evidence_is_malformed() -> None:
+    gate = build_microstructure_gate(
+        _complete_coverage_manifest(
+            passive_maker_fills=[
+                {
+                    "complete": True,
+                    "requested_quantity": 1.0,
+                    "filled_quantity": 1.0,
+                    "residual_quantity": 0.0,
+                    "queue_ahead_initial": "unknown",
+                    "queue_ahead_remaining": 0.0,
+                    "maker_status": "filled",
+                    "touch_timestamp": "not-a-timestamp",
+                    "first_fill_timestamp": "2026-03-10T00:00:01Z",
+                    "last_fill_timestamp": "2026-03-10T00:00:01Z",
+                    "fill_id": "maker-fill-001",
+                }
+            ],
+        )
+    )
+
+    assert gate["checks"]["passive_maker_queue_met"] is False
+    assert "passive_maker_queue_evidence_malformed" in gate["reasons"]
 
 
 @pytest.mark.parametrize(

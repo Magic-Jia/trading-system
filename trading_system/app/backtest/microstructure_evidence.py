@@ -296,6 +296,7 @@ def build_microstructure_gate(
             "interval_coverage",
             "depth_driven_taker_fills",
             "depth_driven_taker_met",
+            "passive_maker_fills",
         }
     )
     if unknown_manifest_fields:
@@ -579,6 +580,103 @@ def build_microstructure_gate(
     else:
         raise ValueError("depth_driven_taker_fills must be a list")
 
+    passive_maker_fills = manifest.get("passive_maker_fills")
+    passive_maker_fill_count = 0
+    passive_maker_complete_fill_count = 0
+    passive_maker_incomplete_fill_count = 0
+    passive_maker_missing_evidence_count = 0
+    passive_maker_malformed_evidence_count = 0
+    passive_maker_queue_met = True
+    if passive_maker_fills is not None:
+        if not isinstance(passive_maker_fills, list):
+            raise ValueError("passive_maker_fills must be a list")
+        passive_maker_fill_count = len(passive_maker_fills)
+        for fill in passive_maker_fills:
+            if not isinstance(fill, Mapping):
+                raise ValueError("passive_maker_fills entries must be mappings")
+            allowed_fill_fields = {
+                "complete",
+                "requested_quantity",
+                "filled_quantity",
+                "residual_quantity",
+                "queue_ahead_initial",
+                "queue_ahead_remaining",
+                "maker_status",
+                "touch_timestamp",
+                "first_fill_timestamp",
+                "last_fill_timestamp",
+                "fill_id",
+            }
+            unknown_fill_fields = sorted(set(fill) - allowed_fill_fields)
+            if unknown_fill_fields:
+                raise ValueError("unknown passive_maker_fills field: " + ", ".join(unknown_fill_fields))
+            complete = fill.get("complete", False)
+            if not isinstance(complete, bool):
+                raise ValueError("passive_maker_fills complete must be a boolean")
+            required_evidence_fields = (
+                "queue_ahead_initial",
+                "queue_ahead_remaining",
+                "maker_status",
+                "touch_timestamp",
+                "first_fill_timestamp",
+                "last_fill_timestamp",
+                "fill_id",
+            )
+            missing_evidence = [
+                field
+                for field in required_evidence_fields
+                if fill.get(field) is None or (_is_exact_string(fill.get(field)) and not fill.get(field).strip())
+            ]
+            malformed_evidence = False
+            for numeric_field in (
+                "requested_quantity",
+                "filled_quantity",
+                "residual_quantity",
+                "queue_ahead_initial",
+                "queue_ahead_remaining",
+            ):
+                numeric_value = fill.get(numeric_field)
+                if numeric_value is not None:
+                    try:
+                        normalised_value = _normalise_finite_float(
+                            f"passive_maker_fills {numeric_field}", numeric_value
+                        )
+                    except ValueError:
+                        malformed_evidence = True
+                        break
+                    if normalised_value < 0.0:
+                        malformed_evidence = True
+                        break
+                    if numeric_field == "requested_quantity" and normalised_value <= 0.0:
+                        malformed_evidence = True
+                        break
+            for timestamp_field in ("touch_timestamp", "first_fill_timestamp", "last_fill_timestamp"):
+                timestamp_value = fill.get(timestamp_field)
+                if timestamp_value is not None and (
+                    not _is_exact_string(timestamp_value) or not _is_canonical_utc_timestamp(timestamp_value)
+                ):
+                    malformed_evidence = True
+            maker_status = fill.get("maker_status")
+            if maker_status is not None and maker_status not in {"filled", "partial", "no_fill", "expired", "cancelled_replaced"}:
+                malformed_evidence = True
+            if complete and missing_evidence:
+                passive_maker_missing_evidence_count += 1
+                passive_maker_incomplete_fill_count += 1
+                continue
+            if malformed_evidence:
+                passive_maker_malformed_evidence_count += 1
+                passive_maker_incomplete_fill_count += 1
+                continue
+            if complete:
+                passive_maker_complete_fill_count += 1
+            else:
+                passive_maker_incomplete_fill_count += 1
+        passive_maker_queue_met = (
+            passive_maker_fill_count > 0
+            and passive_maker_missing_evidence_count == 0
+            and passive_maker_malformed_evidence_count == 0
+        )
+
     reasons: list[str] = []
     if not l2_tick_coverage_met:
         reasons.append("l2_tick_coverage_below_threshold")
@@ -588,6 +686,11 @@ def build_microstructure_gate(
             reasons.append("depth_driven_taker_incomplete_fill")
         else:
             reasons.append("depth_driven_taker_evidence_missing")
+    if passive_maker_fills is not None and not passive_maker_queue_met:
+        if passive_maker_missing_evidence_count:
+            reasons.append("passive_maker_queue_evidence_missing")
+        if passive_maker_malformed_evidence_count:
+            reasons.append("passive_maker_queue_evidence_malformed")
 
     gate = {
         "schema_version": SCHEMA_VERSION,
@@ -595,6 +698,7 @@ def build_microstructure_gate(
         "checks": {
             "l2_tick_coverage_met": l2_tick_coverage_met,
             "depth_driven_taker_met": depth_driven_taker_met,
+            "passive_maker_queue_met": passive_maker_queue_met,
         },
         "coverage": coverage,
         "reasons": reasons,
@@ -610,6 +714,14 @@ def build_microstructure_gate(
             "incomplete_fill_count": incomplete_fill_count,
             "incomplete_filled_quantity": incomplete_filled_quantity,
             "incomplete_residual_quantity": incomplete_residual_quantity,
+        }
+    if passive_maker_fills is not None:
+        gate["passive_maker_queue"] = {
+            "fill_count": passive_maker_fill_count,
+            "complete_fill_count": passive_maker_complete_fill_count,
+            "incomplete_fill_count": passive_maker_incomplete_fill_count,
+            "missing_evidence_count": passive_maker_missing_evidence_count,
+            "malformed_evidence_count": passive_maker_malformed_evidence_count,
         }
     return gate
 
