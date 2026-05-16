@@ -2816,13 +2816,243 @@ def test_load_historical_dataset_rejects_open_order_updated_before_created(
         {
             "equity": 100000.0,
             "open_positions": [],
-            "open_orders": [{"symbol": "BTCUSDT", "created_at": 20, "updated_at": 19}],
+            "open_orders": [
+                {
+                    "symbol": "BTCUSDT",
+                    "created_at": "2026-03-09T23:59:56Z",
+                    "updated_at": "2026-03-09T23:59:55Z",
+                }
+            ],
         },
     )
 
     with pytest.raises(
         ValueError,
         match=r"account\.open_orders\[0\]\.updated_at must be at or after created_at",
+    ):
+        load_historical_dataset(dataset_root)
+
+
+@pytest.mark.parametrize(
+    "status",
+    ["new", "accepted", "partially_filled", "cancel_pending"],
+)
+def test_load_historical_dataset_accepts_canonical_active_order_lifecycle_states(
+    tmp_path: Path,
+    status: str,
+) -> None:
+    open_order = {
+        "symbol": "BTCUSDT",
+        "status": status,
+        "created_at": "2026-03-09T23:59:55Z",
+        "updated_at": "2026-03-09T23:59:56Z",
+    }
+    account_snapshot = {
+        "equity": 100000.0,
+        "as_of": "2026-03-09T23:59:57Z",
+        "open_positions": [],
+        "open_orders": [open_order],
+    }
+    dataset_root = _write_minimal_dataset_bundle(tmp_path, account_snapshot)
+
+    rows = load_historical_dataset(dataset_root)
+
+    assert rows[0].account["open_orders"] == [open_order]
+
+
+@pytest.mark.parametrize(
+    ("status", "evidence_field"),
+    [
+        ("filled", "filled_at"),
+        ("canceled", "canceled_at"),
+        ("rejected", "rejected_at"),
+        ("expired", "expired_at"),
+    ],
+)
+def test_load_historical_dataset_accepts_canonical_terminal_order_lifecycle_states_with_evidence(
+    tmp_path: Path,
+    status: str,
+    evidence_field: str,
+) -> None:
+    open_order = {
+        "symbol": "BTCUSDT",
+        "status": status,
+        "created_at": "2026-03-09T23:59:55Z",
+        "updated_at": "2026-03-09T23:59:56Z",
+        evidence_field: "2026-03-09T23:59:57Z",
+    }
+    account_snapshot = {
+        "equity": 100000.0,
+        "as_of": "2026-03-09T23:59:58Z",
+        "open_positions": [],
+        "open_orders": [open_order],
+    }
+    dataset_root = _write_minimal_dataset_bundle(tmp_path, account_snapshot)
+
+    rows = load_historical_dataset(dataset_root)
+
+    assert rows[0].account["open_orders"] == [open_order]
+
+
+@pytest.mark.parametrize("status", ["unknown", "PENDING_CANCEL", "EXPIRED_IN_MATCH", "manual_review"])
+def test_load_historical_dataset_rejects_unknown_or_ambiguous_open_order_status(
+    tmp_path: Path,
+    status: str,
+) -> None:
+    dataset_root = _write_minimal_dataset_bundle(
+        tmp_path,
+        {
+            "equity": 100000.0,
+            "as_of": "2026-03-09T23:59:58Z",
+            "open_positions": [],
+            "open_orders": [
+                {
+                    "symbol": "BTCUSDT",
+                    "status": status,
+                    "created_at": "2026-03-09T23:59:55Z",
+                    "updated_at": "2026-03-09T23:59:56Z",
+                }
+            ],
+        },
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"account\.open_orders\[0\]\.status must be a known fail-closed order lifecycle state",
+    ):
+        load_historical_dataset(dataset_root)
+
+
+@pytest.mark.parametrize("field", ["created_at", "updated_at", "filled_at", "canceled_at"])
+def test_load_historical_dataset_rejects_noncanonical_open_order_lifecycle_timestamps(
+    tmp_path: Path,
+    field: str,
+) -> None:
+    open_order = {
+        "symbol": "BTCUSDT",
+        "status": "filled" if field == "filled_at" else "new",
+        "created_at": "2026-03-09T23:59:55Z",
+        "updated_at": "2026-03-09T23:59:56Z",
+    }
+    open_order[field] = "2026-03-09T23:59:57+00:00"
+    dataset_root = _write_minimal_dataset_bundle(
+        tmp_path,
+        {
+            "equity": 100000.0,
+            "as_of": "2026-03-09T23:59:58Z",
+            "open_positions": [],
+            "open_orders": [open_order],
+        },
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=rf"account\.open_orders\[0\]\.{field} must be a canonical UTC ISO timestamp",
+    ):
+        load_historical_dataset(dataset_root)
+
+
+def test_load_historical_dataset_rejects_fill_after_terminal_contradiction(
+    tmp_path: Path,
+) -> None:
+    dataset_root = _write_minimal_dataset_bundle(
+        tmp_path,
+        {
+            "equity": 100000.0,
+            "as_of": "2026-03-09T23:59:59Z",
+            "open_positions": [],
+            "open_orders": [
+                {
+                    "symbol": "BTCUSDT",
+                    "status": "canceled",
+                    "created_at": "2026-03-09T23:59:55Z",
+                    "updated_at": "2026-03-09T23:59:56Z",
+                    "canceled_at": "2026-03-09T23:59:57Z",
+                    "filled_at": "2026-03-09T23:59:58Z",
+                }
+            ],
+        },
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"account\.open_orders\[0\]\.filled_at contradicts terminal status canceled",
+    ):
+        load_historical_dataset(dataset_root)
+
+
+def test_load_historical_dataset_rejects_cancel_fill_ambiguity_without_ordered_evidence(
+    tmp_path: Path,
+) -> None:
+    dataset_root = _write_minimal_dataset_bundle(
+        tmp_path,
+        {
+            "equity": 100000.0,
+            "as_of": "2026-03-09T23:59:59Z",
+            "open_positions": [],
+            "open_orders": [
+                {
+                    "symbol": "BTCUSDT",
+                    "status": "partially_filled",
+                    "created_at": "2026-03-09T23:59:55Z",
+                    "updated_at": "2026-03-09T23:59:56Z",
+                    "filled_qty": 0.1,
+                    "canceled_qty": 0.1,
+                }
+            ],
+        },
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"account\.open_orders\[0\] has ambiguous fill/cancel evidence without event timestamps",
+    ):
+        load_historical_dataset(dataset_root)
+
+
+def test_load_historical_dataset_rejects_stale_account_snapshot_after_decision_timestamp(
+    tmp_path: Path,
+) -> None:
+    dataset_root = _write_minimal_dataset_bundle(
+        tmp_path,
+        {
+            "equity": 100000.0,
+            "as_of": "2026-03-10T00:00:01Z",
+            "open_positions": [],
+            "open_orders": [],
+        },
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"account_snapshot\.json as_of must be at or before metadata\.timestamp",
+    ):
+        load_historical_dataset(dataset_root)
+
+
+def test_load_historical_dataset_rejects_order_snapshot_newer_than_account_snapshot(
+    tmp_path: Path,
+) -> None:
+    dataset_root = _write_minimal_dataset_bundle(
+        tmp_path,
+        {
+            "equity": 100000.0,
+            "as_of": "2026-03-09T23:59:56Z",
+            "open_positions": [],
+            "open_orders": [
+                {
+                    "symbol": "BTCUSDT",
+                    "status": "new",
+                    "created_at": "2026-03-09T23:59:55Z",
+                    "updated_at": "2026-03-09T23:59:57Z",
+                }
+            ],
+        },
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"account\.open_orders\[0\]\.updated_at must be at or before account\.as_of",
     ):
         load_historical_dataset(dataset_root)
 
@@ -2835,7 +3065,14 @@ def test_load_historical_dataset_rejects_terminal_open_order_without_terminal_ti
         {
             "equity": 100000.0,
             "open_positions": [],
-            "open_orders": [{"symbol": "BTCUSDT", "status": "FILLED", "created_at": 20, "updated_at": 21}],
+            "open_orders": [
+                {
+                    "symbol": "BTCUSDT",
+                    "status": "FILLED",
+                    "created_at": "2026-03-09T23:59:55Z",
+                    "updated_at": "2026-03-09T23:59:56Z",
+                }
+            ],
         },
     )
 
@@ -2865,7 +3102,14 @@ def test_load_historical_dataset_rejects_terminal_open_order_variants_without_te
         {
             "equity": 100000.0,
             "open_positions": [],
-            "open_orders": [{"symbol": "BTCUSDT", "status": status, "created_at": 20, "updated_at": 21}],
+            "open_orders": [
+                {
+                    "symbol": "BTCUSDT",
+                    "status": status,
+                    "created_at": "2026-03-09T23:59:55Z",
+                    "updated_at": "2026-03-09T23:59:56Z",
+                }
+            ],
         },
     )
 
@@ -2887,9 +3131,9 @@ def test_load_historical_dataset_rejects_active_open_order_with_terminal_timesta
                 {
                     "symbol": "BTCUSDT",
                     "status": status,
-                    "created_at": 20,
-                    "updated_at": 21,
-                    "canceled_at": 22,
+                    "created_at": "2026-03-09T23:59:55Z",
+                    "updated_at": "2026-03-09T23:59:56Z",
+                    "canceled_at": "2026-03-09T23:59:57Z",
                 }
             ],
         },
@@ -2914,6 +3158,8 @@ def test_load_historical_dataset_rejects_active_open_order_with_terminal_event_c
                 {
                     "symbol": "BTCUSDT",
                     "status": "OPEN",
+                    "created_at": "2026-03-09T23:59:55Z",
+                    "updated_at": "2026-03-09T23:59:56Z",
                     "created_at_counter": 20,
                     "updated_at_counter": 21,
                     "canceled_at_counter": 22,
@@ -2941,8 +3187,8 @@ def test_load_historical_dataset_rejects_active_open_order_with_rejected_counter
                 {
                     "symbol": "BTCUSDT",
                     "status": "OPEN",
-                    "created_at": 20,
-                    "updated_at": 21,
+                    "created_at": "2026-03-09T23:59:55Z",
+                    "updated_at": "2026-03-09T23:59:56Z",
                     "rejected_qty": 1,
                 }
             ],
@@ -2973,8 +3219,8 @@ def test_load_historical_dataset_rejects_active_open_order_with_terminal_qty_ali
                 {
                     "symbol": "BTCUSDT",
                     "status": "OPEN",
-                    "created_at": 20,
-                    "updated_at": 21,
+                    "created_at": "2026-03-09T23:59:55Z",
+                    "updated_at": "2026-03-09T23:59:56Z",
                     field: 1,
                 }
             ],
@@ -2994,8 +3240,8 @@ def test_load_historical_dataset_accepts_rejected_open_order_with_rejected_count
     open_order = {
         "symbol": "BTCUSDT",
         "status": "REJECTED",
-        "created_at": 20,
-        "updated_at": 21,
+        "created_at": "2026-03-09T23:59:55Z",
+        "updated_at": "2026-03-09T23:59:56Z",
         "rejectedQty": 1,
     }
     account_snapshot = {
@@ -3028,8 +3274,8 @@ def test_load_historical_dataset_accepts_terminal_open_order_with_qty_alias_evid
     open_order = {
         "symbol": "BTCUSDT",
         "status": status,
-        "created_at": 20,
-        "updated_at": 21,
+        "created_at": "2026-03-09T23:59:55Z",
+        "updated_at": "2026-03-09T23:59:56Z",
         field: 1,
     }
     account_snapshot = {
@@ -3058,9 +3304,9 @@ def test_load_historical_dataset_rejects_invalid_rejected_counter_alias(
                 {
                     "symbol": "BTCUSDT",
                     "status": "REJECTED",
-                    "created_at": 20,
-                    "updated_at": 21,
-                    "rejected_at": 22,
+                    "created_at": "2026-03-09T23:59:55Z",
+                    "updated_at": "2026-03-09T23:59:56Z",
+                    "rejected_at": "2026-03-09T23:59:57Z",
                     "rejected_qty": value,
                 }
             ],
@@ -3100,8 +3346,8 @@ def test_load_historical_dataset_rejects_invalid_terminal_qty_alias(
                 {
                     "symbol": "BTCUSDT",
                     "status": status,
-                    "created_at": 20,
-                    "updated_at": 21,
+                    "created_at": "2026-03-09T23:59:55Z",
+                    "updated_at": "2026-03-09T23:59:56Z",
                     field: value,
                 }
             ],
@@ -3127,6 +3373,8 @@ def test_load_historical_dataset_rejects_open_order_terminal_counter_before_upda
                 {
                     "symbol": "BTCUSDT",
                     "status": "CANCELED",
+                    "created_at": "2026-03-09T23:59:55Z",
+                    "updated_at": "2026-03-09T23:59:56Z",
                     "created_at_counter": 10,
                     "updated_at_counter": 12,
                     "canceled_at_counter": 11,
@@ -3142,8 +3390,8 @@ def test_load_historical_dataset_rejects_open_order_terminal_counter_before_upda
         load_historical_dataset(dataset_root)
 
 
-@pytest.mark.parametrize("field,value", [("created_at", True), ("updated_at", "21"), ("created_at_counter", -1)])
-def test_load_historical_dataset_rejects_non_strict_open_order_lifecycle_numbers(
+@pytest.mark.parametrize("field,value", [("created_at", True), ("updated_at", "21")])
+def test_load_historical_dataset_rejects_noncanonical_open_order_lifecycle_timestamp_values(
     tmp_path: Path,
     field: str,
     value: object,
@@ -3153,13 +3401,46 @@ def test_load_historical_dataset_rejects_non_strict_open_order_lifecycle_numbers
         {
             "equity": 100000.0,
             "open_positions": [],
-            "open_orders": [{"symbol": "BTCUSDT", "created_at": 20, "updated_at": 21, field: value}],
+            "open_orders": [
+                {
+                    "symbol": "BTCUSDT",
+                    "created_at": "2026-03-09T23:59:55Z",
+                    "updated_at": "2026-03-09T23:59:56Z",
+                    field: value,
+                }
+            ],
         },
     )
 
     with pytest.raises(
         ValueError,
-        match=rf"account\.open_orders\[0\]\.{field} must be a non-negative finite number",
+        match=rf"account\.open_orders\[0\]\.{field} must be a canonical UTC ISO timestamp",
+    ):
+        load_historical_dataset(dataset_root)
+
+
+def test_load_historical_dataset_rejects_non_strict_open_order_lifecycle_counter(
+    tmp_path: Path,
+) -> None:
+    dataset_root = _write_minimal_dataset_bundle(
+        tmp_path,
+        {
+            "equity": 100000.0,
+            "open_positions": [],
+            "open_orders": [
+                {
+                    "symbol": "BTCUSDT",
+                    "created_at": "2026-03-09T23:59:55Z",
+                    "updated_at": "2026-03-09T23:59:56Z",
+                    "created_at_counter": -1,
+                }
+            ],
+        },
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"account\.open_orders\[0\]\.created_at_counter must be a non-negative finite number",
     ):
         load_historical_dataset(dataset_root)
 
@@ -3170,9 +3451,9 @@ def test_load_historical_dataset_accepts_valid_open_order_lifecycle(
     open_order = {
         "symbol": "BTCUSDT",
         "status": "FILLED",
-        "created_at": 20,
-        "updated_at": 21,
-        "filled_at": 22,
+        "created_at": "2026-03-09T23:59:55Z",
+        "updated_at": "2026-03-09T23:59:56Z",
+        "filled_at": "2026-03-09T23:59:57Z",
         "filled_qty": 0.2,
     }
     account_snapshot = {

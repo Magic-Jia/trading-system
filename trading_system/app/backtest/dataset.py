@@ -587,7 +587,15 @@ _ACCOUNT_OPEN_ORDER_TERMINAL_STATUS_EVIDENCE = {
         "rejected_at or reject_time",
     ),
 }
-_ACCOUNT_OPEN_ORDER_ACTIVE_STATUS_VALUES = {"NEW", "OPEN", "PENDING", "PARTIALLY_FILLED"}
+_ACCOUNT_OPEN_ORDER_ACTIVE_STATUS_VALUES = {"NEW", "OPEN", "PENDING", "ACCEPTED", "PARTIALLY_FILLED", "CANCEL_PENDING"}
+_ACCOUNT_OPEN_ORDER_CANONICAL_ACTIVE_STATUS_VALUES = {"new", "accepted", "partially_filled", "cancel_pending"}
+_ACCOUNT_OPEN_ORDER_CANONICAL_TERMINAL_STATUS_VALUES = {"filled", "canceled", "rejected", "expired"}
+_ACCOUNT_OPEN_ORDER_KNOWN_STATUS_VALUES = (
+    _ACCOUNT_OPEN_ORDER_CANONICAL_ACTIVE_STATUS_VALUES
+    | _ACCOUNT_OPEN_ORDER_CANONICAL_TERMINAL_STATUS_VALUES
+    | _ACCOUNT_OPEN_ORDER_ACTIVE_STATUS_VALUES
+    | set(_ACCOUNT_OPEN_ORDER_TERMINAL_STATUS_EVIDENCE)
+)
 _ACCOUNT_OPEN_POSITION_TERMINAL_STATUS_VALUES = {"CLOSED", "SKIPPED", "FAILED", "CANCELLED", "CANCELED", "FILLED"}
 _ACCOUNT_OPEN_POSITION_OPEN_STATUS_VALUES = {"OPEN"}
 
@@ -890,8 +898,15 @@ def _validate_derivative_evidence_timestamps(
             seen.add(identity)
 
 
-def _account_snapshot(account: dict, *, path: Path) -> dict:
+def _account_snapshot(account: dict, *, path: Path, decision_timestamp: datetime | None = None) -> dict:
     snapshot = dict(account)
+    if decision_timestamp is not None:
+        _payload_as_of_at_or_before_decision(
+            snapshot,
+            file_name=path.name,
+            decision_timestamp=decision_timestamp,
+            path=path,
+        )
     validate_account_snapshot_identity(snapshot, path=path)
     _validate_account_numeric_fields(snapshot, path=path, field_path="account")
     return snapshot
@@ -1203,18 +1218,92 @@ def _account_order_lifecycle_number(
     return field, _validate_account_non_negative_number(value, field_path=f"{field_prefix}.{field}", path=path)
 
 
+def _account_order_lifecycle_timestamp(
+    order: dict,
+    fields: tuple[str, ...],
+    *,
+    field_prefix: str,
+    path: Path,
+) -> tuple[str, datetime] | None:
+    found = _account_first_present_value(order, fields)
+    if found is None:
+        return None
+    field, value = found
+    timestamp = _require_account_utc_iso_timestamp(value, field_path=f"{field_prefix}.{field}", path=path)
+    return field, _parse_timestamp(timestamp)
+
+
+def _account_order_has_lifecycle_evidence(order: dict, fields: tuple[str, ...]) -> bool:
+    return _account_first_present_value(order, fields) is not None
+
+
+def _account_order_status_kind(status_text: str) -> str:
+    if status_text in _ACCOUNT_OPEN_ORDER_CANONICAL_ACTIVE_STATUS_VALUES:
+        return "active"
+    if status_text in _ACCOUNT_OPEN_ORDER_CANONICAL_TERMINAL_STATUS_VALUES:
+        return "terminal"
+    upper = status_text.upper()
+    if upper in _ACCOUNT_OPEN_ORDER_ACTIVE_STATUS_VALUES:
+        return "active"
+    if upper in _ACCOUNT_OPEN_ORDER_TERMINAL_STATUS_EVIDENCE:
+        return "terminal"
+    return "unknown"
+
+
+def _account_order_terminal_evidence_groups(status_text: str) -> tuple[tuple[str, ...], tuple[str, ...], str] | None:
+    if status_text in _ACCOUNT_OPEN_ORDER_CANONICAL_TERMINAL_STATUS_VALUES:
+        if status_text == "filled":
+            return _ACCOUNT_OPEN_ORDER_FILLED_TIME_FIELDS, _ACCOUNT_OPEN_ORDER_FILLED_COUNTER_FIELDS, "filled_at or fill_time"
+        if status_text == "canceled":
+            return _ACCOUNT_OPEN_ORDER_CANCELED_TIME_FIELDS, _ACCOUNT_OPEN_ORDER_CANCELED_COUNTER_FIELDS, "canceled_at or cancel_time"
+        if status_text == "expired":
+            return _ACCOUNT_OPEN_ORDER_EXPIRED_TIME_FIELDS, _ACCOUNT_OPEN_ORDER_EXPIRED_COUNTER_FIELDS, "expired_at or expire_time"
+        if status_text == "rejected":
+            return _ACCOUNT_OPEN_ORDER_REJECTED_TIME_FIELDS, _ACCOUNT_OPEN_ORDER_REJECTED_COUNTER_FIELDS, "rejected_at or reject_time"
+    return _ACCOUNT_OPEN_ORDER_TERMINAL_STATUS_EVIDENCE.get(status_text.upper())
+
+
+def _validate_order_timestamps_at_or_before_account_as_of(
+    order: dict,
+    *,
+    account_as_of: tuple[str, datetime] | None,
+    field_prefix: str,
+    path: Path,
+) -> None:
+    if account_as_of is None:
+        return
+    account_as_of_field, account_as_of_value = account_as_of
+    for fields in (
+        _ACCOUNT_OPEN_ORDER_CREATED_TIME_FIELDS,
+        _ACCOUNT_OPEN_ORDER_UPDATED_TIME_FIELDS,
+        _ACCOUNT_OPEN_ORDER_FILLED_TIME_FIELDS,
+        _ACCOUNT_OPEN_ORDER_CANCELED_TIME_FIELDS,
+        _ACCOUNT_OPEN_ORDER_EXPIRED_TIME_FIELDS,
+        _ACCOUNT_OPEN_ORDER_REJECTED_TIME_FIELDS,
+    ):
+        timestamp = _account_order_lifecycle_timestamp(order, fields, field_prefix=field_prefix, path=path)
+        if timestamp is None:
+            continue
+        timestamp_field, timestamp_value = timestamp
+        if timestamp_value > account_as_of_value:
+            raise ValueError(f"{field_prefix}.{timestamp_field} must be at or before account.{account_as_of_field}: {path}")
+
+
 def _validate_open_order_lifecycle(order: dict, *, field_prefix: str, path: Path) -> None:
-    for field in _ACCOUNT_OPEN_ORDER_LIFECYCLE_TIME_FIELDS + _ACCOUNT_OPEN_ORDER_LIFECYCLE_COUNTER_FIELDS:
+    for field in _ACCOUNT_OPEN_ORDER_LIFECYCLE_TIME_FIELDS:
+        if field in order:
+            _require_account_utc_iso_timestamp(order[field], field_path=f"{field_prefix}.{field}", path=path)
+    for field in _ACCOUNT_OPEN_ORDER_LIFECYCLE_COUNTER_FIELDS:
         if field in order:
             _validate_account_non_negative_number(order[field], field_path=f"{field_prefix}.{field}", path=path)
 
-    created = _account_order_lifecycle_number(
+    created = _account_order_lifecycle_timestamp(
         order,
         _ACCOUNT_OPEN_ORDER_CREATED_TIME_FIELDS,
         field_prefix=field_prefix,
         path=path,
     )
-    updated = _account_order_lifecycle_number(
+    updated = _account_order_lifecycle_timestamp(
         order,
         _ACCOUNT_OPEN_ORDER_UPDATED_TIME_FIELDS,
         field_prefix=field_prefix,
@@ -1235,7 +1324,7 @@ def _validate_open_order_lifecycle(order: dict, *, field_prefix: str, path: Path
             _ACCOUNT_OPEN_ORDER_EXPIRED_TIME_FIELDS,
             _ACCOUNT_OPEN_ORDER_REJECTED_TIME_FIELDS,
         ):
-            terminal = _account_order_lifecycle_number(order, fields, field_prefix=field_prefix, path=path)
+            terminal = _account_order_lifecycle_timestamp(order, fields, field_prefix=field_prefix, path=path)
             if terminal is None:
                 continue
             terminal_field, terminal_value = terminal
@@ -1285,32 +1374,93 @@ def _validate_open_order_lifecycle(order: dict, *, field_prefix: str, path: Path
         return
     status_field, status_value = status
     status_text = _require_account_canonical_string(status_value, field_path=f"{field_prefix}.{status_field}", path=path)
-    if status_text.upper() in _ACCOUNT_OPEN_ORDER_ACTIVE_STATUS_VALUES:
+    if status_text not in _ACCOUNT_OPEN_ORDER_KNOWN_STATUS_VALUES and status_text.upper() not in _ACCOUNT_OPEN_ORDER_KNOWN_STATUS_VALUES:
+        raise ValueError(f"{field_prefix}.{status_field} must be a known fail-closed order lifecycle state: {path}")
+
+    if created is None:
+        raise ValueError(f"{field_prefix} requires created_at or create_time: {path}")
+    if updated is None:
+        raise ValueError(f"{field_prefix} requires updated_at or update_time: {path}")
+
+    status_kind = _account_order_status_kind(status_text)
+    if status_kind == "active":
+        status_allows_fill_evidence = status_text in {"partially_filled", "cancel_pending"} or status_text.upper() in {
+            "PARTIALLY_FILLED",
+            "CANCEL_PENDING",
+        }
+        if _account_order_has_lifecycle_evidence(order, _ACCOUNT_OPEN_ORDER_FILLED_COUNTER_FIELDS) and _account_order_has_lifecycle_evidence(
+            order, _ACCOUNT_OPEN_ORDER_CANCELED_COUNTER_FIELDS
+        ):
+            if _account_first_present_value(order, _ACCOUNT_OPEN_ORDER_FILLED_TIME_FIELDS) is None or _account_first_present_value(
+                order, _ACCOUNT_OPEN_ORDER_CANCELED_TIME_FIELDS
+            ) is None:
+                raise ValueError(f"{field_prefix} has ambiguous fill/cancel evidence without event timestamps: {path}")
         for fields in (
             _ACCOUNT_OPEN_ORDER_CANCELED_TIME_FIELDS,
-            _ACCOUNT_OPEN_ORDER_FILLED_TIME_FIELDS,
             _ACCOUNT_OPEN_ORDER_EXPIRED_TIME_FIELDS,
             _ACCOUNT_OPEN_ORDER_REJECTED_TIME_FIELDS,
             _ACCOUNT_OPEN_ORDER_CANCELED_EVENT_COUNTER_FIELDS,
-            _ACCOUNT_OPEN_ORDER_FILLED_EVENT_COUNTER_FIELDS,
             _ACCOUNT_OPEN_ORDER_EXPIRED_EVENT_COUNTER_FIELDS,
             _ACCOUNT_OPEN_ORDER_REJECTED_EVENT_COUNTER_FIELDS,
-            _ACCOUNT_OPEN_ORDER_FILLED_COUNTER_FIELDS,
             _ACCOUNT_OPEN_ORDER_CANCELED_COUNTER_FIELDS,
             _ACCOUNT_OPEN_ORDER_EXPIRED_COUNTER_FIELDS,
             _ACCOUNT_OPEN_ORDER_REJECTED_COUNTER_FIELDS,
         ):
-            terminal = _account_order_lifecycle_number(order, fields, field_prefix=field_prefix, path=path)
+            if fields in (
+                _ACCOUNT_OPEN_ORDER_CANCELED_TIME_FIELDS,
+                _ACCOUNT_OPEN_ORDER_EXPIRED_TIME_FIELDS,
+                _ACCOUNT_OPEN_ORDER_REJECTED_TIME_FIELDS,
+            ):
+                terminal = _account_order_lifecycle_timestamp(order, fields, field_prefix=field_prefix, path=path)
+            else:
+                terminal = _account_order_lifecycle_number(order, fields, field_prefix=field_prefix, path=path)
             if terminal is not None:
                 terminal_field, _ = terminal
                 raise ValueError(f"{field_prefix}.{terminal_field} must be omitted for active status: {path}")
+        if not status_allows_fill_evidence:
+            for fields in (
+                _ACCOUNT_OPEN_ORDER_FILLED_TIME_FIELDS,
+                _ACCOUNT_OPEN_ORDER_FILLED_EVENT_COUNTER_FIELDS,
+                _ACCOUNT_OPEN_ORDER_FILLED_COUNTER_FIELDS,
+            ):
+                if fields == _ACCOUNT_OPEN_ORDER_FILLED_TIME_FIELDS:
+                    terminal = _account_order_lifecycle_timestamp(order, fields, field_prefix=field_prefix, path=path)
+                else:
+                    terminal = _account_order_lifecycle_number(order, fields, field_prefix=field_prefix, path=path)
+                if terminal is not None:
+                    terminal_field, _ = terminal
+                    raise ValueError(f"{field_prefix}.{terminal_field} must be omitted for active status: {path}")
         return
-    terminal = _ACCOUNT_OPEN_ORDER_TERMINAL_STATUS_EVIDENCE.get(status_text.upper())
+    terminal = _account_order_terminal_evidence_groups(status_text)
     if terminal is None:
         return
     time_fields, counter_fields, evidence_label = terminal
     if _account_first_present_value(order, time_fields) is None and _account_first_present_value(order, counter_fields) is None:
         raise ValueError(f"{field_prefix}.{status_field} requires {evidence_label}: {path}")
+    terminal_time_fields_by_status = {
+        "filled": _ACCOUNT_OPEN_ORDER_FILLED_TIME_FIELDS,
+        "FILLED": _ACCOUNT_OPEN_ORDER_FILLED_TIME_FIELDS,
+        "canceled": _ACCOUNT_OPEN_ORDER_CANCELED_TIME_FIELDS,
+        "CANCELED": _ACCOUNT_OPEN_ORDER_CANCELED_TIME_FIELDS,
+        "CANCELLED": _ACCOUNT_OPEN_ORDER_CANCELED_TIME_FIELDS,
+        "expired": _ACCOUNT_OPEN_ORDER_EXPIRED_TIME_FIELDS,
+        "EXPIRED": _ACCOUNT_OPEN_ORDER_EXPIRED_TIME_FIELDS,
+        "rejected": _ACCOUNT_OPEN_ORDER_REJECTED_TIME_FIELDS,
+        "REJECTED": _ACCOUNT_OPEN_ORDER_REJECTED_TIME_FIELDS,
+    }
+    expected_time_fields = terminal_time_fields_by_status.get(status_text) or terminal_time_fields_by_status.get(status_text.upper())
+    for fields in (
+        _ACCOUNT_OPEN_ORDER_FILLED_TIME_FIELDS,
+        _ACCOUNT_OPEN_ORDER_CANCELED_TIME_FIELDS,
+        _ACCOUNT_OPEN_ORDER_EXPIRED_TIME_FIELDS,
+        _ACCOUNT_OPEN_ORDER_REJECTED_TIME_FIELDS,
+    ):
+        if fields == expected_time_fields:
+            continue
+        contradictory = _account_first_present_value(order, fields)
+        if contradictory is not None:
+            contradictory_field, _ = contradictory
+            raise ValueError(f"{field_prefix}.{contradictory_field} contradicts terminal status {status_text}: {path}")
 
 
 def _account_position_qty(position: dict, *, index: int, path: Path) -> float | None:
@@ -1342,6 +1492,7 @@ def _validate_open_order_position_reconciliation(account: dict, *, path: Path) -
         positions = []
     if type(positions) is not list:
         return
+    account_as_of = _account_first_present_utc_timestamp(account, "as_of", "last_update_time", "lastUpdateTime", "update_time", "updateTime")
 
     positions_by_key: dict[tuple[str, object], tuple[int, dict]] = {}
     for position_index, position in enumerate(positions):
@@ -1354,7 +1505,14 @@ def _validate_open_order_position_reconciliation(account: dict, *, path: Path) -
     for order_index, order in enumerate(orders):
         if type(order) is not dict:
             raise ValueError(f"account.open_orders[{order_index}] must be an object: {path}")
-        _validate_open_order_lifecycle(order, field_prefix=f"account.open_orders[{order_index}]", path=path)
+        field_prefix = f"account.open_orders[{order_index}]"
+        _validate_open_order_lifecycle(order, field_prefix=field_prefix, path=path)
+        _validate_order_timestamps_at_or_before_account_as_of(
+            order,
+            account_as_of=account_as_of,
+            field_prefix=field_prefix,
+            path=path,
+        )
         reduce_only = _account_order_reduce_only(order, index=order_index, path=path)
         if not _account_order_has_position_reconciliation_evidence(order):
             continue
@@ -1952,6 +2110,7 @@ def _row_from_bundle(bundle_path: Path, *, fallback_account: dict | None) -> Dat
     account_snapshot = _account_snapshot(
         account,
         path=account_path if account_path.exists() else bundle_path.parent / _BASELINE_ACCOUNT_FILENAME,
+        decision_timestamp=decision_timestamp,
     )
     instrument_rows = _instrument_rows(bundle_path, decision_timestamp=decision_timestamp)
 
