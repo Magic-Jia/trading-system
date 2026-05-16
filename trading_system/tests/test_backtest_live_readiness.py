@@ -31,6 +31,10 @@ from trading_system.app.backtest.live_readiness import (
     write_offline_rollout_readiness_checklist,
     write_read_validate_offline_rollout_readiness_checklist,
 )
+from trading_system.app.backtest.paper_live_shadow_drift import (
+    build_paper_live_shadow_drift_contract,
+    write_paper_live_shadow_drift_contract,
+)
 from trading_system.app.backtest.microstructure_evidence import build_microstructure_gate
 from trading_system.app.backtest.promotion_evidence_bundle import (
     collect_promotion_evidence_bundle,
@@ -1356,6 +1360,173 @@ def test_offline_rollout_checklist_producer_writes_gate_accepted_schema(tmp_path
     assert "canary_guard_manifest_invalid" not in reasons
 
 
+def _drift_metrics(**overrides: object) -> dict[str, object]:
+    metrics: dict[str, object] = {
+        "observed_at": "2026-05-16T10:00:00Z",
+        "fill_rate": 0.95,
+        "slippage_bps": 2.0,
+        "latency_ms": 120.0,
+        "net_pnl": 1000.0,
+    }
+    metrics.update(overrides)
+    return metrics
+
+
+def _drift_thresholds(**overrides: object) -> dict[str, object]:
+    thresholds: dict[str, object] = {
+        "max_fill_rate_delta": 0.05,
+        "max_slippage_bps_delta": 5.0,
+        "max_latency_ms_delta": 100.0,
+        "max_net_pnl_delta": 250.0,
+    }
+    thresholds.update(overrides)
+    return thresholds
+
+
+def _write_valid_drift_contract(root: Path) -> None:
+    write_paper_live_shadow_drift_contract(
+        root,
+        research_metrics=_drift_metrics(),
+        paper_metrics=_drift_metrics(fill_rate=0.94, slippage_bps=3.0, latency_ms=150.0, net_pnl=950.0),
+        shadow_metrics=_drift_metrics(fill_rate=0.93, slippage_bps=4.0, latency_ms=160.0, net_pnl=900.0),
+        thresholds=_drift_thresholds(),
+        generated_at="2026-05-16T10:05:00Z",
+        max_evidence_age_seconds=600.0,
+        evidence_source={"type": "simulated_offline", "run_id": "drift-fixture-1"},
+    )
+
+
+def test_paper_live_shadow_drift_contract_producer_writes_gate_accepted_schema(tmp_path: Path) -> None:
+    contract = write_paper_live_shadow_drift_contract(
+        tmp_path,
+        research_metrics=_drift_metrics(),
+        paper_metrics=_drift_metrics(fill_rate=0.94, slippage_bps=3.0, latency_ms=150.0, net_pnl=950.0),
+        shadow_metrics=_drift_metrics(fill_rate=0.93, slippage_bps=4.0, latency_ms=160.0, net_pnl=900.0),
+        thresholds=_drift_thresholds(),
+        generated_at="2026-05-16T10:05:00Z",
+        max_evidence_age_seconds=600.0,
+        evidence_source={"type": "simulated_offline", "run_id": "drift-fixture-1"},
+    )
+
+    assert contract["schema_version"] == "paper_live_shadow_drift_contract.v1"
+    assert contract["mode"] == "offline_simulated"
+    assert contract["fail_closed"] is True
+    assert contract["decision"] == "drift_within_contract"
+    assert contract["checks"]["material_drift_absent"] is True
+    assert contract["comparisons"]["paper_vs_research"]["fill_rate_delta"] == pytest.approx(-0.01)
+    assert contract["comparisons"]["shadow_vs_research"]["net_pnl_delta"] == pytest.approx(-100.0)
+
+    report = build_live_readiness_gate_report(tmp_path)
+    drift_contract = report["paper_live_shadow_drift_contract"]
+    assert drift_contract["schema_valid"] is True
+    assert drift_contract["checks"]["material_drift_absent"] is True
+    assert "paper_live_shadow_drift_contract_invalid" not in report["promotion_gate"]["reasons"]
+    assert "paper_live_shadow_material_drift" not in report["promotion_gate"]["reasons"]
+
+
+def test_live_readiness_gate_rejects_missing_paper_live_shadow_drift_contract(tmp_path: Path) -> None:
+    _write_valid_offline_rollout_checklist(tmp_path)
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    drift_contract = report["paper_live_shadow_drift_contract"]
+    assert drift_contract["present"] is False
+    assert drift_contract["checks"]["paper_live_shadow_drift_contract_present"] is False
+    assert "paper_live_shadow_drift_contract_missing" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
+def test_live_readiness_gate_fails_closed_on_material_paper_live_shadow_drift(tmp_path: Path) -> None:
+    _write_valid_offline_rollout_checklist(tmp_path)
+    write_paper_live_shadow_drift_contract(
+        tmp_path,
+        research_metrics=_drift_metrics(),
+        paper_metrics=_drift_metrics(fill_rate=0.60, slippage_bps=20.0, latency_ms=500.0, net_pnl=300.0),
+        shadow_metrics=_drift_metrics(fill_rate=0.93, slippage_bps=4.0, latency_ms=160.0, net_pnl=900.0),
+        thresholds=_drift_thresholds(),
+        generated_at="2026-05-16T10:05:00Z",
+        max_evidence_age_seconds=600.0,
+        evidence_source={"type": "simulated_offline", "run_id": "drift-fixture-1"},
+    )
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    drift_contract = report["paper_live_shadow_drift_contract"]
+    assert drift_contract["schema_valid"] is True
+    assert drift_contract["checks"]["material_drift_absent"] is False
+    assert drift_contract["decision"] == "reject_for_live_promotion"
+    assert "paper_live_shadow_material_drift" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["checks"]["paper_live_shadow_material_drift_absent"] is False
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
+def test_live_readiness_gate_fails_closed_on_material_paper_shadow_divergence(tmp_path: Path) -> None:
+    _write_valid_offline_rollout_checklist(tmp_path)
+    write_paper_live_shadow_drift_contract(
+        tmp_path,
+        research_metrics=_drift_metrics(fill_rate=0.95, slippage_bps=2.0, latency_ms=120.0, net_pnl=1000.0),
+        paper_metrics=_drift_metrics(fill_rate=1.0, slippage_bps=-3.0, latency_ms=20.0, net_pnl=1250.0),
+        shadow_metrics=_drift_metrics(fill_rate=0.90, slippage_bps=7.0, latency_ms=220.0, net_pnl=750.0),
+        thresholds=_drift_thresholds(),
+        generated_at="2026-05-16T10:05:00Z",
+        max_evidence_age_seconds=600.0,
+        evidence_source={"type": "simulated_offline", "run_id": "drift-fixture-1"},
+    )
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    drift_contract = report["paper_live_shadow_drift_contract"]
+    assert drift_contract["schema_valid"] is True
+    assert drift_contract["comparisons"]["paper_vs_shadow"]["net_pnl_delta"] == pytest.approx(500.0)
+    assert drift_contract["checks"]["material_drift_absent"] is False
+    assert drift_contract["decision"] == "reject_for_live_promotion"
+    assert "paper_live_shadow_material_drift" in report["promotion_gate"]["reasons"]
+
+
+@pytest.mark.parametrize(
+    ("payload_patch", "parse_error"),
+    [
+        ({"evidence_source": {"type": "testnet_exchange", "run_id": "drift-fixture-1"}}, "drift_evidence_source_not_simulated_offline"),
+        ({"generated_at": "2026-05-16T10:05:00+00:00"}, "drift_generated_at_noncanonical_timestamp"),
+        ({"paper": {"fill_rate": "0.94"}}, "paper.fill_rate_not_number"),
+        ({"shadow": {"latency_ms": float("nan")}}, "shadow.latency_ms_not_finite"),
+        ({"research": {"observed_at": "2026-05-16T09:00:00Z"}}, "research.evidence_stale"),
+    ],
+)
+def test_live_readiness_gate_rejects_malformed_paper_live_shadow_drift_contract(
+    tmp_path: Path,
+    payload_patch: dict[str, object],
+    parse_error: str,
+) -> None:
+    _write_valid_offline_rollout_checklist(tmp_path)
+    payload = build_paper_live_shadow_drift_contract(
+        research_metrics=_drift_metrics(),
+        paper_metrics=_drift_metrics(fill_rate=0.94, slippage_bps=3.0, latency_ms=150.0, net_pnl=950.0),
+        shadow_metrics=_drift_metrics(fill_rate=0.93, slippage_bps=4.0, latency_ms=160.0, net_pnl=900.0),
+        thresholds=_drift_thresholds(),
+        generated_at="2026-05-16T10:05:00Z",
+        max_evidence_age_seconds=600.0,
+        evidence_source={"type": "simulated_offline", "run_id": "drift-fixture-1"},
+    )
+    for key, value in payload_patch.items():
+        if isinstance(value, dict) and isinstance(payload.get(key), dict):
+            payload[key] = {**payload[key], **value}
+        else:
+            payload[key] = value
+    (tmp_path / "paper_live_shadow_drift_contract.json").write_text(
+        json.dumps(payload, allow_nan=True),
+        encoding="utf-8",
+    )
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    drift_contract = report["paper_live_shadow_drift_contract"]
+    assert drift_contract["schema_valid"] is False
+    assert drift_contract["parse_error"] == parse_error
+    assert "paper_live_shadow_drift_contract_invalid" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
 def test_offline_rollout_checklist_producer_lists_missing_evidence_requirements() -> None:
     checklist = build_offline_rollout_readiness_checklist(
         paper_evidence={"paper-fill-reconciliation": None},
@@ -1815,6 +1986,7 @@ def test_live_readiness_smoke_report_rejects_tampered_promotion_bundle(tmp_path:
         ),
         encoding="utf-8",
     )
+    _write_valid_drift_contract(source)
     bundle_dir = collect_promotion_evidence_bundle(
         source,
         tmp_path / "bundle",
@@ -1888,6 +2060,7 @@ def test_live_readiness_smoke_report_rejects_present_tampered_promotion_bundle(t
         "passive_order_calibration_summary.json",
     ):
         (source / name).write_text("{}", encoding="utf-8")
+    _write_valid_drift_contract(source)
     bundle_dir = collect_promotion_evidence_bundle(
         source,
         tmp_path / "bundle_present",
@@ -2142,6 +2315,7 @@ def test_promotion_bundle_verification_requires_evidence_source(tmp_path: Path) 
         "passive_order_calibration_summary.json",
     ):
         (source / name).write_text("{}", encoding="utf-8")
+    _write_valid_drift_contract(source)
     bundle = tmp_path / "bundle"
     collect_promotion_evidence_bundle(
         source,
@@ -2173,6 +2347,7 @@ def test_promotion_bundle_verification_rejects_synthetic_evidence_source(tmp_pat
         "validation_gate.json",
     ):
         (source / name).write_text(json.dumps({"artifact": name}), encoding="utf-8")
+    _write_valid_drift_contract(source)
     bundle_dir = collect_promotion_evidence_bundle(
         source,
         tmp_path / "bundle",
@@ -3516,6 +3691,7 @@ def test_live_readiness_markdown_shows_bundle_manifest_and_metadata_errors(tmp_p
         ),
         encoding="utf-8",
     )
+    _write_valid_drift_contract(source)
     bundle_dir = collect_promotion_evidence_bundle(
         source,
         tmp_path / "bundle",
@@ -4387,6 +4563,7 @@ def test_profitable_trade_fixture_is_live_readiness_candidate(tmp_path: Path) ->
     chunk = tmp_path / "chunk_001"
     _write_profitable_trade_chunk(chunk)
     _write_valid_offline_rollout_checklist(tmp_path)
+    _write_valid_drift_contract(tmp_path)
 
     report = build_live_readiness_gate_report(tmp_path)
 

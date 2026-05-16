@@ -23,6 +23,7 @@ REQUIRED_ARTIFACTS = (
     "passive_order_calibration_summary.json",
     "validation_gate.json",
     "runtime_safety_gate.json",
+    "paper_live_shadow_drift_contract.json",
 )
 OPTIONAL_PRESERVED_ARTIFACTS = (
     "ledger_exchange_reconciliation.json",

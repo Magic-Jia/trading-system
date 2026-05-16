@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 import trading_system.app.backtest.promotion_evidence_bundle as promotion_bundle
+from trading_system.app.backtest.paper_live_shadow_drift import write_paper_live_shadow_drift_contract
 from trading_system.app.backtest.promotion_evidence_bundle import (
     REQUIRED_ARTIFACTS,
     collect_promotion_evidence_bundle,
@@ -45,6 +46,10 @@ def test_collects_required_evidence_artifacts_with_checksums(tmp_path: Path) -> 
     expected_digest = hashlib.sha256((source / first["path"]).read_bytes()).hexdigest()
     assert first["sha256"] == expected_digest
     assert (bundle_dir / first["path"]).exists()
+
+
+def test_promotion_bundle_requires_paper_live_shadow_drift_contract() -> None:
+    assert "paper_live_shadow_drift_contract.json" in REQUIRED_ARTIFACTS
 
 
 def test_collects_reproducibility_hash_chain_over_manifest_identity_and_artifacts(
@@ -259,6 +264,39 @@ def test_collected_bundle_can_be_consumed_by_live_readiness_smoke(tmp_path: Path
                 "drift_guard_met": True,
             }
         },
+    )
+    write_paper_live_shadow_drift_contract(
+        source,
+        research_metrics={
+            "observed_at": "2026-05-16T10:00:00Z",
+            "fill_rate": 0.95,
+            "slippage_bps": 2.0,
+            "latency_ms": 120.0,
+            "net_pnl": 1000.0,
+        },
+        paper_metrics={
+            "observed_at": "2026-05-16T10:00:00Z",
+            "fill_rate": 0.94,
+            "slippage_bps": 3.0,
+            "latency_ms": 150.0,
+            "net_pnl": 950.0,
+        },
+        shadow_metrics={
+            "observed_at": "2026-05-16T10:00:00Z",
+            "fill_rate": 0.93,
+            "slippage_bps": 4.0,
+            "latency_ms": 160.0,
+            "net_pnl": 900.0,
+        },
+        thresholds={
+            "max_fill_rate_delta": 0.05,
+            "max_slippage_bps_delta": 5.0,
+            "max_latency_ms_delta": 100.0,
+            "max_net_pnl_delta": 250.0,
+        },
+        generated_at="2026-05-16T10:05:00Z",
+        max_evidence_age_seconds=600.0,
+        evidence_source={"type": "simulated_offline", "run_id": "drift-fixture-1"},
     )
     _write_json(
         source / "ledger_exchange_reconciliation.json",

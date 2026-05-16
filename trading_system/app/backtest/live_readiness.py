@@ -10,6 +10,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
+from trading_system.app.backtest.paper_live_shadow_drift import (
+    FILENAME as PAPER_LIVE_SHADOW_DRIFT_CONTRACT_FILENAME,
+    validate_paper_live_shadow_drift_contract,
+)
 from trading_system.app.backtest.promotion_evidence_bundle import verify_promotion_evidence_bundle
 from trading_system.app.backtest.types import ExecutionFillModel
 from trading_system.app.runtime.runtime_safety_evidence import RUNTIME_SAFETY_REASON_TAXONOMY
@@ -2544,6 +2548,55 @@ def _offline_rollout_readiness(root: Path) -> dict[str, Any]:
     }
 
 
+def _paper_live_shadow_drift_contract(root: Path) -> dict[str, Any]:
+    path = root / PAPER_LIVE_SHADOW_DRIFT_CONTRACT_FILENAME
+    checks = {
+        "paper_live_shadow_drift_contract_present": path.exists(),
+        "paper_live_shadow_drift_contract_schema_valid": False,
+        "paper_live_shadow_material_drift_absent": False,
+        "material_drift_absent": False,
+        "offline_simulated_evidence_only": False,
+        "fail_closed": False,
+    }
+    if not path.exists():
+        return {
+            "schema_version": "paper_live_shadow_drift_contract_verification.v1",
+            "present": False,
+            "schema_valid": False,
+            "parse_error": "paper_live_shadow_drift_contract_missing",
+            "checks": checks,
+        }
+    payload, parse_error = _load_json_rejecting_duplicate_keys(path)
+    if parse_error:
+        return {
+            "schema_version": "paper_live_shadow_drift_contract_verification.v1",
+            "present": True,
+            "schema_valid": False,
+            "parse_error": parse_error,
+            "checks": checks,
+        }
+    try:
+        contract = validate_paper_live_shadow_drift_contract(payload)
+    except ValueError as exc:
+        return {
+            "schema_version": "paper_live_shadow_drift_contract_verification.v1",
+            "present": True,
+            "schema_valid": False,
+            "parse_error": str(exc),
+            "checks": checks,
+        }
+    contract_checks = _as_mapping(contract.get("checks"))
+    checks.update({key: contract_checks.get(key) is True for key in checks})
+    return {
+        "schema_version": "paper_live_shadow_drift_contract_verification.v1",
+        "present": True,
+        "schema_valid": True,
+        "parse_error": "",
+        **contract,
+        "checks": checks,
+    }
+
+
 def _strict_optional_non_negative_int(mapping: Mapping[str, Any], key: str, default: int = 0) -> tuple[int, bool]:
     if key not in mapping or mapping.get(key) is None:
         return default, True
@@ -4365,6 +4418,7 @@ def build_live_readiness_gate_report(
     )
     validation_gate = _validation_gate(chunk_dirs, required=policy_requirements["require_validation_evidence"])
     offline_rollout_readiness = _offline_rollout_readiness(root)
+    paper_live_shadow_drift_contract = _paper_live_shadow_drift_contract(root)
     setup_rewrite_diagnostic = _setup_rewrite_diagnostic(chunk_dirs)
     passive_calibration = _passive_calibration_diagnostic(
         chunk_dirs,
@@ -4759,6 +4813,13 @@ def build_live_readiness_gate_report(
     ):
         if not offline_rollout_checks.get(check, False):
             reasons.append(reason)
+    paper_live_shadow_drift_checks = _as_mapping(paper_live_shadow_drift_contract.get("checks"))
+    if not paper_live_shadow_drift_checks.get("paper_live_shadow_drift_contract_present", False):
+        reasons.append("paper_live_shadow_drift_contract_missing")
+    elif not paper_live_shadow_drift_checks.get("paper_live_shadow_drift_contract_schema_valid", False):
+        reasons.append("paper_live_shadow_drift_contract_invalid")
+    elif not paper_live_shadow_drift_checks.get("paper_live_shadow_material_drift_absent", False):
+        reasons.append("paper_live_shadow_material_drift")
 
     if not setup_concentration_met:
         reasons.append("setup_concentration_too_high")
@@ -4888,6 +4949,7 @@ def build_live_readiness_gate_report(
         "capacity_analysis_gate": capacity_analysis_gate,
         "validation_gate": validation_gate,
         "offline_rollout_readiness": offline_rollout_readiness,
+        "paper_live_shadow_drift_contract": paper_live_shadow_drift_contract,
         "concentration": concentration,
         "passive_calibration": passive_calibration,
         "exit_path_replay": {
@@ -4924,6 +4986,7 @@ def build_live_readiness_gate_report(
                 **capacity_checks,
                 **validation_checks,
                 **offline_rollout_checks,
+                **paper_live_shadow_drift_checks,
                 "setup_concentration_met": setup_concentration_met,
                 "symbol_concentration_met": symbol_concentration_met,
                 "setup_net_abs_concentration_met": setup_net_abs_concentration_met,
@@ -5447,6 +5510,14 @@ def write_live_readiness_smoke_report(
             if source.exists():
                 shutil.copy2(source, chunk_dir / artifact_name)
         normalized_chunks.append({"chunk": chunk_name, "source_dir": str(bundle_dir), "normalized_dir": str(chunk_dir)})
+
+    for artifact_name in (
+        OFFLINE_ROLLOUT_READINESS_CHECKLIST_FILENAME,
+        PAPER_LIVE_SHADOW_DRIFT_CONTRACT_FILENAME,
+    ):
+        source = source_root / artifact_name
+        if source.exists():
+            shutil.copy2(source, normalized_root / artifact_name)
 
     promotion_bundle_integrity_required = (
         require_promotion_bundle_integrity if isinstance(require_promotion_bundle_integrity, bool) else False
