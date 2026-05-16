@@ -3753,6 +3753,46 @@ def _minimal_walk_forward_validation_experiment() -> dict[str, object]:
         "pnl_attribution": _pnl_attribution_evidence(),
         "portfolio_correlation_exposure": _portfolio_correlation_exposure_evidence(),
         "drawdown_anatomy": _drawdown_anatomy_evidence(),
+        "tail_risk_report": _tail_risk_report(),
+    }
+
+
+def _portfolio_correlation_exposure_evidence(
+    *,
+    net_exposure_pct: object = 0.18,
+    gross_exposure_pct: object = 0.42,
+) -> dict[str, object]:
+    return {
+        "schema_version": "portfolio_correlation_exposure.v1",
+        "as_of": "2026-03-11T00:00:00Z",
+        "decision_timestamp": "2026-03-11T00:30:00Z",
+        "max_age_seconds": 3600,
+        "limits": {
+            "max_net_exposure_pct": 0.65,
+            "max_gross_exposure_pct": 1.25,
+            "max_symbol_gross_exposure_pct": 0.35,
+            "max_cluster_gross_exposure_pct": 0.55,
+            "max_pairwise_correlation": 0.85,
+            "max_crowded_risk_score": 0.7,
+        },
+        "portfolio": {
+            "net_exposure_pct": net_exposure_pct,
+            "gross_exposure_pct": gross_exposure_pct,
+        },
+        "symbols": [
+            {"symbol": "BTCUSDT", "cluster": "majors", "gross_exposure_pct": 0.22, "net_exposure_pct": 0.14},
+            {"symbol": "ETHUSDT", "cluster": "majors", "gross_exposure_pct": 0.20, "net_exposure_pct": 0.04},
+        ],
+        "clusters": [
+            {"cluster": "majors", "gross_exposure_pct": 0.42, "net_exposure_pct": 0.18},
+        ],
+        "correlations": [
+            {"left_symbol": "BTCUSDT", "right_symbol": "ETHUSDT", "correlation": 0.62},
+        ],
+        "crowded_risk": {
+            "score": 0.31,
+            "evidence": ["funding_neutral", "open_interest_stable"],
+        },
     }
 
 
@@ -3794,48 +3834,67 @@ def _drawdown_anatomy_evidence(
                     "max_cluster_exposure_pct": 0.42,
                     "crowded_risk_score": 0.31,
                 },
-                "mitigation_evidence": list(mitigation_evidence) if isinstance(mitigation_evidence, tuple) else mitigation_evidence,
+                "mitigation_evidence": list(mitigation_evidence)
+                if isinstance(mitigation_evidence, tuple)
+                else mitigation_evidence,
             }
         ],
     }
 
 
-def _portfolio_correlation_exposure_evidence(
+def _tail_risk_report(
     *,
-    net_exposure_pct: object = 0.18,
-    gross_exposure_pct: object = 0.42,
+    cvar_loss_pct: object = 0.08,
 ) -> dict[str, object]:
     return {
-        "schema_version": "portfolio_correlation_exposure.v1",
+        "schema_version": "tail_risk_report.v1",
         "as_of": "2026-03-11T00:00:00Z",
         "decision_timestamp": "2026-03-11T00:30:00Z",
         "max_age_seconds": 3600,
         "limits": {
-            "max_net_exposure_pct": 0.65,
-            "max_gross_exposure_pct": 1.25,
-            "max_symbol_gross_exposure_pct": 0.35,
-            "max_cluster_gross_exposure_pct": 0.55,
-            "max_pairwise_correlation": 0.85,
-            "max_crowded_risk_score": 0.7,
+            "max_cvar_loss_pct": 0.12,
+            "max_stress_loss_pct": 0.18,
+            "min_liquidation_distance_pct": 0.20,
+            "max_correlated_cluster_loss_pct": 0.10,
         },
-        "portfolio": {
-            "net_exposure_pct": net_exposure_pct,
-            "gross_exposure_pct": gross_exposure_pct,
+        "cvar": {"confidence": 0.95, "loss_pct": cvar_loss_pct, "sample_size": 40},
+        "worst_n_days": {
+            "n": 3,
+            "rows": [
+                {"date": "2026-03-02", "loss_pct": 0.07},
+                {"date": "2026-03-05", "loss_pct": 0.05},
+                {"date": "2026-03-10", "loss_pct": 0.03},
+            ],
         },
-        "symbols": [
-            {"symbol": "BTCUSDT", "cluster": "majors", "gross_exposure_pct": 0.22, "net_exposure_pct": 0.14},
-            {"symbol": "ETHUSDT", "cluster": "majors", "gross_exposure_pct": 0.20, "net_exposure_pct": 0.04},
-        ],
-        "clusters": [
-            {"cluster": "majors", "gross_exposure_pct": 0.42, "net_exposure_pct": 0.18},
-        ],
-        "correlations": [
-            {"left_symbol": "BTCUSDT", "right_symbol": "ETHUSDT", "correlation": 0.62},
-        ],
-        "crowded_risk": {
-            "score": 0.31,
-            "evidence": ["funding_neutral", "open_interest_stable"],
+        "worst_n_trades": {
+            "n": 3,
+            "rows": [
+                {"trade_id": "trade-003", "loss_pct": 0.06},
+                {"trade_id": "trade-007", "loss_pct": 0.04},
+                {"trade_id": "trade-011", "loss_pct": 0.02},
+            ],
         },
+        "stress_loss": {"scenario_id": "stress-crash-001", "loss_pct": 0.11},
+        "liquidation_proximity": {
+            "nearest_symbol": "BTCUSDT",
+            "distance_to_liquidation_pct": 0.32,
+        },
+        "correlated_loss_clusters": [
+            {"cluster_id": "majors", "loss_pct": 0.06, "members": ["BTCUSDT", "ETHUSDT"]},
+            {"cluster_id": "alts", "loss_pct": 0.04, "members": ["SOLUSDT"]},
+        ],
+        "scenario_provenance": [
+            {
+                "scenario_id": "stress-crash-001",
+                "source": "offline_backtest_fixture",
+                "generated_at": "2026-03-10T00:00:00Z",
+            },
+            {
+                "scenario_id": "stress-correlation-001",
+                "source": "offline_backtest_fixture",
+                "generated_at": "2026-03-10T00:00:00Z",
+            },
+        ],
     }
 
 
@@ -4106,11 +4165,51 @@ def test_walk_forward_validation_report_preserves_drawdown_anatomy_in_summary_an
     ]
 
 
+def test_walk_forward_validation_report_preserves_tail_risk_report_in_summary_and_scorecard() -> None:
+    report = cli.render_walk_forward_validation_report(
+        experiment_name="walk_forward_validation",
+        metadata={
+            "snapshot_count": 1,
+            "window_count": 1,
+            "split_metadata": {
+                "schema_version": "walk_forward_split_metadata.v1",
+                "purge_bars": 0,
+                "embargo_bars": 0,
+            },
+        },
+        experiment=_minimal_walk_forward_validation_experiment(),
+    )
+
+    assert report["summary"]["tail_risk_report"]["cvar"]["loss_pct"] == pytest.approx(0.08)
+    assert report["scorecard"]["tail_risk_report"]["worst_n_trades"]["rows"][0]["trade_id"] == "trade-003"
+    assert report["scorecard"]["tail_risk_report"]["scenario_provenance"][0]["scenario_id"] == "stress-crash-001"
+
+
 def test_walk_forward_validation_report_requires_drawdown_anatomy_for_positive_oos() -> None:
     experiment = _minimal_walk_forward_validation_experiment()
     del experiment["drawdown_anatomy"]
 
     with pytest.raises(ValueError, match="drawdown_anatomy must be present for positive OOS evidence"):
+        cli.render_walk_forward_validation_report(
+            experiment_name="walk_forward_validation",
+            metadata={
+                "snapshot_count": 1,
+                "window_count": 1,
+                "split_metadata": {
+                    "schema_version": "walk_forward_split_metadata.v1",
+                    "purge_bars": 0,
+                    "embargo_bars": 0,
+                },
+            },
+            experiment=experiment,
+        )
+
+
+def test_walk_forward_validation_report_requires_tail_risk_report_for_positive_oos() -> None:
+    experiment = _minimal_walk_forward_validation_experiment()
+    del experiment["tail_risk_report"]
+
+    with pytest.raises(ValueError, match="tail_risk_report must be present for positive OOS evidence"):
         cli.render_walk_forward_validation_report(
             experiment_name="walk_forward_validation",
             metadata={
@@ -4183,6 +4282,48 @@ def test_walk_forward_validation_report_rejects_malformed_drawdown_anatomy(
     evidence = _drawdown_anatomy_evidence(severity_pct=0.12)
     mutator(evidence)
     experiment["drawdown_anatomy"] = evidence
+
+    with pytest.raises(ValueError, match=re.escape(expected_message)):
+        cli.render_walk_forward_validation_report(
+            experiment_name="walk_forward_validation",
+            metadata={
+                "snapshot_count": 1,
+                "window_count": 1,
+                "split_metadata": {
+                    "schema_version": "walk_forward_split_metadata.v1",
+                    "purge_bars": 0,
+                    "embargo_bars": 0,
+                },
+            },
+            experiment=experiment,
+        )
+
+
+@pytest.mark.parametrize(
+    ("mutator", "expected_message"),
+    [
+        (
+            lambda evidence: evidence["cvar"].__setitem__("loss_pct", "0.08"),  # type: ignore[index,union-attr]
+            "tail_risk_report.cvar.loss_pct must be a finite strict number",
+        ),
+        (
+            lambda evidence: evidence["worst_n_days"]["rows"].reverse(),  # type: ignore[index,union-attr]
+            "tail_risk_report.worst_n_days.rows must be sorted by descending loss_pct",
+        ),
+        (
+            lambda evidence: evidence["scenario_provenance"].append(dict(evidence["scenario_provenance"][0])),  # type: ignore[index,union-attr]
+            "tail_risk_report.scenario_provenance scenario_id values must be unique",
+        ),
+    ],
+)
+def test_walk_forward_validation_report_rejects_malformed_tail_risk_report(
+    mutator,
+    expected_message: str,
+) -> None:
+    experiment = _minimal_walk_forward_validation_experiment()
+    evidence = _tail_risk_report()
+    mutator(evidence)
+    experiment["tail_risk_report"] = evidence
 
     with pytest.raises(ValueError, match=re.escape(expected_message)):
         cli.render_walk_forward_validation_report(
@@ -5000,6 +5141,7 @@ def test_walk_forward_validation_report_preserves_valid_worst_window_scorecard()
             "pnl_attribution": _pnl_attribution_evidence(),
             "portfolio_correlation_exposure": _portfolio_correlation_exposure_evidence(),
             "drawdown_anatomy": _drawdown_anatomy_evidence(),
+            "tail_risk_report": _tail_risk_report(),
 
         },
     )
@@ -5462,6 +5604,7 @@ def test_walk_forward_validation_report_preserves_valid_coverage_scorecard_value
             "pnl_attribution": _pnl_attribution_evidence(),
             "portfolio_correlation_exposure": _portfolio_correlation_exposure_evidence(),
             "drawdown_anatomy": _drawdown_anatomy_evidence(),
+            "tail_risk_report": _tail_risk_report(),
 
         },
     )
@@ -6086,6 +6229,7 @@ def test_backtest_cli_writes_walk_forward_validation_bundle(monkeypatch: pytest.
                 "pnl_attribution": _pnl_attribution_evidence(),
                 "portfolio_correlation_exposure": _portfolio_correlation_exposure_evidence(),
                 "drawdown_anatomy": _drawdown_anatomy_evidence(),
+                "tail_risk_report": _tail_risk_report(),
 
             },
             raising=False,

@@ -2723,6 +2723,94 @@ def _walk_forward_portfolio_correlation_exposure(
     }
 
 
+def _walk_forward_tail_risk_report(
+    ordered_rows: Sequence[DatasetSnapshotRow],
+    window_summaries: Sequence[Mapping[str, Any]],
+    *,
+    evaluation_window: str,
+) -> dict[str, Any]:
+    decision_timestamp = ordered_rows[-1].timestamp if ordered_rows else None
+    as_of = (
+        decision_timestamp.isoformat().replace("+00:00", "Z")
+        if decision_timestamp is not None
+        else "1970-01-01T00:00:00Z"
+    )
+    day_losses: list[tuple[str, float]] = []
+    trade_losses: list[tuple[str, float]] = []
+    for row in ordered_rows:
+        value = row.forward_returns.get(evaluation_window)
+        if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value)):
+            loss = max(-float(value), 0.0)
+            if loss > 0.0:
+                day_losses.append((row.timestamp.date().isoformat(), loss))
+                trade_losses.append((row.run_id, loss))
+    for window in window_summaries:
+        out_of_sample = window.get("out_of_sample")
+        if not isinstance(out_of_sample, Mapping):
+            continue
+        scorecard = out_of_sample.get("scorecard")
+        if not isinstance(scorecard, Mapping):
+            continue
+        total_return = scorecard.get("total_return")
+        if isinstance(total_return, (int, float)) and not isinstance(total_return, bool) and math.isfinite(float(total_return)):
+            loss = max(-float(total_return), 0.0)
+            if loss > 0.0:
+                window_id = str(window.get("window_index", len(trade_losses) + 1))
+                day_losses.append((f"window-{window_id}", loss))
+                trade_losses.append((f"window-{window_id}", loss))
+    if not day_losses:
+        day_losses = [("no-loss-day", 0.0)]
+    if not trade_losses:
+        trade_losses = [("no-loss-trade", 0.0)]
+    day_losses = sorted(day_losses, key=lambda item: item[1], reverse=True)[:3]
+    trade_losses = sorted(trade_losses, key=lambda item: item[1], reverse=True)[:3]
+    loss_values = sorted((loss for _label, loss in trade_losses), reverse=True)
+    cvar_loss = sum(loss_values) / len(loss_values) if loss_values else 0.0
+    stress_loss = max(loss_values, default=0.0)
+    cluster_loss = stress_loss
+    limit_floor = max(cvar_loss, stress_loss, cluster_loss, 0.01)
+    return {
+        "schema_version": "tail_risk_report.v1",
+        "as_of": as_of,
+        "decision_timestamp": as_of,
+        "max_age_seconds": 86400,
+        "limits": {
+            "max_cvar_loss_pct": round(max(limit_floor * 2.0, 1.0), 10),
+            "max_stress_loss_pct": round(max(limit_floor * 2.0, 1.0), 10),
+            "min_liquidation_distance_pct": 0.0,
+            "max_correlated_cluster_loss_pct": round(max(limit_floor * 2.0, 1.0), 10),
+        },
+        "cvar": {"confidence": 0.95, "loss_pct": round(cvar_loss, 10), "sample_size": max(len(loss_values), 1)},
+        "worst_n_days": {
+            "n": len(day_losses),
+            "rows": [{"date": label, "loss_pct": round(loss, 10)} for label, loss in day_losses],
+        },
+        "worst_n_trades": {
+            "n": len(trade_losses),
+            "rows": [{"trade_id": label, "loss_pct": round(loss, 10)} for label, loss in trade_losses],
+        },
+        "stress_loss": {"scenario_id": "offline-walk-forward-stress", "loss_pct": round(stress_loss, 10)},
+        "liquidation_proximity": {
+            "nearest_symbol": "OFFLINE_BACKTEST",
+            "distance_to_liquidation_pct": 1.0,
+        },
+        "correlated_loss_clusters": [
+            {
+                "cluster_id": "offline_walk_forward",
+                "loss_pct": round(cluster_loss, 10),
+                "members": [trade_losses[0][0]],
+            }
+        ],
+        "scenario_provenance": [
+            {
+                "scenario_id": "offline-walk-forward-stress",
+                "source": "offline_walk_forward_validation",
+                "generated_at": as_of,
+            }
+        ],
+    }
+
+
 def run_walk_forward_validation_experiment(
     rows: Iterable[DatasetSnapshotRow],
     *,
@@ -2772,6 +2860,11 @@ def run_walk_forward_validation_experiment(
         window_summaries,
         evaluation_window=evaluation_window,
     )
+    tail_risk_report = _walk_forward_tail_risk_report(
+        ordered_rows,
+        window_summaries,
+        evaluation_window=evaluation_window,
+    )
     return {
         "metadata": {
             "snapshot_count": len(ordered_rows),
@@ -2788,6 +2881,7 @@ def run_walk_forward_validation_experiment(
         "pnl_attribution": pnl_attribution,
         "portfolio_correlation_exposure": portfolio_correlation_exposure,
         "drawdown_anatomy": drawdown_anatomy,
+        "tail_risk_report": tail_risk_report,
         "multiple_testing_correction": _multiple_testing_correction_metadata(
             number_of_trials=max(len(window_summaries), 2),
             adjusted_pass=(

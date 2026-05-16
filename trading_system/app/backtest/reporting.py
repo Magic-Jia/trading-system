@@ -60,6 +60,7 @@ _PNL_ATTRIBUTION_TOLERANCE = 1e-9
 _PORTFOLIO_CORRELATION_EXPOSURE_SCHEMA_VERSION = "portfolio_correlation_exposure.v1"
 _DRAWDOWN_ANATOMY_SCHEMA_VERSION = "drawdown_anatomy.v1"
 _DRAWDOWN_FAILURE_TYPES = frozenset({"edge_failure", "execution_failure", "risk_control_failure"})
+_TAIL_RISK_REPORT_SCHEMA_VERSION = "tail_risk_report.v1"
 
 
 def _report_finite_float(value: Any, *, field_name: str) -> float:
@@ -958,7 +959,6 @@ def _portfolio_correlation_exposure_evidence(value: Any, *, field_name: str) -> 
         }
     return result
 
-
 def _drawdown_anatomy_finite_float(value: Any, *, field_name: str) -> float:
     if isinstance(value, bool) or not isinstance(value, int | float):
         raise ValueError(f"{field_name} must be a finite strict number")
@@ -1122,6 +1122,204 @@ def _drawdown_anatomy_evidence(value: Any, *, field_name: str) -> dict[str, Any]
         "max_age_seconds": max_age_seconds,
         "severe_drawdown_threshold_pct": severe_threshold,
         "drawdowns": drawdowns,
+    }
+
+
+def _tail_risk_strict_float(value: Any, *, field_name: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise ValueError(f"{field_name} must be a finite strict number")
+    parsed = float(value)
+    if not math.isfinite(parsed):
+        raise ValueError(f"{field_name} must be a finite strict number")
+    return parsed
+
+
+def _tail_risk_non_negative_float(value: Any, *, field_name: str) -> float:
+    parsed = _tail_risk_strict_float(value, field_name=field_name)
+    if parsed < 0.0:
+        raise ValueError(f"{field_name} must be non-negative")
+    return parsed
+
+
+def _tail_risk_worst_n_rows(raw_section: Any, *, field_name: str, id_field: str) -> dict[str, Any]:
+    if not isinstance(raw_section, Mapping):
+        raise ValueError(f"{field_name} must be an object")
+    section = _strict_mapping_copy(raw_section, field_name=field_name)
+    n = _positive_int_field(section, "n", label=field_name)
+    rows = _list_field(section, "rows", label=f"{field_name}.rows")
+    if not rows:
+        raise ValueError(f"{field_name}.rows must be a non-empty list")
+    if n != len(rows):
+        raise ValueError(f"{field_name}.n must match rows length")
+    previous_loss: float | None = None
+    seen_ids: set[str] = set()
+    validated_rows: list[dict[str, Any]] = []
+    for index, raw_row in enumerate(rows):
+        row_field = f"{field_name}.rows[{index}]"
+        if not isinstance(raw_row, Mapping):
+            raise ValueError(f"{row_field} must be an object")
+        row = _strict_mapping_copy(raw_row, field_name=row_field)
+        row_id = _canonical_bucket_identity(row.get(id_field), field_name=f"{row_field}.{id_field}")
+        if row_id in seen_ids:
+            raise ValueError(f"{field_name}.rows {id_field} values must be unique")
+        seen_ids.add(row_id)
+        loss = _tail_risk_non_negative_float(row.get("loss_pct"), field_name=f"{row_field}.loss_pct")
+        if previous_loss is not None and loss > previous_loss:
+            raise ValueError(f"{field_name}.rows must be sorted by descending loss_pct")
+        previous_loss = loss
+        validated_rows.append({id_field: row_id, "loss_pct": loss})
+    return {"n": n, "rows": validated_rows}
+
+
+def _tail_risk_report(value: Any, *, field_name: str) -> dict[str, Any]:
+    if not isinstance(value, Mapping):
+        raise ValueError(f"{field_name} must be present for positive OOS evidence")
+    evidence = _strict_mapping_copy(value, field_name=field_name)
+    if evidence.get("schema_version") != _TAIL_RISK_REPORT_SCHEMA_VERSION:
+        raise ValueError(f"{field_name}.schema_version must be {_TAIL_RISK_REPORT_SCHEMA_VERSION}")
+    as_of = _canonical_utc_report_timestamp(
+        _canonical_report_string(evidence.get("as_of"), field_name=f"{field_name}.as_of"),
+        field_name=f"{field_name}.as_of",
+    )
+    decision_timestamp = _canonical_utc_report_timestamp(
+        _canonical_report_string(evidence.get("decision_timestamp"), field_name=f"{field_name}.decision_timestamp"),
+        field_name=f"{field_name}.decision_timestamp",
+    )
+    parsed_as_of = datetime.fromisoformat(as_of.replace("Z", "+00:00"))
+    parsed_decision_timestamp = datetime.fromisoformat(decision_timestamp.replace("Z", "+00:00"))
+    if parsed_as_of > parsed_decision_timestamp:
+        raise ValueError(f"{field_name}.as_of must be at or before decision_timestamp")
+    max_age_seconds = _non_negative_int_field(evidence, "max_age_seconds", label=field_name)
+    if (parsed_decision_timestamp - parsed_as_of).total_seconds() > max_age_seconds:
+        raise ValueError(f"{field_name}.as_of must not be stale")
+
+    raw_limits = _mapping_field(evidence, "limits")
+    limits = {
+        key: _tail_risk_non_negative_float(raw_limits.get(key), field_name=f"{field_name}.limits.{key}")
+        for key in (
+            "max_cvar_loss_pct",
+            "max_stress_loss_pct",
+            "min_liquidation_distance_pct",
+            "max_correlated_cluster_loss_pct",
+        )
+    }
+    breaches: list[str] = []
+    cvar = _mapping_field(evidence, "cvar")
+    cvar_confidence = _tail_risk_strict_float(cvar.get("confidence"), field_name=f"{field_name}.cvar.confidence")
+    if cvar_confidence <= 0.0 or cvar_confidence >= 1.0:
+        raise ValueError(f"{field_name}.cvar.confidence must be between 0 and 1")
+    cvar_loss = _tail_risk_non_negative_float(cvar.get("loss_pct"), field_name=f"{field_name}.cvar.loss_pct")
+    if cvar_loss > limits["max_cvar_loss_pct"]:
+        breaches.append("CVaR loss exceeds configured limit")
+
+    stress_loss = _mapping_field(evidence, "stress_loss")
+    stress_scenario_id = _canonical_bucket_identity(
+        stress_loss.get("scenario_id"),
+        field_name=f"{field_name}.stress_loss.scenario_id",
+    )
+    stress_loss_pct = _tail_risk_non_negative_float(
+        stress_loss.get("loss_pct"),
+        field_name=f"{field_name}.stress_loss.loss_pct",
+    )
+    if stress_loss_pct > limits["max_stress_loss_pct"]:
+        breaches.append("stress loss exceeds configured limit")
+
+    liquidation = _mapping_field(evidence, "liquidation_proximity")
+    liquidation_distance = _tail_risk_non_negative_float(
+        liquidation.get("distance_to_liquidation_pct"),
+        field_name=f"{field_name}.liquidation_proximity.distance_to_liquidation_pct",
+    )
+    if liquidation_distance < limits["min_liquidation_distance_pct"]:
+        breaches.append("liquidation proximity breaches configured limit")
+
+    raw_clusters = _list_field(evidence, "correlated_loss_clusters", label=f"{field_name}.correlated_loss_clusters")
+    if not raw_clusters:
+        raise ValueError(f"{field_name}.correlated_loss_clusters must be a non-empty list")
+    seen_clusters: set[str] = set()
+    clusters: list[dict[str, Any]] = []
+    for index, raw_cluster in enumerate(raw_clusters):
+        cluster_field = f"{field_name}.correlated_loss_clusters[{index}]"
+        if not isinstance(raw_cluster, Mapping):
+            raise ValueError(f"{cluster_field} must be an object")
+        cluster = _strict_mapping_copy(raw_cluster, field_name=cluster_field)
+        cluster_id = _canonical_bucket_identity(cluster.get("cluster_id"), field_name=f"{cluster_field}.cluster_id")
+        if cluster_id in seen_clusters:
+            raise ValueError(f"{field_name}.correlated_loss_clusters cluster_id values must be unique")
+        seen_clusters.add(cluster_id)
+        cluster_loss = _tail_risk_non_negative_float(cluster.get("loss_pct"), field_name=f"{cluster_field}.loss_pct")
+        if cluster_loss > limits["max_correlated_cluster_loss_pct"]:
+            breaches.append(f"{cluster_id} correlated loss cluster exceeds configured limit")
+        members = _list_field(cluster, "members", label=f"{cluster_field}.members")
+        if not members:
+            raise ValueError(f"{cluster_field}.members must be a non-empty list")
+        clusters.append(
+            {
+                "cluster_id": cluster_id,
+                "loss_pct": cluster_loss,
+                "members": [
+                    _canonical_bucket_identity(member, field_name=f"{cluster_field}.members[{member_index}]")
+                    for member_index, member in enumerate(members)
+                ],
+            }
+        )
+
+    raw_provenance = _list_field(evidence, "scenario_provenance", label=f"{field_name}.scenario_provenance")
+    if not raw_provenance:
+        raise ValueError(f"{field_name}.scenario_provenance must be a non-empty list")
+    seen_scenarios: set[str] = set()
+    provenance: list[dict[str, Any]] = []
+    for index, raw_scenario in enumerate(raw_provenance):
+        scenario_field = f"{field_name}.scenario_provenance[{index}]"
+        if not isinstance(raw_scenario, Mapping):
+            raise ValueError(f"{scenario_field} must be an object")
+        scenario = _strict_mapping_copy(raw_scenario, field_name=scenario_field)
+        scenario_id = _canonical_bucket_identity(scenario.get("scenario_id"), field_name=f"{scenario_field}.scenario_id")
+        if scenario_id in seen_scenarios:
+            raise ValueError(f"{field_name}.scenario_provenance scenario_id values must be unique")
+        seen_scenarios.add(scenario_id)
+        source = _canonical_bucket_identity(scenario.get("source"), field_name=f"{scenario_field}.source")
+        generated_at = _canonical_utc_report_timestamp(
+            _canonical_report_string(scenario.get("generated_at"), field_name=f"{scenario_field}.generated_at"),
+            field_name=f"{scenario_field}.generated_at",
+        )
+        if datetime.fromisoformat(generated_at.replace("Z", "+00:00")) > parsed_as_of:
+            raise ValueError(f"{scenario_field}.generated_at must be at or before tail_risk_report.as_of")
+        provenance.append({"scenario_id": scenario_id, "source": source, "generated_at": generated_at})
+    if stress_scenario_id not in seen_scenarios:
+        raise ValueError(f"{field_name}.scenario_provenance must include stress_loss.scenario_id")
+
+    return {
+        "schema_version": _TAIL_RISK_REPORT_SCHEMA_VERSION,
+        "as_of": as_of,
+        "decision_timestamp": decision_timestamp,
+        "max_age_seconds": max_age_seconds,
+        "limits": limits,
+        "cvar": {
+            "confidence": cvar_confidence,
+            "loss_pct": cvar_loss,
+            "sample_size": _positive_int_field(cvar, "sample_size", label=f"{field_name}.cvar"),
+        },
+        "worst_n_days": _tail_risk_worst_n_rows(
+            evidence.get("worst_n_days"),
+            field_name=f"{field_name}.worst_n_days",
+            id_field="date",
+        ),
+        "worst_n_trades": _tail_risk_worst_n_rows(
+            evidence.get("worst_n_trades"),
+            field_name=f"{field_name}.worst_n_trades",
+            id_field="trade_id",
+        ),
+        "stress_loss": {"scenario_id": stress_scenario_id, "loss_pct": stress_loss_pct},
+        "liquidation_proximity": {
+            "nearest_symbol": _canonical_bucket_identity(
+                liquidation.get("nearest_symbol"),
+                field_name=f"{field_name}.liquidation_proximity.nearest_symbol",
+            ),
+            "distance_to_liquidation_pct": liquidation_distance,
+        },
+        "correlated_loss_clusters": clusters,
+        "scenario_provenance": provenance,
+        "breaches": breaches,
     }
 
 
@@ -3173,6 +3371,12 @@ def render_walk_forward_validation_report(
             experiment.get("drawdown_anatomy"),
             field_name="drawdown_anatomy",
         )
+    tail_risk_report = None
+    if positive_oos_claim or "tail_risk_report" in experiment:
+        tail_risk_report = _tail_risk_report(
+            experiment.get("tail_risk_report"),
+            field_name="tail_risk_report",
+        )
 
     if (
         out_of_sample_total_return > 0.0
@@ -3199,6 +3403,7 @@ def render_walk_forward_validation_report(
             "parameter_stability": parameter_stability,
             **({"pnl_attribution": pnl_attribution} if pnl_attribution is not None else {}),
             **({"drawdown_anatomy": drawdown_anatomy} if drawdown_anatomy is not None else {}),
+            **({"tail_risk_report": tail_risk_report} if tail_risk_report is not None else {}),
         },
         "windows": {
             "metadata": report_metadata,
@@ -3223,6 +3428,7 @@ def render_walk_forward_validation_report(
                 else {}
             ),
             **({"drawdown_anatomy": drawdown_anatomy} if drawdown_anatomy is not None else {}),
+            **({"tail_risk_report": tail_risk_report} if tail_risk_report is not None else {}),
             **_promotion_metadata_sections(report_metadata),
         },
     }
