@@ -1610,6 +1610,37 @@ def _setup_rewrite_by_setup_schema_error(summary: Mapping[str, Any]) -> str:
     return ""
 
 
+def _setup_rewrite_breakdown_error(summary: Mapping[str, Any], *, field_name: str) -> str:
+    if field_name not in summary:
+        return ""
+    breakdown = summary.get(field_name)
+    if not isinstance(breakdown, Mapping):
+        return f"invalid_field_type: summary.{field_name}"
+    allowed_bucket_fields = {"total_rows", "evaluated_count", "would_keep_count", "would_filter_count", "skipped_count", "net_pnl"}
+    for key, bucket in breakdown.items():
+        if field_name == "by_symbol":
+            if not isinstance(key, str) or not key.strip() or key != key.strip() or key != key.upper():
+                return "invalid_by_symbol_key"
+        elif field_name == "by_source_chunk":
+            if not isinstance(key, str) or not key.strip() or key != key.strip():
+                return "invalid_by_source_chunk_key"
+        if not isinstance(bucket, Mapping):
+            return f"invalid_{field_name}_bucket: {key}"
+        unknown_fields = sorted(set(bucket) - allowed_bucket_fields)
+        if unknown_fields:
+            return f"unknown_{field_name}_field: {key}." + ", ".join(unknown_fields)
+        for counter_field in ("total_rows", "evaluated_count", "would_keep_count", "would_filter_count", "skipped_count"):
+            if counter_field in bucket:
+                _, valid = _strict_summary_int_value(bucket.get(counter_field))
+                if not valid:
+                    return f"invalid_numeric_field: summary.{field_name}.{key}.{counter_field}"
+        if "net_pnl" in bucket:
+            _, net_pnl_valid = _strict_float_value(bucket.get("net_pnl"))
+            if not net_pnl_valid:
+                return f"invalid_numeric_field: summary.{field_name}.{key}.net_pnl"
+    return ""
+
+
 def _add_setup_rewrite_bucket(target: dict[str, Any], source: Mapping[str, Any]) -> None:
     for key in ("total_rows", "evaluated_count", "would_keep_count", "would_filter_count", "skipped_count"):
         if key not in source:
@@ -1660,6 +1691,10 @@ def _setup_rewrite_diagnostic(chunk_dirs: Iterable[Path]) -> dict[str, Any] | No
         by_setup_schema_error = _setup_rewrite_by_setup_schema_error(summary)
         if not parse_error and by_setup_schema_error:
             parse_error = by_setup_schema_error
+        for breakdown_field in ("by_symbol", "by_source_chunk"):
+            breakdown_schema_error = _setup_rewrite_breakdown_error(summary, field_name=breakdown_field)
+            if not parse_error and breakdown_schema_error:
+                parse_error = breakdown_schema_error
         unknown_top_level_fields = sorted(set(payload) - {"metadata", "summary", "evaluation_rows"})
         if not parse_error and unknown_top_level_fields:
             parse_error = "unknown_top_level_field: " + ", ".join(unknown_top_level_fields)
