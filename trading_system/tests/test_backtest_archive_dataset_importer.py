@@ -4821,6 +4821,14 @@ def test_raw_market_data_quality_report_locates_gaps_and_l2_coverage(tmp_path: P
     assert ohlcv["coverage_ratio"] == pytest.approx(0.75)
     assert ohlcv["missing_intervals"] == [
         {
+            "series_key": "binance:futures:ohlcv:BTCUSDT:1h",
+            "exchange": "binance",
+            "market": "futures",
+            "dataset": "ohlcv",
+            "symbol": "BTCUSDT",
+            "timeframe": "1h",
+            "source": "raw_market_archive",
+            "gap_type": "missing",
             "start": "2024-01-01T02:00:00Z",
             "end": "2024-01-01T03:00:00Z",
             "missing_records": 1,

@@ -8,6 +8,7 @@ from typing import Any, Mapping
 from .raw_market import ImportedRawMarketFile, ImportedRawMarketSeries, load_phase1_raw_market_imports, raw_market_series_key
 
 RAW_MARKET_DATA_QUALITY_SCHEMA_VERSION = "raw_market_data_quality_report.v1"
+RAW_MARKET_COVERAGE_GAP_TYPES = frozenset({"missing", "duplicate", "overlap", "maintenance", "outage"})
 
 
 def _utc_timestamp(value: datetime) -> str:
@@ -124,6 +125,19 @@ def _file_raw_market_provenance(item: ImportedRawMarketSeries, file_item: Import
     }
 
 
+def _coverage_interval_identity(series: ImportedRawMarketSeries, *, gap_type: str) -> dict[str, Any]:
+    return {
+        "series_key": series.series_key,
+        "exchange": series.exchange,
+        "market": series.market,
+        "dataset": series.dataset,
+        "symbol": series.symbol,
+        "timeframe": series.timeframe,
+        "source": "raw_market_archive",
+        "gap_type": gap_type,
+    }
+
+
 def _missing_intervals(series: ImportedRawMarketSeries, expected_interval: timedelta | None) -> list[dict[str, Any]]:
     if expected_interval is None or expected_interval.total_seconds() <= 0 or not series.records:
         return []
@@ -135,6 +149,7 @@ def _missing_intervals(series: ImportedRawMarketSeries, expected_interval: timed
             missing_records = int(delta / expected_interval) - 1
             gaps.append(
                 {
+                    **_coverage_interval_identity(series, gap_type="missing"),
                     "start": _utc_timestamp(previous + expected_interval),
                     "end": _utc_timestamp(record.observed_at),
                     "missing_records": missing_records,
@@ -175,7 +190,14 @@ def _series_report(series: ImportedRawMarketSeries, expected_interval: timedelta
     files = list(series.files)
     timestamp_counts = Counter(record.observed_at for record in series.records)
     duplicate_observed_at = [
-        {"observed_at": _utc_timestamp(observed_at), "count": count}
+        {
+            **_coverage_interval_identity(series, gap_type="duplicate"),
+            "start": _utc_timestamp(observed_at),
+            "end": _utc_timestamp(observed_at),
+            "observed_at": _utc_timestamp(observed_at),
+            "duplicate_records": count,
+            "count": count,
+        }
         for observed_at, count in sorted(timestamp_counts.items())
         if count > 1
     ]
@@ -290,6 +312,29 @@ def _l2_optional_non_negative_integer(report: Mapping[str, Any], field: str) -> 
     return value
 
 
+def _l2_required_interval_string(item: Mapping[str, Any], field: str, *, index: int) -> str:
+    value = item.get(field)
+    if not isinstance(value, str) or not value.strip() or value != value.strip():
+        raise ValueError(f"l2 missing_intervals[{index}].{field} must be canonical")
+    return value
+
+
+def _l2_optional_interval_string(item: Mapping[str, Any], field: str, *, index: int) -> str | None:
+    value = item.get(field)
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip() or value != value.strip():
+        raise ValueError(f"l2 missing_intervals[{index}].{field} must be canonical")
+    return value
+
+
+def _l2_required_positive_integer(item: Mapping[str, Any], field: str, *, index: int) -> int:
+    value = item.get(field)
+    if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+        raise ValueError(f"l2 missing_intervals[{index}].{field} must be a positive integer")
+    return value
+
+
 def _l2_dataset(report: Mapping[str, Any]) -> str:
     return _l2_canonical_string(report, "dataset")
 
@@ -308,6 +353,15 @@ def _l2_series_reports(series_reports: Mapping[str, Mapping[str, Any]]) -> list[
         series_key = _l2_canonical_string(report, "series_key")
         if series_key != key:
             raise ValueError("l2 series report key must match series_key")
+        expected_series_key = raw_market_series_key(
+            exchange=_l2_canonical_string(report, "exchange"),
+            market=_l2_canonical_string(report, "market"),
+            dataset=_l2_canonical_string(report, "dataset"),
+            symbol=_l2_canonical_string(report, "symbol"),
+            timeframe=_l2_optional_canonical_string(report, "timeframe"),
+        )
+        if series_key != expected_series_key:
+            raise ValueError("l2 series_key must match embedded identity")
         for count_field in (
             "record_count",
             "file_count",
@@ -327,21 +381,70 @@ def _l2_missing_intervals(report: Mapping[str, Any]) -> list[dict[str, Any]]:
     if not isinstance(value, list):
         raise ValueError("l2 missing_intervals must be a list")
     parsed: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, str, str]] = set()
+    expected_series_key = _l2_canonical_string(report, "series_key")
+    expected_exchange = _l2_canonical_string(report, "exchange")
+    expected_market = _l2_canonical_string(report, "market")
+    expected_dataset = _l2_canonical_string(report, "dataset")
+    expected_symbol = _l2_canonical_string(report, "symbol")
+    expected_timeframe = _l2_optional_canonical_string(report, "timeframe")
     for index, item in enumerate(value, start=1):
         if not isinstance(item, Mapping):
             raise ValueError(f"l2 missing_intervals[{index}] must be an object")
         if any(not isinstance(field, str) or not field.strip() or field != field.strip() for field in item):
             raise ValueError(f"l2 missing_intervals[{index}] fields must be canonical")
-        start = item.get("start")
-        if not isinstance(start, str) or not start.strip() or start != start.strip():
-            raise ValueError(f"l2 missing_intervals[{index}].start must be canonical")
-        end = item.get("end")
-        if not isinstance(end, str) or not end.strip() or end != end.strip():
-            raise ValueError(f"l2 missing_intervals[{index}].end must be canonical")
-        missing_records = item.get("missing_records")
-        if not isinstance(missing_records, int) or isinstance(missing_records, bool) or missing_records <= 0:
-            raise ValueError(f"l2 missing_intervals[{index}].missing_records must be a positive integer")
-        parsed.append({"start": start, "end": end, "missing_records": missing_records})
+        series_key = _l2_required_interval_string(item, "series_key", index=index)
+        exchange = _l2_required_interval_string(item, "exchange", index=index)
+        market = _l2_required_interval_string(item, "market", index=index)
+        dataset = _l2_required_interval_string(item, "dataset", index=index)
+        symbol = _l2_required_interval_string(item, "symbol", index=index)
+        timeframe = item.get("timeframe")
+        if timeframe is not None and (
+            not isinstance(timeframe, str) or not timeframe.strip() or timeframe != timeframe.strip()
+        ):
+            raise ValueError(f"l2 missing_intervals[{index}].timeframe must be canonical")
+        if (
+            series_key != expected_series_key
+            or exchange != expected_exchange
+            or market != expected_market
+            or dataset != expected_dataset
+            or symbol != expected_symbol
+            or timeframe != expected_timeframe
+        ):
+            raise ValueError(f"l2 missing_intervals[{index}].series_key must match series identity")
+        source = _l2_required_interval_string(item, "source", index=index)
+        gap_type = _l2_required_interval_string(item, "gap_type", index=index)
+        if gap_type not in RAW_MARKET_COVERAGE_GAP_TYPES:
+            raise ValueError(f"l2 missing_intervals[{index}].gap_type must be one of: duplicate, maintenance, missing, outage, overlap")
+        start = _l2_required_interval_string(item, "start", index=index)
+        end = _l2_required_interval_string(item, "end", index=index)
+        claim_key = (series_key, gap_type, start, end)
+        if claim_key in seen:
+            raise ValueError(f"l2 missing_intervals[{index}] duplicates an earlier interval claim")
+        seen.add(claim_key)
+        normalized = {
+            "series_key": series_key,
+            "exchange": exchange,
+            "market": market,
+            "dataset": dataset,
+            "symbol": symbol,
+            "timeframe": timeframe,
+            "source": source,
+            "gap_type": gap_type,
+            "start": start,
+            "end": end,
+        }
+        if gap_type == "missing":
+            normalized["missing_records"] = _l2_required_positive_integer(item, "missing_records", index=index)
+        elif gap_type == "duplicate":
+            normalized["duplicate_records"] = _l2_required_positive_integer(item, "duplicate_records", index=index)
+        elif gap_type == "overlap":
+            normalized["overlap_records"] = _l2_required_positive_integer(item, "overlap_records", index=index)
+        else:
+            reason = _l2_optional_interval_string(item, "reason", index=index)
+            if reason is not None:
+                normalized["reason"] = reason
+        parsed.append(normalized)
     return parsed
 
 

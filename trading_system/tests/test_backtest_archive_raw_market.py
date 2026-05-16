@@ -529,6 +529,51 @@ def test_raw_market_data_quality_rejects_noncanonical_expected_interval_key(tmp_
         build_raw_market_data_quality_report(tmp_path / "archive", expected_intervals={" ohlcv:1h ": timedelta(hours=1)})
 
 
+def test_raw_market_data_quality_coverage_gap_entries_preserve_canonical_series_identity(
+    tmp_path: Path,
+) -> None:
+    from trading_system.app.backtest.archive.data_quality import build_raw_market_data_quality_report
+
+    archive_raw_market_payload(
+        archive_root=tmp_path / "archive",
+        exchange="binance",
+        market="futures",
+        dataset="ohlcv",
+        symbol="BTCUSDT",
+        timeframe="1h",
+        coverage_start="2026-01-01T00:00:00Z",
+        coverage_end="2026-01-01T04:00:00Z",
+        fetched_at="2026-01-01T04:01:00Z",
+        endpoint="/fapi/v1/klines",
+        payload={
+            "rows": [
+                {"open_time": "2026-01-01T00:00:00Z", "open": 100.0, "high": 101.0, "low": 99.0, "close": 100.5, "volume": 10.0},
+                {"open_time": "2026-01-01T03:00:00Z", "open": 100.5, "high": 102.0, "low": 100.0, "close": 101.0, "volume": 12.0},
+            ]
+        },
+    )
+
+    report = build_raw_market_data_quality_report(
+        tmp_path / "archive",
+        expected_intervals={"ohlcv:1h": timedelta(hours=1)},
+    )
+    missing_interval = report["series"]["binance:futures:ohlcv:BTCUSDT:1h"]["missing_intervals"][0]
+
+    assert missing_interval == {
+        "series_key": "binance:futures:ohlcv:BTCUSDT:1h",
+        "exchange": "binance",
+        "market": "futures",
+        "dataset": "ohlcv",
+        "symbol": "BTCUSDT",
+        "timeframe": "1h",
+        "source": "raw_market_archive",
+        "gap_type": "missing",
+        "start": "2026-01-01T01:00:00Z",
+        "end": "2026-01-01T03:00:00Z",
+        "missing_records": 2,
+    }
+
+
 def test_raw_market_data_quality_rejects_explicit_manifest_interval_scope_drift_only(tmp_path: Path) -> None:
     from trading_system.app.backtest.archive.data_quality import build_raw_market_data_quality_report
 
@@ -589,8 +634,10 @@ def test_raw_market_data_quality_rejects_non_object_expected_intervals() -> None
 
 def test_l2_tick_coverage_rejects_non_finite_report_coverage_ratio() -> None:
     reports = {
-        "trades:BTCUSDT": {
-            "series_key": "trades:BTCUSDT",
+        "binance:futures:trades:BTCUSDT": {
+            "series_key": "binance:futures:trades:BTCUSDT",
+            "exchange": "binance",
+            "market": "futures",
             "dataset": "trades",
             "symbol": "BTCUSDT",
             "timeframe": None,
@@ -607,8 +654,10 @@ def test_l2_tick_coverage_rejects_non_finite_report_coverage_ratio() -> None:
 @pytest.mark.parametrize("coverage_ratio", [-0.01, 1.01])
 def test_l2_tick_coverage_rejects_out_of_range_report_coverage_ratio(coverage_ratio: float) -> None:
     reports = {
-        "trades:BTCUSDT": {
-            "series_key": "trades:BTCUSDT",
+        "binance:futures:trades:BTCUSDT": {
+            "series_key": "binance:futures:trades:BTCUSDT",
+            "exchange": "binance",
+            "market": "futures",
             "dataset": "trades",
             "symbol": "BTCUSDT",
             "timeframe": None,
@@ -624,8 +673,10 @@ def test_l2_tick_coverage_rejects_out_of_range_report_coverage_ratio(coverage_ra
 
 def test_l2_tick_coverage_rejects_boolean_record_count() -> None:
     reports = {
-        "trades:BTCUSDT": {
-            "series_key": "trades:BTCUSDT",
+        "binance:futures:trades:BTCUSDT": {
+            "series_key": "binance:futures:trades:BTCUSDT",
+            "exchange": "binance",
+            "market": "futures",
             "dataset": "trades",
             "symbol": "BTCUSDT",
             "timeframe": None,
@@ -781,8 +832,10 @@ def test_materialization_selected_manifest_paths_rejects_reversed_selection_wind
 
 def test_l2_tick_coverage_rejects_string_coverage_ratio() -> None:
     reports = {
-        "BTCUSDT:trades": {
-            "series_key": "BTCUSDT:trades",
+        "binance:futures:trades:BTCUSDT": {
+            "series_key": "binance:futures:trades:BTCUSDT",
+            "exchange": "binance",
+            "market": "futures",
             "dataset": "trades",
             "symbol": "BTCUSDT",
             "timeframe": None,
@@ -815,8 +868,10 @@ def test_l2_tick_coverage_rejects_noncanonical_identity_fields() -> None:
 
 def test_l2_tick_coverage_rejects_noncanonical_dataset_before_filtering() -> None:
     reports = {
-        "BTCUSDT:trades": {
-            "series_key": "BTCUSDT:trades",
+        "binance:futures:trades:BTCUSDT": {
+            "series_key": "binance:futures:trades:BTCUSDT",
+            "exchange": "binance",
+            "market": "futures",
             "dataset": " trades ",
             "symbol": "BTCUSDT",
             "timeframe": None,
@@ -861,6 +916,8 @@ def test_l2_tick_coverage_rejects_noncanonical_series_report_keys() -> None:
     reports = {
         " BTCUSDT:trades ": {
             "series_key": "BTCUSDT:trades",
+            "exchange": "binance",
+            "market": "futures",
             "dataset": "trades",
             "symbol": "BTCUSDT",
             "timeframe": None,
@@ -870,6 +927,8 @@ def test_l2_tick_coverage_rejects_noncanonical_series_report_keys() -> None:
         },
         123: {
             "series_key": "ETHUSDT:trades",
+            "exchange": "binance",
+            "market": "futures",
             "dataset": "trades",
             "symbol": "ETHUSDT",
             "timeframe": None,
@@ -887,6 +946,8 @@ def test_l2_tick_coverage_rejects_series_report_key_mismatch() -> None:
     reports = {
         "ETHUSDT:trades": {
             "series_key": "BTCUSDT:trades",
+            "exchange": "binance",
+            "market": "futures",
             "dataset": "trades",
             "symbol": "BTCUSDT",
             "timeframe": None,
@@ -903,8 +964,10 @@ def test_l2_tick_coverage_rejects_series_report_key_mismatch() -> None:
 @pytest.mark.parametrize("bad_field", [123, " coverage_ratio "])
 def test_l2_tick_coverage_rejects_noncanonical_series_report_fields(bad_field: object) -> None:
     reports = {
-        "BTCUSDT:trades": {
-            "series_key": "BTCUSDT:trades",
+        "binance:futures:trades:BTCUSDT": {
+            "series_key": "binance:futures:trades:BTCUSDT",
+            "exchange": "binance",
+            "market": "futures",
             "dataset": "trades",
             "symbol": "BTCUSDT",
             "timeframe": None,
@@ -921,8 +984,10 @@ def test_l2_tick_coverage_rejects_noncanonical_series_report_fields(bad_field: o
 
 def test_l2_tick_coverage_rejects_non_object_missing_interval_entries() -> None:
     reports = {
-        "BTCUSDT:trades": {
-            "series_key": "BTCUSDT:trades",
+        "binance:futures:trades:BTCUSDT": {
+            "series_key": "binance:futures:trades:BTCUSDT",
+            "exchange": "binance",
+            "market": "futures",
             "dataset": "trades",
             "symbol": "BTCUSDT",
             "timeframe": None,
@@ -938,15 +1003,29 @@ def test_l2_tick_coverage_rejects_non_object_missing_interval_entries() -> None:
 
 def test_l2_tick_coverage_rejects_noncanonical_missing_interval_fields() -> None:
     reports = {
-        "BTCUSDT:trades": {
-            "series_key": "BTCUSDT:trades",
+        "binance:futures:trades:BTCUSDT": {
+            "series_key": "binance:futures:trades:BTCUSDT",
+            "exchange": "binance",
+            "market": "futures",
             "dataset": "trades",
             "symbol": "BTCUSDT",
             "timeframe": None,
             "coverage_ratio": 0.5,
             "has_missing_intervals": True,
             "missing_intervals": [
-                {"start": " 2026-01-01T00:00:00Z ", "end": "2026-01-01T01:00:00Z", "missing_records": 1}
+                {
+                    "series_key": "binance:futures:trades:BTCUSDT",
+                    "exchange": "binance",
+                    "market": "futures",
+                    "dataset": "trades",
+                    "symbol": "BTCUSDT",
+                    "timeframe": None,
+                    "source": "raw_market_archive",
+                    "gap_type": "missing",
+                    "start": " 2026-01-01T00:00:00Z ",
+                    "end": "2026-01-01T01:00:00Z",
+                    "missing_records": 1,
+                }
             ],
         }
     }
@@ -958,8 +1037,10 @@ def test_l2_tick_coverage_rejects_noncanonical_missing_interval_fields() -> None
 @pytest.mark.parametrize("bad_field", [123, " start "])
 def test_l2_tick_coverage_rejects_noncanonical_missing_interval_field_keys(bad_field: object) -> None:
     reports = {
-        "BTCUSDT:trades": {
-            "series_key": "BTCUSDT:trades",
+        "binance:futures:trades:BTCUSDT": {
+            "series_key": "binance:futures:trades:BTCUSDT",
+            "exchange": "binance",
+            "market": "futures",
             "dataset": "trades",
             "symbol": "BTCUSDT",
             "timeframe": None,
@@ -967,6 +1048,14 @@ def test_l2_tick_coverage_rejects_noncanonical_missing_interval_field_keys(bad_f
             "has_missing_intervals": True,
             "missing_intervals": [
                 {
+                    "series_key": "binance:futures:trades:BTCUSDT",
+                    "exchange": "binance",
+                    "market": "futures",
+                    "dataset": "trades",
+                    "symbol": "BTCUSDT",
+                    "timeframe": None,
+                    "source": "raw_market_archive",
+                    "gap_type": "missing",
                     "start": "2026-01-01T00:00:00Z",
                     "end": "2026-01-01T01:00:00Z",
                     "missing_records": 1,
@@ -980,10 +1069,181 @@ def test_l2_tick_coverage_rejects_noncanonical_missing_interval_field_keys(bad_f
         _l2_tick_coverage(reports, required_coverage=0.99)
 
 
+def test_l2_tick_coverage_rejects_missing_interval_without_series_identity() -> None:
+    reports = {
+        "binance:futures:trades:BTCUSDT": {
+            "series_key": "binance:futures:trades:BTCUSDT",
+            "exchange": "binance",
+            "market": "futures",
+            "dataset": "trades",
+            "symbol": "BTCUSDT",
+            "timeframe": None,
+            "coverage_ratio": 0.5,
+            "has_missing_intervals": True,
+            "missing_intervals": [
+                {
+                    "gap_type": "missing",
+                    "start": "2026-01-01T00:00:00Z",
+                    "end": "2026-01-01T01:00:00Z",
+                    "missing_records": 1,
+                }
+            ],
+        }
+    }
+
+    with pytest.raises(ValueError, match=r"l2 missing_intervals\[1\]\.series_key must be canonical"):
+        _l2_tick_coverage(reports, required_coverage=0.99)
+
+
+def test_l2_tick_coverage_rejects_collapsed_missing_interval_series_identity() -> None:
+    reports = {
+        "binance:futures:trades:BTCUSDT": {
+            "series_key": "binance:futures:trades:BTCUSDT",
+            "exchange": "binance",
+            "market": "futures",
+            "dataset": "trades",
+            "symbol": "BTCUSDT",
+            "timeframe": None,
+            "coverage_ratio": 0.5,
+            "has_missing_intervals": True,
+            "missing_intervals": [
+                {
+                    "series_key": "binance:futures:trades:ETHUSDT",
+                    "exchange": "binance",
+                    "market": "futures",
+                    "dataset": "trades",
+                    "symbol": "ETHUSDT",
+                    "timeframe": None,
+                    "source": "raw_market_archive",
+                    "gap_type": "missing",
+                    "start": "2026-01-01T00:00:00Z",
+                    "end": "2026-01-01T01:00:00Z",
+                    "missing_records": 1,
+                }
+            ],
+        }
+    }
+
+    with pytest.raises(ValueError, match=r"l2 missing_intervals\[1\]\.series_key must match series identity"):
+        _l2_tick_coverage(reports, required_coverage=0.99)
+
+
+@pytest.mark.parametrize(
+    ("gap_type", "extra"),
+    [
+        ("missing", {"missing_records": 1}),
+        ("duplicate", {"duplicate_records": 2}),
+        ("overlap", {"overlap_records": 2}),
+        ("maintenance", {"reason": "scheduled-maintenance"}),
+        ("outage", {"reason": "exchange-outage"}),
+    ],
+)
+def test_l2_tick_coverage_accepts_distinct_canonical_interval_gap_types(
+    gap_type: str,
+    extra: dict[str, object],
+) -> None:
+    interval = {
+        "series_key": "binance:futures:trades:BTCUSDT",
+        "exchange": "binance",
+        "market": "futures",
+        "dataset": "trades",
+        "symbol": "BTCUSDT",
+        "timeframe": None,
+        "source": "raw_market_archive",
+        "gap_type": gap_type,
+        "start": "2026-01-01T00:00:00Z",
+        "end": "2026-01-01T01:00:00Z",
+        **extra,
+    }
+    reports = {
+        "binance:futures:trades:BTCUSDT": {
+            "series_key": "binance:futures:trades:BTCUSDT",
+            "exchange": "binance",
+            "market": "futures",
+            "dataset": "trades",
+            "symbol": "BTCUSDT",
+            "timeframe": None,
+            "coverage_ratio": 0.5,
+            "has_missing_intervals": True,
+            "missing_intervals": [interval],
+        }
+    }
+
+    coverage = _l2_tick_coverage(reports, required_coverage=0.99)
+
+    assert coverage["missing_by_symbol_timeframe"][0]["missing_intervals"] == [interval]
+
+
+def test_l2_tick_coverage_rejects_interval_claim_without_explicit_gap_type() -> None:
+    reports = {
+        "binance:futures:trades:BTCUSDT": {
+            "series_key": "binance:futures:trades:BTCUSDT",
+            "exchange": "binance",
+            "market": "futures",
+            "dataset": "trades",
+            "symbol": "BTCUSDT",
+            "timeframe": None,
+            "coverage_ratio": 0.5,
+            "has_missing_intervals": True,
+            "missing_intervals": [
+                {
+                    "series_key": "binance:futures:trades:BTCUSDT",
+                    "exchange": "binance",
+                    "market": "futures",
+                    "dataset": "trades",
+                    "symbol": "BTCUSDT",
+                    "timeframe": None,
+                    "source": "raw_market_archive",
+                    "start": "2026-01-01T00:00:00Z",
+                    "end": "2026-01-01T01:00:00Z",
+                    "missing_records": 1,
+                }
+            ],
+        }
+    }
+
+    with pytest.raises(ValueError, match=r"l2 missing_intervals\[1\]\.gap_type must be canonical"):
+        _l2_tick_coverage(reports, required_coverage=0.99)
+
+
+def test_l2_tick_coverage_rejects_duplicate_interval_claims() -> None:
+    interval = {
+        "series_key": "binance:futures:trades:BTCUSDT",
+        "exchange": "binance",
+        "market": "futures",
+        "dataset": "trades",
+        "symbol": "BTCUSDT",
+        "timeframe": None,
+        "source": "raw_market_archive",
+        "gap_type": "missing",
+        "start": "2026-01-01T00:00:00Z",
+        "end": "2026-01-01T01:00:00Z",
+        "missing_records": 1,
+    }
+    reports = {
+        "binance:futures:trades:BTCUSDT": {
+            "series_key": "binance:futures:trades:BTCUSDT",
+            "exchange": "binance",
+            "market": "futures",
+            "dataset": "trades",
+            "symbol": "BTCUSDT",
+            "timeframe": None,
+            "coverage_ratio": 0.5,
+            "has_missing_intervals": True,
+            "missing_intervals": [interval, dict(interval)],
+        }
+    }
+
+    with pytest.raises(ValueError, match=r"l2 missing_intervals\[2\] duplicates an earlier interval claim"):
+        _l2_tick_coverage(reports, required_coverage=0.99)
+
+
 def test_l2_tick_coverage_rejects_boolean_required_coverage() -> None:
     reports = {
-        "BTCUSDT:trades": {
-            "series_key": "BTCUSDT:trades",
+        "binance:futures:trades:BTCUSDT": {
+            "series_key": "binance:futures:trades:BTCUSDT",
+            "exchange": "binance",
+            "market": "futures",
             "dataset": "trades",
             "symbol": "BTCUSDT",
             "timeframe": None,
