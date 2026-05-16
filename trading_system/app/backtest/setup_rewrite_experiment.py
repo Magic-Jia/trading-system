@@ -5,6 +5,7 @@ from datetime import datetime
 import math
 from numbers import Integral
 from numbers import Real
+import re
 from typing import Any, Mapping, Sequence
 
 from .types import SetupRewriteParams, SetupRewriteRule
@@ -186,7 +187,7 @@ def _evaluate_row(*, index: int, row: Mapping[str, Any], params: SetupRewritePar
         "row_index": index,
         **_serialized_trade_identity(row, index=index),
         "symbol": _canonical_symbol_or_none(row.get("symbol"), field_path=f"rows[{index}].symbol"),
-        "setup_type": _string_or_none(row.get("setup_type"), field_path=f"rows[{index}].setup_type"),
+        "setup_type": _canonical_setup_type_or_none(row.get("setup_type"), field_path=f"rows[{index}].setup_type"),
         "side": _canonical_side_or_none(row.get("side"), field_path=f"rows[{index}].side"),
         "entry_timestamp": _string_or_none(row.get("entry_timestamp"), field_path=f"rows[{index}].entry_timestamp"),
         "score": _float_or_none(row.get("score"), field_path=f"rows[{index}].score"),
@@ -232,7 +233,7 @@ def _evaluate_rule(
         setup_type = identity["setup_type"]
         if setup_type is None:
             return "no_evidence", "missing_setup_type", False
-        if setup_type.upper() in rule.setup_types:
+        if setup_type in rule.setup_types:
             return "evaluated", "excluded_setup_type", False
         return "evaluated", "setup_type_allowed", True
 
@@ -319,7 +320,7 @@ def _optional_canonical_identifier(row: Mapping[str, Any], *, field: str, index:
 
 def _setup_type_matches(*, identity: Mapping[str, Any], rule: SetupRewriteRule) -> bool:
     setup_type = identity["setup_type"]
-    return setup_type is not None and setup_type.upper() in rule.setup_types
+    return setup_type is not None and setup_type in rule.setup_types
 
 
 def _breakdown(rows: Sequence[Mapping[str, Any]], *, key_name: str) -> dict[str, dict[str, Any]]:
@@ -447,6 +448,19 @@ def _canonical_symbol_or_none(value: Any, *, field_path: str) -> str | None:
         return None
     if value != value.strip() or value != value.upper():
         raise ValueError(f"{field_path} must be a canonical uppercase string")
+    return value
+
+
+def _canonical_setup_type_or_none(value: Any, *, field_path: str) -> str | None:
+    if value is None:
+        return None
+    if (
+        not isinstance(value, str)
+        or not value.strip()
+        or value != value.strip()
+        or not re.fullmatch(r"[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*", value)
+    ):
+        raise ValueError(f"{field_path} must be a canonical uppercase setup type when present")
     return value
 
 

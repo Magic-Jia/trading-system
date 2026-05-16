@@ -413,6 +413,59 @@ def test_setup_rewrite_experiment_rejects_noncanonical_symbol_used_for_allowed_s
         )
 
 
+@pytest.mark.parametrize("setup_type", [123, "", "   ", " rs_pullback", "RS_PULLBACK ", "rs_pullback", "RS PULLBACK"])
+def test_setup_rewrite_experiment_rejects_present_noncanonical_setup_type_identity(setup_type: object) -> None:
+    module = importlib.import_module("trading_system.app.backtest.setup_rewrite_experiment")
+
+    with pytest.raises(ValueError, match=r"rows\[1\]\.setup_type must be a canonical uppercase setup type when present"):
+        module.build_setup_rewrite_experiment(
+            rows=[
+                {
+                    "symbol": "BTCUSDT",
+                    "setup_type": setup_type,
+                    "score": 0.8,
+                    "cost_coverage_ratio": 1.2,
+                }
+            ],
+            setup_rewrite=SetupRewriteParams(
+                rules=(
+                    SetupRewriteRule(
+                        name="require_setup_min_score",
+                        setup_types=("RS_PULLBACK",),
+                        min_score=0.7,
+                    ),
+                )
+            ),
+        )
+
+
+def test_setup_rewrite_experiment_preserves_missing_setup_type_as_missing_evidence() -> None:
+    module = importlib.import_module("trading_system.app.backtest.setup_rewrite_experiment")
+
+    artifact = module.build_setup_rewrite_experiment(
+        rows=[
+            {
+                "symbol": "BTCUSDT",
+                "score": 0.8,
+                "cost_coverage_ratio": 1.2,
+            }
+        ],
+        setup_rewrite=SetupRewriteParams(
+            rules=(
+                SetupRewriteRule(
+                    name="exclude_setup_types",
+                    setup_types=("RS_PULLBACK",),
+                ),
+            )
+        ),
+    )
+
+    row = artifact["evaluation_rows"][0]
+    assert row["setup_type"] is None
+    assert row["evaluation_status"] == "no_evidence"
+    assert row["evaluation_reason"] == "missing_setup_type"
+
+
 def test_setup_rewrite_experiment_rejects_string_score_with_field_path() -> None:
     module = importlib.import_module("trading_system.app.backtest.setup_rewrite_experiment")
 

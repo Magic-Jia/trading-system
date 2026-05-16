@@ -229,11 +229,21 @@ def _full_market_baseline_outputs(config: BacktestConfig, rows: list[DatasetSnap
     setup_rewrite = config.experiment_params.setup_rewrite if config.experiment_params is not None else None
     if setup_rewrite is not None:
         artifacts["setup_rewrite_experiment.json"] = build_setup_rewrite_experiment(
-            rows=report["trades"],
+            rows=_setup_rewrite_trade_rows(report["trades"]),
             setup_rewrite=setup_rewrite,
             metadata=metadata,
         )
     return _manifest(config, rows, artifacts, metadata), artifacts
+
+
+def _setup_rewrite_trade_rows(trades: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for trade in trades:
+        row = dict(trade)
+        if row.get("setup_type") == "":
+            row["setup_type"] = None
+        rows.append(row)
+    return rows
 
 
 def _rotation_suppression_outputs(config: BacktestConfig, rows: list[DatasetSnapshotRow]) -> HandlerResult:
