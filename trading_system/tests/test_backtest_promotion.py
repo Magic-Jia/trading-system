@@ -20,6 +20,22 @@ def _manifest(*, experiment_kind: str, baseline_name: str, variant_name: str, ar
         "bundle_name": f"{experiment_kind}__{baseline_name}__{variant_name}",
         "snapshot_count": 4,
         "artifacts": artifacts,
+        "universe_asof_contract": {
+            "schema_version": "universe_asof_contract.v1",
+            "membership_source": "historical_instrument_snapshot",
+            "as_of_field": "instrument_snapshot.as_of",
+            "decision_timestamp_field": "metadata.timestamp",
+            "required_lifecycle_fields": [
+                "lifecycle_status",
+                "delisted_at",
+                "previous_symbol",
+                "renamed_at",
+                "contract_migration",
+            ],
+            "supports_delisted": True,
+            "supports_renames": True,
+            "supports_contract_migrations": True,
+        },
     }
 
 
@@ -238,6 +254,53 @@ def test_load_backtest_bundle_rejects_relative_manifest_dataset_root(tmp_path: P
     _write_json(bundle / "manifest.json", manifest)
 
     with pytest.raises(ValueError, match="manifest.json.dataset_root must be an absolute path"):
+        promotion.load_backtest_bundle(bundle)
+
+
+def test_load_backtest_bundle_rejects_missing_manifest_universe_asof_contract(tmp_path: Path) -> None:
+    bundle = _write_full_market_bundle(
+        tmp_path / "bundle",
+        baseline_name="current_system",
+        variant_name="candidate_policy",
+        total_return=0.2,
+        max_drawdown=-0.08,
+        sharpe=1.1,
+        cost_drag=0.01,
+    )
+    manifest_path = bundle / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    del manifest["universe_asof_contract"]
+    _write_json(manifest_path, manifest)
+
+    with pytest.raises(ValueError, match="missing required keys: universe_asof_contract"):
+        promotion.load_backtest_bundle(bundle)
+
+
+def test_load_backtest_bundle_rejects_current_universe_as_historical_contract(tmp_path: Path) -> None:
+    bundle = _write_full_market_bundle(
+        tmp_path / "bundle",
+        baseline_name="current_system",
+        variant_name="candidate_policy",
+        total_return=0.2,
+        max_drawdown=-0.08,
+        sharpe=1.1,
+        cost_drag=0.01,
+    )
+    manifest_path = bundle / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["universe_asof_contract"] = {
+        "schema_version": "universe_asof_contract.v1",
+        "membership_source": "current_universe_snapshot",
+        "as_of_field": "instrument_snapshot.as_of",
+        "decision_timestamp_field": "metadata.timestamp",
+        "required_lifecycle_fields": ["lifecycle_status"],
+        "supports_delisted": True,
+        "supports_renames": True,
+        "supports_contract_migrations": True,
+    }
+    _write_json(manifest_path, manifest)
+
+    with pytest.raises(ValueError, match="manifest.json.universe_asof_contract.membership_source must not be current_universe_snapshot"):
         promotion.load_backtest_bundle(bundle)
 
 

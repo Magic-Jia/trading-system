@@ -19,6 +19,7 @@ _REQUIRED_MANIFEST_FIELDS = (
     "bundle_name",
     "snapshot_count",
     "artifacts",
+    "universe_asof_contract",
 )
 
 _REQUIRED_ARTIFACTS: dict[str, tuple[str, ...]] = {
@@ -33,6 +34,9 @@ _SAFE_EVIDENCE_IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$"
 _SUPPORTED_EXECUTION_PREVIEW_SIDES = frozenset({"BUY", "SELL"})
 _SUPPORTED_EXECUTION_PREVIEW_ORDER_TYPES = frozenset({"MARKET", "LIMIT", "STOP_MARKET", "TAKE_PROFIT_MARKET"})
 _SUPPORTED_EXECUTION_PREVIEW_TIME_IN_FORCE = frozenset({"GTC", "IOC", "FOK", "GTX"})
+_REQUIRED_UNIVERSE_ASOF_LIFECYCLE_FIELDS = frozenset(
+    {"lifecycle_status", "delisted_at", "previous_symbol", "renamed_at", "contract_migration"}
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -270,6 +274,44 @@ def _validate_rollback_plan(payload: Mapping[str, Any], *, context: str) -> None
             raise ValueError(f"{context}.rollback_plan.{field_name} must be canonical")
 
 
+def _validate_universe_asof_contract(payload: Mapping[str, Any], *, context: str) -> None:
+    contract = payload.get("universe_asof_contract")
+    if not isinstance(contract, Mapping):
+        raise ValueError(f"{context}.universe_asof_contract must be an object")
+    schema_version = contract.get("schema_version")
+    if schema_version != "universe_asof_contract.v1":
+        raise ValueError(f"{context}.universe_asof_contract.schema_version must be universe_asof_contract.v1")
+    membership_source = contract.get("membership_source")
+    if not isinstance(membership_source, str) or not membership_source.strip():
+        raise ValueError(f"{context}.universe_asof_contract.membership_source must be a string")
+    if membership_source != membership_source.strip():
+        raise ValueError(f"{context}.universe_asof_contract.membership_source must be canonical")
+    if membership_source == "current_universe_snapshot":
+        raise ValueError(f"{context}.universe_asof_contract.membership_source must not be current_universe_snapshot")
+    expected_strings = {
+        "as_of_field": "instrument_snapshot.as_of",
+        "decision_timestamp_field": "metadata.timestamp",
+    }
+    for field_name, expected in expected_strings.items():
+        if contract.get(field_name) != expected:
+            raise ValueError(f"{context}.universe_asof_contract.{field_name} must be {expected}")
+    required_lifecycle_fields = contract.get("required_lifecycle_fields")
+    if not isinstance(required_lifecycle_fields, list):
+        raise ValueError(f"{context}.universe_asof_contract.required_lifecycle_fields must be a list")
+    normalized_fields: set[str] = set()
+    for index, field in enumerate(required_lifecycle_fields):
+        if not isinstance(field, str) or not field.strip() or field != field.strip():
+            raise ValueError(
+                f"{context}.universe_asof_contract.required_lifecycle_fields[{index}] must be a canonical string"
+            )
+        normalized_fields.add(field)
+    if not _REQUIRED_UNIVERSE_ASOF_LIFECYCLE_FIELDS.issubset(normalized_fields):
+        raise ValueError(f"{context}.universe_asof_contract.required_lifecycle_fields must include lifecycle evidence")
+    for field_name in ("supports_delisted", "supports_renames", "supports_contract_migrations"):
+        if contract.get(field_name) is not True:
+            raise ValueError(f"{context}.universe_asof_contract.{field_name} must be true")
+
+
 def _validate_optional_readiness_plans(bundle: BacktestBundle) -> None:
     payloads: list[tuple[Mapping[str, Any], str]] = [(bundle.manifest, f"{bundle.root}/manifest.json")]
     for artifact_name, payload in bundle.artifacts.items():
@@ -371,6 +413,7 @@ def _validate_manifest(bundle_dir: Path, manifest: Mapping[str, Any]) -> None:
             raise ValueError(f"{bundle_dir}/manifest.json.artifacts is missing {filename}")
         if not (bundle_dir / filename).is_file():
             raise FileNotFoundError(f"missing artifact file: {bundle_dir / filename}")
+    _validate_universe_asof_contract(manifest, context=f"{bundle_dir}/manifest.json")
 
 
 

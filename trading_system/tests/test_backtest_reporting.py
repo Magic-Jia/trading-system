@@ -266,6 +266,31 @@ def test_backtest_evaluation_report_requires_raw_market_source_identity_when_pre
         )
 
 
+def test_backtest_evaluation_report_rejects_current_universe_membership_as_historical_truth() -> None:
+    with pytest.raises(ValueError, match=r"metadata\.universe_asof_contract\.membership_source must not be current_universe_snapshot"):
+        reporting.render_backtest_evaluation_report(
+            experiment_name="evaluation",
+            evaluation={
+                "walk_forward": {"metadata": {"window_count": 1}},
+                "regimes": {"buckets": []},
+                "cost_stress": {"scenarios": []},
+            },
+            metadata={
+                "dataset_root": "dataset",
+                "universe_asof_contract": {
+                    "schema_version": "universe_asof_contract.v1",
+                    "membership_source": "current_universe_snapshot",
+                    "as_of_field": "instrument_snapshot.as_of",
+                    "decision_timestamp_field": "metadata.timestamp",
+                    "required_lifecycle_fields": ["lifecycle_status"],
+                    "supports_delisted": True,
+                    "supports_renames": True,
+                    "supports_contract_migrations": True,
+                },
+            },
+        )
+
+
 def test_backtest_evaluation_report_rejects_walk_forward_raw_market_source_identity_drift() -> None:
     raw_market = {
         "source": "phase1_raw_market_archive",
@@ -2597,6 +2622,7 @@ def _write_imported_public_strategy_bundle(
         "symbol": "BTCUSDT",
         "market_type": "futures",
         "base_asset": "BTC",
+        "lifecycle_status": "listed",
         "listing_timestamp": "2020-01-01T00:00:00Z",
         "quote_volume_usdt_24h": 1_500_000_000.0,
         "liquidity_tier": "high",

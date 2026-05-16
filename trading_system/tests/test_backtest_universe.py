@@ -24,17 +24,21 @@ def make_instrument(
     quantity_step: float = 1.0,
     price_tick: float = 0.01,
     has_complete_funding: bool = True,
+    as_of: datetime | None = None,
 ) -> InstrumentSnapshotRow:
+    snapshot_as_of = as_of or datetime(2026, 3, 10, tzinfo=UTC)
     return InstrumentSnapshotRow(
         symbol=symbol,
         market_type=market_type,
         base_asset=symbol.removesuffix("USDT"),
-        listing_timestamp=datetime.now(UTC) - timedelta(days=listing_age_days),
+        listing_timestamp=snapshot_as_of - timedelta(days=listing_age_days),
         quote_volume_usdt_24h=quote_volume_usdt_24h,
         liquidity_tier=liquidity_tier,
         quantity_step=quantity_step,
         price_tick=price_tick,
         has_complete_funding=has_complete_funding,
+        snapshot_as_of=snapshot_as_of,
+        lifecycle_status="listed",
     )
 
 
@@ -55,7 +59,11 @@ def test_filter_universe_excludes_symbols_that_fail_listing_age_or_liquidity() -
         ),
     ]
 
-    included, excluded = filter_universe(rows, universe_config=sample_universe_config())
+    included, excluded = filter_universe(
+        rows,
+        universe_config=sample_universe_config(),
+        decision_timestamp=datetime(2026, 3, 10, tzinfo=UTC),
+    )
 
     assert [row.symbol for row in included] == ["BTCUSDT"]
     assert {(row.symbol, row.reason_code) for row in excluded} == {
@@ -89,10 +97,38 @@ def test_filter_universe_excludes_missing_funding_or_tradeability_metadata() -> 
         ),
     ]
 
-    included, excluded = filter_universe(rows, universe_config=sample_universe_config())
+    included, excluded = filter_universe(
+        rows,
+        universe_config=sample_universe_config(),
+        decision_timestamp=datetime(2026, 3, 10, tzinfo=UTC),
+    )
 
     assert [row.symbol for row in included] == ["SOLUSDT"]
     assert {(row.symbol, row.reason_code) for row in excluded} == {
         ("ETHUSDT", "missing_funding_series"),
         ("BADMETAUSDT", "missing_tradeability_metadata"),
     }
+
+
+def test_filter_universe_uses_decision_timestamp_for_listing_age() -> None:
+    decision_timestamp = datetime(2026, 3, 10, tzinfo=UTC)
+    rows = [
+        make_instrument(
+            symbol="NEWCOINUSDT",
+            market_type="spot",
+            listing_age_days=10,
+            quote_volume_usdt_24h=50_000_000.0,
+            as_of=decision_timestamp,
+        )
+    ]
+
+    included, excluded = filter_universe(
+        rows,
+        universe_config=sample_universe_config(),
+        decision_timestamp=decision_timestamp,
+    )
+
+    assert included == []
+    assert [(row.symbol, row.reason_code) for row in excluded] == [
+        ("NEWCOINUSDT", "listing_age_below_minimum")
+    ]

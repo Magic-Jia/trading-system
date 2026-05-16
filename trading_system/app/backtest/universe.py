@@ -15,11 +15,14 @@ def _missing_tradeability_metadata(row: InstrumentSnapshotRow) -> bool:
 
 
 def filter_universe(
-    instrument_rows: Sequence[InstrumentSnapshotRow], *, universe_config: UniverseFilterConfig
+    instrument_rows: Sequence[InstrumentSnapshotRow],
+    *,
+    universe_config: UniverseFilterConfig,
+    decision_timestamp: datetime,
 ) -> tuple[list[InstrumentSnapshotRow], list[UniverseExclusionRow]]:
     included: list[InstrumentSnapshotRow] = []
     excluded: list[UniverseExclusionRow] = []
-    as_of = datetime.now(UTC)
+    as_of = decision_timestamp.astimezone(UTC)
 
     for row in instrument_rows:
         listing_age_days = _listing_age_days(row, as_of=as_of)

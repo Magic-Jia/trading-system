@@ -72,6 +72,10 @@ def _write_market_bundle(
 ) -> None:
     bundle = dataset_root / f"{timestamp.replace(':', '-')}__{run_id}"
     bundle.mkdir(parents=True)
+    instrument_rows = [
+        {"lifecycle_status": "listed", **row}
+        for row in instrument_rows
+    ]
     (bundle / "metadata.json").write_text(json.dumps({"timestamp": timestamp, "run_id": run_id}), encoding="utf-8")
     (bundle / "market_context.json").write_text(
         json.dumps({"symbols": market_symbols, "candidate_symbols": candidate_symbols or sorted(market_symbols)}),

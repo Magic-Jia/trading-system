@@ -616,6 +616,17 @@ def _instrument_bool(value: object, *, field: str, path: Path) -> bool:
     return value
 
 
+def _instrument_optional_timestamp(value: object, *, field: str, path: Path) -> datetime:
+    text = _instrument_canonical_string(value, field=field, path=path)
+    try:
+        parsed = _parse_timestamp(text)
+    except ValueError as exc:
+        raise ValueError(f"instrument {field} must be a canonical UTC ISO timestamp: {path}") from exc
+    if _canonical_utc_timestamp(parsed) != text:
+        raise ValueError(f"instrument {field} must be a canonical UTC ISO timestamp: {path}")
+    return parsed
+
+
 def _instrument_positive_float(value: object, *, field: str, path: Path) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError(f"instrument {field} must be a positive finite number: {path}")
@@ -633,12 +644,15 @@ def _instrument_rows(bundle_path: Path, *, decision_timestamp: datetime) -> tupl
     payload = _load_json(path)
     if not isinstance(payload, dict):
         raise ValueError(f"dataset bundle has invalid instrument snapshot: {path}")
+    if "as_of" not in payload:
+        raise ValueError(f"instrument_snapshot.json as_of is required: {path}")
     _payload_as_of_at_or_before_decision(
         payload,
         file_name=_INSTRUMENT_SNAPSHOT_FILENAME,
         decision_timestamp=decision_timestamp,
         path=path,
     )
+    snapshot_as_of = _parse_timestamp(payload["as_of"])
     raw_rows = payload.get("rows", [])
     if not isinstance(raw_rows, list):
         raise ValueError(f"dataset bundle has invalid instrument rows: {path}")
@@ -650,6 +664,30 @@ def _instrument_rows(bundle_path: Path, *, decision_timestamp: datetime) -> tupl
         market_type = _instrument_canonical_string(raw_row["market_type"], field="market_type", path=path)
         if market_type not in {"spot", "futures"}:
             raise ValueError(f"dataset bundle has invalid instrument market_type: {path}")
+        if "lifecycle_status" not in raw_row:
+            raise ValueError(f"instrument lifecycle_status must be present: {path}")
+        lifecycle_status = _instrument_canonical_string(raw_row["lifecycle_status"], field="lifecycle_status", path=path)
+        if lifecycle_status not in {"listed", "delisted", "renamed", "contract_migrated"}:
+            raise ValueError(f"dataset bundle has invalid instrument lifecycle_status: {path}")
+        delisted_at = None
+        if lifecycle_status == "delisted":
+            if "delisted_at" not in raw_row:
+                raise ValueError(f"instrument delisted_at must be present for delisted: {path}")
+            delisted_at = _instrument_optional_timestamp(raw_row["delisted_at"], field="delisted_at", path=path)
+        previous_symbol = None
+        renamed_at = None
+        if lifecycle_status == "renamed":
+            if "previous_symbol" not in raw_row:
+                raise ValueError(f"instrument previous_symbol must be present for renamed: {path}")
+            if "renamed_at" not in raw_row:
+                raise ValueError(f"instrument renamed_at must be present for renamed: {path}")
+            previous_symbol = _instrument_canonical_string(raw_row["previous_symbol"], field="previous_symbol", path=path)
+            renamed_at = _instrument_optional_timestamp(raw_row["renamed_at"], field="renamed_at", path=path)
+        contract_migration = None
+        if lifecycle_status == "contract_migrated":
+            if not isinstance(raw_row.get("contract_migration"), dict):
+                raise ValueError(f"instrument contract_migration must be an object for contract_migrated: {path}")
+            contract_migration = dict(raw_row["contract_migration"])
         rows.append(
             InstrumentSnapshotRow(
                 symbol=_instrument_canonical_string(raw_row["symbol"], field="symbol", path=path),
@@ -669,6 +707,12 @@ def _instrument_rows(bundle_path: Path, *, decision_timestamp: datetime) -> tupl
                 has_complete_funding=_instrument_bool(
                     raw_row["has_complete_funding"], field="has_complete_funding", path=path
                 ),
+                snapshot_as_of=snapshot_as_of,
+                lifecycle_status=lifecycle_status,
+                delisted_at=delisted_at,
+                previous_symbol=previous_symbol,
+                renamed_at=renamed_at,
+                contract_migration=contract_migration,
             )
         )
 

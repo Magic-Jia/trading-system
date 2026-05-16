@@ -376,6 +376,12 @@ class InstrumentSnapshotRow:
     quantity_step: float
     price_tick: float
     has_complete_funding: bool
+    snapshot_as_of: datetime
+    lifecycle_status: Literal["listed", "delisted", "renamed", "contract_migrated"]
+    delisted_at: datetime | None = None
+    previous_symbol: str | None = None
+    renamed_at: datetime | None = None
+    contract_migration: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)

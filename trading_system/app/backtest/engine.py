@@ -1385,7 +1385,11 @@ def _replay_full_market_baseline_rows(
         if index == len(rows) - 1:
             break
 
-        included_rows, _excluded_rows = filter_universe(row.instrument_rows, universe_config=config.universe)
+        included_rows, _excluded_rows = filter_universe(
+            row.instrument_rows,
+            universe_config=config.universe,
+            decision_timestamp=row.timestamp,
+        )
         included_by_symbol = {instrument.symbol: instrument for instrument in included_rows}
         open_positions: list[PortfolioPosition] = []
         for candidate_row in _raw_full_market_candidates(

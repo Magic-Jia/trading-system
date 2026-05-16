@@ -1952,6 +1952,7 @@ def build_phase1_dataset_bundle_materials(
                     "symbol": item.symbol,
                     "market_type": "futures",
                     "base_asset": _base_asset(item.symbol),
+                    "lifecycle_status": "listed",
                     "listing_timestamp": _utc_timestamp(
                         _symbol_metadata_timestamp(
                             symbol_metadata=item.symbol_metadata,

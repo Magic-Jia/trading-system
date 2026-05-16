@@ -850,6 +850,10 @@ _REPORT_METADATA_IDENTIFIER_FIELDS = frozenset(
     }
 )
 
+_REQUIRED_UNIVERSE_ASOF_LIFECYCLE_FIELDS = frozenset(
+    {"lifecycle_status", "delisted_at", "previous_symbol", "renamed_at", "contract_migration"}
+)
+
 
 def _report_metadata_copy(metadata: Mapping[str, Any]) -> dict[str, Any]:
     copied = _strict_mapping_copy(metadata, field_name="metadata")
@@ -860,7 +864,48 @@ def _report_metadata_copy(metadata: Mapping[str, Any]) -> dict[str, Any]:
         copied["sample_period"] = _report_sample_period(copied["sample_period"])
     if "raw_market" in copied and copied["raw_market"] is not None:
         copied["raw_market"] = _report_raw_market_provenance(copied["raw_market"])
+    if "universe_asof_contract" in copied and copied["universe_asof_contract"] is not None:
+        copied["universe_asof_contract"] = _report_universe_asof_contract(copied["universe_asof_contract"])
     return copied
+
+
+def _report_universe_asof_contract(value: object) -> dict[str, Any]:
+    if not isinstance(value, Mapping):
+        raise ValueError("metadata.universe_asof_contract must be an object")
+    contract = _strict_mapping_copy(value, field_name="metadata.universe_asof_contract")
+    if contract.get("schema_version") != "universe_asof_contract.v1":
+        raise ValueError("metadata.universe_asof_contract.schema_version must be universe_asof_contract.v1")
+    membership_source = _canonical_report_string(
+        contract.get("membership_source"),
+        field_name="metadata.universe_asof_contract.membership_source",
+    )
+    if membership_source == "current_universe_snapshot":
+        raise ValueError("metadata.universe_asof_contract.membership_source must not be current_universe_snapshot")
+    contract["membership_source"] = membership_source
+    expected_strings = {
+        "as_of_field": "instrument_snapshot.as_of",
+        "decision_timestamp_field": "metadata.timestamp",
+    }
+    for field_name, expected in expected_strings.items():
+        if contract.get(field_name) != expected:
+            raise ValueError(f"metadata.universe_asof_contract.{field_name} must be {expected}")
+    fields = contract.get("required_lifecycle_fields")
+    if not isinstance(fields, list):
+        raise ValueError("metadata.universe_asof_contract.required_lifecycle_fields must be a list")
+    normalized = [
+        _canonical_report_string(
+            field,
+            field_name=f"metadata.universe_asof_contract.required_lifecycle_fields[{index}]",
+        )
+        for index, field in enumerate(fields)
+    ]
+    if not _REQUIRED_UNIVERSE_ASOF_LIFECYCLE_FIELDS.issubset(set(normalized)):
+        raise ValueError("metadata.universe_asof_contract.required_lifecycle_fields must include lifecycle evidence")
+    contract["required_lifecycle_fields"] = normalized
+    for field_name in ("supports_delisted", "supports_renames", "supports_contract_migrations"):
+        if contract.get(field_name) is not True:
+            raise ValueError(f"metadata.universe_asof_contract.{field_name} must be true")
+    return contract
 
 
 def _report_sample_period(value: object) -> dict[str, str | None] | str:

@@ -622,6 +622,8 @@ def test_candidate_cost_coverage_rejects_coerced_prices() -> None:
         quantity_step=0.001,
         price_tick=0.1,
         has_complete_funding=True,
+        snapshot_as_of=_ts("2026-03-10T00:00:00Z"),
+        lifecycle_status="listed",
     )
     costs = BacktestCosts(fee_bps_by_market={"futures": 1.0}, slippage_bps_by_tier={"tier1": 1.0})
 
@@ -649,6 +651,8 @@ def test_candidate_cost_coverage_ok_rejects_coerced_threshold() -> None:
         quantity_step=0.001,
         price_tick=0.1,
         has_complete_funding=True,
+        snapshot_as_of=_ts("2026-03-10T00:00:00Z"),
+        lifecycle_status="listed",
     )
     costs = BacktestCosts(fee_bps_by_market={"futures": 1.0}, slippage_bps_by_tier={"tier1": 1.0})
 
@@ -746,6 +750,8 @@ def test_engine_rejects_coerced_portfolio_candidate_fields(fixture_dir: Path) ->
         quantity_step=0.001,
         price_tick=0.1,
         has_complete_funding=True,
+        snapshot_as_of=row.timestamp,
+        lifecycle_status="listed",
     )
     base_candidate = {
         "symbol": instrument.symbol,
@@ -1336,6 +1342,10 @@ def _write_market_bundle(
 ) -> None:
     bundle = dataset_root / f"{timestamp.replace(':', '-')}__{run_id}"
     bundle.mkdir(parents=True)
+    instrument_rows = [
+        {"lifecycle_status": "listed", **row}
+        for row in instrument_rows
+    ]
     (bundle / "metadata.json").write_text(json.dumps({"timestamp": timestamp, "run_id": run_id}), encoding="utf-8")
     (bundle / "market_context.json").write_text(
         json.dumps({"symbols": market_symbols, "candidate_symbols": candidate_symbols or sorted(market_symbols)}),

@@ -103,6 +103,7 @@ def test_load_historical_dataset_loads_normalized_instrument_rows(tmp_path: Path
               "symbol": "BTCUSDT",
               "market_type": "futures",
               "base_asset": "BTC",
+              "lifecycle_status": "listed",
               "listing_timestamp": "2020-01-01T00:00:00Z",
               "quote_volume_usdt_24h": 250000000.0,
               "liquidity_tier": "high",
@@ -130,6 +131,8 @@ def test_load_historical_dataset_loads_normalized_instrument_rows(tmp_path: Path
             quantity_step=0.001,
             price_tick=0.1,
             has_complete_funding=True,
+            snapshot_as_of=datetime(2026, 3, 10, tzinfo=UTC),
+            lifecycle_status="listed",
         ),
     )
 
@@ -3363,6 +3366,7 @@ def test_load_historical_dataset_rejects_duplicate_derivative_timestamp_identity
     (bundle / "derivatives_snapshot.json").write_text(
         json.dumps(
             {
+                "as_of": "2026-03-10T00:00:00Z",
                 "rows": [
                     {"symbol": "BTCUSDT", "funding_timestamp": "2026-03-10T00:00:00Z", "funding_rate": 0.0001},
                     {"symbol": "BTCUSDT", "funding_timestamp": "2026-03-10T00:00:00Z", "funding_rate": 0.0002},
@@ -3976,11 +3980,13 @@ def test_load_historical_dataset_rejects_non_boolean_instrument_funding_flag(tmp
     (bundle / "instrument_snapshot.json").write_text(
         json.dumps(
             {
+                "as_of": "2026-03-10T00:00:00Z",
                 "rows": [
                     {
                         "symbol": "BTCUSDT",
                         "market_type": "futures",
                         "base_asset": "BTC",
+                        "lifecycle_status": "listed",
                         "listing_timestamp": "2020-01-01T00:00:00Z",
                         "quote_volume_usdt_24h": 250000000.0,
                         "liquidity_tier": "high",
@@ -4015,6 +4021,188 @@ def test_load_historical_dataset_rejects_invalid_instrument_snapshot_root(tmp_pa
         load_historical_dataset(dataset_root)
 
 
+def test_load_historical_dataset_requires_instrument_snapshot_as_of(tmp_path: Path) -> None:
+    dataset_root = tmp_path / "sample_dataset"
+    bundle = dataset_root / "2026-03-10T00-00-00Z__sample-001"
+    bundle.mkdir(parents=True)
+    (bundle / "metadata.json").write_text(
+        '{"timestamp": "2026-03-10T00:00:00Z", "run_id": "sample-001"}',
+        encoding="utf-8",
+    )
+    (bundle / "market_context.json").write_text('{"symbols": {"BTCUSDT": {}}}', encoding="utf-8")
+    (bundle / "derivatives_snapshot.json").write_text('{"rows": []}', encoding="utf-8")
+    (bundle / "account_snapshot.json").write_text('{"equity": 100000.0}', encoding="utf-8")
+    (bundle / "instrument_snapshot.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "imported_instrument_snapshot.v1",
+                "rows": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match=r"instrument_snapshot\.json as_of is required"):
+        load_historical_dataset(dataset_root)
+
+
+def test_load_historical_dataset_requires_instrument_lifecycle_status(tmp_path: Path) -> None:
+    dataset_root = tmp_path / "sample_dataset"
+    bundle = dataset_root / "2026-03-10T00-00-00Z__sample-001"
+    bundle.mkdir(parents=True)
+    (bundle / "metadata.json").write_text(
+        '{"timestamp": "2026-03-10T00:00:00Z", "run_id": "sample-001"}',
+        encoding="utf-8",
+    )
+    (bundle / "market_context.json").write_text('{"symbols": {"BTCUSDT": {}}}', encoding="utf-8")
+    (bundle / "derivatives_snapshot.json").write_text('{"rows": []}', encoding="utf-8")
+    (bundle / "account_snapshot.json").write_text('{"equity": 100000.0}', encoding="utf-8")
+    (bundle / "instrument_snapshot.json").write_text(
+        json.dumps(
+            {
+                "as_of": "2026-03-10T00:00:00Z",
+                "schema_version": "imported_instrument_snapshot.v1",
+                "rows": [
+                    {
+                        "symbol": "BTCUSDT",
+                        "market_type": "futures",
+                        "base_asset": "BTC",
+                        "listing_timestamp": "2020-01-01T00:00:00Z",
+                        "quote_volume_usdt_24h": 250000000.0,
+                        "liquidity_tier": "high",
+                        "quantity_step": 0.001,
+                        "price_tick": 0.1,
+                        "has_complete_funding": True,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="instrument lifecycle_status must be present"):
+        load_historical_dataset(dataset_root)
+
+
+def test_load_historical_dataset_rejects_hindsight_delisted_instrument_without_delist_evidence(
+    tmp_path: Path,
+) -> None:
+    dataset_root = tmp_path / "sample_dataset"
+    bundle = dataset_root / "2026-03-10T00-00-00Z__sample-001"
+    bundle.mkdir(parents=True)
+    (bundle / "metadata.json").write_text(
+        '{"timestamp": "2026-03-10T00:00:00Z", "run_id": "sample-001"}',
+        encoding="utf-8",
+    )
+    (bundle / "market_context.json").write_text('{"symbols": {"OLDUSDT": {}}}', encoding="utf-8")
+    (bundle / "derivatives_snapshot.json").write_text('{"rows": []}', encoding="utf-8")
+    (bundle / "account_snapshot.json").write_text('{"equity": 100000.0}', encoding="utf-8")
+    (bundle / "instrument_snapshot.json").write_text(
+        json.dumps(
+            {
+                "as_of": "2026-03-10T00:00:00Z",
+                "schema_version": "imported_instrument_snapshot.v1",
+                "rows": [
+                    {
+                        "symbol": "OLDUSDT",
+                        "market_type": "futures",
+                        "base_asset": "OLD",
+                        "lifecycle_status": "delisted",
+                        "listing_timestamp": "2020-01-01T00:00:00Z",
+                        "quote_volume_usdt_24h": 250000000.0,
+                        "liquidity_tier": "high",
+                        "quantity_step": 0.001,
+                        "price_tick": 0.1,
+                        "has_complete_funding": True,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="instrument delisted_at must be present for delisted"):
+        load_historical_dataset(dataset_root)
+
+
+def test_load_historical_dataset_rejects_renamed_instrument_without_rename_evidence(tmp_path: Path) -> None:
+    dataset_root = tmp_path / "sample_dataset"
+    bundle = dataset_root / "2026-03-10T00-00-00Z__sample-001"
+    bundle.mkdir(parents=True)
+    (bundle / "metadata.json").write_text(
+        '{"timestamp": "2026-03-10T00:00:00Z", "run_id": "sample-001"}',
+        encoding="utf-8",
+    )
+    (bundle / "market_context.json").write_text('{"symbols": {"NEWUSDT": {}}}', encoding="utf-8")
+    (bundle / "derivatives_snapshot.json").write_text('{"rows": []}', encoding="utf-8")
+    (bundle / "account_snapshot.json").write_text('{"equity": 100000.0}', encoding="utf-8")
+    (bundle / "instrument_snapshot.json").write_text(
+        json.dumps(
+            {
+                "as_of": "2026-03-10T00:00:00Z",
+                "schema_version": "imported_instrument_snapshot.v1",
+                "rows": [
+                    {
+                        "symbol": "NEWUSDT",
+                        "market_type": "spot",
+                        "base_asset": "NEW",
+                        "lifecycle_status": "renamed",
+                        "listing_timestamp": "2020-01-01T00:00:00Z",
+                        "quote_volume_usdt_24h": 250000000.0,
+                        "liquidity_tier": "high",
+                        "quantity_step": 0.001,
+                        "price_tick": 0.1,
+                        "has_complete_funding": True,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="instrument previous_symbol must be present for renamed"):
+        load_historical_dataset(dataset_root)
+
+
+def test_load_historical_dataset_rejects_contract_migration_without_migration_evidence(tmp_path: Path) -> None:
+    dataset_root = tmp_path / "sample_dataset"
+    bundle = dataset_root / "2026-03-10T00-00-00Z__sample-001"
+    bundle.mkdir(parents=True)
+    (bundle / "metadata.json").write_text(
+        '{"timestamp": "2026-03-10T00:00:00Z", "run_id": "sample-001"}',
+        encoding="utf-8",
+    )
+    (bundle / "market_context.json").write_text('{"symbols": {"ABCUSDT": {}}}', encoding="utf-8")
+    (bundle / "derivatives_snapshot.json").write_text('{"rows": []}', encoding="utf-8")
+    (bundle / "account_snapshot.json").write_text('{"equity": 100000.0}', encoding="utf-8")
+    (bundle / "instrument_snapshot.json").write_text(
+        json.dumps(
+            {
+                "as_of": "2026-03-10T00:00:00Z",
+                "schema_version": "imported_instrument_snapshot.v1",
+                "rows": [
+                    {
+                        "symbol": "ABCUSDT",
+                        "market_type": "futures",
+                        "base_asset": "ABC",
+                        "lifecycle_status": "contract_migrated",
+                        "listing_timestamp": "2020-01-01T00:00:00Z",
+                        "quote_volume_usdt_24h": 250000000.0,
+                        "liquidity_tier": "high",
+                        "quantity_step": 0.001,
+                        "price_tick": 0.1,
+                        "has_complete_funding": True,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="instrument contract_migration must be an object for contract_migrated"):
+        load_historical_dataset(dataset_root)
+
+
 def test_load_historical_dataset_rejects_noncanonical_instrument_identity_fields(tmp_path: Path) -> None:
     dataset_root = tmp_path / "sample_dataset"
     bundle = dataset_root / "2026-03-10T00-00-00Z__sample-001"
@@ -4029,11 +4217,13 @@ def test_load_historical_dataset_rejects_noncanonical_instrument_identity_fields
     (bundle / "instrument_snapshot.json").write_text(
         json.dumps(
             {
+                "as_of": "2026-03-10T00:00:00Z",
                 "rows": [
                     {
                         "symbol": True,
                         "market_type": "futures",
                         "base_asset": "BTC",
+                        "lifecycle_status": "listed",
                         "listing_timestamp": "2020-01-01T00:00:00Z",
                         "quote_volume_usdt_24h": 250000000.0,
                         "liquidity_tier": "high",
@@ -4065,11 +4255,13 @@ def test_load_historical_dataset_rejects_boolean_instrument_numeric_fields(tmp_p
     (bundle / "instrument_snapshot.json").write_text(
         json.dumps(
             {
+                "as_of": "2026-03-10T00:00:00Z",
                 "rows": [
                     {
                         "symbol": "BTCUSDT",
                         "market_type": "futures",
                         "base_asset": "BTC",
+                        "lifecycle_status": "listed",
                         "listing_timestamp": "2020-01-01T00:00:00Z",
                         "quote_volume_usdt_24h": 250000000.0,
                         "liquidity_tier": "high",
