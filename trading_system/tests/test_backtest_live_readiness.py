@@ -10905,6 +10905,191 @@ def test_live_readiness_gate_report_accepts_validation_evidence_artifact(tmp_pat
     assert "forward_contamination_unproven" not in report["promotion_gate"]["reasons"]
 
 
+def _capacity_analysis_artifact(**overrides: object) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "schema_version": "capacity_analysis_gate_input.v1",
+        "evidence_source": {
+            "type": "capacity_analysis_report",
+            "run_id": "capacity-1",
+            "exported_at": "2026-05-16T09:00:00Z",
+        },
+        "as_of": "2026-05-16T08:00:00Z",
+        "checks": {
+            "capital_limits_met": True,
+            "liquidity_regime_capacity_met": True,
+            "impact_deterioration_met": True,
+            "symbol_level_capacity_met": True,
+            "turnover_slippage_sensitivity_met": True,
+            "assumptions_provenance_met": True,
+        },
+        "limits": {
+            "max_capital_usdt": 100000.0,
+            "max_position_notional_usdt": 25000.0,
+            "max_turnover_ratio": 3.0,
+            "max_slippage_bps": 12.0,
+            "max_impact_deterioration_bps": 8.0,
+        },
+        "summary": {
+            "claimed_capacity_usdt": 50000.0,
+            "capital_required_usdt": 20000.0,
+            "estimated_turnover_ratio": 1.4,
+            "estimated_slippage_bps": 5.0,
+            "impact_deterioration_bps": 4.0,
+            "liquidity_regime": "normal",
+        },
+        "symbols": [
+            {
+                "symbol": "BTCUSDT",
+                "claimed_capacity_usdt": 30000.0,
+                "max_capacity_usdt": 50000.0,
+                "liquidity_regime": "normal",
+                "impact_bps": 3.0,
+                "slippage_bps": 4.0,
+            }
+        ],
+        "provenance": {
+            "liquidity": {"source": "historical_l2_tick_archive", "artifact_ref": "capacity/liquidity.json"},
+            "impact": {"source": "depth_impact_replay", "artifact_ref": "capacity/impact.json"},
+            "assumptions": {"source": "capacity_assumptions", "artifact_ref": "capacity/assumptions.json"},
+        },
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_live_readiness_gate_report_rejects_missing_required_capacity_evidence(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+
+    report = build_live_readiness_gate_report(tmp_path, require_capacity_evidence=True)
+
+    capacity = report["capacity_analysis_gate"]
+    assert capacity["schema_version"] == "capacity_analysis_gate.v1"
+    assert capacity["required"] is True
+    assert capacity["artifact_count"] == 0
+    assert capacity["checks"]["capital_limits_met"] is False
+    assert capacity["checks"]["liquidity_regime_capacity_met"] is False
+    assert capacity["checks"]["impact_deterioration_met"] is False
+    assert capacity["checks"]["symbol_level_capacity_met"] is False
+    assert capacity["checks"]["turnover_slippage_sensitivity_met"] is False
+    assert capacity["checks"]["assumptions_provenance_met"] is False
+    assert "capacity_evidence_missing" in report["promotion_gate"]["reasons"]
+    assert "capacity_capital_limit_missing" in report["promotion_gate"]["reasons"]
+    assert "capacity_liquidity_regime_missing" in report["promotion_gate"]["reasons"]
+    assert "capacity_impact_deterioration_missing" in report["promotion_gate"]["reasons"]
+    assert "capacity_symbol_level_missing" in report["promotion_gate"]["reasons"]
+    assert "capacity_turnover_slippage_sensitivity_missing" in report["promotion_gate"]["reasons"]
+    assert "capacity_assumptions_provenance_missing" in report["promotion_gate"]["reasons"]
+    markdown = render_live_readiness_markdown(report)
+    assert "## Capacity Analysis Gate" in markdown
+    assert "schema_version: capacity_analysis_gate.v1" in markdown
+    assert "artifact_count: 0" in markdown
+
+
+def test_live_readiness_gate_report_accepts_capacity_evidence_artifact(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    (chunk / "capacity_analysis_gate.json").write_text(
+        json.dumps(_capacity_analysis_artifact()),
+        encoding="utf-8",
+    )
+
+    report = build_live_readiness_gate_report(tmp_path, require_capacity_evidence=True)
+
+    capacity = report["capacity_analysis_gate"]
+    assert capacity["artifact_count"] == 1
+    assert all(capacity["checks"].values())
+    assert capacity["artifacts"][0]["summary"]["claimed_capacity_usdt"] == 50000.0
+    assert capacity["artifacts"][0]["provenance"]["impact"]["source"] == "depth_impact_replay"
+    assert "capacity_evidence_missing" not in report["promotion_gate"]["reasons"]
+    assert "capacity_artifact_schema_invalid" not in report["promotion_gate"]["reasons"]
+    assert "capacity_artifact_provenance_missing" not in report["promotion_gate"]["reasons"]
+    assert "capacity_claim_over_limit" not in report["promotion_gate"]["reasons"]
+
+
+@pytest.mark.parametrize(
+    ("mutate", "parse_error", "reason"),
+    [
+        (
+            lambda payload: payload.update({"checks": {"capital_limits_met": "true"}}),
+            "check_capital_limits_met_not_bool",
+            "capacity_artifact_schema_invalid",
+        ),
+        (
+            lambda payload: payload["summary"].update({"claimed_capacity_usdt": float("nan")}),
+            "summary_claimed_capacity_usdt_not_number",
+            "capacity_artifact_schema_invalid",
+        ),
+        (
+            lambda payload: payload.update({"as_of": "2026-05-17T00:00:00Z"}),
+            "as_of_future",
+            "capacity_as_of_invalid",
+        ),
+        (
+            lambda payload: payload.update({"as_of": "2026-05-15T23:59:59Z"}),
+            "as_of_stale",
+            "capacity_as_of_invalid",
+        ),
+        (
+            lambda payload: payload["summary"].update({"claimed_capacity_usdt": 150000.0}),
+            "claimed_capacity_usdt_over_max_capital_usdt",
+            "capacity_claim_over_limit",
+        ),
+        (
+            lambda payload: payload["provenance"].pop("impact"),
+            "provenance_impact_missing",
+            "capacity_artifact_provenance_missing",
+        ),
+        (
+            lambda payload: payload.update({"symbols": []}),
+            "symbols_not_non_empty_list",
+            "capacity_artifact_schema_invalid",
+        ),
+    ],
+)
+def test_live_readiness_gate_rejects_invalid_capacity_evidence(
+    tmp_path: Path,
+    mutate,
+    parse_error: str,
+    reason: str,
+) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    payload = _capacity_analysis_artifact()
+    mutate(payload)
+    (chunk / "capacity_analysis_gate.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    report = build_live_readiness_gate_report(tmp_path, require_capacity_evidence=True)
+
+    capacity = report["capacity_analysis_gate"]
+    assert capacity["artifacts"][0]["schema_valid"] is False
+    assert capacity["artifacts"][0]["parse_error"] == parse_error
+    assert reason in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
+@pytest.mark.parametrize("required", ["false", 1, float("nan"), float("inf")])
+def test_live_readiness_gate_rejects_non_bool_capacity_requirement_policy_config(
+    tmp_path: Path,
+    required: object,
+) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+
+    report = build_live_readiness_gate_report(
+        tmp_path,
+        require_capacity_evidence=required,  # type: ignore[arg-type]
+    )
+
+    assert report["capacity_analysis_gate"]["required"] is False
+    assert report["promotion_gate"]["checks"]["live_readiness_policy_config_valid"] is False
+    assert report["promotion_gate"]["invalid_config"] == [
+        {"field": "require_capacity_evidence", "value": required, "error": "invalid_bool"}
+    ]
+    assert "live_readiness_policy_config_invalid" in report["promotion_gate"]["reasons"]
+    assert "capacity_evidence_missing" not in report["promotion_gate"]["reasons"]
+
+
 @pytest.mark.parametrize(
     ("run_id", "parse_error"),
     [

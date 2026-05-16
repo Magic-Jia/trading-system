@@ -1957,6 +1957,7 @@ def _artifact_provenance_present(payload: Mapping[str, Any]) -> bool:
         "trade_print_path_replay",
         "walk_forward_oos_report",
         "paper_runtime_logs",
+        "capacity_analysis_report",
     }
 
 
@@ -3500,6 +3501,299 @@ def _validation_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[str,
     }
 
 
+def _capacity_provenance_schema_error(value: Any) -> str:
+    if not isinstance(value, Mapping):
+        return "provenance_not_object"
+    unknown_fields = sorted(set(value) - {"liquidity", "impact", "assumptions"})
+    if unknown_fields:
+        return "unknown_provenance_field: " + ", ".join(unknown_fields)
+    for field in ("liquidity", "impact", "assumptions"):
+        item = value.get(field)
+        if not isinstance(item, Mapping):
+            return f"provenance_{field}_missing"
+        unknown_item_fields = sorted(set(item) - {"source", "artifact_ref"})
+        if unknown_item_fields:
+            return f"unknown_provenance_{field}_field: " + ", ".join(unknown_item_fields)
+        for item_field in ("source", "artifact_ref"):
+            raw = item.get(item_field)
+            if not _is_exact_string(raw):
+                return f"provenance_{field}_{item_field}_not_string"
+            if not raw.strip():
+                return f"provenance_{field}_{item_field}_blank"
+            if raw != raw.strip():
+                return f"provenance_{field}_{item_field}_noncanonical"
+        artifact_ref = item["artifact_ref"]
+        if not _artifact_ref_is_path_safe(artifact_ref):
+            return f"provenance_{field}_artifact_ref_not_path_safe"
+        if not _artifact_ref_is_canonical(artifact_ref):
+            return f"provenance_{field}_artifact_ref_noncanonical"
+    return ""
+
+
+def _capacity_symbols_schema_error(value: Any) -> str:
+    if not isinstance(value, list) or not value:
+        return "symbols_not_non_empty_list"
+    seen: set[str] = set()
+    for index, row in enumerate(value):
+        if not isinstance(row, Mapping):
+            return f"symbols[{index}]_not_object"
+        unknown_fields = sorted(
+            set(row)
+            - {
+                "symbol",
+                "claimed_capacity_usdt",
+                "max_capacity_usdt",
+                "liquidity_regime",
+                "impact_bps",
+                "slippage_bps",
+            }
+        )
+        if unknown_fields:
+            return f"unknown_symbols[{index}]_field: " + ", ".join(unknown_fields)
+        symbol = row.get("symbol")
+        if not _is_exact_string(symbol):
+            return f"symbols[{index}]_symbol_not_string"
+        if not re.fullmatch(r"[A-Z0-9]{3,20}", symbol):
+            return f"symbols[{index}]_symbol_noncanonical"
+        if symbol in seen:
+            return f"symbols[{index}]_symbol_duplicate"
+        seen.add(symbol)
+        regime = row.get("liquidity_regime")
+        if not _is_exact_string(regime):
+            return f"symbols[{index}]_liquidity_regime_not_string"
+        if not regime.strip() or regime != regime.strip() or not _is_safe_evidence_identifier(regime):
+            return f"symbols[{index}]_liquidity_regime_noncanonical"
+        parsed_claimed, claimed_valid = _strict_float_value(row.get("claimed_capacity_usdt"))
+        parsed_max, max_valid = _strict_float_value(row.get("max_capacity_usdt"))
+        if not claimed_valid:
+            return f"symbols[{index}]_claimed_capacity_usdt_not_number"
+        if not max_valid:
+            return f"symbols[{index}]_max_capacity_usdt_not_number"
+        if parsed_claimed < 0.0 or parsed_max < 0.0:
+            return f"symbols[{index}]_capacity_negative"
+        if parsed_claimed > parsed_max:
+            return f"symbols[{index}]_claimed_capacity_usdt_over_max_capacity_usdt"
+        for numeric_field in ("impact_bps", "slippage_bps"):
+            parsed, valid = _strict_float_value(row.get(numeric_field))
+            if not valid:
+                return f"symbols[{index}]_{numeric_field}_not_number"
+            if parsed < 0.0:
+                return f"symbols[{index}]_{numeric_field}_negative"
+    return ""
+
+
+def _capacity_analysis_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[str, Any]:
+    required_checks = (
+        "capital_limits_met",
+        "liquidity_regime_capacity_met",
+        "impact_deterioration_met",
+        "symbol_level_capacity_met",
+        "turnover_slippage_sensitivity_met",
+        "assumptions_provenance_met",
+    )
+    artifacts: list[dict[str, Any]] = []
+    aggregate_checks = {key: False for key in required_checks}
+    schema_valid = False
+    provenance_present = False
+    for chunk_dir in chunk_dirs:
+        path = chunk_dir / "capacity_analysis_gate.json"
+        if not path.exists():
+            continue
+        payload = _load_json(path)
+        parse_error = _json_parse_error(payload)
+        checks_payload = payload.get("checks")
+        evidence_source_payload = payload.get("evidence_source")
+        summary_payload = payload.get("summary")
+        limits_payload = payload.get("limits")
+        provenance_payload = payload.get("provenance")
+        symbols_payload = payload.get("symbols")
+        checks_object_valid = isinstance(checks_payload, Mapping)
+        evidence_source_object_valid = isinstance(evidence_source_payload, Mapping)
+        summary_object_valid = isinstance(summary_payload, Mapping)
+        limits_object_valid = isinstance(limits_payload, Mapping)
+        evidence_source_schema_error = _artifact_provenance_schema_error(payload)
+        top_level_schema_error = _artifact_top_level_schema_error(
+            payload,
+            {
+                "schema_version",
+                "evidence_source",
+                "as_of",
+                "checks",
+                "limits",
+                "summary",
+                "symbols",
+                "provenance",
+                "reasons",
+            },
+        )
+        checks = _as_mapping(checks_payload)
+        limits = _as_mapping(limits_payload)
+        summary = _as_mapping(summary_payload)
+        unknown_check_fields = sorted(set(checks) - set(required_checks))
+        check_schema_error = ""
+        for check_name in required_checks:
+            if check_name in checks and not isinstance(checks.get(check_name), bool):
+                check_schema_error = f"check_{check_name}_not_bool"
+                break
+        limit_schema_error = ""
+        for limit_field in (
+            "max_capital_usdt",
+            "max_position_notional_usdt",
+            "max_turnover_ratio",
+            "max_slippage_bps",
+            "max_impact_deterioration_bps",
+        ):
+            if limit_schema_error:
+                break
+            parsed, valid = _strict_float_value(limits.get(limit_field))
+            if not valid:
+                limit_schema_error = f"limits_{limit_field}_not_number"
+            elif parsed <= 0.0:
+                limit_schema_error = f"limits_{limit_field}_nonpositive"
+        summary_schema_error = ""
+        parsed_summary: dict[str, float] = {}
+        for summary_field in (
+            "claimed_capacity_usdt",
+            "capital_required_usdt",
+            "estimated_turnover_ratio",
+            "estimated_slippage_bps",
+            "impact_deterioration_bps",
+        ):
+            if summary_schema_error:
+                break
+            parsed, valid = _strict_float_value(summary.get(summary_field))
+            if not valid:
+                summary_schema_error = f"summary_{summary_field}_not_number"
+            elif parsed < 0.0:
+                summary_schema_error = f"summary_{summary_field}_negative"
+            else:
+                parsed_summary[summary_field] = parsed
+        liquidity_regime = summary.get("liquidity_regime")
+        if not summary_schema_error:
+            if not _is_exact_string(liquidity_regime):
+                summary_schema_error = "summary_liquidity_regime_not_string"
+            elif not liquidity_regime.strip() or liquidity_regime != liquidity_regime.strip():
+                summary_schema_error = "summary_liquidity_regime_noncanonical"
+            elif not _is_safe_evidence_identifier(liquidity_regime):
+                summary_schema_error = "summary_liquidity_regime_noncanonical"
+        limit_breach_error = ""
+        if not limit_schema_error and not summary_schema_error:
+            if parsed_summary["claimed_capacity_usdt"] > float(limits["max_capital_usdt"]):
+                limit_breach_error = "claimed_capacity_usdt_over_max_capital_usdt"
+            elif parsed_summary["capital_required_usdt"] > float(limits["max_position_notional_usdt"]):
+                limit_breach_error = "capital_required_usdt_over_max_position_notional_usdt"
+            elif parsed_summary["estimated_turnover_ratio"] > float(limits["max_turnover_ratio"]):
+                limit_breach_error = "estimated_turnover_ratio_over_max_turnover_ratio"
+            elif parsed_summary["estimated_slippage_bps"] > float(limits["max_slippage_bps"]):
+                limit_breach_error = "estimated_slippage_bps_over_max_slippage_bps"
+            elif parsed_summary["impact_deterioration_bps"] > float(limits["max_impact_deterioration_bps"]):
+                limit_breach_error = "impact_deterioration_bps_over_max_impact_deterioration_bps"
+        as_of_schema_error = ""
+        as_of = payload.get("as_of")
+        if not _is_exact_string(as_of):
+            as_of_schema_error = "as_of_not_string"
+        elif not _is_canonical_utc_timestamp(as_of):
+            as_of_schema_error = "as_of_noncanonical_timestamp"
+        else:
+            as_of_dt = datetime.fromisoformat(as_of[:-1] + "+00:00").astimezone(UTC)
+            current_date = datetime(2026, 5, 16, tzinfo=UTC).date()
+            if as_of_dt.date() > current_date:
+                as_of_schema_error = "as_of_future"
+            elif as_of_dt.date() != current_date:
+                as_of_schema_error = "as_of_stale"
+        provenance_schema_error = _capacity_provenance_schema_error(provenance_payload)
+        symbols_schema_error = _capacity_symbols_schema_error(symbols_payload)
+        chunk_schema_valid = (
+            (not parse_error)
+            and _artifact_schema_valid(payload, "capacity_analysis_gate_input.v1") is True
+            and checks_object_valid
+            and evidence_source_object_valid
+            and summary_object_valid
+            and limits_object_valid
+            and not evidence_source_schema_error
+            and not top_level_schema_error
+            and not unknown_check_fields
+            and not check_schema_error
+            and not limit_schema_error
+            and not summary_schema_error
+            and not limit_breach_error
+            and not as_of_schema_error
+            and not provenance_schema_error
+            and not symbols_schema_error
+        )
+        chunk_provenance_present = (
+            (not parse_error)
+            and not evidence_source_schema_error
+            and not provenance_schema_error
+            and _artifact_provenance_present(payload) is True
+        )
+        parse_error_message = str(parse_error or "")
+        if not parse_error:
+            if not checks_object_valid:
+                parse_error_message = "checks_not_object"
+            elif not evidence_source_object_valid:
+                parse_error_message = "evidence_source_not_object"
+            elif evidence_source_schema_error:
+                parse_error_message = evidence_source_schema_error
+            elif top_level_schema_error:
+                parse_error_message = top_level_schema_error
+            elif unknown_check_fields:
+                parse_error_message = "unknown_check_field: " + ", ".join(unknown_check_fields)
+            elif check_schema_error:
+                parse_error_message = check_schema_error
+            elif not limits_object_valid:
+                parse_error_message = "limits_not_object"
+            elif limit_schema_error:
+                parse_error_message = limit_schema_error
+            elif not summary_object_valid:
+                parse_error_message = "summary_not_object"
+            elif summary_schema_error:
+                parse_error_message = summary_schema_error
+            elif limit_breach_error:
+                parse_error_message = limit_breach_error
+            elif as_of_schema_error:
+                parse_error_message = as_of_schema_error
+            elif provenance_schema_error:
+                parse_error_message = provenance_schema_error
+            elif symbols_schema_error:
+                parse_error_message = symbols_schema_error
+        artifacts.append(
+            {
+                "chunk": chunk_dir.name,
+                "path": str(path),
+                "parse_error": parse_error_message,
+                "schema_version": payload.get("schema_version"),
+                "schema_valid": chunk_schema_valid,
+                "provenance_present": chunk_provenance_present,
+                "evidence_source": _as_mapping(payload.get("evidence_source")),
+                "as_of": payload.get("as_of"),
+                "checks": {key: _strict_check_bool(checks.get(key)) for key in required_checks},
+                "limits": _as_mapping(payload.get("limits")),
+                "summary": _as_mapping(payload.get("summary")),
+                "symbols": list(symbols_payload) if isinstance(symbols_payload, list) else [],
+                "provenance": _as_mapping(payload.get("provenance")),
+            }
+        )
+    if artifacts:
+        schema_valid = all(artifact.get("schema_valid") is True for artifact in artifacts)
+        provenance_present = all(artifact.get("provenance_present") is True for artifact in artifacts)
+        aggregate_checks = {
+            key: all(_as_mapping(artifact.get("checks")).get(key) is True for artifact in artifacts)
+            for key in required_checks
+        }
+    return {
+        "schema_version": "capacity_analysis_gate.v1",
+        "required": required,
+        "artifact_count": len(artifacts),
+        "artifacts": artifacts,
+        "checks": {
+            **aggregate_checks,
+            "capacity_artifact_schema_valid": schema_valid if artifacts else not required,
+            "capacity_artifact_provenance_present": provenance_present if artifacts else not required,
+        },
+    }
+
+
 def _setup_quality_gate(
     by_setup: Mapping[str, Mapping[str, Any]],
     *,
@@ -3937,6 +4231,7 @@ def build_live_readiness_gate_report(
     banned_setup_types: Sequence[str] | None = None,
     require_validation_evidence: bool = False,
     require_microstructure_evidence: bool = False,
+    require_capacity_evidence: bool = False,
     require_runtime_safety_evidence: bool = False,
     require_promotion_bundle_integrity: bool = False,
 ) -> dict[str, Any]:
@@ -4004,6 +4299,7 @@ def build_live_readiness_gate_report(
         ("require_exit_path_replay_rows", require_exit_path_replay_rows),
         ("require_validation_evidence", require_validation_evidence),
         ("require_microstructure_evidence", require_microstructure_evidence),
+        ("require_capacity_evidence", require_capacity_evidence),
         ("require_runtime_safety_evidence", require_runtime_safety_evidence),
         ("require_promotion_bundle_integrity", require_promotion_bundle_integrity),
     ):
@@ -4062,6 +4358,10 @@ def build_live_readiness_gate_report(
     microstructure_gate = _microstructure_gate(
         chunk_dirs,
         required=policy_requirements["require_microstructure_evidence"],
+    )
+    capacity_analysis_gate = _capacity_analysis_gate(
+        chunk_dirs,
+        required=policy_requirements["require_capacity_evidence"],
     )
     validation_gate = _validation_gate(chunk_dirs, required=policy_requirements["require_validation_evidence"])
     offline_rollout_readiness = _offline_rollout_readiness(root)
@@ -4392,6 +4692,40 @@ def build_live_readiness_gate_report(
         require_microstructure_evidence_policy or microstructure_artifact_present
     ) and not microstructure_checks.get("passive_maker_queue_met", True):
         reasons.append("passive_maker_queue_evidence_missing")
+    require_capacity_evidence_policy = policy_requirements["require_capacity_evidence"]
+    capacity_checks = _as_mapping(capacity_analysis_gate.get("checks"))
+    capacity_artifact_count, capacity_artifact_count_valid = _optional_gate_artifact_count(capacity_analysis_gate)
+    capacity_artifact_present = capacity_artifact_count > 0
+    capacity_parse_errors = [
+        str(_as_mapping(artifact).get("parse_error"))
+        for artifact in capacity_analysis_gate.get("artifacts", [])
+        if isinstance(artifact, Mapping) and _as_mapping(artifact).get("parse_error")
+    ]
+    if not capacity_artifact_count_valid:
+        reasons.append("capacity_artifact_count_invalid")
+    if require_capacity_evidence_policy and not capacity_artifact_present:
+        reasons.append("capacity_evidence_missing")
+    if capacity_artifact_present and not capacity_checks.get("capacity_artifact_schema_valid", False):
+        if any(error in {"as_of_future", "as_of_stale", "as_of_not_string", "as_of_noncanonical_timestamp"} for error in capacity_parse_errors):
+            reasons.append("capacity_as_of_invalid")
+        elif any("_over_" in error for error in capacity_parse_errors):
+            reasons.append("capacity_claim_over_limit")
+        else:
+            reasons.append("capacity_artifact_schema_invalid")
+    if capacity_artifact_present and not capacity_checks.get("capacity_artifact_provenance_present", False):
+        reasons.append("capacity_artifact_provenance_missing")
+    if (require_capacity_evidence_policy or capacity_artifact_present) and not capacity_checks.get("capital_limits_met", False):
+        reasons.append("capacity_capital_limit_missing")
+    if (require_capacity_evidence_policy or capacity_artifact_present) and not capacity_checks.get("liquidity_regime_capacity_met", False):
+        reasons.append("capacity_liquidity_regime_missing")
+    if (require_capacity_evidence_policy or capacity_artifact_present) and not capacity_checks.get("impact_deterioration_met", False):
+        reasons.append("capacity_impact_deterioration_missing")
+    if (require_capacity_evidence_policy or capacity_artifact_present) and not capacity_checks.get("symbol_level_capacity_met", False):
+        reasons.append("capacity_symbol_level_missing")
+    if (require_capacity_evidence_policy or capacity_artifact_present) and not capacity_checks.get("turnover_slippage_sensitivity_met", False):
+        reasons.append("capacity_turnover_slippage_sensitivity_missing")
+    if (require_capacity_evidence_policy or capacity_artifact_present) and not capacity_checks.get("assumptions_provenance_met", False):
+        reasons.append("capacity_assumptions_provenance_missing")
     require_validation_evidence_policy = policy_requirements["require_validation_evidence"]
     validation_checks = _as_mapping(validation_gate.get("checks"))
     validation_artifact_count, validation_artifact_count_valid = _optional_gate_artifact_count(validation_gate)
@@ -4551,6 +4885,7 @@ def build_live_readiness_gate_report(
         "setup_quality_gate": setup_quality_gate,
         "runtime_safety_gate": runtime_safety_gate,
         "microstructure_gate": microstructure_gate,
+        "capacity_analysis_gate": capacity_analysis_gate,
         "validation_gate": validation_gate,
         "offline_rollout_readiness": offline_rollout_readiness,
         "concentration": concentration,
@@ -4586,6 +4921,7 @@ def build_live_readiness_gate_report(
                 **setup_quality_checks,
                 **runtime_safety_checks,
                 **microstructure_checks,
+                **capacity_checks,
                 **validation_checks,
                 **offline_rollout_checks,
                 "setup_concentration_met": setup_concentration_met,
@@ -5073,6 +5409,7 @@ def write_live_readiness_smoke_report(
     banned_setup_types: Sequence[str] | None = None,
     require_validation_evidence: bool = False,
     require_microstructure_evidence: bool = False,
+    require_capacity_evidence: bool = False,
     require_runtime_safety_evidence: bool = False,
     require_promotion_bundle_integrity: bool = False,
 ) -> dict[str, Any]:
@@ -5101,6 +5438,7 @@ def write_live_readiness_smoke_report(
             "exit_path_replay.json",
             "passive_order_calibration_summary.json",
             "market_microstructure_gate.json",
+            "capacity_analysis_gate.json",
             "validation_gate.json",
             "runtime_safety_gate.json",
             "offline_rollout_readiness_checklist.json",
@@ -5132,6 +5470,7 @@ def write_live_readiness_smoke_report(
         banned_setup_types=banned_setup_types,
         require_validation_evidence=require_validation_evidence,
         require_microstructure_evidence=require_microstructure_evidence,
+        require_capacity_evidence=require_capacity_evidence,
         require_runtime_safety_evidence=require_runtime_safety_evidence,
         require_promotion_bundle_integrity=require_promotion_bundle_integrity,
     )
@@ -5142,6 +5481,7 @@ def write_live_readiness_smoke_report(
             require_exit_path_replay_rows=require_exit_path_replay_rows,
             require_validation_evidence=require_validation_evidence,
             require_microstructure_evidence=require_microstructure_evidence,
+            require_capacity_evidence=require_capacity_evidence,
             require_runtime_safety_evidence=require_runtime_safety_evidence,
             require_promotion_bundle_integrity=require_promotion_bundle_integrity,
         ),
@@ -5404,6 +5744,25 @@ def render_live_readiness_markdown(report: Mapping[str, Any]) -> str:
                 f"- l2_tick_coverage_met: {_format_strict_bool(checks, 'l2_tick_coverage_met')}",
                 f"- depth_driven_taker_met: {_format_strict_bool(checks, 'depth_driven_taker_met')}",
                 f"- microstructure_artifact_parse_errors: {_parse_error_summary(microstructure.get('artifacts'))}",
+            ]
+        )
+    capacity = _as_mapping(report.get("capacity_analysis_gate"))
+    if capacity:
+        checks = _as_mapping(capacity.get("checks"))
+        lines.extend(
+            [
+                "",
+                "## Capacity Analysis Gate",
+                f"- schema_version: {capacity.get('schema_version')}",
+                f"- required: {_format_strict_bool(capacity, 'required')}",
+                f"- artifact_count: {_strict_bucket_int(capacity, 'artifact_count')}",
+                f"- capital_limits_met: {_format_strict_bool(checks, 'capital_limits_met')}",
+                f"- liquidity_regime_capacity_met: {_format_strict_bool(checks, 'liquidity_regime_capacity_met')}",
+                f"- impact_deterioration_met: {_format_strict_bool(checks, 'impact_deterioration_met')}",
+                f"- symbol_level_capacity_met: {_format_strict_bool(checks, 'symbol_level_capacity_met')}",
+                f"- turnover_slippage_sensitivity_met: {_format_strict_bool(checks, 'turnover_slippage_sensitivity_met')}",
+                f"- assumptions_provenance_met: {_format_strict_bool(checks, 'assumptions_provenance_met')}",
+                f"- capacity_artifact_parse_errors: {_parse_error_summary(capacity.get('artifacts'))}",
             ]
         )
     validation = _as_mapping(report.get("validation_gate"))
