@@ -383,6 +383,8 @@ def build_microstructure_gate(
         fill_count = 0
         complete_fill_count = 0
         incomplete_fill_count = 0
+        incomplete_filled_quantity = 0.0
+        incomplete_residual_quantity = 0.0
         depth_driven_taker_override = manifest.get("depth_driven_taker_met", False)
         if not isinstance(depth_driven_taker_override, bool):
             raise ValueError("depth_driven_taker_met must be a boolean")
@@ -390,6 +392,8 @@ def build_microstructure_gate(
     elif isinstance(depth_fills, list):
         fill_count = len(depth_fills)
         complete_fill_count = 0
+        incomplete_filled_quantity = 0.0
+        incomplete_residual_quantity = 0.0
         for fill in depth_fills:
             if not isinstance(fill, Mapping):
                 raise ValueError("depth_driven_taker_fills entries must be mappings")
@@ -518,6 +522,58 @@ def build_microstructure_gate(
                 if not math.isclose(vwap, expected_vwap, rel_tol=1e-12, abs_tol=1e-9):
                     raise ValueError("depth_driven_taker_fills vwap must equal filled_notional / filled_quantity")
                 complete_fill_count += 1
+            else:
+                required_incomplete_fields = {
+                    "requested_quantity",
+                    "filled_quantity",
+                    "residual_quantity",
+                }
+                missing_incomplete_fields = sorted(
+                    field
+                    for field in required_incomplete_fields
+                    if field not in normalised_fill_numbers
+                )
+                if missing_incomplete_fields:
+                    raise ValueError(
+                        "incomplete depth_driven_taker_fills require "
+                        + "filled_quantity, residual_quantity, requested_quantity"
+                    )
+                requested_quantity = normalised_fill_numbers["requested_quantity"]
+                filled_quantity = normalised_fill_numbers["filled_quantity"]
+                residual_quantity = normalised_fill_numbers["residual_quantity"]
+                if not math.isclose(
+                    filled_quantity + residual_quantity,
+                    requested_quantity,
+                    rel_tol=1e-12,
+                    abs_tol=1e-12,
+                ):
+                    raise ValueError(
+                        "incomplete depth_driven_taker_fills filled plus residual must equal requested_quantity"
+                    )
+                if residual_quantity <= 0.0:
+                    raise ValueError("incomplete depth_driven_taker_fills must have positive residual quantity")
+                if "filled_notional" in normalised_fill_numbers and consumed_levels is not None:
+                    filled_notional = normalised_fill_numbers["filled_notional"]
+                    if not math.isclose(
+                        filled_notional,
+                        consumed_notional,
+                        rel_tol=1e-12,
+                        abs_tol=1e-9,
+                    ):
+                        raise ValueError(
+                            "depth_driven_taker_fills filled_notional must equal consumed level notional"
+                        )
+                if consumed_levels is not None and not math.isclose(
+                    filled_quantity,
+                    consumed_quantity,
+                    rel_tol=1e-12,
+                    abs_tol=1e-12,
+                ):
+                    raise ValueError(
+                        "depth_driven_taker_fills filled_quantity must equal consumed level quantity"
+                    )
+                incomplete_filled_quantity += filled_quantity
+                incomplete_residual_quantity += residual_quantity
         incomplete_fill_count = fill_count - complete_fill_count
         depth_driven_taker_met = fill_count > 0 and incomplete_fill_count == 0
     else:
@@ -552,6 +608,8 @@ def build_microstructure_gate(
             "fill_count": fill_count,
             "complete_fill_count": complete_fill_count,
             "incomplete_fill_count": incomplete_fill_count,
+            "incomplete_filled_quantity": incomplete_filled_quantity,
+            "incomplete_residual_quantity": incomplete_residual_quantity,
         }
     return gate
 

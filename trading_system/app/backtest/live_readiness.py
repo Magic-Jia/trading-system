@@ -2873,10 +2873,18 @@ def _microstructure_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
                     coverage_schema_error = f"coverage_{coverage_field}_out_of_range"
         depth_schema_error = ""
         unknown_depth_fields = sorted(
-            set(depth) - {"fill_count", "complete_fill_count", "incomplete_fill_count"}
+            set(depth)
+            - {
+                "fill_count",
+                "complete_fill_count",
+                "incomplete_fill_count",
+                "incomplete_filled_quantity",
+                "incomplete_residual_quantity",
+            }
         )
         if unknown_depth_fields:
             depth_schema_error = "unknown_depth_driven_taker_field: " + ", ".join(unknown_depth_fields)
+        parsed_depth_values: dict[str, int | float] = {}
         for depth_field in ("fill_count", "complete_fill_count", "incomplete_fill_count"):
             if depth_schema_error:
                 break
@@ -2887,6 +2895,58 @@ def _microstructure_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
                     depth_schema_error = f"depth_driven_taker_{depth_field}_not_int"
                 elif parsed_depth < 0:
                     depth_schema_error = f"depth_driven_taker_{depth_field}_negative"
+                else:
+                    parsed_depth_values[depth_field] = parsed_depth
+        for depth_field in ("incomplete_filled_quantity", "incomplete_residual_quantity"):
+            if depth_schema_error:
+                break
+            depth_value = depth.get(depth_field)
+            if depth_value is not None:
+                parsed_depth, depth_valid = _strict_float_value(depth_value)
+                if not depth_valid:
+                    depth_schema_error = f"depth_driven_taker_{depth_field}_not_number"
+                elif parsed_depth < 0.0:
+                    depth_schema_error = f"depth_driven_taker_{depth_field}_negative"
+                else:
+                    parsed_depth_values[depth_field] = parsed_depth
+        if not depth_schema_error and depth:
+            fill_count = parsed_depth_values.get("fill_count")
+            complete_fill_count = parsed_depth_values.get("complete_fill_count")
+            incomplete_fill_count = parsed_depth_values.get("incomplete_fill_count")
+            incomplete_filled_quantity = parsed_depth_values.get("incomplete_filled_quantity")
+            incomplete_residual_quantity = parsed_depth_values.get("incomplete_residual_quantity")
+            if (
+                isinstance(fill_count, int)
+                and isinstance(complete_fill_count, int)
+                and isinstance(incomplete_fill_count, int)
+                and fill_count != complete_fill_count + incomplete_fill_count
+            ):
+                depth_schema_error = "depth_driven_taker_fill_count_mismatch"
+            elif (
+                checks.get("depth_driven_taker_met") is True
+                and isinstance(incomplete_fill_count, int)
+                and incomplete_fill_count > 0
+            ):
+                depth_schema_error = "depth_driven_taker_partial_fill_contradiction"
+            elif (
+                isinstance(incomplete_fill_count, int)
+                and incomplete_fill_count > 0
+                and (
+                    incomplete_filled_quantity is None
+                    or incomplete_residual_quantity is None
+                    or incomplete_residual_quantity <= 0.0
+                )
+            ):
+                depth_schema_error = "depth_driven_taker_partial_fill_evidence_missing"
+            elif (
+                isinstance(incomplete_fill_count, int)
+                and incomplete_fill_count == 0
+                and (
+                    (isinstance(incomplete_filled_quantity, float) and incomplete_filled_quantity != 0.0)
+                    or (isinstance(incomplete_residual_quantity, float) and incomplete_residual_quantity != 0.0)
+                )
+            ):
+                depth_schema_error = "depth_driven_taker_partial_fill_contradiction"
         required_intervals_schema_error = _microstructure_required_intervals_schema_error(
             required_intervals_payload
         )

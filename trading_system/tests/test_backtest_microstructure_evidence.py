@@ -761,6 +761,29 @@ def test_incomplete_depth_fill_keeps_gate_conservative() -> None:
     assert "depth_driven_taker_incomplete_fill" in gate["reasons"]
 
 
+def test_incomplete_depth_fill_summary_counts_explicit_residual_evidence() -> None:
+    fill = simulate_depth_driven_taker_fill(
+        side="buy",
+        quantity=5.0,
+        reference_price=100.0,
+        bids=[],
+        asks=[{"price": 100.1, "quantity": 2.0}],
+    )
+
+    gate = build_microstructure_gate(
+        _complete_coverage_manifest(depth_driven_taker_fills=[fill])
+    )
+
+    assert gate["checks"]["depth_driven_taker_met"] is False
+    assert gate["depth_driven_taker"] == {
+        "fill_count": 1,
+        "complete_fill_count": 0,
+        "incomplete_fill_count": 1,
+        "incomplete_filled_quantity": 2.0,
+        "incomplete_residual_quantity": 3.0,
+    }
+
+
 def test_complete_buy_and_sell_depth_fills_satisfy_depth_driven_taker_gate() -> None:
     buy_fill = simulate_depth_driven_taker_fill(
         side="buy",
@@ -782,7 +805,13 @@ def test_complete_buy_and_sell_depth_fills_satisfy_depth_driven_taker_gate() -> 
 
     assert gate["checks"] == {"l2_tick_coverage_met": True, "depth_driven_taker_met": True}
     assert gate["reasons"] == []
-    assert gate["depth_driven_taker"] == {"fill_count": 2, "complete_fill_count": 2, "incomplete_fill_count": 0}
+    assert gate["depth_driven_taker"] == {
+        "fill_count": 2,
+        "complete_fill_count": 2,
+        "incomplete_fill_count": 0,
+        "incomplete_filled_quantity": 0.0,
+        "incomplete_residual_quantity": 0.0,
+    }
 
 
 def test_depth_driven_fill_provenance_includes_consumed_price_quantity_and_notional() -> None:
@@ -859,6 +888,61 @@ def test_microstructure_gate_rejects_negative_complete_depth_fill_quantity_befor
                     }
                 ]
             )
+        )
+
+
+@pytest.mark.parametrize(
+    ("fill_updates", "expected_error"),
+    [
+        (
+            {"complete": True, "residual_quantity": 1.0},
+            "complete depth_driven_taker_fills must have zero residual quantity",
+        ),
+        (
+            {"complete": False, "filled_quantity": 1.0, "residual_quantity": 0.0},
+            "incomplete depth_driven_taker_fills must have positive residual quantity",
+        ),
+        (
+            {"complete": False, "filled_quantity": 1.5, "residual_quantity": 0.0},
+            "incomplete depth_driven_taker_fills filled plus residual must equal requested_quantity",
+        ),
+        (
+            {"complete": False, "residual_quantity": None},
+            "incomplete depth_driven_taker_fills require filled_quantity, residual_quantity, requested_quantity",
+        ),
+        (
+            {"complete": False, "filled_quantity": True, "residual_quantity": 0.5},
+            "depth_driven_taker_fills filled_quantity must be a number",
+        ),
+        (
+            {"complete": False, "filled_quantity": math.nan, "residual_quantity": 0.5},
+            "depth_driven_taker_fills filled_quantity must be a finite number",
+        ),
+        (
+            {"complete": False, "filled_quantity": 0.25, "residual_quantity": 0.5},
+            "incomplete depth_driven_taker_fills filled plus residual must equal requested_quantity",
+        ),
+    ],
+)
+def test_microstructure_gate_rejects_ambiguous_or_inconsistent_partial_fill_evidence(
+    fill_updates: dict[str, object], expected_error: str
+) -> None:
+    fill = {
+        "side": "buy",
+        "requested_quantity": 1.0,
+        "filled_quantity": 0.5,
+        "filled_notional": 50.0,
+        "residual_quantity": 0.5,
+        "complete": False,
+        "vwap": 100.0,
+        "slippage_bps": 0.0,
+        "consumed_levels": [{"price": 100.0, "quantity": 0.5, "notional": 50.0}],
+    }
+    fill.update(fill_updates)
+
+    with pytest.raises(ValueError, match=f"^{expected_error}$"):
+        build_microstructure_gate(
+            _complete_coverage_manifest(depth_driven_taker_fills=[fill])
         )
 
 

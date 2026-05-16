@@ -5313,6 +5313,35 @@ def test_live_readiness_gate_rejects_microstructure_unknown_depth_summary_fields
     assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
 
 
+def test_live_readiness_gate_rejects_microstructure_contradictory_partial_fill_summary(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    microstructure_payload = {
+        "schema_version": "market_microstructure_gate_input.v1",
+        "evidence_source": {"type": "exchange_export", "run_id": "microstructure-depth-contradictory"},
+        "checks": {
+            "l2_tick_coverage_met": True,
+            "depth_driven_taker_met": True,
+        },
+        "depth_driven_taker": {
+            "fill_count": 2,
+            "complete_fill_count": 1,
+            "incomplete_fill_count": 1,
+            "incomplete_filled_quantity": 0.5,
+            "incomplete_residual_quantity": 0.5,
+        },
+    }
+    (chunk / "market_microstructure_gate.json").write_text(json.dumps(microstructure_payload), encoding="utf-8")
+
+    report = build_live_readiness_gate_report(tmp_path, require_microstructure_evidence=True)
+
+    microstructure_gate = report["microstructure_gate"]
+    assert microstructure_gate["checks"]["microstructure_artifact_schema_valid"] is False
+    assert microstructure_gate["artifacts"][0]["parse_error"] == "depth_driven_taker_partial_fill_contradiction"
+    assert "microstructure_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
 def test_live_readiness_gate_rejects_validation_summary_not_object(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     _write_profitable_trade_chunk(chunk)
