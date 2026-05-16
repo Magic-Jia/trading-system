@@ -21,6 +21,7 @@ _REQUIRED_MANIFEST_FIELDS = (
     "artifacts",
     "universe_asof_contract",
     "margin_liquidation_path_contract",
+    "dynamic_sizing_evidence_contract",
 )
 
 _REQUIRED_ARTIFACTS: dict[str, tuple[str, ...]] = {
@@ -48,6 +49,15 @@ _EXPECTED_MARGIN_LIQUIDATION_CONTRACT_FIELDS = {
     "funding_accrual_field": "trades[].funding_accrual",
     "as_of_field": "trades[].margin_evidence_as_of",
 }
+_EXPECTED_DYNAMIC_SIZING_CONTRACT_FIELDS = {
+    "scope": "futures_trade_ledger",
+    "decision_timestamp_field": "trades[].sizing_decision_at",
+    "evidence_as_of_field": "trades[].dynamic_sizing_evidence.evidence_as_of",
+    "baseline_risk_field": "trades[].dynamic_sizing_evidence.baseline_risk_fraction",
+    "final_risk_field": "trades[].dynamic_sizing_evidence.final_risk_fraction",
+    "override_evidence_field": "trades[].dynamic_sizing_evidence.override_evidence",
+}
+_REQUIRED_DYNAMIC_SIZING_AXES = ("liquidity", "volatility", "drawdown", "execution")
 _REQUIRED_REGIME_STRATIFIED_OOS_BUCKETS = ("volatility", "liquidity", "funding", "crash", "squeeze")
 _REGIME_STRATIFIED_OOS_NUMERIC_METRICS = ("total_return", "max_drawdown", "sharpe")
 _REQUIRED_PNL_ATTRIBUTION_BUCKETS = (
@@ -449,6 +459,128 @@ def _validate_margin_liquidation_path_contract(payload: Mapping[str, Any], *, co
             )
     if contract.get("fail_closed") is not True:
         raise ValueError(f"{context}.margin_liquidation_path_contract.fail_closed must be true")
+
+
+def _validate_dynamic_sizing_evidence_contract(payload: Mapping[str, Any], *, context: str) -> None:
+    contract = payload.get("dynamic_sizing_evidence_contract")
+    if not isinstance(contract, Mapping):
+        raise ValueError(f"{context}.dynamic_sizing_evidence_contract must be an object")
+    if contract.get("schema_version") != "dynamic_sizing_evidence_contract.v1":
+        raise ValueError(
+            f"{context}.dynamic_sizing_evidence_contract.schema_version must be "
+            "dynamic_sizing_evidence_contract.v1"
+        )
+    for field_name, expected in _EXPECTED_DYNAMIC_SIZING_CONTRACT_FIELDS.items():
+        if contract.get(field_name) != expected:
+            raise ValueError(
+                f"{context}.dynamic_sizing_evidence_contract.{field_name} must be {expected}"
+            )
+    required_axes = contract.get("required_degradation_axes")
+    if not isinstance(required_axes, list):
+        raise ValueError(f"{context}.dynamic_sizing_evidence_contract.required_degradation_axes must be a list")
+    if tuple(required_axes) != _REQUIRED_DYNAMIC_SIZING_AXES:
+        joined = ", ".join(_REQUIRED_DYNAMIC_SIZING_AXES)
+        raise ValueError(
+            f"{context}.dynamic_sizing_evidence_contract.required_degradation_axes must be {joined}"
+        )
+    for index, axis in enumerate(required_axes):
+        if not isinstance(axis, str) or not axis.strip() or axis != axis.strip():
+            raise ValueError(
+                f"{context}.dynamic_sizing_evidence_contract.required_degradation_axes[{index}] must be canonical"
+            )
+    if contract.get("fail_closed") is not True:
+        raise ValueError(f"{context}.dynamic_sizing_evidence_contract.fail_closed must be true")
+
+
+def _require_dynamic_sizing_evidence(value: Any, *, context: str) -> dict[str, Any]:
+    if not isinstance(value, Mapping):
+        raise ValueError(f"{context}.dynamic_sizing_evidence must be an object")
+    evidence = dict(value)
+    if evidence.get("schema_version") != "dynamic_sizing_evidence.v1":
+        raise ValueError("dynamic_sizing_evidence.schema_version must be dynamic_sizing_evidence.v1")
+    required_axes = evidence.get("required_axes")
+    if not isinstance(required_axes, list) or tuple(required_axes) != _REQUIRED_DYNAMIC_SIZING_AXES:
+        joined = ", ".join(_REQUIRED_DYNAMIC_SIZING_AXES)
+        raise ValueError(f"dynamic_sizing_evidence.required_axes must be {joined}")
+    for index, axis in enumerate(required_axes):
+        _require_canonical_bucket_identity(axis, context=f"dynamic_sizing_evidence.required_axes[{index}]")
+    decisions = evidence.get("decisions")
+    if not isinstance(decisions, list) or not decisions:
+        raise ValueError("dynamic_sizing_evidence.decisions must be a non-empty list")
+    normalized_decisions: list[dict[str, Any]] = []
+    for index, raw_decision in enumerate(decisions):
+        decision_context = f"dynamic_sizing_evidence.decisions[{index}]"
+        if not isinstance(raw_decision, Mapping):
+            raise ValueError(f"{decision_context} must be an object")
+        decision = dict(raw_decision)
+        decision["decision_id"] = _require_canonical_bucket_identity(
+            decision.get("decision_id"),
+            context=f"{decision_context}.decision_id",
+        )
+        decision_at = _parse_iso_datetime(
+            _require_canonical_string_value(
+                decision.get("sizing_decision_at"),
+                context=f"{decision_context}.sizing_decision_at",
+            ),
+            context=f"{decision_context}.sizing_decision_at",
+        )
+        evidence_as_of = _parse_iso_datetime(
+            _require_canonical_string_value(
+                decision.get("evidence_as_of"),
+                context=f"{decision_context}.evidence_as_of",
+            ),
+            context=f"{decision_context}.evidence_as_of",
+        )
+        if evidence_as_of > decision_at:
+            raise ValueError(f"{decision_context}.evidence_as_of must not be after sizing_decision_at")
+        baseline_risk = _require_strict_real_number(
+            decision.get("baseline_risk_fraction"),
+            context=f"{decision_context}.baseline_risk_fraction",
+        )
+        final_risk = _require_strict_real_number(
+            decision.get("final_risk_fraction"),
+            context=f"{decision_context}.final_risk_fraction",
+        )
+        axes = decision.get("axes")
+        if not isinstance(axes, Mapping):
+            raise ValueError(f"{decision_context}.axes must be an object")
+        normalized_axes: dict[str, dict[str, Any]] = {}
+        degraded = False
+        for axis_name in _REQUIRED_DYNAMIC_SIZING_AXES:
+            axis = axes.get(axis_name)
+            axis_context = f"{decision_context}.axes.{axis_name}"
+            if not isinstance(axis, Mapping):
+                raise ValueError(f"{axis_context} must be an object")
+            normalized_axis = dict(axis)
+            if not isinstance(normalized_axis.get("degraded"), bool):
+                raise ValueError(f"{axis_context}.degraded must be a bool")
+            degraded = degraded or bool(normalized_axis["degraded"])
+            normalized_axis["risk_multiplier"] = _require_strict_real_number(
+                normalized_axis.get("risk_multiplier"),
+                context=f"{axis_context}.risk_multiplier",
+            )
+            normalized_axes[axis_name] = normalized_axis
+        override_evidence = decision.get("override_evidence")
+        if degraded and final_risk > baseline_risk and override_evidence is None:
+            raise ValueError(
+                f"{decision_context} must not increase risk during degraded conditions without override evidence"
+            )
+        if override_evidence is not None:
+            if not isinstance(override_evidence, Mapping):
+                raise ValueError(f"{decision_context}.override_evidence must be an object")
+            override = dict(override_evidence)
+            for field_name in ("override_id", "approved_by", "reason"):
+                override[field_name] = _require_canonical_string_value(
+                    override.get(field_name),
+                    context=f"{decision_context}.override_evidence.{field_name}",
+                )
+            decision["override_evidence"] = override
+        decision["baseline_risk_fraction"] = baseline_risk
+        decision["final_risk_fraction"] = final_risk
+        decision["axes"] = normalized_axes
+        normalized_decisions.append(decision)
+    evidence["decisions"] = normalized_decisions
+    return evidence
 
 
 def _validate_optional_readiness_plans(bundle: BacktestBundle) -> None:
@@ -868,6 +1000,7 @@ def _validate_manifest(bundle_dir: Path, manifest: Mapping[str, Any]) -> None:
             raise FileNotFoundError(f"missing artifact file: {bundle_dir / filename}")
     _validate_universe_asof_contract(manifest, context=f"{bundle_dir}/manifest.json")
     _validate_margin_liquidation_path_contract(manifest, context=f"{bundle_dir}/manifest.json")
+    _validate_dynamic_sizing_evidence_contract(manifest, context=f"{bundle_dir}/manifest.json")
 
 
 
@@ -1043,11 +1176,21 @@ def _validate_walk_forward_bundle(bundle: BacktestBundle) -> None:
             reported_pnl=float(out_of_sample_scorecard["total_return"]),
         )
         summary["pnl_attribution"] = attribution
+        if "dynamic_sizing_evidence" in summary:
+            summary["dynamic_sizing_evidence"] = _require_dynamic_sizing_evidence(
+                summary["dynamic_sizing_evidence"],
+                context=f"{bundle.root}/summary.json",
+            )
         if "pnl_attribution" in bundle.artifacts["scorecard.json"]:
             bundle.artifacts["scorecard.json"]["pnl_attribution"] = _require_pnl_attribution_evidence(
                 bundle.artifacts["scorecard.json"]["pnl_attribution"],
                 context=f"{bundle.root}/scorecard.json",
                 reported_pnl=float(out_of_sample_scorecard["total_return"]),
+            )
+        if "dynamic_sizing_evidence" in bundle.artifacts["scorecard.json"]:
+            bundle.artifacts["scorecard.json"]["dynamic_sizing_evidence"] = _require_dynamic_sizing_evidence(
+                bundle.artifacts["scorecard.json"]["dynamic_sizing_evidence"],
+                context=f"{bundle.root}/scorecard.json",
             )
     performance_dispersion = _require_mapping(robustness_summary, "performance_dispersion", context=f"{bundle.root}/summary.json.robustness_summary")
     _require_keys(
@@ -1510,6 +1653,32 @@ def _has_pnl_attribution_evidence(bundle: BacktestBundle) -> bool:
     return _pnl_attribution_evidence(bundle) is not None
 
 
+def _dynamic_sizing_evidence(bundle: BacktestBundle) -> dict[str, Any] | None:
+    if bundle.experiment_kind == "walk_forward_validation":
+        summary = bundle.artifacts["summary.json"]
+        if "dynamic_sizing_evidence" in summary:
+            return _require_dynamic_sizing_evidence(
+                summary["dynamic_sizing_evidence"],
+                context=f"{bundle.root}/summary.json",
+            )
+        scorecard = bundle.artifacts["scorecard.json"]
+        if "dynamic_sizing_evidence" in scorecard:
+            return _require_dynamic_sizing_evidence(
+                scorecard["dynamic_sizing_evidence"],
+                context=f"{bundle.root}/scorecard.json",
+            )
+    return None
+
+
+def _has_dynamic_sizing_evidence(bundle: BacktestBundle) -> bool:
+    if bundle.experiment_kind != "walk_forward_validation":
+        return True
+    snapshot = _metric_snapshot(bundle)
+    if snapshot.get("total_return", 0.0) <= 0.0:
+        return True
+    return _dynamic_sizing_evidence(bundle) is not None
+
+
 def _has_regime_stratified_oos_evidence(bundle: BacktestBundle) -> bool:
     if bundle.experiment_kind != "walk_forward_validation":
         return True
@@ -1564,6 +1733,8 @@ def _why(
         reasons.append("missing attribution or funnel explanation")
     if "has_pnl_attribution_evidence" in checks and not checks["has_pnl_attribution_evidence"]:
         reasons.append("missing pnl attribution evidence")
+    if "has_dynamic_sizing_evidence" in checks and not checks["has_dynamic_sizing_evidence"]:
+        reasons.append("missing dynamic sizing evidence")
     if not checks["has_runtime_observability_plan"]:
         reasons.append("missing runtime observability plan")
     if not checks["has_rollback_plan"]:
@@ -1612,6 +1783,8 @@ def _decision(
         return "reject"
     if "has_pnl_attribution_evidence" in checks and not checks["has_pnl_attribution_evidence"]:
         return "reject"
+    if "has_dynamic_sizing_evidence" in checks and not checks["has_dynamic_sizing_evidence"]:
+        return "reject"
     if not checks["has_out_of_sample_evidence"]:
         return "hold"
     if experiment_kind == "walk_forward_validation" and _walk_forward_regresses_against_baseline(metric_deltas):
@@ -1639,6 +1812,7 @@ def compare_backtest_bundles(*, baseline_bundle: str | Path, variant_bundle: str
         "has_purged_embargoed_split_metadata": _has_purged_embargoed_split_metadata(variant),
         "has_attribution_or_funnel_explanation": _has_explanation(variant),
         "has_pnl_attribution_evidence": _has_pnl_attribution_evidence(variant),
+        "has_dynamic_sizing_evidence": _has_dynamic_sizing_evidence(variant),
         "has_runtime_observability_plan": _has_runtime_observability_plan(variant),
         "has_rollback_plan": _has_rollback_plan(variant),
     }
@@ -1683,6 +1857,9 @@ def compare_backtest_bundles(*, baseline_bundle: str | Path, variant_bundle: str
     pnl_attribution = _pnl_attribution_evidence(variant)
     if pnl_attribution is not None:
         promotion_gate["pnl_attribution"] = pnl_attribution
+    dynamic_sizing_evidence = _dynamic_sizing_evidence(variant)
+    if dynamic_sizing_evidence is not None:
+        promotion_gate["dynamic_sizing_evidence"] = dynamic_sizing_evidence
     decision_summary = {
         "experiment_kind": variant.experiment_kind,
         "baseline_bundle": str(baseline.root),
@@ -1692,4 +1869,6 @@ def compare_backtest_bundles(*, baseline_bundle: str | Path, variant_bundle: str
         "why": why,
         "artifacts": ["promotion_gate.json", "decision_summary.json"],
     }
+    if dynamic_sizing_evidence is not None:
+        decision_summary["dynamic_sizing_evidence"] = dynamic_sizing_evidence
     return {"promotion_gate": promotion_gate, "decision_summary": decision_summary}

@@ -100,8 +100,16 @@ def test_build_promotion_decision_uses_compare_result_when_validation_bundles_ar
         captured["baseline_bundle"] = baseline_bundle
         captured["variant_bundle"] = variant_bundle
         return {
-            "promotion_gate": {"decision": "promote", "why": "fixture"},
-            "decision_summary": {"decision": "promote", "summary": "validated"},
+            "promotion_gate": {
+                "decision": "promote",
+                "why": "fixture",
+                "dynamic_sizing_evidence": {"schema_version": "dynamic_sizing_evidence.v1"},
+            },
+            "decision_summary": {
+                "decision": "promote",
+                "summary": "validated",
+                "dynamic_sizing_evidence": {"schema_version": "dynamic_sizing_evidence.v1"},
+            },
         }
 
     payload = build_promotion_decision(
@@ -138,6 +146,8 @@ def test_build_promotion_decision_uses_compare_result_when_validation_bundles_ar
     assert payload["variant_bundle"] == "/tmp/variant"
     assert payload["summary"] == "validated"
     assert payload["variant"]["env_overrides"] == {"TRADING_ALLOCATOR_TREND_BUCKET_WEIGHT": "0.525"}
+    assert payload["promotion_gate"]["dynamic_sizing_evidence"] == {"schema_version": "dynamic_sizing_evidence.v1"}
+    assert payload["decision_summary"]["dynamic_sizing_evidence"] == {"schema_version": "dynamic_sizing_evidence.v1"}
 
 
 def test_write_promotion_decision_persists_json_payload(tmp_path) -> None:

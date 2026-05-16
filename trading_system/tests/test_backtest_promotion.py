@@ -52,6 +52,17 @@ def _manifest(*, experiment_kind: str, baseline_name: str, variant_name: str, ar
             "accepted_margin_modes": ["isolated", "cross"],
             "fail_closed": True,
         },
+        "dynamic_sizing_evidence_contract": {
+            "schema_version": "dynamic_sizing_evidence_contract.v1",
+            "scope": "futures_trade_ledger",
+            "decision_timestamp_field": "trades[].sizing_decision_at",
+            "evidence_as_of_field": "trades[].dynamic_sizing_evidence.evidence_as_of",
+            "baseline_risk_field": "trades[].dynamic_sizing_evidence.baseline_risk_fraction",
+            "final_risk_field": "trades[].dynamic_sizing_evidence.final_risk_fraction",
+            "override_evidence_field": "trades[].dynamic_sizing_evidence.override_evidence",
+            "required_degradation_axes": ["liquidity", "volatility", "drawdown", "execution"],
+            "fail_closed": True,
+        },
     }
 
 
@@ -112,6 +123,28 @@ def _pnl_attribution_evidence(*, reported_pnl: float = 0.08) -> dict[str, object
             {"bucket": "slippage_execution_impact", "contribution": -0.003},
             {"bucket": "regime", "contribution": 0.025},
             {"bucket": "symbol_selection", "contribution": reported_pnl - 0.065},
+        ],
+    }
+
+
+def _dynamic_sizing_evidence(*, final_risk_fraction: float = 0.015) -> dict[str, object]:
+    return {
+        "schema_version": "dynamic_sizing_evidence.v1",
+        "required_axes": ["liquidity", "volatility", "drawdown", "execution"],
+        "decisions": [
+            {
+                "decision_id": "sizing-001",
+                "sizing_decision_at": "2026-01-04T00:00:00+00:00",
+                "evidence_as_of": "2026-01-03T23:59:00+00:00",
+                "baseline_risk_fraction": 0.02,
+                "final_risk_fraction": final_risk_fraction,
+                "axes": {
+                    "liquidity": {"degraded": True, "risk_multiplier": 0.75},
+                    "volatility": {"degraded": True, "risk_multiplier": 0.8},
+                    "drawdown": {"degraded": True, "risk_multiplier": 0.7},
+                    "execution": {"degraded": True, "risk_multiplier": 0.9},
+                },
+            }
         ],
     }
 
@@ -207,6 +240,8 @@ def _write_walk_forward_bundle(
     include_multiple_testing_correction: bool = True,
     regime_stratified_oos: dict[str, object] | None = None,
     pnl_attribution: dict[str, object] | None = None,
+    dynamic_sizing_evidence: dict[str, object] | None = None,
+    include_dynamic_sizing_evidence: bool = True,
     include_pnl_attribution: bool = True,
 ) -> Path:
     root.mkdir(parents=True, exist_ok=True)
@@ -259,6 +294,8 @@ def _write_walk_forward_bundle(
         summary_payload["pnl_attribution"] = pnl_attribution or _pnl_attribution_evidence(
             reported_pnl=out_of_sample_total_return
         )
+    if include_dynamic_sizing_evidence and out_of_sample_total_return > 0.0:
+        summary_payload["dynamic_sizing_evidence"] = dynamic_sizing_evidence or _dynamic_sizing_evidence()
     if runtime_fields:
         summary_payload["runtime_observability"] = {"runtime_fields": runtime_fields}
     if rollback_target and (rollback_trigger or observation_window):
@@ -327,6 +364,14 @@ def _write_walk_forward_bundle(
                     or _pnl_attribution_evidence(reported_pnl=out_of_sample_total_return)
                 }
                 if include_pnl_attribution and out_of_sample_total_return > 0.0
+                else {}
+            ),
+            **(
+                {
+                    "dynamic_sizing_evidence": dynamic_sizing_evidence
+                    or _dynamic_sizing_evidence()
+                }
+                if include_dynamic_sizing_evidence and out_of_sample_total_return > 0.0
                 else {}
             ),
         },
@@ -854,6 +899,7 @@ def test_compare_backtest_bundles_holds_when_out_of_sample_evidence_is_missing(t
         "has_purged_embargoed_split_metadata": True,
         "has_attribution_or_funnel_explanation": True,
         "has_pnl_attribution_evidence": True,
+        "has_dynamic_sizing_evidence": True,
         "has_runtime_observability_plan": False,
         "has_rollback_plan": False,
     }
@@ -1044,6 +1090,7 @@ def test_compare_backtest_bundles_promotes_walk_forward_when_all_checks_pass(tmp
         "has_purged_embargoed_split_metadata": True,
         "has_attribution_or_funnel_explanation": True,
         "has_pnl_attribution_evidence": True,
+        "has_dynamic_sizing_evidence": True,
         "has_runtime_observability_plan": True,
         "has_rollback_plan": True,
         "has_parameter_stability_surface": True,
@@ -1054,6 +1101,145 @@ def test_compare_backtest_bundles_promotes_walk_forward_when_all_checks_pass(tmp
     assert gate["why"] == []
     assert gate["regime_stratified_oos"]["buckets"][0]["bucket"] == "volatility"
     assert gate["pnl_attribution"]["buckets"][0]["bucket"] == "entry_alpha"
+    assert gate["dynamic_sizing_evidence"]["decisions"][0]["decision_id"] == "sizing-001"
+    assert result["decision_summary"]["dynamic_sizing_evidence"]["decisions"][0]["decision_id"] == "sizing-001"
+
+
+def test_compare_backtest_bundles_rejects_positive_walk_forward_without_dynamic_sizing_evidence(
+    tmp_path: Path,
+) -> None:
+    split_metadata = {
+        "schema_version": "walk_forward_split_metadata.v1",
+        "purge_bars": 1,
+        "embargo_bars": 0,
+    }
+    baseline_bundle = _write_walk_forward_bundle(
+        tmp_path / "baseline",
+        baseline_name="current_policy",
+        variant_name="baseline_walk_forward",
+        out_of_sample_total_return=0.03,
+        positive_window_ratio=0.75,
+        parameter_stability_score=0.7,
+        worst_window_return=0.01,
+        split_metadata=split_metadata,
+        runtime_fields=["regime", "allocator_decision_reason"],
+        rollback_target="baseline_walk_forward",
+        rollback_trigger="oos_total_return_below_zero",
+        observation_window="14d",
+        regime_stratified_oos=_regime_stratified_oos_evidence(),
+        pnl_attribution=_pnl_attribution_evidence(reported_pnl=0.03),
+    )
+    variant_bundle = _write_walk_forward_bundle(
+        tmp_path / "variant",
+        baseline_name="current_policy",
+        variant_name="candidate_walk_forward",
+        out_of_sample_total_return=0.08,
+        positive_window_ratio=0.9,
+        parameter_stability_score=0.9,
+        worst_window_return=0.02,
+        split_metadata=split_metadata,
+        runtime_fields=["regime", "allocator_decision_reason"],
+        rollback_target="baseline_walk_forward",
+        rollback_trigger="oos_total_return_below_zero",
+        observation_window="14d",
+        regime_stratified_oos=_regime_stratified_oos_evidence(),
+        pnl_attribution=_pnl_attribution_evidence(reported_pnl=0.08),
+        include_dynamic_sizing_evidence=False,
+    )
+
+    result = promotion.compare_backtest_bundles(
+        baseline_bundle=baseline_bundle,
+        variant_bundle=variant_bundle,
+    )
+
+    gate = result["promotion_gate"]
+    assert gate["decision"] == "reject"
+    assert gate["checks"]["has_dynamic_sizing_evidence"] is False
+    assert "missing dynamic sizing evidence" in gate["why"]
+
+
+@pytest.mark.parametrize(
+    ("mutator", "expected_message"),
+    [
+        (
+            lambda evidence: evidence.__setitem__("schema_version", "dynamic_sizing_evidence.v0"),
+            "dynamic_sizing_evidence.schema_version must be dynamic_sizing_evidence.v1",
+        ),
+        (
+            lambda evidence: evidence["decisions"][0].__setitem__("decision_id", " sizing-001 "),  # type: ignore[index,union-attr]
+            "dynamic_sizing_evidence.decisions[0].decision_id must be canonical",
+        ),
+        (
+            lambda evidence: evidence["decisions"][0].__setitem__("baseline_risk_fraction", "0.02"),  # type: ignore[index,union-attr]
+            "dynamic_sizing_evidence.decisions[0].baseline_risk_fraction must be a finite strict number",
+        ),
+        (
+            lambda evidence: evidence["decisions"][0]["axes"]["liquidity"].__setitem__("degraded", "true"),  # type: ignore[index,union-attr]
+            "dynamic_sizing_evidence.decisions[0].axes.liquidity.degraded must be a bool",
+        ),
+        (
+            lambda evidence: evidence["decisions"][0]["axes"]["volatility"].__setitem__("risk_multiplier", float("inf")),  # type: ignore[index,union-attr]
+            "dynamic_sizing_evidence.decisions[0].axes.volatility.risk_multiplier must be a finite strict number",
+        ),
+        (
+            lambda evidence: evidence["decisions"][0].__setitem__("evidence_as_of", "2026-01-04T00:01:00+00:00"),  # type: ignore[index,union-attr]
+            "dynamic_sizing_evidence.decisions[0].evidence_as_of must not be after sizing_decision_at",
+        ),
+        (
+            lambda evidence: evidence["decisions"][0].__setitem__("final_risk_fraction", 0.03),  # type: ignore[index,union-attr]
+            "dynamic_sizing_evidence.decisions[0] must not increase risk during degraded conditions without override evidence",
+        ),
+    ],
+)
+def test_load_backtest_bundle_rejects_malformed_dynamic_sizing_evidence(
+    tmp_path: Path,
+    mutator,
+    expected_message: str,
+) -> None:
+    evidence = _dynamic_sizing_evidence()
+    mutator(evidence)
+    bundle = _write_walk_forward_bundle(
+        tmp_path / "bundle",
+        baseline_name="current_policy",
+        variant_name="candidate_walk_forward",
+        out_of_sample_total_return=0.03,
+        positive_window_ratio=0.75,
+        parameter_stability_score=0.7,
+        worst_window_return=0.01,
+        dynamic_sizing_evidence=evidence,
+    )
+
+    with pytest.raises(ValueError, match=re.escape(expected_message)):
+        promotion.load_backtest_bundle(bundle)
+
+
+def test_load_backtest_bundle_allows_dynamic_sizing_risk_increase_with_override_evidence(
+    tmp_path: Path,
+) -> None:
+    evidence = _dynamic_sizing_evidence(final_risk_fraction=0.03)
+    evidence["decisions"][0]["override_evidence"] = {  # type: ignore[index]
+        "override_id": "override-001",
+        "approved_by": "offline_audit",
+        "reason": "contract replay scenario",
+    }
+    bundle = _write_walk_forward_bundle(
+        tmp_path / "bundle",
+        baseline_name="current_policy",
+        variant_name="candidate_walk_forward",
+        out_of_sample_total_return=0.03,
+        positive_window_ratio=0.75,
+        parameter_stability_score=0.7,
+        worst_window_return=0.01,
+        dynamic_sizing_evidence=evidence,
+    )
+
+    loaded = promotion.load_backtest_bundle(bundle)
+
+    assert loaded.artifacts["summary.json"]["dynamic_sizing_evidence"]["decisions"][0]["override_evidence"] == {
+        "override_id": "override-001",
+        "approved_by": "offline_audit",
+        "reason": "contract replay scenario",
+    }
 
 
 def test_compare_backtest_bundles_rejects_positive_walk_forward_without_regime_stratified_oos(
