@@ -55,6 +55,16 @@ class _StringSubclass(str):
     pass
 
 
+def _multiple_testing_correction(number_of_trials: int = 2, *, adjusted_pass: bool = True) -> dict[str, object]:
+    return {
+        "schema_version": "multiple_testing_correction.v1",
+        "number_of_trials": number_of_trials,
+        "correction_method": "conservative_best_of_many_guardrail",
+        "conservative_threshold": 0.0,
+        "adjusted_pass": adjusted_pass,
+    }
+
+
 def _ts(value: str) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(timezone.utc)
 
@@ -3150,7 +3160,10 @@ def test_backtest_cli_writes_allocator_friction_bundle(monkeypatch: pytest.Monke
                     },
                 },
             },
-            "comparison_rows": [{"allocator_variant": "current_allocator", "friction_scenario": "base", "net_bucket_pnl": 0.03}],
+            "comparison_rows": [
+                {"allocator_variant": "current_allocator", "friction_scenario": "base", "net_bucket_pnl": 0.03}
+            ],
+            "multiple_testing_correction": _multiple_testing_correction(2),
         },
         raising=False,
     )
@@ -3201,6 +3214,7 @@ def test_backtest_cli_writes_engine_filter_ablation_bundle(monkeypatch: pytest.M
                 "trend_only": {"funnel": {"accepted_allocations": 2}, "performance": {"bucket_level_pnl": 0.02, "trade_count": 2}},
                 "rotation_only": {"funnel": {"accepted_allocations": 1}, "performance": {"bucket_level_pnl": 0.01, "trade_count": 1}},
             },
+            "multiple_testing_correction": _multiple_testing_correction(2),
         },
         raising=False,
     )
@@ -3559,6 +3573,7 @@ def _minimal_walk_forward_validation_experiment() -> dict[str, object]:
             "in_sample_scorecard": {"total_return": 0.04, "trade_count": 1},
             "performance_dispersion": {"positive_window_ratio": 1.0},
         },
+
         "parameter_stability": {
             "parameter_stability_score": 0.8,
             "stability_score_threshold": 0.5,
@@ -3584,6 +3599,7 @@ def _minimal_walk_forward_validation_experiment() -> dict[str, object]:
                 "rejection_reason": None,
             },
         },
+        "multiple_testing_correction": _multiple_testing_correction(2),
     }
 
 
@@ -4182,7 +4198,10 @@ def test_walk_forward_validation_report_preserves_valid_worst_window_scorecard()
                     },
                 },
             },
+
             "parameter_stability": _canonical_parameter_stability(),
+            "multiple_testing_correction": _multiple_testing_correction(2),
+
         },
     )
 
@@ -4394,7 +4413,10 @@ def test_walk_forward_validation_report_preserves_zero_performance_dispersion_ra
                 "out_of_sample_scorecard": {"total_return": 0.0},
                 "performance_dispersion": {"positive_window_ratio": 0.0},
             },
+
             "parameter_stability": _canonical_parameter_stability(),
+            "multiple_testing_correction": _multiple_testing_correction(2, adjusted_pass=False),
+
         },
     )
 
@@ -4436,7 +4458,10 @@ def test_walk_forward_validation_report_preserves_zero_parameter_stability_score
                 "out_of_sample_scorecard": {"total_return": 0.0},
                 "performance_dispersion": {"positive_window_ratio": 0.0},
             },
+
             "parameter_stability": _canonical_parameter_stability(0.0),
+            "multiple_testing_correction": _multiple_testing_correction(2, adjusted_pass=False),
+
         },
     )
 
@@ -4620,7 +4645,10 @@ def test_walk_forward_validation_report_preserves_valid_coverage_scorecard_value
                 },
                 "performance_dispersion": {"positive_window_ratio": 1.0},
             },
+
             "parameter_stability": _canonical_parameter_stability(),
+            "multiple_testing_correction": _multiple_testing_correction(2),
+
         },
     )
 
@@ -5234,7 +5262,10 @@ def test_backtest_cli_writes_walk_forward_validation_bundle(monkeypatch: pytest.
                 "out_of_sample_scorecard": {"total_return": 0.03, "trade_count": 1},
                 "performance_dispersion": {"positive_window_ratio": 1.0},
             },
+
             "parameter_stability": _canonical_parameter_stability(),
+            "multiple_testing_correction": _multiple_testing_correction(2),
+
         },
         raising=False,
     )

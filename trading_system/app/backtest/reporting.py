@@ -1121,6 +1121,44 @@ def _decision_summary(*, decision: str, summary: str) -> dict[str, str]:
     return {"decision": decision, "summary": summary}
 
 
+def _strict_multiple_testing_correction(payload: object, *, expected_trials: int | None = None) -> dict[str, Any]:
+    if not isinstance(payload, Mapping):
+        raise ValueError("multiple_testing_correction must be present")
+    correction = _strict_mapping_copy(payload, field_name="multiple_testing_correction")
+    if correction.get("schema_version") != "multiple_testing_correction.v1":
+        raise ValueError("multiple_testing_correction.schema_version must be multiple_testing_correction.v1")
+    if "number_of_trials" not in correction:
+        raise ValueError("multiple_testing_correction.number_of_trials must be present")
+    number_of_trials = correction["number_of_trials"]
+    if isinstance(number_of_trials, bool) or not isinstance(number_of_trials, int) or number_of_trials <= 1:
+        raise ValueError("multiple_testing_correction.number_of_trials must be an integer greater than one")
+    if expected_trials is not None and number_of_trials != expected_trials:
+        raise ValueError("multiple_testing_correction.number_of_trials must match candidate count")
+    correction_method = _canonical_report_string(
+        correction.get("correction_method"),
+        field_name="multiple_testing_correction.correction_method",
+    )
+    correction["number_of_trials"] = number_of_trials
+    correction["correction_method"] = correction_method
+
+    evidence_fields = ("corrected_p_value", "corrected_q_value", "adjusted_threshold", "conservative_threshold")
+    present_evidence_fields = [field for field in evidence_fields if field in correction and correction[field] is not None]
+    if not present_evidence_fields:
+        raise ValueError("multiple_testing_correction must include corrected evidence")
+    for field in present_evidence_fields:
+        correction[field] = _strict_present_finite_float(
+            correction[field],
+            field_name=f"multiple_testing_correction.{field}",
+        )
+    if "adjusted_pass" not in correction or not isinstance(correction["adjusted_pass"], bool):
+        raise ValueError("multiple_testing_correction.adjusted_pass must be a bool")
+    return correction
+
+
+def _multiple_testing_decision_allowed(correction: Mapping[str, Any]) -> bool:
+    return correction.get("adjusted_pass") is True
+
+
 
 def _promotion_metadata_sections(metadata: Mapping[str, Any]) -> dict[str, Any]:
     raw = metadata.get("promotion_metadata")
@@ -1950,13 +1988,26 @@ def render_allocator_friction_report(
         current_base.get("cost_drag", 0.0),
         field_name="variants.current_allocator.frictions.base.cost_drag",
     )
+    comparison_rows = _allocator_comparison_rows(_list_field(experiment, "comparison_rows"))
+    multiple_testing_correction = (
+        _strict_multiple_testing_correction(
+            experiment.get("multiple_testing_correction"),
+            expected_trials=len(variants),
+        )
+        if len(variants) > 1
+        else None
+    )
 
-    if best_base_net_bucket_pnl > 0.0 and best_stressed_net_bucket_pnl > 0.0:
+    if (
+        best_base_net_bucket_pnl > 0.0
+        and best_stressed_net_bucket_pnl > 0.0
+        and (multiple_testing_correction is None or _multiple_testing_decision_allowed(multiple_testing_correction))
+    ):
         decision = "candidate_for_promotion"
         summary = f"{best_variant} stays profitable under both base and stressed friction assumptions"
     elif best_base_net_bucket_pnl > 0.0:
         decision = "keep_researching"
-        summary = "allocator friction variants stay positive in the base case, but they are not robust enough under stress yet"
+        summary = "allocator friction variants are positive before final promotion correction or stress robustness"
     else:
         decision = "reject"
         summary = "allocator friction variants do not hold positive base-case net pnl"
@@ -1969,7 +2020,7 @@ def render_allocator_friction_report(
         },
         "comparison_rows": {
             "metadata": dict(metadata),
-            "rows": _allocator_comparison_rows(_list_field(experiment, "comparison_rows")),
+            "rows": comparison_rows,
         },
         "scorecard": {
             "metadata": _scorecard_metadata(experiment_name=experiment_name, metadata=metadata),
@@ -1982,6 +2033,7 @@ def render_allocator_friction_report(
                 "current_allocator_base_cost_drag": current_base_cost_drag,
             },
             "decision_summary": _decision_summary(decision=decision, summary=summary),
+            **({"multiple_testing_correction": multiple_testing_correction} if multiple_testing_correction is not None else {}),
             **_promotion_metadata_sections(metadata),
         },
     }
@@ -2017,8 +2069,20 @@ def render_engine_filter_ablation_report(
         "accepted_allocations",
         label=f"variants.{best_variant}.funnel",
     )
+    multiple_testing_correction = (
+        _strict_multiple_testing_correction(
+            experiment.get("multiple_testing_correction"),
+            expected_trials=len(variants),
+        )
+        if len(variants) > 1
+        else None
+    )
 
-    if best_bucket_pnl > 0.0 and accepted_allocations > 0:
+    if (
+        best_bucket_pnl > 0.0
+        and accepted_allocations > 0
+        and (multiple_testing_correction is None or _multiple_testing_decision_allowed(multiple_testing_correction))
+    ):
         decision = "candidate_for_promotion"
         summary = f"{best_variant} produced the strongest positive bucket-level pnl with live candidate flow"
     elif accepted_allocations > 0:
@@ -2043,6 +2107,7 @@ def render_engine_filter_ablation_report(
                 "best_variant_accepted_allocations": accepted_allocations,
             },
             "decision_summary": _decision_summary(decision=decision, summary=summary),
+            **({"multiple_testing_correction": multiple_testing_correction} if multiple_testing_correction is not None else {}),
             **_promotion_metadata_sections(metadata),
         },
     }
@@ -2370,8 +2435,19 @@ def render_walk_forward_validation_report(
         field_name="parameter_stability",
     )
     parameter_stability_score = parameter_stability["parameter_stability_score"]
+    snapshot_count = _metadata_int(metadata, "snapshot_count")
+    window_count = _metadata_int(metadata, "window_count")
+    multiple_testing_correction = _strict_multiple_testing_correction(
+        experiment.get("multiple_testing_correction"),
+        expected_trials=max(len(windows), 2),
+    )
 
-    if out_of_sample_total_return > 0.0 and positive_window_ratio >= 0.6 and parameter_stability_score >= 0.5:
+    if (
+        out_of_sample_total_return > 0.0
+        and positive_window_ratio >= 0.6
+        and parameter_stability_score >= 0.5
+        and _multiple_testing_decision_allowed(multiple_testing_correction)
+    ):
         decision = "candidate_for_promotion"
         summary = "walk-forward validation is positive out-of-sample with acceptable window hit-rate and stability"
     elif out_of_sample_total_return > 0.0 or positive_window_ratio >= 0.5:
@@ -2395,13 +2471,14 @@ def render_walk_forward_validation_report(
         "scorecard": {
             "metadata": _scorecard_metadata(experiment_name=experiment_name, metadata=metadata),
             "key_metrics": {
-                "snapshot_count": _metadata_int(metadata, "snapshot_count"),
-                "window_count": _metadata_int(metadata, "window_count"),
+                "snapshot_count": snapshot_count,
+                "window_count": window_count,
                 "out_of_sample_total_return": out_of_sample_total_return,
                 "positive_window_ratio": positive_window_ratio,
                 "parameter_stability_score": parameter_stability_score,
             },
             "decision_summary": _decision_summary(decision=decision, summary=summary),
+            "multiple_testing_correction": multiple_testing_correction,
             **_promotion_metadata_sections(metadata),
         },
     }

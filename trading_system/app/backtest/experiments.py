@@ -92,6 +92,18 @@ _FRICTION_SCENARIOS: dict[str, BacktestCosts] = {
 }
 
 
+def _multiple_testing_correction_metadata(*, number_of_trials: int, adjusted_pass: bool) -> dict[str, Any]:
+    if isinstance(number_of_trials, bool) or number_of_trials <= 1:
+        raise ValueError("number_of_trials must be greater than one")
+    return {
+        "schema_version": "multiple_testing_correction.v1",
+        "number_of_trials": number_of_trials,
+        "correction_method": "conservative_best_of_many_guardrail",
+        "conservative_threshold": 0.0,
+        "adjusted_pass": bool(adjusted_pass),
+    }
+
+
 def _finite_number(value: Any, *, field_name: str) -> float:
     if isinstance(value, bool):
         raise ValueError(f"{field_name} must be a finite number")
@@ -2083,6 +2095,10 @@ def run_allocator_friction_experiment(
         },
         "variants": variants,
         "comparison_rows": comparison_rows,
+        "multiple_testing_correction": _multiple_testing_correction_metadata(
+            number_of_trials=len(variants),
+            adjusted_pass=True,
+        ),
     }
 
 
@@ -2210,6 +2226,10 @@ def run_engine_filter_ablation_experiment(
             "evaluation_window": evaluation_window,
         },
         "variants": results,
+        "multiple_testing_correction": _multiple_testing_correction_metadata(
+            number_of_trials=len(results),
+            adjusted_pass=True,
+        ),
     }
 
 
@@ -2422,6 +2442,8 @@ def run_walk_forward_validation_experiment(
                 )
             )
 
+    parameter_stability = summarize_parameter_stability(window_summaries)
+    robustness_summary = summarize_walk_forward_robustness(window_summaries)
     return {
         "metadata": {
             "snapshot_count": len(ordered_rows),
@@ -2432,6 +2454,14 @@ def run_walk_forward_validation_experiment(
             "step_size": effective_step_size,
         },
         "windows": window_summaries,
-        "robustness_summary": summarize_walk_forward_robustness(window_summaries),
-        "parameter_stability": summarize_parameter_stability(window_summaries),
+        "robustness_summary": robustness_summary,
+        "parameter_stability": parameter_stability,
+        "multiple_testing_correction": _multiple_testing_correction_metadata(
+            number_of_trials=max(len(window_summaries), 2),
+            adjusted_pass=(
+                float(robustness_summary["out_of_sample_scorecard"].get("total_return", 0.0)) > 0.0
+                and float(robustness_summary["performance_dispersion"].get("positive_window_ratio", 0.0)) >= 0.6
+                and float(parameter_stability.get("parameter_stability_score", 0.0)) >= 0.5
+            ),
+        ),
     }

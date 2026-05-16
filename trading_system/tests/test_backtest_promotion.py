@@ -8,6 +8,7 @@ import pytest
 
 from trading_system.app.backtest import cli
 import trading_system.app.backtest.promotion as promotion
+from trading_system.app.backtest.reporting import render_allocator_friction_report
 
 
 def _manifest(*, experiment_kind: str, baseline_name: str, variant_name: str, artifacts: list[str]) -> dict[str, object]:
@@ -42,6 +43,17 @@ def _manifest(*, experiment_kind: str, baseline_name: str, variant_name: str, ar
 
 def _write_json(path: Path, payload: dict[str, object]) -> None:
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _multiple_testing_correction(*, number_of_trials: int, adjusted_pass: bool = True) -> dict[str, object]:
+    return {
+        "schema_version": "multiple_testing_correction.v1",
+        "number_of_trials": number_of_trials,
+        "correction_method": "bonferroni",
+        "corrected_p_value": 0.02,
+        "adjusted_threshold": 0.05,
+        "adjusted_pass": adjusted_pass,
+    }
 
 
 def _write_full_market_bundle(
@@ -122,6 +134,8 @@ def _write_walk_forward_bundle(
     rollback_target: str | None = None,
     rollback_trigger: str | None = None,
     observation_window: str | None = None,
+    multiple_testing_correction: dict[str, object] | None = None,
+    include_multiple_testing_correction: bool = True,
 ) -> Path:
     root.mkdir(parents=True, exist_ok=True)
     artifacts = ["manifest.json", "summary.json", "windows.json", "scorecard.json"]
@@ -163,6 +177,10 @@ def _write_walk_forward_bundle(
             },
         },
     }
+    if multiple_testing_correction is None and include_multiple_testing_correction:
+        multiple_testing_correction = _multiple_testing_correction(number_of_trials=2)
+    if multiple_testing_correction is not None:
+        summary_payload["multiple_testing_correction"] = multiple_testing_correction
     if runtime_fields:
         summary_payload["runtime_observability"] = {"runtime_fields": runtime_fields}
     if rollback_target and (rollback_trigger or observation_window):
@@ -209,6 +227,7 @@ def _write_walk_forward_bundle(
                 "parameter_stability_score": parameter_stability_score,
             },
             "decision_summary": {"decision": "keep_researching", "summary": "fixture"},
+            **({"multiple_testing_correction": multiple_testing_correction} if multiple_testing_correction is not None else {}),
         },
     )
     return root
@@ -247,6 +266,7 @@ def test_load_backtest_bundle_rejects_noncanonical_rollback_plan_fields(tmp_path
 
     with pytest.raises(ValueError, match="rollback_plan.rollback_target must be canonical"):
         promotion.load_backtest_bundle(bundle)
+
 
 
 @pytest.mark.parametrize(
@@ -344,6 +364,60 @@ def test_load_backtest_bundle_rejects_nonfinite_coercive_or_ambiguous_stability_
 
     with pytest.raises(ValueError, match=re.escape(match)):
         promotion.load_backtest_bundle(bundle)
+def test_allocator_report_rejects_best_of_many_without_multiple_testing_correction() -> None:
+    experiment = {
+        "variants": {
+            "current_allocator": {
+                "frictions": {
+                    "base": {"net_bucket_pnl": 1.0, "cost_drag": 0.1},
+                    "stressed": {"net_bucket_pnl": 0.5},
+                }
+            },
+            "risk_scaled": {
+                "frictions": {
+                    "base": {"net_bucket_pnl": 5.0, "cost_drag": 0.2},
+                    "stressed": {"net_bucket_pnl": 2.0},
+                }
+            },
+        },
+        "comparison_rows": [],
+    }
+
+    with pytest.raises(ValueError, match="multiple_testing_correction must be present"):
+        render_allocator_friction_report(
+            experiment_name="allocator_friction",
+            experiment=experiment,
+            metadata={"snapshot_count": 4},
+        )
+
+
+def test_allocator_report_holds_best_of_many_when_adjusted_correction_fails() -> None:
+    report = render_allocator_friction_report(
+        experiment_name="allocator_friction",
+        experiment={
+            "variants": {
+                "current_allocator": {
+                    "frictions": {
+                        "base": {"net_bucket_pnl": 1.0, "cost_drag": 0.1},
+                        "stressed": {"net_bucket_pnl": 0.5},
+                    }
+                },
+                "risk_scaled": {
+                    "frictions": {
+                        "base": {"net_bucket_pnl": 5.0, "cost_drag": 0.2},
+                        "stressed": {"net_bucket_pnl": 2.0},
+                    }
+                },
+            },
+            "comparison_rows": [],
+            "multiple_testing_correction": _multiple_testing_correction(number_of_trials=2, adjusted_pass=False),
+        },
+        metadata={"snapshot_count": 4},
+    )
+
+    assert report["scorecard"]["decision_summary"]["decision"] == "keep_researching"
+    assert report["scorecard"]["multiple_testing_correction"]["adjusted_pass"] is False
+
 
 
 def test_load_backtest_bundle_rejects_noncanonical_manifest_identity_fields(tmp_path: Path) -> None:
@@ -796,6 +870,99 @@ def test_compare_backtest_bundles_recognizes_runtime_and_rollback_metadata_from_
     gate = result["promotion_gate"]
     assert gate["checks"]["has_runtime_observability_plan"] is True
     assert gate["checks"]["has_rollback_plan"] is True
+
+
+def test_load_backtest_bundle_rejects_walk_forward_without_multiple_testing_correction(tmp_path: Path) -> None:
+    bundle = _write_walk_forward_bundle(
+        tmp_path / "bundle",
+        baseline_name="current_policy",
+        variant_name="candidate_walk_forward",
+        out_of_sample_total_return=0.08,
+        positive_window_ratio=0.9,
+        parameter_stability_score=0.9,
+        worst_window_return=0.02,
+        include_multiple_testing_correction=False,
+    )
+
+    with pytest.raises(ValueError, match="multiple_testing_correction must be present"):
+        promotion.load_backtest_bundle(bundle)
+
+
+@pytest.mark.parametrize(
+    ("mutator", "expected_message"),
+    (
+        (
+            lambda correction: correction.pop("number_of_trials"),
+            "multiple_testing_correction.number_of_trials must be present",
+        ),
+        (
+            lambda correction: correction.update({"number_of_trials": True}),
+            "multiple_testing_correction.number_of_trials must be an integer greater than one",
+        ),
+        (
+            lambda correction: correction.update({"corrected_p_value": "0.02"}),
+            "multiple_testing_correction.corrected_p_value must be a finite number",
+        ),
+        (
+            lambda correction: correction.update({"corrected_p_value": float("nan")}),
+            "multiple_testing_correction.corrected_p_value must be a finite number",
+        ),
+        (
+            lambda correction: correction.update({"adjusted_threshold": True}),
+            "multiple_testing_correction.adjusted_threshold must be a finite number",
+        ),
+        (
+            lambda correction: correction.update({"adjusted_pass": 1}),
+            "multiple_testing_correction.adjusted_pass must be a bool",
+        ),
+    ),
+)
+def test_load_backtest_bundle_rejects_malformed_multiple_testing_correction(
+    tmp_path: Path,
+    mutator: object,
+    expected_message: str,
+) -> None:
+    correction = _multiple_testing_correction(number_of_trials=2)
+    mutator(correction)  # type: ignore[operator]
+    bundle = _write_walk_forward_bundle(
+        tmp_path / "bundle",
+        baseline_name="current_policy",
+        variant_name="candidate_walk_forward",
+        out_of_sample_total_return=0.08,
+        positive_window_ratio=0.9,
+        parameter_stability_score=0.9,
+        worst_window_return=0.02,
+        multiple_testing_correction=correction,
+    )
+
+    with pytest.raises(ValueError, match=expected_message):
+        promotion.load_backtest_bundle(bundle)
+
+
+def test_compare_backtest_bundles_rejects_inconsistent_multiple_testing_trial_counts(tmp_path: Path) -> None:
+    baseline_bundle = _write_walk_forward_bundle(
+        tmp_path / "baseline",
+        baseline_name="current_policy",
+        variant_name="baseline_walk_forward",
+        out_of_sample_total_return=0.03,
+        positive_window_ratio=0.75,
+        parameter_stability_score=0.7,
+        worst_window_return=0.01,
+        multiple_testing_correction=_multiple_testing_correction(number_of_trials=2),
+    )
+    variant_bundle = _write_walk_forward_bundle(
+        tmp_path / "variant",
+        baseline_name="current_policy",
+        variant_name="candidate_walk_forward",
+        out_of_sample_total_return=0.08,
+        positive_window_ratio=0.9,
+        parameter_stability_score=0.9,
+        worst_window_return=0.02,
+        multiple_testing_correction=_multiple_testing_correction(number_of_trials=3),
+    )
+
+    with pytest.raises(ValueError, match="multiple_testing_correction.number_of_trials must match"):
+        promotion.compare_backtest_bundles(baseline_bundle=baseline_bundle, variant_bundle=variant_bundle)
 
 
 

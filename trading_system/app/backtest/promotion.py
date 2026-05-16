@@ -122,6 +122,47 @@ def _require_positive_int(payload: Mapping[str, Any], key: str, *, context: str)
     return value
 
 
+def _require_multiple_testing_correction(
+    payload: Mapping[str, Any],
+    *,
+    context: str,
+    expected_trials: int | None = None,
+) -> dict[str, Any]:
+    raw = payload.get("multiple_testing_correction")
+    if not isinstance(raw, Mapping):
+        raise ValueError(f"{context}.multiple_testing_correction must be present")
+    correction = dict(raw)
+    if correction.get("schema_version") != "multiple_testing_correction.v1":
+        raise ValueError(
+            f"{context}.multiple_testing_correction.schema_version must be multiple_testing_correction.v1"
+        )
+    if "number_of_trials" not in correction:
+        raise ValueError(f"{context}.multiple_testing_correction.number_of_trials must be present")
+    number_of_trials = correction["number_of_trials"]
+    if isinstance(number_of_trials, bool) or not isinstance(number_of_trials, int) or number_of_trials <= 1:
+        raise ValueError(
+            f"{context}.multiple_testing_correction.number_of_trials must be an integer greater than one"
+        )
+    if expected_trials is not None and number_of_trials != expected_trials:
+        raise ValueError(f"{context}.multiple_testing_correction.number_of_trials must match candidate count")
+    method = correction.get("correction_method")
+    if not isinstance(method, str) or not method.strip() or method != method.strip():
+        raise ValueError(f"{context}.multiple_testing_correction.correction_method must be canonical")
+    evidence_fields = ("corrected_p_value", "corrected_q_value", "adjusted_threshold", "conservative_threshold")
+    present_evidence_fields = [field for field in evidence_fields if field in correction and correction[field] is not None]
+    if not present_evidence_fields:
+        raise ValueError(f"{context}.multiple_testing_correction must include corrected evidence")
+    for field in present_evidence_fields:
+        value = correction[field]
+        if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(float(value)):
+            raise ValueError(f"{context}.multiple_testing_correction.{field} must be a finite number")
+        correction[field] = float(value)
+    if not isinstance(correction.get("adjusted_pass"), bool):
+        raise ValueError(f"{context}.multiple_testing_correction.adjusted_pass must be a bool")
+    correction["number_of_trials"] = number_of_trials
+    return correction
+
+
 def _is_safe_evidence_identifier(value: str) -> bool:
     return _SAFE_EVIDENCE_IDENTIFIER_RE.fullmatch(value) is not None
 
@@ -652,6 +693,12 @@ def _validate_rotation_bundle(bundle: BacktestBundle) -> None:
 def _validate_allocator_bundle(bundle: BacktestBundle) -> None:
     summary = bundle.artifacts["summary.json"]
     variants = _require_mapping(summary, "variants", context=f"{bundle.root}/summary.json")
+    if len(variants) > 1:
+        _require_multiple_testing_correction(
+            bundle.artifacts["scorecard.json"],
+            context=f"{bundle.root}/scorecard.json",
+            expected_trials=len(variants),
+        )
     variant = _require_mapping(variants, "current_allocator", context=f"{bundle.root}/summary.json.variants")
     allocation_summary = _require_mapping(variant, "allocation_summary", context=f"{bundle.root}/summary.json.variants.current_allocator")
     _require_keys(allocation_summary, keys=("accepted_allocations",), context=f"{bundle.root}/summary.json.variants.allocation_summary")
@@ -682,6 +729,12 @@ def _validate_allocator_bundle(bundle: BacktestBundle) -> None:
 def _validate_engine_bundle(bundle: BacktestBundle) -> None:
     summary = bundle.artifacts["summary.json"]
     variants = _require_mapping(summary, "variants", context=f"{bundle.root}/summary.json")
+    if len(variants) > 1:
+        _require_multiple_testing_correction(
+            bundle.artifacts["scorecard.json"],
+            context=f"{bundle.root}/scorecard.json",
+            expected_trials=len(variants),
+        )
     variant = _first_mapping(variants, context=f"{bundle.root}/summary.json.variants")
     _require_mapping(variant, "funnel", context=f"{bundle.root}/summary.json.variants")
     _require_mapping(variant, "filter_counts", context=f"{bundle.root}/summary.json.variants")
@@ -742,6 +795,11 @@ def _validate_walk_forward_bundle(bundle: BacktestBundle) -> None:
         context=f"{bundle.root}/summary.json.parameter_stability",
     )
     windows = _require_rows(bundle.artifacts["windows.json"], context=f"{bundle.root}/windows.json")
+    _require_multiple_testing_correction(
+        bundle.artifacts["scorecard.json"],
+        context=f"{bundle.root}/scorecard.json",
+        expected_trials=max(len(windows), 2),
+    )
     for index, row in enumerate(windows):
         out_of_sample = _require_mapping(row, "out_of_sample", context=f"{bundle.root}/windows.json.rows[{index}]")
         scorecard_row = _require_mapping(out_of_sample, "scorecard", context=f"{bundle.root}/windows.json.rows[{index}].out_of_sample")
@@ -924,6 +982,19 @@ def _ensure_comparable_manifests(baseline: BacktestBundle, variant: BacktestBund
     if mismatches:
         joined = ", ".join(mismatches)
         raise ValueError(f"baseline and variant bundles must share the same dataset/sample contract: {joined}")
+
+    baseline_correction = _scorecard_multiple_testing_correction(baseline)
+    variant_correction = _scorecard_multiple_testing_correction(variant)
+    if baseline_correction is not None and variant_correction is not None:
+        if baseline_correction["number_of_trials"] != variant_correction["number_of_trials"]:
+            raise ValueError("multiple_testing_correction.number_of_trials must match")
+
+
+def _scorecard_multiple_testing_correction(bundle: BacktestBundle) -> dict[str, Any] | None:
+    scorecard = bundle.artifacts.get("scorecard.json")
+    if not isinstance(scorecard, Mapping) or "multiple_testing_correction" not in scorecard:
+        return None
+    return _require_multiple_testing_correction(scorecard, context=f"{bundle.root}/scorecard.json")
 
 
 
