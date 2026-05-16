@@ -1825,6 +1825,9 @@ def _setup_rewrite_diagnostic(chunk_dirs: Iterable[Path]) -> dict[str, Any] | No
                     ):
                         parse_error = f"invalid_field_type: evaluation_rows[{row_index}].{field}"
                         break
+                    if field == "source_chunk" and isinstance(value, str) and value != chunk_dir.name:
+                        parse_error = f"source_chunk_mismatch: evaluation_rows[{row_index}].source_chunk"
+                        break
                 if parse_error:
                     break
                 for field in ("trade_id", "fill_id"):

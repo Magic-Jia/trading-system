@@ -12883,6 +12883,130 @@ def test_live_readiness_gate_rejects_setup_rewrite_lowercase_row_setup_type(tmp_
     assert "setup_rewrite_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
 
 
+def test_live_readiness_gate_accepts_setup_rewrite_missing_or_null_source_chunk(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    (chunk / "setup_rewrite_experiment.json").write_text(
+        json.dumps(
+            {
+                "summary": {
+                    "total_rows": 2,
+                    "evaluated_count": 2,
+                    "would_keep_count": 2,
+                    "would_filter_count": 0,
+                    "skipped_count": 0,
+                },
+                "evaluation_rows": [
+                    {
+                        "symbol": "BTCUSDT",
+                        "setup_type": "TREND_PULLBACK",
+                        "evaluation_status": "evaluated",
+                        "evaluation_reason": "passed_all_rules",
+                        "would_keep": True,
+                        "net_pnl": 10.0,
+                    },
+                    {
+                        "symbol": "ETHUSDT",
+                        "setup_type": "TREND_PULLBACK",
+                        "source_chunk": None,
+                        "evaluation_status": "evaluated",
+                        "evaluation_reason": "passed_all_rules",
+                        "would_keep": True,
+                        "net_pnl": 8.0,
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    diagnostic = report["setup_rewrite_diagnostic"]
+    assert diagnostic["checks"]["setup_rewrite_artifact_schema_valid"] is True
+    assert diagnostic["chunks"][0]["status"] == "loaded"
+
+
+@pytest.mark.parametrize("source_chunk", [123, "", " chunk_001", "chunk_001 "])
+def test_live_readiness_gate_rejects_setup_rewrite_invalid_present_source_chunk(
+    tmp_path: Path, source_chunk: object
+) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    (chunk / "setup_rewrite_experiment.json").write_text(
+        json.dumps(
+            {
+                "summary": {
+                    "total_rows": 1,
+                    "evaluated_count": 1,
+                    "would_keep_count": 1,
+                    "would_filter_count": 0,
+                    "skipped_count": 0,
+                },
+                "evaluation_rows": [
+                    {
+                        "symbol": "BTCUSDT",
+                        "setup_type": "TREND_PULLBACK",
+                        "source_chunk": source_chunk,
+                        "evaluation_status": "evaluated",
+                        "evaluation_reason": "passed_all_rules",
+                        "would_keep": True,
+                        "net_pnl": 10.0,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    diagnostic = report["setup_rewrite_diagnostic"]
+    assert diagnostic["checks"]["setup_rewrite_artifact_schema_valid"] is False
+    assert diagnostic["chunks"][0]["parse_error"] == "invalid_field_type: evaluation_rows[1].source_chunk"
+    assert "setup_rewrite_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["checks"]["setup_rewrite_artifact_schema_valid"] is False
+
+
+def test_live_readiness_gate_rejects_setup_rewrite_source_chunk_directory_mismatch(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_002"
+    _write_profitable_trade_chunk(chunk)
+    (chunk / "setup_rewrite_experiment.json").write_text(
+        json.dumps(
+            {
+                "summary": {
+                    "total_rows": 1,
+                    "evaluated_count": 1,
+                    "would_keep_count": 1,
+                    "would_filter_count": 0,
+                    "skipped_count": 0,
+                },
+                "evaluation_rows": [
+                    {
+                        "symbol": "BTCUSDT",
+                        "setup_type": "TREND_PULLBACK",
+                        "source_chunk": "chunk_001",
+                        "evaluation_status": "evaluated",
+                        "evaluation_reason": "passed_all_rules",
+                        "would_keep": True,
+                        "net_pnl": 10.0,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    diagnostic = report["setup_rewrite_diagnostic"]
+    assert diagnostic["checks"]["setup_rewrite_artifact_schema_valid"] is False
+    assert diagnostic["chunks"][0]["parse_error"] == "source_chunk_mismatch: evaluation_rows[1].source_chunk"
+    assert "setup_rewrite_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["checks"]["setup_rewrite_artifact_schema_valid"] is False
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
 def test_live_readiness_gate_accepts_setup_rewrite_canonical_row_side(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     _write_profitable_trade_chunk(chunk)
