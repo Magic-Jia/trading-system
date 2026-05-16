@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, is_dataclass, replace
-from datetime import timedelta
+from datetime import datetime, timedelta
 import math
 from typing import Any, Mapping
 
@@ -564,6 +564,64 @@ def _path_high_low(row: DatasetSnapshotRow, symbol: str) -> tuple[float | None, 
     return None, None
 
 
+def _path_timestamp(value: Any, *, field_name: str) -> datetime:
+    timestamp = _datetime_or_none(value)
+    if (
+        not isinstance(timestamp, datetime)
+        or timestamp.tzinfo is None
+        or timestamp.utcoffset() is None
+    ):
+        raise ValueError(f"{field_name} must be an ISO timestamp with timezone")
+    return timestamp
+
+
+def _ordered_path_points(
+    row: DatasetSnapshotRow,
+    symbol: str,
+    *,
+    entry_timestamp: datetime,
+    exit_timestamp: datetime,
+) -> tuple[tuple[datetime, float], ...]:
+    payload = _symbol_payload(row, symbol)
+    for timeframe in ("1m", "5m", "15m", "30m", "1h"):
+        timeframe_row = payload.get(timeframe)
+        if not isinstance(timeframe_row, Mapping) or "path" not in timeframe_row:
+            continue
+        raw_points = timeframe_row.get("path")
+        if not isinstance(raw_points, list):
+            raise ValueError(f"path.{timeframe}.path must be a list")
+        as_of = _path_timestamp(
+            timeframe_row.get("path_evidence_as_of"),
+            field_name=f"path.{timeframe}.path_evidence_as_of",
+        )
+        if as_of > exit_timestamp:
+            raise ValueError(f"path.{timeframe}.path_evidence_as_of must be at or before exit timestamp")
+        points: list[tuple[datetime, float]] = []
+        previous_timestamp: datetime | None = None
+        for item in raw_points:
+            if not isinstance(item, Mapping):
+                raise ValueError(f"path.{timeframe}.path entries must be objects")
+            point_timestamp = _path_timestamp(
+                item.get("timestamp"),
+                field_name=f"path.{timeframe}.path.timestamp",
+            )
+            if point_timestamp < entry_timestamp or point_timestamp > exit_timestamp:
+                raise ValueError(f"path.{timeframe}.path.timestamp must fall within trade interval")
+            if previous_timestamp is not None and point_timestamp <= previous_timestamp:
+                raise ValueError(f"path.{timeframe}.path timestamps must be strictly increasing")
+            points.append(
+                (
+                    point_timestamp,
+                    _positive_float(item.get("price"), field_name=f"path.{timeframe}.path.price"),
+                )
+            )
+            previous_timestamp = point_timestamp
+        if points and as_of < points[-1][0]:
+            raise ValueError(f"path.{timeframe}.path_evidence_as_of must cover ordered path timestamps")
+        return tuple(points)
+    return ()
+
+
 def _mfe_mae_from_path(
     *,
     side: str,
@@ -593,6 +651,7 @@ def _simulate_intraday_exit(
     take_profit: float | None,
     path_high: float,
     path_low: float,
+    ordered_path: tuple[tuple[datetime, float], ...] = (),
 ) -> tuple[str, float, float, str]:
     entry_price_value = _positive_float(entry_price, field_name="entry_price")
     fixed_exit_price_value = _positive_float(fixed_exit_price, field_name="fixed_exit_price")
@@ -600,11 +659,47 @@ def _simulate_intraday_exit(
     take_profit_value = _optional_positive_float(take_profit, field_name="take_profit")
     path_high_value = _positive_float(path_high, field_name="path_high")
     path_low_value = _positive_float(path_low, field_name="path_low")
+
+    def _ordered_ambiguous_exit() -> tuple[str, float, float, str] | None:
+        if take_profit_value is None or not ordered_path:
+            return None
+        stop_index: int | None = None
+        take_profit_index: int | None = None
+        for index, (_timestamp, price) in enumerate(ordered_path):
+            point_price = _positive_float(price, field_name="ordered_path.price")
+            if side == "long":
+                if stop_index is None and stop_loss_value > 0.0 and point_price <= stop_loss_value:
+                    stop_index = index
+                if take_profit_index is None and point_price >= take_profit_value:
+                    take_profit_index = index
+            else:
+                if stop_index is None and stop_loss_value > 0.0 and point_price >= stop_loss_value:
+                    stop_index = index
+                if take_profit_index is None and point_price <= take_profit_value:
+                    take_profit_index = index
+        if stop_index is None and take_profit_index is None:
+            return None
+        if stop_index is None or (take_profit_index is not None and take_profit_index < stop_index):
+            if side == "long":
+                move_pct = (take_profit_value - entry_price_value) / entry_price_value
+            else:
+                move_pct = (entry_price_value - take_profit_value) / entry_price_value
+            return "take_profit", take_profit_value, move_pct, "path_take_profit_first"
+        if side == "long":
+            move_pct = (stop_loss_value - entry_price_value) / entry_price_value
+        else:
+            move_pct = (entry_price_value - stop_loss_value) / entry_price_value
+        return "stop_loss", stop_loss_value, move_pct, "path_stop_first"
+
     if entry_price_value <= 0.0:
         return "fixed_horizon", fixed_exit_price_value, 0.0, "no_intraday_ordering"
     if side == "long":
         stop_hit = stop_loss_value > 0.0 and path_low_value <= stop_loss_value
         take_profit_hit = take_profit_value is not None and path_high_value >= take_profit_value
+        if stop_hit and take_profit_hit:
+            ordered_exit = _ordered_ambiguous_exit()
+            if ordered_exit is not None:
+                return ordered_exit
         if stop_hit:
             exit_reason = "stop_loss"
             simulated_exit_price = stop_loss_value
@@ -621,6 +716,10 @@ def _simulate_intraday_exit(
     else:
         stop_hit = stop_loss_value > 0.0 and path_high_value >= stop_loss_value
         take_profit_hit = take_profit_value is not None and path_low_value <= take_profit_value
+        if stop_hit and take_profit_hit:
+            ordered_exit = _ordered_ambiguous_exit()
+            if ordered_exit is not None:
+                return ordered_exit
         if stop_hit:
             exit_reason = "stop_loss"
             simulated_exit_price = stop_loss_value
@@ -1221,6 +1320,12 @@ def _trade_row(
     holding_hours = (exit_row.timestamp - open_trade.entry_timestamp).total_seconds() / 3600.0
     path_high, path_low = _path_high_low(exit_row, open_trade.symbol)
     has_intraday_path = path_high is not None and path_low is not None
+    ordered_path = _ordered_path_points(
+        exit_row,
+        open_trade.symbol,
+        entry_timestamp=open_trade.entry_timestamp,
+        exit_timestamp=exit_row.timestamp,
+    )
     if path_high is None or path_low is None:
         path_high = max(open_trade.entry_price, exit_price)
         path_low = min(open_trade.entry_price, exit_price)
@@ -1243,6 +1348,7 @@ def _trade_row(
             take_profit=open_trade.take_profit,
             path_high=path_high,
             path_low=path_low,
+            ordered_path=ordered_path,
         )
     else:
         simulated_exit_reason = "fixed_horizon"

@@ -2324,6 +2324,177 @@ def test_replay_full_market_baseline_marks_same_bar_stop_and_target_as_ambiguous
     assert btc_trade.simulated_exit_ordering == "ambiguous_conservative_stop"
 
 
+def test_replay_full_market_baseline_uses_valid_ordered_path_evidence_for_same_bar_target_first(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    config_path = _baseline_config_path(tmp_path)
+    config = load_backtest_config(config_path)
+    row2_bundle = config.dataset_root / "2026-03-11T00-00-00Z__row-002"
+    market_path = row2_bundle / "market_context.json"
+    market_payload = json.loads(market_path.read_text(encoding="utf-8"))
+    market_payload["symbols"]["BTCUSDT"]["1h"] = {
+        **market_payload["symbols"]["BTCUSDT"].get("1h", {}),
+        "high": 116.0,
+        "low": 89.0,
+        "close": 110.0,
+        "path": [
+            {"timestamp": "2026-03-10T12:05:00Z", "price": 100.0},
+            {"timestamp": "2026-03-10T12:10:00Z", "price": 115.5},
+            {"timestamp": "2026-03-10T12:15:00Z", "price": 89.0},
+        ],
+        "path_evidence_as_of": "2026-03-11T00:00:00Z",
+    }
+    market_path.write_text(json.dumps(market_payload), encoding="utf-8")
+    _install_replay_candidates(monkeypatch)
+
+    result = backtest_engine.replay_full_market_baseline(load_backtest_config(config_path))
+
+    btc_trade = next(row for row in result.trade_ledger if row.symbol == "BTCUSDT")
+    assert btc_trade.simulated_exit_reason == "take_profit"
+    assert btc_trade.simulated_exit_price == pytest.approx(115.0)
+    assert btc_trade.simulated_exit_ordering == "path_take_profit_first"
+
+
+def test_replay_full_market_baseline_uses_valid_ordered_path_evidence_for_same_bar_stop_first(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    config_path = _baseline_config_path(tmp_path)
+    config = load_backtest_config(config_path)
+    row2_bundle = config.dataset_root / "2026-03-11T00-00-00Z__row-002"
+    market_path = row2_bundle / "market_context.json"
+    market_payload = json.loads(market_path.read_text(encoding="utf-8"))
+    market_payload["symbols"]["BTCUSDT"]["1h"] = {
+        **market_payload["symbols"]["BTCUSDT"].get("1h", {}),
+        "high": 116.0,
+        "low": 89.0,
+        "close": 110.0,
+        "path": [
+            {"timestamp": "2026-03-10T12:05:00Z", "price": 100.0},
+            {"timestamp": "2026-03-10T12:10:00Z", "price": 89.0},
+            {"timestamp": "2026-03-10T12:15:00Z", "price": 115.5},
+        ],
+        "path_evidence_as_of": "2026-03-11T00:00:00Z",
+    }
+    market_path.write_text(json.dumps(market_payload), encoding="utf-8")
+    _install_replay_candidates(monkeypatch)
+
+    result = backtest_engine.replay_full_market_baseline(load_backtest_config(config_path))
+
+    btc_trade = next(row for row in result.trade_ledger if row.symbol == "BTCUSDT")
+    assert btc_trade.simulated_exit_reason == "stop_loss"
+    assert btc_trade.simulated_exit_price == pytest.approx(90.0)
+    assert btc_trade.simulated_exit_ordering == "path_stop_first"
+
+
+@pytest.mark.parametrize(
+    ("path_points", "as_of", "match"),
+    [
+        (
+            [
+                {"timestamp": "2026-03-10T12:05:00Z", "price": 100.0},
+                {"timestamp": "2026-03-10T12:05:00Z", "price": 115.5},
+            ],
+            "2026-03-11T00:00:00Z",
+            "path.1h.path timestamps must be strictly increasing",
+        ),
+        (
+            [
+                {"timestamp": "2026-03-10T12:10:00Z", "price": 100.0},
+                {"timestamp": "2026-03-10T12:05:00Z", "price": 115.5},
+            ],
+            "2026-03-11T00:00:00Z",
+            "path.1h.path timestamps must be strictly increasing",
+        ),
+        (
+            [{"timestamp": "2026-03-10T12:05:00Z", "price": "115.5"}],
+            "2026-03-11T00:00:00Z",
+            "path.1h.path.price must be a positive number",
+        ),
+        (
+            [{"timestamp": "2026-03-10T12:05:00Z", "price": True}],
+            "2026-03-11T00:00:00Z",
+            "path.1h.path.price must be a positive number",
+        ),
+        (
+            [{"timestamp": "2026-03-10T12:05:00Z", "price": float("nan")}],
+            "2026-03-11T00:00:00Z",
+            "path.1h.path.price must be a positive number",
+        ),
+        (
+            [True],
+            "2026-03-11T00:00:00Z",
+            "path.1h.path entries must be objects",
+        ),
+        (
+            [{"timestamp": "2026-03-10T12:05:00", "price": 100.0}],
+            "2026-03-11T00:00:00Z",
+            "path.1h.path.timestamp must be an ISO timestamp with timezone",
+        ),
+        (
+            [{"timestamp": "2026-03-10T12:05:00Z", "price": 100.0}],
+            None,
+            "path.1h.path_evidence_as_of must be an ISO timestamp with timezone",
+        ),
+        (
+            [{"timestamp": "2026-03-10T12:05:00Z", "price": 100.0}],
+            True,
+            "path.1h.path_evidence_as_of must be an ISO timestamp with timezone",
+        ),
+    ],
+)
+def test_replay_full_market_baseline_rejects_malformed_ordered_path_evidence(
+    tmp_path: Path,
+    monkeypatch: Any,
+    path_points: Any,
+    as_of: Any,
+    match: str,
+) -> None:
+    config_path = _baseline_config_path(tmp_path)
+    config = load_backtest_config(config_path)
+    row2_bundle = config.dataset_root / "2026-03-11T00-00-00Z__row-002"
+    market_path = row2_bundle / "market_context.json"
+    market_payload = json.loads(market_path.read_text(encoding="utf-8"))
+    market_payload["symbols"]["BTCUSDT"]["1h"] = {
+        **market_payload["symbols"]["BTCUSDT"].get("1h", {}),
+        "high": 116.0,
+        "low": 89.0,
+        "close": 110.0,
+        "path": path_points,
+        "path_evidence_as_of": as_of,
+    }
+    market_path.write_text(json.dumps(market_payload), encoding="utf-8")
+    _install_replay_candidates(monkeypatch)
+
+    with pytest.raises(ValueError, match=match):
+        backtest_engine.replay_full_market_baseline(load_backtest_config(config_path))
+
+
+def test_replay_full_market_baseline_rejects_future_ordered_path_evidence(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    config_path = _baseline_config_path(tmp_path)
+    config = load_backtest_config(config_path)
+    row2_bundle = config.dataset_root / "2026-03-11T00-00-00Z__row-002"
+    market_path = row2_bundle / "market_context.json"
+    market_payload = json.loads(market_path.read_text(encoding="utf-8"))
+    market_payload["symbols"]["BTCUSDT"]["1h"] = {
+        **market_payload["symbols"]["BTCUSDT"].get("1h", {}),
+        "high": 116.0,
+        "low": 89.0,
+        "close": 110.0,
+        "path": [{"timestamp": "2026-03-10T12:05:00Z", "price": 115.5}],
+        "path_evidence_as_of": "2026-03-11T00:00:01Z",
+    }
+    market_path.write_text(json.dumps(market_payload), encoding="utf-8")
+    _install_replay_candidates(monkeypatch)
+
+    with pytest.raises(ValueError, match="path.1h.path_evidence_as_of must be at or before exit timestamp"):
+        backtest_engine.replay_full_market_baseline(load_backtest_config(config_path))
+
+
 def test_replay_full_market_baseline_does_not_simulate_stop_or_target_without_intraday_path(
     tmp_path: Path,
     monkeypatch: Any,
