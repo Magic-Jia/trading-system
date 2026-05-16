@@ -27,6 +27,7 @@ REQUIRED_ARTIFACTS = (
 )
 OPTIONAL_PRESERVED_ARTIFACTS = (
     "ledger_exchange_reconciliation.json",
+    "paper_live_sim_evidence_bundle.json",
 )
 PROMOTION_BUNDLE_REASON_CODE_ALIASES: dict[str, str] = {
     "unknown_top_level_field": "unknown_top_level_field",

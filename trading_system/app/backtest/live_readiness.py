@@ -20,6 +20,10 @@ from trading_system.app.backtest.stress_replay_contracts import (
     validate_stress_replay_contract,
 )
 from trading_system.app.backtest.types import ExecutionFillModel
+from trading_system.app.runtime.paper_live_sim_evidence import (
+    FILENAME as PAPER_LIVE_SIM_EVIDENCE_FILENAME,
+    validate_paper_live_sim_evidence_bundle,
+)
 from trading_system.app.runtime.runtime_safety_evidence import RUNTIME_SAFETY_REASON_TAXONOMY
 
 
@@ -2792,6 +2796,55 @@ def _paper_live_shadow_drift_contract(root: Path) -> dict[str, Any]:
     }
 
 
+def _paper_live_sim_evidence(root: Path) -> dict[str, Any]:
+    path = root / PAPER_LIVE_SIM_EVIDENCE_FILENAME
+    checks = {
+        "paper_live_sim_evidence_present": path.exists(),
+        "paper_live_sim_evidence_complete": False,
+        "paper_live_sim_schema_valid": False,
+        "paper_live_sim_freshness_valid": False,
+        "paper_live_sim_reconciled": False,
+    }
+    if not path.exists():
+        return {
+            "schema_version": "paper_live_sim_evidence_verification.v1",
+            "present": False,
+            "schema_valid": False,
+            "parse_error": "paper_live_sim_evidence_missing",
+            "checks": checks,
+        }
+    payload, parse_error = _load_json_rejecting_duplicate_keys(path)
+    if parse_error:
+        return {
+            "schema_version": "paper_live_sim_evidence_verification.v1",
+            "present": True,
+            "schema_valid": False,
+            "parse_error": parse_error,
+            "checks": checks,
+        }
+    try:
+        bundle = validate_paper_live_sim_evidence_bundle(payload)
+    except ValueError as exc:
+        return {
+            "schema_version": "paper_live_sim_evidence_verification.v1",
+            "present": True,
+            "schema_valid": False,
+            "parse_error": str(exc),
+            "checks": checks,
+        }
+    bundle_checks = _as_mapping(bundle.get("checks"))
+    checks.update({key: bundle_checks.get(key) is True for key in checks if key != "paper_live_sim_evidence_present"})
+    checks["paper_live_sim_evidence_present"] = True
+    return {
+        "schema_version": "paper_live_sim_evidence_verification.v1",
+        "present": True,
+        "schema_valid": True,
+        "parse_error": "",
+        "bundle": bundle,
+        "checks": checks,
+    }
+
+
 def _stress_replay_parse_error(exc: ValueError) -> str:
     message = str(exc)
     aliases = {
@@ -4974,6 +5027,7 @@ def build_live_readiness_gate_report(
     validation_gate = _validation_gate(chunk_dirs, required=policy_requirements["require_validation_evidence"])
     offline_rollout_readiness = _offline_rollout_readiness(root)
     paper_live_shadow_drift_contract = _paper_live_shadow_drift_contract(root)
+    paper_live_sim_evidence = _paper_live_sim_evidence(root)
     stress_replay_contract = _stress_replay_contract(root)
     setup_rewrite_diagnostic = _setup_rewrite_diagnostic(chunk_dirs)
     passive_calibration = _passive_calibration_diagnostic(
@@ -5429,6 +5483,16 @@ def build_live_readiness_gate_report(
         reasons.append("paper_live_shadow_drift_contract_invalid")
     elif not paper_live_shadow_drift_checks.get("paper_live_shadow_material_drift_absent", False):
         reasons.append("paper_live_shadow_material_drift")
+    paper_live_sim_checks = _as_mapping(paper_live_sim_evidence.get("checks"))
+    if paper_live_sim_checks.get("paper_live_sim_evidence_present", False):
+        if not paper_live_sim_checks.get("paper_live_sim_schema_valid", False):
+            reasons.append("paper_live_sim_evidence_invalid")
+        if not paper_live_sim_checks.get("paper_live_sim_evidence_complete", False):
+            reasons.append("paper_live_sim_evidence_incomplete")
+        if not paper_live_sim_checks.get("paper_live_sim_freshness_valid", False):
+            reasons.append("paper_live_sim_evidence_freshness_invalid")
+        if not paper_live_sim_checks.get("paper_live_sim_reconciled", False):
+            reasons.append("paper_live_sim_evidence_unreconciled")
     stress_replay_checks = _as_mapping(stress_replay_contract.get("checks"))
     if not stress_replay_checks.get("stress_replay_contract_present", False):
         reasons.append("stress_replay_contract_missing")
@@ -5581,6 +5645,7 @@ def build_live_readiness_gate_report(
         "validation_gate": validation_gate,
         "offline_rollout_readiness": offline_rollout_readiness,
         "paper_live_shadow_drift_contract": paper_live_shadow_drift_contract,
+        "paper_live_sim_evidence": paper_live_sim_evidence,
         "stress_replay_contract": stress_replay_contract,
         "concentration": concentration,
         "passive_calibration": passive_calibration,
@@ -5621,6 +5686,7 @@ def build_live_readiness_gate_report(
                 **validation_checks,
                 **offline_rollout_checks,
                 **paper_live_shadow_drift_checks,
+                **paper_live_sim_checks,
                 **stress_replay_checks,
                 "setup_concentration_met": setup_concentration_met,
                 "symbol_concentration_met": symbol_concentration_met,
@@ -6151,6 +6217,7 @@ def write_live_readiness_smoke_report(
             "summary.json",
             "setup_rewrite_experiment.json",
             "exit_path_replay.json",
+            PAPER_LIVE_SIM_EVIDENCE_FILENAME,
             "passive_order_calibration_summary.json",
             "tca_calibration_report.json",
             "market_microstructure_gate.json",
@@ -6168,6 +6235,7 @@ def write_live_readiness_smoke_report(
     for artifact_name in (
         OFFLINE_ROLLOUT_READINESS_CHECKLIST_FILENAME,
         PAPER_LIVE_SHADOW_DRIFT_CONTRACT_FILENAME,
+        PAPER_LIVE_SIM_EVIDENCE_FILENAME,
     ):
         source = source_root / artifact_name
         if source.exists():

@@ -52,6 +52,25 @@ def test_promotion_bundle_requires_paper_live_shadow_drift_contract() -> None:
     assert "paper_live_shadow_drift_contract.json" in REQUIRED_ARTIFACTS
 
 
+def test_collect_preserves_paper_live_sim_evidence_bundle_when_present(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    for name in REQUIRED_ARTIFACTS:
+        _write_json(source / name, {"artifact": name, "synthetic": True})
+    _write_json(source / "paper_live_sim_evidence_bundle.json", {"schema_version": "paper_live_sim_evidence_bundle.v1"})
+
+    bundle_dir = collect_promotion_evidence_bundle(
+        source,
+        tmp_path / "bundle",
+        candidate_id="candidate-1",
+        evidence_source={"type": "promotion_bundle_export", "run_id": "bundle-1"},
+    )
+
+    manifest = json.loads((bundle_dir / "promotion_evidence_manifest.json").read_text())
+    assert (bundle_dir / "paper_live_sim_evidence_bundle.json").exists()
+    assert "paper_live_sim_evidence_bundle.json" in [artifact["path"] for artifact in manifest["artifacts"]]
+
+
 def test_collects_reproducibility_hash_chain_over_manifest_identity_and_artifacts(
     tmp_path: Path,
 ) -> None:
