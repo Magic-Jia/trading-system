@@ -190,9 +190,10 @@ Controller policy: entries below are marked only after isolated worker verificat
 - `capacity-impact-report-contracts` — `f7bcd81a` + `af6ebc00`, live-readiness capacity impact and promotion capacity gates.
 - `drawdown-anatomy-contracts` — `02406954`, drawdown anatomy experiment/reporting/promotion contracts.
 - `tail-risk-report-contracts` — `34430f5a` + `2cbdd1ae`, tail-risk promotion and report evidence contracts.
+- `decision-audit-asof-evidence-contracts` — `9a1df155`, per-decision audit as-of evidence contracts for paper optimization promotion/reporting.
+- `deflated-sharpe-false-discovery-contracts` — `7e6cf1db`, conservative false-discovery/deflated-Sharpe promotion guardrail.
+- `paper-live-shadow-drift-contracts` — `bbde7bb2`, paper/live-shadow drift evidence contract for live-readiness promotion bundles.
 
 ### Remaining frontier
 
-- Track C: `deflated-sharpe-false-discovery-contracts`, `paper-live-shadow-drift-contracts`.
 - Track D: exchange stress/replay fixtures for flash crash, outage, websocket lag, REST limit, cancel failure, and stuck partial order.
-- Track F: `decision-audit-asof-evidence-contracts`.
