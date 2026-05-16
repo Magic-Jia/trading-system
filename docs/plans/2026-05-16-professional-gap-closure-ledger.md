@@ -193,7 +193,9 @@ Controller policy: entries below are marked only after isolated worker verificat
 - `decision-audit-asof-evidence-contracts` — `9a1df155`, per-decision audit as-of evidence contracts for paper optimization promotion/reporting.
 - `deflated-sharpe-false-discovery-contracts` — `7e6cf1db`, conservative false-discovery/deflated-Sharpe promotion guardrail.
 - `paper-live-shadow-drift-contracts` — `bbde7bb2`, paper/live-shadow drift evidence contract for live-readiness promotion bundles.
+- `flash-crash-outage-replay-contracts` — `332c9b20`, flash-crash/exchange-outage stress scenario readiness gate.
+- `cancel-stuck-partial-order-replay-contracts` — `46bb7d55`, cancel-failure/stuck-partial-order stress replay readiness contracts.
+- `websocket-rest-degradation-replay-contracts` — `3eab8f41`, websocket-lag/REST-rate-limit offline degradation replay gates.
 
 ### Remaining frontier
 
-- Track D: exchange stress/replay fixtures for flash crash, outage, websocket lag, REST limit, cancel failure, and stuck partial order.
