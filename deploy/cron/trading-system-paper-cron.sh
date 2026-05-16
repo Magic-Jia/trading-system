@@ -68,6 +68,14 @@ timestamp() {
     run_rc=$?
   fi
 
+  if [[ "${run_rc}" -eq 0 ]]; then
+    if "${UV_BIN}" run python -m trading_system.scheduled_live_sim_generation --mode "${MODE}" --runtime-env "${RUNTIME_ENV}"; then
+      run_rc=0
+    else
+      run_rc=$?
+    fi
+  fi
+
   echo "[$(timestamp)] finished exit_code=${run_rc} latest_json=${LATEST_JSON}"
   exit "${run_rc}"
 } >>"${LOG_FILE}" 2>&1
