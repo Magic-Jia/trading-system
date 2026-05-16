@@ -1885,6 +1885,15 @@ def _setup_rewrite_diagnostic(chunk_dirs: Iterable[Path]) -> dict[str, Any] | No
             }
             if row_source_chunks and summary_source_chunks != row_source_chunks:
                 parse_error = "source_chunk_summary_mismatch"
+        if not parse_error and "by_symbol" in summary:
+            summary_symbols = set(_as_mapping(summary.get("by_symbol")))
+            row_symbols = {
+                row.get("symbol")
+                for row in evaluation_rows
+                if isinstance(row, Mapping) and isinstance(row.get("symbol"), str)
+            }
+            if row_symbols and summary_symbols != row_symbols:
+                parse_error = "symbol_summary_mismatch"
         chunk = {
             "chunk": chunk_dir.name,
             "path": str(path),
