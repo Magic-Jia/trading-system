@@ -97,6 +97,29 @@ def _multiple_testing_correction(*, number_of_trials: int, adjusted_pass: bool =
     }
 
 
+def _false_discovery_guardrail(
+    *,
+    number_of_trials: int = 2,
+    effective_trials: float = 2.0,
+    non_normality_adjustment: float = 1.1,
+    observed_sharpe: float = 0.7,
+    deflated_sharpe: float = 0.32,
+    min_deflated_sharpe: float = 0.2,
+    adjusted_pass: bool = True,
+) -> dict[str, object]:
+    return {
+        "schema_version": "false_discovery_guardrail.v1",
+        "method": "deflated_sharpe_conservative",
+        "number_of_trials": number_of_trials,
+        "effective_trials": effective_trials,
+        "non_normality_adjustment": non_normality_adjustment,
+        "observed_sharpe": observed_sharpe,
+        "deflated_sharpe": deflated_sharpe,
+        "min_deflated_sharpe": min_deflated_sharpe,
+        "adjusted_pass": adjusted_pass,
+    }
+
+
 def _regime_stratified_oos_evidence(*, crash_total_return: float = 0.01) -> dict[str, object]:
     return {
         "schema_version": "regime_stratified_oos.v1",
@@ -469,6 +492,8 @@ def _write_walk_forward_bundle(
     include_drawdown_anatomy: bool = True,
     tail_risk_report: dict[str, object] | None = None,
     include_pnl_attribution: bool = True,
+    false_discovery_guardrail: dict[str, object] | None = None,
+    include_false_discovery_guardrail: bool = True,
 ) -> Path:
     root.mkdir(parents=True, exist_ok=True)
     artifacts = ["manifest.json", "summary.json", "windows.json", "scorecard.json"]
@@ -514,6 +539,10 @@ def _write_walk_forward_bundle(
         multiple_testing_correction = _multiple_testing_correction(number_of_trials=2)
     if multiple_testing_correction is not None:
         summary_payload["multiple_testing_correction"] = multiple_testing_correction
+    if false_discovery_guardrail is None and include_false_discovery_guardrail and out_of_sample_total_return > 0.0:
+        false_discovery_guardrail = _false_discovery_guardrail(number_of_trials=2)
+    if false_discovery_guardrail is not None:
+        summary_payload["false_discovery_guardrail"] = false_discovery_guardrail
     if regime_stratified_oos is not None:
         summary_payload["regime_stratified_oos"] = regime_stratified_oos
     if include_pnl_attribution and out_of_sample_total_return > 0.0:
@@ -591,6 +620,7 @@ def _write_walk_forward_bundle(
             },
             "decision_summary": {"decision": "keep_researching", "summary": "fixture"},
             **({"multiple_testing_correction": multiple_testing_correction} if multiple_testing_correction is not None else {}),
+            **({"false_discovery_guardrail": false_discovery_guardrail} if false_discovery_guardrail is not None else {}),
             **({"regime_stratified_oos": regime_stratified_oos} if regime_stratified_oos is not None else {}),
             **(
                 {"portfolio_correlation_exposure": portfolio_correlation_exposure}
@@ -1362,6 +1392,8 @@ def test_compare_backtest_bundles_promotes_walk_forward_when_all_checks_pass(tmp
         "has_drawdown_anatomy_evidence": True,
         "has_tail_risk_report": True,
         "rejects_tail_risk_limit_breach": True,
+        "has_false_discovery_guardrail": True,
+        "passes_false_discovery_guardrail": True,
     }
     assert gate["why"] == []
     assert gate["regime_stratified_oos"]["buckets"][0]["bucket"] == "volatility"
@@ -1374,6 +1406,167 @@ def test_compare_backtest_bundles_promotes_walk_forward_when_all_checks_pass(tmp
     assert result["decision_summary"]["drawdown_anatomy"]["drawdowns"][0]["trade_cluster_id"] == "trade-cluster-001"
     assert gate["tail_risk_report"]["cvar"]["loss_pct"] == 0.08
     assert result["decision_summary"]["tail_risk_report"]["scenario_provenance"][0]["scenario_id"] == "stress-crash-001"
+
+
+def test_compare_backtest_bundles_rejects_positive_walk_forward_without_false_discovery_guardrail(
+    tmp_path: Path,
+) -> None:
+    split_metadata = _walk_forward_split_metadata()
+    baseline_bundle = _write_walk_forward_bundle(
+        tmp_path / "baseline",
+        baseline_name="paper",
+        variant_name="baseline",
+        out_of_sample_total_return=0.03,
+        positive_window_ratio=0.7,
+        parameter_stability_score=0.8,
+        worst_window_return=0.01,
+        split_metadata=split_metadata,
+        runtime_fields=["optimization_summary"],
+        rollback_target="baseline",
+        rollback_trigger="regression",
+        observation_window="14d",
+        regime_stratified_oos=_regime_stratified_oos_evidence(),
+        pnl_attribution=_pnl_attribution_evidence(reported_pnl=0.03),
+        portfolio_correlation_exposure=_portfolio_correlation_exposure_evidence(),
+        capacity_analysis_evidence=_capacity_analysis_evidence(),
+        tail_risk_report=_tail_risk_report(),
+    )
+    variant_bundle = _write_walk_forward_bundle(
+        tmp_path / "variant",
+        baseline_name="paper",
+        variant_name="candidate",
+        out_of_sample_total_return=0.08,
+        positive_window_ratio=0.9,
+        parameter_stability_score=0.9,
+        worst_window_return=0.02,
+        split_metadata=split_metadata,
+        runtime_fields=["optimization_summary"],
+        rollback_target="baseline",
+        rollback_trigger="regression",
+        observation_window="14d",
+        regime_stratified_oos=_regime_stratified_oos_evidence(),
+        pnl_attribution=_pnl_attribution_evidence(reported_pnl=0.08),
+        portfolio_correlation_exposure=_portfolio_correlation_exposure_evidence(),
+        capacity_analysis_evidence=_capacity_analysis_evidence(),
+        tail_risk_report=_tail_risk_report(),
+        include_false_discovery_guardrail=False,
+    )
+
+    result = promotion.compare_backtest_bundles(
+        baseline_bundle=baseline_bundle,
+        variant_bundle=variant_bundle,
+    )
+
+    gate = result["promotion_gate"]
+    assert gate["decision"] == "reject"
+    assert gate["checks"]["has_false_discovery_guardrail"] is False
+    assert gate["checks"]["passes_false_discovery_guardrail"] is False
+    assert "missing false-discovery/deflated-Sharpe guardrail" in gate["why"]
+
+
+@pytest.mark.parametrize(
+    ("mutator", "expected_reason"),
+    (
+        (
+            lambda guardrail: guardrail.pop("effective_trials"),
+            "invalid false-discovery/deflated-Sharpe guardrail: effective_trials must be present",
+        ),
+        (
+            lambda guardrail: guardrail.update({"effective_trials": "2"}),
+            "invalid false-discovery/deflated-Sharpe guardrail: effective_trials must be finite",
+        ),
+        (
+            lambda guardrail: guardrail.update({"non_normality_adjustment": True}),
+            "invalid false-discovery/deflated-Sharpe guardrail: non_normality_adjustment must be finite",
+        ),
+        (
+            lambda guardrail: guardrail.update({"deflated_sharpe": float("nan")}),
+            "invalid false-discovery/deflated-Sharpe guardrail: deflated_sharpe must be finite",
+        ),
+        (
+            lambda guardrail: guardrail.update({"number_of_trials": True}),
+            "invalid false-discovery/deflated-Sharpe guardrail: number_of_trials must be an integer",
+        ),
+        (
+            lambda guardrail: guardrail.update({"number_of_trials": 1}),
+            "invalid false-discovery/deflated-Sharpe guardrail: number_of_trials must be greater than one",
+        ),
+        (
+            lambda guardrail: guardrail.update({"effective_trials": 0.5}),
+            "invalid false-discovery/deflated-Sharpe guardrail: effective_trials must be >= 1",
+        ),
+        (
+            lambda guardrail: guardrail.update({"effective_trials": 3.0}),
+            "invalid false-discovery/deflated-Sharpe guardrail: effective_trials must be <= number_of_trials",
+        ),
+        (
+            lambda guardrail: guardrail.update({"adjusted_pass": False}),
+            "false-discovery/deflated-Sharpe guardrail did not pass",
+        ),
+        (
+            lambda guardrail: guardrail.update({"deflated_sharpe": 0.1}),
+            "invalid false-discovery/deflated-Sharpe guardrail: deflated_sharpe below minimum",
+        ),
+    ),
+)
+def test_compare_backtest_bundles_rejects_malformed_or_failing_false_discovery_guardrail(
+    tmp_path: Path,
+    mutator: object,
+    expected_reason: str,
+) -> None:
+    guardrail = _false_discovery_guardrail()
+    mutator(guardrail)  # type: ignore[operator]
+    split_metadata = _walk_forward_split_metadata()
+    baseline_bundle = _write_walk_forward_bundle(
+        tmp_path / "baseline",
+        baseline_name="paper",
+        variant_name="baseline",
+        out_of_sample_total_return=0.03,
+        positive_window_ratio=0.7,
+        parameter_stability_score=0.8,
+        worst_window_return=0.01,
+        split_metadata=split_metadata,
+        runtime_fields=["optimization_summary"],
+        rollback_target="baseline",
+        rollback_trigger="regression",
+        observation_window="14d",
+        regime_stratified_oos=_regime_stratified_oos_evidence(),
+        pnl_attribution=_pnl_attribution_evidence(reported_pnl=0.03),
+        portfolio_correlation_exposure=_portfolio_correlation_exposure_evidence(),
+        capacity_analysis_evidence=_capacity_analysis_evidence(),
+        tail_risk_report=_tail_risk_report(),
+    )
+    variant_bundle = _write_walk_forward_bundle(
+        tmp_path / "variant",
+        baseline_name="paper",
+        variant_name="candidate",
+        out_of_sample_total_return=0.08,
+        positive_window_ratio=0.9,
+        parameter_stability_score=0.9,
+        worst_window_return=0.02,
+        split_metadata=split_metadata,
+        runtime_fields=["optimization_summary"],
+        rollback_target="baseline",
+        rollback_trigger="regression",
+        observation_window="14d",
+        regime_stratified_oos=_regime_stratified_oos_evidence(),
+        pnl_attribution=_pnl_attribution_evidence(reported_pnl=0.08),
+        portfolio_correlation_exposure=_portfolio_correlation_exposure_evidence(),
+        capacity_analysis_evidence=_capacity_analysis_evidence(),
+        tail_risk_report=_tail_risk_report(),
+        false_discovery_guardrail=guardrail,
+    )
+
+    result = promotion.compare_backtest_bundles(
+        baseline_bundle=baseline_bundle,
+        variant_bundle=variant_bundle,
+    )
+
+    gate = result["promotion_gate"]
+    assert gate["decision"] == "reject"
+    assert gate["checks"]["has_false_discovery_guardrail"] is True
+    assert gate["checks"]["passes_false_discovery_guardrail"] is False
+    assert expected_reason in gate["why"]
 
 
 def test_compare_backtest_bundles_rejects_positive_walk_forward_without_drawdown_anatomy(

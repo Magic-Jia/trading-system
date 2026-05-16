@@ -74,6 +74,7 @@ _REQUIRED_PNL_ATTRIBUTION_BUCKETS = (
 _PNL_ATTRIBUTION_TOLERANCE = 1e-9
 _PORTFOLIO_CORRELATION_EXPOSURE_SCHEMA_VERSION = "portfolio_correlation_exposure.v1"
 _TAIL_RISK_REPORT_SCHEMA_VERSION = "tail_risk_report.v1"
+_FALSE_DISCOVERY_GUARDRAIL_SCHEMA_VERSION = "false_discovery_guardrail.v1"
 _EXPECTED_TAIL_RISK_REPORT_CONTRACT_FIELDS = {
     "scope": "walk_forward_oos_tail_risk",
     "report_field": "summary.tail_risk_report",
@@ -99,6 +100,13 @@ _REQUIRED_CAPACITY_CHECKS = (
 )
 _DRAWDOWN_ANATOMY_SCHEMA_VERSION = "drawdown_anatomy.v1"
 _DRAWDOWN_FAILURE_TYPES = frozenset({"edge_failure", "execution_failure", "risk_control_failure"})
+_FALSE_DISCOVERY_GUARDRAIL_NUMERIC_FIELDS = (
+    "effective_trials",
+    "non_normality_adjustment",
+    "observed_sharpe",
+    "deflated_sharpe",
+    "min_deflated_sharpe",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -234,6 +242,54 @@ def _require_multiple_testing_correction(
         raise ValueError(f"{context}.multiple_testing_correction.adjusted_pass must be a bool")
     correction["number_of_trials"] = number_of_trials
     return correction
+
+
+def _false_discovery_guardrail_validation_error(payload: Mapping[str, Any]) -> str | None:
+    if payload.get("schema_version") != _FALSE_DISCOVERY_GUARDRAIL_SCHEMA_VERSION:
+        return f"schema_version must be {_FALSE_DISCOVERY_GUARDRAIL_SCHEMA_VERSION}"
+    method = payload.get("method")
+    if not isinstance(method, str) or not method.strip() or method != method.strip():
+        return "method must be canonical"
+    number_of_trials = payload.get("number_of_trials")
+    if isinstance(number_of_trials, bool) or not isinstance(number_of_trials, int):
+        return "number_of_trials must be an integer"
+    if number_of_trials <= 1:
+        return "number_of_trials must be greater than one"
+    numeric_values: dict[str, float] = {}
+    for field_name in _FALSE_DISCOVERY_GUARDRAIL_NUMERIC_FIELDS:
+        if field_name not in payload:
+            return f"{field_name} must be present"
+        value = payload[field_name]
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)):
+            return f"{field_name} must be finite"
+        numeric_values[field_name] = float(value)
+    if numeric_values["effective_trials"] < 1.0:
+        return "effective_trials must be >= 1"
+    if numeric_values["effective_trials"] > float(number_of_trials):
+        return "effective_trials must be <= number_of_trials"
+    if numeric_values["non_normality_adjustment"] <= 0.0:
+        return "non_normality_adjustment must be positive"
+    adjusted_pass = payload.get("adjusted_pass")
+    if not isinstance(adjusted_pass, bool):
+        return "adjusted_pass must be a bool"
+    if not adjusted_pass:
+        return "did not pass"
+    if numeric_values["deflated_sharpe"] < numeric_values["min_deflated_sharpe"]:
+        return "deflated_sharpe below minimum"
+    return None
+
+
+def _require_false_discovery_guardrail(payload: Any, *, context: str) -> dict[str, Any]:
+    if not isinstance(payload, Mapping):
+        raise ValueError(f"{context}.false_discovery_guardrail must be an object")
+    guardrail = dict(payload)
+    validation_error = _false_discovery_guardrail_validation_error(guardrail)
+    if validation_error is not None:
+        raise ValueError(f"{context}.false_discovery_guardrail.{validation_error}")
+    guardrail["number_of_trials"] = int(guardrail["number_of_trials"])
+    for field_name in _FALSE_DISCOVERY_GUARDRAIL_NUMERIC_FIELDS:
+        guardrail[field_name] = float(guardrail[field_name])
+    return guardrail
 
 
 def _is_safe_evidence_identifier(value: str) -> bool:
@@ -2668,6 +2724,60 @@ def _tail_risk_breaches(bundle: BacktestBundle) -> list[str]:
     return list(evidence.get("breaches", []))
 
 
+def _false_discovery_guardrail(bundle: BacktestBundle) -> dict[str, Any] | None:
+    if bundle.experiment_kind != "walk_forward_validation":
+        return None
+    summary = bundle.artifacts["summary.json"]
+    if "false_discovery_guardrail" in summary:
+        return _require_false_discovery_guardrail(
+            summary["false_discovery_guardrail"],
+            context=f"{bundle.root}/summary.json",
+        )
+    scorecard = bundle.artifacts["scorecard.json"]
+    if "false_discovery_guardrail" in scorecard:
+        return _require_false_discovery_guardrail(
+            scorecard["false_discovery_guardrail"],
+            context=f"{bundle.root}/scorecard.json",
+        )
+    return None
+
+
+def _positive_promotion_claim(bundle: BacktestBundle) -> bool:
+    snapshot = _metric_snapshot(bundle)
+    return snapshot.get("total_return", 0.0) > 0.0 or snapshot.get("sharpe", 0.0) > 0.0
+
+
+def _has_false_discovery_guardrail(bundle: BacktestBundle) -> bool:
+    if bundle.experiment_kind != "walk_forward_validation" or not _positive_promotion_claim(bundle):
+        return True
+    summary = bundle.artifacts["summary.json"]
+    scorecard = bundle.artifacts["scorecard.json"]
+    return "false_discovery_guardrail" in summary or "false_discovery_guardrail" in scorecard
+
+
+def _false_discovery_guardrail_failure(bundle: BacktestBundle) -> str | None:
+    if bundle.experiment_kind != "walk_forward_validation" or not _positive_promotion_claim(bundle):
+        return None
+    summary = bundle.artifacts["summary.json"]
+    raw_guardrail = summary.get("false_discovery_guardrail")
+    if raw_guardrail is None:
+        raw_guardrail = bundle.artifacts["scorecard.json"].get("false_discovery_guardrail")
+    if raw_guardrail is None:
+        return "missing false-discovery/deflated-Sharpe guardrail"
+    if not isinstance(raw_guardrail, Mapping):
+        return "invalid false-discovery/deflated-Sharpe guardrail: must be an object"
+    validation_error = _false_discovery_guardrail_validation_error(raw_guardrail)
+    if validation_error is None:
+        return None
+    if validation_error == "did not pass":
+        return "false-discovery/deflated-Sharpe guardrail did not pass"
+    return f"invalid false-discovery/deflated-Sharpe guardrail: {validation_error}"
+
+
+def _passes_false_discovery_guardrail(bundle: BacktestBundle) -> bool:
+    return _false_discovery_guardrail_failure(bundle) is None
+
+
 def _collapsed_regime_oos_buckets(bundle: BacktestBundle) -> list[str]:
     evidence = _regime_stratified_oos_evidence(bundle)
     if evidence is None:
@@ -2700,6 +2810,7 @@ def _why(
     *,
     out_of_sample_collapses: bool,
     isolated_spike_rejection_reason: str | None,
+    false_discovery_guardrail_failure: str | None,
 ) -> list[str]:
     reasons: list[str] = []
     if not checks["has_baseline_variant_pair"]:
@@ -2750,6 +2861,8 @@ def _why(
         reasons.append("missing tail-risk report evidence")
     if "rejects_tail_risk_limit_breach" in checks and not checks["rejects_tail_risk_limit_breach"]:
         reasons.append("tail-risk report breaches configured limits")
+    if false_discovery_guardrail_failure is not None:
+        reasons.append(false_discovery_guardrail_failure)
     return reasons
 
 
@@ -2770,6 +2883,7 @@ def _decision(
     metric_deltas: Mapping[str, float],
     out_of_sample_collapses: bool,
     isolated_spike_rejection_reason: str | None,
+    false_discovery_guardrail_failure: str | None,
 ) -> str:
     if not checks["has_cost_adjusted_edge"]:
         return "reject"
@@ -2800,6 +2914,8 @@ def _decision(
     if "has_tail_risk_report" in checks and not checks["has_tail_risk_report"]:
         return "reject"
     if "rejects_tail_risk_limit_breach" in checks and not checks["rejects_tail_risk_limit_breach"]:
+        return "reject"
+    if false_discovery_guardrail_failure is not None:
         return "reject"
     if not checks["has_purged_embargoed_split_metadata"]:
         return "reject"
@@ -2854,6 +2970,8 @@ def compare_backtest_bundles(*, baseline_bundle: str | Path, variant_bundle: str
         checks["has_drawdown_anatomy_evidence"] = _has_drawdown_anatomy_evidence(variant)
         checks["has_tail_risk_report"] = _has_tail_risk_report(variant)
         checks["rejects_tail_risk_limit_breach"] = not _tail_risk_breaches(variant)
+        checks["has_false_discovery_guardrail"] = _has_false_discovery_guardrail(variant)
+        checks["passes_false_discovery_guardrail"] = _passes_false_discovery_guardrail(variant)
     metric_deltas = _metric_deltas(baseline, variant)
     out_of_sample_collapses = _out_of_sample_collapses(variant)
     isolated_spike_rejection_reason = _isolated_spike_rejection_reason(variant)
@@ -2861,10 +2979,12 @@ def compare_backtest_bundles(*, baseline_bundle: str | Path, variant_bundle: str
     portfolio_exposure_breaches = _portfolio_correlation_exposure_breaches(variant)
     capacity_analysis_breaches = _capacity_analysis_breaches(variant)
     tail_risk_breaches = _tail_risk_breaches(variant)
+    false_discovery_guardrail_failure = _false_discovery_guardrail_failure(variant)
     why = _why(
         checks,
         out_of_sample_collapses=out_of_sample_collapses,
         isolated_spike_rejection_reason=isolated_spike_rejection_reason,
+        false_discovery_guardrail_failure=false_discovery_guardrail_failure,
     )
     if collapsed_regime_buckets:
         collapse_reason = f"regime-stratified OOS bucket collapses: {', '.join(collapsed_regime_buckets)}"
@@ -2893,6 +3013,7 @@ def compare_backtest_bundles(*, baseline_bundle: str | Path, variant_bundle: str
         metric_deltas=metric_deltas,
         out_of_sample_collapses=out_of_sample_collapses,
         isolated_spike_rejection_reason=isolated_spike_rejection_reason,
+        false_discovery_guardrail_failure=false_discovery_guardrail_failure,
     )
 
     promotion_gate = {
@@ -2925,6 +3046,11 @@ def compare_backtest_bundles(*, baseline_bundle: str | Path, variant_bundle: str
     tail_risk_report = _tail_risk_report(variant)
     if tail_risk_report is not None:
         promotion_gate["tail_risk_report"] = tail_risk_report
+    false_discovery_guardrail = None
+    if false_discovery_guardrail_failure is None:
+        false_discovery_guardrail = _false_discovery_guardrail(variant)
+    if false_discovery_guardrail is not None:
+        promotion_gate["false_discovery_guardrail"] = false_discovery_guardrail
     decision_summary = {
         "experiment_kind": variant.experiment_kind,
         "baseline_bundle": str(baseline.root),
@@ -2942,4 +3068,6 @@ def compare_backtest_bundles(*, baseline_bundle: str | Path, variant_bundle: str
         decision_summary["drawdown_anatomy"] = drawdown_anatomy
     if tail_risk_report is not None:
         decision_summary["tail_risk_report"] = tail_risk_report
+    if false_discovery_guardrail is not None:
+        decision_summary["false_discovery_guardrail"] = false_discovery_guardrail
     return {"promotion_gate": promotion_gate, "decision_summary": decision_summary}
