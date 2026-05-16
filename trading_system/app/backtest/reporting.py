@@ -57,6 +57,7 @@ _REQUIRED_PNL_ATTRIBUTION_BUCKETS = (
     "symbol_selection",
 )
 _PNL_ATTRIBUTION_TOLERANCE = 1e-9
+_PORTFOLIO_CORRELATION_EXPOSURE_SCHEMA_VERSION = "portfolio_correlation_exposure.v1"
 
 
 def _report_finite_float(value: Any, *, field_name: str) -> float:
@@ -798,6 +799,162 @@ def _regime_stratified_oos_evidence(value: Any, *, field_name: str) -> dict[str,
         "buckets": validated_buckets,
         "collapsed_buckets": collapsed_buckets,
     }
+
+
+def _portfolio_correlation_exposure_evidence(value: Any, *, field_name: str) -> dict[str, Any]:
+    if not isinstance(value, Mapping):
+        raise ValueError(f"{field_name} must be present for positive OOS evidence")
+    evidence = _strict_mapping_copy(value, field_name=field_name)
+    if evidence.get("schema_version") != _PORTFOLIO_CORRELATION_EXPOSURE_SCHEMA_VERSION:
+        raise ValueError(
+            f"{field_name}.schema_version must be {_PORTFOLIO_CORRELATION_EXPOSURE_SCHEMA_VERSION}"
+        )
+    as_of = _canonical_utc_report_timestamp(
+        _canonical_report_string(evidence.get("as_of"), field_name=f"{field_name}.as_of"),
+        field_name=f"{field_name}.as_of",
+    )
+    decision_timestamp = _canonical_utc_report_timestamp(
+        _canonical_report_string(
+            evidence.get("decision_timestamp"),
+            field_name=f"{field_name}.decision_timestamp",
+        ),
+        field_name=f"{field_name}.decision_timestamp",
+    )
+    parsed_as_of = datetime.fromisoformat(as_of.replace("Z", "+00:00"))
+    parsed_decision_timestamp = datetime.fromisoformat(decision_timestamp.replace("Z", "+00:00"))
+    if parsed_as_of > parsed_decision_timestamp:
+        raise ValueError(f"{field_name}.as_of must be at or before decision_timestamp")
+    max_age_seconds = _non_negative_int_field(evidence, "max_age_seconds", label=field_name)
+    if (parsed_decision_timestamp - parsed_as_of).total_seconds() > max_age_seconds:
+        raise ValueError(f"{field_name}.as_of must not be stale")
+
+    limits = _mapping_field(evidence, "limits")
+    limit_fields = (
+        "max_net_exposure_pct",
+        "max_gross_exposure_pct",
+        "max_symbol_gross_exposure_pct",
+        "max_cluster_gross_exposure_pct",
+        "max_pairwise_correlation",
+        "max_crowded_risk_score",
+    )
+    validated_limits = {
+        key: _strict_non_negative_finite_float(limits.get(key), field_name=f"{field_name}.limits.{key}")
+        for key in limit_fields
+    }
+    portfolio = _mapping_field(evidence, "portfolio")
+    validated_portfolio = {
+        "net_exposure_pct": _strict_present_finite_float(
+            portfolio.get("net_exposure_pct"),
+            field_name=f"{field_name}.portfolio.net_exposure_pct",
+        ),
+        "gross_exposure_pct": _strict_non_negative_finite_float(
+            portfolio.get("gross_exposure_pct"),
+            field_name=f"{field_name}.portfolio.gross_exposure_pct",
+        ),
+    }
+
+    breaches: list[str] = []
+    if abs(validated_portfolio["net_exposure_pct"]) > validated_limits["max_net_exposure_pct"]:
+        breaches.append("portfolio net exposure exceeds configured limit")
+    if validated_portfolio["gross_exposure_pct"] > validated_limits["max_gross_exposure_pct"]:
+        breaches.append("portfolio gross exposure exceeds configured limit")
+
+    seen_symbols: set[str] = set()
+    symbols: list[dict[str, Any]] = []
+    for index, raw_symbol in enumerate(_list_field(evidence, "symbols", label=f"{field_name}.symbols")):
+        row_field = f"{field_name}.symbols[{index}]"
+        if not isinstance(raw_symbol, Mapping):
+            raise ValueError(f"{row_field} must be an object")
+        row = _strict_mapping_copy(raw_symbol, field_name=row_field)
+        symbol = _canonical_bucket_identity(row.get("symbol"), field_name=f"{row_field}.symbol")
+        if symbol in seen_symbols:
+            raise ValueError(f"{field_name}.symbols symbol values must be unique")
+        seen_symbols.add(symbol)
+        cluster = _canonical_bucket_identity(row.get("cluster"), field_name=f"{row_field}.cluster")
+        gross = _strict_non_negative_finite_float(
+            row.get("gross_exposure_pct"),
+            field_name=f"{row_field}.gross_exposure_pct",
+        )
+        net = _strict_present_finite_float(row.get("net_exposure_pct"), field_name=f"{row_field}.net_exposure_pct")
+        if gross > validated_limits["max_symbol_gross_exposure_pct"]:
+            breaches.append(f"{symbol} gross exposure exceeds configured limit")
+        symbols.append({"symbol": symbol, "cluster": cluster, "gross_exposure_pct": gross, "net_exposure_pct": net})
+
+    seen_clusters: set[str] = set()
+    clusters: list[dict[str, Any]] = []
+    for index, raw_cluster in enumerate(_list_field(evidence, "clusters", label=f"{field_name}.clusters")):
+        row_field = f"{field_name}.clusters[{index}]"
+        if not isinstance(raw_cluster, Mapping):
+            raise ValueError(f"{row_field} must be an object")
+        row = _strict_mapping_copy(raw_cluster, field_name=row_field)
+        cluster = _canonical_bucket_identity(row.get("cluster"), field_name=f"{row_field}.cluster")
+        if cluster in seen_clusters:
+            raise ValueError(f"{field_name}.clusters cluster values must be unique")
+        seen_clusters.add(cluster)
+        gross = _strict_non_negative_finite_float(
+            row.get("gross_exposure_pct"),
+            field_name=f"{row_field}.gross_exposure_pct",
+        )
+        net = _strict_present_finite_float(row.get("net_exposure_pct"), field_name=f"{row_field}.net_exposure_pct")
+        if gross > validated_limits["max_cluster_gross_exposure_pct"]:
+            breaches.append(f"{cluster} cluster gross exposure exceeds configured limit")
+        clusters.append({"cluster": cluster, "gross_exposure_pct": gross, "net_exposure_pct": net})
+
+    correlations: list[dict[str, Any]] = []
+    for index, raw_correlation in enumerate(
+        _list_field(evidence, "correlations", default=[], label=f"{field_name}.correlations")
+    ):
+        row_field = f"{field_name}.correlations[{index}]"
+        if not isinstance(raw_correlation, Mapping):
+            raise ValueError(f"{row_field} must be an object")
+        row = _strict_mapping_copy(raw_correlation, field_name=row_field)
+        left = _canonical_bucket_identity(row.get("left_symbol"), field_name=f"{row_field}.left_symbol")
+        right = _canonical_bucket_identity(row.get("right_symbol"), field_name=f"{row_field}.right_symbol")
+        if left == right:
+            raise ValueError(f"{row_field}.left_symbol and right_symbol must differ")
+        correlation = _strict_present_finite_float(row.get("correlation"), field_name=f"{row_field}.correlation")
+        if abs(correlation) > validated_limits["max_pairwise_correlation"]:
+            breaches.append(f"{left}/{right} pairwise correlation exceeds configured limit")
+        correlations.append({"left_symbol": left, "right_symbol": right, "correlation": correlation})
+
+    crowded = _mapping_field(evidence, "crowded_risk")
+    crowded_score = _strict_non_negative_finite_float(
+        crowded.get("score"),
+        field_name=f"{field_name}.crowded_risk.score",
+    )
+    if crowded_score > validated_limits["max_crowded_risk_score"]:
+        breaches.append("crowded risk score exceeds configured limit")
+    crowded_evidence = _list_field(crowded, "evidence", label=f"{field_name}.crowded_risk.evidence")
+    if not crowded_evidence:
+        raise ValueError(f"{field_name}.crowded_risk.evidence must be a non-empty list")
+    result = {
+        "schema_version": _PORTFOLIO_CORRELATION_EXPOSURE_SCHEMA_VERSION,
+        "as_of": as_of,
+        "decision_timestamp": decision_timestamp,
+        "max_age_seconds": max_age_seconds,
+        "limits": validated_limits,
+        "portfolio": validated_portfolio,
+        "symbols": symbols,
+        "clusters": clusters,
+        "correlations": correlations,
+        "crowded_risk": {
+            "score": crowded_score,
+            "evidence": [
+                _canonical_bucket_identity(item, field_name=f"{field_name}.crowded_risk.evidence[{index}]")
+                for index, item in enumerate(crowded_evidence)
+            ],
+        },
+        "breaches": breaches,
+    }
+    if "risk_hold" in evidence:
+        risk_hold = _mapping_field(evidence, "risk_hold")
+        if risk_hold.get("active") is not True:
+            raise ValueError(f"{field_name}.risk_hold.active must be true")
+        result["risk_hold"] = {
+            "active": True,
+            "reason": _canonical_bucket_identity(risk_hold.get("reason"), field_name=f"{field_name}.risk_hold.reason"),
+        }
+    return result
 
 
 def _cost_stress_metric_payload(metrics: Mapping[str, Any], *, field_name: str) -> dict[str, Any]:
@@ -2836,6 +2993,12 @@ def render_walk_forward_validation_report(
             experiment.get("regime_stratified_oos"),
             field_name="regime_stratified_oos",
         )
+    portfolio_correlation_exposure = None
+    if positive_oos_claim or "portfolio_correlation_exposure" in experiment:
+        portfolio_correlation_exposure = _portfolio_correlation_exposure_evidence(
+            experiment.get("portfolio_correlation_exposure"),
+            field_name="portfolio_correlation_exposure",
+        )
 
     if (
         out_of_sample_total_return > 0.0
@@ -2879,6 +3042,11 @@ def render_walk_forward_validation_report(
             "multiple_testing_correction": multiple_testing_correction,
             **({"regime_stratified_oos": regime_stratified_oos} if regime_stratified_oos is not None else {}),
             **({"pnl_attribution": pnl_attribution} if pnl_attribution is not None else {}),
+            **(
+                {"portfolio_correlation_exposure": portfolio_correlation_exposure}
+                if portfolio_correlation_exposure is not None
+                else {}
+            ),
             **_promotion_metadata_sections(report_metadata),
         },
     }

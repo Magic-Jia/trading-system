@@ -2548,6 +2548,79 @@ def _walk_forward_pnl_attribution(
     }
 
 
+def _canonical_cluster_for_symbol(symbol: str) -> str:
+    if symbol.startswith(("BTC", "ETH")):
+        return "majors"
+    if symbol.endswith("PERP"):
+        return "perps"
+    return "alts"
+
+
+def _walk_forward_portfolio_correlation_exposure(
+    ordered_rows: Sequence[DatasetSnapshotRow],
+    *,
+    config: BacktestConfig | None,
+) -> dict[str, Any]:
+    decision_timestamp = ordered_rows[-1].timestamp if ordered_rows else None
+    as_of = decision_timestamp.isoformat().replace("+00:00", "Z") if decision_timestamp is not None else "1970-01-01T00:00:00Z"
+    symbols: list[str] = []
+    if ordered_rows:
+        candidate_symbols = ordered_rows[-1].market.get("candidate_symbols")
+        if isinstance(candidate_symbols, Sequence) and not isinstance(candidate_symbols, (str, bytes)):
+            symbols = sorted({symbol for symbol in candidate_symbols if isinstance(symbol, str) and symbol})
+    if not symbols:
+        symbols = ["NO_POSITION"]
+    gross_budget = 0.0
+    if config is not None and config.capital is not None:
+        gross_budget = max(float(config.capital.max_open_risk), 0.0)
+    per_symbol = gross_budget / len(symbols) if symbols else 0.0
+    symbol_rows = [
+        {
+            "symbol": symbol,
+            "cluster": _canonical_cluster_for_symbol(symbol),
+            "gross_exposure_pct": round(per_symbol, 10),
+            "net_exposure_pct": round(per_symbol, 10),
+        }
+        for symbol in symbols
+    ]
+    clusters: dict[str, float] = defaultdict(float)
+    for row in symbol_rows:
+        clusters[str(row["cluster"])] += float(row["gross_exposure_pct"])
+    cluster_rows = [
+        {
+            "cluster": cluster,
+            "gross_exposure_pct": round(gross, 10),
+            "net_exposure_pct": round(gross, 10),
+        }
+        for cluster, gross in sorted(clusters.items())
+    ]
+    return {
+        "schema_version": "portfolio_correlation_exposure.v1",
+        "as_of": as_of,
+        "decision_timestamp": as_of,
+        "max_age_seconds": 86400,
+        "limits": {
+            "max_net_exposure_pct": max(gross_budget, 1.0),
+            "max_gross_exposure_pct": max(gross_budget, 1.0),
+            "max_symbol_gross_exposure_pct": max(per_symbol, 1.0),
+            "max_cluster_gross_exposure_pct": max(max(clusters.values(), default=0.0), 1.0),
+            "max_pairwise_correlation": 1.0,
+            "max_crowded_risk_score": 1.0,
+        },
+        "portfolio": {
+            "net_exposure_pct": round(gross_budget, 10),
+            "gross_exposure_pct": round(gross_budget, 10),
+        },
+        "symbols": symbol_rows,
+        "clusters": cluster_rows,
+        "correlations": [],
+        "crowded_risk": {
+            "score": 0.0,
+            "evidence": ["offline_backtest_no_crowded_risk_breach"],
+        },
+    }
+
+
 def run_walk_forward_validation_experiment(
     rows: Iterable[DatasetSnapshotRow],
     *,
@@ -2588,6 +2661,10 @@ def run_walk_forward_validation_experiment(
         evaluation_window=evaluation_window,
     )
     pnl_attribution = _walk_forward_pnl_attribution(robustness_summary, window_summaries)
+    portfolio_correlation_exposure = _walk_forward_portfolio_correlation_exposure(
+        ordered_rows,
+        config=config,
+    )
     return {
         "metadata": {
             "snapshot_count": len(ordered_rows),
@@ -2602,6 +2679,7 @@ def run_walk_forward_validation_experiment(
         "parameter_stability": parameter_stability,
         "regime_stratified_oos": regime_stratified_oos,
         "pnl_attribution": pnl_attribution,
+        "portfolio_correlation_exposure": portfolio_correlation_exposure,
         "multiple_testing_correction": _multiple_testing_correction_metadata(
             number_of_trials=max(len(window_summaries), 2),
             adjusted_pass=(

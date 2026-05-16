@@ -71,6 +71,7 @@ _REQUIRED_PNL_ATTRIBUTION_BUCKETS = (
     "symbol_selection",
 )
 _PNL_ATTRIBUTION_TOLERANCE = 1e-9
+_PORTFOLIO_CORRELATION_EXPOSURE_SCHEMA_VERSION = "portfolio_correlation_exposure.v1"
 
 
 @dataclass(frozen=True, slots=True)
@@ -907,6 +908,236 @@ def _require_pnl_attribution_evidence(
     }
 
 
+def _require_canonical_utc_timestamp(value: Any, *, context: str) -> datetime:
+    if not isinstance(value, str) or not value.strip() or value != value.strip():
+        raise ValueError(f"{context} must be a canonical UTC Z timestamp")
+    if not value.endswith("Z"):
+        raise ValueError(f"{context} must be a canonical UTC Z timestamp")
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError(f"{context} must be a canonical UTC Z timestamp") from exc
+    if parsed.isoformat().replace("+00:00", "Z") != value:
+        raise ValueError(f"{context} must be a canonical UTC Z timestamp")
+    return parsed
+
+
+def _require_non_negative_strict_number(value: Any, *, context: str) -> float:
+    parsed = _require_strict_real_number(value, context=context)
+    if parsed < 0.0:
+        raise ValueError(f"{context} must be non-negative")
+    return parsed
+
+
+def _portfolio_exposure_limits(limits: Any, *, context: str) -> dict[str, float]:
+    if not isinstance(limits, Mapping):
+        raise ValueError(f"{context}.limits must be an object")
+    raw_limits = dict(limits)
+    required = (
+        "max_net_exposure_pct",
+        "max_gross_exposure_pct",
+        "max_symbol_gross_exposure_pct",
+        "max_cluster_gross_exposure_pct",
+        "max_pairwise_correlation",
+        "max_crowded_risk_score",
+    )
+    return {
+        field: _require_non_negative_strict_number(raw_limits.get(field), context=f"{context}.limits.{field}")
+        for field in required
+    }
+
+
+def _portfolio_symbol_rows(
+    rows: Any,
+    *,
+    context: str,
+    limits: Mapping[str, float],
+    breaches: list[str],
+) -> list[dict[str, Any]]:
+    if not isinstance(rows, list) or not rows:
+        raise ValueError(f"{context}.symbols must be a non-empty list")
+    seen_symbols: set[str] = set()
+    validated: list[dict[str, Any]] = []
+    for index, raw_row in enumerate(rows):
+        row_context = f"{context}.symbols[{index}]"
+        if not isinstance(raw_row, Mapping):
+            raise ValueError(f"{row_context} must be an object")
+        symbol = _require_canonical_bucket_identity(raw_row.get("symbol"), context=f"{row_context}.symbol")
+        if symbol in seen_symbols:
+            raise ValueError(f"{context}.symbols symbol values must be unique")
+        seen_symbols.add(symbol)
+        cluster = _require_canonical_bucket_identity(raw_row.get("cluster"), context=f"{row_context}.cluster")
+        gross = _require_non_negative_strict_number(
+            raw_row.get("gross_exposure_pct"),
+            context=f"{row_context}.gross_exposure_pct",
+        )
+        net = _require_strict_real_number(raw_row.get("net_exposure_pct"), context=f"{row_context}.net_exposure_pct")
+        if gross > limits["max_symbol_gross_exposure_pct"]:
+            breaches.append(f"{symbol} gross exposure exceeds configured limit")
+        validated.append({"symbol": symbol, "cluster": cluster, "gross_exposure_pct": gross, "net_exposure_pct": net})
+    return validated
+
+
+def _portfolio_cluster_rows(
+    rows: Any,
+    *,
+    context: str,
+    limits: Mapping[str, float],
+    breaches: list[str],
+) -> list[dict[str, Any]]:
+    if not isinstance(rows, list) or not rows:
+        raise ValueError(f"{context}.clusters must be a non-empty list")
+    seen_clusters: set[str] = set()
+    validated: list[dict[str, Any]] = []
+    for index, raw_row in enumerate(rows):
+        row_context = f"{context}.clusters[{index}]"
+        if not isinstance(raw_row, Mapping):
+            raise ValueError(f"{row_context} must be an object")
+        cluster = _require_canonical_bucket_identity(raw_row.get("cluster"), context=f"{row_context}.cluster")
+        if cluster in seen_clusters:
+            raise ValueError(f"{context}.clusters cluster values must be unique")
+        seen_clusters.add(cluster)
+        gross = _require_non_negative_strict_number(
+            raw_row.get("gross_exposure_pct"),
+            context=f"{row_context}.gross_exposure_pct",
+        )
+        net = _require_strict_real_number(raw_row.get("net_exposure_pct"), context=f"{row_context}.net_exposure_pct")
+        if gross > limits["max_cluster_gross_exposure_pct"]:
+            breaches.append(f"{cluster} cluster gross exposure exceeds configured limit")
+        validated.append({"cluster": cluster, "gross_exposure_pct": gross, "net_exposure_pct": net})
+    return validated
+
+
+def _portfolio_correlation_rows(
+    rows: Any,
+    *,
+    context: str,
+    limits: Mapping[str, float],
+    breaches: list[str],
+) -> list[dict[str, Any]]:
+    if not isinstance(rows, list):
+        raise ValueError(f"{context}.correlations must be a list")
+    validated: list[dict[str, Any]] = []
+    for index, raw_row in enumerate(rows):
+        row_context = f"{context}.correlations[{index}]"
+        if not isinstance(raw_row, Mapping):
+            raise ValueError(f"{row_context} must be an object")
+        left = _require_canonical_bucket_identity(raw_row.get("left_symbol"), context=f"{row_context}.left_symbol")
+        right = _require_canonical_bucket_identity(raw_row.get("right_symbol"), context=f"{row_context}.right_symbol")
+        if left == right:
+            raise ValueError(f"{row_context}.left_symbol and right_symbol must differ")
+        correlation = _require_strict_real_number(raw_row.get("correlation"), context=f"{row_context}.correlation")
+        if abs(correlation) > limits["max_pairwise_correlation"]:
+            breaches.append(f"{left}/{right} pairwise correlation exceeds configured limit")
+        validated.append({"left_symbol": left, "right_symbol": right, "correlation": correlation})
+    return validated
+
+
+def _portfolio_crowded_risk(
+    raw_value: Any,
+    *,
+    context: str,
+    limits: Mapping[str, float],
+    breaches: list[str],
+) -> dict[str, Any]:
+    if not isinstance(raw_value, Mapping):
+        raise ValueError(f"{context}.crowded_risk must be an object")
+    score = _require_non_negative_strict_number(raw_value.get("score"), context=f"{context}.crowded_risk.score")
+    if score > limits["max_crowded_risk_score"]:
+        breaches.append("crowded risk score exceeds configured limit")
+    evidence = raw_value.get("evidence")
+    if not isinstance(evidence, list) or not evidence:
+        raise ValueError(f"{context}.crowded_risk.evidence must be a non-empty list")
+    return {
+        "score": score,
+        "evidence": [
+            _require_canonical_bucket_identity(item, context=f"{context}.crowded_risk.evidence[{index}]")
+            for index, item in enumerate(evidence)
+        ],
+    }
+
+
+def _explicit_portfolio_risk_hold(raw_value: Any, *, context: str) -> dict[str, Any] | None:
+    if raw_value is None:
+        return None
+    if not isinstance(raw_value, Mapping):
+        raise ValueError(f"{context}.risk_hold must be an object")
+    active = raw_value.get("active")
+    if active is not True:
+        raise ValueError(f"{context}.risk_hold.active must be true")
+    reason = _require_canonical_bucket_identity(raw_value.get("reason"), context=f"{context}.risk_hold.reason")
+    return {"active": True, "reason": reason}
+
+
+def _require_portfolio_correlation_exposure_evidence(payload: Any, *, context: str) -> dict[str, Any]:
+    if not isinstance(payload, Mapping):
+        raise ValueError(f"{context}.portfolio_correlation_exposure must be present for positive OOS evidence")
+    evidence = dict(payload)
+    if evidence.get("schema_version") != _PORTFOLIO_CORRELATION_EXPOSURE_SCHEMA_VERSION:
+        raise ValueError(
+            f"{context}.portfolio_correlation_exposure.schema_version must be "
+            f"{_PORTFOLIO_CORRELATION_EXPOSURE_SCHEMA_VERSION}"
+        )
+    field_context = f"{context}.portfolio_correlation_exposure"
+    as_of = _require_canonical_utc_timestamp(evidence.get("as_of"), context=f"{field_context}.as_of")
+    decision_timestamp = _require_canonical_utc_timestamp(
+        evidence.get("decision_timestamp"),
+        context=f"{field_context}.decision_timestamp",
+    )
+    if as_of > decision_timestamp:
+        raise ValueError(f"{field_context}.as_of must be at or before decision_timestamp")
+    max_age_seconds = _require_non_negative_int(evidence, "max_age_seconds", context=field_context)
+    if (decision_timestamp - as_of).total_seconds() > max_age_seconds:
+        raise ValueError(f"{field_context}.as_of must not be stale")
+    limits = _portfolio_exposure_limits(evidence.get("limits"), context=field_context)
+    portfolio = _require_mapping(evidence, "portfolio", context=field_context)
+    net_exposure = _require_strict_real_number(
+        portfolio.get("net_exposure_pct"),
+        context=f"{field_context}.portfolio.net_exposure_pct",
+    )
+    gross_exposure = _require_non_negative_strict_number(
+        portfolio.get("gross_exposure_pct"),
+        context=f"{field_context}.portfolio.gross_exposure_pct",
+    )
+    breaches: list[str] = []
+    if abs(net_exposure) > limits["max_net_exposure_pct"]:
+        breaches.append("portfolio net exposure exceeds configured limit")
+    if gross_exposure > limits["max_gross_exposure_pct"]:
+        breaches.append("portfolio gross exposure exceeds configured limit")
+    symbols = _portfolio_symbol_rows(evidence.get("symbols"), context=field_context, limits=limits, breaches=breaches)
+    clusters = _portfolio_cluster_rows(evidence.get("clusters"), context=field_context, limits=limits, breaches=breaches)
+    correlations = _portfolio_correlation_rows(
+        evidence.get("correlations", []),
+        context=field_context,
+        limits=limits,
+        breaches=breaches,
+    )
+    crowded_risk = _portfolio_crowded_risk(
+        evidence.get("crowded_risk"),
+        context=field_context,
+        limits=limits,
+        breaches=breaches,
+    )
+    risk_hold = _explicit_portfolio_risk_hold(evidence.get("risk_hold"), context=field_context)
+    return {
+        "schema_version": _PORTFOLIO_CORRELATION_EXPOSURE_SCHEMA_VERSION,
+        "as_of": evidence["as_of"],
+        "decision_timestamp": evidence["decision_timestamp"],
+        "max_age_seconds": max_age_seconds,
+        "limits": limits,
+        "portfolio": {
+            "net_exposure_pct": net_exposure,
+            "gross_exposure_pct": gross_exposure,
+        },
+        "symbols": symbols,
+        "clusters": clusters,
+        "correlations": correlations,
+        "crowded_risk": crowded_risk,
+        "breaches": breaches,
+        **({"risk_hold": risk_hold} if risk_hold is not None else {}),
+    }
+
+
 def _require_rows(payload: Mapping[str, Any], *, context: str) -> list[dict[str, Any]]:
     rows = payload.get("rows")
     if not isinstance(rows, list):
@@ -1225,6 +1456,11 @@ def _validate_walk_forward_bundle(bundle: BacktestBundle) -> None:
             summary.get("regime_stratified_oos"),
             context=f"{bundle.root}/summary.json",
         )
+    if "portfolio_correlation_exposure" in summary:
+        summary["portfolio_correlation_exposure"] = _require_portfolio_correlation_exposure_evidence(
+            summary.get("portfolio_correlation_exposure"),
+            context=f"{bundle.root}/summary.json",
+        )
     windows = _require_rows(bundle.artifacts["windows.json"], context=f"{bundle.root}/windows.json")
     _require_multiple_testing_correction(
         bundle.artifacts["scorecard.json"],
@@ -1254,6 +1490,11 @@ def _validate_walk_forward_bundle(bundle: BacktestBundle) -> None:
     if "regime_stratified_oos" in scorecard:
         scorecard["regime_stratified_oos"] = _require_regime_stratified_oos_evidence(
             scorecard["regime_stratified_oos"],
+            context=f"{bundle.root}/scorecard.json",
+        )
+    if "portfolio_correlation_exposure" in scorecard:
+        scorecard["portfolio_correlation_exposure"] = _require_portfolio_correlation_exposure_evidence(
+            scorecard["portfolio_correlation_exposure"],
             context=f"{bundle.root}/scorecard.json",
         )
 
@@ -1685,6 +1926,39 @@ def _has_regime_stratified_oos_evidence(bundle: BacktestBundle) -> bool:
     return _regime_stratified_oos_evidence(bundle) is not None
 
 
+def _portfolio_correlation_exposure_evidence(bundle: BacktestBundle) -> dict[str, Any] | None:
+    if bundle.experiment_kind != "walk_forward_validation":
+        return None
+    summary = bundle.artifacts["summary.json"]
+    if "portfolio_correlation_exposure" in summary:
+        return _require_portfolio_correlation_exposure_evidence(
+            summary["portfolio_correlation_exposure"],
+            context=f"{bundle.root}/summary.json",
+        )
+    scorecard = bundle.artifacts["scorecard.json"]
+    if "portfolio_correlation_exposure" in scorecard:
+        return _require_portfolio_correlation_exposure_evidence(
+            scorecard["portfolio_correlation_exposure"],
+            context=f"{bundle.root}/scorecard.json",
+        )
+    return None
+
+
+def _has_portfolio_correlation_exposure_evidence(bundle: BacktestBundle) -> bool:
+    if bundle.experiment_kind != "walk_forward_validation":
+        return True
+    return _portfolio_correlation_exposure_evidence(bundle) is not None
+
+
+def _portfolio_correlation_exposure_breaches(bundle: BacktestBundle) -> list[str]:
+    evidence = _portfolio_correlation_exposure_evidence(bundle)
+    if evidence is None:
+        return []
+    if evidence.get("risk_hold", {}).get("active") is True:
+        return []
+    return list(evidence.get("breaches", []))
+
+
 def _collapsed_regime_oos_buckets(bundle: BacktestBundle) -> list[str]:
     evidence = _regime_stratified_oos_evidence(bundle)
     if evidence is None:
@@ -1747,6 +2021,16 @@ def _why(
         reasons.append("missing regime-stratified OOS evidence")
     if "rejects_regime_bucket_collapse" in checks and not checks["rejects_regime_bucket_collapse"]:
         reasons.append("regime-stratified OOS bucket collapses")
+    if (
+        "has_portfolio_correlation_exposure_evidence" in checks
+        and not checks["has_portfolio_correlation_exposure_evidence"]
+    ):
+        reasons.append("missing portfolio correlation/exposure evidence")
+    if (
+        "rejects_portfolio_correlation_exposure_breach" in checks
+        and not checks["rejects_portfolio_correlation_exposure_breach"]
+    ):
+        reasons.append("portfolio correlation/exposure evidence breaches configured limits")
     return reasons
 
 
@@ -1777,6 +2061,16 @@ def _decision(
     if "has_regime_stratified_oos_evidence" in checks and not checks["has_regime_stratified_oos_evidence"]:
         return "reject"
     if "rejects_regime_bucket_collapse" in checks and not checks["rejects_regime_bucket_collapse"]:
+        return "reject"
+    if (
+        "has_portfolio_correlation_exposure_evidence" in checks
+        and not checks["has_portfolio_correlation_exposure_evidence"]
+    ):
+        return "reject"
+    if (
+        "rejects_portfolio_correlation_exposure_breach" in checks
+        and not checks["rejects_portfolio_correlation_exposure_breach"]
+    ):
         return "reject"
     if not checks["has_purged_embargoed_split_metadata"]:
         return "reject"
@@ -1821,10 +2115,17 @@ def compare_backtest_bundles(*, baseline_bundle: str | Path, variant_bundle: str
         checks["rejects_isolated_spike_optimum"] = _isolated_spike_rejection_reason(variant) is None
         checks["has_regime_stratified_oos_evidence"] = _has_regime_stratified_oos_evidence(variant)
         checks["rejects_regime_bucket_collapse"] = not _collapsed_regime_oos_buckets(variant)
+        checks["has_portfolio_correlation_exposure_evidence"] = _has_portfolio_correlation_exposure_evidence(
+            variant
+        )
+        checks["rejects_portfolio_correlation_exposure_breach"] = not _portfolio_correlation_exposure_breaches(
+            variant
+        )
     metric_deltas = _metric_deltas(baseline, variant)
     out_of_sample_collapses = _out_of_sample_collapses(variant)
     isolated_spike_rejection_reason = _isolated_spike_rejection_reason(variant)
     collapsed_regime_buckets = _collapsed_regime_oos_buckets(variant)
+    portfolio_exposure_breaches = _portfolio_correlation_exposure_breaches(variant)
     why = _why(
         checks,
         out_of_sample_collapses=out_of_sample_collapses,
@@ -1834,6 +2135,13 @@ def compare_backtest_bundles(*, baseline_bundle: str | Path, variant_bundle: str
         collapse_reason = f"regime-stratified OOS bucket collapses: {', '.join(collapsed_regime_buckets)}"
         why = [reason for reason in why if reason != "regime-stratified OOS bucket collapses"]
         why.append(collapse_reason)
+    if portfolio_exposure_breaches:
+        why = [
+            reason
+            for reason in why
+            if reason != "portfolio correlation/exposure evidence breaches configured limits"
+        ]
+        why.extend(portfolio_exposure_breaches)
     decision = _decision(
         checks,
         experiment_kind=variant.experiment_kind,
@@ -1860,6 +2168,9 @@ def compare_backtest_bundles(*, baseline_bundle: str | Path, variant_bundle: str
     dynamic_sizing_evidence = _dynamic_sizing_evidence(variant)
     if dynamic_sizing_evidence is not None:
         promotion_gate["dynamic_sizing_evidence"] = dynamic_sizing_evidence
+    portfolio_correlation_exposure = _portfolio_correlation_exposure_evidence(variant)
+    if portfolio_correlation_exposure is not None:
+        promotion_gate["portfolio_correlation_exposure"] = portfolio_correlation_exposure
     decision_summary = {
         "experiment_kind": variant.experiment_kind,
         "baseline_bundle": str(baseline.root),

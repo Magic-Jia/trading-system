@@ -149,6 +149,49 @@ def _dynamic_sizing_evidence(*, final_risk_fraction: float = 0.015) -> dict[str,
     }
 
 
+def _portfolio_correlation_exposure_evidence(
+    *,
+    net_exposure_pct: object = 0.18,
+    gross_exposure_pct: object = 0.42,
+    btc_symbol: object = "BTCUSDT",
+    eth_cluster: object = "majors",
+    risk_hold: dict[str, object] | None = None,
+) -> dict[str, object]:
+    return {
+        "schema_version": "portfolio_correlation_exposure.v1",
+        "as_of": "2026-01-31T00:00:00Z",
+        "decision_timestamp": "2026-01-31T00:30:00Z",
+        "max_age_seconds": 3600,
+        "limits": {
+            "max_net_exposure_pct": 0.65,
+            "max_gross_exposure_pct": 1.25,
+            "max_symbol_gross_exposure_pct": 0.35,
+            "max_cluster_gross_exposure_pct": 0.55,
+            "max_pairwise_correlation": 0.85,
+            "max_crowded_risk_score": 0.7,
+        },
+        "portfolio": {
+            "net_exposure_pct": net_exposure_pct,
+            "gross_exposure_pct": gross_exposure_pct,
+        },
+        "symbols": [
+            {"symbol": btc_symbol, "cluster": "majors", "gross_exposure_pct": 0.22, "net_exposure_pct": 0.14},
+            {"symbol": "ETHUSDT", "cluster": eth_cluster, "gross_exposure_pct": 0.20, "net_exposure_pct": 0.04},
+        ],
+        "clusters": [
+            {"cluster": "majors", "gross_exposure_pct": 0.42, "net_exposure_pct": 0.18},
+        ],
+        "correlations": [
+            {"left_symbol": "BTCUSDT", "right_symbol": "ETHUSDT", "correlation": 0.62},
+        ],
+        "crowded_risk": {
+            "score": 0.31,
+            "evidence": ["funding_neutral", "open_interest_stable"],
+        },
+        **({"risk_hold": risk_hold} if risk_hold is not None else {}),
+    }
+
+
 def _write_full_market_bundle(
     root: Path,
     *,
@@ -242,6 +285,7 @@ def _write_walk_forward_bundle(
     pnl_attribution: dict[str, object] | None = None,
     dynamic_sizing_evidence: dict[str, object] | None = None,
     include_dynamic_sizing_evidence: bool = True,
+    portfolio_correlation_exposure: dict[str, object] | None = None,
     include_pnl_attribution: bool = True,
 ) -> Path:
     root.mkdir(parents=True, exist_ok=True)
@@ -296,6 +340,8 @@ def _write_walk_forward_bundle(
         )
     if include_dynamic_sizing_evidence and out_of_sample_total_return > 0.0:
         summary_payload["dynamic_sizing_evidence"] = dynamic_sizing_evidence or _dynamic_sizing_evidence()
+    if portfolio_correlation_exposure is not None:
+        summary_payload["portfolio_correlation_exposure"] = portfolio_correlation_exposure
     if runtime_fields:
         summary_payload["runtime_observability"] = {"runtime_fields": runtime_fields}
     if rollback_target and (rollback_trigger or observation_window):
@@ -358,6 +404,11 @@ def _write_walk_forward_bundle(
             "decision_summary": {"decision": "keep_researching", "summary": "fixture"},
             **({"multiple_testing_correction": multiple_testing_correction} if multiple_testing_correction is not None else {}),
             **({"regime_stratified_oos": regime_stratified_oos} if regime_stratified_oos is not None else {}),
+            **(
+                {"portfolio_correlation_exposure": portfolio_correlation_exposure}
+                if portfolio_correlation_exposure is not None
+                else {}
+            ),
             **(
                 {
                     "pnl_attribution": pnl_attribution
@@ -1058,6 +1109,88 @@ def test_compare_backtest_bundles_promotes_walk_forward_when_all_checks_pass(tmp
         observation_window="14d",
         regime_stratified_oos=_regime_stratified_oos_evidence(),
         pnl_attribution=_pnl_attribution_evidence(reported_pnl=0.03),
+        portfolio_correlation_exposure=_portfolio_correlation_exposure_evidence(
+            net_exposure_pct=0.16,
+            gross_exposure_pct=0.39,
+        ),
+    )
+    variant_bundle = _write_walk_forward_bundle(
+        tmp_path / "variant",
+        baseline_name="current_policy",
+        variant_name="candidate_walk_forward",
+        out_of_sample_total_return=0.08,
+        positive_window_ratio=0.9,
+        parameter_stability_score=0.9,
+        worst_window_return=0.02,
+        split_metadata=split_metadata,
+        runtime_fields=["regime", "allocator_decision_reason"],
+        rollback_target="baseline_walk_forward",
+        rollback_trigger="oos_total_return_below_zero",
+        observation_window="14d",
+        regime_stratified_oos=_regime_stratified_oos_evidence(),
+        pnl_attribution=_pnl_attribution_evidence(reported_pnl=0.08),
+        portfolio_correlation_exposure=_portfolio_correlation_exposure_evidence(),
+    )
+
+    result = promotion.compare_backtest_bundles(
+        baseline_bundle=baseline_bundle,
+        variant_bundle=variant_bundle,
+    )
+
+    gate = result["promotion_gate"]
+    assert gate["decision"] == "candidate_for_promotion"
+    assert gate["checks"] == {
+        "has_baseline_variant_pair": True,
+        "has_cost_adjusted_edge": True,
+        "has_out_of_sample_evidence": True,
+        "has_purged_embargoed_split_metadata": True,
+        "has_attribution_or_funnel_explanation": True,
+        "has_pnl_attribution_evidence": True,
+        "has_dynamic_sizing_evidence": True,
+        "has_runtime_observability_plan": True,
+        "has_rollback_plan": True,
+        "has_parameter_stability_surface": True,
+        "rejects_isolated_spike_optimum": True,
+        "has_regime_stratified_oos_evidence": True,
+        "rejects_regime_bucket_collapse": True,
+        "has_portfolio_correlation_exposure_evidence": True,
+        "rejects_portfolio_correlation_exposure_breach": True,
+    }
+    assert gate["why"] == []
+    assert gate["regime_stratified_oos"]["buckets"][0]["bucket"] == "volatility"
+    assert gate["pnl_attribution"]["buckets"][0]["bucket"] == "entry_alpha"
+    assert gate["dynamic_sizing_evidence"]["decisions"][0]["decision_id"] == "sizing-001"
+    assert result["decision_summary"]["dynamic_sizing_evidence"]["decisions"][0]["decision_id"] == "sizing-001"
+    assert gate["portfolio_correlation_exposure"]["portfolio"]["gross_exposure_pct"] == 0.42
+
+
+def test_compare_backtest_bundles_rejects_positive_walk_forward_without_portfolio_exposure_evidence(
+    tmp_path: Path,
+) -> None:
+    split_metadata = {
+        "schema_version": "walk_forward_split_metadata.v1",
+        "purge_bars": 1,
+        "embargo_bars": 0,
+    }
+    baseline_bundle = _write_walk_forward_bundle(
+        tmp_path / "baseline",
+        baseline_name="current_policy",
+        variant_name="baseline_walk_forward",
+        out_of_sample_total_return=0.03,
+        positive_window_ratio=0.75,
+        parameter_stability_score=0.7,
+        worst_window_return=0.01,
+        split_metadata=split_metadata,
+        runtime_fields=["regime", "allocator_decision_reason"],
+        rollback_target="baseline_walk_forward",
+        rollback_trigger="oos_total_return_below_zero",
+        observation_window="14d",
+        regime_stratified_oos=_regime_stratified_oos_evidence(),
+        pnl_attribution=_pnl_attribution_evidence(reported_pnl=0.03),
+        portfolio_correlation_exposure=_portfolio_correlation_exposure_evidence(
+            net_exposure_pct=0.16,
+            gross_exposure_pct=0.39,
+        ),
     )
     variant_bundle = _write_walk_forward_bundle(
         tmp_path / "variant",
@@ -1082,27 +1215,117 @@ def test_compare_backtest_bundles_promotes_walk_forward_when_all_checks_pass(tmp
     )
 
     gate = result["promotion_gate"]
-    assert gate["decision"] == "candidate_for_promotion"
-    assert gate["checks"] == {
-        "has_baseline_variant_pair": True,
-        "has_cost_adjusted_edge": True,
-        "has_out_of_sample_evidence": True,
-        "has_purged_embargoed_split_metadata": True,
-        "has_attribution_or_funnel_explanation": True,
-        "has_pnl_attribution_evidence": True,
-        "has_dynamic_sizing_evidence": True,
-        "has_runtime_observability_plan": True,
-        "has_rollback_plan": True,
-        "has_parameter_stability_surface": True,
-        "rejects_isolated_spike_optimum": True,
-        "has_regime_stratified_oos_evidence": True,
-        "rejects_regime_bucket_collapse": True,
+    assert gate["decision"] == "reject"
+    assert gate["checks"]["has_portfolio_correlation_exposure_evidence"] is False
+    assert "missing portfolio correlation/exposure evidence" in gate["why"]
+
+
+@pytest.mark.parametrize(
+    ("mutate", "match"),
+    [
+        (
+            lambda evidence: evidence["portfolio"].__setitem__("net_exposure_pct", "0.18"),
+            "portfolio_correlation_exposure.portfolio.net_exposure_pct must be a finite strict number",
+        ),
+        (
+            lambda evidence: evidence["portfolio"].__setitem__("gross_exposure_pct", float("inf")),
+            "portfolio_correlation_exposure.portfolio.gross_exposure_pct must be a finite strict number",
+        ),
+        (
+            lambda evidence: evidence.__setitem__("as_of", "2026-01-31T00:30:01Z"),
+            "portfolio_correlation_exposure.as_of must be at or before decision_timestamp",
+        ),
+        (
+            lambda evidence: evidence["symbols"].append(dict(evidence["symbols"][0])),
+            "portfolio_correlation_exposure.symbols symbol values must be unique",
+        ),
+        (
+            lambda evidence: evidence["clusters"].append(dict(evidence["clusters"][0])),
+            "portfolio_correlation_exposure.clusters cluster values must be unique",
+        ),
+    ],
+)
+def test_load_backtest_bundle_rejects_invalid_portfolio_correlation_exposure_contract(
+    tmp_path: Path,
+    mutate,
+    match: str,
+) -> None:
+    evidence = _portfolio_correlation_exposure_evidence()
+    mutate(evidence)
+    bundle = _write_walk_forward_bundle(
+        tmp_path / "bundle",
+        baseline_name="current_policy",
+        variant_name="candidate_walk_forward",
+        out_of_sample_total_return=0.08,
+        positive_window_ratio=0.9,
+        parameter_stability_score=0.9,
+        worst_window_return=0.02,
+        split_metadata={
+            "schema_version": "walk_forward_split_metadata.v1",
+            "purge_bars": 1,
+            "embargo_bars": 0,
+        },
+        regime_stratified_oos=_regime_stratified_oos_evidence(),
+        pnl_attribution=_pnl_attribution_evidence(reported_pnl=0.08),
+        portfolio_correlation_exposure=evidence,
+    )
+
+    with pytest.raises(ValueError, match=re.escape(match)):
+        promotion.load_backtest_bundle(bundle)
+
+
+def test_compare_backtest_bundles_rejects_portfolio_exposure_limit_breach_without_risk_hold(
+    tmp_path: Path,
+) -> None:
+    split_metadata = {
+        "schema_version": "walk_forward_split_metadata.v1",
+        "purge_bars": 1,
+        "embargo_bars": 0,
     }
-    assert gate["why"] == []
-    assert gate["regime_stratified_oos"]["buckets"][0]["bucket"] == "volatility"
-    assert gate["pnl_attribution"]["buckets"][0]["bucket"] == "entry_alpha"
-    assert gate["dynamic_sizing_evidence"]["decisions"][0]["decision_id"] == "sizing-001"
-    assert result["decision_summary"]["dynamic_sizing_evidence"]["decisions"][0]["decision_id"] == "sizing-001"
+    baseline_bundle = _write_walk_forward_bundle(
+        tmp_path / "baseline",
+        baseline_name="current_policy",
+        variant_name="baseline_walk_forward",
+        out_of_sample_total_return=0.03,
+        positive_window_ratio=0.75,
+        parameter_stability_score=0.7,
+        worst_window_return=0.01,
+        split_metadata=split_metadata,
+        runtime_fields=["regime", "allocator_decision_reason"],
+        rollback_target="baseline_walk_forward",
+        rollback_trigger="oos_total_return_below_zero",
+        observation_window="14d",
+        regime_stratified_oos=_regime_stratified_oos_evidence(),
+        pnl_attribution=_pnl_attribution_evidence(reported_pnl=0.03),
+        portfolio_correlation_exposure=_portfolio_correlation_exposure_evidence(),
+    )
+    variant_bundle = _write_walk_forward_bundle(
+        tmp_path / "variant",
+        baseline_name="current_policy",
+        variant_name="candidate_walk_forward",
+        out_of_sample_total_return=0.08,
+        positive_window_ratio=0.9,
+        parameter_stability_score=0.9,
+        worst_window_return=0.02,
+        split_metadata=split_metadata,
+        runtime_fields=["regime", "allocator_decision_reason"],
+        rollback_target="baseline_walk_forward",
+        rollback_trigger="oos_total_return_below_zero",
+        observation_window="14d",
+        regime_stratified_oos=_regime_stratified_oos_evidence(),
+        pnl_attribution=_pnl_attribution_evidence(reported_pnl=0.08),
+        portfolio_correlation_exposure=_portfolio_correlation_exposure_evidence(gross_exposure_pct=1.4),
+    )
+
+    result = promotion.compare_backtest_bundles(
+        baseline_bundle=baseline_bundle,
+        variant_bundle=variant_bundle,
+    )
+
+    gate = result["promotion_gate"]
+    assert gate["decision"] == "reject"
+    assert gate["checks"]["rejects_portfolio_correlation_exposure_breach"] is False
+    assert "portfolio gross exposure exceeds configured limit" in gate["why"]
 
 
 def test_compare_backtest_bundles_rejects_positive_walk_forward_without_dynamic_sizing_evidence(
@@ -1128,6 +1351,7 @@ def test_compare_backtest_bundles_rejects_positive_walk_forward_without_dynamic_
         observation_window="14d",
         regime_stratified_oos=_regime_stratified_oos_evidence(),
         pnl_attribution=_pnl_attribution_evidence(reported_pnl=0.03),
+        portfolio_correlation_exposure=_portfolio_correlation_exposure_evidence(),
     )
     variant_bundle = _write_walk_forward_bundle(
         tmp_path / "variant",
@@ -1145,6 +1369,7 @@ def test_compare_backtest_bundles_rejects_positive_walk_forward_without_dynamic_
         regime_stratified_oos=_regime_stratified_oos_evidence(),
         pnl_attribution=_pnl_attribution_evidence(reported_pnl=0.08),
         include_dynamic_sizing_evidence=False,
+        portfolio_correlation_exposure=_portfolio_correlation_exposure_evidence(),
     )
 
     result = promotion.compare_backtest_bundles(
@@ -1365,6 +1590,7 @@ def test_compare_backtest_bundles_rejects_regime_bucket_level_collapse(tmp_path:
         rollback_trigger="oos_total_return_below_zero",
         observation_window="14d",
         regime_stratified_oos=_regime_stratified_oos_evidence(),
+        portfolio_correlation_exposure=_portfolio_correlation_exposure_evidence(),
     )
     variant_bundle = _write_walk_forward_bundle(
         tmp_path / "variant",
@@ -1408,6 +1634,7 @@ def test_compare_backtest_bundles_rejects_walk_forward_without_split_metadata(tm
         rollback_trigger="oos_total_return_below_zero",
         observation_window="14d",
         regime_stratified_oos=_regime_stratified_oos_evidence(),
+        portfolio_correlation_exposure=_portfolio_correlation_exposure_evidence(),
     )
     variant_bundle = _write_walk_forward_bundle(
         tmp_path / "variant",
@@ -1422,6 +1649,7 @@ def test_compare_backtest_bundles_rejects_walk_forward_without_split_metadata(tm
         rollback_trigger="oos_total_return_below_zero",
         observation_window="14d",
         regime_stratified_oos=_regime_stratified_oos_evidence(),
+        portfolio_correlation_exposure=_portfolio_correlation_exposure_evidence(),
     )
 
     result = promotion.compare_backtest_bundles(
@@ -1541,6 +1769,7 @@ def test_compare_backtest_bundles_rejects_walk_forward_isolated_spike_optimum(tm
         rollback_trigger="oos_total_return_below_zero",
         observation_window="14d",
         regime_stratified_oos=_regime_stratified_oos_evidence(),
+        portfolio_correlation_exposure=_portfolio_correlation_exposure_evidence(),
     )
     variant_bundle = _write_walk_forward_bundle(
         tmp_path / "variant",
@@ -1730,6 +1959,7 @@ def test_compare_backtest_bundles_holds_walk_forward_when_stability_regresses_vs
         rollback_trigger="oos_total_return_below_zero",
         observation_window="14d",
         regime_stratified_oos=_regime_stratified_oos_evidence(),
+        portfolio_correlation_exposure=_portfolio_correlation_exposure_evidence(),
     )
     variant_bundle = _write_walk_forward_bundle(
         tmp_path / "variant",
@@ -1745,6 +1975,7 @@ def test_compare_backtest_bundles_holds_walk_forward_when_stability_regresses_vs
         rollback_trigger="oos_total_return_below_zero",
         observation_window="14d",
         regime_stratified_oos=_regime_stratified_oos_evidence(),
+        portfolio_correlation_exposure=_portfolio_correlation_exposure_evidence(),
     )
 
     result = promotion.compare_backtest_bundles(

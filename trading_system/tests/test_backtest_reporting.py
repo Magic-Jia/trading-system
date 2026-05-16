@@ -3751,6 +3751,46 @@ def _minimal_walk_forward_validation_experiment() -> dict[str, object]:
         "multiple_testing_correction": _multiple_testing_correction(2),
         "regime_stratified_oos": _regime_stratified_oos_evidence(),
         "pnl_attribution": _pnl_attribution_evidence(),
+        "portfolio_correlation_exposure": _portfolio_correlation_exposure_evidence(),
+    }
+
+
+def _portfolio_correlation_exposure_evidence(
+    *,
+    net_exposure_pct: object = 0.18,
+    gross_exposure_pct: object = 0.42,
+) -> dict[str, object]:
+    return {
+        "schema_version": "portfolio_correlation_exposure.v1",
+        "as_of": "2026-03-11T00:00:00Z",
+        "decision_timestamp": "2026-03-11T00:30:00Z",
+        "max_age_seconds": 3600,
+        "limits": {
+            "max_net_exposure_pct": 0.65,
+            "max_gross_exposure_pct": 1.25,
+            "max_symbol_gross_exposure_pct": 0.35,
+            "max_cluster_gross_exposure_pct": 0.55,
+            "max_pairwise_correlation": 0.85,
+            "max_crowded_risk_score": 0.7,
+        },
+        "portfolio": {
+            "net_exposure_pct": net_exposure_pct,
+            "gross_exposure_pct": gross_exposure_pct,
+        },
+        "symbols": [
+            {"symbol": "BTCUSDT", "cluster": "majors", "gross_exposure_pct": 0.22, "net_exposure_pct": 0.14},
+            {"symbol": "ETHUSDT", "cluster": "majors", "gross_exposure_pct": 0.20, "net_exposure_pct": 0.04},
+        ],
+        "clusters": [
+            {"cluster": "majors", "gross_exposure_pct": 0.42, "net_exposure_pct": 0.18},
+        ],
+        "correlations": [
+            {"left_symbol": "BTCUSDT", "right_symbol": "ETHUSDT", "correlation": 0.62},
+        ],
+        "crowded_risk": {
+            "score": 0.31,
+            "evidence": ["funding_neutral", "open_interest_stable"],
+        },
     }
 
 
@@ -3975,6 +4015,27 @@ def test_walk_forward_validation_report_preserves_pnl_attribution_in_summary_and
     assert report["summary"]["pnl_attribution"]["schema_version"] == "pnl_attribution.v1"
     assert report["scorecard"]["pnl_attribution"]["buckets"][0]["bucket"] == "entry_alpha"
     assert report["scorecard"]["pnl_attribution"]["total_contribution"] == pytest.approx(0.03)
+
+
+def test_walk_forward_validation_report_preserves_portfolio_correlation_exposure_in_scorecard() -> None:
+    report = cli.render_walk_forward_validation_report(
+        experiment_name="walk_forward_validation",
+        metadata={
+            "snapshot_count": 1,
+            "window_count": 1,
+            "split_metadata": {
+                "schema_version": "walk_forward_split_metadata.v1",
+                "purge_bars": 0,
+                "embargo_bars": 0,
+            },
+        },
+        experiment=_minimal_walk_forward_validation_experiment(),
+    )
+
+    evidence = report["scorecard"]["portfolio_correlation_exposure"]
+    assert evidence["schema_version"] == "portfolio_correlation_exposure.v1"
+    assert evidence["portfolio"]["net_exposure_pct"] == pytest.approx(0.18)
+    assert evidence["crowded_risk"]["evidence"] == ["funding_neutral", "open_interest_stable"]
 
 
 def test_walk_forward_validation_report_holds_when_regime_bucket_collapses() -> None:
@@ -4775,6 +4836,7 @@ def test_walk_forward_validation_report_preserves_valid_worst_window_scorecard()
             "multiple_testing_correction": _multiple_testing_correction(2),
             "regime_stratified_oos": _regime_stratified_oos_evidence(),
             "pnl_attribution": _pnl_attribution_evidence(),
+            "portfolio_correlation_exposure": _portfolio_correlation_exposure_evidence(),
 
         },
     )
@@ -5235,6 +5297,7 @@ def test_walk_forward_validation_report_preserves_valid_coverage_scorecard_value
             "multiple_testing_correction": _multiple_testing_correction(2),
             "regime_stratified_oos": _regime_stratified_oos_evidence(),
             "pnl_attribution": _pnl_attribution_evidence(),
+            "portfolio_correlation_exposure": _portfolio_correlation_exposure_evidence(),
 
         },
     )
@@ -5853,13 +5916,14 @@ def test_backtest_cli_writes_walk_forward_validation_bundle(monkeypatch: pytest.
                 "performance_dispersion": {"positive_window_ratio": 1.0},
             },
 
-            "parameter_stability": _canonical_parameter_stability(),
-            "multiple_testing_correction": _multiple_testing_correction(2),
-            "regime_stratified_oos": _regime_stratified_oos_evidence(),
-            "pnl_attribution": _pnl_attribution_evidence(),
+                "parameter_stability": _canonical_parameter_stability(),
+                "multiple_testing_correction": _multiple_testing_correction(2),
+                "regime_stratified_oos": _regime_stratified_oos_evidence(),
+                "pnl_attribution": _pnl_attribution_evidence(),
+                "portfolio_correlation_exposure": _portfolio_correlation_exposure_evidence(),
 
-        },
-        raising=False,
+            },
+            raising=False,
     )
 
     exit_code = cli.main(
