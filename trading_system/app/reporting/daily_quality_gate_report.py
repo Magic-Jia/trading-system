@@ -8,10 +8,12 @@ from typing import Any, Mapping
 
 
 SCHEMA_VERSION = "daily_quality_gate_report.v1"
+ALERT_HOLD_WORKFLOW_SCHEMA_VERSION = "quality_gate_alert_hold_workflow.v1"
 MODE = "simulated_live"
 PASS_DECISION = "pass_for_continued_paper"
 HOLD_DECISION = "hold_for_review"
 REJECT_DECISION = "reject_live_promotion"
+UNRESOLVED_REJECT_REASON = "unresolved_reject_live_promotion"
 
 HARD_REASONS = (
     "paper_shadow_material_drift",
@@ -35,6 +37,18 @@ REASON_ORDER = (
     "insufficient_sample_size",
     "malformed_evidence",
 )
+WORKFLOW_REASON_ORDER = (*REASON_ORDER, UNRESOLVED_REJECT_REASON)
+REASON_SEVERITY = {
+    **{reason: "critical" for reason in HARD_REASONS},
+    **{reason: "warning" for reason in SOFT_REASONS},
+    UNRESOLVED_REJECT_REASON: "critical",
+}
+WORKFLOW_RELEASE_CONDITIONS = [
+    "next_daily_quality_gate_decision_pass_for_continued_paper",
+    "all_active_reason_codes_absent",
+    "no_unresolved_reject_live_promotion",
+    "acknowledgement_recorded_for_current_hold",
+]
 
 
 def _mapping(value: Any, field: str, malformed: list[str]) -> Mapping[str, Any]:
@@ -97,8 +111,238 @@ def _generated_at(value: str | None) -> str:
     return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
+def _parse_utc_timestamp(value: Any, field: str) -> datetime:
+    if not isinstance(value, str):
+        raise ValueError(f"{field} must be a string")
+    if not value.endswith("Z"):
+        raise ValueError(f"{field} must be a canonical UTC timestamp")
+    try:
+        parsed = datetime.fromisoformat(value[:-1] + "+00:00")
+    except ValueError as exc:
+        raise ValueError(f"{field} must be a canonical UTC timestamp") from exc
+    if parsed.tzinfo is None:
+        raise ValueError(f"{field} must be a canonical UTC timestamp")
+    return parsed.astimezone(UTC)
+
+
 def _ordered_reasons(reasons: set[str]) -> list[str]:
     return [reason for reason in REASON_ORDER if reason in reasons]
+
+
+def _ordered_workflow_reasons(reasons: set[str]) -> list[str]:
+    return [reason for reason in WORKFLOW_REASON_ORDER if reason in reasons]
+
+
+def _strict_reason_code(value: Any, field: str) -> str:
+    if not isinstance(value, str):
+        raise ValueError(f"{field} must be a string")
+    if value not in REASON_SEVERITY:
+        raise ValueError(f"{field} is unknown")
+    return value
+
+
+def _previous_reason_first_seen(previous_workflow: Mapping[str, Any] | None) -> dict[str, str]:
+    if previous_workflow is None:
+        return {}
+    if not isinstance(previous_workflow, Mapping):
+        raise ValueError("previous_workflow must be an object")
+    raw_reasons = previous_workflow.get("active_reasons", [])
+    if not isinstance(raw_reasons, list):
+        raise ValueError("previous_workflow.active_reasons must be a list")
+    first_seen: dict[str, str] = {}
+    for index, raw_reason in enumerate(raw_reasons):
+        if not isinstance(raw_reason, Mapping):
+            raise ValueError(f"previous_workflow.active_reasons[{index}] must be an object")
+        code = _strict_reason_code(raw_reason.get("code"), f"previous_workflow.active_reasons[{index}].code")
+        first_seen_value = raw_reason.get("first_seen")
+        _parse_utc_timestamp(first_seen_value, f"previous_workflow.active_reasons[{index}].first_seen")
+        first_seen.setdefault(code, first_seen_value)
+    return first_seen
+
+
+def _previous_decision(previous_workflow: Mapping[str, Any] | None) -> str | None:
+    if not previous_workflow:
+        return None
+    hold = previous_workflow.get("hold")
+    if not isinstance(hold, Mapping):
+        return None
+    decision = hold.get("decision")
+    return decision if isinstance(decision, str) else None
+
+
+def _canonical_acknowledgement(acknowledgement: Mapping[str, Any] | None) -> dict[str, Any] | None:
+    if acknowledgement is None:
+        return None
+    if not isinstance(acknowledgement, Mapping):
+        raise ValueError("acknowledgement must be an object")
+    unknown_fields = sorted(set(acknowledgement) - {"acknowledged_by", "acknowledged_at", "reason_codes"})
+    if unknown_fields:
+        raise ValueError("unknown acknowledgement field: " + ", ".join(unknown_fields))
+    acknowledged_by = acknowledgement.get("acknowledged_by")
+    if not isinstance(acknowledged_by, str) or not acknowledged_by.strip() or acknowledged_by != acknowledged_by.strip():
+        raise ValueError("acknowledgement.acknowledged_by must be canonical")
+    acknowledged_at = acknowledgement.get("acknowledged_at")
+    _parse_utc_timestamp(acknowledged_at, "acknowledgement.acknowledged_at")
+    reason_codes = acknowledgement.get("reason_codes")
+    if not isinstance(reason_codes, list) or not reason_codes:
+        raise ValueError("acknowledgement.reason_codes must be a non-empty list")
+    canonical_reasons = [
+        _strict_reason_code(reason, f"acknowledgement.reason_codes[{index}]")
+        for index, reason in enumerate(reason_codes)
+    ]
+    return {
+        "status": "recorded",
+        "acknowledged_by": acknowledged_by,
+        "acknowledged_at": acknowledged_at,
+        "reason_codes": canonical_reasons,
+    }
+
+
+def _validate_daily_gate_for_workflow(
+    daily_quality_gate: Mapping[str, Any],
+    *,
+    generated_at: str,
+    max_gate_age_seconds: int,
+) -> tuple[str, list[str]]:
+    if not isinstance(daily_quality_gate, Mapping):
+        raise ValueError("daily quality gate must be an object")
+    if daily_quality_gate.get("schema_version") != SCHEMA_VERSION:
+        raise ValueError(f"daily quality gate schema_version must be {SCHEMA_VERSION}")
+    if daily_quality_gate.get("mode") != MODE:
+        raise ValueError(f"daily quality gate mode must be {MODE}")
+    decision = daily_quality_gate.get("decision")
+    if decision not in {PASS_DECISION, HOLD_DECISION, REJECT_DECISION}:
+        raise ValueError("daily quality gate decision is invalid")
+    gate_generated_at = _parse_utc_timestamp(daily_quality_gate.get("generated_at"), "daily quality gate generated_at")
+    workflow_generated_at = _parse_utc_timestamp(generated_at, "generated_at")
+    if gate_generated_at > workflow_generated_at:
+        raise ValueError("daily quality gate generated_at must not be in the future")
+    if (workflow_generated_at - gate_generated_at).total_seconds() > max_gate_age_seconds:
+        raise ValueError("daily quality gate evidence is stale")
+    if "reasons" not in daily_quality_gate:
+        raise ValueError("daily quality gate reasons must be present")
+    raw_reasons = daily_quality_gate["reasons"]
+    if not isinstance(raw_reasons, list):
+        raise ValueError("daily quality gate reasons must be a list")
+    reasons = [
+        _strict_reason_code(reason, f"daily quality gate reasons[{index}]")
+        for index, reason in enumerate(raw_reasons)
+    ]
+    if decision != PASS_DECISION and not reasons:
+        raise ValueError("failing daily quality gate reasons must be non-empty")
+    if decision == PASS_DECISION and reasons:
+        raise ValueError("passing daily quality gate reasons must be empty")
+    malformed_inputs = daily_quality_gate.get("malformed_inputs", [])
+    if malformed_inputs and not isinstance(malformed_inputs, list):
+        raise ValueError("daily quality gate malformed_inputs must be a list")
+    return decision, reasons
+
+
+def build_quality_gate_alert_hold_workflow(
+    daily_quality_gate: Mapping[str, Any],
+    *,
+    generated_at: str | None = None,
+    previous_workflow: Mapping[str, Any] | None = None,
+    acknowledgement: Mapping[str, Any] | None = None,
+    max_gate_age_seconds: int = 86400,
+) -> dict[str, Any]:
+    workflow_generated_at = _generated_at(generated_at)
+    if isinstance(max_gate_age_seconds, bool) or not isinstance(max_gate_age_seconds, int) or max_gate_age_seconds < 0:
+        raise ValueError("max_gate_age_seconds must be a non-negative integer")
+    decision, gate_reasons = _validate_daily_gate_for_workflow(
+        daily_quality_gate,
+        generated_at=workflow_generated_at,
+        max_gate_age_seconds=max_gate_age_seconds,
+    )
+    previous_first_seen = _previous_reason_first_seen(previous_workflow)
+    ack = _canonical_acknowledgement(acknowledgement)
+    previous_reason_codes = set(previous_first_seen)
+    ack_reason_codes = set(ack["reason_codes"]) if ack is not None else set()
+    prior_reject_unacknowledged = (
+        _previous_decision(previous_workflow) == REJECT_DECISION
+        and not previous_reason_codes.issubset(ack_reason_codes)
+    )
+
+    active_reason_codes = set(gate_reasons)
+    unresolved_reject = decision == PASS_DECISION and prior_reject_unacknowledged
+    if unresolved_reject:
+        decision = REJECT_DECISION
+        active_reason_codes.add(UNRESOLVED_REJECT_REASON)
+
+    ordered_active_codes = _ordered_workflow_reasons(active_reason_codes)
+    active_reasons = [
+        {
+            "code": code,
+            "severity": REASON_SEVERITY[code],
+            "category": "quality_gate",
+            "first_seen": previous_first_seen.get(code, workflow_generated_at),
+            "last_seen": workflow_generated_at,
+            "status": "active",
+        }
+        for code in ordered_active_codes
+    ]
+    resolved_reasons = [
+        {
+            "code": code,
+            "severity": REASON_SEVERITY[code],
+            "category": "quality_gate",
+            "first_seen": first_seen,
+            "last_seen": workflow_generated_at,
+            "status": "resolved",
+            "resolved_at": workflow_generated_at,
+        }
+        for code, first_seen in previous_first_seen.items()
+        if code not in active_reason_codes
+    ]
+
+    if decision == REJECT_DECISION:
+        hold_status = "blocked"
+        escalation_level = "critical"
+        alert_code = "quality_gate_reject_live_promotion"
+        acknowledgement_required = True
+    elif decision == HOLD_DECISION:
+        hold_status = "active"
+        escalation_level = "warning"
+        alert_code = "quality_gate_hold_for_review"
+        acknowledgement_required = True
+    else:
+        hold_status = "released"
+        escalation_level = "none"
+        alert_code = "quality_gate_released"
+        acknowledgement_required = False
+
+    acknowledgement_status = ack or ({"status": "required"} if acknowledgement_required else {"status": "not_required"})
+    return {
+        "schema_version": ALERT_HOLD_WORKFLOW_SCHEMA_VERSION,
+        "mode": MODE,
+        "generated_at": workflow_generated_at,
+        "source_gate": {
+            "schema_version": SCHEMA_VERSION,
+            "generated_at": daily_quality_gate["generated_at"],
+            "decision": daily_quality_gate["decision"],
+        },
+        "hold": {
+            "status": hold_status,
+            "decision": decision,
+            "reason_codes": ordered_active_codes,
+            "escalation_level": escalation_level,
+            "acknowledgement_required": acknowledgement_required,
+            "acknowledgement": acknowledgement_status,
+            "release_conditions": WORKFLOW_RELEASE_CONDITIONS,
+        },
+        "active_reasons": active_reasons,
+        "resolved_reasons": resolved_reasons,
+        "alerts": [
+            {
+                "code": alert_code,
+                "severity": escalation_level,
+                "status": "open" if acknowledgement_required else "closed",
+                "reason_codes": ordered_active_codes,
+                "requires_acknowledgement": acknowledgement_required,
+                "created_at": workflow_generated_at,
+            }
+        ],
+    }
 
 
 def _evidence_bundle_checks(evidence_bundle: Any, malformed: list[str]) -> dict[str, bool]:
@@ -296,10 +540,24 @@ def write_daily_quality_gate_report(output_path: str | Path, **kwargs: Any) -> d
     return payload
 
 
+def write_quality_gate_alert_hold_workflow(
+    output_path: str | Path,
+    daily_quality_gate: Mapping[str, Any],
+    **kwargs: Any,
+) -> dict[str, Any]:
+    payload = build_quality_gate_alert_hold_workflow(daily_quality_gate, **kwargs)
+    path = Path(output_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return payload
+
+
 __all__ = [
     "HOLD_DECISION",
     "PASS_DECISION",
     "REJECT_DECISION",
+    "build_quality_gate_alert_hold_workflow",
     "build_daily_quality_gate_report",
+    "write_quality_gate_alert_hold_workflow",
     "write_daily_quality_gate_report",
 ]

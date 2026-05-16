@@ -3,7 +3,13 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from trading_system.app.reporting.daily_quality_gate_report import build_daily_quality_gate_report
+import pytest
+
+from trading_system.app.reporting.daily_quality_gate_report import (
+    build_daily_quality_gate_report,
+    build_quality_gate_alert_hold_workflow,
+    write_quality_gate_alert_hold_workflow,
+)
 from trading_system.reporting.testnet_daily_report import build_report_payload, render_markdown
 
 
@@ -140,3 +146,205 @@ def test_testnet_daily_report_surfaces_daily_quality_gate_decision(tmp_path: Pat
     markdown = render_markdown(payload)
     assert "daily_quality_gate：hold_for_review" in markdown
     assert "latency_distribution_shift" in markdown
+
+
+def test_quality_gate_alert_hold_workflow_opens_hold_with_reason_lifetimes() -> None:
+    gate = build_daily_quality_gate_report(**_passing_inputs())
+    gate["decision"] = "hold_for_review"
+    gate["reasons"] = ["latency_distribution_shift", "insufficient_sample_size"]
+
+    workflow = build_quality_gate_alert_hold_workflow(
+        gate,
+        generated_at="2026-05-16T11:00:00Z",
+        previous_workflow={
+            "active_reasons": [
+                {
+                    "code": "latency_distribution_shift",
+                    "first_seen": "2026-05-15T11:00:00Z",
+                    "last_seen": "2026-05-15T11:00:00Z",
+                    "status": "active",
+                }
+            ]
+        },
+    )
+
+    assert workflow["schema_version"] == "quality_gate_alert_hold_workflow.v1"
+    assert workflow["mode"] == "simulated_live"
+    assert workflow["hold"]["status"] == "active"
+    assert workflow["hold"]["decision"] == "hold_for_review"
+    assert workflow["hold"]["escalation_level"] == "warning"
+    assert workflow["hold"]["acknowledgement_required"] is True
+    assert workflow["hold"]["acknowledgement"] == {"status": "required"}
+    assert workflow["hold"]["release_conditions"] == [
+        "next_daily_quality_gate_decision_pass_for_continued_paper",
+        "all_active_reason_codes_absent",
+        "no_unresolved_reject_live_promotion",
+        "acknowledgement_recorded_for_current_hold",
+    ]
+    assert workflow["active_reasons"] == [
+        {
+            "code": "latency_distribution_shift",
+            "severity": "warning",
+            "category": "quality_gate",
+            "first_seen": "2026-05-15T11:00:00Z",
+            "last_seen": "2026-05-16T11:00:00Z",
+            "status": "active",
+        },
+        {
+            "code": "insufficient_sample_size",
+            "severity": "warning",
+            "category": "quality_gate",
+            "first_seen": "2026-05-16T11:00:00Z",
+            "last_seen": "2026-05-16T11:00:00Z",
+            "status": "active",
+        },
+    ]
+    assert workflow["alerts"][0]["code"] == "quality_gate_hold_for_review"
+
+
+def test_quality_gate_alert_hold_workflow_fails_closed_for_reject_until_acknowledged() -> None:
+    gate = build_daily_quality_gate_report(**_passing_inputs())
+    gate["decision"] = "pass_for_continued_paper"
+    gate["reasons"] = []
+
+    workflow = build_quality_gate_alert_hold_workflow(
+        gate,
+        generated_at="2026-05-16T11:00:00Z",
+        previous_workflow={
+            "hold": {"decision": "reject_live_promotion"},
+            "active_reasons": [
+                {
+                    "code": "paper_shadow_material_drift",
+                    "first_seen": "2026-05-15T11:00:00Z",
+                    "last_seen": "2026-05-15T11:00:00Z",
+                    "status": "active",
+                }
+            ],
+        },
+    )
+
+    assert workflow["hold"]["status"] == "blocked"
+    assert workflow["hold"]["decision"] == "reject_live_promotion"
+    assert workflow["hold"]["escalation_level"] == "critical"
+    assert workflow["active_reasons"][0]["code"] == "unresolved_reject_live_promotion"
+    assert workflow["active_reasons"][0]["first_seen"] == "2026-05-16T11:00:00Z"
+    assert workflow["alerts"][0]["code"] == "quality_gate_reject_live_promotion"
+
+
+def test_quality_gate_alert_hold_workflow_releases_after_acknowledged_pass(tmp_path: Path) -> None:
+    gate = build_daily_quality_gate_report(**_passing_inputs())
+
+    workflow = write_quality_gate_alert_hold_workflow(
+        tmp_path / "quality_gate_alert_hold_workflow.json",
+        gate,
+        generated_at="2026-05-16T11:00:00Z",
+        previous_workflow={
+            "hold": {"decision": "reject_live_promotion"},
+            "active_reasons": [
+                {
+                    "code": "paper_shadow_material_drift",
+                    "first_seen": "2026-05-15T11:00:00Z",
+                    "last_seen": "2026-05-15T11:00:00Z",
+                    "status": "active",
+                }
+            ],
+        },
+        acknowledgement={
+            "acknowledged_by": "ops",
+            "acknowledged_at": "2026-05-16T10:55:00Z",
+            "reason_codes": ["paper_shadow_material_drift"],
+        },
+    )
+
+    assert workflow["hold"]["status"] == "released"
+    assert workflow["hold"]["decision"] == "pass_for_continued_paper"
+    assert workflow["hold"]["acknowledgement"] == {
+        "status": "recorded",
+        "acknowledged_by": "ops",
+        "acknowledged_at": "2026-05-16T10:55:00Z",
+        "reason_codes": ["paper_shadow_material_drift"],
+    }
+    assert workflow["active_reasons"] == []
+    assert workflow["resolved_reasons"][0]["code"] == "paper_shadow_material_drift"
+    assert json.loads((tmp_path / "quality_gate_alert_hold_workflow.json").read_text(encoding="utf-8")) == workflow
+
+
+def test_quality_gate_alert_hold_workflow_does_not_clear_reject_with_unrelated_acknowledgement() -> None:
+    gate = build_daily_quality_gate_report(**_passing_inputs())
+
+    workflow = build_quality_gate_alert_hold_workflow(
+        gate,
+        generated_at="2026-05-16T11:00:00Z",
+        previous_workflow={
+            "hold": {"decision": "reject_live_promotion"},
+            "active_reasons": [
+                {
+                    "code": "paper_shadow_material_drift",
+                    "first_seen": "2026-05-15T11:00:00Z",
+                    "last_seen": "2026-05-15T11:00:00Z",
+                    "status": "active",
+                }
+            ],
+        },
+        acknowledgement={
+            "acknowledged_by": "ops",
+            "acknowledged_at": "2026-05-16T10:55:00Z",
+            "reason_codes": ["insufficient_sample_size"],
+        },
+    )
+
+    assert workflow["hold"]["status"] == "blocked"
+    assert workflow["hold"]["decision"] == "reject_live_promotion"
+    assert workflow["active_reasons"][0]["code"] == "unresolved_reject_live_promotion"
+
+
+@pytest.mark.parametrize(
+    ("mutate", "match"),
+    [
+        (lambda gate: gate.pop("reasons"), "daily quality gate reasons must be present"),
+        (lambda gate: gate.__setitem__("reasons", []), "failing daily quality gate reasons must be non-empty"),
+        (lambda gate: gate.__setitem__("generated_at", "2026-05-16T09:00:00Z"), "daily quality gate evidence is stale"),
+    ],
+)
+def test_quality_gate_alert_hold_workflow_rejects_missing_reasons_and_stale_evidence(mutate, match) -> None:
+    gate = build_daily_quality_gate_report(**_passing_inputs())
+    gate["decision"] = "hold_for_review"
+    gate["reasons"] = ["latency_distribution_shift"]
+    mutate(gate)
+
+    with pytest.raises(ValueError, match=match):
+        build_quality_gate_alert_hold_workflow(
+            gate,
+            generated_at="2026-05-16T11:00:00Z",
+            max_gate_age_seconds=3600,
+        )
+
+
+def test_testnet_daily_report_surfaces_quality_gate_alert_hold_workflow(tmp_path: Path) -> None:
+    bucket = tmp_path / "data" / "runtime" / "testnet" / "prod"
+    optimization = bucket / "optimization"
+    optimization.mkdir(parents=True)
+    (bucket / "latest.json").write_text(json.dumps({"status": "ok", "mode": "testnet"}), encoding="utf-8")
+    (bucket / "account_snapshot.json").write_text(json.dumps({"positions": []}), encoding="utf-8")
+    (bucket / "runtime_state.json").write_text(json.dumps({"positions": {}, "active_orders": {}}), encoding="utf-8")
+    (optimization / "quality_gate_alert_hold_workflow.json").write_text(
+        json.dumps(
+            {
+                "hold": {
+                    "status": "blocked",
+                    "decision": "reject_live_promotion",
+                    "escalation_level": "critical",
+                    "acknowledgement_required": True,
+                },
+                "active_reasons": [{"code": "paper_shadow_material_drift"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    payload = build_report_payload(bucket=bucket, report_date="2026-05-16")
+
+    assert payload["quality_gate_alert_hold_workflow"]["hold"]["status"] == "blocked"
+    markdown = render_markdown(payload)
+    assert "quality_gate_hold：blocked escalation=critical acknowledgement_required=True" in markdown
+    assert "quality_gate_hold_reasons：paper_shadow_material_drift" in markdown

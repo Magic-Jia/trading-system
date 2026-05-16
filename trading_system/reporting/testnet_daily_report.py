@@ -107,6 +107,7 @@ def build_report_payload(
     recommendations = _read_json(optimization_dir / "recommendations.json", {})
     promotion = _read_json(optimization_dir / "promotion_decision.json", {})
     daily_quality_gate = _read_json(optimization_dir / "daily_quality_gate_report.json", {})
+    quality_gate_hold_workflow = _read_json(optimization_dir / "quality_gate_alert_hold_workflow.json", {})
 
     runtime = _runtime_positions(state if isinstance(state, dict) else {})
     account_pos = _account_positions(account if isinstance(account, dict) else {})
@@ -129,6 +130,9 @@ def build_report_payload(
         "recommendations": recommendations if isinstance(recommendations, dict) else {},
         "promotion_decision": promotion if isinstance(promotion, dict) else {},
         "daily_quality_gate_report": daily_quality_gate if isinstance(daily_quality_gate, dict) else {},
+        "quality_gate_alert_hold_workflow": (
+            quality_gate_hold_workflow if isinstance(quality_gate_hold_workflow, dict) else {}
+        ),
         "optimization_summary": state.get("optimization_summary", {}) if isinstance(state, dict) else {},
     }
 
@@ -169,6 +173,7 @@ def render_markdown(payload: dict[str, Any]) -> str:
     rec = payload.get("recommendations") or {}
     promo = payload.get("promotion_decision") or {}
     quality_gate = payload.get("daily_quality_gate_report") or {}
+    quality_gate_hold = payload.get("quality_gate_alert_hold_workflow") or {}
     lines.append(f"- metrics_scope：{metrics.get('scope', 'legacy_or_missing')}")
     lines.append(f"- health：{health.get('status')} warnings={len(health.get('warnings') or [])}")
     lines.append(f"- recommendation_count：{rec.get('recommendation_count')}")
@@ -178,4 +183,15 @@ def render_markdown(payload: dict[str, Any]) -> str:
         reasons = quality_gate.get("reasons") or []
         if reasons:
             lines.append(f"- daily_quality_gate_reasons：{', '.join(str(reason) for reason in reasons)}")
+    if quality_gate_hold:
+        hold = quality_gate_hold.get("hold") or {}
+        lines.append(
+            "- quality_gate_hold："
+            f"{hold.get('status')} escalation={hold.get('escalation_level')} "
+            f"acknowledgement_required={hold.get('acknowledgement_required')}"
+        )
+        active_reasons = quality_gate_hold.get("active_reasons") or []
+        reason_codes = [str(reason.get("code")) for reason in active_reasons if isinstance(reason, dict)]
+        if reason_codes:
+            lines.append(f"- quality_gate_hold_reasons：{', '.join(reason_codes)}")
     return "\n".join(lines) + "\n"
