@@ -454,8 +454,18 @@ def _freshness_checks(freshness: Any, malformed: list[str]) -> dict[str, Any]:
         item = _mapping(raw_item, f"freshness.items.{name}", malformed)
         age = _non_negative_number(item.get("age_seconds"), f"freshness.items.{name}.age_seconds", malformed)
         item_fresh = age is not None and max_age is not None and age <= max_age
-        item_results[name] = {"age_seconds": age, "fresh": item_fresh}
+        item_result: dict[str, Any] = {"age_seconds": age, "fresh": item_fresh}
+        reason = item.get("reason")
+        if reason is not None:
+            if not isinstance(reason, str) or not reason:
+                malformed.append(f"freshness.items.{name}.reason_invalid")
+                freshness_met = False
+            else:
+                item_result["reason"] = reason
+                item_fresh = False
+                item_result["fresh"] = False
         freshness_met = freshness_met and item_fresh
+        item_results[name] = item_result
     return {"max_age_seconds": max_age, "items": item_results, "data_freshness_met": freshness_met}
 
 

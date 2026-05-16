@@ -18,6 +18,7 @@ TCA_TOLERANCES_NAME = "tca_tolerances.json"
 DRIFT_CONTRACT_NAME = "paper_live_shadow_drift_contract.json"
 RECONCILIATION_NAME = "runtime_safety_gate.json"
 ERROR_NAME = "scheduled_live_sim_generation_error.json"
+BOOTSTRAP_METADATA_NAME = "bootstrap_input_metadata.json"
 
 
 def _canonical_now() -> str:
@@ -70,6 +71,30 @@ def _daily_tca_input(report: Mapping[str, Any], *, max_p95_slippage_bps: float) 
         "p95_slippage_bps": _p95_slippage_from_tca(report),
         "max_p95_slippage_bps": max_p95_slippage_bps,
     }
+
+
+def _freshness_input(
+    *,
+    output_dir: Path,
+    max_evidence_age_seconds: int,
+) -> dict[str, Any]:
+    items: dict[str, dict[str, Any]] = {
+        "paper_live_sim_evidence_bundle": {"age_seconds": 0},
+        "tca_calibration_report": {"age_seconds": 0},
+        "runtime_reconciliation": {"age_seconds": 0},
+    }
+    bootstrap_metadata = _optional_json_object(output_dir / BOOTSTRAP_METADATA_NAME)
+    if bootstrap_metadata:
+        quality = bootstrap_metadata.get("source_timestamp_quality")
+        if isinstance(quality, Mapping):
+            account_quality = quality.get("account_snapshot.json")
+            if isinstance(account_quality, Mapping) and account_quality.get("freshness_met") is False:
+                item: dict[str, Any] = {"age_seconds": max_evidence_age_seconds + 1}
+                reason = account_quality.get("reason")
+                if isinstance(reason, str) and reason:
+                    item["reason"] = reason
+                items["account_snapshot"] = item
+    return {"max_age_seconds": max_evidence_age_seconds, "items": items}
 
 
 def _write_error(path: Path, exc: Exception) -> None:
@@ -146,12 +171,7 @@ def run_scheduled_generation(
         reconciliation=reconciliation,
         tca=_daily_tca_input(tca_report, max_p95_slippage_bps=max_p95_slippage_bps),
         freshness={
-            "max_age_seconds": max_evidence_age_seconds,
-            "items": {
-                "paper_live_sim_evidence_bundle": {"age_seconds": 0},
-                "tca_calibration_report": {"age_seconds": 0},
-                "runtime_reconciliation": {"age_seconds": 0},
-            },
+            **_freshness_input(output_dir=output_dir, max_evidence_age_seconds=max_evidence_age_seconds),
         },
         min_sample_size=min_tca_samples,
         generated_at=evaluated_at,

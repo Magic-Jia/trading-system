@@ -211,6 +211,107 @@ def test_bootstrap_outputs_allow_scheduled_generation_to_run(tmp_path: Path) -> 
     assert gate["decision"] == "pass_for_continued_paper"
 
 
+def test_bootstrap_records_missing_account_snapshot_as_of_without_fabricating_source_time(tmp_path: Path) -> None:
+    legacy_root = tmp_path / "legacy"
+    runtime_root = tmp_path / "runtime"
+    _write_legacy_artifacts(legacy_root)
+    account = _legacy_account()
+    del account["as_of"]
+    _write_json(legacy_root / "account_snapshot.json", account)
+
+    result = bootstrap_live_sim_generation_inputs(
+        legacy_root=legacy_root,
+        mode="paper",
+        runtime_root=runtime_root,
+        runtime_env="paper",
+        generated_at="2026-05-16T10:01:00Z",
+        max_evidence_age_seconds=120,
+    )
+
+    paths = build_runtime_paths("paper", runtime_root=runtime_root, runtime_env="paper")
+    metadata = json.loads((paths.optimization_dir / "bootstrap_input_metadata.json").read_text())
+    runtime_account = json.loads(paths.account_snapshot_file.read_text())
+    assert result["status"] == "ok"
+    assert result["generated_at"] == "2026-05-16T10:01:00Z"
+    assert "as_of" not in runtime_account
+    assert metadata["generated_at"] == "2026-05-16T10:01:00Z"
+    assert metadata["source_timestamp_quality"] == {
+        "account_snapshot.json": {
+            "as_of_present": False,
+            "freshness_met": False,
+            "reason": "account_snapshot_as_of_missing",
+        },
+        "market_context.json": {
+            "as_of": "2026-05-16T10:00:00Z",
+            "as_of_present": True,
+            "freshness_met": True,
+        },
+        "derivatives_snapshot.json": {
+            "as_of": "2026-05-16T10:00:00Z",
+            "as_of_present": True,
+            "freshness_met": True,
+        },
+    }
+    assert metadata["quality_reasons"] == ["account_snapshot_as_of_missing"]
+
+
+def test_missing_account_snapshot_as_of_outputs_scheduled_hold_reason(tmp_path: Path) -> None:
+    legacy_root = tmp_path / "legacy"
+    runtime_root = tmp_path / "runtime"
+    _write_legacy_artifacts(legacy_root)
+    account = _legacy_account()
+    del account["as_of"]
+    _write_json(legacy_root / "account_snapshot.json", account)
+
+    bootstrap_live_sim_generation_inputs(
+        legacy_root=legacy_root,
+        mode="paper",
+        runtime_root=runtime_root,
+        runtime_env="paper",
+        generated_at="2026-05-16T10:01:00Z",
+        max_evidence_age_seconds=120,
+    )
+
+    result = run_scheduled_generation(
+        mode="paper",
+        runtime_root=runtime_root,
+        runtime_env="paper",
+        generated_at="2026-05-16T10:01:00Z",
+        max_evidence_age_seconds=120,
+        min_tca_samples=4,
+        max_p95_slippage_bps=5.0,
+    )
+
+    paths = build_runtime_paths("paper", runtime_root=runtime_root, runtime_env="paper")
+    gate = json.loads((paths.optimization_dir / "daily_quality_gate_report.json").read_text())
+    assert result["status"] == "ok"
+    assert result["daily_quality_gate_decision"] == "hold_for_review"
+    assert gate["decision"] == "hold_for_review"
+    assert gate["reasons"] == ["data_freshness_violation"]
+    assert gate["inputs"]["freshness"]["items"]["account_snapshot"]["fresh"] is False
+    assert gate["inputs"]["freshness"]["items"]["account_snapshot"]["reason"] == "account_snapshot_as_of_missing"
+    assert gate["checks"]["data_freshness_met"] is False
+
+
+@pytest.mark.parametrize("raw_as_of", ["2026-05-16T10:00:00+00:00", "2026-05-16T10:00:00", True, 123])
+def test_bootstrap_rejects_malformed_account_snapshot_as_of_when_present(tmp_path: Path, raw_as_of: object) -> None:
+    legacy_root = tmp_path / "legacy"
+    _write_legacy_artifacts(legacy_root)
+    account = _legacy_account()
+    account["as_of"] = raw_as_of
+    _write_json(legacy_root / "account_snapshot.json", account)
+
+    with pytest.raises(ValueError, match=r"account_snapshot\.json\.as_of must be a canonical UTC timestamp"):
+        bootstrap_live_sim_generation_inputs(
+            legacy_root=legacy_root,
+            mode="paper",
+            runtime_root=tmp_path / "runtime",
+            runtime_env="paper",
+            generated_at="2026-05-16T10:01:00Z",
+            max_evidence_age_seconds=120,
+        )
+
+
 def test_bootstrap_accepts_legacy_exchange_decimal_string_liquidation_price(tmp_path: Path) -> None:
     legacy_root = tmp_path / "legacy"
     runtime_root = tmp_path / "runtime"

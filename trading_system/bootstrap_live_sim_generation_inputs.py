@@ -189,9 +189,17 @@ def _validate_snapshot(
     generated_at: str,
     max_evidence_age_seconds: int,
     accepted_decimal_string_fields: list[dict[str, str]] | None = None,
-) -> None:
+) -> dict[str, Any]:
     _validate_json_value(payload, name, accepted_decimal_string_fields)
-    as_of = _parse_canonical_utc(payload.get("as_of"), f"{name}.as_of")
+    if "as_of" not in payload and name == "account_snapshot.json":
+        _require_number(payload.get("equity"), f"{name}.equity")
+        return {
+            "as_of_present": False,
+            "freshness_met": False,
+            "reason": "account_snapshot_as_of_missing",
+        }
+    as_of_value = payload.get("as_of")
+    as_of = _parse_canonical_utc(as_of_value, f"{name}.as_of")
     generated = _parse_canonical_utc(generated_at, "generated_at")
     age = (generated - as_of).total_seconds()
     if age < 0:
@@ -208,6 +216,7 @@ def _validate_snapshot(
         rows = payload.get("rows")
         if not isinstance(rows, list) or not rows:
             raise ValueError(f"{name}.rows must be a non-empty list")
+    return {"as_of": as_of_value, "as_of_present": True, "freshness_met": True}
 
 
 def _validate_calibration_rows_fresh(
@@ -447,21 +456,23 @@ def bootstrap_live_sim_generation_inputs(
     market = _read_json_object(source_root / "market_context.json")
     derivatives = _read_json_object(source_root / "derivatives_snapshot.json")
     trades = _read_jsonl_objects(source_root / "paper_trades.jsonl")
-    evaluated_at = generated_at or max(
-        str(account.get("as_of")),
-        str(market.get("as_of")),
-        str(derivatives.get("as_of")),
-    )
+    source_as_of_values = [
+        value
+        for value in (account.get("as_of"), market.get("as_of"), derivatives.get("as_of"))
+        if isinstance(value, str)
+    ]
+    evaluated_at = generated_at or max(source_as_of_values)
     _parse_canonical_utc(evaluated_at, "generated_at")
 
     accepted_decimal_string_fields: list[dict[str, str]] = []
-    _validate_snapshot(
+    source_timestamp_quality: dict[str, Any] = {}
+    source_timestamp_quality["account_snapshot.json"] = _validate_snapshot(
         "account_snapshot.json", account, evaluated_at, max_evidence_age_seconds, accepted_decimal_string_fields
     )
-    _validate_snapshot(
+    source_timestamp_quality["market_context.json"] = _validate_snapshot(
         "market_context.json", market, evaluated_at, max_evidence_age_seconds, accepted_decimal_string_fields
     )
-    _validate_snapshot(
+    source_timestamp_quality["derivatives_snapshot.json"] = _validate_snapshot(
         "derivatives_snapshot.json", derivatives, evaluated_at, max_evidence_age_seconds, accepted_decimal_string_fields
     )
     _validate_json_value(runtime_state, "runtime_state.json")
@@ -478,6 +489,12 @@ def bootstrap_live_sim_generation_inputs(
         "generated_at": evaluated_at,
         "evidence_source": source,
         "accepted_decimal_string_fields": accepted_decimal_string_fields,
+        "source_timestamp_quality": source_timestamp_quality,
+        "quality_reasons": [
+            quality["reason"]
+            for quality in source_timestamp_quality.values()
+            if isinstance(quality, Mapping) and isinstance(quality.get("reason"), str)
+        ],
     }
     generated_artifacts = {
         "bootstrap_input_metadata.json": input_metadata,
