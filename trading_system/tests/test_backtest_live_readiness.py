@@ -43,6 +43,20 @@ from trading_system.app.execution.calibration import load_calibration_records, s
 from trading_system.app.runtime.runtime_safety_evidence import build_runtime_safety_gate
 
 
+def _complete_depth_fill_provenance() -> dict[str, object]:
+    return {
+        "complete": True,
+        "side": "buy",
+        "requested_quantity": 1.0,
+        "filled_quantity": 1.0,
+        "filled_notional": 100.0,
+        "residual_quantity": 0.0,
+        "vwap": 100.0,
+        "slippage_bps": 0.0,
+        "consumed_levels": [{"price": 100.0, "quantity": 1.0, "notional": 100.0}],
+    }
+
+
 def test_live_readiness_schema_error_literals_have_consumer_coverage() -> None:
     source_path = Path(live_readiness.__file__)
     source_tree = ast.parse(source_path.read_text(encoding="utf-8"))
@@ -1049,7 +1063,7 @@ def test_live_readiness_smoke_report_consumes_producer_gate_artifacts(tmp_path: 
                         "l2_update_coverage": 0.995,
                         "tick_coverage": 0.995,
                     },
-                    "depth_driven_taker_fills": [{"complete": True}],
+                    "depth_driven_taker_fills": [_complete_depth_fill_provenance()],
                 }
             )
         ),
@@ -3515,7 +3529,7 @@ def test_live_readiness_accepts_microstructure_producer_reasons_field(tmp_path: 
                         "l2_update_coverage": 1.0,
                         "tick_coverage": 1.0,
                     },
-                    "depth_driven_taker_fills": [{"complete": True}],
+                    "depth_driven_taker_fills": [_complete_depth_fill_provenance()],
                 }
             )
         ),
@@ -7999,15 +8013,7 @@ def test_live_readiness_gate_accepts_microstructure_interval_identity_artifact(t
                             "artifact_ref": "l2/BTCUSDT/binance_futures/1m.jsonl",
                         }
                     ],
-                    "depth_driven_taker_fills": [
-                        {
-                            "complete": True,
-                            "side": "buy",
-                            "requested_quantity": 1.0,
-                            "filled_quantity": 1.0,
-                            "residual_quantity": 0.0,
-                        }
-                    ],
+                    "depth_driven_taker_fills": [_complete_depth_fill_provenance()],
                 }
             )
         ),

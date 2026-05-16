@@ -556,13 +556,14 @@ def test_depth_driven_buy_fill_consumes_asks_and_reports_vwap() -> None:
         "side": "buy",
         "requested_quantity": 3.0,
         "filled_quantity": 3.0,
+        "filled_notional": pytest.approx(300.9),
         "residual_quantity": 0.0,
         "complete": True,
         "vwap": pytest.approx(100.3),
         "slippage_bps": pytest.approx(30.0),
         "consumed_levels": [
-            {"price": 100.1, "quantity": 1.0},
-            {"price": 100.4, "quantity": 2.0},
+            {"price": 100.1, "quantity": 1.0, "notional": pytest.approx(100.1)},
+            {"price": 100.4, "quantity": 2.0, "notional": pytest.approx(200.8)},
         ],
     }
 
@@ -579,11 +580,12 @@ def test_depth_driven_sell_fill_consumes_bids_and_reports_vwap() -> None:
     assert fill["complete"] is True
     assert fill["filled_quantity"] == 2.5
     assert fill["residual_quantity"] == 0.0
+    assert fill["filled_notional"] == pytest.approx((99.9 * 1.0) + (99.7 * 1.5))
     assert fill["vwap"] == pytest.approx(99.78)
     assert fill["slippage_bps"] == pytest.approx(22.0)
     assert fill["consumed_levels"] == [
-        {"price": 99.9, "quantity": 1.0},
-        {"price": 99.7, "quantity": 1.5},
+        {"price": 99.9, "quantity": 1.0, "notional": pytest.approx(99.9)},
+        {"price": 99.7, "quantity": 1.5, "notional": pytest.approx(149.55)},
     ]
 
 
@@ -783,6 +785,83 @@ def test_complete_buy_and_sell_depth_fills_satisfy_depth_driven_taker_gate() -> 
     assert gate["depth_driven_taker"] == {"fill_count": 2, "complete_fill_count": 2, "incomplete_fill_count": 0}
 
 
+def test_depth_driven_fill_provenance_includes_consumed_price_quantity_and_notional() -> None:
+    fill = simulate_depth_driven_taker_fill(
+        side="buy",
+        quantity=3.0,
+        reference_price=100.0,
+        bids=[{"price": 99.9, "quantity": 5.0}],
+        asks=[{"price": 100.1, "quantity": 1.0}, {"price": 100.4, "quantity": 2.0}],
+    )
+
+    assert fill["filled_notional"] == pytest.approx((100.1 * 1.0) + (100.4 * 2.0))
+    assert fill["consumed_levels"] == [
+        {"price": 100.1, "quantity": 1.0, "notional": pytest.approx(100.1)},
+        {"price": 100.4, "quantity": 2.0, "notional": pytest.approx(200.8)},
+    ]
+
+
+def test_microstructure_gate_rejects_complete_depth_fill_without_price_quantity_notional_provenance() -> None:
+    with pytest.raises(
+        ValueError,
+        match="complete depth_driven_taker_fills require .*requested_quantity",
+    ):
+        build_microstructure_gate(
+            _complete_coverage_manifest(depth_driven_taker_fills=[{"complete": True}])
+        )
+
+
+def test_microstructure_gate_rejects_inconsistent_complete_depth_fill_notional_before_counting_full_fill() -> None:
+    with pytest.raises(
+        ValueError,
+        match="depth_driven_taker_fills filled_notional must equal consumed level notional",
+    ):
+        build_microstructure_gate(
+            _complete_coverage_manifest(
+                depth_driven_taker_fills=[
+                    {
+                        "side": "buy",
+                        "requested_quantity": 2.0,
+                        "filled_quantity": 2.0,
+                        "filled_notional": 100.0,
+                        "residual_quantity": 0.0,
+                        "complete": True,
+                        "vwap": 100.0,
+                        "slippage_bps": 0.0,
+                        "consumed_levels": [
+                            {"price": 100.0, "quantity": 1.0, "notional": 100.0},
+                            {"price": 101.0, "quantity": 1.0, "notional": 101.0},
+                        ],
+                    }
+                ]
+            )
+        )
+
+
+def test_microstructure_gate_rejects_negative_complete_depth_fill_quantity_before_counting_full_fill() -> None:
+    with pytest.raises(
+        ValueError,
+        match="depth_driven_taker_fills filled_quantity must be a non-negative number",
+    ):
+        build_microstructure_gate(
+            _complete_coverage_manifest(
+                depth_driven_taker_fills=[
+                    {
+                        "side": "buy",
+                        "requested_quantity": 1.0,
+                        "filled_quantity": -1.0,
+                        "filled_notional": 100.0,
+                        "residual_quantity": 0.0,
+                        "complete": True,
+                        "vwap": 100.0,
+                        "slippage_bps": 0.0,
+                        "consumed_levels": [{"price": 100.0, "quantity": 1.0, "notional": 100.0}],
+                    }
+                ]
+            )
+        )
+
+
 def test_rejects_non_boolean_depth_driven_taker_override() -> None:
     with pytest.raises(ValueError, match="depth_driven_taker_met must be a boolean"):
         build_microstructure_gate(
@@ -849,11 +928,12 @@ def test_microstructure_gate_rejects_complete_depth_fill_with_residual_quantity(
                         "side": "buy",
                         "requested_quantity": 2.0,
                         "filled_quantity": 1.0,
+                        "filled_notional": 100.1,
                         "residual_quantity": 1.0,
                         "complete": True,
                         "vwap": 100.1,
                         "slippage_bps": 10.0,
-                        "consumed_levels": [{"price": 100.1, "quantity": 1.0}],
+                        "consumed_levels": [{"price": 100.1, "quantity": 1.0, "notional": 100.1}],
                     }
                 ]
             )
@@ -878,11 +958,12 @@ def test_microstructure_gate_rejects_physically_invalid_depth_fill_scalars(
         "side": "buy",
         "requested_quantity": 1.0,
         "filled_quantity": 1.0,
+        "filled_notional": 100.1,
         "residual_quantity": 0.0,
         "complete": True,
         "vwap": 100.1,
         "slippage_bps": 10.0,
-        "consumed_levels": [{"price": 100.1, "quantity": 1.0}],
+        "consumed_levels": [{"price": 100.1, "quantity": 1.0, "notional": 100.1}],
     }
     fill[field] = value
 

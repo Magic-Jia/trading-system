@@ -176,6 +176,13 @@ def _normalise_finite_float(name: str, value: Any) -> float:
     return number
 
 
+def _normalise_non_negative_float(name: str, value: Any) -> float:
+    number = _normalise_finite_float(name, value)
+    if number < 0:
+        raise ValueError(f"{name} must be non-negative")
+    return number
+
+
 def _normalise_book_levels(levels: list[Mapping[str, Any]] | tuple[Mapping[str, Any], ...]) -> list[dict[str, float]]:
     normalised: list[dict[str, float]] = []
     for index, level in enumerate(levels):
@@ -236,9 +243,12 @@ def simulate_depth_driven_taker_fill(
         if remaining <= 0:
             break
         consume_quantity = min(remaining, level["quantity"])
-        consumed_levels.append({"price": level["price"], "quantity": consume_quantity})
+        consume_notional = consume_quantity * level["price"]
+        consumed_levels.append(
+            {"price": level["price"], "quantity": consume_quantity, "notional": consume_notional}
+        )
         filled += consume_quantity
-        notional += consume_quantity * level["price"]
+        notional += consume_notional
         remaining -= consume_quantity
 
     complete = remaining <= 1e-12
@@ -255,6 +265,7 @@ def simulate_depth_driven_taker_fill(
         "side": side,
         "requested_quantity": requested_quantity,
         "filled_quantity": filled,
+        "filled_notional": notional,
         "residual_quantity": residual_quantity,
         "complete": complete,
         "vwap": vwap,
@@ -386,6 +397,7 @@ def build_microstructure_gate(
                 "side",
                 "requested_quantity",
                 "filled_quantity",
+                "filled_notional",
                 "residual_quantity",
                 "complete",
                 "vwap",
@@ -403,36 +415,44 @@ def build_microstructure_gate(
                     raise ValueError("depth_driven_taker_fills side must be canonical")
                 if side not in {"buy", "sell"}:
                     raise ValueError("depth_driven_taker_fills side must be buy or sell")
-            for numeric_field in (
-                "requested_quantity",
-                "filled_quantity",
-                "residual_quantity",
-                "vwap",
-                "slippage_bps",
-            ):
+            normalised_fill_numbers: dict[str, float] = {}
+            for numeric_field in ("requested_quantity", "filled_quantity", "filled_notional", "residual_quantity"):
                 numeric_value = fill.get(numeric_field)
                 if numeric_value is not None:
                     normalised_value = _normalise_finite_float(
                         f"depth_driven_taker_fills {numeric_field}", numeric_value
                     )
-                    if numeric_field in {"requested_quantity", "vwap"} and normalised_value <= 0:
+                    if numeric_field == "requested_quantity" and normalised_value <= 0:
                         raise ValueError(f"depth_driven_taker_fills {numeric_field} must be a positive number")
-                    if numeric_field in {"filled_quantity", "residual_quantity"} and normalised_value < 0:
+                    if numeric_field in {"filled_quantity", "filled_notional", "residual_quantity"} and normalised_value < 0:
                         raise ValueError(f"depth_driven_taker_fills {numeric_field} must be a non-negative number")
+                    normalised_fill_numbers[numeric_field] = normalised_value
+            for numeric_field in ("vwap", "slippage_bps"):
+                numeric_value = fill.get(numeric_field)
+                if numeric_value is not None:
+                    normalised_value = _normalise_finite_float(
+                        f"depth_driven_taker_fills {numeric_field}", numeric_value
+                    )
+                    if numeric_field == "vwap" and normalised_value <= 0:
+                        raise ValueError(f"depth_driven_taker_fills {numeric_field} must be a positive number")
+                    normalised_fill_numbers[numeric_field] = normalised_value
             consumed_levels = fill.get("consumed_levels")
+            consumed_quantity = 0.0
+            consumed_notional = 0.0
             if consumed_levels is not None:
                 if not isinstance(consumed_levels, list):
                     raise ValueError("depth_driven_taker_fills consumed_levels must be a list")
                 for level in consumed_levels:
                     if not isinstance(level, Mapping):
                         raise ValueError("depth_driven_taker_fills consumed_levels entries must be mappings")
-                    unknown_level_fields = sorted(set(level) - {"price", "quantity"})
+                    unknown_level_fields = sorted(set(level) - {"price", "quantity", "notional"})
                     if unknown_level_fields:
                         raise ValueError(
                             "unknown depth_driven_taker_fills consumed_levels field: "
                             + ", ".join(unknown_level_fields)
                         )
-                    for numeric_field in ("price", "quantity"):
+                    normalised_level: dict[str, float] = {}
+                    for numeric_field in ("price", "quantity", "notional"):
                         numeric_value = level.get(numeric_field)
                         if numeric_value is None:
                             raise ValueError(
@@ -446,17 +466,57 @@ def build_microstructure_gate(
                                 f"depth_driven_taker_fills consumed_levels {numeric_field} "
                                 "must be a positive number"
                             )
+                        normalised_level[numeric_field] = normalised_value
+                    expected_level_notional = normalised_level["price"] * normalised_level["quantity"]
+                    if not math.isclose(
+                        normalised_level["notional"], expected_level_notional, rel_tol=1e-12, abs_tol=1e-9
+                    ):
+                        raise ValueError(
+                            "depth_driven_taker_fills consumed_levels notional must equal price * quantity"
+                        )
+                    consumed_quantity += normalised_level["quantity"]
+                    consumed_notional += normalised_level["notional"]
             complete = fill.get("complete", False)
             if not isinstance(complete, bool):
                 raise ValueError("depth_driven_taker_fills complete must be a boolean")
-            residual_quantity = fill.get("residual_quantity")
-            if (
-                complete
-                and residual_quantity is not None
-                and float(residual_quantity) > 1e-12
-            ):
-                raise ValueError("complete depth_driven_taker_fills must have zero residual quantity")
             if complete:
+                required_complete_fields = {
+                    "requested_quantity",
+                    "filled_quantity",
+                    "filled_notional",
+                    "residual_quantity",
+                    "vwap",
+                    "consumed_levels",
+                }
+                missing_complete_fields = sorted(required_complete_fields - set(fill))
+                if missing_complete_fields:
+                    raise ValueError(
+                        "complete depth_driven_taker_fills require " + ", ".join(missing_complete_fields)
+                    )
+                if not consumed_levels:
+                    raise ValueError("complete depth_driven_taker_fills require consumed_levels")
+                requested_quantity = normalised_fill_numbers["requested_quantity"]
+                filled_quantity = normalised_fill_numbers["filled_quantity"]
+                residual_quantity = normalised_fill_numbers["residual_quantity"]
+                filled_notional = normalised_fill_numbers["filled_notional"]
+                vwap = normalised_fill_numbers["vwap"]
+                if residual_quantity != 0.0:
+                    raise ValueError("complete depth_driven_taker_fills must have zero residual quantity")
+                if not math.isclose(filled_quantity, requested_quantity, rel_tol=1e-12, abs_tol=1e-12):
+                    raise ValueError(
+                        "complete depth_driven_taker_fills filled_quantity must equal requested_quantity"
+                    )
+                if not math.isclose(filled_quantity, consumed_quantity, rel_tol=1e-12, abs_tol=1e-12):
+                    raise ValueError(
+                        "depth_driven_taker_fills filled_quantity must equal consumed level quantity"
+                    )
+                if not math.isclose(filled_notional, consumed_notional, rel_tol=1e-12, abs_tol=1e-9):
+                    raise ValueError(
+                        "depth_driven_taker_fills filled_notional must equal consumed level notional"
+                    )
+                expected_vwap = filled_notional / filled_quantity
+                if not math.isclose(vwap, expected_vwap, rel_tol=1e-12, abs_tol=1e-9):
+                    raise ValueError("depth_driven_taker_fills vwap must equal filled_notional / filled_quantity")
                 complete_fill_count += 1
         incomplete_fill_count = fill_count - complete_fill_count
         depth_driven_taker_met = fill_count > 0 and incomplete_fill_count == 0
