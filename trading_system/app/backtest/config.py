@@ -136,6 +136,19 @@ def _load_float_map(raw: Any, *, field_name: str) -> dict[str, float]:
     return parsed
 
 
+def _load_string_map(raw: Any, *, field_name: str) -> dict[str, str]:
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        raise ValueError(f"{field_name} must be an object")
+    parsed: dict[str, str] = {}
+    for key, value in raw.items():
+        parsed[
+            _canonical_string(key, field_name=f"{field_name} key")
+        ] = _canonical_string(value, field_name=f"{field_name}.{key}")
+    return parsed
+
+
 def _load_universe(raw: Any) -> UniverseFilterConfig:
     if not isinstance(raw, dict):
         raise ValueError("universe must be an object")
@@ -173,6 +186,12 @@ def _load_costs(raw: Any, *, experiment_kind: str) -> BacktestCosts:
             fee_bps_by_market=_load_float_map(_require(raw, "fee_bps"), field_name="costs.fee_bps"),
             slippage_bps_by_tier=_load_float_map(_require(raw, "slippage_tiers"), field_name="costs.slippage_tiers"),
             funding_mode=_canonical_string(_require(raw, "funding_mode"), field_name="costs.funding_mode"),
+            require_fee_funding_provenance=_strict_bool(
+                raw.get("require_fee_funding_provenance", False),
+                field_name="costs.require_fee_funding_provenance",
+            ),
+            fee_venue_by_market=_load_string_map(raw.get("fee_venue_by_market"), field_name="costs.fee_venue_by_market"),
+            funding_venue_by_market=_load_string_map(raw.get("funding_venue_by_market"), field_name="costs.funding_venue_by_market"),
         )
     return BacktestCosts(
         fee_bps=_finite_number(_require(raw, "fee_bps"), field_name="costs.fee_bps"),

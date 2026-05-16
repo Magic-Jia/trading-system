@@ -1355,6 +1355,7 @@ def _write_market_bundle(
     (bundle / "account_snapshot.json").write_text(
         json.dumps(
             {
+                "account_id": "paper-main",
                 "equity": 100000.0,
                 "available_balance": 100000.0,
                 "futures_wallet_balance": 100000.0,
@@ -1989,6 +1990,112 @@ def test_replay_full_market_baseline_emits_trades_rejections_and_cost_drag(
     assert trade_by_symbol["BTCUSDT"].funding_paid == pytest.approx(0.0)
     assert trade_by_symbol["ETHUSDT"].funding_paid == pytest.approx(0.0)
     assert trade_by_symbol["SOLUSDTPERP"].funding_paid > 0.0
+
+
+def test_replay_full_market_baseline_rejects_fee_funding_provenance_gaps(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    config = load_backtest_config(_baseline_config_path(tmp_path))
+    config = replace(
+        config,
+        costs=replace(config.costs, require_fee_funding_provenance=True),
+    )
+    _install_replay_candidates(monkeypatch)
+
+    with pytest.raises(ValueError, match="fee provenance evidence is required"):
+        backtest_engine.replay_full_market_baseline(config)
+
+
+def test_replay_full_market_baseline_preserves_fee_funding_provenance(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    config_path = _baseline_config_path(tmp_path)
+    for bundle in (tmp_path / "baseline_dataset").glob("*__*"):
+        metadata = json.loads((bundle / "metadata.json").read_text(encoding="utf-8"))
+        timestamp = metadata["timestamp"]
+        market = json.loads((bundle / "market_context.json").read_text(encoding="utf-8"))
+        derivatives = json.loads((bundle / "derivatives_snapshot.json").read_text(encoding="utf-8"))
+        for symbol, payload in market["symbols"].items():
+            if symbol not in set(market.get("candidate_symbols") or []):
+                continue
+            is_futures = symbol.endswith("PERP")
+            rate = 5.0 if is_futures else 10.0
+            venue = "binance_futures" if is_futures else "binance_spot"
+            payload.setdefault("futures_context", {})
+            payload["futures_context"]["fee_provenance"] = {
+                "schema_version": "cost_input_provenance.v1",
+                "kind": "fee",
+                "account_id": "paper-main",
+                "venue": venue,
+                "symbol": symbol,
+                "side": "long",
+                "timeframe": "daily",
+                "tier": "vip0",
+                "rate": rate,
+                "effective_at": timestamp,
+                "as_of": timestamp,
+                "observed_at": timestamp,
+            }
+            funding_rate = next(
+                (row["funding_rate"] for row in derivatives["rows"] if row["symbol"] == symbol),
+                0.0,
+            )
+            payload["futures_context"]["funding_provenance"] = {
+                "schema_version": "cost_input_provenance.v1",
+                "kind": "funding",
+                "account_id": "paper-main",
+                "venue": venue,
+                "symbol": symbol,
+                "side": "long",
+                "timeframe": "daily",
+                "tier": "funding_series",
+                "rate": funding_rate,
+                "effective_at": timestamp,
+                "as_of": timestamp,
+                "observed_at": timestamp,
+            }
+        (bundle / "market_context.json").write_text(json.dumps(market), encoding="utf-8")
+
+    config = load_backtest_config(config_path)
+    config = replace(
+        config,
+        costs=replace(config.costs, require_fee_funding_provenance=True),
+    )
+    _install_replay_candidates(monkeypatch)
+
+    result = backtest_engine.replay_full_market_baseline(config)
+
+    sol_trade = next(row for row in result.trade_ledger if row.symbol == "SOLUSDTPERP")
+    assert sol_trade.fee_provenance == {
+        "schema_version": "cost_input_provenance.v1",
+        "kind": "fee",
+        "account_id": "paper-main",
+        "venue": "binance_futures",
+        "symbol": "SOLUSDTPERP",
+        "side": "long",
+        "timeframe": "daily",
+        "tier": "vip0",
+        "rate": 5.0,
+        "effective_at": "2026-03-11T00:00:00Z",
+        "as_of": "2026-03-11T00:00:00Z",
+        "observed_at": "2026-03-11T00:00:00Z",
+    }
+    assert sol_trade.funding_provenance == {
+        "schema_version": "cost_input_provenance.v1",
+        "kind": "funding",
+        "account_id": "paper-main",
+        "venue": "binance_futures",
+        "symbol": "SOLUSDTPERP",
+        "side": "long",
+        "timeframe": "daily",
+        "tier": "funding_series",
+        "rate": 0.0002,
+        "effective_at": "2026-03-11T00:00:00Z",
+        "as_of": "2026-03-11T00:00:00Z",
+        "observed_at": "2026-03-11T00:00:00Z",
+    }
 
 
 def test_replay_full_market_baseline_rejects_duplicate_snapshot_timestamps(tmp_path: Path) -> None:

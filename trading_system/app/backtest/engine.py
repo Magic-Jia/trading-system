@@ -14,7 +14,14 @@ from trading_system.app.signals.short_engine import generate_short_candidates
 from trading_system.app.signals.trend_engine import generate_trend_candidates
 from trading_system.app.universe.builder import UniverseBuildResult, build_universes
 
-from .costs import fee_bps_for_market, fee_cost, funding_cost, slippage_bps_for_tier, slippage_cost
+from .costs import (
+    fee_bps_for_market,
+    fee_cost,
+    funding_cost,
+    slippage_bps_for_tier,
+    slippage_cost,
+    validate_cost_input_provenance,
+)
 from .dataset import load_historical_dataset
 from .execution_sim import (
     DepthLevel,
@@ -230,6 +237,8 @@ class _OpenTrade:
     position_notional: float
     liquidity_tier: str
     funding_rate: float
+    fee_provenance: dict[str, Any] | None = None
+    funding_provenance: dict[str, Any] | None = None
     engine: str = ""
     setup_type: str = ""
     score: float = 0.0
@@ -633,6 +642,18 @@ def _funding_rate(row: DatasetSnapshotRow, symbol: str) -> float:
                 raise ValueError("invalid futures context numeric field funding_rate: None")
             return funding_rate
     return 0.0
+
+
+def _cost_provenance_from_context(
+    *,
+    kind: str,
+    explicit: object | None = None,
+) -> dict[str, Any] | None:
+    if explicit is not None:
+        if not isinstance(explicit, Mapping):
+            raise ValueError(f"{kind} provenance evidence must be an object")
+        return dict(explicit)
+    return None
 
 
 def _optional_futures_float(value: Any, field: str, *, positive: bool = False) -> float | None:
@@ -1213,7 +1234,17 @@ def _trade_row(
         simulated_exit_move_pct = exit_move_pct
         simulated_exit_ordering = "no_intraday_path"
     gross_pnl = (exit_price - open_trade.entry_price) * qty * direction
-    fees = fee_cost(position_notional=position_notional, market_type=open_trade.market_type, costs=costs)
+    fees = fee_cost(
+        position_notional=position_notional,
+        market_type=open_trade.market_type,
+        costs=costs,
+        symbol=open_trade.symbol,
+        side=open_trade.side,
+        timeframe=open_trade.entry_reference_timeframe or None,
+        decision_time=open_trade.entry_timestamp.isoformat().replace("+00:00", "Z"),
+        fill_time=open_trade.entry_timestamp.isoformat().replace("+00:00", "Z"),
+        fee_provenance=open_trade.fee_provenance,
+    )
     slippage = slippage_cost(
         position_notional=position_notional,
         liquidity_tier=open_trade.liquidity_tier,
@@ -1226,6 +1257,11 @@ def _trade_row(
         funding_rate=open_trade.funding_rate,
         holding_hours=holding_hours,
         costs=costs,
+        symbol=open_trade.symbol,
+        timeframe=open_trade.entry_reference_timeframe or None,
+        decision_time=open_trade.entry_timestamp.isoformat().replace("+00:00", "Z"),
+        fill_time=open_trade.entry_timestamp.isoformat().replace("+00:00", "Z"),
+        funding_provenance=open_trade.funding_provenance,
     )
     net_pnl = gross_pnl - fees - slippage - funding
     simulated_gross_pnl = (simulated_exit_price - open_trade.entry_price) * qty * direction
@@ -1298,6 +1334,8 @@ def _trade_row(
             funding_rate=open_trade.funding_rate,
             funding_timestamp=open_trade.funding_timestamp,
             funding_age_seconds=open_trade.funding_age_seconds,
+            fee_provenance=open_trade.fee_provenance,
+            funding_provenance=open_trade.funding_provenance,
             open_interest_usdt=open_trade.open_interest_usdt,
             open_interest_timestamp=open_trade.open_interest_timestamp,
             open_interest_age_seconds=open_trade.open_interest_age_seconds,
@@ -1471,6 +1509,42 @@ def _replay_full_market_baseline_rows(
             )
             futures_context = _futures_context(row, candidate.symbol)
             funding_rate = _optional_futures_float(futures_context.get("funding_rate"), "funding_rate")
+            resolved_funding_rate = funding_rate if funding_rate is not None else _funding_rate(row, candidate.symbol)
+            fee_bps = fee_bps_for_market(config.costs, candidate.market_type)
+            fee_provenance = _cost_provenance_from_context(
+                kind="fee",
+                explicit=futures_context.get("fee_provenance"),
+            )
+            funding_provenance = _cost_provenance_from_context(
+                kind="funding",
+                explicit=futures_context.get("funding_provenance"),
+            )
+            if config.costs.require_fee_funding_provenance:
+                timestamp = row.timestamp.isoformat().replace("+00:00", "Z")
+                validate_cost_input_provenance(
+                    fee_provenance,
+                    kind="fee",
+                    rate=fee_bps,
+                    costs=config.costs,
+                    market_type=candidate.market_type,
+                    symbol=candidate.symbol,
+                    side=candidate.side,
+                    timeframe=candidate.entry_reference_timeframe,
+                    decision_time=timestamp,
+                    fill_time=timestamp,
+                )
+                validate_cost_input_provenance(
+                    funding_provenance,
+                    kind="funding",
+                    rate=resolved_funding_rate,
+                    costs=config.costs,
+                    market_type=candidate.market_type,
+                    symbol=candidate.symbol,
+                    side=candidate.side,
+                    timeframe=candidate.entry_reference_timeframe,
+                    decision_time=timestamp,
+                    fill_time=timestamp,
+                )
             open_trades.append(
                 _OpenTrade(
                     symbol=candidate.symbol,
@@ -1483,7 +1557,9 @@ def _replay_full_market_baseline_rows(
                     qty=decision.qty,
                     position_notional=decision.position_notional,
                     liquidity_tier=instrument.liquidity_tier,
-                    funding_rate=funding_rate if funding_rate is not None else _funding_rate(row, candidate.symbol),
+                    funding_rate=resolved_funding_rate,
+                    fee_provenance=fee_provenance,
+                    funding_provenance=funding_provenance,
                     engine=_candidate_canonical_string(candidate_row, "engine"),
                     setup_type=_candidate_canonical_string(candidate_row, "setup_type"),
                     score=_candidate_finite_number(candidate_row, "score"),

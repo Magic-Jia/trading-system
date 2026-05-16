@@ -1648,6 +1648,34 @@ def sample_baseline_result() -> BaselineReplayResult:
                 funding_rate=0.0004,
                 funding_timestamp=_ts("2026-03-10T00:00:00Z"),
                 funding_age_seconds=0,
+                fee_provenance={
+                    "schema_version": "cost_input_provenance.v1",
+                    "kind": "fee",
+                    "account_id": "paper-main",
+                    "venue": "binance_spot",
+                    "symbol": "BTCUSDT",
+                    "side": "long",
+                    "timeframe": "15m",
+                    "tier": "vip0",
+                    "rate": 10.0,
+                    "effective_at": "2026-03-10T00:00:00Z",
+                    "as_of": "2026-03-10T00:00:00Z",
+                    "observed_at": "2026-03-10T00:00:00Z",
+                },
+                funding_provenance={
+                    "schema_version": "cost_input_provenance.v1",
+                    "kind": "funding",
+                    "account_id": "paper-main",
+                    "venue": "binance_spot",
+                    "symbol": "BTCUSDT",
+                    "side": "long",
+                    "timeframe": "15m",
+                    "tier": "funding_series",
+                    "rate": 0.0004,
+                    "effective_at": "2026-03-10T00:00:00Z",
+                    "as_of": "2026-03-10T00:00:00Z",
+                    "observed_at": "2026-03-10T00:00:00Z",
+                },
                 open_interest_usdt=120_000_000.0,
                 open_interest_timestamp=_ts("2026-03-10T00:00:00Z"),
                 open_interest_age_seconds=0,
@@ -2878,6 +2906,9 @@ def test_render_full_market_baseline_report_contains_summary_breakdowns_and_audi
     assert first_trade["fill_quality"] == "evidence_backed"
     assert first_trade["execution_timeframe"] == "1m"
     assert first_trade["execution_lag_bars"] == 1
+    assert first_trade["fee_provenance"]["account_id"] == "paper-main"
+    assert first_trade["fee_provenance"]["symbol"] == "BTCUSDT"
+    assert first_trade["funding_provenance"]["observed_at"] == "2026-03-10T00:00:00Z"
 
 
 def test_backtest_cli_writes_full_market_baseline_bundle(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

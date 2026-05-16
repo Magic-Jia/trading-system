@@ -62,6 +62,9 @@ class BacktestCosts:
     fee_bps_by_market: dict[str, float] = field(default_factory=dict)
     slippage_bps_by_tier: dict[str, float] = field(default_factory=dict)
     funding_mode: Literal["historical_series"] | None = None
+    require_fee_funding_provenance: bool = False
+    fee_venue_by_market: dict[str, str] = field(default_factory=dict)
+    funding_venue_by_market: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -329,6 +332,8 @@ class TradeLedgerRow:
     funding_rate: float | None = None
     funding_timestamp: datetime | None = None
     funding_age_seconds: int | None = None
+    fee_provenance: dict[str, Any] | None = None
+    funding_provenance: dict[str, Any] | None = None
     open_interest_usdt: float | None = None
     open_interest_timestamp: datetime | None = None
     open_interest_age_seconds: int | None = None

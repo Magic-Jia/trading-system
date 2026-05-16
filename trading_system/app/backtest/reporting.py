@@ -888,6 +888,14 @@ def _trade_ledger_payload(trade_ledger: tuple[TradeLedgerRow, ...]) -> list[dict
             "funding_rate": row.funding_rate,
             "funding_timestamp": row.funding_timestamp.isoformat() if row.funding_timestamp is not None else None,
             "funding_age_seconds": row.funding_age_seconds,
+            "fee_provenance": _report_cost_input_provenance(
+                row.fee_provenance,
+                field_name=f"trades[{index}].fee_provenance",
+            ),
+            "funding_provenance": _report_cost_input_provenance(
+                row.funding_provenance,
+                field_name=f"trades[{index}].funding_provenance",
+            ),
             "open_interest_usdt": row.open_interest_usdt,
             "open_interest_timestamp": row.open_interest_timestamp.isoformat() if row.open_interest_timestamp is not None else None,
             "open_interest_age_seconds": row.open_interest_age_seconds,
@@ -1026,6 +1034,30 @@ def _report_metadata_copy(metadata: Mapping[str, Any]) -> dict[str, Any]:
             field_name="metadata.split_metadata",
         )
     return copied
+
+
+def _report_cost_input_provenance(value: object, *, field_name: str) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    provenance = _strict_mapping_copy(value, field_name=field_name)
+    for field in (
+        "schema_version",
+        "kind",
+        "account_id",
+        "venue",
+        "symbol",
+        "side",
+        "timeframe",
+        "tier",
+        "effective_at",
+        "as_of",
+        "observed_at",
+    ):
+        if field not in provenance:
+            raise ValueError(f"{field_name}.{field} must be present")
+        provenance[field] = _canonical_report_string(provenance[field], field_name=f"{field_name}.{field}")
+    provenance["rate"] = _report_finite_float(provenance.get("rate"), field_name=f"{field_name}.rate")
+    return provenance
 
 
 def _walk_forward_split_metadata(value: object, *, field_name: str) -> dict[str, Any]:
