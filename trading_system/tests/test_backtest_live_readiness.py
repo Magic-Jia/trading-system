@@ -12523,6 +12523,44 @@ def test_live_readiness_gate_rejects_setup_rewrite_total_rows_numeric_string(tmp
     assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
 
 
+def test_live_readiness_gate_rejects_setup_rewrite_total_trades_mismatch(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    (chunk / "setup_rewrite_experiment.json").write_text(
+        json.dumps(
+            {
+                "summary": {
+                    "total_rows": 1,
+                    "total_trades": 2,
+                    "evaluated_count": 1,
+                    "would_keep_count": 1,
+                    "would_filter_count": 0,
+                    "skipped_count": 0,
+                },
+                "evaluation_rows": [
+                    {
+                        "symbol": "BTCUSDT",
+                        "setup_type": "BREAKOUT_CONTINUATION",
+                        "evaluation_status": "evaluated",
+                        "evaluation_reason": "kept",
+                        "would_keep": True,
+                        "net_pnl": 10.0,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    diagnostic = report["setup_rewrite_diagnostic"]
+    assert diagnostic["checks"]["setup_rewrite_artifact_schema_valid"] is False
+    assert diagnostic["chunks"][0]["parse_error"] == "summary_total_trades_mismatch"
+    assert "setup_rewrite_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
 
 def test_live_readiness_gate_rejects_setup_rewrite_summary_numeric_strings(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"

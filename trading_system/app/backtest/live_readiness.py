@@ -1565,6 +1565,12 @@ def _setup_rewrite_counts(summary: Mapping[str, Any]) -> tuple[dict[str, int], s
             parse_error = "invalid_numeric_field: summary.total_rows"
     else:
         total_rows = None
+    if "total_trades" in summary:
+        total_trades, total_trades_valid = _strict_summary_int_value(summary.get("total_trades"))
+        if not total_trades_valid and not parse_error:
+            parse_error = "invalid_numeric_field: summary.total_trades"
+    else:
+        total_trades = None
     for field in SETUP_REWRITE_COUNT_FIELDS:
         raw_value = summary.get(field, 0)
         parsed, valid = _strict_summary_int_value(raw_value)
@@ -1575,6 +1581,8 @@ def _setup_rewrite_counts(summary: Mapping[str, Any]) -> tuple[dict[str, int], s
         counted_rows = counts["would_keep_count"] + counts["would_filter_count"] + counts["skipped_count"]
         if counted_rows != total_rows:
             parse_error = "summary_count_mismatch"
+    if total_rows is not None and total_trades is not None and not parse_error and total_trades != total_rows:
+        parse_error = "summary_total_trades_mismatch"
     return counts, parse_error
 
 
