@@ -13,6 +13,7 @@ from trading_system.app.runtime_paths import build_runtime_paths
 
 EVIDENCE_MANIFEST_NAME = "paper_live_sim_evidence_manifest.json"
 CALIBRATION_RECORDS_NAME = "passive_order_calibration_records.jsonl"
+CALIBRATION_UNAVAILABLE_NAME = "calibration_records_unavailable.json"
 TCA_ASSUMPTIONS_NAME = "tca_assumptions.json"
 TCA_TOLERANCES_NAME = "tca_tolerances.json"
 DRIFT_CONTRACT_NAME = "paper_live_shadow_drift_contract.json"
@@ -70,6 +71,20 @@ def _daily_tca_input(report: Mapping[str, Any], *, max_p95_slippage_bps: float) 
         "sample_size": report.get("sample_count"),
         "p95_slippage_bps": _p95_slippage_from_tca(report),
         "max_p95_slippage_bps": max_p95_slippage_bps,
+    }
+
+
+def _calibration_unavailable_input(marker: Mapping[str, Any], *, max_p95_slippage_bps: float) -> dict[str, Any]:
+    if marker.get("schema_version") != "calibration_records_unavailable.v1":
+        raise ValueError("calibration_records_unavailable schema_version is invalid")
+    if marker.get("reason") != "calibration_records_unavailable":
+        raise ValueError("calibration_records_unavailable reason is invalid")
+    return {
+        "sample_size": 0,
+        "min_sample_size": None,
+        "p95_slippage_bps": 0.0,
+        "max_p95_slippage_bps": max_p95_slippage_bps,
+        "availability_reason": "calibration_records_unavailable",
     }
 
 
@@ -138,38 +153,56 @@ def run_scheduled_generation(
     drift = _read_json_object(output_dir / DRIFT_CONTRACT_NAME)
     reconciliation = _read_json_object(output_dir / RECONCILIATION_NAME)
     tolerances = _optional_json_object(output_dir / TCA_TOLERANCES_NAME)
+    calibration_unavailable = _optional_json_object(output_dir / CALIBRATION_UNAVAILABLE_NAME)
 
     evidence_path = write_paper_live_sim_evidence_bundle(evidence_manifest, output_dir)
-    calibration_summary_path = write_calibration_summary(
-        calibration_records,
-        output_dir,
-        evidence_source={
-            "type": "paper_live_sim",
-            "run_id": f"{paths.mode}-{paths.runtime_env}-scheduled-calibration",
-            "exported_at": evaluated_at,
-        },
-    )
-    tca_path = write_tca_calibration_report(
-        calibration_records,
-        output_dir,
-        assumptions=assumptions,
-        evidence_source={
-            "type": "paper_live_sim",
-            "run_id": f"{paths.mode}-{paths.runtime_env}-scheduled-tca",
-            "exported_at": evaluated_at,
-        },
-        evaluated_at=evaluated_at,
-        min_samples=min_tca_samples,
-        max_evidence_age_seconds=max_evidence_age_seconds,
-        tolerance_thresholds=tolerances,
-    )
-    tca_report = _read_json_object(tca_path)
+    generated_artifacts = {
+        "paper_live_sim_evidence_bundle": str(evidence_path),
+    }
+    if calibration_unavailable is None:
+        calibration_summary_path = write_calibration_summary(
+            calibration_records,
+            output_dir,
+            evidence_source={
+                "type": "paper_live_sim",
+                "run_id": f"{paths.mode}-{paths.runtime_env}-scheduled-calibration",
+                "exported_at": evaluated_at,
+            },
+        )
+        tca_path = write_tca_calibration_report(
+            calibration_records,
+            output_dir,
+            assumptions=assumptions,
+            evidence_source={
+                "type": "paper_live_sim",
+                "run_id": f"{paths.mode}-{paths.runtime_env}-scheduled-tca",
+                "exported_at": evaluated_at,
+            },
+            evaluated_at=evaluated_at,
+            min_samples=min_tca_samples,
+            max_evidence_age_seconds=max_evidence_age_seconds,
+            tolerance_thresholds=tolerances,
+        )
+        tca_report = _read_json_object(tca_path)
+        daily_tca = _daily_tca_input(tca_report, max_p95_slippage_bps=max_p95_slippage_bps)
+        generated_artifacts.update(
+            {
+                "passive_order_calibration_summary": str(calibration_summary_path),
+                "tca_calibration_report": str(tca_path),
+            }
+        )
+    else:
+        daily_tca = _calibration_unavailable_input(
+            calibration_unavailable,
+            max_p95_slippage_bps=max_p95_slippage_bps,
+        )
+        generated_artifacts["calibration_records_unavailable"] = str(output_dir / CALIBRATION_UNAVAILABLE_NAME)
     gate = write_daily_quality_gate_report(
         output_dir / "daily_quality_gate_report.json",
         evidence_bundle={"verified": True, "manifest_present": True},
         drift=drift,
         reconciliation=reconciliation,
-        tca=_daily_tca_input(tca_report, max_p95_slippage_bps=max_p95_slippage_bps),
+        tca=daily_tca,
         freshness={
             **_freshness_input(output_dir=output_dir, max_evidence_age_seconds=max_evidence_age_seconds),
         },
@@ -186,9 +219,7 @@ def run_scheduled_generation(
         "generated_at": evaluated_at,
         "daily_quality_gate_decision": gate["decision"],
         "generated_artifacts": {
-            "paper_live_sim_evidence_bundle": str(evidence_path),
-            "passive_order_calibration_summary": str(calibration_summary_path),
-            "tca_calibration_report": str(tca_path),
+            **generated_artifacts,
             "daily_quality_gate_report": str(gate_path),
         },
     }

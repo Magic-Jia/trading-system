@@ -260,6 +260,69 @@ def test_scheduled_generation_cli_fails_closed_for_missing_required_inputs(tmp_p
     assert "passive_order_calibration_records.jsonl" in failure["error_message"]
 
 
+def test_scheduled_generation_holds_when_calibration_records_are_marked_unavailable(tmp_path: Path) -> None:
+    paths = build_runtime_paths("paper", runtime_root=tmp_path / "runtime", runtime_env="paper")
+    opt = paths.optimization_dir
+    _write_json(opt / "paper_live_sim_evidence_manifest.json", _evidence_manifest())
+    _write_jsonl(opt / "passive_order_calibration_records.jsonl", [])
+    _write_json(opt / "calibration_records_unavailable.json", {
+        "schema_version": "calibration_records_unavailable.v1",
+        "generated_at": "2026-05-16T10:00:10Z",
+        "reason": "calibration_records_unavailable",
+        "source_record_count": 2,
+    })
+    _write_json(opt / "tca_assumptions.json", _assumptions())
+    _write_json(opt / "paper_live_shadow_drift_contract.json", _drift_contract())
+    _write_json(opt / "runtime_safety_gate.json", _reconciliation())
+
+    result = run_scheduled_generation(
+        mode="paper",
+        runtime_root=tmp_path / "runtime",
+        runtime_env="paper",
+        generated_at="2026-05-16T10:00:10Z",
+        max_evidence_age_seconds=300,
+        min_tca_samples=4,
+        max_p95_slippage_bps=5.0,
+    )
+
+    gate = json.loads((paths.optimization_dir / "daily_quality_gate_report.json").read_text())
+    assert result["status"] == "ok"
+    assert result["daily_quality_gate_decision"] == "hold_for_review"
+    assert "tca_calibration_report" not in result["generated_artifacts"]
+    assert not (paths.optimization_dir / "tca_calibration_report.json").exists()
+    assert gate["decision"] == "hold_for_review"
+    assert gate["reasons"] == ["calibration_records_unavailable", "insufficient_sample_size"]
+    assert gate["checks"]["calibration_records_available"] is False
+    assert gate["inputs"]["tca"]["availability_reason"] == "calibration_records_unavailable"
+
+
+def test_scheduled_generation_fails_closed_for_malformed_calibration_rows(tmp_path: Path) -> None:
+    paths = build_runtime_paths("paper", runtime_root=tmp_path / "runtime", runtime_env="paper")
+    _write_inputs(paths)
+    malformed = _calibration_records()[0]
+    del malformed["signal_at"]
+    _write_jsonl(paths.optimization_dir / "passive_order_calibration_records.jsonl", [malformed])
+
+    exit_code = main(
+        [
+            "--mode",
+            "paper",
+            "--runtime-root",
+            str(tmp_path / "runtime"),
+            "--runtime-env",
+            "paper",
+            "--generated-at",
+            "2026-05-16T10:00:10Z",
+        ]
+    )
+
+    failure = json.loads((paths.optimization_dir / "scheduled_live_sim_generation_error.json").read_text())
+    assert exit_code == 1
+    assert failure["status"] == "fail_closed"
+    assert failure["error_type"] == "ValueError"
+    assert failure["error_message"] == "calibration record missing signal_at"
+
+
 def test_paper_cron_runs_scheduled_generation_after_cycle() -> None:
     script = Path("deploy/cron/trading-system-paper-cron.sh").read_text(encoding="utf-8")
 

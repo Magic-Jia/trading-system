@@ -25,6 +25,7 @@ HARD_REASONS = (
 SOFT_REASONS = (
     "latency_distribution_shift",
     "data_freshness_violation",
+    "calibration_records_unavailable",
     "insufficient_sample_size",
 )
 REASON_ORDER = (
@@ -34,6 +35,7 @@ REASON_ORDER = (
     "reconcile_failed",
     "latency_distribution_shift",
     "data_freshness_violation",
+    "calibration_records_unavailable",
     "insufficient_sample_size",
     "malformed_evidence",
 )
@@ -397,7 +399,16 @@ def _tca_checks(tca: Any, min_sample_size: Any, malformed: list[str]) -> dict[st
         "tca.max_p95_slippage_bps",
         malformed,
     )
+    availability_reason = payload.get("availability_reason")
+    calibration_records_available = True
+    if availability_reason is not None:
+        if availability_reason != "calibration_records_unavailable":
+            malformed.append("tca.availability_reason_invalid")
+        else:
+            calibration_records_available = False
     return {
+        "availability_reason": availability_reason if availability_reason == "calibration_records_unavailable" else None,
+        "calibration_records_available": calibration_records_available,
         "sample_size": sample_size,
         "min_sample_size": min_samples,
         "sufficient_sample_size": sample_size is not None and min_samples is not None and sample_size >= min_samples,
@@ -507,6 +518,8 @@ def build_daily_quality_gate_report(
         reasons.add("latency_distribution_shift")
     if freshness_result["data_freshness_met"] is False:
         reasons.add("data_freshness_violation")
+    if tca_result["calibration_records_available"] is False:
+        reasons.add("calibration_records_unavailable")
     if tca_result["sufficient_sample_size"] is False:
         reasons.add("insufficient_sample_size")
 
@@ -530,6 +543,7 @@ def build_daily_quality_gate_report(
             **drift_result,
             **reconciliation_result,
             "tca_slippage_within_threshold": bool(tca_result["tca_slippage_within_threshold"]),
+            "calibration_records_available": bool(tca_result["calibration_records_available"]),
             "latency_distribution_stable": bool(latency_result["latency_distribution_stable"]),
             "data_freshness_met": bool(freshness_result["data_freshness_met"]),
             "sufficient_sample_size": bool(tca_result["sufficient_sample_size"]),

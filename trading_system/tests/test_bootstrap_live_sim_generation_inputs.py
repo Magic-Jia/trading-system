@@ -151,6 +151,25 @@ def _legacy_trades() -> list[dict[str, object]]:
     return rows
 
 
+def _legacy_recommendation_only_trades() -> list[dict[str, object]]:
+    return [
+        {
+            "recorded_at": "2026-05-16T10:00:00Z",
+            "symbol": "BTCUSDT",
+            "action": "BUY",
+            "recommendation": "open_paper_position",
+            "confidence": 0.72,
+        },
+        {
+            "recorded_at": "2026-05-16T10:00:30Z",
+            "symbol": "ETHUSDT",
+            "action": "HOLD",
+            "recommendation": "keep_watch",
+            "confidence": 0.61,
+        },
+    ]
+
+
 def _write_legacy_artifacts(root: Path) -> None:
     _write_json(root / "runtime_state.json", _legacy_state())
     _write_json(root / "account_snapshot.json", _legacy_account())
@@ -218,6 +237,71 @@ def test_bootstrap_outputs_allow_scheduled_generation_to_run(tmp_path: Path) -> 
     gate = json.loads((paths.optimization_dir / "daily_quality_gate_report.json").read_text())
     assert result["status"] == "ok"
     assert gate["decision"] == "pass_for_continued_paper"
+
+
+def test_bootstrap_legacy_recommendation_only_paper_trades_emit_missing_calibration_hold(tmp_path: Path) -> None:
+    legacy_root = tmp_path / "legacy"
+    runtime_root = tmp_path / "runtime"
+    _write_legacy_artifacts(legacy_root)
+    _write_jsonl(legacy_root / "paper_trades.jsonl", _legacy_recommendation_only_trades())
+
+    result = bootstrap_live_sim_generation_inputs(
+        legacy_root=legacy_root,
+        mode="paper",
+        runtime_root=runtime_root,
+        runtime_env="paper",
+        generated_at="2026-05-16T10:01:00Z",
+        max_evidence_age_seconds=120,
+    )
+
+    paths = build_runtime_paths("paper", runtime_root=runtime_root, runtime_env="paper")
+    marker = json.loads((paths.optimization_dir / "calibration_records_unavailable.json").read_text())
+    metadata = json.loads((paths.optimization_dir / "bootstrap_input_metadata.json").read_text())
+    calibration_records = (paths.optimization_dir / "passive_order_calibration_records.jsonl").read_text()
+    assert result["status"] == "ok"
+    assert marker["reason"] == "calibration_records_unavailable"
+    assert marker["source_record_count"] == 2
+    assert metadata["calibration_records"]["available"] is False
+    assert metadata["calibration_records"]["reason"] == "calibration_records_unavailable"
+    assert calibration_records == ""
+
+    scheduled = run_scheduled_generation(
+        mode="paper",
+        runtime_root=runtime_root,
+        runtime_env="paper",
+        generated_at="2026-05-16T10:01:00Z",
+        max_evidence_age_seconds=120,
+        min_tca_samples=4,
+        max_p95_slippage_bps=5.0,
+    )
+
+    gate = json.loads((paths.optimization_dir / "daily_quality_gate_report.json").read_text())
+    assert scheduled["status"] == "ok"
+    assert scheduled["daily_quality_gate_decision"] == "hold_for_review"
+    assert "tca_calibration_report" not in scheduled["generated_artifacts"]
+    assert not (paths.optimization_dir / "tca_calibration_report.json").exists()
+    assert gate["decision"] == "hold_for_review"
+    assert gate["reasons"] == ["calibration_records_unavailable", "insufficient_sample_size"]
+    assert gate["inputs"]["tca"]["sample_size"] == 0
+    assert gate["inputs"]["tca"]["availability_reason"] == "calibration_records_unavailable"
+
+
+def test_bootstrap_fails_closed_for_malformed_calibration_like_paper_trade(tmp_path: Path) -> None:
+    legacy_root = tmp_path / "legacy"
+    _write_legacy_artifacts(legacy_root)
+    malformed = _legacy_trades()[0]
+    del malformed["signal_at"]
+    _write_jsonl(legacy_root / "paper_trades.jsonl", [malformed])
+
+    with pytest.raises(ValueError, match="calibration record missing signal_at"):
+        bootstrap_live_sim_generation_inputs(
+            legacy_root=legacy_root,
+            mode="paper",
+            runtime_root=tmp_path / "runtime",
+            runtime_env="paper",
+            generated_at="2026-05-16T10:01:00Z",
+            max_evidence_age_seconds=120,
+        )
 
 
 def test_bootstrap_records_missing_account_snapshot_as_of_without_fabricating_source_time(tmp_path: Path) -> None:

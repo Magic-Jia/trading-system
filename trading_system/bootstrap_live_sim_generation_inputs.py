@@ -18,6 +18,7 @@ from trading_system.app.runtime.runtime_safety_evidence import build_runtime_saf
 from trading_system.app.runtime_paths import build_runtime_paths
 
 ERROR_NAME = "bootstrap_live_sim_generation_inputs_error.json"
+CALIBRATION_UNAVAILABLE_NAME = "calibration_records_unavailable.json"
 
 _SNAPSHOT_NAMES = ("account_snapshot.json", "market_context.json", "derivatives_snapshot.json", "runtime_state.json")
 _NUMERIC_FIELD_HINTS = (
@@ -286,6 +287,55 @@ def _validate_calibration_rows_fresh(
                 raise ValueError(f"paper_trades.jsonl[{index}].{field} is stale")
 
 
+def _row_has_calibration_shape(row: Mapping[str, Any]) -> bool:
+    calibration_fields = {
+        "signal_at",
+        "decision_at",
+        "submitted_at",
+        "exchange_ack_at",
+        "first_fill_at",
+        "last_fill_at",
+        "cancel_ack_at",
+        "intended_limit_price",
+        "limit_price",
+        "maker_taker",
+        "slippage_bps",
+        "adverse_selection_bps",
+        "filled_qty",
+        "filled_notional",
+        "requested_qty",
+        "requested_notional",
+    }
+    return any(field in row for field in calibration_fields)
+
+
+def _calibration_rows_available(rows: list[Mapping[str, Any]]) -> bool:
+    if not rows:
+        return False
+    if not any(_row_has_calibration_shape(row) for row in rows):
+        return False
+    return True
+
+
+def _build_calibration_unavailable_marker(
+    *,
+    generated_at: str,
+    source_record_count: int,
+    source: Mapping[str, Any],
+) -> dict[str, Any]:
+    return {
+        "schema_version": "calibration_records_unavailable.v1",
+        "generated_at": generated_at,
+        "reason": "calibration_records_unavailable",
+        "source_record_count": source_record_count,
+        "evidence_source": dict(source),
+        "caveats": [
+            "Legacy paper_trades records contain recommendations/actions only; no execution calibration fields were fabricated.",
+            "TCA report generation remains fail-closed when calibration-like records are malformed.",
+        ],
+    }
+
+
 def _write_json(path: Path, payload: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -293,6 +343,9 @@ def _write_json(path: Path, payload: object) -> None:
 
 def _write_jsonl(path: Path, rows: list[Mapping[str, Any]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    if not rows:
+        path.write_text("", encoding="utf-8")
+        return
     path.write_text("\n".join(json.dumps(dict(row), sort_keys=True) for row in rows) + "\n", encoding="utf-8")
 
 
@@ -518,8 +571,10 @@ def bootstrap_live_sim_generation_inputs(
         "derivatives_snapshot.json", derivatives, evaluated_at, max_evidence_age_seconds, accepted_decimal_string_fields
     )
     _validate_json_value(runtime_state, "runtime_state.json")
-    load_calibration_records(source_root / "paper_trades.jsonl")
-    _validate_calibration_rows_fresh(trades, evaluated_at, max_evidence_age_seconds)
+    calibration_available = _calibration_rows_available(trades)
+    if calibration_available:
+        load_calibration_records(source_root / "paper_trades.jsonl")
+        _validate_calibration_rows_fresh(trades, evaluated_at, max_evidence_age_seconds)
 
     paths.bucket_dir.mkdir(parents=True, exist_ok=True)
     _write_json(paths.account_snapshot_file, account)
@@ -529,18 +584,29 @@ def bootstrap_live_sim_generation_inputs(
         shutil.copyfile(source_root / name, paths.bucket_dir / name)
 
     source = _source(source_root, evaluated_at)
+    calibration_metadata = (
+        {"available": True, "record_count": len(trades)}
+        if calibration_available
+        else {
+            "available": False,
+            "reason": "calibration_records_unavailable",
+            "source_record_count": len(trades),
+        }
+    )
     input_metadata = {
         "schema_version": "bootstrap_input_metadata.v1",
         "generated_at": evaluated_at,
         "evidence_source": source,
         "account_equity": account_equity_metadata,
+        "calibration_records": calibration_metadata,
         "accepted_decimal_string_fields": accepted_decimal_string_fields,
         "source_timestamp_quality": source_timestamp_quality,
         "quality_reasons": [
             quality["reason"]
             for quality in source_timestamp_quality.values()
             if isinstance(quality, Mapping) and isinstance(quality.get("reason"), str)
-        ],
+        ]
+        + ([] if calibration_available else ["calibration_records_unavailable"]),
     }
     generated_artifacts = {
         "bootstrap_input_metadata.json": input_metadata,
@@ -559,13 +625,26 @@ def bootstrap_live_sim_generation_inputs(
     }
     for name, payload in generated_artifacts.items():
         _write_json(paths.optimization_dir / name, payload)
-    _write_jsonl(paths.optimization_dir / "passive_order_calibration_records.jsonl", trades)
+    if calibration_available:
+        _write_jsonl(paths.optimization_dir / "passive_order_calibration_records.jsonl", trades)
+    else:
+        _write_jsonl(paths.optimization_dir / "passive_order_calibration_records.jsonl", [])
+        _write_json(
+            paths.optimization_dir / CALIBRATION_UNAVAILABLE_NAME,
+            _build_calibration_unavailable_marker(
+                generated_at=evaluated_at,
+                source_record_count=len(trades),
+                source=source,
+            ),
+        )
 
     artifact_paths = {
         **{name: str(paths.optimization_dir / name) for name in generated_artifacts},
         "passive_order_calibration_records.jsonl": str(paths.optimization_dir / "passive_order_calibration_records.jsonl"),
         **{name: str(paths.bucket_dir / name) for name in _SNAPSHOT_NAMES},
     }
+    if not calibration_available:
+        artifact_paths[CALIBRATION_UNAVAILABLE_NAME] = str(paths.optimization_dir / CALIBRATION_UNAVAILABLE_NAME)
     return {
         "schema_version": "bootstrap_live_sim_generation_inputs_result.v1",
         "status": "ok",
