@@ -23,6 +23,28 @@ from trading_system.app.backtest.types import (
 )
 
 
+_CANONICAL_SHA256_A = "a" * 64
+_CANONICAL_SHA256_B = "b" * 64
+_CANONICAL_SHA256_C = "c" * 64
+
+
+def _canonical_import_manifest_lineage(**overrides: object) -> dict[str, object]:
+    lineage: dict[str, object] = {
+        "raw_sha256": _CANONICAL_SHA256_A,
+        "importer_version": "phase1-importer.v1",
+        "importer_config_sha256": _CANONICAL_SHA256_B,
+        "artifact_sha256": _CANONICAL_SHA256_C,
+        "exchange": "binance",
+        "market": "futures",
+        "symbols": ["BTCUSDT", "ETHUSDT"],
+        "timeframes": ["1h", "5m"],
+        "coverage_start": "2025-01-01T00:00:00Z",
+        "coverage_end": "2025-02-11T00:00:00Z",
+    }
+    lineage.update(overrides)
+    return lineage
+
+
 def _write_minimal_dataset_bundle(tmp_path: Path, account_snapshot: dict) -> Path:
     dataset_root = tmp_path / "sample_dataset"
     bundle = dataset_root / "2026-03-10T00-00-00Z__sample-001"
@@ -4161,6 +4183,18 @@ def test_load_dataset_root_metadata_surfaces_imported_manifest_summary(tmp_path:
           "end_timestamp": "2025-02-11T00:00:00Z",
           "bundle_dirs": ["bundle-a", "bundle-b"],
           "source": {"scope": "phase1_binance_futures"},
+          "lineage": {
+            "raw_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "importer_version": "phase1-importer.v1",
+            "importer_config_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "artifact_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "exchange": "binance",
+            "market": "futures",
+            "symbols": ["BTCUSDT", "ETHUSDT"],
+            "timeframes": ["1h", "5m"],
+            "coverage_start": "2025-01-01T00:00:00Z",
+            "coverage_end": "2025-02-11T00:00:00Z"
+          },
           "coverage": {
             "ohlcv_timeframes": {
               "available": ["1h", "5m"],
@@ -4190,6 +4224,18 @@ def test_load_dataset_root_metadata_surfaces_imported_manifest_summary(tmp_path:
             "end_timestamp": "2025-02-11T00:00:00Z",
             "bundle_count": 2,
             "source": {"scope": "phase1_binance_futures"},
+            "lineage": {
+                "raw_sha256": _CANONICAL_SHA256_A,
+                "importer_version": "phase1-importer.v1",
+                "importer_config_sha256": _CANONICAL_SHA256_B,
+                "artifact_sha256": _CANONICAL_SHA256_C,
+                "exchange": "binance",
+                "market": "futures",
+                "symbols": ["BTCUSDT", "ETHUSDT"],
+                "timeframes": ["1h", "5m"],
+                "coverage_start": "2025-01-01T00:00:00Z",
+                "coverage_end": "2025-02-11T00:00:00Z",
+            },
             "coverage": {
                 "ohlcv_timeframes": {
                     "available": ["1h", "5m"],
@@ -4225,6 +4271,114 @@ def test_load_dataset_root_metadata_rejects_noncanonical_manifest_identity_field
     )
 
     with pytest.raises(ValueError, match="import manifest schema_version must be a canonical string"):
+        load_dataset_root_metadata(dataset_root)
+
+
+def test_load_dataset_root_metadata_rejects_missing_manifest_lineage(tmp_path: Path) -> None:
+    dataset_root = tmp_path / "imported_dataset"
+    dataset_root.mkdir()
+    (dataset_root / "import_manifest.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "phase1_imported_dataset_root.v1",
+                "scope": "phase1_binance_futures",
+                "archive_root": "/tmp/archive",
+                "dataset_root": "/tmp/imported_dataset",
+                "snapshot_count": 2,
+                "symbols": ["BTCUSDT"],
+                "start_timestamp": "2025-01-01T00:00:00Z",
+                "end_timestamp": "2025-02-11T00:00:00Z",
+                "bundle_dirs": ["bundle-a", "bundle-b"],
+                "source": {"exchange": "binance", "market": "futures"},
+                "coverage": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="import manifest lineage is required"):
+        load_dataset_root_metadata(dataset_root)
+
+
+@pytest.mark.parametrize(
+    ("field", "bad_value", "expected_message"),
+    [
+        ("raw_sha256", "A" * 64, r"import manifest lineage\.raw_sha256 must be a lowercase 64-hex SHA-256"),
+        ("importer_config_sha256", "b" * 63, r"import manifest lineage\.importer_config_sha256 must be a lowercase 64-hex SHA-256"),
+        ("artifact_sha256", f"{'c' * 64}\n", r"import manifest lineage\.artifact_sha256 must be a lowercase 64-hex SHA-256"),
+        ("importer_version", 1, r"import manifest lineage\.importer_version must be a canonical string"),
+        ("timeframes", ["1h", " 5m"], r"import manifest lineage\.timeframes\[1\] must be a canonical string"),
+    ],
+)
+def test_load_dataset_root_metadata_rejects_malformed_manifest_lineage_fields(
+    tmp_path: Path,
+    field: str,
+    bad_value: object,
+    expected_message: str,
+) -> None:
+    dataset_root = tmp_path / "imported_dataset"
+    dataset_root.mkdir()
+    (dataset_root / "import_manifest.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "phase1_imported_dataset_root.v1",
+                "scope": "phase1_binance_futures",
+                "archive_root": "/tmp/archive",
+                "dataset_root": "/tmp/imported_dataset",
+                "snapshot_count": 2,
+                "symbols": ["BTCUSDT", "ETHUSDT"],
+                "start_timestamp": "2025-01-01T00:00:00Z",
+                "end_timestamp": "2025-02-11T00:00:00Z",
+                "bundle_dirs": ["bundle-a", "bundle-b"],
+                "source": {"exchange": "binance", "market": "futures"},
+                "lineage": _canonical_import_manifest_lineage(**{field: bad_value}),
+                "coverage": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match=expected_message):
+        load_dataset_root_metadata(dataset_root)
+
+
+@pytest.mark.parametrize(
+    ("lineage_overrides", "expected_message"),
+    [
+        ({"symbols": ["ETHUSDT", "BTCUSDT"]}, r"import manifest lineage\.symbols must match symbols"),
+        ({"coverage_start": "2025-01-02T00:00:00Z"}, r"import manifest lineage\.coverage_start must match start_timestamp"),
+        ({"exchange": "coinbase"}, r"import manifest lineage\.exchange must match source\.exchange"),
+        ({"market": "spot"}, r"import manifest lineage\.market must match source\.market"),
+    ],
+)
+def test_load_dataset_root_metadata_rejects_mismatched_manifest_lineage_identity(
+    tmp_path: Path,
+    lineage_overrides: dict[str, object],
+    expected_message: str,
+) -> None:
+    dataset_root = tmp_path / "imported_dataset"
+    dataset_root.mkdir()
+    (dataset_root / "import_manifest.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "phase1_imported_dataset_root.v1",
+                "scope": "phase1_binance_futures",
+                "archive_root": "/tmp/archive",
+                "dataset_root": "/tmp/imported_dataset",
+                "snapshot_count": 2,
+                "symbols": ["BTCUSDT", "ETHUSDT"],
+                "start_timestamp": "2025-01-01T00:00:00Z",
+                "end_timestamp": "2025-02-11T00:00:00Z",
+                "bundle_dirs": ["bundle-a", "bundle-b"],
+                "source": {"exchange": "binance", "market": "futures"},
+                "lineage": _canonical_import_manifest_lineage(**lineage_overrides),
+                "coverage": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match=expected_message):
         load_dataset_root_metadata(dataset_root)
 
 

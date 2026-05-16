@@ -13,6 +13,7 @@ _REQUIRED_BUNDLE_FILES = ("metadata.json", "market_context.json", "derivatives_s
 _BASELINE_ACCOUNT_FILENAME = "baseline_account_snapshot.json"
 _INSTRUMENT_SNAPSHOT_FILENAME = "instrument_snapshot.json"
 _IMPORT_MANIFEST_FILENAME = "import_manifest.json"
+_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _DERIVATIVE_EVIDENCE_TIMESTAMP_FIELDS = (
     "funding_timestamp",
     "open_interest_timestamp",
@@ -1978,10 +1979,92 @@ def _manifest_object_field(manifest: dict[str, object], key: str) -> dict[str, o
     return dict(value)
 
 
+def _manifest_required_object_field(manifest: dict[str, object], key: str) -> dict[str, object]:
+    value = manifest.get(key)
+    if value is None:
+        raise ValueError(f"import manifest {key} is required")
+    if not isinstance(value, dict):
+        raise ValueError(f"import manifest {key} must be an object")
+    return dict(value)
+
+
 def _manifest_coverage_field(manifest: dict[str, object]) -> dict[str, object]:
     coverage = _manifest_object_field(manifest, "coverage")
     _validate_manifest_coverage_value(coverage, field_path="import manifest coverage")
     return coverage
+
+
+def _manifest_lineage_sha256(lineage: dict[str, object], key: str) -> str:
+    value = lineage.get(key)
+    if not isinstance(value, str) or _SHA256_RE.fullmatch(value) is None:
+        raise ValueError(f"import manifest lineage.{key} must be a lowercase 64-hex SHA-256")
+    return value
+
+
+def _manifest_lineage_string(lineage: dict[str, object], key: str) -> str:
+    value = lineage.get(key)
+    if not isinstance(value, str) or not value or value != value.strip():
+        raise ValueError(f"import manifest lineage.{key} must be a canonical string")
+    return value
+
+
+def _manifest_lineage_utc_timestamp(lineage: dict[str, object], key: str) -> str:
+    value = _manifest_lineage_string(lineage, key)
+    try:
+        parsed = _parse_timestamp(value)
+    except ValueError as exc:
+        raise ValueError(f"import manifest lineage.{key} must be a canonical UTC ISO timestamp") from exc
+    if _canonical_utc_timestamp(parsed) != value:
+        raise ValueError(f"import manifest lineage.{key} must be a canonical UTC ISO timestamp")
+    return value
+
+
+def _manifest_lineage_string_list(lineage: dict[str, object], key: str) -> list[str]:
+    value = lineage.get(key)
+    if not isinstance(value, list):
+        raise ValueError(f"import manifest lineage.{key} must be a list")
+    values: list[str] = []
+    for index, item in enumerate(value):
+        if not isinstance(item, str) or not item.strip() or item != item.strip():
+            raise ValueError(f"import manifest lineage.{key}[{index}] must be a canonical string")
+        values.append(item)
+    if len(set(values)) != len(values):
+        raise ValueError(f"import manifest lineage.{key} must not contain duplicates")
+    return values
+
+
+def _manifest_lineage_field(
+    manifest: dict[str, object],
+    *,
+    manifest_symbols: list[str],
+    start_timestamp: str | None,
+    end_timestamp: str | None,
+    source: dict[str, object],
+) -> dict[str, object]:
+    raw_lineage = _manifest_required_object_field(manifest, "lineage")
+    lineage = {
+        "raw_sha256": _manifest_lineage_sha256(raw_lineage, "raw_sha256"),
+        "importer_version": _manifest_lineage_string(raw_lineage, "importer_version"),
+        "importer_config_sha256": _manifest_lineage_sha256(raw_lineage, "importer_config_sha256"),
+        "artifact_sha256": _manifest_lineage_sha256(raw_lineage, "artifact_sha256"),
+        "exchange": _manifest_lineage_string(raw_lineage, "exchange"),
+        "market": _manifest_lineage_string(raw_lineage, "market"),
+        "symbols": _manifest_lineage_string_list(raw_lineage, "symbols"),
+        "timeframes": _manifest_lineage_string_list(raw_lineage, "timeframes"),
+        "coverage_start": _manifest_lineage_utc_timestamp(raw_lineage, "coverage_start"),
+        "coverage_end": _manifest_lineage_utc_timestamp(raw_lineage, "coverage_end"),
+    }
+    if lineage["symbols"] != manifest_symbols:
+        raise ValueError("import manifest lineage.symbols must match symbols")
+    if start_timestamp is not None and lineage["coverage_start"] != start_timestamp:
+        raise ValueError("import manifest lineage.coverage_start must match start_timestamp")
+    if end_timestamp is not None and lineage["coverage_end"] != end_timestamp:
+        raise ValueError("import manifest lineage.coverage_end must match end_timestamp")
+    for key in ("exchange", "market"):
+        source_value = source.get(key)
+        if source_value is not None and source_value != lineage[key]:
+            raise ValueError(f"import manifest lineage.{key} must match source.{key}")
+    return lineage
 
 
 def _validate_manifest_coverage_value(value: object, *, field_path: str) -> None:
@@ -2058,6 +2141,9 @@ def load_dataset_root_metadata(dataset_root: str | Path) -> dict[str, object]:
     if start_timestamp is not None and end_timestamp is not None:
         if _parse_timestamp(start_timestamp) > _parse_timestamp(end_timestamp):
             raise ValueError("import manifest start_timestamp must be at or before end_timestamp")
+    symbols = _manifest_string_list(manifest, "symbols")
+    source = _manifest_object_field(manifest, "source")
+    coverage = _manifest_coverage_field(manifest)
     return {
         "dataset_root_type": "imported_archive",
         "import_manifest_path": str(manifest_path),
@@ -2067,12 +2153,19 @@ def load_dataset_root_metadata(dataset_root: str | Path) -> dict[str, object]:
             "archive_root": _manifest_canonical_string(manifest, "archive_root"),
             "dataset_root": _manifest_canonical_string(manifest, "dataset_root"),
             "manifest_snapshot_count": _manifest_non_negative_int(manifest, "snapshot_count"),
-            "symbols": _manifest_string_list(manifest, "symbols"),
+            "symbols": symbols,
             "start_timestamp": start_timestamp,
             "end_timestamp": end_timestamp,
             "bundle_count": _manifest_list_count(manifest, "bundle_dirs"),
-            "source": _manifest_object_field(manifest, "source"),
-            "coverage": _manifest_coverage_field(manifest),
+            "source": source,
+            "lineage": _manifest_lineage_field(
+                manifest,
+                manifest_symbols=symbols,
+                start_timestamp=start_timestamp,
+                end_timestamp=end_timestamp,
+                source=source,
+            ),
+            "coverage": coverage,
         },
     }
 

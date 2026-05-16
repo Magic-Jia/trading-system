@@ -2681,7 +2681,24 @@ def _write_imported_public_strategy_dataset(dataset_root: Path) -> None:
                     str(dataset_root / f"{timestamp.replace(':', '-')}__{run_id}")
                     for timestamp, run_id, _momentum, _forward_return in samples
                 ],
-                "source": {"scope": "phase1_binance_futures", "symbols": ["BTCUSDT"]},
+                "source": {
+                    "scope": "phase1_binance_futures",
+                    "exchange": "binance",
+                    "market": "futures",
+                    "symbols": ["BTCUSDT"],
+                },
+                "lineage": {
+                    "raw_sha256": "a" * 64,
+                    "importer_version": "phase1-importer.v1",
+                    "importer_config_sha256": "b" * 64,
+                    "artifact_sha256": "c" * 64,
+                    "exchange": "binance",
+                    "market": "futures",
+                    "symbols": ["BTCUSDT"],
+                    "timeframes": ["1h"],
+                    "coverage_start": samples[0][0],
+                    "coverage_end": samples[-1][0],
+                },
             }
         ),
         encoding="utf-8",
