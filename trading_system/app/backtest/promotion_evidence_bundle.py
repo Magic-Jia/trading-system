@@ -24,6 +24,9 @@ REQUIRED_ARTIFACTS = (
     "validation_gate.json",
     "runtime_safety_gate.json",
 )
+OPTIONAL_PRESERVED_ARTIFACTS = (
+    "ledger_exchange_reconciliation.json",
+)
 PROMOTION_BUNDLE_REASON_CODE_ALIASES: dict[str, str] = {
     "unknown_top_level_field": "unknown_top_level_field",
     "invalid_schema_version": "invalid_schema_version",
@@ -381,7 +384,11 @@ def collect_promotion_evidence_bundle(
 
     destination.mkdir(parents=True, exist_ok=True)
     artifacts: list[dict[str, Any]] = []
-    for name in required_artifacts:
+    artifact_names = list(required_artifacts)
+    for optional_name in OPTIONAL_PRESERVED_ARTIFACTS:
+        if optional_name not in artifact_names and (source / optional_name).is_file():
+            artifact_names.append(optional_name)
+    for name in artifact_names:
         src = source / name
         dst = destination / name
         dst.parent.mkdir(parents=True, exist_ok=True)

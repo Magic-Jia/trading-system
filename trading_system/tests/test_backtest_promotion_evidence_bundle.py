@@ -260,6 +260,16 @@ def test_collected_bundle_can_be_consumed_by_live_readiness_smoke(tmp_path: Path
             }
         },
     )
+    _write_json(
+        source / "ledger_exchange_reconciliation.json",
+        {
+            "schema_version": "ledger_exchange_reconciliation.v1",
+            "evidence_source": {"type": "offline_fixture", "run_id": "reconciliation-1"},
+            "checks": {"ledger_exchange_reconciliation_met": True},
+            "summary": {"ledger_event_count": 1},
+            "reasons": [],
+        },
+    )
 
     bundle_dir = collect_promotion_evidence_bundle(
         source,

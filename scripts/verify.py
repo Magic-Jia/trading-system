@@ -112,6 +112,8 @@ IMPACT_RULES: tuple[tuple[str, list[str]], ...] = (
     ("trading_system/app/universe/", SUITES["universe"]),
     ("trading_system/app/portfolio/", SUITES["portfolio"]),
     ("trading_system/app/runtime/runtime_safety_evidence.py", SUITES["evidence-chain"]),
+    ("trading_system/app/runtime/ledger_reconciliation.py", SUITES["evidence-chain"]),
+    ("trading_system/tests/test_ledger_reconciliation.py", ["trading_system/tests/test_ledger_reconciliation.py"]),
     ("trading_system/app/runtime/", SUITES["runtime-support"]),
     ("trading_system/app/paper_optimization/", SUITES["paper-optimization"]),
     ("trading_system/run_cycle.py", SUITES["runtime-support"]),
