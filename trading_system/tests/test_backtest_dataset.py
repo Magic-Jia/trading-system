@@ -3233,6 +3233,131 @@ def test_load_historical_dataset_rejects_noncanonical_present_evidence_timestamp
 
 
 @pytest.mark.parametrize(
+    ("market_context", "match"),
+    [
+        (
+            {"symbols": {"BTCUSDT": {"daily": {"feature_timestamp": "2026-03-10T00:00:01Z"}}}},
+            r"market_context\.json symbols\.BTCUSDT\.daily\.feature_timestamp must be at or before metadata\.timestamp",
+        ),
+        (
+            {"symbols": {"BTCUSDT": {"labels": {"label_timestamp": "2026-03-10T00:00:01Z"}}}},
+            r"market_context\.json symbols\.BTCUSDT\.labels\.label_timestamp must be at or before metadata\.timestamp",
+        ),
+        (
+            {"regime": {"regime_label_timestamp": "2026-03-10T00:00:01Z"}},
+            r"market_context\.json regime\.regime_label_timestamp must be at or before metadata\.timestamp",
+        ),
+        (
+            {"llm_regime": {"llm_label_timestamp": "2026-03-10T00:00:01Z"}},
+            r"market_context\.json llm_regime\.llm_label_timestamp must be at or before metadata\.timestamp",
+        ),
+    ],
+)
+def test_load_historical_dataset_rejects_nested_market_evidence_after_decision_timestamp(
+    tmp_path: Path, market_context: dict, match: str
+) -> None:
+    dataset_root = _write_minimal_dataset_bundle(tmp_path, {"equity": 100000.0})
+    bundle = next(path for path in dataset_root.iterdir() if path.is_dir())
+    (bundle / "market_context.json").write_text(json.dumps(market_context), encoding="utf-8")
+
+    with pytest.raises(ValueError, match=match):
+        load_historical_dataset(dataset_root)
+
+
+@pytest.mark.parametrize(
+    ("derivative_row", "match"),
+    [
+        (
+            {"symbol": "BTCUSDT", "funding_timestamp": "2026-03-10T00:00:01Z"},
+            r"derivatives_snapshot\.json rows\[0\]\.funding_timestamp must be at or before metadata\.timestamp",
+        ),
+        (
+            {"symbol": "BTCUSDT", "open_interest_timestamp": "2026-03-10T00:00:01Z"},
+            r"derivatives_snapshot\.json rows\[0\]\.open_interest_timestamp must be at or before metadata\.timestamp",
+        ),
+        (
+            {"symbol": "BTCUSDT", "mark_price_timestamp": "2026-03-10T00:00:01Z"},
+            r"derivatives_snapshot\.json rows\[0\]\.mark_price_timestamp must be at or before metadata\.timestamp",
+        ),
+        (
+            {"symbol": "BTCUSDT", "index_price_timestamp": "2026-03-10T00:00:01Z"},
+            r"derivatives_snapshot\.json rows\[0\]\.index_price_timestamp must be at or before metadata\.timestamp",
+        ),
+    ],
+)
+def test_load_historical_dataset_rejects_derivative_evidence_after_decision_timestamp(
+    tmp_path: Path, derivative_row: dict, match: str
+) -> None:
+    dataset_root = _write_minimal_dataset_bundle(tmp_path, {"equity": 100000.0})
+    bundle = next(path for path in dataset_root.iterdir() if path.is_dir())
+    (bundle / "derivatives_snapshot.json").write_text(json.dumps({"rows": [derivative_row]}), encoding="utf-8")
+
+    with pytest.raises(ValueError, match=match):
+        load_historical_dataset(dataset_root)
+
+
+@pytest.mark.parametrize(
+    ("filename", "payload", "match"),
+    [
+        (
+            "market_context.json",
+            {"symbols": {"BTCUSDT": {"daily": {"feature_timestamp": "2026-03-10T00:00:00+00:00"}}}},
+            r"market_context\.json symbols\.BTCUSDT\.daily\.feature_timestamp must be a canonical UTC ISO timestamp",
+        ),
+        (
+            "derivatives_snapshot.json",
+            {"rows": [{"symbol": "BTCUSDT", "funding_timestamp": "2026-03-10T00:00:00+00:00"}]},
+            r"derivatives_snapshot\.json rows\[0\]\.funding_timestamp must be a canonical UTC ISO timestamp",
+        ),
+    ],
+)
+def test_load_historical_dataset_rejects_noncanonical_nested_evidence_timestamps(
+    tmp_path: Path, filename: str, payload: dict, match: str
+) -> None:
+    dataset_root = _write_minimal_dataset_bundle(tmp_path, {"equity": 100000.0})
+    bundle = next(path for path in dataset_root.iterdir() if path.is_dir())
+    (bundle / filename).write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match=match):
+        load_historical_dataset(dataset_root)
+
+
+def test_load_historical_dataset_rejects_timestamped_evidence_without_decision_timestamp(tmp_path: Path) -> None:
+    dataset_root = _write_minimal_dataset_bundle(tmp_path, {"equity": 100000.0})
+    bundle = next(path for path in dataset_root.iterdir() if path.is_dir())
+    (bundle / "metadata.json").write_text(json.dumps({"run_id": "sample-001"}), encoding="utf-8")
+    (bundle / "market_context.json").write_text(
+        json.dumps({"symbols": {"BTCUSDT": {"daily": {"feature_timestamp": "2026-03-10T00:00:00Z"}}}}),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match=r"metadata\.timestamp is required before timestamped evidence can be loaded"):
+        load_historical_dataset(dataset_root)
+
+
+def test_load_historical_dataset_rejects_duplicate_derivative_timestamp_identity(tmp_path: Path) -> None:
+    dataset_root = _write_minimal_dataset_bundle(tmp_path, {"equity": 100000.0})
+    bundle = next(path for path in dataset_root.iterdir() if path.is_dir())
+    (bundle / "derivatives_snapshot.json").write_text(
+        json.dumps(
+            {
+                "rows": [
+                    {"symbol": "BTCUSDT", "funding_timestamp": "2026-03-10T00:00:00Z", "funding_rate": 0.0001},
+                    {"symbol": "BTCUSDT", "funding_timestamp": "2026-03-10T00:00:00Z", "funding_rate": 0.0002},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"duplicate derivatives timestamp identity: symbol=BTCUSDT field=funding_timestamp timestamp=2026-03-10T00:00:00Z",
+    ):
+        load_historical_dataset(dataset_root)
+
+
+@pytest.mark.parametrize(
     ("field", "value"),
     [
         ("opened_at", 123),

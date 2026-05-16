@@ -13,6 +13,19 @@ _REQUIRED_BUNDLE_FILES = ("metadata.json", "market_context.json", "derivatives_s
 _BASELINE_ACCOUNT_FILENAME = "baseline_account_snapshot.json"
 _INSTRUMENT_SNAPSHOT_FILENAME = "instrument_snapshot.json"
 _IMPORT_MANIFEST_FILENAME = "import_manifest.json"
+_DERIVATIVE_EVIDENCE_TIMESTAMP_FIELDS = (
+    "funding_timestamp",
+    "open_interest_timestamp",
+    "mark_price_timestamp",
+    "index_price_timestamp",
+)
+_MARKET_EVIDENCE_TIMESTAMP_FIELDS = (
+    "feature_timestamp",
+    "label_timestamp",
+    "regime_label_timestamp",
+    "llm_label_timestamp",
+    *_DERIVATIVE_EVIDENCE_TIMESTAMP_FIELDS,
+)
 _ACCOUNT_NON_NEGATIVE_NUMBER_FIELDS = (
     "available_balance",
     "availableBalance",
@@ -673,6 +686,10 @@ def _baseline_account(dataset_root: Path) -> dict | None:
 
 
 def _metadata_canonical_string(metadata: dict, key: str) -> str:
+    if key not in metadata:
+        if key == "timestamp":
+            raise ValueError("metadata.timestamp is required before timestamped evidence can be loaded")
+        raise ValueError(f"metadata.{key} must be a canonical string")
     value = metadata[key]
     if not isinstance(value, str) or not value or value != value.strip():
         raise ValueError(f"metadata.{key} must be a canonical string")
@@ -726,6 +743,106 @@ def _payload_as_of_at_or_before_decision(
             f"{file_name} as_of must be at or before metadata.timestamp: "
             f"as_of={as_of} metadata.timestamp={_canonical_utc_timestamp(decision_timestamp)} path={path}"
         )
+
+
+def _require_evidence_timestamp_at_or_before_decision(
+    value: object,
+    *,
+    evidence_path: str,
+    file_name: str,
+    decision_timestamp: datetime,
+    path: Path,
+) -> str:
+    if not isinstance(value, str) or not value or value != value.strip() or "\n" in value or "\r" in value:
+        raise ValueError(f"{file_name} {evidence_path} must be a canonical UTC ISO timestamp: {path}")
+    if not value.endswith("Z") or "T" not in value:
+        raise ValueError(f"{file_name} {evidence_path} must be a canonical UTC ISO timestamp: {path}")
+    try:
+        parsed = _parse_timestamp(value)
+    except ValueError as exc:
+        raise ValueError(f"{file_name} {evidence_path} must be a canonical UTC ISO timestamp: {path}") from exc
+    if _canonical_utc_timestamp(parsed) != value:
+        raise ValueError(f"{file_name} {evidence_path} must be a canonical UTC ISO timestamp: {path}")
+    if parsed > decision_timestamp:
+        raise ValueError(
+            f"{file_name} {evidence_path} must be at or before metadata.timestamp: "
+            f"{evidence_path}={value} metadata.timestamp={_canonical_utc_timestamp(decision_timestamp)} path={path}"
+        )
+    return value
+
+
+def _validate_market_evidence_timestamps(
+    payload: object,
+    *,
+    file_name: str,
+    decision_timestamp: datetime,
+    path: Path,
+    evidence_path: str = "",
+) -> None:
+    if isinstance(payload, dict):
+        for key, value in payload.items():
+            child_path = key if not evidence_path else f"{evidence_path}.{key}"
+            if key in _MARKET_EVIDENCE_TIMESTAMP_FIELDS:
+                _require_evidence_timestamp_at_or_before_decision(
+                    value,
+                    evidence_path=child_path,
+                    file_name=file_name,
+                    decision_timestamp=decision_timestamp,
+                    path=path,
+                )
+                continue
+            if isinstance(value, (dict, list)):
+                _validate_market_evidence_timestamps(
+                    value,
+                    file_name=file_name,
+                    decision_timestamp=decision_timestamp,
+                    path=path,
+                    evidence_path=child_path,
+                )
+        return
+    if isinstance(payload, list):
+        for index, item in enumerate(payload):
+            if isinstance(item, (dict, list)):
+                child_path = f"{evidence_path}[{index}]" if evidence_path else f"[{index}]"
+                _validate_market_evidence_timestamps(
+                    item,
+                    file_name=file_name,
+                    decision_timestamp=decision_timestamp,
+                    path=path,
+                    evidence_path=child_path,
+                )
+
+
+def _validate_derivative_evidence_timestamps(
+    rows: list[dict],
+    *,
+    decision_timestamp: datetime,
+    path: Path,
+) -> None:
+    seen: set[tuple[str, str, str]] = set()
+    for index, row in enumerate(rows):
+        symbol = row.get("symbol")
+        if symbol is not None and (not isinstance(symbol, str) or not symbol or symbol != symbol.strip()):
+            raise ValueError(f"derivatives_snapshot.json rows[{index}].symbol must be a canonical string: {path}")
+        for field in _DERIVATIVE_EVIDENCE_TIMESTAMP_FIELDS:
+            if field not in row:
+                continue
+            timestamp = _require_evidence_timestamp_at_or_before_decision(
+                row[field],
+                evidence_path=f"rows[{index}].{field}",
+                file_name="derivatives_snapshot.json",
+                decision_timestamp=decision_timestamp,
+                path=path,
+            )
+            if symbol is None:
+                continue
+            identity = (symbol, field, timestamp)
+            if identity in seen:
+                raise ValueError(
+                    "duplicate derivatives timestamp identity: "
+                    f"symbol={symbol} field={field} timestamp={timestamp} path={path}"
+                )
+            seen.add(identity)
 
 
 def _account_snapshot(account: dict, *, path: Path) -> dict:
@@ -1747,6 +1864,12 @@ def _row_from_bundle(bundle_path: Path, *, fallback_account: dict | None) -> Dat
         decision_timestamp=decision_timestamp,
         path=bundle_path / "market_context.json",
     )
+    _validate_market_evidence_timestamps(
+        market,
+        file_name="market_context.json",
+        decision_timestamp=decision_timestamp,
+        path=bundle_path / "market_context.json",
+    )
     market_context = dict(market)
     derivatives_payload = _load_json(bundle_path / "derivatives_snapshot.json")
     if not isinstance(derivatives_payload, dict):
@@ -1767,6 +1890,11 @@ def _row_from_bundle(bundle_path: Path, *, fallback_account: dict | None) -> Dat
                 f"dataset bundle has invalid derivatives row payload: {bundle_path / 'derivatives_snapshot.json'}"
             )
         derivative_rows.append(dict(row))
+    _validate_derivative_evidence_timestamps(
+        derivative_rows,
+        decision_timestamp=decision_timestamp,
+        path=bundle_path / "derivatives_snapshot.json",
+    )
 
     account_path = bundle_path / "account_snapshot.json"
     account = _load_json(account_path) if account_path.exists() else fallback_account
