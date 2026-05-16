@@ -1652,15 +1652,20 @@ def _setup_rewrite_diagnostic(chunk_dirs: Iterable[Path]) -> dict[str, Any] | No
             parse_error = "invalid_field_type: summary"
         counts, count_parse_error = _setup_rewrite_counts(summary)
         parse_error = parse_error or count_parse_error
-        unknown_summary_fields = sorted(set(summary) - (set(SETUP_REWRITE_COUNT_FIELDS) | {"total_rows", "by_setup"}))
+        unknown_summary_fields = sorted(
+            set(summary) - (set(SETUP_REWRITE_COUNT_FIELDS) | {"total_rows", "total_trades", "by_setup", "by_symbol", "by_source_chunk"})
+        )
         if not parse_error and unknown_summary_fields:
             parse_error = "unknown_summary_field: " + ", ".join(unknown_summary_fields)
         by_setup_schema_error = _setup_rewrite_by_setup_schema_error(summary)
         if not parse_error and by_setup_schema_error:
             parse_error = by_setup_schema_error
-        unknown_top_level_fields = sorted(set(payload) - {"summary", "evaluation_rows"})
+        unknown_top_level_fields = sorted(set(payload) - {"metadata", "summary", "evaluation_rows"})
         if not parse_error and unknown_top_level_fields:
             parse_error = "unknown_top_level_field: " + ", ".join(unknown_top_level_fields)
+        metadata = payload.get("metadata")
+        if not parse_error and metadata is not None and not isinstance(metadata, Mapping):
+            parse_error = "invalid_field_type: metadata"
         evaluation_rows = payload.get("evaluation_rows")
         if not parse_error and evaluation_rows is None:
             parse_error = "missing_required_field: evaluation_rows"
@@ -1680,9 +1685,13 @@ def _setup_rewrite_diagnostic(chunk_dirs: Iterable[Path]) -> dict[str, Any] | No
             allowed_row_fields = {
                 "trade_id",
                 "fill_id",
+                "row_index",
                 "symbol",
                 "side",
                 "setup_type",
+                "entry_timestamp",
+                "score",
+                "source_chunk",
                 "evaluation_status",
                 "evaluation_reason",
                 "would_keep",
@@ -1698,9 +1707,14 @@ def _setup_rewrite_diagnostic(chunk_dirs: Iterable[Path]) -> dict[str, Any] | No
                 if unknown_row_fields:
                     parse_error = f"unknown_evaluation_row_field: evaluation_rows[{row_index}]." + ", ".join(unknown_row_fields)
                     break
+                if "row_index" in row:
+                    value = row.get("row_index")
+                    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+                        parse_error = f"invalid_field_type: evaluation_rows[{row_index}].row_index"
+                        break
                 for field in ("symbol", "setup_type", "evaluation_status", "evaluation_reason"):
                     value = row.get(field)
-                    if field in row and (
+                    if field in row and value is not None and (
                         not isinstance(value, str)
                         or not value.strip()
                         or value != value.strip()
@@ -1715,9 +1729,18 @@ def _setup_rewrite_diagnostic(chunk_dirs: Iterable[Path]) -> dict[str, Any] | No
                     break
                 if "side" in row:
                     side = row.get("side")
-                    if side not in {"long", "short"}:
+                    if side is not None and side not in {"long", "short"}:
                         parse_error = f"invalid_field_type: evaluation_rows[{row_index}].side"
                         break
+                for field in ("entry_timestamp", "source_chunk"):
+                    value = row.get(field)
+                    if field in row and value is not None and (
+                        not isinstance(value, str) or not value.strip() or value != value.strip()
+                    ):
+                        parse_error = f"invalid_field_type: evaluation_rows[{row_index}].{field}"
+                        break
+                if parse_error:
+                    break
                 for field in ("trade_id", "fill_id"):
                     value = row.get(field)
                     if field not in row or value is None:
@@ -1744,7 +1767,14 @@ def _setup_rewrite_diagnostic(chunk_dirs: Iterable[Path]) -> dict[str, Any] | No
                 if "would_keep" in row and not isinstance(row.get("would_keep"), bool):
                     parse_error = f"invalid_field_type: evaluation_rows[{row_index}].would_keep"
                     break
+                if "score" in row and row.get("score") is not None:
+                    _, score_valid = _strict_float_value(row.get("score"))
+                    if not score_valid:
+                        parse_error = f"invalid_numeric_field: evaluation_rows[{row_index}].score"
+                        break
                 if "net_pnl" in row:
+                    if row.get("net_pnl") is None:
+                        continue
                     _, net_pnl_valid = _strict_float_value(row.get("net_pnl"))
                     if not net_pnl_valid:
                         parse_error = f"invalid_numeric_field: evaluation_rows[{row_index}].net_pnl"

@@ -36,8 +36,9 @@ from trading_system.app.backtest.promotion_evidence_bundle import (
     collect_promotion_evidence_bundle,
     verify_promotion_evidence_bundle,
 )
+from trading_system.app.backtest.setup_rewrite_experiment import build_setup_rewrite_experiment
 from trading_system.app.backtest.validation_evidence import build_validation_gate
-from trading_system.app.backtest.types import DatasetSnapshotRow
+from trading_system.app.backtest.types import DatasetSnapshotRow, SetupRewriteParams, SetupRewriteRule
 from trading_system.app.execution.calibration import load_calibration_records, summarize_calibration_records
 from trading_system.app.runtime.runtime_safety_evidence import build_runtime_safety_gate
 
@@ -11786,6 +11787,40 @@ def test_live_readiness_gate_report_gates_optional_setup_rewrite_diagnostic(tmp_
     assert report["promotion_gate"]["checks"]["setup_rewrite_has_surviving_candidates"] is False
     assert report["promotion_gate"]["checks"]["setup_rewrite_evidence_complete"] is False
     assert "- setup_rewrite:" in render_live_readiness_markdown(report)
+
+
+def test_live_readiness_gate_accepts_producer_setup_rewrite_evaluation_row_schema(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    artifact = build_setup_rewrite_experiment(
+        rows=[
+            {
+                "trade_id": "trade-001",
+                "fill_id": "fill-001",
+                "symbol": "BTCUSDT",
+                "side": "long",
+                "setup_type": "TREND_PULLBACK",
+                "entry_timestamp": "2026-03-10T00:00:00Z",
+                "score": 0.82,
+                "source_chunk": "chunk_001",
+                "net_pnl": 10.0,
+                "cost_coverage_ratio": 1.2,
+            }
+        ],
+        setup_rewrite=SetupRewriteParams(
+            rules=(
+                SetupRewriteRule(name="require_min_score", min_score=0.7),
+                SetupRewriteRule(name="require_after_cost_breakeven_evidence"),
+            )
+        ),
+    )
+    (chunk / "setup_rewrite_experiment.json").write_text(json.dumps(artifact), encoding="utf-8")
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    diagnostic = report["setup_rewrite_diagnostic"]
+    assert diagnostic["checks"]["setup_rewrite_artifact_schema_valid"] is True
+    assert diagnostic["chunks"][0]["status"] == "loaded"
 
 
 def test_live_readiness_gate_rejects_non_object_setup_rewrite_artifact(tmp_path: Path) -> None:
