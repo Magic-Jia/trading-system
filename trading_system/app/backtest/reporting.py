@@ -1020,7 +1020,54 @@ def _report_metadata_copy(metadata: Mapping[str, Any]) -> dict[str, Any]:
         copied["raw_market"] = _report_raw_market_provenance(copied["raw_market"])
     if "universe_asof_contract" in copied and copied["universe_asof_contract"] is not None:
         copied["universe_asof_contract"] = _report_universe_asof_contract(copied["universe_asof_contract"])
+    if "split_metadata" in copied and copied["split_metadata"] is not None:
+        copied["split_metadata"] = _walk_forward_split_metadata(
+            copied["split_metadata"],
+            field_name="metadata.split_metadata",
+        )
     return copied
+
+
+def _walk_forward_split_metadata(value: object, *, field_name: str) -> dict[str, Any]:
+    if not isinstance(value, Mapping):
+        raise ValueError(f"{field_name} must be an object")
+    metadata = _strict_mapping_copy(value, field_name=field_name)
+    schema_version = metadata.get("schema_version")
+    if schema_version != "walk_forward_split_metadata.v1":
+        raise ValueError(f"{field_name}.schema_version must be walk_forward_split_metadata.v1")
+    for key in ("purge_bars", "embargo_bars"):
+        metadata[key] = _non_negative_int_field(metadata, key, label=field_name)
+    for key in ("timestamp_format", "trade_timestamp_basis", "boundary_policy"):
+        if key in metadata and metadata[key] is not None:
+            metadata[key] = _canonical_report_string(metadata[key], field_name=f"{field_name}.{key}")
+    return metadata
+
+
+def _walk_forward_window_split_metadata(value: object, *, field_name: str) -> dict[str, Any]:
+    if not isinstance(value, Mapping):
+        raise ValueError(f"{field_name} must be an object")
+    metadata = _strict_mapping_copy(value, field_name=field_name)
+    if "schema_version" in metadata and metadata["schema_version"] is not None:
+        metadata["schema_version"] = _canonical_report_string(
+            metadata["schema_version"],
+            field_name=f"{field_name}.schema_version",
+        )
+    for key in ("purge_bars", "embargo_bars"):
+        if key in metadata and metadata[key] is not None:
+            metadata[key] = _non_negative_int_field(metadata, key, label=field_name)
+    train_run_ids = _canonical_report_string_list(
+        metadata.get("train_run_ids", []),
+        field_name=f"{field_name}.train_run_ids",
+    )
+    test_run_ids = _canonical_report_string_list(
+        metadata.get("test_run_ids", []),
+        field_name=f"{field_name}.test_run_ids",
+    )
+    if set(train_run_ids) & set(test_run_ids):
+        raise ValueError(f"{field_name} train/test run_ids must be disjoint")
+    metadata["train_run_ids"] = train_run_ids
+    metadata["test_run_ids"] = test_run_ids
+    return metadata
 
 
 def _report_universe_asof_contract(value: object) -> dict[str, Any]:
@@ -1634,6 +1681,7 @@ def _walk_forward_window_rows(rows: list[Any]) -> list[dict[str, Any]]:
     )
     validated_rows: list[dict[str, Any]] = []
     raw_market_identity: tuple[str, str, str, str, str] | None = None
+    previous_period_boundaries: tuple[datetime, datetime, datetime, datetime] | None = None
     for index, window in enumerate(rows):
         if not isinstance(window, Mapping):
             raise ValueError(f"windows[{index}] must be an object")
@@ -1656,6 +1704,16 @@ def _walk_forward_window_rows(rows: list[Any]) -> list[dict[str, Any]]:
                 raw_market_identity = current_raw_market_identity
             elif current_raw_market_identity != raw_market_identity:
                 raise ValueError("windows raw_market source identity must be consistent across walk-forward windows")
+        period_boundaries = _walk_forward_window_periods(validated, window_index=index)
+        if period_boundaries is not None:
+            if previous_period_boundaries is not None and period_boundaries < previous_period_boundaries:
+                raise ValueError("windows temporal ranges must be strictly increasing")
+            previous_period_boundaries = period_boundaries
+        if "split_metadata" in validated and validated["split_metadata"] is not None:
+            validated["split_metadata"] = _walk_forward_window_split_metadata(
+                validated["split_metadata"],
+                field_name=f"windows[{index}].split_metadata",
+            )
         for segment_name in ("in_sample", "out_of_sample"):
             segment = validated.get(segment_name)
             if segment is None:
@@ -1722,6 +1780,67 @@ def _walk_forward_window_rows(rows: list[Any]) -> list[dict[str, Any]]:
             validated[segment_name] = validated_segment
         validated_rows.append(validated)
     return validated_rows
+
+
+def _walk_forward_window_periods(
+    window: dict[str, Any],
+    *,
+    window_index: int,
+) -> tuple[datetime, datetime, datetime, datetime] | None:
+    present_periods = {period_name for period_name in ("train_period", "test_period") if period_name in window}
+    if present_periods and present_periods != {"train_period", "test_period"}:
+        missing = ({"train_period", "test_period"} - present_periods).pop()
+        raise ValueError(f"windows[{window_index}].{missing} must be present")
+    parsed: dict[str, dict[str, datetime]] = {}
+    for period_name in ("train_period", "test_period"):
+        if period_name not in window:
+            continue
+        raw_period = window[period_name]
+        if not isinstance(raw_period, Mapping):
+            raise ValueError(f"windows[{window_index}].{period_name} must be an object")
+        period = _strict_mapping_copy(raw_period, field_name=f"windows[{window_index}].{period_name}")
+        for boundary in ("start", "end"):
+            if boundary not in period:
+                raise ValueError(f"windows[{window_index}].{period_name}.{boundary} must be present")
+            period[boundary] = _canonical_report_string(
+                period[boundary],
+                field_name=f"windows[{window_index}].{period_name}.{boundary}",
+            )
+        parsed[period_name] = {
+            "start": _walk_forward_iso_datetime(
+                period["start"],
+                field_name=f"windows[{window_index}].{period_name}.start",
+            ),
+            "end": _walk_forward_iso_datetime(
+                period["end"],
+                field_name=f"windows[{window_index}].{period_name}.end",
+            ),
+        }
+        if parsed[period_name]["start"] > parsed[period_name]["end"]:
+            raise ValueError(f"windows[{window_index}].{period_name}.start must be on or before end")
+        window[period_name] = period
+    if {"train_period", "test_period"}.issubset(parsed):
+        if parsed["train_period"]["end"] >= parsed["test_period"]["start"]:
+            raise ValueError(f"windows[{window_index}].train_period.end must be before test_period.start")
+        return (
+            parsed["train_period"]["start"],
+            parsed["train_period"]["end"],
+            parsed["test_period"]["start"],
+            parsed["test_period"]["end"],
+        )
+    return None
+
+
+def _walk_forward_iso_datetime(value: str, *, field_name: str) -> datetime:
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError as exc:
+        raise ValueError(f"{field_name} must be an ISO timestamp string") from exc
+    if parsed.isoformat() != value:
+        raise ValueError(f"{field_name} must match datetime.isoformat()")
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ValueError(f"{field_name} must include a timezone offset")
+    return parsed
 
 
 _WALK_FORWARD_DURATION_FIELDS = (
@@ -2389,6 +2508,7 @@ def render_walk_forward_validation_report(
     experiment: Mapping[str, Any],
     metadata: Mapping[str, Any],
 ) -> dict[str, dict[str, Any]]:
+    report_metadata = _report_metadata_copy(metadata)
     raw_robustness_summary = experiment.get("robustness_summary", {})
     if not isinstance(raw_robustness_summary, Mapping):
         raise ValueError("robustness_summary must be an object")
@@ -2422,6 +2542,8 @@ def render_walk_forward_validation_report(
         robustness_summary["worst_window"] = _walk_forward_worst_window(robustness_summary["worst_window"])
     windows = _walk_forward_window_rows(_list_field(experiment, "windows"))
 
+    snapshot_count = _metadata_int(report_metadata, "snapshot_count")
+    window_count = _metadata_int(report_metadata, "window_count")
     out_of_sample_total_return = _report_finite_float(
         out_of_sample_scorecard.get("total_return", 0.0),
         field_name="out_of_sample_scorecard.total_return",
@@ -2441,6 +2563,15 @@ def render_walk_forward_validation_report(
         experiment.get("multiple_testing_correction"),
         expected_trials=max(len(windows), 2),
     )
+    parameter_stability["parameter_stability_score"] = parameter_stability_score
+    if out_of_sample_total_return > 0.0 and positive_window_ratio >= 0.6 and parameter_stability_score >= 0.5:
+        if "split_metadata" not in report_metadata:
+            raise ValueError("walk_forward.split_metadata must be present for positive OOS evidence")
+        for index, window in enumerate(windows):
+            if "split_metadata" not in window:
+                raise ValueError(f"windows[{index}].split_metadata must be present for positive OOS evidence")
+            if "train_period" not in window or "test_period" not in window:
+                raise ValueError(f"windows[{index}] train/test periods must be present for positive OOS evidence")
 
     if (
         out_of_sample_total_return > 0.0
@@ -2460,16 +2591,16 @@ def render_walk_forward_validation_report(
     assert decision in _ALLOWED_DECISIONS
     return {
         "summary": {
-            "metadata": dict(metadata),
+            "metadata": report_metadata,
             "robustness_summary": robustness_summary,
             "parameter_stability": parameter_stability,
         },
         "windows": {
-            "metadata": dict(metadata),
+            "metadata": report_metadata,
             "rows": windows,
         },
         "scorecard": {
-            "metadata": _scorecard_metadata(experiment_name=experiment_name, metadata=metadata),
+            "metadata": _scorecard_metadata(experiment_name=experiment_name, metadata=report_metadata),
             "key_metrics": {
                 "snapshot_count": snapshot_count,
                 "window_count": window_count,
@@ -2479,6 +2610,6 @@ def render_walk_forward_validation_report(
             },
             "decision_summary": _decision_summary(decision=decision, summary=summary),
             "multiple_testing_correction": multiple_testing_correction,
-            **_promotion_metadata_sections(metadata),
+            **_promotion_metadata_sections(report_metadata),
         },
     }

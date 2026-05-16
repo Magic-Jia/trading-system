@@ -131,6 +131,14 @@ def test_walk_forward_evaluation_returns_insufficient_status_for_short_dataset()
         "test_size": 2,
         "step_size": 2,
         "trade_timestamp_basis": "entry_timestamp",
+        "split_metadata": {
+            "schema_version": "walk_forward_split_metadata.v1",
+            "purge_bars": 0,
+            "embargo_bars": 0,
+            "timestamp_format": "datetime.isoformat",
+            "trade_timestamp_basis": "entry_timestamp",
+            "boundary_policy": "train_end_plus_purge_and_embargo_before_test_start",
+        },
     }
 
 
@@ -181,6 +189,68 @@ def test_walk_forward_evaluation_uses_entry_timestamp_with_end_exclusive_boundar
     assert result.windows[0].out_of_sample_trade_ids == ("ETHUSDT@2026-01-02T00:00:00+00:00",)
     assert result.windows[0].in_sample_metrics["net_pnl"] == pytest.approx(1.0)
     assert result.windows[0].out_of_sample_metrics["net_pnl"] == pytest.approx(2.0)
+
+
+def test_walk_forward_evaluation_emits_purged_embargoed_split_metadata() -> None:
+    rows = [_row(index) for index in range(6)]
+    trades = (
+        _trade("BTCUSDT", "2026-01-01T12:00:00Z", net_pnl=1.0),
+        _trade("ETHUSDT", "2026-01-05T12:00:00Z", net_pnl=2.0),
+    )
+
+    result = build_walk_forward_evaluation(
+        rows=rows,
+        trade_ledger=trades,
+        train_size=2,
+        test_size=1,
+        purge_bars=1,
+        embargo_bars=1,
+    )
+
+    assert result.status == "ok"
+    assert result.metadata["split_metadata"] == {
+        "schema_version": "walk_forward_split_metadata.v1",
+        "purge_bars": 1,
+        "embargo_bars": 1,
+        "timestamp_format": "datetime.isoformat",
+        "trade_timestamp_basis": "entry_timestamp",
+        "boundary_policy": "train_end_plus_purge_and_embargo_before_test_start",
+    }
+    window = result.to_dict()["windows"][0]
+    assert window["train_period"] == {
+        "start": "2026-01-01T00:00:00+00:00",
+        "end": "2026-01-02T00:00:00+00:00",
+    }
+    assert window["test_period"] == {
+        "start": "2026-01-05T00:00:00+00:00",
+        "end": "2026-01-05T00:00:00+00:00",
+    }
+    assert window["split_metadata"]["train_run_ids"] == ["row-000", "row-001"]
+    assert window["split_metadata"]["test_run_ids"] == ["row-004"]
+    assert window["splits"]["in_sample"]["trade_ids"] == ["BTCUSDT@2026-01-01T12:00:00+00:00"]
+    assert window["splits"]["out_of_sample"]["trade_ids"] == ["ETHUSDT@2026-01-05T12:00:00+00:00"]
+
+
+def test_walk_forward_evaluation_rejects_negative_embargo() -> None:
+    with pytest.raises(ValueError, match="embargo_bars must be a non-negative integer"):
+        build_walk_forward_evaluation(
+            rows=[_row(index) for index in range(4)],
+            trade_ledger=[],
+            train_size=2,
+            test_size=1,
+            embargo_bars=-1,
+        )
+
+
+def test_walk_forward_evaluation_rejects_split_leakage_across_purge_embargo_boundary() -> None:
+    with pytest.raises(ValueError, match="walk-forward split metadata leakage"):
+        build_walk_forward_evaluation(
+            rows=[_row(index) for index in range(3)],
+            trade_ledger=[],
+            train_size=2,
+            test_size=1,
+            purge_bars=1,
+        )
 
 
 def test_walk_forward_evaluation_rejects_naive_row_boundary_timestamps() -> None:

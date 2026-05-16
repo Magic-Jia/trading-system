@@ -393,6 +393,89 @@ def _validate_optional_readiness_plans(bundle: BacktestBundle) -> None:
         _validate_rollback_plan(payload, context=context)
 
 
+def _validate_split_metadata(payload: Mapping[str, Any], *, context: str) -> dict[str, Any]:
+    split_metadata = payload.get("split_metadata")
+    if not isinstance(split_metadata, Mapping):
+        raise ValueError(f"{context}.split_metadata must be an object")
+    metadata = dict(split_metadata)
+    if metadata.get("schema_version") != "walk_forward_split_metadata.v1":
+        raise ValueError(f"{context}.split_metadata.schema_version must be walk_forward_split_metadata.v1")
+    for field_name in ("purge_bars", "embargo_bars"):
+        value = metadata.get(field_name)
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            raise ValueError(f"{context}.split_metadata.{field_name} must be a non-negative integer")
+    for field_name in ("timestamp_format", "trade_timestamp_basis", "boundary_policy"):
+        if field_name not in metadata or metadata[field_name] is None:
+            continue
+        value = metadata[field_name]
+        if not isinstance(value, str) or not value.strip() or value != value.strip():
+            raise ValueError(f"{context}.split_metadata.{field_name} must be canonical")
+    return metadata
+
+
+def _validate_window_split_metadata(value: Any, *, context: str) -> dict[str, Any]:
+    if not isinstance(value, Mapping):
+        raise ValueError(f"{context}.split_metadata must be an object")
+    metadata = dict(value)
+    train_run_ids = metadata.get("train_run_ids")
+    test_run_ids = metadata.get("test_run_ids")
+    if not isinstance(train_run_ids, list) or not isinstance(test_run_ids, list):
+        raise ValueError(f"{context}.split_metadata train/test run_ids must be lists")
+    normalized_train = []
+    normalized_test = []
+    for field_name, raw_values, normalized in (
+        ("train_run_ids", train_run_ids, normalized_train),
+        ("test_run_ids", test_run_ids, normalized_test),
+    ):
+        for index, raw_value in enumerate(raw_values):
+            if not isinstance(raw_value, str) or not raw_value.strip() or raw_value != raw_value.strip():
+                raise ValueError(f"{context}.split_metadata.{field_name}[{index}] must be canonical")
+            normalized.append(raw_value)
+    if set(normalized_train) & set(normalized_test):
+        raise ValueError(f"{context}.split_metadata train/test run_ids must be disjoint")
+    return metadata
+
+
+def _parse_canonical_window_datetime(value: Any, *, context: str) -> datetime:
+    if not isinstance(value, str) or not value.strip() or value != value.strip():
+        raise ValueError(f"{context} must be a canonical ISO datetime")
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError as exc:
+        raise ValueError(f"{context} must be a canonical ISO datetime") from exc
+    if parsed.isoformat() != value:
+        raise ValueError(f"{context} must match datetime.isoformat()")
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ValueError(f"{context} must be timezone-aware")
+    return parsed
+
+
+def _validate_window_periods(row: Mapping[str, Any], *, context: str) -> None:
+    present = {period_name for period_name in ("train_period", "test_period") if period_name in row}
+    if not present:
+        return
+    if present != {"train_period", "test_period"}:
+        missing = ({"train_period", "test_period"} - present).pop()
+        raise ValueError(f"{context}.{missing} must be present")
+    parsed: dict[str, dict[str, datetime]] = {}
+    for period_name in ("train_period", "test_period"):
+        raw_period = row.get(period_name)
+        if not isinstance(raw_period, Mapping):
+            raise ValueError(f"{context}.{period_name} must be an object")
+        parsed[period_name] = {}
+        for boundary in ("start", "end"):
+            if boundary not in raw_period:
+                raise ValueError(f"{context}.{period_name}.{boundary} must be present")
+            parsed[period_name][boundary] = _parse_canonical_window_datetime(
+                raw_period[boundary],
+                context=f"{context}.{period_name}.{boundary}",
+            )
+        if parsed[period_name]["start"] > parsed[period_name]["end"]:
+            raise ValueError(f"{context}.{period_name}.start must be on or before {period_name}.end")
+    if parsed["train_period"]["end"] >= parsed["test_period"]["start"]:
+        raise ValueError(f"{context}.train_period.end must be before test_period.start")
+
+
 def _validate_parameter_stability_selected_optimum(payload: Any, *, context: str) -> dict[str, Any]:
     if not isinstance(payload, Mapping):
         raise ValueError(f"{context}.selected_optimum must be an object")
@@ -752,6 +835,11 @@ def _validate_engine_bundle(bundle: BacktestBundle) -> None:
 
 
 def _validate_walk_forward_bundle(bundle: BacktestBundle) -> None:
+    if "split_metadata" in bundle.manifest:
+        _validate_split_metadata(bundle.manifest, context=f"{bundle.root}/manifest.json")
+    if "split_metadata" in bundle.artifacts["summary.json"].get("metadata", {}):
+        summary_metadata = _require_mapping(bundle.artifacts["summary.json"], "metadata", context=f"{bundle.root}/summary.json")
+        _validate_split_metadata(summary_metadata, context=f"{bundle.root}/summary.json.metadata")
     summary = bundle.artifacts["summary.json"]
     robustness_summary = _require_mapping(summary, "robustness_summary", context=f"{bundle.root}/summary.json")
     out_of_sample_scorecard = _require_mapping(robustness_summary, "out_of_sample_scorecard", context=f"{bundle.root}/summary.json.robustness_summary")
@@ -801,6 +889,9 @@ def _validate_walk_forward_bundle(bundle: BacktestBundle) -> None:
         expected_trials=max(len(windows), 2),
     )
     for index, row in enumerate(windows):
+        _validate_window_periods(row, context=f"{bundle.root}/windows.json.rows[{index}]")
+        if "split_metadata" in row:
+            _validate_window_split_metadata(row["split_metadata"], context=f"{bundle.root}/windows.json.rows[{index}]")
         out_of_sample = _require_mapping(row, "out_of_sample", context=f"{bundle.root}/windows.json.rows[{index}]")
         scorecard_row = _require_mapping(out_of_sample, "scorecard", context=f"{bundle.root}/windows.json.rows[{index}].out_of_sample")
         _require_real_number(
@@ -1044,6 +1135,30 @@ def _has_out_of_sample_evidence(bundle: BacktestBundle) -> bool:
     return bool(windows) and "total_return" in out_of_sample
 
 
+def _has_purged_embargoed_split_metadata(bundle: BacktestBundle) -> bool:
+    if bundle.experiment_kind != "walk_forward_validation":
+        return True
+    summary_metadata = bundle.artifacts["summary.json"].get("metadata", {})
+    if not (isinstance(bundle.manifest.get("split_metadata"), Mapping) or (
+        isinstance(summary_metadata, Mapping) and isinstance(summary_metadata.get("split_metadata"), Mapping)
+    )):
+        return False
+    windows = _require_rows(bundle.artifacts["windows.json"], context=f"{bundle.root}/windows.json")
+    if not windows:
+        return False
+    for row in windows:
+        split_metadata = row.get("split_metadata")
+        if not isinstance(split_metadata, Mapping):
+            return False
+        train_run_ids = split_metadata.get("train_run_ids")
+        test_run_ids = split_metadata.get("test_run_ids")
+        if not isinstance(train_run_ids, list) or not isinstance(test_run_ids, list):
+            return False
+        if set(train_run_ids) & set(test_run_ids):
+            return False
+    return True
+
+
 
 def _has_explanation(bundle: BacktestBundle) -> bool:
     if bundle.experiment_kind == "full_market_baseline":
@@ -1169,6 +1284,8 @@ def _why(
         reasons.append("cost-adjusted edge disappears")
     if not checks["has_out_of_sample_evidence"]:
         reasons.append("missing out-of-sample evidence")
+    if not checks["has_purged_embargoed_split_metadata"]:
+        reasons.append("missing purged/embargoed walk-forward split metadata")
     if out_of_sample_collapses:
         reasons.append("out-of-sample direction reverses or clearly collapses")
     if not checks["has_attribution_or_funnel_explanation"]:
@@ -1208,6 +1325,9 @@ def _decision(
         return "reject"
     if isolated_spike_rejection_reason is not None:
         return "reject"
+    if not checks["has_purged_embargoed_split_metadata"]:
+        return "reject"
+        return "reject"
     if not checks["has_out_of_sample_evidence"]:
         return "hold"
     if experiment_kind == "walk_forward_validation" and _walk_forward_regresses_against_baseline(metric_deltas):
@@ -1232,6 +1352,7 @@ def compare_backtest_bundles(*, baseline_bundle: str | Path, variant_bundle: str
         "has_baseline_variant_pair": _has_baseline_variant_pair(baseline, variant),
         "has_cost_adjusted_edge": _has_cost_adjusted_edge(baseline, variant),
         "has_out_of_sample_evidence": _has_out_of_sample_evidence(variant),
+        "has_purged_embargoed_split_metadata": _has_purged_embargoed_split_metadata(variant),
         "has_attribution_or_funnel_explanation": _has_explanation(variant),
         "has_runtime_observability_plan": _has_runtime_observability_plan(variant),
         "has_rollback_plan": _has_rollback_plan(variant),

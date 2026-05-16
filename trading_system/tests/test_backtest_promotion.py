@@ -130,6 +130,8 @@ def _write_walk_forward_bundle(
     positive_window_ratio: float,
     parameter_stability_score: float,
     worst_window_return: float,
+    split_metadata: dict[str, object] | None = None,
+    window_split_metadata: list[dict[str, object]] | None = None,
     runtime_fields: list[str] | None = None,
     rollback_target: str | None = None,
     rollback_trigger: str | None = None,
@@ -189,16 +191,24 @@ def _write_walk_forward_bundle(
             "rollback_trigger": rollback_trigger,
             "observation_window": observation_window,
         }
+    manifest = _manifest(
+        experiment_kind="walk_forward_validation",
+        baseline_name=baseline_name,
+        variant_name=variant_name,
+        artifacts=artifacts,
+    )
+    if split_metadata is not None:
+        manifest["split_metadata"] = split_metadata
+        summary_payload["metadata"]["split_metadata"] = split_metadata  # type: ignore[index]
     _write_json(
         root / "manifest.json",
-        _manifest(
-            experiment_kind="walk_forward_validation",
-            baseline_name=baseline_name,
-            variant_name=variant_name,
-            artifacts=artifacts,
-        ),
+        manifest,
     )
     _write_json(root / "summary.json", summary_payload)
+    window_metadata = window_split_metadata or [
+        {"train_run_ids": ["row-001"], "test_run_ids": ["row-003"]},
+        {"train_run_ids": ["row-002"], "test_run_ids": ["row-004"]},
+    ]
     _write_json(
         root / "windows.json",
         {
@@ -206,10 +216,16 @@ def _write_walk_forward_bundle(
             "rows": [
                 {
                     "window_index": 1,
+                    "train_period": {"start": "2026-01-01T00:00:00+00:00", "end": "2026-01-01T00:00:00+00:00"},
+                    "test_period": {"start": "2026-01-03T00:00:00+00:00", "end": "2026-01-03T00:00:00+00:00"},
+                    "split_metadata": window_metadata[0],
                     "out_of_sample": {"scorecard": {"total_return": out_of_sample_total_return, "trade_count": 2}},
                 },
                 {
                     "window_index": 2,
+                    "train_period": {"start": "2026-01-02T00:00:00+00:00", "end": "2026-01-02T00:00:00+00:00"},
+                    "test_period": {"start": "2026-01-04T00:00:00+00:00", "end": "2026-01-04T00:00:00+00:00"},
+                    "split_metadata": window_metadata[1],
                     "out_of_sample": {"scorecard": {"total_return": worst_window_return, "trade_count": 2}},
                 },
             ],
@@ -693,6 +709,7 @@ def test_compare_backtest_bundles_holds_when_out_of_sample_evidence_is_missing(t
         "has_baseline_variant_pair": True,
         "has_cost_adjusted_edge": True,
         "has_out_of_sample_evidence": False,
+        "has_purged_embargoed_split_metadata": True,
         "has_attribution_or_funnel_explanation": True,
         "has_runtime_observability_plan": False,
         "has_rollback_plan": False,
@@ -738,6 +755,62 @@ def test_compare_backtest_bundles_rejects_walk_forward_when_oos_direction_revers
 
 
 def test_compare_backtest_bundles_promotes_walk_forward_when_all_checks_pass(tmp_path: Path) -> None:
+    split_metadata = {
+        "schema_version": "walk_forward_split_metadata.v1",
+        "purge_bars": 1,
+        "embargo_bars": 0,
+    }
+    baseline_bundle = _write_walk_forward_bundle(
+        tmp_path / "baseline",
+        baseline_name="current_policy",
+        variant_name="baseline_walk_forward",
+        out_of_sample_total_return=0.03,
+        positive_window_ratio=0.75,
+        parameter_stability_score=0.7,
+        worst_window_return=0.01,
+        split_metadata=split_metadata,
+        runtime_fields=["regime", "allocator_decision_reason"],
+        rollback_target="baseline_walk_forward",
+        rollback_trigger="oos_total_return_below_zero",
+        observation_window="14d",
+    )
+    variant_bundle = _write_walk_forward_bundle(
+        tmp_path / "variant",
+        baseline_name="current_policy",
+        variant_name="candidate_walk_forward",
+        out_of_sample_total_return=0.08,
+        positive_window_ratio=0.9,
+        parameter_stability_score=0.9,
+        worst_window_return=0.02,
+        split_metadata=split_metadata,
+        runtime_fields=["regime", "allocator_decision_reason"],
+        rollback_target="baseline_walk_forward",
+        rollback_trigger="oos_total_return_below_zero",
+        observation_window="14d",
+    )
+
+    result = promotion.compare_backtest_bundles(
+        baseline_bundle=baseline_bundle,
+        variant_bundle=variant_bundle,
+    )
+
+    gate = result["promotion_gate"]
+    assert gate["decision"] == "candidate_for_promotion"
+    assert gate["checks"] == {
+        "has_baseline_variant_pair": True,
+        "has_cost_adjusted_edge": True,
+        "has_out_of_sample_evidence": True,
+        "has_purged_embargoed_split_metadata": True,
+        "has_attribution_or_funnel_explanation": True,
+        "has_runtime_observability_plan": True,
+        "has_rollback_plan": True,
+        "has_parameter_stability_surface": True,
+        "rejects_isolated_spike_optimum": True,
+    }
+    assert gate["why"] == []
+
+
+def test_compare_backtest_bundles_rejects_walk_forward_without_split_metadata(tmp_path: Path) -> None:
     baseline_bundle = _write_walk_forward_bundle(
         tmp_path / "baseline",
         baseline_name="current_policy",
@@ -771,18 +844,101 @@ def test_compare_backtest_bundles_promotes_walk_forward_when_all_checks_pass(tmp
     )
 
     gate = result["promotion_gate"]
-    assert gate["decision"] == "candidate_for_promotion"
-    assert gate["checks"] == {
-        "has_baseline_variant_pair": True,
-        "has_cost_adjusted_edge": True,
-        "has_out_of_sample_evidence": True,
-        "has_attribution_or_funnel_explanation": True,
-        "has_runtime_observability_plan": True,
-        "has_rollback_plan": True,
-        "has_parameter_stability_surface": True,
-        "rejects_isolated_spike_optimum": True,
-    }
-    assert gate["why"] == []
+    assert gate["decision"] == "reject"
+    assert gate["checks"]["has_purged_embargoed_split_metadata"] is False
+    assert "missing purged/embargoed walk-forward split metadata" in gate["why"]
+
+
+def test_load_backtest_bundle_rejects_negative_walk_forward_embargo(tmp_path: Path) -> None:
+    bundle = _write_walk_forward_bundle(
+        tmp_path / "bundle",
+        baseline_name="current_policy",
+        variant_name="candidate_walk_forward",
+        out_of_sample_total_return=0.03,
+        positive_window_ratio=0.75,
+        parameter_stability_score=0.7,
+        worst_window_return=0.01,
+        split_metadata={
+            "schema_version": "walk_forward_split_metadata.v1",
+            "purge_bars": 0,
+            "embargo_bars": -1,
+        },
+    )
+
+    with pytest.raises(ValueError, match="split_metadata.embargo_bars must be a non-negative integer"):
+        promotion.load_backtest_bundle(bundle)
+
+
+def test_load_backtest_bundle_rejects_walk_forward_split_run_id_leakage(tmp_path: Path) -> None:
+    bundle = _write_walk_forward_bundle(
+        tmp_path / "bundle",
+        baseline_name="current_policy",
+        variant_name="candidate_walk_forward",
+        out_of_sample_total_return=0.03,
+        positive_window_ratio=0.75,
+        parameter_stability_score=0.7,
+        worst_window_return=0.01,
+        split_metadata={
+            "schema_version": "walk_forward_split_metadata.v1",
+            "purge_bars": 0,
+            "embargo_bars": 0,
+        },
+        window_split_metadata=[
+            {"train_run_ids": ["row-001"], "test_run_ids": ["row-001"]},
+            {"train_run_ids": ["row-002"], "test_run_ids": ["row-004"]},
+        ],
+    )
+
+    with pytest.raises(ValueError, match="windows.json.rows\\[0\\].split_metadata train/test run_ids must be disjoint"):
+        promotion.load_backtest_bundle(bundle)
+
+
+def test_load_backtest_bundle_rejects_overlapping_walk_forward_periods(tmp_path: Path) -> None:
+    bundle = _write_walk_forward_bundle(
+        tmp_path / "bundle",
+        baseline_name="current_policy",
+        variant_name="candidate_walk_forward",
+        out_of_sample_total_return=0.03,
+        positive_window_ratio=0.75,
+        parameter_stability_score=0.7,
+        worst_window_return=0.01,
+        split_metadata={
+            "schema_version": "walk_forward_split_metadata.v1",
+            "purge_bars": 0,
+            "embargo_bars": 0,
+        },
+    )
+    windows_path = bundle / "windows.json"
+    windows = json.loads(windows_path.read_text(encoding="utf-8"))
+    windows["rows"][0]["test_period"]["start"] = "2026-01-01T00:00:00+00:00"
+    _write_json(windows_path, windows)
+
+    with pytest.raises(ValueError, match="windows.json.rows\\[0\\].train_period.end must be before"):
+        promotion.load_backtest_bundle(bundle)
+
+
+def test_load_backtest_bundle_rejects_noncanonical_walk_forward_period_timestamp(tmp_path: Path) -> None:
+    bundle = _write_walk_forward_bundle(
+        tmp_path / "bundle",
+        baseline_name="current_policy",
+        variant_name="candidate_walk_forward",
+        out_of_sample_total_return=0.03,
+        positive_window_ratio=0.75,
+        parameter_stability_score=0.7,
+        worst_window_return=0.01,
+        split_metadata={
+            "schema_version": "walk_forward_split_metadata.v1",
+            "purge_bars": 0,
+            "embargo_bars": 0,
+        },
+    )
+    windows_path = bundle / "windows.json"
+    windows = json.loads(windows_path.read_text(encoding="utf-8"))
+    windows["rows"][0]["test_period"]["start"] = "2026-01-03T00:00:00Z"
+    _write_json(windows_path, windows)
+
+    with pytest.raises(ValueError, match="windows.json.rows\\[0\\].test_period.start must match datetime.isoformat"):
+        promotion.load_backtest_bundle(bundle)
 
 
 def test_compare_backtest_bundles_rejects_walk_forward_isolated_spike_optimum(tmp_path: Path) -> None:
@@ -967,6 +1123,11 @@ def test_compare_backtest_bundles_rejects_inconsistent_multiple_testing_trial_co
 
 
 def test_compare_backtest_bundles_holds_walk_forward_when_stability_regresses_vs_baseline(tmp_path: Path) -> None:
+    split_metadata = {
+        "schema_version": "walk_forward_split_metadata.v1",
+        "purge_bars": 1,
+        "embargo_bars": 0,
+    }
     baseline_bundle = _write_walk_forward_bundle(
         tmp_path / "baseline",
         baseline_name="current_policy",
@@ -975,6 +1136,7 @@ def test_compare_backtest_bundles_holds_walk_forward_when_stability_regresses_vs
         positive_window_ratio=0.85,
         parameter_stability_score=0.9,
         worst_window_return=0.01,
+        split_metadata=split_metadata,
         runtime_fields=["regime", "allocator_decision_reason"],
         rollback_target="baseline_walk_forward",
         rollback_trigger="oos_total_return_below_zero",
@@ -988,6 +1150,7 @@ def test_compare_backtest_bundles_holds_walk_forward_when_stability_regresses_vs
         positive_window_ratio=0.7,
         parameter_stability_score=0.75,
         worst_window_return=0.01,
+        split_metadata=split_metadata,
         runtime_fields=["regime", "allocator_decision_reason"],
         rollback_target="baseline_walk_forward",
         rollback_trigger="oos_total_return_below_zero",

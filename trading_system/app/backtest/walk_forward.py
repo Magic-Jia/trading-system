@@ -138,6 +138,21 @@ def summarize_walk_forward_window(
 ) -> dict[str, Any]:
     return {
         "window_index": window.window_index,
+        "train_period": {
+            "start": window.in_sample[0].timestamp.isoformat(),
+            "end": window.in_sample[-1].timestamp.isoformat(),
+        },
+        "test_period": {
+            "start": window.out_of_sample[0].timestamp.isoformat(),
+            "end": window.out_of_sample[-1].timestamp.isoformat(),
+        },
+        "split_metadata": {
+            "schema_version": "walk_forward_window_split_metadata.v1",
+            "purge_bars": 0,
+            "embargo_bars": 0,
+            "train_run_ids": [row.run_id for row in window.in_sample],
+            "test_run_ids": [row.run_id for row in window.out_of_sample],
+        },
         "in_sample": summarize_walk_forward_segment(
             window.in_sample,
             evaluation_window=evaluation_window,

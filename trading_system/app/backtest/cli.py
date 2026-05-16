@@ -422,6 +422,13 @@ def _walk_forward_validation_outputs(config: BacktestConfig, rows: list[DatasetS
         "in_sample_size": params.walk_forward.in_sample_size,
         "out_of_sample_size": params.walk_forward.out_of_sample_size,
         "step_size": params.walk_forward.step_size,
+        "split_metadata": {
+            "schema_version": "walk_forward_split_metadata.v1",
+            "purge_bars": 0,
+            "embargo_bars": 0,
+            "timestamp_format": "datetime.isoformat",
+            "boundary_policy": "train_end_before_test_start",
+        },
     }
     report = render_walk_forward_validation_report(
         experiment_name=config.experiment_kind,

@@ -22,6 +22,8 @@ class WalkForwardWindow:
     window_index: int
     train_rows: tuple[DatasetSnapshotRow, ...]
     test_rows: tuple[DatasetSnapshotRow, ...]
+    purge_bars: int = 0
+    embargo_bars: int = 0
 
     @property
     def train_start(self) -> Any:
@@ -51,6 +53,10 @@ class WalkForwardWindowEvaluation:
     out_of_sample_metrics: dict[str, float | int]
     in_sample_trade_ids: tuple[str, ...]
     out_of_sample_trade_ids: tuple[str, ...]
+    train_run_ids: tuple[str, ...]
+    test_run_ids: tuple[str, ...]
+    purge_bars: int = 0
+    embargo_bars: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -62,6 +68,13 @@ class WalkForwardWindowEvaluation:
             "test_period": {
                 "start": self.test_start.isoformat(),
                 "end": self.test_end.isoformat(),
+            },
+            "split_metadata": {
+                "schema_version": "walk_forward_window_split_metadata.v1",
+                "purge_bars": self.purge_bars,
+                "embargo_bars": self.embargo_bars,
+                "train_run_ids": list(self.train_run_ids),
+                "test_run_ids": list(self.test_run_ids),
             },
             "splits": {
                 "in_sample": {
@@ -189,24 +202,34 @@ def build_walk_forward_windows(
     train_size: int,
     test_size: int,
     step_size: int | None = None,
+    purge_bars: int = 0,
+    embargo_bars: int = 0,
 ) -> tuple[WalkForwardWindow, ...]:
     if train_size <= 0:
         raise ValueError("train_size must be positive")
     if test_size <= 0:
         raise ValueError("test_size must be positive")
+    if not isinstance(purge_bars, int) or isinstance(purge_bars, bool) or purge_bars < 0:
+        raise ValueError("purge_bars must be a non-negative integer")
+    if not isinstance(embargo_bars, int) or isinstance(embargo_bars, bool) or embargo_bars < 0:
+        raise ValueError("embargo_bars must be a non-negative integer")
     effective_step_size = test_size if step_size is None else step_size
     if effective_step_size <= 0:
         raise ValueError("step_size must be positive")
 
     ordered = _ordered_rows(rows)
-    minimum_size = train_size + test_size
+    split_gap = purge_bars + embargo_bars
+    minimum_size = train_size + split_gap + test_size
     if len(ordered) < minimum_size:
+        if split_gap > 0 and len(ordered) >= train_size + test_size:
+            raise ValueError("walk-forward split metadata leakage across purge/embargo boundary")
         return ()
 
     windows: list[WalkForwardWindow] = []
     for start in range(0, len(ordered) - minimum_size + 1, effective_step_size):
         train_rows = tuple(ordered[start : start + train_size])
-        test_rows = tuple(ordered[start + train_size : start + minimum_size])
+        test_start_index = start + train_size + split_gap
+        test_rows = tuple(ordered[test_start_index : start + minimum_size])
         if train_rows[-1].timestamp >= test_rows[0].timestamp:
             raise ValueError("walk-forward train rows must end before test rows start")
         windows.append(
@@ -214,6 +237,8 @@ def build_walk_forward_windows(
                 window_index=len(windows) + 1,
                 train_rows=train_rows,
                 test_rows=test_rows,
+                purge_bars=purge_bars,
+                embargo_bars=embargo_bars,
             )
         )
     return tuple(windows)
@@ -332,6 +357,8 @@ def build_walk_forward_evaluation(
     train_size: int,
     test_size: int,
     step_size: int | None = None,
+    purge_bars: int = 0,
+    embargo_bars: int = 0,
 ) -> WalkForwardEvaluationResult:
     ordered = _ordered_rows(rows)
     effective_step_size = test_size if step_size is None else step_size
@@ -340,6 +367,8 @@ def build_walk_forward_evaluation(
         train_size=train_size,
         test_size=test_size,
         step_size=effective_step_size,
+        purge_bars=purge_bars,
+        embargo_bars=embargo_bars,
     )
     metadata = {
         "row_count": len(ordered),
@@ -348,6 +377,14 @@ def build_walk_forward_evaluation(
         "test_size": test_size,
         "step_size": effective_step_size,
         "trade_timestamp_basis": "entry_timestamp",
+        "split_metadata": {
+            "schema_version": "walk_forward_split_metadata.v1",
+            "purge_bars": purge_bars,
+            "embargo_bars": embargo_bars,
+            "timestamp_format": "datetime.isoformat",
+            "trade_timestamp_basis": "entry_timestamp",
+            "boundary_policy": "train_end_plus_purge_and_embargo_before_test_start",
+        },
     }
     if not windows:
         return WalkForwardEvaluationResult(
@@ -382,6 +419,10 @@ def build_walk_forward_evaluation(
                 out_of_sample_metrics=_ledger_metrics(test_trades),
                 in_sample_trade_ids=tuple(_trade_id(trade) for trade in train_trades),
                 out_of_sample_trade_ids=tuple(_trade_id(trade) for trade in test_trades),
+                train_run_ids=tuple(row.run_id for row in window.train_rows),
+                test_run_ids=tuple(row.run_id for row in window.test_rows),
+                purge_bars=window.purge_bars,
+                embargo_bars=window.embargo_bars,
             )
         )
 
@@ -623,6 +664,8 @@ def build_evaluation_report(
     train_size: int,
     test_size: int,
     step_size: int | None = None,
+    purge_bars: int = 0,
+    embargo_bars: int = 0,
     cost_scenarios: Iterable[CostStressScenario] = (),
 ) -> dict[str, Any]:
     ordered_rows = tuple(_ordered_rows(rows))
@@ -633,6 +676,8 @@ def build_evaluation_report(
         train_size=train_size,
         test_size=test_size,
         step_size=step_size,
+        purge_bars=purge_bars,
+        embargo_bars=embargo_bars,
     )
     regimes = evaluate_regime_buckets(ordered_rows, trades)
     stress_results = run_cost_stress_tests(trades, cost_scenarios)

@@ -3567,7 +3567,14 @@ def test_render_long_gate_telemetry_rejects_tuple_snapshot_rows_payload() -> Non
 
 def _minimal_walk_forward_validation_experiment() -> dict[str, object]:
     return {
-        "windows": [],
+        "windows": [
+            {
+                "window_index": 1,
+                "train_period": {"start": "2026-03-10T00:00:00+00:00", "end": "2026-03-10T00:00:00+00:00"},
+                "test_period": {"start": "2026-03-11T00:00:00+00:00", "end": "2026-03-11T00:00:00+00:00"},
+                "split_metadata": {"train_run_ids": ["row-001"], "test_run_ids": ["row-002"]},
+            }
+        ],
         "robustness_summary": {
             "out_of_sample_scorecard": {"total_return": 0.03, "trade_count": 1},
             "in_sample_scorecard": {"total_return": 0.04, "trade_count": 1},
@@ -3634,7 +3641,15 @@ def _canonical_parameter_stability(score: float = 0.8) -> dict[str, object]:
 def test_walk_forward_validation_report_accepts_stability_scorecard_object_contracts() -> None:
     report = cli.render_walk_forward_validation_report(
         experiment_name="walk_forward_validation",
-        metadata={"snapshot_count": 1, "window_count": 1},
+        metadata={
+            "snapshot_count": 1,
+            "window_count": 1,
+            "split_metadata": {
+                "schema_version": "walk_forward_split_metadata.v1",
+                "purge_bars": 0,
+                "embargo_bars": 0,
+            },
+        },
         experiment=_minimal_walk_forward_validation_experiment(),
     )
 
@@ -4013,6 +4028,171 @@ def test_walk_forward_validation_report_rejects_string_window_scorecard_metric()
         )
 
 
+def test_walk_forward_validation_report_rejects_missing_split_metadata_for_positive_oos() -> None:
+    with pytest.raises(ValueError, match="walk_forward.split_metadata must be present"):
+        cli.render_walk_forward_validation_report(
+            experiment_name="walk_forward_validation",
+            metadata={"snapshot_count": 1, "window_count": 1},
+            experiment={
+                "windows": [
+                    {
+                        "window_index": 1,
+                        "train_period": {
+                            "start": "2026-03-10T00:00:00+00:00",
+                            "end": "2026-03-10T00:00:00+00:00",
+                        },
+                        "test_period": {
+                            "start": "2026-03-11T00:00:00+00:00",
+                            "end": "2026-03-11T00:00:00+00:00",
+                        },
+                        "out_of_sample": {
+                            "scorecard": {"total_return": 0.03, "trade_count": 1},
+                            "run_ids": ["row-002"],
+                        },
+                    }
+                ],
+                "robustness_summary": {
+                    "out_of_sample_scorecard": {"total_return": 0.03},
+                    "performance_dispersion": {"positive_window_ratio": 1.0},
+                },
+                "parameter_stability": _canonical_parameter_stability(),
+                "multiple_testing_correction": _multiple_testing_correction(2),
+            },
+        )
+
+
+def test_walk_forward_validation_report_rejects_overlapping_split_periods() -> None:
+    with pytest.raises(ValueError, match=r"windows\[0\]\.train_period\.end must be before"):
+        cli.render_walk_forward_validation_report(
+            experiment_name="walk_forward_validation",
+            metadata={
+                "snapshot_count": 1,
+                "window_count": 1,
+                "split_metadata": {
+                    "schema_version": "walk_forward_split_metadata.v1",
+                    "purge_bars": 0,
+                    "embargo_bars": 0,
+                },
+            },
+            experiment={
+                "windows": [
+                    {
+                        "window_index": 1,
+                        "train_period": {
+                            "start": "2026-03-10T00:00:00+00:00",
+                            "end": "2026-03-11T00:00:00+00:00",
+                        },
+                        "test_period": {
+                            "start": "2026-03-11T00:00:00+00:00",
+                            "end": "2026-03-12T00:00:00+00:00",
+                        },
+                        "split_metadata": {
+                            "train_run_ids": ["row-001"],
+                            "test_run_ids": ["row-002"],
+                        },
+                        "out_of_sample": {
+                            "scorecard": {"total_return": 0.03, "trade_count": 1},
+                            "run_ids": ["row-002"],
+                        },
+                    }
+                ],
+                "robustness_summary": {
+                    "out_of_sample_scorecard": {"total_return": 0.03},
+                    "performance_dispersion": {"positive_window_ratio": 1.0},
+                },
+                "parameter_stability": {"parameter_stability_score": 0.8},
+            },
+        )
+
+
+def test_walk_forward_validation_report_rejects_noncanonical_split_timestamps() -> None:
+    with pytest.raises(ValueError, match=r"windows\[0\]\.test_period\.start must match datetime\.isoformat"):
+        cli.render_walk_forward_validation_report(
+            experiment_name="walk_forward_validation",
+            metadata={
+                "snapshot_count": 1,
+                "window_count": 1,
+                "split_metadata": {
+                    "schema_version": "walk_forward_split_metadata.v1",
+                    "purge_bars": 0,
+                    "embargo_bars": 0,
+                },
+            },
+            experiment={
+                "windows": [
+                    {
+                        "window_index": 1,
+                        "train_period": {
+                            "start": "2026-03-10T00:00:00+00:00",
+                            "end": "2026-03-10T00:00:00+00:00",
+                        },
+                        "test_period": {
+                            "start": "2026-03-11T00:00:00Z",
+                            "end": "2026-03-11T00:00:00+00:00",
+                        },
+                        "split_metadata": {
+                            "train_run_ids": ["row-001"],
+                            "test_run_ids": ["row-002"],
+                        },
+                        "out_of_sample": {
+                            "scorecard": {"total_return": 0.03, "trade_count": 1},
+                            "run_ids": ["row-002"],
+                        },
+                    }
+                ],
+                "robustness_summary": {
+                    "out_of_sample_scorecard": {"total_return": 0.03},
+                    "performance_dispersion": {"positive_window_ratio": 1.0},
+                },
+                "parameter_stability": {"parameter_stability_score": 0.8},
+            },
+        )
+
+
+def test_walk_forward_validation_report_rejects_split_run_id_leakage() -> None:
+    with pytest.raises(ValueError, match=r"windows\[0\]\.split_metadata train/test run_ids must be disjoint"):
+        cli.render_walk_forward_validation_report(
+            experiment_name="walk_forward_validation",
+            metadata={
+                "snapshot_count": 1,
+                "window_count": 1,
+                "split_metadata": {
+                    "schema_version": "walk_forward_split_metadata.v1",
+                    "purge_bars": 0,
+                    "embargo_bars": 0,
+                },
+            },
+            experiment={
+                "windows": [
+                    {
+                        "window_index": 1,
+                        "train_period": {
+                            "start": "2026-03-10T00:00:00+00:00",
+                            "end": "2026-03-10T00:00:00+00:00",
+                        },
+                        "test_period": {
+                            "start": "2026-03-11T00:00:00+00:00",
+                            "end": "2026-03-11T00:00:00+00:00",
+                        },
+                        "split_metadata": {
+                            "train_run_ids": ["row-001", "row-002"],
+                            "test_run_ids": ["row-002"],
+                        },
+                        "out_of_sample": {
+                            "scorecard": {"total_return": 0.03, "trade_count": 1},
+                            "run_ids": ["row-002"],
+                        },
+                    }
+                ],
+                "robustness_summary": {
+                    "out_of_sample_scorecard": {"total_return": 0.03},
+                    "performance_dispersion": {"positive_window_ratio": 1.0},
+                },
+                "parameter_stability": {"parameter_stability_score": 0.8},
+            },
+        )
+
+
 @pytest.mark.parametrize(
     ("path", "value", "match"),
     [
@@ -4169,11 +4349,22 @@ def test_walk_forward_validation_report_rejects_malformed_worst_window_contracts
 def test_walk_forward_validation_report_preserves_valid_worst_window_scorecard() -> None:
     report = cli.render_walk_forward_validation_report(
         experiment_name="walk_forward_validation",
-        metadata={"snapshot_count": 1, "window_count": 1},
+        metadata={
+            "snapshot_count": 1,
+            "window_count": 1,
+            "split_metadata": {
+                "schema_version": "walk_forward_split_metadata.v1",
+                "purge_bars": 0,
+                "embargo_bars": 0,
+            },
+        },
         experiment={
             "windows": [
                 {
                     "window_index": 1,
+                    "train_period": {"start": "2026-03-10T00:00:00+00:00", "end": "2026-03-10T00:00:00+00:00"},
+                    "test_period": {"start": "2026-03-11T00:00:00+00:00", "end": "2026-03-11T00:00:00+00:00"},
+                    "split_metadata": {"train_run_ids": ["row-001"], "test_run_ids": ["row-002"]},
                     "out_of_sample": {
                         "snapshot_count": 1,
                         "scorecard": {"total_return": 0.03, "trade_count": 1},
@@ -4612,11 +4803,22 @@ def test_walk_forward_validation_report_rejects_malformed_summary_coverage_score
 def test_walk_forward_validation_report_preserves_valid_coverage_scorecard_values() -> None:
     report = cli.render_walk_forward_validation_report(
         experiment_name="walk_forward_validation",
-        metadata={"snapshot_count": 1, "window_count": 1},
+        metadata={
+            "snapshot_count": 1,
+            "window_count": 1,
+            "split_metadata": {
+                "schema_version": "walk_forward_split_metadata.v1",
+                "purge_bars": 0,
+                "embargo_bars": 0,
+            },
+        },
         experiment={
             "windows": [
                 {
                     "window_index": 1,
+                    "train_period": {"start": "2026-03-10T00:00:00+00:00", "end": "2026-03-10T00:00:00+00:00"},
+                    "test_period": {"start": "2026-03-11T00:00:00+00:00", "end": "2026-03-11T00:00:00+00:00"},
+                    "split_metadata": {"train_run_ids": ["row-001"], "test_run_ids": ["row-002"]},
                     "out_of_sample": {
                         "scorecard": {
                             "total_return": 0.03,
@@ -5252,6 +5454,9 @@ def test_backtest_cli_writes_walk_forward_validation_bundle(monkeypatch: pytest.
             "windows": [
                 {
                     "window_index": 1,
+                    "train_period": {"start": "2026-03-10T00:00:00+00:00", "end": "2026-03-10T00:00:00+00:00"},
+                    "test_period": {"start": "2026-03-11T00:00:00+00:00", "end": "2026-03-11T00:00:00+00:00"},
+                    "split_metadata": {"train_run_ids": ["row-001"], "test_run_ids": ["row-002"]},
                     "out_of_sample": {
                         "scorecard": {"total_return": 0.03, "trade_count": 1},
                         "run_ids": ["row-002"],
