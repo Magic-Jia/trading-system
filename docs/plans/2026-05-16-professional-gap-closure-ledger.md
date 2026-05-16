@@ -196,6 +196,6 @@ Controller policy: entries below are marked only after isolated worker verificat
 - `flash-crash-outage-replay-contracts` — `332c9b20`, flash-crash/exchange-outage stress scenario readiness gate.
 - `cancel-stuck-partial-order-replay-contracts` — `46bb7d55`, cancel-failure/stuck-partial-order stress replay readiness contracts.
 - `websocket-rest-degradation-replay-contracts` — `3eab8f41`, websocket-lag/REST-rate-limit offline degradation replay gates.
-
-### Remaining frontier
+- `intrabar-tpsl-path-evidence-contracts` — `7a16c62f`, same-bar TP/SL conservative fallback and canonical path-evidence ordering contracts.
+- `execution-event-chain-reconcile-contracts` — `b7625c33`, signal→intent→risk→submit→ack→fill→position-reconcile event-chain contracts.
 
