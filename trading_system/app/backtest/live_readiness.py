@@ -4622,6 +4622,98 @@ def _passive_calibration_artifact_checks(chunks: Sequence[Mapping[str, Any]]) ->
     }
 
 
+def _tca_calibration_diagnostic(chunk_dirs: Sequence[Path], *, required: bool) -> dict[str, Any]:
+    chunks: list[dict[str, Any]] = []
+    for chunk_dir in chunk_dirs:
+        path = chunk_dir / "tca_calibration_report.json"
+        if not path.exists():
+            continue
+        payload = _load_json(path)
+        parse_error = _json_parse_error(payload)
+        schema_error = _artifact_provenance_schema_error(payload)
+        unknown_top_level_fields = sorted(
+            set(payload)
+            - {
+                "schema_version",
+                "decision",
+                "evidence_source",
+                "evaluated_at",
+                "sample_count",
+                "min_samples",
+                "max_evidence_age_seconds",
+                "evidence_age_seconds",
+                "assumptions",
+                "tolerance_thresholds",
+                "observed",
+                "comparisons",
+                "checks",
+                "reasons",
+                "caveats",
+            }
+        )
+        if unknown_top_level_fields:
+            schema_error = "unknown_top_level_field: " + ", ".join(unknown_top_level_fields)
+        schema_valid = (
+            (not parse_error)
+            and _artifact_schema_valid(payload, "tca_calibration_report.v1")
+            and not schema_error
+        )
+        provenance_present = (not parse_error) and _artifact_provenance_present(payload)
+        sample_count, sample_count_valid = _strict_summary_int_value(payload.get("sample_count"))
+        min_samples, min_samples_valid = _strict_summary_int_value(payload.get("min_samples"))
+        if not parse_error:
+            if payload.get("decision") not in {"pass", "fail_closed"}:
+                parse_error = "invalid_decision"
+            elif not sample_count_valid or sample_count < 0:
+                parse_error = "invalid_numeric_field: sample_count"
+            elif not min_samples_valid or min_samples < 0:
+                parse_error = "invalid_numeric_field: min_samples"
+            elif not isinstance(payload.get("checks"), Mapping):
+                parse_error = "checks_not_object"
+            elif not isinstance(payload.get("reasons"), list) or not all(type(reason) is str for reason in payload.get("reasons", [])):
+                parse_error = "reasons_not_string_list"
+        if parse_error:
+            schema_valid = False
+            provenance_present = False
+        checks_payload = _as_mapping(payload.get("checks"))
+        chunks.append(
+            {
+                "chunk": chunk_dir.name,
+                "path": str(path),
+                "parse_error": parse_error or schema_error,
+                "sample_count": sample_count,
+                "min_samples": min_samples,
+                "decision": payload.get("decision"),
+                "schema_valid": schema_valid,
+                "provenance_present": provenance_present,
+                "checks": dict(checks_payload),
+                "reasons": list(payload.get("reasons", [])) if isinstance(payload.get("reasons"), list) else [],
+            }
+        )
+    artifact_present = bool(chunks)
+    artifact_schema_valid = (not chunks) or all(chunk.get("schema_valid") is True for chunk in chunks)
+    artifact_provenance_present = (not chunks) or all(chunk.get("provenance_present") is True for chunk in chunks)
+    reports_passed = (not required and not chunks) or (
+        artifact_present
+        and artifact_schema_valid
+        and artifact_provenance_present
+        and all(chunk.get("decision") == "pass" for chunk in chunks)
+        and all(all(value is True for value in _as_mapping(chunk.get("checks")).values()) for chunk in chunks)
+    )
+    return {
+        "schema_version": "tca_calibration_live_readiness.v1",
+        "required": required,
+        "chunks": chunks,
+        "artifact_count": len(chunks),
+        "checks": {
+            "tca_calibration_present_met": (not required) or artifact_present,
+            "tca_calibration_artifact_schema_valid": artifact_schema_valid,
+            "tca_calibration_artifact_provenance_present": artifact_provenance_present,
+            "tca_calibration_report_passed": reports_passed,
+        },
+    }
+
+
 def _strict_bucket_int(bucket: Mapping[str, Any], key: str) -> int:
     value = bucket.get(key, 0)
     if isinstance(value, bool) or not isinstance(value, int):
@@ -4732,6 +4824,7 @@ def build_live_readiness_gate_report(
     max_setup_loss_abs_share: float | None = None,
     max_symbol_loss_abs_share: float | None = None,
     require_passive_calibration: bool = False,
+    require_tca_calibration: bool = False,
     min_passive_calibration_attempts: int = 0,
     min_passive_fill_rate: float | None = None,
     require_exit_path_replay_rows: bool = False,
@@ -4805,6 +4898,7 @@ def build_live_readiness_gate_report(
         policy_invalid_fields.add(field)
     for field, value in (
         ("require_passive_calibration", require_passive_calibration),
+        ("require_tca_calibration", require_tca_calibration),
         ("require_exit_path_replay_rows", require_exit_path_replay_rows),
         ("require_validation_evidence", require_validation_evidence),
         ("require_microstructure_evidence", require_microstructure_evidence),
@@ -4887,6 +4981,10 @@ def build_live_readiness_gate_report(
         required=policy_requirements["require_passive_calibration"],
         min_attempts=min_passive_calibration_attempts,
         min_fill_rate=min_passive_fill_rate,
+    )
+    tca_calibration = _tca_calibration_diagnostic(
+        chunk_dirs,
+        required=policy_requirements["require_tca_calibration"],
     )
 
     trade_financial_integrity = _trade_financial_integrity(chunk_dirs)
@@ -5373,6 +5471,20 @@ def build_live_readiness_gate_report(
         reasons.append("passive_calibration_insufficient_attempts")
     if not passive_checks.get("passive_calibration_fill_rate_met", True):
         reasons.append("passive_calibration_fill_rate_below_threshold")
+    tca_checks = _as_mapping(tca_calibration.get("checks"))
+    if not tca_checks.get("tca_calibration_present_met", True):
+        reasons.append("tca_calibration_missing")
+    tca_chunks = tca_calibration.get("chunks")
+    tca_chunks_valid = tca_chunks is None or isinstance(tca_chunks, list)
+    tca_artifact_count = len(tca_chunks) if isinstance(tca_chunks, list) else 0
+    if not tca_chunks_valid:
+        reasons.append("tca_calibration_artifact_schema_invalid")
+    if tca_artifact_count > 0 and not tca_checks.get("tca_calibration_artifact_schema_valid", False):
+        reasons.append("tca_calibration_artifact_schema_invalid")
+    if tca_artifact_count > 0 and not tca_checks.get("tca_calibration_artifact_provenance_present", False):
+        reasons.append("tca_calibration_artifact_provenance_missing")
+    if not tca_checks.get("tca_calibration_report_passed", True):
+        reasons.append("tca_calibration_failed")
     setup_rewrite_checks: dict[str, bool] = {}
     if setup_rewrite_diagnostic is not None:
         setup_rewrite_totals = _as_mapping(setup_rewrite_diagnostic.get("totals"))
@@ -5472,6 +5584,7 @@ def build_live_readiness_gate_report(
         "stress_replay_contract": stress_replay_contract,
         "concentration": concentration,
         "passive_calibration": passive_calibration,
+        "tca_calibration": tca_calibration,
         "exit_path_replay": {
             "schema_version": exit_path_replay.get("schema_version"),
             "counts": dict(exit_path_counts),
@@ -5518,6 +5631,8 @@ def build_live_readiness_gate_report(
                 "concentration_buckets_valid": concentration_buckets_valid,
                 **passive_checks,
                 "passive_calibration_chunks_valid": passive_chunks_valid,
+                **tca_checks,
+                "tca_calibration_chunks_valid": tca_chunks_valid,
                 **setup_rewrite_checks,
             },
         },
@@ -6000,6 +6115,7 @@ def write_live_readiness_smoke_report(
     max_setup_loss_abs_share: float | None = 0.60,
     max_symbol_loss_abs_share: float | None = 0.60,
     require_passive_calibration: bool = False,
+    require_tca_calibration: bool = False,
     min_passive_calibration_attempts: int = 0,
     min_passive_fill_rate: float | None = None,
     require_exit_path_replay_rows: bool = False,
@@ -6036,6 +6152,7 @@ def write_live_readiness_smoke_report(
             "setup_rewrite_experiment.json",
             "exit_path_replay.json",
             "passive_order_calibration_summary.json",
+            "tca_calibration_report.json",
             "market_microstructure_gate.json",
             "capacity_analysis_gate.json",
             "stress_scenario_gate.json",
@@ -6071,6 +6188,7 @@ def write_live_readiness_smoke_report(
         max_setup_loss_abs_share=max_setup_loss_abs_share,
         max_symbol_loss_abs_share=max_symbol_loss_abs_share,
         require_passive_calibration=require_passive_calibration,
+        require_tca_calibration=require_tca_calibration,
         min_passive_calibration_attempts=min_passive_calibration_attempts,
         min_passive_fill_rate=min_passive_fill_rate,
         require_exit_path_replay_rows=require_exit_path_replay_rows,
@@ -6087,6 +6205,7 @@ def write_live_readiness_smoke_report(
         report,
         _smoke_report_bool_policy_invalid_config(
             require_passive_calibration=require_passive_calibration,
+            require_tca_calibration=require_tca_calibration,
             require_exit_path_replay_rows=require_exit_path_replay_rows,
             require_validation_evidence=require_validation_evidence,
             require_microstructure_evidence=require_microstructure_evidence,
@@ -6537,6 +6656,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--max-setup-loss-abs-share", type=float, default=0.60)
     parser.add_argument("--max-symbol-loss-abs-share", type=float, default=0.60)
     parser.add_argument("--require-passive-calibration", action="store_true")
+    parser.add_argument("--require-tca-calibration", action="store_true")
     parser.add_argument("--min-passive-calibration-attempts", type=int, default=0)
     parser.add_argument("--min-passive-fill-rate", type=float, default=None)
     parser.add_argument("--require-exit-path-replay-rows", action="store_true")
@@ -6610,6 +6730,7 @@ def main() -> int:
         max_setup_loss_abs_share=args.max_setup_loss_abs_share,
         max_symbol_loss_abs_share=args.max_symbol_loss_abs_share,
         require_passive_calibration=args.require_passive_calibration,
+        require_tca_calibration=args.require_tca_calibration,
         min_passive_calibration_attempts=args.min_passive_calibration_attempts,
         min_passive_fill_rate=args.min_passive_fill_rate,
         require_exit_path_replay_rows=args.require_exit_path_replay_rows,

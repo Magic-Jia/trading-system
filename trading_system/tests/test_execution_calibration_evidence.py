@@ -6,9 +6,11 @@ from pathlib import Path
 import pytest
 
 from trading_system.app.execution.calibration import (
+    build_tca_calibration_report,
     load_calibration_records,
     summarize_calibration_records,
     write_calibration_summary,
+    write_tca_calibration_report,
 )
 
 
@@ -23,6 +25,24 @@ def _strict_record_payload(**overrides: object) -> dict[str, object]:
         "exchange_ack_at": "2026-01-01T00:00:03Z",
         "first_fill_at": "2026-01-01T00:00:04Z",
         "status": "filled",
+    }
+    payload.update(overrides)
+    return payload
+
+
+def _tca_assumptions(**overrides: object) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "expected_slippage_bps": 2.0,
+        "expected_fill_probability": 0.75,
+        "expected_maker_rate": 0.75,
+        "expected_taker_rate": 0.25,
+        "expected_ack_latency_ms": 1000.0,
+        "expected_fill_latency_ms": 1000.0,
+        "expected_cancel_latency_ms": 3000.0,
+        "expected_partial_fill_rate": 0.25,
+        "expected_adverse_selection_bps": 3.0,
+        "expected_fee_funding_bps": 2.0,
+        "expected_reject_reason_rates": {"post_only_reject": 0.25},
     }
     payload.update(overrides)
     return payload
@@ -120,6 +140,156 @@ def test_writes_passive_and_taker_calibration_summary_from_jsonl(tmp_path: Path)
     output = write_calibration_summary(source, tmp_path / "out", evidence_source={"type": "synthetic_fixture"})
     assert output == tmp_path / "out" / "passive_order_calibration_summary.json"
     assert json.loads(output.read_text()) == summary
+
+
+def test_builds_tca_calibration_report_expected_vs_observed_and_checks() -> None:
+    records = (
+        _strict_record_payload(
+            maker_taker="maker",
+            requested_qty=1.0,
+            filled_qty=1.0,
+            filled_notional=100.02,
+            slippage_bps=1.0,
+            fees=0.02,
+            funding=0.01,
+            adverse_selection_bps=2.0,
+        ),
+        _strict_record_payload(
+            maker_taker="taker",
+            requested_qty=1.0,
+            filled_qty=0.5,
+            filled_notional=50.01,
+            status="partially_filled",
+            slippage_bps=3.0,
+            fees=0.01,
+            funding=0.0,
+            adverse_selection_bps=4.0,
+        ),
+        _strict_record_payload(
+            first_fill_at=None,
+            maker_taker="maker",
+            requested_qty=1.0,
+            filled_qty=0.0,
+            status="rejected",
+            cancel_ack_at="2026-01-01T00:00:05Z",
+            cancel_reason="post_only_reject",
+        ),
+        _strict_record_payload(
+            maker_taker="maker",
+            requested_qty=1.0,
+            filled_qty=1.0,
+            filled_notional=100.02,
+            slippage_bps=2.0,
+            fees=0.02,
+            funding=-0.01,
+            adverse_selection_bps=1.0,
+        ),
+    )
+
+    report = build_tca_calibration_report(
+        records,
+        assumptions=_tca_assumptions(),
+        evidence_source={"type": "testnet_exchange", "run_id": "paper-shadow-1", "exported_at": "2026-01-01T00:10:00Z"},
+        evaluated_at="2026-01-01T00:11:00Z",
+        min_samples=4,
+        max_evidence_age_seconds=3600,
+    )
+
+    assert report["schema_version"] == "tca_calibration_report.v1"
+    assert report["decision"] == "pass"
+    assert report["checks"]["sample_count_met"] is True
+    assert report["checks"]["evidence_fresh"] is True
+    assert report["checks"]["all_metrics_within_tolerance"] is True
+    assert report["sample_count"] == 4
+    assert report["observed"]["fill_probability"] == 0.75
+    assert report["observed"]["maker_rate"] == 0.75
+    assert report["observed"]["taker_rate"] == 0.25
+    assert report["observed"]["partial_fill_rate"] == 0.25
+    assert report["observed"]["ack_latency_ms"]["median"] == 1000.0
+    assert report["observed"]["fill_latency_ms"]["median"] == 1000.0
+    assert report["observed"]["cancel_latency_ms"]["median"] == 3000.0
+    assert report["observed"]["slippage_bps"]["median"] == 2.0
+    assert report["observed"]["adverse_selection_bps"]["median"] == 2.0
+    assert report["observed"]["fees_funding_bps"]["median"] == pytest.approx(2.0, abs=0.001)
+    assert report["observed"]["reject_reasons"] == {"post_only_reject": {"count": 1, "rate": 0.25}}
+    assert report["comparisons"]["slippage_bps"]["delta"] == 0.0
+    assert report["comparisons"]["fill_probability"]["delta"] == 0.0
+
+
+def test_tca_calibration_report_fails_closed_for_insufficient_and_stale_evidence() -> None:
+    report = build_tca_calibration_report(
+        [load_calibration_records_from_payload(_strict_record_payload())[0]],
+        assumptions=_tca_assumptions(),
+        evidence_source={"type": "testnet_exchange", "exported_at": "2026-01-01T00:00:00Z"},
+        evaluated_at="2026-01-01T02:00:01Z",
+        min_samples=2,
+        max_evidence_age_seconds=3600,
+    )
+
+    assert report["decision"] == "fail_closed"
+    assert report["checks"]["sample_count_met"] is False
+    assert report["checks"]["evidence_fresh"] is False
+    assert "insufficient_sample_count" in report["reasons"]
+    assert "stale_evidence" in report["reasons"]
+
+
+def test_tca_calibration_report_fails_closed_for_missing_required_observed_metric() -> None:
+    rows = [
+        load_calibration_records_from_payload(
+            _strict_record_payload(maker_taker="maker", first_fill_at=None, status="expired", cancel_ack_at="2026-01-01T00:00:05Z")
+        )[0],
+        load_calibration_records_from_payload(
+            _strict_record_payload(maker_taker="maker", first_fill_at=None, status="expired", cancel_ack_at="2026-01-01T00:00:05Z")
+        )[0],
+    ]
+
+    report = build_tca_calibration_report(
+        rows,
+        assumptions=_tca_assumptions(),
+        evidence_source={"type": "testnet_exchange", "exported_at": "2026-01-01T00:00:00Z"},
+        evaluated_at="2026-01-01T00:00:01Z",
+        min_samples=2,
+    )
+
+    assert report["decision"] == "fail_closed"
+    assert report["checks"]["required_metrics_present"] is False
+    assert "missing_required_metric: slippage_bps" in report["reasons"]
+    assert "missing_required_metric: fill_latency_ms" in report["reasons"]
+
+
+def test_write_tca_calibration_report_from_jsonl(tmp_path: Path) -> None:
+    source = tmp_path / "orders.jsonl"
+    source.write_text(
+        "\n".join(
+            json.dumps(_strict_record_payload(maker_taker="maker", requested_qty=1.0, filled_qty=1.0, slippage_bps=2.0))
+            for _ in range(2)
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    output = write_tca_calibration_report(
+        source,
+        tmp_path / "out",
+        assumptions=_tca_assumptions(expected_partial_fill_rate=0.0, expected_reject_reason_rates={}),
+        evidence_source={"type": "testnet_exchange", "exported_at": "2026-01-01T00:10:00Z"},
+        evaluated_at="2026-01-01T00:11:00Z",
+        min_samples=2,
+    )
+
+    assert output == tmp_path / "out" / "tca_calibration_report.json"
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert payload["schema_version"] == "tca_calibration_report.v1"
+    assert payload["checks"]["sample_count_met"] is True
+
+
+def load_calibration_records_from_payload(payload: dict[str, object]) -> tuple[object, ...]:
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as directory:
+        source = Path(directory) / "records.jsonl"
+        source.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+        return load_calibration_records(source)
 
 
 def test_rejects_non_object_calibration_rows(tmp_path: Path) -> None:
@@ -244,11 +414,22 @@ def test_rejects_string_fees_before_calibration_load(tmp_path: Path) -> None:
         "slippage_bps",
         "ref_price",
         "latency_ms",
+        "funding",
+        "adverse_selection_bps",
     ],
 )
 def test_rejects_string_optional_numeric_fields_before_calibration_load(tmp_path: Path, field: str) -> None:
     source = tmp_path / "dust_orders.jsonl"
     source.write_text(json.dumps(_strict_record_payload(**{field: "1.0"})) + "\n")
+
+    with pytest.raises(ValueError, match=f"calibration record {field} must be numeric"):
+        load_calibration_records(source)
+
+
+@pytest.mark.parametrize("field", ["funding", "adverse_selection_bps"])
+def test_rejects_boolean_tca_numeric_fields_before_calibration_load(tmp_path: Path, field: str) -> None:
+    source = tmp_path / "dust_orders.jsonl"
+    source.write_text(json.dumps(_strict_record_payload(**{field: True})) + "\n")
 
     with pytest.raises(ValueError, match=f"calibration record {field} must be numeric"):
         load_calibration_records(source)

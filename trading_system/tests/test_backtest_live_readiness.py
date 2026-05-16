@@ -15446,6 +15446,109 @@ def test_live_readiness_gate_report_rejects_missing_real_passive_calibration_for
     assert "passive_calibration_missing_real_records" in report["promotion_gate"]["reasons"]
 
 
+def test_live_readiness_gate_consumes_passing_tca_calibration_report(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    (chunk / "tca_calibration_report.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "tca_calibration_report.v1",
+                "decision": "pass",
+                "evidence_source": {"type": "testnet_exchange", "run_id": "paper-shadow-1"},
+                "sample_count": 12,
+                "min_samples": 10,
+                "checks": {
+                    "sample_count_met": True,
+                    "evidence_fresh": True,
+                    "required_metrics_present": True,
+                    "all_metrics_within_tolerance": True,
+                },
+                "reasons": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_live_readiness_gate_report(tmp_path, require_tca_calibration=True)
+
+    assert report["tca_calibration"]["schema_version"] == "tca_calibration_live_readiness.v1"
+    assert report["tca_calibration"]["checks"]["tca_calibration_present_met"] is True
+    assert report["tca_calibration"]["checks"]["tca_calibration_report_passed"] is True
+    assert "tca_calibration_missing" not in report["promotion_gate"]["reasons"]
+    assert "tca_calibration_failed" not in report["promotion_gate"]["reasons"]
+
+
+def test_live_readiness_gate_rejects_missing_required_tca_calibration_report(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+
+    report = build_live_readiness_gate_report(tmp_path, require_tca_calibration=True)
+
+    assert report["tca_calibration"]["checks"]["tca_calibration_present_met"] is False
+    assert "tca_calibration_missing" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
+def test_live_readiness_gate_rejects_failed_tca_calibration_report(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    (chunk / "tca_calibration_report.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "tca_calibration_report.v1",
+                "decision": "fail_closed",
+                "evidence_source": {"type": "testnet_exchange"},
+                "sample_count": 3,
+                "min_samples": 10,
+                "checks": {
+                    "sample_count_met": False,
+                    "evidence_fresh": True,
+                    "required_metrics_present": True,
+                    "all_metrics_within_tolerance": False,
+                },
+                "reasons": ["insufficient_sample_count", "metric_breached: slippage_bps"],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_live_readiness_gate_report(tmp_path, require_tca_calibration=True)
+
+    assert report["tca_calibration"]["checks"]["tca_calibration_report_passed"] is False
+    assert report["tca_calibration"]["chunks"][0]["reasons"] == [
+        "insufficient_sample_count",
+        "metric_breached: slippage_bps",
+    ]
+    assert "tca_calibration_failed" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
+def test_live_readiness_gate_rejects_malformed_tca_calibration_report(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    (chunk / "tca_calibration_report.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "tca_calibration_report.v1",
+                "decision": "pass",
+                "evidence_source": {"type": "testnet_exchange"},
+                "sample_count": True,
+                "min_samples": 10,
+                "checks": {"sample_count_met": True},
+                "reasons": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_live_readiness_gate_report(tmp_path, require_tca_calibration=True)
+
+    assert report["tca_calibration"]["chunks"][0]["parse_error"] == "invalid_numeric_field: sample_count"
+    assert report["tca_calibration"]["checks"]["tca_calibration_artifact_schema_valid"] is False
+    assert "tca_calibration_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
 def test_live_readiness_blocks_maker_full_fill_without_queue_evidence(
     tmp_path: Path,
 ) -> None:

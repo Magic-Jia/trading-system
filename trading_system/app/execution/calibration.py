@@ -27,6 +27,48 @@ _FEE_ASSET_FIELDS = (
     "commissionCurrency",
 )
 _COMMISSION_FIELDS = ("commission",)
+_TCA_RATE_FIELDS = (
+    "expected_fill_probability",
+    "expected_maker_rate",
+    "expected_taker_rate",
+    "expected_partial_fill_rate",
+)
+_TCA_BPS_FIELDS = (
+    "expected_slippage_bps",
+    "expected_adverse_selection_bps",
+    "expected_fee_funding_bps",
+)
+_TCA_LATENCY_FIELDS = (
+    "expected_ack_latency_ms",
+    "expected_fill_latency_ms",
+    "expected_cancel_latency_ms",
+)
+_TCA_REQUIRED_OBSERVED_METRICS = (
+    "slippage_bps",
+    "fill_probability",
+    "maker_rate",
+    "taker_rate",
+    "ack_latency_ms",
+    "fill_latency_ms",
+    "cancel_latency_ms",
+    "partial_fill_rate",
+    "adverse_selection_bps",
+    "fees_funding_bps",
+    "reject_reasons",
+)
+_TCA_DEFAULT_TOLERANCES = {
+    "slippage_bps": 1.0,
+    "fill_probability": 0.05,
+    "maker_rate": 0.05,
+    "taker_rate": 0.05,
+    "ack_latency_ms": 250.0,
+    "fill_latency_ms": 500.0,
+    "cancel_latency_ms": 500.0,
+    "partial_fill_rate": 0.05,
+    "adverse_selection_bps": 1.0,
+    "fees_funding_bps": 1.0,
+    "reject_reasons": 0.05,
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,7 +90,9 @@ class PassiveOrderCalibrationRecord:
     status: str = ""
     maker_taker: str | None = None
     fees: float | None = None
+    funding: float | None = None
     slippage_bps: float | None = None
+    adverse_selection_bps: float | None = None
     ref_price: float | None = None
     cancel_reason: str | None = None
     expire_reason: str | None = None
@@ -248,7 +292,9 @@ def _record_from_mapping(row: Mapping[str, Any]) -> PassiveOrderCalibrationRecor
         status=status,
         maker_taker=_maker_taker_or_none(row.get("maker_taker")),
         fees=_fee_float_or_none("fees", row.get("fees")),
+        funding=_float_or_none("funding", row.get("funding")),
         slippage_bps=_float_or_none("slippage_bps", row.get("slippage_bps")),
+        adverse_selection_bps=_float_or_none("adverse_selection_bps", row.get("adverse_selection_bps")),
         ref_price=_float_or_none("ref_price", row.get("ref_price")),
         cancel_reason=_canonical_lower_token_or_none("cancel_reason", row.get("cancel_reason")),
         expire_reason=_canonical_lower_token_or_none("expire_reason", row.get("expire_reason")),
@@ -313,6 +359,15 @@ def _percentile(values: list[float], percentile: float) -> float | None:
     weight = rank - lower
     value = ordered[lower] * (1.0 - weight) + ordered[upper] * weight
     return round(value) if percentile >= 0.9 else value
+
+
+def _metric_summary(values: Iterable[float]) -> dict[str, Any]:
+    rows = list(values)
+    return {
+        "sample_count": len(rows),
+        "median": median(rows) if rows else None,
+        "p95": _percentile(rows, 0.95),
+    }
 
 
 def _realized_bps(record: PassiveOrderCalibrationRecord) -> float | None:
@@ -480,4 +535,336 @@ def write_calibration_summary(
     output_path = Path(output_dir) / "passive_order_calibration_summary.json"
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return output_path
+
+
+def _strict_tca_float(field: str, value: Any) -> float:
+    if isinstance(value, bool) or not isinstance(value, Real):
+        raise ValueError(f"tca assumption {field} must be numeric")
+    parsed = float(value)
+    if not math.isfinite(parsed):
+        raise ValueError(f"tca assumption {field} must be finite")
+    return parsed
+
+
+def _validate_tca_assumptions(assumptions: Mapping[str, Any]) -> dict[str, Any]:
+    if not isinstance(assumptions, Mapping):
+        raise ValueError("tca assumptions must be an object")
+    allowed_fields = set(_TCA_RATE_FIELDS) | set(_TCA_BPS_FIELDS) | set(_TCA_LATENCY_FIELDS) | {
+        "expected_reject_reason_rates"
+    }
+    unknown_fields = sorted(set(assumptions) - allowed_fields)
+    if unknown_fields:
+        raise ValueError("unknown tca assumption field: " + ", ".join(unknown_fields))
+    parsed: dict[str, Any] = {}
+    for field in _TCA_RATE_FIELDS:
+        value = _strict_tca_float(field, assumptions.get(field))
+        if value < 0.0 or value > 1.0:
+            raise ValueError(f"tca assumption {field} must be between 0 and 1")
+        parsed[field] = value
+    for field in (*_TCA_BPS_FIELDS, *_TCA_LATENCY_FIELDS):
+        value = _strict_tca_float(field, assumptions.get(field))
+        if value < 0.0:
+            raise ValueError(f"tca assumption {field} must be non-negative")
+        parsed[field] = value
+    reject_rates = assumptions.get("expected_reject_reason_rates")
+    if not isinstance(reject_rates, Mapping):
+        raise ValueError("tca assumption expected_reject_reason_rates must be an object")
+    parsed_reject_rates: dict[str, float] = {}
+    for key, value in reject_rates.items():
+        if type(key) is not str or _LOWER_TOKEN_RE.fullmatch(key) is None:
+            raise ValueError("tca assumption reject reason keys must be canonical")
+        rate = _strict_tca_float(f"expected_reject_reason_rates.{key}", value)
+        if rate < 0.0 or rate > 1.0:
+            raise ValueError(f"tca assumption expected_reject_reason_rates.{key} must be between 0 and 1")
+        parsed_reject_rates[key] = rate
+    parsed["expected_reject_reason_rates"] = parsed_reject_rates
+    return parsed
+
+
+def _validate_tca_thresholds(thresholds: Mapping[str, Any] | None) -> dict[str, float]:
+    if thresholds is None:
+        return dict(_TCA_DEFAULT_TOLERANCES)
+    if not isinstance(thresholds, Mapping):
+        raise ValueError("tca tolerance thresholds must be an object")
+    unknown_fields = sorted(set(thresholds) - set(_TCA_DEFAULT_TOLERANCES))
+    if unknown_fields:
+        raise ValueError("unknown tca tolerance field: " + ", ".join(unknown_fields))
+    parsed = dict(_TCA_DEFAULT_TOLERANCES)
+    for field, value in thresholds.items():
+        tolerance = _strict_tca_float(field, value)
+        if tolerance < 0.0:
+            raise ValueError(f"tca tolerance {field} must be non-negative")
+        parsed[field] = tolerance
+    return parsed
+
+
+def _tca_canonical_timestamp(value: datetime | str, *, field_name: str) -> str:
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            raise ValueError(f"{field_name} must be timezone-aware")
+        return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+    if type(value) is str and _is_canonical_utc_timestamp(value):
+        return value
+    raise ValueError(f"{field_name} must be a canonical UTC timestamp")
+
+
+def _coerce_calibration_record(value: PassiveOrderCalibrationRecord | Mapping[str, Any]) -> PassiveOrderCalibrationRecord:
+    if isinstance(value, PassiveOrderCalibrationRecord):
+        return value
+    if isinstance(value, Mapping):
+        return _record_from_mapping(value)
+    raise ValueError("tca calibration records must be calibration record objects or mappings")
+
+
+def _tca_observed(records: tuple[PassiveOrderCalibrationRecord, ...]) -> dict[str, Any]:
+    sample_count = len(records)
+    filled = [record for record in records if _is_filled(record)]
+    partial = [record for record in records if _is_partial(record)]
+    maker = [record for record in records if record.maker_taker == "maker"]
+    taker = [record for record in records if record.maker_taker == "taker"]
+    ack_latencies = [(record.exchange_ack_at - record.submitted_at).total_seconds() * 1000.0 for record in records]
+    fill_latencies = [
+        (record.first_fill_at - record.exchange_ack_at).total_seconds() * 1000.0
+        for record in filled
+        if record.first_fill_at is not None
+    ]
+    cancel_latencies = [
+        (record.cancel_ack_at - record.submitted_at).total_seconds() * 1000.0
+        for record in records
+        if record.cancel_ack_at is not None
+    ]
+    slippage = [value for record in filled if (value := _realized_bps(record)) is not None]
+    adverse = [record.adverse_selection_bps for record in filled if record.adverse_selection_bps is not None]
+    fee_funding = [
+        ((record.fees or 0.0) + (record.funding or 0.0)) / record.filled_notional * 10_000.0
+        for record in filled
+        if record.filled_notional is not None and record.filled_notional > 0.0
+    ]
+    reject_reasons: dict[str, dict[str, Any]] = {}
+    for record in records:
+        reason = record.cancel_reason or record.expire_reason
+        if not reason:
+            continue
+        bucket = reject_reasons.setdefault(reason, {"count": 0, "rate": 0.0})
+        bucket["count"] += 1
+    for bucket in reject_reasons.values():
+        bucket["rate"] = bucket["count"] / sample_count if sample_count else 0.0
+    return {
+        "slippage_bps": _metric_summary(slippage),
+        "fill_probability": len(filled) / sample_count if sample_count else None,
+        "maker_rate": len(maker) / sample_count if sample_count else None,
+        "taker_rate": len(taker) / sample_count if sample_count else None,
+        "ack_latency_ms": _metric_summary(ack_latencies),
+        "fill_latency_ms": _metric_summary(fill_latencies),
+        "cancel_latency_ms": _metric_summary(cancel_latencies),
+        "partial_fill_rate": len(partial) / sample_count if sample_count else None,
+        "adverse_selection_bps": _metric_summary(adverse),
+        "fees_funding_bps": _metric_summary(fee_funding),
+        "reject_reasons": reject_reasons,
+    }
+
+
+def _observed_scalar(observed: Mapping[str, Any], metric: str) -> float | None:
+    value = observed.get(metric)
+    if isinstance(value, Mapping):
+        value = value.get("median")
+    if isinstance(value, bool) or not isinstance(value, Real):
+        return None
+    parsed = float(value)
+    return parsed if math.isfinite(parsed) else None
+
+
+def _has_required_tca_metric(observed: Mapping[str, Any], metric: str) -> bool:
+    if metric == "reject_reasons":
+        return isinstance(observed.get(metric), Mapping)
+    return _observed_scalar(observed, metric) is not None
+
+
+def _tca_comparisons(
+    observed: Mapping[str, Any],
+    assumptions: Mapping[str, Any],
+    thresholds: Mapping[str, float],
+) -> dict[str, Any]:
+    metric_to_assumption = {
+        "slippage_bps": "expected_slippage_bps",
+        "fill_probability": "expected_fill_probability",
+        "maker_rate": "expected_maker_rate",
+        "taker_rate": "expected_taker_rate",
+        "ack_latency_ms": "expected_ack_latency_ms",
+        "fill_latency_ms": "expected_fill_latency_ms",
+        "cancel_latency_ms": "expected_cancel_latency_ms",
+        "partial_fill_rate": "expected_partial_fill_rate",
+        "adverse_selection_bps": "expected_adverse_selection_bps",
+        "fees_funding_bps": "expected_fee_funding_bps",
+    }
+    comparisons: dict[str, Any] = {}
+    for metric, assumption_field in metric_to_assumption.items():
+        actual = _observed_scalar(observed, metric)
+        expected = float(assumptions[assumption_field])
+        tolerance = float(thresholds[metric])
+        delta = None if actual is None else actual - expected
+        comparisons[metric] = {
+            "expected": expected,
+            "observed": actual,
+            "delta": delta,
+            "tolerance": tolerance,
+            "within_tolerance": delta is not None and abs(delta) <= tolerance,
+        }
+    expected_reject_rates = assumptions["expected_reject_reason_rates"]
+    reject_reasons = _as_reject_rates(observed.get("reject_reasons"))
+    reject_comparisons: dict[str, Any] = {}
+    for reason in sorted(set(expected_reject_rates) | set(reject_reasons)):
+        expected = float(expected_reject_rates.get(reason, 0.0))
+        actual = float(reject_reasons.get(reason, 0.0))
+        tolerance = float(thresholds["reject_reasons"])
+        delta = actual - expected
+        reject_comparisons[reason] = {
+            "expected": expected,
+            "observed": actual,
+            "delta": delta,
+            "tolerance": tolerance,
+            "within_tolerance": abs(delta) <= tolerance,
+        }
+    comparisons["reject_reasons"] = reject_comparisons
+    return comparisons
+
+
+def _as_reject_rates(value: Any) -> dict[str, float]:
+    if not isinstance(value, Mapping):
+        return {}
+    rates: dict[str, float] = {}
+    for key, bucket in value.items():
+        if type(key) is not str or not isinstance(bucket, Mapping):
+            continue
+        rate = bucket.get("rate")
+        if isinstance(rate, bool) or not isinstance(rate, Real):
+            continue
+        parsed = float(rate)
+        if math.isfinite(parsed):
+            rates[key] = parsed
+    return rates
+
+
+def _all_comparisons_within_tolerance(comparisons: Mapping[str, Any]) -> bool:
+    for metric, comparison in comparisons.items():
+        if metric == "reject_reasons":
+            if not all(bucket.get("within_tolerance") is True for bucket in comparison.values()):
+                return False
+            continue
+        if not isinstance(comparison, Mapping) or comparison.get("within_tolerance") is not True:
+            return False
+    return True
+
+
+def build_tca_calibration_report(
+    records: Iterable[PassiveOrderCalibrationRecord],
+    *,
+    assumptions: Mapping[str, Any],
+    evidence_source: Mapping[str, Any],
+    evaluated_at: datetime | str,
+    min_samples: int,
+    max_evidence_age_seconds: int | None = None,
+    tolerance_thresholds: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    rows = tuple(_coerce_calibration_record(record) for record in records)
+    parsed_assumptions = _validate_tca_assumptions(assumptions)
+    parsed_thresholds = _validate_tca_thresholds(tolerance_thresholds)
+    source = _validate_calibration_summary_evidence_source(evidence_source)
+    evaluated_at_text = _tca_canonical_timestamp(evaluated_at, field_name="evaluated_at")
+    if isinstance(min_samples, bool) or not isinstance(min_samples, int):
+        raise ValueError("min_samples must be an integer")
+    if min_samples < 0:
+        raise ValueError("min_samples must be non-negative")
+    if max_evidence_age_seconds is not None:
+        if isinstance(max_evidence_age_seconds, bool) or not isinstance(max_evidence_age_seconds, int):
+            raise ValueError("max_evidence_age_seconds must be an integer")
+        if max_evidence_age_seconds < 0:
+            raise ValueError("max_evidence_age_seconds must be non-negative")
+    observed = _tca_observed(rows)
+    comparisons = _tca_comparisons(observed, parsed_assumptions, parsed_thresholds)
+    required_metrics_present = all(_has_required_tca_metric(observed, metric) for metric in _TCA_REQUIRED_OBSERVED_METRICS)
+    sample_count_met = len(rows) >= min_samples
+    evidence_fresh = True
+    evidence_age_seconds = None
+    exported_at = source.get("exported_at")
+    if max_evidence_age_seconds is not None:
+        if type(exported_at) is not str or not _is_canonical_utc_timestamp(exported_at):
+            evidence_fresh = False
+        else:
+            evidence_time = datetime.fromisoformat(exported_at[:-1] + "+00:00")
+            eval_time = datetime.fromisoformat(evaluated_at_text[:-1] + "+00:00")
+            evidence_age_seconds = (eval_time - evidence_time).total_seconds()
+            evidence_fresh = 0.0 <= evidence_age_seconds <= max_evidence_age_seconds
+    all_metrics_within_tolerance = _all_comparisons_within_tolerance(comparisons)
+    reasons: list[str] = []
+    if not sample_count_met:
+        reasons.append("insufficient_sample_count")
+    if not evidence_fresh:
+        reasons.append("stale_evidence")
+    for metric in _TCA_REQUIRED_OBSERVED_METRICS:
+        if not _has_required_tca_metric(observed, metric):
+            reasons.append(f"missing_required_metric: {metric}")
+    if required_metrics_present and not all_metrics_within_tolerance:
+        for metric, comparison in comparisons.items():
+            if metric == "reject_reasons":
+                for reason, bucket in comparison.items():
+                    if bucket.get("within_tolerance") is not True:
+                        reasons.append(f"metric_breached: reject_reasons.{reason}")
+                continue
+            if comparison.get("within_tolerance") is not True:
+                reasons.append(f"metric_breached: {metric}")
+    checks = {
+        "sample_count_met": sample_count_met,
+        "evidence_fresh": evidence_fresh,
+        "required_metrics_present": required_metrics_present,
+        "all_metrics_within_tolerance": all_metrics_within_tolerance,
+    }
+    decision = "pass" if all(checks.values()) else "fail_closed"
+    return {
+        "schema_version": "tca_calibration_report.v1",
+        "decision": decision,
+        "evidence_source": source,
+        "evaluated_at": evaluated_at_text,
+        "sample_count": len(rows),
+        "min_samples": min_samples,
+        "max_evidence_age_seconds": max_evidence_age_seconds,
+        "evidence_age_seconds": evidence_age_seconds,
+        "assumptions": parsed_assumptions,
+        "tolerance_thresholds": parsed_thresholds,
+        "observed": observed,
+        "comparisons": comparisons,
+        "checks": checks,
+        "reasons": reasons,
+        "caveats": [
+            "Simulated-live calibration only; this report performs no real-money or real-exchange side effects.",
+            "Promotion consumers must fail closed unless this report is fresh, sufficiently sampled, and passing.",
+        ],
+    }
+
+
+def write_tca_calibration_report(
+    input_path: str | Path,
+    output_dir: str | Path,
+    *,
+    assumptions: Mapping[str, Any],
+    evidence_source: Mapping[str, Any],
+    evaluated_at: datetime | str,
+    min_samples: int,
+    max_evidence_age_seconds: int | None = None,
+    tolerance_thresholds: Mapping[str, Any] | None = None,
+) -> Path:
+    records = load_calibration_records(input_path)
+    report = build_tca_calibration_report(
+        records,
+        assumptions=assumptions,
+        evidence_source=evidence_source,
+        evaluated_at=evaluated_at,
+        min_samples=min_samples,
+        max_evidence_age_seconds=max_evidence_age_seconds,
+        tolerance_thresholds=tolerance_thresholds,
+    )
+    output_path = Path(output_dir) / "tca_calibration_report.json"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return output_path
