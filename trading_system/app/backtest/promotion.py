@@ -20,6 +20,7 @@ _REQUIRED_MANIFEST_FIELDS = (
     "snapshot_count",
     "artifacts",
     "universe_asof_contract",
+    "margin_liquidation_path_contract",
 )
 
 _REQUIRED_ARTIFACTS: dict[str, tuple[str, ...]] = {
@@ -37,6 +38,16 @@ _SUPPORTED_EXECUTION_PREVIEW_TIME_IN_FORCE = frozenset({"GTC", "IOC", "FOK", "GT
 _REQUIRED_UNIVERSE_ASOF_LIFECYCLE_FIELDS = frozenset(
     {"lifecycle_status", "delisted_at", "previous_symbol", "renamed_at", "contract_migration"}
 )
+_EXPECTED_MARGIN_LIQUIDATION_CONTRACT_FIELDS = {
+    "margin_mode_field": "trades[].margin_mode",
+    "maintenance_tier_field": "trades[].maintenance_tier",
+    "leverage_field": "trades[].leverage",
+    "notional_field": "trades[].notional",
+    "unrealized_pnl_field": "trades[].unrealized_pnl",
+    "liquidation_price_field": "trades[].liquidation_price",
+    "funding_accrual_field": "trades[].funding_accrual",
+    "as_of_field": "trades[].margin_evidence_as_of",
+}
 _REQUIRED_REGIME_STRATIFIED_OOS_BUCKETS = ("volatility", "liquidity", "funding", "crash", "squeeze")
 _REGIME_STRATIFIED_OOS_NUMERIC_METRICS = ("total_return", "max_drawdown", "sharpe")
 
@@ -384,6 +395,38 @@ def _validate_universe_asof_contract(payload: Mapping[str, Any], *, context: str
     for field_name in ("supports_delisted", "supports_renames", "supports_contract_migrations"):
         if contract.get(field_name) is not True:
             raise ValueError(f"{context}.universe_asof_contract.{field_name} must be true")
+
+
+def _validate_margin_liquidation_path_contract(payload: Mapping[str, Any], *, context: str) -> None:
+    contract = payload.get("margin_liquidation_path_contract")
+    if not isinstance(contract, Mapping):
+        raise ValueError(f"{context}.margin_liquidation_path_contract must be an object")
+    if contract.get("schema_version") != "margin_liquidation_path_contract.v1":
+        raise ValueError(
+            f"{context}.margin_liquidation_path_contract.schema_version must be "
+            "margin_liquidation_path_contract.v1"
+        )
+    if contract.get("scope") != "futures_trade_ledger":
+        raise ValueError(f"{context}.margin_liquidation_path_contract.scope must be futures_trade_ledger")
+    for field_name, expected in _EXPECTED_MARGIN_LIQUIDATION_CONTRACT_FIELDS.items():
+        if contract.get(field_name) != expected:
+            raise ValueError(
+                f"{context}.margin_liquidation_path_contract.{field_name} must be {expected}"
+            )
+    accepted_margin_modes = contract.get("accepted_margin_modes")
+    if not isinstance(accepted_margin_modes, list):
+        raise ValueError(f"{context}.margin_liquidation_path_contract.accepted_margin_modes must be a list")
+    if set(accepted_margin_modes) != {"isolated", "cross"}:
+        raise ValueError(
+            f"{context}.margin_liquidation_path_contract.accepted_margin_modes must be isolated and cross"
+        )
+    for index, mode in enumerate(accepted_margin_modes):
+        if not isinstance(mode, str) or not mode.strip() or mode != mode.strip():
+            raise ValueError(
+                f"{context}.margin_liquidation_path_contract.accepted_margin_modes[{index}] must be canonical"
+            )
+    if contract.get("fail_closed") is not True:
+        raise ValueError(f"{context}.margin_liquidation_path_contract.fail_closed must be true")
 
 
 def _validate_optional_readiness_plans(bundle: BacktestBundle) -> None:
@@ -752,6 +795,7 @@ def _validate_manifest(bundle_dir: Path, manifest: Mapping[str, Any]) -> None:
         if not (bundle_dir / filename).is_file():
             raise FileNotFoundError(f"missing artifact file: {bundle_dir / filename}")
     _validate_universe_asof_contract(manifest, context=f"{bundle_dir}/manifest.json")
+    _validate_margin_liquidation_path_contract(manifest, context=f"{bundle_dir}/manifest.json")
 
 
 

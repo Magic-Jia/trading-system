@@ -38,6 +38,20 @@ def _manifest(*, experiment_kind: str, baseline_name: str, variant_name: str, ar
             "supports_renames": True,
             "supports_contract_migrations": True,
         },
+        "margin_liquidation_path_contract": {
+            "schema_version": "margin_liquidation_path_contract.v1",
+            "scope": "futures_trade_ledger",
+            "margin_mode_field": "trades[].margin_mode",
+            "maintenance_tier_field": "trades[].maintenance_tier",
+            "leverage_field": "trades[].leverage",
+            "notional_field": "trades[].notional",
+            "unrealized_pnl_field": "trades[].unrealized_pnl",
+            "liquidation_price_field": "trades[].liquidation_price",
+            "funding_accrual_field": "trades[].funding_accrual",
+            "as_of_field": "trades[].margin_evidence_as_of",
+            "accepted_margin_modes": ["isolated", "cross"],
+            "fail_closed": True,
+        },
     }
 
 
@@ -546,6 +560,63 @@ def test_load_backtest_bundle_rejects_current_universe_as_historical_contract(tm
     _write_json(manifest_path, manifest)
 
     with pytest.raises(ValueError, match="manifest.json.universe_asof_contract.membership_source must not be current_universe_snapshot"):
+        promotion.load_backtest_bundle(bundle)
+
+
+def test_load_backtest_bundle_rejects_missing_manifest_margin_liquidation_path_contract(tmp_path: Path) -> None:
+    bundle = _write_full_market_bundle(
+        tmp_path / "bundle",
+        baseline_name="current_system",
+        variant_name="candidate_policy",
+        total_return=0.2,
+        max_drawdown=-0.08,
+        sharpe=1.1,
+        cost_drag=0.01,
+    )
+    manifest_path = bundle / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    del manifest["margin_liquidation_path_contract"]
+    _write_json(manifest_path, manifest)
+
+    with pytest.raises(ValueError, match="missing required keys: margin_liquidation_path_contract"):
+        promotion.load_backtest_bundle(bundle)
+
+
+@pytest.mark.parametrize(
+    ("path", "value", "match"),
+    [
+        (("schema_version",), "margin_liquidation_path_contract.v0", "schema_version must be margin_liquidation_path_contract.v1"),
+        (("scope",), "current_positions", "scope must be futures_trade_ledger"),
+        (("margin_mode_field",), " trades[].margin_mode ", "margin_mode_field must be trades\\[\\]\\.margin_mode"),
+        (("accepted_margin_modes",), ["isolated"], "accepted_margin_modes must be isolated and cross"),
+        (("accepted_margin_modes",), "isolated,cross", "accepted_margin_modes must be a list"),
+        (("fail_closed",), "true", "fail_closed must be true"),
+    ],
+)
+def test_load_backtest_bundle_rejects_noncanonical_margin_liquidation_path_contract(
+    tmp_path: Path,
+    path: tuple[object, ...],
+    value: object,
+    match: str,
+) -> None:
+    bundle = _write_full_market_bundle(
+        tmp_path / "bundle",
+        baseline_name="current_system",
+        variant_name="candidate_policy",
+        total_return=0.2,
+        max_drawdown=-0.08,
+        sharpe=1.1,
+        cost_drag=0.01,
+    )
+    manifest_path = bundle / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    cursor: object = manifest["margin_liquidation_path_contract"]
+    for part in path[:-1]:
+        cursor = cursor[part]  # type: ignore[index]
+    cursor[path[-1]] = value  # type: ignore[index]
+    _write_json(manifest_path, manifest)
+
+    with pytest.raises(ValueError, match=match):
         promotion.load_backtest_bundle(bundle)
 
 

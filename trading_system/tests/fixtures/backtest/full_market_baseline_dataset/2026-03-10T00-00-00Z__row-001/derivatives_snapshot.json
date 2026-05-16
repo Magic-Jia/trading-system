@@ -2,7 +2,15 @@
   "rows": [
     {
       "symbol": "BTCUSDTPERP",
-      "funding_rate": 0.0004
+      "funding_rate": 0.0004,
+      "margin_mode": "isolated",
+      "maintenance_tier": "tier_1",
+      "leverage": 5.0,
+      "notional": 1000.0,
+      "unrealized_pnl": 0.0,
+      "liquidation_price": 72.0,
+      "funding_accrual": 0.0,
+      "margin_evidence_as_of": "2026-03-10T00:00:00Z"
     }
   ]
 }

@@ -337,6 +337,14 @@ class TradeLedgerRow:
     open_interest_usdt: float | None = None
     open_interest_timestamp: datetime | None = None
     open_interest_age_seconds: int | None = None
+    margin_mode: Literal["isolated", "cross"] | None = None
+    maintenance_tier: str | None = None
+    leverage: float | None = None
+    notional: float | None = None
+    unrealized_pnl: float | None = None
+    liquidation_price: float | None = None
+    funding_accrual: float | None = None
+    margin_evidence_as_of: datetime | None = None
     exit_fill_model: ExecutionFillModel = "reference_close"
     exit_price_source: ExecutionPriceSource = "ohlcv_close"
     exit_fill_quality: FillQuality = "approximate"

@@ -11,6 +11,7 @@ from .types import BaselineReplayResult, PromotionMetadata, TradeLedgerRow
 
 
 _MAKER_STATUS_VALUES = frozenset({"filled", "partial", "no_fill", "expired", "cancelled_replaced"})
+_MARGIN_MODE_VALUES = frozenset({"isolated", "cross"})
 _EXECUTION_PRICE_SOURCES_BY_FILL_MODEL = {
     "reference_close": frozenset(("ohlcv_close",)),
     "next_bar_ohlcv": frozenset(("ohlcv_next_open",)),
@@ -970,6 +971,7 @@ def _trade_ledger_payload(trade_ledger: tuple[TradeLedgerRow, ...]) -> list[dict
             "open_interest_usdt": row.open_interest_usdt,
             "open_interest_timestamp": row.open_interest_timestamp.isoformat() if row.open_interest_timestamp is not None else None,
             "open_interest_age_seconds": row.open_interest_age_seconds,
+            **_margin_liquidation_path_payload(row, index=index),
             "requested_quantity": row.requested_quantity,
             "requested_notional": row.requested_notional,
             "filled_quantity": row.filled_quantity,
@@ -1416,6 +1418,75 @@ def _validated_first_fill_timestamp(
     ):
         raise ValueError(f"{field_name} must be at or before last_fill_timestamp")
     return first_fill_timestamp
+
+
+def _required_margin_mode(value: object, *, field_name: str) -> str:
+    if type(value) is not str or value not in _MARGIN_MODE_VALUES:
+        raise ValueError(f"{field_name} must be isolated or cross")
+    return value
+
+
+def _required_positive_finite_float(value: object, *, field_name: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise ValueError(f"{field_name} must be a positive finite number")
+    parsed = float(value)
+    if not math.isfinite(parsed) or parsed <= 0.0:
+        raise ValueError(f"{field_name} must be a positive finite number")
+    return parsed
+
+
+def _required_margin_as_of(value: object, *, field_name: str) -> datetime:
+    if value is None:
+        raise ValueError(f"{field_name} must be present")
+    if not isinstance(value, datetime):
+        raise ValueError(f"{field_name} must be a datetime")
+    if value.tzinfo is None or value.utcoffset() is None:
+        raise ValueError(f"{field_name} must be timezone-aware")
+    return value
+
+
+def _margin_liquidation_path_payload(row: TradeLedgerRow, *, index: int) -> dict[str, Any]:
+    if row.market_type != "futures":
+        return {}
+    margin_mode = _required_margin_mode(row.margin_mode, field_name=f"trades[{index}].margin_mode")
+    maintenance_tier = _canonical_report_string(
+        row.maintenance_tier,
+        field_name=f"trades[{index}].maintenance_tier",
+    )
+    leverage = _required_positive_finite_float(row.leverage, field_name=f"trades[{index}].leverage")
+    notional = _required_positive_finite_float(row.notional, field_name=f"trades[{index}].notional")
+    unrealized_pnl = _strict_present_finite_float(
+        row.unrealized_pnl,
+        field_name=f"trades[{index}].unrealized_pnl",
+    )
+    liquidation_price = _required_positive_finite_float(
+        row.liquidation_price,
+        field_name=f"trades[{index}].liquidation_price",
+    )
+    funding_accrual = _strict_present_finite_float(
+        row.funding_accrual,
+        field_name=f"trades[{index}].funding_accrual",
+    )
+    margin_evidence_as_of = _required_margin_as_of(
+        row.margin_evidence_as_of,
+        field_name=f"trades[{index}].margin_evidence_as_of",
+    )
+    entry_price = _trade_finite_float(row.entry_price, field_name=f"trades[{index}].entry_price")
+    side = _canonical_report_string(row.side, field_name=f"trades[{index}].side")
+    if side == "long" and liquidation_price >= entry_price:
+        raise ValueError(f"trades[{index}].liquidation_price must be below entry_price for long futures")
+    if side == "short" and liquidation_price <= entry_price:
+        raise ValueError(f"trades[{index}].liquidation_price must be above entry_price for short futures")
+    return {
+        "margin_mode": margin_mode,
+        "maintenance_tier": maintenance_tier,
+        "leverage": leverage,
+        "notional": notional,
+        "unrealized_pnl": unrealized_pnl,
+        "liquidation_price": liquidation_price,
+        "funding_accrual": funding_accrual,
+        "margin_evidence_as_of": margin_evidence_as_of.isoformat(),
+    }
 
 
 def _canonical_optional_empty_report_string(value: object, *, field_name: str) -> str:

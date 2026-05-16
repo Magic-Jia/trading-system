@@ -278,6 +278,14 @@ class _OpenTrade:
     open_interest_usdt: float | None = None
     open_interest_timestamp: Any = None
     open_interest_age_seconds: int | None = None
+    margin_mode: str | None = None
+    maintenance_tier: str | None = None
+    leverage: float | None = None
+    notional: float | None = None
+    unrealized_pnl: float | None = None
+    liquidation_price: float | None = None
+    funding_accrual: float | None = None
+    margin_evidence_as_of: Any = None
 
 
 def _experiment_name(config: BacktestConfig) -> str:
@@ -714,6 +722,14 @@ def _futures_context(row: DatasetSnapshotRow, symbol: str) -> dict[str, Any]:
                 "open_interest_usdt",
                 "open_interest_timestamp",
                 "open_interest_age_seconds",
+                "margin_mode",
+                "maintenance_tier",
+                "leverage",
+                "notional",
+                "unrealized_pnl",
+                "liquidation_price",
+                "funding_accrual",
+                "margin_evidence_as_of",
             ):
                 if key not in context and key in derivative:
                     context[key] = derivative[key]
@@ -1339,6 +1355,14 @@ def _trade_row(
             open_interest_usdt=open_trade.open_interest_usdt,
             open_interest_timestamp=open_trade.open_interest_timestamp,
             open_interest_age_seconds=open_trade.open_interest_age_seconds,
+            margin_mode=open_trade.margin_mode,
+            maintenance_tier=open_trade.maintenance_tier,
+            leverage=open_trade.leverage,
+            notional=open_trade.notional,
+            unrealized_pnl=open_trade.unrealized_pnl,
+            liquidation_price=open_trade.liquidation_price,
+            funding_accrual=open_trade.funding_accrual,
+            margin_evidence_as_of=open_trade.margin_evidence_as_of,
             exit_fill_model=exit_fill.fill_model,
             exit_price_source=exit_fill.execution_price_source,
             exit_fill_quality=exit_fill.fill_quality,
@@ -1510,6 +1534,7 @@ def _replay_full_market_baseline_rows(
             futures_context = _futures_context(row, candidate.symbol)
             funding_rate = _optional_futures_float(futures_context.get("funding_rate"), "funding_rate")
             resolved_funding_rate = funding_rate if funding_rate is not None else _funding_rate(row, candidate.symbol)
+            funding_accrual = _optional_futures_float(futures_context.get("funding_accrual"), "funding_accrual")
             fee_bps = fee_bps_for_market(config.costs, candidate.market_type)
             fee_provenance = _cost_provenance_from_context(
                 kind="fee",
@@ -1611,6 +1636,20 @@ def _replay_full_market_baseline_rows(
                     open_interest_age_seconds=_optional_futures_int(
                         futures_context.get("open_interest_age_seconds"),
                         "open_interest_age_seconds",
+                    ),
+                    margin_mode=futures_context.get("margin_mode"),
+                    maintenance_tier=futures_context.get("maintenance_tier"),
+                    leverage=_optional_futures_float(futures_context.get("leverage"), "leverage", positive=True),
+                    notional=_optional_futures_float(futures_context.get("notional"), "notional", positive=True),
+                    unrealized_pnl=_optional_futures_float(futures_context.get("unrealized_pnl"), "unrealized_pnl"),
+                    liquidation_price=_optional_futures_float(
+                        futures_context.get("liquidation_price"),
+                        "liquidation_price",
+                        positive=True,
+                    ),
+                    funding_accrual=funding_accrual if funding_accrual is not None else 0.0,
+                    margin_evidence_as_of=_datetime_or_none(
+                        futures_context.get("margin_evidence_as_of", row.timestamp)
                     ),
                 )
             )

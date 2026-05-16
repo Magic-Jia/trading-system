@@ -1700,6 +1700,14 @@ def sample_baseline_result() -> BaselineReplayResult:
                 fee_paid=0.5,
                 slippage_paid=2.0,
                 funding_paid=4.5,
+                margin_mode="isolated",
+                maintenance_tier="tier_1",
+                leverage=5.0,
+                notional=500.0,
+                unrealized_pnl=12.5,
+                liquidation_price=72.0,
+                funding_accrual=4.5,
+                margin_evidence_as_of=_ts("2026-03-10T00:00:00Z"),
             ),
             TradeLedgerRow(
                 symbol="ETHUSDT",
@@ -1742,6 +1750,14 @@ def sample_baseline_result() -> BaselineReplayResult:
                 fee_paid=0.5,
                 slippage_paid=3.0,
                 funding_paid=8.5,
+                margin_mode="cross",
+                maintenance_tier="tier_2",
+                leverage=3.0,
+                notional=1_000.0,
+                unrealized_pnl=25.0,
+                liquidation_price=62.0,
+                funding_accrual=8.5,
+                margin_evidence_as_of=_ts("2027-01-10T00:00:00Z"),
             ),
         ),
         rejection_ledger=(
@@ -2385,6 +2401,14 @@ def test_full_market_report_breakdowns_aggregate_from_trade_ledger_with_determin
         fee_paid=0.25,
         slippage_paid=0.75,
         funding_paid=2.0,
+        margin_mode="isolated",
+        maintenance_tier="tier_1",
+        leverage=2.0,
+        notional=1_000.0,
+        unrealized_pnl=-2.0,
+        liquidation_price=750.0,
+        funding_accrual=2.0,
+        margin_evidence_as_of=_ts("2027-01-10T00:00:00Z"),
     )
     focused_result = BaselineReplayResult(
         portfolio_summary=result.portfolio_summary,
@@ -2572,6 +2596,93 @@ def test_full_market_report_and_postmortem_expose_futures_context_fields() -> No
     assert "mark_price" in markdown
     assert "funding_rate" in markdown
     assert "open_interest" in markdown
+
+
+def test_full_market_report_exposes_margin_liquidation_path_evidence_for_futures() -> None:
+    result = sample_baseline_result()
+    futures_trade = replace(
+        result.trade_ledger[1],
+        margin_mode="isolated",
+        maintenance_tier="tier_1",
+        leverage=5.0,
+        notional=500.0,
+        unrealized_pnl=12.5,
+        liquidation_price=72.0,
+        funding_accrual=4.5,
+        margin_evidence_as_of=_ts("2026-03-10T00:00:00Z"),
+    )
+    report = reporting.render_full_market_baseline_report(replace(result, trade_ledger=(futures_trade,)))
+
+    trade = report["trades"][0]
+    assert trade["margin_mode"] == "isolated"
+    assert trade["maintenance_tier"] == "tier_1"
+    assert trade["leverage"] == pytest.approx(5.0)
+    assert trade["notional"] == pytest.approx(500.0)
+    assert trade["unrealized_pnl"] == pytest.approx(12.5)
+    assert trade["liquidation_price"] == pytest.approx(72.0)
+    assert trade["funding_accrual"] == pytest.approx(4.5)
+    assert trade["margin_evidence_as_of"] == "2026-03-10T00:00:00+00:00"
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "match"),
+    [
+        ("margin_mode", None, r"trades\[0\]\.margin_mode must be isolated or cross"),
+        ("margin_mode", " isolated ", r"trades\[0\]\.margin_mode must be isolated or cross"),
+        ("margin_mode", "portfolio", r"trades\[0\]\.margin_mode must be isolated or cross"),
+        ("maintenance_tier", "", r"trades\[0\]\.maintenance_tier must be a canonical string"),
+        ("maintenance_tier", " tier_1 ", r"trades\[0\]\.maintenance_tier must be a canonical string"),
+        ("leverage", "5.0", r"trades\[0\]\.leverage must be a positive finite number"),
+        ("leverage", True, r"trades\[0\]\.leverage must be a positive finite number"),
+        ("notional", float("inf"), r"trades\[0\]\.notional must be a positive finite number"),
+        ("unrealized_pnl", "12.5", r"trades\[0\]\.unrealized_pnl must be a finite number"),
+        ("liquidation_price", float("nan"), r"trades\[0\]\.liquidation_price must be a positive finite number"),
+        ("funding_accrual", True, r"trades\[0\]\.funding_accrual must be a finite number"),
+        ("margin_evidence_as_of", None, r"trades\[0\]\.margin_evidence_as_of must be present"),
+        ("margin_evidence_as_of", "2026-03-10T00:00:00Z", r"trades\[0\]\.margin_evidence_as_of must be a datetime"),
+    ],
+)
+def test_full_market_report_rejects_missing_or_malformed_futures_margin_liquidation_evidence(
+    field: str,
+    value: object,
+    match: str,
+) -> None:
+    result = sample_baseline_result()
+    futures_trade = replace(
+        result.trade_ledger[1],
+        margin_mode="isolated",
+        maintenance_tier="tier_1",
+        leverage=5.0,
+        notional=500.0,
+        unrealized_pnl=12.5,
+        liquidation_price=72.0,
+        funding_accrual=4.5,
+        margin_evidence_as_of=_ts("2026-03-10T00:00:00Z"),
+    )
+    bad_trade = replace(futures_trade, **{field: value})  # type: ignore[arg-type]
+
+    with pytest.raises(ValueError, match=match):
+        reporting.render_full_market_baseline_report(replace(result, trade_ledger=(bad_trade,)))
+
+
+def test_full_market_report_rejects_inconsistent_futures_margin_liquidation_path() -> None:
+    result = sample_baseline_result()
+    bad_trade = replace(
+        result.trade_ledger[3],
+        entry_price=50.0,
+        side="short",
+        margin_mode="cross",
+        maintenance_tier="tier_1",
+        leverage=3.0,
+        notional=1_000.0,
+        unrealized_pnl=-25.0,
+        liquidation_price=40.0,
+        funding_accrual=8.5,
+        margin_evidence_as_of=_ts("2027-01-10T00:00:00Z"),
+    )
+
+    with pytest.raises(ValueError, match=r"trades\[0\]\.liquidation_price must be above entry_price for short futures"):
+        reporting.render_full_market_baseline_report(replace(result, trade_ledger=(bad_trade,)))
 
 
 def test_render_backtest_evaluation_report_labels_is_oos_regime_and_cost_stress() -> None:
