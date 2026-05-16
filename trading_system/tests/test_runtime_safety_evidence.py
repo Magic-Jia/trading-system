@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 
 from trading_system.app.runtime.runtime_safety_evidence import (
@@ -10,9 +11,29 @@ from trading_system.app.runtime.runtime_safety_evidence import (
 )
 
 
+def _passing_kill_switch_decision() -> dict:
+    observed_at = "2026-05-16T10:00:00Z"
+    evaluated_at = "2026-05-16T10:00:30Z"
+    return {
+        "evaluated_at": evaluated_at,
+        "decision": "allow",
+        "max_evidence_age_seconds": 120,
+        "evidence": {
+            "market_data": {"ok": True, "observed_at": observed_at, "age_seconds": 30},
+            "account_snapshot": {"ok": True, "observed_at": observed_at, "age_seconds": 30},
+            "clock_skew": {"ok": True, "observed_at": evaluated_at, "skew_seconds": 1.25},
+            "max_daily_loss": {"ok": True, "observed_at": evaluated_at, "value": 10.0, "limit": 100.0},
+            "max_order_count": {"ok": True, "observed_at": evaluated_at, "value": 3, "limit": 20},
+            "max_notional": {"ok": True, "observed_at": evaluated_at, "value": 250.0, "limit": 1000.0},
+            "exchange_account_state": {"ok": True, "observed_at": evaluated_at},
+        },
+    }
+
+
 def _passing_manifest() -> dict:
     return {
         "evidence_source": {"type": "synthetic_fixture"},
+        "kill_switch_decision": _passing_kill_switch_decision(),
         "events": [
             {"type": "kill_switch_dry_run", "passed": True},
             {"type": "order_position_reconciliation", "passed": True},
@@ -38,8 +59,16 @@ def test_builds_runtime_safety_gate_when_all_required_events_pass(tmp_path: Path
         "live_trade_ledger_met": True,
         "runtime_explainability_met": True,
         "drift_guard_met": True,
+        "market_data_fresh_met": True,
+        "account_snapshot_fresh_met": True,
+        "clock_skew_within_limit_met": True,
+        "max_daily_loss_within_limit_met": True,
+        "max_order_count_within_limit_met": True,
+        "max_notional_within_limit_met": True,
+        "exchange_account_state_unambiguous_met": True,
     }
     assert gate["summary"]["event_count"] == 7
+    assert gate["kill_switch_decision"] == _passing_kill_switch_decision()
     assert gate["reasons"] == []
 
     output = write_runtime_safety_gate(_passing_manifest(), tmp_path)
@@ -48,15 +77,12 @@ def test_builds_runtime_safety_gate_when_all_required_events_pass(tmp_path: Path
 
 
 def test_runtime_safety_gate_reports_missing_or_failed_events() -> None:
-    gate = build_runtime_safety_gate(
-        {
-            "evidence_source": {"type": "synthetic_fixture"},
-            "events": [
-                {"type": "kill_switch_dry_run", "passed": False},
-                {"type": "order_position_reconciliation", "passed": True},
-            ],
-        }
-    )
+    manifest = _passing_manifest()
+    manifest["events"] = [
+        {"type": "kill_switch_dry_run", "passed": False},
+        {"type": "order_position_reconciliation", "passed": True},
+    ]
+    gate = build_runtime_safety_gate(manifest)
 
     assert gate["checks"]["kill_switch_dry_run_met"] is False
     assert gate["checks"]["order_position_reconciliation_met"] is True
@@ -303,35 +329,24 @@ def test_runtime_safety_gate_rejects_unknown_event_fields() -> None:
         raise AssertionError("expected unknown runtime safety event field to be rejected")
 
 def test_runtime_safety_gate_rejects_padded_evidence_source_type() -> None:
+    manifest = _passing_manifest()
+    manifest["evidence_source"] = {"type": " paper_runtime_logs ", "run_id": "runtime-1"}
+    manifest["events"][2]["event_type"] = "fail_closed"
+    del manifest["events"][2]["type"]
     try:
-        build_runtime_safety_gate(
-            {
-                "evidence_source": {"type": " paper_runtime_logs ", "run_id": "runtime-1"},
-                "events": [
-                    {"event_type": "kill_switch_dry_run", "passed": True},
-                    {"event_type": "order_position_reconciliation", "passed": True},
-                    {"event_type": "fail_closed", "passed": True},
-                    {"event_type": "live_dust_before_scale", "passed": True},
-                    {"event_type": "live_trade_ledger", "passed": True},
-                    {"event_type": "runtime_explainability", "passed": True},
-                    {"event_type": "drift_guard", "passed": True},
-                ],
-            }
-        )
+        build_runtime_safety_gate(manifest)
     except ValueError as exc:
         assert "evidence_source type must be canonical" in str(exc)
     else:
         raise AssertionError("expected padded evidence_source type to be rejected")
 
 def test_runtime_safety_gate_rejects_padded_event_type() -> None:
+    manifest = _passing_manifest()
+    manifest["events"] = [
+        {"event_type": " kill_switch_dry_run ", "passed": True},
+    ]
     try:
-        build_runtime_safety_gate(
-            {
-                "events": [
-                    {"event_type": " kill_switch_dry_run ", "passed": True},
-                ],
-            }
-        )
+        build_runtime_safety_gate(manifest)
     except ValueError as exc:
         assert "runtime safety event type must be canonical" in str(exc)
     else:
@@ -499,6 +514,94 @@ def test_runtime_safety_gate_writer_preserves_runtime_reason_taxonomy_roundtrip(
         "symbol_not_allowed": 1,
         "runtime_fail_closed_missing": 1,
     }
+
+
+def test_runtime_safety_gate_reports_failed_hard_kill_switch_evidence() -> None:
+    manifest = _passing_manifest()
+    manifest["kill_switch_decision"]["decision"] = "kill"
+    manifest["kill_switch_decision"]["evidence"]["market_data"]["ok"] = False
+    manifest["kill_switch_decision"]["evidence"]["max_notional"]["ok"] = False
+    manifest["kill_switch_decision"]["evidence"]["exchange_account_state"]["ok"] = False
+
+    gate = build_runtime_safety_gate(manifest)
+
+    assert gate["checks"]["market_data_fresh_met"] is False
+    assert gate["checks"]["max_notional_within_limit_met"] is False
+    assert gate["checks"]["exchange_account_state_unambiguous_met"] is False
+    assert "market_data_stale" in gate["reasons"]
+    assert "max_notional_exceeded" in gate["reasons"]
+    assert "exchange_account_state_ambiguous" in gate["reasons"]
+    assert gate["kill_switch_decision"] == manifest["kill_switch_decision"]
+
+
+def test_runtime_safety_gate_rejects_missing_hard_kill_switch_decision() -> None:
+    manifest = _passing_manifest()
+    del manifest["kill_switch_decision"]
+
+    try:
+        build_runtime_safety_gate(manifest)
+    except ValueError as exc:
+        assert str(exc) == "kill_switch_decision must be present"
+    else:
+        raise AssertionError("expected missing kill_switch_decision to be rejected")
+
+
+def test_runtime_safety_gate_rejects_stale_market_data_evidence() -> None:
+    manifest = _passing_manifest()
+    manifest["kill_switch_decision"]["evidence"]["market_data"]["age_seconds"] = 121
+
+    try:
+        build_runtime_safety_gate(manifest)
+    except ValueError as exc:
+        assert str(exc) == "kill_switch_decision evidence market_data is stale"
+    else:
+        raise AssertionError("expected stale market data evidence to be rejected")
+
+
+def test_runtime_safety_gate_rejects_future_account_snapshot_evidence() -> None:
+    manifest = _passing_manifest()
+    manifest["kill_switch_decision"]["evidence"]["account_snapshot"]["observed_at"] = "2026-05-16T10:00:31Z"
+
+    try:
+        build_runtime_safety_gate(manifest)
+    except ValueError as exc:
+        assert str(exc) == "kill_switch_decision evidence account_snapshot observed_at must not be in the future"
+    else:
+        raise AssertionError("expected future account snapshot evidence to be rejected")
+
+
+def test_runtime_safety_gate_rejects_noncanonical_kill_switch_timestamp() -> None:
+    manifest = _passing_manifest()
+    manifest["kill_switch_decision"]["evaluated_at"] = "2026-05-16T10:00:30+00:00"
+
+    try:
+        build_runtime_safety_gate(manifest)
+    except ValueError as exc:
+        assert str(exc) == "kill_switch_decision evaluated_at must be a canonical UTC timestamp"
+    else:
+        raise AssertionError("expected noncanonical kill-switch timestamp to be rejected")
+
+
+def test_runtime_safety_gate_rejects_bool_and_nonfinite_numeric_kill_switch_evidence() -> None:
+    manifest = _passing_manifest()
+    manifest["kill_switch_decision"]["evidence"]["clock_skew"]["skew_seconds"] = math.inf
+
+    try:
+        build_runtime_safety_gate(manifest)
+    except ValueError as exc:
+        assert str(exc) == "kill_switch_decision evidence clock_skew skew_seconds must be finite"
+    else:
+        raise AssertionError("expected nonfinite clock skew evidence to be rejected")
+
+    manifest = _passing_manifest()
+    manifest["kill_switch_decision"]["evidence"]["max_order_count"]["value"] = True
+
+    try:
+        build_runtime_safety_gate(manifest)
+    except ValueError as exc:
+        assert str(exc) == "kill_switch_decision evidence max_order_count value must be numeric, not boolean"
+    else:
+        raise AssertionError("expected boolean max_order_count evidence to be rejected")
 
 
 def test_runtime_safety_reason_taxonomy_rejects_wrong_source_for_code() -> None:

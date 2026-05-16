@@ -2626,6 +2626,138 @@ def _runtime_reasons_by_code(value: Any) -> dict[str, int]:
     return counts
 
 
+_RUNTIME_HARD_KILL_SWITCH_CHECKS = (
+    "market_data_fresh_met",
+    "account_snapshot_fresh_met",
+    "clock_skew_within_limit_met",
+    "max_daily_loss_within_limit_met",
+    "max_order_count_within_limit_met",
+    "max_notional_within_limit_met",
+    "exchange_account_state_unambiguous_met",
+)
+_RUNTIME_HARD_KILL_SWITCH_REASON_BY_CHECK = {
+    "market_data_fresh_met": "market_data_stale",
+    "account_snapshot_fresh_met": "account_snapshot_stale",
+    "clock_skew_within_limit_met": "clock_skew_exceeded",
+    "max_daily_loss_within_limit_met": "max_daily_loss_exceeded",
+    "max_order_count_within_limit_met": "max_order_count_exceeded",
+    "max_notional_within_limit_met": "max_notional_exceeded",
+    "exchange_account_state_unambiguous_met": "exchange_account_state_ambiguous",
+}
+_RUNTIME_HARD_KILL_SWITCH_EVIDENCE_BY_CHECK = {
+    "market_data_fresh_met": "market_data",
+    "account_snapshot_fresh_met": "account_snapshot",
+    "clock_skew_within_limit_met": "clock_skew",
+    "max_daily_loss_within_limit_met": "max_daily_loss",
+    "max_order_count_within_limit_met": "max_order_count",
+    "max_notional_within_limit_met": "max_notional",
+    "exchange_account_state_unambiguous_met": "exchange_account_state",
+}
+_RUNTIME_HARD_KILL_SWITCH_ALLOWED_EVIDENCE = set(_RUNTIME_HARD_KILL_SWITCH_EVIDENCE_BY_CHECK.values())
+
+
+def _runtime_kill_switch_number_schema_error(value: Any, prefix: str) -> str:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return f"{prefix}_not_number"
+    if not math.isfinite(float(value)):
+        return f"{prefix}_not_finite"
+    return ""
+
+
+def _runtime_kill_switch_decision_schema_error(value: Any) -> str:
+    if value is None:
+        return "kill_switch_decision_missing"
+    if not isinstance(value, Mapping):
+        return "kill_switch_decision_not_object"
+    unknown_fields = sorted(set(value) - {"evaluated_at", "decision", "max_evidence_age_seconds", "evidence"})
+    if unknown_fields:
+        return "unknown_kill_switch_decision_field: " + ", ".join(unknown_fields)
+    evaluated_at = value.get("evaluated_at")
+    if not _is_exact_string(evaluated_at):
+        return "kill_switch_evaluated_at_not_string"
+    if not _is_canonical_utc_timestamp(evaluated_at):
+        return "kill_switch_evaluated_at_noncanonical_timestamp"
+    evaluated_dt = datetime.fromisoformat(evaluated_at[:-1] + "+00:00").astimezone(UTC)
+    decision = value.get("decision")
+    if not _is_exact_string(decision):
+        return "kill_switch_decision_value_not_string"
+    if decision not in {"allow", "kill"}:
+        return "kill_switch_decision_value_invalid"
+    age_error = _runtime_kill_switch_number_schema_error(
+        value.get("max_evidence_age_seconds"),
+        "kill_switch_max_evidence_age_seconds",
+    )
+    if age_error:
+        return age_error
+    if float(value["max_evidence_age_seconds"]) < 0:
+        return "kill_switch_max_evidence_age_seconds_negative"
+    evidence = value.get("evidence")
+    if not isinstance(evidence, Mapping):
+        return "kill_switch_evidence_not_object"
+    unknown_evidence = sorted(set(evidence) - _RUNTIME_HARD_KILL_SWITCH_ALLOWED_EVIDENCE)
+    if unknown_evidence:
+        return "unknown_kill_switch_evidence_field: " + ", ".join(unknown_evidence)
+    for evidence_name in sorted(_RUNTIME_HARD_KILL_SWITCH_ALLOWED_EVIDENCE):
+        item = evidence.get(evidence_name)
+        if item is None:
+            return f"kill_switch_{evidence_name}_missing"
+        if not isinstance(item, Mapping):
+            return f"kill_switch_{evidence_name}_not_object"
+        unknown_item_fields = sorted(set(item) - {"ok", "observed_at", "age_seconds", "skew_seconds", "value", "limit"})
+        if unknown_item_fields:
+            return f"unknown_kill_switch_{evidence_name}_field: " + ", ".join(unknown_item_fields)
+        if not isinstance(item.get("ok"), bool):
+            return f"kill_switch_{evidence_name}_ok_not_bool"
+        observed_at = item.get("observed_at")
+        if not _is_exact_string(observed_at):
+            return f"kill_switch_{evidence_name}_observed_at_not_string"
+        if not _is_canonical_utc_timestamp(observed_at):
+            return f"kill_switch_{evidence_name}_observed_at_noncanonical_timestamp"
+        observed_dt = datetime.fromisoformat(observed_at[:-1] + "+00:00").astimezone(UTC)
+        if observed_dt > evaluated_dt:
+            return f"kill_switch_{evidence_name}_future_timestamp"
+        if "age_seconds" in item:
+            item_age_error = _runtime_kill_switch_number_schema_error(
+                item["age_seconds"],
+                f"kill_switch_{evidence_name}_age_seconds",
+            )
+            if item_age_error:
+                return item_age_error
+            if float(item["age_seconds"]) < 0:
+                return f"kill_switch_{evidence_name}_age_seconds_negative"
+            if float(item["age_seconds"]) > float(value["max_evidence_age_seconds"]):
+                return f"kill_switch_{evidence_name}_stale"
+        if "skew_seconds" in item:
+            skew_error = _runtime_kill_switch_number_schema_error(
+                item["skew_seconds"],
+                f"kill_switch_{evidence_name}_skew_seconds",
+            )
+            if skew_error:
+                return skew_error
+        for field in ("value", "limit"):
+            if field in item:
+                number_error = _runtime_kill_switch_number_schema_error(
+                    item[field],
+                    f"kill_switch_{evidence_name}_{field}",
+                )
+                if number_error:
+                    return number_error
+    return ""
+
+
+def _runtime_kill_switch_checks_from_decision(value: Any) -> dict[str, bool]:
+    if not isinstance(value, Mapping):
+        return {check: False for check in _RUNTIME_HARD_KILL_SWITCH_CHECKS}
+    evidence = value.get("evidence")
+    if not isinstance(evidence, Mapping):
+        return {check: False for check in _RUNTIME_HARD_KILL_SWITCH_CHECKS}
+    checks: dict[str, bool] = {}
+    for check_name, evidence_name in _RUNTIME_HARD_KILL_SWITCH_EVIDENCE_BY_CHECK.items():
+        item = evidence.get(evidence_name)
+        checks[check_name] = isinstance(item, Mapping) and item.get("ok") is True
+    return checks
+
+
 def _runtime_safety_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[str, Any]:
     required_checks = (
         "kill_switch_dry_run_met",
@@ -2635,6 +2767,7 @@ def _runtime_safety_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
         "live_trade_ledger_met",
         "runtime_explainability_met",
         "drift_guard_met",
+        *_RUNTIME_HARD_KILL_SWITCH_CHECKS,
     )
     artifacts: list[dict[str, Any]] = []
     aggregate_checks = {key: False for key in required_checks}
@@ -2654,7 +2787,16 @@ def _runtime_safety_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
         evidence_source_object_valid = isinstance(evidence_source_payload, Mapping)
         evidence_source_schema_error = _artifact_provenance_schema_error(payload)
         top_level_schema_error = _artifact_top_level_schema_error(
-            payload, {"schema_version", "evidence_source", "checks", "summary", "reasons", "runtime_reasons"}
+            payload,
+            {
+                "schema_version",
+                "evidence_source",
+                "kill_switch_decision",
+                "checks",
+                "summary",
+                "reasons",
+                "runtime_reasons",
+            },
         )
         checks = _as_mapping(checks_payload)
         summary = _as_mapping(summary_payload)
@@ -2701,6 +2843,14 @@ def _runtime_safety_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
                         summary_schema_error = "summary_reasons_by_code_count_invalid"
                         break
         runtime_reasons_schema_error = _runtime_reasons_schema_error(payload.get("runtime_reasons"))
+        kill_switch_decision_schema_error = _runtime_kill_switch_decision_schema_error(
+            payload.get("kill_switch_decision")
+        )
+        kill_switch_checks = _runtime_kill_switch_checks_from_decision(payload.get("kill_switch_decision"))
+        for check_name, met in kill_switch_checks.items():
+            if check_name in checks and checks.get(check_name) is not met:
+                check_schema_error = f"check_{check_name}_decision_mismatch"
+                break
         runtime_reasons_by_code = _runtime_reasons_by_code(payload.get("runtime_reasons"))
         if not summary_schema_error and not runtime_reasons_schema_error and isinstance(payload.get("runtime_reasons"), list):
             if reason_count is not None and reason_count != len(payload["runtime_reasons"]):
@@ -2724,6 +2874,7 @@ def _runtime_safety_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
             and summary_object_valid
             and not summary_schema_error
             and not runtime_reasons_schema_error
+            and not kill_switch_decision_schema_error
             and not unknown_check_fields
             and not check_schema_error
         )
@@ -2747,6 +2898,8 @@ def _runtime_safety_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
                 parse_error_message = summary_schema_error
             elif runtime_reasons_schema_error:
                 parse_error_message = runtime_reasons_schema_error
+            elif kill_switch_decision_schema_error:
+                parse_error_message = kill_switch_decision_schema_error
             elif unknown_check_fields:
                 parse_error_message = "unknown_check_field: " + ", ".join(unknown_check_fields)
             elif check_schema_error:
@@ -2760,7 +2913,15 @@ def _runtime_safety_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
                 "schema_valid": chunk_schema_valid,
                 "provenance_present": chunk_provenance_present,
                 "evidence_source": _as_mapping(payload.get("evidence_source")),
-                "checks": {key: _strict_check_bool(checks.get(key)) for key in required_checks},
+                "kill_switch_decision": _as_mapping(payload.get("kill_switch_decision")),
+                "checks": {
+                    key: (
+                        kill_switch_checks[key]
+                        if key in kill_switch_checks and not kill_switch_decision_schema_error
+                        else _strict_check_bool(checks.get(key))
+                    )
+                    for key in required_checks
+                },
                 "summary": _as_mapping(payload.get("summary")),
                 "runtime_reasons": list(payload.get("runtime_reasons", []))
                 if isinstance(payload.get("runtime_reasons"), list)
@@ -4096,7 +4257,7 @@ def build_live_readiness_gate_report(
         "live_trade_ledger_met": "live_trade_ledger_missing",
         "runtime_explainability_met": "runtime_explainability_missing",
         "drift_guard_met": "drift_guard_missing",
-    }
+    } | _RUNTIME_HARD_KILL_SWITCH_REASON_BY_CHECK
     if require_runtime_safety_evidence_policy or runtime_safety_artifact_present:
         for check, reason in runtime_safety_reason_by_check.items():
             if not runtime_safety_checks.get(check, False):

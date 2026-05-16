@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -24,6 +25,18 @@ _REQUIRED_EVENTS = {
     "live_trade_ledger": ("live_trade_ledger_met", "live_trade_ledger_missing"),
     "runtime_explainability": ("runtime_explainability_met", "runtime_explainability_missing"),
     "drift_guard": ("drift_guard_met", "drift_guard_missing"),
+}
+_HARD_KILL_SWITCH_EVIDENCE = {
+    "market_data": ("market_data_fresh_met", "market_data_stale"),
+    "account_snapshot": ("account_snapshot_fresh_met", "account_snapshot_stale"),
+    "clock_skew": ("clock_skew_within_limit_met", "clock_skew_exceeded"),
+    "max_daily_loss": ("max_daily_loss_within_limit_met", "max_daily_loss_exceeded"),
+    "max_order_count": ("max_order_count_within_limit_met", "max_order_count_exceeded"),
+    "max_notional": ("max_notional_within_limit_met", "max_notional_exceeded"),
+    "exchange_account_state": (
+        "exchange_account_state_unambiguous_met",
+        "exchange_account_state_ambiguous",
+    ),
 }
 EXECUTION_PREVIEW_UNSUPPORTED_REASON_PREFIXES = (
     ("symbol not allowed for testnet preview", "symbol_not_allowed"),
@@ -99,10 +112,15 @@ class RuntimeSafetyReason:
 
 
 def _required_event_reason_taxonomy() -> dict[str, dict[str, str]]:
-    return {
+    required_event_reasons = {
         reason_code: {"severity": "block", "category": "runtime_safety", "source": "runtime_safety_gate"}
         for _, reason_code in _REQUIRED_EVENTS.values()
     }
+    kill_switch_reasons = {
+        reason_code: {"severity": "block", "category": "runtime_safety", "source": "runtime_safety_gate"}
+        for _, reason_code in _HARD_KILL_SWITCH_EVIDENCE.values()
+    }
+    return required_event_reasons | kill_switch_reasons
 
 
 def _execution_preview_reason_taxonomy() -> dict[str, dict[str, str]]:
@@ -149,6 +167,120 @@ def _require_reason_string(raw_reason: Mapping[str, Any], field: str) -> str:
     return normalized
 
 
+def _parse_canonical_timestamp(value: Any, field_path: str) -> datetime:
+    if not _is_exact_string(value):
+        raise ValueError(f"{field_path} must be a string")
+    if not _is_canonical_utc_timestamp(value):
+        raise ValueError(f"{field_path} must be a canonical UTC timestamp")
+    return datetime.fromisoformat(value[:-1] + "+00:00").astimezone(UTC)
+
+
+def _require_kill_switch_number(value: Any, field_path: str) -> float:
+    if isinstance(value, bool):
+        raise ValueError(f"{field_path} must be numeric, not boolean")
+    if not isinstance(value, (int, float)):
+        raise ValueError(f"{field_path} must be numeric")
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError(f"{field_path} must be finite")
+    return number
+
+
+def _canonical_kill_switch_decision(raw_decision: Any) -> tuple[dict[str, Any], dict[str, bool]]:
+    if raw_decision is None:
+        raise ValueError("kill_switch_decision must be present")
+    if not isinstance(raw_decision, Mapping):
+        raise ValueError("kill_switch_decision must be an object")
+    unknown_fields = sorted(set(raw_decision) - {"evaluated_at", "decision", "max_evidence_age_seconds", "evidence"})
+    if unknown_fields:
+        raise ValueError("unknown kill_switch_decision field: " + ", ".join(unknown_fields))
+
+    evaluated_at = _parse_canonical_timestamp(
+        raw_decision.get("evaluated_at"), "kill_switch_decision evaluated_at"
+    )
+    raw_state = raw_decision.get("decision")
+    if not _is_exact_string(raw_state):
+        raise ValueError("kill_switch_decision decision must be a string")
+    if raw_state not in {"allow", "kill"}:
+        raise ValueError("kill_switch_decision decision must be allow or kill")
+    max_age = _require_kill_switch_number(
+        raw_decision.get("max_evidence_age_seconds"),
+        "kill_switch_decision max_evidence_age_seconds",
+    )
+    if max_age < 0:
+        raise ValueError("kill_switch_decision max_evidence_age_seconds must be non-negative")
+
+    evidence = raw_decision.get("evidence")
+    if not isinstance(evidence, Mapping):
+        raise ValueError("kill_switch_decision evidence must be an object")
+    unknown_evidence = sorted(set(evidence) - set(_HARD_KILL_SWITCH_EVIDENCE))
+    if unknown_evidence:
+        raise ValueError("unknown kill_switch_decision evidence field: " + ", ".join(unknown_evidence))
+
+    canonical_evidence: dict[str, dict[str, Any]] = {}
+    checks: dict[str, bool] = {}
+    for evidence_name, (check_name, _reason) in _HARD_KILL_SWITCH_EVIDENCE.items():
+        raw_item = evidence.get(evidence_name)
+        if raw_item is None:
+            raise ValueError(f"kill_switch_decision evidence {evidence_name} must be present")
+        if not isinstance(raw_item, Mapping):
+            raise ValueError(f"kill_switch_decision evidence {evidence_name} must be an object")
+        unknown_item_fields = sorted(set(raw_item) - {"ok", "observed_at", "age_seconds", "skew_seconds", "value", "limit"})
+        if unknown_item_fields:
+            raise ValueError(
+                f"unknown kill_switch_decision evidence {evidence_name} field: "
+                + ", ".join(unknown_item_fields)
+            )
+        ok = raw_item.get("ok")
+        if not isinstance(ok, bool):
+            raise ValueError(f"kill_switch_decision evidence {evidence_name} ok must be a boolean")
+        observed_at = _parse_canonical_timestamp(
+            raw_item.get("observed_at"),
+            f"kill_switch_decision evidence {evidence_name} observed_at",
+        )
+        if observed_at > evaluated_at:
+            raise ValueError(
+                f"kill_switch_decision evidence {evidence_name} observed_at must not be in the future"
+            )
+
+        canonical_item: dict[str, Any] = {"ok": ok, "observed_at": raw_item["observed_at"]}
+        if "age_seconds" in raw_item:
+            age = _require_kill_switch_number(
+                raw_item["age_seconds"],
+                f"kill_switch_decision evidence {evidence_name} age_seconds",
+            )
+            if age < 0:
+                raise ValueError(f"kill_switch_decision evidence {evidence_name} age_seconds must be non-negative")
+            if age > max_age:
+                raise ValueError(f"kill_switch_decision evidence {evidence_name} is stale")
+            canonical_item["age_seconds"] = raw_item["age_seconds"]
+        if "skew_seconds" in raw_item:
+            _require_kill_switch_number(
+                raw_item["skew_seconds"],
+                f"kill_switch_decision evidence {evidence_name} skew_seconds",
+            )
+            canonical_item["skew_seconds"] = raw_item["skew_seconds"]
+        for field in ("value", "limit"):
+            if field in raw_item:
+                _require_kill_switch_number(
+                    raw_item[field],
+                    f"kill_switch_decision evidence {evidence_name} {field}",
+                )
+                canonical_item[field] = raw_item[field]
+        canonical_evidence[evidence_name] = canonical_item
+        checks[check_name] = ok
+
+    return (
+        {
+            "evaluated_at": raw_decision["evaluated_at"],
+            "decision": raw_state,
+            "max_evidence_age_seconds": raw_decision["max_evidence_age_seconds"],
+            "evidence": canonical_evidence,
+        },
+        checks,
+    )
+
+
 def _canonical_reason_fields(raw_reason: Any) -> tuple[str, str, str, str]:
     if not isinstance(raw_reason, Mapping):
         raise ValueError("runtime safety reason must be a mapping")
@@ -164,9 +296,10 @@ def _canonical_reason_fields(raw_reason: Any) -> tuple[str, str, str, str]:
 
 
 def build_runtime_safety_gate(manifest: Mapping[str, Any]) -> dict[str, Any]:
-    unknown_manifest_fields = sorted(set(manifest) - {"evidence_source", "events", "reasons"})
+    unknown_manifest_fields = sorted(set(manifest) - {"evidence_source", "events", "reasons", "kill_switch_decision"})
     if unknown_manifest_fields:
         raise ValueError("unknown runtime safety manifest field: " + ", ".join(unknown_manifest_fields))
+    kill_switch_decision, kill_switch_checks = _canonical_kill_switch_decision(manifest.get("kill_switch_decision"))
     raw_source = manifest.get("evidence_source")
     if raw_source is None:
         source: dict[str, Any] = {"type": "unknown_offline_records"}
@@ -249,10 +382,16 @@ def build_runtime_safety_gate(manifest: Mapping[str, Any]) -> dict[str, Any]:
         checks[check_name] = met
         if not met:
             reasons.append(reason)
+    for _evidence_name, (check_name, reason) in _HARD_KILL_SWITCH_EVIDENCE.items():
+        met = kill_switch_checks[check_name]
+        checks[check_name] = met
+        if not met:
+            reasons.append(reason)
 
     return {
         "schema_version": SCHEMA_VERSION,
         "evidence_source": source,
+        "kill_switch_decision": kill_switch_decision,
         "checks": checks,
         "summary": {
             "event_count": len(events),

@@ -43,6 +43,45 @@ from trading_system.app.execution.calibration import load_calibration_records, s
 from trading_system.app.runtime.runtime_safety_evidence import build_runtime_safety_gate
 
 
+def _runtime_kill_switch_decision() -> dict[str, object]:
+    observed_at = "2026-05-16T10:00:00Z"
+    evaluated_at = "2026-05-16T10:00:30Z"
+    return {
+        "evaluated_at": evaluated_at,
+        "decision": "allow",
+        "max_evidence_age_seconds": 120,
+        "evidence": {
+            "market_data": {"ok": True, "observed_at": observed_at, "age_seconds": 30},
+            "account_snapshot": {"ok": True, "observed_at": observed_at, "age_seconds": 30},
+            "clock_skew": {"ok": True, "observed_at": evaluated_at, "skew_seconds": 1.25},
+            "max_daily_loss": {"ok": True, "observed_at": evaluated_at, "value": 10.0, "limit": 100.0},
+            "max_order_count": {"ok": True, "observed_at": evaluated_at, "value": 3, "limit": 20},
+            "max_notional": {"ok": True, "observed_at": evaluated_at, "value": 250.0, "limit": 1000.0},
+            "exchange_account_state": {"ok": True, "observed_at": evaluated_at},
+        },
+    }
+
+
+def _runtime_safety_events() -> list[dict[str, object]]:
+    return [
+        {"event_type": "kill_switch_dry_run", "passed": True},
+        {"event_type": "order_position_reconciliation", "passed": True},
+        {"event_type": "runtime_fail_closed", "passed": True},
+        {"event_type": "live_dust_before_scale", "passed": True},
+        {"event_type": "live_trade_ledger", "passed": True},
+        {"event_type": "runtime_explainability", "passed": True},
+        {"event_type": "drift_guard", "passed": True},
+    ]
+
+
+def _runtime_safety_manifest() -> dict[str, object]:
+    return {
+        "evidence_source": {"type": "paper_runtime_logs", "run_id": "runtime-1"},
+        "kill_switch_decision": _runtime_kill_switch_decision(),
+        "events": _runtime_safety_events(),
+    }
+
+
 def _complete_depth_fill_provenance() -> dict[str, object]:
     return {
         "complete": True,
@@ -568,6 +607,13 @@ def test_markdown_renderer_rejects_noncanonical_artifact_parse_errors() -> None:
                 "live_trade_ledger_met": True,
                 "runtime_explainability_met": True,
                 "drift_guard_met": True,
+                "market_data_fresh_met": True,
+                "account_snapshot_fresh_met": True,
+                "clock_skew_within_limit_met": True,
+                "max_daily_loss_within_limit_met": True,
+                "max_order_count_within_limit_met": True,
+                "max_notional_within_limit_met": True,
+                "exchange_account_state_unambiguous_met": True,
             },
             "artifacts": [{"parse_error": ["boom"]}],
         },
@@ -737,6 +783,13 @@ def test_markdown_renderer_rejects_non_strict_runtime_gate_metadata() -> None:
                 "live_trade_ledger_met": True,
                 "runtime_explainability_met": True,
                 "drift_guard_met": True,
+                "market_data_fresh_met": True,
+                "account_snapshot_fresh_met": True,
+                "clock_skew_within_limit_met": True,
+                "max_daily_loss_within_limit_met": True,
+                "max_order_count_within_limit_met": True,
+                "max_notional_within_limit_met": True,
+                "exchange_account_state_unambiguous_met": True,
             },
         },
         "caveats": [],
@@ -767,6 +820,13 @@ def test_markdown_renderer_rejects_non_strict_runtime_checks() -> None:
                 "live_trade_ledger_met": True,
                 "runtime_explainability_met": True,
                 "drift_guard_met": True,
+                "market_data_fresh_met": True,
+                "account_snapshot_fresh_met": True,
+                "clock_skew_within_limit_met": True,
+                "max_daily_loss_within_limit_met": True,
+                "max_order_count_within_limit_met": True,
+                "max_notional_within_limit_met": True,
+                "exchange_account_state_unambiguous_met": True,
             },
         },
         "caveats": [],
@@ -1096,19 +1156,7 @@ def test_live_readiness_smoke_report_consumes_producer_gate_artifacts(tmp_path: 
     )
     (chunk / "runtime_safety_gate.json").write_text(
         json.dumps(
-            build_runtime_safety_gate(
-                {
-                    "events": [
-                        {"event_type": "kill_switch_dry_run", "passed": True},
-                        {"event_type": "order_position_reconciliation", "passed": True},
-                        {"event_type": "fail_closed", "passed": True},
-                        {"event_type": "live_dust_before_scale", "passed": True},
-                        {"event_type": "live_trade_ledger", "passed": True},
-                        {"event_type": "runtime_explainability", "passed": True},
-                        {"event_type": "drift_guard", "passed": True},
-                    ]
-                }
-            )
+            build_runtime_safety_gate(_runtime_safety_manifest())
         ),
         encoding="utf-8",
     )
@@ -3341,6 +3389,7 @@ def test_live_readiness_markdown_shows_bundle_manifest_and_metadata_errors(tmp_p
             {
                 "schema_version": "runtime_safety_gate_input.v1",
                 "evidence_source": {"type": "paper_runtime_logs", "run_id": "runtime-1"},
+                "kill_switch_decision": _runtime_kill_switch_decision(),
                 "checks": {
                     "kill_switch_dry_run_met": True,
                     "order_position_reconciliation_met": True,
@@ -3349,6 +3398,13 @@ def test_live_readiness_markdown_shows_bundle_manifest_and_metadata_errors(tmp_p
                     "live_trade_ledger_met": True,
                     "runtime_explainability_met": True,
                     "drift_guard_met": True,
+                    "market_data_fresh_met": True,
+                    "account_snapshot_fresh_met": True,
+                    "clock_skew_within_limit_met": True,
+                    "max_daily_loss_within_limit_met": True,
+                    "max_order_count_within_limit_met": True,
+                    "max_notional_within_limit_met": True,
+                    "exchange_account_state_unambiguous_met": True,
                 },
             }
         ),
@@ -3591,18 +3647,7 @@ def test_live_readiness_accepts_runtime_safety_producer_check_names(tmp_path: Pa
     (chunk / "runtime_safety_gate.json").write_text(
         json.dumps(
             build_runtime_safety_gate(
-                {
-                    "evidence_source": {"type": "paper_runtime_logs", "run_id": "runtime-1"},
-                    "events": [
-                        {"type": "kill_switch_dry_run", "passed": True},
-                        {"type": "order_position_reconciliation", "passed": True},
-                        {"type": "runtime_fail_closed", "passed": True},
-                        {"type": "live_dust_before_scale", "passed": True},
-                        {"type": "live_trade_ledger", "passed": True},
-                        {"type": "runtime_explainability", "passed": True},
-                        {"type": "drift_guard", "passed": True},
-                    ],
-                }
+                _runtime_safety_manifest()
             )
         ),
         encoding="utf-8",
@@ -4365,6 +4410,13 @@ def test_live_readiness_gate_rejects_present_runtime_safety_artifact_with_bad_sc
                     "live_trade_ledger_met": True,
                     "runtime_explainability_met": True,
                     "drift_guard_met": True,
+                    "market_data_fresh_met": True,
+                    "account_snapshot_fresh_met": True,
+                    "clock_skew_within_limit_met": True,
+                    "max_daily_loss_within_limit_met": True,
+                    "max_order_count_within_limit_met": True,
+                    "max_notional_within_limit_met": True,
+                    "exchange_account_state_unambiguous_met": True,
                 },
             }
         ),
@@ -5014,6 +5066,7 @@ def test_live_readiness_gate_rejects_runtime_safety_unknown_check_fields(tmp_pat
     runtime_payload = {
         "schema_version": "runtime_safety_gate_input.v1",
         "evidence_source": {"type": "exchange_export", "run_id": "runtime-unknown-check"},
+        "kill_switch_decision": _runtime_kill_switch_decision(),
         "checks": {
             "kill_switch_dry_run_met": True,
             "order_position_reconciliation_met": True,
@@ -7542,6 +7595,7 @@ def test_live_readiness_gate_rejects_present_failing_runtime_safety_checks(tmp_p
             {
                 "schema_version": "runtime_safety_gate_input.v1",
                 "evidence_source": {"type": "paper_runtime_logs"},
+                "kill_switch_decision": _runtime_kill_switch_decision(),
                 "checks": {
                     "kill_switch_dry_run_met": False,
                     "order_position_reconciliation_met": True,
@@ -7550,6 +7604,13 @@ def test_live_readiness_gate_rejects_present_failing_runtime_safety_checks(tmp_p
                     "live_trade_ledger_met": True,
                     "runtime_explainability_met": True,
                     "drift_guard_met": True,
+                    "market_data_fresh_met": True,
+                    "account_snapshot_fresh_met": True,
+                    "clock_skew_within_limit_met": True,
+                    "max_daily_loss_within_limit_met": True,
+                    "max_order_count_within_limit_met": True,
+                    "max_notional_within_limit_met": True,
+                    "exchange_account_state_unambiguous_met": True,
                 },
             }
         ),
@@ -7574,6 +7635,7 @@ def test_live_readiness_gate_rejects_non_bool_runtime_safety_artifact_schema_sta
             {
                 "schema_version": "runtime_safety_gate_input.v1",
                 "evidence_source": {"type": "paper_runtime_logs"},
+                "kill_switch_decision": _runtime_kill_switch_decision(),
                 "checks": {
                     "kill_switch_dry_run_met": True,
                     "order_position_reconciliation_met": True,
@@ -7582,6 +7644,13 @@ def test_live_readiness_gate_rejects_non_bool_runtime_safety_artifact_schema_sta
                     "live_trade_ledger_met": True,
                     "runtime_explainability_met": True,
                     "drift_guard_met": True,
+                    "market_data_fresh_met": True,
+                    "account_snapshot_fresh_met": True,
+                    "clock_skew_within_limit_met": True,
+                    "max_daily_loss_within_limit_met": True,
+                    "max_order_count_within_limit_met": True,
+                    "max_notional_within_limit_met": True,
+                    "exchange_account_state_unambiguous_met": True,
                 },
             }
         ),
@@ -7609,6 +7678,7 @@ def test_live_readiness_gate_rejects_non_bool_runtime_safety_artifact_provenance
             {
                 "schema_version": "runtime_safety_gate_input.v1",
                 "evidence_source": {"type": "paper_runtime_logs"},
+                "kill_switch_decision": _runtime_kill_switch_decision(),
                 "checks": {
                     "kill_switch_dry_run_met": True,
                     "order_position_reconciliation_met": True,
@@ -7617,6 +7687,13 @@ def test_live_readiness_gate_rejects_non_bool_runtime_safety_artifact_provenance
                     "live_trade_ledger_met": True,
                     "runtime_explainability_met": True,
                     "drift_guard_met": True,
+                    "market_data_fresh_met": True,
+                    "account_snapshot_fresh_met": True,
+                    "clock_skew_within_limit_met": True,
+                    "max_daily_loss_within_limit_met": True,
+                    "max_order_count_within_limit_met": True,
+                    "max_notional_within_limit_met": True,
+                    "exchange_account_state_unambiguous_met": True,
                 },
             }
         ),
@@ -7644,6 +7721,7 @@ def test_live_readiness_gate_rejects_non_bool_runtime_safety_artifact_check_valu
             {
                 "schema_version": "runtime_safety_gate_input.v1",
                 "evidence_source": {"type": "paper_runtime_logs"},
+                "kill_switch_decision": _runtime_kill_switch_decision(),
                 "checks": {
                     "kill_switch_dry_run_met": "false",
                     "order_position_reconciliation_met": True,
@@ -7652,6 +7730,13 @@ def test_live_readiness_gate_rejects_non_bool_runtime_safety_artifact_check_valu
                     "live_trade_ledger_met": True,
                     "runtime_explainability_met": True,
                     "drift_guard_met": True,
+                    "market_data_fresh_met": True,
+                    "account_snapshot_fresh_met": True,
+                    "clock_skew_within_limit_met": True,
+                    "max_daily_loss_within_limit_met": True,
+                    "max_order_count_within_limit_met": True,
+                    "max_notional_within_limit_met": True,
+                    "exchange_account_state_unambiguous_met": True,
                 },
             }
         ),
@@ -7671,6 +7756,143 @@ def test_live_readiness_gate_rejects_non_bool_runtime_safety_artifact_check_valu
     assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
 
 
+def test_live_readiness_preserves_runtime_kill_switch_decision_evidence(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    chunk = source / "chunk_001"
+    chunk.mkdir(parents=True)
+    (chunk / "trades.json").write_text(json.dumps({"trades": []}), encoding="utf-8")
+    decision = _runtime_kill_switch_decision()
+    gate = build_runtime_safety_gate(
+        {
+            "evidence_source": {"type": "paper_runtime_logs", "run_id": "runtime-1"},
+            "kill_switch_decision": decision,
+            "events": [
+                {"event_type": "kill_switch_dry_run", "passed": True},
+                {"event_type": "order_position_reconciliation", "passed": True},
+                {"event_type": "runtime_fail_closed", "passed": True},
+                {"event_type": "live_dust_before_scale", "passed": True},
+                {"event_type": "live_trade_ledger", "passed": True},
+                {"event_type": "runtime_explainability", "passed": True},
+                {"event_type": "drift_guard", "passed": True},
+            ],
+        }
+    )
+    (chunk / "runtime_safety_gate.json").write_text(json.dumps(gate), encoding="utf-8")
+
+    report = write_live_readiness_smoke_report(source, tmp_path / "out", require_runtime_safety_evidence=True)
+
+    artifact = report["runtime_safety_gate"]["artifacts"][0]
+    assert artifact["schema_valid"] is True
+    assert artifact["kill_switch_decision"] == decision
+    assert artifact["checks"]["market_data_fresh_met"] is True
+    assert artifact["checks"]["exchange_account_state_unambiguous_met"] is True
+    assert "runtime_safety_artifact_schema_invalid" not in report["promotion_gate"]["reasons"]
+
+
+@pytest.mark.parametrize(
+    ("decision_value", "parse_error"),
+    [
+        (None, "kill_switch_decision_missing"),
+        (["not-object"], "kill_switch_decision_not_object"),
+        ({**_runtime_kill_switch_decision(), "evaluated_at": 123}, "kill_switch_evaluated_at_not_string"),
+        (
+            {**_runtime_kill_switch_decision(), "evaluated_at": "2026-05-16T10:00:30+00:00"},
+            "kill_switch_evaluated_at_noncanonical_timestamp",
+        ),
+        ({**_runtime_kill_switch_decision(), "decision": True}, "kill_switch_decision_value_not_string"),
+        ({**_runtime_kill_switch_decision(), "decision": "maybe"}, "kill_switch_decision_value_invalid"),
+        (
+            {**_runtime_kill_switch_decision(), "max_evidence_age_seconds": -1},
+            "kill_switch_max_evidence_age_seconds_negative",
+        ),
+        ({**_runtime_kill_switch_decision(), "evidence": []}, "kill_switch_evidence_not_object"),
+    ],
+)
+def test_live_readiness_rejects_invalid_runtime_kill_switch_decision_container(
+    tmp_path: Path,
+    decision_value: object,
+    parse_error: str,
+) -> None:
+    source = tmp_path / "source"
+    chunk = source / "chunk_001"
+    chunk.mkdir(parents=True)
+    (chunk / "trades.json").write_text(json.dumps({"trades": []}), encoding="utf-8")
+    gate = build_runtime_safety_gate(_runtime_safety_manifest())
+    if decision_value is None:
+        del gate["kill_switch_decision"]
+    else:
+        gate["kill_switch_decision"] = decision_value
+    (chunk / "runtime_safety_gate.json").write_text(json.dumps(gate), encoding="utf-8")
+
+    report = write_live_readiness_smoke_report(source, tmp_path / "out", require_runtime_safety_evidence=True)
+
+    artifact = report["runtime_safety_gate"]["artifacts"][0]
+    assert artifact["schema_valid"] is False
+    assert artifact["parse_error"] == parse_error
+    assert "runtime_safety_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
+
+
+@pytest.mark.parametrize(
+    ("decision_update", "parse_error"),
+    [
+        ({"evidence": {"market_data": {"age_seconds": "30"}}}, "kill_switch_market_data_age_seconds_not_number"),
+        ({"evidence": {"account_snapshot": {"observed_at": "2026-05-16T10:00:31Z"}}}, "kill_switch_account_snapshot_future_timestamp"),
+        ({"evidence": {"clock_skew": {"skew_seconds": float("nan")}}}, "kill_switch_clock_skew_skew_seconds_not_finite"),
+        ({"evidence": {"max_daily_loss": {"ok": "false"}}}, "kill_switch_max_daily_loss_ok_not_bool"),
+        ({"evidence": {"max_order_count": {"value": True}}}, "kill_switch_max_order_count_value_not_number"),
+        ({"evidence": {"max_notional": {"observed_at": "2026-05-16T10:00:00+00:00"}}}, "kill_switch_max_notional_observed_at_noncanonical_timestamp"),
+        ({"evidence": {"exchange_account_state": {"ok": False}}}, ""),
+    ],
+)
+def test_live_readiness_rejects_invalid_or_failed_runtime_kill_switch_decision_evidence(
+    tmp_path: Path,
+    decision_update: dict[str, object],
+    parse_error: str,
+) -> None:
+    source = tmp_path / "source"
+    chunk = source / "chunk_001"
+    chunk.mkdir(parents=True)
+    (chunk / "trades.json").write_text(json.dumps({"trades": []}), encoding="utf-8")
+    decision = _runtime_kill_switch_decision()
+    for field, value in decision_update.items():
+        if field == "evidence":
+            for evidence_name, evidence_update in value.items():  # type: ignore[union-attr]
+                decision["evidence"][evidence_name].update(evidence_update)  # type: ignore[index, union-attr]
+        else:
+            decision[field] = value
+    gate = build_runtime_safety_gate(
+        {
+            "evidence_source": {"type": "paper_runtime_logs", "run_id": "runtime-1"},
+            "kill_switch_decision": _runtime_kill_switch_decision(),
+            "events": [
+                {"event_type": "kill_switch_dry_run", "passed": True},
+                {"event_type": "order_position_reconciliation", "passed": True},
+                {"event_type": "runtime_fail_closed", "passed": True},
+                {"event_type": "live_dust_before_scale", "passed": True},
+                {"event_type": "live_trade_ledger", "passed": True},
+                {"event_type": "runtime_explainability", "passed": True},
+                {"event_type": "drift_guard", "passed": True},
+            ],
+        }
+    )
+    gate["kill_switch_decision"] = decision
+    (chunk / "runtime_safety_gate.json").write_text(json.dumps(gate), encoding="utf-8")
+
+    report = write_live_readiness_smoke_report(source, tmp_path / "out", require_runtime_safety_evidence=True)
+
+    artifact = report["runtime_safety_gate"]["artifacts"][0]
+    assert artifact["schema_valid"] is False if parse_error else True
+    assert artifact["parse_error"] == parse_error
+    if parse_error == "kill_switch_clock_skew_skew_seconds_not_finite":
+        assert artifact["kill_switch_decision"]["evidence"]["clock_skew"]["skew_seconds"] != artifact["kill_switch_decision"]["evidence"]["clock_skew"]["skew_seconds"]
+    else:
+        assert artifact["kill_switch_decision"] == decision
+    if parse_error:
+        assert "runtime_safety_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
+    assert "exchange_account_state_ambiguous" in report["promotion_gate"]["reasons"] or parse_error
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
 def test_live_readiness_gate_rejects_non_live_runtime_safety_provenance(tmp_path: Path) -> None:
     chunk = tmp_path / "chunk_001"
     _write_profitable_trade_chunk(chunk)
@@ -7687,6 +7909,13 @@ def test_live_readiness_gate_rejects_non_live_runtime_safety_provenance(tmp_path
                     "live_trade_ledger_met": True,
                     "runtime_explainability_met": True,
                     "drift_guard_met": True,
+                    "market_data_fresh_met": True,
+                    "account_snapshot_fresh_met": True,
+                    "clock_skew_within_limit_met": True,
+                    "max_daily_loss_within_limit_met": True,
+                    "max_order_count_within_limit_met": True,
+                    "max_notional_within_limit_met": True,
+                    "exchange_account_state_unambiguous_met": True,
                 },
             }
         ),
@@ -7733,6 +7962,7 @@ def test_live_readiness_gate_report_accepts_runtime_safety_evidence_artifact(tmp
             {
                 "schema_version": "runtime_safety_gate_input.v1",
                 "evidence_source": {"type": "paper_runtime_logs", "run_id": "runtime-1"},
+                "kill_switch_decision": _runtime_kill_switch_decision(),
                 "checks": {
                     "kill_switch_dry_run_met": True,
                     "order_position_reconciliation_met": True,
@@ -7741,6 +7971,13 @@ def test_live_readiness_gate_report_accepts_runtime_safety_evidence_artifact(tmp
                     "live_trade_ledger_met": True,
                     "runtime_explainability_met": True,
                     "drift_guard_met": True,
+                    "market_data_fresh_met": True,
+                    "account_snapshot_fresh_met": True,
+                    "clock_skew_within_limit_met": True,
+                    "max_daily_loss_within_limit_met": True,
+                    "max_order_count_within_limit_met": True,
+                    "max_notional_within_limit_met": True,
+                    "exchange_account_state_unambiguous_met": True,
                 },
                 "summary": {"ledger_rows": 1, "max_drift_bps": 3.0},
             }
@@ -7942,6 +8179,13 @@ def test_live_readiness_gate_report_rejects_invalid_producer_artifact_schema_and
                     "live_trade_ledger_met": True,
                     "runtime_explainability_met": True,
                     "drift_guard_met": True,
+                    "market_data_fresh_met": True,
+                    "account_snapshot_fresh_met": True,
+                    "clock_skew_within_limit_met": True,
+                    "max_daily_loss_within_limit_met": True,
+                    "max_order_count_within_limit_met": True,
+                    "max_notional_within_limit_met": True,
+                    "exchange_account_state_unambiguous_met": True,
                 },
                 "summary": {"ledger_rows": 1},
             }
@@ -14712,6 +14956,13 @@ def test_live_readiness_markdown_uses_producer_check_names() -> None:
                     "live_trade_ledger_met": True,
                     "runtime_explainability_met": True,
                     "drift_guard_met": True,
+                    "market_data_fresh_met": True,
+                    "account_snapshot_fresh_met": True,
+                    "clock_skew_within_limit_met": True,
+                    "max_daily_loss_within_limit_met": True,
+                    "max_order_count_within_limit_met": True,
+                    "max_notional_within_limit_met": True,
+                    "exchange_account_state_unambiguous_met": True,
                 },
                 "artifacts": [],
             },
@@ -14756,6 +15007,13 @@ def test_live_readiness_rejects_padded_runtime_evidence_source_type(tmp_path: Pa
                     "live_trade_ledger_met": True,
                     "runtime_explainability_met": True,
                     "drift_guard_met": True,
+                    "market_data_fresh_met": True,
+                    "account_snapshot_fresh_met": True,
+                    "clock_skew_within_limit_met": True,
+                    "max_daily_loss_within_limit_met": True,
+                    "max_order_count_within_limit_met": True,
+                    "max_notional_within_limit_met": True,
+                    "exchange_account_state_unambiguous_met": True,
                 },
             }
         ),
@@ -14876,16 +15134,7 @@ def test_live_readiness_rejects_string_runtime_summary_event_count(tmp_path: Pat
     (chunk / "trades.json").write_text(json.dumps({"trades": []}), encoding="utf-8")
     gate = build_runtime_safety_gate(
         {
-            "evidence_source": {"type": "paper_runtime_logs", "run_id": "runtime-1"},
-            "events": [
-                {"event_type": "kill_switch_dry_run", "passed": True},
-                {"event_type": "order_position_reconciliation", "passed": True},
-                {"event_type": "runtime_fail_closed", "passed": True},
-                {"event_type": "live_dust_before_scale", "passed": True},
-                {"event_type": "live_trade_ledger", "passed": True},
-                {"event_type": "runtime_explainability", "passed": True},
-                {"event_type": "drift_guard", "passed": True},
-            ],
+            **_runtime_safety_manifest(),
         }
     )
     gate["summary"]["event_count"] = "7"
@@ -14905,16 +15154,7 @@ def test_live_readiness_rejects_negative_runtime_summary_event_count(tmp_path: P
     (chunk / "trades.json").write_text(json.dumps({"trades": []}), encoding="utf-8")
     gate = build_runtime_safety_gate(
         {
-            "evidence_source": {"type": "paper_runtime_logs", "run_id": "runtime-1"},
-            "events": [
-                {"event_type": "kill_switch_dry_run", "passed": True},
-                {"event_type": "order_position_reconciliation", "passed": True},
-                {"event_type": "runtime_fail_closed", "passed": True},
-                {"event_type": "live_dust_before_scale", "passed": True},
-                {"event_type": "live_trade_ledger", "passed": True},
-                {"event_type": "runtime_explainability", "passed": True},
-                {"event_type": "drift_guard", "passed": True},
-            ],
+            **_runtime_safety_manifest(),
         }
     )
     gate["summary"]["event_count"] = -1
@@ -14935,16 +15175,7 @@ def test_live_readiness_preserves_runtime_reason_taxonomy_in_artifact_summary(tm
     (chunk / "trades.json").write_text(json.dumps({"trades": []}), encoding="utf-8")
     gate = build_runtime_safety_gate(
         {
-            "evidence_source": {"type": "paper_runtime_logs", "run_id": "runtime-1"},
-            "events": [
-                {"event_type": "kill_switch_dry_run", "passed": True},
-                {"event_type": "order_position_reconciliation", "passed": True},
-                {"event_type": "runtime_fail_closed", "passed": True},
-                {"event_type": "live_dust_before_scale", "passed": True},
-                {"event_type": "live_trade_ledger", "passed": True},
-                {"event_type": "runtime_explainability", "passed": True},
-                {"event_type": "drift_guard", "passed": True},
-            ],
+            **_runtime_safety_manifest(),
             "reasons": [
                 {
                     "code": "symbol_not_allowed",
@@ -15065,16 +15296,7 @@ def test_live_readiness_rejects_noncanonical_runtime_reason_taxonomy(
     (chunk / "trades.json").write_text(json.dumps({"trades": []}), encoding="utf-8")
     gate = build_runtime_safety_gate(
         {
-            "evidence_source": {"type": "paper_runtime_logs", "run_id": "runtime-1"},
-            "events": [
-                {"event_type": "kill_switch_dry_run", "passed": True},
-                {"event_type": "order_position_reconciliation", "passed": True},
-                {"event_type": "runtime_fail_closed", "passed": True},
-                {"event_type": "live_dust_before_scale", "passed": True},
-                {"event_type": "live_trade_ledger", "passed": True},
-                {"event_type": "runtime_explainability", "passed": True},
-                {"event_type": "drift_guard", "passed": True},
-            ],
+            **_runtime_safety_manifest(),
             "reasons": [
                 {
                     "code": "symbol_not_allowed",
@@ -15103,16 +15325,7 @@ def test_live_readiness_rejects_runtime_reasons_container_object(tmp_path: Path)
     (chunk / "trades.json").write_text(json.dumps({"trades": []}), encoding="utf-8")
     gate = build_runtime_safety_gate(
         {
-            "evidence_source": {"type": "paper_runtime_logs", "run_id": "runtime-1"},
-            "events": [
-                {"event_type": "kill_switch_dry_run", "passed": True},
-                {"event_type": "order_position_reconciliation", "passed": True},
-                {"event_type": "runtime_fail_closed", "passed": True},
-                {"event_type": "live_dust_before_scale", "passed": True},
-                {"event_type": "live_trade_ledger", "passed": True},
-                {"event_type": "runtime_explainability", "passed": True},
-                {"event_type": "drift_guard", "passed": True},
-            ],
+            **_runtime_safety_manifest(),
             "reasons": [
                 {
                     "code": "symbol_not_allowed",
@@ -15141,16 +15354,7 @@ def test_live_readiness_rejects_runtime_reason_scalar_entry(tmp_path: Path) -> N
     (chunk / "trades.json").write_text(json.dumps({"trades": []}), encoding="utf-8")
     gate = build_runtime_safety_gate(
         {
-            "evidence_source": {"type": "paper_runtime_logs", "run_id": "runtime-1"},
-            "events": [
-                {"event_type": "kill_switch_dry_run", "passed": True},
-                {"event_type": "order_position_reconciliation", "passed": True},
-                {"event_type": "runtime_fail_closed", "passed": True},
-                {"event_type": "live_dust_before_scale", "passed": True},
-                {"event_type": "live_trade_ledger", "passed": True},
-                {"event_type": "runtime_explainability", "passed": True},
-                {"event_type": "drift_guard", "passed": True},
-            ],
+            **_runtime_safety_manifest(),
             "reasons": [
                 {
                     "code": "symbol_not_allowed",
@@ -15179,16 +15383,7 @@ def test_live_readiness_preserves_identical_duplicate_runtime_reason_counts(tmp_
     (chunk / "trades.json").write_text(json.dumps({"trades": []}), encoding="utf-8")
     gate = build_runtime_safety_gate(
         {
-            "evidence_source": {"type": "paper_runtime_logs", "run_id": "runtime-1"},
-            "events": [
-                {"event_type": "kill_switch_dry_run", "passed": True},
-                {"event_type": "order_position_reconciliation", "passed": True},
-                {"event_type": "runtime_fail_closed", "passed": True},
-                {"event_type": "live_dust_before_scale", "passed": True},
-                {"event_type": "live_trade_ledger", "passed": True},
-                {"event_type": "runtime_explainability", "passed": True},
-                {"event_type": "drift_guard", "passed": True},
-            ],
+            **_runtime_safety_manifest(),
             "reasons": [
                 {
                     "code": "symbol_not_allowed",
@@ -15234,16 +15429,7 @@ def test_live_readiness_rejects_runtime_reason_summary_mismatch(
     (chunk / "trades.json").write_text(json.dumps({"trades": []}), encoding="utf-8")
     gate = build_runtime_safety_gate(
         {
-            "evidence_source": {"type": "paper_runtime_logs", "run_id": "runtime-1"},
-            "events": [
-                {"event_type": "kill_switch_dry_run", "passed": True},
-                {"event_type": "order_position_reconciliation", "passed": True},
-                {"event_type": "runtime_fail_closed", "passed": True},
-                {"event_type": "live_dust_before_scale", "passed": True},
-                {"event_type": "live_trade_ledger", "passed": True},
-                {"event_type": "runtime_explainability", "passed": True},
-                {"event_type": "drift_guard", "passed": True},
-            ],
+            **_runtime_safety_manifest(),
             "reasons": [
                 {
                     "code": "symbol_not_allowed",
@@ -15272,16 +15458,7 @@ def test_live_readiness_rejects_unsafe_runtime_counts_by_type_identifier(tmp_pat
     (chunk / "trades.json").write_text(json.dumps({"trades": []}), encoding="utf-8")
     gate = build_runtime_safety_gate(
         {
-            "evidence_source": {"type": "paper_runtime_logs", "run_id": "runtime-1"},
-            "events": [
-                {"event_type": "kill_switch_dry_run", "passed": True},
-                {"event_type": "order_position_reconciliation", "passed": True},
-                {"event_type": "runtime_fail_closed", "passed": True},
-                {"event_type": "live_dust_before_scale", "passed": True},
-                {"event_type": "live_trade_ledger", "passed": True},
-                {"event_type": "runtime_explainability", "passed": True},
-                {"event_type": "drift_guard", "passed": True},
-            ],
+            **_runtime_safety_manifest(),
         }
     )
     gate["summary"]["counts_by_type"] = {"runtime fail closed": 1}
