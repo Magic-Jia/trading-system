@@ -611,7 +611,7 @@ def _instrument_positive_float(value: object, *, field: str, path: Path) -> floa
     return number
 
 
-def _instrument_rows(bundle_path: Path) -> tuple[InstrumentSnapshotRow, ...]:
+def _instrument_rows(bundle_path: Path, *, decision_timestamp: datetime) -> tuple[InstrumentSnapshotRow, ...]:
     path = bundle_path / _INSTRUMENT_SNAPSHOT_FILENAME
     if not path.exists():
         return ()
@@ -619,6 +619,12 @@ def _instrument_rows(bundle_path: Path) -> tuple[InstrumentSnapshotRow, ...]:
     payload = _load_json(path)
     if not isinstance(payload, dict):
         raise ValueError(f"dataset bundle has invalid instrument snapshot: {path}")
+    _payload_as_of_at_or_before_decision(
+        payload,
+        file_name=_INSTRUMENT_SNAPSHOT_FILENAME,
+        decision_timestamp=decision_timestamp,
+        path=path,
+    )
     raw_rows = payload.get("rows", [])
     if not isinstance(raw_rows, list):
         raise ValueError(f"dataset bundle has invalid instrument rows: {path}")
@@ -695,6 +701,31 @@ def _metadata_metric_map(metadata: dict, key: str) -> dict[str, float]:
             raise ValueError(f"metadata.{key}.{raw_key} must be a finite numeric value")
         result[raw_key] = number
     return result
+
+
+def _payload_as_of_at_or_before_decision(
+    payload: dict,
+    *,
+    file_name: str,
+    decision_timestamp: datetime,
+    path: Path,
+) -> None:
+    if "as_of" not in payload:
+        return
+    as_of = payload["as_of"]
+    if not isinstance(as_of, str) or not as_of or as_of != as_of.strip():
+        raise ValueError(f"{file_name} as_of must be a canonical UTC ISO timestamp: {path}")
+    try:
+        parsed_as_of = _parse_timestamp(as_of)
+    except ValueError as exc:
+        raise ValueError(f"{file_name} as_of must be a canonical UTC ISO timestamp: {path}") from exc
+    if _canonical_utc_timestamp(parsed_as_of) != as_of:
+        raise ValueError(f"{file_name} as_of must be a canonical UTC ISO timestamp: {path}")
+    if parsed_as_of > decision_timestamp:
+        raise ValueError(
+            f"{file_name} as_of must be at or before metadata.timestamp: "
+            f"as_of={as_of} metadata.timestamp={_canonical_utc_timestamp(decision_timestamp)} path={path}"
+        )
 
 
 def _account_snapshot(account: dict, *, path: Path) -> dict:
@@ -1706,13 +1737,26 @@ def _row_from_bundle(bundle_path: Path, *, fallback_account: dict | None) -> Dat
             raise FileNotFoundError(f"dataset bundle missing required file: {file_path}")
 
     metadata = _load_json(bundle_path / "metadata.json")
+    decision_timestamp = _parse_timestamp(_metadata_canonical_string(metadata, "timestamp"))
     market = _load_json(bundle_path / "market_context.json")
     if not isinstance(market, dict):
         raise ValueError(f"dataset bundle has invalid market context: {bundle_path / 'market_context.json'}")
+    _payload_as_of_at_or_before_decision(
+        market,
+        file_name="market_context.json",
+        decision_timestamp=decision_timestamp,
+        path=bundle_path / "market_context.json",
+    )
     market_context = dict(market)
     derivatives_payload = _load_json(bundle_path / "derivatives_snapshot.json")
     if not isinstance(derivatives_payload, dict):
         raise ValueError(f"dataset bundle has invalid derivatives snapshot: {bundle_path / 'derivatives_snapshot.json'}")
+    _payload_as_of_at_or_before_decision(
+        derivatives_payload,
+        file_name="derivatives_snapshot.json",
+        decision_timestamp=decision_timestamp,
+        path=bundle_path / "derivatives_snapshot.json",
+    )
     derivatives = derivatives_payload.get("rows", [])
     if not isinstance(derivatives, list):
         raise ValueError(f"dataset bundle has invalid derivatives rows: {bundle_path / 'derivatives_snapshot.json'}")
@@ -1736,7 +1780,7 @@ def _row_from_bundle(bundle_path: Path, *, fallback_account: dict | None) -> Dat
         account,
         path=account_path if account_path.exists() else bundle_path.parent / _BASELINE_ACCOUNT_FILENAME,
     )
-    instrument_rows = _instrument_rows(bundle_path)
+    instrument_rows = _instrument_rows(bundle_path, decision_timestamp=decision_timestamp)
 
     forward_returns = _metadata_metric_map(metadata, "forward_returns")
     forward_drawdowns = _metadata_metric_map(metadata, "forward_drawdowns")
@@ -1746,7 +1790,7 @@ def _row_from_bundle(bundle_path: Path, *, fallback_account: dict | None) -> Dat
         if key not in {"timestamp", "run_id", "forward_returns", "forward_drawdowns"}
     }
     return DatasetSnapshotRow(
-        timestamp=_parse_timestamp(_metadata_canonical_string(metadata, "timestamp")),
+        timestamp=decision_timestamp,
         run_id=_metadata_canonical_string(metadata, "run_id"),
         market=market_context,
         derivatives=derivative_rows,

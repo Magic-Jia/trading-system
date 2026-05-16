@@ -3163,6 +3163,76 @@ def test_load_historical_dataset_accepts_valid_open_order_lifecycle(
 
 
 @pytest.mark.parametrize(
+    ("filename", "payload", "match"),
+    [
+        (
+            "market_context.json",
+            {"as_of": "2026-03-10T00:00:01Z", "symbols": {"BTCUSDT": {}}},
+            r"market_context\.json as_of must be at or before metadata\.timestamp",
+        ),
+        (
+            "derivatives_snapshot.json",
+            {"as_of": "2026-03-10T00:00:01Z", "rows": []},
+            r"derivatives_snapshot\.json as_of must be at or before metadata\.timestamp",
+        ),
+        (
+            "instrument_snapshot.json",
+            {
+                "as_of": "2026-03-10T00:00:01Z",
+                "schema_version": "imported_instrument_snapshot.v1",
+                "rows": [],
+            },
+            r"instrument_snapshot\.json as_of must be at or before metadata\.timestamp",
+        ),
+    ],
+)
+def test_load_historical_dataset_rejects_present_evidence_after_decision_timestamp(
+    tmp_path: Path, filename: str, payload: dict, match: str
+) -> None:
+    dataset_root = _write_minimal_dataset_bundle(tmp_path, {"equity": 100000.0})
+    bundle = next(path for path in dataset_root.iterdir() if path.is_dir())
+    (bundle / filename).write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match=match):
+        load_historical_dataset(dataset_root)
+
+
+@pytest.mark.parametrize(
+    ("filename", "payload", "match"),
+    [
+        (
+            "market_context.json",
+            {"as_of": "2026-03-10T00:00:00+00:00", "symbols": {"BTCUSDT": {}}},
+            r"market_context\.json as_of must be a canonical UTC ISO timestamp",
+        ),
+        (
+            "derivatives_snapshot.json",
+            {"as_of": " 2026-03-10T00:00:00Z", "rows": []},
+            r"derivatives_snapshot\.json as_of must be a canonical UTC ISO timestamp",
+        ),
+        (
+            "instrument_snapshot.json",
+            {
+                "as_of": True,
+                "schema_version": "imported_instrument_snapshot.v1",
+                "rows": [],
+            },
+            r"instrument_snapshot\.json as_of must be a canonical UTC ISO timestamp",
+        ),
+    ],
+)
+def test_load_historical_dataset_rejects_noncanonical_present_evidence_timestamps(
+    tmp_path: Path, filename: str, payload: dict, match: str
+) -> None:
+    dataset_root = _write_minimal_dataset_bundle(tmp_path, {"equity": 100000.0})
+    bundle = next(path for path in dataset_root.iterdir() if path.is_dir())
+    (bundle / filename).write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match=match):
+        load_historical_dataset(dataset_root)
+
+
+@pytest.mark.parametrize(
     ("field", "value"),
     [
         ("opened_at", 123),
