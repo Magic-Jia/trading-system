@@ -17,7 +17,11 @@ def _strict_record_payload(**overrides: object) -> dict[str, object]:
         "symbol": "BTCUSDT",
         "side": "buy",
         "intended_limit_price": 100.0,
-        "submitted_at": "2026-01-01T00:00:00+00:00",
+        "signal_at": "2026-01-01T00:00:00Z",
+        "decision_at": "2026-01-01T00:00:01Z",
+        "submitted_at": "2026-01-01T00:00:02Z",
+        "exchange_ack_at": "2026-01-01T00:00:03Z",
+        "first_fill_at": "2026-01-01T00:00:04Z",
         "status": "filled",
     }
     payload.update(overrides)
@@ -34,8 +38,12 @@ def test_writes_passive_and_taker_calibration_summary_from_jsonl(tmp_path: Path)
                         "symbol": "BTCUSDT",
                         "side": "buy",
                         "intended_limit_price": 100.0,
-                        "submitted_at": "2026-01-01T00:00:00+00:00",
-                        "first_fill_at": "2026-01-01T00:00:02+00:00",
+                        "signal_at": "2026-01-01T00:00:00Z",
+                        "decision_at": "2026-01-01T00:00:01Z",
+                        "submitted_at": "2026-01-01T00:00:02Z",
+                        "exchange_ack_at": "2026-01-01T00:00:03Z",
+                        "first_fill_at": "2026-01-01T00:00:04Z",
+                        "last_fill_at": "2026-01-01T00:00:05Z",
                         "requested_qty": 1.0,
                         "filled_qty": 1.0,
                         "filled_notional": 100.0,
@@ -51,8 +59,12 @@ def test_writes_passive_and_taker_calibration_summary_from_jsonl(tmp_path: Path)
                         "symbol": "ETHUSDT",
                         "side": "sell",
                         "intended_limit_price": 50.0,
-                        "submitted_at": "2026-01-01T00:00:00+00:00",
-                        "first_fill_at": "2026-01-01T00:00:01+00:00",
+                        "signal_at": "2026-01-01T00:00:00Z",
+                        "decision_at": "2026-01-01T00:00:01Z",
+                        "submitted_at": "2026-01-01T00:00:02Z",
+                        "exchange_ack_at": "2026-01-01T00:00:03Z",
+                        "first_fill_at": "2026-01-01T00:00:04Z",
+                        "last_fill_at": "2026-01-01T00:00:04Z",
                         "requested_qty": 2.0,
                         "filled_qty": 2.0,
                         "filled_notional": 99.8,
@@ -67,11 +79,15 @@ def test_writes_passive_and_taker_calibration_summary_from_jsonl(tmp_path: Path)
                         "symbol": "BTCUSDT",
                         "side": "buy",
                         "intended_limit_price": 99.0,
-                        "submitted_at": "2026-01-01T00:00:00+00:00",
+                        "signal_at": "2026-01-01T00:00:00Z",
+                        "decision_at": "2026-01-01T00:00:01Z",
+                        "submitted_at": "2026-01-01T00:00:02Z",
+                        "exchange_ack_at": "2026-01-01T00:00:03Z",
                         "requested_qty": 1.0,
                         "filled_qty": 0.0,
                         "status": "expired",
                         "maker_taker": "maker",
+                        "cancel_ack_at": "2026-01-01T00:00:10Z",
                     }
                 ),
             ]
@@ -91,6 +107,15 @@ def test_writes_passive_and_taker_calibration_summary_from_jsonl(tmp_path: Path)
     assert summary["by_maker_taker"]["taker"]["attempt_count"] == 1
     assert summary["taker_slippage"]["sample_count"] == 1
     assert summary["taker_slippage"]["median_slippage_bps"] == 4.0
+    assert summary["records"][0]["lifecycle_timestamps"] == {
+        "signal_at": "2026-01-01T00:00:00Z",
+        "decision_at": "2026-01-01T00:00:01Z",
+        "submitted_at": "2026-01-01T00:00:02Z",
+        "exchange_ack_at": "2026-01-01T00:00:03Z",
+        "first_fill_at": "2026-01-01T00:00:04Z",
+        "last_fill_at": "2026-01-01T00:00:05Z",
+        "cancel_ack_at": None,
+    }
 
     output = write_calibration_summary(source, tmp_path / "out", evidence_source={"type": "synthetic_fixture"})
     assert output == tmp_path / "out" / "passive_order_calibration_summary.json"
@@ -115,7 +140,11 @@ def test_rejects_boolean_intended_limit_price(tmp_path: Path) -> None:
                 "symbol": "BTCUSDT",
                 "side": "buy",
                 "intended_limit_price": True,
-                "submitted_at": "2026-01-01T00:00:00+00:00",
+                "signal_at": "2026-01-01T00:00:00Z",
+                "decision_at": "2026-01-01T00:00:01Z",
+                "submitted_at": "2026-01-01T00:00:02Z",
+                "exchange_ack_at": "2026-01-01T00:00:03Z",
+                "first_fill_at": "2026-01-01T00:00:04Z",
                 "status": "filled",
             }
         )
@@ -136,7 +165,11 @@ def test_rejects_string_intended_limit_price(tmp_path: Path) -> None:
                 "symbol": "BTCUSDT",
                 "side": "buy",
                 "intended_limit_price": "100.0",
-                "submitted_at": "2026-01-01T00:00:00+00:00",
+                "signal_at": "2026-01-01T00:00:00Z",
+                "decision_at": "2026-01-01T00:00:01Z",
+                "submitted_at": "2026-01-01T00:00:02Z",
+                "exchange_ack_at": "2026-01-01T00:00:03Z",
+                "first_fill_at": "2026-01-01T00:00:04Z",
                 "status": "filled",
             }
         )
@@ -157,7 +190,11 @@ def test_rejects_boolean_optional_numeric_fields(tmp_path: Path) -> None:
                 "symbol": "BTCUSDT",
                 "side": "buy",
                 "intended_limit_price": 100.0,
-                "submitted_at": "2026-01-01T00:00:00+00:00",
+                "signal_at": "2026-01-01T00:00:00Z",
+                "decision_at": "2026-01-01T00:00:01Z",
+                "submitted_at": "2026-01-01T00:00:02Z",
+                "exchange_ack_at": "2026-01-01T00:00:03Z",
+                "first_fill_at": "2026-01-01T00:00:04Z",
                 "fees": False,
                 "status": "filled",
             }
@@ -179,7 +216,11 @@ def test_rejects_string_fees_before_calibration_load(tmp_path: Path) -> None:
                 "symbol": "BTCUSDT",
                 "side": "buy",
                 "intended_limit_price": 100.0,
-                "submitted_at": "2026-01-01T00:00:00+00:00",
+                "signal_at": "2026-01-01T00:00:00Z",
+                "decision_at": "2026-01-01T00:00:01Z",
+                "submitted_at": "2026-01-01T00:00:02Z",
+                "exchange_ack_at": "2026-01-01T00:00:03Z",
+                "first_fill_at": "2026-01-01T00:00:04Z",
                 "fees": "0.01",
                 "status": "filled",
             }
@@ -270,44 +311,108 @@ def test_rejects_boolean_commission_before_calibration_load(tmp_path: Path) -> N
 
 def test_rejects_naive_submitted_at_before_calibration_load(tmp_path: Path) -> None:
     source = tmp_path / "dust_orders.jsonl"
-    source.write_text(
-        json.dumps(
-            {
-                "symbol": "BTCUSDT",
-                "side": "buy",
-                "intended_limit_price": 100.0,
-                "submitted_at": "2026-01-01T00:00:00",
-                "status": "filled",
-            }
-        )
-        + "\n"
-    )
+    source.write_text(json.dumps(_strict_record_payload(submitted_at="2026-01-01T00:00:00")) + "\n")
 
     import pytest
 
-    with pytest.raises(ValueError, match="calibration record submitted_at must include a timezone"):
+    with pytest.raises(ValueError, match="calibration record submitted_at must be a canonical UTC timestamp"):
+        load_calibration_records(source)
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("signal_at", None, "calibration record missing signal_at"),
+        ("decision_at", None, "calibration record missing decision_at"),
+        ("submitted_at", None, "calibration record missing submitted_at"),
+        ("exchange_ack_at", None, "calibration record missing exchange_ack_at"),
+        ("signal_at", True, "calibration record signal_at must be a canonical UTC timestamp"),
+        ("decision_at", "2026-01-01T00:00:01+00:00", "calibration record decision_at must be a canonical UTC timestamp"),
+        ("submitted_at", " 2026-01-01T00:00:02Z ", "calibration record submitted_at must be a canonical UTC timestamp"),
+        ("exchange_ack_at", "2026-01-01T00:00:03", "calibration record exchange_ack_at must be a canonical UTC timestamp"),
+    ],
+)
+def test_rejects_missing_or_noncanonical_required_lifecycle_timestamps_before_calibration_load(
+    tmp_path: Path, field: str, value: object, message: str
+) -> None:
+    source = tmp_path / "dust_orders.jsonl"
+    payload = _strict_record_payload()
+    if value is None:
+        payload.pop(field)
+    else:
+        payload[field] = value
+    source.write_text(json.dumps(payload) + "\n")
+
+    with pytest.raises(ValueError, match=message):
+        load_calibration_records(source)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("first_fill_at", "2026-01-01T00:00:04+00:00"),
+        ("last_fill_at", "2026-01-01T00:00:05+00:00"),
+        ("cancel_ack_at", "2026-01-01T00:00:06+00:00"),
+    ],
+)
+def test_rejects_noncanonical_optional_lifecycle_timestamps_before_calibration_load(
+    tmp_path: Path, field: str, value: object
+) -> None:
+    source = tmp_path / "dust_orders.jsonl"
+    source.write_text(json.dumps(_strict_record_payload(**{field: value})) + "\n")
+
+    with pytest.raises(ValueError, match=f"calibration record {field} must be a canonical UTC timestamp"):
+        load_calibration_records(source)
+
+
+@pytest.mark.parametrize(
+    ("overrides", "message"),
+    [
+        ({"decision_at": "2025-12-31T23:59:59Z"}, "calibration record decision_at must be at or after signal_at"),
+        ({"submitted_at": "2026-01-01T00:00:00Z"}, "calibration record submitted_at must be after decision_at"),
+        ({"exchange_ack_at": "2026-01-01T00:00:01Z"}, "calibration record exchange_ack_at must be at or after submitted_at"),
+        ({"first_fill_at": "2026-01-01T00:00:02Z"}, "calibration record first_fill_at must be at or after exchange_ack_at"),
+        (
+            {"first_fill_at": "2026-01-01T00:00:04Z", "cancel_ack_at": "2026-01-01T00:00:04Z"},
+            "calibration record cancel_ack_at must be after last fill timestamp",
+        ),
+    ],
+)
+def test_rejects_non_monotonic_lifecycle_timestamps_before_calibration_load(
+    tmp_path: Path, overrides: dict[str, object], message: str
+) -> None:
+    source = tmp_path / "dust_orders.jsonl"
+    source.write_text(json.dumps(_strict_record_payload(**overrides)) + "\n")
+
+    with pytest.raises(ValueError, match=message):
+        load_calibration_records(source)
+
+
+def test_rejects_cancel_ack_without_cancelled_terminal_state_before_calibration_load(tmp_path: Path) -> None:
+    source = tmp_path / "dust_orders.jsonl"
+    source.write_text(json.dumps(_strict_record_payload(cancel_ack_at="2026-01-01T00:00:10Z")) + "\n")
+
+    with pytest.raises(ValueError, match="calibration record cancel_ack_at requires a cancelled, expired, or rejected status"):
+        load_calibration_records(source)
+
+
+def test_rejects_filled_status_without_fill_timestamps_before_calibration_load(tmp_path: Path) -> None:
+    source = tmp_path / "dust_orders.jsonl"
+    payload = _strict_record_payload()
+    payload.pop("first_fill_at")
+    source.write_text(json.dumps(payload) + "\n")
+
+    with pytest.raises(ValueError, match="calibration record filled status requires first_fill_at"):
         load_calibration_records(source)
 
 
 def test_rejects_first_fill_at_before_submitted_at_before_calibration_load(tmp_path: Path) -> None:
     source = tmp_path / "dust_orders.jsonl"
-    source.write_text(
-        json.dumps(
-            {
-                "symbol": "BTCUSDT",
-                "side": "buy",
-                "intended_limit_price": 100.0,
-                "submitted_at": "2026-01-01T00:00:05+00:00",
-                "first_fill_at": "2026-01-01T00:00:04+00:00",
-                "status": "filled",
-            }
-        )
-        + "\n"
-    )
+    source.write_text(json.dumps(_strict_record_payload(first_fill_at="2026-01-01T00:00:02Z")) + "\n")
 
     import pytest
 
-    with pytest.raises(ValueError, match="calibration record first_fill_at must be at or after submitted_at"):
+    with pytest.raises(ValueError, match="calibration record first_fill_at must be at or after exchange_ack_at"):
         load_calibration_records(source)
 
 
@@ -339,15 +444,16 @@ def test_rejects_last_fill_at_before_submitted_at_before_calibration_load(tmp_pa
     source = tmp_path / "dust_orders.jsonl"
     source.write_text(
         json.dumps(
-            _strict_record_payload(
-                submitted_at="2026-01-01T00:00:05+00:00",
-                last_fill_at="2026-01-01T00:00:04+00:00",
-            )
+                _strict_record_payload(
+                    submitted_at="2026-01-01T00:00:05Z",
+                    exchange_ack_at="2026-01-01T00:00:05Z",
+                    last_fill_at="2026-01-01T00:00:04Z",
+                )
         )
         + "\n"
     )
 
-    with pytest.raises(ValueError, match="calibration record last_fill_at must be at or after submitted_at"):
+    with pytest.raises(ValueError, match="calibration record first_fill_at must be at or after exchange_ack_at"):
         load_calibration_records(source)
 
 
@@ -355,10 +461,10 @@ def test_rejects_last_fill_at_before_first_fill_at_before_calibration_load(tmp_p
     source = tmp_path / "dust_orders.jsonl"
     source.write_text(
         json.dumps(
-            _strict_record_payload(
-                first_fill_at="2026-01-01T00:00:05+00:00",
-                last_fill_at="2026-01-01T00:00:04+00:00",
-            )
+                _strict_record_payload(
+                    first_fill_at="2026-01-01T00:00:05Z",
+                    last_fill_at="2026-01-01T00:00:04Z",
+                )
         )
         + "\n"
     )

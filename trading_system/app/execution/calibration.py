@@ -34,9 +34,13 @@ class PassiveOrderCalibrationRecord:
     symbol: str
     side: str
     intended_limit_price: float
+    signal_at: datetime
+    decision_at: datetime
     submitted_at: datetime
+    exchange_ack_at: datetime
     first_fill_at: datetime | None = None
     last_fill_at: datetime | None = None
+    cancel_ack_at: datetime | None = None
     requested_qty: float | None = None
     requested_notional: float | None = None
     filled_qty: float | None = None
@@ -52,15 +56,27 @@ class PassiveOrderCalibrationRecord:
     setup_type: str | None = None
 
 
-def _parse_datetime(value: Any, *, field_name: str) -> datetime | None:
+_LIFECYCLE_TIMESTAMP_FIELDS = (
+    "signal_at",
+    "decision_at",
+    "submitted_at",
+    "exchange_ack_at",
+    "first_fill_at",
+    "last_fill_at",
+    "cancel_ack_at",
+)
+_CANCEL_TERMINAL_STATUSES = {"cancelled", "canceled", "expired", "rejected"}
+_FILLED_STATUSES = {"filled", "partially_filled", "partial"}
+
+
+def _parse_lifecycle_datetime(value: Any, *, field_name: str, required: bool = False) -> datetime | None:
     if value is None or value == "":
+        if required:
+            raise ValueError(f"calibration record missing {field_name}")
         return None
-    if isinstance(value, datetime):
-        return value
-    parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-    if parsed.tzinfo is None or parsed.utcoffset() is None:
-        raise ValueError(f"calibration record {field_name} must include a timezone")
-    return parsed.astimezone(timezone.utc)
+    if type(value) is not str or not _is_canonical_utc_timestamp(value):
+        raise ValueError(f"calibration record {field_name} must be a canonical UTC timestamp")
+    return datetime.fromisoformat(value[:-1] + "+00:00")
 
 
 def _float_or_none(field: str, value: Any) -> float | None:
@@ -174,17 +190,41 @@ def _maker_taker_or_none(value: Any) -> str | None:
 def _record_from_mapping(row: Mapping[str, Any]) -> PassiveOrderCalibrationRecord:
     _validate_fee_asset_fields(row)
     _validate_commission_fields(row)
-    submitted_at = _parse_datetime(row.get("submitted_at"), field_name="submitted_at")
-    if submitted_at is None:
-        raise ValueError("calibration record missing submitted_at")
-    first_fill_at = _parse_datetime(row.get("first_fill_at"), field_name="first_fill_at")
-    if first_fill_at is not None and first_fill_at < submitted_at:
-        raise ValueError("calibration record first_fill_at must be at or after submitted_at")
-    last_fill_at = _parse_datetime(row.get("last_fill_at"), field_name="last_fill_at")
-    if last_fill_at is not None and last_fill_at < submitted_at:
-        raise ValueError("calibration record last_fill_at must be at or after submitted_at")
+    signal_at = _parse_lifecycle_datetime(row.get("signal_at"), field_name="signal_at", required=True)
+    decision_at = _parse_lifecycle_datetime(row.get("decision_at"), field_name="decision_at", required=True)
+    submitted_at = _parse_lifecycle_datetime(row.get("submitted_at"), field_name="submitted_at", required=True)
+    exchange_ack_at = _parse_lifecycle_datetime(
+        row.get("exchange_ack_at"), field_name="exchange_ack_at", required=True
+    )
+    first_fill_at = _parse_lifecycle_datetime(row.get("first_fill_at"), field_name="first_fill_at")
+    last_fill_at = _parse_lifecycle_datetime(row.get("last_fill_at"), field_name="last_fill_at")
+    cancel_ack_at = _parse_lifecycle_datetime(row.get("cancel_ack_at"), field_name="cancel_ack_at")
+
+    assert signal_at is not None
+    assert decision_at is not None
+    assert submitted_at is not None
+    assert exchange_ack_at is not None
+    if decision_at < signal_at:
+        raise ValueError("calibration record decision_at must be at or after signal_at")
+    if submitted_at <= decision_at:
+        raise ValueError("calibration record submitted_at must be after decision_at")
+    if exchange_ack_at < submitted_at:
+        raise ValueError("calibration record exchange_ack_at must be at or after submitted_at")
+    if first_fill_at is not None and first_fill_at < exchange_ack_at:
+        raise ValueError("calibration record first_fill_at must be at or after exchange_ack_at")
+    if last_fill_at is not None and last_fill_at < exchange_ack_at:
+        raise ValueError("calibration record last_fill_at must be at or after exchange_ack_at")
     if last_fill_at is not None and first_fill_at is not None and last_fill_at < first_fill_at:
         raise ValueError("calibration record last_fill_at must be at or after first_fill_at")
+    status = _canonical_lower_token_or_none("status", row.get("status")) or ""
+    if status in _FILLED_STATUSES and first_fill_at is None:
+        raise ValueError("calibration record filled status requires first_fill_at")
+    if cancel_ack_at is not None:
+        last_lifecycle_fill_at = last_fill_at or first_fill_at
+        if last_lifecycle_fill_at is not None and cancel_ack_at <= last_lifecycle_fill_at:
+            raise ValueError("calibration record cancel_ack_at must be after last fill timestamp")
+        if status not in _CANCEL_TERMINAL_STATUSES:
+            raise ValueError("calibration record cancel_ack_at requires a cancelled, expired, or rejected status")
     return PassiveOrderCalibrationRecord(
         symbol=_required_symbol(row),
         side=_required_side(row),
@@ -194,14 +234,18 @@ def _record_from_mapping(row: Mapping[str, Any]) -> PassiveOrderCalibrationRecor
             "limit_price",
             field_name="intended_limit_price",
         ),
+        signal_at=signal_at,
+        decision_at=decision_at,
         submitted_at=submitted_at,
+        exchange_ack_at=exchange_ack_at,
         first_fill_at=first_fill_at,
         last_fill_at=last_fill_at,
+        cancel_ack_at=cancel_ack_at,
         requested_qty=_float_or_none("requested_qty", row.get("requested_qty")),
         requested_notional=_float_or_none("requested_notional", row.get("requested_notional")),
         filled_qty=_float_or_none("filled_qty", row.get("filled_qty")),
         filled_notional=_float_or_none("filled_notional", row.get("filled_notional")),
-        status=_canonical_lower_token_or_none("status", row.get("status")) or "",
+        status=status,
         maker_taker=_maker_taker_or_none(row.get("maker_taker")),
         fees=_fee_float_or_none("fees", row.get("fees")),
         slippage_bps=_float_or_none("slippage_bps", row.get("slippage_bps")),
@@ -412,10 +456,16 @@ def summarize_calibration_records(
 
 def _record_payload(record: PassiveOrderCalibrationRecord) -> dict[str, Any]:
     payload = asdict(record)
-    for key in ("submitted_at", "first_fill_at", "last_fill_at"):
+    lifecycle_timestamps: dict[str, str | None] = {}
+    for key in _LIFECYCLE_TIMESTAMP_FIELDS:
         value = payload.get(key)
         if isinstance(value, datetime):
-            payload[key] = value.isoformat()
+            canonical_value = value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+            payload[key] = canonical_value
+            lifecycle_timestamps[key] = canonical_value
+        else:
+            lifecycle_timestamps[key] = None
+    payload["lifecycle_timestamps"] = lifecycle_timestamps
     return payload
 
 
