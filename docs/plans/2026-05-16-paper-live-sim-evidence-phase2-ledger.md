@@ -64,3 +64,10 @@ Move from offline fail-closed contracts to operational evidence loops for simula
 - Collect or generate genuine execution calibration records from simulated live order/fill logs so TCA can move from `calibration_records_unavailable` hold to measured pass/fail.
 - If needed, persist operator acknowledgement/release workflow beyond JSON artifacts.
 - Add external feed cross-checks only when independent simulated/live feeds are available.
+
+
+## Phase 3 execution calibration records
+
+- `bdd663e5` wires valid `passive_order_calibration_records.jsonl` into scheduled generation so measured TCA replaces `calibration_records_unavailable`; stale unavailable markers no longer pollute measured paths; empty records without unavailable marker fail closed. Main exact: 1725 passed + diff-check.
+- `fa76863e` adds `generate_execution_calibration_records` to convert canonical simulated execution event chains into loader-compatible passive order calibration JSONL. It rejects malformed lifecycle stages, timestamp/identity mismatch, duplicate trade identity, bool/non-finite/coerced numerics, impossible fills, and ambiguous maker/taker. Focused main exact: 128 passed + diff-check.
+- End-to-end temp runtime verification: execution_log + paper_ledger -> 1 calibration record -> scheduled generation produced calibration summary, TCA report, and daily gate with no `calibration_records_unavailable` marker. Gate moved from unavailable-hold to measured decision; sample was rejected for measured slippage threshold (`tca_slippage_exceeds_threshold`), which is correct measured-path behavior rather than missing-evidence behavior.
