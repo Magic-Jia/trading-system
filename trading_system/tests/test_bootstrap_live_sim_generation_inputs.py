@@ -170,6 +170,45 @@ def _legacy_recommendation_only_trades() -> list[dict[str, object]]:
     ]
 
 
+def _execution_calibration_chain() -> list[dict[str, object]]:
+    base = {
+        "intent_id": "intent-1",
+        "order_id": "order-1",
+        "trade_id": "trade-1",
+        "position_id": "pos-1",
+        "symbol": "BTCUSDT",
+        "side": "buy",
+        "quantity": 0.1,
+        "price": 100.0,
+        "ref_price": 99.5,
+        "maker_taker": "maker",
+        "fee": 0.01,
+        "funding": 0.0,
+        "setup_type": "TREND",
+    }
+    return [
+        {**base, "stage": "signal", "status": "accepted", "occurred_at": "2026-05-16T10:00:00Z"},
+        {**base, "stage": "order_intent", "status": "created", "occurred_at": "2026-05-16T10:00:01Z"},
+        {**base, "stage": "risk_check", "status": "passed", "occurred_at": "2026-05-16T10:00:02Z"},
+        {**base, "stage": "submit", "status": "submitted", "occurred_at": "2026-05-16T10:00:03Z"},
+        {**base, "stage": "exchange_ack", "status": "acknowledged", "occurred_at": "2026-05-16T10:00:04Z"},
+        {**base, "stage": "fill", "status": "filled", "occurred_at": "2026-05-16T10:00:05Z"},
+        {**base, "stage": "position_reconcile", "status": "reconciled", "occurred_at": "2026-05-16T10:00:06Z"},
+    ]
+
+
+def _execution_ledger_event() -> dict[str, object]:
+    return {
+        "event_type": "paper_fill",
+        "recorded_at": "2026-05-16T10:00:05Z",
+        "intent_id": "intent-1",
+        "symbol": "BTCUSDT",
+        "order": {"intent_id": "intent-1", "symbol": "BTCUSDT", "side": "LONG", "qty": 0.1, "entry_price": 100.0},
+        "result": {"order_id": "order-1", "trade_id": "trade-1", "status": "FILLED", "qty": 0.1, "price": 100.0},
+        "position_update": {"symbol": "BTCUSDT", "side": "LONG", "qty": 0.1, "entry_price": 100.0},
+    }
+
+
 def _write_legacy_artifacts(root: Path) -> None:
     _write_json(root / "runtime_state.json", _legacy_state())
     _write_json(root / "account_snapshot.json", _legacy_account())
@@ -284,6 +323,35 @@ def test_bootstrap_legacy_recommendation_only_paper_trades_emit_missing_calibrat
     assert gate["reasons"] == ["calibration_records_unavailable", "insufficient_sample_size"]
     assert gate["inputs"]["tca"]["sample_size"] == 0
     assert gate["inputs"]["tca"]["availability_reason"] == "calibration_records_unavailable"
+
+
+def test_bootstrap_prefers_execution_lifecycle_calibration_over_recommendation_only_paper_trades(tmp_path: Path) -> None:
+    legacy_root = tmp_path / "legacy"
+    runtime_root = tmp_path / "runtime"
+    _write_legacy_artifacts(legacy_root)
+    _write_jsonl(legacy_root / "paper_trades.jsonl", _legacy_recommendation_only_trades())
+    _write_jsonl(legacy_root / "execution_log.jsonl", _execution_calibration_chain())
+    _write_jsonl(legacy_root / "paper_ledger.jsonl", [_execution_ledger_event()])
+    stale_unavailable = runtime_root / "paper" / "paper" / "optimization" / "calibration_records_unavailable.json"
+    _write_json(stale_unavailable, {"reason": "calibration_records_unavailable"})
+
+    result = bootstrap_live_sim_generation_inputs(
+        legacy_root=legacy_root,
+        mode="paper",
+        runtime_root=runtime_root,
+        runtime_env="paper",
+        generated_at="2026-05-16T10:01:00Z",
+        max_evidence_age_seconds=120,
+    )
+
+    paths = build_runtime_paths("paper", runtime_root=runtime_root, runtime_env="paper")
+    metadata = json.loads((paths.optimization_dir / "bootstrap_input_metadata.json").read_text())
+    records = (paths.optimization_dir / "passive_order_calibration_records.jsonl").read_text(encoding="utf-8")
+    assert result["status"] == "ok"
+    assert metadata["calibration_records"]["available"] is True
+    assert metadata["calibration_records"]["source"] == "execution_lifecycle"
+    assert "BTCUSDT" in records
+    assert not (paths.optimization_dir / "calibration_records_unavailable.json").exists()
 
 
 def test_bootstrap_fails_closed_for_malformed_calibration_like_paper_trade(tmp_path: Path) -> None:

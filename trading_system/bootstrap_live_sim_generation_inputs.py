@@ -16,6 +16,7 @@ from trading_system.app.execution.calibration import load_calibration_records
 from trading_system.app.runtime.paper_live_sim_evidence import build_paper_live_sim_evidence_bundle
 from trading_system.app.runtime.runtime_safety_evidence import build_runtime_safety_gate
 from trading_system.app.runtime_paths import build_runtime_paths
+from trading_system.generate_execution_calibration_records import build_passive_order_calibration_records
 
 ERROR_NAME = "bootstrap_live_sim_generation_inputs_error.json"
 CALIBRATION_UNAVAILABLE_NAME = "calibration_records_unavailable.json"
@@ -86,6 +87,14 @@ def _read_jsonl_objects(path: Path) -> list[dict[str, Any]]:
     if not rows:
         raise ValueError(f"{path.name} must contain at least one record")
     return rows
+
+
+def _read_optional_jsonl_objects(path: Path) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    if not path.read_text(encoding="utf-8").strip():
+        return []
+    return _read_jsonl_objects(path)
 
 
 def _parse_canonical_utc(value: Any, field_path: str) -> datetime:
@@ -315,6 +324,14 @@ def _calibration_rows_available(rows: list[Mapping[str, Any]]) -> bool:
     if not any(_row_has_calibration_shape(row) for row in rows):
         return False
     return True
+
+
+def _execution_calibration_rows(source_root: Path) -> list[dict[str, Any]]:
+    execution_events = _read_optional_jsonl_objects(source_root / "execution_log.jsonl")
+    if not execution_events:
+        return []
+    ledger_events = _read_optional_jsonl_objects(source_root / "paper_ledger.jsonl")
+    return build_passive_order_calibration_records(execution_events, ledger_events=ledger_events)
 
 
 def _build_calibration_unavailable_marker(
@@ -550,6 +567,7 @@ def bootstrap_live_sim_generation_inputs(
     market = _read_json_object(source_root / "market_context.json")
     derivatives = _read_json_object(source_root / "derivatives_snapshot.json")
     trades = _read_jsonl_objects(source_root / "paper_trades.jsonl")
+    execution_calibration_rows = _execution_calibration_rows(source_root)
     source_as_of_values = [
         value
         for value in (account.get("as_of"), market.get("as_of"), derivatives.get("as_of"))
@@ -571,10 +589,17 @@ def bootstrap_live_sim_generation_inputs(
         "derivatives_snapshot.json", derivatives, evaluated_at, max_evidence_age_seconds, accepted_decimal_string_fields
     )
     _validate_json_value(runtime_state, "runtime_state.json")
-    calibration_available = _calibration_rows_available(trades)
+    calibration_source_rows: list[Mapping[str, Any]] = execution_calibration_rows or trades
+    calibration_available = bool(execution_calibration_rows) or _calibration_rows_available(trades)
     if calibration_available:
-        load_calibration_records(source_root / "paper_trades.jsonl")
-        _validate_calibration_rows_fresh(trades, evaluated_at, max_evidence_age_seconds)
+        if execution_calibration_rows:
+            generated_calibration_path = paths.optimization_dir / "passive_order_calibration_records.jsonl"
+            _write_jsonl(generated_calibration_path, execution_calibration_rows)
+            load_calibration_records(generated_calibration_path)
+            _validate_calibration_rows_fresh(execution_calibration_rows, evaluated_at, max_evidence_age_seconds)
+        else:
+            load_calibration_records(source_root / "paper_trades.jsonl")
+            _validate_calibration_rows_fresh(trades, evaluated_at, max_evidence_age_seconds)
 
     paths.bucket_dir.mkdir(parents=True, exist_ok=True)
     _write_json(paths.account_snapshot_file, account)
@@ -585,7 +610,11 @@ def bootstrap_live_sim_generation_inputs(
 
     source = _source(source_root, evaluated_at)
     calibration_metadata = (
-        {"available": True, "record_count": len(trades)}
+        {
+            "available": True,
+            "record_count": len(calibration_source_rows),
+            "source": "execution_lifecycle" if execution_calibration_rows else "paper_trades",
+        }
         if calibration_available
         else {
             "available": False,
@@ -626,7 +655,10 @@ def bootstrap_live_sim_generation_inputs(
     for name, payload in generated_artifacts.items():
         _write_json(paths.optimization_dir / name, payload)
     if calibration_available:
-        _write_jsonl(paths.optimization_dir / "passive_order_calibration_records.jsonl", trades)
+        _write_jsonl(paths.optimization_dir / "passive_order_calibration_records.jsonl", calibration_source_rows)
+        unavailable_marker = paths.optimization_dir / CALIBRATION_UNAVAILABLE_NAME
+        if unavailable_marker.exists():
+            unavailable_marker.unlink()
     else:
         _write_jsonl(paths.optimization_dir / "passive_order_calibration_records.jsonl", [])
         _write_json(
