@@ -77,8 +77,33 @@ def _runtime_safety_events() -> list[dict[str, object]]:
 def _runtime_safety_manifest() -> dict[str, object]:
     return {
         "evidence_source": {"type": "paper_runtime_logs", "run_id": "runtime-1"},
+        "environment_permission_evidence": {
+            "environment": "testnet",
+            "execution_mode": "testnet",
+            "endpoint_class": "testnet",
+            "key_scope": "testnet",
+            "order_routing_enabled": True,
+            "production_gate": "not-production",
+            "approval": {
+                "approval_id": "testnet-approval-20260516",
+                "approved_at": "2026-05-16T10:00:00Z",
+                "expires_at": "2026-05-16T23:59:59Z",
+            },
+        },
         "kill_switch_decision": _runtime_kill_switch_decision(),
         "events": _runtime_safety_events(),
+    }
+
+
+def _runtime_environment_permission_evidence() -> dict[str, object]:
+    return dict(_runtime_safety_manifest()["environment_permission_evidence"])
+
+
+def _runtime_environment_permission_checks() -> dict[str, bool]:
+    return {
+        "environment_identity_present": True,
+        "permission_scope_isolated": True,
+        "order_routing_current_approval_met": True,
     }
 
 
@@ -1193,12 +1218,93 @@ def test_live_readiness_smoke_report_consumes_producer_gate_artifacts(tmp_path: 
     assert report["microstructure_gate"]["artifact_count"] == 1
     assert report["validation_gate"]["artifact_count"] == 1
     assert report["runtime_safety_gate"]["artifact_count"] == 1
+    runtime_artifact = report["runtime_safety_gate"]["artifacts"][0]
+    assert runtime_artifact["environment_permission_evidence"] == _runtime_safety_manifest()[
+        "environment_permission_evidence"
+    ]
+    assert report["promotion_gate"]["checks"]["environment_identity_present"] is True
+    assert report["promotion_gate"]["checks"]["permission_scope_isolated"] is True
+    assert report["promotion_gate"]["checks"]["order_routing_current_approval_met"] is True
     assert report["passive_calibration"]["chunks"]
     reasons = set(report["promotion_gate"]["reasons"])
     assert "microstructure_evidence_missing" not in reasons
     assert "validation_evidence_missing" not in reasons
     assert "runtime_safety_evidence_missing" not in reasons
     assert "passive_calibration_missing" not in reasons
+
+
+def test_live_readiness_gate_rejects_runtime_safety_without_environment_permission_evidence(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source"
+    chunk = source / "chunk_001"
+    chunk.mkdir(parents=True)
+    (chunk / "trades.json").write_text(json.dumps({"trades": []}), encoding="utf-8")
+    (chunk / "summary.json").write_text(json.dumps({"net_pnl": 0.0}), encoding="utf-8")
+    gate = build_runtime_safety_gate(_runtime_safety_manifest())
+    del gate["environment_permission_evidence"]
+    del gate["checks"]["environment_identity_present"]
+    del gate["checks"]["permission_scope_isolated"]
+    del gate["checks"]["order_routing_current_approval_met"]
+    (chunk / "runtime_safety_gate.json").write_text(json.dumps(gate), encoding="utf-8")
+
+    report = build_live_readiness_gate_report(source, require_runtime_safety_evidence=True)
+
+    artifact = report["runtime_safety_gate"]["artifacts"][0]
+    assert artifact["schema_valid"] is False
+    assert artifact["parse_error"] == "environment_permission_evidence_not_object"
+    reasons = set(report["promotion_gate"]["reasons"])
+    assert "runtime_safety_artifact_schema_invalid" in reasons
+    assert "environment_identity_missing" in reasons
+    assert "permission_scope_not_isolated" in reasons
+    assert "order_routing_current_approval_missing" in reasons
+
+
+@pytest.mark.parametrize(
+    ("updates", "parse_error"),
+    [
+        ({"environment": "sandbox"}, "environment_permission_environment_invalid"),
+        ({"execution_mode": "prod"}, "environment_permission_execution_mode_invalid"),
+        ({"endpoint_class": "paper"}, "environment_permission_endpoint_class_invalid"),
+        ({"key_scope": "paper"}, "environment_permission_key_scope_invalid"),
+        ({"order_routing_enabled": "true"}, "environment_permission_order_routing_enabled_not_bool"),
+        (
+            {"environment": "research", "execution_mode": "live", "endpoint_class": "live", "key_scope": "live"},
+            "environment_permission_prod_like_in_nonprod",
+        ),
+        ({"endpoint_class": "live"}, "environment_permission_endpoint_key_mixed"),
+        ({"environment": "prod", "production_gate": "approved"}, "environment_permission_production_gate_invalid"),
+        ({"production_gate": "production-approved"}, "environment_permission_nonproduction_gate_invalid"),
+        ({"approval": None}, "environment_permission_approval_missing"),
+        ({"approval": "approval-20260516"}, "environment_permission_approval_not_object"),
+        ({"approval": {"approval_id": True, "approved_at": "2026-05-16T10:00:00Z", "expires_at": "2026-05-16T23:59:59Z"}}, "environment_permission_approval_id_not_string"),
+        ({"approval": {"approval_id": " approval-20260516 ", "approved_at": "2026-05-16T10:00:00Z", "expires_at": "2026-05-16T23:59:59Z"}}, "environment_permission_approval_id_invalid"),
+        ({"approval": {"approval_id": "approval-20260516", "approved_at": "2026-05-17T00:00:00Z", "expires_at": "2026-05-17T23:59:59Z"}}, "environment_permission_approval_future"),
+        ({"approval": {"approval_id": "approval-20260516", "approved_at": "2026-05-15T23:59:59Z", "expires_at": "2026-05-16T23:59:59Z"}}, "environment_permission_approval_stale"),
+        ({"approval": {"approval_id": "approval-20260516", "approved_at": "2026-05-16T10:00:00Z", "expires_at": "2026-05-15T23:59:59Z"}}, "environment_permission_approval_expired"),
+    ],
+)
+def test_live_readiness_rejects_invalid_runtime_environment_permission_evidence(
+    tmp_path: Path,
+    updates: dict[str, object],
+    parse_error: str,
+) -> None:
+    source = tmp_path / "source"
+    chunk = source / "chunk_001"
+    chunk.mkdir(parents=True)
+    (chunk / "trades.json").write_text(json.dumps({"trades": []}), encoding="utf-8")
+    gate = build_runtime_safety_gate(_runtime_safety_manifest())
+    environment_permission = _runtime_environment_permission_evidence()
+    environment_permission.update(updates)
+    gate["environment_permission_evidence"] = environment_permission
+    (chunk / "runtime_safety_gate.json").write_text(json.dumps(gate), encoding="utf-8")
+
+    report = build_live_readiness_gate_report(source, require_runtime_safety_evidence=True)
+
+    artifact = report["runtime_safety_gate"]["artifacts"][0]
+    assert artifact["schema_valid"] is False
+    assert artifact["parse_error"] == parse_error
+    assert "runtime_safety_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
 
 
 def test_live_readiness_gate_rejects_missing_offline_rollout_checklist(tmp_path: Path) -> None:
@@ -5066,8 +5172,10 @@ def test_live_readiness_gate_rejects_runtime_safety_unknown_check_fields(tmp_pat
     runtime_payload = {
         "schema_version": "runtime_safety_gate_input.v1",
         "evidence_source": {"type": "exchange_export", "run_id": "runtime-unknown-check"},
+        "environment_permission_evidence": _runtime_environment_permission_evidence(),
         "kill_switch_decision": _runtime_kill_switch_decision(),
         "checks": {
+            **_runtime_environment_permission_checks(),
             "kill_switch_dry_run_met": True,
             "order_position_reconciliation_met": True,
             "runtime_fail_closed_met": True,
@@ -7718,12 +7826,14 @@ def test_live_readiness_gate_rejects_non_bool_runtime_safety_artifact_check_valu
     _write_profitable_trade_chunk(chunk)
     (chunk / "runtime_safety_gate.json").write_text(
         json.dumps(
-            {
-                "schema_version": "runtime_safety_gate_input.v1",
-                "evidence_source": {"type": "paper_runtime_logs"},
-                "kill_switch_decision": _runtime_kill_switch_decision(),
-                "checks": {
-                    "kill_switch_dry_run_met": "false",
+                {
+                    "schema_version": "runtime_safety_gate_input.v1",
+                    "evidence_source": {"type": "paper_runtime_logs"},
+                    "environment_permission_evidence": _runtime_environment_permission_evidence(),
+                    "kill_switch_decision": _runtime_kill_switch_decision(),
+                    "checks": {
+                        **_runtime_environment_permission_checks(),
+                        "kill_switch_dry_run_met": "false",
                     "order_position_reconciliation_met": True,
                     "runtime_fail_closed_met": True,
                     "live_dust_before_scale_met": True,
@@ -7765,6 +7875,7 @@ def test_live_readiness_preserves_runtime_kill_switch_decision_evidence(tmp_path
     gate = build_runtime_safety_gate(
         {
             "evidence_source": {"type": "paper_runtime_logs", "run_id": "runtime-1"},
+            "environment_permission_evidence": _runtime_environment_permission_evidence(),
             "kill_switch_decision": decision,
             "events": [
                 {"event_type": "kill_switch_dry_run", "passed": True},
@@ -7863,6 +7974,7 @@ def test_live_readiness_rejects_invalid_or_failed_runtime_kill_switch_decision_e
     gate = build_runtime_safety_gate(
         {
             "evidence_source": {"type": "paper_runtime_logs", "run_id": "runtime-1"},
+            "environment_permission_evidence": _runtime_environment_permission_evidence(),
             "kill_switch_decision": _runtime_kill_switch_decision(),
             "events": [
                 {"event_type": "kill_switch_dry_run", "passed": True},
@@ -7901,7 +8013,9 @@ def test_live_readiness_gate_rejects_non_live_runtime_safety_provenance(tmp_path
             {
                 "schema_version": "runtime_safety_gate.v1",
                 "evidence_source": {"type": "backtest"},
+                "environment_permission_evidence": _runtime_environment_permission_evidence(),
                 "checks": {
+                    **_runtime_environment_permission_checks(),
                     "kill_switch_dry_run_met": True,
                     "order_position_reconciliation_met": True,
                     "runtime_fail_closed_met": True,
@@ -7962,8 +8076,10 @@ def test_live_readiness_gate_report_accepts_runtime_safety_evidence_artifact(tmp
             {
                 "schema_version": "runtime_safety_gate_input.v1",
                 "evidence_source": {"type": "paper_runtime_logs", "run_id": "runtime-1"},
+                "environment_permission_evidence": _runtime_environment_permission_evidence(),
                 "kill_switch_decision": _runtime_kill_switch_decision(),
                 "checks": {
+                    **_runtime_environment_permission_checks(),
                     "kill_switch_dry_run_met": True,
                     "order_position_reconciliation_met": True,
                     "runtime_fail_closed_met": True,

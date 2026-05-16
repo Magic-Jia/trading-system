@@ -5,7 +5,7 @@ import json
 import math
 import re
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -45,6 +45,16 @@ _INCIDENT_EVENT_NUMERIC_FIELDS = {
     "price",
 }
 _INCIDENT_EVENT_BOOL_FIELDS = {"passed", "fail_closed"}
+_CURRENT_APPROVAL_DATE = date(2026, 5, 16)
+_ENVIRONMENT_PERMISSION_CHECKS = {
+    "environment_identity_present": "environment_identity_missing",
+    "permission_scope_isolated": "permission_scope_not_isolated",
+    "order_routing_current_approval_met": "order_routing_current_approval_missing",
+}
+_ALLOWED_ENVIRONMENTS = {"research", "paper", "testnet", "prod"}
+_ALLOWED_EXECUTION_MODES = {"paper", "dry-run", "testnet", "live"}
+_ALLOWED_ENDPOINT_CLASSES = {"none", "testnet", "live"}
+_ALLOWED_KEY_SCOPES = {"none", "testnet", "live"}
 _REQUIRED_EVENTS = {
     "kill_switch_dry_run": ("kill_switch_dry_run_met", "kill_switch_dry_run_missing"),
     "order_position_reconciliation": (
@@ -204,6 +214,140 @@ def _parse_canonical_timestamp(value: Any, field_path: str) -> datetime:
     if not _is_canonical_utc_timestamp(value):
         raise ValueError(f"{field_path} must be a canonical UTC timestamp")
     return datetime.fromisoformat(value[:-1] + "+00:00").astimezone(UTC)
+
+
+def _require_env_permission_string(raw: Mapping[str, Any], field: str) -> str:
+    if field not in raw:
+        raise ValueError(f"environment_permission_evidence {field} must be present")
+    value = raw[field]
+    if not _is_exact_string(value):
+        raise ValueError(f"environment_permission_evidence {field} must be a string")
+    if not value.strip():
+        raise ValueError(f"environment_permission_evidence {field} must be non-empty")
+    if value != value.strip():
+        raise ValueError(f"environment_permission_evidence {field} must be canonical")
+    return value
+
+
+def _require_env_permission_number(value: Any, field_path: str) -> float:
+    if isinstance(value, bool):
+        raise ValueError(f"{field_path} must be numeric, not boolean")
+    if not isinstance(value, (int, float)):
+        raise ValueError(f"{field_path} must be numeric")
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError(f"{field_path} must be finite")
+    return number
+
+
+def _canonical_approval(raw_approval: Any, *, order_routing_enabled: bool) -> dict[str, Any] | None:
+    if raw_approval is None:
+        if order_routing_enabled:
+            raise ValueError("order routing requires explicit current approval evidence")
+        return None
+    if not isinstance(raw_approval, Mapping):
+        raise ValueError("environment_permission_evidence approval must be an object")
+    unknown_fields = sorted(set(raw_approval) - {"approval_id", "approved_at", "expires_at"})
+    if unknown_fields:
+        raise ValueError("unknown environment_permission_evidence approval field: " + ", ".join(unknown_fields))
+    approval_id = raw_approval.get("approval_id")
+    if not _is_exact_string(approval_id):
+        raise ValueError("approval approval_id must be a string")
+    if not approval_id.strip():
+        raise ValueError("approval approval_id must be non-empty")
+    if approval_id != approval_id.strip() or not _is_safe_evidence_identifier(approval_id):
+        raise ValueError("approval approval_id must be a safe identifier")
+    approved_at = _parse_canonical_timestamp(raw_approval.get("approved_at"), "approval approved_at")
+    expires_at = _parse_canonical_timestamp(raw_approval.get("expires_at"), "approval expires_at")
+    if approved_at.date() > _CURRENT_APPROVAL_DATE:
+        raise ValueError("approval approved_at must not be in the future")
+    if approved_at.date() != _CURRENT_APPROVAL_DATE:
+        raise ValueError("approval approved_at must be current")
+    if expires_at.date() < _CURRENT_APPROVAL_DATE:
+        raise ValueError("approval expires_at must not be stale")
+    return {
+        "approval_id": approval_id,
+        "approved_at": raw_approval["approved_at"],
+        "expires_at": raw_approval["expires_at"],
+    }
+
+
+def _canonical_environment_permission_evidence(raw_evidence: Any) -> tuple[dict[str, Any], dict[str, bool]]:
+    if raw_evidence is None:
+        raise ValueError("environment_permission_evidence must be present")
+    if not isinstance(raw_evidence, Mapping):
+        raise ValueError("environment_permission_evidence must be an object")
+    unknown_fields = sorted(
+        set(raw_evidence)
+        - {
+            "environment",
+            "execution_mode",
+            "endpoint_class",
+            "key_scope",
+            "order_routing_enabled",
+            "production_gate",
+            "approval",
+            "max_order_notional_usdt",
+            "max_open_positions",
+        }
+    )
+    if unknown_fields:
+        raise ValueError("unknown environment_permission_evidence field: " + ", ".join(unknown_fields))
+    environment = _require_env_permission_string(raw_evidence, "environment")
+    execution_mode = _require_env_permission_string(raw_evidence, "execution_mode")
+    endpoint_class = _require_env_permission_string(raw_evidence, "endpoint_class")
+    key_scope = _require_env_permission_string(raw_evidence, "key_scope")
+    production_gate = _require_env_permission_string(raw_evidence, "production_gate")
+    if environment not in _ALLOWED_ENVIRONMENTS:
+        raise ValueError("environment_permission_evidence environment is invalid")
+    if execution_mode not in _ALLOWED_EXECUTION_MODES:
+        raise ValueError("environment_permission_evidence execution_mode is invalid")
+    if endpoint_class not in _ALLOWED_ENDPOINT_CLASSES:
+        raise ValueError("environment_permission_evidence endpoint_class is invalid")
+    if key_scope not in _ALLOWED_KEY_SCOPES:
+        raise ValueError("environment_permission_evidence key_scope is invalid")
+    order_routing_enabled = raw_evidence.get("order_routing_enabled")
+    if not isinstance(order_routing_enabled, bool):
+        raise ValueError("environment_permission_evidence order_routing_enabled must be a boolean")
+    if environment in {"research", "paper"} and (
+        endpoint_class == "live" or key_scope == "live" or execution_mode == "live"
+    ):
+        raise ValueError("prod-like permissions are not allowed in research or paper environments")
+    if (endpoint_class == "live" and key_scope == "testnet") or (
+        endpoint_class == "testnet" and key_scope == "live"
+    ):
+        raise ValueError("live endpoint and key permissions must not be mixed")
+    if environment == "prod" and production_gate != "production-approved":
+        raise ValueError("production environment requires canonical production gate evidence")
+    if environment != "prod" and production_gate != "not-production":
+        raise ValueError("non-production environment requires not-production gate evidence")
+    approval = _canonical_approval(raw_evidence.get("approval"), order_routing_enabled=order_routing_enabled)
+    canonical: dict[str, Any] = {
+        "environment": environment,
+        "execution_mode": execution_mode,
+        "endpoint_class": endpoint_class,
+        "key_scope": key_scope,
+        "order_routing_enabled": order_routing_enabled,
+        "production_gate": production_gate,
+        "approval": approval,
+    }
+    for field in ("max_order_notional_usdt", "max_open_positions"):
+        if field in raw_evidence:
+            number = _require_env_permission_number(
+                raw_evidence[field],
+                f"environment_permission_evidence {field}",
+            )
+            if number <= 0:
+                raise ValueError(f"environment_permission_evidence {field} must be positive")
+            canonical[field] = raw_evidence[field]
+    return (
+        canonical,
+        {
+            "environment_identity_present": True,
+            "permission_scope_isolated": True,
+            "order_routing_current_approval_met": (not order_routing_enabled) or approval is not None,
+        },
+    )
 
 
 def _require_kill_switch_number(value: Any, field_path: str) -> float:
@@ -577,9 +721,14 @@ def validate_runtime_incident_bundle(bundle: Mapping[str, Any]) -> dict[str, Any
 
 
 def build_runtime_safety_gate(manifest: Mapping[str, Any]) -> dict[str, Any]:
-    unknown_manifest_fields = sorted(set(manifest) - {"evidence_source", "events", "reasons", "kill_switch_decision"})
+    unknown_manifest_fields = sorted(
+        set(manifest) - {"evidence_source", "environment_permission_evidence", "events", "reasons", "kill_switch_decision"}
+    )
     if unknown_manifest_fields:
         raise ValueError("unknown runtime safety manifest field: " + ", ".join(unknown_manifest_fields))
+    environment_permission_evidence, environment_checks = _canonical_environment_permission_evidence(
+        manifest.get("environment_permission_evidence")
+    )
     kill_switch_decision, kill_switch_checks = _canonical_kill_switch_decision(manifest.get("kill_switch_decision"))
     raw_source = manifest.get("evidence_source")
     if raw_source is None:
@@ -658,6 +807,10 @@ def build_runtime_safety_gate(manifest: Mapping[str, Any]) -> dict[str, Any]:
 
     checks: dict[str, bool] = {}
     reasons: list[str] = []
+    checks.update(environment_checks)
+    for check_name, reason in _ENVIRONMENT_PERMISSION_CHECKS.items():
+        if not environment_checks.get(check_name, False):
+            reasons.append(reason)
     for event_type, (check_name, reason) in _REQUIRED_EVENTS.items():
         met = passed_by_type.get(event_type, False)
         checks[check_name] = met
@@ -672,6 +825,7 @@ def build_runtime_safety_gate(manifest: Mapping[str, Any]) -> dict[str, Any]:
     return {
         "schema_version": SCHEMA_VERSION,
         "evidence_source": source,
+        "environment_permission_evidence": environment_permission_evidence,
         "kill_switch_decision": kill_switch_decision,
         "checks": checks,
         "summary": {

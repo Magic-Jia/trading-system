@@ -147,6 +147,10 @@ def test_v2_build_config_reads_env_overrides_at_call_time(monkeypatch):
 def test_v2_build_config_reads_execution_mode_overrides(monkeypatch):
     monkeypatch.setenv("TRADING_EXECUTION_MODE", "dry-run")
     monkeypatch.setenv("TRADING_ALLOW_LIVE_EXECUTION", "1")
+    monkeypatch.setenv("TRADING_RUNTIME_ENV", "prod")
+    monkeypatch.setenv("TRADING_PRODUCTION_GATE", "production-approved")
+    monkeypatch.setenv("TRADING_PRODUCTION_APPROVAL_ID", "approval-20260516")
+    monkeypatch.setenv("TRADING_PRODUCTION_APPROVAL_AT", "2026-05-16T10:00:00Z")
 
     config = config_module.build_config()
 
@@ -170,6 +174,89 @@ def test_v2_build_config_routes_default_state_file_to_runtime_bucket(monkeypatch
 
     assert config.data_dir == tmp_path / "data"
     assert config.state_file == tmp_path / "data" / "runtime" / "paper" / "testnet" / "runtime_state.json"
+
+
+@pytest.mark.parametrize("runtime_env", ["research", "paper"])
+def test_v2_build_config_rejects_prod_like_permissions_in_research_and_paper(
+    monkeypatch: pytest.MonkeyPatch,
+    runtime_env: str,
+) -> None:
+    monkeypatch.setenv("TRADING_RUNTIME_ENV", runtime_env)
+    monkeypatch.setenv("TRADING_ALLOW_LIVE_EXECUTION", "1")
+
+    with pytest.raises(ValueError, match="prod-like permissions are not allowed"):
+        config_module.build_config()
+
+
+def test_v2_build_config_rejects_live_endpoint_in_testnet_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("TRADING_EXECUTION_MODE", "testnet")
+    monkeypatch.setenv("TRADING_RUNTIME_ENV", "testnet")
+    monkeypatch.setenv("BINANCE_USE_TESTNET", "1")
+    monkeypatch.setenv("BINANCE_FAPI_URL", "https://fapi.binance.com")
+    monkeypatch.setenv("TRADING_TESTNET_ALLOWED_SYMBOLS", "BTCUSDT")
+
+    with pytest.raises(ValueError, match="testnet mode requires the Binance Futures testnet endpoint"):
+        config_module.build_config()
+
+
+def test_v2_build_config_rejects_live_keys_in_testnet_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("TRADING_EXECUTION_MODE", "testnet")
+    monkeypatch.setenv("TRADING_RUNTIME_ENV", "testnet")
+    monkeypatch.setenv("BINANCE_USE_TESTNET", "1")
+    monkeypatch.setenv("BINANCE_FAPI_URL", "https://testnet.binancefuture.com")
+    monkeypatch.setenv("BINANCE_API_KEY", "live-key")
+    monkeypatch.setenv("BINANCE_API_SECRET", "live-secret")
+    monkeypatch.setenv("TRADING_TESTNET_ALLOWED_SYMBOLS", "BTCUSDT")
+
+    with pytest.raises(ValueError, match="live endpoint and key permissions must not be mixed"):
+        config_module.build_config()
+
+
+def test_v2_build_config_rejects_order_routing_without_runtime_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("TRADING_EXECUTION_MODE", "testnet")
+    monkeypatch.delenv("TRADING_RUNTIME_ENV", raising=False)
+    monkeypatch.setenv("BINANCE_USE_TESTNET", "1")
+    monkeypatch.setenv("BINANCE_FAPI_URL", "https://testnet.binancefuture.com")
+    monkeypatch.setenv("TRADING_TESTNET_ALLOWED_SYMBOLS", "BTCUSDT")
+
+    with pytest.raises(ValueError, match="order-routing configs require TRADING_RUNTIME_ENV"):
+        config_module.build_config()
+
+
+def test_v2_build_config_rejects_prod_without_current_canonical_approval(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("TRADING_EXECUTION_MODE", "live")
+    monkeypatch.setenv("TRADING_RUNTIME_ENV", "prod")
+    monkeypatch.setenv("TRADING_ALLOW_LIVE_EXECUTION", "1")
+    monkeypatch.setenv("BINANCE_FAPI_URL", "https://fapi.binance.com")
+    monkeypatch.setenv("BINANCE_API_KEY", "live-key")
+    monkeypatch.setenv("BINANCE_API_SECRET", "live-secret")
+    monkeypatch.setenv("TRADING_PRODUCTION_GATE", "production-approved")
+    monkeypatch.setenv("TRADING_PRODUCTION_APPROVAL_ID", "approval-20260515")
+    monkeypatch.setenv("TRADING_PRODUCTION_APPROVAL_AT", "2026-05-15T10:00:00Z")
+
+    with pytest.raises(ValueError, match="production approval timestamp must be current"):
+        config_module.build_config()
+
+
+def test_v2_build_config_accepts_prod_with_current_canonical_approval(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("TRADING_EXECUTION_MODE", "live")
+    monkeypatch.setenv("TRADING_RUNTIME_ENV", "prod")
+    monkeypatch.setenv("TRADING_ALLOW_LIVE_EXECUTION", "1")
+    monkeypatch.setenv("BINANCE_FAPI_URL", "https://fapi.binance.com")
+    monkeypatch.setenv("BINANCE_API_KEY", "live-key")
+    monkeypatch.setenv("BINANCE_API_SECRET", "live-secret")
+    monkeypatch.setenv("TRADING_PRODUCTION_GATE", "production-approved")
+    monkeypatch.setenv("TRADING_PRODUCTION_APPROVAL_ID", "approval-20260516")
+    monkeypatch.setenv("TRADING_PRODUCTION_APPROVAL_AT", "2026-05-16T10:00:00Z")
+
+    config = config_module.build_config()
+
+    assert config.execution.environment == "prod"
+    assert config.execution.production_approval_id == "approval-20260516"
 
 
 def test_v2_main_uses_runtime_config_loader(monkeypatch):
@@ -251,6 +338,11 @@ def test_main_v2_cycle_writes_recommendations_and_promotion_artifacts(monkeypatc
     monkeypatch.setenv("BINANCE_FAPI_URL", "https://testnet.binancefuture.com")
     monkeypatch.setenv("TRADING_TESTNET_ALLOWED_SYMBOLS", "BTCUSDT,ETHUSDT,LINKUSDT")
     monkeypatch.setenv("TRADING_FEISHU_NOTIFICATIONS_ENABLED", "0")
+    monkeypatch.setenv("BINANCE_TESTNET_API_KEY", "testnet-key")
+    monkeypatch.setenv("BINANCE_TESTNET_API_SECRET", "testnet-secret")
+    monkeypatch.setenv("TRADING_PRODUCTION_GATE", "production-approved")
+    monkeypatch.setenv("TRADING_PRODUCTION_APPROVAL_ID", "approval-20260516")
+    monkeypatch.setenv("TRADING_PRODUCTION_APPROVAL_AT", "2026-05-16T10:00:00Z")
     monkeypatch.delenv("TRADING_STATE_FILE", raising=False)
     monkeypatch.delenv("TRADING_ACCOUNT_SNAPSHOT_FILE", raising=False)
     monkeypatch.delenv("TRADING_MARKET_CONTEXT_FILE", raising=False)
@@ -353,7 +445,18 @@ def test_v2_main_passes_selected_entry_profile_to_long_engines_and_records_it(mo
 
 
 def test_v2_main_rejects_live_execution_without_explicit_allow(monkeypatch):
-    config = replace(DEFAULT_CONFIG, execution=replace(DEFAULT_CONFIG.execution, mode="live", allow_live_execution=False))
+    config = replace(
+        DEFAULT_CONFIG,
+        execution=replace(
+            DEFAULT_CONFIG.execution,
+            mode="live",
+            allow_live_execution=False,
+            environment="prod",
+            production_gate="production-approved",
+            production_approval_id="approval-20260516",
+            production_approval_at="2026-05-16T10:00:00Z",
+        ),
+    )
     monkeypatch.setattr(main_module, "load_config", lambda: config, raising=False)
 
     with pytest.raises(RuntimeError, match="live execution is disabled"):
@@ -2659,7 +2762,11 @@ def test_main_v2_live_not_yet_enabled_leaves_no_partial_state(monkeypatch, tmp_p
     monkeypatch.setenv("TRADING_MARKET_CONTEXT_FILE", str(market_path))
     monkeypatch.setenv("TRADING_DERIVATIVES_SNAPSHOT_FILE", str(deriv_path))
     monkeypatch.setenv("TRADING_EXECUTION_MODE", "live")
+    monkeypatch.setenv("TRADING_RUNTIME_ENV", "prod")
     monkeypatch.setenv("TRADING_ALLOW_LIVE_EXECUTION", "1")
+    monkeypatch.setenv("TRADING_PRODUCTION_GATE", "production-approved")
+    monkeypatch.setenv("TRADING_PRODUCTION_APPROVAL_ID", "approval-20260516")
+    monkeypatch.setenv("TRADING_PRODUCTION_APPROVAL_AT", "2026-05-16T10:00:00Z")
 
     with pytest.raises(Exception, match="live 模式尚未启用"):
         main_module.main()

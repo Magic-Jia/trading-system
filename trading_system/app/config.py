@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass, field
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Callable, Literal
 from urllib.parse import urlparse
 
 from .execution.orders import EntryOrderPolicy
-from .runtime_paths import RUNTIME_ENV_ENV, build_runtime_paths
+from .runtime_paths import DEFAULT_RUNTIME_ENV, RUNTIME_ENV_ENV, build_runtime_paths
 from .signals.entry_profile import ENTRY_PROFILE_ENV, EntryProfile, resolve_entry_profile
 
 BASE = Path(__file__).resolve().parents[1]
@@ -16,6 +18,8 @@ STATE_FILE = DATA_DIR / "runtime_state.json"
 BASE_DIR_ENV = "TRADING_BASE_DIR"
 
 ExecutionMode = Literal["paper", "dry-run", "live", "testnet"]
+_CANONICAL_UTC_TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z$")
+_SAFE_EVIDENCE_IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
 
 
 def _env_float(name: str, default: str) -> float:
@@ -31,6 +35,32 @@ def _env_bool(name: str, default: bool = False) -> bool:
     if value is None:
         return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _is_canonical_utc_timestamp(value: str) -> bool:
+    if not _CANONICAL_UTC_TIMESTAMP_RE.fullmatch(value):
+        return False
+    try:
+        parsed = datetime.fromisoformat(value[:-1] + "+00:00")
+    except ValueError:
+        return False
+    return parsed.tzinfo is not None and parsed.astimezone(UTC).isoformat().replace("+00:00", "Z") == value
+
+
+def _parse_canonical_utc_timestamp(value: str, *, field_name: str) -> datetime:
+    if not _is_canonical_utc_timestamp(value):
+        raise ValueError(f"{field_name} must be a canonical UTC timestamp")
+    return datetime.fromisoformat(value[:-1] + "+00:00").astimezone(UTC)
+
+
+def _require_safe_identifier(value: str | None, *, field_name: str) -> str:
+    if value is None or not value.strip():
+        raise ValueError(f"{field_name} must be present")
+    if value != value.strip():
+        raise ValueError(f"{field_name} must be canonical")
+    if _SAFE_EVIDENCE_IDENTIFIER_RE.fullmatch(value) is None:
+        raise ValueError(f"{field_name} must be a safe identifier")
+    return value
 
 
 def _normalize_string_list(
@@ -80,6 +110,55 @@ def _env_csv(name: str) -> tuple[str, ...]:
 def _has_testnet_futures_endpoint(endpoint: str) -> bool:
     parsed = urlparse(endpoint)
     return parsed.scheme in {"http", "https"} and parsed.netloc == "testnet.binancefuture.com"
+
+
+def _endpoint_class(endpoint: str) -> str:
+    parsed = urlparse(endpoint)
+    if parsed.netloc == "testnet.binancefuture.com":
+        return "testnet"
+    if parsed.netloc in {"fapi.binance.com", "api.binance.com"} or "binance.com" in parsed.netloc:
+        return "live"
+    return "unknown"
+
+
+def _key_scope() -> str:
+    has_testnet_key = bool(os.environ.get("BINANCE_TESTNET_API_KEY") or os.environ.get("BINANCE_TESTNET_API_SECRET"))
+    has_live_key = bool(
+        os.environ.get("BINANCE_API_KEY") or os.environ.get("BINANCE_APIKEY") or os.environ.get("BINANCE_API_SECRET") or os.environ.get("BINANCE_SECRET")
+    )
+    if has_testnet_key and has_live_key:
+        return "mixed"
+    if has_testnet_key:
+        return "testnet"
+    if has_live_key:
+        return "live"
+    return "none"
+
+
+def _runtime_environment() -> str:
+    return os.environ.get(RUNTIME_ENV_ENV, DEFAULT_RUNTIME_ENV).strip().lower()
+
+
+def _validate_production_approval(
+    gate: str | None = None,
+    approval_id: str | None = None,
+    approved_at: str | None = None,
+) -> tuple[str | None, str | None]:
+    gate = gate or os.environ.get("TRADING_PRODUCTION_GATE")
+    approval_id = approval_id or os.environ.get("TRADING_PRODUCTION_APPROVAL_ID")
+    approved_at = approved_at or os.environ.get("TRADING_PRODUCTION_APPROVAL_AT")
+    if gate != "production-approved":
+        raise ValueError("production environment requires canonical production gate evidence")
+    approval_id = _require_safe_identifier(approval_id, field_name="production approval id")
+    if approved_at is None:
+        raise ValueError("production approval timestamp must be present")
+    approved_dt = _parse_canonical_utc_timestamp(approved_at, field_name="production approval timestamp")
+    today = date(2026, 5, 16)
+    if approved_dt.date() > today:
+        raise ValueError("production approval timestamp must not be in the future")
+    if approved_dt.date() != today:
+        raise ValueError("production approval timestamp must be current")
+    return approval_id, approved_at
 
 
 def _env_execution_mode(name: str, default: ExecutionMode = "paper") -> ExecutionMode:
@@ -182,6 +261,10 @@ class LifecycleConfig:
 class ExecutionConfig:
     mode: ExecutionMode = field(default_factory=lambda: _env_execution_mode("TRADING_EXECUTION_MODE", "paper"))
     allow_live_execution: bool = field(default_factory=lambda: _env_bool("TRADING_ALLOW_LIVE_EXECUTION", False))
+    environment: str = field(default_factory=_runtime_environment)
+    production_gate: str | None = field(default_factory=lambda: os.environ.get("TRADING_PRODUCTION_GATE") or None)
+    production_approval_id: str | None = None
+    production_approval_at: str | None = None
     feishu_notifications_enabled: bool = field(
         default_factory=lambda: _env_bool("TRADING_FEISHU_NOTIFICATIONS_ENABLED", True)
     )
@@ -214,13 +297,33 @@ class ExecutionConfig:
     disabled_setup_types: tuple[str, ...] = field(default_factory=lambda: _env_setup_type_list("TRADING_DISABLED_SETUP_TYPES"))
 
     def __post_init__(self) -> None:
+        endpoint = os.environ.get("BINANCE_FAPI_URL", "")
+        endpoint_class = _endpoint_class(endpoint)
+        key_scope = _key_scope()
+        prod_like_permission = self.allow_live_execution or self.mode == "live" or endpoint_class == "live" or key_scope == "live"
+        if self.environment in {"research", "paper"} and prod_like_permission:
+            raise ValueError("prod-like permissions are not allowed in research or paper environments")
+        if self.mode in {"live", "testnet"} and self.environment == DEFAULT_RUNTIME_ENV:
+            raise ValueError("order-routing configs require TRADING_RUNTIME_ENV")
+        if endpoint_class == "live" and key_scope == "testnet" or endpoint_class == "testnet" and key_scope == "live":
+            raise ValueError("live endpoint and key permissions must not be mixed")
+        if self.environment == "prod" or self.mode == "live" or self.allow_live_execution:
+            approval_id, approval_at = _validate_production_approval(
+                self.production_gate,
+                self.production_approval_id,
+                self.production_approval_at,
+            )
+            object.__setattr__(self, "production_gate", "production-approved")
+            object.__setattr__(self, "production_approval_id", approval_id)
+            object.__setattr__(self, "production_approval_at", approval_at)
         if self.mode != "testnet":
             return
         if not _env_bool("BINANCE_USE_TESTNET", False):
             raise ValueError("testnet mode requires BINANCE_USE_TESTNET=1")
-        endpoint = os.environ.get("BINANCE_FAPI_URL", "")
         if not _has_testnet_futures_endpoint(endpoint):
             raise ValueError("testnet mode requires the Binance Futures testnet endpoint")
+        if key_scope == "live":
+            raise ValueError("testnet mode must use BINANCE_TESTNET_API_KEY/BINANCE_TESTNET_API_SECRET")
         has_key = bool(os.environ.get("BINANCE_TESTNET_API_KEY") or os.environ.get("BINANCE_API_KEY"))
         has_secret = bool(
             os.environ.get("BINANCE_TESTNET_API_SECRET")
@@ -257,4 +360,3 @@ def build_config() -> AppConfig:
 
 
 DEFAULT_CONFIG = build_config()
-

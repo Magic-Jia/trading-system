@@ -4,6 +4,8 @@ import json
 import math
 from pathlib import Path
 
+import pytest
+
 from trading_system.app.runtime.runtime_safety_evidence import (
     RuntimeSafetyReason,
     build_runtime_safety_gate,
@@ -33,6 +35,19 @@ def _passing_kill_switch_decision() -> dict:
 def _passing_manifest() -> dict:
     return {
         "evidence_source": {"type": "synthetic_fixture"},
+        "environment_permission_evidence": {
+            "environment": "testnet",
+            "execution_mode": "testnet",
+            "endpoint_class": "testnet",
+            "key_scope": "testnet",
+            "order_routing_enabled": True,
+            "production_gate": "not-production",
+            "approval": {
+                "approval_id": "testnet-approval-20260516",
+                "approved_at": "2026-05-16T10:00:00Z",
+                "expires_at": "2026-05-16T23:59:59Z",
+            },
+        },
         "kill_switch_decision": _passing_kill_switch_decision(),
         "events": [
             {"type": "kill_switch_dry_run", "passed": True},
@@ -51,7 +66,11 @@ def test_builds_runtime_safety_gate_when_all_required_events_pass(tmp_path: Path
 
     assert gate["schema_version"] == "runtime_safety_gate_input.v1"
     assert gate["evidence_source"] == {"type": "synthetic_fixture"}
+    assert gate["environment_permission_evidence"] == _passing_manifest()["environment_permission_evidence"]
     assert gate["checks"] == {
+        "environment_identity_present": True,
+        "permission_scope_isolated": True,
+        "order_routing_current_approval_met": True,
         "kill_switch_dry_run_met": True,
         "order_position_reconciliation_met": True,
         "runtime_fail_closed_met": True,
@@ -85,6 +104,9 @@ def test_runtime_safety_gate_reports_missing_or_failed_events() -> None:
     gate = build_runtime_safety_gate(manifest)
 
     assert gate["checks"]["kill_switch_dry_run_met"] is False
+    assert gate["checks"]["environment_identity_present"] is True
+    assert gate["checks"]["permission_scope_isolated"] is True
+    assert gate["checks"]["order_routing_current_approval_met"] is True
     assert gate["checks"]["order_position_reconciliation_met"] is True
     assert gate["checks"]["runtime_fail_closed_met"] is False
     assert gate["reasons"] == [
@@ -316,6 +338,156 @@ def test_runtime_safety_gate_rejects_unknown_manifest_fields() -> None:
         assert str(exc) == "unknown runtime safety manifest field: unexpected"
     else:  # pragma: no cover - RED path until producer is hardened
         raise AssertionError("expected unknown runtime safety manifest field to be rejected")
+
+
+def test_runtime_safety_gate_rejects_missing_environment_identity_for_order_routing() -> None:
+    manifest = _passing_manifest()
+    del manifest["environment_permission_evidence"]["environment"]
+
+    try:
+        build_runtime_safety_gate(manifest)
+    except ValueError as exc:
+        assert str(exc) == "environment_permission_evidence environment must be present"
+    else:
+        raise AssertionError("expected missing environment identity to be rejected")
+
+
+def test_runtime_safety_gate_rejects_prod_like_permissions_in_research() -> None:
+    manifest = _passing_manifest()
+    manifest["environment_permission_evidence"] = {
+        "environment": "research",
+        "execution_mode": "paper",
+        "endpoint_class": "live",
+        "key_scope": "live",
+        "order_routing_enabled": False,
+        "production_gate": "not-production",
+        "approval": None,
+    }
+
+    try:
+        build_runtime_safety_gate(manifest)
+    except ValueError as exc:
+        assert str(exc) == "prod-like permissions are not allowed in research or paper environments"
+    else:
+        raise AssertionError("expected prod-like research permissions to be rejected")
+
+
+def test_runtime_safety_gate_rejects_live_endpoint_key_mixing() -> None:
+    manifest = _passing_manifest()
+    manifest["environment_permission_evidence"]["endpoint_class"] = "live"
+    manifest["environment_permission_evidence"]["key_scope"] = "testnet"
+
+    try:
+        build_runtime_safety_gate(manifest)
+    except ValueError as exc:
+        assert str(exc) == "live endpoint and key permissions must not be mixed"
+    else:
+        raise AssertionError("expected endpoint/key permission mixing to be rejected")
+
+
+def test_runtime_safety_gate_rejects_noncanonical_production_gate() -> None:
+    manifest = _passing_manifest()
+    manifest["environment_permission_evidence"] = {
+        "environment": "prod",
+        "execution_mode": "live",
+        "endpoint_class": "live",
+        "key_scope": "live",
+        "order_routing_enabled": True,
+        "production_gate": "approved",
+        "approval": {
+            "approval_id": "approval-20260516",
+            "approved_at": "2026-05-16T10:00:00Z",
+            "expires_at": "2026-05-16T23:59:59Z",
+        },
+    }
+
+    try:
+        build_runtime_safety_gate(manifest)
+    except ValueError as exc:
+        assert str(exc) == "production environment requires canonical production gate evidence"
+    else:
+        raise AssertionError("expected noncanonical production gate to be rejected")
+
+
+@pytest.mark.parametrize(
+    ("approved_at", "expires_at", "expected"),
+    [
+        ("2026-05-15T23:59:59Z", "2026-05-16T23:59:59Z", "approval approved_at must be current"),
+        ("2026-05-17T00:00:00Z", "2026-05-17T23:59:59Z", "approval approved_at must not be in the future"),
+        ("2026-05-16T10:00:00Z", "2026-05-15T23:59:59Z", "approval expires_at must not be stale"),
+    ],
+)
+def test_runtime_safety_gate_rejects_stale_or_future_approval_timestamps(
+    approved_at: str,
+    expires_at: str,
+    expected: str,
+) -> None:
+    manifest = _passing_manifest()
+    manifest["environment_permission_evidence"] = {
+        "environment": "prod",
+        "execution_mode": "live",
+        "endpoint_class": "live",
+        "key_scope": "live",
+        "order_routing_enabled": True,
+        "production_gate": "production-approved",
+        "approval": {
+            "approval_id": "approval-20260516",
+            "approved_at": approved_at,
+            "expires_at": expires_at,
+        },
+    }
+
+    try:
+        build_runtime_safety_gate(manifest)
+    except ValueError as exc:
+        assert str(exc) == expected
+    else:
+        raise AssertionError("expected invalid approval timestamp to be rejected")
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "expected"),
+    [
+        ("order_routing_enabled", "true", "environment_permission_evidence order_routing_enabled must be a boolean"),
+        ("max_order_notional_usdt", "25", "environment_permission_evidence max_order_notional_usdt must be numeric"),
+        (
+            "max_order_notional_usdt",
+            math.inf,
+            "environment_permission_evidence max_order_notional_usdt must be finite",
+        ),
+        (
+            "max_open_positions",
+            True,
+            "environment_permission_evidence max_open_positions must be numeric, not boolean",
+        ),
+    ],
+)
+def test_runtime_safety_gate_rejects_bool_string_and_nonfinite_permission_limits(
+    field: str,
+    value: object,
+    expected: str,
+) -> None:
+    manifest = _passing_manifest()
+    manifest["environment_permission_evidence"][field] = value
+
+    try:
+        build_runtime_safety_gate(manifest)
+    except ValueError as exc:
+        assert str(exc) == expected
+    else:
+        raise AssertionError("expected invalid environment permission limit to be rejected")
+
+
+def test_runtime_safety_gate_rejects_order_routing_without_current_approval() -> None:
+    manifest = _passing_manifest()
+    manifest["environment_permission_evidence"]["approval"] = None
+
+    try:
+        build_runtime_safety_gate(manifest)
+    except ValueError as exc:
+        assert str(exc) == "order routing requires explicit current approval evidence"
+    else:
+        raise AssertionError("expected order routing without approval to be rejected")
 
 def test_runtime_safety_gate_rejects_unknown_event_fields() -> None:
     manifest = _passing_manifest()

@@ -182,6 +182,7 @@ def test_execution_config_maker_entry_timeout_can_be_overridden(monkeypatch):
 
 def build_testnet_config(tmp_path, monkeypatch):
     monkeypatch.setenv("TRADING_EXECUTION_MODE", "testnet")
+    monkeypatch.setenv("TRADING_RUNTIME_ENV", "testnet")
     monkeypatch.setenv("BINANCE_USE_TESTNET", "1")
     monkeypatch.setenv("BINANCE_FAPI_URL", "https://testnet.binancefuture.com")
     monkeypatch.setenv("TRADING_TESTNET_ALLOWED_SYMBOLS", "BTCUSDT")
@@ -214,7 +215,15 @@ def test_executor_rejects_live_mode_without_explicit_allow(tmp_path):
     config = replace(
         DEFAULT_CONFIG,
         data_dir=tmp_path,
-        execution=replace(DEFAULT_CONFIG.execution, mode="live", allow_live_execution=False),
+        execution=replace(
+            DEFAULT_CONFIG.execution,
+            mode="live",
+            allow_live_execution=False,
+            environment="prod",
+            production_gate="production-approved",
+            production_approval_id="approval-20260516",
+            production_approval_at="2026-05-16T10:00:00Z",
+        ),
     )
 
     with pytest.raises(Exception, match="live execution is disabled"):
@@ -225,7 +234,15 @@ def test_executor_live_mode_requires_explicit_feature_enable_beyond_allow_flag(t
     config = replace(
         DEFAULT_CONFIG,
         data_dir=tmp_path,
-        execution=replace(DEFAULT_CONFIG.execution, mode="live", allow_live_execution=True),
+        execution=replace(
+            DEFAULT_CONFIG.execution,
+            mode="live",
+            allow_live_execution=True,
+            environment="prod",
+            production_gate="production-approved",
+            production_approval_id="approval-20260516",
+            production_approval_at="2026-05-16T10:00:00Z",
+        ),
     )
     state = RuntimeStateV2.empty()
     executor = OrderExecutor(config)
@@ -238,7 +255,15 @@ def test_live_management_preview_is_rejected_even_if_live_is_allowed(tmp_path):
     config = replace(
         DEFAULT_CONFIG,
         data_dir=tmp_path,
-        execution=replace(DEFAULT_CONFIG.execution, mode="live", allow_live_execution=True),
+        execution=replace(
+            DEFAULT_CONFIG.execution,
+            mode="live",
+            allow_live_execution=True,
+            environment="prod",
+            production_gate="production-approved",
+            production_approval_id="approval-20260516",
+            production_approval_at="2026-05-16T10:00:00Z",
+        ),
     )
     executor = OrderExecutor(config)
 

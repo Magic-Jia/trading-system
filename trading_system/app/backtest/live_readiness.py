@@ -2654,6 +2654,16 @@ _RUNTIME_HARD_KILL_SWITCH_EVIDENCE_BY_CHECK = {
     "exchange_account_state_unambiguous_met": "exchange_account_state",
 }
 _RUNTIME_HARD_KILL_SWITCH_ALLOWED_EVIDENCE = set(_RUNTIME_HARD_KILL_SWITCH_EVIDENCE_BY_CHECK.values())
+_RUNTIME_ENVIRONMENT_PERMISSION_CHECKS = (
+    "environment_identity_present",
+    "permission_scope_isolated",
+    "order_routing_current_approval_met",
+)
+_RUNTIME_ENVIRONMENT_PERMISSION_REASON_BY_CHECK = {
+    "environment_identity_present": "environment_identity_missing",
+    "permission_scope_isolated": "permission_scope_not_isolated",
+    "order_routing_current_approval_met": "order_routing_current_approval_missing",
+}
 
 
 def _runtime_kill_switch_number_schema_error(value: Any, prefix: str) -> str:
@@ -2745,6 +2755,95 @@ def _runtime_kill_switch_decision_schema_error(value: Any) -> str:
     return ""
 
 
+def _runtime_environment_permission_schema_error(value: Any) -> str:
+    if not isinstance(value, Mapping):
+        return "environment_permission_evidence_not_object"
+    allowed_fields = {
+        "environment",
+        "execution_mode",
+        "endpoint_class",
+        "key_scope",
+        "order_routing_enabled",
+        "production_gate",
+        "approval",
+        "max_order_notional_usdt",
+        "max_open_positions",
+    }
+    unknown_fields = sorted(set(value) - allowed_fields)
+    if unknown_fields:
+        return "unknown_environment_permission_field: " + ", ".join(unknown_fields)
+    for field in ("environment", "execution_mode", "endpoint_class", "key_scope", "production_gate"):
+        item = value.get(field)
+        if not _is_exact_string(item):
+            return f"environment_permission_{field}_not_string"
+        if not item.strip():
+            return f"environment_permission_{field}_blank"
+        if item != item.strip():
+            return f"environment_permission_{field}_noncanonical"
+    if value.get("environment") not in {"research", "paper", "testnet", "prod"}:
+        return "environment_permission_environment_invalid"
+    if value.get("execution_mode") not in {"paper", "dry-run", "testnet", "live"}:
+        return "environment_permission_execution_mode_invalid"
+    if value.get("endpoint_class") not in {"none", "testnet", "live"}:
+        return "environment_permission_endpoint_class_invalid"
+    if value.get("key_scope") not in {"none", "testnet", "live"}:
+        return "environment_permission_key_scope_invalid"
+    if not isinstance(value.get("order_routing_enabled"), bool):
+        return "environment_permission_order_routing_enabled_not_bool"
+    endpoint_class = value["endpoint_class"]
+    key_scope = value["key_scope"]
+    if value["environment"] in {"research", "paper"} and (
+        endpoint_class == "live" or key_scope == "live" or value["execution_mode"] == "live"
+    ):
+        return "environment_permission_prod_like_in_nonprod"
+    if (endpoint_class == "live" and key_scope == "testnet") or (
+        endpoint_class == "testnet" and key_scope == "live"
+    ):
+        return "environment_permission_endpoint_key_mixed"
+    if value["environment"] == "prod" and value["production_gate"] != "production-approved":
+        return "environment_permission_production_gate_invalid"
+    if value["environment"] != "prod" and value["production_gate"] != "not-production":
+        return "environment_permission_nonproduction_gate_invalid"
+    approval = value.get("approval")
+    if approval is None:
+        if value["order_routing_enabled"] is True:
+            return "environment_permission_approval_missing"
+    elif not isinstance(approval, Mapping):
+        return "environment_permission_approval_not_object"
+    else:
+        unknown_approval_fields = sorted(set(approval) - {"approval_id", "approved_at", "expires_at"})
+        if unknown_approval_fields:
+            return "unknown_environment_permission_approval_field: " + ", ".join(unknown_approval_fields)
+        approval_id = approval.get("approval_id")
+        if not _is_exact_string(approval_id):
+            return "environment_permission_approval_id_not_string"
+        if not approval_id.strip() or approval_id != approval_id.strip() or not _is_safe_evidence_identifier(approval_id):
+            return "environment_permission_approval_id_invalid"
+        for field in ("approved_at", "expires_at"):
+            timestamp = approval.get(field)
+            if not _is_exact_string(timestamp):
+                return f"environment_permission_approval_{field}_not_string"
+            if not _is_canonical_utc_timestamp(timestamp):
+                return f"environment_permission_approval_{field}_noncanonical_timestamp"
+        approved_at = datetime.fromisoformat(approval["approved_at"][:-1] + "+00:00").astimezone(UTC)
+        expires_at = datetime.fromisoformat(approval["expires_at"][:-1] + "+00:00").astimezone(UTC)
+        current_date = datetime(2026, 5, 16, tzinfo=UTC).date()
+        if approved_at.date() > current_date:
+            return "environment_permission_approval_future"
+        if approved_at.date() != current_date:
+            return "environment_permission_approval_stale"
+        if expires_at.date() < current_date:
+            return "environment_permission_approval_expired"
+    for field in ("max_order_notional_usdt", "max_open_positions"):
+        if field in value:
+            error = _runtime_kill_switch_number_schema_error(value[field], f"environment_permission_{field}")
+            if error:
+                return error
+            if float(value[field]) <= 0:
+                return f"environment_permission_{field}_nonpositive"
+    return ""
+
+
 def _runtime_kill_switch_checks_from_decision(value: Any) -> dict[str, bool]:
     if not isinstance(value, Mapping):
         return {check: False for check in _RUNTIME_HARD_KILL_SWITCH_CHECKS}
@@ -2760,6 +2859,7 @@ def _runtime_kill_switch_checks_from_decision(value: Any) -> dict[str, bool]:
 
 def _runtime_safety_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[str, Any]:
     required_checks = (
+        *_RUNTIME_ENVIRONMENT_PERMISSION_CHECKS,
         "kill_switch_dry_run_met",
         "order_position_reconciliation_met",
         "runtime_fail_closed_met",
@@ -2781,6 +2881,7 @@ def _runtime_safety_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
         parse_error = _json_parse_error(payload)
         checks_payload = payload.get("checks")
         evidence_source_payload = payload.get("evidence_source")
+        environment_permission_payload = payload.get("environment_permission_evidence")
         summary_payload = payload.get("summary")
         summary_object_valid = summary_payload is None or isinstance(summary_payload, Mapping)
         checks_object_valid = isinstance(checks_payload, Mapping)
@@ -2791,6 +2892,7 @@ def _runtime_safety_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
             {
                 "schema_version",
                 "evidence_source",
+                "environment_permission_evidence",
                 "kill_switch_decision",
                 "checks",
                 "summary",
@@ -2843,6 +2945,9 @@ def _runtime_safety_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
                         summary_schema_error = "summary_reasons_by_code_count_invalid"
                         break
         runtime_reasons_schema_error = _runtime_reasons_schema_error(payload.get("runtime_reasons"))
+        environment_permission_schema_error = _runtime_environment_permission_schema_error(
+            environment_permission_payload
+        )
         kill_switch_decision_schema_error = _runtime_kill_switch_decision_schema_error(
             payload.get("kill_switch_decision")
         )
@@ -2874,6 +2979,7 @@ def _runtime_safety_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
             and summary_object_valid
             and not summary_schema_error
             and not runtime_reasons_schema_error
+            and not environment_permission_schema_error
             and not kill_switch_decision_schema_error
             and not unknown_check_fields
             and not check_schema_error
@@ -2898,6 +3004,8 @@ def _runtime_safety_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
                 parse_error_message = summary_schema_error
             elif runtime_reasons_schema_error:
                 parse_error_message = runtime_reasons_schema_error
+            elif environment_permission_schema_error:
+                parse_error_message = environment_permission_schema_error
             elif kill_switch_decision_schema_error:
                 parse_error_message = kill_switch_decision_schema_error
             elif unknown_check_fields:
@@ -2913,6 +3021,7 @@ def _runtime_safety_gate(chunk_dirs: Sequence[Path], *, required: bool) -> dict[
                 "schema_valid": chunk_schema_valid,
                 "provenance_present": chunk_provenance_present,
                 "evidence_source": _as_mapping(payload.get("evidence_source")),
+                "environment_permission_evidence": _as_mapping(environment_permission_payload),
                 "kill_switch_decision": _as_mapping(payload.get("kill_switch_decision")),
                 "checks": {
                     key: (
@@ -4250,6 +4359,7 @@ def build_live_readiness_gate_report(
     if runtime_safety_artifact_present and not runtime_safety_checks.get("runtime_safety_artifact_provenance_present", False):
         reasons.append("runtime_safety_artifact_provenance_missing")
     runtime_safety_reason_by_check = {
+        **_RUNTIME_ENVIRONMENT_PERMISSION_REASON_BY_CHECK,
         "kill_switch_dry_run_met": "kill_switch_dry_run_missing",
         "order_position_reconciliation_met": "order_position_reconciliation_missing",
         "runtime_fail_closed_met": "runtime_fail_closed_missing",
