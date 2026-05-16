@@ -1676,6 +1676,7 @@ def _setup_rewrite_diagnostic(chunk_dirs: Iterable[Path]) -> dict[str, Any] | No
                 "trade_id",
                 "fill_id",
                 "symbol",
+                "side",
                 "setup_type",
                 "evaluation_status",
                 "evaluation_reason",
@@ -1703,6 +1704,11 @@ def _setup_rewrite_diagnostic(chunk_dirs: Iterable[Path]) -> dict[str, Any] | No
                         break
                 if parse_error:
                     break
+                if "side" in row:
+                    side = row.get("side")
+                    if side not in {"long", "short"}:
+                        parse_error = f"invalid_field_type: evaluation_rows[{row_index}].side"
+                        break
                 for field in ("trade_id", "fill_id"):
                     value = row.get(field)
                     if field not in row or value is None:

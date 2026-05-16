@@ -12547,6 +12547,80 @@ def test_live_readiness_gate_rejects_setup_rewrite_noncanonical_row_strings(tmp_
     assert "setup_rewrite_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
 
 
+def test_live_readiness_gate_accepts_setup_rewrite_canonical_row_side(tmp_path: Path) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    (chunk / "setup_rewrite_experiment.json").write_text(
+        json.dumps(
+            {
+                "summary": {
+                    "total_rows": 1,
+                    "evaluated_count": 1,
+                    "would_keep_count": 1,
+                    "would_filter_count": 0,
+                    "skipped_count": 0,
+                },
+                "evaluation_rows": [
+                    {
+                        "symbol": "BTCUSDT",
+                        "side": "long",
+                        "setup_type": "TREND_PULLBACK",
+                        "evaluation_status": "evaluated",
+                        "evaluation_reason": "passed",
+                        "would_keep": True,
+                        "net_pnl": 10.0,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    diagnostic = report["setup_rewrite_diagnostic"]
+    assert diagnostic["checks"]["setup_rewrite_artifact_schema_valid"] is True
+    assert diagnostic["chunks"][0]["status"] == "loaded"
+
+
+@pytest.mark.parametrize("side", ["Long", " long", "long ", "BUY", "", 123, "LONG"])
+def test_live_readiness_gate_rejects_setup_rewrite_noncanonical_row_side(tmp_path: Path, side: object) -> None:
+    chunk = tmp_path / "chunk_001"
+    _write_profitable_trade_chunk(chunk)
+    (chunk / "setup_rewrite_experiment.json").write_text(
+        json.dumps(
+            {
+                "summary": {
+                    "total_rows": 1,
+                    "evaluated_count": 1,
+                    "would_keep_count": 1,
+                    "would_filter_count": 0,
+                    "skipped_count": 0,
+                },
+                "evaluation_rows": [
+                    {
+                        "symbol": "BTCUSDT",
+                        "side": side,
+                        "setup_type": "TREND_PULLBACK",
+                        "evaluation_status": "evaluated",
+                        "evaluation_reason": "passed",
+                        "would_keep": True,
+                        "net_pnl": 10.0,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    diagnostic = report["setup_rewrite_diagnostic"]
+    assert diagnostic["checks"]["setup_rewrite_artifact_schema_valid"] is False
+    assert diagnostic["chunks"][0]["parse_error"] == "invalid_field_type: evaluation_rows[1].side"
+    assert "setup_rewrite_artifact_schema_invalid" in report["promotion_gate"]["reasons"]
+
+
 @pytest.mark.parametrize("field", ("trade_id", "fill_id"))
 def test_live_readiness_gate_rejects_setup_rewrite_noncanonical_row_identity(
     tmp_path: Path, field: str

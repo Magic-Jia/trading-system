@@ -187,7 +187,7 @@ def _evaluate_row(*, index: int, row: Mapping[str, Any], params: SetupRewritePar
         **_serialized_trade_identity(row, index=index),
         "symbol": _canonical_symbol_or_none(row.get("symbol"), field_path=f"rows[{index}].symbol"),
         "setup_type": _string_or_none(row.get("setup_type"), field_path=f"rows[{index}].setup_type"),
-        "side": _string_or_none(row.get("side"), field_path=f"rows[{index}].side"),
+        "side": _canonical_side_or_none(row.get("side"), field_path=f"rows[{index}].side"),
         "entry_timestamp": _string_or_none(row.get("entry_timestamp"), field_path=f"rows[{index}].entry_timestamp"),
         "score": _float_or_none(row.get("score"), field_path=f"rows[{index}].score"),
         "net_pnl": _net_pnl_or_none(row.get("net_pnl"), field_path=f"rows[{index}].net_pnl"),
@@ -447,6 +447,14 @@ def _canonical_symbol_or_none(value: Any, *, field_path: str) -> str | None:
         return None
     if value != value.strip() or value != value.upper():
         raise ValueError(f"{field_path} must be a canonical uppercase string")
+    return value
+
+
+def _canonical_side_or_none(value: Any, *, field_path: str) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str) or value not in {"long", "short"}:
+        raise ValueError(f"{field_path} must be long or short when present")
     return value
 
 

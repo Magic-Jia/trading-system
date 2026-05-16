@@ -431,6 +431,26 @@ def test_setup_rewrite_experiment_rejects_string_score_with_field_path() -> None
         )
 
 
+@pytest.mark.parametrize("side", [123, "", "   ", "Long", " LONG", "long ", "BUY", "LONG"])
+def test_setup_rewrite_experiment_rejects_present_noncanonical_side_identity(side: object) -> None:
+    module = importlib.import_module("trading_system.app.backtest.setup_rewrite_experiment")
+
+    with pytest.raises(ValueError, match=r"rows\[1\]\.side must be long or short when present"):
+        module.build_setup_rewrite_experiment(
+            rows=[
+                {
+                    "symbol": "BTCUSDT",
+                    "setup_type": "TREND_PULLBACK",
+                    "side": side,
+                    "score": 0.82,
+                    "net_pnl": 12.5,
+                    "cost_coverage_ratio": 1.4,
+                }
+            ],
+            setup_rewrite=_params(),
+        )
+
+
 @pytest.mark.parametrize("field", ("trade_id", "fill_id"))
 @pytest.mark.parametrize("invalid_value", (123, "", "   ", " trade-001", "trade-001 "))
 def test_setup_rewrite_experiment_rejects_present_noncanonical_serialized_trade_identity(
