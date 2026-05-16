@@ -35,6 +35,10 @@ from trading_system.app.backtest.paper_live_shadow_drift import (
     build_paper_live_shadow_drift_contract,
     write_paper_live_shadow_drift_contract,
 )
+from trading_system.app.backtest.stress_replay_contracts import (
+    build_stress_replay_contract,
+    write_stress_replay_contract,
+)
 from trading_system.app.backtest.microstructure_evidence import build_microstructure_gate
 from trading_system.app.backtest.promotion_evidence_bundle import (
     collect_promotion_evidence_bundle,
@@ -1396,6 +1400,57 @@ def _write_valid_drift_contract(root: Path) -> None:
     )
 
 
+def _valid_cancel_failure_scenario(**overrides: object) -> dict[str, object]:
+    scenario: dict[str, object] = {
+        "scenario_id": "cancel-failure-001",
+        "scenario_type": "cancel_failure",
+        "generated_at": "2026-05-16T10:04:00Z",
+        "observed_at": "2026-05-16T10:03:00Z",
+        "max_evidence_age_seconds": 600.0,
+        "attempt_count": 1,
+        "failed_cancel_count": 1,
+        "stuck_partial_order_count": 0,
+        "fail_closed_triggered": True,
+        "replay_completed": True,
+        "passed": True,
+        "evidence_ref": "stress/cancel-failure-001.json",
+    }
+    scenario.update(overrides)
+    return scenario
+
+
+def _valid_stuck_partial_order_scenario(**overrides: object) -> dict[str, object]:
+    scenario: dict[str, object] = {
+        "scenario_id": "stuck-partial-001",
+        "scenario_type": "stuck_partial_order_replay",
+        "generated_at": "2026-05-16T10:04:30Z",
+        "observed_at": "2026-05-16T10:03:30Z",
+        "max_evidence_age_seconds": 600.0,
+        "attempt_count": 1,
+        "failed_cancel_count": 0,
+        "stuck_partial_order_count": 1,
+        "fail_closed_triggered": True,
+        "replay_completed": True,
+        "passed": True,
+        "evidence_ref": "stress/stuck-partial-001.json",
+    }
+    scenario.update(overrides)
+    return scenario
+
+
+def _write_valid_stress_replay_contract(root: Path) -> None:
+    write_stress_replay_contract(
+        root,
+        generated_at="2026-05-16T10:05:00Z",
+        max_evidence_age_seconds=600.0,
+        evidence_source={"type": "simulated_offline", "run_id": "stress-replay-fixture-1"},
+        scenarios=[
+            _valid_cancel_failure_scenario(),
+            _valid_stuck_partial_order_scenario(),
+        ],
+    )
+
+
 def test_paper_live_shadow_drift_contract_producer_writes_gate_accepted_schema(tmp_path: Path) -> None:
     contract = write_paper_live_shadow_drift_contract(
         tmp_path,
@@ -1422,6 +1477,122 @@ def test_paper_live_shadow_drift_contract_producer_writes_gate_accepted_schema(t
     assert drift_contract["checks"]["material_drift_absent"] is True
     assert "paper_live_shadow_drift_contract_invalid" not in report["promotion_gate"]["reasons"]
     assert "paper_live_shadow_material_drift" not in report["promotion_gate"]["reasons"]
+
+
+def test_stress_replay_contract_producer_writes_gate_accepted_cancel_and_stuck_partial_scenarios(
+    tmp_path: Path,
+) -> None:
+    _write_valid_offline_rollout_checklist(tmp_path)
+    _write_valid_drift_contract(tmp_path)
+
+    contract = write_stress_replay_contract(
+        tmp_path,
+        generated_at="2026-05-16T10:05:00Z",
+        max_evidence_age_seconds=600.0,
+        evidence_source={"type": "simulated_offline", "run_id": "stress-replay-fixture-1"},
+        scenarios=[
+            _valid_cancel_failure_scenario(),
+            _valid_stuck_partial_order_scenario(),
+        ],
+    )
+
+    assert contract["schema_version"] == "stress_replay_contract.v1"
+    assert contract["mode"] == "offline_simulated"
+    assert contract["fail_closed"] is True
+    assert contract["decision"] == "stress_replay_within_contract"
+    assert contract["checks"]["cancel_failure_scenario_present"] is True
+    assert contract["checks"]["stuck_partial_order_replay_present"] is True
+    assert contract["checks"]["all_scenarios_passed"] is True
+
+    report = build_live_readiness_gate_report(tmp_path)
+    verification = report["stress_replay_contract"]
+    assert verification["schema_valid"] is True
+    assert verification["checks"]["stress_replay_contract_schema_valid"] is True
+    assert verification["checks"]["all_scenarios_passed"] is True
+    assert "stress_replay_contract_invalid" not in report["promotion_gate"]["reasons"]
+    assert "stress_replay_scenario_failed" not in report["promotion_gate"]["reasons"]
+
+
+def test_live_readiness_gate_rejects_missing_stress_replay_contract(tmp_path: Path) -> None:
+    _write_valid_offline_rollout_checklist(tmp_path)
+    _write_valid_drift_contract(tmp_path)
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    verification = report["stress_replay_contract"]
+    assert verification["present"] is False
+    assert verification["checks"]["stress_replay_contract_present"] is False
+    assert "stress_replay_contract_missing" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
+
+
+def test_live_readiness_gate_fails_closed_on_failing_stress_replay_scenario(tmp_path: Path) -> None:
+    _write_valid_offline_rollout_checklist(tmp_path)
+    _write_valid_drift_contract(tmp_path)
+    write_stress_replay_contract(
+        tmp_path,
+        generated_at="2026-05-16T10:05:00Z",
+        max_evidence_age_seconds=600.0,
+        evidence_source={"type": "simulated_offline", "run_id": "stress-replay-fixture-1"},
+        scenarios=[
+            _valid_cancel_failure_scenario(passed=False, fail_closed_triggered=False),
+            _valid_stuck_partial_order_scenario(),
+        ],
+    )
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    verification = report["stress_replay_contract"]
+    assert verification["schema_valid"] is True
+    assert verification["decision"] == "reject_for_live_promotion"
+    assert verification["checks"]["all_scenarios_passed"] is False
+    assert "stress_replay_scenario_failed" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["checks"]["stress_replay_scenarios_passed"] is False
+
+
+@pytest.mark.parametrize(
+    ("payload_patch", "parse_error"),
+    [
+        ({"evidence_source": {"type": "testnet_exchange", "run_id": "stress-replay-fixture-1"}}, "stress_replay_evidence_source_not_simulated_offline"),
+        ({"generated_at": "2026-05-16T10:05:00+00:00"}, "stress_replay_generated_at_noncanonical_timestamp"),
+        ({"max_evidence_age_seconds": float("inf")}, "stress_replay_max_evidence_age_seconds_not_finite"),
+        ({"scenarios": [_valid_cancel_failure_scenario(observed_at="2026-05-16T09:00:00Z"), _valid_stuck_partial_order_scenario()]}, "scenarios[0].evidence_stale"),
+        ({"scenarios": [_valid_stuck_partial_order_scenario()]}, "cancel_failure_scenario_missing"),
+    ],
+)
+def test_live_readiness_gate_rejects_malformed_stress_replay_contract(
+    tmp_path: Path,
+    payload_patch: dict[str, object],
+    parse_error: str,
+) -> None:
+    _write_valid_offline_rollout_checklist(tmp_path)
+    _write_valid_drift_contract(tmp_path)
+    payload = build_stress_replay_contract(
+        generated_at="2026-05-16T10:05:00Z",
+        max_evidence_age_seconds=600.0,
+        evidence_source={"type": "simulated_offline", "run_id": "stress-replay-fixture-1"},
+        scenarios=[
+            _valid_cancel_failure_scenario(),
+            _valid_stuck_partial_order_scenario(),
+        ],
+    )
+    for key, value in payload_patch.items():
+        if isinstance(value, dict) and isinstance(payload.get(key), dict):
+            payload[key] = {**payload[key], **value}
+        else:
+            payload[key] = value
+    (tmp_path / "stress_replay_contract.json").write_text(
+        json.dumps(payload, allow_nan=True),
+        encoding="utf-8",
+    )
+
+    report = build_live_readiness_gate_report(tmp_path)
+
+    verification = report["stress_replay_contract"]
+    assert verification["schema_valid"] is False
+    assert verification["parse_error"] == parse_error
+    assert "stress_replay_contract_invalid" in report["promotion_gate"]["reasons"]
+    assert report["promotion_gate"]["decision"] == "reject_for_live_promotion"
 
 
 def test_live_readiness_gate_rejects_missing_paper_live_shadow_drift_contract(tmp_path: Path) -> None:
@@ -4564,6 +4735,7 @@ def test_profitable_trade_fixture_is_live_readiness_candidate(tmp_path: Path) ->
     _write_profitable_trade_chunk(chunk)
     _write_valid_offline_rollout_checklist(tmp_path)
     _write_valid_drift_contract(tmp_path)
+    _write_valid_stress_replay_contract(tmp_path)
 
     report = build_live_readiness_gate_report(tmp_path)
 

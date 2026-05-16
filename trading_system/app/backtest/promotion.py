@@ -8,6 +8,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Mapping
 
+from trading_system.app.backtest.stress_replay_contracts import validate_stress_replay_contract
+
 
 _REQUIRED_MANIFEST_FIELDS = (
     "experiment_kind",
@@ -691,6 +693,35 @@ def _require_dynamic_sizing_evidence(value: Any, *, context: str) -> dict[str, A
         normalized_decisions.append(decision)
     evidence["decisions"] = normalized_decisions
     return evidence
+
+
+def _promotion_stress_replay_error(exc: ValueError) -> str:
+    message = str(exc)
+    aliases = {
+        "stress_replay_contract_schema_version_invalid": "stress_replay_contract.schema_version must be stress_replay_contract.v1",
+        "stress_replay_contract_mode_not_offline_simulated": "stress_replay_contract.mode must be offline_simulated",
+        "stress_replay_max_evidence_age_seconds_not_finite": "stress_replay_contract.max_evidence_age_seconds must be a finite strict number",
+        "stuck_partial_order_replay_missing": "stress_replay_contract must include stuck partial-order replay evidence",
+        "cancel_failure_scenario_missing": "stress_replay_contract must include cancel failure evidence",
+    }
+    if message in aliases:
+        return aliases[message]
+    scenario_prefix = re.fullmatch(r"scenarios\[(\d+)\]\.([A-Za-z0-9_]+)_noncanonical", message)
+    if scenario_prefix:
+        return f"stress_replay_contract.scenarios[{scenario_prefix.group(1)}].{scenario_prefix.group(2)} must be canonical"
+    stale_match = re.fullmatch(r"scenarios\[(\d+)\]\.evidence_stale", message)
+    if stale_match:
+        return f"stress_replay_contract.scenarios[{stale_match.group(1)}] evidence must not be stale"
+    return f"stress_replay_contract invalid: {message}"
+
+
+def _require_stress_replay_contract(value: Any, *, context: str) -> dict[str, Any]:
+    if not isinstance(value, Mapping):
+        raise ValueError(f"{context}.stress_replay_contract must be an object")
+    try:
+        return validate_stress_replay_contract(value)
+    except ValueError as exc:
+        raise ValueError(_promotion_stress_replay_error(exc)) from exc
 
 
 def _validate_optional_readiness_plans(bundle: BacktestBundle) -> None:
@@ -2115,6 +2146,11 @@ def _validate_walk_forward_bundle(bundle: BacktestBundle) -> None:
             summary.get("tail_risk_report"),
             context=f"{bundle.root}/summary.json",
         )
+    if "stress_replay_contract" in summary:
+        summary["stress_replay_contract"] = _require_stress_replay_contract(
+            summary.get("stress_replay_contract"),
+            context=f"{bundle.root}/summary.json",
+        )
     windows = _require_rows(bundle.artifacts["windows.json"], context=f"{bundle.root}/windows.json")
     _require_multiple_testing_correction(
         bundle.artifacts["scorecard.json"],
@@ -2164,6 +2200,11 @@ def _validate_walk_forward_bundle(bundle: BacktestBundle) -> None:
     if "tail_risk_report" in scorecard:
         scorecard["tail_risk_report"] = _require_tail_risk_report(
             scorecard["tail_risk_report"],
+            context=f"{bundle.root}/scorecard.json",
+        )
+    if "stress_replay_contract" in scorecard:
+        scorecard["stress_replay_contract"] = _require_stress_replay_contract(
+            scorecard["stress_replay_contract"],
             context=f"{bundle.root}/scorecard.json",
         )
 
@@ -2589,6 +2630,40 @@ def _has_dynamic_sizing_evidence(bundle: BacktestBundle) -> bool:
     return _dynamic_sizing_evidence(bundle) is not None
 
 
+def _stress_replay_contract(bundle: BacktestBundle) -> dict[str, Any] | None:
+    if bundle.experiment_kind != "walk_forward_validation":
+        return None
+    summary = bundle.artifacts["summary.json"]
+    if "stress_replay_contract" in summary:
+        return _require_stress_replay_contract(summary["stress_replay_contract"], context=f"{bundle.root}/summary.json")
+    scorecard = bundle.artifacts["scorecard.json"]
+    if "stress_replay_contract" in scorecard:
+        return _require_stress_replay_contract(scorecard["stress_replay_contract"], context=f"{bundle.root}/scorecard.json")
+    return None
+
+
+def _has_stress_replay_contract(bundle: BacktestBundle) -> bool:
+    if bundle.experiment_kind != "walk_forward_validation":
+        return True
+    snapshot = _metric_snapshot(bundle)
+    if snapshot.get("total_return", 0.0) <= 0.0:
+        return True
+    return _stress_replay_contract(bundle) is not None
+
+
+def _passes_stress_replay_contract(bundle: BacktestBundle) -> bool:
+    if bundle.experiment_kind != "walk_forward_validation":
+        return True
+    snapshot = _metric_snapshot(bundle)
+    if snapshot.get("total_return", 0.0) <= 0.0:
+        return True
+    evidence = _stress_replay_contract(bundle)
+    if evidence is None:
+        return False
+    checks = evidence.get("checks")
+    return isinstance(checks, Mapping) and checks.get("all_scenarios_passed") is True
+
+
 def _has_regime_stratified_oos_evidence(bundle: BacktestBundle) -> bool:
     if bundle.experiment_kind != "walk_forward_validation":
         return True
@@ -2829,6 +2904,10 @@ def _why(
         reasons.append("missing pnl attribution evidence")
     if "has_dynamic_sizing_evidence" in checks and not checks["has_dynamic_sizing_evidence"]:
         reasons.append("missing dynamic sizing evidence")
+    if "has_stress_replay_contract" in checks and not checks["has_stress_replay_contract"]:
+        reasons.append("missing stress replay contract evidence")
+    if "passes_stress_replay_contract" in checks and not checks["passes_stress_replay_contract"]:
+        reasons.append("stress replay contract scenario failed")
     if not checks["has_runtime_observability_plan"]:
         reasons.append("missing runtime observability plan")
     if not checks["has_rollback_plan"]:
@@ -2923,6 +3002,10 @@ def _decision(
         return "reject"
     if "has_dynamic_sizing_evidence" in checks and not checks["has_dynamic_sizing_evidence"]:
         return "reject"
+    if "has_stress_replay_contract" in checks and not checks["has_stress_replay_contract"]:
+        return "reject"
+    if "passes_stress_replay_contract" in checks and not checks["passes_stress_replay_contract"]:
+        return "reject"
     if not checks["has_out_of_sample_evidence"]:
         return "hold"
     if experiment_kind == "walk_forward_validation" and _walk_forward_regresses_against_baseline(metric_deltas):
@@ -2951,6 +3034,8 @@ def compare_backtest_bundles(*, baseline_bundle: str | Path, variant_bundle: str
         "has_attribution_or_funnel_explanation": _has_explanation(variant),
         "has_pnl_attribution_evidence": _has_pnl_attribution_evidence(variant),
         "has_dynamic_sizing_evidence": _has_dynamic_sizing_evidence(variant),
+        "has_stress_replay_contract": _has_stress_replay_contract(variant),
+        "passes_stress_replay_contract": _passes_stress_replay_contract(variant),
         "has_runtime_observability_plan": _has_runtime_observability_plan(variant),
         "has_rollback_plan": _has_rollback_plan(variant),
     }
@@ -3034,6 +3119,9 @@ def compare_backtest_bundles(*, baseline_bundle: str | Path, variant_bundle: str
     dynamic_sizing_evidence = _dynamic_sizing_evidence(variant)
     if dynamic_sizing_evidence is not None:
         promotion_gate["dynamic_sizing_evidence"] = dynamic_sizing_evidence
+    stress_replay_contract = _stress_replay_contract(variant)
+    if stress_replay_contract is not None:
+        promotion_gate["stress_replay_contract"] = stress_replay_contract
     portfolio_correlation_exposure = _portfolio_correlation_exposure_evidence(variant)
     if portfolio_correlation_exposure is not None:
         promotion_gate["portfolio_correlation_exposure"] = portfolio_correlation_exposure
@@ -3062,6 +3150,8 @@ def compare_backtest_bundles(*, baseline_bundle: str | Path, variant_bundle: str
     }
     if dynamic_sizing_evidence is not None:
         decision_summary["dynamic_sizing_evidence"] = dynamic_sizing_evidence
+    if stress_replay_contract is not None:
+        decision_summary["stress_replay_contract"] = stress_replay_contract
     if capacity_analysis_evidence is not None:
         decision_summary["capacity_analysis_evidence"] = capacity_analysis_evidence
     if drawdown_anatomy is not None:

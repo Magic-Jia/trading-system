@@ -393,6 +393,64 @@ def _tail_risk_report(
     }
 
 
+def _stress_replay_contract_evidence(
+    *,
+    cancel_passed: object = True,
+    stuck_partial_passed: object = True,
+) -> dict[str, object]:
+    passed = cancel_passed is True and stuck_partial_passed is True
+    return {
+        "schema_version": "stress_replay_contract.v1",
+        "mode": "offline_simulated",
+        "generated_at": "2026-05-16T10:05:00Z",
+        "max_evidence_age_seconds": 600.0,
+        "evidence_source": {"type": "simulated_offline", "run_id": "stress-replay-fixture-1"},
+        "fail_closed": True,
+        "decision": "stress_replay_within_contract" if passed else "reject_for_live_promotion",
+        "checks": {
+            "stress_replay_contract_present": True,
+            "stress_replay_contract_schema_valid": True,
+            "stress_replay_scenarios_passed": passed,
+            "offline_simulated_evidence_only": True,
+            "cancel_failure_scenario_present": True,
+            "stuck_partial_order_replay_present": True,
+            "all_scenarios_passed": passed,
+            "fail_closed": True,
+        },
+        "reasons": [] if passed else ["stress_replay_scenario_failed"],
+        "scenarios": [
+            {
+                "scenario_id": "cancel-failure-001",
+                "scenario_type": "cancel_failure",
+                "generated_at": "2026-05-16T10:04:00Z",
+                "observed_at": "2026-05-16T10:03:00Z",
+                "max_evidence_age_seconds": 600.0,
+                "attempt_count": 1,
+                "failed_cancel_count": 1,
+                "stuck_partial_order_count": 0,
+                "fail_closed_triggered": cancel_passed is True,
+                "replay_completed": True,
+                "passed": cancel_passed,
+                "evidence_ref": "stress/cancel-failure-001.json",
+            },
+            {
+                "scenario_id": "stuck-partial-001",
+                "scenario_type": "stuck_partial_order_replay",
+                "generated_at": "2026-05-16T10:04:30Z",
+                "observed_at": "2026-05-16T10:03:30Z",
+                "max_evidence_age_seconds": 600.0,
+                "attempt_count": 1,
+                "failed_cancel_count": 0,
+                "stuck_partial_order_count": 1,
+                "fail_closed_triggered": stuck_partial_passed is True,
+                "replay_completed": True,
+                "passed": stuck_partial_passed,
+                "evidence_ref": "stress/stuck-partial-001.json",
+            },
+        ],
+    }
+
+
 def _write_full_market_bundle(
     root: Path,
     *,
@@ -491,6 +549,8 @@ def _write_walk_forward_bundle(
     drawdown_anatomy: dict[str, object] | None = None,
     include_drawdown_anatomy: bool = True,
     tail_risk_report: dict[str, object] | None = None,
+    stress_replay_contract: dict[str, object] | None = None,
+    include_stress_replay_contract: bool = True,
     include_pnl_attribution: bool = True,
     false_discovery_guardrail: dict[str, object] | None = None,
     include_false_discovery_guardrail: bool = True,
@@ -559,6 +619,8 @@ def _write_walk_forward_bundle(
         summary_payload["drawdown_anatomy"] = drawdown_anatomy or _drawdown_anatomy_evidence()
     if tail_risk_report is not None:
         summary_payload["tail_risk_report"] = tail_risk_report
+    if include_stress_replay_contract and out_of_sample_total_return > 0.0:
+        summary_payload["stress_replay_contract"] = stress_replay_contract or _stress_replay_contract_evidence()
     if runtime_fields:
         summary_payload["runtime_observability"] = {"runtime_fields": runtime_fields}
     if rollback_target and (rollback_trigger or observation_window):
@@ -654,6 +716,11 @@ def _write_walk_forward_bundle(
                 else {}
             ),
             **({"tail_risk_report": tail_risk_report} if tail_risk_report is not None else {}),
+            **(
+                {"stress_replay_contract": stress_replay_contract or _stress_replay_contract_evidence()}
+                if include_stress_replay_contract and out_of_sample_total_return > 0.0
+                else {}
+            ),
         },
     )
     return root
@@ -1180,6 +1247,8 @@ def test_compare_backtest_bundles_holds_when_out_of_sample_evidence_is_missing(t
         "has_attribution_or_funnel_explanation": True,
         "has_pnl_attribution_evidence": True,
         "has_dynamic_sizing_evidence": True,
+        "has_stress_replay_contract": True,
+        "passes_stress_replay_contract": True,
         "has_runtime_observability_plan": False,
         "has_rollback_plan": False,
     }
@@ -1379,6 +1448,8 @@ def test_compare_backtest_bundles_promotes_walk_forward_when_all_checks_pass(tmp
         "has_attribution_or_funnel_explanation": True,
         "has_pnl_attribution_evidence": True,
         "has_dynamic_sizing_evidence": True,
+        "has_stress_replay_contract": True,
+        "passes_stress_replay_contract": True,
         "has_runtime_observability_plan": True,
         "has_rollback_plan": True,
         "has_parameter_stability_surface": True,
@@ -2370,6 +2441,175 @@ def test_compare_backtest_bundles_rejects_positive_walk_forward_without_dynamic_
     assert gate["decision"] == "reject"
     assert gate["checks"]["has_dynamic_sizing_evidence"] is False
     assert "missing dynamic sizing evidence" in gate["why"]
+
+
+def test_compare_backtest_bundles_rejects_positive_walk_forward_without_stress_replay_contract(
+    tmp_path: Path,
+) -> None:
+    split_metadata = {
+        "schema_version": "walk_forward_split_metadata.v1",
+        "purge_bars": 1,
+        "embargo_bars": 0,
+    }
+    baseline_bundle = _write_walk_forward_bundle(
+        tmp_path / "baseline",
+        baseline_name="current_policy",
+        variant_name="baseline_walk_forward",
+        out_of_sample_total_return=0.03,
+        positive_window_ratio=0.75,
+        parameter_stability_score=0.7,
+        worst_window_return=0.01,
+        split_metadata=split_metadata,
+        runtime_fields=["regime", "allocator_decision_reason"],
+        rollback_target="baseline_walk_forward",
+        rollback_trigger="oos_total_return_below_zero",
+        observation_window="14d",
+        regime_stratified_oos=_regime_stratified_oos_evidence(),
+        pnl_attribution=_pnl_attribution_evidence(reported_pnl=0.03),
+        portfolio_correlation_exposure=_portfolio_correlation_exposure_evidence(),
+        tail_risk_report=_tail_risk_report(),
+    )
+    variant_bundle = _write_walk_forward_bundle(
+        tmp_path / "variant",
+        baseline_name="current_policy",
+        variant_name="candidate_walk_forward",
+        out_of_sample_total_return=0.08,
+        positive_window_ratio=0.9,
+        parameter_stability_score=0.9,
+        worst_window_return=0.02,
+        split_metadata=split_metadata,
+        runtime_fields=["regime", "allocator_decision_reason"],
+        rollback_target="baseline_walk_forward",
+        rollback_trigger="oos_total_return_below_zero",
+        observation_window="14d",
+        regime_stratified_oos=_regime_stratified_oos_evidence(),
+        pnl_attribution=_pnl_attribution_evidence(reported_pnl=0.08),
+        portfolio_correlation_exposure=_portfolio_correlation_exposure_evidence(),
+        tail_risk_report=_tail_risk_report(),
+        include_stress_replay_contract=False,
+    )
+
+    result = promotion.compare_backtest_bundles(
+        baseline_bundle=baseline_bundle,
+        variant_bundle=variant_bundle,
+    )
+
+    gate = result["promotion_gate"]
+    assert gate["decision"] == "reject"
+    assert gate["checks"]["has_stress_replay_contract"] is False
+    assert "missing stress replay contract evidence" in gate["why"]
+
+
+def test_compare_backtest_bundles_rejects_failing_stress_replay_contract(
+    tmp_path: Path,
+) -> None:
+    split_metadata = {
+        "schema_version": "walk_forward_split_metadata.v1",
+        "purge_bars": 1,
+        "embargo_bars": 0,
+    }
+    baseline_bundle = _write_walk_forward_bundle(
+        tmp_path / "baseline",
+        baseline_name="current_policy",
+        variant_name="baseline_walk_forward",
+        out_of_sample_total_return=0.03,
+        positive_window_ratio=0.75,
+        parameter_stability_score=0.7,
+        worst_window_return=0.01,
+        split_metadata=split_metadata,
+        runtime_fields=["regime", "allocator_decision_reason"],
+        rollback_target="baseline_walk_forward",
+        rollback_trigger="oos_total_return_below_zero",
+        observation_window="14d",
+        regime_stratified_oos=_regime_stratified_oos_evidence(),
+        pnl_attribution=_pnl_attribution_evidence(reported_pnl=0.03),
+        portfolio_correlation_exposure=_portfolio_correlation_exposure_evidence(),
+        tail_risk_report=_tail_risk_report(),
+    )
+    variant_bundle = _write_walk_forward_bundle(
+        tmp_path / "variant",
+        baseline_name="current_policy",
+        variant_name="candidate_walk_forward",
+        out_of_sample_total_return=0.08,
+        positive_window_ratio=0.9,
+        parameter_stability_score=0.9,
+        worst_window_return=0.02,
+        split_metadata=split_metadata,
+        runtime_fields=["regime", "allocator_decision_reason"],
+        rollback_target="baseline_walk_forward",
+        rollback_trigger="oos_total_return_below_zero",
+        observation_window="14d",
+        regime_stratified_oos=_regime_stratified_oos_evidence(),
+        pnl_attribution=_pnl_attribution_evidence(reported_pnl=0.08),
+        portfolio_correlation_exposure=_portfolio_correlation_exposure_evidence(),
+        tail_risk_report=_tail_risk_report(),
+        stress_replay_contract=_stress_replay_contract_evidence(cancel_passed=False),
+    )
+
+    result = promotion.compare_backtest_bundles(
+        baseline_bundle=baseline_bundle,
+        variant_bundle=variant_bundle,
+    )
+
+    gate = result["promotion_gate"]
+    assert gate["decision"] == "reject"
+    assert gate["checks"]["passes_stress_replay_contract"] is False
+    assert "stress replay contract scenario failed" in gate["why"]
+
+
+@pytest.mark.parametrize(
+    ("mutator", "expected_message"),
+    [
+        (
+            lambda evidence: evidence.__setitem__("schema_version", "stress_replay_contract.v0"),
+            "stress_replay_contract.schema_version must be stress_replay_contract.v1",
+        ),
+        (
+            lambda evidence: evidence.__setitem__("mode", "testnet_exchange"),
+            "stress_replay_contract.mode must be offline_simulated",
+        ),
+        (
+            lambda evidence: evidence.__setitem__("max_evidence_age_seconds", float("nan")),
+            "stress_replay_contract.max_evidence_age_seconds must be a finite strict number",
+        ),
+        (
+            lambda evidence: evidence["scenarios"][0].__setitem__("observed_at", "2026-05-16T09:00:00Z"),  # type: ignore[index,union-attr]
+            "stress_replay_contract.scenarios[0] evidence must not be stale",
+        ),
+        (
+            lambda evidence: evidence["scenarios"][0].__setitem__("scenario_type", "cancel_failure "),  # type: ignore[index,union-attr]
+            "stress_replay_contract.scenarios[0].scenario_type must be canonical",
+        ),
+        (
+            lambda evidence: evidence["scenarios"][1].__setitem__("stuck_partial_order_count", 0),  # type: ignore[index,union-attr]
+            "stress_replay_contract must include stuck partial-order replay evidence",
+        ),
+        (
+            lambda evidence: evidence.__setitem__("scenarios", [evidence["scenarios"][1]]),
+            "stress_replay_contract must include cancel failure evidence",
+        ),
+    ],
+)
+def test_load_backtest_bundle_rejects_malformed_stress_replay_contract(
+    tmp_path: Path,
+    mutator,
+    expected_message: str,
+) -> None:
+    evidence = _stress_replay_contract_evidence()
+    mutator(evidence)
+    bundle = _write_walk_forward_bundle(
+        tmp_path / "bundle",
+        baseline_name="current_policy",
+        variant_name="candidate_walk_forward",
+        out_of_sample_total_return=0.03,
+        positive_window_ratio=0.75,
+        parameter_stability_score=0.7,
+        worst_window_return=0.01,
+        stress_replay_contract=evidence,
+    )
+
+    with pytest.raises(ValueError, match=re.escape(expected_message)):
+        promotion.load_backtest_bundle(bundle)
 
 
 @pytest.mark.parametrize(

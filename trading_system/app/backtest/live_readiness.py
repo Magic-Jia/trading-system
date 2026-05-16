@@ -15,6 +15,10 @@ from trading_system.app.backtest.paper_live_shadow_drift import (
     validate_paper_live_shadow_drift_contract,
 )
 from trading_system.app.backtest.promotion_evidence_bundle import verify_promotion_evidence_bundle
+from trading_system.app.backtest.stress_replay_contracts import (
+    FILENAME as STRESS_REPLAY_CONTRACT_FILENAME,
+    validate_stress_replay_contract,
+)
 from trading_system.app.backtest.types import ExecutionFillModel
 from trading_system.app.runtime.runtime_safety_evidence import RUNTIME_SAFETY_REASON_TAXONOMY
 
@@ -2598,6 +2602,72 @@ def _paper_live_shadow_drift_contract(root: Path) -> dict[str, Any]:
     }
 
 
+def _stress_replay_parse_error(exc: ValueError) -> str:
+    message = str(exc)
+    aliases = {
+        "stress_replay_contract_schema_version_invalid": "stress_replay_contract_schema_version_invalid",
+        "stress_replay_contract_mode_not_offline_simulated": "stress_replay_contract_mode_not_offline_simulated",
+        "stress_replay_max_evidence_age_seconds_not_finite": "stress_replay_max_evidence_age_seconds_not_finite",
+        "cancel_failure_scenario_missing": "cancel_failure_scenario_missing",
+        "stuck_partial_order_replay_missing": "stuck_partial_order_replay_missing",
+    }
+    scenario_stale = re.fullmatch(r"scenarios\[(\d+)\]\.evidence_stale", message)
+    if scenario_stale:
+        return f"scenarios[{scenario_stale.group(1)}].evidence_stale"
+    return aliases.get(message, message)
+
+
+def _stress_replay_contract(root: Path) -> dict[str, Any]:
+    path = root / STRESS_REPLAY_CONTRACT_FILENAME
+    checks = {
+        "stress_replay_contract_present": path.exists(),
+        "stress_replay_contract_schema_valid": False,
+        "stress_replay_scenarios_passed": False,
+        "cancel_failure_scenario_present": False,
+        "stuck_partial_order_replay_present": False,
+        "all_scenarios_passed": False,
+        "offline_simulated_evidence_only": False,
+        "fail_closed": False,
+    }
+    if not path.exists():
+        return {
+            "schema_version": "stress_replay_contract_verification.v1",
+            "present": False,
+            "schema_valid": False,
+            "parse_error": "stress_replay_contract_missing",
+            "checks": checks,
+        }
+    payload, parse_error = _load_json_rejecting_duplicate_keys(path)
+    if parse_error:
+        return {
+            "schema_version": "stress_replay_contract_verification.v1",
+            "present": True,
+            "schema_valid": False,
+            "parse_error": parse_error,
+            "checks": checks,
+        }
+    try:
+        contract = validate_stress_replay_contract(payload)
+    except ValueError as exc:
+        return {
+            "schema_version": "stress_replay_contract_verification.v1",
+            "present": True,
+            "schema_valid": False,
+            "parse_error": _stress_replay_parse_error(exc),
+            "checks": checks,
+        }
+    contract_checks = _as_mapping(contract.get("checks"))
+    checks.update({key: contract_checks.get(key) is True for key in checks})
+    return {
+        "schema_version": "stress_replay_contract_verification.v1",
+        "present": True,
+        "schema_valid": True,
+        "parse_error": "",
+        **contract,
+        "checks": checks,
+    }
+
+
 def _strict_optional_non_negative_int(mapping: Mapping[str, Any], key: str, default: int = 0) -> tuple[int, bool]:
     if key not in mapping or mapping.get(key) is None:
         return default, True
@@ -4619,6 +4689,7 @@ def build_live_readiness_gate_report(
     validation_gate = _validation_gate(chunk_dirs, required=policy_requirements["require_validation_evidence"])
     offline_rollout_readiness = _offline_rollout_readiness(root)
     paper_live_shadow_drift_contract = _paper_live_shadow_drift_contract(root)
+    stress_replay_contract = _stress_replay_contract(root)
     setup_rewrite_diagnostic = _setup_rewrite_diagnostic(chunk_dirs)
     passive_calibration = _passive_calibration_diagnostic(
         chunk_dirs,
@@ -5067,6 +5138,13 @@ def build_live_readiness_gate_report(
         reasons.append("paper_live_shadow_drift_contract_invalid")
     elif not paper_live_shadow_drift_checks.get("paper_live_shadow_material_drift_absent", False):
         reasons.append("paper_live_shadow_material_drift")
+    stress_replay_checks = _as_mapping(stress_replay_contract.get("checks"))
+    if not stress_replay_checks.get("stress_replay_contract_present", False):
+        reasons.append("stress_replay_contract_missing")
+    elif not stress_replay_checks.get("stress_replay_contract_schema_valid", False):
+        reasons.append("stress_replay_contract_invalid")
+    elif not stress_replay_checks.get("stress_replay_scenarios_passed", False):
+        reasons.append("stress_replay_scenario_failed")
 
     if not setup_concentration_met:
         reasons.append("setup_concentration_too_high")
@@ -5198,6 +5276,7 @@ def build_live_readiness_gate_report(
         "validation_gate": validation_gate,
         "offline_rollout_readiness": offline_rollout_readiness,
         "paper_live_shadow_drift_contract": paper_live_shadow_drift_contract,
+        "stress_replay_contract": stress_replay_contract,
         "concentration": concentration,
         "passive_calibration": passive_calibration,
         "exit_path_replay": {
@@ -5236,6 +5315,7 @@ def build_live_readiness_gate_report(
                 **validation_checks,
                 **offline_rollout_checks,
                 **paper_live_shadow_drift_checks,
+                **stress_replay_checks,
                 "setup_concentration_met": setup_concentration_met,
                 "symbol_concentration_met": symbol_concentration_met,
                 "setup_net_abs_concentration_met": setup_net_abs_concentration_met,
