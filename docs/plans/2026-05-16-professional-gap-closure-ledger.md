@@ -156,3 +156,43 @@ P0 first batch begins with two independent offline slices:
 2. `microstructure-depth-fill-contracts`: find a genuine execution/microstructure boundary where depth/fill evidence can be missing, malformed, non-finite, or overoptimistic and add fail-closed tests.
 
 Both slices must avoid live/testnet calls and exchange APIs.
+
+
+## Closure progress log
+
+Controller policy: entries below are marked only after isolated worker verification, mainline cherry-pick, exact mainline verification, and `git diff --check HEAD` pass. Full-suite checkpoints remain bounded batch evidence.
+
+### Closed slices
+
+- `microstructure-depth-fill-contracts` — `886246b5`, fail-closed depth fill provenance contracts.
+- `dataset-asof-decision-timestamp-contracts` — `c0267d2c`, fail-closed dataset as-of decision timestamp contracts.
+- `partial-fill-consumer-boundaries` — `04c4e263`, partial-fill producer/consumer contracts.
+- `feature-label-lookahead-boundary-contracts` — `90ffa8d7`, feature/label lookahead contracts.
+- `manifest-hash-lineage-contracts` — `73bbf31a`, manifest hash lineage contracts.
+- `maker-queue-evidence-required` — `0b93efc1`, maker queue evidence required for passive fills.
+- `coverage-matrix-gap-identity-contracts` — `a9a8ae43`, raw market coverage gap identity.
+- `universe-survivorship-asof-contracts` — `afb0aa93`, universe as-of survivorship contracts.
+- `parameter-stability-surface-schema` — `a2031b18`, parameter stability surface metadata gate.
+- `multiple-testing-correction-required` — `cc8aeeb4`, multiple testing correction gate.
+- `walkforward-purged-embargo-contracts` — `d3b86271`, purged/embargo walk-forward split metadata gate.
+- `latency-timestamp-lifecycle-contracts` — `41db3c0a`, execution lifecycle timestamp evidence.
+- `fee-funding-timevarying-provenance` — `9a5c861a`, time-varying fee/funding provenance gate.
+- `regime-stratified-oos-contracts` — `4367194d`, regime-stratified OOS promotion gate.
+- `margin-liquidation-path-contracts` — `ff59f93c`, margin/liquidation path evidence gate.
+- `order-state-machine-unknown-failclosed` — `c7d574c0`, unknown order lifecycle state fail-closed gate.
+- `pnl-attribution-schema-contracts` — `9ae6df83`, PnL attribution evidence gate.
+- `dynamic-sizing-liquidity-volatility-contracts` — `ca784b45`, dynamic sizing evidence contracts.
+- `portfolio-correlation-exposure-contracts` — `5daab745`, portfolio correlation/exposure promotion frontier.
+- `kill-switch-stale-clock-account-contracts` — `5ac887eb`, stale clock/account kill-switch evidence contracts.
+- `ledger-exchange-reconciliation-contracts` — `fec2e099`, local ledger/exchange reconciliation contracts.
+- `runtime-incident-bundle-schema` — `dd73f6aa`, runtime incident bundle schema contract.
+- `environment-permission-isolation-contracts` — `ae0600a7`, environment permission isolation contracts.
+- `capacity-impact-report-contracts` — `f7bcd81a` + `af6ebc00`, live-readiness capacity impact and promotion capacity gates.
+- `drawdown-anatomy-contracts` — `02406954`, drawdown anatomy experiment/reporting/promotion contracts.
+- `tail-risk-report-contracts` — `34430f5a` + `2cbdd1ae`, tail-risk promotion and report evidence contracts.
+
+### Remaining frontier
+
+- Track C: `deflated-sharpe-false-discovery-contracts`, `paper-live-shadow-drift-contracts`.
+- Track D: exchange stress/replay fixtures for flash crash, outage, websocket lag, REST limit, cancel failure, and stuck partial order.
+- Track F: `decision-audit-asof-evidence-contracts`.
