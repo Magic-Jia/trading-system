@@ -1324,7 +1324,7 @@ def test_walk_forward_outputs_rejects_non_object_experiment_metadata(
                 "out_of_sample_scorecard": {"total_return": 0.0, "trade_count": 0},
                 "performance_dispersion": {"positive_window_ratio": 0.0},
             },
-            "parameter_stability": {"parameter_stability_score": 0.0},
+            "parameter_stability": _canonical_parameter_stability(0.0),
         },
         raising=False,
     )
@@ -1357,7 +1357,7 @@ def test_walk_forward_outputs_rejects_invalid_experiment_window_count(
                 "out_of_sample_scorecard": {"total_return": 0.0, "trade_count": 0},
                 "performance_dispersion": {"positive_window_ratio": 0.0},
             },
-            "parameter_stability": {"parameter_stability_score": 0.0},
+            "parameter_stability": _canonical_parameter_stability(0.0),
         },
         raising=False,
     )
@@ -3559,7 +3559,59 @@ def _minimal_walk_forward_validation_experiment() -> dict[str, object]:
             "in_sample_scorecard": {"total_return": 0.04, "trade_count": 1},
             "performance_dispersion": {"positive_window_ratio": 1.0},
         },
-        "parameter_stability": {"parameter_stability_score": 0.8},
+        "parameter_stability": {
+            "parameter_stability_score": 0.8,
+            "stability_score_threshold": 0.5,
+            "selected_optimum": {
+                "parameters": {"score_floor": 0.7},
+                "metric": "out_of_sample_total_return",
+                "value": 0.03,
+            },
+            "stability_surface": [
+                {
+                    "parameter_name": "score_floor",
+                    "tested_values": [0.6, 0.7, 0.8],
+                    "tested_range": {"min": 0.6, "max": 0.8},
+                    "neighborhood_metrics": {
+                        "mean_neighbor_metric": 0.025,
+                        "worst_neighbor_metric": 0.02,
+                        "neighbor_count": 2,
+                    },
+                }
+            ],
+            "isolated_spike": {
+                "is_isolated": False,
+                "rejection_reason": None,
+            },
+        },
+    }
+
+
+def _canonical_parameter_stability(score: float = 0.8) -> dict[str, object]:
+    return {
+        "parameter_stability_score": score,
+        "stability_score_threshold": 0.5,
+        "selected_optimum": {
+            "parameters": {"score_floor": 0.7},
+            "metric": "out_of_sample_total_return",
+            "value": 0.03,
+        },
+        "stability_surface": [
+            {
+                "parameter_name": "score_floor",
+                "tested_values": [0.6, 0.7, 0.8],
+                "tested_range": {"min": 0.6, "max": 0.8},
+                "neighborhood_metrics": {
+                    "mean_neighbor_metric": 0.025,
+                    "worst_neighbor_metric": 0.02,
+                    "neighbor_count": 2,
+                },
+            }
+        ],
+        "isolated_spike": {
+            "is_isolated": False,
+            "rejection_reason": None,
+        },
     }
 
 
@@ -3575,6 +3627,18 @@ def test_walk_forward_validation_report_accepts_stability_scorecard_object_contr
     assert robustness_summary["performance_dispersion"]["positive_window_ratio"] == pytest.approx(1.0)
     assert robustness_summary["out_of_sample_scorecard"]["trade_count"] == 1
     assert robustness_summary["in_sample_scorecard"]["trade_count"] == 1
+    assert report["summary"]["parameter_stability"]["stability_surface"] == [
+        {
+            "parameter_name": "score_floor",
+            "tested_values": [0.6, 0.7, 0.8],
+            "tested_range": {"min": 0.6, "max": 0.8},
+            "neighborhood_metrics": {
+                "mean_neighbor_metric": 0.025,
+                "worst_neighbor_metric": 0.02,
+                "neighbor_count": 2,
+            },
+        }
+    ]
 
 
 @pytest.mark.parametrize(
@@ -3604,6 +3668,117 @@ def test_walk_forward_validation_report_rejects_non_object_stability_scorecard_c
         )
 
 
+@pytest.mark.parametrize(
+    ("missing_field", "match"),
+    [
+        ("stability_surface", "parameter_stability.stability_surface must be a non-empty list"),
+        ("selected_optimum", "parameter_stability.selected_optimum must be an object"),
+        ("stability_score_threshold", "parameter_stability.stability_score_threshold must be a bounded ratio strict number"),
+        ("isolated_spike", "parameter_stability.isolated_spike must be an object"),
+    ],
+)
+def test_walk_forward_validation_report_requires_canonical_parameter_stability_surface_metadata(
+    missing_field: str,
+    match: str,
+) -> None:
+    experiment = _minimal_walk_forward_validation_experiment()
+    del experiment["parameter_stability"][missing_field]  # type: ignore[index]
+
+    with pytest.raises(ValueError, match=re.escape(match)):
+        cli.render_walk_forward_validation_report(
+            experiment_name="walk_forward_validation",
+            metadata={"snapshot_count": 1, "window_count": 1},
+            experiment=experiment,
+        )
+
+
+@pytest.mark.parametrize(
+    ("path", "value", "match"),
+    [
+        (
+            ("stability_surface", 0, "parameter_name"),
+            " score_floor ",
+            "parameter_stability.stability_surface[0].parameter_name must be a canonical string",
+        ),
+        (
+            ("stability_surface", 0, "tested_values", 0),
+            "0.6",
+            "parameter_stability.stability_surface[0].tested_values[0] must be a finite strict number",
+        ),
+        (
+            ("stability_surface", 0, "tested_values", 1),
+            0.6,
+            "parameter_stability.stability_surface[0].tested_values must be unique",
+        ),
+        (
+            ("stability_surface", 0, "tested_range", "min"),
+            True,
+            "parameter_stability.stability_surface[0].tested_range.min must be a finite strict number",
+        ),
+        (
+            ("stability_surface", 0, "tested_range", "max"),
+            0.5,
+            "parameter_stability.stability_surface[0].tested_range.max must be >= min",
+        ),
+        (
+            ("stability_surface", 0, "neighborhood_metrics", "neighbor_count"),
+            0,
+            "parameter_stability.stability_surface[0].neighborhood_metrics.neighbor_count must be a positive integer",
+        ),
+        (
+            ("selected_optimum", "parameters", "score_floor"),
+            float("nan"),
+            "parameter_stability.selected_optimum.parameters.score_floor must be a finite strict number",
+        ),
+        (
+            ("selected_optimum", "metric"),
+            " out_of_sample_total_return ",
+            "parameter_stability.selected_optimum.metric must be a canonical string",
+        ),
+        (
+            ("isolated_spike", "is_isolated"),
+            "false",
+            "parameter_stability.isolated_spike.is_isolated must be a bool",
+        ),
+    ],
+)
+def test_walk_forward_validation_report_rejects_nonfinite_coercive_or_ambiguous_surface_data(
+    path: tuple[object, ...],
+    value: object,
+    match: str,
+) -> None:
+    experiment = _minimal_walk_forward_validation_experiment()
+    cursor: object = experiment["parameter_stability"]
+    for part in path[:-1]:
+        cursor = cursor[part]  # type: ignore[index]
+    cursor[path[-1]] = value  # type: ignore[index]
+
+    with pytest.raises(ValueError, match=re.escape(match)):
+        cli.render_walk_forward_validation_report(
+            experiment_name="walk_forward_validation",
+            metadata={"snapshot_count": 1, "window_count": 1},
+            experiment=experiment,
+        )
+
+
+def test_walk_forward_validation_report_rejects_isolated_spike_without_canonical_rejection_reason() -> None:
+    experiment = _minimal_walk_forward_validation_experiment()
+    experiment["parameter_stability"]["isolated_spike"] = {  # type: ignore[index]
+        "is_isolated": True,
+        "rejection_reason": " isolated spike ",
+    }
+
+    with pytest.raises(
+        ValueError,
+        match=re.escape("parameter_stability.isolated_spike.rejection_reason must be a canonical string"),
+    ):
+        cli.render_walk_forward_validation_report(
+            experiment_name="walk_forward_validation",
+            metadata={"snapshot_count": 1, "window_count": 1},
+            experiment=experiment,
+        )
+
+
 def test_walk_forward_validation_report_rejects_invalid_scorecard_numerics() -> None:
     with pytest.raises(ValueError, match="out_of_sample_scorecard.total_return must be a finite number"):
         cli.render_walk_forward_validation_report(
@@ -3615,7 +3790,7 @@ def test_walk_forward_validation_report_rejects_invalid_scorecard_numerics() -> 
                     "out_of_sample_scorecard": {"total_return": True},
                     "performance_dispersion": {"positive_window_ratio": 1.0},
                 },
-                "parameter_stability": {"parameter_stability_score": 0.8},
+                "parameter_stability": _canonical_parameter_stability(),
             },
         )
 
@@ -3631,7 +3806,7 @@ def test_walk_forward_validation_report_rejects_string_summary_scorecard_metric(
                     "out_of_sample_scorecard": {"total_return": "0.03"},
                     "performance_dispersion": {"positive_window_ratio": 1.0},
                 },
-                "parameter_stability": {"parameter_stability_score": 0.8},
+                "parameter_stability": _canonical_parameter_stability(),
             },
         )
 
@@ -3648,7 +3823,7 @@ def test_walk_forward_validation_report_rejects_invalid_metadata_counts() -> Non
                     "out_of_sample_scorecard": {"total_return": 0.03},
                     "performance_dispersion": {"positive_window_ratio": 1.0},
                 },
-                "parameter_stability": {"parameter_stability_score": 0.8},
+                "parameter_stability": _canonical_parameter_stability(),
             },
         )
 
@@ -3659,7 +3834,7 @@ def test_walk_forward_validation_report_rejects_non_object_robustness_payloads()
         cli.render_walk_forward_validation_report(
             experiment_name="walk_forward_validation",
             metadata={"snapshot_count": 1, "window_count": 1},
-            experiment={"windows": [], "robustness_summary": [], "parameter_stability": {"parameter_stability_score": 0.8}},
+            experiment={"windows": [], "robustness_summary": [], "parameter_stability": _canonical_parameter_stability()},
         )
 
 
@@ -3675,7 +3850,7 @@ def test_walk_forward_validation_report_rejects_invalid_windows_shape() -> None:
                     "out_of_sample_scorecard": {"total_return": 0.03},
                     "performance_dispersion": {"positive_window_ratio": 1.0},
                 },
-                "parameter_stability": {"parameter_stability_score": 0.8},
+                "parameter_stability": _canonical_parameter_stability(),
             },
         )
 
@@ -3691,7 +3866,7 @@ def test_walk_forward_validation_report_rejects_non_object_window_row() -> None:
                     "out_of_sample_scorecard": {"total_return": 0.03},
                     "performance_dispersion": {"positive_window_ratio": 1.0},
                 },
-                "parameter_stability": {"parameter_stability_score": 0.8},
+                "parameter_stability": _canonical_parameter_stability(),
             },
         )
 
@@ -3715,7 +3890,7 @@ def test_walk_forward_validation_report_rejects_boolean_window_index() -> None:
                     "out_of_sample_scorecard": {"total_return": 0.03},
                     "performance_dispersion": {"positive_window_ratio": 1.0},
                 },
-                "parameter_stability": {"parameter_stability_score": 0.8},
+                "parameter_stability": _canonical_parameter_stability(),
             },
         )
 
@@ -3749,7 +3924,7 @@ def test_walk_forward_validation_report_rejects_non_canonical_window_raw_market_
                     "out_of_sample_scorecard": {"total_return": 0.03},
                     "performance_dispersion": {"positive_window_ratio": 1.0},
                 },
-                "parameter_stability": {"parameter_stability_score": 0.8},
+                "parameter_stability": _canonical_parameter_stability(),
             },
         )
 
@@ -3793,7 +3968,7 @@ def test_walk_forward_validation_report_rejects_mixed_window_raw_market_source_i
                     "out_of_sample_scorecard": {"total_return": 0.05},
                     "performance_dispersion": {"positive_window_ratio": 1.0},
                 },
-                "parameter_stability": {"parameter_stability_score": 0.8},
+                "parameter_stability": _canonical_parameter_stability(),
             },
         )
 
@@ -3817,7 +3992,7 @@ def test_walk_forward_validation_report_rejects_string_window_scorecard_metric()
                     "out_of_sample_scorecard": {"total_return": 0.03},
                     "performance_dispersion": {"positive_window_ratio": 1.0},
                 },
-                "parameter_stability": {"parameter_stability_score": 0.8},
+                "parameter_stability": _canonical_parameter_stability(),
             },
         )
 
@@ -3915,7 +4090,7 @@ def test_walk_forward_validation_report_rejects_malformed_present_count_domains(
                 "scorecard": {"total_return": 0.03, "trade_count": 1},
             },
         },
-        "parameter_stability": {"parameter_stability_score": 0.8},
+        "parameter_stability": _canonical_parameter_stability(),
     }
     cursor: object = experiment
     for part in path[:-1]:
@@ -3964,7 +4139,7 @@ def test_walk_forward_validation_report_rejects_malformed_worst_window_contracts
             },
             "worst_window": worst_window,
         },
-        "parameter_stability": {"parameter_stability_score": 0.8},
+        "parameter_stability": _canonical_parameter_stability(),
     }
 
     with pytest.raises(ValueError, match=match):
@@ -4007,7 +4182,7 @@ def test_walk_forward_validation_report_preserves_valid_worst_window_scorecard()
                     },
                 },
             },
-            "parameter_stability": {"parameter_stability_score": 0.8},
+            "parameter_stability": _canonical_parameter_stability(),
         },
     )
 
@@ -4115,7 +4290,7 @@ def test_walk_forward_validation_report_rejects_malformed_present_duration_domai
                 "scorecard": {"total_return": 0.03, "trade_count": 1, "max_duration_bars": 2},
             },
         },
-        "parameter_stability": {"parameter_stability_score": 0.8},
+        "parameter_stability": _canonical_parameter_stability(),
     }
     cursor: object = experiment
     for part in path[:-1]:
@@ -4182,7 +4357,7 @@ def test_walk_forward_validation_report_rejects_malformed_ratio_domain_scorecard
                     "out_of_sample_scorecard": {"total_return": 0.03},
                     "performance_dispersion": {"positive_window_ratio": 1.0},
                 },
-                "parameter_stability": {"parameter_stability_score": 0.8},
+                "parameter_stability": _canonical_parameter_stability(),
             },
         )
 
@@ -4204,7 +4379,7 @@ def test_walk_forward_validation_report_rejects_malformed_performance_dispersion
                     "out_of_sample_scorecard": {"total_return": 0.03},
                     "performance_dispersion": {"positive_window_ratio": positive_window_ratio},
                 },
-                "parameter_stability": {"parameter_stability_score": 0.8},
+                "parameter_stability": _canonical_parameter_stability(),
             },
         )
 
@@ -4219,7 +4394,7 @@ def test_walk_forward_validation_report_preserves_zero_performance_dispersion_ra
                 "out_of_sample_scorecard": {"total_return": 0.0},
                 "performance_dispersion": {"positive_window_ratio": 0.0},
             },
-            "parameter_stability": {"parameter_stability_score": 0.8},
+            "parameter_stability": _canonical_parameter_stability(),
         },
     )
 
@@ -4246,7 +4421,7 @@ def test_walk_forward_validation_report_rejects_malformed_parameter_stability_sc
                     "out_of_sample_scorecard": {"total_return": 0.03},
                     "performance_dispersion": {"positive_window_ratio": 1.0},
                 },
-                "parameter_stability": {"parameter_stability_score": parameter_stability_score},
+                "parameter_stability": _canonical_parameter_stability(parameter_stability_score),
             },
         )
 
@@ -4261,7 +4436,7 @@ def test_walk_forward_validation_report_preserves_zero_parameter_stability_score
                 "out_of_sample_scorecard": {"total_return": 0.0},
                 "performance_dispersion": {"positive_window_ratio": 0.0},
             },
-            "parameter_stability": {"parameter_stability_score": 0.0},
+            "parameter_stability": _canonical_parameter_stability(0.0),
         },
     )
 
@@ -4318,7 +4493,7 @@ def test_walk_forward_validation_report_rejects_malformed_coverage_scorecard_val
                     "out_of_sample_scorecard": {"total_return": 0.03},
                     "performance_dispersion": {"positive_window_ratio": 1.0},
                 },
-                "parameter_stability": {"parameter_stability_score": 0.8},
+                "parameter_stability": _canonical_parameter_stability(),
             },
         )
 
@@ -4369,7 +4544,7 @@ def test_walk_forward_validation_report_rejects_malformed_named_percentage_cover
                     "out_of_sample_scorecard": {"total_return": 0.03},
                     "performance_dispersion": {"positive_window_ratio": 1.0},
                 },
-                "parameter_stability": {"parameter_stability_score": 0.8},
+                "parameter_stability": _canonical_parameter_stability(),
             },
         )
 
@@ -4404,7 +4579,7 @@ def test_walk_forward_validation_report_rejects_malformed_summary_coverage_score
                     "out_of_sample_scorecard": out_of_sample_scorecard,
                     "performance_dispersion": {"positive_window_ratio": 1.0},
                 },
-                "parameter_stability": {"parameter_stability_score": 0.8},
+                "parameter_stability": _canonical_parameter_stability(),
             },
         )
 
@@ -4445,7 +4620,7 @@ def test_walk_forward_validation_report_preserves_valid_coverage_scorecard_value
                 },
                 "performance_dispersion": {"positive_window_ratio": 1.0},
             },
-            "parameter_stability": {"parameter_stability_score": 0.8},
+            "parameter_stability": _canonical_parameter_stability(),
         },
     )
 
@@ -4484,7 +4659,7 @@ def test_walk_forward_validation_report_rejects_blank_window_run_id() -> None:
                     "out_of_sample_scorecard": {"total_return": 0.03},
                     "performance_dispersion": {"positive_window_ratio": 1.0},
                 },
-                "parameter_stability": {"parameter_stability_score": 0.8},
+                "parameter_stability": _canonical_parameter_stability(),
             },
         )
 
@@ -5059,7 +5234,7 @@ def test_backtest_cli_writes_walk_forward_validation_bundle(monkeypatch: pytest.
                 "out_of_sample_scorecard": {"total_return": 0.03, "trade_count": 1},
                 "performance_dispersion": {"positive_window_ratio": 1.0},
             },
-            "parameter_stability": {"parameter_stability_score": 0.8},
+            "parameter_stability": _canonical_parameter_stability(),
         },
         raising=False,
     )

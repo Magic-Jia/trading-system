@@ -563,6 +563,160 @@ def _evaluation_metric_payload(metrics: Mapping[str, Any], *, field_name: str) -
     return validated_metrics
 
 
+def _strict_surface_finite_float(value: Any, *, field_name: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise ValueError(f"{field_name} must be a finite strict number")
+    parsed = float(value)
+    if not math.isfinite(parsed):
+        raise ValueError(f"{field_name} must be a finite strict number")
+    return parsed
+
+
+def _parameter_stability_surface_value_list(value: Any, *, field_name: str) -> list[float]:
+    if not isinstance(value, list) or not value:
+        raise ValueError(f"{field_name} must be a non-empty list")
+    values = [
+        _strict_surface_finite_float(item, field_name=f"{field_name}[{index}]")
+        for index, item in enumerate(value)
+    ]
+    if len(set(values)) != len(values):
+        raise ValueError(f"{field_name} must be unique")
+    return values
+
+
+def _parameter_stability_surface(
+    value: Any,
+    *,
+    field_name: str,
+) -> list[dict[str, Any]]:
+    if not isinstance(value, list) or not value:
+        raise ValueError(f"{field_name} must be a non-empty list")
+    validated_surface: list[dict[str, Any]] = []
+    parameter_names: set[str] = set()
+    for index, raw_row in enumerate(value):
+        row_name = f"{field_name}[{index}]"
+        if not isinstance(raw_row, Mapping):
+            raise ValueError(f"{row_name} must be an object")
+        row = _strict_mapping_copy(raw_row, field_name=row_name)
+        parameter_name = _canonical_report_string(row.get("parameter_name"), field_name=f"{row_name}.parameter_name")
+        if parameter_name in parameter_names:
+            raise ValueError(f"{field_name}.parameter_name values must be unique")
+        parameter_names.add(parameter_name)
+        tested_values = _parameter_stability_surface_value_list(
+            row.get("tested_values"),
+            field_name=f"{row_name}.tested_values",
+        )
+        raw_tested_range = row.get("tested_range")
+        if not isinstance(raw_tested_range, Mapping):
+            raise ValueError(f"{row_name}.tested_range must be an object")
+        tested_range = _strict_mapping_copy(raw_tested_range, field_name=f"{row_name}.tested_range")
+        range_min = _strict_surface_finite_float(tested_range.get("min"), field_name=f"{row_name}.tested_range.min")
+        range_max = _strict_surface_finite_float(tested_range.get("max"), field_name=f"{row_name}.tested_range.max")
+        if range_max < range_min:
+            raise ValueError(f"{row_name}.tested_range.max must be >= min")
+        raw_neighborhood_metrics = row.get("neighborhood_metrics")
+        if not isinstance(raw_neighborhood_metrics, Mapping):
+            raise ValueError(f"{row_name}.neighborhood_metrics must be an object")
+        neighborhood_metrics = _strict_mapping_copy(
+            raw_neighborhood_metrics,
+            field_name=f"{row_name}.neighborhood_metrics",
+        )
+        validated_neighborhood_metrics: dict[str, float | int] = {}
+        for metric_name, metric_value in neighborhood_metrics.items():
+            metric_key = _canonical_report_string(metric_name, field_name=f"{row_name}.neighborhood_metrics key")
+            if metric_key == "neighbor_count":
+                validated_neighborhood_metrics[metric_key] = _positive_int_field(
+                    neighborhood_metrics,
+                    metric_key,
+                    label=f"{row_name}.neighborhood_metrics",
+                )
+            else:
+                validated_neighborhood_metrics[metric_key] = _strict_surface_finite_float(
+                    metric_value,
+                    field_name=f"{row_name}.neighborhood_metrics.{metric_key}",
+                )
+        if "neighbor_count" not in validated_neighborhood_metrics:
+            raise ValueError(f"{row_name}.neighborhood_metrics.neighbor_count must be a positive integer")
+        validated_surface.append(
+            {
+                "parameter_name": parameter_name,
+                "tested_values": tested_values,
+                "tested_range": {"min": range_min, "max": range_max},
+                "neighborhood_metrics": validated_neighborhood_metrics,
+            }
+        )
+    return validated_surface
+
+
+def _parameter_stability_selected_optimum(value: Any, *, field_name: str) -> dict[str, Any]:
+    if not isinstance(value, Mapping):
+        raise ValueError(f"{field_name} must be an object")
+    optimum = _strict_mapping_copy(value, field_name=field_name)
+    raw_parameters = optimum.get("parameters")
+    if not isinstance(raw_parameters, Mapping) or not raw_parameters:
+        raise ValueError(f"{field_name}.parameters must be a non-empty object")
+    parameters: dict[str, float] = {}
+    for parameter_name, parameter_value in raw_parameters.items():
+        key = _canonical_report_string(parameter_name, field_name=f"{field_name}.parameters key")
+        parameters[key] = _strict_surface_finite_float(
+            parameter_value,
+            field_name=f"{field_name}.parameters.{key}",
+        )
+    return {
+        "parameters": parameters,
+        "metric": _canonical_report_string(optimum.get("metric"), field_name=f"{field_name}.metric"),
+        "value": _strict_surface_finite_float(optimum.get("value"), field_name=f"{field_name}.value"),
+    }
+
+
+def _parameter_stability_isolated_spike(value: Any, *, field_name: str) -> dict[str, Any]:
+    if not isinstance(value, Mapping):
+        raise ValueError(f"{field_name} must be an object")
+    spike = _strict_mapping_copy(value, field_name=field_name)
+    is_isolated = spike.get("is_isolated")
+    if not isinstance(is_isolated, bool):
+        raise ValueError(f"{field_name}.is_isolated must be a bool")
+    rejection_reason = spike.get("rejection_reason")
+    if is_isolated:
+        rejection_reason = _canonical_report_string(
+            rejection_reason,
+            field_name=f"{field_name}.rejection_reason",
+        )
+    elif rejection_reason is not None:
+        rejection_reason = _canonical_report_string(
+            rejection_reason,
+            field_name=f"{field_name}.rejection_reason",
+        )
+    return {"is_isolated": is_isolated, "rejection_reason": rejection_reason}
+
+
+def _parameter_stability_payload(parameter_stability: Mapping[str, Any], *, field_name: str) -> dict[str, Any]:
+    validated = dict(parameter_stability)
+    parameter_stability_score = _strict_bounded_ratio_float(
+        validated.get("parameter_stability_score"),
+        field_name=f"{field_name}.parameter_stability_score",
+    )
+    stability_score_threshold = _strict_bounded_ratio_float(
+        validated.get("stability_score_threshold"),
+        field_name=f"{field_name}.stability_score_threshold",
+    )
+    validated["parameter_stability_score"] = parameter_stability_score
+    validated["stability_score_threshold"] = stability_score_threshold
+    validated["selected_optimum"] = _parameter_stability_selected_optimum(
+        validated.get("selected_optimum"),
+        field_name=f"{field_name}.selected_optimum",
+    )
+    validated["stability_surface"] = _parameter_stability_surface(
+        validated.get("stability_surface"),
+        field_name=f"{field_name}.stability_surface",
+    )
+    validated["isolated_spike"] = _parameter_stability_isolated_spike(
+        validated.get("isolated_spike"),
+        field_name=f"{field_name}.isolated_spike",
+    )
+    return validated
+
+
 def _cost_stress_metric_payload(metrics: Mapping[str, Any], *, field_name: str) -> dict[str, Any]:
     validated_metrics: dict[str, Any] = {}
     for metric_name, metric_value in metrics.items():
@@ -2211,11 +2365,11 @@ def render_walk_forward_validation_report(
         performance_dispersion.get("positive_window_ratio", 0.0),
         field_name="performance_dispersion.positive_window_ratio",
     )
-    parameter_stability_score = _strict_bounded_ratio_float(
-        parameter_stability.get("parameter_stability_score", 0.0),
-        field_name="parameter_stability.parameter_stability_score",
+    parameter_stability = _parameter_stability_payload(
+        parameter_stability,
+        field_name="parameter_stability",
     )
-    parameter_stability["parameter_stability_score"] = parameter_stability_score
+    parameter_stability_score = parameter_stability["parameter_stability_score"]
 
     if out_of_sample_total_return > 0.0 and positive_window_ratio >= 0.6 and parameter_stability_score >= 0.5:
         decision = "candidate_for_promotion"

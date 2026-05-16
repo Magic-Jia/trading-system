@@ -84,10 +84,41 @@ def _require_real_number(payload: Mapping[str, Any], key: str, *, context: str) 
     return parsed
 
 
+def _require_strict_real_number(value: Any, *, context: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{context} must be a finite strict number")
+    parsed = float(value)
+    if not math.isfinite(parsed):
+        raise ValueError(f"{context} must be a finite strict number")
+    return parsed
+
+
+def _require_bounded_ratio(value: Any, *, context: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{context} must be a bounded ratio strict number")
+    parsed = float(value)
+    if not math.isfinite(parsed) or parsed < 0.0 or parsed > 1.0:
+        raise ValueError(f"{context} must be a bounded ratio strict number")
+    return parsed
+
+
+def _require_canonical_string_value(value: Any, *, context: str) -> str:
+    if not isinstance(value, str) or not value.strip() or value != value.strip():
+        raise ValueError(f"{context} must be a canonical string")
+    return value
+
+
 def _require_non_negative_int(payload: Mapping[str, Any], key: str, *, context: str) -> int:
     value = payload.get(key)
     if not isinstance(value, int) or isinstance(value, bool) or value < 0:
         raise ValueError(f"{context}.{key} must be a non-negative integer")
+    return value
+
+
+def _require_positive_int(payload: Mapping[str, Any], key: str, *, context: str) -> int:
+    value = payload.get(key)
+    if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+        raise ValueError(f"{context}.{key} must be a positive integer")
     return value
 
 
@@ -319,6 +350,129 @@ def _validate_optional_readiness_plans(bundle: BacktestBundle) -> None:
     for payload, context in payloads:
         _validate_runtime_observability_plan(payload, context=context)
         _validate_rollback_plan(payload, context=context)
+
+
+def _validate_parameter_stability_selected_optimum(payload: Any, *, context: str) -> dict[str, Any]:
+    if not isinstance(payload, Mapping):
+        raise ValueError(f"{context}.selected_optimum must be an object")
+    parameters = payload.get("parameters")
+    if not isinstance(parameters, Mapping) or not parameters:
+        raise ValueError(f"{context}.selected_optimum.parameters must be a non-empty object")
+    validated_parameters: dict[str, float] = {}
+    for raw_name, raw_value in parameters.items():
+        name = _require_canonical_string_value(raw_name, context=f"{context}.selected_optimum.parameters key")
+        validated_parameters[name] = _require_strict_real_number(
+            raw_value,
+            context=f"{context}.selected_optimum.parameters.{name}",
+        )
+    return {
+        "parameters": validated_parameters,
+        "metric": _require_canonical_string_value(payload.get("metric"), context=f"{context}.selected_optimum.metric"),
+        "value": _require_strict_real_number(payload.get("value"), context=f"{context}.selected_optimum.value"),
+    }
+
+
+def _validate_parameter_stability_surface(payload: Any, *, context: str) -> list[dict[str, Any]]:
+    if not isinstance(payload, list) or not payload:
+        raise ValueError(f"{context}.stability_surface must be a non-empty list")
+    validated_surface: list[dict[str, Any]] = []
+    parameter_names: set[str] = set()
+    for index, raw_row in enumerate(payload):
+        row_context = f"{context}.stability_surface[{index}]"
+        if not isinstance(raw_row, Mapping):
+            raise ValueError(f"{row_context} must be an object")
+        parameter_name = _require_canonical_string_value(raw_row.get("parameter_name"), context=f"{row_context}.parameter_name")
+        if parameter_name in parameter_names:
+            raise ValueError(f"{context}.stability_surface.parameter_name values must be unique")
+        parameter_names.add(parameter_name)
+        tested_values = raw_row.get("tested_values")
+        if not isinstance(tested_values, list) or not tested_values:
+            raise ValueError(f"{row_context}.tested_values must be a non-empty list")
+        validated_tested_values = [
+            _require_strict_real_number(value, context=f"{row_context}.tested_values[{value_index}]")
+            for value_index, value in enumerate(tested_values)
+        ]
+        if len(set(validated_tested_values)) != len(validated_tested_values):
+            raise ValueError(f"{row_context}.tested_values must be unique")
+        tested_range = _require_mapping(raw_row, "tested_range", context=row_context)
+        range_min = _require_strict_real_number(tested_range.get("min"), context=f"{row_context}.tested_range.min")
+        range_max = _require_strict_real_number(tested_range.get("max"), context=f"{row_context}.tested_range.max")
+        if range_max < range_min:
+            raise ValueError(f"{row_context}.tested_range.max must be >= min")
+        neighborhood_metrics = _require_mapping(raw_row, "neighborhood_metrics", context=row_context)
+        validated_neighborhood_metrics: dict[str, float | int] = {}
+        for raw_metric_name, raw_metric_value in neighborhood_metrics.items():
+            metric_name = _require_canonical_string_value(
+                raw_metric_name,
+                context=f"{row_context}.neighborhood_metrics key",
+            )
+            if metric_name == "neighbor_count":
+                validated_neighborhood_metrics[metric_name] = _require_positive_int(
+                    neighborhood_metrics,
+                    metric_name,
+                    context=f"{row_context}.neighborhood_metrics",
+                )
+            else:
+                validated_neighborhood_metrics[metric_name] = _require_strict_real_number(
+                    raw_metric_value,
+                    context=f"{row_context}.neighborhood_metrics.{metric_name}",
+                )
+        if "neighbor_count" not in validated_neighborhood_metrics:
+            raise ValueError(f"{row_context}.neighborhood_metrics.neighbor_count must be a positive integer")
+        validated_surface.append(
+            {
+                "parameter_name": parameter_name,
+                "tested_values": validated_tested_values,
+                "tested_range": {"min": range_min, "max": range_max},
+                "neighborhood_metrics": validated_neighborhood_metrics,
+            }
+        )
+    return validated_surface
+
+
+def _validate_parameter_stability_isolated_spike(payload: Any, *, context: str) -> dict[str, Any]:
+    if not isinstance(payload, Mapping):
+        raise ValueError(f"{context}.isolated_spike must be an object")
+    is_isolated = payload.get("is_isolated")
+    if not isinstance(is_isolated, bool):
+        raise ValueError(f"{context}.isolated_spike.is_isolated must be a bool")
+    rejection_reason = payload.get("rejection_reason")
+    if is_isolated:
+        rejection_reason = _require_canonical_string_value(
+            rejection_reason,
+            context=f"{context}.isolated_spike.rejection_reason",
+        )
+    elif rejection_reason is not None:
+        rejection_reason = _require_canonical_string_value(
+            rejection_reason,
+            context=f"{context}.isolated_spike.rejection_reason",
+        )
+    return {"is_isolated": is_isolated, "rejection_reason": rejection_reason}
+
+
+def _validate_parameter_stability_payload(payload: Mapping[str, Any], *, context: str) -> dict[str, Any]:
+    validated = dict(payload)
+    validated["parameter_stability_score"] = _require_bounded_ratio(
+        payload.get("parameter_stability_score"),
+        context=f"{context}.parameter_stability_score",
+    )
+    validated["stability_score_threshold"] = _require_bounded_ratio(
+        payload.get("stability_score_threshold"),
+        context=f"{context}.stability_score_threshold",
+    )
+    validated["selected_optimum"] = _validate_parameter_stability_selected_optimum(
+        payload.get("selected_optimum"),
+        context=context,
+    )
+    validated["stability_surface"] = _validate_parameter_stability_surface(
+        payload.get("stability_surface"),
+        context=context,
+    )
+    validated["isolated_spike"] = _validate_parameter_stability_isolated_spike(
+        payload.get("isolated_spike"),
+        context=context,
+    )
+    return validated
 
 
 
@@ -583,9 +737,8 @@ def _validate_walk_forward_bundle(bundle: BacktestBundle) -> None:
         context=f"{bundle.root}/summary.json.robustness_summary.worst_window.scorecard",
     )
     parameter_stability = _require_mapping(summary, "parameter_stability", context=f"{bundle.root}/summary.json")
-    _require_real_number(
+    summary["parameter_stability"] = _validate_parameter_stability_payload(
         parameter_stability,
-        "parameter_stability_score",
         context=f"{bundle.root}/summary.json.parameter_stability",
     )
     windows = _require_rows(bundle.artifacts["windows.json"], context=f"{bundle.root}/windows.json")
@@ -885,6 +1038,33 @@ def _has_rollback_plan(bundle: BacktestBundle) -> bool:
     return False
 
 
+def _has_parameter_stability_surface(bundle: BacktestBundle) -> bool:
+    if bundle.experiment_kind != "walk_forward_validation":
+        return False
+    parameter_stability = bundle.artifacts["summary.json"].get("parameter_stability")
+    if not isinstance(parameter_stability, Mapping):
+        return False
+    return bool(
+        parameter_stability.get("stability_surface")
+        and parameter_stability.get("selected_optimum")
+        and "stability_score_threshold" in parameter_stability
+        and parameter_stability.get("isolated_spike") is not None
+    )
+
+
+def _isolated_spike_rejection_reason(bundle: BacktestBundle) -> str | None:
+    if bundle.experiment_kind != "walk_forward_validation":
+        return None
+    parameter_stability = bundle.artifacts["summary.json"].get("parameter_stability")
+    if not isinstance(parameter_stability, Mapping):
+        return None
+    isolated_spike = parameter_stability.get("isolated_spike")
+    if not isinstance(isolated_spike, Mapping) or isolated_spike.get("is_isolated") is not True:
+        return None
+    rejection_reason = isolated_spike.get("rejection_reason")
+    return rejection_reason if isinstance(rejection_reason, str) else "isolated_spike_optimum"
+
+
 
 def _out_of_sample_collapses(bundle: BacktestBundle) -> bool:
     if bundle.experiment_kind != "walk_forward_validation":
@@ -905,7 +1085,12 @@ def _out_of_sample_collapses(bundle: BacktestBundle) -> bool:
 
 
 
-def _why(checks: Mapping[str, bool], *, out_of_sample_collapses: bool) -> list[str]:
+def _why(
+    checks: Mapping[str, bool],
+    *,
+    out_of_sample_collapses: bool,
+    isolated_spike_rejection_reason: str | None,
+) -> list[str]:
     reasons: list[str] = []
     if not checks["has_baseline_variant_pair"]:
         reasons.append("missing baseline vs variant pair")
@@ -921,6 +1106,10 @@ def _why(checks: Mapping[str, bool], *, out_of_sample_collapses: bool) -> list[s
         reasons.append("missing runtime observability plan")
     if not checks["has_rollback_plan"]:
         reasons.append("missing rollback plan")
+    if "has_parameter_stability_surface" in checks and not checks["has_parameter_stability_surface"]:
+        reasons.append("missing parameter stability surface")
+    if isolated_spike_rejection_reason is not None:
+        reasons.append(f"isolated spike optimum: {isolated_spike_rejection_reason}")
     return reasons
 
 
@@ -940,10 +1129,13 @@ def _decision(
     experiment_kind: str,
     metric_deltas: Mapping[str, float],
     out_of_sample_collapses: bool,
+    isolated_spike_rejection_reason: str | None,
 ) -> str:
     if not checks["has_cost_adjusted_edge"]:
         return "reject"
     if out_of_sample_collapses:
+        return "reject"
+    if isolated_spike_rejection_reason is not None:
         return "reject"
     if not checks["has_out_of_sample_evidence"]:
         return "hold"
@@ -973,14 +1165,23 @@ def compare_backtest_bundles(*, baseline_bundle: str | Path, variant_bundle: str
         "has_runtime_observability_plan": _has_runtime_observability_plan(variant),
         "has_rollback_plan": _has_rollback_plan(variant),
     }
+    if variant.experiment_kind == "walk_forward_validation":
+        checks["has_parameter_stability_surface"] = _has_parameter_stability_surface(variant)
+        checks["rejects_isolated_spike_optimum"] = _isolated_spike_rejection_reason(variant) is None
     metric_deltas = _metric_deltas(baseline, variant)
     out_of_sample_collapses = _out_of_sample_collapses(variant)
-    why = _why(checks, out_of_sample_collapses=out_of_sample_collapses)
+    isolated_spike_rejection_reason = _isolated_spike_rejection_reason(variant)
+    why = _why(
+        checks,
+        out_of_sample_collapses=out_of_sample_collapses,
+        isolated_spike_rejection_reason=isolated_spike_rejection_reason,
+    )
     decision = _decision(
         checks,
         experiment_kind=variant.experiment_kind,
         metric_deltas=metric_deltas,
         out_of_sample_collapses=out_of_sample_collapses,
+        isolated_spike_rejection_reason=isolated_spike_rejection_reason,
     )
 
     promotion_gate = {

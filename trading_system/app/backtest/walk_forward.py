@@ -250,6 +250,28 @@ def summarize_parameter_stability(
                 "out_of_sample_sharpe": zero_band,
                 "out_of_sample_calmar": zero_band,
             },
+            "stability_score_threshold": 0.5,
+            "selected_optimum": {
+                "parameters": {"walk_forward_window": 0.0},
+                "metric": "out_of_sample_total_return",
+                "value": 0.0,
+            },
+            "stability_surface": [
+                {
+                    "parameter_name": "walk_forward_window",
+                    "tested_values": [0.0],
+                    "tested_range": {"min": 0.0, "max": 0.0},
+                    "neighborhood_metrics": {
+                        "mean_neighbor_metric": 0.0,
+                        "worst_neighbor_metric": 0.0,
+                        "neighbor_count": 1,
+                    },
+                }
+            ],
+            "isolated_spike": {
+                "is_isolated": False,
+                "rejection_reason": None,
+            },
         }
 
     in_sample_returns = [_scorecard_metric(window, split="in_sample", metric="total_return") for window in window_summaries]
@@ -268,6 +290,25 @@ def summarize_parameter_stability(
         + _bounded_ratio(worst_window_retention_ratio)
         + positive_window_ratio
     ) / 3.0
+    best_out_of_sample_return = max(out_of_sample_returns)
+    best_window_position = out_of_sample_returns.index(best_out_of_sample_return) + 1
+    neighbor_returns = [
+        value
+        for index, value in enumerate(out_of_sample_returns, start=1)
+        if abs(index - best_window_position) == 1
+    ]
+    if not neighbor_returns:
+        neighbor_returns = [best_out_of_sample_return]
+    mean_neighbor_metric = expectancy(neighbor_returns)
+    worst_neighbor_metric = min(neighbor_returns)
+    stability_score_threshold = 0.5
+    isolated_spike_reason = (
+        "selected_optimum_neighbors_fail_threshold"
+        if parameter_stability_score >= stability_score_threshold
+        and best_out_of_sample_return > 0.0
+        and worst_neighbor_metric <= 0.0
+        else None
+    )
 
     return {
         "edge_retention_ratio": round(edge_retention_ratio, 6),
@@ -278,5 +319,27 @@ def summarize_parameter_stability(
             "out_of_sample_total_return": _value_band(out_of_sample_returns),
             "out_of_sample_sharpe": _value_band(out_of_sample_sharpes),
             "out_of_sample_calmar": _value_band(out_of_sample_calmars),
+        },
+        "stability_score_threshold": stability_score_threshold,
+        "selected_optimum": {
+            "parameters": {"walk_forward_window": float(best_window_position)},
+            "metric": "out_of_sample_total_return",
+            "value": round(best_out_of_sample_return, 6),
+        },
+        "stability_surface": [
+            {
+                "parameter_name": "walk_forward_window",
+                "tested_values": [float(index) for index in range(1, len(out_of_sample_returns) + 1)],
+                "tested_range": {"min": 1.0, "max": float(len(out_of_sample_returns))},
+                "neighborhood_metrics": {
+                    "mean_neighbor_metric": round(mean_neighbor_metric, 6),
+                    "worst_neighbor_metric": round(worst_neighbor_metric, 6),
+                    "neighbor_count": len(neighbor_returns),
+                },
+            }
+        ],
+        "isolated_spike": {
+            "is_isolated": isolated_spike_reason is not None,
+            "rejection_reason": isolated_spike_reason,
         },
     }

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -136,7 +137,31 @@ def _write_walk_forward_bundle(
             "performance_dispersion": {"positive_window_ratio": positive_window_ratio},
             "worst_window": {"window_index": 2, "scorecard": {"total_return": worst_window_return}},
         },
-        "parameter_stability": {"parameter_stability_score": parameter_stability_score},
+        "parameter_stability": {
+            "parameter_stability_score": parameter_stability_score,
+            "stability_score_threshold": 0.5,
+            "selected_optimum": {
+                "parameters": {"score_floor": 0.7},
+                "metric": "out_of_sample_total_return",
+                "value": out_of_sample_total_return,
+            },
+            "stability_surface": [
+                {
+                    "parameter_name": "score_floor",
+                    "tested_values": [0.6, 0.7, 0.8],
+                    "tested_range": {"min": 0.6, "max": 0.8},
+                    "neighborhood_metrics": {
+                        "mean_neighbor_metric": max(0.0, out_of_sample_total_return - 0.01),
+                        "worst_neighbor_metric": max(0.0, worst_window_return),
+                        "neighbor_count": 2,
+                    },
+                }
+            ],
+            "isolated_spike": {
+                "is_isolated": False,
+                "rejection_reason": None,
+            },
+        },
     }
     if runtime_fields:
         summary_payload["runtime_observability"] = {"runtime_fields": runtime_fields}
@@ -221,6 +246,103 @@ def test_load_backtest_bundle_rejects_noncanonical_rollback_plan_fields(tmp_path
     )
 
     with pytest.raises(ValueError, match="rollback_plan.rollback_target must be canonical"):
+        promotion.load_backtest_bundle(bundle)
+
+
+@pytest.mark.parametrize(
+    ("missing_field", "match"),
+    [
+        ("stability_surface", "summary.json.parameter_stability.stability_surface must be a non-empty list"),
+        ("selected_optimum", "summary.json.parameter_stability.selected_optimum must be an object"),
+        (
+            "stability_score_threshold",
+            "summary.json.parameter_stability.stability_score_threshold must be a bounded ratio strict number",
+        ),
+        ("isolated_spike", "summary.json.parameter_stability.isolated_spike must be an object"),
+    ],
+)
+def test_load_backtest_bundle_requires_canonical_parameter_stability_surface_metadata(
+    tmp_path: Path,
+    missing_field: str,
+    match: str,
+) -> None:
+    bundle = _write_walk_forward_bundle(
+        tmp_path / "bundle",
+        baseline_name="current_policy",
+        variant_name="candidate_walk_forward",
+        out_of_sample_total_return=0.03,
+        positive_window_ratio=0.75,
+        parameter_stability_score=0.7,
+        worst_window_return=0.01,
+    )
+    summary_path = bundle / "summary.json"
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    del summary["parameter_stability"][missing_field]
+    _write_json(summary_path, summary)
+
+    with pytest.raises(ValueError, match=re.escape(match)):
+        promotion.load_backtest_bundle(bundle)
+
+
+@pytest.mark.parametrize(
+    ("path", "value", "match"),
+    [
+        (
+            ("stability_surface", 0, "parameter_name"),
+            "",
+            "summary.json.parameter_stability.stability_surface[0].parameter_name must be a canonical string",
+        ),
+        (
+            ("stability_surface", 0, "tested_values", 0),
+            True,
+            "summary.json.parameter_stability.stability_surface[0].tested_values[0] must be a finite strict number",
+        ),
+        (
+            ("stability_surface", 0, "tested_range", "max"),
+            0.5,
+            "summary.json.parameter_stability.stability_surface[0].tested_range.max must be >= min",
+        ),
+        (
+            ("stability_surface", 0, "neighborhood_metrics", "mean_neighbor_metric"),
+            "0.02",
+            "summary.json.parameter_stability.stability_surface[0].neighborhood_metrics.mean_neighbor_metric must be a finite strict number",
+        ),
+        (
+            ("selected_optimum", "parameters", "score_floor"),
+            float("inf"),
+            "summary.json.parameter_stability.selected_optimum.parameters.score_floor must be a finite strict number",
+        ),
+        (
+            ("isolated_spike", "is_isolated"),
+            0,
+            "summary.json.parameter_stability.isolated_spike.is_isolated must be a bool",
+        ),
+    ],
+)
+def test_load_backtest_bundle_rejects_nonfinite_coercive_or_ambiguous_stability_surface_data(
+    tmp_path: Path,
+    path: tuple[object, ...],
+    value: object,
+    match: str,
+) -> None:
+    bundle = _write_walk_forward_bundle(
+        tmp_path / "bundle",
+        baseline_name="current_policy",
+        variant_name="candidate_walk_forward",
+        out_of_sample_total_return=0.03,
+        positive_window_ratio=0.75,
+        parameter_stability_score=0.7,
+        worst_window_return=0.01,
+    )
+    summary_path = bundle / "summary.json"
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    cursor: object = summary["parameter_stability"]
+    for part in path[:-1]:
+        cursor = cursor[part]  # type: ignore[index]
+    cursor[path[-1]] = value  # type: ignore[index]
+    _write_json(summary_path, summary)
+
+    with pytest.raises(ValueError, match=re.escape(match)):
         promotion.load_backtest_bundle(bundle)
 
 
@@ -583,8 +705,57 @@ def test_compare_backtest_bundles_promotes_walk_forward_when_all_checks_pass(tmp
         "has_attribution_or_funnel_explanation": True,
         "has_runtime_observability_plan": True,
         "has_rollback_plan": True,
+        "has_parameter_stability_surface": True,
+        "rejects_isolated_spike_optimum": True,
     }
     assert gate["why"] == []
+
+
+def test_compare_backtest_bundles_rejects_walk_forward_isolated_spike_optimum(tmp_path: Path) -> None:
+    baseline_bundle = _write_walk_forward_bundle(
+        tmp_path / "baseline",
+        baseline_name="current_policy",
+        variant_name="baseline_walk_forward",
+        out_of_sample_total_return=0.03,
+        positive_window_ratio=0.75,
+        parameter_stability_score=0.7,
+        worst_window_return=0.01,
+        runtime_fields=["regime", "allocator_decision_reason"],
+        rollback_target="baseline_walk_forward",
+        rollback_trigger="oos_total_return_below_zero",
+        observation_window="14d",
+    )
+    variant_bundle = _write_walk_forward_bundle(
+        tmp_path / "variant",
+        baseline_name="current_policy",
+        variant_name="candidate_walk_forward",
+        out_of_sample_total_return=0.08,
+        positive_window_ratio=0.9,
+        parameter_stability_score=0.9,
+        worst_window_return=0.02,
+        runtime_fields=["regime", "allocator_decision_reason"],
+        rollback_target="baseline_walk_forward",
+        rollback_trigger="oos_total_return_below_zero",
+        observation_window="14d",
+    )
+    summary_path = variant_bundle / "summary.json"
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    summary["parameter_stability"]["isolated_spike"] = {
+        "is_isolated": True,
+        "rejection_reason": "selected_optimum_neighbors_fail_threshold",
+    }
+    _write_json(summary_path, summary)
+
+    result = promotion.compare_backtest_bundles(
+        baseline_bundle=baseline_bundle,
+        variant_bundle=variant_bundle,
+    )
+
+    gate = result["promotion_gate"]
+    assert gate["decision"] == "reject"
+    assert gate["checks"]["has_parameter_stability_surface"] is True
+    assert gate["checks"]["rejects_isolated_spike_optimum"] is False
+    assert "isolated spike optimum: selected_optimum_neighbors_fail_threshold" in gate["why"]
 
 
 
@@ -1136,7 +1307,10 @@ def test_load_backtest_bundle_rejects_numeric_strings_in_parameter_stability_sum
     payload["parameter_stability"]["parameter_stability_score"] = "0.9"
     _write_json(summary_path, payload)
 
-    with pytest.raises(ValueError, match="parameter_stability.parameter_stability_score must be numeric"):
+    with pytest.raises(
+        ValueError,
+        match=r"parameter_stability\.parameter_stability_score must be a bounded ratio strict number",
+    ):
         promotion.load_backtest_bundle(bundle)
 
 def test_load_backtest_bundle_rejects_string_full_market_audit_trade_count(tmp_path: Path) -> None:
