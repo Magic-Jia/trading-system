@@ -35,6 +35,7 @@ def build_exit_policy_experiment(
     policy: ExitPolicyParams,
     metadata: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
+    _validate_serialized_trade_identity(trades)
     evaluation_rows = [_evaluate_trade(index=index, trade=trade, policy=policy) for index, trade in enumerate(trades, start=1)]
     summary = {
         "total_trades": len(evaluation_rows),
@@ -62,6 +63,8 @@ def build_exit_policy_experiment(
 def _evaluate_trade(*, index: int, trade: Mapping[str, Any], policy: ExitPolicyParams) -> dict[str, Any]:
     identity = {
         "trade_index": index,
+        "trade_id": _optional_canonical_identifier(trade, field="trade_id", index=index),
+        "fill_id": _optional_canonical_identifier(trade, field="fill_id", index=index),
         "symbol": _optional_present_string(trade, field="symbol", index=index),
         "market_type": _optional_present_string(trade, field="market_type", index=index),
         "base_asset": _optional_present_string(trade, field="base_asset", index=index),
@@ -181,6 +184,18 @@ def _validate_serialized_fill_timestamps(trade: Mapping[str, Any], *, index: int
         raise ValueError(f"trades[{index}].first_fill_timestamp must be at or before last_fill_timestamp")
 
 
+def _validate_serialized_trade_identity(trades: Sequence[Mapping[str, Any]]) -> None:
+    seen_by_field: dict[str, set[str]] = {"trade_id": set(), "fill_id": set()}
+    for index, trade in enumerate(trades, start=1):
+        for field in ("trade_id", "fill_id"):
+            identity = _optional_canonical_identifier(trade, field=field, index=index)
+            if identity is None:
+                continue
+            if identity in seen_by_field[field]:
+                raise ValueError(f"duplicate trades[{index}].{field}: {identity}")
+            seen_by_field[field].add(identity)
+
+
 def _trade_print_points(raw_trade_prints: Any, *, path: str) -> tuple[_TradePrintPoint, ...]:
     if not isinstance(raw_trade_prints, Sequence) or isinstance(raw_trade_prints, (str, bytes, bytearray)):
         raise ValueError(f"{path} must be a sequence of trade print mappings")
@@ -193,6 +208,15 @@ def _trade_print_points(raw_trade_prints: Any, *, path: str) -> tuple[_TradePrin
         price = _required_present_positive_finite_number(item, field="price", path=row_path)
         points.append(_TradePrintPoint(timestamp=timestamp, price=price))
     return tuple(points)
+
+
+def _optional_canonical_identifier(trade: Mapping[str, Any], *, field: str, index: int) -> str | None:
+    if field not in trade or trade[field] is None:
+        return None
+    value = trade[field]
+    if not isinstance(value, str) or not value or value != value.strip():
+        raise ValueError(f"trades[{index}].{field} must be a canonical non-blank string when present")
+    return value
 
 
 def _optional_present_string(trade: Mapping[str, Any], *, field: str, index: int) -> str:

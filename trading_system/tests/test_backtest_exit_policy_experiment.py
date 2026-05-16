@@ -228,3 +228,43 @@ def test_exit_policy_experiment_rejects_present_invalid_identity_numeric_fields(
 
     with pytest.raises(ValueError, match=rf"trades\[1\]\.{field} must be a finite number when present"):
         module.build_exit_policy_experiment(trades=[trade], policy=_policy())
+
+
+@pytest.mark.parametrize("field", ("trade_id", "fill_id"))
+@pytest.mark.parametrize("invalid_value", (123, "", "   ", " trade-001", "trade-001 "))
+def test_exit_policy_experiment_rejects_present_noncanonical_serialized_trade_identity(
+    field: str, invalid_value: object
+) -> None:
+    module = importlib.import_module("trading_system.app.backtest.exit_policy_experiment")
+    trade = _valid_trade()
+    trade[field] = invalid_value
+
+    with pytest.raises(ValueError, match=rf"trades\[1\]\.{field} must be a canonical non-blank string when present"):
+        module.build_exit_policy_experiment(trades=[trade], policy=_policy())
+
+
+@pytest.mark.parametrize("field", ("trade_id", "fill_id"))
+def test_exit_policy_experiment_rejects_duplicate_present_serialized_trade_identity(field: str) -> None:
+    module = importlib.import_module("trading_system.app.backtest.exit_policy_experiment")
+    first_trade = _valid_trade()
+    second_trade = _valid_trade()
+    first_trade[field] = "trade-001"
+    second_trade[field] = "trade-001"
+    second_trade["symbol"] = "ETHUSDT"
+    second_trade["base_asset"] = "ETH"
+
+    with pytest.raises(ValueError, match=rf"duplicate trades\[2\]\.{field}: trade-001"):
+        module.build_exit_policy_experiment(trades=[first_trade, second_trade], policy=_policy())
+
+
+def test_exit_policy_experiment_preserves_present_serialized_trade_identity() -> None:
+    module = importlib.import_module("trading_system.app.backtest.exit_policy_experiment")
+    trade = _valid_trade()
+    trade["trade_id"] = "trade-001"
+    trade["fill_id"] = "fill-001"
+
+    artifact = module.build_exit_policy_experiment(trades=[trade], policy=_policy())
+
+    row = artifact["evaluation_rows"][0]
+    assert row["trade_id"] == "trade-001"
+    assert row["fill_id"] == "fill-001"
