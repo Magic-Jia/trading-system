@@ -20,6 +20,7 @@ HARD_REASONS = (
     "tca_slippage_exceeds_threshold",
     "rolling_tca_durability_failed",
     "bucket_regression",
+    "promotion_readiness_reject",
     "execution_chain_missing",
     "reconcile_failed",
     "malformed_evidence",
@@ -30,12 +31,15 @@ SOFT_REASONS = (
     "calibration_records_unavailable",
     "insufficient_sample_size",
     "insufficient_bucket_samples",
+    "promotion_readiness_hold",
+    "promotion_readiness_review",
 )
 REASON_ORDER = (
     "paper_shadow_material_drift",
     "tca_slippage_exceeds_threshold",
     "rolling_tca_durability_failed",
     "bucket_regression",
+    "promotion_readiness_reject",
     "execution_chain_missing",
     "reconcile_failed",
     "latency_distribution_shift",
@@ -43,6 +47,8 @@ REASON_ORDER = (
     "calibration_records_unavailable",
     "insufficient_sample_size",
     "insufficient_bucket_samples",
+    "promotion_readiness_hold",
+    "promotion_readiness_review",
     "malformed_evidence",
 )
 WORKFLOW_REASON_ORDER = (*REASON_ORDER, UNRESOLVED_REJECT_REASON)
@@ -588,6 +594,53 @@ def _rolling_tca_durability_checks(
     }
 
 
+def _promotion_readiness_checks(promotion_readiness: Any, malformed: list[str]) -> dict[str, Any]:
+    if promotion_readiness is None:
+        return {
+            "present": False,
+            "decision": None,
+            "score": None,
+            "reasons": [],
+            "promotion_readiness_passed": True,
+        }
+    malformed_start = len(malformed)
+    payload = _mapping(promotion_readiness, "promotion_readiness", malformed)
+    if payload.get("schema_version") != "promotion_readiness_scorecard.v1":
+        malformed.append("promotion_readiness.schema_version_invalid")
+    decision = payload.get("decision")
+    if decision not in {"pass", "review", "hold", "reject"}:
+        malformed.append("promotion_readiness.decision_invalid")
+    scores = _mapping(payload.get("scores"), "promotion_readiness.scores", malformed)
+    score = _non_negative_number(
+        scores.get("promotion_readiness"),
+        "promotion_readiness.scores.promotion_readiness",
+        malformed,
+    )
+    if score is not None and score > 100.0:
+        malformed.append("promotion_readiness.scores.promotion_readiness_above_100")
+    reason_map = {
+        "review": "promotion_readiness_review",
+        "hold": "promotion_readiness_hold",
+        "reject": "promotion_readiness_reject",
+    }
+    reasons = [reason_map[decision]] if decision in reason_map else []
+    if len(malformed) > malformed_start:
+        return {
+            "present": True,
+            "decision": decision if isinstance(decision, str) else None,
+            "score": score,
+            "reasons": [],
+            "promotion_readiness_passed": False,
+        }
+    return {
+        "present": True,
+        "decision": decision,
+        "score": score,
+        "reasons": reasons,
+        "promotion_readiness_passed": decision == "pass",
+    }
+
+
 def build_daily_quality_gate_report(
     *,
     evidence_bundle: Mapping[str, Any],
@@ -597,6 +650,7 @@ def build_daily_quality_gate_report(
     latency: Mapping[str, Any] | None = None,
     freshness: Mapping[str, Any] | None = None,
     rolling_tca_durability: Mapping[str, Any] | None = None,
+    promotion_readiness: Mapping[str, Any] | None = None,
     min_sample_size: int = 30,
     generated_at: str | None = None,
 ) -> dict[str, Any]:
@@ -608,6 +662,7 @@ def build_daily_quality_gate_report(
     latency_result = _latency_checks(latency, malformed)
     freshness_result = _freshness_checks(freshness, malformed)
     rolling_tca_result = _rolling_tca_durability_checks(rolling_tca_durability, malformed)
+    promotion_readiness_result = _promotion_readiness_checks(promotion_readiness, malformed)
 
     reasons: set[str] = set()
     if malformed:
@@ -634,6 +689,8 @@ def build_daily_quality_gate_report(
         reasons.add("insufficient_sample_size")
     if rolling_tca_result["present"]:
         reasons.update(rolling_tca_result["reasons"])
+    if promotion_readiness_result["present"]:
+        reasons.update(promotion_readiness_result["reasons"])
 
     ordered_reasons = _ordered_reasons(reasons)
     if any(reason in HARD_REASONS for reason in ordered_reasons):
@@ -663,12 +720,14 @@ def build_daily_quality_gate_report(
             "rolling_tca_bucket_samples_sufficient": bool(
                 rolling_tca_result["rolling_tca_bucket_samples_sufficient"]
             ),
+            "promotion_readiness_passed": bool(promotion_readiness_result["promotion_readiness_passed"]),
         },
         "inputs": {
             "tca": tca_result,
             "latency": latency_result,
             "freshness": freshness_result,
             **({"rolling_tca_durability": rolling_tca_result} if rolling_tca_result["present"] else {}),
+            **({"promotion_readiness": promotion_readiness_result} if promotion_readiness_result["present"] else {}),
         },
     }
 

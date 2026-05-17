@@ -157,6 +157,15 @@ def test_promotion_readiness_scorecard_test_file_has_impact_mapping() -> None:
     assert "trading_system/tests/test_scheduled_live_sim_generation.py" in tests
 
 
+def test_promotion_readiness_scorecard_has_reporting_impact_mapping() -> None:
+    verify = load_verify_module()
+
+    tests = verify.tests_for_changed(["trading_system/app/reporting/promotion_readiness_scorecard.py"])
+
+    assert "trading_system/tests/test_promotion_readiness_scorecard.py" in tests
+    assert "trading_system/tests/test_daily_quality_gate_report.py" in tests
+
+
 def test_full_market_baseline_dataset_fixtures_have_backtest_impact_mapping() -> None:
     verify = load_verify_module()
 

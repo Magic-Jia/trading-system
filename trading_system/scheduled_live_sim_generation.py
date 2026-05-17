@@ -25,6 +25,7 @@ RECONCILIATION_NAME = "runtime_safety_gate.json"
 ERROR_NAME = "scheduled_live_sim_generation_error.json"
 BOOTSTRAP_METADATA_NAME = "bootstrap_input_metadata.json"
 ROLLING_TCA_DURABILITY_NAME = "rolling_tca_durability_report.json"
+PROMOTION_READINESS_SCORECARD_NAME = "promotion_readiness_scorecard.json"
 
 
 def _canonical_now() -> str:
@@ -93,6 +94,15 @@ def _optional_rolling_tca_durability_input(path: Path) -> dict[str, Any] | None:
     payload = _read_json_object(path)
     if payload.get("schema_version") != "rolling_tca_durability_report.v1":
         raise ValueError(f"{ROLLING_TCA_DURABILITY_NAME} schema_version is invalid")
+    return payload
+
+
+def _optional_promotion_readiness_input(path: Path) -> dict[str, Any] | None:
+    if not path.exists():
+        return None
+    payload = _read_json_object(path)
+    if payload.get("schema_version") != "promotion_readiness_scorecard.v1":
+        raise ValueError(f"{PROMOTION_READINESS_SCORECARD_NAME} schema_version is invalid")
     return payload
 
 
@@ -216,6 +226,10 @@ def run_scheduled_generation(
         )
         generated_artifacts["calibration_records_unavailable"] = str(output_dir / CALIBRATION_UNAVAILABLE_NAME)
         rolling_tca = None
+    promotion_readiness_path = output_dir / PROMOTION_READINESS_SCORECARD_NAME
+    promotion_readiness = _optional_promotion_readiness_input(promotion_readiness_path)
+    if promotion_readiness is not None:
+        generated_artifacts["promotion_readiness_scorecard"] = str(promotion_readiness_path)
     gate = write_daily_quality_gate_report(
         output_dir / "daily_quality_gate_report.json",
         evidence_bundle={"verified": True, "manifest_present": True},
@@ -223,6 +237,7 @@ def run_scheduled_generation(
         reconciliation=reconciliation,
         tca=daily_tca,
         rolling_tca_durability=rolling_tca,
+        promotion_readiness=promotion_readiness,
         freshness={
             **_freshness_input(output_dir=output_dir, max_evidence_age_seconds=max_evidence_age_seconds),
         },

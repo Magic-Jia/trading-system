@@ -215,6 +215,27 @@ def _rolling_durability(decision: str = "pass") -> dict[str, object]:
     }
 
 
+def _promotion_readiness(decision: str = "hold") -> dict[str, object]:
+    score = 78.5 if decision == "hold" else 95.0
+    return {
+        "schema_version": "promotion_readiness_scorecard.v1",
+        "mode": "simulated_live",
+        "generated_at": "2026-05-16T10:00:10Z",
+        "decision": decision,
+        "scores": {
+            "data_quality": score,
+            "execution_realism": score,
+            "venue_rulebook_coverage": score,
+            "derivatives_risk": score,
+            "cross_source_parity": score,
+            "live_sim_durability": score,
+            "promotion_readiness": score,
+        },
+        "component_gates": {},
+        "blockers": [],
+    }
+
+
 def _write_inputs(paths) -> None:
     opt = paths.optimization_dir
     _write_json(opt / "paper_live_sim_evidence_manifest.json", _evidence_manifest())
@@ -318,6 +339,30 @@ def test_scheduled_generation_holds_gate_when_existing_rolling_durability_has_in
     gate = json.loads((paths.optimization_dir / "daily_quality_gate_report.json").read_text())
     assert result["daily_quality_gate_decision"] == "hold_for_review"
     assert gate["reasons"] == ["insufficient_bucket_samples"]
+
+
+def test_scheduled_generation_includes_existing_promotion_readiness_scorecard(tmp_path: Path) -> None:
+    paths = build_runtime_paths("paper", runtime_root=tmp_path / "runtime", runtime_env="paper")
+    _write_inputs(paths)
+    _write_json(paths.optimization_dir / "promotion_readiness_scorecard.json", _promotion_readiness("hold"))
+
+    result = run_scheduled_generation(
+        mode="paper",
+        runtime_root=tmp_path / "runtime",
+        runtime_env="paper",
+        generated_at="2026-05-16T10:00:10Z",
+        max_evidence_age_seconds=300,
+        min_tca_samples=4,
+        max_p95_slippage_bps=5.0,
+    )
+
+    gate = json.loads((paths.optimization_dir / "daily_quality_gate_report.json").read_text())
+    assert result["daily_quality_gate_decision"] == "hold_for_review"
+    assert result["generated_artifacts"]["promotion_readiness_scorecard"] == str(
+        paths.optimization_dir / "promotion_readiness_scorecard.json"
+    )
+    assert gate["reasons"] == ["promotion_readiness_hold"]
+    assert gate["inputs"]["promotion_readiness"]["score"] == 78.5
 
 
 def test_scheduled_generation_cli_fails_closed_for_malformed_rolling_durability_artifact(tmp_path: Path) -> None:

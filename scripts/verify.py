@@ -133,6 +133,13 @@ IMPACT_RULES: tuple[tuple[str, list[str]], ...] = (
         ["trading_system/tests/test_scheduled_live_sim_generation.py"],
     ),
     (
+        "trading_system/app/reporting/promotion_readiness_scorecard.py",
+        [
+            "trading_system/tests/test_promotion_readiness_scorecard.py",
+            "trading_system/tests/test_daily_quality_gate_report.py",
+        ],
+    ),
+    (
         "trading_system/generate_execution_calibration_records.py",
         [
             "trading_system/tests/test_generate_execution_calibration_records.py",
