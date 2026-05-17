@@ -4,6 +4,7 @@ import argparse
 import json
 import math
 import re
+import statistics
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Mapping
@@ -18,7 +19,50 @@ _DEFAULT_COVERAGE_KEYS = (
 _INTERVAL_IDENTITY_KEYS = ("source", "symbol", "venue", "interval", "generated_at")
 _INTERVAL_PATH_COMPONENT_KEYS = ("source", "symbol", "venue", "interval")
 L2_REPLAY_SCHEMA_VERSION = "l2_order_book_replay_report.v1"
+LONGITUDINAL_L2_REPLAY_CALIBRATION_SCHEMA_VERSION = (
+    "longitudinal_l2_replay_calibration_report.v1"
+)
 _L2_EVENT_TYPES = frozenset(("snapshot", "update"))
+_L2_REPLAY_REASON_CODES = frozenset(
+    (
+        "crossed_book",
+        "duplicate_level",
+        "duplicate_sequence",
+        "invalid_event_type",
+        "invalid_price",
+        "invalid_quantity",
+        "invalid_sequence",
+        "malformed_event",
+        "malformed_jsonl",
+        "malformed_level",
+        "non_canonical_timestamp",
+        "out_of_order_sequence",
+        "sequence_gap",
+        "snapshot_missing",
+        "stale_replay_data",
+        "symbol_mismatch",
+        "venue_mismatch",
+    )
+)
+_L2_REPLAY_REPORT_FIELDS = frozenset(
+    (
+        "schema_version",
+        "venue",
+        "symbol",
+        "best_bid",
+        "best_ask",
+        "bid_level_count",
+        "ask_level_count",
+        "gap_detected",
+        "crossed_book",
+        "first_sequence",
+        "last_sequence",
+        "first_timestamp",
+        "last_timestamp",
+        "session_id",
+        "reason_codes",
+    )
+)
 
 
 def _is_exact_string(value: Any) -> bool:
@@ -473,6 +517,228 @@ def replay_l2_order_book(
         first_timestamp=first_timestamp,
         last_timestamp=last_timestamp,
     )
+
+
+def load_l2_replay_reports_jsonl(path: str | Path) -> list[dict[str, Any]]:
+    reports: list[dict[str, Any]] = []
+    for line_number, raw_line in enumerate(Path(path).read_text(encoding="utf-8").splitlines(), start=1):
+        if not raw_line.strip():
+            continue
+        try:
+            row = json.loads(raw_line)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"l2 replay reports JSONL line {line_number} must be valid JSON") from exc
+        if not isinstance(row, dict):
+            raise ValueError(f"l2 replay reports JSONL line {line_number} must be an object")
+        reports.append(row)
+    return reports
+
+
+def _normalise_non_negative_int(name: str, value: Any) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"{name} must be a non-negative int")
+    if value < 0:
+        raise ValueError(f"{name} must be non-negative")
+    return value
+
+
+def _normalise_bool(name: str, value: Any) -> bool:
+    if not isinstance(value, bool):
+        raise ValueError(f"{name} must be a boolean")
+    return value
+
+
+def _normalise_optional_sequence(name: str, value: Any) -> int | None:
+    if value is None:
+        return None
+    return _normalise_l2_sequence(value)
+
+
+def _normalise_l2_replay_report(
+    raw_report: Any,
+    *,
+    index: int,
+    venue: str,
+    symbol: str,
+) -> dict[str, Any]:
+    prefix = f"l2_replay_reports[{index}]"
+    if not isinstance(raw_report, Mapping):
+        raise ValueError(f"{prefix} must be an object")
+    unknown_fields = sorted(set(raw_report) - _L2_REPLAY_REPORT_FIELDS)
+    if unknown_fields:
+        raise ValueError(f"unknown {prefix} field: " + ", ".join(unknown_fields))
+    required_fields = {
+        "schema_version",
+        "venue",
+        "symbol",
+        "bid_level_count",
+        "ask_level_count",
+        "gap_detected",
+        "crossed_book",
+        "first_sequence",
+        "last_sequence",
+        "first_timestamp",
+        "last_timestamp",
+        "session_id",
+        "reason_codes",
+    }
+    for field in sorted(required_fields):
+        if field not in raw_report:
+            raise ValueError(f"{prefix} missing required field: {field}")
+    schema_version = _normalise_canonical_string(f"{prefix} schema_version", raw_report.get("schema_version"))
+    if schema_version != L2_REPLAY_SCHEMA_VERSION:
+        raise ValueError(f"{prefix} schema_version must be {L2_REPLAY_SCHEMA_VERSION}")
+    report_venue = _normalise_canonical_string(f"{prefix} venue", raw_report.get("venue"))
+    if report_venue != venue:
+        raise ValueError(f"{prefix} venue mismatch")
+    report_symbol = _normalise_canonical_string(f"{prefix} symbol", raw_report.get("symbol"))
+    if report_symbol != symbol:
+        raise ValueError(f"{prefix} symbol mismatch")
+    first_timestamp = _normalise_canonical_string(f"{prefix} first_timestamp", raw_report.get("first_timestamp"))
+    if not _is_canonical_utc_timestamp(first_timestamp):
+        raise ValueError(f"{prefix} first_timestamp must be canonical")
+    last_timestamp = _normalise_canonical_string(f"{prefix} last_timestamp", raw_report.get("last_timestamp"))
+    if not _is_canonical_utc_timestamp(last_timestamp):
+        raise ValueError(f"{prefix} last_timestamp must be canonical")
+    if last_timestamp < first_timestamp:
+        raise ValueError(f"{prefix} last_timestamp must not precede first_timestamp")
+    session_id = _normalise_canonical_string(f"{prefix} session_id", raw_report.get("session_id"))
+    reason_codes_input = raw_report.get("reason_codes")
+    if not isinstance(reason_codes_input, list):
+        raise ValueError(f"{prefix} reason_codes must be a list")
+    reason_codes: list[str] = []
+    for reason_index, reason_code in enumerate(reason_codes_input, start=1):
+        reason = _normalise_canonical_string(
+            f"{prefix} reason_codes[{reason_index}]",
+            reason_code,
+        )
+        if reason not in _L2_REPLAY_REASON_CODES:
+            raise ValueError(f"{prefix} unknown replay reason code: {reason}")
+        reason_codes.append(reason)
+    return {
+        "bid_level_count": _normalise_non_negative_int(
+            f"{prefix} bid_level_count", raw_report.get("bid_level_count")
+        ),
+        "ask_level_count": _normalise_non_negative_int(
+            f"{prefix} ask_level_count", raw_report.get("ask_level_count")
+        ),
+        "gap_detected": _normalise_bool(f"{prefix} gap_detected", raw_report.get("gap_detected")),
+        "crossed_book": _normalise_bool(f"{prefix} crossed_book", raw_report.get("crossed_book")),
+        "first_sequence": _normalise_optional_sequence(f"{prefix} first_sequence", raw_report.get("first_sequence")),
+        "last_sequence": _normalise_optional_sequence(f"{prefix} last_sequence", raw_report.get("last_sequence")),
+        "first_timestamp": first_timestamp,
+        "last_timestamp": last_timestamp,
+        "session_id": session_id,
+        "reason_codes": reason_codes,
+    }
+
+
+def build_longitudinal_l2_replay_calibration_report(
+    reports: list[Mapping[str, Any]] | tuple[Mapping[str, Any], ...],
+    *,
+    venue: str,
+    symbol: str,
+    generated_at: str,
+    min_samples: int = 30,
+    required_session_count: int = 1,
+    max_gap_rate: float = 0.0,
+) -> dict[str, Any]:
+    venue = _normalise_canonical_string("venue", venue)
+    symbol = _normalise_canonical_string("symbol", symbol)
+    generated_at = _normalise_canonical_string("generated_at", generated_at)
+    if not _is_canonical_utc_timestamp(generated_at):
+        raise ValueError("generated_at must be canonical")
+    min_samples = _normalise_non_negative_int("min_samples", min_samples)
+    required_session_count = _normalise_non_negative_int(
+        "required_session_count", required_session_count
+    )
+    max_gap_rate = _normalise_coverage_value("max_gap_rate", max_gap_rate)
+    assert max_gap_rate is not None
+    if not isinstance(reports, (list, tuple)):
+        raise ValueError("longitudinal L2 replay samples must be a list or tuple")
+    if not reports:
+        raise ValueError("longitudinal L2 replay samples must be non-empty")
+
+    normalised_reports = [
+        _normalise_l2_replay_report(report, index=index, venue=venue, symbol=symbol)
+        for index, report in enumerate(reports, start=1)
+    ]
+    session_ids: set[str] = set()
+    for report in normalised_reports:
+        if report["session_id"] in session_ids:
+            raise ValueError("duplicate session identity")
+        session_ids.add(report["session_id"])
+
+    sample_count = len(normalised_reports)
+    session_count = len(session_ids)
+    gap_count = sum(1 for report in normalised_reports if report["gap_detected"])
+    crossed_book_count = sum(1 for report in normalised_reports if report["crossed_book"])
+    stale_count = sum(
+        1 for report in normalised_reports if "stale_replay_data" in report["reason_codes"]
+    )
+    bid_level_counts = [report["bid_level_count"] for report in normalised_reports]
+    ask_level_counts = [report["ask_level_count"] for report in normalised_reports]
+
+    reason_codes: list[str] = []
+    if sample_count < min_samples:
+        reason_codes.append("insufficient_samples")
+    if session_count < required_session_count:
+        reason_codes.append("missing_sessions")
+    gap_rate = gap_count / sample_count
+    crossed_book_rate = crossed_book_count / sample_count
+    stale_rate = stale_count / sample_count
+    if gap_rate > max_gap_rate:
+        reason_codes.append("gap_rate_above_threshold")
+    if crossed_book_count > 0:
+        reason_codes.append("crossed_book_detected")
+    if stale_count > 0:
+        reason_codes.append("stale_replay_data")
+
+    return {
+        "schema_version": LONGITUDINAL_L2_REPLAY_CALIBRATION_SCHEMA_VERSION,
+        "venue": venue,
+        "symbol": symbol,
+        "generated_at": generated_at,
+        "sample_count": sample_count,
+        "session_count": session_count,
+        "gap_rate": gap_rate,
+        "crossed_book_rate": crossed_book_rate,
+        "stale_rate": stale_rate,
+        "median_bid_level_count": float(statistics.median(bid_level_counts)),
+        "median_ask_level_count": float(statistics.median(ask_level_counts)),
+        "max_bid_level_count": max(bid_level_counts),
+        "max_ask_level_count": max(ask_level_counts),
+        "first_timestamp": min(report["first_timestamp"] for report in normalised_reports),
+        "last_timestamp": max(report["last_timestamp"] for report in normalised_reports),
+        "quality_status": "review" if reason_codes else "pass",
+        "reason_codes": reason_codes,
+    }
+
+
+def write_longitudinal_l2_replay_calibration_report(
+    reports: list[Mapping[str, Any]] | tuple[Mapping[str, Any], ...],
+    output_dir: str | Path,
+    *,
+    venue: str,
+    symbol: str,
+    generated_at: str,
+    min_samples: int = 30,
+    required_session_count: int = 1,
+    max_gap_rate: float = 0.0,
+) -> Path:
+    output_path = Path(output_dir) / "longitudinal_l2_replay_calibration_report.json"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    report = build_longitudinal_l2_replay_calibration_report(
+        reports,
+        venue=venue,
+        symbol=symbol,
+        generated_at=generated_at,
+        min_samples=min_samples,
+        required_session_count=required_session_count,
+        max_gap_rate=max_gap_rate,
+    )
+    output_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return output_path
 
 
 def _normalise_book_levels(levels: list[Mapping[str, Any]] | tuple[Mapping[str, Any], ...]) -> list[dict[str, float]]:

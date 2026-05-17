@@ -8,6 +8,7 @@ import pytest
 
 from trading_system.app.backtest.microstructure_evidence import (
     build_microstructure_gate,
+    write_longitudinal_l2_replay_calibration_report,
     main,
     simulate_depth_driven_taker_fill,
     write_microstructure_gate,
@@ -40,6 +41,40 @@ def _complete_coverage_manifest(**extra: object) -> dict[str, object]:
     }
     manifest.update(extra)
     return manifest
+
+
+def test_writes_machine_readable_longitudinal_l2_replay_calibration_report(tmp_path: Path) -> None:
+    output_path = write_longitudinal_l2_replay_calibration_report(
+        [
+            {
+                "schema_version": "l2_order_book_replay_report.v1",
+                "venue": "binance_futures",
+                "symbol": "BTCUSDT",
+                "best_bid": 100.1,
+                "best_ask": 100.8,
+                "bid_level_count": 2,
+                "ask_level_count": 4,
+                "gap_detected": False,
+                "crossed_book": False,
+                "first_sequence": 100,
+                "last_sequence": 102,
+                "first_timestamp": "2026-05-17T08:00:00Z",
+                "last_timestamp": "2026-05-17T08:00:02Z",
+                "session_id": "session-1",
+                "reason_codes": [],
+            }
+        ],
+        tmp_path,
+        venue="binance_futures",
+        symbol="BTCUSDT",
+        generated_at="2026-05-17T09:00:00Z",
+        min_samples=1,
+    )
+
+    assert output_path == tmp_path / "longitudinal_l2_replay_calibration_report.json"
+    assert json.loads(output_path.read_text(encoding="utf-8"))["schema_version"] == (
+        "longitudinal_l2_replay_calibration_report.v1"
+    )
 
 
 def test_builds_synthetic_microstructure_gate_when_coverage_is_sufficient(tmp_path: Path) -> None:
