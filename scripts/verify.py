@@ -28,6 +28,7 @@ SUITES: dict[str, list[str]] = {
         "trading_system/tests/test_generate_execution_calibration_records.py",
         "trading_system/tests/test_backtest_promotion_evidence_bundle.py",
         "trading_system/tests/test_rolling_simulated_live_evidence_bundle.py",
+        "trading_system/tests/test_simulated_live_evidence_window.py",
         "trading_system/tests/test_backtest_setup_rewrite_experiment.py",
         "trading_system/tests/test_backtest_promotion.py",
         "trading_system/tests/test_scheduled_live_sim_generation.py",
@@ -164,8 +165,16 @@ IMPACT_RULES: tuple[tuple[str, list[str]], ...] = (
         SUITES["evidence-chain"],
     ),
     (
+        "trading_system/app/reporting/simulated_live_evidence_window.py",
+        SUITES["evidence-chain"],
+    ),
+    (
         "trading_system/generate_rolling_simulated_live_evidence_bundle.py",
         ["trading_system/tests/test_rolling_simulated_live_evidence_bundle.py"],
+    ),
+    (
+        "trading_system/generate_simulated_live_evidence_window.py",
+        ["trading_system/tests/test_simulated_live_evidence_window.py"],
     ),
     ("trading_system/app/backtest/promotion.py", [
         "trading_system/tests/test_backtest_promotion.py",
