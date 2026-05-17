@@ -31,6 +31,7 @@ SUITES: dict[str, list[str]] = {
         "trading_system/tests/test_simulated_live_evidence_window.py",
         "trading_system/tests/test_real_local_simulated_live_evidence_chain.py",
         "trading_system/tests/test_simulated_live_artifact_inventory.py",
+        "trading_system/tests/test_market_coverage_reports.py",
         "trading_system/tests/test_promotion_gate_decision.py",
         "trading_system/tests/test_longitudinal_promotion_decision_archive.py",
         "trading_system/tests/test_replay_simulated_live_evidence.py",
@@ -200,6 +201,14 @@ IMPACT_RULES: tuple[tuple[str, list[str]], ...] = (
         ],
     ),
     (
+        "trading_system/app/reporting/market_coverage.py",
+        [
+            "trading_system/tests/test_market_coverage_reports.py",
+            "trading_system/tests/test_rolling_simulated_live_evidence_bundle.py",
+            "trading_system/tests/test_simulated_live_artifact_inventory.py",
+        ],
+    ),
+    (
         "trading_system/app/reporting/promotion_gate_decision.py",
         [
             "trading_system/tests/test_promotion_gate_decision.py",
@@ -239,6 +248,14 @@ IMPACT_RULES: tuple[tuple[str, list[str]], ...] = (
     (
         "trading_system/generate_l2_longitudinal_replay_calibration.py",
         ["trading_system/tests/test_execution_stream_producers.py"],
+    ),
+    (
+        "trading_system/generate_cross_source_parity_report.py",
+        ["trading_system/tests/test_market_coverage_reports.py"],
+    ),
+    (
+        "trading_system/generate_venue_rulebook_catalog_freshness.py",
+        ["trading_system/tests/test_market_coverage_reports.py"],
     ),
     (
         "trading_system/generate_promotion_gate_decision.py",
