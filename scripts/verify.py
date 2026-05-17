@@ -273,6 +273,14 @@ IMPACT_RULES: tuple[tuple[str, list[str]], ...] = (
         "trading_system/generate_simulated_live_cadence_runner.py",
         ["trading_system/tests/test_simulated_live_cadence_runner.py"],
     ),
+    (
+        "trading_system/generate_promotion_readiness_evidence.py",
+        [
+            "trading_system/tests/test_generate_promotion_readiness_evidence.py",
+            "trading_system/tests/test_promotion_readiness_scorecard.py",
+            "trading_system/tests/test_simulated_live_cadence_runner.py",
+        ],
+    ),
     ("trading_system/app/backtest/promotion.py", [
         "trading_system/tests/test_backtest_promotion.py",
         "trading_system/tests/test_backtest_live_readiness.py",
@@ -298,6 +306,13 @@ IMPACT_RULES: tuple[tuple[str, list[str]], ...] = (
         [
             "trading_system/tests/test_promotion_readiness_scorecard_trend.py",
             "trading_system/tests/test_scheduled_live_sim_generation.py",
+        ],
+    ),
+    (
+        "trading_system/tests/test_generate_promotion_readiness_evidence.py",
+        [
+            "trading_system/tests/test_generate_promotion_readiness_evidence.py",
+            "trading_system/tests/test_promotion_readiness_scorecard.py",
         ],
     ),
     (

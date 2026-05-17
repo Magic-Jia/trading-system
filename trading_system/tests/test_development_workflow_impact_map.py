@@ -193,6 +193,17 @@ def test_promotion_readiness_scorecard_trend_test_file_has_impact_mapping() -> N
     assert "trading_system/tests/test_scheduled_live_sim_generation.py" in tests
 
 
+def test_promotion_readiness_evidence_test_file_has_impact_mapping() -> None:
+    verify = load_verify_module()
+
+    tests = verify.tests_for_changed([
+        "trading_system/tests/test_generate_promotion_readiness_evidence.py"
+    ])
+
+    assert "trading_system/tests/test_generate_promotion_readiness_evidence.py" in tests
+    assert "trading_system/tests/test_promotion_readiness_scorecard.py" in tests
+
+
 def test_promotion_gate_decision_test_file_has_impact_mapping() -> None:
     verify = load_verify_module()
 
@@ -222,6 +233,16 @@ def test_promotion_readiness_scorecard_trend_has_reporting_impact_mapping() -> N
 
     assert "trading_system/tests/test_promotion_readiness_scorecard_trend.py" in tests
     assert "trading_system/tests/test_scheduled_live_sim_generation.py" in tests
+
+
+def test_promotion_readiness_evidence_generator_has_impact_mapping() -> None:
+    verify = load_verify_module()
+
+    tests = verify.tests_for_changed(["trading_system/generate_promotion_readiness_evidence.py"])
+
+    assert "trading_system/tests/test_generate_promotion_readiness_evidence.py" in tests
+    assert "trading_system/tests/test_promotion_readiness_scorecard.py" in tests
+    assert "trading_system/tests/test_simulated_live_cadence_runner.py" in tests
 
 
 def test_real_local_simulated_live_evidence_chain_has_impact_mapping() -> None:
