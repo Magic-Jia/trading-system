@@ -18,6 +18,8 @@ UNRESOLVED_REJECT_REASON = "unresolved_reject_live_promotion"
 HARD_REASONS = (
     "paper_shadow_material_drift",
     "tca_slippage_exceeds_threshold",
+    "rolling_tca_durability_failed",
+    "bucket_regression",
     "execution_chain_missing",
     "reconcile_failed",
     "malformed_evidence",
@@ -27,16 +29,20 @@ SOFT_REASONS = (
     "data_freshness_violation",
     "calibration_records_unavailable",
     "insufficient_sample_size",
+    "insufficient_bucket_samples",
 )
 REASON_ORDER = (
     "paper_shadow_material_drift",
     "tca_slippage_exceeds_threshold",
+    "rolling_tca_durability_failed",
+    "bucket_regression",
     "execution_chain_missing",
     "reconcile_failed",
     "latency_distribution_shift",
     "data_freshness_violation",
     "calibration_records_unavailable",
     "insufficient_sample_size",
+    "insufficient_bucket_samples",
     "malformed_evidence",
 )
 WORKFLOW_REASON_ORDER = (*REASON_ORDER, UNRESOLVED_REJECT_REASON)
@@ -480,6 +486,92 @@ def _freshness_checks(freshness: Any, malformed: list[str]) -> dict[str, Any]:
     return {"max_age_seconds": max_age, "items": item_results, "data_freshness_met": freshness_met}
 
 
+def _rolling_tca_durability_checks(
+    rolling_tca_durability: Any,
+    malformed: list[str],
+) -> dict[str, Any]:
+    if rolling_tca_durability is None:
+        return {
+            "present": False,
+            "decision": None,
+            "reasons": [],
+            "rolling_tca_durability_passed": True,
+            "rolling_tca_bucket_samples_sufficient": True,
+        }
+
+    malformed_start = len(malformed)
+    payload = _mapping(rolling_tca_durability, "rolling_tca_durability", malformed)
+    schema_version = payload.get("schema_version")
+    if schema_version != "rolling_tca_durability_report.v1":
+        malformed.append("rolling_tca_durability.schema_version_invalid")
+
+    decision = payload.get("decision")
+    if decision not in {"pass", "hold", "reject"}:
+        malformed.append("rolling_tca_durability.decision_invalid")
+        decision = None
+
+    raw_reasons = payload.get("reasons")
+    reasons: list[str] = []
+    if not isinstance(raw_reasons, list):
+        malformed.append("rolling_tca_durability.reasons_not_list")
+    else:
+        allowed_reasons = {"rolling_tca_durability_failed", "bucket_regression", "insufficient_bucket_samples"}
+        for index, reason in enumerate(raw_reasons):
+            if not isinstance(reason, str) or reason not in allowed_reasons:
+                malformed.append(f"rolling_tca_durability.reasons[{index}]_invalid")
+                continue
+            reasons.append(reason)
+
+    if decision != "reject" and "rolling_tca_durability_failed" in reasons:
+        malformed.append("rolling_tca_durability.rolling_tca_durability_failed_reason_decision_mismatch")
+    if decision != "reject" and "bucket_regression" in reasons:
+        malformed.append("rolling_tca_durability.bucket_regression_reason_decision_mismatch")
+    if decision != "hold" and "insufficient_bucket_samples" in reasons:
+        malformed.append("rolling_tca_durability.insufficient_bucket_samples_reason_decision_mismatch")
+    if decision == "pass" and reasons:
+        malformed.append("rolling_tca_durability.reasons_present_for_pass")
+    if decision in {"hold", "reject"} and not reasons:
+        malformed.append("rolling_tca_durability.reasons_missing_for_non_pass")
+
+    checks = _mapping(payload.get("checks"), "rolling_tca_durability.checks", malformed)
+    durable = _bool_field(
+        checks,
+        "rolling_tca_durable",
+        malformed,
+        error_field="rolling_tca_durability.checks.rolling_tca_durable",
+    )
+    sufficient_buckets = _bool_field(
+        checks,
+        "sufficient_bucket_samples",
+        malformed,
+        error_field="rolling_tca_durability.checks.sufficient_bucket_samples",
+    )
+
+    if decision == "reject" and "rolling_tca_durability_failed" not in reasons:
+        reasons.append("rolling_tca_durability_failed")
+    if durable is False and "rolling_tca_durability_failed" not in reasons:
+        reasons.append("rolling_tca_durability_failed")
+    if sufficient_buckets is False and "insufficient_bucket_samples" not in reasons:
+        reasons.append("insufficient_bucket_samples")
+
+    if len(malformed) > malformed_start:
+        return {
+            "present": True,
+            "decision": decision,
+            "reasons": [],
+            "rolling_tca_durability_passed": False,
+            "rolling_tca_bucket_samples_sufficient": False,
+        }
+
+    return {
+        "present": True,
+        "decision": decision,
+        "reasons": _ordered_reasons(set(reasons)),
+        "rolling_tca_durability_passed": decision != "reject" and durable is not False,
+        "rolling_tca_bucket_samples_sufficient": sufficient_buckets is True,
+    }
+
+
 def build_daily_quality_gate_report(
     *,
     evidence_bundle: Mapping[str, Any],
@@ -488,6 +580,7 @@ def build_daily_quality_gate_report(
     tca: Mapping[str, Any],
     latency: Mapping[str, Any] | None = None,
     freshness: Mapping[str, Any] | None = None,
+    rolling_tca_durability: Mapping[str, Any] | None = None,
     min_sample_size: int = 30,
     generated_at: str | None = None,
 ) -> dict[str, Any]:
@@ -498,6 +591,7 @@ def build_daily_quality_gate_report(
     tca_result = _tca_checks(tca, min_sample_size, malformed)
     latency_result = _latency_checks(latency, malformed)
     freshness_result = _freshness_checks(freshness, malformed)
+    rolling_tca_result = _rolling_tca_durability_checks(rolling_tca_durability, malformed)
 
     reasons: set[str] = set()
     if malformed:
@@ -522,6 +616,8 @@ def build_daily_quality_gate_report(
         reasons.add("calibration_records_unavailable")
     if tca_result["sufficient_sample_size"] is False:
         reasons.add("insufficient_sample_size")
+    if rolling_tca_result["present"]:
+        reasons.update(rolling_tca_result["reasons"])
 
     ordered_reasons = _ordered_reasons(reasons)
     if any(reason in HARD_REASONS for reason in ordered_reasons):
@@ -547,11 +643,16 @@ def build_daily_quality_gate_report(
             "latency_distribution_stable": bool(latency_result["latency_distribution_stable"]),
             "data_freshness_met": bool(freshness_result["data_freshness_met"]),
             "sufficient_sample_size": bool(tca_result["sufficient_sample_size"]),
+            "rolling_tca_durability_passed": bool(rolling_tca_result["rolling_tca_durability_passed"]),
+            "rolling_tca_bucket_samples_sufficient": bool(
+                rolling_tca_result["rolling_tca_bucket_samples_sufficient"]
+            ),
         },
         "inputs": {
             "tca": tca_result,
             "latency": latency_result,
             "freshness": freshness_result,
+            **({"rolling_tca_durability": rolling_tca_result} if rolling_tca_result["present"] else {}),
         },
     }
 

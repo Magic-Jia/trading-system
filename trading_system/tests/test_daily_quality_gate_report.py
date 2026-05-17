@@ -61,6 +61,66 @@ def test_daily_quality_gate_passes_when_all_simulated_live_evidence_is_within_li
     assert report["checks"]["sufficient_sample_size"] is True
 
 
+def test_daily_quality_gate_rejects_when_rolling_tca_durability_rejects() -> None:
+    inputs = _passing_inputs()
+    inputs["rolling_tca_durability"] = {
+        "schema_version": "rolling_tca_durability_report.v1",
+        "decision": "reject",
+        "reasons": ["bucket_regression"],
+        "checks": {
+            "rolling_tca_durable": False,
+            "sufficient_bucket_samples": True,
+        },
+    }
+
+    report = build_daily_quality_gate_report(**inputs)
+
+    assert report["decision"] == "reject_live_promotion"
+    assert report["reasons"] == ["rolling_tca_durability_failed", "bucket_regression"]
+    assert report["checks"]["rolling_tca_durability_passed"] is False
+    assert report["checks"]["rolling_tca_bucket_samples_sufficient"] is True
+    assert report["inputs"]["rolling_tca_durability"]["decision"] == "reject"
+
+
+def test_daily_quality_gate_holds_when_rolling_tca_bucket_samples_are_insufficient() -> None:
+    inputs = _passing_inputs()
+    inputs["rolling_tca_durability"] = {
+        "schema_version": "rolling_tca_durability_report.v1",
+        "decision": "hold",
+        "reasons": ["insufficient_bucket_samples"],
+        "checks": {
+            "rolling_tca_durable": True,
+            "sufficient_bucket_samples": False,
+        },
+    }
+
+    report = build_daily_quality_gate_report(**inputs)
+
+    assert report["decision"] == "hold_for_review"
+    assert report["reasons"] == ["insufficient_bucket_samples"]
+    assert report["checks"]["rolling_tca_durability_passed"] is True
+    assert report["checks"]["rolling_tca_bucket_samples_sufficient"] is False
+
+
+def test_daily_quality_gate_fails_closed_for_malformed_rolling_tca_durability() -> None:
+    inputs = _passing_inputs()
+    inputs["rolling_tca_durability"] = {
+        "schema_version": "rolling_tca_durability_report.v1",
+        "decision": "pass",
+        "reasons": ["bucket_regression"],
+        "checks": {
+            "rolling_tca_durable": True,
+            "sufficient_bucket_samples": True,
+        },
+    }
+
+    report = build_daily_quality_gate_report(**inputs)
+
+    assert report["decision"] == "reject_live_promotion"
+    assert report["reasons"] == ["malformed_evidence"]
+    assert "rolling_tca_durability.reasons_present_for_pass" in report["malformed_inputs"]
+
+
 def test_daily_quality_gate_rejects_hard_failures_and_preserves_reason_taxonomy() -> None:
     inputs = _passing_inputs()
     inputs["drift"] = {"checks": {"paper_live_shadow_material_drift_absent": False}}

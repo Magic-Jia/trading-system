@@ -193,6 +193,28 @@ def _reconciliation() -> dict[str, object]:
     }
 
 
+def _rolling_durability(decision: str = "pass") -> dict[str, object]:
+    reasons: list[str] = []
+    rolling_tca_durable = True
+    sufficient_bucket_samples = True
+    if decision == "reject":
+        reasons = ["bucket_regression"]
+        rolling_tca_durable = False
+    elif decision == "hold":
+        reasons = ["insufficient_bucket_samples"]
+        sufficient_bucket_samples = False
+    return {
+        "schema_version": "rolling_tca_durability_report.v1",
+        "generated_at": "2026-05-16T10:00:10Z",
+        "decision": decision,
+        "reasons": reasons,
+        "checks": {
+            "rolling_tca_durable": rolling_tca_durable,
+            "sufficient_bucket_samples": sufficient_bucket_samples,
+        },
+    }
+
+
 def _write_inputs(paths) -> None:
     opt = paths.optimization_dir
     _write_json(opt / "paper_live_sim_evidence_manifest.json", _evidence_manifest())
@@ -233,6 +255,94 @@ def test_scheduled_generation_writes_deterministic_simulated_live_artifacts(tmp_
     assert tca["decision"] == "pass"
     assert gate["decision"] == "pass_for_continued_paper"
     assert gate["inputs"]["tca"]["p95_slippage_bps"] == 3.0
+
+
+def test_scheduled_generation_omits_rolling_durability_when_artifact_absent(tmp_path: Path) -> None:
+    paths = build_runtime_paths("paper", runtime_root=tmp_path / "runtime", runtime_env="paper")
+    _write_inputs(paths)
+
+    result = run_scheduled_generation(
+        mode="paper",
+        runtime_root=tmp_path / "runtime",
+        runtime_env="paper",
+        generated_at="2026-05-16T10:00:10Z",
+        max_evidence_age_seconds=300,
+        min_tca_samples=4,
+        max_p95_slippage_bps=5.0,
+    )
+
+    gate = json.loads((paths.optimization_dir / "daily_quality_gate_report.json").read_text())
+    assert result["daily_quality_gate_decision"] == "pass_for_continued_paper"
+    assert "rolling_tca_durability_report" not in result["generated_artifacts"]
+    assert "rolling_tca_durability" not in gate["inputs"]
+
+
+def test_scheduled_generation_rejects_gate_when_existing_rolling_durability_rejects(tmp_path: Path) -> None:
+    paths = build_runtime_paths("paper", runtime_root=tmp_path / "runtime", runtime_env="paper")
+    _write_inputs(paths)
+    _write_json(paths.optimization_dir / "rolling_tca_durability_report.json", _rolling_durability("reject"))
+
+    result = run_scheduled_generation(
+        mode="paper",
+        runtime_root=tmp_path / "runtime",
+        runtime_env="paper",
+        generated_at="2026-05-16T10:00:10Z",
+        max_evidence_age_seconds=300,
+        min_tca_samples=4,
+        max_p95_slippage_bps=5.0,
+    )
+
+    gate = json.loads((paths.optimization_dir / "daily_quality_gate_report.json").read_text())
+    assert result["daily_quality_gate_decision"] == "reject_live_promotion"
+    assert result["generated_artifacts"]["rolling_tca_durability_report"] == str(
+        paths.optimization_dir / "rolling_tca_durability_report.json"
+    )
+    assert gate["reasons"] == ["rolling_tca_durability_failed", "bucket_regression"]
+
+
+def test_scheduled_generation_holds_gate_when_existing_rolling_durability_has_insufficient_buckets(tmp_path: Path) -> None:
+    paths = build_runtime_paths("paper", runtime_root=tmp_path / "runtime", runtime_env="paper")
+    _write_inputs(paths)
+    _write_json(paths.optimization_dir / "rolling_tca_durability_report.json", _rolling_durability("hold"))
+
+    result = run_scheduled_generation(
+        mode="paper",
+        runtime_root=tmp_path / "runtime",
+        runtime_env="paper",
+        generated_at="2026-05-16T10:00:10Z",
+        max_evidence_age_seconds=300,
+        min_tca_samples=4,
+        max_p95_slippage_bps=5.0,
+    )
+
+    gate = json.loads((paths.optimization_dir / "daily_quality_gate_report.json").read_text())
+    assert result["daily_quality_gate_decision"] == "hold_for_review"
+    assert gate["reasons"] == ["insufficient_bucket_samples"]
+
+
+def test_scheduled_generation_cli_fails_closed_for_malformed_rolling_durability_artifact(tmp_path: Path) -> None:
+    paths = build_runtime_paths("paper", runtime_root=tmp_path / "runtime", runtime_env="paper")
+    _write_inputs(paths)
+    _write_json(paths.optimization_dir / "rolling_tca_durability_report.json", {"schema_version": "wrong"})
+
+    exit_code = main(
+        [
+            "--mode",
+            "paper",
+            "--runtime-root",
+            str(tmp_path / "runtime"),
+            "--runtime-env",
+            "paper",
+            "--generated-at",
+            "2026-05-16T10:00:10Z",
+        ]
+    )
+
+    failure = json.loads((paths.optimization_dir / "scheduled_live_sim_generation_error.json").read_text())
+    assert exit_code == 1
+    assert failure["status"] == "fail_closed"
+    assert failure["error_type"] == "ValueError"
+    assert "rolling_tca_durability_report" in failure["error_message"]
 
 
 def test_scheduled_generation_cli_fails_closed_for_missing_required_inputs(tmp_path: Path) -> None:

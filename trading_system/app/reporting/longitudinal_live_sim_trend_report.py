@@ -22,6 +22,8 @@ REASON_ORDER = (
     "daily_quality_gate_held",
     "paper_shadow_material_drift",
     "tca_calibration_failed",
+    "rolling_tca_durability_failed",
+    "bucket_regression",
     "reconciliation_failed",
     "latency_regression",
     "slippage_regression",
@@ -36,6 +38,9 @@ DAY_REASON_ORDER = (
     "daily_quality_gate_held",
     "paper_shadow_material_drift",
     "tca_calibration_failed",
+    "rolling_tca_durability_failed",
+    "bucket_regression",
+    "insufficient_bucket_samples",
     "reconciliation_failed",
     "latency_regression",
     "slippage_regression",
@@ -49,6 +54,8 @@ HARD_REASONS = {
     "daily_quality_gate_rejected",
     "paper_shadow_material_drift",
     "tca_calibration_failed",
+    "rolling_tca_durability_failed",
+    "bucket_regression",
     "reconciliation_failed",
 }
 
@@ -182,6 +189,20 @@ def _validate_daily_report(raw_day: Mapping[str, Any]) -> dict[str, Any]:
         reasons.add("daily_quality_gate_rejected")
     elif gate_decision == HOLD_DECISION:
         reasons.add("daily_quality_gate_held")
+    gate_reasons = quality_gate.get("reasons", [])
+    if not isinstance(gate_reasons, list):
+        malformed.append("daily_quality_gate.reasons_not_list")
+    else:
+        for index, reason in enumerate(gate_reasons):
+            if not isinstance(reason, str):
+                malformed.append(f"daily_quality_gate.reasons[{index}]_not_string")
+                continue
+            if reason in {
+                "rolling_tca_durability_failed",
+                "bucket_regression",
+                "insufficient_bucket_samples",
+            }:
+                reasons.add(reason)
 
     gate_checks = _optional_mapping(quality_gate.get("checks"), "daily_quality_gate.checks", malformed)
     gate_drift_absent = gate_checks.get("paper_shadow_material_drift_absent")
@@ -488,6 +509,11 @@ def build_longitudinal_live_sim_trend_report(
                 reason in day["reasons"] for day in ordered_days for reason in ("daily_quality_gate_rejected", "daily_quality_gate_held")
             ),
             "tca_calibration_stable": "tca_calibration_failed" not in ordered_reasons and not trends["tca_p95_slippage_bps"]["regressed"],
+            "rolling_tca_durability_stable": (
+                "rolling_tca_durability_failed" not in ordered_reasons
+                and "bucket_regression" not in ordered_reasons
+                and "insufficient_bucket_samples" not in ordered_reasons
+            ),
             "paper_live_shadow_drift_stable": "paper_shadow_material_drift" not in ordered_reasons,
             "reconciliation_stable": "reconciliation_failed" not in ordered_reasons,
             "latency_stable": "latency_regression" not in ordered_reasons,

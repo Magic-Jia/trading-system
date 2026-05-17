@@ -24,6 +24,7 @@ DRIFT_CONTRACT_NAME = "paper_live_shadow_drift_contract.json"
 RECONCILIATION_NAME = "runtime_safety_gate.json"
 ERROR_NAME = "scheduled_live_sim_generation_error.json"
 BOOTSTRAP_METADATA_NAME = "bootstrap_input_metadata.json"
+ROLLING_TCA_DURABILITY_NAME = "rolling_tca_durability_report.json"
 
 
 def _canonical_now() -> str:
@@ -84,6 +85,39 @@ def _calibration_unavailable_input(marker: Mapping[str, Any], *, max_p95_slippag
         "max_p95_slippage_bps": max_p95_slippage_bps,
         "availability_reason": "calibration_records_unavailable",
     }
+
+
+def _write_optional_rolling_tca_durability_report(
+    *,
+    calibration_records: Path,
+    output_dir: Path,
+    generated_at: str,
+    max_evidence_age_seconds: int,
+) -> Path | None:
+    try:
+        from trading_system.app.reporting.rolling_tca_durability_report import (  # type: ignore[import-not-found]
+            write_rolling_tca_durability_report,
+        )
+    except ModuleNotFoundError:
+        return None
+
+    return Path(
+        write_rolling_tca_durability_report(
+            output_dir / ROLLING_TCA_DURABILITY_NAME,
+            calibration_records=calibration_records,
+            generated_at=generated_at,
+            max_evidence_age_seconds=max_evidence_age_seconds,
+        )
+    )
+
+
+def _optional_rolling_tca_durability_input(path: Path) -> dict[str, Any] | None:
+    if not path.exists():
+        return None
+    payload = _read_json_object(path)
+    if payload.get("schema_version") != "rolling_tca_durability_report.v1":
+        raise ValueError(f"{ROLLING_TCA_DURABILITY_NAME} schema_version is invalid")
+    return payload
 
 
 def _freshness_input(
@@ -195,18 +229,34 @@ def run_scheduled_generation(
                 "tca_calibration_report": str(tca_path),
             }
         )
+        rolling_tca_path = _write_optional_rolling_tca_durability_report(
+            calibration_records=calibration_records,
+            output_dir=output_dir,
+            generated_at=evaluated_at,
+            max_evidence_age_seconds=max_evidence_age_seconds,
+        )
+        if rolling_tca_path is None:
+            candidate_rolling_tca_path = output_dir / ROLLING_TCA_DURABILITY_NAME
+            rolling_tca = _optional_rolling_tca_durability_input(candidate_rolling_tca_path)
+            if rolling_tca is not None:
+                generated_artifacts["rolling_tca_durability_report"] = str(candidate_rolling_tca_path)
+        else:
+            rolling_tca = _optional_rolling_tca_durability_input(rolling_tca_path)
+            generated_artifacts["rolling_tca_durability_report"] = str(rolling_tca_path)
     else:
         daily_tca = _calibration_unavailable_input(
             calibration_unavailable,
             max_p95_slippage_bps=max_p95_slippage_bps,
         )
         generated_artifacts["calibration_records_unavailable"] = str(output_dir / CALIBRATION_UNAVAILABLE_NAME)
+        rolling_tca = None
     gate = write_daily_quality_gate_report(
         output_dir / "daily_quality_gate_report.json",
         evidence_bundle={"verified": True, "manifest_present": True},
         drift=drift,
         reconciliation=reconciliation,
         tca=daily_tca,
+        rolling_tca_durability=rolling_tca,
         freshness={
             **_freshness_input(output_dir=output_dir, max_evidence_age_seconds=max_evidence_age_seconds),
         },

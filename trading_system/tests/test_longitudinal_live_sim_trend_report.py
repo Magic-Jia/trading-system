@@ -155,6 +155,49 @@ def test_longitudinal_report_identifies_regressions_across_daily_evidence() -> N
     assert report["trend_checks"]["partial_fill_rate"]["regressed"] is True
 
 
+def test_longitudinal_report_surfaces_rolling_tca_durability_reason_from_daily_gate() -> None:
+    failing_day = _daily_payload("2026-05-16")
+    failing_day["daily_quality_gate"] = {
+        "decision": "reject_live_promotion",
+        "reasons": ["rolling_tca_durability_failed", "bucket_regression"],
+        "checks": {
+            "paper_shadow_material_drift_absent": True,
+            "reconciliation_passed": True,
+            "execution_chain_present": True,
+            "tca_slippage_within_threshold": True,
+            "latency_distribution_stable": True,
+            "data_freshness_met": True,
+            "sufficient_sample_size": True,
+            "rolling_tca_durability_passed": False,
+            "rolling_tca_bucket_samples_sufficient": True,
+        },
+    }
+
+    report = build_longitudinal_live_sim_trend_report(
+        daily_reports=[
+            _daily_payload("2026-05-14"),
+            _daily_payload("2026-05-15"),
+            failing_day,
+        ],
+        start_date="2026-05-14",
+        end_date="2026-05-16",
+        generated_at="2026-05-16T23:40:00Z",
+    )
+
+    assert report["decision"] == "reject_live_promotion"
+    assert report["reasons"] == [
+        "daily_quality_gate_rejected",
+        "rolling_tca_durability_failed",
+        "bucket_regression",
+    ]
+    assert report["days"][-1]["reasons"] == [
+        "daily_quality_gate_rejected",
+        "rolling_tca_durability_failed",
+        "bucket_regression",
+    ]
+    assert report["checks"]["rolling_tca_durability_stable"] is False
+
+
 def test_writes_longitudinal_report_as_machine_readable_json(tmp_path: Path) -> None:
     output_path = tmp_path / "optimization" / "longitudinal_live_sim_trend_report.json"
 
