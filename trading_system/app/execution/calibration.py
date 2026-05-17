@@ -88,6 +88,16 @@ _LATENCY_EVENT_STATUSES = {
     "cancel": {"cancelled", "canceled", "expired", "rejected"},
     "replace": {"acknowledged"},
 }
+_CALIBRATION_FEEDBACK_COMPONENTS = {
+    "tca_report",
+    "latency_stress_summary",
+    "partial_maker_fill_evidence",
+    "race_condition_evidence",
+    "cross_source_parity",
+    "l2_replay_quality",
+    "derivatives_risk",
+    "drift_contract",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -904,6 +914,7 @@ def _latency_distribution(observations: list[Mapping[str, Any]], *, evaluated_at
         "max": max(present) if present else None,
         "p50": _latency_percentile(present, 0.50),
         "p90": _latency_percentile(present, 0.90),
+        "p95": _latency_percentile(present, 0.95),
         "p99": _latency_percentile(present, 0.99),
         "mean": (sum(present) / count) if count else None,
         "missing_rate": missing_count / len(observations) if observations else 0.0,
@@ -1488,4 +1499,366 @@ def write_tca_calibration_report(
     output_path = Path(output_dir) / "tca_calibration_report.json"
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return output_path
+
+
+def _feedback_required_mapping(value: Any, field: str) -> Mapping[str, Any]:
+    if not isinstance(value, Mapping):
+        raise ValueError(f"calibration feedback {field} must be an object")
+    return value
+
+
+def _feedback_optional_mapping(value: Any, field: str) -> Mapping[str, Any] | None:
+    if value is None:
+        return None
+    return _feedback_required_mapping(value, field)
+
+
+def _feedback_finite_float(value: Any, field: str, *, non_negative: bool = False) -> float:
+    if isinstance(value, bool) or not isinstance(value, Real):
+        raise ValueError(f"calibration feedback {field} must be numeric")
+    parsed = float(value)
+    if not math.isfinite(parsed):
+        raise ValueError(f"calibration feedback {field} must be finite")
+    if non_negative and parsed < 0.0:
+        raise ValueError(f"calibration feedback {field} must be non-negative")
+    return parsed
+
+
+def _feedback_optional_float(value: Any, field: str, *, non_negative: bool = False) -> float | None:
+    if value is None:
+        return None
+    return _feedback_finite_float(value, field, non_negative=non_negative)
+
+
+def _feedback_ratio(value: Any, field: str) -> float:
+    parsed = _feedback_finite_float(value, field, non_negative=True)
+    if parsed > 1.0:
+        raise ValueError(f"calibration feedback {field} must be between 0 and 1")
+    return parsed
+
+
+def _feedback_bool(value: Any, field: str, *, default: bool = False) -> bool:
+    if value is None:
+        return default
+    if not isinstance(value, bool):
+        raise ValueError(f"calibration feedback {field} must be boolean")
+    return value
+
+
+def _feedback_window(value: Mapping[str, Any]) -> dict[str, str]:
+    window = _feedback_required_mapping(value, "calibration_window")
+    unknown_fields = sorted(set(window) - {"start", "end"})
+    if unknown_fields:
+        raise ValueError("unknown calibration feedback calibration_window field: " + ", ".join(unknown_fields))
+    start = _tca_canonical_timestamp(window.get("start"), field_name="calibration_window.start")
+    end = _tca_canonical_timestamp(window.get("end"), field_name="calibration_window.end")
+    if datetime.fromisoformat(end[:-1] + "+00:00") <= datetime.fromisoformat(start[:-1] + "+00:00"):
+        raise ValueError("calibration feedback calibration_window.end must be after start")
+    return {"start": start, "end": end}
+
+
+def _feedback_reject_rates(value: Any) -> dict[str, float]:
+    rates = _as_reject_rates(value)
+    for key, rate in rates.items():
+        if _LOWER_TOKEN_RE.fullmatch(key) is None:
+            raise ValueError("calibration feedback reject_rate_by_reason keys must be canonical")
+        if rate < 0.0 or rate > 1.0:
+            raise ValueError("calibration feedback reject_rate_by_reason values must be between 0 and 1")
+    return dict(sorted(rates.items()))
+
+
+def _feedback_latency_percentile(summary: Mapping[str, Any], percentile: str) -> float | None:
+    metrics = _feedback_required_mapping(summary.get("metrics"), "latency_stress_summary.metrics")
+    overall = _feedback_required_mapping(metrics.get("overall"), "latency_stress_summary.metrics.overall")
+    return _feedback_optional_float(
+        overall.get(percentile),
+        f"latency_stress_summary.metrics.overall.{percentile}",
+        non_negative=True,
+    )
+
+
+def _feedback_component_manifest(
+    *,
+    tca_report: Mapping[str, Any],
+    latency_stress_summary: Mapping[str, Any],
+    partial_maker_fill_evidence: Mapping[str, Any] | None,
+    race_condition_evidence: Mapping[str, Any] | None,
+    cross_source_parity: Mapping[str, Any] | None,
+    l2_replay_quality: Mapping[str, Any] | None,
+    derivatives_risk: Mapping[str, Any] | None,
+    drift_contract: Mapping[str, Any] | None,
+    additional_components: Iterable[Mapping[str, Any]] | None,
+) -> list[dict[str, str | None]]:
+    components = [
+        ("tca_report", tca_report),
+        ("latency_stress_summary", latency_stress_summary),
+        ("partial_maker_fill_evidence", partial_maker_fill_evidence),
+        ("race_condition_evidence", race_condition_evidence),
+        ("cross_source_parity", cross_source_parity),
+        ("l2_replay_quality", l2_replay_quality),
+        ("derivatives_risk", derivatives_risk),
+        ("drift_contract", drift_contract),
+    ]
+    manifest: list[dict[str, str | None]] = []
+    seen: set[str] = set()
+    for component, payload in components:
+        if payload is None:
+            continue
+        identity = component
+        if identity in seen:
+            raise ValueError("duplicate calibration feedback component identity")
+        seen.add(identity)
+        schema_version = payload.get("schema_version")
+        if schema_version is not None and type(schema_version) is not str:
+            raise ValueError(f"calibration feedback {component}.schema_version must be a string")
+        manifest.append(
+            {
+                "component": component,
+                "identity": identity,
+                "schema_version": schema_version if isinstance(schema_version, str) else None,
+            }
+        )
+    if additional_components is not None:
+        for item in additional_components:
+            component_item = _feedback_required_mapping(item, "additional_components[]")
+            component = component_item.get("component")
+            identity = component_item.get("identity")
+            if type(component) is not str or component not in _CALIBRATION_FEEDBACK_COMPONENTS:
+                raise ValueError("calibration feedback additional component must be known")
+            if type(identity) is not str or not identity or identity != identity.strip():
+                raise ValueError("calibration feedback additional component identity must be canonical")
+            if identity in seen:
+                raise ValueError("duplicate calibration feedback component identity")
+            seen.add(identity)
+            manifest.append({"component": component, "identity": identity, "schema_version": None})
+    return manifest
+
+
+def build_calibration_feedback_artifact(
+    *,
+    tca_report: Mapping[str, Any],
+    latency_stress_summary: Mapping[str, Any],
+    generated_at: datetime | str,
+    calibration_window: Mapping[str, Any],
+    min_samples: int,
+    max_evidence_age_seconds: int | None,
+    partial_maker_fill_evidence: Mapping[str, Any] | None = None,
+    race_condition_evidence: Mapping[str, Any] | None = None,
+    cross_source_parity: Mapping[str, Any] | None = None,
+    l2_replay_quality: Mapping[str, Any] | None = None,
+    derivatives_risk: Mapping[str, Any] | None = None,
+    drift_contract: Mapping[str, Any] | None = None,
+    additional_components: Iterable[Mapping[str, Any]] | None = None,
+) -> dict[str, Any]:
+    if isinstance(min_samples, bool) or not isinstance(min_samples, int):
+        raise ValueError("calibration feedback min_samples must be an integer")
+    if min_samples < 0:
+        raise ValueError("calibration feedback min_samples must be non-negative")
+    if max_evidence_age_seconds is not None:
+        if isinstance(max_evidence_age_seconds, bool) or not isinstance(max_evidence_age_seconds, int):
+            raise ValueError("calibration feedback max_evidence_age_seconds must be an integer")
+        if max_evidence_age_seconds < 0:
+            raise ValueError("calibration feedback max_evidence_age_seconds must be non-negative")
+
+    tca = _feedback_required_mapping(tca_report, "tca_report")
+    latency = _feedback_required_mapping(latency_stress_summary, "latency_stress_summary")
+    partial_maker = _feedback_optional_mapping(partial_maker_fill_evidence, "partial_maker_fill_evidence")
+    race = _feedback_optional_mapping(race_condition_evidence, "race_condition_evidence")
+    parity = _feedback_optional_mapping(cross_source_parity, "cross_source_parity")
+    l2_quality = _feedback_optional_mapping(l2_replay_quality, "l2_replay_quality")
+    derivatives = _feedback_optional_mapping(derivatives_risk, "derivatives_risk")
+    drift = _feedback_optional_mapping(drift_contract, "drift_contract")
+
+    generated_at_text = _tca_canonical_timestamp(generated_at, field_name="generated_at")
+    window = _feedback_window(calibration_window)
+    components = _feedback_component_manifest(
+        tca_report=tca,
+        latency_stress_summary=latency,
+        partial_maker_fill_evidence=partial_maker,
+        race_condition_evidence=race,
+        cross_source_parity=parity,
+        l2_replay_quality=l2_quality,
+        derivatives_risk=derivatives,
+        drift_contract=drift,
+        additional_components=additional_components,
+    )
+
+    sample_count = tca.get("sample_count")
+    if isinstance(sample_count, bool) or not isinstance(sample_count, int):
+        raise ValueError("calibration feedback tca_report.sample_count must be an integer")
+    sample_count_met = sample_count >= min_samples
+    tca_checks = _feedback_required_mapping(tca.get("checks"), "tca_report.checks")
+    evidence_fresh = tca_checks.get("evidence_fresh")
+    if not isinstance(evidence_fresh, bool):
+        raise ValueError("calibration feedback tca_report.checks.evidence_fresh must be boolean")
+    tca_reasons = tca.get("reasons")
+    if tca_reasons is None:
+        tca_reasons = []
+    if not isinstance(tca_reasons, list) or any(type(reason) is not str for reason in tca_reasons):
+        raise ValueError("calibration feedback tca_report.reasons must be a string list")
+    evidence_fresh = evidence_fresh and "stale_evidence" not in tca_reasons
+    tca_decision = tca.get("decision")
+    if tca_decision not in {"pass", "fail_closed"}:
+        raise ValueError("calibration feedback tca_report.decision must be pass or fail_closed")
+    tca_ready = tca_decision == "pass"
+
+    latency_quality = latency.get("latency_quality")
+    if latency_quality not in {"usable", "missing", "stale"}:
+        raise ValueError("calibration feedback latency_stress_summary.latency_quality must be known")
+    latency_sample_quality = latency.get("sample_size_quality")
+    if latency_sample_quality not in {"sufficient", "insufficient"}:
+        raise ValueError("calibration feedback latency_stress_summary.sample_size_quality must be known")
+    latency_ready = latency_quality == "usable" and latency_sample_quality == "sufficient"
+
+    partial_ready = True
+    fill_floor = _observed_scalar(_feedback_required_mapping(tca.get("observed"), "tca_report.observed"), "fill_probability")
+    maker_queue_haircut = 0.0
+    if partial_maker is not None:
+        partial_status = partial_maker.get("status")
+        if partial_status not in {"pass", "fail_closed", "hold_for_review"}:
+            raise ValueError("calibration feedback partial_maker_fill_evidence.status must be known")
+        partial_ready = partial_status == "pass"
+        fill_floor = _feedback_ratio(partial_maker.get("fill_probability_floor"), "fill_probability_floor")
+        maker_queue_haircut = _feedback_ratio(partial_maker.get("maker_queue_haircut"), "maker_queue_haircut")
+    if fill_floor is None:
+        raise ValueError("calibration feedback fill_probability_floor must be numeric")
+    fill_floor = _feedback_ratio(fill_floor, "fill_probability_floor")
+
+    race_status = "clear"
+    race_condition_haircut = 0.0
+    if race is not None:
+        race_status = race.get("race_condition_status")
+        if race_status not in {"clear", "hold_for_review"}:
+            raise ValueError("calibration feedback race_condition_status must be clear or hold_for_review")
+        if race_status == "hold_for_review":
+            race_condition_haircut = 1.0
+    race_ordering_clear = race_status == "clear"
+
+    parity_met = True
+    if parity is not None:
+        parity_status = parity.get("drift_status")
+        if parity_status not in {"pass", "fail"}:
+            raise ValueError("calibration feedback cross_source_parity drift_status must be pass or fail")
+        parity_met = parity_status == "pass"
+
+    l2_met = True
+    if l2_quality is not None:
+        l2_status = l2_quality.get("quality_status")
+        if l2_status not in {"pass", "review"}:
+            raise ValueError("calibration feedback l2_replay_quality quality_status must be pass or review")
+        l2_met = l2_status == "pass"
+
+    drift_hold_absent = True
+    if drift is not None:
+        drift_checks = _feedback_required_mapping(drift.get("checks"), "drift_contract.checks")
+        drift_absent = drift_checks.get("paper_live_shadow_material_drift_absent")
+        if not isinstance(drift_absent, bool):
+            raise ValueError("calibration feedback drift_contract material drift check must be boolean")
+        drift_hold_absent = drift_absent
+
+    observed = _feedback_required_mapping(tca.get("observed"), "tca_report.observed")
+    slippage = _feedback_required_mapping(observed.get("slippage_bps"), "tca_report.observed.slippage_bps")
+    assumptions = _feedback_required_mapping(tca.get("assumptions"), "tca_report.assumptions")
+    _feedback_optional_float(slippage.get("p95"), "slippage_bps_adjustment", non_negative=False)
+    observed_slippage = _feedback_optional_float(slippage.get("median"), "slippage_bps_adjustment", non_negative=False)
+    expected_slippage = _feedback_finite_float(
+        assumptions.get("expected_slippage_bps"),
+        "tca_report.assumptions.expected_slippage_bps",
+        non_negative=True,
+    )
+    if observed_slippage is None:
+        raise ValueError("calibration feedback slippage_bps_adjustment must be numeric")
+    slippage_adjustment = max(0.0, observed_slippage - expected_slippage)
+
+    latency_ms_p95_raw = _feedback_latency_percentile(latency, "p95")
+    latency_ms_p99_raw = _feedback_latency_percentile(latency, "p99")
+    latency_ms_p95 = round(latency_ms_p95_raw, 6) if latency_ms_p95_raw is not None else None
+    latency_ms_p99 = round(latency_ms_p99_raw, 6) if latency_ms_p99_raw is not None else None
+    reject_rate_by_reason = _feedback_reject_rates(observed.get("reject_reasons"))
+    funding_conservative = _feedback_bool(
+        derivatives.get("funding_conservatism_required") if derivatives is not None else None,
+        "derivatives_risk.funding_conservatism_required",
+    )
+    margin_conservative = _feedback_bool(
+        derivatives.get("margin_conservatism_required") if derivatives is not None else None,
+        "derivatives_risk.margin_conservatism_required",
+    )
+
+    checks = {
+        "sample_count_met": sample_count_met,
+        "evidence_fresh": evidence_fresh,
+        "tca_ready": tca_ready,
+        "latency_ready": latency_ready,
+        "partial_maker_fill_ready": partial_ready,
+        "race_ordering_clear": race_ordering_clear,
+        "drift_hold_absent": drift_hold_absent,
+        "cross_source_parity_met": parity_met,
+        "l2_replay_quality_met": l2_met,
+    }
+    reasons: list[str] = []
+    if not sample_count_met:
+        reasons.append("insufficient_sample_count")
+    if not evidence_fresh:
+        reasons.append("stale_evidence")
+    if not tca_ready:
+        reasons.append("tca_not_ready")
+    if not latency_ready:
+        reasons.append("latency_not_ready")
+    if not partial_ready:
+        reasons.append("partial_maker_fill_not_ready")
+    if not race_ordering_clear:
+        reasons.append("ambiguous_race_ordering")
+    if not drift_hold_absent:
+        reasons.append("drift_hold")
+    if not parity_met:
+        reasons.append("cross_source_parity_drift")
+    if not l2_met:
+        reasons.append("l2_replay_quality_review")
+    decision = "ready" if all(checks.values()) else "fail_closed"
+
+    if decision != "ready":
+        fill_floor = 0.0
+        maker_queue_haircut = 1.0
+        race_condition_haircut = 1.0
+
+    return {
+        "schema_version": "calibration_feedback_artifact.v1",
+        "generated_at": generated_at_text,
+        "calibration_window": window,
+        "decision": decision,
+        "min_samples": min_samples,
+        "max_evidence_age_seconds": max_evidence_age_seconds,
+        "sample_count": sample_count,
+        "model_inputs": {
+            "slippage_bps_adjustment": slippage_adjustment,
+            "latency_ms_p95": latency_ms_p95,
+            "latency_ms_p99": latency_ms_p99,
+            "fill_probability_floor": fill_floor,
+            "maker_queue_haircut": maker_queue_haircut,
+            "reject_rate_by_reason": reject_rate_by_reason,
+            "race_condition_haircut": race_condition_haircut,
+            "funding_conservatism_required": funding_conservative,
+            "margin_conservatism_required": margin_conservative,
+        },
+        "checks": checks,
+        "reasons": reasons,
+        "components": components,
+        "side_effect_boundary": "offline_local_only",
+        "strategy_config_mutation": "forbidden",
+        "caveats": [
+            "This artifact is an explicit downstream calibration input contract only.",
+            "Strategy and live execution configuration are not mutated by this builder.",
+        ],
+    }
+
+
+def write_calibration_feedback_artifact(
+    output_dir: str | Path,
+    **kwargs: Any,
+) -> Path:
+    artifact = build_calibration_feedback_artifact(**kwargs)
+    output_path = Path(output_dir) / "calibration_feedback_artifact.json"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(artifact, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return output_path

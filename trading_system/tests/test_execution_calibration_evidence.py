@@ -7,10 +7,12 @@ import pytest
 
 from trading_system.app.execution import calibration
 from trading_system.app.execution.calibration import (
+    build_calibration_feedback_artifact,
     build_execution_race_condition_evidence,
     build_tca_calibration_report,
     load_calibration_records,
     summarize_calibration_records,
+    write_calibration_feedback_artifact,
     write_calibration_summary,
     write_tca_calibration_report,
 )
@@ -48,6 +50,124 @@ def _tca_assumptions(**overrides: object) -> dict[str, object]:
     }
     payload.update(overrides)
     return payload
+
+
+def _calibration_feedback_inputs() -> dict[str, object]:
+    records = [
+        _strict_record_payload(
+            symbol="BTCUSDT",
+            maker_taker="maker",
+            requested_qty=1.0,
+            filled_qty=1.0,
+            filled_notional=100.0,
+            slippage_bps=2.0,
+            adverse_selection_bps=1.0,
+            fees=0.01,
+            funding=0.0,
+            latency_ms=120.0,
+        ),
+        _strict_record_payload(
+            symbol="ETHUSDT",
+            maker_taker="taker",
+            requested_qty=1.0,
+            filled_qty=1.0,
+            filled_notional=100.0,
+            slippage_bps=4.0,
+            adverse_selection_bps=2.0,
+            fees=0.02,
+            funding=0.0,
+            latency_ms=160.0,
+        ),
+        _strict_record_payload(
+            symbol="SOLUSDT",
+            status="partially_filled",
+            maker_taker="maker",
+            requested_qty=1.0,
+            filled_qty=0.5,
+            filled_notional=50.0,
+            slippage_bps=3.0,
+            adverse_selection_bps=1.5,
+            fees=0.01,
+            funding=0.0,
+            latency_ms=180.0,
+        ),
+        _strict_record_payload(
+            symbol="BNBUSDT",
+            status="rejected",
+            maker_taker="maker",
+            requested_qty=1.0,
+            filled_qty=0.0,
+            filled_notional=None,
+            first_fill_at=None,
+            last_fill_at=None,
+            cancel_ack_at="2026-01-01T00:00:05Z",
+            cancel_reason="post_only_reject",
+            slippage_bps=None,
+            adverse_selection_bps=None,
+            fees=0.0,
+            latency_ms=220.0,
+        ),
+    ]
+    tca = build_tca_calibration_report(
+        records,
+        assumptions=_tca_assumptions(
+            expected_slippage_bps=2.0,
+            expected_adverse_selection_bps=1.5,
+            expected_fee_funding_bps=1.5,
+        ),
+        evidence_source={"type": "paper_live_sim", "run_id": "tca-1", "exported_at": "2026-01-01T00:05:00Z"},
+        evaluated_at="2026-01-01T00:05:10Z",
+        min_samples=4,
+        max_evidence_age_seconds=300,
+        tolerance_thresholds={"slippage_bps": 3.0, "fees_funding_bps": 2.0},
+    )
+    latency = calibration.build_latency_stress_summary(
+        [
+            {"event_type": "ack", "status": "acknowledged", "latency_ms": 120.0, "observed_at": "2026-01-01T00:04:01Z", "client_order_id": "lat-1"},
+            {"event_type": "fill", "status": "filled", "latency_ms": 240.0, "observed_at": "2026-01-01T00:04:02Z", "client_order_id": "lat-1"},
+            {"event_type": "cancel", "status": "cancelled", "latency_ms": 360.0, "observed_at": "2026-01-01T00:04:03Z", "client_order_id": "lat-2"},
+            {"event_type": "ack", "status": "acknowledged", "latency_ms": 480.0, "observed_at": "2026-01-01T00:04:04Z", "client_order_id": "lat-3"},
+        ],
+        evaluated_at="2026-01-01T00:05:10Z",
+        stale_after_seconds=300,
+        min_samples=4,
+    )
+    race = build_execution_race_condition_evidence(
+        [
+            {"client_order_id": "race-1", "stage": "submit", "status": "submitted", "occurred_at": "2026-01-01T00:00:00Z"},
+            {"client_order_id": "race-1", "stage": "exchange_ack", "status": "acknowledged", "occurred_at": "2026-01-01T00:00:01Z"},
+            {"client_order_id": "race-1", "stage": "fill", "status": "filled", "occurred_at": "2026-01-01T00:00:02Z", "quantity": 1.0, "price": 100.0},
+        ]
+    )
+    return {
+        "tca_report": tca,
+        "latency_stress_summary": latency,
+        "partial_maker_fill_evidence": {
+            "schema_version": "partial_maker_fill_evidence.v1",
+            "status": "pass",
+            "sample_count": 4,
+            "fill_probability_floor": 0.62,
+            "maker_queue_haircut": 0.18,
+        },
+        "race_condition_evidence": race,
+        "cross_source_parity": {
+            "schema_version": "cross_source_market_execution_parity.v1",
+            "drift_status": "pass",
+        },
+        "l2_replay_quality": {
+            "schema_version": "longitudinal_l2_replay_calibration_report.v1",
+            "quality_status": "pass",
+        },
+        "derivatives_risk": {
+            "schema_version": "derivatives_position_risk_report.v1",
+            "funding_conservatism_required": True,
+            "margin_conservatism_required": True,
+        },
+        "drift_contract": {
+            "schema_version": "paper_live_shadow_drift_contract.v1",
+            "checks": {"paper_live_shadow_material_drift_absent": True},
+        },
+    }
 
 
 def test_writes_passive_and_taker_calibration_summary_from_jsonl(tmp_path: Path) -> None:
@@ -145,6 +265,140 @@ def test_writes_passive_and_taker_calibration_summary_from_jsonl(tmp_path: Path)
     output = write_calibration_summary(source, tmp_path / "out", evidence_source={"type": "synthetic_fixture"})
     assert output == tmp_path / "out" / "passive_order_calibration_summary.json"
     assert json.loads(output.read_text()) == summary
+
+
+def test_builds_calibration_feedback_artifact_from_simulated_live_evidence() -> None:
+    inputs = _calibration_feedback_inputs()
+
+    artifact = build_calibration_feedback_artifact(
+        generated_at="2026-01-01T00:05:10Z",
+        calibration_window={"start": "2026-01-01T00:00:00Z", "end": "2026-01-01T00:05:00Z"},
+        min_samples=4,
+        max_evidence_age_seconds=300,
+        **inputs,
+    )
+
+    assert artifact["schema_version"] == "calibration_feedback_artifact.v1"
+    assert artifact["generated_at"] == "2026-01-01T00:05:10Z"
+    assert artifact["calibration_window"] == {
+        "start": "2026-01-01T00:00:00Z",
+        "end": "2026-01-01T00:05:00Z",
+    }
+    assert artifact["decision"] == "ready"
+    assert artifact["model_inputs"] == {
+        "slippage_bps_adjustment": 1.0,
+        "latency_ms_p95": 462.0,
+        "latency_ms_p99": 476.4,
+        "fill_probability_floor": 0.62,
+        "maker_queue_haircut": 0.18,
+        "reject_rate_by_reason": {"post_only_reject": 0.25},
+        "race_condition_haircut": 0.0,
+        "funding_conservatism_required": True,
+        "margin_conservatism_required": True,
+    }
+    assert artifact["checks"] == {
+        "sample_count_met": True,
+        "evidence_fresh": True,
+        "tca_ready": True,
+        "latency_ready": True,
+        "partial_maker_fill_ready": True,
+        "race_ordering_clear": True,
+        "drift_hold_absent": True,
+        "cross_source_parity_met": True,
+        "l2_replay_quality_met": True,
+    }
+    assert artifact["reasons"] == []
+    assert artifact["side_effect_boundary"] == "offline_local_only"
+    assert artifact["strategy_config_mutation"] == "forbidden"
+
+
+def test_calibration_feedback_fails_closed_for_insufficient_stale_or_hold_evidence() -> None:
+    inputs = _calibration_feedback_inputs()
+    tca = dict(inputs["tca_report"])
+    tca["decision"] = "fail_closed"
+    tca["sample_count"] = 3
+    tca["reasons"] = ["insufficient_sample_count", "stale_evidence"]
+    drift = dict(inputs["drift_contract"])
+    drift["checks"] = {"paper_live_shadow_material_drift_absent": False}
+
+    artifact = build_calibration_feedback_artifact(
+        generated_at="2026-01-01T00:05:10Z",
+        calibration_window={"start": "2026-01-01T00:00:00Z", "end": "2026-01-01T00:05:00Z"},
+        min_samples=4,
+        max_evidence_age_seconds=300,
+        **{**inputs, "tca_report": tca, "drift_contract": drift},
+    )
+
+    assert artifact["decision"] == "fail_closed"
+    assert artifact["checks"]["sample_count_met"] is False
+    assert artifact["checks"]["evidence_fresh"] is False
+    assert artifact["checks"]["drift_hold_absent"] is False
+    assert artifact["model_inputs"]["fill_probability_floor"] == 0.0
+    assert artifact["model_inputs"]["maker_queue_haircut"] == 1.0
+    assert artifact["model_inputs"]["race_condition_haircut"] == 1.0
+    assert artifact["reasons"] == [
+        "insufficient_sample_count",
+        "stale_evidence",
+        "tca_not_ready",
+        "drift_hold",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("mutator", "match"),
+    [
+        (lambda inputs: inputs["tca_report"]["observed"]["slippage_bps"].update({"p95": "4.0"}), "slippage_bps_adjustment"),
+        (lambda inputs: inputs["race_condition_evidence"].update({"race_condition_status": "ambiguous"}), "race_condition_status"),
+        (lambda inputs: inputs["cross_source_parity"].update({"drift_status": "unknown"}), "cross_source_parity"),
+    ],
+)
+def test_calibration_feedback_rejects_invalid_numerics_and_unknown_statuses(mutator, match: str) -> None:
+    inputs = _calibration_feedback_inputs()
+    mutator(inputs)
+
+    with pytest.raises(ValueError, match=match):
+        build_calibration_feedback_artifact(
+            generated_at="2026-01-01T00:05:10Z",
+            calibration_window={"start": "2026-01-01T00:00:00Z", "end": "2026-01-01T00:05:00Z"},
+            min_samples=4,
+            max_evidence_age_seconds=300,
+            **inputs,
+        )
+
+
+def test_calibration_feedback_rejects_duplicated_component_identity() -> None:
+    inputs = _calibration_feedback_inputs()
+    inputs["additional_components"] = [
+        {"component": "latency_stress_summary", "identity": "latency_stress_summary"},
+    ]
+
+    with pytest.raises(ValueError, match="duplicate calibration feedback component identity"):
+        build_calibration_feedback_artifact(
+            generated_at="2026-01-01T00:05:10Z",
+            calibration_window={"start": "2026-01-01T00:00:00Z", "end": "2026-01-01T00:05:00Z"},
+            min_samples=4,
+            max_evidence_age_seconds=300,
+            **inputs,
+        )
+
+
+def test_writes_calibration_feedback_artifact_without_mutating_strategy_config(tmp_path: Path) -> None:
+    inputs = _calibration_feedback_inputs()
+
+    output = write_calibration_feedback_artifact(
+        tmp_path,
+        generated_at="2026-01-01T00:05:10Z",
+        calibration_window={"start": "2026-01-01T00:00:00Z", "end": "2026-01-01T00:05:00Z"},
+        min_samples=4,
+        max_evidence_age_seconds=300,
+        **inputs,
+    )
+
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert output == tmp_path / "calibration_feedback_artifact.json"
+    assert payload["schema_version"] == "calibration_feedback_artifact.v1"
+    assert payload["strategy_config_mutation"] == "forbidden"
+    assert not (tmp_path / "strategy_config.json").exists()
 
 
 def test_loads_and_summarizes_cancel_replace_lifecycle_fields(tmp_path: Path) -> None:

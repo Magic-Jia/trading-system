@@ -146,6 +146,7 @@ def _calibration_records() -> list[dict[str, object]]:
         filled_qty=0.0,
         filled_notional=None,
         status="rejected",
+        cancel_requested_at="2026-05-16T10:00:04Z",
         cancel_ack_at="2026-05-16T10:00:05Z",
         cancel_reason="post_only_reject",
         slippage_bps=None,
@@ -262,6 +263,7 @@ def test_scheduled_generation_writes_deterministic_simulated_live_artifacts(tmp_
     evidence = json.loads((paths.optimization_dir / "paper_live_sim_evidence_bundle.json").read_text())
     calibration = json.loads((paths.optimization_dir / "passive_order_calibration_summary.json").read_text())
     tca = json.loads((paths.optimization_dir / "tca_calibration_report.json").read_text())
+    feedback = json.loads((paths.optimization_dir / "calibration_feedback_artifact.json").read_text())
     gate = json.loads((paths.optimization_dir / "daily_quality_gate_report.json").read_text())
 
     assert result["status"] == "ok"
@@ -269,11 +271,16 @@ def test_scheduled_generation_writes_deterministic_simulated_live_artifacts(tmp_
         "paper_live_sim_evidence_bundle": str(paths.optimization_dir / "paper_live_sim_evidence_bundle.json"),
         "passive_order_calibration_summary": str(paths.optimization_dir / "passive_order_calibration_summary.json"),
         "tca_calibration_report": str(paths.optimization_dir / "tca_calibration_report.json"),
+        "calibration_feedback_artifact": str(paths.optimization_dir / "calibration_feedback_artifact.json"),
         "daily_quality_gate_report": str(paths.optimization_dir / "daily_quality_gate_report.json"),
     }
     assert evidence["schema_version"] == "paper_live_sim_evidence_bundle.v1"
     assert calibration["schema_version"] == "passive_order_calibration_summary.v1"
     assert tca["decision"] == "pass"
+    assert feedback["schema_version"] == "calibration_feedback_artifact.v1"
+    assert feedback["decision"] == "ready"
+    assert feedback["model_inputs"]["fill_probability_floor"] == 0.75
+    assert feedback["strategy_config_mutation"] == "forbidden"
     assert gate["decision"] == "pass_for_continued_paper"
     assert gate["inputs"]["tca"]["p95_slippage_bps"] == 3.0
 

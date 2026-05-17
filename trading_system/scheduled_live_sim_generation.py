@@ -7,7 +7,9 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from trading_system.app.execution.calibration import (
+    build_latency_stress_summary,
     load_calibration_records,
+    write_calibration_feedback_artifact,
     write_calibration_summary,
     write_tca_calibration_report,
 )
@@ -208,11 +210,37 @@ def run_scheduled_generation(
             tolerance_thresholds=tolerances,
         )
         tca_report = _read_json_object(tca_path)
+        latency_stress = build_latency_stress_summary(
+            calibration_record_rows,
+            evaluated_at=evaluated_at,
+            stale_after_seconds=max_evidence_age_seconds,
+            min_samples=min_tca_samples,
+        )
+        calibration_feedback_path = write_calibration_feedback_artifact(
+            output_dir,
+            tca_report=tca_report,
+            latency_stress_summary=latency_stress,
+            generated_at=evaluated_at,
+            calibration_window={
+                "start": min(
+                    record.signal_at.astimezone(UTC).isoformat().replace("+00:00", "Z")
+                    for record in calibration_record_rows
+                ),
+                "end": max(
+                    record.exchange_ack_at.astimezone(UTC).isoformat().replace("+00:00", "Z")
+                    for record in calibration_record_rows
+                ),
+            },
+            min_samples=min_tca_samples,
+            max_evidence_age_seconds=max_evidence_age_seconds,
+            drift_contract=drift,
+        )
         daily_tca = _daily_tca_input(tca_report, max_p95_slippage_bps=max_p95_slippage_bps)
         generated_artifacts.update(
             {
                 "passive_order_calibration_summary": str(calibration_summary_path),
                 "tca_calibration_report": str(tca_path),
+                "calibration_feedback_artifact": str(calibration_feedback_path),
             }
         )
         rolling_tca_path = output_dir / ROLLING_TCA_DURABILITY_NAME
