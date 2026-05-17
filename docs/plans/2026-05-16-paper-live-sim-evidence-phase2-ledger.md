@@ -1,6 +1,6 @@
 # Paper/Live-Sim Evidence Phase 2 Ledger
 
-Status: phase9_batch1_full_green
+Status: phase9_batch2_full_green
 Base: bbd3c0ab
 Scope: simulated live / paper-live only. In this project context `live` means simulated live unless explicitly stated otherwise.
 
@@ -170,3 +170,25 @@ Final Phase 9 Batch 1 full-suite checkpoint:
 - Branch status before ledger commit: `feat/live-readiness-gates...origin/feat/live-readiness-gates [ahead 3]`.
 
 Remaining operational frontier: run the new real-local chain and promotion gate against accumulated multi-session simulated-live artifact directories on a cadence, store those promotion decisions as longitudinal evidence, and only then evaluate whether external independent-feed checks or operator acknowledgement persistence are needed for the next promotion threshold.
+
+
+## Phase 9 Batch 2 cadence promotion evidence loop
+
+Status: `batch2_full_green` at `d1363e70` on `feat/live-readiness-gates` before ledger commit.
+
+Side-effect boundary: offline/local simulated-live evidence only. No real orders, no testnet orders, no exchange API calls, and no live credential use.
+
+Closed Batch 2 frontiers:
+
+- `0d96434a` adds a fail-closed simulated-live artifact inventory for local optimization runtime directories. It records present/missing/malformed Phase 9 artifacts, expected schema versions, hashes, source paths, and returns `hold` until all cadence/promotion inputs are present. Worker exact: 2238 passed + diff-check. Main exact: 2238 passed + diff-check.
+- `a6f3b9a9` adds the offline simulated-live cadence runner that chains rolling bundle -> evidence window -> promotion scorecard -> scorecard trend -> real-local chain checkpoint -> promotion gate decision, while failing closed and persisting a cadence result when required local artifacts are missing or replay provenance is detected. Worker exact: 2000 passed + diff-check. Main exact: 2000 passed + diff-check.
+- `4b23cf50` adds a longitudinal promotion decision archive that stores multiple promotion decisions across sessions/days, rejects duplicate identities and malformed inputs, and summarizes decision history for promotion review. Worker exact: 2239 passed + diff-check. Main exact: 2240 passed + diff-check.
+- `d1363e70` fixes the cadence runner artifact filename contract so it reuses the inventory/runtime canonical Phase 9 filenames such as `daily_quality_gate_report.json`, avoiding false missing-artifact reports for real local scheduled-generation output. Focused exact: 1916 passed + diff-check.
+
+Final Phase 9 Batch 2 full-suite checkpoint:
+
+- `python3 scripts/verify.py --suite full` passed 6518 tests in 202.31s.
+- `git --no-pager diff --check HEAD` clean.
+- Real-local smoke on `trading_system/data/runtime/paper/paper/optimization` correctly recognized `daily_quality_gate_report.json` and failed closed with `hold` only for the remaining absent Phase 9 inputs: rolling TCA durability, L2 longitudinal replay calibration, cross-source parity, venue rulebook freshness, execution race evidence, and promotion readiness evidence.
+
+Remaining operational frontier: produce the missing real local Phase 9 input artifacts from actual simulated-live runtime streams, then let the cadence runner generate real-local promotion gate decisions and accumulate them in the longitudinal archive over multiple sessions/days.
