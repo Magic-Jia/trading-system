@@ -252,6 +252,25 @@ def test_simulated_live_artifact_inventory_has_impact_mapping() -> None:
     assert "trading_system/tests/test_simulated_live_artifact_inventory.py" in generator_tests
 
 
+def test_execution_stream_producers_have_impact_mapping() -> None:
+    verify = load_verify_module()
+
+    reporting_tests = verify.tests_for_changed([
+        "trading_system/app/reporting/execution_stream_producers.py"
+    ])
+    race_generator_tests = verify.tests_for_changed([
+        "trading_system/generate_execution_race_evidence.py"
+    ])
+    l2_generator_tests = verify.tests_for_changed([
+        "trading_system/generate_l2_longitudinal_replay_calibration.py"
+    ])
+
+    assert "trading_system/tests/test_execution_stream_producers.py" in reporting_tests
+    assert "trading_system/tests/test_rolling_simulated_live_evidence_bundle.py" in reporting_tests
+    assert race_generator_tests == ["trading_system/tests/test_execution_stream_producers.py"]
+    assert l2_generator_tests == ["trading_system/tests/test_execution_stream_producers.py"]
+
+
 def test_promotion_gate_decision_has_reporting_impact_mapping() -> None:
     verify = load_verify_module()
 

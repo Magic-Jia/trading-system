@@ -57,6 +57,7 @@ _NUMERIC_FIELD_HINTS = (
     "slippage",
     "value",
 )
+_FIELD_TOKEN_RE = re.compile(r"[A-Za-z0-9]+")
 
 
 def _is_exact_string(value: Any) -> bool:
@@ -141,7 +142,7 @@ def _strict_json_payload(value: Any, field_path: str) -> Any:
             if key_lower.endswith("_at") or key_lower.endswith("_time") or key_lower.endswith("_timestamp"):
                 if not _is_exact_string(child):
                     raise ValueError(f"{child_path} must be a string")
-            elif any(hint in key_lower for hint in _NUMERIC_FIELD_HINTS):
+            elif any(hint in _FIELD_TOKEN_RE.findall(key_lower) for hint in _NUMERIC_FIELD_HINTS):
                 _require_number(child, child_path)
             payload[key] = _strict_json_payload(child, child_path)
         return payload

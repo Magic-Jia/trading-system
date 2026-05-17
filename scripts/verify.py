@@ -35,6 +35,7 @@ SUITES: dict[str, list[str]] = {
         "trading_system/tests/test_longitudinal_promotion_decision_archive.py",
         "trading_system/tests/test_replay_simulated_live_evidence.py",
         "trading_system/tests/test_simulated_live_cadence_runner.py",
+        "trading_system/tests/test_execution_stream_producers.py",
         "trading_system/tests/test_backtest_setup_rewrite_experiment.py",
         "trading_system/tests/test_backtest_promotion.py",
         "trading_system/tests/test_scheduled_live_sim_generation.py",
@@ -191,6 +192,14 @@ IMPACT_RULES: tuple[tuple[str, list[str]], ...] = (
         SUITES["evidence-chain"],
     ),
     (
+        "trading_system/app/reporting/execution_stream_producers.py",
+        [
+            "trading_system/tests/test_execution_stream_producers.py",
+            "trading_system/tests/test_rolling_simulated_live_evidence_bundle.py",
+            "trading_system/tests/test_simulated_live_artifact_inventory.py",
+        ],
+    ),
+    (
         "trading_system/app/reporting/promotion_gate_decision.py",
         [
             "trading_system/tests/test_promotion_gate_decision.py",
@@ -222,6 +231,14 @@ IMPACT_RULES: tuple[tuple[str, list[str]], ...] = (
     (
         "trading_system/generate_simulated_live_artifact_inventory.py",
         ["trading_system/tests/test_simulated_live_artifact_inventory.py"],
+    ),
+    (
+        "trading_system/generate_execution_race_evidence.py",
+        ["trading_system/tests/test_execution_stream_producers.py"],
+    ),
+    (
+        "trading_system/generate_l2_longitudinal_replay_calibration.py",
+        ["trading_system/tests/test_execution_stream_producers.py"],
     ),
     (
         "trading_system/generate_promotion_gate_decision.py",
