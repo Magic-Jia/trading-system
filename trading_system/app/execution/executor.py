@@ -3,9 +3,10 @@ from __future__ import annotations
 import json
 import logging
 import math
+import re
 import time
 from dataclasses import asdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable
 
@@ -114,6 +115,7 @@ class OrderExecutor:
         )
         self.execution_log_path = EXEC_LOG
         self.execution_telemetry_path = config.data_dir / "execution_telemetry.jsonl"
+        self.runtime_execution_log_path = config.state_file.parent / "execution_log.jsonl"
         self.paper_ledger_path = config.state_file.parent / "paper_ledger.jsonl"
         self.paper_executor = PaperExecutor(PaperLedger(self.paper_ledger_path))
         if self.mode == "live" and not config.execution.allow_live_execution:
@@ -321,6 +323,8 @@ class OrderExecutor:
                 except Exception:
                     self.append_log(order, result)
                     raise
+            if _is_runtime_bucket_file(self.runtime_execution_log_path, mode="paper"):
+                self.append_paper_lifecycle_log(order, result)
         else:
             result = dry_run_fill(order)
             order.status = "SENT"
@@ -442,6 +446,13 @@ class OrderExecutor:
         with self.execution_log_path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(payload, ensure_ascii=False) + "\n")
 
+    def append_paper_lifecycle_log(self, order: OrderIntent, result: dict[str, Any]) -> None:
+        self.runtime_execution_log_path.parent.mkdir(parents=True, exist_ok=True)
+        rows = _paper_lifecycle_rows(order, result, entry_order_policy=self.config.execution.entry_order_policy)
+        with self.runtime_execution_log_path.open("a", encoding="utf-8") as f:
+            for row in rows:
+                f.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
+
     def append_execution_telemetry(self, payload: dict[str, Any]) -> None:
         with self.execution_telemetry_path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(payload, ensure_ascii=False) + "\n")
@@ -521,6 +532,107 @@ class OrderExecutor:
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _paper_lifecycle_rows(
+    order: OrderIntent,
+    result: dict[str, Any],
+    *,
+    entry_order_policy: EntryOrderPolicy,
+) -> list[dict[str, Any]]:
+    start = datetime.now(timezone.utc)
+    occurred_at = [
+        (start + timedelta(microseconds=index)).isoformat().replace("+00:00", "Z")
+        for index in range(7)
+    ]
+    order_id = f"paper-order-{order.intent_id}"
+    trade_id = f"paper-trade-{order.intent_id}"
+    position_id = f"paper-position-{order.symbol}"
+    side = "buy" if order.side == "LONG" else "sell"
+    maker_taker = "maker" if entry_order_policy == "maker_only" else "taker"
+    quantity = _strict_paper_number(order.qty, "qty")
+    price = _strict_paper_number(order.entry_price, "entry_price")
+    base: dict[str, Any] = {
+        "intent_id": order.intent_id,
+        "order_id": order_id,
+        "position_id": position_id,
+        "symbol": order.symbol.upper(),
+        "side": side,
+        "quantity": quantity,
+        "price": price,
+        "ref_price": price,
+        "maker_taker": maker_taker,
+        "fee": 0.0,
+        "funding": 0.0,
+    }
+    setup_type = _paper_setup_type(order)
+    if setup_type is not None:
+        base["setup_type"] = setup_type
+    rows = [
+        {**base, "event_id": f"{order.intent_id}:signal", "stage": "signal", "status": "accepted", "occurred_at": occurred_at[0]},
+        {**base, "event_id": f"{order.intent_id}:order_intent", "stage": "order_intent", "status": "created", "occurred_at": occurred_at[1]},
+        {**base, "event_id": f"{order.intent_id}:risk_check", "stage": "risk_check", "status": "passed", "occurred_at": occurred_at[2]},
+        {
+            **base,
+            "event_id": f"{order.intent_id}:submit",
+            "stage": "submit",
+            "status": "submitted",
+            "client_order_id": order.intent_id,
+            "occurred_at": occurred_at[3],
+        },
+        {
+            **base,
+            "event_id": f"{order.intent_id}:exchange_ack",
+            "stage": "exchange_ack",
+            "status": "acknowledged",
+            "client_order_id": order.intent_id,
+            "occurred_at": occurred_at[4],
+        },
+        {
+            **base,
+            "event_id": f"{order.intent_id}:fill",
+            "stage": "fill",
+            "status": "filled",
+            "trade_id": trade_id,
+            "client_order_id": order.intent_id,
+            "filled_qty": quantity,
+            "filled_notional": quantity * price,
+            "occurred_at": occurred_at[5],
+        },
+        {
+            **base,
+            "event_id": f"{order.intent_id}:position_reconcile",
+            "stage": "position_reconcile",
+            "status": "reconciled",
+            "trade_id": trade_id,
+            "occurred_at": occurred_at[6],
+        },
+    ]
+    if result.get("result") != "FILLED":
+        raise ExecutionError("paper lifecycle calibration log requires a filled paper execution")
+    return rows
+
+
+def _strict_paper_number(value: Any, field: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ExecutionError(f"paper lifecycle {field} must be a finite non-bool number")
+    numeric = float(value)
+    if not math.isfinite(numeric):
+        raise ExecutionError(f"paper lifecycle {field} must be finite")
+    return numeric
+
+
+def _paper_setup_type(order: OrderIntent) -> str | None:
+    raw = order.meta.get("setup_type") or order.meta.get("engine")
+    if raw is None:
+        return None
+    value = str(raw).strip().upper()
+    return value if re.fullmatch(r"[A-Z0-9_]+", value) else None
+
+
+def _is_runtime_bucket_file(path: Path, *, mode: str) -> bool:
+    parent = path.parent
+    return parent.parent.name == mode and parent.parent.parent.name == "runtime"
 
 
 def _float_or_none(value: Any, *, field: str) -> float | None:

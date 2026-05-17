@@ -16,6 +16,18 @@ class PaperExecutor:
     def execute(self, order: OrderIntent, state: RuntimeState) -> dict[str, Any]:
         order.status = "FILLED"
         result = paper_fill(order)
+        result.update(
+            {
+                "order_id": f"paper-order-{order.intent_id}",
+                "trade_id": f"paper-trade-{order.intent_id}",
+                "filled_qty": float(order.qty),
+                "filled_notional": float(order.qty) * float(order.entry_price),
+                "price": float(order.entry_price),
+                "maker_taker": "maker",
+                "fee": 0.0,
+                "funding": 0.0,
+            }
+        )
         bind_active_order(state, order)
         position_update = apply_executed_intent(state, order)
         ledger_event = self.ledger.record_fill(order, result, position_update)

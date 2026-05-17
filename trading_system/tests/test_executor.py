@@ -4,9 +4,11 @@ import json
 import pytest
 
 from trading_system.app.config import DEFAULT_CONFIG, build_config
+from trading_system.app.execution.calibration import load_calibration_records
 from trading_system.app.execution.executor import OrderExecutor
 from trading_system.app.storage.state_store import RuntimeStateV2
 from trading_system.app.types import ManagementActionIntent, OrderIntent
+from trading_system.generate_execution_calibration_records import generate_execution_calibration_records
 
 
 def _sample_order() -> OrderIntent:
@@ -307,6 +309,92 @@ def test_dry_run_execute_does_not_append_execution_log(monkeypatch, tmp_path):
     executor.execute(_sample_order(), state)
 
     assert not exec_log.exists()
+
+
+def test_paper_execute_appends_canonical_runtime_lifecycle_rows_for_calibration(monkeypatch, tmp_path):
+    from trading_system.app.execution import executor as executor_module
+
+    legacy_exec_log = tmp_path / "legacy" / "execution_log.jsonl"
+    monkeypatch.setattr(executor_module, "EXEC_LOG", legacy_exec_log)
+    runtime_bucket = tmp_path / "runtime" / "paper" / "research"
+    config = replace(
+        DEFAULT_CONFIG,
+        data_dir=tmp_path,
+        state_file=runtime_bucket / "runtime_state.json",
+        execution=replace(DEFAULT_CONFIG.execution, mode="paper", environment="research"),
+    )
+    executor = OrderExecutor(config, mode="paper")
+
+    result = executor.execute(_sample_order(), RuntimeStateV2.empty())
+
+    execution_log = runtime_bucket / "execution_log.jsonl"
+    paper_ledger = runtime_bucket / "paper_ledger.jsonl"
+    output = runtime_bucket / "optimization" / "passive_order_calibration_records.jsonl"
+    rows = [json.loads(line) for line in execution_log.read_text(encoding="utf-8").splitlines()]
+    stages = [row["stage"] for row in rows]
+    assert stages == [
+        "signal",
+        "order_intent",
+        "risk_check",
+        "submit",
+        "exchange_ack",
+        "fill",
+        "position_reconcile",
+    ]
+    for row in rows:
+        assert row["intent_id"] == "intent-btc-long"
+        assert row["symbol"] == "BTCUSDT"
+        assert row["side"] == "buy"
+        assert row["quantity"] == pytest.approx(0.01)
+        assert type(row["quantity"]) is float
+        assert type(row["price"]) is float
+        assert type(row["ref_price"]) is float
+        assert row["maker_taker"] == "maker"
+    assert rows[5]["filled_qty"] == pytest.approx(0.01)
+    assert rows[5]["filled_notional"] == pytest.approx(600.0)
+    assert paper_ledger.exists()
+    assert legacy_exec_log.exists()
+    assert result["result"] == "FILLED"
+
+    generated = generate_execution_calibration_records(
+        execution_log_file=execution_log,
+        paper_ledger_file=paper_ledger,
+        output_file=output,
+    )
+
+    records = load_calibration_records(output)
+    assert generated["record_count"] == 1
+    assert records[0].symbol == "BTCUSDT"
+    assert records[0].requested_qty == pytest.approx(0.01)
+    assert records[0].filled_qty == pytest.approx(0.01)
+
+
+def test_paper_execute_does_not_call_testnet_submission_functions(monkeypatch, tmp_path):
+    from trading_system.app.execution import executor as executor_module
+
+    monkeypatch.setattr(executor_module, "EXEC_LOG", tmp_path / "legacy" / "execution_log.jsonl")
+    calls: list[str] = []
+    monkeypatch.setattr(
+        executor_module,
+        "submit_futures_testnet_order",
+        lambda payload: calls.append("entry") or {"orderId": 1},
+    )
+    monkeypatch.setattr(
+        executor_module,
+        "submit_futures_testnet_conditional_algo_order",
+        lambda payload: calls.append("algo") or {"algoId": 1},
+    )
+    config = replace(
+        DEFAULT_CONFIG,
+        data_dir=tmp_path,
+        state_file=tmp_path / "runtime" / "paper" / "research" / "runtime_state.json",
+        execution=replace(DEFAULT_CONFIG.execution, mode="paper", environment="research"),
+    )
+    executor = OrderExecutor(config, mode="paper")
+
+    executor.execute(_sample_order(), RuntimeStateV2.empty())
+
+    assert calls == []
 
 
 def test_order_executor_testnet_mode_returns_preview_without_submission(monkeypatch, tmp_path):
