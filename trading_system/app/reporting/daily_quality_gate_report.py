@@ -505,22 +505,39 @@ def _rolling_tca_durability_checks(
     if schema_version != "rolling_tca_durability_report.v1":
         malformed.append("rolling_tca_durability.schema_version_invalid")
 
-    decision = payload.get("decision")
-    if decision not in {"pass", "hold", "reject"}:
+    raw_decision = payload.get("decision")
+    decision_map = {
+        "pass": "pass",
+        "hold": "hold",
+        "reject": "reject",
+        "durable": "pass",
+        "insufficient": "hold",
+        "rejected": "reject",
+    }
+    decision = decision_map.get(raw_decision) if isinstance(raw_decision, str) else None
+    if decision is None:
         malformed.append("rolling_tca_durability.decision_invalid")
-        decision = None
 
     raw_reasons = payload.get("reasons")
     reasons: list[str] = []
+    reason_map = {
+        "rolling_tca_durability_failed": "rolling_tca_durability_failed",
+        "bucket_regression": "bucket_regression",
+        "insufficient_bucket_samples": "insufficient_bucket_samples",
+        "insufficient_bucket_sample_size": "insufficient_bucket_samples",
+        "rolling_slippage_exceeds_threshold": "rolling_tca_durability_failed",
+        "bucket_latency_regression": "bucket_regression",
+        "maker_taker_mix_shift": "bucket_regression",
+    }
     if not isinstance(raw_reasons, list):
         malformed.append("rolling_tca_durability.reasons_not_list")
     else:
-        allowed_reasons = {"rolling_tca_durability_failed", "bucket_regression", "insufficient_bucket_samples"}
         for index, reason in enumerate(raw_reasons):
-            if not isinstance(reason, str) or reason not in allowed_reasons:
+            mapped = reason_map.get(reason) if isinstance(reason, str) else None
+            if mapped is None:
                 malformed.append(f"rolling_tca_durability.reasons[{index}]_invalid")
                 continue
-            reasons.append(reason)
+            reasons.append(mapped)
 
     if decision != "reject" and "rolling_tca_durability_failed" in reasons:
         malformed.append("rolling_tca_durability.rolling_tca_durability_failed_reason_decision_mismatch")
@@ -534,22 +551,21 @@ def _rolling_tca_durability_checks(
         malformed.append("rolling_tca_durability.reasons_missing_for_non_pass")
 
     checks = _mapping(payload.get("checks"), "rolling_tca_durability.checks", malformed)
-    durable = _bool_field(
-        checks,
-        "rolling_tca_durable",
-        malformed,
-        error_field="rolling_tca_durability.checks.rolling_tca_durable",
-    )
-    sufficient_buckets = _bool_field(
-        checks,
-        "sufficient_bucket_samples",
-        malformed,
-        error_field="rolling_tca_durability.checks.sufficient_bucket_samples",
-    )
+    durable = checks.get("rolling_tca_durable")
+    if durable is None and raw_decision in {"durable", "insufficient", "rejected"}:
+        durable = raw_decision == "durable"
+    elif not isinstance(durable, bool):
+        malformed.append("rolling_tca_durability.checks.rolling_tca_durable_not_bool")
+
+    sufficient_buckets = checks.get("sufficient_bucket_samples")
+    if sufficient_buckets is None and raw_decision in {"durable", "insufficient", "rejected"}:
+        sufficient_buckets = raw_decision != "insufficient"
+    elif not isinstance(sufficient_buckets, bool):
+        malformed.append("rolling_tca_durability.checks.sufficient_bucket_samples_not_bool")
 
     if decision == "reject" and "rolling_tca_durability_failed" not in reasons:
         reasons.append("rolling_tca_durability_failed")
-    if durable is False and "rolling_tca_durability_failed" not in reasons:
+    if durable is False and "rolling_tca_durability_failed" not in reasons and decision == "reject":
         reasons.append("rolling_tca_durability_failed")
     if sufficient_buckets is False and "insufficient_bucket_samples" not in reasons:
         reasons.append("insufficient_bucket_samples")
