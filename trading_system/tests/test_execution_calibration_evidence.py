@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from trading_system.app.execution import calibration
 from trading_system.app.execution.calibration import (
     build_tca_calibration_report,
     load_calibration_records,
@@ -202,6 +203,110 @@ def test_loads_replace_lifecycle_latency_fields(tmp_path: Path) -> None:
     assert record.replace_requested_at.isoformat().replace("+00:00", "Z") == "2026-01-01T00:00:04Z"
     assert record.replace_ack_at.isoformat().replace("+00:00", "Z") == "2026-01-01T00:00:06Z"
     assert record.replace_latency_ms == pytest.approx(2000.0)
+
+
+def test_computes_latency_distribution_metrics_and_conservative_stress_summary() -> None:
+    records = [
+        _strict_record_payload(
+            latency_ms=100.0,
+            first_fill_at="2026-01-01T00:00:03.100000Z",
+            cancel_requested_at="2026-01-01T00:00:04Z",
+            cancel_ack_at="2026-01-01T00:00:04.250000Z",
+            cancel_latency_ms=250.0,
+            status="cancelled",
+            terminal_status="cancelled",
+            partial_fill_before_cancel=True,
+        ),
+        _strict_record_payload(
+            latency_ms=150.0,
+            first_fill_at="2026-01-01T00:00:03.300000Z",
+            replace_requested_at="2026-01-01T00:00:04Z",
+            replace_ack_at="2026-01-01T00:00:04.500000Z",
+            replace_latency_ms=500.0,
+        ),
+        _strict_record_payload(
+            latency_ms=250.0,
+            first_fill_at=None,
+            status="expired",
+            terminal_status="expired",
+        ),
+        {
+            "observed_at": "2026-01-01T00:00:05Z",
+            "client_order_id": "client-4",
+            "event_type": "fill",
+            "status": "filled",
+            "latency_ms": 900.0,
+        },
+    ]
+
+    assert hasattr(calibration, "compute_latency_distribution_metrics")
+    assert hasattr(calibration, "build_latency_stress_summary")
+
+    metrics = calibration.compute_latency_distribution_metrics(
+        records, evaluated_at="2026-01-01T00:00:10Z", stale_after_seconds=4
+    )
+
+    assert metrics["overall"]["count"] == 8
+    assert metrics["overall"]["min"] == pytest.approx(100.0)
+    assert metrics["overall"]["max"] == pytest.approx(900.0)
+    assert metrics["overall"]["p50"] == pytest.approx(250.0)
+    assert metrics["overall"]["p90"] == pytest.approx(620.0)
+    assert metrics["overall"]["p99"] == pytest.approx(872.0)
+    assert metrics["overall"]["mean"] == pytest.approx(318.75)
+    assert metrics["overall"]["missing_rate"] == pytest.approx(0.0)
+    assert metrics["overall"]["stale_rate"] == pytest.approx(1.0)
+    assert metrics["by_event_type"]["ack"]["count"] == 3
+    assert metrics["by_event_type"]["fill"]["count"] == 3
+    assert metrics["by_event_type"]["cancel"]["max"] == pytest.approx(250.0)
+    assert metrics["by_event_type"]["replace"]["max"] == pytest.approx(500.0)
+
+    summary = calibration.build_latency_stress_summary(
+        records, evaluated_at="2026-01-01T00:00:10Z", stale_after_seconds=4, min_samples=10
+    )
+
+    assert summary["schema_version"] == "latency_stress_calibration_summary.v1"
+    assert summary["recommended_latency_buffer_ms"] == pytest.approx(900.0)
+    assert summary["latency_quality"] == "stale"
+    assert summary["sample_size_quality"] == "insufficient"
+    assert summary["fail_closed_reason_codes"] == ["insufficient_latency_samples", "stale_latency_evidence"]
+
+
+@pytest.mark.parametrize(
+    ("mutate", "message"),
+    [
+        (lambda row: row.update({"latency_ms": True}), "latency record latency_ms must be numeric"),
+        (lambda row: row.update({"latency_ms": float("nan")}), "latency record latency_ms must be finite"),
+        (lambda row: row.update({"latency_ms": -1.0}), "latency record latency_ms must be non-negative"),
+        (lambda row: row.update({"observed_at": "2026-01-01T00:00:00+00:00"}), "latency record observed_at must be a canonical UTC timestamp"),
+        (lambda row: row.update({"event_type": "amend"}), "latency record event_type must be one of"),
+        (lambda row: row.update({"status": "FILLED"}), "latency record status must be one of"),
+    ],
+)
+def test_latency_distribution_metrics_fail_closed_for_malformed_event_records(mutate, message: str) -> None:
+    record = {
+        "observed_at": "2026-01-01T00:00:00Z",
+        "client_order_id": "client-1",
+        "event_type": "ack",
+        "status": "acknowledged",
+        "latency_ms": 100.0,
+    }
+    mutate(record)
+
+    with pytest.raises(ValueError, match=message):
+        calibration.compute_latency_distribution_metrics([record])
+
+
+def test_latency_distribution_metrics_reject_duplicate_event_identity() -> None:
+    record = {
+        "observed_at": "2026-01-01T00:00:00Z",
+        "client_order_id": "client-1",
+        "event_type": "ack",
+        "status": "acknowledged",
+        "latency_ms": 100.0,
+    }
+
+    with pytest.raises(ValueError, match="duplicate latency event identity"):
+        calibration.compute_latency_distribution_metrics([record, dict(record)])
 
 
 def test_builds_tca_calibration_report_expected_vs_observed_and_checks() -> None:
@@ -707,6 +812,8 @@ def test_rejects_first_fill_at_before_submitted_at_before_calibration_load(tmp_p
         ("symbol", " btcusdt ", "calibration record symbol must be an uppercase symbol"),
         ("side", " BUY ", "calibration record side must be buy or sell"),
         ("status", " Filled ", "calibration record status must be canonical"),
+        ("status", "unknown", "calibration record status must be a known lifecycle status"),
+        ("terminal_status", "unknown", "calibration record terminal_status must be a known lifecycle status"),
         ("cancel_reason", " expired ", "calibration record cancel_reason must be canonical"),
         ("expire_reason", " timeout ", "calibration record expire_reason must be canonical"),
         ("setup_type", "rs_pullback", "calibration record setup_type must be canonical"),

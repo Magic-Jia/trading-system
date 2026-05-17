@@ -69,6 +69,24 @@ _TCA_DEFAULT_TOLERANCES = {
     "fees_funding_bps": 1.0,
     "reject_reasons": 0.05,
 }
+_KNOWN_CALIBRATION_STATUSES = {
+    "acknowledged",
+    "cancelled",
+    "canceled",
+    "expired",
+    "filled",
+    "partial",
+    "partially_filled",
+    "rejected",
+    "submitted",
+}
+_LATENCY_EVENT_TYPES = ("ack", "fill", "cancel", "replace")
+_LATENCY_EVENT_STATUSES = {
+    "ack": {"acknowledged"},
+    "fill": {"filled", "partial", "partially_filled"},
+    "cancel": {"cancelled", "canceled", "expired", "rejected"},
+    "replace": {"acknowledged"},
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -142,6 +160,13 @@ def _float_or_none(field: str, value: Any) -> float | None:
     parsed = float(value)
     if not math.isfinite(parsed):
         raise ValueError(f"calibration record {field} must be finite")
+    return parsed
+
+
+def _non_negative_float_or_none(field: str, value: Any) -> float | None:
+    parsed = _float_or_none(field, value)
+    if parsed is not None and parsed < 0.0:
+        raise ValueError(f"calibration record {field} must be non-negative")
     return parsed
 
 
@@ -292,6 +317,10 @@ def _record_from_mapping(row: Mapping[str, Any]) -> PassiveOrderCalibrationRecor
         raise ValueError("calibration record last_fill_at must be at or after first_fill_at")
     status = _canonical_lower_token_or_none("status", row.get("status")) or ""
     terminal_status = _canonical_lower_token_or_none("terminal_status", row.get("terminal_status")) or status
+    if status and status not in _KNOWN_CALIBRATION_STATUSES:
+        raise ValueError("calibration record status must be a known lifecycle status")
+    if terminal_status and terminal_status not in _KNOWN_CALIBRATION_STATUSES:
+        raise ValueError("calibration record terminal_status must be a known lifecycle status")
     partial_fill_before_cancel = _bool_or_false("partial_fill_before_cancel", row.get("partial_fill_before_cancel"))
     exchange_race_partial = _bool_or_false(
         "exchange_race_partial_before_cancel_ack", row.get("exchange_race_partial_before_cancel_ack")
@@ -344,9 +373,9 @@ def _record_from_mapping(row: Mapping[str, Any]) -> PassiveOrderCalibrationRecor
         ref_price=_float_or_none("ref_price", row.get("ref_price")),
         cancel_reason=_canonical_lower_token_or_none("cancel_reason", row.get("cancel_reason")),
         expire_reason=_canonical_lower_token_or_none("expire_reason", row.get("expire_reason")),
-        latency_ms=_float_or_none("latency_ms", row.get("latency_ms")),
-        cancel_latency_ms=_float_or_none("cancel_latency_ms", row.get("cancel_latency_ms")),
-        replace_latency_ms=_float_or_none("replace_latency_ms", row.get("replace_latency_ms")),
+        latency_ms=_non_negative_float_or_none("latency_ms", row.get("latency_ms")),
+        cancel_latency_ms=_non_negative_float_or_none("cancel_latency_ms", row.get("cancel_latency_ms")),
+        replace_latency_ms=_non_negative_float_or_none("replace_latency_ms", row.get("replace_latency_ms")),
         terminal_status=terminal_status,
         partial_fill_before_cancel=partial_fill_before_cancel,
         exchange_race_partial_before_cancel_ack=exchange_race_partial,
@@ -412,6 +441,19 @@ def _percentile(values: list[float], percentile: float) -> float | None:
     return round(value) if percentile >= 0.9 else value
 
 
+def _latency_percentile(values: list[float], percentile: float) -> float | None:
+    if not values:
+        return None
+    ordered = sorted(values)
+    if len(ordered) == 1:
+        return ordered[0]
+    rank = (len(ordered) - 1) * percentile
+    lower = int(rank)
+    upper = min(lower + 1, len(ordered) - 1)
+    weight = rank - lower
+    return ordered[lower] * (1.0 - weight) + ordered[upper] * weight
+
+
 def _metric_summary(values: Iterable[float]) -> dict[str, Any]:
     rows = list(values)
     return {
@@ -456,6 +498,287 @@ def _summary(records: Iterable[PassiveOrderCalibrationRecord]) -> dict[str, Any]
         "fee_bps": (total_fees / total_filled_notional) * 10_000.0 if total_filled_notional > 0.0 else None,
     }
     return payload
+
+
+def _latency_value(field: str, value: Any) -> float:
+    if isinstance(value, bool) or not isinstance(value, Real):
+        raise ValueError(f"latency record {field} must be numeric")
+    parsed = float(value)
+    if not math.isfinite(parsed):
+        raise ValueError(f"latency record {field} must be finite")
+    if parsed < 0.0:
+        raise ValueError(f"latency record {field} must be non-negative")
+    return parsed
+
+
+def _latency_observed_at(field: str, value: Any) -> str | None:
+    if value is None or value == "":
+        return None
+    if type(value) is not str or not _is_canonical_utc_timestamp(value):
+        raise ValueError(f"latency record {field} must be a canonical UTC timestamp")
+    return value
+
+
+def _latency_event_type(value: Any) -> str:
+    if type(value) is not str or value not in _LATENCY_EVENT_TYPES:
+        raise ValueError("latency record event_type must be one of ack, fill, cancel, replace")
+    return value
+
+
+def _latency_status(event_type: str, value: Any) -> str:
+    if type(value) is not str or value not in _LATENCY_EVENT_STATUSES[event_type]:
+        raise ValueError(f"latency record status must be one of {', '.join(sorted(_LATENCY_EVENT_STATUSES[event_type]))}")
+    return value
+
+
+def _latency_client_order_id(value: Any) -> str:
+    if type(value) is not str or not value or value != value.strip() or _SAFE_EVIDENCE_IDENTIFIER_RE.fullmatch(value) is None:
+        raise ValueError("latency record client_order_id must be a safe identifier")
+    return value
+
+
+def _latency_observation(
+    *,
+    event_type: str,
+    status: str,
+    latency_ms: float | None,
+    observed_at: str | None,
+    client_order_id: str,
+    enforce_duplicate_identity: bool,
+) -> dict[str, Any]:
+    return {
+        "event_type": event_type,
+        "status": status,
+        "latency_ms": latency_ms,
+        "observed_at": observed_at,
+        "client_order_id": client_order_id,
+        "enforce_duplicate_identity": enforce_duplicate_identity,
+    }
+
+
+def _latency_observations_from_record(record: PassiveOrderCalibrationRecord) -> list[dict[str, Any]]:
+    observations: list[dict[str, Any]] = []
+    observed_at = record.exchange_ack_at.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+    ack_latency = record.latency_ms
+    if ack_latency is None:
+        ack_latency = (record.exchange_ack_at - record.submitted_at).total_seconds() * 1000.0
+    observations.append(
+        _latency_observation(
+            event_type="ack",
+            status="acknowledged",
+            latency_ms=ack_latency,
+            observed_at=observed_at,
+            client_order_id=f"{record.symbol}:{id(record)}:{observed_at}:ack",
+            enforce_duplicate_identity=False,
+        )
+    )
+    if record.first_fill_at is not None:
+        fill_observed_at = record.first_fill_at.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+        observations.append(
+            _latency_observation(
+                event_type="fill",
+                status=record.status if record.status in _LATENCY_EVENT_STATUSES["fill"] else "filled",
+                latency_ms=(record.first_fill_at - record.exchange_ack_at).total_seconds() * 1000.0,
+                observed_at=fill_observed_at,
+                client_order_id=f"{record.symbol}:{id(record)}:{fill_observed_at}:fill",
+                enforce_duplicate_identity=False,
+            )
+        )
+    if record.cancel_ack_at is not None:
+        cancel_observed_at = record.cancel_ack_at.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+        cancel_latency = record.cancel_latency_ms
+        if cancel_latency is None and record.cancel_requested_at is not None:
+            cancel_latency = (record.cancel_ack_at - record.cancel_requested_at).total_seconds() * 1000.0
+        observations.append(
+            _latency_observation(
+                event_type="cancel",
+                status=record.terminal_status or record.status,
+                latency_ms=cancel_latency,
+                observed_at=cancel_observed_at,
+                client_order_id=f"{record.symbol}:{id(record)}:{cancel_observed_at}:cancel",
+                enforce_duplicate_identity=False,
+            )
+        )
+    if record.replace_ack_at is not None:
+        replace_observed_at = record.replace_ack_at.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+        replace_latency = record.replace_latency_ms
+        if replace_latency is None and record.replace_requested_at is not None:
+            replace_latency = (record.replace_ack_at - record.replace_requested_at).total_seconds() * 1000.0
+        observations.append(
+            _latency_observation(
+                event_type="replace",
+                status="acknowledged",
+                latency_ms=replace_latency,
+                observed_at=replace_observed_at,
+                client_order_id=f"{record.symbol}:{id(record)}:{replace_observed_at}:replace",
+                enforce_duplicate_identity=False,
+            )
+        )
+    return observations
+
+
+def _latency_observations_from_mapping(row: Mapping[str, Any]) -> list[dict[str, Any]]:
+    event_type = _latency_event_type(row.get("event_type"))
+    status = _latency_status(event_type, row.get("status"))
+    observed_at = _latency_observed_at("observed_at", row.get("observed_at"))
+    latency_ms = None
+    if "latency_ms" in row and row["latency_ms"] not in (None, ""):
+        latency_ms = _latency_value("latency_ms", row["latency_ms"])
+    return [
+        _latency_observation(
+            event_type=event_type,
+            status=status,
+            latency_ms=latency_ms,
+            observed_at=observed_at,
+            client_order_id=_latency_client_order_id(row.get("client_order_id")),
+            enforce_duplicate_identity=True,
+        )
+    ]
+
+
+def _coerce_latency_observations(value: PassiveOrderCalibrationRecord | Mapping[str, Any]) -> list[dict[str, Any]]:
+    if isinstance(value, PassiveOrderCalibrationRecord):
+        return _latency_observations_from_record(value)
+    if isinstance(value, Mapping):
+        if "event_type" in value or "observed_at" in value or "client_order_id" in value:
+            return _latency_observations_from_mapping(value)
+        return _latency_observations_from_record(_record_from_mapping(value))
+    raise ValueError("latency calibration records must be calibration record objects or mappings")
+
+
+def _latency_distribution(observations: list[Mapping[str, Any]], *, evaluated_at: str | None, stale_after_seconds: int | None) -> dict[str, Any]:
+    present = [float(item["latency_ms"]) for item in observations if item.get("latency_ms") is not None]
+    missing_count = len(observations) - len(present)
+    stale_count = 0
+    if evaluated_at is not None and stale_after_seconds is not None:
+        eval_time = datetime.fromisoformat(evaluated_at[:-1] + "+00:00")
+        for item in observations:
+            observed_at = item.get("observed_at")
+            if type(observed_at) is not str:
+                continue
+            observed_time = datetime.fromisoformat(observed_at[:-1] + "+00:00")
+            age_seconds = (eval_time - observed_time).total_seconds()
+            if age_seconds < 0.0 or age_seconds > stale_after_seconds:
+                stale_count += 1
+    count = len(present)
+    return {
+        "count": count,
+        "min": min(present) if present else None,
+        "max": max(present) if present else None,
+        "p50": _latency_percentile(present, 0.50),
+        "p90": _latency_percentile(present, 0.90),
+        "p99": _latency_percentile(present, 0.99),
+        "mean": (sum(present) / count) if count else None,
+        "missing_rate": missing_count / len(observations) if observations else 0.0,
+        "stale_rate": stale_count / len(observations) if observations else 0.0,
+    }
+
+
+def _parse_latency_freshness_options(
+    evaluated_at: datetime | str | None,
+    stale_after_seconds: int | None,
+) -> tuple[str | None, int | None]:
+    evaluated_at_text = None
+    if evaluated_at is not None:
+        evaluated_at_text = _tca_canonical_timestamp(evaluated_at, field_name="evaluated_at")
+    if stale_after_seconds is not None:
+        if isinstance(stale_after_seconds, bool) or not isinstance(stale_after_seconds, int):
+            raise ValueError("stale_after_seconds must be an integer")
+        if stale_after_seconds < 0:
+            raise ValueError("stale_after_seconds must be non-negative")
+    return evaluated_at_text, stale_after_seconds
+
+
+def compute_latency_distribution_metrics(
+    records: Iterable[PassiveOrderCalibrationRecord | Mapping[str, Any]],
+    *,
+    evaluated_at: datetime | str | None = None,
+    stale_after_seconds: int | None = None,
+) -> dict[str, Any]:
+    evaluated_at_text, parsed_stale_after_seconds = _parse_latency_freshness_options(evaluated_at, stale_after_seconds)
+    observations: list[dict[str, Any]] = []
+    seen_identities: set[tuple[str | None, str, str]] = set()
+    for record in records:
+        for observation in _coerce_latency_observations(record):
+            identity = (
+                observation.get("observed_at"),
+                str(observation["client_order_id"]),
+                str(observation["event_type"]),
+            )
+            if observation.get("enforce_duplicate_identity") is True:
+                if identity in seen_identities:
+                    raise ValueError("duplicate latency event identity")
+                seen_identities.add(identity)
+            latency_ms = observation.get("latency_ms")
+            if latency_ms is not None:
+                _latency_value("latency_ms", latency_ms)
+            observations.append(observation)
+    by_event_type = {
+        event_type: _latency_distribution(
+            [item for item in observations if item["event_type"] == event_type],
+            evaluated_at=evaluated_at_text,
+            stale_after_seconds=parsed_stale_after_seconds,
+        )
+        for event_type in _LATENCY_EVENT_TYPES
+        if any(item["event_type"] == event_type for item in observations)
+    }
+    return {
+        "schema_version": "latency_distribution_metrics.v1",
+        "overall": _latency_distribution(
+            observations,
+            evaluated_at=evaluated_at_text,
+            stale_after_seconds=parsed_stale_after_seconds,
+        ),
+        "by_event_type": by_event_type,
+    }
+
+
+def build_latency_stress_summary(
+    records: Iterable[PassiveOrderCalibrationRecord | Mapping[str, Any]],
+    *,
+    evaluated_at: datetime | str | None = None,
+    stale_after_seconds: int | None = None,
+    min_samples: int = 30,
+) -> dict[str, Any]:
+    if isinstance(min_samples, bool) or not isinstance(min_samples, int):
+        raise ValueError("min_samples must be an integer")
+    if min_samples < 0:
+        raise ValueError("min_samples must be non-negative")
+    metrics = compute_latency_distribution_metrics(
+        records,
+        evaluated_at=evaluated_at,
+        stale_after_seconds=stale_after_seconds,
+    )
+    overall = metrics["overall"]
+    sample_count = int(overall["count"])
+    p99 = overall["p99"]
+    maximum = overall["max"]
+    recommended = None
+    if isinstance(p99, Real) and isinstance(maximum, Real):
+        recommended = max(float(p99), float(maximum))
+    elif isinstance(p99, Real):
+        recommended = float(p99)
+    elif isinstance(maximum, Real):
+        recommended = float(maximum)
+    fail_closed_reason_codes: list[str] = []
+    sample_size_quality = "sufficient" if sample_count >= min_samples else "insufficient"
+    if sample_size_quality == "insufficient":
+        fail_closed_reason_codes.append("insufficient_latency_samples")
+    latency_quality = "usable"
+    if sample_count == 0 or overall["missing_rate"] > 0.0:
+        latency_quality = "missing"
+        fail_closed_reason_codes.append("missing_latency_observations")
+    elif overall["stale_rate"] > 0.0:
+        latency_quality = "stale"
+        fail_closed_reason_codes.append("stale_latency_evidence")
+    return {
+        "schema_version": "latency_stress_calibration_summary.v1",
+        "recommended_latency_buffer_ms": recommended,
+        "latency_quality": latency_quality,
+        "sample_size_quality": sample_size_quality,
+        "fail_closed_reason_codes": fail_closed_reason_codes,
+        "metrics": metrics,
+    }
 
 
 def _slippage_summary(records: Iterable[PassiveOrderCalibrationRecord]) -> dict[str, Any]:
