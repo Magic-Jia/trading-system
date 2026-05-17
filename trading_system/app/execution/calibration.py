@@ -77,6 +77,7 @@ _KNOWN_CALIBRATION_STATUSES = {
     "filled",
     "partial",
     "partially_filled",
+    "conflict",
     "rejected",
     "submitted",
 }
@@ -124,6 +125,11 @@ class PassiveOrderCalibrationRecord:
     partial_fill_before_cancel: bool = False
     exchange_race_partial_before_cancel_ack: bool = False
     setup_type: str | None = None
+    client_order_id: str | None = None
+    race_condition_status: str | None = None
+    reason_codes: tuple[str, ...] = ()
+    late_fill_quantity: float | None = None
+    late_fill_notional: float | None = None
 
 
 _LIFECYCLE_TIMESTAMP_FIELDS = (
@@ -140,6 +146,32 @@ _LIFECYCLE_TIMESTAMP_FIELDS = (
 )
 _CANCEL_TERMINAL_STATUSES = {"cancelled", "canceled", "expired", "rejected"}
 _FILLED_STATUSES = {"filled", "partially_filled", "partial"}
+_RACE_EVENT_STAGES = {
+    "signal",
+    "order_intent",
+    "risk_check",
+    "submit",
+    "exchange_ack",
+    "fill",
+    "cancel_request",
+    "cancel_ack",
+    "cancel",
+    "replace_request",
+    "replace_ack",
+    "position_reconcile",
+}
+_RACE_TERMINAL_CANCEL_STAGES = {"cancel_ack", "cancel"}
+_RACE_FILL_STATUSES = {"filled", "partially_filled", "partial"}
+_RACE_CANCEL_STATUSES = {"cancelled", "canceled", "expired", "rejected"}
+_RACE_REASON_CODES = {
+    "fill_after_cancel_request_before_ack",
+    "fill_after_cancel_ack",
+    "replace_ack_after_fill_terminal",
+    "duplicate_exchange_timestamp",
+    "ambiguous_ordering_same_timestamp",
+    "missing_exchange_ack",
+    "terminal_status_conflict",
+}
 
 
 def _parse_lifecycle_datetime(value: Any, *, field_name: str, required: bool = False) -> datetime | None:
@@ -275,6 +307,28 @@ def _bool_or_false(field: str, value: Any) -> bool:
     raise ValueError(f"calibration record {field} must be boolean")
 
 
+def _reason_codes(value: Any) -> tuple[str, ...]:
+    if value is None or value == "":
+        return ()
+    if not isinstance(value, list):
+        raise ValueError("calibration record reason_codes must be a list")
+    parsed: list[str] = []
+    for item in value:
+        if type(item) is not str or item not in _RACE_REASON_CODES:
+            raise ValueError("calibration record reason_codes must be known race condition reason codes")
+        if item not in parsed:
+            parsed.append(item)
+    return tuple(parsed)
+
+
+def _race_condition_status(value: Any) -> str | None:
+    if value is None or value == "":
+        return None
+    if type(value) is not str or value not in {"clear", "hold_for_review"}:
+        raise ValueError("calibration record race_condition_status must be clear or hold_for_review")
+    return value
+
+
 def _record_from_mapping(row: Mapping[str, Any]) -> PassiveOrderCalibrationRecord:
     _validate_fee_asset_fields(row)
     _validate_commission_fields(row)
@@ -335,9 +389,9 @@ def _record_from_mapping(row: Mapping[str, Any]) -> PassiveOrderCalibrationRecor
             raise ValueError(
                 "calibration record fill after terminal cancel requires exchange_race_partial_before_cancel_ack"
             )
-        if last_lifecycle_fill_at is not None and cancel_ack_at <= last_lifecycle_fill_at:
+        if last_lifecycle_fill_at is not None and cancel_ack_at <= last_lifecycle_fill_at and not exchange_race_partial:
             raise ValueError("calibration record cancel_ack_at must be after last fill timestamp")
-        if status not in _CANCEL_TERMINAL_STATUSES:
+        if status not in _CANCEL_TERMINAL_STATUSES and not exchange_race_partial:
             raise ValueError("calibration record cancel_ack_at requires a cancelled, expired, or rejected status")
         if partial_fill_before_cancel and first_fill_at is None:
             raise ValueError("calibration record partial_fill_before_cancel requires first_fill_at")
@@ -380,6 +434,11 @@ def _record_from_mapping(row: Mapping[str, Any]) -> PassiveOrderCalibrationRecor
         partial_fill_before_cancel=partial_fill_before_cancel,
         exchange_race_partial_before_cancel_ack=exchange_race_partial,
         setup_type=_canonical_upper_token_or_none("setup_type", row.get("setup_type")),
+        client_order_id=_latency_client_order_id(row.get("client_order_id")) if row.get("client_order_id") not in (None, "") else None,
+        race_condition_status=_race_condition_status(row.get("race_condition_status")),
+        reason_codes=_reason_codes(row.get("reason_codes")),
+        late_fill_quantity=_non_negative_float_or_none("late_fill_quantity", row.get("late_fill_quantity")),
+        late_fill_notional=_non_negative_float_or_none("late_fill_notional", row.get("late_fill_notional")),
     )
 
 
@@ -636,6 +695,184 @@ def _latency_observations_from_mapping(row: Mapping[str, Any]) -> list[dict[str,
     ]
 
 
+def _race_append(reason_codes: list[str], reason_code: str) -> None:
+    if reason_code not in reason_codes:
+        reason_codes.append(reason_code)
+
+
+def _race_string(row: Mapping[str, Any], field: str) -> str:
+    value = row.get(field)
+    if type(value) is not str or not value or value != value.strip():
+        raise ValueError(f"race evidence {field} must be a canonical string")
+    return value
+
+
+def _race_timestamp(row: Mapping[str, Any], field: str) -> str | None:
+    value = row.get(field)
+    if value is None or value == "":
+        return None
+    if type(value) is not str or not _is_canonical_utc_timestamp(value):
+        raise ValueError(f"race evidence {field} must be a canonical UTC timestamp")
+    return value
+
+
+def _race_timestamp_dt(row: Mapping[str, Any], field: str) -> datetime:
+    value = _race_timestamp(row, field)
+    if value is None:
+        raise ValueError(f"race evidence {field} must be a canonical UTC timestamp")
+    return datetime.fromisoformat(value[:-1] + "+00:00")
+
+
+def _race_positive_number(row: Mapping[str, Any], *fields: str) -> float | None:
+    for field in fields:
+        if field not in row or row[field] is None or row[field] == "":
+            continue
+        value = row[field]
+        if isinstance(value, bool) or not isinstance(value, Real):
+            raise ValueError(f"race evidence {field} must be numeric")
+        parsed = float(value)
+        if not math.isfinite(parsed):
+            raise ValueError(f"race evidence {field} must be finite")
+        if parsed <= 0.0:
+            raise ValueError(f"race evidence {field} must be positive")
+        return parsed
+    return None
+
+
+def _coerce_race_event(row: Mapping[str, Any]) -> dict[str, Any]:
+    stage = _race_string(row, "stage")
+    if stage not in _RACE_EVENT_STAGES:
+        raise ValueError("race evidence stage must be known")
+    client_order_id = _race_string(row, "client_order_id")
+    if _SAFE_EVIDENCE_IDENTIFIER_RE.fullmatch(client_order_id) is None:
+        raise ValueError("race evidence client_order_id must be a safe identifier")
+    status = _race_string(row, "status")
+    if status != status.lower() or _LOWER_TOKEN_RE.fullmatch(status) is None:
+        raise ValueError("race evidence status must be canonical")
+    occurred_at = _race_timestamp(row, "occurred_at")
+    assert occurred_at is not None
+    exchange_timestamp = _race_timestamp(row, "exchange_timestamp")
+    event_id = row.get("event_id")
+    if event_id is not None:
+        if type(event_id) is not str or not event_id or event_id != event_id.strip():
+            raise ValueError("race evidence event_id must be a canonical string")
+    return {
+        "client_order_id": client_order_id,
+        "stage": stage,
+        "status": status,
+        "occurred_at": occurred_at,
+        "occurred_dt": _race_timestamp_dt(row, "occurred_at"),
+        "exchange_timestamp": exchange_timestamp,
+        "event_id": event_id,
+        "source": row,
+    }
+
+
+def _race_fill_amounts(row: Mapping[str, Any]) -> tuple[float, float]:
+    quantity = _race_positive_number(row, "filled_qty", "quantity", "qty", "executed_qty", "executedQty")
+    price = _race_positive_number(row, "price", "avg_price", "avgPrice")
+    notional = _race_positive_number(row, "filled_notional", "notional")
+    if quantity is None:
+        raise ValueError("race evidence quantity must be positive")
+    if notional is None:
+        if price is None:
+            raise ValueError("race evidence fill price must be positive")
+        notional = quantity * price
+    return quantity, notional
+
+
+def build_execution_race_condition_evidence(events: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
+    rows = [_coerce_race_event(row) for row in events]
+    if not rows:
+        raise ValueError("race evidence events must be non-empty")
+    client_order_ids = {row["client_order_id"] for row in rows}
+    if len(client_order_ids) != 1:
+        raise ValueError("mixed client_order_id")
+    seen_event_ids: set[str] = set()
+    seen_event_identity: set[tuple[str, str, str]] = set()
+    for row in rows:
+        event_id = row.get("event_id")
+        if event_id is not None:
+            if str(event_id) in seen_event_ids:
+                raise ValueError("duplicate race evidence event identity")
+            seen_event_ids.add(str(event_id))
+        identity = (str(row["occurred_at"]), str(row["stage"]), str(row["status"]))
+        if identity in seen_event_identity:
+            raise ValueError("duplicate race evidence event identity")
+        seen_event_identity.add(identity)
+
+    ordered = sorted(rows, key=lambda row: row["occurred_dt"])
+    reason_codes: list[str] = []
+    exchange_timestamps = [row["exchange_timestamp"] for row in rows if row.get("exchange_timestamp") is not None]
+    duplicate_exchange_timestamps = {value for value in exchange_timestamps if exchange_timestamps.count(value) > 1}
+    if duplicate_exchange_timestamps:
+        _race_append(reason_codes, "duplicate_exchange_timestamp")
+
+    ack_rows = [row for row in rows if row["stage"] == "exchange_ack"]
+    if not ack_rows:
+        _race_append(reason_codes, "missing_exchange_ack")
+    cancel_request_times = [row["occurred_dt"] for row in rows if row["stage"] == "cancel_request"]
+    cancel_ack_times = [row["occurred_dt"] for row in rows if row["stage"] in _RACE_TERMINAL_CANCEL_STAGES]
+    fill_rows = [row for row in rows if row["stage"] == "fill"]
+    fill_times = [row["occurred_dt"] for row in fill_rows]
+    fill_amounts_by_id: dict[int, tuple[float, float]] = {
+        id(fill): _race_fill_amounts(fill["source"]) for fill in fill_rows
+    }
+
+    late_fill_quantity = 0.0
+    late_fill_notional = 0.0
+    for fill in fill_rows:
+        fill_time = fill["occurred_dt"]
+        is_late = False
+        if any(cancel_request < fill_time for cancel_request in cancel_request_times) and not any(
+            cancel_ack <= fill_time for cancel_ack in cancel_ack_times
+        ):
+            _race_append(reason_codes, "fill_after_cancel_request_before_ack")
+            is_late = True
+        if any(cancel_ack < fill_time for cancel_ack in cancel_ack_times):
+            _race_append(reason_codes, "fill_after_cancel_ack")
+            is_late = True
+        if any(cancel_ack == fill_time for cancel_ack in cancel_ack_times):
+            _race_append(reason_codes, "ambiguous_ordering_same_timestamp")
+            is_late = True
+        if is_late:
+            fill_quantity, fill_notional = fill_amounts_by_id[id(fill)]
+            late_fill_quantity += fill_quantity
+            late_fill_notional += fill_notional
+
+    terminal_fill_time = max(fill_times) if any(row["status"] == "filled" for row in fill_rows) else None
+    if terminal_fill_time is not None and any(
+        row["stage"] == "replace_ack" and row["occurred_dt"] > terminal_fill_time for row in rows
+    ):
+        _race_append(reason_codes, "replace_ack_after_fill_terminal")
+
+    terminal_statuses: set[str] = set()
+    if any(row["stage"] == "fill" and row["status"] == "filled" for row in rows):
+        terminal_statuses.add("filled")
+    terminal_statuses.update(row["status"] for row in rows if row["stage"] in _RACE_TERMINAL_CANCEL_STAGES)
+    has_strict_terminal_conflict = any(fill_time != cancel_time for fill_time in fill_times for cancel_time in cancel_ack_times)
+    if len(terminal_statuses) > 1 and has_strict_terminal_conflict:
+        _race_append(reason_codes, "terminal_status_conflict")
+    if len(terminal_statuses) == 1:
+        terminal_status = next(iter(terminal_statuses))
+    elif terminal_statuses:
+        terminal_status = "conflict"
+    else:
+        terminal_status = ordered[-1]["status"]
+
+    return {
+        "schema_version": "execution_race_condition_evidence.v1",
+        "client_order_id": str(next(iter(client_order_ids))),
+        "terminal_status": terminal_status,
+        "race_condition_status": "hold_for_review" if reason_codes else "clear",
+        "reason_codes": reason_codes,
+        "first_timestamp": ordered[0]["occurred_at"],
+        "last_timestamp": ordered[-1]["occurred_at"],
+        "late_fill_quantity": late_fill_quantity if late_fill_quantity > 0.0 else None,
+        "late_fill_notional": late_fill_notional if late_fill_notional > 0.0 else None,
+    }
+
+
 def _coerce_latency_observations(value: PassiveOrderCalibrationRecord | Mapping[str, Any]) -> list[dict[str, Any]]:
     if isinstance(value, PassiveOrderCalibrationRecord):
         return _latency_observations_from_record(value)
@@ -885,6 +1122,7 @@ def summarize_calibration_records(
 
 def _record_payload(record: PassiveOrderCalibrationRecord) -> dict[str, Any]:
     payload = asdict(record)
+    payload["reason_codes"] = list(payload["reason_codes"])
     lifecycle_timestamps: dict[str, str | None] = {}
     for key in _LIFECYCLE_TIMESTAMP_FIELDS:
         value = payload.get(key)

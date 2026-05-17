@@ -111,6 +111,65 @@ def _replace_event_chain(**overrides: object) -> list[dict[str, object]]:
     return rows
 
 
+def _late_fill_cancel_race_event_chain(**overrides: object) -> list[dict[str, object]]:
+    rows = _event_chain(**overrides)
+    rows[5].update(
+        {
+            "status": "partially_filled",
+            "quantity": 0.04,
+            "filled_qty": 0.04,
+            "price": 100.0,
+            "occurred_at": "2026-05-16T10:00:05Z",
+            "event_id": "evt-fill-before-cancel",
+        }
+    )
+    rows.insert(
+        6,
+        {
+            **rows[5],
+            "stage": "cancel_request",
+            "status": "requested",
+            "quantity": 0.1,
+            "filled_qty": None,
+            "occurred_at": "2026-05-16T10:00:06Z",
+            "event_id": "evt-cancel-request",
+        },
+    )
+    rows.insert(
+        7,
+        {
+            **rows[5],
+            "stage": "cancel_ack",
+            "status": "cancelled",
+            "quantity": 0.1,
+            "filled_qty": None,
+            "cancel_reason": "user_cancel",
+            "occurred_at": "2026-05-16T10:00:08Z",
+            "event_id": "evt-cancel-ack",
+        },
+    )
+    rows.insert(
+        8,
+        {
+            **rows[5],
+            "stage": "fill",
+            "status": "filled",
+            "trade_id": "trade-2",
+            "quantity": 0.01,
+            "filled_qty": 0.01,
+            "price": 100.0,
+            "occurred_at": "2026-05-16T10:00:08.500000Z",
+            "event_id": "evt-fill-after-cancel",
+        },
+    )
+    rows[-1] = {**rows[-1], "occurred_at": "2026-05-16T10:00:09Z", "event_id": "evt-reconcile"}
+    for index, row in enumerate(rows):
+        row.setdefault("event_id", f"evt-{index}")
+        row["client_order_id"] = "client-1"
+        row["exchange_timestamp"] = row["occurred_at"]
+    return rows
+
+
 def _ledger_event() -> dict[str, object]:
     return {
         "event_type": "paper_fill",
@@ -201,6 +260,25 @@ def test_generate_execution_calibration_records_captures_replace_lifecycle(tmp_p
     assert payload["replace_latency_ms"] == pytest.approx(2000.0)
     assert payload["terminal_status"] == "filled"
     assert payload["status"] == "filled"
+
+
+def test_generate_execution_calibration_records_emits_cancel_fill_race_evidence(tmp_path: Path) -> None:
+    execution_log = tmp_path / "execution_log.jsonl"
+    output = tmp_path / "passive_order_calibration_records.jsonl"
+    _write_jsonl(execution_log, _late_fill_cancel_race_event_chain())
+
+    result = generate_execution_calibration_records(execution_log_file=execution_log, output_file=output)
+
+    assert result["record_count"] == 1
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert payload["client_order_id"] == "client-1"
+    assert payload["terminal_status"] == "conflict"
+    assert payload["race_condition_status"] == "hold_for_review"
+    assert payload["reason_codes"] == ["fill_after_cancel_ack", "terminal_status_conflict"]
+    assert payload["late_fill_quantity"] == pytest.approx(0.01)
+    assert payload["late_fill_notional"] == pytest.approx(1.0)
+    assert payload["filled_qty"] == pytest.approx(0.05)
+    assert load_calibration_records(output)[0].race_condition_status == "hold_for_review"
 
 
 def test_generate_execution_calibration_records_ignores_recommendation_only_paper_trades(tmp_path: Path) -> None:

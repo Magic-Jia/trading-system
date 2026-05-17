@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Mapping
 
-from trading_system.app.execution.calibration import load_calibration_records
+from trading_system.app.execution.calibration import build_execution_race_condition_evidence, load_calibration_records
 from trading_system.app.runtime_paths import build_runtime_paths
 
 CALIBRATION_RECORDS_NAME = "passive_order_calibration_records.jsonl"
@@ -274,6 +274,9 @@ def _record_from_chain(
 ) -> dict[str, Any]:
     if not rows:
         raise ValueError("lifecycle chain is empty")
+    race_evidence: dict[str, Any] | None = None
+    if all(isinstance(row.get("client_order_id"), str) for row in rows if _stage(row) is not None):
+        race_evidence = build_execution_race_condition_evidence([row for row in rows if _stage(row) is not None])
     stages: dict[str, list[Mapping[str, Any]]] = {}
     staged_times: list[datetime] = []
     seen_event_ids: set[str] = set()
@@ -349,7 +352,8 @@ def _record_from_chain(
         cancel_ack_time = _parse_timestamp(cancel_ack, "occurred_at")
         for fill in stages.get("fill", []):
             if _parse_timestamp(fill, "occurred_at") > cancel_ack_time:
-                raise ValueError("fill after terminal cancel")
+                if race_evidence is None or "fill_after_cancel_ack" not in race_evidence["reason_codes"]:
+                    raise ValueError("fill after terminal cancel")
     previous: datetime | None = None
     for timestamp in staged_times:
         if previous is not None and timestamp < previous:
@@ -446,6 +450,19 @@ def _record_from_chain(
         "order_id": order_id,
         "trade_id": trade_id,
     }
+    if race_evidence is not None:
+        record.update(
+            {
+                "client_order_id": race_evidence["client_order_id"],
+                "terminal_status": race_evidence["terminal_status"],
+                "status": race_evidence["terminal_status"],
+                "race_condition_status": race_evidence["race_condition_status"],
+                "reason_codes": race_evidence["reason_codes"],
+                "late_fill_quantity": race_evidence["late_fill_quantity"],
+                "late_fill_notional": race_evidence["late_fill_notional"],
+                "exchange_race_partial_before_cancel_ack": "fill_after_cancel_ack" in race_evidence["reason_codes"],
+            }
+        )
     _validate_ledger_identity(record, ledger_by_order_id, ledger_by_trade_id)
     return {key: value for key, value in record.items() if value is not None and key not in {"order_id", "trade_id"}}
 

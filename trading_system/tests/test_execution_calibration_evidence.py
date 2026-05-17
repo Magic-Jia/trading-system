@@ -7,6 +7,7 @@ import pytest
 
 from trading_system.app.execution import calibration
 from trading_system.app.execution.calibration import (
+    build_execution_race_condition_evidence,
     build_tca_calibration_report,
     load_calibration_records,
     summarize_calibration_records,
@@ -307,6 +308,228 @@ def test_latency_distribution_metrics_reject_duplicate_event_identity() -> None:
 
     with pytest.raises(ValueError, match="duplicate latency event identity"):
         calibration.compute_latency_distribution_metrics([record, dict(record)])
+
+
+def test_builds_conservative_execution_race_condition_evidence_from_event_chain() -> None:
+    report = build_execution_race_condition_evidence(
+        [
+            {
+                "client_order_id": "client-1",
+                "stage": "submit",
+                "status": "submitted",
+                "occurred_at": "2026-01-01T00:00:00Z",
+                "exchange_timestamp": "2026-01-01T00:00:00Z",
+                "event_id": "evt-submit",
+            },
+            {
+                "client_order_id": "client-1",
+                "stage": "exchange_ack",
+                "status": "acknowledged",
+                "occurred_at": "2026-01-01T00:00:00.500000Z",
+                "exchange_timestamp": "2026-01-01T00:00:00.500000Z",
+                "event_id": "evt-ack",
+            },
+            {
+                "client_order_id": "client-1",
+                "stage": "cancel_request",
+                "status": "requested",
+                "occurred_at": "2026-01-01T00:00:01Z",
+                "exchange_timestamp": "2026-01-01T00:00:01Z",
+                "event_id": "evt-cancel-request",
+            },
+            {
+                "client_order_id": "client-1",
+                "stage": "fill",
+                "status": "partially_filled",
+                "occurred_at": "2026-01-01T00:00:01.500000Z",
+                "exchange_timestamp": "2026-01-01T00:00:01.500000Z",
+                "quantity": 0.25,
+                "filled_notional": 25.0,
+                "event_id": "evt-fill-1",
+            },
+            {
+                "client_order_id": "client-1",
+                "stage": "cancel_ack",
+                "status": "cancelled",
+                "occurred_at": "2026-01-01T00:00:02Z",
+                "exchange_timestamp": "2026-01-01T00:00:02Z",
+                "event_id": "evt-cancel-ack",
+            },
+            {
+                "client_order_id": "client-1",
+                "stage": "fill",
+                "status": "filled",
+                "occurred_at": "2026-01-01T00:00:02.500000Z",
+                "exchange_timestamp": "2026-01-01T00:00:02.500000Z",
+                "quantity": 0.1,
+                "price": 100.0,
+                "event_id": "evt-fill-2",
+            },
+            {
+                "client_order_id": "client-1",
+                "stage": "replace_ack",
+                "status": "acknowledged",
+                "occurred_at": "2026-01-01T00:00:03Z",
+                "exchange_timestamp": "2026-01-01T00:00:03Z",
+                "event_id": "evt-replace-ack",
+            },
+        ]
+    )
+
+    assert report == {
+        "schema_version": "execution_race_condition_evidence.v1",
+        "client_order_id": "client-1",
+        "terminal_status": "conflict",
+        "race_condition_status": "hold_for_review",
+        "reason_codes": [
+            "fill_after_cancel_request_before_ack",
+            "fill_after_cancel_ack",
+            "replace_ack_after_fill_terminal",
+            "terminal_status_conflict",
+        ],
+        "first_timestamp": "2026-01-01T00:00:00Z",
+        "last_timestamp": "2026-01-01T00:00:03Z",
+        "late_fill_quantity": 0.35,
+        "late_fill_notional": 35.0,
+    }
+
+
+def test_execution_race_condition_evidence_marks_ambiguous_same_timestamp_for_review() -> None:
+    report = build_execution_race_condition_evidence(
+        [
+            {
+                "client_order_id": "client-1",
+                "stage": "exchange_ack",
+                "status": "acknowledged",
+                "occurred_at": "2026-01-01T00:00:01Z",
+                "exchange_timestamp": "2026-01-01T00:00:01Z",
+                "event_id": "evt-ack",
+            },
+            {
+                "client_order_id": "client-1",
+                "stage": "cancel_ack",
+                "status": "cancelled",
+                "occurred_at": "2026-01-01T00:00:02Z",
+                "exchange_timestamp": "2026-01-01T00:00:02Z",
+                "event_id": "evt-cancel",
+            },
+            {
+                "client_order_id": "client-1",
+                "stage": "fill",
+                "status": "filled",
+                "occurred_at": "2026-01-01T00:00:02Z",
+                "exchange_timestamp": "2026-01-01T00:00:02Z",
+                "quantity": 0.1,
+                "price": 100.0,
+                "event_id": "evt-fill",
+            },
+        ]
+    )
+
+    assert report["race_condition_status"] == "hold_for_review"
+    assert report["reason_codes"] == ["duplicate_exchange_timestamp", "ambiguous_ordering_same_timestamp"]
+    assert report["late_fill_quantity"] == pytest.approx(0.1)
+    assert report["late_fill_notional"] == pytest.approx(10.0)
+
+
+@pytest.mark.parametrize(
+    ("events", "message"),
+    [
+        (
+            [
+                {
+                    "client_order_id": "client-1",
+                    "stage": "fill",
+                    "status": "filled",
+                    "occurred_at": "2026-01-01T00:00:00+00:00",
+                    "event_id": "evt-fill",
+                }
+            ],
+            "race evidence occurred_at must be a canonical UTC timestamp",
+        ),
+        (
+            [
+                {
+                    "client_order_id": "client-1",
+                    "stage": "fill",
+                    "status": "filled",
+                    "occurred_at": "2026-01-01T00:00:00Z",
+                    "event_id": "evt-dup",
+                },
+                {
+                    "client_order_id": "client-1",
+                    "stage": "cancel_ack",
+                    "status": "cancelled",
+                    "occurred_at": "2026-01-01T00:00:01Z",
+                    "event_id": "evt-dup",
+                },
+            ],
+            "duplicate race evidence event identity",
+        ),
+        (
+            [
+                {
+                    "client_order_id": "client-1",
+                    "stage": "fill",
+                    "status": "filled",
+                    "occurred_at": "2026-01-01T00:00:00Z",
+                    "quantity": -0.1,
+                    "event_id": "evt-fill",
+                }
+            ],
+            "race evidence quantity must be positive",
+        ),
+        (
+            [
+                {
+                    "client_order_id": "client-1",
+                    "stage": "fill",
+                    "status": "filled",
+                    "occurred_at": "2026-01-01T00:00:00Z",
+                    "event_id": "evt-fill",
+                },
+                {
+                    "client_order_id": "client-2",
+                    "stage": "cancel_ack",
+                    "status": "cancelled",
+                    "occurred_at": "2026-01-01T00:00:01Z",
+                    "event_id": "evt-cancel",
+                },
+            ],
+            "mixed client_order_id",
+        ),
+    ],
+)
+def test_execution_race_condition_evidence_fails_closed_for_malformed_events(events, message: str) -> None:
+    with pytest.raises(ValueError, match=message):
+        build_execution_race_condition_evidence(events)
+
+
+def test_execution_race_condition_evidence_reports_missing_ack_and_terminal_conflict() -> None:
+    report = build_execution_race_condition_evidence(
+        [
+            {
+                "client_order_id": "client-1",
+                "stage": "fill",
+                "status": "filled",
+                "occurred_at": "2026-01-01T00:00:01Z",
+                "quantity": 0.1,
+                "price": 100.0,
+                "event_id": "evt-fill",
+            },
+            {
+                "client_order_id": "client-1",
+                "stage": "cancel_ack",
+                "status": "cancelled",
+                "occurred_at": "2026-01-01T00:00:02Z",
+                "event_id": "evt-cancel",
+            },
+        ]
+    )
+
+    assert report["terminal_status"] == "conflict"
+    assert report["race_condition_status"] == "hold_for_review"
+    assert report["reason_codes"] == ["missing_exchange_ack", "terminal_status_conflict"]
 
 
 def test_builds_tca_calibration_report_expected_vs_observed_and_checks() -> None:
