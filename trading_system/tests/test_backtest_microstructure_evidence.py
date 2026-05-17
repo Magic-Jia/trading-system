@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from trading_system.app.backtest.microstructure_evidence import (
+    build_cross_source_parity_report,
     build_microstructure_gate,
     write_longitudinal_l2_replay_calibration_report,
     main,
@@ -77,6 +78,56 @@ def test_writes_machine_readable_longitudinal_l2_replay_calibration_report(tmp_p
     )
 
 
+def _parity_records() -> list[dict[str, object]]:
+    return [
+        {
+            "source": "archive_a",
+            "venue": "binance_futures",
+            "symbol": "BTCUSDT",
+            "timestamp": "2026-05-16T10:00:00Z",
+            "bid": 100.0,
+            "ask": 100.2,
+            "last": 100.1,
+            "volume": 10.0,
+            "latency_ms": 12.0,
+        },
+        {
+            "source": "archive_b",
+            "venue": "binance_futures",
+            "symbol": "BTCUSDT",
+            "timestamp": "2026-05-16T10:00:00Z",
+            "bid": 100.01,
+            "ask": 100.23,
+            "last": 100.12,
+            "volume": 10.5,
+            "latency_ms": 18.0,
+        },
+        {
+            "source": "archive_a",
+            "venue": "binance_futures",
+            "symbol": "BTCUSDT",
+            "timestamp": "2026-05-16T10:01:00Z",
+            "bid": 101.0,
+            "ask": 101.2,
+            "last": 101.1,
+            "volume": 12.0,
+            "latency_ms": 14.0,
+        },
+        {
+            "source": "archive_b",
+            "venue": "binance_futures",
+            "symbol": "BTCUSDT",
+            "timestamp": "2026-05-16T10:01:00Z",
+            "bid": 101.01,
+            "ask": 101.22,
+            "last": 101.12,
+            "volume": 12.6,
+            "latency_ms": 17.0,
+        },
+    ]
+
+
+
 def test_builds_synthetic_microstructure_gate_when_coverage_is_sufficient(tmp_path: Path) -> None:
     manifest = {
         "evidence_source": {"type": "synthetic_fixture", "run_id": "unit-test-only"},
@@ -107,6 +158,138 @@ def test_builds_synthetic_microstructure_gate_when_coverage_is_sufficient(tmp_pa
     output_path = write_microstructure_gate(manifest, tmp_path, min_coverage=0.99)
     assert output_path == tmp_path / "market_microstructure_gate.json"
     assert json.loads(output_path.read_text()) == gate
+
+
+def test_builds_cross_source_parity_report_for_overlapping_market_quotes() -> None:
+    report = build_cross_source_parity_report(
+        _parity_records(),
+        min_overlap_count=2,
+        thresholds={
+            "max_mid_bps_diff": 5.0,
+            "max_spread_bps_diff": 5.0,
+            "volume_diff_ratio": 0.10,
+            "latency_diff_ms": 10.0,
+        },
+    )
+
+    assert report["schema_version"] == "cross_source_market_execution_parity.v1"
+    assert report["venue"] == "binance_futures"
+    assert report["symbol"] == "BTCUSDT"
+    assert report["source_count"] == 2
+    assert report["matched_timestamp_count"] == 2
+    assert report["missing_source_intervals"] == []
+    assert report["max_mid_bps_diff"] == pytest.approx(1.997602876549164)
+    assert report["max_spread_bps_diff"] == pytest.approx(1.997602876549164)
+    assert report["volume_diff_ratio"] == pytest.approx(0.047619047619047616)
+    assert report["latency_diff_ms"] == 6.0
+    assert report["drift_status"] == "pass"
+    assert report["reason_codes"] == []
+
+
+def test_microstructure_gate_includes_cross_source_parity_and_holds_on_drift() -> None:
+    drifted_records = _parity_records()
+    drifted_records[-1] = {**drifted_records[-1], "bid": 102.0, "ask": 102.4}
+
+    gate = build_microstructure_gate(
+        _complete_coverage_manifest(
+            depth_driven_taker_met=True,
+            cross_source_parity={
+                "records": drifted_records,
+                "min_overlap_count": 2,
+                "thresholds": {
+                    "max_mid_bps_diff": 5.0,
+                    "max_spread_bps_diff": 5.0,
+                    "volume_diff_ratio": 0.10,
+                    "latency_diff_ms": 10.0,
+                },
+            },
+        )
+    )
+
+    assert gate["checks"]["cross_source_parity_met"] is False
+    assert gate["cross_source_parity"]["drift_status"] == "hold"
+    assert "cross_source_parity_drift" in gate["reasons"]
+    assert "mid_price_drift" in gate["cross_source_parity"]["reason_codes"]
+
+
+def test_cross_source_parity_reports_missing_source_interval_as_hold() -> None:
+    records = _parity_records()[:-1]
+
+    report = build_cross_source_parity_report(records, min_overlap_count=1)
+
+    assert report["matched_timestamp_count"] == 1
+    assert report["missing_source_intervals"] == [
+        {
+            "source": "archive_b",
+            "venue": "binance_futures",
+            "symbol": "BTCUSDT",
+            "timestamp": "2026-05-16T10:01:00Z",
+        }
+    ]
+    assert report["drift_status"] == "hold"
+    assert "missing_source_interval" in report["reason_codes"]
+
+
+def test_cross_source_parity_fails_closed_for_insufficient_overlap() -> None:
+    records = _parity_records()[:2]
+
+    report = build_cross_source_parity_report(records, min_overlap_count=2)
+
+    assert report["matched_timestamp_count"] == 1
+    assert report["drift_status"] == "hold"
+    assert "insufficient_overlap" in report["reason_codes"]
+
+
+@pytest.mark.parametrize(
+    ("row_updates", "expected_error"),
+    [
+        ({"symbol": "ETHUSDT"}, "mixed_symbol"),
+        ({"venue": "coinbase_futures"}, "mixed_venue"),
+        ({"timestamp": "2026-05-16T10:00:00+00:00"}, "non_canonical_timestamp"),
+        ({"bid": -100.0}, "invalid_price"),
+        ({"volume": math.inf}, "invalid_volume"),
+        ({"bid": 100.3, "ask": 100.2}, "crossed_quote"),
+    ],
+)
+def test_cross_source_parity_fails_closed_for_invalid_records(
+    row_updates: dict[str, object], expected_error: str
+) -> None:
+    records = _parity_records()
+    records[1] = {**records[1], **row_updates}
+
+    with pytest.raises(ValueError, match=expected_error):
+        build_cross_source_parity_report(records)
+
+
+def test_cross_source_parity_requires_explicit_mixed_symbol_and_venue_allowance() -> None:
+    records = _parity_records()
+    records[1] = {**records[1], "venue": "coinbase_futures", "symbol": "ETHUSDT"}
+
+    report = build_cross_source_parity_report(
+        records,
+        allow_mixed_symbol_venue=True,
+        min_overlap_count=1,
+    )
+
+    assert report["venue"] is None
+    assert report["symbol"] is None
+    assert report["source_count"] == 2
+    assert report["matched_timestamp_count"] == 1
+
+
+def test_cross_source_parity_rejects_duplicate_source_timestamp_identity() -> None:
+    duplicate = _parity_records()[0]
+
+    with pytest.raises(ValueError, match="duplicate_source_interval_identity"):
+        build_cross_source_parity_report([*_parity_records(), dict(duplicate)])
+
+
+def test_cross_source_parity_fails_closed_for_stale_sample() -> None:
+    records = _parity_records()
+    records[0] = {**records[0], "received_at": "2026-05-16T10:02:01Z"}
+
+    with pytest.raises(ValueError, match="stale_sample"):
+        build_cross_source_parity_report(records, max_sample_age_ms=120_000)
 
 
 def test_rejects_missing_or_low_l2_tick_coverage() -> None:

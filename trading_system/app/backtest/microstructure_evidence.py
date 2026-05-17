@@ -63,6 +63,14 @@ _L2_REPLAY_REPORT_FIELDS = frozenset(
         "reason_codes",
     )
 )
+CROSS_SOURCE_PARITY_SCHEMA_VERSION = "cross_source_market_execution_parity.v1"
+_DEFAULT_PARITY_THRESHOLDS = {
+    "max_mid_bps_diff": 5.0,
+    "max_spread_bps_diff": 5.0,
+    "volume_diff_ratio": 0.10,
+    "latency_diff_ms": 100.0,
+}
+
 
 
 def _is_exact_string(value: Any) -> bool:
@@ -227,6 +235,232 @@ def _normalise_non_negative_float(name: str, value: Any) -> float:
     if number < 0:
         raise ValueError(f"{name} must be non-negative")
     return number
+
+
+def _parse_canonical_timestamp(value: str) -> datetime:
+    if not _is_canonical_utc_timestamp(value):
+        raise ValueError("non_canonical_timestamp")
+    return datetime.fromisoformat(value[:-1] + "+00:00").astimezone(UTC)
+
+
+def _normalise_parity_thresholds(thresholds: Mapping[str, Any] | None) -> dict[str, float]:
+    parsed = dict(_DEFAULT_PARITY_THRESHOLDS)
+    if thresholds is None:
+        return parsed
+    if not isinstance(thresholds, Mapping):
+        raise ValueError("thresholds must be an object")
+    unknown_fields = sorted(set(thresholds) - set(parsed))
+    if unknown_fields:
+        raise ValueError("unknown cross_source_parity threshold: " + ", ".join(unknown_fields))
+    for key, value in thresholds.items():
+        parsed[key] = _normalise_non_negative_float(f"thresholds {key}", value)
+    return parsed
+
+
+def _normalise_parity_record(
+    raw_record: Any,
+    *,
+    index: int,
+    max_sample_age_ms: float | None,
+) -> dict[str, Any]:
+    if not isinstance(raw_record, Mapping):
+        raise ValueError("parity_record_not_object")
+    unknown_fields = sorted(
+        set(raw_record)
+        - {
+            "source",
+            "venue",
+            "symbol",
+            "interval",
+            "timestamp",
+            "received_at",
+            "bid",
+            "ask",
+            "last",
+            "volume",
+            "latency_ms",
+        }
+    )
+    if unknown_fields:
+        raise ValueError("unknown_parity_record_field: " + ", ".join(unknown_fields))
+
+    source = _normalise_canonical_string(f"records[{index}] source", raw_record.get("source"))
+    venue = _normalise_canonical_string(f"records[{index}] venue", raw_record.get("venue"))
+    symbol = _normalise_canonical_string(f"records[{index}] symbol", raw_record.get("symbol"))
+    timestamp = _normalise_canonical_string(f"records[{index}] timestamp", raw_record.get("timestamp"))
+    parsed_timestamp = _parse_canonical_timestamp(timestamp)
+    interval_input = raw_record.get("interval")
+    interval = None if interval_input is None else _normalise_canonical_string(f"records[{index}] interval", interval_input)
+    if interval is not None and not _path_component_is_safe(interval):
+        raise ValueError("invalid_interval")
+
+    try:
+        bid = _normalise_positive_float(f"records[{index}] bid", raw_record.get("bid"))
+        ask = _normalise_positive_float(f"records[{index}] ask", raw_record.get("ask"))
+        last = _normalise_positive_float(f"records[{index}] last", raw_record.get("last"))
+    except ValueError as exc:
+        raise ValueError("invalid_price") from exc
+    if bid >= ask:
+        raise ValueError("crossed_quote")
+    try:
+        volume = _normalise_non_negative_float(f"records[{index}] volume", raw_record.get("volume"))
+    except ValueError as exc:
+        raise ValueError("invalid_volume") from exc
+    latency_input = raw_record.get("latency_ms")
+    latency_ms = None
+    if latency_input is not None:
+        latency_ms = _normalise_non_negative_float(f"records[{index}] latency_ms", latency_input)
+
+    received_at_input = raw_record.get("received_at")
+    if received_at_input is not None:
+        received_at = _normalise_canonical_string(f"records[{index}] received_at", received_at_input)
+        parsed_received_at = _parse_canonical_timestamp(received_at)
+        if parsed_received_at < parsed_timestamp:
+            raise ValueError("received_before_timestamp")
+        if max_sample_age_ms is not None:
+            age_ms = (parsed_received_at - parsed_timestamp).total_seconds() * 1000.0
+            if age_ms > max_sample_age_ms:
+                raise ValueError("stale_sample")
+
+    return {
+        "source": source,
+        "venue": venue,
+        "symbol": symbol,
+        "interval": interval,
+        "timestamp": timestamp,
+        "bid": bid,
+        "ask": ask,
+        "last": last,
+        "volume": volume,
+        "latency_ms": latency_ms,
+    }
+
+
+def _max_ratio(values: list[float]) -> float | None:
+    if not values:
+        return None
+    lowest = min(values)
+    highest = max(values)
+    if highest == 0.0:
+        return 0.0
+    return (highest - lowest) / highest
+
+
+def build_cross_source_parity_report(
+    records: list[Mapping[str, Any]] | tuple[Mapping[str, Any], ...],
+    *,
+    thresholds: Mapping[str, Any] | None = None,
+    min_overlap_count: int = 2,
+    max_sample_age_ms: float | None = None,
+    allow_mixed_symbol_venue: bool = False,
+) -> dict[str, Any]:
+    if not isinstance(records, (list, tuple)):
+        raise ValueError("records must be a list or tuple")
+    if isinstance(min_overlap_count, bool) or not isinstance(min_overlap_count, int) or min_overlap_count < 1:
+        raise ValueError("min_overlap_count must be a positive integer")
+    max_age = None if max_sample_age_ms is None else _normalise_non_negative_float("max_sample_age_ms", max_sample_age_ms)
+    parity_thresholds = _normalise_parity_thresholds(thresholds)
+
+    normalised = [
+        _normalise_parity_record(record, index=index, max_sample_age_ms=max_age)
+        for index, record in enumerate(records)
+    ]
+    sources = sorted({record["source"] for record in normalised})
+    venues = sorted({record["venue"] for record in normalised})
+    symbols = sorted({record["symbol"] for record in normalised})
+    if len(symbols) > 1 and not allow_mixed_symbol_venue:
+        raise ValueError("mixed_symbol")
+    if len(venues) > 1 and not allow_mixed_symbol_venue:
+        raise ValueError("mixed_venue")
+
+    identities: set[tuple[str, str, str, str | None, str]] = set()
+    for record in normalised:
+        identity = (
+            record["source"].casefold(),
+            record["venue"].casefold(),
+            record["symbol"].casefold(),
+            record["interval"].casefold() if isinstance(record["interval"], str) else None,
+            record["timestamp"],
+        )
+        if identity in identities:
+            raise ValueError("duplicate_source_interval_identity")
+        identities.add(identity)
+
+    by_timestamp: dict[tuple[str, str, str], list[dict[str, Any]]] = {}
+    for record in normalised:
+        by_timestamp.setdefault((record["venue"], record["symbol"], record["timestamp"]), []).append(record)
+
+    missing_source_intervals: list[dict[str, str]] = []
+    matched_groups: list[list[dict[str, Any]]] = []
+    for venue, symbol, timestamp in sorted(by_timestamp):
+        rows = by_timestamp[(venue, symbol, timestamp)]
+        present_sources = {row["source"] for row in rows}
+        missing_sources = [source for source in sources if source not in present_sources]
+        if missing_sources:
+            for source in missing_sources:
+                missing_source_intervals.append(
+                    {
+                        "source": source,
+                        "venue": venue,
+                        "symbol": symbol,
+                        "timestamp": timestamp,
+                    }
+                )
+            continue
+        matched_groups.append(rows)
+
+    max_mid_bps_diff = 0.0
+    max_spread_bps_diff = 0.0
+    volume_diff_ratio = 0.0
+    latency_diff_ms: float | None = None
+    for rows in matched_groups:
+        mids = [(row["bid"] + row["ask"]) / 2.0 for row in rows]
+        spreads = [row["ask"] - row["bid"] for row in rows]
+        volumes = [row["volume"] for row in rows]
+        mid_denominator = max(mids)
+        if mid_denominator > 0.0:
+            max_mid_bps_diff = max(max_mid_bps_diff, ((max(mids) - min(mids)) / mid_denominator) * 10_000.0)
+            max_spread_bps_diff = max(
+                max_spread_bps_diff,
+                ((max(spreads) - min(spreads)) / mid_denominator) * 10_000.0,
+            )
+        ratio = _max_ratio(volumes)
+        if ratio is not None:
+            volume_diff_ratio = max(volume_diff_ratio, ratio)
+        latencies = [row["latency_ms"] for row in rows if row["latency_ms"] is not None]
+        if len(latencies) >= 2:
+            diff = max(latencies) - min(latencies)
+            latency_diff_ms = diff if latency_diff_ms is None else max(latency_diff_ms, diff)
+
+    reason_codes: list[str] = []
+    if missing_source_intervals:
+        reason_codes.append("missing_source_interval")
+    if len(matched_groups) < min_overlap_count:
+        reason_codes.append("insufficient_overlap")
+    if max_mid_bps_diff > parity_thresholds["max_mid_bps_diff"]:
+        reason_codes.append("mid_price_drift")
+    if max_spread_bps_diff > parity_thresholds["max_spread_bps_diff"]:
+        reason_codes.append("spread_drift")
+    if volume_diff_ratio > parity_thresholds["volume_diff_ratio"]:
+        reason_codes.append("volume_drift")
+    if latency_diff_ms is not None and latency_diff_ms > parity_thresholds["latency_diff_ms"]:
+        reason_codes.append("latency_drift")
+
+    return {
+        "schema_version": CROSS_SOURCE_PARITY_SCHEMA_VERSION,
+        "venue": venues[0] if len(venues) == 1 else None,
+        "symbol": symbols[0] if len(symbols) == 1 else None,
+        "source_count": len(sources),
+        "matched_timestamp_count": len(matched_groups),
+        "missing_source_intervals": missing_source_intervals,
+        "max_mid_bps_diff": max_mid_bps_diff,
+        "max_spread_bps_diff": max_spread_bps_diff,
+        "volume_diff_ratio": volume_diff_ratio,
+        "latency_diff_ms": latency_diff_ms,
+        "drift_status": "hold" if reason_codes else "pass",
+        "reason_codes": reason_codes,
+        "thresholds": parity_thresholds,
+    }
 
 
 def _empty_l2_replay_report(
@@ -855,6 +1089,7 @@ def build_microstructure_gate(
             "depth_driven_taker_fills",
             "depth_driven_taker_met",
             "passive_maker_fills",
+            "cross_source_parity",
         }
     )
     if unknown_manifest_fields:
@@ -1235,6 +1470,36 @@ def build_microstructure_gate(
             and passive_maker_malformed_evidence_count == 0
         )
 
+    cross_source_input = manifest.get("cross_source_parity")
+    cross_source_report = None
+    cross_source_parity_met = True
+    if cross_source_input is not None:
+        if not isinstance(cross_source_input, Mapping):
+            raise ValueError("cross_source_parity must be an object")
+        unknown_cross_source_fields = sorted(
+            set(cross_source_input)
+            - {
+                "records",
+                "thresholds",
+                "min_overlap_count",
+                "max_sample_age_ms",
+                "allow_mixed_symbol_venue",
+            }
+        )
+        if unknown_cross_source_fields:
+            raise ValueError("unknown cross_source_parity field: " + ", ".join(unknown_cross_source_fields))
+        allow_mixed = cross_source_input.get("allow_mixed_symbol_venue", False)
+        if not isinstance(allow_mixed, bool):
+            raise ValueError("cross_source_parity allow_mixed_symbol_venue must be a boolean")
+        cross_source_report = build_cross_source_parity_report(
+            cross_source_input.get("records", []),
+            thresholds=cross_source_input.get("thresholds"),
+            min_overlap_count=cross_source_input.get("min_overlap_count", 2),
+            max_sample_age_ms=cross_source_input.get("max_sample_age_ms"),
+            allow_mixed_symbol_venue=allow_mixed,
+        )
+        cross_source_parity_met = cross_source_report["drift_status"] == "pass"
+
     reasons: list[str] = []
     if not l2_tick_coverage_met:
         reasons.append("l2_tick_coverage_below_threshold")
@@ -1249,6 +1514,8 @@ def build_microstructure_gate(
             reasons.append("passive_maker_queue_evidence_missing")
         if passive_maker_malformed_evidence_count:
             reasons.append("passive_maker_queue_evidence_malformed")
+    if cross_source_input is not None and not cross_source_parity_met:
+        reasons.append("cross_source_parity_drift")
 
     gate = {
         "schema_version": SCHEMA_VERSION,
@@ -1261,6 +1528,8 @@ def build_microstructure_gate(
         "coverage": coverage,
         "reasons": reasons,
     }
+    if cross_source_input is not None:
+        gate["checks"]["cross_source_parity_met"] = cross_source_parity_met
     if required_intervals:
         gate["required_intervals"] = required_intervals
     if interval_coverage:
@@ -1281,6 +1550,8 @@ def build_microstructure_gate(
             "missing_evidence_count": passive_maker_missing_evidence_count,
             "malformed_evidence_count": passive_maker_malformed_evidence_count,
         }
+    if cross_source_report is not None:
+        gate["cross_source_parity"] = cross_source_report
     return gate
 
 

@@ -21,6 +21,7 @@ REASON_ORDER = (
     "daily_quality_gate_rejected",
     "daily_quality_gate_held",
     "paper_shadow_material_drift",
+    "cross_source_parity_drift",
     "tca_calibration_failed",
     "rolling_tca_durability_failed",
     "bucket_regression",
@@ -37,6 +38,7 @@ DAY_REASON_ORDER = (
     "daily_quality_gate_rejected",
     "daily_quality_gate_held",
     "paper_shadow_material_drift",
+    "cross_source_parity_drift",
     "tca_calibration_failed",
     "rolling_tca_durability_failed",
     "bucket_regression",
@@ -237,6 +239,49 @@ def _validate_daily_report(raw_day: Mapping[str, Any]) -> dict[str, Any]:
     if drift_absent is False or (drift_bps is not None and max_drift_bps is not None and drift_bps > max_drift_bps):
         reasons.add("paper_shadow_material_drift")
 
+    cross_source_parity = _optional_mapping(raw_day.get("cross_source_parity"), "cross_source_parity", malformed)
+    cross_source_max_mid_bps_diff = None
+    if cross_source_parity:
+        drift_status = cross_source_parity.get("drift_status")
+        if drift_status not in {"pass", "hold"}:
+            malformed.append("cross_source_parity.drift_status_invalid")
+        if drift_status == "hold":
+            reasons.add("cross_source_parity_drift")
+        _non_negative_int(
+            cross_source_parity.get("source_count"),
+            "cross_source_parity.source_count",
+            malformed,
+        )
+        _non_negative_int(
+            cross_source_parity.get("matched_timestamp_count"),
+            "cross_source_parity.matched_timestamp_count",
+            malformed,
+        )
+        missing_intervals = cross_source_parity.get("missing_source_intervals")
+        if not isinstance(missing_intervals, list):
+            malformed.append("cross_source_parity.missing_source_intervals_not_list")
+        reason_codes = cross_source_parity.get("reason_codes")
+        if not isinstance(reason_codes, list) or any(not isinstance(reason, str) for reason in reason_codes):
+            malformed.append("cross_source_parity.reason_codes_not_string_list")
+        cross_source_max_mid_bps_diff = _non_negative_number(
+            cross_source_parity.get("max_mid_bps_diff"),
+            "cross_source_parity.max_mid_bps_diff",
+            malformed,
+        )
+        _non_negative_number(
+            cross_source_parity.get("max_spread_bps_diff"),
+            "cross_source_parity.max_spread_bps_diff",
+            malformed,
+        )
+        _non_negative_number(
+            cross_source_parity.get("volume_diff_ratio"),
+            "cross_source_parity.volume_diff_ratio",
+            malformed,
+        )
+        latency_diff = cross_source_parity.get("latency_diff_ms")
+        if latency_diff is not None:
+            _non_negative_number(latency_diff, "cross_source_parity.latency_diff_ms", malformed)
+
     reconciliation = _mapping(raw_day.get("reconciliation"), "reconciliation", malformed)
     reconciliation_checks = _mapping(reconciliation.get("checks"), "reconciliation.checks", malformed)
     execution_chain_met = _bool(
@@ -321,6 +366,7 @@ def _validate_daily_report(raw_day: Mapping[str, Any]) -> dict[str, Any]:
             "tca_sample_size": sample_size,
             "tca_p95_slippage_bps": tca_p95,
             "paper_live_shadow_drift_bps": drift_bps,
+            "cross_source_max_mid_bps_diff": cross_source_max_mid_bps_diff,
             "latency_p95_ms": latency_p95,
             "slippage_p95_bps": slippage_p95,
             "fill_rate": fill_rate,
@@ -515,6 +561,7 @@ def build_longitudinal_live_sim_trend_report(
                 and "insufficient_bucket_samples" not in ordered_reasons
             ),
             "paper_live_shadow_drift_stable": "paper_shadow_material_drift" not in ordered_reasons,
+            "cross_source_parity_stable": "cross_source_parity_drift" not in ordered_reasons,
             "reconciliation_stable": "reconciliation_failed" not in ordered_reasons,
             "latency_stable": "latency_regression" not in ordered_reasons,
             "slippage_stable": "slippage_regression" not in ordered_reasons,

@@ -155,6 +155,40 @@ def test_longitudinal_report_identifies_regressions_across_daily_evidence() -> N
     assert report["trend_checks"]["partial_fill_rate"]["regressed"] is True
 
 
+def test_longitudinal_report_holds_when_daily_cross_source_parity_drifts() -> None:
+    drifting_day = _daily_payload(
+        "2026-05-16",
+        cross_source_parity={
+            "drift_status": "hold",
+            "source_count": 2,
+            "matched_timestamp_count": 2,
+            "missing_source_intervals": [],
+            "max_mid_bps_diff": 8.0,
+            "max_spread_bps_diff": 2.0,
+            "volume_diff_ratio": 0.02,
+            "latency_diff_ms": 4.0,
+            "reason_codes": ["mid_price_drift"],
+        },
+    )
+
+    report = build_longitudinal_live_sim_trend_report(
+        daily_reports=[
+            _daily_payload("2026-05-14"),
+            _daily_payload("2026-05-15"),
+            drifting_day,
+        ],
+        start_date="2026-05-14",
+        end_date="2026-05-16",
+        generated_at="2026-05-16T23:40:00Z",
+    )
+
+    assert report["decision"] == "hold_for_review"
+    assert report["reasons"] == ["cross_source_parity_drift"]
+    assert report["checks"]["cross_source_parity_stable"] is False
+    assert report["days"][-1]["metrics"]["cross_source_max_mid_bps_diff"] == 8.0
+    assert "cross_source_parity_drift" in report["days"][-1]["reasons"]
+
+
 def test_longitudinal_report_surfaces_rolling_tca_durability_reason_from_daily_gate() -> None:
     failing_day = _daily_payload("2026-05-16")
     failing_day["daily_quality_gate"] = {
