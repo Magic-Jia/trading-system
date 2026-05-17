@@ -71,3 +71,11 @@ Move from offline fail-closed contracts to operational evidence loops for simula
 - `bdd663e5` wires valid `passive_order_calibration_records.jsonl` into scheduled generation so measured TCA replaces `calibration_records_unavailable`; stale unavailable markers no longer pollute measured paths; empty records without unavailable marker fail closed. Main exact: 1725 passed + diff-check.
 - `fa76863e` adds `generate_execution_calibration_records` to convert canonical simulated execution event chains into loader-compatible passive order calibration JSONL. It rejects malformed lifecycle stages, timestamp/identity mismatch, duplicate trade identity, bool/non-finite/coerced numerics, impossible fills, and ambiguous maker/taker. Focused main exact: 128 passed + diff-check.
 - End-to-end temp runtime verification: execution_log + paper_ledger -> 1 calibration record -> scheduled generation produced calibration summary, TCA report, and daily gate with no `calibration_records_unavailable` marker. Gate moved from unavailable-hold to measured decision; sample was rejected for measured slippage threshold (`tca_slippage_exceeds_threshold`), which is correct measured-path behavior rather than missing-evidence behavior.
+
+
+## Phase 4 rolling TCA durability gate
+
+- `e07df9c3` adds `rolling_tca_durability_report.v1` and CLI `trading_system.generate_rolling_tca_durability_report` for rolling/bucketed TCA durability over calibration records. It supports deterministic windows/buckets and fail-closed malformed record/date handling. Focused main exact: 91 passed + diff-check.
+- `6f592ae5` wires rolling durability inputs into scheduled generation, daily quality gate, and longitudinal trend. Focused worker exact: 34 passed + diff-check.
+- Integration fixes `5a13a0ba` and `40d1bf75` align producer/consumer contracts: scheduled generation reads explicit rolling artifacts, and daily gate accepts producer decisions (`durable`, `insufficient`, `rejected`) mapped to pass/hold/reject semantics. Combined exact: 125 passed + diff-check.
+- End-to-end temp runtime verification: calibration records -> rolling report CLI -> scheduled generation -> daily gate. Durable rolling report is included in generated artifacts, parsed as passed rolling durability, and no scheduled error artifact is emitted.
