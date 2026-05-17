@@ -17,6 +17,8 @@ _DEFAULT_COVERAGE_KEYS = (
 )
 _INTERVAL_IDENTITY_KEYS = ("source", "symbol", "venue", "interval", "generated_at")
 _INTERVAL_PATH_COMPONENT_KEYS = ("source", "symbol", "venue", "interval")
+L2_REPLAY_SCHEMA_VERSION = "l2_order_book_replay_report.v1"
+_L2_EVENT_TYPES = frozenset(("snapshot", "update"))
 
 
 def _is_exact_string(value: Any) -> bool:
@@ -181,6 +183,296 @@ def _normalise_non_negative_float(name: str, value: Any) -> float:
     if number < 0:
         raise ValueError(f"{name} must be non-negative")
     return number
+
+
+def _empty_l2_replay_report(
+    *,
+    venue: str,
+    symbol: str,
+    reason_codes: list[str] | None = None,
+    gap_detected: bool = False,
+    crossed_book: bool = False,
+    first_sequence: int | None = None,
+    last_sequence: int | None = None,
+    first_timestamp: str | None = None,
+    last_timestamp: str | None = None,
+) -> dict[str, Any]:
+    return {
+        "schema_version": L2_REPLAY_SCHEMA_VERSION,
+        "venue": venue,
+        "symbol": symbol,
+        "best_bid": None,
+        "best_ask": None,
+        "bid_level_count": 0,
+        "ask_level_count": 0,
+        "gap_detected": gap_detected,
+        "crossed_book": crossed_book,
+        "first_sequence": first_sequence,
+        "last_sequence": last_sequence,
+        "first_timestamp": first_timestamp,
+        "last_timestamp": last_timestamp,
+        "reason_codes": reason_codes or [],
+    }
+
+
+def _l2_replay_report(
+    *,
+    venue: str,
+    symbol: str,
+    bids: dict[float, float],
+    asks: dict[float, float],
+    first_sequence: int | None,
+    last_sequence: int | None,
+    first_timestamp: str | None,
+    last_timestamp: str | None,
+    reason_codes: list[str] | None = None,
+    gap_detected: bool = False,
+    crossed_book: bool = False,
+) -> dict[str, Any]:
+    if reason_codes:
+        return _empty_l2_replay_report(
+            venue=venue,
+            symbol=symbol,
+            reason_codes=reason_codes,
+            gap_detected=gap_detected,
+            crossed_book=crossed_book,
+            first_sequence=first_sequence,
+            last_sequence=last_sequence,
+            first_timestamp=first_timestamp,
+            last_timestamp=last_timestamp,
+        )
+    best_bid = max(bids) if bids else None
+    best_ask = min(asks) if asks else None
+    return {
+        "schema_version": L2_REPLAY_SCHEMA_VERSION,
+        "venue": venue,
+        "symbol": symbol,
+        "best_bid": best_bid,
+        "best_ask": best_ask,
+        "bid_level_count": len(bids),
+        "ask_level_count": len(asks),
+        "gap_detected": gap_detected,
+        "crossed_book": crossed_book,
+        "first_sequence": first_sequence,
+        "last_sequence": last_sequence,
+        "first_timestamp": first_timestamp,
+        "last_timestamp": last_timestamp,
+        "reason_codes": [],
+    }
+
+
+def _normalise_l2_sequence(value: Any) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError("invalid_sequence")
+    if value < 0:
+        raise ValueError("invalid_sequence")
+    return value
+
+
+def _normalise_l2_event_row(value: Any) -> Mapping[str, Any]:
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except json.JSONDecodeError as exc:
+            raise ValueError("malformed_jsonl") from exc
+    if not isinstance(value, Mapping):
+        raise ValueError("malformed_event")
+    return value
+
+
+def _normalise_l2_level(level: Any, *, side: str, seen_prices: set[float]) -> tuple[float, float]:
+    if isinstance(level, Mapping):
+        unknown_fields = sorted(set(level) - {"price", "quantity"})
+        if unknown_fields:
+            raise ValueError("malformed_level")
+        price_input = level.get("price")
+        quantity_input = level.get("quantity")
+    elif isinstance(level, (list, tuple)) and len(level) == 2:
+        price_input, quantity_input = level
+    else:
+        raise ValueError("malformed_level")
+
+    try:
+        price = _normalise_positive_float(f"{side} price", price_input)
+    except ValueError as exc:
+        raise ValueError("invalid_price") from exc
+    try:
+        quantity = _normalise_non_negative_float(f"{side} quantity", quantity_input)
+    except ValueError as exc:
+        raise ValueError("invalid_quantity") from exc
+    if price in seen_prices:
+        raise ValueError("duplicate_level")
+    seen_prices.add(price)
+    return price, quantity
+
+
+def _normalise_l2_levels(event: Mapping[str, Any], *, side: str) -> list[tuple[float, float]]:
+    value = event.get(side, [])
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValueError("malformed_level")
+    seen_prices: set[float] = set()
+    return [_normalise_l2_level(level, side=side, seen_prices=seen_prices) for level in value]
+
+
+def replay_l2_order_book(
+    events: list[Mapping[str, Any] | str] | tuple[Mapping[str, Any] | str, ...],
+    *,
+    venue: str,
+    symbol: str,
+) -> dict[str, Any]:
+    """Replay deterministic L2 snapshot/update events into visible book diagnostics.
+
+    The replay is deliberately offline-only: input is Python mappings or JSONL
+    strings, and malformed evidence returns a fail-closed machine-readable
+    report instead of a partially trusted book state.
+    """
+
+    venue = _normalise_canonical_string("venue", venue)
+    symbol = _normalise_canonical_string("symbol", symbol)
+    if not isinstance(events, (list, tuple)):
+        raise ValueError("events must be a list or tuple")
+
+    bids: dict[float, float] = {}
+    asks: dict[float, float] = {}
+    first_sequence: int | None = None
+    last_sequence: int | None = None
+    first_timestamp: str | None = None
+    last_timestamp: str | None = None
+    expected_next_sequence: int | None = None
+    snapshot_seen = False
+
+    for raw_event in events:
+        try:
+            event = _normalise_l2_event_row(raw_event)
+            event_type = event.get("type")
+            if not isinstance(event_type, str) or event_type not in _L2_EVENT_TYPES:
+                raise ValueError("invalid_event_type")
+            event_venue = _normalise_canonical_string("event venue", event.get("venue"))
+            if event_venue != venue:
+                raise ValueError("venue_mismatch")
+            event_symbol = _normalise_canonical_string("event symbol", event.get("symbol"))
+            if event_symbol != symbol:
+                raise ValueError("symbol_mismatch")
+            sequence = _normalise_l2_sequence(event.get("sequence"))
+            timestamp = _normalise_canonical_string("event timestamp", event.get("timestamp"))
+            if not _is_canonical_utc_timestamp(timestamp):
+                raise ValueError("non_canonical_timestamp")
+            bid_updates = _normalise_l2_levels(event, side="bids")
+            ask_updates = _normalise_l2_levels(event, side="asks")
+        except ValueError as exc:
+            reason = str(exc) or "malformed_event"
+            return _l2_replay_report(
+                venue=venue,
+                symbol=symbol,
+                bids=bids,
+                asks=asks,
+                first_sequence=first_sequence,
+                last_sequence=last_sequence,
+                first_timestamp=first_timestamp,
+                last_timestamp=last_timestamp,
+                reason_codes=[reason],
+                gap_detected=reason == "sequence_gap",
+                crossed_book=reason == "crossed_book",
+            )
+
+        if first_sequence is None:
+            first_sequence = sequence
+            first_timestamp = timestamp
+        if expected_next_sequence is not None:
+            if sequence == last_sequence:
+                return _l2_replay_report(
+                    venue=venue,
+                    symbol=symbol,
+                    bids=bids,
+                    asks=asks,
+                    first_sequence=first_sequence,
+                    last_sequence=last_sequence,
+                    first_timestamp=first_timestamp,
+                    last_timestamp=last_timestamp,
+                    reason_codes=["duplicate_sequence"],
+                )
+            if last_sequence is not None and sequence < last_sequence:
+                return _l2_replay_report(
+                    venue=venue,
+                    symbol=symbol,
+                    bids=bids,
+                    asks=asks,
+                    first_sequence=first_sequence,
+                    last_sequence=last_sequence,
+                    first_timestamp=first_timestamp,
+                    last_timestamp=last_timestamp,
+                    reason_codes=["out_of_order_sequence"],
+                )
+            if sequence != expected_next_sequence:
+                return _l2_replay_report(
+                    venue=venue,
+                    symbol=symbol,
+                    bids=bids,
+                    asks=asks,
+                    first_sequence=first_sequence,
+                    last_sequence=last_sequence,
+                    first_timestamp=first_timestamp,
+                    last_timestamp=last_timestamp,
+                    reason_codes=["sequence_gap"],
+                    gap_detected=True,
+                )
+        if event_type == "snapshot":
+            bids = {}
+            asks = {}
+            snapshot_seen = True
+        elif not snapshot_seen:
+            return _l2_replay_report(
+                venue=venue,
+                symbol=symbol,
+                bids=bids,
+                asks=asks,
+                first_sequence=first_sequence,
+                last_sequence=last_sequence,
+                first_timestamp=first_timestamp,
+                last_timestamp=last_timestamp,
+                reason_codes=["snapshot_missing"],
+            )
+
+        for price, quantity in bid_updates:
+            if quantity == 0.0:
+                bids.pop(price, None)
+            else:
+                bids[price] = quantity
+        for price, quantity in ask_updates:
+            if quantity == 0.0:
+                asks.pop(price, None)
+            else:
+                asks[price] = quantity
+
+        last_sequence = sequence
+        last_timestamp = timestamp
+        expected_next_sequence = sequence + 1
+        if bids and asks and max(bids) >= min(asks):
+            return _l2_replay_report(
+                venue=venue,
+                symbol=symbol,
+                bids=bids,
+                asks=asks,
+                first_sequence=first_sequence,
+                last_sequence=last_sequence,
+                first_timestamp=first_timestamp,
+                last_timestamp=last_timestamp,
+                reason_codes=["crossed_book"],
+                crossed_book=True,
+            )
+
+    return _l2_replay_report(
+        venue=venue,
+        symbol=symbol,
+        bids=bids,
+        asks=asks,
+        first_sequence=first_sequence,
+        last_sequence=last_sequence,
+        first_timestamp=first_timestamp,
+        last_timestamp=last_timestamp,
+    )
 
 
 def _normalise_book_levels(levels: list[Mapping[str, Any]] | tuple[Mapping[str, Any], ...]) -> list[dict[str, float]]:
