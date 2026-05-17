@@ -23,6 +23,7 @@ SUITES: dict[str, list[str]] = {
         "trading_system/tests/test_backtest_microstructure_evidence.py",
         "trading_system/tests/test_backtest_validation_evidence.py",
         "trading_system/tests/test_execution_calibration_evidence.py",
+        "trading_system/tests/test_generate_execution_calibration_records.py",
         "trading_system/tests/test_backtest_promotion_evidence_bundle.py",
         "trading_system/tests/test_backtest_setup_rewrite_experiment.py",
         "trading_system/tests/test_backtest_promotion.py",
@@ -77,6 +78,7 @@ SUITES: dict[str, list[str]] = {
     "runtime-support": [
         "trading_system/tests/test_run_cycle.py",
         "trading_system/tests/test_executor.py",
+        "trading_system/tests/test_testnet_preview.py",
         "trading_system/tests/test_reporting.py",
         "trading_system/tests/test_runtime_paths.py",
         "trading_system/tests/test_main_v2_cycle.py",
@@ -124,6 +126,14 @@ IMPACT_RULES: tuple[tuple[str, list[str]], ...] = (
     (
         "trading_system/scheduled_live_sim_generation.py",
         ["trading_system/tests/test_scheduled_live_sim_generation.py"],
+    ),
+    (
+        "trading_system/generate_execution_calibration_records.py",
+        [
+            "trading_system/tests/test_generate_execution_calibration_records.py",
+            "trading_system/tests/test_execution_calibration_evidence.py",
+            "trading_system/tests/test_scheduled_live_sim_generation.py",
+        ],
     ),
     ("deploy/cron/trading-system-paper-cron.sh", ["trading_system/tests/test_scheduled_live_sim_generation.py"]),
     (

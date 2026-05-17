@@ -117,6 +117,24 @@ def test_management_execution_test_file_has_portfolio_impact_mapping() -> None:
     assert "trading_system/tests/test_target_management_state.py" in tests
 
 
+def test_testnet_preview_file_has_runtime_support_impact_mapping() -> None:
+    verify = load_verify_module()
+
+    tests = verify.tests_for_changed(["trading_system/tests/test_testnet_preview.py"])
+
+    assert "trading_system/tests/test_testnet_preview.py" in tests
+    assert "trading_system/tests/test_executor.py" in tests
+
+
+def test_execution_calibration_generator_has_calibration_impact_mapping() -> None:
+    verify = load_verify_module()
+
+    tests = verify.tests_for_changed(["trading_system/generate_execution_calibration_records.py"])
+
+    assert "trading_system/tests/test_generate_execution_calibration_records.py" in tests
+    assert "trading_system/tests/test_execution_calibration_evidence.py" in tests
+
+
 def test_full_market_baseline_dataset_fixtures_have_backtest_impact_mapping() -> None:
     verify = load_verify_module()
 
