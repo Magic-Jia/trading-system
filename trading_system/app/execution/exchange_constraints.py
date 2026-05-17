@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
-from typing import Any, Mapping
+from typing import Any, Iterable, Mapping
 
 EXCHANGE_REJECT_REASON_CODES = (
     "tick_size_violation",
@@ -30,6 +30,9 @@ _EXCHANGE_CODE_TO_REASON = {
 
 _POST_ONLY_POLICIES = frozenset({"reject_would_cross", "allow"})
 _REDUCE_ONLY_POLICIES = frozenset({"require_position", "allow"})
+_PRODUCT_TYPES = frozenset(
+    {"spot", "margin", "usdt_perpetual", "coin_perpetual", "linear_perpetual", "inverse_perpetual"}
+)
 
 
 def reject_reason_from_exchange_code(raw_code: str) -> str:
@@ -129,6 +132,7 @@ def build_venue_rulebook_report(
     *,
     venue: str,
     symbol: str,
+    product_type: str | None = None,
     rulebook_version: str,
     generated_at: str,
     effective_at: str,
@@ -157,7 +161,7 @@ def build_venue_rulebook_report(
         raise ValueError("effective_at must not be in the future")
     post_only_policy_value = _policy_string(post_only_policy, "post_only_policy", _POST_ONLY_POLICIES)
     reduce_only_policy_value = _policy_string(reduce_only_policy, "reduce_only_policy", _REDUCE_ONLY_POLICIES)
-    return {
+    report = {
         "schema_version": "venue_rulebook_report.v1",
         "venue": venue_value,
         "symbol": symbol_value,
@@ -177,6 +181,119 @@ def build_venue_rulebook_report(
             "rulebook_version": version_value,
         },
     }
+    if product_type is not None:
+        report["product_type"] = _product_type_string(product_type)
+    return report
+
+
+def build_venue_rulebook_catalog(
+    reports: Iterable[Mapping[str, Any]],
+    *,
+    generated_at: str,
+    effective_at: str,
+    required_symbols: Iterable[tuple[str, str, str]] = (),
+    max_age_seconds: int,
+    allow_future: bool = False,
+) -> dict[str, Any]:
+    generated_at_dt = _parse_canonical_utc_timestamp(generated_at, "generated_at")
+    effective_at_dt = _parse_canonical_utc_timestamp(effective_at, "effective_at")
+    max_age = _strict_positive_int(max_age_seconds, "max_age_seconds")
+    normalized_reports = [
+        _validated_catalog_rulebook(
+            report,
+            generated_at_dt=generated_at_dt,
+            effective_at_dt=effective_at_dt,
+            max_age_seconds=max_age,
+            allow_future=allow_future,
+        )
+        for report in reports
+    ]
+    schema_versions = {report["schema_version"] for report in normalized_reports}
+    if len(schema_versions) > 1:
+        raise ValueError("mixed schema versions")
+
+    duplicate_keys = _duplicate_active_keys(normalized_reports)
+    if duplicate_keys:
+        raise ValueError("duplicate active rulebook keys")
+
+    conflicting_versions = _conflicting_versions(normalized_reports)
+    stale_rulebooks = [
+        _catalog_identity(report)
+        for report in normalized_reports
+        if (generated_at_dt - _parse_canonical_utc_timestamp(report["generated_at"], "generated_at")).total_seconds()
+        > max_age
+    ]
+    missing_required_symbols = _missing_required_symbols(normalized_reports, required_symbols)
+    reason_codes: list[str] = []
+    if missing_required_symbols:
+        reason_codes.append("missing_required_symbols")
+    if stale_rulebooks:
+        reason_codes.append("stale_rulebooks")
+    if duplicate_keys:
+        reason_codes.append("duplicate_keys")
+    if conflicting_versions:
+        reason_codes.append("conflicting_versions")
+
+    return {
+        "schema_version": "venue_rulebook_catalog.v1",
+        "generated_at": generated_at,
+        "effective_at": effective_at,
+        "rulebooks": sorted(normalized_reports, key=_catalog_sort_key),
+        "coverage_report": {
+            "schema_version": "venue_rulebook_catalog_coverage.v1",
+            "venue_count": len({report["venue"] for report in normalized_reports}),
+            "symbol_count": len({report["symbol"] for report in normalized_reports}),
+            "product_type_count": len({report["product_type"] for report in normalized_reports}),
+            "missing_required_symbols": missing_required_symbols,
+            "stale_rulebooks": stale_rulebooks,
+            "duplicate_keys": duplicate_keys,
+            "conflicting_versions": conflicting_versions,
+            "quality_status": "pass" if not reason_codes else "fail_closed",
+            "reason_codes": reason_codes,
+        },
+    }
+
+
+def lookup_venue_rulebook(
+    catalog: Mapping[str, Any],
+    *,
+    venue: str,
+    symbol: str,
+    product_type: str,
+    generated_at: str,
+    effective_at: str,
+    allow_future: bool = False,
+) -> dict[str, Any]:
+    venue_value = _required_non_empty_string(venue, "venue")
+    symbol_value = _required_non_empty_string(symbol, "symbol")
+    product_type_value = _product_type_string(product_type)
+    generated_at_dt = _parse_canonical_utc_timestamp(generated_at, "generated_at")
+    effective_at_dt = _parse_canonical_utc_timestamp(effective_at, "effective_at")
+    if catalog.get("schema_version") != "venue_rulebook_catalog.v1":
+        raise ValueError("catalog schema_version must be venue_rulebook_catalog.v1")
+    rulebooks = catalog.get("rulebooks")
+    if not isinstance(rulebooks, list):
+        raise ValueError("catalog rulebooks must be a list")
+    matches = []
+    for report in rulebooks:
+        if not isinstance(report, Mapping):
+            raise ValueError("catalog rulebooks must contain mappings")
+        if (
+            report.get("venue") == venue_value
+            and report.get("symbol") == symbol_value
+            and report.get("product_type") == product_type_value
+        ):
+            report_generated_at_dt = _parse_canonical_utc_timestamp(report.get("generated_at"), "rulebook generated_at")
+            report_effective_at_dt = _parse_canonical_utc_timestamp(report.get("effective_at"), "rulebook effective_at")
+            if report_generated_at_dt <= generated_at_dt and (allow_future or report_effective_at_dt <= effective_at_dt):
+                matches.append(report)
+    if not matches:
+        raise ValueError("no matching venue rulebook")
+    matches.sort(key=_catalog_sort_key, reverse=True)
+    winner = matches[0]
+    if len(matches) > 1 and _catalog_sort_key(matches[0]) == _catalog_sort_key(matches[1]):
+        raise ValueError("duplicate active rulebook keys")
+    return dict(winner)
 
 
 def _required_non_empty_string(value: Any, label: str) -> str:
@@ -221,6 +338,150 @@ def _policy_string(value: Any, label: str, allowed: frozenset[str]) -> str:
     if normalized not in allowed:
         raise ValueError(f"{label} must be one of: {', '.join(sorted(allowed))}")
     return normalized
+
+
+def _product_type_string(value: Any) -> str:
+    normalized = _required_non_empty_string(value, "product_type")
+    if normalized not in _PRODUCT_TYPES:
+        raise ValueError(f"product_type must be one of: {', '.join(sorted(_PRODUCT_TYPES))}")
+    return normalized
+
+
+def _validated_catalog_rulebook(
+    report: Mapping[str, Any],
+    *,
+    generated_at_dt: datetime,
+    effective_at_dt: datetime,
+    max_age_seconds: int,
+    allow_future: bool,
+) -> dict[str, Any]:
+    if not isinstance(report, Mapping):
+        raise ValueError("rulebook report must be a mapping")
+    if report.get("schema_version") != "venue_rulebook_report.v1":
+        raise ValueError("mixed schema versions")
+    constraints = report.get("constraints")
+    if not isinstance(constraints, Mapping):
+        raise ValueError("rulebook constraints must be a mapping")
+    provenance = report.get("provenance")
+    if not isinstance(provenance, Mapping):
+        raise ValueError("rulebook provenance must be a mapping")
+    normalized = {
+        "schema_version": "venue_rulebook_report.v1",
+        "venue": _required_non_empty_string(report.get("venue"), "venue"),
+        "symbol": _required_non_empty_string(report.get("symbol"), "symbol"),
+        "product_type": _product_type_string(report.get("product_type")),
+        "rulebook_version": _required_non_empty_string(report.get("rulebook_version"), "rulebook_version"),
+        "generated_at": report.get("generated_at"),
+        "effective_at": report.get("effective_at"),
+        "source": _required_non_empty_string(report.get("source"), "source"),
+        "constraints": {
+            "price_tick_size": _strict_positive_number(constraints.get("price_tick_size"), "price_tick_size"),
+            "quantity_step_size": _strict_positive_number(constraints.get("quantity_step_size"), "quantity_step_size"),
+            "min_notional": _strict_non_negative_number(constraints.get("min_notional"), "min_notional"),
+            "post_only_policy": _policy_string(
+                constraints.get("post_only_policy"), "post_only_policy", _POST_ONLY_POLICIES
+            ),
+            "reduce_only_policy": _policy_string(
+                constraints.get("reduce_only_policy"), "reduce_only_policy", _REDUCE_ONLY_POLICIES
+            ),
+        },
+        "provenance": {
+            "source": _required_non_empty_string(provenance.get("source"), "rulebook source"),
+            "rulebook_version": _required_non_empty_string(provenance.get("rulebook_version"), "rulebook_version"),
+        },
+    }
+    report_generated_at_dt = _parse_canonical_utc_timestamp(normalized["generated_at"], "generated_at")
+    report_effective_at_dt = _parse_canonical_utc_timestamp(normalized["effective_at"], "effective_at")
+    if report_generated_at_dt > generated_at_dt:
+        raise ValueError("generated_at must not be in the future")
+    if (generated_at_dt - report_generated_at_dt).total_seconds() > max_age_seconds:
+        raise ValueError("stale generated_at")
+    if report_effective_at_dt > effective_at_dt and not allow_future:
+        raise ValueError("future effective_at")
+    return normalized
+
+
+def _catalog_identity(report: Mapping[str, Any]) -> dict[str, str]:
+    return {
+        "venue": str(report["venue"]),
+        "symbol": str(report["symbol"]),
+        "product_type": str(report["product_type"]),
+    }
+
+
+def _catalog_active_key(report: Mapping[str, Any]) -> tuple[str, str, str, str, str]:
+    return (
+        str(report["venue"]),
+        str(report["symbol"]),
+        str(report["product_type"]),
+        str(report["generated_at"]),
+        str(report["effective_at"]),
+    )
+
+
+def _catalog_sort_key(report: Mapping[str, Any]) -> tuple[str, str, str, str, str, str]:
+    return (
+        str(report["venue"]),
+        str(report["symbol"]),
+        str(report["product_type"]),
+        str(report["effective_at"]),
+        str(report["generated_at"]),
+        str(report["rulebook_version"]),
+    )
+
+
+def _duplicate_active_keys(reports: list[Mapping[str, Any]]) -> list[dict[str, str]]:
+    seen: set[tuple[str, str, str, str, str]] = set()
+    duplicates: list[dict[str, str]] = []
+    emitted: set[tuple[str, str, str, str, str]] = set()
+    for report in reports:
+        key = _catalog_active_key(report)
+        if key in seen and key not in emitted:
+            duplicate = _catalog_identity(report)
+            duplicate["generated_at"] = str(report["generated_at"])
+            duplicate["effective_at"] = str(report["effective_at"])
+            duplicates.append(duplicate)
+            emitted.add(key)
+        seen.add(key)
+    return duplicates
+
+
+def _conflicting_versions(reports: list[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    versions_by_key: dict[tuple[str, str, str, str, str], set[str]] = {}
+    for report in reports:
+        key = _catalog_active_key(report)
+        versions_by_key.setdefault(key, set()).add(str(report["rulebook_version"]))
+    conflicts: list[dict[str, Any]] = []
+    for (venue, symbol, product_type, generated_at, effective_at), versions in sorted(versions_by_key.items()):
+        if len(versions) > 1:
+            conflicts.append(
+                {
+                    "venue": venue,
+                    "symbol": symbol,
+                    "product_type": product_type,
+                    "generated_at": generated_at,
+                    "effective_at": effective_at,
+                    "rulebook_versions": sorted(versions),
+                }
+            )
+    return conflicts
+
+
+def _missing_required_symbols(
+    reports: list[Mapping[str, Any]],
+    required_symbols: Iterable[tuple[str, str, str]],
+) -> list[dict[str, str]]:
+    present = {(str(report["venue"]), str(report["symbol"]), str(report["product_type"])) for report in reports}
+    missing = []
+    for venue, symbol, product_type in required_symbols:
+        required = (
+            _required_non_empty_string(venue, "required venue"),
+            _required_non_empty_string(symbol, "required symbol"),
+            _product_type_string(product_type),
+        )
+        if required not in present:
+            missing.append({"venue": required[0], "symbol": required[1], "product_type": required[2]})
+    return sorted(missing, key=lambda item: (item["venue"], item["symbol"], item["product_type"]))
 
 
 def _validate_rulebook_for_constraint_report(
