@@ -23,6 +23,7 @@ from .experiments import (
     run_walk_forward_validation_experiment,
 )
 from .promotion import compare_backtest_bundles
+from .professional_reports import write_professional_backtest_evidence
 from .llm_trend_breakout import run_llm_trend_breakout_experiment
 from .reporting import (
     render_allocator_friction_report,
@@ -623,6 +624,18 @@ def _compare_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def _write_professional_evidence_command(args: argparse.Namespace) -> int:
+    outputs = write_professional_backtest_evidence(
+        backtest_bundle_dir=Path(args.backtest_bundle_dir),
+        walk_forward_bundle_dir=Path(args.walk_forward_bundle_dir),
+        allocator_friction_bundle_dir=Path(args.allocator_friction_bundle_dir),
+        output_dir=Path(args.output_dir),
+        generated_at=args.generated_at,
+    )
+    print(outputs["evidence_chain_path"])
+    return 0
+
+
 def _materialize_evidence_windows_command(args: argparse.Namespace) -> int:
     symbols = tuple(str(value).strip().upper() for value in args.symbols.split(",") if str(value).strip()) if args.symbols else None
     windows_days = tuple(int(value.strip()) for value in args.windows_days.split(",") if value.strip())
@@ -672,6 +685,37 @@ def build_parser() -> argparse.ArgumentParser:
     compare_parser.add_argument("--variant-bundle", required=True, help="Path to the variant bundle directory.")
     compare_parser.add_argument("--output-dir", required=True, help="Directory where promotion artifacts should be written.")
     compare_parser.set_defaults(handler=_compare_command)
+
+    professional_evidence_parser = subparsers.add_parser(
+        "write-professional-evidence",
+        help="Generate professional WF/OOS, cost-sensitivity, and backtest evidence-chain reports from existing bundles.",
+    )
+    professional_evidence_parser.add_argument(
+        "--backtest-bundle-dir",
+        required=True,
+        help="Full-market baseline/backtest bundle directory containing manifest, summary, audit, and exit-path replay artifacts.",
+    )
+    professional_evidence_parser.add_argument(
+        "--walk-forward-bundle-dir",
+        required=True,
+        help="Walk-forward validation bundle directory containing summary, windows, and scorecard artifacts.",
+    )
+    professional_evidence_parser.add_argument(
+        "--allocator-friction-bundle-dir",
+        required=True,
+        help="Allocator friction/cost-sensitivity bundle directory containing summary, comparison rows, and scorecard artifacts.",
+    )
+    professional_evidence_parser.add_argument(
+        "--output-dir",
+        required=True,
+        help="Directory where walk_forward_oos_report.json, cost_sensitivity_report.json, and backtest_evidence_chain.json are written.",
+    )
+    professional_evidence_parser.add_argument(
+        "--generated-at",
+        default=None,
+        help="Optional canonical UTC timestamp for deterministic generated_at fields.",
+    )
+    professional_evidence_parser.set_defaults(handler=_write_professional_evidence_command)
 
     materialize_parser = subparsers.add_parser(
         "materialize-evidence-windows",

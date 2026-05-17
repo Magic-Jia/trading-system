@@ -186,6 +186,13 @@ IMPACT_RULES: tuple[tuple[str, list[str]], ...] = (
         ],
     ),
     (
+        "trading_system/app/backtest/cli.py",
+        [
+            "trading_system/tests/test_backtest_professional_reports.py",
+            *SUITES["backtest-core"],
+        ],
+    ),
+    (
         "trading_system/tests/test_backtest_professional_reports.py",
         [
             "trading_system/tests/test_backtest_professional_reports.py",

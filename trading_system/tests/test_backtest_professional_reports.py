@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 from trading_system.app.backtest.evidence_chain import build_backtest_evidence_chain
@@ -249,3 +251,44 @@ def test_write_professional_backtest_evidence_outputs_chain_consuming_both_repor
     assert evidence["walk_forward_oos"]["status"] == "pass"
     assert evidence["cost_sensitivity"]["status"] == "pass"
     assert Path(outputs["evidence_chain_path"]).name == "backtest_evidence_chain.json"
+
+
+def test_backtest_cli_writes_professional_evidence_chain_from_existing_bundles(tmp_path: Path) -> None:
+    backtest_dir = tmp_path / "backtest"
+    walk_forward_dir = tmp_path / "walk_forward"
+    allocator_dir = tmp_path / "allocator_friction"
+    output_dir = tmp_path / "evidence"
+    _write_minimal_backtest_bundle(backtest_dir)
+    _write_walk_forward_bundle(walk_forward_dir)
+    _write_allocator_friction_bundle(allocator_dir)
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "trading_system.app.backtest.cli",
+            "write-professional-evidence",
+            "--backtest-bundle-dir",
+            str(backtest_dir),
+            "--walk-forward-bundle-dir",
+            str(walk_forward_dir),
+            "--allocator-friction-bundle-dir",
+            str(allocator_dir),
+            "--output-dir",
+            str(output_dir),
+            "--generated-at",
+            GENERATED_AT,
+        ],
+        cwd=Path(__file__).resolve().parents[2],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert (output_dir / "walk_forward_oos_report.json").is_file()
+    assert (output_dir / "cost_sensitivity_report.json").is_file()
+    evidence_chain = json.loads((output_dir / "backtest_evidence_chain.json").read_text(encoding="utf-8"))
+    assert evidence_chain["summary"]["decision"] == "pass"
+    assert evidence_chain["walk_forward_oos"]["status"] == "pass"
+    assert evidence_chain["cost_sensitivity"]["status"] == "pass"
+    assert str(output_dir / "backtest_evidence_chain.json") in completed.stdout
