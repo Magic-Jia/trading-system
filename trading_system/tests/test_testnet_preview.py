@@ -1,7 +1,9 @@
 import pytest
 
 from trading_system.app.execution.exchange_constraints import (
+    build_exchange_constraint_report,
     build_exchange_reject_event,
+    build_venue_rulebook_report,
     reject_reason_from_exchange_code,
 )
 from trading_system.app.execution.testnet_preview import build_validated_order_preview
@@ -27,6 +29,12 @@ def fake_exchange_metadata() -> dict[str, dict[str, float | list[str]]]:
             "quantity_step_size": 0.001,
             "price_tick_size": 0.1,
             "min_notional": 100,
+            "rulebook_version": "binance-futures-testnet-2026-05-17",
+            "rulebook_generated_at": "2026-05-17T08:00:00Z",
+            "rulebook_effective_at": "2026-05-17T07:30:00Z",
+            "rulebook_source": "offline_fixture:binance_futures_testnet/BTCUSDT.json",
+            "post_only_policy": "reject_would_cross",
+            "reduce_only_policy": "require_position",
             "allowed_order_types": ["LIMIT", "MARKET", "STOP_MARKET", "TAKE_PROFIT_MARKET"],
         }
     }
@@ -203,6 +211,162 @@ def test_validated_order_preview_exposes_exchange_reject_taxonomy_report():
     assert preview["execution_preview"]["unsupported"] == [
         {"reason_code": code, "detail": code} for code in report["reason_codes"]
     ]
+
+
+def test_venue_rulebook_report_is_machine_readable_with_provenance():
+    report = build_venue_rulebook_report(
+        venue="binance_futures_testnet",
+        symbol="BTCUSDT",
+        rulebook_version="binance-futures-testnet-2026-05-17",
+        generated_at="2026-05-17T08:00:00Z",
+        effective_at="2026-05-17T07:30:00Z",
+        source="offline_fixture:binance_futures_testnet/BTCUSDT.json",
+        price_tick_size=0.1,
+        quantity_step_size=0.001,
+        min_notional=100,
+        post_only_policy="reject_would_cross",
+        reduce_only_policy="require_position",
+        now="2026-05-17T08:10:00Z",
+        max_age_seconds=3600,
+    )
+
+    assert report == {
+        "schema_version": "venue_rulebook_report.v1",
+        "venue": "binance_futures_testnet",
+        "symbol": "BTCUSDT",
+        "rulebook_version": "binance-futures-testnet-2026-05-17",
+        "generated_at": "2026-05-17T08:00:00Z",
+        "effective_at": "2026-05-17T07:30:00Z",
+        "source": "offline_fixture:binance_futures_testnet/BTCUSDT.json",
+        "constraints": {
+            "price_tick_size": 0.1,
+            "quantity_step_size": 0.001,
+            "min_notional": 100.0,
+            "post_only_policy": "reject_would_cross",
+            "reduce_only_policy": "require_position",
+        },
+        "provenance": {
+            "source": "offline_fixture:binance_futures_testnet/BTCUSDT.json",
+            "rulebook_version": "binance-futures-testnet-2026-05-17",
+        },
+    }
+
+
+def test_exchange_constraint_report_carries_rulebook_provenance_when_supplied():
+    rulebook = build_venue_rulebook_report(
+        venue="binance_futures_testnet",
+        symbol="BTCUSDT",
+        rulebook_version="binance-futures-testnet-2026-05-17",
+        generated_at="2026-05-17T08:00:00Z",
+        effective_at="2026-05-17T07:30:00Z",
+        source="offline_fixture:binance_futures_testnet/BTCUSDT.json",
+        price_tick_size=0.1,
+        quantity_step_size=0.001,
+        min_notional=100,
+        post_only_policy="reject_would_cross",
+        reduce_only_policy="require_position",
+        now="2026-05-17T08:10:00Z",
+        max_age_seconds=3600,
+    )
+
+    report = build_exchange_constraint_report(
+        venue="binance_futures_testnet",
+        symbol="BTCUSDT",
+        generated_at="preview",
+        order={"side": "BUY", "quantity": 0.01, "price": 65000.0, "post_only": True, "best_ask": 65000.0},
+        constraints=rulebook["constraints"],
+        rulebook=rulebook,
+    )
+
+    assert report["rulebook_version"] == "binance-futures-testnet-2026-05-17"
+    assert report["rulebook_source"] == "offline_fixture:binance_futures_testnet/BTCUSDT.json"
+    assert report["provenance"] == {
+        "rulebook_version": "binance-futures-testnet-2026-05-17",
+        "source": "offline_fixture:binance_futures_testnet/BTCUSDT.json",
+    }
+    assert report["reason_codes"] == ["post_only_would_cross"]
+
+
+def test_validated_order_preview_propagates_rulebook_provenance_from_metadata():
+    preview = build_validated_order_preview(
+        intent=fake_order_intent(),
+        exchange_metadata=fake_exchange_metadata(),
+        allowlist=["BTCUSDT"],
+        max_order_notional_usdt=1000,
+        submission_enabled=False,
+        preview_source="accepted_signal",
+    )
+
+    report = preview["exchange_reject_report"]
+    assert report["rulebook_version"] == "binance-futures-testnet-2026-05-17"
+    assert report["rulebook_source"] == "offline_fixture:binance_futures_testnet/BTCUSDT.json"
+
+
+@pytest.mark.parametrize(
+    ("patch", "match"),
+    [
+        ({"venue": ""}, "venue"),
+        ({"symbol": ""}, "symbol"),
+        ({"rulebook_version": ""}, "rulebook_version"),
+        ({"source": ""}, "source"),
+        ({"generated_at": "2026-05-17T08:00:00+00:00"}, "generated_at"),
+        ({"generated_at": "2026-05-17T06:00:00Z"}, "stale generated_at"),
+        ({"effective_at": "2026-05-17T08:20:00Z"}, "effective_at"),
+        ({"price_tick_size": True}, "price_tick_size"),
+        ({"quantity_step_size": float("inf")}, "quantity_step_size"),
+        ({"min_notional": -1.0}, "min_notional"),
+        ({"post_only_policy": "maybe"}, "post_only_policy"),
+        ({"reduce_only_policy": "maybe"}, "reduce_only_policy"),
+    ],
+)
+def test_venue_rulebook_report_fails_closed_on_malformed_rulebooks(patch, match):
+    kwargs = {
+        "venue": "binance_futures_testnet",
+        "symbol": "BTCUSDT",
+        "rulebook_version": "binance-futures-testnet-2026-05-17",
+        "generated_at": "2026-05-17T08:00:00Z",
+        "effective_at": "2026-05-17T07:30:00Z",
+        "source": "offline_fixture:binance_futures_testnet/BTCUSDT.json",
+        "price_tick_size": 0.1,
+        "quantity_step_size": 0.001,
+        "min_notional": 100,
+        "post_only_policy": "reject_would_cross",
+        "reduce_only_policy": "require_position",
+        "now": "2026-05-17T08:10:00Z",
+        "max_age_seconds": 3600,
+    }
+    kwargs.update(patch)
+
+    with pytest.raises(ValueError, match=match):
+        build_venue_rulebook_report(**kwargs)
+
+
+def test_exchange_constraint_report_fails_closed_on_mismatched_rulebook_identity():
+    rulebook = build_venue_rulebook_report(
+        venue="binance_futures_testnet",
+        symbol="ETHUSDT",
+        rulebook_version="binance-futures-testnet-2026-05-17",
+        generated_at="2026-05-17T08:00:00Z",
+        effective_at="2026-05-17T07:30:00Z",
+        source="offline_fixture:binance_futures_testnet/ETHUSDT.json",
+        price_tick_size=0.01,
+        quantity_step_size=0.001,
+        min_notional=100,
+        post_only_policy="reject_would_cross",
+        reduce_only_policy="require_position",
+        now="2026-05-17T08:10:00Z",
+        max_age_seconds=3600,
+    )
+
+    with pytest.raises(ValueError, match="rulebook symbol"):
+        build_exchange_constraint_report(
+            venue="binance_futures_testnet",
+            symbol="BTCUSDT",
+            generated_at="preview",
+            order={"side": "BUY", "quantity": 0.01, "price": 65000.0},
+            constraints=rulebook["constraints"],
+            rulebook=rulebook,
+        )
 
 
 @pytest.mark.parametrize(

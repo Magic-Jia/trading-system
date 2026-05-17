@@ -28,6 +28,9 @@ _EXCHANGE_CODE_TO_REASON = {
     "DUPLICATE_CLIENT_ORDER_ID": "duplicate_client_order_id",
 }
 
+_POST_ONLY_POLICIES = frozenset({"reject_would_cross", "allow"})
+_REDUCE_ONLY_POLICIES = frozenset({"require_position", "allow"})
+
 
 def reject_reason_from_exchange_code(raw_code: str) -> str:
     if not isinstance(raw_code, str) or not raw_code.strip():
@@ -75,9 +78,13 @@ def build_exchange_constraint_report(
     generated_at: str,
     order: Mapping[str, Any],
     constraints: Mapping[str, Any],
+    rulebook: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     venue_value = _required_non_empty_string(venue, "venue")
     symbol_value = _required_non_empty_string(symbol, "symbol")
+    if order.get("symbol") is not None and _required_non_empty_string(order.get("symbol"), "order.symbol") != symbol_value:
+        raise ValueError("order symbol must match report symbol")
+    rulebook_provenance = _validate_rulebook_for_constraint_report(rulebook, venue=venue_value, symbol=symbol_value)
     tick_size = _strict_positive_number(constraints.get("price_tick_size"), "price_tick_size")
     lot_size = _strict_positive_number(constraints.get("quantity_step_size"), "quantity_step_size")
     min_notional = _strict_non_negative_number(constraints.get("min_notional", 0.0), "min_notional")
@@ -103,13 +110,72 @@ def build_exchange_constraint_report(
     if order.get("reduce_only") is True and not order.get("has_position", True):
         reason_codes.append("reduce_only_invalid")
 
-    return {
+    report = {
         "schema_version": "exchange_reject_report.v1",
         "venue": venue_value,
         "symbol": symbol_value,
         "generated_at": generated_at,
         "validation_passed": not reason_codes,
         "reason_codes": reason_codes,
+    }
+    if rulebook_provenance is not None:
+        report["rulebook_version"] = rulebook_provenance["rulebook_version"]
+        report["rulebook_source"] = rulebook_provenance["source"]
+        report["provenance"] = rulebook_provenance
+    return report
+
+
+def build_venue_rulebook_report(
+    *,
+    venue: str,
+    symbol: str,
+    rulebook_version: str,
+    generated_at: str,
+    effective_at: str,
+    source: str,
+    price_tick_size: Any,
+    quantity_step_size: Any,
+    min_notional: Any,
+    post_only_policy: str,
+    reduce_only_policy: str,
+    now: str,
+    max_age_seconds: int,
+) -> dict[str, Any]:
+    venue_value = _required_non_empty_string(venue, "venue")
+    symbol_value = _required_non_empty_string(symbol, "symbol")
+    version_value = _required_non_empty_string(rulebook_version, "rulebook_version")
+    source_value = _required_non_empty_string(source, "source")
+    generated_at_dt = _parse_canonical_utc_timestamp(generated_at, "generated_at")
+    effective_at_dt = _parse_canonical_utc_timestamp(effective_at, "effective_at")
+    now_dt = _parse_canonical_utc_timestamp(now, "now")
+    max_age = _strict_positive_int(max_age_seconds, "max_age_seconds")
+    if generated_at_dt > now_dt:
+        raise ValueError("generated_at must not be in the future")
+    if (now_dt - generated_at_dt).total_seconds() > max_age:
+        raise ValueError("stale generated_at")
+    if effective_at_dt > now_dt:
+        raise ValueError("effective_at must not be in the future")
+    post_only_policy_value = _policy_string(post_only_policy, "post_only_policy", _POST_ONLY_POLICIES)
+    reduce_only_policy_value = _policy_string(reduce_only_policy, "reduce_only_policy", _REDUCE_ONLY_POLICIES)
+    return {
+        "schema_version": "venue_rulebook_report.v1",
+        "venue": venue_value,
+        "symbol": symbol_value,
+        "rulebook_version": version_value,
+        "generated_at": generated_at,
+        "effective_at": effective_at,
+        "source": source_value,
+        "constraints": {
+            "price_tick_size": _strict_positive_number(price_tick_size, "price_tick_size"),
+            "quantity_step_size": _strict_positive_number(quantity_step_size, "quantity_step_size"),
+            "min_notional": _strict_non_negative_number(min_notional, "min_notional"),
+            "post_only_policy": post_only_policy_value,
+            "reduce_only_policy": reduce_only_policy_value,
+        },
+        "provenance": {
+            "source": source_value,
+            "rulebook_version": version_value,
+        },
     }
 
 
@@ -150,6 +216,33 @@ def _strict_number(value: Any, label: str) -> float:
     return number
 
 
+def _policy_string(value: Any, label: str, allowed: frozenset[str]) -> str:
+    normalized = _required_non_empty_string(value, label)
+    if normalized not in allowed:
+        raise ValueError(f"{label} must be one of: {', '.join(sorted(allowed))}")
+    return normalized
+
+
+def _validate_rulebook_for_constraint_report(
+    rulebook: Mapping[str, Any] | None,
+    *,
+    venue: str,
+    symbol: str,
+) -> dict[str, str] | None:
+    if rulebook is None:
+        return None
+    if _required_non_empty_string(rulebook.get("venue"), "rulebook venue") != venue:
+        raise ValueError("rulebook venue must match report venue")
+    if _required_non_empty_string(rulebook.get("symbol"), "rulebook symbol") != symbol:
+        raise ValueError("rulebook symbol must match report symbol")
+    provenance = rulebook.get("provenance")
+    if not isinstance(provenance, Mapping):
+        raise ValueError("rulebook provenance must be a mapping")
+    source = _required_non_empty_string(provenance.get("source"), "rulebook source")
+    rulebook_version = _required_non_empty_string(provenance.get("rulebook_version"), "rulebook_version")
+    return {"rulebook_version": rulebook_version, "source": source}
+
+
 def _aligned_to_increment(value: float, increment: float) -> bool:
     try:
         return Decimal(str(value)) % Decimal(str(increment)) == 0
@@ -183,3 +276,11 @@ def _parse_utc_timestamp(value: str, label: str) -> datetime:
     if parsed.tzinfo is None:
         raise ValueError(f"{label} must include timezone")
     return parsed.astimezone(timezone.utc)
+
+
+def _parse_canonical_utc_timestamp(value: str, label: str) -> datetime:
+    parsed = _parse_utc_timestamp(value, label)
+    canonical = parsed.strftime("%Y-%m-%dT%H:%M:%SZ")
+    if value != canonical:
+        raise ValueError(f"{label} must be a canonical UTC timestamp")
+    return parsed

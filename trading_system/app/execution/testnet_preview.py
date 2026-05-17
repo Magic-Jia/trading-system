@@ -5,7 +5,7 @@ from typing import Any
 
 from ..runtime.runtime_safety_evidence import EXECUTION_PREVIEW_UNSUPPORTED_REASON_PREFIXES
 from ..types import OrderIntent
-from .exchange_constraints import build_exchange_constraint_report
+from .exchange_constraints import build_exchange_constraint_report, build_venue_rulebook_report
 from .orders import EntryOrderPolicy, build_entry_order_payload, build_stop_order_payload, build_take_profit_payload
 
 
@@ -63,6 +63,41 @@ def _symbol_constraints(symbol_metadata: dict[str, Any]) -> dict[str, Any]:
         "price_tick_size": _strict_positive_number(symbol_metadata.get("price_tick_size"), "price_tick_size"),
         "min_notional": _strict_non_negative_number(symbol_metadata.get("min_notional", 0.0), "min_notional"),
     }
+
+
+def _symbol_rulebook(
+    *,
+    venue: str,
+    symbol: str,
+    symbol_metadata: dict[str, Any],
+    now: str,
+    max_age_seconds: int = 86_400,
+) -> dict[str, Any] | None:
+    rulebook_fields = {
+        "rulebook_version",
+        "rulebook_generated_at",
+        "rulebook_effective_at",
+        "rulebook_source",
+        "post_only_policy",
+        "reduce_only_policy",
+    }
+    if not any(field in symbol_metadata for field in rulebook_fields):
+        return None
+    return build_venue_rulebook_report(
+        venue=venue,
+        symbol=symbol,
+        rulebook_version=symbol_metadata.get("rulebook_version"),
+        generated_at=symbol_metadata.get("rulebook_generated_at"),
+        effective_at=symbol_metadata.get("rulebook_effective_at"),
+        source=symbol_metadata.get("rulebook_source"),
+        price_tick_size=symbol_metadata.get("price_tick_size"),
+        quantity_step_size=symbol_metadata.get("quantity_step_size"),
+        min_notional=symbol_metadata.get("min_notional", 0.0),
+        post_only_policy=symbol_metadata.get("post_only_policy"),
+        reduce_only_policy=symbol_metadata.get("reduce_only_policy"),
+        now=now,
+        max_age_seconds=max_age_seconds,
+    )
 
 
 def _strict_positive_number(value: Any, label: str) -> float:
@@ -247,9 +282,10 @@ def build_validated_order_preview(
     ]
 
     reasons: list[str] = []
+    venue = "binance_futures_testnet"
     exchange_reject_report = {
         "schema_version": "exchange_reject_report.v1",
-        "venue": "binance_futures_testnet",
+        "venue": venue,
         "symbol": intent.symbol,
         "generated_at": "preview",
         "validation_passed": False,
@@ -264,6 +300,7 @@ def build_validated_order_preview(
         reasons.append(f"missing exchange metadata for {intent.symbol}")
     else:
         constraints = _symbol_constraints(symbol_metadata)
+        rulebook = _symbol_rulebook(venue=venue, symbol=intent.symbol, symbol_metadata=symbol_metadata, now="2026-05-17T23:59:59Z")
         allowed_order_types = {
             str(order_type).strip().upper()
             for order_type in symbol_metadata.get("allowed_order_types", [])
@@ -291,11 +328,12 @@ def build_validated_order_preview(
             price_tick_size=constraints["price_tick_size"],
         )
         exchange_reject_report = build_exchange_constraint_report(
-            venue="binance_futures_testnet",
+            venue=venue,
             symbol=intent.symbol,
             generated_at="preview",
             order=_constraint_order_from_payloads(intent=intent, payloads=payloads, symbol_metadata=symbol_metadata),
             constraints=constraints,
+            rulebook=rulebook,
         )
 
     _validate_payload_mapping(reasons=reasons, payloads=payloads, entry_order_policy=entry_order_policy)
