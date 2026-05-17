@@ -32,6 +32,7 @@ SUITES: dict[str, list[str]] = {
         "trading_system/tests/test_real_local_simulated_live_evidence_chain.py",
         "trading_system/tests/test_simulated_live_artifact_inventory.py",
         "trading_system/tests/test_promotion_gate_decision.py",
+        "trading_system/tests/test_longitudinal_promotion_decision_archive.py",
         "trading_system/tests/test_replay_simulated_live_evidence.py",
         "trading_system/tests/test_simulated_live_cadence_runner.py",
         "trading_system/tests/test_backtest_setup_rewrite_experiment.py",
@@ -199,6 +200,10 @@ IMPACT_RULES: tuple[tuple[str, list[str]], ...] = (
         ],
     ),
     (
+        "trading_system/app/reporting/longitudinal_promotion_decision_archive.py",
+        ["trading_system/tests/test_longitudinal_promotion_decision_archive.py"],
+    ),
+    (
         "trading_system/app/reporting/replay_simulated_live_evidence.py",
         SUITES["evidence-chain"],
     ),
@@ -221,6 +226,10 @@ IMPACT_RULES: tuple[tuple[str, list[str]], ...] = (
     (
         "trading_system/generate_promotion_gate_decision.py",
         ["trading_system/tests/test_promotion_gate_decision.py"],
+    ),
+    (
+        "trading_system/generate_longitudinal_promotion_decision_archive.py",
+        ["trading_system/tests/test_longitudinal_promotion_decision_archive.py"],
     ),
     (
         "trading_system/generate_replay_simulated_live_evidence_bundle.py",
@@ -269,6 +278,10 @@ IMPACT_RULES: tuple[tuple[str, list[str]], ...] = (
     (
         "trading_system/tests/test_simulated_live_cadence_runner.py",
         ["trading_system/tests/test_simulated_live_cadence_runner.py"],
+    ),
+    (
+        "trading_system/tests/test_longitudinal_promotion_decision_archive.py",
+        ["trading_system/tests/test_longitudinal_promotion_decision_archive.py"],
     ),
     ("scripts/audit_worker_commit.py", SUITES["workflow-meta"]),
     ("scripts/ci_verify.py", SUITES["workflow-meta"]),

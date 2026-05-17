@@ -271,6 +271,24 @@ def test_promotion_gate_decision_generator_has_impact_mapping() -> None:
     assert tests == ["trading_system/tests/test_promotion_gate_decision.py"]
 
 
+def test_longitudinal_promotion_decision_archive_has_impact_mapping() -> None:
+    verify = load_verify_module()
+
+    reporting_tests = verify.tests_for_changed([
+        "trading_system/app/reporting/longitudinal_promotion_decision_archive.py"
+    ])
+    generator_tests = verify.tests_for_changed([
+        "trading_system/generate_longitudinal_promotion_decision_archive.py"
+    ])
+    test_file_tests = verify.tests_for_changed([
+        "trading_system/tests/test_longitudinal_promotion_decision_archive.py"
+    ])
+
+    assert "trading_system/tests/test_longitudinal_promotion_decision_archive.py" in reporting_tests
+    assert generator_tests == ["trading_system/tests/test_longitudinal_promotion_decision_archive.py"]
+    assert "trading_system/tests/test_longitudinal_promotion_decision_archive.py" in test_file_tests
+
+
 def test_full_market_baseline_dataset_fixtures_have_backtest_impact_mapping() -> None:
     verify = load_verify_module()
 
