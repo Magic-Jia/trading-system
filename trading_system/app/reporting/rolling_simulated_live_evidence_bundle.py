@@ -58,6 +58,19 @@ _NUMERIC_FIELD_HINTS = (
     "value",
 )
 _FIELD_TOKEN_RE = re.compile(r"[A-Za-z0-9]+")
+_BOOLEAN_INDICATOR_TOKENS = {
+    "absent",
+    "available",
+    "formed",
+    "met",
+    "passed",
+    "present",
+    "stable",
+    "sufficient",
+    "valid",
+    "verified",
+    "within",
+}
 
 
 def _is_exact_string(value: Any) -> bool:
@@ -139,10 +152,16 @@ def _strict_json_payload(value: Any, field_path: str) -> Any:
                 raise ValueError(f"{field_path}.{key} must be canonical")
             child_path = f"{field_path}.{key}"
             key_lower = key.lower()
+            key_tokens = _FIELD_TOKEN_RE.findall(key_lower)
             if key_lower.endswith("_at") or key_lower.endswith("_time") or key_lower.endswith("_timestamp"):
-                if not _is_exact_string(child):
-                    raise ValueError(f"{child_path} must be a string")
-            elif any(hint in _FIELD_TOKEN_RE.findall(key_lower) for hint in _NUMERIC_FIELD_HINTS):
+                if child is not None and not _is_exact_string(child):
+                    raise ValueError(f"{child_path} must be a string or null")
+            elif (
+                not isinstance(child, (Mapping, list))
+                and not (isinstance(child, bool) and any(token in _BOOLEAN_INDICATOR_TOKENS for token in key_tokens))
+                and child is not None
+                and any(hint in key_tokens for hint in _NUMERIC_FIELD_HINTS)
+            ):
                 _require_number(child, child_path)
             payload[key] = _strict_json_payload(child, child_path)
         return payload

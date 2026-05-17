@@ -144,6 +144,33 @@ def test_builds_from_local_artifact_paths_and_records_file_identity(tmp_path: Pa
     assert bundle["components"][0]["source"]["bytes"] > 0
 
 
+def test_component_check_booleans_with_numeric_words_are_allowed() -> None:
+    components = _passing_components()
+    components["daily_quality_gate"]["checks"] = {
+        "latency_distribution_stable": True,
+        "sufficient_sample_size": True,
+        "well_formed": True,
+    }
+    components["daily_quality_gate"]["inputs"] = {
+        "latency": {
+            "baseline_p95_ms": None,
+            "current_p95_ms": None,
+            "latency_distribution_stable": True,
+            "max_p95_shift_pct": None,
+        },
+        "runtime_safety_gate": {"generated_at": None},
+        "tca": {"sample_size": 0, "sufficient_sample_size": False},
+    }
+
+    bundle = build_rolling_simulated_live_evidence_bundle(
+        components=components,
+        generated_at=GENERATED_AT,
+        max_artifact_age_seconds=3600,
+    )
+
+    assert bundle["decision"] == "pass"
+
+
 @pytest.mark.parametrize(
     ("component", "mutation", "message"),
     [
