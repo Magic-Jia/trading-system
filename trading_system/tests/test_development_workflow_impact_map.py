@@ -143,6 +143,23 @@ def test_execution_calibration_module_has_calibration_impact_mapping() -> None:
     assert "trading_system/tests/test_execution_calibration_evidence.py" in tests
 
 
+def test_replay_simulated_live_evidence_has_evidence_chain_mapping() -> None:
+    verify = load_verify_module()
+
+    tests = verify.tests_for_changed(["trading_system/app/reporting/replay_simulated_live_evidence.py"])
+
+    assert "trading_system/tests/test_replay_simulated_live_evidence.py" in tests
+    assert "trading_system/tests/test_simulated_live_evidence_window.py" in tests
+
+
+def test_replay_simulated_live_generator_has_replay_impact_mapping() -> None:
+    verify = load_verify_module()
+
+    tests = verify.tests_for_changed(["trading_system/generate_replay_simulated_live_evidence_bundle.py"])
+
+    assert "trading_system/tests/test_replay_simulated_live_evidence.py" in tests
+
+
 def test_longitudinal_live_sim_trend_report_test_file_has_impact_mapping() -> None:
     verify = load_verify_module()
 

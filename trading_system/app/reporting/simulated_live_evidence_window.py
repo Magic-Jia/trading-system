@@ -15,6 +15,12 @@ from trading_system.app.reporting.rolling_simulated_live_evidence_bundle import 
 
 SCHEMA_VERSION = "simulated_live_evidence_window.v1"
 FILENAME = "simulated_live_evidence_window.json"
+SOURCE_MODE_REPLAY = "replay"
+SOURCE_MODE_SIMULATED_LIVE_LOCAL = "simulated_live_local"
+SOURCE_MODES = {SOURCE_MODE_REPLAY, SOURCE_MODE_SIMULATED_LIVE_LOCAL}
+EVIDENCE_MODE_PROMOTION = "promotion"
+EVIDENCE_MODE_REPLAY_ONLY = "replay_only"
+EVIDENCE_MODES = {EVIDENCE_MODE_PROMOTION, EVIDENCE_MODE_REPLAY_ONLY}
 
 _CANONICAL_UTC_TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z$")
 _DAY_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -112,6 +118,51 @@ def _reason_codes(value: Any, field_path: str) -> list[str]:
     return reasons
 
 
+def _require_source_mode(value: Any, field_path: str) -> str:
+    if not _is_exact_string(value):
+        raise ValueError(f"{field_path} must be a string")
+    if value not in SOURCE_MODES:
+        raise ValueError(f"{field_path} is unknown")
+    return value
+
+
+def _require_identity_list(value: Any, field_path: str) -> list[str]:
+    if not isinstance(value, list) or not value:
+        raise ValueError(f"{field_path} must be a non-empty list")
+    return [_require_safe_identifier(identity, f"{field_path}[{index}]") for index, identity in enumerate(value)]
+
+
+def _normalize_replay_lineage(value: Any, field_path: str) -> tuple[dict[str, Any], dict[str, datetime]]:
+    if not isinstance(value, Mapping):
+        raise ValueError(f"{field_path} must be an object")
+    replay_source_id = _require_safe_identifier(value.get("replay_source_id"), f"{field_path}.replay_source_id")
+    replay_window_start = _parse_canonical_timestamp(
+        value.get("replay_window_start"),
+        f"{field_path}.replay_window_start",
+    )
+    replay_window_end = _parse_canonical_timestamp(value.get("replay_window_end"), f"{field_path}.replay_window_end")
+    if replay_window_end <= replay_window_start:
+        raise ValueError(f"{field_path}.replay_window_end must be after replay_window_start")
+    generated_at = _parse_canonical_timestamp(value.get("generated_at"), f"{field_path}.generated_at")
+    return (
+        {
+            "replay_source_id": replay_source_id,
+            "replay_window_start": value["replay_window_start"],
+            "replay_window_end": value["replay_window_end"],
+            "original_artifact_identities": _require_identity_list(
+                value.get("original_artifact_identities"),
+                f"{field_path}.original_artifact_identities",
+            ),
+            "generated_at": value["generated_at"],
+        },
+        {
+            "replay_window_start": replay_window_start,
+            "replay_window_end": replay_window_end,
+            "generated_at": generated_at,
+        },
+    )
+
+
 def _bundle_payload(raw_value: Mapping[str, Any] | str | Path) -> tuple[dict[str, Any], dict[str, Any]]:
     if isinstance(raw_value, (str, Path)):
         return _load_json_artifact(Path(raw_value))
@@ -128,6 +179,7 @@ def _normalize_bundle(raw_value: Mapping[str, Any] | str | Path, index: int) -> 
         raise ValueError(f"{field}.schema_version must be rolling_simulated_live_evidence_bundle.v1")
 
     session_id = _require_safe_identifier(payload.get("session_id"), f"{field}.session_id")
+    source_mode = _require_source_mode(payload.get("source_mode"), f"{field}.source_mode")
     day = _require_day(payload.get("day"), f"{field}.day")
     observed_at = _parse_canonical_timestamp(payload.get("observed_at"), f"{field}.observed_at")
     evaluated_at = _parse_canonical_timestamp(payload.get("evaluated_at"), f"{field}.evaluated_at")
@@ -139,6 +191,15 @@ def _normalize_bundle(raw_value: Mapping[str, Any] | str | Path, index: int) -> 
     if decision not in {"pass", "review", "hold"}:
         raise ValueError(f"{field}.decision is unknown")
     reasons = _reason_codes(payload.get("reason_codes"), f"{field}.reason_codes")
+    replay_lineage = None
+    replay_timestamps = None
+    if source_mode == SOURCE_MODE_REPLAY:
+        replay_lineage, replay_timestamps = _normalize_replay_lineage(
+            payload.get("replay_lineage"),
+            f"{field}.replay_lineage",
+        )
+    elif "replay_lineage" in payload:
+        raise ValueError(f"{field}.replay_lineage is only valid for replay source_mode")
 
     components = payload.get("components")
     if not isinstance(components, list):
@@ -173,6 +234,7 @@ def _normalize_bundle(raw_value: Mapping[str, Any] | str | Path, index: int) -> 
     return (
         {
             "session_id": session_id,
+            "source_mode": source_mode,
             "day": day,
             "observed_at": payload["observed_at"],
             "evaluated_at": payload["evaluated_at"],
@@ -182,11 +244,13 @@ def _normalize_bundle(raw_value: Mapping[str, Any] | str | Path, index: int) -> 
             "missing_components": missing_components,
             "component_failures": component_failures,
             "source": source,
+            **({} if replay_lineage is None else {"replay_lineage": replay_lineage}),
         },
         {
             "observed_at": observed_at,
             "evaluated_at": evaluated_at,
             "generated_at": generated_at,
+            **({} if replay_timestamps is None else {"replay_lineage": replay_timestamps}),
         },
     )
 
@@ -207,6 +271,7 @@ def build_simulated_live_evidence_window_report(
     *,
     generated_at: str | None = None,
     min_distinct_sessions: int = 3,
+    evidence_mode: str = EVIDENCE_MODE_PROMOTION,
 ) -> dict[str, Any]:
     if not isinstance(bundles, list):
         raise ValueError("bundles must be a list")
@@ -214,6 +279,8 @@ def build_simulated_live_evidence_window_report(
         raise ValueError("min_distinct_sessions must be an integer")
     if min_distinct_sessions <= 0:
         raise ValueError("min_distinct_sessions must be positive")
+    if evidence_mode not in EVIDENCE_MODES:
+        raise ValueError("evidence_mode is unknown")
 
     report_generated_at = generated_at or datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
     _parse_canonical_timestamp(report_generated_at, "generated_at")
@@ -225,21 +292,27 @@ def build_simulated_live_evidence_window_report(
         try:
             bundle, timestamps = _normalize_bundle(raw_bundle, index)
         except ValueError as exc:
+            reason_code = (
+                "simulated_live_local_bundle_has_replay_lineage"
+                if "replay_lineage is only valid for replay source_mode" in str(exc)
+                else "malformed_bundle_timestamp"
+            )
             bundle = {
                 "session_id": f"malformed-{index}",
+                "source_mode": "malformed",
                 "day": "unknown",
                 "observed_at": None,
                 "evaluated_at": None,
                 "generated_at": None,
                 "decision": "hold",
-                "reason_codes": ["malformed_bundle_timestamp"],
+                "reason_codes": [reason_code],
                 "missing_components": list(REQUIRED_COMPONENTS),
                 "component_failures": [],
                 "parse_error": str(exc),
                 "source": {},
             }
             timestamps = {}
-            reasons.add("malformed_bundle_timestamp")
+            reasons.add(reason_code)
         normalized.append(bundle)
         parsed.append(timestamps)
 
@@ -249,6 +322,7 @@ def build_simulated_live_evidence_window_report(
     evaluated = [bundle["evaluated_at"] for bundle in normalized if bundle["evaluated_at"] is not None]
     distinct_sessions = len(set(session_ids))
     distinct_days = len(set(days) - {"unknown"})
+    source_modes = sorted({bundle["source_mode"] for bundle in normalized if bundle["source_mode"] != "malformed"})
     minimum_met = distinct_sessions >= min_distinct_sessions and distinct_days >= min_distinct_sessions
     if not minimum_met:
         reasons.add("insufficient_distinct_sessions")
@@ -284,9 +358,52 @@ def build_simulated_live_evidence_window_report(
             elif failure["status"] == "reject":
                 reasons.add("bundle_component_reject")
 
+    if len(source_modes) > 1:
+        reasons.add("mixed_source_modes")
+    if evidence_mode == EVIDENCE_MODE_PROMOTION and SOURCE_MODE_REPLAY in source_modes:
+        reasons.add("replay_source_not_promotion_evidence")
+    if evidence_mode == EVIDENCE_MODE_REPLAY_ONLY and source_modes != [SOURCE_MODE_REPLAY]:
+        reasons.add("replay_only_mode_requires_replay_source")
+
+    replay_lineage = None
+    if source_modes == [SOURCE_MODE_REPLAY]:
+        replay_entries = [bundle["replay_lineage"] for bundle in normalized if "replay_lineage" in bundle]
+        replay_timestamps = [timestamps["replay_lineage"] for timestamps in parsed if "replay_lineage" in timestamps]
+        if len(replay_entries) != len(normalized):
+            reasons.add("missing_replay_lineage")
+        else:
+            replay_source_ids = [entry["replay_source_id"] for entry in replay_entries]
+            if len(set(replay_source_ids)) != len(replay_source_ids):
+                reasons.add("duplicate_replay_source_identity")
+            original_artifact_identities = [
+                identity
+                for entry in replay_entries
+                for identity in entry["original_artifact_identities"]
+            ]
+            if len(set(original_artifact_identities)) != len(original_artifact_identities):
+                reasons.add("duplicate_original_artifact_identity")
+            replay_lineage = {
+                "replay_source_ids": replay_source_ids,
+                "replay_window_start": min(
+                    zip(replay_entries, replay_timestamps, strict=True),
+                    key=lambda entry: entry[1]["replay_window_start"],
+                )[0]["replay_window_start"],
+                "replay_window_end": max(
+                    zip(replay_entries, replay_timestamps, strict=True),
+                    key=lambda entry: entry[1]["replay_window_end"],
+                )[0]["replay_window_end"],
+                "original_artifact_identities": original_artifact_identities,
+                "generated_at": report_generated_at,
+            }
+    for bundle in normalized:
+        if bundle["source_mode"] == SOURCE_MODE_REPLAY and "replay_lineage" not in bundle:
+            reasons.add("missing_replay_lineage")
+
     decision = "hold" if reasons else "pass"
     return {
         "schema_version": SCHEMA_VERSION,
+        "source_mode": source_modes[0] if len(source_modes) == 1 else "mixed",
+        "evidence_mode": evidence_mode,
         "generated_at": report_generated_at,
         "decision": decision,
         "reason_codes": sorted(reasons),
@@ -302,8 +419,11 @@ def build_simulated_live_evidence_window_report(
             "as_of_monotonic": as_of_monotonic,
             "all_bundles_pass": all_bundles_pass,
             "all_required_bundle_components_present": all_components_present,
+            "source_modes": source_modes,
+            "replay_only_mode": evidence_mode == EVIDENCE_MODE_REPLAY_ONLY,
         },
         "bundles": normalized,
+        **({} if replay_lineage is None else {"replay_lineage": replay_lineage}),
     }
 
 
@@ -321,6 +441,12 @@ def main() -> None:
     parser.add_argument("--output", required=True, help="Output JSON report path")
     parser.add_argument("--generated-at", default=None, help="Canonical UTC generation timestamp")
     parser.add_argument("--min-distinct-sessions", type=int, default=3)
+    parser.add_argument(
+        "--evidence-mode",
+        choices=sorted(EVIDENCE_MODES),
+        default=EVIDENCE_MODE_PROMOTION,
+        help="promotion rejects replay sources; replay_only emits deterministic replay evidence",
+    )
     args = parser.parse_args()
 
     payload = write_simulated_live_evidence_window_report(
@@ -328,6 +454,7 @@ def main() -> None:
         bundles=[Path(path) for path in args.bundle],
         generated_at=args.generated_at,
         min_distinct_sessions=args.min_distinct_sessions,
+        evidence_mode=args.evidence_mode,
     )
     print(
         "SIMULATED_LIVE_EVIDENCE_WINDOW_JSON",
@@ -336,6 +463,8 @@ def main() -> None:
                 "output": args.output,
                 "decision": payload["decision"],
                 "reason_codes": payload["reason_codes"],
+                "source_mode": payload["source_mode"],
+                "evidence_mode": payload["evidence_mode"],
                 "bundle_count": payload["checks"]["bundle_count"],
                 "distinct_sessions": payload["checks"]["distinct_sessions"],
             },
@@ -347,6 +476,8 @@ def main() -> None:
 __all__ = [
     "FILENAME",
     "SCHEMA_VERSION",
+    "SOURCE_MODE_REPLAY",
+    "SOURCE_MODE_SIMULATED_LIVE_LOCAL",
     "build_simulated_live_evidence_window_report",
     "write_simulated_live_evidence_window_report",
 ]

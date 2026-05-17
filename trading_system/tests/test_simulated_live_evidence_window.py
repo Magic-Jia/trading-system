@@ -32,6 +32,8 @@ def _bundle(
     day: str,
     *,
     session_id: str | None = None,
+    source_mode: str | None = "simulated_live_local",
+    replay_lineage: dict[str, object] | None = None,
     generated_at: str | None = None,
     observed_at: str | None = None,
     evaluated_at: str | None = None,
@@ -50,6 +52,8 @@ def _bundle(
         "decision": decision,
         "reason_codes": reason_codes or [],
         "checks": {"all_required_components_present": True},
+        **({} if source_mode is None else {"source_mode": source_mode}),
+        **({} if replay_lineage is None else {"replay_lineage": replay_lineage}),
         "components": components
         or [
             _component("daily_quality_gate"),
@@ -89,12 +93,138 @@ def test_builds_passing_multi_day_simulated_live_evidence_window() -> None:
         "as_of_monotonic": True,
         "all_bundles_pass": True,
         "all_required_bundle_components_present": True,
+        "source_modes": ["simulated_live_local"],
+        "replay_only_mode": False,
     }
     assert [entry["session_id"] for entry in report["bundles"]] == [
         "sim-live-20260514",
         "sim-live-20260515",
         "sim-live-20260516",
     ]
+    assert report["source_mode"] == "simulated_live_local"
+    assert report["checks"]["source_modes"] == ["simulated_live_local"]
+
+
+def _replay_lineage(day: str) -> dict[str, object]:
+    suffix = day.replace("-", "")
+    return {
+        "replay_source_id": f"archive-runtime-{suffix}",
+        "replay_window_start": f"{day}T00:00:00Z",
+        "replay_window_end": f"{day}T23:59:59Z",
+        "original_artifact_identities": [f"runtime-bundle-{suffix}", f"market-data-{suffix}"],
+        "generated_at": f"{day}T23:58:30Z",
+    }
+
+
+def test_builds_valid_replay_only_evidence_window_with_lineage() -> None:
+    report = build_simulated_live_evidence_window_report(
+        [
+            _bundle("2026-05-14", source_mode="replay", replay_lineage=_replay_lineage("2026-05-14")),
+            _bundle("2026-05-15", source_mode="replay", replay_lineage=_replay_lineage("2026-05-15")),
+            _bundle("2026-05-16", source_mode="replay", replay_lineage=_replay_lineage("2026-05-16")),
+        ],
+        generated_at="2026-05-17T00:05:00Z",
+        min_distinct_sessions=3,
+        evidence_mode="replay_only",
+    )
+
+    assert report["decision"] == "pass"
+    assert report["source_mode"] == "replay"
+    assert report["evidence_mode"] == "replay_only"
+    assert report["checks"]["source_modes"] == ["replay"]
+    assert report["checks"]["replay_only_mode"] is True
+    assert report["replay_lineage"] == {
+        "replay_source_ids": [
+            "archive-runtime-20260514",
+            "archive-runtime-20260515",
+            "archive-runtime-20260516",
+        ],
+        "replay_window_start": "2026-05-14T00:00:00Z",
+        "replay_window_end": "2026-05-16T23:59:59Z",
+        "original_artifact_identities": [
+            "runtime-bundle-20260514",
+            "market-data-20260514",
+            "runtime-bundle-20260515",
+            "market-data-20260515",
+            "runtime-bundle-20260516",
+            "market-data-20260516",
+        ],
+        "generated_at": "2026-05-17T00:05:00Z",
+    }
+    assert "_parsed_replay_window_start" not in report["bundles"][0]["replay_lineage"]
+
+
+def test_write_replay_only_window_report_is_json_serializable(tmp_path: Path) -> None:
+    output = tmp_path / "replay_window.json"
+
+    report = write_simulated_live_evidence_window_report(
+        output,
+        bundles=[
+            _bundle("2026-05-14", source_mode="replay", replay_lineage=_replay_lineage("2026-05-14")),
+            _bundle("2026-05-15", source_mode="replay", replay_lineage=_replay_lineage("2026-05-15")),
+            _bundle("2026-05-16", source_mode="replay", replay_lineage=_replay_lineage("2026-05-16")),
+        ],
+        generated_at="2026-05-17T00:05:00Z",
+        min_distinct_sessions=3,
+        evidence_mode="replay_only",
+    )
+
+    assert json.loads(output.read_text(encoding="utf-8")) == report
+    assert report["source_mode"] == "replay"
+
+
+def test_replay_bundle_cannot_be_mislabeled_as_simulated_live_local() -> None:
+    report = build_simulated_live_evidence_window_report(
+        [
+            _bundle("2026-05-14", replay_lineage=_replay_lineage("2026-05-14")),
+            _bundle("2026-05-15"),
+            _bundle("2026-05-16"),
+        ],
+        generated_at="2026-05-17T00:05:00Z",
+        min_distinct_sessions=3,
+    )
+
+    assert report["decision"] == "hold"
+    assert "simulated_live_local_bundle_has_replay_lineage" in report["reason_codes"]
+
+
+def test_mixed_source_modes_are_not_accepted_as_promotion_evidence() -> None:
+    report = build_simulated_live_evidence_window_report(
+        [
+            _bundle("2026-05-14"),
+            _bundle("2026-05-15", source_mode="replay", replay_lineage=_replay_lineage("2026-05-15")),
+            _bundle("2026-05-16"),
+        ],
+        generated_at="2026-05-17T00:05:00Z",
+        min_distinct_sessions=3,
+    )
+
+    assert report["decision"] == "hold"
+    assert "mixed_source_modes" in report["reason_codes"]
+    assert "replay_source_not_promotion_evidence" in report["reason_codes"]
+
+
+@pytest.mark.parametrize(
+    ("source_mode", "reason_code"),
+    [
+        (None, "malformed_bundle_timestamp"),
+        ("paper", "malformed_bundle_timestamp"),
+    ],
+)
+def test_window_fails_closed_for_missing_or_invalid_source_mode(source_mode: str | None, reason_code: str) -> None:
+    report = build_simulated_live_evidence_window_report(
+        [
+            _bundle("2026-05-14"),
+            _bundle("2026-05-15", source_mode=source_mode),
+            _bundle("2026-05-16"),
+        ],
+        generated_at="2026-05-17T00:05:00Z",
+        min_distinct_sessions=3,
+    )
+
+    assert report["decision"] == "hold"
+    assert reason_code in report["reason_codes"]
+    assert "source_mode" in report["bundles"][1]["parse_error"]
 
 
 @pytest.mark.parametrize(

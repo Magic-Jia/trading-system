@@ -12,6 +12,7 @@ from typing import Any, Mapping
 
 SCHEMA_VERSION = "rolling_simulated_live_evidence_bundle.v1"
 FILENAME = "rolling_simulated_live_evidence_bundle.json"
+SOURCE_MODE_SIMULATED_LIVE_LOCAL = "simulated_live_local"
 
 REQUIRED_COMPONENTS = (
     "daily_quality_gate",
@@ -260,6 +261,7 @@ def build_rolling_simulated_live_evidence_bundle(
     components: Mapping[str, Mapping[str, Any] | str | Path],
     generated_at: str | None = None,
     max_artifact_age_seconds: int | float = 86_400,
+    source_mode: str = SOURCE_MODE_SIMULATED_LIVE_LOCAL,
 ) -> dict[str, Any]:
     if not isinstance(components, Mapping):
         raise ValueError("components must be an object")
@@ -275,6 +277,8 @@ def build_rolling_simulated_live_evidence_bundle(
     max_age = _require_number(max_artifact_age_seconds, "max_artifact_age_seconds")
     if max_age <= 0.0:
         raise ValueError("max_artifact_age_seconds must be positive")
+    if source_mode != SOURCE_MODE_SIMULATED_LIVE_LOCAL:
+        raise ValueError("source_mode must be simulated_live_local")
 
     normalized = [
         _normalize_component(
@@ -305,6 +309,7 @@ def build_rolling_simulated_live_evidence_bundle(
     reason_codes = sorted({reason for component in normalized for reason in component["reason_codes"]})
     return {
         "schema_version": SCHEMA_VERSION,
+        "source_mode": source_mode,
         "generated_at": bundle_generated_at,
         "decision": decision,
         "reason_codes": reason_codes,
@@ -373,6 +378,7 @@ __all__ = [
     "OPTIONAL_COMPONENTS",
     "REQUIRED_COMPONENTS",
     "SCHEMA_VERSION",
+    "SOURCE_MODE_SIMULATED_LIVE_LOCAL",
     "build_rolling_simulated_live_evidence_bundle",
     "write_rolling_simulated_live_evidence_bundle",
 ]
