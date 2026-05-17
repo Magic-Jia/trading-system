@@ -238,6 +238,20 @@ def test_real_local_simulated_live_evidence_chain_has_impact_mapping() -> None:
     assert "trading_system/tests/test_real_local_simulated_live_evidence_chain.py" in generator_tests
 
 
+def test_simulated_live_artifact_inventory_has_impact_mapping() -> None:
+    verify = load_verify_module()
+
+    reporting_tests = verify.tests_for_changed([
+        "trading_system/app/reporting/simulated_live_artifact_inventory.py"
+    ])
+    generator_tests = verify.tests_for_changed([
+        "trading_system/generate_simulated_live_artifact_inventory.py"
+    ])
+
+    assert "trading_system/tests/test_simulated_live_artifact_inventory.py" in reporting_tests
+    assert "trading_system/tests/test_simulated_live_artifact_inventory.py" in generator_tests
+
+
 def test_promotion_gate_decision_has_reporting_impact_mapping() -> None:
     verify = load_verify_module()
 
