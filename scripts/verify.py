@@ -155,6 +155,7 @@ IMPACT_RULES: tuple[tuple[str, list[str]], ...] = (
             "trading_system/tests/test_scheduled_live_sim_generation.py",
         ],
     ),
+    ("trading_system/app/execution/calibration.py", ["trading_system/tests/test_execution_calibration_evidence.py"]),
     ("deploy/cron/trading-system-paper-cron.sh", ["trading_system/tests/test_scheduled_live_sim_generation.py"]),
     (
         "trading_system/app/backtest/dataset.py",

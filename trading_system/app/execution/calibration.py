@@ -1862,3 +1862,186 @@ def write_calibration_feedback_artifact(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(artifact, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return output_path
+
+
+def _assumption_source_artifact_id(value: Any) -> str:
+    if type(value) is not str or not value or value != value.strip() or _SAFE_EVIDENCE_IDENTIFIER_RE.fullmatch(value) is None:
+        raise ValueError("calibration assumption recommendation source_artifact_id must be canonical")
+    return value
+
+
+def _assumption_feedback_artifact(value: Any) -> Mapping[str, Any]:
+    artifact = _feedback_required_mapping(value, "calibration_feedback")
+    schema_version = artifact.get("schema_version")
+    if schema_version != "calibration_feedback_artifact.v1":
+        raise ValueError("calibration assumption recommendation calibration_feedback.schema_version must be calibration_feedback_artifact.v1")
+    decision = artifact.get("decision")
+    if decision not in {"ready", "fail_closed"}:
+        raise ValueError("calibration assumption recommendation calibration_feedback.decision must be ready or fail_closed")
+    return artifact
+
+
+def _assumption_feedback_components(value: Any) -> list[dict[str, str | None]]:
+    if not isinstance(value, list):
+        raise ValueError("calibration assumption recommendation calibration_feedback.components must be a list")
+    components: list[dict[str, str | None]] = []
+    seen: set[str] = set()
+    for index, raw_component in enumerate(value):
+        component = _feedback_required_mapping(raw_component, f"calibration_feedback.components[{index}]")
+        name = component.get("component")
+        identity = component.get("identity")
+        schema_version = component.get("schema_version")
+        if type(name) is not str or name not in _CALIBRATION_FEEDBACK_COMPONENTS:
+            raise ValueError("calibration assumption recommendation component must be known")
+        if type(identity) is not str or not identity or identity != identity.strip():
+            raise ValueError("calibration assumption recommendation component identity must be canonical")
+        if identity in seen:
+            raise ValueError("duplicate calibration assumption recommendation component identity")
+        seen.add(identity)
+        if schema_version is not None and type(schema_version) is not str:
+            raise ValueError("calibration assumption recommendation component schema_version must be a string")
+        components.append(
+            {
+                "component": name,
+                "identity": identity,
+                "schema_version": schema_version if isinstance(schema_version, str) else None,
+            }
+        )
+    return components
+
+
+def _assumption_feedback_model_inputs(value: Any) -> Mapping[str, Any]:
+    model_inputs = _feedback_required_mapping(value, "calibration_feedback.model_inputs")
+    _feedback_optional_float(model_inputs.get("slippage_bps_adjustment"), "slippage_bps_adjustment", non_negative=True)
+    _feedback_optional_float(model_inputs.get("latency_ms_p95"), "latency_ms_p95", non_negative=True)
+    _feedback_optional_float(model_inputs.get("latency_ms_p99"), "latency_ms_p99", non_negative=True)
+    _feedback_ratio(model_inputs.get("fill_probability_floor"), "fill_probability_floor")
+    _feedback_ratio(model_inputs.get("maker_queue_haircut"), "maker_queue_haircut")
+    reject_rate_by_reason = _feedback_required_mapping(
+        model_inputs.get("reject_rate_by_reason"),
+        "calibration_feedback.model_inputs.reject_rate_by_reason",
+    )
+    for reason, rate in reject_rate_by_reason.items():
+        if type(reason) is not str or _LOWER_TOKEN_RE.fullmatch(reason) is None:
+            raise ValueError("calibration assumption recommendation reject_rate_by_reason keys must be canonical")
+        _feedback_ratio(rate, f"reject_rate_by_reason.{reason}")
+    _feedback_ratio(model_inputs.get("race_condition_haircut"), "race_condition_haircut")
+    _feedback_bool(model_inputs.get("funding_conservatism_required"), "funding_conservatism_required")
+    _feedback_bool(model_inputs.get("margin_conservatism_required"), "margin_conservatism_required")
+    return model_inputs
+
+
+def _assumption_recommendation_source(
+    *,
+    source_artifact_id: str,
+    calibration_feedback: Mapping[str, Any],
+    tca_report: Mapping[str, Any],
+) -> dict[str, Any]:
+    tca = _feedback_required_mapping(tca_report, "tca_report")
+    tca_source = _validate_calibration_summary_evidence_source(tca.get("evidence_source"))
+    return {
+        "artifact_id": source_artifact_id,
+        "schema_version": calibration_feedback["schema_version"],
+        "generated_at": _tca_canonical_timestamp(calibration_feedback.get("generated_at"), field_name="calibration_feedback.generated_at"),
+        "decision": calibration_feedback["decision"],
+        "tca_evidence_source": tca_source,
+        "components": _assumption_feedback_components(calibration_feedback.get("components")),
+    }
+
+
+def _assumption_recommended_updates(
+    *,
+    current_assumptions: Mapping[str, Any],
+    tca_report: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    observed = _feedback_required_mapping(tca_report.get("observed"), "tca_report.observed")
+    slippage = _feedback_required_mapping(observed.get("slippage_bps"), "tca_report.observed.slippage_bps")
+    observed_slippage = _feedback_optional_float(slippage.get("median"), "tca_report.observed.slippage_bps.median", non_negative=True)
+    if observed_slippage is None:
+        raise ValueError("calibration assumption recommendation observed slippage must be numeric")
+    current_slippage = _feedback_finite_float(
+        current_assumptions.get("expected_slippage_bps"),
+        "current_assumptions.expected_slippage_bps",
+        non_negative=True,
+    )
+    recommended_slippage = round(observed_slippage, 6)
+    if recommended_slippage <= current_slippage:
+        return []
+    return [
+        {
+            "field": "expected_slippage_bps",
+            "current": current_slippage,
+            "recommended": recommended_slippage,
+            "observed": recommended_slippage,
+            "reason_codes": ["observed_slippage_above_current_assumption"],
+        }
+    ]
+
+
+def build_calibration_assumption_update_recommendation(
+    *,
+    generated_at: datetime | str,
+    source_artifact_id: str,
+    current_assumptions: Mapping[str, Any],
+    calibration_feedback: Mapping[str, Any],
+    tca_report: Mapping[str, Any],
+) -> dict[str, Any]:
+    generated_at_text = _tca_canonical_timestamp(generated_at, field_name="generated_at")
+    source_id = _assumption_source_artifact_id(source_artifact_id)
+    feedback = _assumption_feedback_artifact(calibration_feedback)
+    _assumption_feedback_model_inputs(feedback.get("model_inputs"))
+    source = _assumption_recommendation_source(
+        source_artifact_id=source_id,
+        calibration_feedback=feedback,
+        tca_report=tca_report,
+    )
+    if generated_at_text == source["generated_at"]:
+        raise ValueError("calibration assumption recommendation generated_at must differ from source generated_at")
+    parsed_assumptions = _validate_tca_assumptions(current_assumptions)
+    tca = _feedback_required_mapping(tca_report, "tca_report")
+    if tca.get("decision") not in {"pass", "fail_closed"}:
+        raise ValueError("calibration assumption recommendation tca_report.decision must be pass or fail_closed")
+
+    updates: list[dict[str, Any]] = []
+    reason_codes: list[str]
+    decision: str
+    if feedback["decision"] != "ready" or tca.get("decision") != "pass":
+        decision = "reject"
+        reason_codes = ["source_feedback_not_ready"]
+    else:
+        updates = _assumption_recommended_updates(current_assumptions=parsed_assumptions, tca_report=tca)
+        if updates:
+            decision = "review"
+            reason_codes = ["review_required_for_assumption_update"]
+        else:
+            decision = "no_change"
+            reason_codes = ["observed_calibration_within_current_assumptions"]
+
+    return {
+        "schema_version": "calibration_assumption_update_recommendation.v1",
+        "generated_at": generated_at_text,
+        "source": source,
+        "current_assumptions": parsed_assumptions,
+        "recommended_assumption_updates": updates,
+        "rationale": {
+            "reason_codes": reason_codes,
+            "notes": [
+                "This artifact is review input only.",
+                "Backtest and execution assumptions are never overwritten by this builder.",
+            ],
+        },
+        "decision": decision,
+        "assumptions_file_mutation": "forbidden",
+        "side_effect_boundary": "offline_local_only",
+    }
+
+
+def write_calibration_assumption_update_recommendation(
+    output_dir: str | Path,
+    **kwargs: Any,
+) -> Path:
+    artifact = build_calibration_assumption_update_recommendation(**kwargs)
+    output_path = Path(output_dir) / "calibration_assumption_update_recommendation.json"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(artifact, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return output_path

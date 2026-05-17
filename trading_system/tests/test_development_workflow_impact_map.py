@@ -135,6 +135,14 @@ def test_execution_calibration_generator_has_calibration_impact_mapping() -> Non
     assert "trading_system/tests/test_execution_calibration_evidence.py" in tests
 
 
+def test_execution_calibration_module_has_calibration_impact_mapping() -> None:
+    verify = load_verify_module()
+
+    tests = verify.tests_for_changed(["trading_system/app/execution/calibration.py"])
+
+    assert "trading_system/tests/test_execution_calibration_evidence.py" in tests
+
+
 def test_longitudinal_live_sim_trend_report_test_file_has_impact_mapping() -> None:
     verify = load_verify_module()
 

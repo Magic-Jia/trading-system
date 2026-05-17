@@ -7,11 +7,13 @@ import pytest
 
 from trading_system.app.execution import calibration
 from trading_system.app.execution.calibration import (
+    build_calibration_assumption_update_recommendation,
     build_calibration_feedback_artifact,
     build_execution_race_condition_evidence,
     build_tca_calibration_report,
     load_calibration_records,
     summarize_calibration_records,
+    write_calibration_assumption_update_recommendation,
     write_calibration_feedback_artifact,
     write_calibration_summary,
     write_tca_calibration_report,
@@ -399,6 +401,152 @@ def test_writes_calibration_feedback_artifact_without_mutating_strategy_config(t
     assert payload["schema_version"] == "calibration_feedback_artifact.v1"
     assert payload["strategy_config_mutation"] == "forbidden"
     assert not (tmp_path / "strategy_config.json").exists()
+
+
+def test_builds_calibration_assumption_update_recommendation_for_review() -> None:
+    inputs = _calibration_feedback_inputs()
+
+    artifact = build_calibration_assumption_update_recommendation(
+        generated_at="2026-01-01T00:05:11Z",
+        source_artifact_id="calibration-feedback-20260101T0005Z",
+        current_assumptions=_tca_assumptions(
+            expected_slippage_bps=2.0,
+            expected_adverse_selection_bps=1.5,
+            expected_fee_funding_bps=1.5,
+        ),
+        calibration_feedback=build_calibration_feedback_artifact(
+            generated_at="2026-01-01T00:05:10Z",
+            calibration_window={"start": "2026-01-01T00:00:00Z", "end": "2026-01-01T00:05:00Z"},
+            min_samples=4,
+            max_evidence_age_seconds=300,
+            **inputs,
+        ),
+        tca_report=inputs["tca_report"],
+    )
+
+    assert artifact["schema_version"] == "calibration_assumption_update_recommendation.v1"
+    assert artifact["generated_at"] == "2026-01-01T00:05:11Z"
+    assert artifact["decision"] == "review"
+    assert artifact["source"] == {
+        "artifact_id": "calibration-feedback-20260101T0005Z",
+        "schema_version": "calibration_feedback_artifact.v1",
+        "generated_at": "2026-01-01T00:05:10Z",
+        "decision": "ready",
+        "tca_evidence_source": {
+            "type": "paper_live_sim",
+            "run_id": "tca-1",
+            "exported_at": "2026-01-01T00:05:00Z",
+        },
+        "components": [
+            {"component": "tca_report", "identity": "tca_report", "schema_version": "tca_calibration_report.v1"},
+            {"component": "latency_stress_summary", "identity": "latency_stress_summary", "schema_version": "latency_stress_calibration_summary.v1"},
+            {"component": "partial_maker_fill_evidence", "identity": "partial_maker_fill_evidence", "schema_version": "partial_maker_fill_evidence.v1"},
+            {"component": "race_condition_evidence", "identity": "race_condition_evidence", "schema_version": "execution_race_condition_evidence.v1"},
+            {"component": "cross_source_parity", "identity": "cross_source_parity", "schema_version": "cross_source_market_execution_parity.v1"},
+            {"component": "l2_replay_quality", "identity": "l2_replay_quality", "schema_version": "longitudinal_l2_replay_calibration_report.v1"},
+            {"component": "derivatives_risk", "identity": "derivatives_risk", "schema_version": "derivatives_position_risk_report.v1"},
+            {"component": "drift_contract", "identity": "drift_contract", "schema_version": "paper_live_shadow_drift_contract.v1"},
+        ],
+    }
+    assert artifact["current_assumptions"]["expected_slippage_bps"] == 2.0
+    assert artifact["recommended_assumption_updates"] == [
+        {
+            "field": "expected_slippage_bps",
+            "current": 2.0,
+            "recommended": 3.0,
+            "observed": 3.0,
+            "reason_codes": ["observed_slippage_above_current_assumption"],
+        }
+    ]
+    assert artifact["rationale"]["reason_codes"] == ["review_required_for_assumption_update"]
+    assert artifact["assumptions_file_mutation"] == "forbidden"
+
+
+def test_calibration_assumption_update_recommendation_no_change_when_aligned() -> None:
+    inputs = _calibration_feedback_inputs()
+    current_assumptions = _tca_assumptions(
+        expected_slippage_bps=3.0,
+        expected_adverse_selection_bps=1.5,
+        expected_fee_funding_bps=1.5,
+    )
+
+    artifact = build_calibration_assumption_update_recommendation(
+        generated_at="2026-01-01T00:05:11Z",
+        source_artifact_id="calibration-feedback-20260101T0005Z",
+        current_assumptions=current_assumptions,
+        calibration_feedback=build_calibration_feedback_artifact(
+            generated_at="2026-01-01T00:05:10Z",
+            calibration_window={"start": "2026-01-01T00:00:00Z", "end": "2026-01-01T00:05:00Z"},
+            min_samples=4,
+            max_evidence_age_seconds=300,
+            **inputs,
+        ),
+        tca_report=inputs["tca_report"],
+    )
+
+    assert artifact["decision"] == "no_change"
+    assert artifact["recommended_assumption_updates"] == []
+    assert artifact["rationale"]["reason_codes"] == ["observed_calibration_within_current_assumptions"]
+
+
+@pytest.mark.parametrize(
+    ("mutator", "match"),
+    [
+        (lambda artifact: artifact["model_inputs"].update({"slippage_bps_adjustment": True}), "slippage_bps_adjustment"),
+        (lambda artifact: artifact["model_inputs"]["reject_rate_by_reason"].update({"post_only_reject": True}), "reject_rate_by_reason"),
+        (lambda artifact: artifact["components"].append(dict(artifact["components"][0])), "duplicate"),
+        (lambda artifact: artifact.update({"generated_at": "2026-01-01T00:05:11Z"}), "generated_at must differ"),
+    ],
+)
+def test_calibration_assumption_update_recommendation_rejects_malformed_source(mutator, match: str) -> None:
+    inputs = _calibration_feedback_inputs()
+    feedback = build_calibration_feedback_artifact(
+        generated_at="2026-01-01T00:05:10Z",
+        calibration_window={"start": "2026-01-01T00:00:00Z", "end": "2026-01-01T00:05:00Z"},
+        min_samples=4,
+        max_evidence_age_seconds=300,
+        **inputs,
+    )
+    mutator(feedback)
+
+    with pytest.raises(ValueError, match=match):
+        build_calibration_assumption_update_recommendation(
+            generated_at="2026-01-01T00:05:11Z",
+            source_artifact_id="calibration-feedback-20260101T0005Z",
+            current_assumptions=_tca_assumptions(),
+            calibration_feedback=feedback,
+            tca_report=inputs["tca_report"],
+        )
+
+
+def test_writes_calibration_assumption_recommendation_without_mutating_tca_assumptions(tmp_path: Path) -> None:
+    inputs = _calibration_feedback_inputs()
+    assumptions_path = tmp_path / "tca_assumptions.json"
+    assumptions_path.write_text(json.dumps(_tca_assumptions(), sort_keys=True) + "\n", encoding="utf-8")
+    before = assumptions_path.read_text(encoding="utf-8")
+
+    output = write_calibration_assumption_update_recommendation(
+        tmp_path,
+        generated_at="2026-01-01T00:05:11Z",
+        source_artifact_id="calibration-feedback-20260101T0005Z",
+        current_assumptions=_tca_assumptions(
+            expected_slippage_bps=3.0,
+            expected_adverse_selection_bps=1.5,
+            expected_fee_funding_bps=1.5,
+        ),
+        calibration_feedback=build_calibration_feedback_artifact(
+            generated_at="2026-01-01T00:05:10Z",
+            calibration_window={"start": "2026-01-01T00:00:00Z", "end": "2026-01-01T00:05:00Z"},
+            min_samples=4,
+            max_evidence_age_seconds=300,
+            **inputs,
+        ),
+        tca_report=inputs["tca_report"],
+    )
+
+    assert output == tmp_path / "calibration_assumption_update_recommendation.json"
+    assert json.loads(output.read_text(encoding="utf-8"))["decision"] == "no_change"
+    assert assumptions_path.read_text(encoding="utf-8") == before
 
 
 def test_loads_and_summarizes_cancel_replace_lifecycle_fields(tmp_path: Path) -> None:
