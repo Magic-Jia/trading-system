@@ -1,6 +1,6 @@
 # Paper/Live-Sim Evidence Phase 2 Ledger
 
-Status: phase9_batch3_full_green
+Status: phase10_paper_calibration_logging_full_green
 Base: bbd3c0ab
 Scope: simulated live / paper-live only. In this project context `live` means simulated live unless explicitly stated otherwise.
 
@@ -208,3 +208,27 @@ Remaining operational frontier: produce the missing real local Phase 9 input art
 - Produce genuine calibration records and multi-day simulated-live dates so cadence blockers can move from explicit hold reasons to measured pass/fail.
 - Attach independent market/feed source and venue rulebook catalog sources when available; keep current local producers fail-closed when unavailable.
 - Persist human/operator release acknowledgement only after hold reasons are reviewable from multi-day evidence.
+
+
+## Phase 10 paper execution calibration logging closure — 2026-05-17
+
+Objective: close the P0 gap where paper/simulated-live executions did not emit canonical runtime execution evidence, leaving `passive_order_calibration_records.jsonl` empty even though the calibration generator was implemented.
+
+Integrated commit:
+- `8133daea` — `Emit paper execution calibration lifecycle logs`
+
+What changed:
+- Paper-mode `OrderExecutor.execute` now writes canonical lifecycle rows to the runtime bucket `execution_log.jsonl` when running under `data/runtime/paper/<runtime_env>/`.
+- `PaperExecutor`/`PaperLedger` now support the runtime `paper_ledger.jsonl` path used by the existing calibration generator.
+- Legacy execution log behavior is preserved.
+- Paper execution path remains offline-only and does not call testnet submission functions.
+
+Evidence:
+- Worker commit audit: `scripts/audit_worker_commit.py --commit 1908cc26` returned `status: ok`.
+- Worker/mainline exact plan: `463 passed` for executor/run_cycle/main/reporting/validator/testnet_preview/runtime_paths tests plus `git diff --check`.
+- Standalone smoke from a local paper execution produced one loader-compatible calibration record: `generated_count=1`, symbol `BTCUSDT`, filled qty `0.01`.
+- Full suite after integration: `6540 passed in 208.14s` plus `git --no-pager diff --check HEAD` clean.
+
+Remaining frontier:
+- Run actual scheduled paper/simulated-live cycles over time so runtime calibration records accumulate naturally.
+- Then rerun cadence/promotion gate and track which hold reasons disappear versus remaining multi-day/independent-source/rulebook/L2 gaps.
