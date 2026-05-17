@@ -606,12 +606,17 @@ def simulate_taker_fill(
                     outcome="missed_alpha",
                     evidence_timestamp=book.timestamp,
                     requested_quantity=quantity,
+                    requested_notional=quantity * price,
                     filled_quantity=0.0,
                     filled_notional=0.0,
                     unfilled_quantity=quantity,
+                    unfilled_notional=quantity * price,
                 )
             filled_quantity = min(quantity, visible_quantity)
         unfilled_quantity = quantity - filled_quantity
+        requested_notional = quantity * price if quantity > 0.0 else None
+        filled_notional = filled_quantity * price if quantity > 0.0 else None
+        unfilled_notional = unfilled_quantity * price if quantity > 0.0 else None
         fill_quality: FillQuality = (
             "evidence_backed" if unfilled_quantity <= 0.0 else "partial_evidence_backed"
         )
@@ -627,9 +632,11 @@ def simulate_taker_fill(
             outcome="filled",
             evidence_timestamp=book.timestamp,
             requested_quantity=quantity,
+            requested_notional=requested_notional,
             filled_quantity=filled_quantity if quantity > 0.0 else None,
-            filled_notional=(filled_quantity * price) if quantity > 0.0 else None,
+            filled_notional=filled_notional,
             unfilled_quantity=unfilled_quantity if quantity > 0.0 else None,
+            unfilled_notional=unfilled_notional,
             first_fill_timestamp=book.timestamp,
             last_fill_timestamp=book.timestamp,
         )
@@ -810,7 +817,11 @@ def simulate_taker_depth_fill(
 
     average_price = filled_notional / filled_quantity
     top_price = float(levels[0].price)
-    unfilled_notional = remaining_notional if remaining_notional is not None else None
+    if remaining_notional is None:
+        unfilled_notional = max(remaining, 0.0) * average_price
+        notional_request = filled_notional + unfilled_notional
+    else:
+        unfilled_notional = remaining_notional
     if remaining_notional is not None:
         if remaining_notional <= 0.0:
             unfilled_quantity = 0.0
@@ -1109,6 +1120,8 @@ def _simulate_maker_queue_fill(
         else None
     )
     filled_notional = filled_quantity * float(limit_price)
+    unfilled_notional = unfilled_quantity * float(limit_price)
+    requested_notional = filled_notional + unfilled_notional
     return ExecutionFill(
         symbol=symbol,
         side=side,
@@ -1121,9 +1134,11 @@ def _simulate_maker_queue_fill(
         outcome="filled" if filled_quantity > 0.0 else "missed_alpha",
         evidence_timestamp=last_fill_timestamp,
         requested_quantity=requested_quantity,
+        requested_notional=requested_notional,
         filled_quantity=filled_quantity,
         filled_notional=filled_notional,
         unfilled_quantity=unfilled_quantity,
+        unfilled_notional=unfilled_notional,
         maker_status=status,
         first_fill_timestamp=first_fill_timestamp,
         last_fill_timestamp=last_fill_timestamp,
@@ -1336,6 +1351,16 @@ def _conservative_trade_print_taker_fill(
         evidence_timestamp = trade.timestamp
         first_fill_timestamp = trade.timestamp
         last_fill_timestamp = trade.timestamp
+    unfilled_notional = (
+        unfilled_quantity * float(trade.price)
+        if unfilled_quantity is not None and filled_notional is not None
+        else None
+    )
+    requested_notional = (
+        filled_notional + unfilled_notional
+        if filled_notional is not None and unfilled_notional is not None
+        else None
+    )
     return ExecutionFill(
         symbol=symbol,
         side=side,
@@ -1348,9 +1373,11 @@ def _conservative_trade_print_taker_fill(
         outcome="filled",
         evidence_timestamp=evidence_timestamp,
         requested_quantity=requested_quantity,
+        requested_notional=requested_notional,
         filled_quantity=filled_quantity,
         filled_notional=filled_notional,
         unfilled_quantity=unfilled_quantity,
+        unfilled_notional=unfilled_notional,
         first_fill_timestamp=first_fill_timestamp,
         last_fill_timestamp=last_fill_timestamp,
     )

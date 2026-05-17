@@ -3249,7 +3249,10 @@ def test_taker_top_of_book_fallback_is_partial_when_visible_top_size_is_smaller_
     assert fill.requested_quantity == pytest.approx(1.0)
     assert fill.filled_quantity == pytest.approx(top_size)
     assert fill.unfilled_quantity == pytest.approx(1.0 - top_size)
+    assert fill.requested_notional == pytest.approx(1.0 * expected_price)
     assert fill.filled_notional == pytest.approx(top_size * expected_price)
+    assert fill.unfilled_notional == pytest.approx((1.0 - top_size) * expected_price)
+    assert fill.filled_notional + fill.unfilled_notional == pytest.approx(fill.requested_notional)
     assert fill.depth_levels_consumed is None
     assert fill.evidence_timestamp == book_timestamp
     assert fill.first_fill_timestamp == book_timestamp
@@ -3830,6 +3833,8 @@ def test_taker_depth_returns_partial_fill_when_depth_is_insufficient() -> None:
     assert fill.filled_quantity == pytest.approx(3.0)
     assert fill.filled_notional == pytest.approx(302.0)
     assert fill.unfilled_quantity == pytest.approx(2.0)
+    assert fill.unfilled_notional == pytest.approx(2.0 * (302.0 / 3.0))
+    assert fill.requested_notional == pytest.approx(fill.filled_notional + fill.unfilled_notional)
     assert fill.depth_levels_consumed == 2
     assert fill.fill_price == pytest.approx(fill.filled_notional / fill.filled_quantity)
     assert fill.unfilled_quantity == pytest.approx(fill.requested_quantity - fill.filled_quantity)
@@ -3891,6 +3896,8 @@ def test_taker_depth_partial_fill_uses_side_correct_adverse_cost_sign(
     assert fill.fill_price == pytest.approx(fill.filled_notional / fill.filled_quantity)
     assert fill.filled_quantity == pytest.approx(3.0)
     assert fill.unfilled_quantity == pytest.approx(2.0)
+    assert fill.unfilled_notional == pytest.approx(2.0 * expected_fill_price)
+    assert fill.requested_notional == pytest.approx(fill.filled_notional + fill.unfilled_notional)
     assert fill.depth_levels_consumed == 2
     assert fill.execution_impact_bps == pytest.approx(expected_cost_bps)
     assert fill.slippage_bps == pytest.approx(expected_cost_bps)
@@ -4301,6 +4308,9 @@ def test_taker_trade_print_fill_is_partial_when_print_quantity_is_smaller_than_r
     assert fill.filled_quantity == pytest.approx(0.75)
     assert fill.filled_notional == pytest.approx(75.15)
     assert fill.unfilled_quantity == pytest.approx(1.25)
+    assert fill.requested_notional == pytest.approx(2.0 * 100.2)
+    assert fill.unfilled_notional == pytest.approx(1.25 * 100.2)
+    assert fill.filled_notional + fill.unfilled_notional == pytest.approx(fill.requested_notional)
 
 
 def test_taker_trade_print_fill_aggregates_multiple_eligible_prints_to_cover_request() -> None:
