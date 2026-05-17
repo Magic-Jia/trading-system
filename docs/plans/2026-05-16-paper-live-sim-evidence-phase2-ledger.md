@@ -1,6 +1,6 @@
 # Paper/Live-Sim Evidence Phase 2 Ledger
 
-Status: real_local_generation_verified
+Status: phase9_batch1_full_green
 Base: bbd3c0ab
 Scope: simulated live / paper-live only. In this project context `live` means simulated live unless explicitly stated otherwise.
 
@@ -150,3 +150,23 @@ Final Phase 8 Batch 2 full-suite checkpoint:
 - Branch status before ledger commit: `feat/live-readiness-gates...origin/feat/live-readiness-gates [ahead 3]`.
 
 Remaining operational frontier: continue accumulating real local simulated-live evidence across multiple independent sessions/days, then use the rolling evidence window, scorecard trend, and calibration recommendation artifacts as promotion gate inputs. Independent external-feed cross-checks and operator acknowledgement persistence remain conditional on available feeds and workflow need.
+
+## Phase 9 Batch 1 continuous simulated-live evidence closure
+
+Status: `batch1_full_green` at `c3f3edb9` on `feat/live-readiness-gates` before ledger commit.
+
+Side-effect boundary: offline/local simulated-live evidence only. No real orders, no testnet orders, no exchange API calls, and no live credential use.
+
+Closed Batch 1 frontiers:
+
+- `7c72e167` adds a real-local simulated-live evidence chain checkpoint that consumes local evidence-window and scorecard-trend artifacts, records explicit lineage/source paths, requires `source_mode=simulated_live_local`, and fails closed for malformed/missing/replay inputs. Worker exact: 2211 passed + diff-check. Main exact: 2211 passed + diff-check.
+- `e217f576` adds the promotion gate decision report that aggregates simulated-live evidence window, scorecard trend, and calibration artifacts into a single `reject` / `hold` / `candidate_for_paper_promotion` decision with blocking reasons, lineage, provenance summary, and human-review enforcement for calibration recommendations. Worker exact: 2218 passed + diff-check. Main exact: 2219 passed + diff-check.
+- `c3f3edb9` adds replay provenance for simulated-live evidence windows, including explicit `source_mode=replay`, replay lineage, replay-only window mode, and fail-closed handling for mixed/missing/invalid source modes so replay artifacts cannot masquerade as real local simulated-live evidence. Worker exact: 2216 passed + diff-check. Main exact: 2220 passed + diff-check.
+
+Final Phase 9 Batch 1 full-suite checkpoint:
+
+- `python3 scripts/verify.py --suite full` passed 6501 tests in 204.38s.
+- `git --no-pager diff --check HEAD` clean.
+- Branch status before ledger commit: `feat/live-readiness-gates...origin/feat/live-readiness-gates [ahead 3]`.
+
+Remaining operational frontier: run the new real-local chain and promotion gate against accumulated multi-session simulated-live artifact directories on a cadence, store those promotion decisions as longitudinal evidence, and only then evaluate whether external independent-feed checks or operator acknowledgement persistence are needed for the next promotion threshold.
