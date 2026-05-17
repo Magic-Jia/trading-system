@@ -23,6 +23,7 @@ SOURCE_FILES = {
     "runtime_safety_gate": "runtime_safety_gate.json",
     "passive_order_calibration_records": "passive_order_calibration_records.jsonl",
     "venue_rulebook_catalog_freshness": "venue_rulebook_catalog_freshness.json",
+    "backtest_evidence_chain": "backtest_evidence_chain.json",
 }
 
 _CANONICAL_UTC_TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z$")
@@ -415,6 +416,60 @@ def _live_sim_durability(bundle: Mapping[str, Any] | None, rolling: Mapping[str,
     )
 
 
+def _historical_backtest(chain: Mapping[str, Any] | None, generated_at: str, malformed_reasons: list[str]) -> dict[str, Any]:
+    if malformed_reasons:
+        return _component(
+            as_of=generated_at,
+            coverage_score=0.0,
+            sample_count=0,
+            status="hold",
+            reason_codes=malformed_reasons,
+        )
+    if chain is None:
+        return _missing_component("backtest_evidence_chain", generated_at)
+    summary = chain.get("summary") if isinstance(chain.get("summary"), Mapping) else {}
+    components = summary.get("component_statuses") if isinstance(summary.get("component_statuses"), Mapping) else {}
+    required_components = (
+        "historical_backtest",
+        "exit_path_replay",
+        "walk_forward_oos",
+        "cost_sensitivity",
+        "data_quality",
+    )
+    reasons: list[str] = []
+    if chain.get("schema_version") != "backtest_evidence_chain.v1":
+        reasons.append("backtest_evidence_chain_schema_invalid")
+    if summary.get("decision") != "pass":
+        reasons.append("backtest_evidence_chain_not_pass")
+    for component_name in required_components:
+        if components.get(component_name) != "pass":
+            reasons.append(f"backtest_component_not_pass:{component_name}")
+    historical = chain.get("historical_backtest") if isinstance(chain.get("historical_backtest"), Mapping) else {}
+    sample_count = historical.get("sample_count")
+    trade_count = historical.get("trade_count")
+    if not isinstance(sample_count, int) or isinstance(sample_count, bool) or sample_count < 0:
+        sample_count = 0
+        reasons.append("backtest_sample_count_invalid")
+    if not isinstance(trade_count, int) or isinstance(trade_count, bool) or trade_count < 0:
+        trade_count = sample_count
+    component_reasons = historical.get("reason_codes")
+    if isinstance(component_reasons, list):
+        reasons.extend(reason for reason in component_reasons if isinstance(reason, str))
+    elif component_reasons is not None:
+        reasons.append("backtest_reason_codes_invalid")
+    return {
+        **_component(
+            as_of=str(chain.get("generated_at") or generated_at),
+            coverage_score=1.0 if not reasons else 0.0,
+            sample_count=sample_count,
+            status="pass" if not reasons else "hold",
+            reason_codes=reasons,
+        ),
+        "trade_count": trade_count,
+        "source_summary_decision": summary.get("decision"),
+    }
+
+
 def build_promotion_readiness_evidence(
     runtime_optimization_dir: str | Path,
     *,
@@ -451,6 +506,8 @@ def build_promotion_readiness_evidence(
     drift = json_sources.get("paper_live_shadow_drift_contract")
     runtime_safety = json_sources.get("runtime_safety_gate")
     venue = json_sources.get("venue_rulebook_catalog_freshness")
+    backtest_chain = json_sources.get("backtest_evidence_chain")
+    backtest_malformed = [reason for reason in malformed_sources if reason.startswith("source_malformed:backtest_evidence_chain.json:")]
 
     evidence = {
         "schema_version": SCHEMA_VERSION,
@@ -463,6 +520,7 @@ def build_promotion_readiness_evidence(
         "derivatives_risk": _derivatives_risk(runtime_safety, daily, evaluated_at),
         "cross_source_parity": _cross_source_parity(drift, evaluated_at),
         "live_sim_durability": _live_sim_durability(paper_live_bundle, rolling, evaluated_at),
+        "historical_backtest": _historical_backtest(backtest_chain, evaluated_at, backtest_malformed),
         "sources": sources,
         "missing_sources": missing_sources,
         "malformed_sources": malformed_sources,
@@ -479,6 +537,7 @@ def build_promotion_readiness_evidence(
         },
         "caveats": [
             "Evidence is derived from local simulated-live runtime artifacts only.",
+            "Historical backtest evidence is required as a separate offline local artifact.",
             "Missing or malformed inputs are emitted as hold evidence rather than fabricated pass evidence.",
         ],
     }
@@ -491,6 +550,7 @@ def build_promotion_readiness_evidence(
             "derivatives_risk",
             "cross_source_parity",
             "live_sim_durability",
+            "historical_backtest",
         )
     ]
     evidence["summary"] = {
@@ -504,6 +564,7 @@ def build_promotion_readiness_evidence(
                     "derivatives_risk",
                     "cross_source_parity",
                     "live_sim_durability",
+                    "historical_backtest",
                 ),
                 component_decisions,
                 strict=True,

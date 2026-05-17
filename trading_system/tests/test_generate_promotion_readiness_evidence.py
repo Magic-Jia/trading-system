@@ -182,9 +182,64 @@ def _write_complete_runtime(runtime_dir: Path) -> None:
     _write_jsonl(runtime_dir / "passive_order_calibration_records.jsonl", _calibration_rows())
 
 
+def _backtest_evidence_chain() -> dict[str, object]:
+    return {
+        "schema_version": "backtest_evidence_chain.v1",
+        "generated_at": "2026-05-16T11:55:00Z",
+        "source_mode": "historical_backtest_local",
+        "summary": {
+            "decision": "pass",
+            "component_statuses": {
+                "historical_backtest": "pass",
+                "exit_path_replay": "pass",
+                "walk_forward_oos": "pass",
+                "cost_sensitivity": "pass",
+                "data_quality": "pass",
+            },
+        },
+        "historical_backtest": {
+            "as_of": "2026-05-16T11:55:00Z",
+            "coverage_score": 1.0,
+            "sample_count": 48,
+            "trade_count": 48,
+            "status": "pass",
+            "reason_codes": [],
+        },
+        "exit_path_replay": {
+            "as_of": "2026-05-16T11:55:00Z",
+            "coverage_score": 1.0,
+            "sample_count": 48,
+            "status": "pass",
+            "reason_codes": [],
+        },
+        "walk_forward_oos": {
+            "as_of": "2026-05-16T11:55:00Z",
+            "coverage_score": 1.0,
+            "sample_count": 32,
+            "status": "pass",
+            "reason_codes": [],
+        },
+        "cost_sensitivity": {
+            "as_of": "2026-05-16T11:55:00Z",
+            "coverage_score": 1.0,
+            "sample_count": 32,
+            "status": "pass",
+            "reason_codes": [],
+        },
+        "data_quality": {
+            "as_of": "2026-05-16T11:55:00Z",
+            "coverage_score": 1.0,
+            "sample_count": 48,
+            "status": "pass",
+            "reason_codes": [],
+        },
+    }
+
+
 def test_builds_candidate_quality_promotion_readiness_evidence_from_complete_runtime(tmp_path: Path) -> None:
     runtime_dir = tmp_path / "optimization"
     _write_complete_runtime(runtime_dir)
+    _write_json(runtime_dir / "backtest_evidence_chain.json", _backtest_evidence_chain())
 
     evidence = build_promotion_readiness_evidence(runtime_dir, generated_at=GENERATED_AT)
     scorecard = build_promotion_readiness_scorecard(evidence, generated_at=GENERATED_AT)
@@ -198,6 +253,8 @@ def test_builds_candidate_quality_promotion_readiness_evidence_from_complete_run
     assert evidence["derivatives_risk"]["reason_codes"] == []
     assert evidence["cross_source_parity"]["max_parity_drift_bps"] == 0.4
     assert evidence["live_sim_durability"]["duration_hours"] == 96.0
+    assert evidence["historical_backtest"]["status"] == "pass"
+    assert evidence["historical_backtest"]["source_summary_decision"] == "pass"
     assert scorecard["decision"] == "pass"
     assert scorecard["scores"]["promotion_readiness"] >= 85.0
     assert set(evidence["sources"]) == {
@@ -207,6 +264,7 @@ def test_builds_candidate_quality_promotion_readiness_evidence_from_complete_run
         "paper_live_shadow_drift_contract",
         "runtime_safety_gate",
         "passive_order_calibration_records",
+        "backtest_evidence_chain",
     }
     for source in evidence["sources"].values():
         assert source["sha256"]
@@ -237,9 +295,35 @@ def test_sparse_runtime_emits_hold_evidence_without_fabricating_missing_sections
     assert evidence["venue_rulebook_coverage"]["reason_codes"] == ["source_missing:venue_rulebook_catalog_freshness"]
     assert evidence["cross_source_parity"]["reason_codes"] == ["source_missing:paper_live_shadow_drift_contract"]
     assert evidence["live_sim_durability"]["reason_codes"] == ["source_missing:paper_live_sim_evidence_bundle"]
+    assert evidence["historical_backtest"]["reason_codes"] == ["source_missing:backtest_evidence_chain"]
     assert set(evidence["sources"]) == {"runtime_safety_gate"}
     assert "daily_quality_gate_report" in evidence["missing_sources"]
     assert "paper_live_shadow_drift_contract" in evidence["missing_sources"]
+
+
+def test_complete_runtime_without_backtest_evidence_chain_holds_promotion(tmp_path: Path) -> None:
+    runtime_dir = tmp_path / "optimization"
+    _write_complete_runtime(runtime_dir)
+
+    evidence = build_promotion_readiness_evidence(runtime_dir, generated_at=GENERATED_AT)
+    scorecard = build_promotion_readiness_scorecard(evidence, generated_at=GENERATED_AT)
+
+    assert evidence["historical_backtest"]["status"] == "hold"
+    assert evidence["historical_backtest"]["reason_codes"] == ["source_missing:backtest_evidence_chain"]
+    assert evidence["summary"]["decision"] == "hold"
+    assert scorecard["decision"] == "hold"
+
+
+def test_malformed_backtest_evidence_chain_holds_promotion(tmp_path: Path) -> None:
+    runtime_dir = tmp_path / "optimization"
+    _write_complete_runtime(runtime_dir)
+    (runtime_dir / "backtest_evidence_chain.json").write_text("{not-json", encoding="utf-8")
+
+    evidence = build_promotion_readiness_evidence(runtime_dir, generated_at=GENERATED_AT)
+
+    assert evidence["historical_backtest"]["status"] == "hold"
+    assert evidence["historical_backtest"]["reason_codes"] == ["source_malformed:backtest_evidence_chain.json:JSONDecodeError"]
+    assert evidence["summary"]["decision"] == "hold"
 
 
 def test_writes_promotion_readiness_evidence_and_cli(tmp_path: Path) -> None:

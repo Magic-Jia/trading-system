@@ -38,6 +38,7 @@ SUITES: dict[str, list[str]] = {
         "trading_system/tests/test_simulated_live_cadence_runner.py",
         "trading_system/tests/test_execution_stream_producers.py",
         "trading_system/tests/test_backtest_setup_rewrite_experiment.py",
+        "trading_system/tests/test_backtest_evidence_chain.py",
         "trading_system/tests/test_backtest_promotion.py",
         "trading_system/tests/test_scheduled_live_sim_generation.py",
         "trading_system/tests/test_longitudinal_live_sim_trend_report.py",
@@ -176,6 +177,7 @@ IMPACT_RULES: tuple[tuple[str, list[str]], ...] = (
     ("trading_system/app/backtest/derivatives_risk.py", SUITES["evidence-chain"]),
     ("trading_system/app/backtest/validation_evidence.py", SUITES["evidence-chain"]),
     ("trading_system/app/backtest/promotion_evidence_bundle.py", SUITES["evidence-chain"]),
+    ("trading_system/app/backtest/evidence_chain.py", ["trading_system/tests/test_backtest_evidence_chain.py"]),
     (
         "trading_system/app/reporting/rolling_simulated_live_evidence_bundle.py",
         SUITES["evidence-chain"],

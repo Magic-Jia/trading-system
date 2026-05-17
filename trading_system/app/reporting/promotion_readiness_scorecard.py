@@ -22,6 +22,7 @@ COMPONENT_NAMES = (
     "derivatives_risk",
     "cross_source_parity",
     "live_sim_durability",
+    "historical_backtest",
 )
 
 DEFAULT_THRESHOLDS = {
