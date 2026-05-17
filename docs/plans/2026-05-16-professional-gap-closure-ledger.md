@@ -199,3 +199,23 @@ Controller policy: entries below are marked only after isolated worker verificat
 - `intrabar-tpsl-path-evidence-contracts` — `7a16c62f`, same-bar TP/SL conservative fallback and canonical path-evidence ordering contracts.
 - `execution-event-chain-reconcile-contracts` — `b7625c33`, signal→intent→risk→submit→ack→fill→position-reconcile event-chain contracts.
 
+
+### Phase 6/7 critical operational evidence closure
+
+The following later slices close the highest-priority remaining exchange-realism and simulated-live evidence gaps after the initial professional gap ledger tracks:
+
+- `venue-rulebook-versioning` — `23cb0352`, versioned rulebook provenance and constraint checks.
+- `l2-event-replay-diagnostics` — `fb399050`, deterministic L2 order-book replay diagnostics.
+- `latency-stress-calibration-summary` — `cfbcfc66`, conservative latency/slippage stress evidence.
+- `venue-rulebook-catalog-coverage` — `5c28e52f`, multi-venue/symbol/product catalog coverage and fail-closed stale/duplicate/malformed catalog checks.
+- `derivatives-risk-evidence-model` — `4ab9bfeb`, margin/funding/liquidation/ADL risk evidence model.
+- `longitudinal-l2-replay-calibration-evidence` — `690a2148`, multi-session L2 replay quality calibration report.
+- `execution-race-condition-evidence` — `58e64380`, cancel/fill/replace race and late-fill evidence.
+- `cross-source-parity-drift-evidence` — `a7c69fab`, bid/ask/last/volume/latency cross-source drift monitoring.
+
+Checkpoint evidence:
+
+- Phase 6 final full suite: 6356 passed + diff-check clean at `cfbcfc66`.
+- Phase 7 final full suite: 6418 passed + diff-check clean at `a7c69fab`.
+
+Phase 8 should now prioritize rolling simulated-live evidence, promotion readiness scorecards, and calibration feedback loops rather than adding isolated one-shot correctness functions.

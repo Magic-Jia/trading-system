@@ -79,3 +79,34 @@ Move from offline fail-closed contracts to operational evidence loops for simula
 - `6f592ae5` wires rolling durability inputs into scheduled generation, daily quality gate, and longitudinal trend. Focused worker exact: 34 passed + diff-check.
 - Integration fixes `5a13a0ba` and `40d1bf75` align producer/consumer contracts: scheduled generation reads explicit rolling artifacts, and daily gate accepts producer decisions (`durable`, `insufficient`, `rejected`) mapped to pass/hold/reject semantics. Combined exact: 125 passed + diff-check.
 - End-to-end temp runtime verification: calibration records -> rolling report CLI -> scheduled generation -> daily gate. Durable rolling report is included in generated artifacts, parsed as passed rolling durability, and no scheduled error artifact is emitted.
+
+
+## Phase 6 exchange-realism evidence frontier
+
+- `23cb0352` adds versioned venue rulebook constraints and provenance-aware constraint reports. Main exact: 450 passed + diff-check.
+- `fb399050` adds deterministic L2 event replay diagnostics for order-book reconstruction, gap/crossed-book detection, and replay reason codes. Main exact: 4188 passed + diff-check.
+- `cfbcfc66` adds latency stress calibration summary and conservative latency/slippage stress evidence. Main exact: 2010 passed + diff-check.
+- Final Phase 6 full-suite checkpoint: `scripts/verify.py --suite full` passed 6356 tests; `git --no-pager diff --check HEAD` clean.
+
+## Phase 7 critical-gap closure frontier
+
+Status: `full_green` at `a7c69fab` on `feat/live-readiness-gates`.
+
+Side-effect boundary: offline/local simulated-live evidence only. No real orders, no testnet orders, no exchange API calls, and no live credential use.
+
+Closed critical gaps:
+
+- `5c28e52f` adds venue rulebook catalog coverage over venue/symbol/product type with fail-closed malformed, stale, duplicate, and provenance checks. Main exact: 461 passed + diff-check.
+- `4ab9bfeb` adds derivatives risk evidence for margin mode, position mode, leverage, funding, liquidation estimate, and ADL bucket with fail-closed invalid/stale/duplicate funding evidence. Main exact: 4213 passed + diff-check.
+- `690a2148` adds longitudinal L2 replay calibration evidence across samples/sessions, including gap rate, crossed-book rate, stale rate, depth medians/maxima, and review/hold reason codes. Main exact: 4129 passed + diff-check.
+- `58e64380` adds execution race-condition evidence for cancel/fill/replace ordering, late fills after cancel request/ack, terminal-status conflicts, and hold-for-review race decisions. Main exact: 2043 passed + diff-check.
+- `4ba74e54` maps longitudinal trend report verification impact after worker audit exposed unmapped workflow coverage. Workflow fix was landed separately before accepting the cross-source product commit.
+- `a7c69fab` adds cross-source parity drift evidence across bid/ask/last/volume/latency, missing-source intervals, insufficient overlap, duplicate source identity, stale samples, and crossed quotes. Main exact: 4156 passed + diff-check.
+
+Final Phase 7 full-suite checkpoint:
+
+- `python3 scripts/verify.py --suite full` passed 6418 tests in 234.92s.
+- `git --no-pager diff --check HEAD` clean.
+- Branch status at checkpoint: `feat/live-readiness-gates...origin/feat/live-readiness-gates [ahead 284]`.
+
+Next operational frontier: Phase 8 should move from one-shot offline correctness closure to rolling simulated-live evidence: canonical rolling evidence bundles, promotion readiness scorecards, and calibration feedback loops that turn live-sim observations into backtest/execution-model calibration inputs.
