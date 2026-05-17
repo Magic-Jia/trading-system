@@ -110,3 +110,23 @@ Final Phase 7 full-suite checkpoint:
 - Branch status at checkpoint: `feat/live-readiness-gates...origin/feat/live-readiness-gates [ahead 284]`.
 
 Next operational frontier: Phase 8 should move from one-shot offline correctness closure to rolling simulated-live evidence: canonical rolling evidence bundles, promotion readiness scorecards, and calibration feedback loops that turn live-sim observations into backtest/execution-model calibration inputs.
+
+## Phase 8 rolling simulated-live evidence loop
+
+Status: `batch1_full_green` at `f22dc469` on `feat/live-readiness-gates`.
+
+Side-effect boundary: offline/local simulated-live evidence only. No real orders, no testnet orders, no exchange API calls, and no live credential use.
+
+Closed Batch 1 frontiers:
+
+- `fac49a20` adds rolling simulated-live evidence bundle generation and reporting. Main exact: 2173 passed + diff-check.
+- `201f8e08` adds promotion readiness scorecard with reporting and scheduled-generation impact wiring. Main exact: 2198 passed + diff-check.
+- `f22dc469` adds simulated-live calibration feedback artifact so observed live-sim evidence can feed back into execution/backtest calibration. Main exact: 2097 passed + diff-check.
+
+Final Phase 8 Batch 1 full-suite checkpoint:
+
+- `python3 scripts/verify.py --suite full` passed 6446 tests in 251.28s.
+- `git --no-pager diff --check HEAD` clean.
+- Branch status at checkpoint: `feat/live-readiness-gates...origin/feat/live-readiness-gates [ahead 289]`.
+
+Remaining operational frontier: keep running/accumulating rolling simulated-live evidence over multiple days/sessions, then use the scorecard and calibration feedback to decide whether the backtest/execution assumptions are stable enough for a future promotion gate. External independent-feed checks and operator acknowledgement persistence remain conditional on available feeds and workflow need.

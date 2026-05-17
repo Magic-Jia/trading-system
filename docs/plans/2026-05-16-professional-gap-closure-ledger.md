@@ -217,5 +217,12 @@ Checkpoint evidence:
 
 - Phase 6 final full suite: 6356 passed + diff-check clean at `cfbcfc66`.
 - Phase 7 final full suite: 6418 passed + diff-check clean at `a7c69fab`.
+- Phase 8 Batch 1 full suite: 6446 passed + diff-check clean at `f22dc469`.
 
-Phase 8 should now prioritize rolling simulated-live evidence, promotion readiness scorecards, and calibration feedback loops rather than adding isolated one-shot correctness functions.
+Phase 8 Batch 1 closed the first rolling simulated-live evidence loop:
+
+- `rolling-simulated-live-evidence-bundle` — `fac49a20`, rolling canonical live-sim evidence bundle/reporting, main exact 2173 passed + diff-check.
+- `promotion-readiness-scorecard` — `201f8e08`, scorecard and scheduled/reporting wiring, main exact 2198 passed + diff-check.
+- `calibration-feedback-loop` — `f22dc469`, simulated-live calibration feedback artifact for execution/backtest model updates, main exact 2097 passed + diff-check.
+
+Remaining professional frontier: keep accumulating multi-day/session simulated-live evidence and use rolling scorecards plus calibration feedback to challenge promotion assumptions before any future live/testnet expansion.
