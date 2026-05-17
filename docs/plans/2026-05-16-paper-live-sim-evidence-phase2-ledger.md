@@ -1,6 +1,6 @@
 # Paper/Live-Sim Evidence Phase 2 Ledger
 
-Status: phase9_batch2_full_green
+Status: phase9_batch3_full_green
 Base: bbd3c0ab
 Scope: simulated live / paper-live only. In this project context `live` means simulated live unless explicitly stated otherwise.
 
@@ -192,3 +192,19 @@ Final Phase 9 Batch 2 full-suite checkpoint:
 - Real-local smoke on `trading_system/data/runtime/paper/paper/optimization` correctly recognized `daily_quality_gate_report.json` and failed closed with `hold` only for the remaining absent Phase 9 inputs: rolling TCA durability, L2 longitudinal replay calibration, cross-source parity, venue rulebook freshness, execution race evidence, and promotion readiness evidence.
 
 Remaining operational frontier: produce the missing real local Phase 9 input artifacts from actual simulated-live runtime streams, then let the cadence runner generate real-local promotion gate decisions and accumulate them in the longitudinal archive over multiple sessions/days.
+
+
+## Phase 9 Batch 3 local producer closure
+
+- `0bc5d126` adds local execution-stream producers for `execution_race_evidence.json` and `l2_longitudinal_replay_calibration.json`; main exact: 2257 passed + diff-check.
+- `e173fafd` adds local market-coverage producers for `cross_source_parity_report.json` and `venue_rulebook_catalog_freshness.json`; main exact: 2256 passed + diff-check.
+- `80a15a02` adds local `promotion_readiness_evidence.json` producer; main exact: 112 passed + diff-check.
+- `ed68c698` allows explicit missing/null metrics and boolean indicator fields in simulated-live bundle inputs while preserving bool rejection for true numeric metrics; main exact: 2167 passed + diff-check.
+- Real local runtime smoke generated all missing Phase9 input artifacts from `trading_system/data/runtime/paper/paper/optimization/` without exchange/testnet/real-order side effects. Cadence result completed with `decision=hold` and auditable blockers: missing calibration artifact, bundle component hold, data freshness violation, independent source unavailable, insufficient sample sizes, missing dates, L2 depth evidence unavailable, and venue rulebook catalog unavailable.
+- Batch checkpoint: `python3 scripts/verify.py --suite full && git --no-pager diff --check HEAD` -> 6538 passed in 205.16s, diff-check clean.
+
+## Next frontiers after Phase 9 Batch 3
+
+- Produce genuine calibration records and multi-day simulated-live dates so cadence blockers can move from explicit hold reasons to measured pass/fail.
+- Attach independent market/feed source and venue rulebook catalog sources when available; keep current local producers fail-closed when unavailable.
+- Persist human/operator release acknowledgement only after hold reasons are reviewable from multi-day evidence.
