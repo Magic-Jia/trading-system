@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 from trading_system.app.reporting.rolling_simulated_live_evidence_bundle import REQUIRED_COMPONENTS
+from trading_system.app.reporting.simulated_live_artifact_inventory import ROLLING_BUNDLE_COMPONENT_ARTIFACTS
 from trading_system.generate_simulated_live_cadence_runner import (
     RUNTIME_CALIBRATION_FEEDBACK_NAME,
     RUNTIME_PROMOTION_READINESS_EVIDENCE_NAME,
@@ -14,6 +15,7 @@ from trading_system.generate_simulated_live_cadence_runner import (
 
 
 GENERATED_AT = "2026-05-16T23:55:00Z"
+COMPONENT_FILENAMES = {spec["artifact"]: spec["path"] for spec in ROLLING_BUNDLE_COMPONENT_ARTIFACTS}
 
 
 def _write_json(path: Path, payload: dict[str, object]) -> Path:
@@ -91,7 +93,7 @@ def _write_complete_runtime(runtime_dir: Path) -> None:
         ),
     }
     for component, payload in components.items():
-        _write_json(runtime_dir / f"{component}.json", payload)
+        _write_json(runtime_dir / COMPONENT_FILENAMES[component], payload)
 
     scorecard_evidence = {
         "data_quality": _scorecard_component(as_of="2026-05-16T22:00:00Z"),
@@ -132,7 +134,7 @@ def test_cadence_runner_writes_fail_closed_result_for_missing_artifacts(tmp_path
     assert result["decision"] == "hold"
     assert result["status"] == "fail_closed"
     assert result["missing_required_artifacts"] == [
-        f"{component}:{component}.json" for component in REQUIRED_COMPONENTS
+        f"{component}:{COMPONENT_FILENAMES[component]}" for component in REQUIRED_COMPONENTS
     ] + [f"promotion_readiness_evidence:{RUNTIME_PROMOTION_READINESS_EVIDENCE_NAME}"]
     assert result["steps"]["rolling_simulated_live_evidence_bundle"]["status"] == "skipped"
     assert result["artifacts"] == {

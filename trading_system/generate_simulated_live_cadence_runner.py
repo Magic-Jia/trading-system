@@ -20,6 +20,7 @@ from trading_system.app.reporting.rolling_simulated_live_evidence_bundle import 
     REQUIRED_COMPONENTS,
     write_rolling_simulated_live_evidence_bundle,
 )
+from trading_system.app.reporting.simulated_live_artifact_inventory import ROLLING_BUNDLE_COMPONENT_ARTIFACTS
 from trading_system.app.reporting.simulated_live_evidence_window import write_simulated_live_evidence_window_report
 
 
@@ -98,7 +99,8 @@ def _artifact_record(path: Path, *, generated_by: str) -> dict[str, Any]:
 
 
 def _component_paths(runtime_dir: Path) -> dict[str, Path]:
-    return {component: runtime_dir / f"{component}.json" for component in REQUIRED_COMPONENTS}
+    artifact_paths = {spec["artifact"]: spec["path"] for spec in ROLLING_BUNDLE_COMPONENT_ARTIFACTS}
+    return {component: runtime_dir / artifact_paths[component] for component in REQUIRED_COMPONENTS}
 
 
 def _missing_required_artifacts(runtime_dir: Path) -> list[str]:
