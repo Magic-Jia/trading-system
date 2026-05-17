@@ -176,6 +176,19 @@ def test_promotion_readiness_scorecard_trend_test_file_has_impact_mapping() -> N
     assert "trading_system/tests/test_scheduled_live_sim_generation.py" in tests
 
 
+def test_promotion_gate_decision_test_file_has_impact_mapping() -> None:
+    verify = load_verify_module()
+
+    tests = verify.tests_for_changed([
+        "trading_system/tests/test_promotion_gate_decision.py"
+    ])
+
+    assert "trading_system/tests/test_promotion_gate_decision.py" in tests
+    assert "trading_system/tests/test_simulated_live_evidence_window.py" in tests
+    assert "trading_system/tests/test_promotion_readiness_scorecard_trend.py" in tests
+    assert "trading_system/tests/test_execution_calibration_evidence.py" in tests
+
+
 def test_promotion_readiness_scorecard_has_reporting_impact_mapping() -> None:
     verify = load_verify_module()
 
@@ -206,6 +219,25 @@ def test_real_local_simulated_live_evidence_chain_has_impact_mapping() -> None:
 
     assert "trading_system/tests/test_real_local_simulated_live_evidence_chain.py" in reporting_tests
     assert "trading_system/tests/test_real_local_simulated_live_evidence_chain.py" in generator_tests
+
+
+def test_promotion_gate_decision_has_reporting_impact_mapping() -> None:
+    verify = load_verify_module()
+
+    tests = verify.tests_for_changed(["trading_system/app/reporting/promotion_gate_decision.py"])
+
+    assert "trading_system/tests/test_promotion_gate_decision.py" in tests
+    assert "trading_system/tests/test_simulated_live_evidence_window.py" in tests
+    assert "trading_system/tests/test_promotion_readiness_scorecard_trend.py" in tests
+    assert "trading_system/tests/test_execution_calibration_evidence.py" in tests
+
+
+def test_promotion_gate_decision_generator_has_impact_mapping() -> None:
+    verify = load_verify_module()
+
+    tests = verify.tests_for_changed(["trading_system/generate_promotion_gate_decision.py"])
+
+    assert tests == ["trading_system/tests/test_promotion_gate_decision.py"]
 
 
 def test_full_market_baseline_dataset_fixtures_have_backtest_impact_mapping() -> None:

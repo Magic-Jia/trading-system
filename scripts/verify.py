@@ -30,6 +30,7 @@ SUITES: dict[str, list[str]] = {
         "trading_system/tests/test_rolling_simulated_live_evidence_bundle.py",
         "trading_system/tests/test_simulated_live_evidence_window.py",
         "trading_system/tests/test_real_local_simulated_live_evidence_chain.py",
+        "trading_system/tests/test_promotion_gate_decision.py",
         "trading_system/tests/test_backtest_setup_rewrite_experiment.py",
         "trading_system/tests/test_backtest_promotion.py",
         "trading_system/tests/test_scheduled_live_sim_generation.py",
@@ -182,6 +183,15 @@ IMPACT_RULES: tuple[tuple[str, list[str]], ...] = (
         SUITES["evidence-chain"],
     ),
     (
+        "trading_system/app/reporting/promotion_gate_decision.py",
+        [
+            "trading_system/tests/test_promotion_gate_decision.py",
+            "trading_system/tests/test_simulated_live_evidence_window.py",
+            "trading_system/tests/test_promotion_readiness_scorecard_trend.py",
+            "trading_system/tests/test_execution_calibration_evidence.py",
+        ],
+    ),
+    (
         "trading_system/generate_rolling_simulated_live_evidence_bundle.py",
         ["trading_system/tests/test_rolling_simulated_live_evidence_bundle.py"],
     ),
@@ -192,6 +202,10 @@ IMPACT_RULES: tuple[tuple[str, list[str]], ...] = (
     (
         "trading_system/generate_real_local_simulated_live_evidence_chain.py",
         ["trading_system/tests/test_real_local_simulated_live_evidence_chain.py"],
+    ),
+    (
+        "trading_system/generate_promotion_gate_decision.py",
+        ["trading_system/tests/test_promotion_gate_decision.py"],
     ),
     ("trading_system/app/backtest/promotion.py", [
         "trading_system/tests/test_backtest_promotion.py",
@@ -218,6 +232,15 @@ IMPACT_RULES: tuple[tuple[str, list[str]], ...] = (
         [
             "trading_system/tests/test_promotion_readiness_scorecard_trend.py",
             "trading_system/tests/test_scheduled_live_sim_generation.py",
+        ],
+    ),
+    (
+        "trading_system/tests/test_promotion_gate_decision.py",
+        [
+            "trading_system/tests/test_promotion_gate_decision.py",
+            "trading_system/tests/test_simulated_live_evidence_window.py",
+            "trading_system/tests/test_promotion_readiness_scorecard_trend.py",
+            "trading_system/tests/test_execution_calibration_evidence.py",
         ],
     ),
     ("scripts/audit_worker_commit.py", SUITES["workflow-meta"]),
