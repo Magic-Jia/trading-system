@@ -179,6 +179,20 @@ IMPACT_RULES: tuple[tuple[str, list[str]], ...] = (
     ("trading_system/app/backtest/promotion_evidence_bundle.py", SUITES["evidence-chain"]),
     ("trading_system/app/backtest/evidence_chain.py", ["trading_system/tests/test_backtest_evidence_chain.py"]),
     (
+        "trading_system/app/backtest/professional_reports.py",
+        [
+            "trading_system/tests/test_backtest_professional_reports.py",
+            "trading_system/tests/test_backtest_evidence_chain.py",
+        ],
+    ),
+    (
+        "trading_system/tests/test_backtest_professional_reports.py",
+        [
+            "trading_system/tests/test_backtest_professional_reports.py",
+            "trading_system/tests/test_backtest_evidence_chain.py",
+        ],
+    ),
+    (
         "trading_system/app/reporting/rolling_simulated_live_evidence_bundle.py",
         SUITES["evidence-chain"],
     ),

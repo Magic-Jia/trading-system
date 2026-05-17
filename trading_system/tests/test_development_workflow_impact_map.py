@@ -341,3 +341,12 @@ def test_full_market_baseline_dataset_fixtures_have_backtest_impact_mapping() ->
 
     assert "trading_system/tests/test_backtest_dataset.py" in tests
     assert "trading_system/tests/test_backtest_engine.py" in tests
+
+
+def test_professional_backtest_report_test_file_has_impact_mapping() -> None:
+    verify = load_verify_module()
+
+    tests = verify.tests_for_changed(["trading_system/tests/test_backtest_professional_reports.py"])
+
+    assert "trading_system/tests/test_backtest_professional_reports.py" in tests
+    assert "trading_system/tests/test_backtest_evidence_chain.py" in tests
