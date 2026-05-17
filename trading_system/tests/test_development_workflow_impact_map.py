@@ -146,6 +146,17 @@ def test_longitudinal_live_sim_trend_report_test_file_has_impact_mapping() -> No
     assert "trading_system/tests/test_scheduled_live_sim_generation.py" in tests
 
 
+def test_promotion_readiness_scorecard_test_file_has_impact_mapping() -> None:
+    verify = load_verify_module()
+
+    tests = verify.tests_for_changed([
+        "trading_system/tests/test_promotion_readiness_scorecard.py"
+    ])
+
+    assert "trading_system/tests/test_promotion_readiness_scorecard.py" in tests
+    assert "trading_system/tests/test_scheduled_live_sim_generation.py" in tests
+
+
 def test_full_market_baseline_dataset_fixtures_have_backtest_impact_mapping() -> None:
     verify = load_verify_module()
 

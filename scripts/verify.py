@@ -157,6 +157,20 @@ IMPACT_RULES: tuple[tuple[str, list[str]], ...] = (
     ]),
     ("trading_system/tests/fixtures/backtest/full_market_baseline_dataset/", SUITES["backtest-core"]),
     ("trading_system/app/backtest/", SUITES["backtest-core"]),
+    (
+        "trading_system/tests/test_longitudinal_live_sim_trend_report.py",
+        [
+            "trading_system/tests/test_longitudinal_live_sim_trend_report.py",
+            "trading_system/tests/test_scheduled_live_sim_generation.py",
+        ],
+    ),
+    (
+        "trading_system/tests/test_promotion_readiness_scorecard.py",
+        [
+            "trading_system/tests/test_promotion_readiness_scorecard.py",
+            "trading_system/tests/test_scheduled_live_sim_generation.py",
+        ],
+    ),
     ("scripts/audit_worker_commit.py", SUITES["workflow-meta"]),
     ("scripts/ci_verify.py", SUITES["workflow-meta"]),
     ("scripts/nightly_verify.py", SUITES["workflow-meta"]),
