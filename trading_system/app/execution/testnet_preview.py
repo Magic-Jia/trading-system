@@ -5,6 +5,7 @@ from typing import Any
 
 from ..runtime.runtime_safety_evidence import EXECUTION_PREVIEW_UNSUPPORTED_REASON_PREFIXES
 from ..types import OrderIntent
+from .exchange_constraints import build_exchange_constraint_report
 from .orders import EntryOrderPolicy, build_entry_order_payload, build_stop_order_payload, build_take_profit_payload
 
 
@@ -54,6 +55,37 @@ def _append_step_and_precision_reasons(
             reasons.append(
                 f"price tick size or precision incompatible: {label}={price} tick_size={price_tick_size}"
             )
+
+
+def _symbol_constraints(symbol_metadata: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "quantity_step_size": _strict_positive_number(symbol_metadata.get("quantity_step_size"), "quantity_step_size"),
+        "price_tick_size": _strict_positive_number(symbol_metadata.get("price_tick_size"), "price_tick_size"),
+        "min_notional": _strict_non_negative_number(symbol_metadata.get("min_notional", 0.0), "min_notional"),
+    }
+
+
+def _strict_positive_number(value: Any, label: str) -> float:
+    number = _strict_number(value, label)
+    if number <= 0.0:
+        raise ValueError(f"{label} must be a positive finite number")
+    return number
+
+
+def _strict_non_negative_number(value: Any, label: str) -> float:
+    number = _strict_number(value, label)
+    if number < 0.0:
+        raise ValueError(f"{label} must be a non-negative finite number")
+    return number
+
+
+def _strict_number(value: Any, label: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{label} must be a finite non-bool number")
+    number = float(value)
+    if not number == number or number in {float("inf"), float("-inf")}:
+        raise ValueError(f"{label} must be a finite non-bool number")
+    return number
 
 
 def _validate_payload_mapping(
@@ -143,6 +175,7 @@ def _build_execution_preview(
     intent: OrderIntent,
     payloads: dict[str, dict[str, Any] | None],
     reasons: list[str],
+    reason_codes: list[str] | None = None,
 ) -> dict[str, Any]:
     orders: list[dict[str, Any]] = []
     entry_payload = payloads["entry"]
@@ -155,7 +188,32 @@ def _build_execution_preview(
     return {
         "schema_version": "execution_preview.v1",
         "orders": orders,
-        "unsupported": [{"reason_code": _unsupported_reason_code(reason), "detail": reason} for reason in reasons],
+        "unsupported": (
+            [{"reason_code": code, "detail": code} for code in reason_codes]
+            if reason_codes is not None
+            else [{"reason_code": _unsupported_reason_code(reason), "detail": reason} for reason in reasons]
+        ),
+    }
+
+
+def _constraint_order_from_payloads(
+    *,
+    intent: OrderIntent,
+    payloads: dict[str, dict[str, Any] | None],
+    symbol_metadata: dict[str, Any],
+) -> dict[str, Any]:
+    entry_payload = payloads["entry"] or {}
+    stop_payload = payloads["stop"] or {}
+    take_profit_payload = payloads["take_profit"] or {}
+    return {
+        "side": entry_payload.get("side"),
+        "quantity": entry_payload.get("quantity", intent.qty),
+        "price": entry_payload.get("price", intent.entry_price),
+        "stop_price": stop_payload.get("stopPrice"),
+        "take_profit_stop_price": take_profit_payload.get("stopPrice") if take_profit_payload else None,
+        "post_only": entry_payload.get("timeInForce") == "GTX",
+        "best_bid": symbol_metadata.get("best_bid"),
+        "best_ask": symbol_metadata.get("best_ask"),
     }
 
 
@@ -175,6 +233,13 @@ def build_validated_order_preview(
         "stop": build_stop_order_payload(intent),
         "take_profit": build_take_profit_payload(intent),
     }
+    if not isinstance(intent.symbol, str) or not intent.symbol.strip():
+        raise ValueError("symbol must be a non-empty string")
+    _strict_positive_number(intent.qty, "qty")
+    _strict_positive_number(intent.entry_price, "entry_price")
+    _strict_positive_number(intent.stop_loss, "stop_loss")
+    if intent.take_profit is not None:
+        _strict_positive_number(intent.take_profit, "take_profit")
     order_types = [
         payload["type"]
         for payload in (payloads["entry"], payloads["stop"], payloads["take_profit"])
@@ -182,6 +247,14 @@ def build_validated_order_preview(
     ]
 
     reasons: list[str] = []
+    exchange_reject_report = {
+        "schema_version": "exchange_reject_report.v1",
+        "venue": "binance_futures_testnet",
+        "symbol": intent.symbol,
+        "generated_at": "preview",
+        "validation_passed": False,
+        "reason_codes": [],
+    }
     normalized_allowlist = {str(symbol).strip().upper() for symbol in allowlist if str(symbol).strip()}
     if intent.symbol not in normalized_allowlist:
         reasons.append(f"symbol not allowed for testnet preview: {intent.symbol}")
@@ -190,6 +263,7 @@ def build_validated_order_preview(
     if symbol_metadata is None:
         reasons.append(f"missing exchange metadata for {intent.symbol}")
     else:
+        constraints = _symbol_constraints(symbol_metadata)
         allowed_order_types = {
             str(order_type).strip().upper()
             for order_type in symbol_metadata.get("allowed_order_types", [])
@@ -200,7 +274,7 @@ def build_validated_order_preview(
                 reasons.append(f"order type incompatible with exchange metadata: {order_type}")
 
         entry_notional = float(intent.qty) * float(intent.entry_price)
-        min_notional = float(symbol_metadata.get("min_notional", 0.0) or 0.0)
+        min_notional = constraints["min_notional"]
         if min_notional and entry_notional < min_notional:
             reasons.append(
                 f"entry notional below exchange minimum: notional={entry_notional} min_notional={min_notional}"
@@ -213,8 +287,15 @@ def build_validated_order_preview(
         _append_step_and_precision_reasons(
             reasons=reasons,
             intent=intent,
-            quantity_step_size=float(symbol_metadata.get("quantity_step_size", 0.0) or 0.0),
-            price_tick_size=float(symbol_metadata.get("price_tick_size", 0.0) or 0.0),
+            quantity_step_size=constraints["quantity_step_size"],
+            price_tick_size=constraints["price_tick_size"],
+        )
+        exchange_reject_report = build_exchange_constraint_report(
+            venue="binance_futures_testnet",
+            symbol=intent.symbol,
+            generated_at="preview",
+            order=_constraint_order_from_payloads(intent=intent, payloads=payloads, symbol_metadata=symbol_metadata),
+            constraints=constraints,
         )
 
     _validate_payload_mapping(reasons=reasons, payloads=payloads, entry_order_policy=entry_order_policy)
@@ -227,7 +308,13 @@ def build_validated_order_preview(
         "qty": intent.qty,
         "order_types": order_types,
         "payloads": payloads,
-        "execution_preview": _build_execution_preview(intent=intent, payloads=payloads, reasons=reasons),
+        "exchange_reject_report": exchange_reject_report,
+        "execution_preview": _build_execution_preview(
+            intent=intent,
+            payloads=payloads,
+            reasons=reasons,
+            reason_codes=exchange_reject_report["reason_codes"] or None,
+        ),
         "local_validation_passed": submission_prerequisites_passed,
         "submission_enabled": submission_enabled,
         "would_submit": submission_enabled and submission_prerequisites_passed,
