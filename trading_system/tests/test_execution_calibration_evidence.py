@@ -132,6 +132,9 @@ def test_writes_passive_and_taker_calibration_summary_from_jsonl(tmp_path: Path)
         "decision_at": "2026-01-01T00:00:01Z",
         "submitted_at": "2026-01-01T00:00:02Z",
         "exchange_ack_at": "2026-01-01T00:00:03Z",
+        "cancel_requested_at": None,
+        "replace_requested_at": None,
+        "replace_ack_at": None,
         "first_fill_at": "2026-01-01T00:00:04Z",
         "last_fill_at": "2026-01-01T00:00:05Z",
         "cancel_ack_at": None,
@@ -140,6 +143,65 @@ def test_writes_passive_and_taker_calibration_summary_from_jsonl(tmp_path: Path)
     output = write_calibration_summary(source, tmp_path / "out", evidence_source={"type": "synthetic_fixture"})
     assert output == tmp_path / "out" / "passive_order_calibration_summary.json"
     assert json.loads(output.read_text()) == summary
+
+
+def test_loads_and_summarizes_cancel_replace_lifecycle_fields(tmp_path: Path) -> None:
+    source = tmp_path / "orders.jsonl"
+    source.write_text(
+        json.dumps(
+            _strict_record_payload(
+                status="cancelled",
+                terminal_status="cancelled",
+                requested_qty=1.0,
+                filled_qty=0.4,
+                filled_notional=40.0,
+                last_fill_at="2026-01-01T00:00:04Z",
+                cancel_requested_at="2026-01-01T00:00:05Z",
+                cancel_ack_at="2026-01-01T00:00:07Z",
+                cancel_latency_ms=2000.0,
+                partial_fill_before_cancel=True,
+            )
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    records = load_calibration_records(source)
+    summary = summarize_calibration_records(records)
+
+    record = records[0]
+    assert record.cancel_requested_at.isoformat().replace("+00:00", "Z") == "2026-01-01T00:00:05Z"
+    assert record.cancel_latency_ms == pytest.approx(2000.0)
+    assert record.terminal_status == "cancelled"
+    assert record.partial_fill_before_cancel is True
+    payload = summary["records"][0]
+    assert payload["terminal_status"] == "cancelled"
+    assert payload["cancel_latency_ms"] == pytest.approx(2000.0)
+    assert payload["partial_fill_before_cancel"] is True
+    assert payload["lifecycle_timestamps"]["cancel_requested_at"] == "2026-01-01T00:00:05Z"
+
+
+def test_loads_replace_lifecycle_latency_fields(tmp_path: Path) -> None:
+    source = tmp_path / "orders.jsonl"
+    source.write_text(
+        json.dumps(
+            _strict_record_payload(
+                replace_requested_at="2026-01-01T00:00:04Z",
+                replace_ack_at="2026-01-01T00:00:06Z",
+                first_fill_at="2026-01-01T00:00:07Z",
+                replace_latency_ms=2000.0,
+                terminal_status="filled",
+            )
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    record = load_calibration_records(source)[0]
+
+    assert record.replace_requested_at.isoformat().replace("+00:00", "Z") == "2026-01-01T00:00:04Z"
+    assert record.replace_ack_at.isoformat().replace("+00:00", "Z") == "2026-01-01T00:00:06Z"
+    assert record.replace_latency_ms == pytest.approx(2000.0)
 
 
 def test_builds_tca_calibration_report_expected_vs_observed_and_checks() -> None:
@@ -208,6 +270,11 @@ def test_builds_tca_calibration_report_expected_vs_observed_and_checks() -> None
     assert report["observed"]["ack_latency_ms"]["median"] == 1000.0
     assert report["observed"]["fill_latency_ms"]["median"] == 1000.0
     assert report["observed"]["cancel_latency_ms"]["median"] == 3000.0
+    assert report["observed"]["terminal_status"] == {
+        "filled": {"count": 2, "rate": 0.5},
+        "partially_filled": {"count": 1, "rate": 0.25},
+        "rejected": {"count": 1, "rate": 0.25},
+    }
     assert report["observed"]["slippage_bps"]["median"] == 2.0
     assert report["observed"]["adverse_selection_bps"]["median"] == 2.0
     assert report["observed"]["fees_funding_bps"]["median"] == pytest.approx(2.0, abs=0.001)
@@ -411,6 +478,8 @@ def test_rejects_string_fees_before_calibration_load(tmp_path: Path) -> None:
         "requested_notional",
         "filled_qty",
         "filled_notional",
+        "cancel_latency_ms",
+        "replace_latency_ms",
         "slippage_bps",
         "ref_price",
         "latency_ms",
@@ -533,7 +602,10 @@ def test_rejects_missing_or_noncanonical_required_lifecycle_timestamps_before_ca
     [
         ("first_fill_at", "2026-01-01T00:00:04+00:00"),
         ("last_fill_at", "2026-01-01T00:00:05+00:00"),
+        ("cancel_requested_at", "2026-01-01T00:00:06+00:00"),
         ("cancel_ack_at", "2026-01-01T00:00:06+00:00"),
+        ("replace_requested_at", "2026-01-01T00:00:04+00:00"),
+        ("replace_ack_at", "2026-01-01T00:00:05+00:00"),
     ],
 )
 def test_rejects_noncanonical_optional_lifecycle_timestamps_before_calibration_load(
@@ -557,6 +629,18 @@ def test_rejects_noncanonical_optional_lifecycle_timestamps_before_calibration_l
             {"first_fill_at": "2026-01-01T00:00:04Z", "cancel_ack_at": "2026-01-01T00:00:04Z"},
             "calibration record cancel_ack_at must be after last fill timestamp",
         ),
+        (
+            {"cancel_requested_at": "2026-01-01T00:00:02Z"},
+            "calibration record cancel_requested_at must be at or after exchange_ack_at",
+        ),
+        (
+            {"replace_ack_at": "2026-01-01T00:00:05Z"},
+            "calibration record replace_ack_at requires replace_requested_at",
+        ),
+        (
+            {"replace_requested_at": "2026-01-01T00:00:05Z", "replace_ack_at": "2026-01-01T00:00:04Z"},
+            "calibration record replace_ack_at must be at or after replace_requested_at",
+        ),
     ],
 )
 def test_rejects_non_monotonic_lifecycle_timestamps_before_calibration_load(
@@ -574,6 +658,26 @@ def test_rejects_cancel_ack_without_cancelled_terminal_state_before_calibration_
     source.write_text(json.dumps(_strict_record_payload(cancel_ack_at="2026-01-01T00:00:10Z")) + "\n")
 
     with pytest.raises(ValueError, match="calibration record cancel_ack_at requires a cancelled, expired, or rejected status"):
+        load_calibration_records(source)
+
+
+def test_rejects_fill_after_terminal_cancel_without_race_marker_before_calibration_load(tmp_path: Path) -> None:
+    source = tmp_path / "dust_orders.jsonl"
+    source.write_text(
+        json.dumps(
+            _strict_record_payload(
+                status="cancelled",
+                first_fill_at="2026-01-01T00:00:08Z",
+                last_fill_at="2026-01-01T00:00:08Z",
+                cancel_requested_at="2026-01-01T00:00:04Z",
+                cancel_ack_at="2026-01-01T00:00:07Z",
+                partial_fill_before_cancel=True,
+            )
+        )
+        + "\n"
+    )
+
+    with pytest.raises(ValueError, match="calibration record fill after terminal cancel requires exchange_race_partial_before_cancel_ack"):
         load_calibration_records(source)
 
 

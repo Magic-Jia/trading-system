@@ -46,6 +46,71 @@ def _event_chain(**overrides: object) -> list[dict[str, object]]:
     return [{**base, "stage": stage, "status": status, "occurred_at": occurred_at} for stage, status, occurred_at in stages]
 
 
+def _partial_cancel_event_chain(**overrides: object) -> list[dict[str, object]]:
+    rows = _event_chain(**overrides)
+    rows[5].update(
+        {
+            "status": "partially_filled",
+            "quantity": 0.04,
+            "filled_qty": 0.04,
+            "price": 100.0,
+            "occurred_at": "2026-05-16T10:00:05Z",
+        }
+    )
+    rows.insert(
+        6,
+        {
+            **rows[5],
+            "stage": "cancel_request",
+            "status": "requested",
+            "trade_id": "trade-1",
+            "quantity": 0.1,
+            "occurred_at": "2026-05-16T10:00:06Z",
+        },
+    )
+    rows.insert(
+        7,
+        {
+            **rows[5],
+            "stage": "cancel_ack",
+            "status": "cancelled",
+            "trade_id": "trade-1",
+            "quantity": 0.1,
+            "cancel_reason": "user_cancel",
+            "occurred_at": "2026-05-16T10:00:08Z",
+        },
+    )
+    rows[-1] = {**rows[-1], "occurred_at": "2026-05-16T10:00:09Z"}
+    return rows
+
+
+def _replace_event_chain(**overrides: object) -> list[dict[str, object]]:
+    rows = _event_chain(**overrides)
+    rows.insert(
+        5,
+        {
+            **rows[4],
+            "stage": "replace_request",
+            "status": "requested",
+            "price": 99.8,
+            "occurred_at": "2026-05-16T10:00:05Z",
+        },
+    )
+    rows.insert(
+        6,
+        {
+            **rows[4],
+            "stage": "replace_ack",
+            "status": "acknowledged",
+            "price": 99.8,
+            "occurred_at": "2026-05-16T10:00:07Z",
+        },
+    )
+    rows[7].update({"occurred_at": "2026-05-16T10:00:08Z", "price": 99.8, "filled_notional": 9.98})
+    rows[8].update({"occurred_at": "2026-05-16T10:00:09Z"})
+    return rows
+
+
 def _ledger_event() -> dict[str, object]:
     return {
         "event_type": "paper_fill",
@@ -102,6 +167,42 @@ def test_generate_execution_calibration_records_writes_loader_compatible_jsonl(t
     assert record.slippage_bps == pytest.approx(50.2512562814)
 
 
+def test_generate_execution_calibration_records_captures_partial_fill_cancel_lifecycle(tmp_path: Path) -> None:
+    execution_log = tmp_path / "execution_log.jsonl"
+    output = tmp_path / "passive_order_calibration_records.jsonl"
+    _write_jsonl(execution_log, _partial_cancel_event_chain())
+
+    result = generate_execution_calibration_records(execution_log_file=execution_log, output_file=output)
+
+    assert result["record_count"] == 1
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert payload["status"] == "cancelled"
+    assert payload["terminal_status"] == "cancelled"
+    assert payload["first_fill_at"] == "2026-05-16T10:00:05Z"
+    assert payload["cancel_requested_at"] == "2026-05-16T10:00:06Z"
+    assert payload["cancel_ack_at"] == "2026-05-16T10:00:08Z"
+    assert payload["cancel_latency_ms"] == pytest.approx(2000.0)
+    assert payload["partial_fill_before_cancel"] is True
+    assert payload["filled_qty"] == pytest.approx(0.04)
+    assert load_calibration_records(output)[0].terminal_status == "cancelled"
+
+
+def test_generate_execution_calibration_records_captures_replace_lifecycle(tmp_path: Path) -> None:
+    execution_log = tmp_path / "execution_log.jsonl"
+    output = tmp_path / "passive_order_calibration_records.jsonl"
+    _write_jsonl(execution_log, _replace_event_chain())
+
+    result = generate_execution_calibration_records(execution_log_file=execution_log, output_file=output)
+
+    assert result["record_count"] == 1
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert payload["replace_requested_at"] == "2026-05-16T10:00:05Z"
+    assert payload["replace_ack_at"] == "2026-05-16T10:00:07Z"
+    assert payload["replace_latency_ms"] == pytest.approx(2000.0)
+    assert payload["terminal_status"] == "filled"
+    assert payload["status"] == "filled"
+
+
 def test_generate_execution_calibration_records_ignores_recommendation_only_paper_trades(tmp_path: Path) -> None:
     execution_log = tmp_path / "execution_log.jsonl"
     output = tmp_path / "passive_order_calibration_records.jsonl"
@@ -137,6 +238,8 @@ def test_generate_execution_calibration_records_ignores_recommendation_only_pape
         (lambda rows: rows[5].update({"quantity": float("inf")}), "quantity must be finite"),
         (lambda rows: rows[5].update({"quantity": 0.2}), "filled quantity cannot exceed requested quantity"),
         (lambda rows: rows[5].update({"maker_taker": None}), "maker_taker must be maker or taker"),
+        (lambda rows: rows[5].update({"status": "FILLED"}), "fill status must be canonical"),
+        (lambda rows: rows[1].update({"event_id": "evt-dup"}) or rows[2].update({"event_id": "evt-dup"}), "duplicate lifecycle event_id"),
     ],
 )
 def test_generate_execution_calibration_records_fails_closed_for_malformed_lifecycle(
@@ -145,6 +248,68 @@ def test_generate_execution_calibration_records_fails_closed_for_malformed_lifec
     message: str,
 ) -> None:
     rows = _event_chain()
+    mutate(rows)
+    execution_log = tmp_path / "execution_log.jsonl"
+    output = tmp_path / "passive_order_calibration_records.jsonl"
+    _write_jsonl(execution_log, rows)
+
+    with pytest.raises(ValueError, match=message):
+        generate_execution_calibration_records(execution_log_file=execution_log, output_file=output)
+
+    assert not output.exists()
+
+
+@pytest.mark.parametrize(
+    ("rows_factory", "mutate", "message"),
+    [
+        (
+            _partial_cancel_event_chain,
+            lambda rows: rows.pop(6),
+            "cancel_ack requires cancel_request",
+        ),
+        (
+            _partial_cancel_event_chain,
+            lambda rows: rows[6].update({"occurred_at": "2026-05-16T10:00:02Z"}),
+            "cancel_request must be at or after exchange_ack",
+        ),
+        (
+            _partial_cancel_event_chain,
+            lambda rows: rows[7].update({"occurred_at": "2026-05-16T10:00:05.500000Z"}),
+            "cancel_ack must be at or after cancel_request",
+        ),
+        (
+            _partial_cancel_event_chain,
+            lambda rows: rows[7].update({"occurred_at": "2026-05-16T10:00:02Z"}),
+            "cancel_ack must be at or after exchange_ack",
+        ),
+        (
+            _partial_cancel_event_chain,
+            lambda rows: rows.insert(
+                8,
+                {
+                    **rows[5],
+                    "stage": "fill",
+                    "status": "partially_filled",
+                    "quantity": 0.01,
+                    "occurred_at": "2026-05-16T10:00:08.500000Z",
+                },
+            ),
+            "fill after terminal cancel",
+        ),
+        (
+            _replace_event_chain,
+            lambda rows: rows.pop(5),
+            "replace_ack requires replace_request",
+        ),
+    ],
+)
+def test_generate_execution_calibration_records_fails_closed_for_malformed_cancel_replace_lifecycle(
+    tmp_path: Path,
+    rows_factory,
+    mutate,
+    message: str,
+) -> None:
+    rows = rows_factory()
     mutate(rows)
     execution_log = tmp_path / "execution_log.jsonl"
     output = tmp_path / "passive_order_calibration_records.jsonl"

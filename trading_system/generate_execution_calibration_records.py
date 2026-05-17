@@ -26,6 +26,10 @@ _CANONICAL_STAGE_STATUSES = {
     "exchange_ack": {"acknowledged"},
     "fill": {"filled", "partially_filled", "partial"},
     "cancel": {"cancelled", "canceled", "expired", "rejected"},
+    "cancel_request": {"requested"},
+    "cancel_ack": {"cancelled", "canceled", "expired", "rejected"},
+    "replace_request": {"requested"},
+    "replace_ack": {"acknowledged"},
     "position_reconcile": {"reconciled"},
 }
 _NUMERIC_FIELDS = {
@@ -156,9 +160,9 @@ def _stage(row: Mapping[str, Any]) -> str | None:
 
 def _status(row: Mapping[str, Any]) -> str:
     value = row.get("status")
-    if type(value) is not str:
+    if type(value) is not str or value != value.lower():
         raise ValueError("status must be canonical")
-    return value.lower()
+    return value
 
 
 def _validate_numeric_fields(row: Mapping[str, Any]) -> None:
@@ -197,7 +201,10 @@ def _validate_stage_status(stage: str, row: Mapping[str, Any]) -> None:
     allowed = _CANONICAL_STAGE_STATUSES.get(stage)
     if allowed is None:
         raise ValueError(f"unknown lifecycle stage {stage}")
-    status = _status(row)
+    try:
+        status = _status(row)
+    except ValueError as exc:
+        raise ValueError(f"{stage} status must be canonical") from exc
     if status not in allowed:
         raise ValueError(f"{stage} status must be canonical")
 
@@ -267,27 +274,41 @@ def _record_from_chain(
 ) -> dict[str, Any]:
     if not rows:
         raise ValueError("lifecycle chain is empty")
-    previous: datetime | None = None
     stages: dict[str, list[Mapping[str, Any]]] = {}
+    staged_times: list[datetime] = []
+    seen_event_ids: set[str] = set()
     for row in rows:
         _validate_numeric_fields(row)
+        event_id = row.get("event_id")
+        if event_id is not None:
+            if type(event_id) is not str or not event_id or event_id != event_id.strip():
+                raise ValueError("event_id must be a canonical string")
+            if event_id in seen_event_ids:
+                raise ValueError(f"duplicate lifecycle event_id: {event_id}")
+            seen_event_ids.add(event_id)
         stage = _stage(row)
         if stage is None:
             continue
         timestamp = _parse_timestamp(row, "occurred_at")
-        if previous is not None and timestamp < previous:
-            raise ValueError("lifecycle timestamps must be monotonic")
-        previous = timestamp
         _validate_stage_status(stage, row)
         if stage != "fill" and stage in stages:
             raise ValueError(f"duplicate lifecycle stage {stage}")
         stages.setdefault(stage, []).append(row)
+        staged_times.append(timestamp)
 
     for stage in _REQUIRED_STAGES:
         if stage not in stages:
             raise ValueError(f"missing lifecycle stage {stage}")
     if "fill" not in stages and "cancel" not in stages:
         raise ValueError("missing lifecycle stage fill")
+    if "cancel_ack" in stages and "cancel_request" not in stages:
+        raise ValueError("cancel_ack requires cancel_request")
+    if "cancel_request" in stages and "cancel_ack" not in stages:
+        raise ValueError("cancel_request requires cancel_ack")
+    if "replace_ack" in stages and "replace_request" not in stages:
+        raise ValueError("replace_ack requires replace_request")
+    if "replace_request" in stages and "replace_ack" not in stages:
+        raise ValueError("replace_request requires replace_ack")
 
     identity = _validate_identity([row for row in rows if _stage(row) in stages])
     order_id = identity.get("order_id")
@@ -310,7 +331,30 @@ def _record_from_chain(
     signal = stages["signal"][0]
     intent = stages["order_intent"][0]
     reconcile = stages["position_reconcile"][0]
-    cancel = stages.get("cancel", [None])[0]
+    cancel_request = stages.get("cancel_request", [None])[0]
+    cancel_ack = stages.get("cancel_ack", stages.get("cancel", [None]))[0]
+    replace_request = stages.get("replace_request", [None])[0]
+    replace_ack = stages.get("replace_ack", [None])[0]
+    if cancel_ack is not None and _parse_timestamp(cancel_ack, "occurred_at") < _parse_timestamp(ack, "occurred_at"):
+        raise ValueError("cancel_ack must be at or after exchange_ack")
+    if cancel_request is not None and _parse_timestamp(cancel_request, "occurred_at") < _parse_timestamp(ack, "occurred_at"):
+        raise ValueError("cancel_request must be at or after exchange_ack")
+    if cancel_ack is not None and cancel_request is not None and _parse_timestamp(cancel_ack, "occurred_at") < _parse_timestamp(cancel_request, "occurred_at"):
+        raise ValueError("cancel_ack must be at or after cancel_request")
+    if replace_request is not None and _parse_timestamp(replace_request, "occurred_at") < _parse_timestamp(ack, "occurred_at"):
+        raise ValueError("replace_request must be at or after exchange_ack")
+    if replace_ack is not None and _parse_timestamp(replace_ack, "occurred_at") < _parse_timestamp(replace_request, "occurred_at"):
+        raise ValueError("replace_ack must be at or after replace_request")
+    if cancel_ack is not None:
+        cancel_ack_time = _parse_timestamp(cancel_ack, "occurred_at")
+        for fill in stages.get("fill", []):
+            if _parse_timestamp(fill, "occurred_at") > cancel_ack_time:
+                raise ValueError("fill after terminal cancel")
+    previous: datetime | None = None
+    for timestamp in staged_times:
+        if previous is not None and timestamp < previous:
+            raise ValueError("lifecycle timestamps must be monotonic")
+        previous = timestamp
     side = identity["side"]
     requested_qty = _optional_number(intent, "quantity", "qty", positive=True)
     if requested_qty is None:
@@ -345,13 +389,15 @@ def _record_from_chain(
     terminal_status = _status(reconcile)
     if fill_rows:
         terminal_status = "filled" if math.isclose(filled_qty, requested_qty, rel_tol=1e-9, abs_tol=1e-12) else "partially_filled"
-    elif cancel is not None:
-        terminal_status = _status(cancel)
+    elif cancel_ack is not None:
+        terminal_status = _status(cancel_ack)
+    if cancel_ack is not None:
+        terminal_status = _status(cancel_ack)
 
     maker_taker = _maker_taker(fill_rows[-1] if fill_rows else ack)
     fees = sum(_optional_number(row, "fee", "fees", non_negative=True) or 0.0 for row in fill_rows)
     if not fill_rows:
-        fees = _optional_number(cancel or ack, "fee", "fees", non_negative=True) or 0.0
+        fees = _optional_number(cancel_ack or ack, "fee", "fees", non_negative=True) or 0.0
     funding = sum(_optional_number(row, "funding") or 0.0 for row in fill_rows)
     ref_price = _optional_number(fill_rows[-1], "ref_price", positive=True) if fill_rows else None
     if ref_price is None:
@@ -366,9 +412,12 @@ def _record_from_chain(
         "decision_at": _timestamp_string(intent),
         "submitted_at": _timestamp_string(submit),
         "exchange_ack_at": _timestamp_string(ack),
+        "cancel_requested_at": _timestamp_string(cancel_request),
+        "replace_requested_at": _timestamp_string(replace_request),
+        "replace_ack_at": _timestamp_string(replace_ack),
         "first_fill_at": _timestamp_string(fill_rows[0]) if fill_rows else None,
         "last_fill_at": _timestamp_string(fill_rows[-1]) if fill_rows else None,
-        "cancel_ack_at": _timestamp_string(cancel) if cancel is not None else None,
+        "cancel_ack_at": _timestamp_string(cancel_ack) if cancel_ack is not None else None,
         "requested_qty": requested_qty,
         "requested_notional": requested_qty * intended_limit_price,
         "filled_qty": filled_qty if fill_rows else 0.0,
@@ -379,8 +428,20 @@ def _record_from_chain(
         "funding": funding,
         "slippage_bps": _slippage_bps(side=side, fill_price=fill_price, ref_price=ref_price),
         "ref_price": ref_price,
-        "cancel_reason": _cancel_reason(cancel) if cancel is not None else None,
+        "cancel_reason": _cancel_reason(cancel_ack) if cancel_ack is not None else None,
         "latency_ms": (_parse_timestamp(ack, "occurred_at") - _parse_timestamp(submit, "occurred_at")).total_seconds() * 1000.0,
+        "cancel_latency_ms": (
+            (_parse_timestamp(cancel_ack, "occurred_at") - _parse_timestamp(cancel_request, "occurred_at")).total_seconds() * 1000.0
+            if cancel_ack is not None and cancel_request is not None
+            else None
+        ),
+        "replace_latency_ms": (
+            (_parse_timestamp(replace_ack, "occurred_at") - _parse_timestamp(replace_request, "occurred_at")).total_seconds() * 1000.0
+            if replace_ack is not None and replace_request is not None
+            else None
+        ),
+        "terminal_status": terminal_status,
+        "partial_fill_before_cancel": bool(fill_rows and cancel_ack is not None),
         "setup_type": _setup_type(signal, intent, submit),
         "order_id": order_id,
         "trade_id": trade_id,

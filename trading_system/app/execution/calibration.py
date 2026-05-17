@@ -80,6 +80,9 @@ class PassiveOrderCalibrationRecord:
     decision_at: datetime
     submitted_at: datetime
     exchange_ack_at: datetime
+    cancel_requested_at: datetime | None = None
+    replace_requested_at: datetime | None = None
+    replace_ack_at: datetime | None = None
     first_fill_at: datetime | None = None
     last_fill_at: datetime | None = None
     cancel_ack_at: datetime | None = None
@@ -97,6 +100,11 @@ class PassiveOrderCalibrationRecord:
     cancel_reason: str | None = None
     expire_reason: str | None = None
     latency_ms: float | None = None
+    cancel_latency_ms: float | None = None
+    replace_latency_ms: float | None = None
+    terminal_status: str | None = None
+    partial_fill_before_cancel: bool = False
+    exchange_race_partial_before_cancel_ack: bool = False
     setup_type: str | None = None
 
 
@@ -105,6 +113,9 @@ _LIFECYCLE_TIMESTAMP_FIELDS = (
     "decision_at",
     "submitted_at",
     "exchange_ack_at",
+    "cancel_requested_at",
+    "replace_requested_at",
+    "replace_ack_at",
     "first_fill_at",
     "last_fill_at",
     "cancel_ack_at",
@@ -231,6 +242,14 @@ def _maker_taker_or_none(value: Any) -> str | None:
     return value
 
 
+def _bool_or_false(field: str, value: Any) -> bool:
+    if value is None or value == "":
+        return False
+    if isinstance(value, bool):
+        return value
+    raise ValueError(f"calibration record {field} must be boolean")
+
+
 def _record_from_mapping(row: Mapping[str, Any]) -> PassiveOrderCalibrationRecord:
     _validate_fee_asset_fields(row)
     _validate_commission_fields(row)
@@ -240,6 +259,9 @@ def _record_from_mapping(row: Mapping[str, Any]) -> PassiveOrderCalibrationRecor
     exchange_ack_at = _parse_lifecycle_datetime(
         row.get("exchange_ack_at"), field_name="exchange_ack_at", required=True
     )
+    cancel_requested_at = _parse_lifecycle_datetime(row.get("cancel_requested_at"), field_name="cancel_requested_at")
+    replace_requested_at = _parse_lifecycle_datetime(row.get("replace_requested_at"), field_name="replace_requested_at")
+    replace_ack_at = _parse_lifecycle_datetime(row.get("replace_ack_at"), field_name="replace_ack_at")
     first_fill_at = _parse_lifecycle_datetime(row.get("first_fill_at"), field_name="first_fill_at")
     last_fill_at = _parse_lifecycle_datetime(row.get("last_fill_at"), field_name="last_fill_at")
     cancel_ack_at = _parse_lifecycle_datetime(row.get("cancel_ack_at"), field_name="cancel_ack_at")
@@ -254,6 +276,14 @@ def _record_from_mapping(row: Mapping[str, Any]) -> PassiveOrderCalibrationRecor
         raise ValueError("calibration record submitted_at must be after decision_at")
     if exchange_ack_at < submitted_at:
         raise ValueError("calibration record exchange_ack_at must be at or after submitted_at")
+    if cancel_requested_at is not None and cancel_requested_at < exchange_ack_at:
+        raise ValueError("calibration record cancel_requested_at must be at or after exchange_ack_at")
+    if replace_requested_at is not None and replace_requested_at < exchange_ack_at:
+        raise ValueError("calibration record replace_requested_at must be at or after exchange_ack_at")
+    if replace_ack_at is not None and replace_requested_at is None:
+        raise ValueError("calibration record replace_ack_at requires replace_requested_at")
+    if replace_ack_at is not None and replace_requested_at is not None and replace_ack_at < replace_requested_at:
+        raise ValueError("calibration record replace_ack_at must be at or after replace_requested_at")
     if first_fill_at is not None and first_fill_at < exchange_ack_at:
         raise ValueError("calibration record first_fill_at must be at or after exchange_ack_at")
     if last_fill_at is not None and last_fill_at < exchange_ack_at:
@@ -261,14 +291,27 @@ def _record_from_mapping(row: Mapping[str, Any]) -> PassiveOrderCalibrationRecor
     if last_fill_at is not None and first_fill_at is not None and last_fill_at < first_fill_at:
         raise ValueError("calibration record last_fill_at must be at or after first_fill_at")
     status = _canonical_lower_token_or_none("status", row.get("status")) or ""
+    terminal_status = _canonical_lower_token_or_none("terminal_status", row.get("terminal_status")) or status
+    partial_fill_before_cancel = _bool_or_false("partial_fill_before_cancel", row.get("partial_fill_before_cancel"))
+    exchange_race_partial = _bool_or_false(
+        "exchange_race_partial_before_cancel_ack", row.get("exchange_race_partial_before_cancel_ack")
+    )
     if status in _FILLED_STATUSES and first_fill_at is None:
         raise ValueError("calibration record filled status requires first_fill_at")
     if cancel_ack_at is not None:
+        if cancel_requested_at is not None and cancel_ack_at < cancel_requested_at:
+            raise ValueError("calibration record cancel_ack_at must be at or after cancel_requested_at")
         last_lifecycle_fill_at = last_fill_at or first_fill_at
+        if last_lifecycle_fill_at is not None and last_lifecycle_fill_at > cancel_ack_at and not exchange_race_partial:
+            raise ValueError(
+                "calibration record fill after terminal cancel requires exchange_race_partial_before_cancel_ack"
+            )
         if last_lifecycle_fill_at is not None and cancel_ack_at <= last_lifecycle_fill_at:
             raise ValueError("calibration record cancel_ack_at must be after last fill timestamp")
         if status not in _CANCEL_TERMINAL_STATUSES:
             raise ValueError("calibration record cancel_ack_at requires a cancelled, expired, or rejected status")
+        if partial_fill_before_cancel and first_fill_at is None:
+            raise ValueError("calibration record partial_fill_before_cancel requires first_fill_at")
     return PassiveOrderCalibrationRecord(
         symbol=_required_symbol(row),
         side=_required_side(row),
@@ -282,6 +325,9 @@ def _record_from_mapping(row: Mapping[str, Any]) -> PassiveOrderCalibrationRecor
         decision_at=decision_at,
         submitted_at=submitted_at,
         exchange_ack_at=exchange_ack_at,
+        cancel_requested_at=cancel_requested_at,
+        replace_requested_at=replace_requested_at,
+        replace_ack_at=replace_ack_at,
         first_fill_at=first_fill_at,
         last_fill_at=last_fill_at,
         cancel_ack_at=cancel_ack_at,
@@ -299,6 +345,11 @@ def _record_from_mapping(row: Mapping[str, Any]) -> PassiveOrderCalibrationRecor
         cancel_reason=_canonical_lower_token_or_none("cancel_reason", row.get("cancel_reason")),
         expire_reason=_canonical_lower_token_or_none("expire_reason", row.get("expire_reason")),
         latency_ms=_float_or_none("latency_ms", row.get("latency_ms")),
+        cancel_latency_ms=_float_or_none("cancel_latency_ms", row.get("cancel_latency_ms")),
+        replace_latency_ms=_float_or_none("replace_latency_ms", row.get("replace_latency_ms")),
+        terminal_status=terminal_status,
+        partial_fill_before_cancel=partial_fill_before_cancel,
+        exchange_race_partial_before_cancel_ack=exchange_race_partial,
         setup_type=_canonical_upper_token_or_none("setup_type", row.get("setup_type")),
     )
 
@@ -642,13 +693,21 @@ def _tca_observed(records: tuple[PassiveOrderCalibrationRecord, ...]) -> dict[st
         if record.filled_notional is not None and record.filled_notional > 0.0
     ]
     reject_reasons: dict[str, dict[str, Any]] = {}
+    terminal_statuses: dict[str, dict[str, Any]] = {}
     for record in records:
         reason = record.cancel_reason or record.expire_reason
         if not reason:
-            continue
-        bucket = reject_reasons.setdefault(reason, {"count": 0, "rate": 0.0})
-        bucket["count"] += 1
+            pass
+        else:
+            bucket = reject_reasons.setdefault(reason, {"count": 0, "rate": 0.0})
+            bucket["count"] += 1
+        terminal_status = record.terminal_status or record.status
+        if terminal_status:
+            terminal_bucket = terminal_statuses.setdefault(terminal_status, {"count": 0, "rate": 0.0})
+            terminal_bucket["count"] += 1
     for bucket in reject_reasons.values():
+        bucket["rate"] = bucket["count"] / sample_count if sample_count else 0.0
+    for bucket in terminal_statuses.values():
         bucket["rate"] = bucket["count"] / sample_count if sample_count else 0.0
     return {
         "slippage_bps": _metric_summary(slippage),
@@ -662,6 +721,7 @@ def _tca_observed(records: tuple[PassiveOrderCalibrationRecord, ...]) -> dict[st
         "adverse_selection_bps": _metric_summary(adverse),
         "fees_funding_bps": _metric_summary(fee_funding),
         "reject_reasons": reject_reasons,
+        "terminal_status": terminal_statuses,
     }
 
 
