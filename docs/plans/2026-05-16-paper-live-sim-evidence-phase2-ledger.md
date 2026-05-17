@@ -130,3 +130,23 @@ Final Phase 8 Batch 1 full-suite checkpoint:
 - Branch status at checkpoint: `feat/live-readiness-gates...origin/feat/live-readiness-gates [ahead 289]`.
 
 Remaining operational frontier: keep running/accumulating rolling simulated-live evidence over multiple days/sessions, then use the scorecard and calibration feedback to decide whether the backtest/execution assumptions are stable enough for a future promotion gate. External independent-feed checks and operator acknowledgement persistence remain conditional on available feeds and workflow need.
+
+## Phase 8 Batch 2 rolling evidence hardening
+
+Status: `batch2_full_green` at `b434dc22` on `feat/live-readiness-gates`.
+
+Side-effect boundary: offline/local simulated-live evidence only. No real orders, no testnet orders, no exchange API calls, and no live credential use.
+
+Closed Batch 2 frontiers:
+
+- `b72625ec` adds simulated-live evidence window continuity gate across rolling bundles, including distinct-session sufficiency, duplicate identity rejection, timestamp monotonicity, and machine-readable hold/reject reason propagation. Worker exact: 2194 passed + diff-check. Main exact: 2194 passed + diff-check.
+- `406bdac4` adds promotion readiness scorecard trend reporting over multiple scorecards, including deterioration detection, repeated blocker surfacing, malformed scorecard rejection, duplicate identity rejection, and insufficient-window hold behavior. Worker exact: 513 passed + diff-check. Main exact: 513 passed + diff-check.
+- `b434dc22` adds calibration assumption update recommendations from simulated-live calibration feedback without mutating canonical TCA assumptions. It produces auditable human-review recommendations and preserves fail-closed malformed/stale/input checks. Worker exact: 2190 passed + diff-check. Main exact: 2192 passed + diff-check.
+
+Final Phase 8 Batch 2 full-suite checkpoint:
+
+- `python3 scripts/verify.py --suite full` passed 6473 tests in 215.23s.
+- `git --no-pager diff --check HEAD` clean.
+- Branch status before ledger commit: `feat/live-readiness-gates...origin/feat/live-readiness-gates [ahead 3]`.
+
+Remaining operational frontier: continue accumulating real local simulated-live evidence across multiple independent sessions/days, then use the rolling evidence window, scorecard trend, and calibration recommendation artifacts as promotion gate inputs. Independent external-feed cross-checks and operator acknowledgement persistence remain conditional on available feeds and workflow need.
