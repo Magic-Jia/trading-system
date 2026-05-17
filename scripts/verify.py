@@ -30,6 +30,7 @@ SUITES: dict[str, list[str]] = {
         "trading_system/tests/test_backtest_setup_rewrite_experiment.py",
         "trading_system/tests/test_backtest_promotion.py",
         "trading_system/tests/test_scheduled_live_sim_generation.py",
+        "trading_system/tests/test_longitudinal_live_sim_trend_report.py",
         "trading_system/tests/test_main_v2_cycle.py",
     ],
     "runtime-main": [
