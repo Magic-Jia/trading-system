@@ -65,6 +65,27 @@ def _file_status(path: Path) -> dict[str, Any]:
     return {"path": str(path), "exists": True, "bytes": path.stat().st_size, "line_count": line_count}
 
 
+def _jsonl_intent_ids(path: Path) -> set[str]:
+    if not path.exists():
+        return set()
+    intent_ids: set[str] = set()
+    with path.open(encoding="utf-8") as handle:
+        for line_number, line in enumerate(handle, start=1):
+            payload = line.strip()
+            if not payload:
+                continue
+            try:
+                row = json.loads(payload)
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"{path} line {line_number} must be valid JSON") from exc
+            if not isinstance(row, ABCMapping):
+                raise ValueError(f"{path} line {line_number} must be a JSON object")
+            intent_id = row.get("intent_id")
+            if isinstance(intent_id, str) and intent_id.strip() == intent_id and intent_id:
+                intent_ids.add(intent_id)
+    return intent_ids
+
+
 def _reject_duplicate_runtime_state_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     payload: dict[str, Any] = {}
     for key, value in pairs:
@@ -314,7 +335,10 @@ def _execution_sample_collection_health(paths: RuntimePaths, state_summary: Mapp
     paper_ledger_file = _file_status(paths.paper_ledger_file)
     execution_log_count = int(execution_log_file["line_count"] or 0)
     paper_ledger_count = int(paper_ledger_file["line_count"] or 0)
-    sample_count = min(execution_log_count, paper_ledger_count)
+    execution_intent_ids = _jsonl_intent_ids(paths.execution_log_file)
+    ledger_intent_ids = _jsonl_intent_ids(paths.paper_ledger_file)
+    matched_intent_ids = sorted(execution_intent_ids & ledger_intent_ids)
+    sample_count = len(matched_intent_ids)
 
     reason_codes: list[str] = []
     if candidate_count == 0:
@@ -329,6 +353,8 @@ def _execution_sample_collection_health(paths: RuntimePaths, state_summary: Mapp
         reason_codes.append("paper_ledger_missing")
     elif paper_ledger_count == 0:
         reason_codes.append("paper_ledger_empty")
+    elif execution_log_count > 0 and paper_ledger_count > 0 and sample_count == 0:
+        reason_codes.append("execution_ledger_intent_mismatch")
     if sample_count == 0:
         reason_codes.append("no_execution_samples")
 

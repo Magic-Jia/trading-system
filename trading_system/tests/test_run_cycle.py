@@ -190,6 +190,44 @@ def test_run_cycle_execution_sample_health_requires_non_empty_paper_ledger(monke
     assert health["reason_codes"] == ["paper_ledger_empty", "no_execution_samples"]
 
 
+def test_run_cycle_execution_sample_health_requires_matching_execution_and_ledger_intents(monkeypatch, tmp_path):
+    runtime_root = tmp_path / "runtime"
+    expected_bucket = runtime_root / "paper" / "prod"
+
+    def fake_main() -> None:
+        Path(os.environ["TRADING_STATE_FILE"]).write_text(
+            json.dumps(
+                {
+                    "execution_mode": "paper",
+                    "latest_candidates": [{"symbol": "BTCUSDT", "side": "BUY"}],
+                    "latest_allocations": [{"symbol": "BTCUSDT", "status": "ACCEPTED"}],
+                    "paper_trading": {"ledger_event_count": 1, "emitted_count": 1, "replayed_count": 0},
+                }
+            ),
+            encoding="utf-8",
+        )
+        expected_bucket.mkdir(parents=True, exist_ok=True)
+        (expected_bucket / "execution_log.jsonl").write_text(
+            json.dumps({"intent_id": "intent-a", "symbol": "BTCUSDT", "stage": "fill"}) + "\n",
+            encoding="utf-8",
+        )
+        (expected_bucket / "paper_ledger.jsonl").write_text(
+            json.dumps({"intent_id": "intent-b", "symbol": "BTCUSDT", "event_type": "fill"}) + "\n",
+            encoding="utf-8",
+        )
+
+    _disable_paper_runtime_input_preparation(monkeypatch)
+    monkeypatch.setattr(run_cycle_module, "run_main", fake_main)
+
+    run_cycle_module.run_cycle("paper", runtime_root=runtime_root, runtime_env="prod")
+
+    health = json.loads((expected_bucket / "execution_sample_collection_health.json").read_text(encoding="utf-8"))
+    assert health["status"] == "unavailable"
+    assert health["decision_policy"] == "fail_closed"
+    assert health["sample_count"] == 0
+    assert health["reason_codes"] == ["execution_ledger_intent_mismatch", "no_execution_samples"]
+
+
 def test_run_cycle_execution_sample_health_passes_with_auditable_paper_execution_artifacts(monkeypatch, tmp_path):
     runtime_root = tmp_path / "runtime"
     expected_bucket = runtime_root / "paper" / "prod"
@@ -207,8 +245,8 @@ def test_run_cycle_execution_sample_health_passes_with_auditable_paper_execution
             encoding="utf-8",
         )
         expected_bucket.mkdir(parents=True, exist_ok=True)
-        execution_event = {"symbol": "BTCUSDT", "side": "BUY", "qty": 0.01, "price": 50000.0}
-        ledger_event = {"symbol": "BTCUSDT", "side": "BUY", "quantity": 0.01, "fill_price": 50000.0}
+        execution_event = {"intent_id": "intent-btc-long", "symbol": "BTCUSDT", "side": "BUY", "qty": 0.01, "price": 50000.0}
+        ledger_event = {"intent_id": "intent-btc-long", "symbol": "BTCUSDT", "side": "BUY", "quantity": 0.01, "fill_price": 50000.0}
         (expected_bucket / "execution_log.jsonl").write_text(json.dumps(execution_event) + "\n", encoding="utf-8")
         (expected_bucket / "paper_ledger.jsonl").write_text(json.dumps(ledger_event) + "\n", encoding="utf-8")
 
