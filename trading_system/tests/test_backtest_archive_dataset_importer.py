@@ -6400,6 +6400,30 @@ def test_validate_phase1_imported_dataset_root_rejects_noncanonical_manifest_dat
         validate_phase1_imported_dataset_root(dataset_root)
 
 
+def test_phase1_dataset_root_manifest_lineage_loads_as_backtest_metadata(tmp_path: Path) -> None:
+    archive_root = tmp_path / "archive"
+    dataset_root = tmp_path / "dataset"
+    _archive_phase1_symbol_history(archive_root, symbol="BTCUSDT")
+
+    import_phase1_archive_dataset_root(archive_root, dataset_root)
+
+    metadata = backtest_dataset.load_dataset_root_metadata(dataset_root)
+    lineage = metadata["import_manifest"]["lineage"]
+    manifest = metadata["import_manifest"]
+
+    assert lineage["exchange"] == "binance"
+    assert lineage["market"] == "futures"
+    assert lineage["symbols"] == manifest["symbols"] == ["BTCUSDT"]
+    assert lineage["coverage_start"] == manifest["start_timestamp"]
+    assert lineage["coverage_end"] == manifest["end_timestamp"]
+    assert lineage["timeframes"] == ["1h"]
+    for field in ("raw_sha256", "importer_config_sha256", "artifact_sha256"):
+        value = lineage[field]
+        assert isinstance(value, str)
+        assert len(value) == 64
+        assert set(value) <= set("0123456789abcdef")
+
+
 def test_validate_phase1_imported_dataset_root_rejects_manifest_dataset_root_drift(tmp_path: Path) -> None:
     archive_root = tmp_path / "archive"
     dataset_root = tmp_path / "dataset"

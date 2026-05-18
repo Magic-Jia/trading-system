@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import re
@@ -48,6 +49,7 @@ PHASE1_IMPORTER_ROOT_MANIFEST_FIELDS = frozenset(
         "source",
         "data_quality_report",
         "coverage",
+        "lineage",
     }
 )
 PHASE1_IMPORTER_OPTIONAL_INTRADAY_OHLCV_TIMEFRAMES = ("1m", "5m", "15m", "30m")
@@ -2072,6 +2074,55 @@ def _material_metadata_source(material: Phase1DatasetBundleMaterial) -> dict[str
     return _json_object_field(source, context="materialized dataset bundle metadata source")
 
 
+def _canonical_sha256(payload: Mapping[str, Any]) -> str:
+    return hashlib.sha256(
+        json.dumps(dict(payload), ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+
+def _phase1_dataset_root_lineage(manifest: Mapping[str, Any]) -> dict[str, Any]:
+    source = _json_object_field(manifest.get("source"), context="materialized dataset root manifest source")
+    coverage = _json_object_field(manifest.get("coverage"), context="materialized dataset root manifest coverage")
+    ohlcv_coverage = _json_object_field(
+        coverage.get("ohlcv_timeframes"),
+        context="materialized dataset root manifest coverage.ohlcv_timeframes",
+    )
+    timeframes = list(
+        _require_importer_ohlcv_timeframe_items(
+            ohlcv_coverage.get("materialized") or ohlcv_coverage.get("available") or [PHASE1_IMPORTER_OHLCV_TIMEFRAME],
+            field="lineage.timeframes",
+        )
+    )
+    symbols = list(_canonical_string_sequence(manifest.get("symbols"), field="lineage.symbols"))
+    lineage_seed = {
+        "archive_root": manifest.get("archive_root"),
+        "bundle_dirs": manifest.get("bundle_dirs"),
+        "bundle_timestamps": manifest.get("bundle_timestamps"),
+        "coverage": coverage,
+        "data_quality_report": manifest.get("data_quality_report"),
+        "dataset_root": manifest.get("dataset_root"),
+        "schema_version": manifest.get("schema_version"),
+        "scope": manifest.get("scope"),
+        "snapshot_count": manifest.get("snapshot_count"),
+        "source": source,
+        "symbols": symbols,
+    }
+    artifact_seed = dict(manifest)
+    artifact_seed.pop("lineage", None)
+    return {
+        "raw_sha256": _canonical_sha256({"source": source, "coverage": coverage}),
+        "importer_version": "phase1_importer.v1",
+        "importer_config_sha256": _canonical_sha256(lineage_seed),
+        "artifact_sha256": _canonical_sha256(artifact_seed),
+        "exchange": source.get("exchange", "binance"),
+        "market": source.get("market", "futures"),
+        "symbols": symbols,
+        "timeframes": timeframes,
+        "coverage_start": manifest.get("start_timestamp"),
+        "coverage_end": manifest.get("end_timestamp"),
+    }
+
+
 def _phase1_dataset_root_manifest(
     *,
     archive_root: Path,
@@ -2093,7 +2144,7 @@ def _phase1_dataset_root_manifest(
             "trades": timedelta(milliseconds=1),
         },
     )
-    return {
+    manifest = {
         "schema_version": PHASE1_IMPORTER_ROOT_SCHEMA,
         "scope": PHASE1_IMPORTER_SCOPE,
         "archive_root": str(archive_root),
@@ -2123,6 +2174,8 @@ def _phase1_dataset_root_manifest(
             ),
         },
     }
+    manifest["lineage"] = _phase1_dataset_root_lineage(manifest)
+    return manifest
 
 
 def _phase1_dataset_root_summary_list(payload: Mapping[str, Any], field: str) -> tuple[str, ...]:
