@@ -35,6 +35,39 @@ def _load_json_object(path: Path, source_name: str, reasons: list[str]) -> Mappi
     return payload
 
 
+def _runtime_execution_sample_health_path(runtime_summary_path: str | Path | None, reasons: list[str]) -> Path | None:
+    if runtime_summary_path is None:
+        return None
+    path = Path(runtime_summary_path)
+    payload = _load_json_object(path, "runtime_summary", reasons)
+    if payload is None:
+        return None
+    value = payload.get("execution_sample_collection_health_file")
+    if not isinstance(value, str) or not value.strip():
+        reasons.append("runtime_summary_execution_sample_collection_health_file_missing")
+        return None
+    return Path(value)
+
+
+def _write_execution_sample_health_unavailable_marker(
+    output_dir: Path,
+    *,
+    generated_at: str,
+    reason_codes: list[str],
+) -> Path:
+    marker_path = output_dir / "execution_sample_collection_health_unavailable.json"
+    payload = {
+        "schema_version": "execution_sample_collection_health.v1",
+        "status": "unavailable",
+        "generated_at": generated_at,
+        "decision_policy": "fail_closed",
+        "sample_count": 0,
+        "reason_codes": list(reason_codes) or ["execution_sample_collection_health_unavailable"],
+    }
+    _write_json(marker_path, payload)
+    return marker_path
+
+
 def _finite_number(value: Any) -> float | None:
     if isinstance(value, bool) or not isinstance(value, int | float):
         return None
@@ -262,6 +295,8 @@ def write_professional_backtest_evidence(
     output_dir: str | Path,
     execution_calibration_summary_path: str | Path | None = None,
     execution_calibration_unavailable_path: str | Path | None = None,
+    execution_sample_collection_health_path: str | Path | None = None,
+    runtime_summary_path: str | Path | None = None,
     generated_at: str | None = None,
 ) -> dict[str, Any]:
     output = Path(output_dir)
@@ -269,6 +304,18 @@ def write_professional_backtest_evidence(
     walk_forward_report_path = output / WALK_FORWARD_REPORT_FILENAME
     cost_sensitivity_report_path = output / COST_SENSITIVITY_REPORT_FILENAME
     evidence_chain_path = output / EVIDENCE_CHAIN_FILENAME
+    runtime_health_resolution_reasons: list[str] = []
+    resolved_execution_sample_health_path = (
+        Path(execution_sample_collection_health_path)
+        if execution_sample_collection_health_path is not None
+        else _runtime_execution_sample_health_path(runtime_summary_path, runtime_health_resolution_reasons)
+    )
+    if runtime_summary_path is not None and resolved_execution_sample_health_path is None:
+        resolved_execution_sample_health_path = _write_execution_sample_health_unavailable_marker(
+            output,
+            generated_at=evaluated_at,
+            reason_codes=runtime_health_resolution_reasons,
+        )
     walk_forward_report = write_walk_forward_oos_report(
         walk_forward_bundle_dir,
         walk_forward_report_path,
@@ -286,6 +333,7 @@ def write_professional_backtest_evidence(
         cost_sensitivity_report_path=cost_sensitivity_report_path,
         execution_calibration_summary_path=execution_calibration_summary_path,
         execution_calibration_unavailable_path=execution_calibration_unavailable_path,
+        execution_sample_collection_health_path=resolved_execution_sample_health_path,
         generated_at=evaluated_at,
     )
     result = {
@@ -300,4 +348,8 @@ def write_professional_backtest_evidence(
         result["execution_calibration_summary_path"] = str(execution_calibration_summary_path)
     if execution_calibration_unavailable_path is not None:
         result["execution_calibration_unavailable_path"] = str(execution_calibration_unavailable_path)
+    if resolved_execution_sample_health_path is not None:
+        result["execution_sample_collection_health_path"] = str(resolved_execution_sample_health_path)
+    if runtime_summary_path is not None:
+        result["runtime_summary_path"] = str(runtime_summary_path)
     return result

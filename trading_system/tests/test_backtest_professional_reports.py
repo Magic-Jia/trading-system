@@ -291,6 +291,83 @@ def test_write_professional_backtest_evidence_surfaces_execution_calibration_sum
     assert evidence["sources"]["execution_calibration_summary"]["path"] == str(calibration_summary)
 
 
+def test_write_professional_backtest_evidence_consumes_runtime_summary_execution_sample_health(tmp_path: Path) -> None:
+    backtest_dir = tmp_path / "backtest"
+    walk_forward_dir = tmp_path / "walk_forward"
+    allocator_dir = tmp_path / "allocator_friction"
+    output_dir = tmp_path / "evidence"
+    runtime_dir = tmp_path / "runtime" / "paper" / "research"
+    latest_summary = runtime_dir / "latest.json"
+    sample_health = runtime_dir / "execution_sample_collection_health.json"
+    _write_minimal_backtest_bundle(backtest_dir)
+    _write_walk_forward_bundle(walk_forward_dir)
+    _write_allocator_friction_bundle(allocator_dir)
+    _write_json(
+        sample_health,
+        {
+            "schema_version": "execution_sample_collection_health.v1",
+            "status": "unavailable",
+            "generated_at": GENERATED_AT,
+            "decision_policy": "fail_closed",
+            "candidate_count": 1,
+            "allocation_count": 1,
+            "sample_count": 0,
+            "reason_codes": ["execution_ledger_intent_mismatch", "no_execution_samples"],
+        },
+    )
+    _write_json(
+        latest_summary,
+        {
+            "schema_version": "runtime_summary.v1",
+            "execution_sample_collection_health_file": str(sample_health),
+        },
+    )
+
+    outputs = write_professional_backtest_evidence(
+        backtest_bundle_dir=backtest_dir,
+        walk_forward_bundle_dir=walk_forward_dir,
+        allocator_friction_bundle_dir=allocator_dir,
+        output_dir=output_dir,
+        runtime_summary_path=latest_summary,
+        generated_at=GENERATED_AT,
+    )
+
+    evidence = outputs["evidence_chain"]
+    assert outputs["execution_sample_collection_health_path"] == str(sample_health)
+    assert evidence["summary"]["decision"] == "hold"
+    assert evidence["summary"]["component_statuses"]["execution_realism"] == "hold"
+    assert evidence["execution_realism"]["sample_count"] == 0
+    assert "execution_ledger_intent_mismatch" in evidence["execution_realism"]["reason_codes"]
+    assert evidence["sources"]["execution_sample_collection_health"]["path"] == str(sample_health)
+
+
+def test_write_professional_backtest_evidence_holds_when_runtime_summary_omits_sample_health(tmp_path: Path) -> None:
+    backtest_dir = tmp_path / "backtest"
+    walk_forward_dir = tmp_path / "walk_forward"
+    allocator_dir = tmp_path / "allocator_friction"
+    output_dir = tmp_path / "evidence"
+    latest_summary = tmp_path / "runtime" / "paper" / "research" / "latest.json"
+    _write_minimal_backtest_bundle(backtest_dir)
+    _write_walk_forward_bundle(walk_forward_dir)
+    _write_allocator_friction_bundle(allocator_dir)
+    _write_json(latest_summary, {"schema_version": "runtime_summary.v1"})
+
+    outputs = write_professional_backtest_evidence(
+        backtest_bundle_dir=backtest_dir,
+        walk_forward_bundle_dir=walk_forward_dir,
+        allocator_friction_bundle_dir=allocator_dir,
+        output_dir=output_dir,
+        runtime_summary_path=latest_summary,
+        generated_at=GENERATED_AT,
+    )
+
+    evidence = outputs["evidence_chain"]
+    assert evidence["summary"]["decision"] == "hold"
+    assert evidence["summary"]["component_statuses"]["execution_realism"] == "hold"
+    assert "runtime_summary_execution_sample_collection_health_file_missing" in evidence["execution_realism"]["reason_codes"]
+    assert Path(outputs["execution_sample_collection_health_path"]).is_file()
+
+
 def test_write_professional_backtest_evidence_holds_on_execution_calibration_unavailable_marker(tmp_path: Path) -> None:
     backtest_dir = tmp_path / "backtest"
     walk_forward_dir = tmp_path / "walk_forward"
@@ -374,6 +451,71 @@ def test_backtest_cli_writes_professional_evidence_chain_from_existing_bundles(t
     assert evidence_chain["cost_sensitivity"]["status"] == "pass"
     assert evidence_chain["execution_realism"]["status"] == "pass"
     assert str(output_dir / "backtest_evidence_chain.json") in completed.stdout
+
+
+def test_backtest_cli_writes_hold_evidence_chain_from_runtime_summary_sample_health(tmp_path: Path) -> None:
+    backtest_dir = tmp_path / "backtest"
+    walk_forward_dir = tmp_path / "walk_forward"
+    allocator_dir = tmp_path / "allocator_friction"
+    output_dir = tmp_path / "evidence"
+    runtime_dir = tmp_path / "runtime" / "paper" / "research"
+    latest_summary = runtime_dir / "latest.json"
+    sample_health = runtime_dir / "execution_sample_collection_health.json"
+    _write_minimal_backtest_bundle(backtest_dir)
+    _write_walk_forward_bundle(walk_forward_dir)
+    _write_allocator_friction_bundle(allocator_dir)
+    _write_json(
+        sample_health,
+        {
+            "schema_version": "execution_sample_collection_health.v1",
+            "status": "unavailable",
+            "generated_at": GENERATED_AT,
+            "decision_policy": "fail_closed",
+            "candidate_count": 1,
+            "allocation_count": 1,
+            "sample_count": 0,
+            "reason_codes": ["execution_ledger_intent_mismatch", "no_execution_samples"],
+        },
+    )
+    _write_json(
+        latest_summary,
+        {
+            "schema_version": "runtime_summary.v1",
+            "execution_sample_collection_health_file": str(sample_health),
+        },
+    )
+
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "trading_system.app.backtest.cli",
+            "write-professional-evidence",
+            "--backtest-bundle-dir",
+            str(backtest_dir),
+            "--walk-forward-bundle-dir",
+            str(walk_forward_dir),
+            "--allocator-friction-bundle-dir",
+            str(allocator_dir),
+            "--output-dir",
+            str(output_dir),
+            "--runtime-summary-path",
+            str(latest_summary),
+            "--generated-at",
+            GENERATED_AT,
+        ],
+        cwd=Path(__file__).resolve().parents[2],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    evidence_chain = json.loads((output_dir / "backtest_evidence_chain.json").read_text(encoding="utf-8"))
+    assert evidence_chain["summary"]["decision"] == "hold"
+    assert evidence_chain["summary"]["component_statuses"]["execution_realism"] == "hold"
+    assert "execution_ledger_intent_mismatch" in evidence_chain["execution_realism"]["reason_codes"]
+    assert evidence_chain["sources"]["execution_sample_collection_health"]["path"] == str(sample_health)
+
 
 
 def test_backtest_cli_writes_hold_evidence_chain_from_execution_calibration_unavailable_marker(tmp_path: Path) -> None:

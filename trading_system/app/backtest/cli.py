@@ -640,6 +640,12 @@ def _write_professional_evidence_command(args: argparse.Namespace) -> int:
             if args.execution_calibration_unavailable_path is not None
             else None
         ),
+        execution_sample_collection_health_path=(
+            Path(args.execution_sample_collection_health_path)
+            if args.execution_sample_collection_health_path is not None
+            else None
+        ),
+        runtime_summary_path=Path(args.runtime_summary_path) if args.runtime_summary_path is not None else None,
         generated_at=args.generated_at,
     )
     print(outputs["evidence_chain_path"])
@@ -696,6 +702,12 @@ def _run_professional_evidence_pipeline_command(args: argparse.Namespace) -> int
             if args.execution_calibration_unavailable_path is not None
             else None
         ),
+        execution_sample_collection_health_path=(
+            Path(args.execution_sample_collection_health_path)
+            if args.execution_sample_collection_health_path is not None
+            else None
+        ),
+        runtime_summary_path=Path(args.runtime_summary_path) if args.runtime_summary_path is not None else None,
         generated_at=args.generated_at,
     )
     evidence_chain = outputs["evidence_chain"]
@@ -724,6 +736,12 @@ def _run_professional_evidence_pipeline_command(args: argparse.Namespace) -> int
         manifest["professional_evidence"]["execution_calibration_summary_path"] = outputs[
             "execution_calibration_summary_path"
         ]
+    if "execution_sample_collection_health_path" in outputs:
+        manifest["professional_evidence"]["execution_sample_collection_health_path"] = outputs[
+            "execution_sample_collection_health_path"
+        ]
+    if "runtime_summary_path" in outputs:
+        manifest["professional_evidence"]["runtime_summary_path"] = outputs["runtime_summary_path"]
     manifest_path = output_dir / "professional_evidence_pipeline_manifest.json"
     _write_json(manifest_path, manifest)
     print(manifest_path)
@@ -815,6 +833,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional calibration_records_unavailable.json marker to include as fail-closed execution realism evidence.",
     )
     professional_evidence_parser.add_argument(
+        "--execution-sample-collection-health-path",
+        default=None,
+        help="Optional execution_sample_collection_health.json marker emitted by paper runtime run_cycle.",
+    )
+    professional_evidence_parser.add_argument(
+        "--runtime-summary-path",
+        default=None,
+        help="Optional runtime latest.json whose execution_sample_collection_health_file should be consumed.",
+    )
+    professional_evidence_parser.add_argument(
         "--generated-at",
         default=None,
         help="Optional canonical UTC timestamp for deterministic generated_at fields.",
@@ -854,6 +882,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--execution-calibration-unavailable-path",
         default=None,
         help="Optional calibration_records_unavailable.json marker to include as fail-closed execution realism evidence.",
+    )
+    professional_pipeline_parser.add_argument(
+        "--execution-sample-collection-health-path",
+        default=None,
+        help="Optional execution_sample_collection_health.json marker emitted by paper runtime run_cycle.",
+    )
+    professional_pipeline_parser.add_argument(
+        "--runtime-summary-path",
+        default=None,
+        help="Optional runtime latest.json whose execution_sample_collection_health_file should be consumed.",
     )
     professional_pipeline_parser.add_argument(
         "--generated-at",
