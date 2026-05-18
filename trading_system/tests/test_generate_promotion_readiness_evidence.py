@@ -182,6 +182,16 @@ def _write_complete_runtime(runtime_dir: Path) -> None:
     _write_jsonl(runtime_dir / "passive_order_calibration_records.jsonl", _calibration_rows())
 
 
+def _run_backtest_cli(*args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, "-m", "trading_system.app.backtest.cli", *args],
+        cwd=Path(__file__).resolve().parents[2],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
 def _backtest_evidence_chain() -> dict[str, object]:
     return {
         "schema_version": "backtest_evidence_chain.v1",
@@ -310,6 +320,65 @@ def test_complete_runtime_without_backtest_evidence_chain_holds_promotion(tmp_pa
 
     assert evidence["historical_backtest"]["status"] == "hold"
     assert evidence["historical_backtest"]["reason_codes"] == ["source_missing:backtest_evidence_chain"]
+    assert evidence["summary"]["decision"] == "hold"
+    assert scorecard["decision"] == "hold"
+
+
+def test_professional_backtest_cli_evidence_chain_feeds_promotion_readiness_fail_closed(tmp_path: Path) -> None:
+    fixture_dir = Path(__file__).parent / "fixtures" / "backtest"
+    baseline_completed = _run_backtest_cli(
+        "run",
+        "--config",
+        str(fixture_dir / "full_market_baseline.json"),
+        "--output-dir",
+        str(tmp_path / "baseline"),
+    )
+    walk_forward_completed = _run_backtest_cli(
+        "run",
+        "--config",
+        str(fixture_dir / "walk_forward_validation_config.json"),
+        "--output-dir",
+        str(tmp_path / "walk_forward"),
+    )
+    allocator_completed = _run_backtest_cli(
+        "run",
+        "--config",
+        str(fixture_dir / "allocator_friction_config.json"),
+        "--output-dir",
+        str(tmp_path / "allocator"),
+    )
+
+    professional_evidence_dir = tmp_path / "professional_evidence"
+    _run_backtest_cli(
+        "write-professional-evidence",
+        "--backtest-bundle-dir",
+        baseline_completed.stdout.strip(),
+        "--walk-forward-bundle-dir",
+        walk_forward_completed.stdout.strip(),
+        "--allocator-friction-bundle-dir",
+        allocator_completed.stdout.strip(),
+        "--output-dir",
+        str(professional_evidence_dir),
+        "--generated-at",
+        GENERATED_AT,
+    )
+
+    runtime_dir = tmp_path / "optimization"
+    _write_complete_runtime(runtime_dir)
+    evidence_chain_path = professional_evidence_dir / "backtest_evidence_chain.json"
+    (runtime_dir / "backtest_evidence_chain.json").write_text(
+        evidence_chain_path.read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+
+    evidence = build_promotion_readiness_evidence(runtime_dir, generated_at=GENERATED_AT)
+    scorecard = build_promotion_readiness_scorecard(evidence, generated_at=GENERATED_AT)
+
+    assert "backtest_evidence_chain" in evidence["sources"]
+    assert "backtest_evidence_chain" not in evidence["missing_sources"]
+    assert evidence["historical_backtest"]["status"] == "hold"
+    assert "backtest_evidence_chain_not_pass" in evidence["historical_backtest"]["reason_codes"]
+    assert "backtest_component_not_pass:walk_forward_oos" in evidence["historical_backtest"]["reason_codes"]
     assert evidence["summary"]["decision"] == "hold"
     assert scorecard["decision"] == "hold"
 
