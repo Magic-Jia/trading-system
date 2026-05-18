@@ -36,6 +36,7 @@ EFFECTIVE_ENV_FILE_ENV = "TRADING_EFFECTIVE_ENV_FILE"
 EFFECTIVE_LOG_FILE_ENV = "TRADING_EFFECTIVE_LOG_FILE"
 LATEST_SUMMARY_NAME = "latest.json"
 ERROR_SUMMARY_NAME = "error.json"
+EXECUTION_SAMPLE_COLLECTION_HEALTH_NAME = "execution_sample_collection_health.json"
 PAPER_RUNTIME_ENV = "paper"
 CANONICAL_EXECUTION_MODES = {"paper", "dry-run", "live", "testnet"}
 
@@ -51,6 +52,16 @@ def _run_id(paths: RuntimePaths, finished_at: str) -> str:
 
 def _write_json(path: Path, payload: Mapping[str, Any]) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _file_status(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {"path": str(path), "exists": False, "bytes": 0, "line_count": 0}
+    line_count = 0
+    if path.is_file():
+        with path.open(encoding="utf-8") as handle:
+            line_count = sum(1 for line in handle if line.strip())
+    return {"path": str(path), "exists": True, "bytes": path.stat().st_size, "line_count": line_count}
 
 
 def _reject_duplicate_runtime_state_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -266,6 +277,41 @@ def _state_summary(paths: RuntimePaths) -> dict[str, Any]:
     }
 
 
+def _execution_sample_collection_health(paths: RuntimePaths, state_summary: Mapping[str, Any]) -> dict[str, Any]:
+    candidate_count = int(state_summary.get("candidate_count", 0) or 0)
+    allocation_count = int(state_summary.get("allocation_count", 0) or 0)
+    execution_log_file = _file_status(paths.execution_log_file)
+    paper_ledger_file = _file_status(paths.paper_ledger_file)
+    sample_count = int(execution_log_file["line_count"] or 0)
+
+    reason_codes: list[str] = []
+    if candidate_count == 0:
+        reason_codes.append("no_candidates")
+    if allocation_count == 0:
+        reason_codes.append("no_allocations")
+    if not execution_log_file["exists"]:
+        reason_codes.append("execution_log_missing")
+    elif sample_count == 0:
+        reason_codes.append("execution_log_empty")
+    if not paper_ledger_file["exists"]:
+        reason_codes.append("paper_ledger_missing")
+    if sample_count == 0:
+        reason_codes.append("no_execution_samples")
+
+    status = "available" if sample_count > 0 and not reason_codes else "unavailable"
+    return {
+        "schema_version": "execution_sample_collection_health.v1",
+        "status": status,
+        "decision_policy": "pass" if status == "available" else "fail_closed",
+        "candidate_count": candidate_count,
+        "allocation_count": allocation_count,
+        "sample_count": sample_count,
+        "execution_log_file": execution_log_file,
+        "paper_ledger_file": paper_ledger_file,
+        "reason_codes": reason_codes,
+    }
+
+
 def _resolve_runtime_root(runtime_root: Path | str | None) -> Path | str | None:
     if runtime_root is not None:
         return runtime_root
@@ -333,9 +379,14 @@ def run_cycle(mode: str, *, runtime_root: Path | str | None = None, runtime_env:
         _write_json(paths.bucket_dir / LATEST_SUMMARY_NAME, summary)
         raise
 
+    state_summary = _state_summary(paths)
+    health_path = paths.bucket_dir / EXECUTION_SAMPLE_COLLECTION_HEALTH_NAME
+    health = _execution_sample_collection_health(paths, state_summary)
+    _write_json(health_path, health)
     summary = {
         **_base_summary(paths, status="ok", finished_at=finished_at or _timestamp()),
-        **_state_summary(paths),
+        **state_summary,
+        "execution_sample_collection_health_file": str(health_path),
     }
     if archived_bundle_dir is not None:
         summary["archive_bundle_dir"] = archived_bundle_dir

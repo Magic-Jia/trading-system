@@ -111,6 +111,49 @@ def test_run_cycle_latest_summary_includes_disabled_setup_types(monkeypatch, tmp
     assert latest["disabled_setup_type_filtered_candidates"] == []
 
 
+def test_run_cycle_writes_execution_sample_collection_health_for_no_candidate_cycle(monkeypatch, tmp_path):
+    runtime_root = tmp_path / "runtime"
+    expected_bucket = runtime_root / "paper" / "prod"
+
+    def fake_main() -> None:
+        Path(os.environ["TRADING_STATE_FILE"]).write_text(
+            json.dumps(
+                {
+                    "execution_mode": "paper",
+                    "latest_candidates": [],
+                    "latest_allocations": [],
+                    "paper_trading": {"ledger_event_count": 0, "emitted_count": 0, "replayed_count": 0},
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    _disable_paper_runtime_input_preparation(monkeypatch)
+    monkeypatch.setattr(run_cycle_module, "run_main", fake_main)
+
+    summary = run_cycle_module.run_cycle("paper", runtime_root=runtime_root, runtime_env="prod")
+
+    health_path = expected_bucket / "execution_sample_collection_health.json"
+    health = json.loads(health_path.read_text(encoding="utf-8"))
+    latest = json.loads((expected_bucket / "latest.json").read_text(encoding="utf-8"))
+    assert summary == latest
+    assert latest["execution_sample_collection_health_file"] == str(health_path)
+    assert health["schema_version"] == "execution_sample_collection_health.v1"
+    assert health["status"] == "unavailable"
+    assert health["decision_policy"] == "fail_closed"
+    assert health["candidate_count"] == 0
+    assert health["allocation_count"] == 0
+    assert health["execution_log_file"]["exists"] is False
+    assert health["paper_ledger_file"]["exists"] is False
+    assert health["reason_codes"] == [
+        "no_candidates",
+        "no_allocations",
+        "execution_log_missing",
+        "paper_ledger_missing",
+        "no_execution_samples",
+    ]
+
+
 def test_run_cycle_latest_summary_includes_entry_profile_from_state(monkeypatch, tmp_path):
     runtime_root = tmp_path / "runtime"
     expected_bucket = runtime_root / "paper" / "prod"
