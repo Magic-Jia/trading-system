@@ -10,7 +10,7 @@ from trading_system import paper_snapshots as paper_snapshots_module
 from trading_system import run_cycle as run_cycle_module
 from trading_system.app import main as main_module
 from trading_system.app.risk.validator import ValidationResult
-from trading_system.app.types import AllocationDecision
+from trading_system.app.types import AllocationDecision, TradeSignal
 
 
 @pytest.fixture(autouse=True)
@@ -109,6 +109,96 @@ def test_run_cycle_latest_summary_includes_disabled_setup_types(monkeypatch, tmp
     assert latest["disabled_setup_types"] == ["RS_PULLBACK", "BREAKDOWN_SHORT"]
     assert latest["disabled_setup_type_filtered_count"] == 0
     assert latest["disabled_setup_type_filtered_candidates"] == []
+
+
+def test_run_cycle_real_main_candidate_allocation_path_can_emit_available_paper_samples(
+    monkeypatch, tmp_path, load_fixture
+):
+    runtime_root = tmp_path / "runtime"
+    expected_bucket = runtime_root / "paper" / "research"
+
+    def prepare_inputs(paths) -> None:
+        paths.bucket_dir.mkdir(parents=True, exist_ok=True)
+        (paths.bucket_dir / "account_snapshot.json").write_text(
+            json.dumps(load_fixture("account_snapshot_v2.json")), encoding="utf-8"
+        )
+        (paths.bucket_dir / "market_context.json").write_text(
+            json.dumps(load_fixture("market_context_v2.json")), encoding="utf-8"
+        )
+        (paths.bucket_dir / "derivatives_snapshot.json").write_text(
+            json.dumps(load_fixture("derivatives_snapshot_v2.json")), encoding="utf-8"
+        )
+
+    monkeypatch.setattr(run_cycle_module, "prepare_paper_runtime_inputs", prepare_inputs)
+    monkeypatch.setattr(
+        main_module,
+        "generate_trend_candidates",
+        lambda *args, **kwargs: [
+            {
+                "engine": "trend",
+                "setup_type": "BREAKOUT_CONTINUATION",
+                "symbol": "BTCUSDT",
+                "side": "LONG",
+                "score": 0.91,
+                "stop_loss": 58000.0,
+                "invalidation_source": "trend_breakout_failure_below_4h_ema20",
+            }
+        ],
+    )
+    monkeypatch.setattr(main_module, "generate_rotation_candidates", lambda *args, **kwargs: [])
+    monkeypatch.setattr(main_module, "generate_short_candidates", lambda *args, **kwargs: [])
+    monkeypatch.setattr(
+        main_module,
+        "validate_candidate_for_allocation",
+        lambda candidate, account: ValidationResult(True, "INFO", reasons=[], metrics={}),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "allocate_candidates",
+        lambda **kwargs: [AllocationDecision(status="ACCEPTED", engine="trend", final_risk_budget=0.01, rank=1)],
+    )
+    monkeypatch.setattr(
+        main_module,
+        "validate_signal",
+        lambda signal, account, config, **_kwargs: (ValidationResult(True, "INFO", reasons=[], metrics={}), {"sizing": None}),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "_candidate_signal",
+        lambda allocation, market, **_kwargs: TradeSignal(
+            signal_id="signal-btc-long",
+            symbol="BTCUSDT",
+            side="LONG",
+            entry_price=60000.0,
+            stop_loss=58000.0,
+            take_profit=64000.0,
+            source="strategy",
+            timeframe="4h",
+            tags=["v2", "trend"],
+            meta={
+                "setup_type": "BREAKOUT_CONTINUATION",
+                "invalidation_source": "trend_breakout_failure_below_4h_ema20",
+            },
+        ),
+    )
+
+    summary = run_cycle_module.run_cycle("paper", runtime_root=runtime_root, runtime_env="research")
+
+    latest = json.loads((expected_bucket / "latest.json").read_text(encoding="utf-8"))
+    state = json.loads((expected_bucket / "runtime_state.json").read_text(encoding="utf-8"))
+    health = json.loads((expected_bucket / "execution_sample_collection_health.json").read_text(encoding="utf-8"))
+    assert summary == latest
+    assert latest["candidate_count"] == 1
+    assert latest["allocation_count"] == 1
+    assert latest["execution_sample_collection_health_file"] == str(expected_bucket / "execution_sample_collection_health.json")
+    assert health["status"] == "available"
+    assert health["decision_policy"] == "pass"
+    assert health["sample_count"] == 1
+    assert health["reason_codes"] == []
+    assert health["execution_log_file"]["line_count"] > 0
+    assert health["paper_ledger_file"]["line_count"] == 1
+    assert state["latest_candidates"][0]["symbol"] == "BTCUSDT"
+    assert state["latest_allocations"][0]["execution"]["status"] == "FILLED"
 
 
 def test_run_cycle_writes_execution_sample_collection_health_for_no_candidate_cycle(monkeypatch, tmp_path):
