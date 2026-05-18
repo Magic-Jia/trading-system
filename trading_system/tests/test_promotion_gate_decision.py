@@ -197,6 +197,13 @@ def test_gate_holds_when_professional_evidence_chain_execution_realism_holds() -
 
     assert report["decision"] == "hold"
     assert report["checks"]["professional_evidence_chain"]["status"] == "hold"
+    assert report["checks"]["professional_evidence_chain"]["execution_realism"] == {
+        "status": "hold",
+        "sample_count": 0,
+        "reason_codes": ["execution_calibration_unavailable", "execution_log_missing"],
+        "maker_fill_probability": None,
+        "taker_slippage_p95_bps": None,
+    }
     assert "professional_evidence_chain:execution_realism_hold" in report["blocking_reasons"]
     assert "professional_evidence_chain:execution_realism:execution_log_missing" in report["blocking_reasons"]
     assert report["human_review_required"] is True

@@ -377,6 +377,13 @@ def _normalize_professional_evidence_chain(
     status = "reject" if errors else ("hold" if reasons else "pass")
     check = _check_from_errors(status=status, errors=errors, warnings=warnings, reasons=reasons)
     check["thresholds"] = dict(EXECUTION_REALISM_THRESHOLDS)
+    check["execution_realism"] = {
+        "status": execution_status,
+        "sample_count": sample_count if isinstance(sample_count, int) and not isinstance(sample_count, bool) else None,
+        "reason_codes": _string_list(execution_realism.get("reason_codes")),
+        "maker_fill_probability": maker_fill_probability,
+        "taker_slippage_p95_bps": taker_slippage_p95,
+    }
     return check, _artifact_identity(
         payload, source, "professional_evidence_chain"
     )
