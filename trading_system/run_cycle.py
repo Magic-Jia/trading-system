@@ -37,6 +37,7 @@ EFFECTIVE_LOG_FILE_ENV = "TRADING_EFFECTIVE_LOG_FILE"
 LATEST_SUMMARY_NAME = "latest.json"
 ERROR_SUMMARY_NAME = "error.json"
 EXECUTION_SAMPLE_COLLECTION_HEALTH_NAME = "execution_sample_collection_health.json"
+CANDIDATE_FUNNEL_HEALTH_NAME = "candidate_funnel_health.json"
 PAPER_RUNTIME_ENV = "paper"
 CANONICAL_EXECUTION_MODES = {"paper", "dry-run", "live", "testnet"}
 
@@ -312,6 +313,39 @@ def _execution_sample_collection_health(paths: RuntimePaths, state_summary: Mapp
     }
 
 
+def _candidate_funnel_health(state_summary: Mapping[str, Any]) -> dict[str, Any]:
+    latest_candidate_count = int(state_summary.get("candidate_count", 0) or 0)
+    allocation_count = int(state_summary.get("allocation_count", 0) or 0)
+    strategy_candidate_counts = {
+        "trend": int(state_summary.get("trend_candidate_count", 0) or 0),
+        "rotation": int(state_summary.get("rotation_candidate_count", 0) or 0),
+        "short": int(state_summary.get("short_candidate_count", 0) or 0),
+    }
+
+    reason_codes: list[str] = []
+    if latest_candidate_count == 0:
+        reason_codes.append("no_latest_candidates")
+    if strategy_candidate_counts["trend"] == 0:
+        reason_codes.append("no_trend_candidates")
+    if strategy_candidate_counts["rotation"] == 0:
+        reason_codes.append("no_rotation_candidates")
+    if strategy_candidate_counts["short"] == 0:
+        reason_codes.append("no_short_candidates")
+    if allocation_count == 0:
+        reason_codes.append("no_allocations")
+
+    status = "pass" if not reason_codes else "blocked"
+    return {
+        "schema_version": "candidate_funnel_health.v1",
+        "status": status,
+        "decision_policy": "pass" if status == "pass" else "fail_closed",
+        "latest_candidate_count": latest_candidate_count,
+        "strategy_candidate_counts": strategy_candidate_counts,
+        "allocation_count": allocation_count,
+        "reason_codes": reason_codes,
+    }
+
+
 def _resolve_runtime_root(runtime_root: Path | str | None) -> Path | str | None:
     if runtime_root is not None:
         return runtime_root
@@ -383,10 +417,14 @@ def run_cycle(mode: str, *, runtime_root: Path | str | None = None, runtime_env:
     health_path = paths.bucket_dir / EXECUTION_SAMPLE_COLLECTION_HEALTH_NAME
     health = _execution_sample_collection_health(paths, state_summary)
     _write_json(health_path, health)
+    candidate_funnel_health_path = paths.bucket_dir / CANDIDATE_FUNNEL_HEALTH_NAME
+    candidate_funnel_health = _candidate_funnel_health(state_summary)
+    _write_json(candidate_funnel_health_path, candidate_funnel_health)
     summary = {
         **_base_summary(paths, status="ok", finished_at=finished_at or _timestamp()),
         **state_summary,
         "execution_sample_collection_health_file": str(health_path),
+        "candidate_funnel_health_file": str(candidate_funnel_health_path),
     }
     if archived_bundle_dir is not None:
         summary["archive_bundle_dir"] = archived_bundle_dir
