@@ -7,6 +7,8 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Callable
 
+from ..reporting.promotion_gate_decision import write_promotion_gate_decision_report
+from .archive.materialization import materialize_phase1_evidence_windows
 from .config import load_backtest_config
 from .dataset import load_dataset_root_metadata, load_historical_dataset, split_rows_by_windows
 from .engine import replay_full_market_baseline
@@ -37,7 +39,6 @@ from .reporting import (
     render_walk_forward_validation_report,
 )
 from .types import BacktestConfig, DatasetSnapshotRow, ExperimentParams
-from .archive.materialization import materialize_phase1_evidence_windows
 
 
 HandlerResult = tuple[dict[str, Any], dict[str, Any]]
@@ -742,6 +743,32 @@ def _run_professional_evidence_pipeline_command(args: argparse.Namespace) -> int
         ]
     if "runtime_summary_path" in outputs:
         manifest["professional_evidence"]["runtime_summary_path"] = outputs["runtime_summary_path"]
+    if args.simulated_live_evidence_window is not None or args.promotion_readiness_scorecard_trend is not None:
+        if args.simulated_live_evidence_window is None or args.promotion_readiness_scorecard_trend is None:
+            print(
+                "--simulated-live-evidence-window and --promotion-readiness-scorecard-trend must be provided together",
+                file=sys.stderr,
+            )
+            return 1
+        gate_path = output_dir / "promotion_gate_decision.json"
+        gate_report = write_promotion_gate_decision_report(
+            gate_path,
+            simulated_live_evidence_window=Path(args.simulated_live_evidence_window),
+            promotion_readiness_scorecard_trend=Path(args.promotion_readiness_scorecard_trend),
+            calibration_artifacts=[Path(path) for path in args.calibration_artifact],
+            professional_evidence_chain=Path(outputs["evidence_chain_path"]),
+            generated_at=args.generated_at,
+        )
+        manifest["promotion_gate"] = {
+            "decision_report_path": str(gate_path),
+            "decision": gate_report["decision"],
+            "blocking_reasons": gate_report["blocking_reasons"],
+            "human_review_required": gate_report["human_review_required"],
+            "simulated_live_evidence_window_path": str(args.simulated_live_evidence_window),
+            "promotion_readiness_scorecard_trend_path": str(args.promotion_readiness_scorecard_trend),
+            "calibration_artifact_paths": [str(path) for path in args.calibration_artifact],
+            "professional_evidence_chain_path": outputs["evidence_chain_path"],
+        }
     manifest_path = output_dir / "professional_evidence_pipeline_manifest.json"
     _write_json(manifest_path, manifest)
     print(manifest_path)
@@ -892,6 +919,22 @@ def build_parser() -> argparse.ArgumentParser:
         "--runtime-summary-path",
         default=None,
         help="Optional runtime latest.json whose execution_sample_collection_health_file should be consumed.",
+    )
+    professional_pipeline_parser.add_argument(
+        "--simulated-live-evidence-window",
+        default=None,
+        help="Optional simulated_live_evidence_window.json; when paired with trend, writes promotion_gate_decision.json.",
+    )
+    professional_pipeline_parser.add_argument(
+        "--promotion-readiness-scorecard-trend",
+        default=None,
+        help="Optional promotion_readiness_scorecard_trend.json; when paired with evidence window, writes promotion_gate_decision.json.",
+    )
+    professional_pipeline_parser.add_argument(
+        "--calibration-artifact",
+        action="append",
+        default=[],
+        help="Optional calibration feedback/recommendation artifact for promotion gate; may be repeated.",
     )
     professional_pipeline_parser.add_argument(
         "--generated-at",
