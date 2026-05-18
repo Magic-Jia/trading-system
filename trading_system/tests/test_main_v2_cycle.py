@@ -530,6 +530,75 @@ def test_v2_main_passes_selected_entry_profile_to_long_engines_and_records_it(mo
     assert state["latest_entry_profile"]["name"] == "active_paper"
 
 
+def test_main_v2_scout_paper_injects_one_diagnostic_probe_when_natural_candidates_empty(
+    monkeypatch, tmp_path, load_fixture
+):
+    output_path = tmp_path / "runtime_state.json"
+    account_path = tmp_path / "account_snapshot.json"
+    market_path = tmp_path / "market_context.json"
+    deriv_path = tmp_path / "derivatives_snapshot.json"
+    account_path.write_text(json.dumps(load_fixture("account_snapshot_v2.json")))
+    market_path.write_text(json.dumps(load_fixture("market_context_v2.json")))
+    deriv_path.write_text(json.dumps(load_fixture("derivatives_snapshot_v2.json")))
+    monkeypatch.setattr(main_module, "generate_trend_candidates", lambda *args, **kwargs: [])
+    monkeypatch.setattr(main_module, "generate_rotation_candidates", lambda *args, **kwargs: [])
+    monkeypatch.setattr(main_module, "generate_short_candidates", lambda *args, **kwargs: [])
+    monkeypatch.setenv("TRADING_ENTRY_PROFILE", "scout")
+    monkeypatch.setenv("TRADING_EXECUTION_MODE", "paper")
+    monkeypatch.setenv("TRADING_FEISHU_NOTIFICATIONS_ENABLED", "0")
+    monkeypatch.setenv("TRADING_STATE_FILE", str(output_path))
+    monkeypatch.setenv("TRADING_ACCOUNT_SNAPSHOT_FILE", str(account_path))
+    monkeypatch.setenv("TRADING_MARKET_CONTEXT_FILE", str(market_path))
+    monkeypatch.setenv("TRADING_DERIVATIVES_SNAPSHOT_FILE", str(deriv_path))
+
+    main_module.main()
+
+    state = json.loads(output_path.read_text(encoding="utf-8"))
+    assert state["latest_entry_profile"]["name"] == "scout"
+    assert len(state["latest_candidates"]) == 1
+    candidate = state["latest_candidates"][0]
+    assert candidate["symbol"] == "XRPUSDT"
+    assert candidate["engine"] == "trend"
+    assert candidate["setup_type"] == "PAPER_SCOUT_PROBE"
+    assert candidate["meta"]["probe_source"] == "paper_scout_no_natural_candidates"
+    assert candidate["meta"]["paper_only"] is True
+    assert candidate["meta"]["entry_profile"] == "scout"
+    assert len(state["latest_allocations"]) == 1
+    allocation = state["latest_allocations"][0]
+    assert allocation["status"] in {"ACCEPTED", "DOWNSIZED"}
+    assert allocation["execution"]["status"] == "FILLED"
+    assert allocation["meta"]["probe_source"] == "paper_scout_no_natural_candidates"
+    assert state["paper_trading"]["emitted_count"] == 1
+
+
+def test_main_v2_default_profile_does_not_inject_paper_scout_probe(monkeypatch, tmp_path, load_fixture):
+    output_path = tmp_path / "runtime_state.json"
+    account_path = tmp_path / "account_snapshot.json"
+    market_path = tmp_path / "market_context.json"
+    deriv_path = tmp_path / "derivatives_snapshot.json"
+    account_path.write_text(json.dumps(load_fixture("account_snapshot_v2.json")))
+    market_path.write_text(json.dumps(load_fixture("market_context_v2.json")))
+    deriv_path.write_text(json.dumps(load_fixture("derivatives_snapshot_v2.json")))
+    monkeypatch.setattr(main_module, "generate_trend_candidates", lambda *args, **kwargs: [])
+    monkeypatch.setattr(main_module, "generate_rotation_candidates", lambda *args, **kwargs: [])
+    monkeypatch.setattr(main_module, "generate_short_candidates", lambda *args, **kwargs: [])
+    monkeypatch.delenv("TRADING_ENTRY_PROFILE", raising=False)
+    monkeypatch.setenv("TRADING_EXECUTION_MODE", "paper")
+    monkeypatch.setenv("TRADING_FEISHU_NOTIFICATIONS_ENABLED", "0")
+    monkeypatch.setenv("TRADING_STATE_FILE", str(output_path))
+    monkeypatch.setenv("TRADING_ACCOUNT_SNAPSHOT_FILE", str(account_path))
+    monkeypatch.setenv("TRADING_MARKET_CONTEXT_FILE", str(market_path))
+    monkeypatch.setenv("TRADING_DERIVATIVES_SNAPSHOT_FILE", str(deriv_path))
+
+    main_module.main()
+
+    state = json.loads(output_path.read_text(encoding="utf-8"))
+    assert state["latest_entry_profile"]["name"] == "conservative"
+    assert state["latest_candidates"] == []
+    assert state["latest_allocations"] == []
+    assert state["paper_trading"]["emitted_count"] == 0
+
+
 def test_v2_main_rejects_live_execution_without_explicit_allow(monkeypatch):
     config = replace(
         DEFAULT_CONFIG,

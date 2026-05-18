@@ -128,6 +128,7 @@ def _normalize_candidate(candidate: EngineCandidate | Mapping[str, Any]) -> dict
     sector = _strict_canonical_string(raw_sector, "candidate.sector", allow_empty=True) if raw_sector is not _MISSING else ""
     timeframe_meta = _strict_mapping(_candidate_value(candidate, "timeframe_meta", _MISSING), "candidate.timeframe_meta")
     liquidity_meta = _strict_mapping(_candidate_value(candidate, "liquidity_meta", _MISSING), "candidate.liquidity_meta")
+    meta = _strict_mapping(_candidate_value(candidate, "meta", _MISSING), "candidate.meta")
     return {
         "engine": engine,
         "setup_type": setup_type,
@@ -137,6 +138,7 @@ def _normalize_candidate(candidate: EngineCandidate | Mapping[str, Any]) -> dict
         "sector": sector or sector_for_symbol(symbol),
         "timeframe_meta": timeframe_meta,
         "liquidity_meta": liquidity_meta,
+        "meta": meta,
     }
 
 
@@ -465,8 +467,22 @@ def allocate_candidates(
             "open_positions_count": len(open_positions),
             "max_open_positions": max_open_positions,
         }
+        candidate_meta = candidate.get("meta", {})
+        if isinstance(candidate_meta, Mapping):
+            for key in ("probe_source", "paper_only", "entry_profile"):
+                if key in candidate_meta:
+                    meta[key] = candidate_meta[key]
+        paper_scout_probe_exception = (
+            candidate["setup_type"] == "PAPER_SCOUT_PROBE"
+            and getattr(app_config.execution, "mode", "") == "paper"
+            and str(getattr(app_config.entry_profile, "name", "")).strip().lower() == "scout"
+            and meta.get("probe_source") == "paper_scout_no_natural_candidates"
+            and meta.get("paper_only") is True
+        )
+        if paper_scout_probe_exception:
+            meta["paper_scout_probe_exception_applied"] = True
 
-        if current_active_risk_pct >= total_risk_cap:
+        if current_active_risk_pct >= total_risk_cap and not paper_scout_probe_exception:
             reasons.append(f"总风险暴露已达上限：{current_active_risk_pct:.2%} >= {total_risk_cap:.2%}")
             meta["account_total_risk_limit_hit"] = True
 
@@ -560,7 +576,14 @@ def allocate_candidates(
         bucket_cap = max(bucket_caps.get(engine, 0.0), 0.0)
         bucket_remaining = max(bucket_cap - bucket_risk_used.get(engine, 0.0), 0.0)
         portfolio_remaining = max(total_risk_cap - current_active_risk_pct - portfolio_risk_used, 0.0)
-        allowed_budget = min(bucket_remaining, portfolio_remaining)
+        if paper_scout_probe_exception:
+            probe_cap = max(min(total_risk_cap * 0.01, 0.0001), 0.00001)
+            meta["paper_scout_probe_risk_cap"] = round(probe_cap, 6)
+            portfolio_remaining = max(portfolio_remaining, probe_cap)
+            bucket_remaining = max(bucket_remaining, probe_cap)
+            allowed_budget = min(bucket_remaining, portfolio_remaining, probe_cap)
+        else:
+            allowed_budget = min(bucket_remaining, portfolio_remaining)
         if allowed_budget <= _MIN_RISK_BUDGET:
             reasons.append("bucket or portfolio risk budget exhausted")
             meta["risk_budget_exhausted"] = True

@@ -1068,6 +1068,92 @@ def _short_review_notes(
     return sorted(notes, key=lambda row: (str(row.get("symbol", "")), str(row.get("setup_type", ""))))
 
 
+def _allow_paper_scout_execution_probe(
+    allocation: Mapping[str, Any],
+    config: Any,
+    validation_reasons: list[str],
+) -> bool:
+    if getattr(config.execution, "mode", "") != "paper":
+        return False
+    if str(getattr(config.entry_profile, "name", "")).strip().lower() != "scout":
+        return False
+    if str(allocation.get("setup_type", "")).upper() != "PAPER_SCOUT_PROBE":
+        return False
+    meta = allocation.get("meta", {})
+    if not isinstance(meta, Mapping):
+        return False
+    if meta.get("probe_source") != "paper_scout_no_natural_candidates" or meta.get("paper_only") is not True:
+        return False
+    if not validation_reasons:
+        return False
+    return all("总风险暴露" in reason and "超过上限" in reason for reason in validation_reasons)
+
+
+def _paper_scout_probe_candidates(
+    *,
+    config: Any,
+    account: AccountSnapshot,
+    market: Mapping[str, Any],
+    universes: UniverseBuildResult,
+    natural_candidates: list[Any],
+) -> list[dict[str, Any]]:
+    if natural_candidates:
+        return []
+    if getattr(config.execution, "mode", "") != "paper":
+        return []
+    entry_profile_name = str(getattr(config.entry_profile, "name", "")).strip().lower()
+    if entry_profile_name != "scout":
+        return []
+    market_symbols = market.get("symbols", {})
+    if not isinstance(market_symbols, Mapping):
+        return []
+    existing_symbols = {position.symbol.upper() for position in account.open_positions}
+    preferred_symbols = ["BTCUSDT", "ETHUSDT", "XRPUSDT", "LINKUSDT", "DOGEUSDT", "ADAUSDT", "BNBUSDT"]
+    universe_symbols = [str(row.get("symbol", "")).upper().strip() for row in universes.rotation_universe]
+    for symbol in [*preferred_symbols, *universe_symbols]:
+        if not symbol or symbol in existing_symbols:
+            continue
+        payload = market_symbols.get(symbol)
+        if not isinstance(payload, Mapping):
+            continue
+        daily = _timeframe_row(payload, "daily")
+        entry_price = _float(dict(daily), "close")
+        if entry_price <= 0.0:
+            continue
+        stop_distance_pct = max(float(config.risk.min_stop_distance_pct) * 2.0, 0.006)
+        stop_loss = round(entry_price * (1.0 - stop_distance_pct), 8)
+        take_profit = round(entry_price * (1.0 + (2.0 * stop_distance_pct)), 8)
+        sector = str(payload.get("sector") or "paper_scout").strip() or "paper_scout"
+        return [
+            {
+                "engine": "trend",
+                "setup_type": "PAPER_SCOUT_PROBE",
+                "symbol": symbol,
+                "side": "LONG",
+                "score": 0.51,
+                "stop_loss": stop_loss,
+                "take_profit": take_profit,
+                "invalidation_source": "paper_scout_probe_stop_below_entry",
+                "timeframe_meta": {
+                    "daily_bias": "paper_scout_probe",
+                    "h4_structure": "paper_scout_probe",
+                    "h1_trigger": "paper_scout_probe",
+                },
+                "sector": sector,
+                "liquidity_meta": {
+                    "volume_usdt_24h": _float(dict(daily), "volume_usdt_24h"),
+                    "liquidity_tier": str(payload.get("liquidity_tier", "")),
+                },
+                "meta": {
+                    "probe_source": "paper_scout_no_natural_candidates",
+                    "paper_only": True,
+                    "entry_profile": entry_profile_name,
+                },
+            }
+        ]
+    return []
+
+
 def _regime_payload(regime: Any) -> Mapping[str, Any] | None:
     if isinstance(regime, Mapping):
         return regime
@@ -1730,6 +1816,14 @@ def main() -> None:
     disabled_setup_type_filtered_candidates.extend(filtered)
     short_candidates, filtered = _filter_disabled_setup_types(short_candidates, disabled_setup_types)
     disabled_setup_type_filtered_candidates.extend(filtered)
+    scout_probe_candidates = _paper_scout_probe_candidates(
+        config=config,
+        account=account,
+        market=market,
+        universes=universes,
+        natural_candidates=[*trend_candidates, *rotation_candidates, *short_candidates],
+    )
+    trend_candidates.extend(scout_probe_candidates)
     candidate_rows: list[dict[str, Any]] = []
     validated_rows: list[dict[str, Any]] = []
     for candidate in [*trend_candidates, *rotation_candidates, *short_candidates]:
@@ -1782,11 +1876,14 @@ def main() -> None:
             risk_pct_override=execution_risk_budget if execution_risk_budget > 0 else None,
         )
         if not signal_validation.allowed:
-            allocation["execution"] = {
-                "status": "BLOCKED",
-                "reason": "; ".join(signal_validation.reasons) or "signal validation failed",
-            }
-            continue
+            if _allow_paper_scout_execution_probe(allocation, config, signal_validation.reasons):
+                allocation["execution_validation_override"] = "paper_scout_probe_total_risk_cap_only"
+            else:
+                allocation["execution"] = {
+                    "status": "BLOCKED",
+                    "reason": "; ".join(signal_validation.reasons) or "signal validation failed",
+                }
+                continue
         replayed_execution = replay_processed_execution(
             state,
             signal,
