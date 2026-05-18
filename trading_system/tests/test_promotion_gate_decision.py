@@ -105,6 +105,31 @@ def _assumption_recommendation(*, decision: str = "no_change") -> dict[str, obje
     }
 
 
+def _professional_evidence_chain(*, execution_realism_status: str = "pass") -> dict[str, object]:
+    reasons = [] if execution_realism_status == "pass" else ["execution_calibration_unavailable", "execution_log_missing"]
+    return {
+        "schema_version": "backtest_evidence_chain.v1",
+        "generated_at": "2026-05-17T00:25:00Z",
+        "summary": {
+            "decision": "pass" if execution_realism_status == "pass" else "hold",
+            "component_statuses": {
+                "historical_backtest": "pass",
+                "exit_path_replay": "pass",
+                "walk_forward_oos": "pass",
+                "cost_sensitivity": "pass",
+                "execution_realism": execution_realism_status,
+                "data_quality": "pass",
+            },
+        },
+        "execution_realism": {
+            "status": execution_realism_status,
+            "coverage_score": 1.0 if execution_realism_status == "pass" else 0.0,
+            "sample_count": 12 if execution_realism_status == "pass" else 0,
+            "reason_codes": reasons,
+        },
+    }
+
+
 def test_builds_candidate_promotion_gate_decision_from_passing_artifacts() -> None:
     report = build_promotion_gate_decision_report(
         simulated_live_evidence_window=_window(),
@@ -147,6 +172,22 @@ def test_gate_holds_when_any_input_holds_without_reject() -> None:
 
     assert report["decision"] == "hold"
     assert "promotion_readiness_scorecard_trend:score_deterioration" in report["blocking_reasons"]
+    assert report["human_review_required"] is True
+
+
+def test_gate_holds_when_professional_evidence_chain_execution_realism_holds() -> None:
+    report = build_promotion_gate_decision_report(
+        simulated_live_evidence_window=_window(),
+        promotion_readiness_scorecard_trend=_trend(),
+        calibration_artifacts=[_calibration_feedback()],
+        professional_evidence_chain=_professional_evidence_chain(execution_realism_status="hold"),
+        generated_at="2026-05-17T00:30:00Z",
+    )
+
+    assert report["decision"] == "hold"
+    assert report["checks"]["professional_evidence_chain"]["status"] == "hold"
+    assert "professional_evidence_chain:execution_realism_hold" in report["blocking_reasons"]
+    assert "professional_evidence_chain:execution_realism:execution_log_missing" in report["blocking_reasons"]
     assert report["human_review_required"] is True
 
 
@@ -241,3 +282,46 @@ def test_write_report_and_cli_emit_machine_readable_decision(tmp_path: Path) -> 
 
     assert json.loads(cli_output.read_text(encoding="utf-8"))["decision"] == "candidate_for_paper_promotion"
     assert re.search(r"PROMOTION_GATE_DECISION_JSON.*candidate_for_paper_promotion", result.stdout)
+
+
+def test_cli_holds_on_professional_evidence_chain_execution_realism_hold(tmp_path: Path) -> None:
+    window_path = tmp_path / "window.json"
+    trend_path = tmp_path / "trend.json"
+    calibration_path = tmp_path / "calibration.json"
+    professional_evidence_path = tmp_path / "backtest_evidence_chain.json"
+    output = tmp_path / "promotion_gate_decision.json"
+    window_path.write_text(json.dumps(_window()), encoding="utf-8")
+    trend_path.write_text(json.dumps(_trend()), encoding="utf-8")
+    calibration_path.write_text(json.dumps(_calibration_feedback()), encoding="utf-8")
+    professional_evidence_path.write_text(
+        json.dumps(_professional_evidence_chain(execution_realism_status="hold")), encoding="utf-8"
+    )
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "trading_system.generate_promotion_gate_decision",
+            "--simulated-live-evidence-window",
+            str(window_path),
+            "--promotion-readiness-scorecard-trend",
+            str(trend_path),
+            "--calibration-artifact",
+            str(calibration_path),
+            "--professional-evidence-chain",
+            str(professional_evidence_path),
+            "--output",
+            str(output),
+            "--generated-at",
+            "2026-05-17T00:30:00Z",
+        ],
+        cwd=Path(__file__).resolve().parents[2],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert payload["decision"] == "hold"
+    assert "professional_evidence_chain:execution_realism_hold" in payload["blocking_reasons"]
+    assert re.search(r"PROMOTION_GATE_DECISION_JSON.*hold", result.stdout)

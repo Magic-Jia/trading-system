@@ -309,29 +309,87 @@ def _normalize_calibration(artifacts: Sequence[Mapping[str, Any] | str | Path]) 
     }, identities
 
 
+def _normalize_professional_evidence_chain(
+    value: Mapping[str, Any] | str | Path | None,
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    if value is None:
+        return {
+            "status": "pass",
+            "blocking_reasons": [],
+            "errors": [],
+            "warnings": [],
+        }, None
+    payload, source, load_error = _load_artifact(value)
+    reasons: list[str] = []
+    errors: list[str] = []
+    warnings: list[str] = []
+    if load_error is not None:
+        reasons.append(f"professional_evidence_chain:{load_error}")
+        errors.append(load_error)
+        return _check_from_errors(
+            status="reject", errors=errors, warnings=warnings, reasons=reasons
+        ), _artifact_identity(payload, source, "professional_evidence_chain")
+
+    assert payload is not None
+    if payload.get("schema_version") != "backtest_evidence_chain.v1":
+        reasons.append("professional_evidence_chain:schema_version_invalid")
+        errors.append("schema_version_invalid")
+    raw_summary = payload.get("summary")
+    summary = raw_summary if isinstance(raw_summary, Mapping) else {}
+    decision = summary.get("decision")
+    if decision == "hold":
+        reasons.append("professional_evidence_chain:decision_hold")
+    elif decision not in {"pass", "hold"}:
+        reasons.append("professional_evidence_chain:decision_invalid")
+        errors.append("decision_invalid")
+    raw_execution_realism = payload.get("execution_realism")
+    execution_realism = raw_execution_realism if isinstance(raw_execution_realism, Mapping) else {}
+    execution_status = execution_realism.get("status")
+    if execution_status != "pass":
+        reasons.append("professional_evidence_chain:execution_realism_hold")
+        for reason in _string_list(execution_realism.get("reason_codes")):
+            reasons.append(f"professional_evidence_chain:execution_realism:{reason}")
+
+    status = "reject" if errors else ("hold" if reasons else "pass")
+    return _check_from_errors(status=status, errors=errors, warnings=warnings, reasons=reasons), _artifact_identity(
+        payload, source, "professional_evidence_chain"
+    )
+
+
 def build_promotion_gate_decision_report(
     *,
     simulated_live_evidence_window: Mapping[str, Any] | str | Path,
     promotion_readiness_scorecard_trend: Mapping[str, Any] | str | Path,
     calibration_artifacts: Sequence[Mapping[str, Any] | str | Path] = (),
+    professional_evidence_chain: Mapping[str, Any] | str | Path | None = None,
     generated_at: str | None = None,
 ) -> dict[str, Any]:
     evaluated_at = _generated_at(generated_at)
     window_check, window_identity = _normalize_window(simulated_live_evidence_window)
     trend_check, trend_identity = _normalize_trend(promotion_readiness_scorecard_trend)
     calibration_check, calibration_identities = _normalize_calibration(calibration_artifacts)
+    professional_evidence_check, professional_evidence_identity = _normalize_professional_evidence_chain(
+        professional_evidence_chain
+    )
 
     checks = {
         "simulated_live_evidence_window": window_check,
         "promotion_readiness_scorecard_trend": trend_check,
         "calibration": calibration_check,
+        "professional_evidence_chain": professional_evidence_check,
     }
-    statuses = [window_check["status"], trend_check["status"], calibration_check["status"]]
+    statuses = [
+        window_check["status"],
+        trend_check["status"],
+        calibration_check["status"],
+        professional_evidence_check["status"],
+    ]
     blocking_reasons = sorted(
         dict.fromkeys(
             window_check["blocking_reasons"]
             + trend_check["blocking_reasons"]
             + calibration_check["blocking_reasons"]
+            + professional_evidence_check["blocking_reasons"]
         )
     )
     if "reject" in statuses:
@@ -356,7 +414,11 @@ def build_promotion_gate_decision_report(
         "decision": decision,
         "blocking_reasons": blocking_reasons,
         "checks": checks,
-        "included_artifact_identities": [window_identity, trend_identity, *calibration_identities],
+        "included_artifact_identities": [
+            item
+            for item in [window_identity, trend_identity, *calibration_identities, professional_evidence_identity]
+            if item is not None
+        ],
         "human_review_required": human_review_required,
         "source_mode": {
             "mode": "simulated_live",
@@ -367,7 +429,7 @@ def build_promotion_gate_decision_report(
             "credential_use": "forbidden",
         },
         "provenance": {
-            "input_artifact_count": 2 + len(calibration_artifacts),
+            "input_artifact_count": 2 + len(calibration_artifacts) + (1 if professional_evidence_chain is not None else 0),
             "decision_policy": "fail_closed",
             "promotion_scope": "paper_promotion_candidate_only",
         },
@@ -392,6 +454,7 @@ def main() -> None:
     parser.add_argument("--simulated-live-evidence-window", required=True, help="Local simulated-live evidence window JSON")
     parser.add_argument("--promotion-readiness-scorecard-trend", required=True, help="Local promotion readiness trend JSON")
     parser.add_argument("--calibration-artifact", action="append", default=[], help="Local calibration feedback/recommendation JSON")
+    parser.add_argument("--professional-evidence-chain", default=None, help="Optional backtest_evidence_chain.json to enforce professional execution realism gates")
     parser.add_argument("--output", required=True, help="Output JSON report path")
     parser.add_argument("--generated-at", default=None, help="Canonical UTC generation timestamp")
     args = parser.parse_args()
@@ -401,6 +464,7 @@ def main() -> None:
         simulated_live_evidence_window=Path(args.simulated_live_evidence_window),
         promotion_readiness_scorecard_trend=Path(args.promotion_readiness_scorecard_trend),
         calibration_artifacts=[Path(path) for path in args.calibration_artifact],
+        professional_evidence_chain=(Path(args.professional_evidence_chain) if args.professional_evidence_chain else None),
         generated_at=args.generated_at,
     )
     print(
