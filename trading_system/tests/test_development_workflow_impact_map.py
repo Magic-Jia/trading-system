@@ -350,3 +350,13 @@ def test_professional_backtest_report_test_file_has_impact_mapping() -> None:
 
     assert "trading_system/tests/test_backtest_professional_reports.py" in tests
     assert "trading_system/tests/test_backtest_evidence_chain.py" in tests
+
+
+def test_backtest_cli_test_file_has_impact_mapping() -> None:
+    verify = load_verify_module()
+
+    tests = verify.tests_for_changed(["trading_system/tests/test_backtest_cli.py"])
+
+    assert "trading_system/tests/test_backtest_cli.py" in tests
+    assert "trading_system/tests/test_backtest_professional_reports.py" in tests
+    assert "trading_system/tests/test_backtest_evidence_chain.py" in tests
