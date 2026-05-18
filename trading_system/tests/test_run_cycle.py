@@ -198,6 +198,51 @@ def test_run_cycle_writes_candidate_funnel_health_for_no_candidate_cycle(monkeyp
     ]
 
 
+def test_run_cycle_candidate_funnel_health_explains_strategy_zero_candidates(monkeypatch, tmp_path):
+    runtime_root = tmp_path / "runtime"
+    expected_bucket = runtime_root / "paper" / "prod"
+
+    def fake_main() -> None:
+        Path(os.environ["TRADING_STATE_FILE"]).write_text(
+            json.dumps(
+                {
+                    "execution_mode": "paper",
+                    "latest_candidates": [],
+                    "latest_allocations": [],
+                    "latest_entry_profile": {"name": "active_paper"},
+                    "latest_regime": {"label": "RISK_OFF", "suppression_rules": ["rotation"]},
+                    "trend_summary": {"universe_count": 2, "candidate_count": 0},
+                    "rotation_summary": {"universe_count": 3, "candidate_count": 0},
+                    "short_summary": {
+                        "universe_count": 2,
+                        "candidate_count": 0,
+                        "accepted_symbols": [],
+                        "deferred_execution_symbols": [],
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    _disable_paper_runtime_input_preparation(monkeypatch)
+    monkeypatch.setattr(run_cycle_module, "run_main", fake_main)
+
+    run_cycle_module.run_cycle("paper", runtime_root=runtime_root, runtime_env="prod")
+
+    health = json.loads((expected_bucket / "candidate_funnel_health.json").read_text(encoding="utf-8"))
+    assert health["entry_profile"] == "active_paper"
+    assert health["regime"] == {"label": "RISK_OFF", "suppression_rules": ["rotation"]}
+    assert health["strategy_layers"] == {
+        "trend": {"universe_count": 2, "candidate_count": 0, "reason_codes": ["no_trend_candidates"]},
+        "rotation": {
+            "universe_count": 3,
+            "candidate_count": 0,
+            "reason_codes": ["rotation_suppressed_by_regime", "no_rotation_candidates"],
+        },
+        "short": {"universe_count": 2, "candidate_count": 0, "reason_codes": ["no_short_candidates"]},
+    }
+
+
 def test_run_cycle_latest_summary_includes_entry_profile_from_state(monkeypatch, tmp_path):
     runtime_root = tmp_path / "runtime"
     expected_bucket = runtime_root / "paper" / "prod"

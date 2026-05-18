@@ -162,6 +162,15 @@ def _non_negative_int(summary: ABCMapping[str, Any], field_path: str) -> int:
     return value
 
 
+def _optional_non_negative_int(summary: ABCMapping[str, Any], field_name: str, field_path: str) -> int | None:
+    if field_name not in summary:
+        return None
+    value = summary[field_name]
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ValueError(f"{field_path} must be a non-negative int")
+    return value
+
+
 def _validate_optional_non_negative_int(summary: ABCMapping[str, Any], field_name: str, field_path: str) -> None:
     if field_name not in summary:
         return
@@ -260,6 +269,7 @@ def _state_summary(paths: RuntimePaths) -> dict[str, Any]:
         "state_written": True,
         "execution_mode": _execution_mode(state),
         "entry_profile": _entry_profile_name(state, env_entry_profile=env_entry_profile),
+        "regime_label": str(regime.get("label") or "") if regime.get("label") is not None else None,
         "candidate_count": len(latest_candidates),
         "allocation_count": len(latest_allocations),
         "disabled_setup_type_filtered_count": len(disabled_setup_type_filtered_candidates),
@@ -267,6 +277,15 @@ def _state_summary(paths: RuntimePaths) -> dict[str, Any]:
         "suppression_rules": suppression_rules,
         "disabled_engines": list(normalize_engine_names(os.environ.get("TRADING_DISABLED_ENGINES"))),
         "disabled_setup_types": list(normalize_setup_types(os.environ.get("TRADING_DISABLED_SETUP_TYPES"))),
+        "trend_universe_count": _optional_non_negative_int(
+            trend_summary, "universe_count", "runtime_state.trend_summary.universe_count"
+        ),
+        "rotation_universe_count": _optional_non_negative_int(
+            rotation_summary, "universe_count", "runtime_state.rotation_summary.universe_count"
+        ),
+        "short_universe_count": _optional_non_negative_int(
+            short_summary, "universe_count", "runtime_state.short_summary.universe_count"
+        ),
         "trend_candidate_count": _non_negative_int(trend_summary, "runtime_state.trend_summary.candidate_count"),
         "rotation_candidate_count": _non_negative_int(
             rotation_summary, "runtime_state.rotation_summary.candidate_count"
@@ -313,6 +332,27 @@ def _execution_sample_collection_health(paths: RuntimePaths, state_summary: Mapp
     }
 
 
+def _strategy_layer(
+    strategy: str,
+    *,
+    universe_count: int | None,
+    candidate_count: int,
+    suppression_rules: Sequence[str],
+) -> dict[str, Any]:
+    reason_codes: list[str] = []
+    if strategy in suppression_rules:
+        reason_codes.append(f"{strategy}_suppressed_by_regime")
+    if universe_count is not None and universe_count == 0:
+        reason_codes.append(f"no_{strategy}_universe")
+    if candidate_count == 0:
+        reason_codes.append(f"no_{strategy}_candidates")
+    return {
+        "universe_count": universe_count,
+        "candidate_count": candidate_count,
+        "reason_codes": reason_codes,
+    }
+
+
 def _candidate_funnel_health(state_summary: Mapping[str, Any]) -> dict[str, Any]:
     latest_candidate_count = int(state_summary.get("candidate_count", 0) or 0)
     allocation_count = int(state_summary.get("allocation_count", 0) or 0)
@@ -321,16 +361,35 @@ def _candidate_funnel_health(state_summary: Mapping[str, Any]) -> dict[str, Any]
         "rotation": int(state_summary.get("rotation_candidate_count", 0) or 0),
         "short": int(state_summary.get("short_candidate_count", 0) or 0),
     }
+    suppression_rules = list(state_summary.get("suppression_rules", []) or [])
+    strategy_layers = {
+        "trend": _strategy_layer(
+            "trend",
+            universe_count=state_summary.get("trend_universe_count"),
+            candidate_count=strategy_candidate_counts["trend"],
+            suppression_rules=suppression_rules,
+        ),
+        "rotation": _strategy_layer(
+            "rotation",
+            universe_count=state_summary.get("rotation_universe_count"),
+            candidate_count=strategy_candidate_counts["rotation"],
+            suppression_rules=suppression_rules,
+        ),
+        "short": _strategy_layer(
+            "short",
+            universe_count=state_summary.get("short_universe_count"),
+            candidate_count=strategy_candidate_counts["short"],
+            suppression_rules=suppression_rules,
+        ),
+    }
 
     reason_codes: list[str] = []
     if latest_candidate_count == 0:
         reason_codes.append("no_latest_candidates")
-    if strategy_candidate_counts["trend"] == 0:
-        reason_codes.append("no_trend_candidates")
-    if strategy_candidate_counts["rotation"] == 0:
-        reason_codes.append("no_rotation_candidates")
-    if strategy_candidate_counts["short"] == 0:
-        reason_codes.append("no_short_candidates")
+    for strategy in ("trend", "rotation", "short"):
+        for reason in strategy_layers[strategy]["reason_codes"]:
+            if reason not in reason_codes:
+                reason_codes.append(reason)
     if allocation_count == 0:
         reason_codes.append("no_allocations")
 
@@ -339,8 +398,11 @@ def _candidate_funnel_health(state_summary: Mapping[str, Any]) -> dict[str, Any]
         "schema_version": "candidate_funnel_health.v1",
         "status": status,
         "decision_policy": "pass" if status == "pass" else "fail_closed",
+        "entry_profile": state_summary.get("entry_profile"),
+        "regime": {"label": state_summary.get("regime_label"), "suppression_rules": suppression_rules},
         "latest_candidate_count": latest_candidate_count,
         "strategy_candidate_counts": strategy_candidate_counts,
+        "strategy_layers": strategy_layers,
         "allocation_count": allocation_count,
         "reason_codes": reason_codes,
     }
