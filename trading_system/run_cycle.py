@@ -312,7 +312,9 @@ def _execution_sample_collection_health(paths: RuntimePaths, state_summary: Mapp
     allocation_count = int(state_summary.get("allocation_count", 0) or 0)
     execution_log_file = _file_status(paths.execution_log_file)
     paper_ledger_file = _file_status(paths.paper_ledger_file)
-    sample_count = int(execution_log_file["line_count"] or 0)
+    execution_log_count = int(execution_log_file["line_count"] or 0)
+    paper_ledger_count = int(paper_ledger_file["line_count"] or 0)
+    sample_count = min(execution_log_count, paper_ledger_count)
 
     reason_codes: list[str] = []
     if candidate_count == 0:
@@ -321,10 +323,12 @@ def _execution_sample_collection_health(paths: RuntimePaths, state_summary: Mapp
         reason_codes.append("no_allocations")
     if not execution_log_file["exists"]:
         reason_codes.append("execution_log_missing")
-    elif sample_count == 0:
+    elif execution_log_count == 0:
         reason_codes.append("execution_log_empty")
     if not paper_ledger_file["exists"]:
         reason_codes.append("paper_ledger_missing")
+    elif paper_ledger_count == 0:
+        reason_codes.append("paper_ledger_empty")
     if sample_count == 0:
         reason_codes.append("no_execution_samples")
 
