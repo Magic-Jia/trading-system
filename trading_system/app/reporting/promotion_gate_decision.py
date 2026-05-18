@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import re
+from numbers import Real
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -11,6 +12,11 @@ from typing import Any, Mapping, Sequence
 
 SCHEMA_VERSION = "promotion_gate_decision.v1"
 FILENAME = "promotion_gate_decision.json"
+EXECUTION_REALISM_THRESHOLDS = {
+    "min_execution_samples": 10,
+    "min_maker_fill_probability": 0.5,
+    "max_taker_slippage_p95_bps": 10.0,
+}
 
 _CANONICAL_UTC_TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z$")
 _IDENTITY_WARNING_REASONS = {
@@ -40,6 +46,13 @@ _REJECT_REASONS = {
 
 def _sha256_bytes(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
+
+
+def _finite_number(value: Any) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, Real):
+        return None
+    parsed = float(value)
+    return parsed if parsed == parsed and parsed not in (float("inf"), float("-inf")) else None
 
 
 def _canonical_json_bytes(payload: Mapping[str, Any]) -> bytes:
@@ -349,9 +362,22 @@ def _normalize_professional_evidence_chain(
         reasons.append("professional_evidence_chain:execution_realism_hold")
         for reason in _string_list(execution_realism.get("reason_codes")):
             reasons.append(f"professional_evidence_chain:execution_realism:{reason}")
+    sample_count = execution_realism.get("sample_count")
+    if isinstance(sample_count, bool) or not isinstance(sample_count, int) or sample_count < EXECUTION_REALISM_THRESHOLDS["min_execution_samples"]:
+        reasons.append("professional_evidence_chain:execution_realism_sample_count_below_floor")
+    maker_fill_probability = _finite_number(execution_realism.get("maker_fill_probability"))
+    if maker_fill_probability is None or maker_fill_probability < EXECUTION_REALISM_THRESHOLDS["min_maker_fill_probability"]:
+        reasons.append("professional_evidence_chain:maker_fill_probability_below_floor")
+    raw_taker_slippage = execution_realism.get("taker_slippage_bps")
+    taker_slippage = raw_taker_slippage if isinstance(raw_taker_slippage, Mapping) else {}
+    taker_slippage_p95 = _finite_number(taker_slippage.get("p95"))
+    if taker_slippage_p95 is None or taker_slippage_p95 > EXECUTION_REALISM_THRESHOLDS["max_taker_slippage_p95_bps"]:
+        reasons.append("professional_evidence_chain:taker_slippage_p95_above_ceiling")
 
     status = "reject" if errors else ("hold" if reasons else "pass")
-    return _check_from_errors(status=status, errors=errors, warnings=warnings, reasons=reasons), _artifact_identity(
+    check = _check_from_errors(status=status, errors=errors, warnings=warnings, reasons=reasons)
+    check["thresholds"] = dict(EXECUTION_REALISM_THRESHOLDS)
+    return check, _artifact_identity(
         payload, source, "professional_evidence_chain"
     )
 

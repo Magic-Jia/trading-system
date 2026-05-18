@@ -105,8 +105,24 @@ def _assumption_recommendation(*, decision: str = "no_change") -> dict[str, obje
     }
 
 
-def _professional_evidence_chain(*, execution_realism_status: str = "pass") -> dict[str, object]:
+def _professional_evidence_chain(
+    *,
+    execution_realism_status: str = "pass",
+    sample_count: int | None = None,
+    maker_fill_probability: float | None = None,
+    taker_slippage_p95_bps: float | None = None,
+) -> dict[str, object]:
     reasons = [] if execution_realism_status == "pass" else ["execution_calibration_unavailable", "execution_log_missing"]
+    execution_realism: dict[str, object] = {
+        "status": execution_realism_status,
+        "coverage_score": 1.0 if execution_realism_status == "pass" else 0.0,
+        "sample_count": sample_count if sample_count is not None else (12 if execution_realism_status == "pass" else 0),
+        "reason_codes": reasons,
+    }
+    if maker_fill_probability is not None:
+        execution_realism["maker_fill_probability"] = maker_fill_probability
+    if taker_slippage_p95_bps is not None:
+        execution_realism["taker_slippage_bps"] = {"median": taker_slippage_p95_bps / 2, "p95": taker_slippage_p95_bps}
     return {
         "schema_version": "backtest_evidence_chain.v1",
         "generated_at": "2026-05-17T00:25:00Z",
@@ -121,12 +137,7 @@ def _professional_evidence_chain(*, execution_realism_status: str = "pass") -> d
                 "data_quality": "pass",
             },
         },
-        "execution_realism": {
-            "status": execution_realism_status,
-            "coverage_score": 1.0 if execution_realism_status == "pass" else 0.0,
-            "sample_count": 12 if execution_realism_status == "pass" else 0,
-            "reason_codes": reasons,
-        },
+        "execution_realism": execution_realism,
     }
 
 
@@ -188,6 +199,33 @@ def test_gate_holds_when_professional_evidence_chain_execution_realism_holds() -
     assert report["checks"]["professional_evidence_chain"]["status"] == "hold"
     assert "professional_evidence_chain:execution_realism_hold" in report["blocking_reasons"]
     assert "professional_evidence_chain:execution_realism:execution_log_missing" in report["blocking_reasons"]
+    assert report["human_review_required"] is True
+
+
+def test_gate_holds_when_execution_realism_metrics_fail_professional_thresholds() -> None:
+    report = build_promotion_gate_decision_report(
+        simulated_live_evidence_window=_window(),
+        promotion_readiness_scorecard_trend=_trend(),
+        calibration_artifacts=[_calibration_feedback()],
+        professional_evidence_chain=_professional_evidence_chain(
+            execution_realism_status="pass",
+            sample_count=9,
+            maker_fill_probability=0.42,
+            taker_slippage_p95_bps=12.5,
+        ),
+        generated_at="2026-05-17T00:30:00Z",
+    )
+
+    assert report["decision"] == "hold"
+    assert report["checks"]["professional_evidence_chain"]["status"] == "hold"
+    assert "professional_evidence_chain:execution_realism_sample_count_below_floor" in report["blocking_reasons"]
+    assert "professional_evidence_chain:maker_fill_probability_below_floor" in report["blocking_reasons"]
+    assert "professional_evidence_chain:taker_slippage_p95_above_ceiling" in report["blocking_reasons"]
+    assert report["checks"]["professional_evidence_chain"]["thresholds"] == {
+        "min_execution_samples": 10,
+        "min_maker_fill_probability": 0.5,
+        "max_taker_slippage_p95_bps": 10.0,
+    }
     assert report["human_review_required"] is True
 
 

@@ -141,6 +141,41 @@ def test_missing_optional_professional_reports_hold_fail_closed(tmp_path: Path) 
     assert evidence["summary"]["decision"] == "hold"
 
 
+def test_execution_calibration_summary_surfaces_maker_fill_and_taker_slippage_metrics(tmp_path: Path) -> None:
+    bundle_dir = tmp_path / "backtest"
+    walk_forward = tmp_path / "walk_forward.json"
+    cost_sensitivity = tmp_path / "cost_sensitivity.json"
+    calibration_summary = tmp_path / "passive_order_calibration_summary.json"
+    _write_minimal_backtest_bundle(bundle_dir)
+    _write_walk_forward_report(walk_forward)
+    _write_cost_sensitivity_report(cost_sensitivity)
+    _write_json(
+        calibration_summary,
+        {
+            "schema_version": "passive_order_calibration_summary.v1",
+            "overall": {"attempt_count": 20, "fill_rate": 0.7},
+            "passive_maker": {"attempt_count": 12, "fill_rate": 0.58},
+            "taker_slippage": {"sample_count": 8, "median_slippage_bps": 4.2, "p95_slippage_bps": 7.5},
+        },
+    )
+
+    evidence = build_backtest_evidence_chain(
+        bundle_dir,
+        walk_forward_report_path=walk_forward,
+        cost_sensitivity_report_path=cost_sensitivity,
+        execution_calibration_summary_path=calibration_summary,
+        generated_at=GENERATED_AT,
+    )
+
+    assert evidence["summary"]["decision"] == "pass"
+    assert evidence["execution_realism"]["status"] == "pass"
+    assert evidence["execution_realism"]["sample_count"] == 20
+    assert evidence["execution_realism"]["maker_fill_probability"] == 0.58
+    assert evidence["execution_realism"]["taker_slippage_bps"]["median"] == 4.2
+    assert evidence["execution_realism"]["taker_slippage_bps"]["p95"] == 7.5
+    assert evidence["sources"]["execution_calibration_summary"]["sha256"]
+
+
 def test_execution_calibration_unavailable_marker_holds_execution_realism_fail_closed(tmp_path: Path) -> None:
     bundle_dir = tmp_path / "backtest"
     walk_forward = tmp_path / "walk_forward.json"

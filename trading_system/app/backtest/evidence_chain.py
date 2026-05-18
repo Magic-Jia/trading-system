@@ -214,11 +214,12 @@ def _external_report(payload: Mapping[str, Any] | None, source_name: str, errors
 
 def _execution_realism(
     unavailable_payload: Mapping[str, Any] | None,
+    calibration_summary_payload: Mapping[str, Any] | None,
     errors: list[str],
     generated_at: str,
 ) -> dict[str, Any]:
     reasons = list(errors)
-    if unavailable_payload is None:
+    if unavailable_payload is None and calibration_summary_payload is None:
         return _component(
             as_of=generated_at,
             coverage_score=1.0,
@@ -226,16 +227,43 @@ def _execution_realism(
             status="pass",
             reason_codes=[],
         )
-    reasons.append("execution_calibration_unavailable")
-    reasons.extend(_extract_reason_codes(unavailable_payload))
-    sample_count = _non_negative_int(unavailable_payload.get("record_count")) or 0
-    return _component(
-        as_of=str(unavailable_payload.get("generated_at") or generated_at),
-        coverage_score=0.0,
+    if unavailable_payload is not None:
+        reasons.append("execution_calibration_unavailable")
+        reasons.extend(_extract_reason_codes(unavailable_payload))
+        sample_count = _non_negative_int(unavailable_payload.get("record_count")) or 0
+        return _component(
+            as_of=str(unavailable_payload.get("generated_at") or generated_at),
+            coverage_score=0.0,
+            sample_count=sample_count,
+            status="hold",
+            reason_codes=reasons,
+        )
+
+    assert calibration_summary_payload is not None
+    if calibration_summary_payload.get("schema_version") != "passive_order_calibration_summary.v1":
+        reasons.append("execution_calibration_summary_schema_invalid")
+    raw_overall = calibration_summary_payload.get("overall")
+    raw_passive_maker = calibration_summary_payload.get("passive_maker")
+    raw_taker_slippage = calibration_summary_payload.get("taker_slippage")
+    overall = raw_overall if isinstance(raw_overall, Mapping) else {}
+    passive_maker = raw_passive_maker if isinstance(raw_passive_maker, Mapping) else {}
+    taker_slippage = raw_taker_slippage if isinstance(raw_taker_slippage, Mapping) else {}
+    sample_count = _non_negative_int(overall.get("attempt_count")) or 0
+    maker_fill_probability = _number(passive_maker.get("fill_rate"))
+    taker_median = _number(taker_slippage.get("median_slippage_bps"))
+    taker_p95 = _number(taker_slippage.get("p95_slippage_bps"))
+    if sample_count <= 0:
+        reasons.append("execution_calibration_summary_empty")
+    payload = _component(
+        as_of=str(calibration_summary_payload.get("generated_at") or generated_at),
+        coverage_score=1.0 if not reasons else 0.0,
         sample_count=sample_count,
-        status="hold",
+        status="pass" if not reasons else "hold",
         reason_codes=reasons,
     )
+    payload["maker_fill_probability"] = maker_fill_probability
+    payload["taker_slippage_bps"] = {"median": taker_median, "p95": taker_p95}
+    return payload
 
 
 def _data_quality(
@@ -276,6 +304,7 @@ def build_backtest_evidence_chain(
     *,
     walk_forward_report_path: str | Path | None = None,
     cost_sensitivity_report_path: str | Path | None = None,
+    execution_calibration_summary_path: str | Path | None = None,
     execution_calibration_unavailable_path: str | Path | None = None,
     generated_at: str | None = None,
 ) -> dict[str, Any]:
@@ -291,6 +320,8 @@ def build_backtest_evidence_chain(
         source_specs["walk_forward_oos"] = Path(walk_forward_report_path)
     if cost_sensitivity_report_path is not None:
         source_specs["cost_sensitivity"] = Path(cost_sensitivity_report_path)
+    if execution_calibration_summary_path is not None:
+        source_specs["execution_calibration_summary"] = Path(execution_calibration_summary_path)
     if execution_calibration_unavailable_path is not None:
         source_specs["execution_calibration_unavailable"] = Path(execution_calibration_unavailable_path)
 
@@ -341,6 +372,7 @@ def build_backtest_evidence_chain(
         ),
         "execution_realism": _execution_realism(
             payloads.get("execution_calibration_unavailable"),
+            payloads.get("execution_calibration_summary"),
             source_errors.get("execution_calibration_unavailable", []),
             evaluated_at,
         ),
@@ -387,6 +419,7 @@ def write_backtest_evidence_chain(
     output_path: str | Path | None = None,
     walk_forward_report_path: str | Path | None = None,
     cost_sensitivity_report_path: str | Path | None = None,
+    execution_calibration_summary_path: str | Path | None = None,
     execution_calibration_unavailable_path: str | Path | None = None,
     generated_at: str | None = None,
 ) -> dict[str, Any]:
@@ -394,6 +427,7 @@ def write_backtest_evidence_chain(
         backtest_bundle_dir,
         walk_forward_report_path=walk_forward_report_path,
         cost_sensitivity_report_path=cost_sensitivity_report_path,
+        execution_calibration_summary_path=execution_calibration_summary_path,
         execution_calibration_unavailable_path=execution_calibration_unavailable_path,
         generated_at=generated_at,
     )
@@ -409,6 +443,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output-path")
     parser.add_argument("--walk-forward-report-path")
     parser.add_argument("--cost-sensitivity-report-path")
+    parser.add_argument("--execution-calibration-summary-path")
     parser.add_argument("--execution-calibration-unavailable-path")
     parser.add_argument("--generated-at")
     args = parser.parse_args(argv)
@@ -418,6 +453,7 @@ def main(argv: list[str] | None = None) -> int:
         output_path=output_path,
         walk_forward_report_path=args.walk_forward_report_path,
         cost_sensitivity_report_path=args.cost_sensitivity_report_path,
+        execution_calibration_summary_path=args.execution_calibration_summary_path,
         execution_calibration_unavailable_path=args.execution_calibration_unavailable_path,
         generated_at=args.generated_at,
     )

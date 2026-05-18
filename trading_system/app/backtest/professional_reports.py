@@ -260,6 +260,7 @@ def write_professional_backtest_evidence(
     walk_forward_bundle_dir: str | Path,
     allocator_friction_bundle_dir: str | Path,
     output_dir: str | Path,
+    execution_calibration_summary_path: str | Path | None = None,
     execution_calibration_unavailable_path: str | Path | None = None,
     generated_at: str | None = None,
 ) -> dict[str, Any]:
@@ -283,6 +284,7 @@ def write_professional_backtest_evidence(
         output_path=evidence_chain_path,
         walk_forward_report_path=walk_forward_report_path,
         cost_sensitivity_report_path=cost_sensitivity_report_path,
+        execution_calibration_summary_path=execution_calibration_summary_path,
         execution_calibration_unavailable_path=execution_calibration_unavailable_path,
         generated_at=evaluated_at,
     )
@@ -294,6 +296,8 @@ def write_professional_backtest_evidence(
         "evidence_chain": evidence_chain,
         "evidence_chain_path": str(evidence_chain_path),
     }
+    if execution_calibration_summary_path is not None:
+        result["execution_calibration_summary_path"] = str(execution_calibration_summary_path)
     if execution_calibration_unavailable_path is not None:
         result["execution_calibration_unavailable_path"] = str(execution_calibration_unavailable_path)
     return result

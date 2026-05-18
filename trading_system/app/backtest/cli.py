@@ -630,6 +630,11 @@ def _write_professional_evidence_command(args: argparse.Namespace) -> int:
         walk_forward_bundle_dir=Path(args.walk_forward_bundle_dir),
         allocator_friction_bundle_dir=Path(args.allocator_friction_bundle_dir),
         output_dir=Path(args.output_dir),
+        execution_calibration_summary_path=(
+            Path(args.execution_calibration_summary_path)
+            if args.execution_calibration_summary_path is not None
+            else None
+        ),
         execution_calibration_unavailable_path=(
             Path(args.execution_calibration_unavailable_path)
             if args.execution_calibration_unavailable_path is not None
@@ -681,6 +686,11 @@ def _run_professional_evidence_pipeline_command(args: argparse.Namespace) -> int
         walk_forward_bundle_dir=walk_forward_bundle_dir,
         allocator_friction_bundle_dir=allocator_friction_bundle_dir,
         output_dir=evidence_dir,
+        execution_calibration_summary_path=(
+            Path(args.execution_calibration_summary_path)
+            if args.execution_calibration_summary_path is not None
+            else None
+        ),
         execution_calibration_unavailable_path=(
             Path(args.execution_calibration_unavailable_path)
             if args.execution_calibration_unavailable_path is not None
@@ -709,6 +719,10 @@ def _run_professional_evidence_pipeline_command(args: argparse.Namespace) -> int
     if "execution_calibration_unavailable_path" in outputs:
         manifest["professional_evidence"]["execution_calibration_unavailable_path"] = outputs[
             "execution_calibration_unavailable_path"
+        ]
+    if "execution_calibration_summary_path" in outputs:
+        manifest["professional_evidence"]["execution_calibration_summary_path"] = outputs[
+            "execution_calibration_summary_path"
         ]
     manifest_path = output_dir / "professional_evidence_pipeline_manifest.json"
     _write_json(manifest_path, manifest)
@@ -791,6 +805,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Directory where walk_forward_oos_report.json, cost_sensitivity_report.json, and backtest_evidence_chain.json are written.",
     )
     professional_evidence_parser.add_argument(
+        "--execution-calibration-summary-path",
+        default=None,
+        help="Optional passive_order_calibration_summary.json to include maker/taker execution realism metrics.",
+    )
+    professional_evidence_parser.add_argument(
         "--execution-calibration-unavailable-path",
         default=None,
         help="Optional calibration_records_unavailable.json marker to include as fail-closed execution realism evidence.",
@@ -825,6 +844,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--output-dir",
         required=True,
         help="Directory where bundles, professional evidence reports, and pipeline manifest are written.",
+    )
+    professional_pipeline_parser.add_argument(
+        "--execution-calibration-summary-path",
+        default=None,
+        help="Optional passive_order_calibration_summary.json to include maker/taker execution realism metrics.",
     )
     professional_pipeline_parser.add_argument(
         "--execution-calibration-unavailable-path",

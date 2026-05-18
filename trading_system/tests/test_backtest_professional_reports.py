@@ -254,6 +254,43 @@ def test_write_professional_backtest_evidence_outputs_chain_consuming_both_repor
     assert Path(outputs["evidence_chain_path"]).name == "backtest_evidence_chain.json"
 
 
+def test_write_professional_backtest_evidence_surfaces_execution_calibration_summary_metrics(tmp_path: Path) -> None:
+    backtest_dir = tmp_path / "backtest"
+    walk_forward_dir = tmp_path / "walk_forward"
+    allocator_dir = tmp_path / "allocator_friction"
+    output_dir = tmp_path / "evidence"
+    calibration_summary = tmp_path / "passive_order_calibration_summary.json"
+    _write_minimal_backtest_bundle(backtest_dir)
+    _write_walk_forward_bundle(walk_forward_dir)
+    _write_allocator_friction_bundle(allocator_dir)
+    _write_json(
+        calibration_summary,
+        {
+            "schema_version": "passive_order_calibration_summary.v1",
+            "overall": {"attempt_count": 21, "fill_rate": 0.71},
+            "passive_maker": {"attempt_count": 13, "fill_rate": 0.61},
+            "taker_slippage": {"sample_count": 8, "median_slippage_bps": 3.9, "p95_slippage_bps": 6.8},
+        },
+    )
+
+    outputs = write_professional_backtest_evidence(
+        backtest_bundle_dir=backtest_dir,
+        walk_forward_bundle_dir=walk_forward_dir,
+        allocator_friction_bundle_dir=allocator_dir,
+        output_dir=output_dir,
+        execution_calibration_summary_path=calibration_summary,
+        generated_at=GENERATED_AT,
+    )
+
+    evidence = outputs["evidence_chain"]
+    assert outputs["execution_calibration_summary_path"] == str(calibration_summary)
+    assert evidence["summary"]["decision"] == "pass"
+    assert evidence["execution_realism"]["sample_count"] == 21
+    assert evidence["execution_realism"]["maker_fill_probability"] == 0.61
+    assert evidence["execution_realism"]["taker_slippage_bps"] == {"median": 3.9, "p95": 6.8}
+    assert evidence["sources"]["execution_calibration_summary"]["path"] == str(calibration_summary)
+
+
 def test_write_professional_backtest_evidence_holds_on_execution_calibration_unavailable_marker(tmp_path: Path) -> None:
     backtest_dir = tmp_path / "backtest"
     walk_forward_dir = tmp_path / "walk_forward"
