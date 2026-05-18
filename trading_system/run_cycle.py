@@ -129,6 +129,10 @@ def _sequence_of_mappings(
     return values
 
 
+def _review_notes(summary: ABCMapping[str, Any], field_path: str) -> list[ABCMapping[str, Any]]:
+    return _sequence_of_mappings(summary, "review_notes", field_path=f"{field_path}.review_notes")
+
+
 def _sequence_of_strings(
     state: ABCMapping[str, Any], field_name: str, *, field_path: str | None = None
 ) -> list[str]:
@@ -264,6 +268,9 @@ def _state_summary(paths: RuntimePaths) -> dict[str, Any]:
         "deferred_execution_symbols",
         field_path="runtime_state.short_summary.deferred_execution_symbols",
     )
+    trend_review_notes = _review_notes(trend_summary, "runtime_state.trend_summary")
+    rotation_review_notes = _review_notes(rotation_summary, "runtime_state.rotation_summary")
+    short_review_notes = _review_notes(short_summary, "runtime_state.short_summary")
 
     return {
         "state_written": True,
@@ -287,10 +294,13 @@ def _state_summary(paths: RuntimePaths) -> dict[str, Any]:
             short_summary, "universe_count", "runtime_state.short_summary.universe_count"
         ),
         "trend_candidate_count": _non_negative_int(trend_summary, "runtime_state.trend_summary.candidate_count"),
+        "trend_review_notes": trend_review_notes,
         "rotation_candidate_count": _non_negative_int(
             rotation_summary, "runtime_state.rotation_summary.candidate_count"
         ),
+        "rotation_review_notes": rotation_review_notes,
         "short_candidate_count": _non_negative_int(short_summary, "runtime_state.short_summary.candidate_count"),
+        "short_review_notes": short_review_notes,
         "short_accepted_symbols": short_accepted_symbols,
         "short_deferred_execution_symbols": short_deferred_execution_symbols,
         "paper_trading": paper_trading,
@@ -332,12 +342,23 @@ def _execution_sample_collection_health(paths: RuntimePaths, state_summary: Mapp
     }
 
 
+def _review_reason_counts(review_notes: Sequence[Mapping[str, Any]]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for index, note in enumerate(review_notes):
+        reason = note.get("reason")
+        if not isinstance(reason, str) or reason != reason.strip() or not reason.strip():
+            raise ValueError(f"review_notes[{index}].reason must be a canonical non-empty string")
+        counts[reason] = counts.get(reason, 0) + 1
+    return counts
+
+
 def _strategy_layer(
     strategy: str,
     *,
     universe_count: int | None,
     candidate_count: int,
     suppression_rules: Sequence[str],
+    review_notes: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
     reason_codes: list[str] = []
     if strategy in suppression_rules:
@@ -346,11 +367,15 @@ def _strategy_layer(
         reason_codes.append(f"no_{strategy}_universe")
     if candidate_count == 0:
         reason_codes.append(f"no_{strategy}_candidates")
-    return {
+    payload = {
         "universe_count": universe_count,
         "candidate_count": candidate_count,
         "reason_codes": reason_codes,
     }
+    if review_notes:
+        payload["review_reason_counts"] = _review_reason_counts(review_notes)
+        payload["review_sample"] = [dict(note) for note in review_notes[:5]]
+    return payload
 
 
 def _candidate_funnel_health(state_summary: Mapping[str, Any]) -> dict[str, Any]:
@@ -368,18 +393,21 @@ def _candidate_funnel_health(state_summary: Mapping[str, Any]) -> dict[str, Any]
             universe_count=state_summary.get("trend_universe_count"),
             candidate_count=strategy_candidate_counts["trend"],
             suppression_rules=suppression_rules,
+            review_notes=list(state_summary.get("trend_review_notes", []) or []),
         ),
         "rotation": _strategy_layer(
             "rotation",
             universe_count=state_summary.get("rotation_universe_count"),
             candidate_count=strategy_candidate_counts["rotation"],
             suppression_rules=suppression_rules,
+            review_notes=list(state_summary.get("rotation_review_notes", []) or []),
         ),
         "short": _strategy_layer(
             "short",
             universe_count=state_summary.get("short_universe_count"),
             candidate_count=strategy_candidate_counts["short"],
             suppression_rules=suppression_rules,
+            review_notes=list(state_summary.get("short_review_notes", []) or []),
         ),
     }
 

@@ -243,6 +243,57 @@ def test_run_cycle_candidate_funnel_health_explains_strategy_zero_candidates(mon
     }
 
 
+def test_run_cycle_candidate_funnel_health_aggregates_strategy_review_reasons(monkeypatch, tmp_path):
+    runtime_root = tmp_path / "runtime"
+    expected_bucket = runtime_root / "paper" / "prod"
+
+    def fake_main() -> None:
+        Path(os.environ["TRADING_STATE_FILE"]).write_text(
+            json.dumps(
+                {
+                    "execution_mode": "paper",
+                    "latest_candidates": [],
+                    "latest_allocations": [],
+                    "trend_summary": {
+                        "universe_count": 2,
+                        "candidate_count": 0,
+                        "review_notes": [
+                            {"symbol": "BTCUSDT", "reason": "absolute_strength_floor"},
+                            {"symbol": "ETHUSDT", "reason": "absolute_strength_floor"},
+                        ],
+                    },
+                    "rotation_summary": {
+                        "universe_count": 3,
+                        "candidate_count": 0,
+                        "review_notes": [{"symbol": "SOLUSDT", "reason": "price_extension"}],
+                    },
+                    "short_summary": {
+                        "universe_count": 2,
+                        "candidate_count": 0,
+                        "accepted_symbols": [],
+                        "deferred_execution_symbols": [],
+                        "review_notes": [{"symbol": "BTCUSDT", "reason": "bearish_confirmation_missing"}],
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    _disable_paper_runtime_input_preparation(monkeypatch)
+    monkeypatch.setattr(run_cycle_module, "run_main", fake_main)
+
+    run_cycle_module.run_cycle("paper", runtime_root=runtime_root, runtime_env="prod")
+
+    health = json.loads((expected_bucket / "candidate_funnel_health.json").read_text(encoding="utf-8"))
+    assert health["strategy_layers"]["trend"]["review_reason_counts"] == {"absolute_strength_floor": 2}
+    assert health["strategy_layers"]["rotation"]["review_reason_counts"] == {"price_extension": 1}
+    assert health["strategy_layers"]["short"]["review_reason_counts"] == {"bearish_confirmation_missing": 1}
+    assert health["strategy_layers"]["trend"]["review_sample"] == [
+        {"symbol": "BTCUSDT", "reason": "absolute_strength_floor"},
+        {"symbol": "ETHUSDT", "reason": "absolute_strength_floor"},
+    ]
+
+
 def test_run_cycle_latest_summary_includes_entry_profile_from_state(monkeypatch, tmp_path):
     runtime_root = tmp_path / "runtime"
     expected_bucket = runtime_root / "paper" / "prod"
