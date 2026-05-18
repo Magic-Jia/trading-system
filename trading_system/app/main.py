@@ -763,6 +763,23 @@ def _trend_review_notes(
         h4 = _timeframe_row(payload, "4h")
         h1 = _timeframe_row(payload, "1h")
         if not _trend_is_uptrend(daily, h4, h1):
+            notes.append(
+                {
+                    "symbol": symbol,
+                    "setup_type": "TREND_CONTINUATION",
+                    "reason": "trend_not_intact",
+                    "daily_close": round(_float(dict(daily), "close"), 6),
+                    "daily_ema20": round(_float(dict(daily), "ema_20"), 6),
+                    "daily_ema50": round(_float(dict(daily), "ema_50"), 6),
+                    "h4_close": round(_float(dict(h4), "close"), 6),
+                    "h4_ema20": round(_float(dict(h4), "ema_20"), 6),
+                    "h4_ema50": round(_float(dict(h4), "ema_50"), 6),
+                    "h1_close": round(_float(dict(h1), "close"), 6),
+                    "h1_ema20": round(_float(dict(h1), "ema_20"), 6),
+                    "h1_ema50": round(_float(dict(h1), "ema_50"), 6),
+                    "message": f"{symbol} trend suppressed: daily/4h/1h uptrend stack was not intact.",
+                }
+            )
             continue
 
         setup_type = _trend_setup_type(payload)
@@ -871,6 +888,26 @@ def _rotation_review_notes(
         if not isinstance(payload, Mapping):
             continue
         if not _rotation_trend_intact(payload):
+            daily = _timeframe_row(payload, "daily")
+            h4 = _timeframe_row(payload, "4h")
+            h1 = _timeframe_row(payload, "1h")
+            notes.append(
+                {
+                    "symbol": symbol,
+                    "setup_type": "RS_PULLBACK",
+                    "reason": "rotation_trend_not_intact",
+                    "daily_close": round(_float(dict(daily), "close"), 6),
+                    "daily_ema20": round(_float(dict(daily), "ema_20"), 6),
+                    "daily_ema50": round(_float(dict(daily), "ema_50"), 6),
+                    "h4_close": round(_float(dict(h4), "close"), 6),
+                    "h4_ema20": round(_float(dict(h4), "ema_20"), 6),
+                    "h4_ema50": round(_float(dict(h4), "ema_50"), 6),
+                    "h1_close": round(_float(dict(h1), "close"), 6),
+                    "h1_ema20": round(_float(dict(h1), "ema_20"), 6),
+                    "h1_ema50": round(_float(dict(h1), "ema_50"), 6),
+                    "message": f"{symbol} rotation suppressed: rotation trend stack was not intact.",
+                }
+            )
             continue
 
         setup_type = _rotation_setup_type(payload)
@@ -983,6 +1020,26 @@ def _short_review_notes(
         if not isinstance(payload, Mapping):
             continue
         if not _trend_broken(payload):
+            daily = _timeframe_row(payload, "daily")
+            h4 = _timeframe_row(payload, "4h")
+            h1 = _timeframe_row(payload, "1h")
+            notes.append(
+                {
+                    "symbol": symbol,
+                    "setup_type": "SHORT_BREAKDOWN",
+                    "reason": "trend_not_broken",
+                    "daily_close": round(_float(dict(daily), "close"), 6),
+                    "daily_ema20": round(_float(dict(daily), "ema_20"), 6),
+                    "daily_ema50": round(_float(dict(daily), "ema_50"), 6),
+                    "h4_close": round(_float(dict(h4), "close"), 6),
+                    "h4_ema20": round(_float(dict(h4), "ema_20"), 6),
+                    "h4_ema50": round(_float(dict(h4), "ema_50"), 6),
+                    "h1_close": round(_float(dict(h1), "close"), 6),
+                    "h1_ema20": round(_float(dict(h1), "ema_20"), 6),
+                    "h1_ema50": round(_float(dict(h1), "ema_50"), 6),
+                    "message": f"{symbol} short suppressed: downtrend/breakdown stack was not confirmed.",
+                }
+            )
             continue
         setup_type = _short_setup_type(payload)
         if not setup_type:

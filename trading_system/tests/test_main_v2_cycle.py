@@ -64,6 +64,54 @@ def _expected_paper_lifecycle_summary_after_break_even_writeback() -> dict:
     }
 
 
+def test_main_v2_review_notes_explain_early_structure_gate_failures():
+    weak_long_market = {
+        "symbols": {
+            "BTCUSDT": {
+                "daily": {"close": 100.0, "ema_20": 101.0, "ema_50": 102.0, "return_pct_7d": -0.01},
+                "4h": {"close": 99.0, "ema_20": 100.0, "ema_50": 101.0, "return_pct_3d": -0.006},
+                "1h": {"close": 98.0, "ema_20": 99.0, "ema_50": 100.0, "return_pct_24h": -0.002},
+            },
+            "SOLUSDT": {
+                "daily": {"close": 50.0, "ema_20": 51.0, "ema_50": 52.0, "return_pct_7d": -0.012},
+                "4h": {"close": 49.0, "ema_20": 50.0, "ema_50": 51.0, "return_pct_3d": -0.007},
+                "1h": {"close": 48.0, "ema_20": 49.0, "ema_50": 50.0, "return_pct_24h": -0.003},
+            },
+            "ETHUSDT": {
+                "daily": {"close": 200.0, "ema_20": 198.0, "ema_50": 196.0, "return_pct_7d": 0.01},
+                "4h": {"close": 199.0, "ema_20": 197.0, "ema_50": 195.0, "return_pct_3d": 0.005},
+                "1h": {"close": 198.0, "ema_20": 197.0, "ema_50": 196.0, "return_pct_24h": 0.002},
+            },
+        }
+    }
+
+    trend_notes = main_module._trend_review_notes(
+        market=weak_long_market,
+        major_universe=[{"symbol": "BTCUSDT"}],
+        trend_candidates=[],
+        derivatives=[],
+    )
+    rotation_notes = main_module._rotation_review_notes(
+        market=weak_long_market,
+        rotation_universe=[{"symbol": "SOLUSDT"}],
+        rotation_candidates=[],
+        derivatives=[],
+    )
+    short_notes = main_module._short_review_notes(
+        market=weak_long_market,
+        short_universe=[{"symbol": "ETHUSDT"}],
+        short_candidates=[],
+        derivatives=[],
+    )
+
+    assert trend_notes[0]["reason"] == "trend_not_intact"
+    assert trend_notes[0]["symbol"] == "BTCUSDT"
+    assert rotation_notes[0]["reason"] == "rotation_trend_not_intact"
+    assert rotation_notes[0]["symbol"] == "SOLUSDT"
+    assert short_notes[0]["reason"] == "trend_not_broken"
+    assert short_notes[0]["symbol"] == "ETHUSDT"
+
+
 def test_main_v2_persists_rotation_and_short_review_notes(monkeypatch, tmp_path, load_fixture):
     output_path = tmp_path / "runtime_state.json"
     account_path = tmp_path / "account_snapshot.json"
@@ -1478,25 +1526,26 @@ def test_main_v2_cycle_persists_short_candidates_without_enabling_short_executio
     assert len(state["short_candidates"]) == 1
     assert state["short_candidates"][0]["engine"] == "short"
     assert state["short_candidates"][0]["symbol"] == "BTCUSDT"
-    assert state["short_summary"] == {
-        "universe_count": 2,
-        "candidate_count": 1,
-        "accepted_symbols": [],
-        "deferred_execution_symbols": [],
-        "leaders": [
-            {
-                "symbol": "BTCUSDT",
-                "setup_type": "BREAKDOWN_SHORT",
-                "score": 0.81,
-                "daily_bias": "down",
-                "h4_structure": "breakdown",
-                "h1_trigger": "confirmed",
-                "derivatives": {},
-                "volume_usdt_24h": 12500000000.0,
-                "liquidity_tier": "",
-            }
-        ],
-    }
+    short_summary = state["short_summary"]
+    assert short_summary["universe_count"] == 2
+    assert short_summary["candidate_count"] == 1
+    assert short_summary["accepted_symbols"] == []
+    assert short_summary["deferred_execution_symbols"] == []
+    assert short_summary["leaders"] == [
+        {
+            "symbol": "BTCUSDT",
+            "setup_type": "BREAKDOWN_SHORT",
+            "score": 0.81,
+            "daily_bias": "down",
+            "h4_structure": "breakdown",
+            "h1_trigger": "confirmed",
+            "derivatives": {},
+            "volume_usdt_24h": 12500000000.0,
+            "liquidity_tier": "",
+        }
+    ]
+    assert [note["symbol"] for note in short_summary["review_notes"]] == ["ETHUSDT"]
+    assert short_summary["review_notes"][0]["reason"] == "trend_not_broken"
 
     short_allocations = [row for row in state["latest_allocations"] if row["engine"] == "short"]
     assert short_allocations == []
