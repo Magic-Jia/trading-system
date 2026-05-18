@@ -6,6 +6,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from trading_system.app.backtest.evidence_chain import write_backtest_evidence_chain
 from trading_system.app.reporting.promotion_gate_decision import (
     build_promotion_gate_decision_report,
     write_promotion_gate_decision_report,
@@ -370,3 +371,88 @@ def test_cli_holds_on_professional_evidence_chain_execution_realism_hold(tmp_pat
     assert payload["decision"] == "hold"
     assert "professional_evidence_chain:execution_realism_hold" in payload["blocking_reasons"]
     assert re.search(r"PROMOTION_GATE_DECISION_JSON.*hold", result.stdout)
+
+
+def test_sample_health_file_flows_through_evidence_chain_into_gate_report(tmp_path: Path) -> None:
+    bundle_dir = tmp_path / "backtest"
+    bundle_dir.mkdir()
+    (bundle_dir / "manifest.json").write_text(
+        json.dumps(
+            {
+                "bundle_name": "full_market_baseline__baseline__candidate",
+                "snapshot_count": 48,
+                "artifacts": ["manifest.json", "summary.json", "audit.json", "exit_path_replay.json"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (bundle_dir / "summary.json").write_text(
+        json.dumps({"summary": {"trade_count": 48, "total_return": 0.08, "max_drawdown": -0.04}}),
+        encoding="utf-8",
+    )
+    (bundle_dir / "audit.json").write_text(json.dumps({"audit": {"trade_count": 48}}), encoding="utf-8")
+    (bundle_dir / "exit_path_replay.json").write_text(
+        json.dumps({"exit_path_replay": {"trade_count": 48, "replayed_count": 48, "reason_codes": []}}),
+        encoding="utf-8",
+    )
+    walk_forward_path = tmp_path / "walk_forward.json"
+    cost_sensitivity_path = tmp_path / "cost_sensitivity.json"
+    sample_health_path = tmp_path / "execution_sample_collection_health.json"
+    evidence_path = tmp_path / "backtest_evidence_chain.json"
+    gate_output_path = tmp_path / "promotion_gate_decision.json"
+    window_path = tmp_path / "window.json"
+    trend_path = tmp_path / "trend.json"
+    calibration_path = tmp_path / "calibration.json"
+    walk_forward_path.write_text(
+        json.dumps({"summary": {"decision": "pass", "out_of_sample_scorecard": {"trade_count": 32}}, "reason_codes": []}),
+        encoding="utf-8",
+    )
+    cost_sensitivity_path.write_text(
+        json.dumps({"summary": {"decision": "pass", "scenario_count": 3}, "reason_codes": []}),
+        encoding="utf-8",
+    )
+    sample_health_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "execution_sample_collection_health.v1",
+                "generated_at": "2026-05-17T00:24:00Z",
+                "status": "unavailable",
+                "decision_policy": "fail_closed",
+                "sample_count": 0,
+                "reason_codes": ["execution_ledger_intent_mismatch", "no_execution_samples"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    window_path.write_text(json.dumps(_window()), encoding="utf-8")
+    trend_path.write_text(json.dumps(_trend()), encoding="utf-8")
+    calibration_path.write_text(json.dumps(_calibration_feedback()), encoding="utf-8")
+
+    evidence = write_backtest_evidence_chain(
+        bundle_dir,
+        output_path=evidence_path,
+        walk_forward_report_path=walk_forward_path,
+        cost_sensitivity_report_path=cost_sensitivity_path,
+        execution_sample_collection_health_path=sample_health_path,
+        generated_at="2026-05-17T00:25:00Z",
+    )
+    payload = write_promotion_gate_decision_report(
+        gate_output_path,
+        simulated_live_evidence_window=window_path,
+        promotion_readiness_scorecard_trend=trend_path,
+        calibration_artifacts=[calibration_path],
+        professional_evidence_chain=evidence_path,
+        generated_at="2026-05-17T00:30:00Z",
+    )
+
+    assert json.loads(evidence_path.read_text(encoding="utf-8")) == evidence
+    assert json.loads(gate_output_path.read_text(encoding="utf-8")) == payload
+    assert payload["decision"] == "hold"
+    assert payload["checks"]["professional_evidence_chain"]["execution_realism"]["sample_count"] == 0
+    assert payload["checks"]["professional_evidence_chain"]["execution_realism"]["reason_codes"] == [
+        "execution_sample_collection_health_unavailable",
+        "execution_ledger_intent_mismatch",
+        "no_execution_samples",
+    ]
+    assert "professional_evidence_chain:execution_realism:execution_ledger_intent_mismatch" in payload["blocking_reasons"]
+    assert payload["included_artifact_identities"][-1]["source"]["path"].endswith("backtest_evidence_chain.json")
