@@ -630,6 +630,11 @@ def _write_professional_evidence_command(args: argparse.Namespace) -> int:
         walk_forward_bundle_dir=Path(args.walk_forward_bundle_dir),
         allocator_friction_bundle_dir=Path(args.allocator_friction_bundle_dir),
         output_dir=Path(args.output_dir),
+        execution_calibration_unavailable_path=(
+            Path(args.execution_calibration_unavailable_path)
+            if args.execution_calibration_unavailable_path is not None
+            else None
+        ),
         generated_at=args.generated_at,
     )
     print(outputs["evidence_chain_path"])
@@ -676,6 +681,11 @@ def _run_professional_evidence_pipeline_command(args: argparse.Namespace) -> int
         walk_forward_bundle_dir=walk_forward_bundle_dir,
         allocator_friction_bundle_dir=allocator_friction_bundle_dir,
         output_dir=evidence_dir,
+        execution_calibration_unavailable_path=(
+            Path(args.execution_calibration_unavailable_path)
+            if args.execution_calibration_unavailable_path is not None
+            else None
+        ),
         generated_at=args.generated_at,
     )
     evidence_chain = outputs["evidence_chain"]
@@ -696,6 +706,10 @@ def _run_professional_evidence_pipeline_command(args: argparse.Namespace) -> int
             "evidence_chain_path": outputs["evidence_chain_path"],
         },
     }
+    if "execution_calibration_unavailable_path" in outputs:
+        manifest["professional_evidence"]["execution_calibration_unavailable_path"] = outputs[
+            "execution_calibration_unavailable_path"
+        ]
     manifest_path = output_dir / "professional_evidence_pipeline_manifest.json"
     _write_json(manifest_path, manifest)
     print(manifest_path)
@@ -777,6 +791,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Directory where walk_forward_oos_report.json, cost_sensitivity_report.json, and backtest_evidence_chain.json are written.",
     )
     professional_evidence_parser.add_argument(
+        "--execution-calibration-unavailable-path",
+        default=None,
+        help="Optional calibration_records_unavailable.json marker to include as fail-closed execution realism evidence.",
+    )
+    professional_evidence_parser.add_argument(
         "--generated-at",
         default=None,
         help="Optional canonical UTC timestamp for deterministic generated_at fields.",
@@ -806,6 +825,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--output-dir",
         required=True,
         help="Directory where bundles, professional evidence reports, and pipeline manifest are written.",
+    )
+    professional_pipeline_parser.add_argument(
+        "--execution-calibration-unavailable-path",
+        default=None,
+        help="Optional calibration_records_unavailable.json marker to include as fail-closed execution realism evidence.",
     )
     professional_pipeline_parser.add_argument(
         "--generated-at",

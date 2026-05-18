@@ -112,6 +112,7 @@ def test_valid_minimal_backtest_bundle_builds_passing_evidence_chain(tmp_path: P
     assert evidence["exit_path_replay"]["status"] == "pass"
     assert evidence["walk_forward_oos"]["status"] == "pass"
     assert evidence["cost_sensitivity"]["status"] == "pass"
+    assert evidence["execution_realism"]["status"] == "pass"
     assert evidence["data_quality"]["status"] == "pass"
     assert set(evidence["sources"]) == {
         "manifest",
@@ -136,7 +137,45 @@ def test_missing_optional_professional_reports_hold_fail_closed(tmp_path: Path) 
     assert evidence["walk_forward_oos"]["reason_codes"] == ["source_missing:walk_forward_oos"]
     assert evidence["cost_sensitivity"]["status"] == "hold"
     assert evidence["cost_sensitivity"]["reason_codes"] == ["source_missing:cost_sensitivity"]
+    assert evidence["execution_realism"]["status"] == "pass"
     assert evidence["summary"]["decision"] == "hold"
+
+
+def test_execution_calibration_unavailable_marker_holds_execution_realism_fail_closed(tmp_path: Path) -> None:
+    bundle_dir = tmp_path / "backtest"
+    walk_forward = tmp_path / "walk_forward.json"
+    cost_sensitivity = tmp_path / "cost_sensitivity.json"
+    marker_path = tmp_path / "calibration_records_unavailable.json"
+    _write_minimal_backtest_bundle(bundle_dir)
+    _write_walk_forward_report(walk_forward)
+    _write_cost_sensitivity_report(cost_sensitivity)
+    _write_json(
+        marker_path,
+        {
+            "schema_version": "calibration_records_unavailable.v1",
+            "status": "unavailable",
+            "generated_at": GENERATED_AT,
+            "reason_codes": ["execution_log_missing", "no_canonical_execution_events"],
+            "record_count": 0,
+            "decision_policy": "fail_closed",
+        },
+    )
+
+    evidence = build_backtest_evidence_chain(
+        bundle_dir,
+        walk_forward_report_path=walk_forward,
+        cost_sensitivity_report_path=cost_sensitivity,
+        execution_calibration_unavailable_path=marker_path,
+        generated_at=GENERATED_AT,
+    )
+
+    assert evidence["summary"]["decision"] == "hold"
+    assert evidence["summary"]["component_statuses"]["execution_realism"] == "hold"
+    assert evidence["execution_realism"]["sample_count"] == 0
+    assert evidence["execution_realism"]["coverage_score"] == 0.0
+    assert "execution_calibration_unavailable" in evidence["execution_realism"]["reason_codes"]
+    assert "execution_log_missing" in evidence["execution_realism"]["reason_codes"]
+    assert evidence["sources"]["execution_calibration_unavailable"]["sha256"]
 
 
 def test_malformed_or_incomplete_backtest_bundle_holds_fail_closed(tmp_path: Path) -> None:

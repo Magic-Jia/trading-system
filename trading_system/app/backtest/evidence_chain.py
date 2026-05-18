@@ -212,6 +212,32 @@ def _external_report(payload: Mapping[str, Any] | None, source_name: str, errors
     )
 
 
+def _execution_realism(
+    unavailable_payload: Mapping[str, Any] | None,
+    errors: list[str],
+    generated_at: str,
+) -> dict[str, Any]:
+    reasons = list(errors)
+    if unavailable_payload is None:
+        return _component(
+            as_of=generated_at,
+            coverage_score=1.0,
+            sample_count=0,
+            status="pass",
+            reason_codes=[],
+        )
+    reasons.append("execution_calibration_unavailable")
+    reasons.extend(_extract_reason_codes(unavailable_payload))
+    sample_count = _non_negative_int(unavailable_payload.get("record_count")) or 0
+    return _component(
+        as_of=str(unavailable_payload.get("generated_at") or generated_at),
+        coverage_score=0.0,
+        sample_count=sample_count,
+        status="hold",
+        reason_codes=reasons,
+    )
+
+
 def _data_quality(
     manifest_payload: Mapping[str, Any] | None,
     sources: Mapping[str, dict[str, Any]],
@@ -250,6 +276,7 @@ def build_backtest_evidence_chain(
     *,
     walk_forward_report_path: str | Path | None = None,
     cost_sensitivity_report_path: str | Path | None = None,
+    execution_calibration_unavailable_path: str | Path | None = None,
     generated_at: str | None = None,
 ) -> dict[str, Any]:
     bundle_dir = Path(backtest_bundle_dir)
@@ -264,6 +291,8 @@ def build_backtest_evidence_chain(
         source_specs["walk_forward_oos"] = Path(walk_forward_report_path)
     if cost_sensitivity_report_path is not None:
         source_specs["cost_sensitivity"] = Path(cost_sensitivity_report_path)
+    if execution_calibration_unavailable_path is not None:
+        source_specs["execution_calibration_unavailable"] = Path(execution_calibration_unavailable_path)
 
     sources: dict[str, dict[str, Any]] = {}
     payloads: dict[str, Mapping[str, Any] | None] = {}
@@ -310,6 +339,11 @@ def build_backtest_evidence_chain(
             source_errors.get("cost_sensitivity", []),
             evaluated_at,
         ),
+        "execution_realism": _execution_realism(
+            payloads.get("execution_calibration_unavailable"),
+            source_errors.get("execution_calibration_unavailable", []),
+            evaluated_at,
+        ),
         "data_quality": _data_quality(
             payloads.get("manifest"),
             sources,
@@ -336,6 +370,7 @@ def build_backtest_evidence_chain(
         "exit_path_replay",
         "walk_forward_oos",
         "cost_sensitivity",
+        "execution_realism",
         "data_quality",
     )
     statuses = {name: evidence[name]["status"] for name in component_names}
@@ -352,12 +387,14 @@ def write_backtest_evidence_chain(
     output_path: str | Path | None = None,
     walk_forward_report_path: str | Path | None = None,
     cost_sensitivity_report_path: str | Path | None = None,
+    execution_calibration_unavailable_path: str | Path | None = None,
     generated_at: str | None = None,
 ) -> dict[str, Any]:
     payload = build_backtest_evidence_chain(
         backtest_bundle_dir,
         walk_forward_report_path=walk_forward_report_path,
         cost_sensitivity_report_path=cost_sensitivity_report_path,
+        execution_calibration_unavailable_path=execution_calibration_unavailable_path,
         generated_at=generated_at,
     )
     path = Path(output_path) if output_path is not None else Path(backtest_bundle_dir) / FILENAME
@@ -372,6 +409,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output-path")
     parser.add_argument("--walk-forward-report-path")
     parser.add_argument("--cost-sensitivity-report-path")
+    parser.add_argument("--execution-calibration-unavailable-path")
     parser.add_argument("--generated-at")
     args = parser.parse_args(argv)
     output_path = args.output_path or str(Path(args.backtest_bundle_dir) / FILENAME)
@@ -380,6 +418,7 @@ def main(argv: list[str] | None = None) -> int:
         output_path=output_path,
         walk_forward_report_path=args.walk_forward_report_path,
         cost_sensitivity_report_path=args.cost_sensitivity_report_path,
+        execution_calibration_unavailable_path=args.execution_calibration_unavailable_path,
         generated_at=args.generated_at,
     )
     print(f"BACKTEST_EVIDENCE_CHAIN_JSON={output_path}")

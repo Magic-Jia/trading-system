@@ -250,7 +250,51 @@ def test_write_professional_backtest_evidence_outputs_chain_consuming_both_repor
     assert evidence["summary"]["decision"] == "pass"
     assert evidence["walk_forward_oos"]["status"] == "pass"
     assert evidence["cost_sensitivity"]["status"] == "pass"
+    assert evidence["execution_realism"]["status"] == "pass"
     assert Path(outputs["evidence_chain_path"]).name == "backtest_evidence_chain.json"
+
+
+def test_write_professional_backtest_evidence_holds_on_execution_calibration_unavailable_marker(tmp_path: Path) -> None:
+    backtest_dir = tmp_path / "backtest"
+    walk_forward_dir = tmp_path / "walk_forward"
+    allocator_dir = tmp_path / "allocator_friction"
+    output_dir = tmp_path / "evidence"
+    marker_path = tmp_path / "calibration_records_unavailable.json"
+    _write_minimal_backtest_bundle(backtest_dir)
+    _write_walk_forward_bundle(walk_forward_dir)
+    _write_allocator_friction_bundle(allocator_dir)
+    _write_json(
+        marker_path,
+        {
+            "schema_version": "calibration_records_unavailable.v1",
+            "status": "unavailable",
+            "generated_at": GENERATED_AT,
+            "reason_codes": ["execution_log_missing", "no_canonical_execution_events"],
+            "canonical_event_count": 0,
+            "record_count": 0,
+            "decision_policy": "fail_closed",
+        },
+    )
+
+    outputs = write_professional_backtest_evidence(
+        backtest_bundle_dir=backtest_dir,
+        walk_forward_bundle_dir=walk_forward_dir,
+        allocator_friction_bundle_dir=allocator_dir,
+        output_dir=output_dir,
+        execution_calibration_unavailable_path=marker_path,
+        generated_at=GENERATED_AT,
+    )
+
+    evidence = outputs["evidence_chain"]
+    assert outputs["execution_calibration_unavailable_path"] == str(marker_path)
+    assert evidence["summary"]["decision"] == "hold"
+    assert evidence["summary"]["component_statuses"]["execution_realism"] == "hold"
+    assert evidence["execution_realism"]["status"] == "hold"
+    assert evidence["execution_realism"]["sample_count"] == 0
+    assert evidence["execution_realism"]["coverage_score"] == 0.0
+    assert "execution_calibration_unavailable" in evidence["execution_realism"]["reason_codes"]
+    assert "execution_log_missing" in evidence["execution_realism"]["reason_codes"]
+    assert evidence["sources"]["execution_calibration_unavailable"]["path"] == str(marker_path)
 
 
 def test_backtest_cli_writes_professional_evidence_chain_from_existing_bundles(tmp_path: Path) -> None:
@@ -291,4 +335,58 @@ def test_backtest_cli_writes_professional_evidence_chain_from_existing_bundles(t
     assert evidence_chain["summary"]["decision"] == "pass"
     assert evidence_chain["walk_forward_oos"]["status"] == "pass"
     assert evidence_chain["cost_sensitivity"]["status"] == "pass"
+    assert evidence_chain["execution_realism"]["status"] == "pass"
     assert str(output_dir / "backtest_evidence_chain.json") in completed.stdout
+
+
+def test_backtest_cli_writes_hold_evidence_chain_from_execution_calibration_unavailable_marker(tmp_path: Path) -> None:
+    backtest_dir = tmp_path / "backtest"
+    walk_forward_dir = tmp_path / "walk_forward"
+    allocator_dir = tmp_path / "allocator_friction"
+    output_dir = tmp_path / "evidence"
+    marker_path = tmp_path / "calibration_records_unavailable.json"
+    _write_minimal_backtest_bundle(backtest_dir)
+    _write_walk_forward_bundle(walk_forward_dir)
+    _write_allocator_friction_bundle(allocator_dir)
+    _write_json(
+        marker_path,
+        {
+            "schema_version": "calibration_records_unavailable.v1",
+            "status": "unavailable",
+            "generated_at": GENERATED_AT,
+            "reason_codes": ["no_canonical_execution_events"],
+            "canonical_event_count": 0,
+            "record_count": 0,
+            "decision_policy": "fail_closed",
+        },
+    )
+
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "trading_system.app.backtest.cli",
+            "write-professional-evidence",
+            "--backtest-bundle-dir",
+            str(backtest_dir),
+            "--walk-forward-bundle-dir",
+            str(walk_forward_dir),
+            "--allocator-friction-bundle-dir",
+            str(allocator_dir),
+            "--output-dir",
+            str(output_dir),
+            "--execution-calibration-unavailable-path",
+            str(marker_path),
+            "--generated-at",
+            GENERATED_AT,
+        ],
+        cwd=Path(__file__).resolve().parents[2],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    evidence_chain = json.loads((output_dir / "backtest_evidence_chain.json").read_text(encoding="utf-8"))
+    assert evidence_chain["summary"]["decision"] == "hold"
+    assert evidence_chain["summary"]["component_statuses"]["execution_realism"] == "hold"
+    assert "no_canonical_execution_events" in evidence_chain["execution_realism"]["reason_codes"]
