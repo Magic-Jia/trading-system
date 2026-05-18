@@ -214,12 +214,13 @@ def _external_report(payload: Mapping[str, Any] | None, source_name: str, errors
 
 def _execution_realism(
     unavailable_payload: Mapping[str, Any] | None,
+    sample_health_payload: Mapping[str, Any] | None,
     calibration_summary_payload: Mapping[str, Any] | None,
     errors: list[str],
     generated_at: str,
 ) -> dict[str, Any]:
     reasons = list(errors)
-    if unavailable_payload is None and calibration_summary_payload is None:
+    if unavailable_payload is None and sample_health_payload is None and calibration_summary_payload is None:
         return _component(
             as_of=generated_at,
             coverage_score=1.0,
@@ -238,6 +239,23 @@ def _execution_realism(
             status="hold",
             reason_codes=reasons,
         )
+    if sample_health_payload is not None:
+        health_status = sample_health_payload.get("status")
+        if health_status != "available":
+            reasons.append("execution_sample_collection_health_unavailable")
+        reasons.extend(_extract_reason_codes(sample_health_payload))
+        sample_count = _non_negative_int(sample_health_payload.get("sample_count")) or 0
+        payload = _component(
+            as_of=str(sample_health_payload.get("generated_at") or generated_at),
+            coverage_score=1.0 if not reasons else 0.0,
+            sample_count=sample_count,
+            status="pass" if not reasons else "hold",
+            reason_codes=reasons,
+        )
+        if calibration_summary_payload is None:
+            return payload
+        if payload["status"] != "pass":
+            return payload
 
     assert calibration_summary_payload is not None
     if calibration_summary_payload.get("schema_version") != "passive_order_calibration_summary.v1":
@@ -306,6 +324,7 @@ def build_backtest_evidence_chain(
     cost_sensitivity_report_path: str | Path | None = None,
     execution_calibration_summary_path: str | Path | None = None,
     execution_calibration_unavailable_path: str | Path | None = None,
+    execution_sample_collection_health_path: str | Path | None = None,
     generated_at: str | None = None,
 ) -> dict[str, Any]:
     bundle_dir = Path(backtest_bundle_dir)
@@ -324,6 +343,8 @@ def build_backtest_evidence_chain(
         source_specs["execution_calibration_summary"] = Path(execution_calibration_summary_path)
     if execution_calibration_unavailable_path is not None:
         source_specs["execution_calibration_unavailable"] = Path(execution_calibration_unavailable_path)
+    if execution_sample_collection_health_path is not None:
+        source_specs["execution_sample_collection_health"] = Path(execution_sample_collection_health_path)
 
     sources: dict[str, dict[str, Any]] = {}
     payloads: dict[str, Mapping[str, Any] | None] = {}
@@ -372,8 +393,10 @@ def build_backtest_evidence_chain(
         ),
         "execution_realism": _execution_realism(
             payloads.get("execution_calibration_unavailable"),
+            payloads.get("execution_sample_collection_health"),
             payloads.get("execution_calibration_summary"),
-            source_errors.get("execution_calibration_unavailable", []),
+            source_errors.get("execution_calibration_unavailable", [])
+            + source_errors.get("execution_sample_collection_health", []),
             evaluated_at,
         ),
         "data_quality": _data_quality(
@@ -421,6 +444,7 @@ def write_backtest_evidence_chain(
     cost_sensitivity_report_path: str | Path | None = None,
     execution_calibration_summary_path: str | Path | None = None,
     execution_calibration_unavailable_path: str | Path | None = None,
+    execution_sample_collection_health_path: str | Path | None = None,
     generated_at: str | None = None,
 ) -> dict[str, Any]:
     payload = build_backtest_evidence_chain(
@@ -429,6 +453,7 @@ def write_backtest_evidence_chain(
         cost_sensitivity_report_path=cost_sensitivity_report_path,
         execution_calibration_summary_path=execution_calibration_summary_path,
         execution_calibration_unavailable_path=execution_calibration_unavailable_path,
+        execution_sample_collection_health_path=execution_sample_collection_health_path,
         generated_at=generated_at,
     )
     path = Path(output_path) if output_path is not None else Path(backtest_bundle_dir) / FILENAME
@@ -445,6 +470,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--cost-sensitivity-report-path")
     parser.add_argument("--execution-calibration-summary-path")
     parser.add_argument("--execution-calibration-unavailable-path")
+    parser.add_argument("--execution-sample-collection-health-path")
     parser.add_argument("--generated-at")
     args = parser.parse_args(argv)
     output_path = args.output_path or str(Path(args.backtest_bundle_dir) / FILENAME)
@@ -455,6 +481,7 @@ def main(argv: list[str] | None = None) -> int:
         cost_sensitivity_report_path=args.cost_sensitivity_report_path,
         execution_calibration_summary_path=args.execution_calibration_summary_path,
         execution_calibration_unavailable_path=args.execution_calibration_unavailable_path,
+        execution_sample_collection_health_path=args.execution_sample_collection_health_path,
         generated_at=args.generated_at,
     )
     print(f"BACKTEST_EVIDENCE_CHAIN_JSON={output_path}")
