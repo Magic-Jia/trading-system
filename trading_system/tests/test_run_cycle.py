@@ -201,6 +201,59 @@ def test_run_cycle_real_main_candidate_allocation_path_can_emit_available_paper_
     assert state["latest_allocations"][0]["execution"]["status"] == "FILLED"
 
 
+def test_run_cycle_candidate_funnel_health_aggregates_rotation_and_short_review_notes(monkeypatch, tmp_path):
+    runtime_root = tmp_path / "runtime"
+    expected_bucket = runtime_root / "paper" / "prod"
+
+    def fake_main() -> None:
+        Path(os.environ["TRADING_STATE_FILE"]).write_text(
+            json.dumps(
+                {
+                    "execution_mode": "paper",
+                    "latest_candidates": [],
+                    "latest_allocations": [],
+                    "latest_regime": {"label": "RISK_OFF", "suppression_rules": ["rotation"]},
+                    "trend_summary": {"universe_count": 2, "candidate_count": 0, "accepted_symbols": []},
+                    "rotation_summary": {
+                        "universe_count": 3,
+                        "candidate_count": 0,
+                        "accepted_symbols": [],
+                        "review_notes": [
+                            {"symbol": "SOLUSDT", "setup_type": "RS_PULLBACK", "reason": "absolute_strength_floor"},
+                            {"symbol": "XRPUSDT", "setup_type": "RS_PULLBACK", "reason": "absolute_strength_floor"},
+                        ],
+                    },
+                    "short_summary": {
+                        "universe_count": 2,
+                        "candidate_count": 0,
+                        "accepted_symbols": [],
+                        "deferred_execution_symbols": [],
+                        "review_notes": [
+                            {"symbol": "BTCUSDT", "setup_type": "FAILED_BOUNCE_SHORT", "reason": "trend_not_broken"}
+                        ],
+                    },
+                    "paper_trading": {"ledger_event_count": 0, "emitted_count": 0, "replayed_count": 0},
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    _disable_paper_runtime_input_preparation(monkeypatch)
+    monkeypatch.setattr(run_cycle_module, "run_main", fake_main)
+
+    run_cycle_module.run_cycle("paper", runtime_root=runtime_root, runtime_env="prod")
+
+    health = json.loads((expected_bucket / "candidate_funnel_health.json").read_text(encoding="utf-8"))
+    rotation_layer = health["strategy_layers"]["rotation"]
+    short_layer = health["strategy_layers"]["short"]
+    assert rotation_layer["review_reason_counts"] == {"absolute_strength_floor": 2}
+    assert [row["symbol"] for row in rotation_layer["review_sample"]] == ["SOLUSDT", "XRPUSDT"]
+    assert short_layer["review_reason_counts"] == {"trend_not_broken": 1}
+    assert short_layer["review_sample"] == [
+        {"symbol": "BTCUSDT", "setup_type": "FAILED_BOUNCE_SHORT", "reason": "trend_not_broken"}
+    ]
+
+
 def test_run_cycle_writes_execution_sample_collection_health_for_no_candidate_cycle(monkeypatch, tmp_path):
     runtime_root = tmp_path / "runtime"
     expected_bucket = runtime_root / "paper" / "prod"

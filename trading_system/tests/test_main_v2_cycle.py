@@ -64,6 +64,44 @@ def _expected_paper_lifecycle_summary_after_break_even_writeback() -> dict:
     }
 
 
+def test_main_v2_persists_rotation_and_short_review_notes(monkeypatch, tmp_path, load_fixture):
+    output_path = tmp_path / "runtime_state.json"
+    account_path = tmp_path / "account_snapshot.json"
+    market_path = tmp_path / "market_context.json"
+    deriv_path = tmp_path / "derivatives_snapshot.json"
+    account_path.write_text(json.dumps(load_fixture("account_snapshot_v2.json")))
+    market_path.write_text(json.dumps(load_fixture("market_context_v2.json")))
+    deriv_path.write_text(json.dumps(load_fixture("derivatives_snapshot_v2.json")))
+    monkeypatch.setenv("TRADING_STATE_FILE", str(output_path))
+    monkeypatch.setenv("TRADING_ACCOUNT_SNAPSHOT_FILE", str(account_path))
+    monkeypatch.setenv("TRADING_MARKET_CONTEXT_FILE", str(market_path))
+    monkeypatch.setenv("TRADING_DERIVATIVES_SNAPSHOT_FILE", str(deriv_path))
+    monkeypatch.setattr(main_module, "generate_trend_candidates", lambda *args, **kwargs: [])
+    monkeypatch.setattr(main_module, "generate_rotation_candidates", lambda *args, **kwargs: [])
+    monkeypatch.setattr(main_module, "generate_short_candidates", lambda *args, **kwargs: [])
+    monkeypatch.setattr(main_module, "_trend_review_notes", lambda **kwargs: [])
+    monkeypatch.setattr(
+        main_module,
+        "_rotation_review_notes",
+        lambda **kwargs: [{"symbol": "SOLUSDT", "setup_type": "RS_PULLBACK", "reason": "absolute_strength_floor"}],
+    )
+    monkeypatch.setattr(
+        main_module,
+        "_short_review_notes",
+        lambda **kwargs: [{"symbol": "BTCUSDT", "setup_type": "FAILED_BOUNCE_SHORT", "reason": "trend_not_broken"}],
+    )
+
+    main_module.main()
+
+    state = json.loads(output_path.read_text())
+    assert state["rotation_summary"]["review_notes"] == [
+        {"symbol": "SOLUSDT", "setup_type": "RS_PULLBACK", "reason": "absolute_strength_floor"}
+    ]
+    assert state["short_summary"]["review_notes"] == [
+        {"symbol": "BTCUSDT", "setup_type": "FAILED_BOUNCE_SHORT", "reason": "trend_not_broken"}
+    ]
+
+
 def test_v2_config_exposes_regime_universe_allocator_sections():
     assert hasattr(DEFAULT_CONFIG, "regime")
     assert hasattr(DEFAULT_CONFIG, "universe")
@@ -2162,13 +2200,13 @@ def test_main_v2_direct_state_store_reload_path_clears_stale_short_candidate_row
     assert preloaded_store.load_calls == 1
     assert state["short_candidates"] == []
     assert state["latest_candidates"] == []
-    assert state["short_summary"] == {
-        "universe_count": 2,
-        "candidate_count": 0,
-        "accepted_symbols": [],
-        "deferred_execution_symbols": [],
-        "leaders": [],
-    }
+    short_summary = state["short_summary"]
+    assert short_summary["universe_count"] == 2
+    assert short_summary["candidate_count"] == 0
+    assert short_summary["accepted_symbols"] == []
+    assert short_summary["deferred_execution_symbols"] == []
+    assert short_summary["leaders"] == []
+    assert [note["symbol"] for note in short_summary["review_notes"]] == ["BTCUSDT", "ETHUSDT"]
     short_report = payload["regime"]["short"]
     assert short_report["universe_count"] == 2
     assert short_report["candidate_count"] == 0
@@ -2305,13 +2343,13 @@ def test_main_v2_direct_state_store_reload_path_clears_stale_short_latest_alloca
     assert preloaded_store.load_calls == 1
     assert state["latest_allocations"] == []
     assert state["short_candidates"] == []
-    assert state["short_summary"] == {
-        "universe_count": 2,
-        "candidate_count": 0,
-        "accepted_symbols": [],
-        "deferred_execution_symbols": [],
-        "leaders": [],
-    }
+    short_summary = state["short_summary"]
+    assert short_summary["universe_count"] == 2
+    assert short_summary["candidate_count"] == 0
+    assert short_summary["accepted_symbols"] == []
+    assert short_summary["deferred_execution_symbols"] == []
+    assert short_summary["leaders"] == []
+    assert [note["symbol"] for note in short_summary["review_notes"]] == ["BTCUSDT", "ETHUSDT"]
     short_report = payload["regime"]["short"]
     assert short_report["universe_count"] == 2
     assert short_report["candidate_count"] == 0
@@ -2443,13 +2481,13 @@ def test_main_v2_direct_state_store_reload_path_clears_persisted_and_emitted_sho
 
     assert preloaded_store.load_calls == 1
     assert state["short_candidates"] == []
-    assert state["short_summary"] == {
-        "universe_count": 2,
-        "candidate_count": 0,
-        "accepted_symbols": [],
-        "deferred_execution_symbols": [],
-        "leaders": [],
-    }
+    short_summary = state["short_summary"]
+    assert short_summary["universe_count"] == 2
+    assert short_summary["candidate_count"] == 0
+    assert short_summary["accepted_symbols"] == []
+    assert short_summary["deferred_execution_symbols"] == []
+    assert short_summary["leaders"] == []
+    assert [note["symbol"] for note in short_summary["review_notes"]] == ["BTCUSDT", "ETHUSDT"]
     short_report = payload["regime"]["short"]
     assert short_report["universe_count"] == 2
     assert short_report["candidate_count"] == 0
@@ -2562,13 +2600,13 @@ def test_main_v2_reload_boundary_clears_persisted_and_emitted_short_outputs_when
     state = json.loads(Path(output_path).read_text())
 
     assert state["short_candidates"] == []
-    assert state["short_summary"] == {
-        "universe_count": 2,
-        "candidate_count": 0,
-        "accepted_symbols": [],
-        "deferred_execution_symbols": [],
-        "leaders": [],
-    }
+    short_summary = state["short_summary"]
+    assert short_summary["universe_count"] == 2
+    assert short_summary["candidate_count"] == 0
+    assert short_summary["accepted_symbols"] == []
+    assert short_summary["deferred_execution_symbols"] == []
+    assert short_summary["leaders"] == []
+    assert [note["symbol"] for note in short_summary["review_notes"]] == ["BTCUSDT", "ETHUSDT"]
     short_report = payload["regime"]["short"]
     assert short_report["universe_count"] == 2
     assert short_report["candidate_count"] == 0
@@ -2661,13 +2699,13 @@ def test_main_v2_persisted_state_clears_previous_short_summary_when_later_all_sh
     state = json.loads(Path(output_path).read_text())
 
     assert state["short_candidates"] == []
-    assert state["short_summary"] == {
-        "universe_count": 2,
-        "candidate_count": 0,
-        "accepted_symbols": [],
-        "deferred_execution_symbols": [],
-        "leaders": [],
-    }
+    short_summary = state["short_summary"]
+    assert short_summary["universe_count"] == 2
+    assert short_summary["candidate_count"] == 0
+    assert short_summary["accepted_symbols"] == []
+    assert short_summary["deferred_execution_symbols"] == []
+    assert short_summary["leaders"] == []
+    assert [note["symbol"] for note in short_summary["review_notes"]] == ["BTCUSDT", "ETHUSDT"]
 
 
 def test_main_v2_cycle_is_idempotent_for_same_inputs(monkeypatch, tmp_path, load_fixture, capsys):

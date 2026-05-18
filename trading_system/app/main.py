@@ -1974,6 +1974,8 @@ def main() -> None:
         executions=execution_rows,
         rotation_universe=list(state.latest_universes.get("rotation_universe", [])),
     )
+    if rotation_review_notes:
+        state.rotation_summary["review_notes"] = rotation_review_notes
     state.short_candidates = [row for row in candidate_rows if str(row.get("engine", "")).lower() == "short"]
     short_review_notes = _short_review_notes(
         market=market,
@@ -1986,6 +1988,8 @@ def main() -> None:
         allocations=state.latest_allocations,
         short_universe=list(state.latest_universes.get("short_universe", [])),
     )
+    if short_review_notes:
+        state.short_summary["review_notes"] = short_review_notes
     state.partial_v2_coverage = True
     store.replace_management_suggestions(state, management)
     store.replace_management_action_previews(state, management_previews)
