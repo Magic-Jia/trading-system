@@ -636,6 +636,72 @@ def _write_professional_evidence_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_backtest_config_to_bundle(config_path: Path, output_dir: Path, *, expected_experiment_kind: str | None = None) -> Path:
+    config = load_backtest_config(config_path)
+    if expected_experiment_kind is not None and config.experiment_kind != expected_experiment_kind:
+        raise ValueError(
+            f"{config_path} experiment_kind must be {expected_experiment_kind}; loaded {config.experiment_kind}"
+        )
+    rows = load_historical_dataset(config.dataset_root)
+    handler = _EXPERIMENT_HANDLERS.get(config.experiment_kind)
+    if handler is None:
+        supported = ", ".join(sorted(_EXPERIMENT_HANDLERS))
+        raise ValueError(f"unsupported experiment_kind: {config.experiment_kind}; supported: {supported}")
+    handler_rows = rows if config.experiment_kind == "full_market_baseline" else _rows_in_sample_windows(config, rows)
+    manifest, artifacts = handler(config, handler_rows)
+    bundle_dir = output_dir / _bundle_name(config)
+    bundle_dir.mkdir(parents=True, exist_ok=True)
+    _write_json(bundle_dir / "manifest.json", manifest)
+    for filename, payload in artifacts.items():
+        _write_artifact(bundle_dir / filename, payload)
+    return bundle_dir
+
+
+def _run_professional_evidence_pipeline_command(args: argparse.Namespace) -> int:
+    output_dir = Path(args.output_dir)
+    bundles_dir = output_dir / "bundles"
+    evidence_dir = output_dir / "professional_evidence"
+    bundles_dir.mkdir(parents=True, exist_ok=True)
+    backtest_bundle_dir = _run_backtest_config_to_bundle(
+        Path(args.backtest_config), bundles_dir, expected_experiment_kind="full_market_baseline"
+    )
+    walk_forward_bundle_dir = _run_backtest_config_to_bundle(
+        Path(args.walk_forward_config), bundles_dir, expected_experiment_kind="walk_forward_validation"
+    )
+    allocator_friction_bundle_dir = _run_backtest_config_to_bundle(
+        Path(args.allocator_friction_config), bundles_dir, expected_experiment_kind="allocator_friction"
+    )
+    outputs = write_professional_backtest_evidence(
+        backtest_bundle_dir=backtest_bundle_dir,
+        walk_forward_bundle_dir=walk_forward_bundle_dir,
+        allocator_friction_bundle_dir=allocator_friction_bundle_dir,
+        output_dir=evidence_dir,
+        generated_at=args.generated_at,
+    )
+    evidence_chain = outputs["evidence_chain"]
+    summary = evidence_chain.get("summary") if isinstance(evidence_chain, Mapping) else {}
+    decision = summary.get("decision") if isinstance(summary, Mapping) else "hold"
+    manifest = {
+        "schema_version": "professional_evidence_pipeline.v1",
+        "generated_at": outputs["evidence_chain"]["generated_at"],
+        "decision": decision,
+        "bundles": {
+            "backtest": str(backtest_bundle_dir),
+            "walk_forward": str(walk_forward_bundle_dir),
+            "allocator_friction": str(allocator_friction_bundle_dir),
+        },
+        "professional_evidence": {
+            "walk_forward_report_path": outputs["walk_forward_report_path"],
+            "cost_sensitivity_report_path": outputs["cost_sensitivity_report_path"],
+            "evidence_chain_path": outputs["evidence_chain_path"],
+        },
+    }
+    manifest_path = output_dir / "professional_evidence_pipeline_manifest.json"
+    _write_json(manifest_path, manifest)
+    print(manifest_path)
+    return 0
+
+
 def _materialize_evidence_windows_command(args: argparse.Namespace) -> int:
     symbols = tuple(str(value).strip().upper() for value in args.symbols.split(",") if str(value).strip()) if args.symbols else None
     windows_days = tuple(int(value.strip()) for value in args.windows_days.split(",") if value.strip())
@@ -716,6 +782,37 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional canonical UTC timestamp for deterministic generated_at fields.",
     )
     professional_evidence_parser.set_defaults(handler=_write_professional_evidence_command)
+
+    professional_pipeline_parser = subparsers.add_parser(
+        "run-professional-evidence-pipeline",
+        help="Run backtest, walk-forward, allocator-friction configs and generate professional evidence in one command.",
+    )
+    professional_pipeline_parser.add_argument(
+        "--backtest-config",
+        required=True,
+        help="Full-market baseline/backtest config JSON file.",
+    )
+    professional_pipeline_parser.add_argument(
+        "--walk-forward-config",
+        required=True,
+        help="Walk-forward validation config JSON file.",
+    )
+    professional_pipeline_parser.add_argument(
+        "--allocator-friction-config",
+        required=True,
+        help="Allocator friction/cost-sensitivity config JSON file.",
+    )
+    professional_pipeline_parser.add_argument(
+        "--output-dir",
+        required=True,
+        help="Directory where bundles, professional evidence reports, and pipeline manifest are written.",
+    )
+    professional_pipeline_parser.add_argument(
+        "--generated-at",
+        default=None,
+        help="Optional canonical UTC timestamp for deterministic generated_at fields.",
+    )
+    professional_pipeline_parser.set_defaults(handler=_run_professional_evidence_pipeline_command)
 
     materialize_parser = subparsers.add_parser(
         "materialize-evidence-windows",
