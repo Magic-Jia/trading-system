@@ -1,13 +1,33 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 
 from trading_system.app.backtest import cli
+from trading_system.app.config import DEFAULT_CONFIG
+from trading_system.app.execution.executor import OrderExecutor
+from trading_system.app.runtime_paths import build_runtime_paths
+from trading_system.app.storage.state_store import RuntimeStateV2
+from trading_system.app.types import OrderIntent
+from trading_system.run_cycle import _execution_sample_collection_health
 
 
 FIXTURES = Path(__file__).parent / "fixtures" / "backtest"
 GENERATED_AT = "2026-05-18T05:00:00Z"
+
+
+def _sample_order() -> OrderIntent:
+    return OrderIntent(
+        intent_id="intent-btc-long",
+        signal_id="signal-btc-long",
+        symbol="BTCUSDT",
+        side="LONG",
+        qty=0.01,
+        entry_price=60000.0,
+        stop_loss=58000.0,
+        take_profit=64000.0,
+    )
 
 
 def test_run_professional_evidence_pipeline_writes_bundles_reports_and_manifest(tmp_path: Path) -> None:
@@ -163,6 +183,68 @@ def test_run_professional_evidence_pipeline_writes_promotion_gate_report_and_man
     assert gate_report["checks"]["professional_evidence_chain"]["execution_realism"]["status"] in {"pass", "hold"}
     assert manifest["promotion_gate"]["decision"] == gate_report["decision"]
     assert manifest["promotion_gate"]["professional_evidence_chain_path"] == manifest["professional_evidence"]["evidence_chain_path"]
+
+
+def test_run_professional_evidence_pipeline_passes_execution_realism_from_non_empty_paper_samples(tmp_path: Path) -> None:
+    runtime_paths = build_runtime_paths("paper", runtime_root=tmp_path / "runtime", runtime_env="research")
+    config = replace(
+        DEFAULT_CONFIG,
+        data_dir=tmp_path,
+        state_file=runtime_paths.state_file,
+        execution=replace(DEFAULT_CONFIG.execution, mode="paper", environment="research"),
+    )
+    executor = OrderExecutor(config, mode="paper")
+    result = executor.execute(_sample_order(), RuntimeStateV2.empty())
+    health = _execution_sample_collection_health(runtime_paths, {"candidate_count": 1, "allocation_count": 1})
+    health_path = runtime_paths.bucket_dir / "execution_sample_collection_health.json"
+    health_path.write_text(json.dumps(health, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    runtime_paths.latest_summary_file.write_text(
+        json.dumps(
+            {
+                "status": "ok",
+                "mode": "paper",
+                "runtime_env": "research",
+                "candidate_count": 1,
+                "allocation_count": 1,
+                "execution_sample_collection_health_file": str(health_path),
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    output_dir = tmp_path / "professional-pipeline"
+
+    exit_code = cli.main(
+        [
+            "run-professional-evidence-pipeline",
+            "--backtest-config",
+            str(FIXTURES / "full_market_baseline.json"),
+            "--walk-forward-config",
+            str(FIXTURES / "walk_forward_validation_config.json"),
+            "--allocator-friction-config",
+            str(FIXTURES / "allocator_friction_config.json"),
+            "--output-dir",
+            str(output_dir),
+            "--runtime-summary-path",
+            str(runtime_paths.latest_summary_file),
+            "--generated-at",
+            GENERATED_AT,
+        ]
+    )
+
+    assert result["result"] == "FILLED"
+    assert health["status"] == "available"
+    assert exit_code == 0
+    manifest = json.loads((output_dir / "professional_evidence_pipeline_manifest.json").read_text(encoding="utf-8"))
+    evidence_chain = json.loads(Path(manifest["professional_evidence"]["evidence_chain_path"]).read_text(encoding="utf-8"))
+    assert manifest["professional_evidence"]["runtime_summary_path"] == str(runtime_paths.latest_summary_file)
+    assert manifest["professional_evidence"]["execution_sample_collection_health_path"] == str(health_path)
+    assert evidence_chain["execution_realism"]["status"] == "pass"
+    assert evidence_chain["execution_realism"]["sample_count"] == 1
+    assert evidence_chain["execution_realism"]["reason_codes"] == []
+    assert evidence_chain["summary"]["component_statuses"]["execution_realism"] == "pass"
 
 
 def test_run_professional_evidence_pipeline_rejects_partial_promotion_gate_inputs(tmp_path: Path) -> None:
