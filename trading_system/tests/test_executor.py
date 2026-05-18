@@ -6,9 +6,11 @@ import pytest
 from trading_system.app.config import DEFAULT_CONFIG, build_config
 from trading_system.app.execution.calibration import load_calibration_records
 from trading_system.app.execution.executor import OrderExecutor
+from trading_system.app.runtime_paths import build_runtime_paths
 from trading_system.app.storage.state_store import RuntimeStateV2
 from trading_system.app.types import ManagementActionIntent, OrderIntent
 from trading_system.generate_execution_calibration_records import generate_execution_calibration_records
+from trading_system.run_cycle import _execution_sample_collection_health
 
 
 def _sample_order() -> OrderIntent:
@@ -367,6 +369,31 @@ def test_paper_execute_appends_canonical_runtime_lifecycle_rows_for_calibration(
     assert records[0].symbol == "BTCUSDT"
     assert records[0].requested_qty == pytest.approx(0.01)
     assert records[0].filled_qty == pytest.approx(0.01)
+
+
+def test_paper_execute_runtime_artifacts_satisfy_execution_sample_health(monkeypatch, tmp_path):
+    from trading_system.app.execution import executor as executor_module
+
+    monkeypatch.setattr(executor_module, "EXEC_LOG", tmp_path / "legacy" / "execution_log.jsonl")
+    paths = build_runtime_paths("paper", runtime_root=tmp_path / "runtime", runtime_env="research")
+    config = replace(
+        DEFAULT_CONFIG,
+        data_dir=tmp_path,
+        state_file=paths.state_file,
+        execution=replace(DEFAULT_CONFIG.execution, mode="paper", environment="research"),
+    )
+    executor = OrderExecutor(config, mode="paper")
+
+    result = executor.execute(_sample_order(), RuntimeStateV2.empty())
+    health = _execution_sample_collection_health(paths, {"candidate_count": 1, "allocation_count": 1})
+
+    assert result["result"] == "FILLED"
+    assert health["status"] == "available"
+    assert health["decision_policy"] == "pass"
+    assert health["sample_count"] == 1
+    assert health["reason_codes"] == []
+    assert health["execution_log_file"]["line_count"] == 7
+    assert health["paper_ledger_file"]["line_count"] == 1
 
 
 def test_paper_execute_does_not_call_testnet_submission_functions(monkeypatch, tmp_path):
