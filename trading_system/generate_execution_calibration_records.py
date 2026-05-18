@@ -543,6 +543,53 @@ def _write_jsonl_atomic(path: Path, rows: list[Mapping[str, Any]]) -> None:
     tmp.replace(path)
 
 
+def _file_status(path: Path) -> dict[str, Any]:
+    return {
+        "path": str(path),
+        "exists": path.exists(),
+        "bytes": path.stat().st_size if path.exists() else 0,
+    }
+
+
+def _unavailable_reason_codes(*, execution_path: Path, canonical_event_count: int, record_count: int) -> list[str]:
+    reason_codes: list[str] = []
+    if not execution_path.exists():
+        reason_codes.append("execution_log_missing")
+    if canonical_event_count == 0:
+        reason_codes.append("no_canonical_execution_events")
+    if canonical_event_count > 0 and record_count == 0:
+        reason_codes.append("no_calibration_records")
+    return reason_codes or ["calibration_records_unavailable"]
+
+
+def _write_unavailable_marker(
+    path: Path,
+    *,
+    execution_path: Path,
+    paper_ledger_path: Path | None,
+    canonical_event_count: int,
+    record_count: int,
+) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "schema_version": "calibration_records_unavailable.v1",
+        "status": "unavailable",
+        "reason_codes": _unavailable_reason_codes(
+            execution_path=execution_path,
+            canonical_event_count=canonical_event_count,
+            record_count=record_count,
+        ),
+        "record_count": record_count,
+        "canonical_event_count": canonical_event_count,
+        "execution_log_file": _file_status(execution_path),
+        "paper_ledger_file": _file_status(paper_ledger_path) if paper_ledger_path is not None else None,
+        "decision_policy": "fail_closed",
+    }
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    tmp.replace(path)
+
+
 def generate_execution_calibration_records(
     *,
     execution_log_file: str | Path,
@@ -552,17 +599,30 @@ def generate_execution_calibration_records(
 ) -> dict[str, Any]:
     execution_path = Path(execution_log_file)
     output_path = Path(output_file)
-    ledger_rows = _read_jsonl_objects(Path(paper_ledger_file)) if paper_ledger_file is not None else []
-    records = build_passive_order_calibration_records(_read_jsonl_objects(execution_path), ledger_events=ledger_rows)
+    ledger_path = Path(paper_ledger_file) if paper_ledger_file is not None else None
+    execution_rows = _read_jsonl_objects(execution_path)
+    canonical_event_count = len(_canonical_event_rows(execution_rows))
+    ledger_rows = _read_jsonl_objects(ledger_path) if ledger_path is not None else []
+    records = build_passive_order_calibration_records(execution_rows, ledger_events=ledger_rows)
     _write_jsonl_atomic(output_path, records)
     load_calibration_records(output_path)
     marker_path = Path(unavailable_marker_file) if unavailable_marker_file is not None else None
-    if records and marker_path is not None and marker_path.exists():
-        marker_path.unlink()
+    if marker_path is not None:
+        if records and marker_path.exists():
+            marker_path.unlink()
+        elif not records:
+            _write_unavailable_marker(
+                marker_path,
+                execution_path=execution_path,
+                paper_ledger_path=ledger_path,
+                canonical_event_count=canonical_event_count,
+                record_count=len(records),
+            )
     return {
         "schema_version": "generate_execution_calibration_records_result.v1",
         "status": "ok",
         "record_count": len(records),
+        "canonical_event_count": canonical_event_count,
         "execution_log_file": str(execution_path),
         "paper_ledger_file": str(paper_ledger_file) if paper_ledger_file is not None else None,
         "output_file": str(output_path),

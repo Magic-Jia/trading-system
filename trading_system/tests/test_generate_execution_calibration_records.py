@@ -408,6 +408,25 @@ def test_generate_execution_calibration_records_rejects_duplicate_trade_identity
         generate_execution_calibration_records(execution_log_file=execution_log, output_file=output)
 
 
+def test_generate_execution_calibration_records_cli_writes_unavailable_marker_when_runtime_has_no_execution_events(tmp_path: Path) -> None:
+    runtime_root = tmp_path / "runtime"
+    bucket = runtime_root / "paper" / "phase-three"
+    optimization = bucket / "optimization"
+
+    exit_code = main(["--mode", "paper", "--runtime-root", str(runtime_root), "--runtime-env", "phase-three"])
+
+    output = optimization / "passive_order_calibration_records.jsonl"
+    unavailable = optimization / "calibration_records_unavailable.json"
+    marker = json.loads(unavailable.read_text(encoding="utf-8"))
+    assert exit_code == 0
+    assert output.read_text(encoding="utf-8") == ""
+    assert marker["schema_version"] == "calibration_records_unavailable.v1"
+    assert marker["status"] == "unavailable"
+    assert marker["reason_codes"] == ["execution_log_missing", "no_canonical_execution_events"]
+    assert marker["execution_log_file"]["exists"] is False
+    assert marker["record_count"] == 0
+
+
 def test_generate_execution_calibration_records_cli_removes_unavailable_marker_after_valid_write(tmp_path: Path) -> None:
     runtime_root = tmp_path / "runtime"
     bucket = runtime_root / "paper" / "phase-three"
