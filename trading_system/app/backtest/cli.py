@@ -729,6 +729,7 @@ def _preflight_legacy_dataset_diagnostic(dataset_root: Path | None) -> dict[str,
                 futures_symbols.add(symbol)
         if not futures_symbols:
             continue
+        _append_reason(reasons, "margin_liquidation_path_not_evaluable")
         try:
             market_context_payload = json.loads(market_context_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError, UnicodeDecodeError):
@@ -1198,6 +1199,24 @@ def _as_observation_time(payload: Mapping[str, Any]) -> tuple[str, Any] | None:
     return None
 
 
+def _iter_snapshot_json_files(root: Path, filename: str) -> list[Path]:
+    paths: list[Path] = []
+    seen: set[Path] = set()
+
+    def add(path: Path) -> None:
+        resolved = path.resolve(strict=False)
+        if resolved in seen or not path.is_file():
+            return
+        seen.add(resolved)
+        paths.append(path)
+
+    for snapshot_dir in sorted(path for path in root.iterdir() if path.is_dir()):
+        add(snapshot_dir / filename)
+    for path in sorted(root.rglob(filename)):
+        add(path)
+    return paths
+
+
 def _build_historical_dataset_enrichment_metadata_report(
     *,
     metadata_dataset_root: Path,
@@ -1213,7 +1232,7 @@ def _build_historical_dataset_enrichment_metadata_report(
     all_symbols: set[str] = set()
     source_kind = "local_offline_public_read_only_metadata"
 
-    for instrument_path in sorted(metadata_dataset_root.rglob("instrument_snapshot.json")):
+    for instrument_path in _iter_snapshot_json_files(metadata_dataset_root, "instrument_snapshot.json"):
         payload = json.loads(instrument_path.read_text(encoding="utf-8"))
         if not isinstance(payload, Mapping):
             continue
@@ -1240,7 +1259,7 @@ def _build_historical_dataset_enrichment_metadata_report(
                 provenance[observed[0]] = observed[1]
             lifecycle_provenance_by_symbol[symbol] = provenance
 
-    for market_context_path in sorted(metadata_dataset_root.rglob("market_context.json")):
+    for market_context_path in _iter_snapshot_json_files(metadata_dataset_root, "market_context.json"):
         payload = json.loads(market_context_path.read_text(encoding="utf-8"))
         if not isinstance(payload, Mapping):
             continue
@@ -1338,7 +1357,173 @@ def _build_historical_dataset_enrichment_metadata_command(args: argparse.Namespa
 
 
 def _file_count(root: Path) -> int:
-    return sum(1 for path in root.rglob("*") if path.is_file())
+    seen: set[Path] = set()
+    count = 0
+    for snapshot_dir in sorted(path for path in root.iterdir() if path.is_dir()):
+        for path in sorted(snapshot_dir.rglob("*")):
+            resolved = path.resolve(strict=False)
+            if resolved in seen or not path.is_file():
+                continue
+            seen.add(resolved)
+            count += 1
+    for path in sorted(root.rglob("*")):
+        resolved = path.resolve(strict=False)
+        if resolved in seen or not path.is_file():
+            continue
+        seen.add(resolved)
+        count += 1
+    return count
+
+
+def _build_phase1_historical_dataset_enrichment_metadata_report(
+    *,
+    source_dataset_root: Path,
+    source_name: str,
+    generated_at: str | None = None,
+) -> dict[str, Any]:
+    if not source_dataset_root.is_dir():
+        raise FileNotFoundError(f"source dataset root not found: {source_dataset_root}")
+    source_kind = "local_offline_phase1_imported_dataset_provenance"
+    lifecycle_status_by_symbol: dict[str, str] = {}
+    lifecycle_provenance_by_symbol: dict[str, dict[str, Any]] = {}
+    futures_context_by_symbol: dict[str, dict[str, str]] = {}
+    futures_provenance_by_symbol: dict[str, dict[str, Any]] = {}
+    all_symbols: set[str] = set()
+
+    for instrument_path in _iter_snapshot_json_files(source_dataset_root, "instrument_snapshot.json"):
+        payload = json.loads(instrument_path.read_text(encoding="utf-8"))
+        rows = payload.get("rows") if isinstance(payload, Mapping) else None
+        if not isinstance(rows, list):
+            continue
+        observed = _as_observation_time(payload)
+        for row in rows:
+            if not isinstance(row, Mapping):
+                continue
+            symbol = row.get("symbol")
+            if not isinstance(symbol, str) or not symbol.strip():
+                continue
+            all_symbols.add(symbol)
+            listing_timestamp = row.get("listing_timestamp")
+            has_listing_timestamp = isinstance(listing_timestamp, str) and bool(listing_timestamp.strip())
+            if symbol in lifecycle_status_by_symbol or not has_listing_timestamp:
+                continue
+            lifecycle_status_by_symbol[symbol] = "listed"
+            provenance: dict[str, Any] = {
+                "source": "instrument_snapshot",
+                "source_file": str(instrument_path),
+                "source_kind": source_kind,
+                "derivation": "observed_listed_in_imported_instrument_snapshot",
+            }
+            if observed is not None:
+                provenance[observed[0]] = observed[1]
+            lifecycle_provenance_by_symbol[symbol] = provenance
+
+    mark_price_fields = ("mark_price_change_24h_pct", "mark_price", "mark_price_usdt", "mark_price_timestamp")
+    for derivatives_path in _iter_snapshot_json_files(source_dataset_root, "derivatives_snapshot.json"):
+        payload = json.loads(derivatives_path.read_text(encoding="utf-8"))
+        rows = payload.get("rows") if isinstance(payload, Mapping) else None
+        if not isinstance(rows, list):
+            continue
+        observed = _as_observation_time(payload)
+        for row in rows:
+            if not isinstance(row, Mapping):
+                continue
+            symbol = row.get("symbol")
+            if not isinstance(symbol, str) or not symbol.strip() or symbol in futures_context_by_symbol:
+                continue
+            has_funding = "funding_rate" in row
+            has_mark_price = any(field in row for field in mark_price_fields)
+            has_open_interest = "open_interest_usdt" in row
+            if not (has_funding and has_mark_price and has_open_interest):
+                continue
+            futures_context = {
+                "funding_status": "available",
+                "mark_price_status": "available",
+                "open_interest_status": "available",
+            }
+            forbidden_field = _value_contains_forbidden_key(futures_context)
+            if forbidden_field is not None:
+                raise ValueError(f"forbidden account/execution field in futures_context: {forbidden_field}")
+            futures_context_by_symbol[symbol] = futures_context
+            provenance = {
+                "source": "derivatives_snapshot",
+                "source_file": str(derivatives_path),
+                "source_kind": source_kind,
+                "derivation": "observed_available_in_imported_derivatives_snapshot",
+            }
+            if observed is not None:
+                provenance[observed[0]] = observed[1]
+            futures_provenance_by_symbol[symbol] = provenance
+
+    if not all_symbols:
+        raise ValueError("phase1 source dataset contains zero symbols")
+    missing_lifecycle = sorted(all_symbols.difference(lifecycle_status_by_symbol))
+    missing_futures = sorted(all_symbols.difference(futures_context_by_symbol))
+    if missing_lifecycle or missing_futures:
+        raise ValueError("phase1 source dataset does not provide complete lifecycle_status and futures_context provenance")
+
+    symbols = {
+        symbol: {
+            "lifecycle_status": lifecycle_status_by_symbol[symbol],
+            "lifecycle_status_provenance": lifecycle_provenance_by_symbol[symbol],
+            "futures_context": futures_context_by_symbol[symbol],
+            "futures_context_provenance": futures_provenance_by_symbol[symbol],
+        }
+        for symbol in sorted(all_symbols)
+    }
+    return {
+        "schema_version": "historical_dataset_enrichment_metadata.v1",
+        "generated_at": _generated_at(generated_at),
+        "source": source_name,
+        "provenance": {
+            "source_dataset_root": str(source_dataset_root),
+            "source_kind": source_kind,
+            "capture_method": "local_offline_phase1_imported_dataset_scan",
+            "field_families_sourced": ["lifecycle_status", "futures_context"],
+            "network_access": "forbidden",
+            "trading_endpoints": "forbidden",
+            "credential_use": "forbidden",
+            "real_orders": "forbidden",
+            "testnet_orders": "forbidden",
+        },
+        "symbols": symbols,
+        "coverage": {
+            "symbol_count": len(all_symbols),
+            "lifecycle_status_symbol_count": len(lifecycle_status_by_symbol),
+            "futures_context_symbol_count": len(futures_context_by_symbol),
+            "missing_lifecycle_status_symbols": missing_lifecycle,
+            "missing_futures_context_symbols": missing_futures,
+        },
+        "side_effect_boundary": {
+            "real_orders": "forbidden",
+            "testnet_orders": "forbidden",
+            "exchange_trading_endpoints": "forbidden",
+            "network_access": "forbidden",
+            "credential_use": "forbidden",
+            "metadata_reads": "local_files_only",
+            "source_root_mutation": "forbidden",
+        },
+    }
+
+
+def _build_phase1_historical_dataset_enrichment_metadata_command(args: argparse.Namespace) -> int:
+    source_dataset_root = Path(args.source_dataset_root)
+    output_path = Path(args.output_path)
+    if source_dataset_root.is_dir():
+        _reject_path_inside_source_root(
+            source_dataset_root=source_dataset_root,
+            candidate_path=output_path,
+            field_name="output path",
+        )
+    report = _build_phase1_historical_dataset_enrichment_metadata_report(
+        source_dataset_root=source_dataset_root,
+        source_name=args.source_name,
+        generated_at=args.generated_at,
+    )
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    _write_json(output_path, report)
+    print(args.output_path)
+    return 0
 
 
 def _metadata_symbols(payload: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
@@ -1397,7 +1582,7 @@ def _build_historical_dataset_migration_sample_report(
     }
     missing_futures_keys: set[tuple[str, str]] = set()
 
-    for instrument_path in sorted(target_dataset_root.rglob("instrument_snapshot.json")):
+    for instrument_path in _iter_snapshot_json_files(target_dataset_root, "instrument_snapshot.json"):
         payload = json.loads(instrument_path.read_text(encoding="utf-8"))
         rows = payload.get("rows") if isinstance(payload, Mapping) else None
         if not isinstance(rows, list):
@@ -1425,7 +1610,7 @@ def _build_historical_dataset_migration_sample_report(
         if changed:
             _write_json(instrument_path, payload)
 
-    for market_context_path in sorted(target_dataset_root.rglob("market_context.json")):
+    for market_context_path in _iter_snapshot_json_files(target_dataset_root, "market_context.json"):
         payload = json.loads(market_context_path.read_text(encoding="utf-8"))
         market_symbols = payload.get("symbols") if isinstance(payload, Mapping) else None
         if not isinstance(market_symbols, Mapping):
@@ -1743,6 +1928,32 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional canonical UTC timestamp for deterministic generated_at fields.",
     )
     enrichment_metadata_parser.set_defaults(handler=_build_historical_dataset_enrichment_metadata_command)
+
+    phase1_enrichment_metadata_parser = subparsers.add_parser(
+        "build-phase1-historical-dataset-enrichment-metadata",
+        help="Build a local offline enrichment metadata source from phase1 imported dataset provenance.",
+    )
+    phase1_enrichment_metadata_parser.add_argument(
+        "--source-dataset-root",
+        required=True,
+        help="Phase1 imported dataset root to scan without mutation.",
+    )
+    phase1_enrichment_metadata_parser.add_argument(
+        "--output-path",
+        required=True,
+        help="Path where historical_dataset_enrichment_metadata.v1 JSON should be written.",
+    )
+    phase1_enrichment_metadata_parser.add_argument(
+        "--source-name",
+        required=True,
+        help="Human-readable label for the local/offline phase1 source.",
+    )
+    phase1_enrichment_metadata_parser.add_argument(
+        "--generated-at",
+        default=None,
+        help="Optional canonical UTC timestamp for deterministic generated_at fields.",
+    )
+    phase1_enrichment_metadata_parser.set_defaults(handler=_build_phase1_historical_dataset_enrichment_metadata_command)
 
     migration_sample_parser = subparsers.add_parser(
         "build-historical-dataset-migration-sample",

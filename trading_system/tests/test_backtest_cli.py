@@ -116,6 +116,105 @@ def _copy_schema_complete_metadata_dataset(tmp_path: Path) -> Path:
     return metadata_dataset
 
 
+def _copy_schema_complete_metadata_dataset_as_symlink_root(tmp_path: Path) -> Path:
+    metadata_dataset = _copy_schema_complete_metadata_dataset(tmp_path)
+    symlink_root = tmp_path / "schema-complete-metadata-symlink-root"
+    symlink_root.mkdir()
+    for snapshot_dir in sorted(path for path in metadata_dataset.iterdir() if path.is_dir()):
+        (symlink_root / snapshot_dir.name).symlink_to(snapshot_dir, target_is_directory=True)
+    return symlink_root
+
+
+def _write_phase1_snapshot(
+    snapshot_dir: Path,
+    *,
+    symbol: str = "BTCUSDTPERP",
+    include_derivatives_row: bool = True,
+    include_open_interest: bool = True,
+) -> None:
+    snapshot_dir.mkdir(parents=True)
+    observed_at = "2026-01-01T00:00:00Z"
+    (snapshot_dir / "instrument_snapshot.json").write_text(
+        json.dumps(
+            {
+                "as_of": observed_at,
+                "schema_version": "imported_instrument_snapshot.v1",
+                "rows": [
+                    {
+                        "symbol": symbol,
+                        "market_type": "futures",
+                        "base_asset": "BTC",
+                        "listing_timestamp": "2020-01-01T00:00:00Z",
+                    }
+                ],
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (snapshot_dir / "market_context.json").write_text(
+        json.dumps(
+            {
+                "as_of": observed_at,
+                "symbols": {
+                    symbol: {
+                        "daily": {"close": 100.0, "volume_usdt_24h": 50000000.0},
+                        "liquidity_tier": "top",
+                        "sector": "majors",
+                    }
+                },
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    derivatives_rows = []
+    if include_derivatives_row:
+        derivatives_row = {
+            "symbol": symbol,
+            "funding_rate": 0.0001,
+            "mark_price_change_24h_pct": 0.02,
+        }
+        if include_open_interest:
+            derivatives_row["open_interest_usdt"] = 1234567.0
+        derivatives_rows.append(derivatives_row)
+    (snapshot_dir / "derivatives_snapshot.json").write_text(
+        json.dumps(
+            {
+                "as_of": observed_at,
+                "schema_version": "imported_derivatives_snapshot.v1",
+                "rows": derivatives_rows,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
+def _write_phase1_dataset(tmp_path: Path, *, include_open_interest: bool = True) -> Path:
+    dataset_root = tmp_path / "phase1-imported-dataset"
+    _write_phase1_snapshot(
+        dataset_root / "2026-01-01T00-00-00Z__row-001",
+        include_open_interest=include_open_interest,
+    )
+    return dataset_root
+
+
+def _write_phase1_dataset_as_symlink_root(tmp_path: Path) -> Path:
+    dataset_root = _write_phase1_dataset(tmp_path)
+    symlink_root = tmp_path / "phase1-symlink-root"
+    symlink_root.mkdir()
+    for snapshot_dir in sorted(path for path in dataset_root.iterdir() if path.is_dir()):
+        (symlink_root / snapshot_dir.name).symlink_to(snapshot_dir, target_is_directory=True)
+    return symlink_root
+
+
 def _remove_enrichment_fields(source_dataset: Path, legacy_dataset: Path) -> None:
     shutil.copytree(source_dataset, legacy_dataset)
     for instrument_path in sorted(legacy_dataset.rglob("instrument_snapshot.json")):
@@ -189,6 +288,216 @@ def test_build_historical_dataset_enrichment_metadata_emits_complete_read_only_s
         assert symbol_payload["futures_context_provenance"]["source"] == "market_context"
         assert symbol_payload["futures_context_provenance"]["source_file"].endswith("market_context.json")
         assert symbol_payload["futures_context_provenance"]["source_kind"] == "local_offline_public_read_only_metadata"
+
+
+def test_build_historical_dataset_enrichment_metadata_reads_symlink_snapshot_dirs(
+    tmp_path: Path,
+) -> None:
+    metadata_dataset = _copy_schema_complete_metadata_dataset_as_symlink_root(tmp_path)
+    output_path = tmp_path / "metadata.json"
+
+    exit_code = _run_cli(
+        [
+            "build-historical-dataset-enrichment-metadata",
+            "--metadata-dataset-root",
+            str(metadata_dataset),
+            "--output-path",
+            str(output_path),
+            "--source-name",
+            "fixture_public_read_only_metadata",
+            "--generated-at",
+            GENERATED_AT,
+        ]
+    )
+
+    assert exit_code == 0
+    metadata = json.loads(output_path.read_text(encoding="utf-8"))
+    assert metadata["coverage"]["symbol_count"] == 4
+    assert metadata["coverage"]["missing_lifecycle_status_symbols"] == []
+    assert metadata["coverage"]["missing_futures_context_symbols"] == []
+    assert set(metadata["symbols"]) == {"BTCUSDT", "BTCUSDTPERP", "ETHUSDT", "SOLUSDTPERP"}
+
+
+def test_build_phase1_historical_dataset_enrichment_metadata_derives_local_provenance(
+    tmp_path: Path,
+) -> None:
+    source_dataset = _write_phase1_dataset(tmp_path)
+    output_path = tmp_path / "phase1_metadata.json"
+
+    exit_code = _run_cli(
+        [
+            "build-phase1-historical-dataset-enrichment-metadata",
+            "--source-dataset-root",
+            str(source_dataset),
+            "--output-path",
+            str(output_path),
+            "--source-name",
+            "phase1_fixture",
+            "--generated-at",
+            GENERATED_AT,
+        ]
+    )
+
+    assert exit_code == 0
+    metadata = json.loads(output_path.read_text(encoding="utf-8"))
+    assert metadata["schema_version"] == "historical_dataset_enrichment_metadata.v1"
+    assert metadata["source"] == "phase1_fixture"
+    assert metadata["provenance"]["source_dataset_root"] == str(source_dataset)
+    assert metadata["provenance"]["source_kind"] == "local_offline_phase1_imported_dataset_provenance"
+    assert metadata["provenance"]["network_access"] == "forbidden"
+    assert metadata["side_effect_boundary"]["real_orders"] == "forbidden"
+    assert metadata["side_effect_boundary"]["testnet_orders"] == "forbidden"
+    assert metadata["side_effect_boundary"]["credential_use"] == "forbidden"
+    assert metadata["side_effect_boundary"]["source_root_mutation"] == "forbidden"
+    assert metadata["coverage"] == {
+        "symbol_count": 1,
+        "lifecycle_status_symbol_count": 1,
+        "futures_context_symbol_count": 1,
+        "missing_lifecycle_status_symbols": [],
+        "missing_futures_context_symbols": [],
+    }
+    symbol_payload = metadata["symbols"]["BTCUSDTPERP"]
+    assert symbol_payload["lifecycle_status"] == "listed"
+    assert symbol_payload["futures_context"] == {
+        "funding_status": "available",
+        "mark_price_status": "available",
+        "open_interest_status": "available",
+    }
+    assert symbol_payload["lifecycle_status_provenance"]["source"] == "instrument_snapshot"
+    assert symbol_payload["lifecycle_status_provenance"]["source_kind"] == (
+        "local_offline_phase1_imported_dataset_provenance"
+    )
+    assert symbol_payload["lifecycle_status_provenance"]["derivation"] == (
+        "observed_listed_in_imported_instrument_snapshot"
+    )
+    assert symbol_payload["futures_context_provenance"]["source"] == "derivatives_snapshot"
+    assert symbol_payload["futures_context_provenance"]["source_kind"] == (
+        "local_offline_phase1_imported_dataset_provenance"
+    )
+    assert symbol_payload["futures_context_provenance"]["derivation"] == (
+        "observed_available_in_imported_derivatives_snapshot"
+    )
+    serialized = json.dumps(metadata, sort_keys=True)
+    for field in FORBIDDEN_ACCOUNT_FIELDS:
+        assert field not in serialized
+
+
+def test_build_phase1_historical_dataset_enrichment_metadata_reads_symlink_snapshot_dirs(
+    tmp_path: Path,
+) -> None:
+    source_dataset = _write_phase1_dataset_as_symlink_root(tmp_path)
+    output_path = tmp_path / "phase1_metadata.json"
+
+    exit_code = _run_cli(
+        [
+            "build-phase1-historical-dataset-enrichment-metadata",
+            "--source-dataset-root",
+            str(source_dataset),
+            "--output-path",
+            str(output_path),
+            "--source-name",
+            "phase1_fixture",
+            "--generated-at",
+            GENERATED_AT,
+        ]
+    )
+
+    assert exit_code == 0
+    metadata = json.loads(output_path.read_text(encoding="utf-8"))
+    assert set(metadata["symbols"]) == {"BTCUSDTPERP"}
+
+
+def test_build_phase1_historical_dataset_enrichment_metadata_fails_closed_on_incomplete_derivatives(
+    tmp_path: Path,
+) -> None:
+    source_dataset = _write_phase1_dataset(tmp_path, include_open_interest=False)
+    output_path = tmp_path / "phase1_metadata.json"
+
+    exit_code = _run_cli(
+        [
+            "build-phase1-historical-dataset-enrichment-metadata",
+            "--source-dataset-root",
+            str(source_dataset),
+            "--output-path",
+            str(output_path),
+            "--source-name",
+            "phase1_fixture",
+            "--generated-at",
+            GENERATED_AT,
+        ]
+    )
+
+    assert exit_code != 0
+    assert not output_path.exists()
+
+
+def test_build_phase1_historical_dataset_enrichment_metadata_rejects_output_inside_source_root(
+    tmp_path: Path,
+) -> None:
+    source_dataset = _write_phase1_dataset(tmp_path)
+    output_path = source_dataset / "phase1_metadata.json"
+
+    exit_code = _run_cli(
+        [
+            "build-phase1-historical-dataset-enrichment-metadata",
+            "--source-dataset-root",
+            str(source_dataset),
+            "--output-path",
+            str(output_path),
+            "--source-name",
+            "phase1_fixture",
+            "--generated-at",
+            GENERATED_AT,
+        ]
+    )
+
+    assert exit_code != 0
+    assert not output_path.exists()
+
+
+def test_build_phase1_historical_dataset_enrichment_metadata_feeds_migration_sample(
+    tmp_path: Path,
+) -> None:
+    source_dataset = _write_phase1_dataset(tmp_path)
+    metadata_source = tmp_path / "phase1_metadata.json"
+
+    metadata_exit_code = _run_cli(
+        [
+            "build-phase1-historical-dataset-enrichment-metadata",
+            "--source-dataset-root",
+            str(source_dataset),
+            "--output-path",
+            str(metadata_source),
+            "--source-name",
+            "phase1_fixture",
+            "--generated-at",
+            "2026-05-19T00:00:00Z",
+        ]
+    )
+    target_dataset = tmp_path / "target-dataset"
+    sample_output_path = tmp_path / "migration_sample.json"
+    sample_exit_code = _run_cli(
+        [
+            "build-historical-dataset-migration-sample",
+            "--source-dataset-root",
+            str(source_dataset),
+            "--target-dataset-root",
+            str(target_dataset),
+            "--metadata-source",
+            str(metadata_source),
+            "--output-path",
+            str(sample_output_path),
+            "--generated-at",
+            GENERATED_AT,
+        ]
+    )
+
+    assert metadata_exit_code == 0
+    assert sample_exit_code == 0
+    report = json.loads(sample_output_path.read_text(encoding="utf-8"))
+    assert "dataset_missing_lifecycle_status" not in report["post_migration_preflight"]["reason_codes"]
+    assert "dataset_missing_futures_context" not in report["post_migration_preflight"]["reason_codes"]
+    assert "margin_liquidation_path_not_evaluable" in report["post_migration_preflight"]["reason_codes"]
 
 
 def test_build_historical_dataset_enrichment_metadata_feeds_migration_sample(
