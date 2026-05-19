@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 from contextlib import contextmanager
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Iterator, Mapping
 
@@ -55,6 +56,33 @@ def _sample_count(paths) -> int:
     return value
 
 
+def _parse_timestamp(value: object) -> datetime | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(UTC)
+    except ValueError:
+        return None
+
+
+def _canonical_timestamp(value: datetime) -> str:
+    return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
+
+
+def _refresh_generated_at(paths, requested_generated_at: str | None) -> str:
+    candidates: list[datetime] = []
+    requested = _parse_timestamp(requested_generated_at)
+    if requested is not None:
+        candidates.append(requested)
+    else:
+        candidates.append(datetime.now(UTC))
+    for filename in ("account_snapshot.json", "market_context.json", "derivatives_snapshot.json"):
+        snapshot_time = _parse_timestamp(_read_json(paths.bucket_dir / filename).get("as_of"))
+        if snapshot_time is not None:
+            candidates.append(snapshot_time)
+    return _canonical_timestamp(max(candidates))
+
+
 def _write_result(paths, payload: Mapping[str, Any]) -> None:
     paths.optimization_dir.mkdir(parents=True, exist_ok=True)
     (paths.optimization_dir / SAMPLER_RESULT_NAME).write_text(
@@ -95,6 +123,7 @@ def run_paper_evidence_sampler(
         _write_result(paths, result)
         return result
 
+    refresh_generated_at = _refresh_generated_at(paths, generated_at)
     calibration_result = generate_execution_calibration_records(
         execution_log_file=paths.execution_log_file,
         paper_ledger_file=paths.paper_ledger_file,
@@ -106,21 +135,21 @@ def run_paper_evidence_sampler(
         mode=mode,
         runtime_root=runtime_root,
         runtime_env=runtime_env,
-        generated_at=generated_at,
+        generated_at=refresh_generated_at,
         max_evidence_age_seconds=max_evidence_age_seconds,
     )
     scheduled_result = scheduled_live_sim_generation.run_scheduled_generation(
         mode=mode,
         runtime_root=runtime_root,
         runtime_env=runtime_env,
-        generated_at=generated_at,
+        generated_at=refresh_generated_at,
         max_evidence_age_seconds=max_evidence_age_seconds,
         min_tca_samples=min_tca_samples,
     )
     cadence_result = cadence_runner.run_simulated_live_cadence(
         runtime_optimization_dir=paths.optimization_dir,
         output_dir=paths.optimization_dir,
-        generated_at=generated_at,
+        generated_at=refresh_generated_at,
     )
     result = {
         "schema_version": "paper_evidence_sampler_result.v1",
@@ -131,6 +160,7 @@ def run_paper_evidence_sampler(
         "sample_count_before": sample_count_before,
         "sample_count_after": sample_count_after,
         "new_sample_count": max(sample_count_after - sample_count_before, 0),
+        "refresh_generated_at": refresh_generated_at,
         "sample_action": "sample_added" if sample_count_after > sample_count_before else "no_new_sample",
         "cycle_status": cycle_summary.get("status"),
         "calibration_status": calibration_result.get("status"),

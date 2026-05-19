@@ -22,6 +22,13 @@ def test_paper_evidence_sampler_runs_scout_cycle_and_refreshes_evidence(monkeypa
         (paths.bucket_dir / "execution_sample_collection_health.json").write_text(
             json.dumps({"sample_count": 3, "status": "available"}), encoding="utf-8"
         )
+        (paths.bucket_dir / "account_snapshot.json").write_text(
+            json.dumps({"as_of": "2026-05-19T02:00:05Z", "equity": 1000.0}), encoding="utf-8"
+        )
+        (paths.bucket_dir / "market_context.json").write_text(
+            json.dumps({"as_of": "2026-05-19T02:00:04Z", "symbols": {"BTCUSDT": {"daily": {"close": 100.0}}}}),
+            encoding="utf-8",
+        )
         return {"status": "ok", "bucket_dir": str(paths.bucket_dir)}
 
     monkeypatch.setattr(sampler.run_cycle_module, "run_cycle", fake_run_cycle)
@@ -42,6 +49,9 @@ def test_paper_evidence_sampler_runs_scout_cycle_and_refreshes_evidence(monkeypa
     assert result["sample_count_after"] == 3
     assert calls[0] == ("run_cycle", ("paper", runtime_root, "paper", "scout"))
     assert [name for name, _ in calls[1:]] == ["calibration", "bootstrap", "scheduled", "cadence"]
+    assert calls[2][1]["generated_at"] == "2026-05-19T02:00:05Z"
+    assert calls[3][1]["generated_at"] == "2026-05-19T02:00:05Z"
+    assert calls[4][1]["generated_at"] == "2026-05-19T02:00:05Z"
 
 
 def test_paper_evidence_sampler_skips_refresh_when_cooldown_adds_no_sample(monkeypatch, tmp_path):
