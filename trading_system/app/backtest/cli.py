@@ -665,7 +665,6 @@ def _diagnostic_reason_codes(message: str, preflight_reasons: list[str] | None =
     if "lifecycle_status must be present" in message:
         _append_reason(reasons, "dataset_missing_lifecycle_status")
     if "margin_mode must be isolated or cross" in message:
-        _append_reason(reasons, "dataset_missing_futures_context")
         _append_reason(reasons, "margin_liquidation_path_not_evaluable")
     for reason in preflight_reasons or []:
         _append_reason(reasons, reason)

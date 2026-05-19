@@ -921,6 +921,17 @@ def test_build_historical_dataset_migration_sample_rejects_writes_inside_source_
     assert not (legacy_dataset / "migration-report.json").exists()
 
 
+def test_diagnostic_reason_codes_keep_margin_policy_failure_separate_from_futures_context_gap() -> None:
+    reasons = cli._diagnostic_reason_codes(
+        "trades[0].margin_mode must be isolated or cross",
+        preflight_reasons=["margin_liquidation_path_not_evaluable"],
+    )
+
+    assert "pipeline_generation_failed" in reasons
+    assert "margin_liquidation_path_not_evaluable" in reasons
+    assert "dataset_missing_futures_context" not in reasons
+
+
 def test_run_professional_evidence_pipeline_writes_hold_diagnostic_when_dataset_generation_fails(
     tmp_path: Path,
 ) -> None:
