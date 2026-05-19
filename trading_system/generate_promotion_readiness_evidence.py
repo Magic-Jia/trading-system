@@ -315,7 +315,7 @@ def _venue_rulebook(
             return _component(
                 as_of=_latest_timestamp(daily, rolling, fallback=generated_at),
                 coverage_score=1.0,
-                sample_count=0,
+                sample_count=1,
                 status="pass",
                 reason_codes=[],
             )
@@ -326,21 +326,29 @@ def _venue_rulebook(
             status="hold",
             reason_codes=["source_missing:venue_rulebook_catalog_freshness"],
         )
-    passed, total = _bools_true(
-        venue,
-        (
-            "rulebook_catalog_present",
-            "rulebook_schema_valid",
-            "rulebook_freshness_valid",
-            "exchange_filters_covered",
-        ),
+    checks = venue.get("checks") if isinstance(venue.get("checks"), Mapping) else {}
+    passed = sum(
+        1
+        for check in (
+            "required_runtime_inputs_present",
+            "required_runtime_inputs_well_formed",
+            "venue_rulebook_catalog_available",
+            "venue_rulebook_catalog_schema_valid",
+            "venue_rulebook_freshness_threshold_evaluable",
+        )
+        if checks.get(check) is True
     )
+    total = 5
     reasons = _reasons(venue)
+    catalog_summary = venue.get("catalog_summary") if isinstance(venue.get("catalog_summary"), Mapping) else {}
+    rulebook_count = catalog_summary.get("rulebook_count", 0)
+    if isinstance(rulebook_count, bool) or not isinstance(rulebook_count, int) or rulebook_count < 0:
+        rulebook_count = 0
     return _component(
         as_of=str(venue.get("generated_at") or generated_at),
         coverage_score=_coverage(passed, total),
-        sample_count=0,
-        status="pass" if not reasons and passed == total else "hold",
+        sample_count=rulebook_count,
+        status="pass" if not reasons and passed == total and rulebook_count > 0 else "hold",
         reason_codes=reasons,
     )
 

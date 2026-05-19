@@ -181,6 +181,14 @@ IMPACT_RULES: tuple[tuple[str, list[str]], ...] = (
         ],
     ),
     (
+        "trading_system/fetch_binance_futures_rulebook_catalog.py",
+        ["trading_system/tests/test_fetch_binance_futures_rulebook_catalog.py"],
+    ),
+    (
+        "trading_system/tests/test_fetch_binance_futures_rulebook_catalog.py",
+        ["trading_system/tests/test_fetch_binance_futures_rulebook_catalog.py"],
+    ),
+    (
         "trading_system/generate_execution_calibration_records.py",
         [
             "trading_system/tests/test_generate_execution_calibration_records.py",

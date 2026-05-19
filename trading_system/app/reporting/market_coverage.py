@@ -248,10 +248,15 @@ def build_venue_rulebook_catalog_freshness_report(
                 "error": "runtime_input_schema_version_invalid",
             }
         )
-    else:
-        reasons.append("venue_rulebook_freshness_threshold_not_evaluable")
+    catalog_quality = catalog.get("coverage_report") if isinstance(catalog, Mapping) else None
+    catalog_quality_pass = bool(
+        isinstance(catalog_quality, Mapping) and catalog_quality.get("quality_status") == "pass"
+    )
+    freshness_evaluable = bool(catalog_schema_valid and catalog_quality_pass)
+    if catalog_schema_valid and not catalog_quality_pass:
+        reasons.append("venue_rulebook_catalog_quality_not_pass")
 
-    status = "hold" if missing or malformed or catalog is None or not catalog_schema_valid else "review"
+    status = "hold" if missing or malformed or catalog is None or not catalog_schema_valid else ("pass" if freshness_evaluable else "review")
     rulebook_count = len(catalog.get("rulebooks", [])) if isinstance(catalog, Mapping) and isinstance(catalog.get("rulebooks"), list) else 0
     report = _base_report(
         schema_version=VENUE_RULEBOOK_FRESHNESS_SCHEMA_VERSION,
@@ -272,7 +277,7 @@ def build_venue_rulebook_catalog_freshness_report(
                 "required_runtime_inputs_well_formed": not malformed,
                 "venue_rulebook_catalog_available": catalog is not None,
                 "venue_rulebook_catalog_schema_valid": catalog_schema_valid,
-                "venue_rulebook_freshness_threshold_evaluable": False,
+                "venue_rulebook_freshness_threshold_evaluable": freshness_evaluable,
             },
             "venue_rulebook_catalog": catalog_record,
             "catalog_summary": {

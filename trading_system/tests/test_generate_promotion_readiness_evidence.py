@@ -180,6 +180,7 @@ def _write_complete_runtime(runtime_dir: Path) -> None:
     _write_json(runtime_dir / "paper_live_shadow_drift_contract.json", _drift_contract())
     _write_json(runtime_dir / "runtime_safety_gate.json", _runtime_safety_gate())
     _write_jsonl(runtime_dir / "passive_order_calibration_records.jsonl", _calibration_rows())
+    _write_json(runtime_dir / "venue_rulebook_catalog_freshness.json", _venue_rulebook_catalog_freshness())
 
 
 def _run_backtest_cli(*args: str) -> subprocess.CompletedProcess[str]:
@@ -190,6 +191,33 @@ def _run_backtest_cli(*args: str) -> subprocess.CompletedProcess[str]:
         capture_output=True,
         text=True,
     )
+
+
+def _venue_rulebook_catalog_freshness() -> dict[str, object]:
+    return {
+        "schema_version": "venue_rulebook_catalog_freshness.v1",
+        "generated_at": "2026-05-16T11:50:00Z",
+        "status": "pass",
+        "decision": "pass",
+        "reason_codes": [],
+        "checks": {
+            "required_runtime_inputs_present": True,
+            "required_runtime_inputs_well_formed": True,
+            "venue_rulebook_catalog_available": True,
+            "venue_rulebook_catalog_schema_valid": True,
+            "venue_rulebook_freshness_threshold_evaluable": True,
+        },
+        "catalog_summary": {
+            "rulebook_count": 5,
+            "catalog_quality": {
+                "quality_status": "pass",
+                "reason_codes": [],
+                "venue_count": 1,
+                "symbol_count": 5,
+                "product_type_count": 1,
+            },
+        },
+    }
 
 
 def _backtest_evidence_chain() -> dict[str, object]:
@@ -274,6 +302,7 @@ def test_builds_candidate_quality_promotion_readiness_evidence_from_complete_run
         "paper_live_shadow_drift_contract",
         "runtime_safety_gate",
         "passive_order_calibration_records",
+        "venue_rulebook_catalog_freshness",
         "backtest_evidence_chain",
     }
     for source in evidence["sources"].values():

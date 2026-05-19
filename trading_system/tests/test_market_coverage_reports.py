@@ -138,11 +138,23 @@ def test_market_coverage_reports_use_local_independent_source_and_catalog_when_p
                         "price_tick_size": 0.1,
                         "quantity_step_size": 0.001,
                         "min_notional": 5.0,
-                        "post_only_policy": "reject_taker",
-                        "reduce_only_policy": "supported",
+                        "post_only_policy": "reject_would_cross",
+                        "reduce_only_policy": "allow",
                     },
                 }
             ],
+            "coverage_report": {
+                "schema_version": "venue_rulebook_catalog_coverage.v1",
+                "venue_count": 1,
+                "symbol_count": 1,
+                "product_type_count": 1,
+                "missing_required_symbols": [],
+                "stale_rulebooks": [],
+                "duplicate_keys": [],
+                "conflicting_versions": [],
+                "quality_status": "pass",
+                "reason_codes": [],
+            },
         },
     )
 
@@ -154,8 +166,8 @@ def test_market_coverage_reports_use_local_independent_source_and_catalog_when_p
     assert parity["checks"]["independent_source_available"] is True
     assert "cross_source_threshold_not_evaluable" in parity["reason_codes"]
 
-    assert freshness["status"] == "review"
-    assert freshness["decision"] == "review"
+    assert freshness["status"] == "pass"
+    assert freshness["decision"] == "pass"
     assert freshness["checks"]["venue_rulebook_catalog_available"] is True
     assert freshness["checks"]["venue_rulebook_catalog_schema_valid"] is True
 
