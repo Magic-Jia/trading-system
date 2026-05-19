@@ -167,6 +167,80 @@ def _base_report(
     }
 
 
+def _runtime_fill_prices(bundle: Mapping[str, Any] | None) -> dict[str, float]:
+    if not isinstance(bundle, Mapping):
+        return {}
+    prices: dict[str, float] = {}
+    stages = bundle.get("stages")
+    if not isinstance(stages, list):
+        return prices
+    symbol_by_correlation: dict[str, str] = {}
+    for stage in stages:
+        if not isinstance(stage, Mapping):
+            continue
+        correlation_id = stage.get("correlation_id")
+        payload = stage.get("payload")
+        if not isinstance(payload, Mapping):
+            continue
+        symbol = payload.get("symbol")
+        if type(correlation_id) is str and type(symbol) is str:
+            symbol_by_correlation[correlation_id] = symbol
+    for stage in stages:
+        if not isinstance(stage, Mapping) or stage.get("stage") != "fill":
+            continue
+        payload = stage.get("payload")
+        if not isinstance(payload, Mapping):
+            continue
+        symbol = payload.get("symbol")
+        if type(symbol) is not str:
+            correlation_id = stage.get("correlation_id")
+            symbol = symbol_by_correlation.get(correlation_id) if type(correlation_id) is str else None
+        price = payload.get("fill_price")
+        if type(symbol) is str and type(price) in {int, float} and not isinstance(price, bool) and float(price) > 0:
+            prices[symbol] = float(price)
+    return prices
+
+
+def _independent_observations(source_payload: Mapping[str, Any] | None) -> dict[str, Mapping[str, Any]]:
+    if not isinstance(source_payload, Mapping):
+        return {}
+    observations = source_payload.get("observations")
+    if not isinstance(observations, list):
+        return {}
+    by_symbol: dict[str, Mapping[str, Any]] = {}
+    for observation in observations:
+        if not isinstance(observation, Mapping):
+            continue
+        symbol = observation.get("symbol")
+        mid_price = observation.get("mid_price")
+        if type(symbol) is str and type(mid_price) in {int, float} and not isinstance(mid_price, bool) and float(mid_price) > 0:
+            by_symbol[symbol] = observation
+    return by_symbol
+
+
+def _build_parity_observations(bundle: Mapping[str, Any] | None, source_payload: Mapping[str, Any] | None) -> tuple[list[dict[str, Any]], float | None]:
+    runtime_prices = _runtime_fill_prices(bundle)
+    source_by_symbol = _independent_observations(source_payload)
+    rows: list[dict[str, Any]] = []
+    for symbol in sorted(set(runtime_prices) & set(source_by_symbol)):
+        runtime_price = runtime_prices[symbol]
+        source_mid = float(source_by_symbol[symbol]["mid_price"])
+        mid_bps_diff = round(abs(runtime_price - source_mid) / runtime_price * 10_000.0, 6)
+        observed_at = source_by_symbol[symbol].get("observed_at")
+        row = {
+            "symbol": symbol,
+            "runtime_price": runtime_price,
+            "independent_mid_price": source_mid,
+            "mid_bps_diff": mid_bps_diff,
+        }
+        if type(observed_at) is str:
+            row["observed_at"] = observed_at
+        rows.append(row)
+    if not rows:
+        return [], None
+    return rows, max(float(row["mid_bps_diff"]) for row in rows)
+
+
 def _runtime_input_reasons(missing_inputs: list[dict[str, Any]], malformed_inputs: list[dict[str, Any]]) -> list[str]:
     reasons: list[str] = []
     if missing_inputs:
@@ -185,21 +259,29 @@ def build_cross_source_parity_report(
     report_generated_at = _generated_at(generated_at)
     present, missing, malformed = _inspect_required_runtime_inputs(root)
     source_payload, source_record, source_malformed = _load_first_candidate(root, _INDEPENDENT_SOURCE_CANDIDATES)
+    bundle_payload, _, bundle_error = _load_json_object(root / "paper_live_sim_evidence_bundle.json")
+    if bundle_error is not None:
+        bundle_payload = None
+    parity_observations, max_mid_bps_diff = _build_parity_observations(bundle_payload, source_payload)
     malformed = [*malformed, *source_malformed]
 
     reasons = _runtime_input_reasons(missing, malformed)
+    threshold_bps = 5.0
+    threshold_evaluable = bool(parity_observations)
     checks = {
         "required_runtime_inputs_present": not missing,
         "required_runtime_inputs_well_formed": not malformed,
         "independent_source_available": source_payload is not None,
-        "cross_source_threshold_evaluable": False,
+        "cross_source_threshold_evaluable": threshold_evaluable,
     }
     if source_payload is None:
         reasons.append("independent_source_unavailable")
-    else:
+    elif not threshold_evaluable:
         reasons.append("cross_source_threshold_not_evaluable")
+    elif max_mid_bps_diff is not None and max_mid_bps_diff > threshold_bps:
+        reasons.append("mid_price_drift")
 
-    status = "hold" if missing or malformed or source_payload is None else "review"
+    status = "hold" if missing or malformed or source_payload is None or not threshold_evaluable or reasons else "pass"
     report = _base_report(
         schema_version=CROSS_SOURCE_PARITY_SCHEMA_VERSION,
         artifact_id=f"cross_source_parity:{report_generated_at[:10]}",
@@ -216,7 +298,11 @@ def build_cross_source_parity_report(
             "reason_codes": sorted(dict.fromkeys(reasons)),
             "checks": checks,
             "independent_source": source_record,
-            "parity_observations": [],
+            "parity_observations": parity_observations,
+            "thresholds": {"max_mid_bps_diff": threshold_bps},
+            "max_mid_bps_diff": max_mid_bps_diff,
+            "source_count": 2 if source_payload is not None and parity_observations else (1 if source_payload is not None else 0),
+            "matched_timestamp_count": len(parity_observations),
         }
     )
     return report

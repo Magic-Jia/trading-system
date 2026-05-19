@@ -37,6 +37,20 @@ def _base_runtime(root: Path) -> None:
             "generated_at": EVIDENCE_AT,
             "evidence_source": {"type": "local_simulated_live_runtime", "run_id": "run-20260517"},
             "summary": {"trade_count": 1, "symbols": ["BTCUSDT"]},
+            "stages": [
+                {
+                    "correlation_id": "order-1",
+                    "stage": "signal",
+                    "observed_at": EVIDENCE_AT,
+                    "payload": {"symbol": "BTCUSDT"},
+                },
+                {
+                    "correlation_id": "order-1",
+                    "stage": "fill",
+                    "observed_at": EVIDENCE_AT,
+                    "payload": {"fill_price": 100.0, "filled_quantity": 1.0},
+                }
+            ],
         },
     )
     _write_json(
@@ -115,7 +129,7 @@ def test_market_coverage_reports_use_local_independent_source_and_catalog_when_p
             "schema_version": "local_independent_source_snapshot.v1",
             "generated_at": EVIDENCE_AT,
             "source_id": "reference-feed-a",
-            "observations": [{"symbol": "BTCUSDT", "mid_price": 100.0}],
+            "observations": [{"symbol": "BTCUSDT", "mid_price": 100.01, "observed_at": EVIDENCE_AT}],
         },
     )
     _write_json(
@@ -161,10 +175,20 @@ def test_market_coverage_reports_use_local_independent_source_and_catalog_when_p
     parity = build_cross_source_parity_report(tmp_path, generated_at=GENERATED_AT)
     freshness = build_venue_rulebook_catalog_freshness_report(tmp_path, generated_at=GENERATED_AT)
 
-    assert parity["status"] == "review"
-    assert parity["decision"] == "review"
+    assert parity["status"] == "pass"
+    assert parity["decision"] == "pass"
     assert parity["checks"]["independent_source_available"] is True
-    assert "cross_source_threshold_not_evaluable" in parity["reason_codes"]
+    assert parity["checks"]["cross_source_threshold_evaluable"] is True
+    assert parity["max_mid_bps_diff"] == 1.0
+    assert parity["parity_observations"] == [
+        {
+            "symbol": "BTCUSDT",
+            "runtime_price": 100.0,
+            "independent_mid_price": 100.01,
+            "mid_bps_diff": 1.0,
+            "observed_at": EVIDENCE_AT,
+        }
+    ]
 
     assert freshness["status"] == "pass"
     assert freshness["decision"] == "pass"
