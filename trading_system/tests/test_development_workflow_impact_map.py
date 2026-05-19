@@ -217,6 +217,22 @@ def test_promotion_gate_decision_test_file_has_impact_mapping() -> None:
     assert "trading_system/tests/test_execution_calibration_evidence.py" in tests
 
 
+def test_fetch_binance_futures_l2_depth_snapshot_has_impact_mapping() -> None:
+    verify = load_verify_module()
+
+    implementation_tests = verify.tests_for_changed(["trading_system/fetch_binance_futures_l2_depth_snapshot.py"])
+
+    assert "trading_system/tests/test_fetch_binance_futures_l2_depth_snapshot.py" in implementation_tests
+
+
+def test_fetch_binance_futures_l2_depth_snapshot_test_file_has_impact_mapping() -> None:
+    verify = load_verify_module()
+
+    test_file_tests = verify.tests_for_changed(["trading_system/tests/test_fetch_binance_futures_l2_depth_snapshot.py"])
+
+    assert test_file_tests == ["trading_system/tests/test_fetch_binance_futures_l2_depth_snapshot.py"]
+
+
 def test_fetch_coinbase_independent_source_snapshot_has_impact_mapping() -> None:
     verify = load_verify_module()
 

@@ -11,6 +11,7 @@ from typing import Any, Mapping
 
 L2_SCHEMA_VERSION = "l2_longitudinal_replay_calibration.v1"
 L2_FILENAME = "l2_longitudinal_replay_calibration.json"
+L2_DEPTH_SNAPSHOT_FILENAME = "local_l2_order_book_snapshot.json"
 EXECUTION_RACE_SCHEMA_VERSION = "execution_race_evidence.v1"
 EXECUTION_RACE_FILENAME = "execution_race_evidence.json"
 SOURCE_MODE = "simulated_live_local"
@@ -79,6 +80,69 @@ def _reason_codes(reasons: list[str]) -> list[str]:
     return canonical
 
 
+def _load_l2_depth_snapshot(source_path: Path) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    snapshot_path = source_path.parent / L2_DEPTH_SNAPSHOT_FILENAME
+    if not snapshot_path.exists():
+        return None, None
+    try:
+        raw_bytes = snapshot_path.read_bytes()
+        payload = json.loads(raw_bytes.decode("utf-8"), object_pairs_hook=_duplicate_rejecting_pairs)
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+        raise ValueError(f"{L2_DEPTH_SNAPSHOT_FILENAME} is malformed") from exc
+    if not isinstance(payload, dict):
+        raise ValueError(f"{L2_DEPTH_SNAPSHOT_FILENAME} must be a JSON object")
+    return payload, {
+        "path": str(snapshot_path),
+        "bytes": len(raw_bytes),
+        "sha256": _sha256_bytes(raw_bytes),
+        "schema_version": payload.get("schema_version") if type(payload.get("schema_version")) is str else None,
+    }
+
+
+def _number(value: Any, field_path: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{field_path} must be a number")
+    parsed = float(value)
+    if parsed <= 0.0:
+        raise ValueError(f"{field_path} must be positive")
+    return parsed
+
+
+def _l2_replay_metrics_from_snapshot(snapshot: Mapping[str, Any]) -> dict[str, Any]:
+    if snapshot.get("schema_version") != "local_l2_order_book_snapshot.v1":
+        raise ValueError(f"{L2_DEPTH_SNAPSHOT_FILENAME}.schema_version must be local_l2_order_book_snapshot.v1")
+    books = snapshot.get("books")
+    if not isinstance(books, list) or not books:
+        raise ValueError(f"{L2_DEPTH_SNAPSHOT_FILENAME}.books must be a non-empty list")
+    spreads: list[float] = []
+    bid_depths: list[float] = []
+    ask_depths: list[float] = []
+    symbols: list[str] = []
+    for index, book in enumerate(books):
+        if not isinstance(book, Mapping):
+            raise ValueError(f"{L2_DEPTH_SNAPSHOT_FILENAME}.books[{index}] must be an object")
+        symbol = book.get("symbol")
+        if type(symbol) is not str or not symbol:
+            raise ValueError(f"{L2_DEPTH_SNAPSHOT_FILENAME}.books[{index}].symbol must be a string")
+        best_bid = _number(book.get("best_bid"), f"{L2_DEPTH_SNAPSHOT_FILENAME}.books[{index}].best_bid")
+        best_ask = _number(book.get("best_ask"), f"{L2_DEPTH_SNAPSHOT_FILENAME}.books[{index}].best_ask")
+        if best_ask <= best_bid:
+            raise ValueError(f"{L2_DEPTH_SNAPSHOT_FILENAME}.books[{index}].best_ask must exceed best_bid")
+        spreads.append(_number(book.get("spread_bps"), f"{L2_DEPTH_SNAPSHOT_FILENAME}.books[{index}].spread_bps"))
+        bid_depths.append(_number(book.get("bid_depth_notional"), f"{L2_DEPTH_SNAPSHOT_FILENAME}.books[{index}].bid_depth_notional"))
+        ask_depths.append(_number(book.get("ask_depth_notional"), f"{L2_DEPTH_SNAPSHOT_FILENAME}.books[{index}].ask_depth_notional"))
+        symbols.append(symbol)
+    return {
+        "depth_event_count": len(books),
+        "source_snapshot": L2_DEPTH_SNAPSHOT_FILENAME,
+        "symbols": sorted(symbols),
+        "max_spread_bps": max(spreads),
+        "min_bid_depth_notional": min(bid_depths),
+        "min_ask_depth_notional": min(ask_depths),
+        "calibrated": False,
+    }
+
+
 def _stages(bundle: Mapping[str, Any]) -> list[dict[str, Any]]:
     raw_stages = bundle.get("stages")
     if not isinstance(raw_stages, list):
@@ -112,23 +176,35 @@ def build_l2_longitudinal_replay_calibration(
     generated_at: str | None = None,
 ) -> dict[str, Any]:
     report_generated_at = _generated_at(generated_at)
-    bundle, source = _load_source_bundle(paper_live_sim_evidence_bundle_path)
-    stages = _stages(bundle)
-    has_depth = _has_l2_depth_evidence(stages)
-    if has_depth:
-        status = "review"
-        decision = "accepted_with_review"
-        reasons = ["l2_depth_replay_metrics_require_review"]
-        replay_metrics: dict[str, Any] | None = {
-            "depth_event_count": sum(1 for stage in stages if _has_l2_depth_evidence([stage])),
-            "source_stage_count": len(stages),
-            "calibrated": False,
-        }
+    source_path = Path(paper_live_sim_evidence_bundle_path)
+    bundle, source = _load_source_bundle(source_path)
+    snapshot, snapshot_source = _load_l2_depth_snapshot(source_path)
+    if snapshot is not None:
+        replay_metrics = _l2_replay_metrics_from_snapshot(snapshot)
+        status = "pass"
+        decision = "accepted"
+        reasons: list[str] = []
+        has_depth = True
+        source_artifact = L2_DEPTH_SNAPSHOT_FILENAME
+        source["l2_depth_snapshot"] = snapshot_source
     else:
-        status = "hold"
-        decision = "hold"
-        reasons = ["l2_depth_evidence_unavailable"]
-        replay_metrics = None
+        stages = _stages(bundle)
+        has_depth = _has_l2_depth_evidence(stages)
+        if has_depth:
+            status = "review"
+            decision = "accepted_with_review"
+            reasons = ["l2_depth_replay_metrics_require_review"]
+            replay_metrics = {
+                "depth_event_count": sum(1 for stage in stages if _has_l2_depth_evidence([stage])),
+                "source_stage_count": len(stages),
+                "calibrated": False,
+            }
+        else:
+            status = "hold"
+            decision = "hold"
+            reasons = ["l2_depth_evidence_unavailable"]
+            replay_metrics = None
+        source_artifact = "paper_live_sim_evidence_bundle.json"
 
     return {
         "schema_version": L2_SCHEMA_VERSION,
@@ -147,7 +223,7 @@ def build_l2_longitudinal_replay_calibration(
         "source": source,
         "provenance": {
             "decision_policy": "fail_closed",
-            "source_artifact": "paper_live_sim_evidence_bundle.json",
+            "source_artifact": source_artifact,
             "source_mode": SOURCE_MODE,
             "side_effect_boundary": {
                 "real_orders": "forbidden",

@@ -144,6 +144,40 @@ def test_builds_from_local_artifact_paths_and_records_file_identity(tmp_path: Pa
     assert bundle["components"][0]["source"]["bytes"] > 0
 
 
+def test_rolling_tca_bucket_dimension_values_are_allowed_as_strings() -> None:
+    components = _passing_components()
+    components["rolling_tca_durability"]["windows"] = [
+        {
+            "window": "1d",
+            "buckets": [
+                {
+                    "bucket": {"dimension": "global", "value": "all"},
+                    "decision": "insufficient",
+                    "metrics": {"sample_count": 1, "fill_rate": 1.0},
+                    "reasons": ["insufficient_bucket_sample_size"],
+                },
+                {
+                    "bucket": {"dimension": "symbol", "value": "BTCUSDT"},
+                    "decision": "insufficient",
+                    "metrics": {"sample_count": 1, "fill_rate": 1.0},
+                    "reasons": ["insufficient_bucket_sample_size"],
+                },
+            ],
+        }
+    ]
+    components["rolling_tca_durability"]["decision"] = "insufficient"
+    components["rolling_tca_durability"]["reasons"] = ["insufficient_bucket_sample_size"]
+
+    bundle = build_rolling_simulated_live_evidence_bundle(
+        components=components,
+        generated_at=GENERATED_AT,
+        max_artifact_age_seconds=3600,
+    )
+
+    assert bundle["decision"] == "review"
+    assert "insufficient_bucket_sample_size" in bundle["reason_codes"]
+
+
 def test_component_check_booleans_with_numeric_words_are_allowed() -> None:
     components = _passing_components()
     components["daily_quality_gate"]["checks"] = {

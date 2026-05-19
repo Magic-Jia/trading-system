@@ -156,6 +156,9 @@ def _strict_json_payload(value: Any, field_path: str) -> Any:
             if key_lower.endswith("_at") or key_lower.endswith("_time") or key_lower.endswith("_timestamp"):
                 if child is not None and not _is_exact_string(child):
                     raise ValueError(f"{child_path} must be a string or null")
+            elif child_path.endswith(".bucket.value"):
+                if child is not None and not _is_exact_string(child):
+                    raise ValueError(f"{child_path} must be a string or null")
             elif (
                 not isinstance(child, (Mapping, list))
                 and not (isinstance(child, bool) and any(token in _BOOLEAN_INDICATOR_TOKENS for token in key_tokens))

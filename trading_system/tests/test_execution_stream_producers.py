@@ -125,6 +125,49 @@ def test_l2_producer_holds_when_depth_evidence_is_unavailable(tmp_path: Path) ->
     assert report["provenance"]["decision_policy"] == "fail_closed"
 
 
+def test_l2_producer_passes_with_local_public_order_book_snapshot(tmp_path: Path) -> None:
+    source = tmp_path / "paper_live_sim_evidence_bundle.json"
+    _write_json(source, _paper_bundle())
+    _write_json(
+        tmp_path / "local_l2_order_book_snapshot.json",
+        {
+            "schema_version": "local_l2_order_book_snapshot.v1",
+            "source_id": "binance_usdm_futures_public_depth",
+            "generated_at": "2026-05-16T10:00:30Z",
+            "depth_count": 1,
+            "symbols": ["BTCUSDT"],
+            "books": [
+                {
+                    "symbol": "BTCUSDT",
+                    "last_update_id": 123,
+                    "best_bid": 65000.0,
+                    "best_ask": 65001.0,
+                    "mid_price": 65000.5,
+                    "spread_bps": 0.153845,
+                    "bid_depth_notional": 16250.0,
+                    "ask_depth_notional": 13000.2,
+                    "levels": {"bids": 1, "asks": 1},
+                }
+            ],
+        },
+    )
+
+    report = build_l2_longitudinal_replay_calibration(source, generated_at=GENERATED_AT)
+
+    assert report["status"] == "pass"
+    assert report["decision"] == "accepted"
+    assert report["reason_codes"] == []
+    assert report["checks"] == {
+        "l2_depth_evidence_present": True,
+        "replay_metrics_evidence_backed": True,
+        "local_simulated_live_source_loaded": True,
+    }
+    assert report["replay_metrics"]["depth_event_count"] == 1
+    assert report["replay_metrics"]["source_snapshot"] == "local_l2_order_book_snapshot.json"
+    assert report["replay_metrics"]["max_spread_bps"] == 0.153845
+    assert report["provenance"]["source_artifact"] == "local_l2_order_book_snapshot.json"
+
+
 def test_execution_race_producer_passes_ordered_local_stage_fixture(tmp_path: Path) -> None:
     source = tmp_path / "paper_live_sim_evidence_bundle.json"
     _write_json(source, _paper_bundle())
