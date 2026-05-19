@@ -242,6 +242,47 @@ def _write_legacy_artifacts(root: Path) -> None:
     _write_jsonl(root / "paper_trades.jsonl", _legacy_trades())
 
 
+def test_bootstrap_uses_existing_independent_source_mid_for_manifest_prices(tmp_path: Path) -> None:
+    legacy_root = tmp_path / "legacy"
+    runtime_root = tmp_path / "runtime"
+    _write_legacy_artifacts(legacy_root)
+    paths = build_runtime_paths("paper", runtime_root=runtime_root, runtime_env="paper")
+    _write_json(
+        paths.optimization_dir / "local_independent_source_snapshot.json",
+        {
+            "schema_version": "local_independent_source_snapshot.v1",
+            "source_id": "coinbase_exchange_public_ticker",
+            "generated_at": "2026-05-16T10:00:30Z",
+            "observations": [
+                {
+                    "symbol": "BTCUSDT",
+                    "source_symbol": "BTC-USDT",
+                    "mid_price": 101.25,
+                    "observed_at": "2026-05-16T10:00:30Z",
+                }
+            ],
+        },
+    )
+
+    bootstrap_live_sim_generation_inputs(
+        legacy_root=legacy_root,
+        mode="paper",
+        runtime_root=runtime_root,
+        runtime_env="paper",
+        generated_at="2026-05-16T10:01:00Z",
+        max_evidence_age_seconds=120,
+    )
+
+    manifest = json.loads((paths.optimization_dir / "paper_live_sim_evidence_manifest.json").read_text(encoding="utf-8"))
+    metadata = json.loads((paths.optimization_dir / "bootstrap_input_metadata.json").read_text(encoding="utf-8"))
+    payloads_by_stage = {stage["stage"]: stage["payload"] for stage in manifest["stages"]}
+
+    assert payloads_by_stage["order_intent"]["limit_price"] == 101.25
+    assert payloads_by_stage["risk_check"]["notional"] == 101.25
+    assert payloads_by_stage["fill"]["fill_price"] == 101.25
+    assert metadata["reference_price"] == {"source": "local_independent_source_snapshot", "symbol": "BTCUSDT", "price": 101.25}
+
+
 def test_bootstrap_writes_required_inputs_from_legacy_local_artifacts(tmp_path: Path) -> None:
     legacy_root = tmp_path / "legacy"
     runtime_root = tmp_path / "runtime"

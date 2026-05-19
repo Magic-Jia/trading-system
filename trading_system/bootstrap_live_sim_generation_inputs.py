@@ -89,6 +89,12 @@ def _read_jsonl_objects(path: Path) -> list[dict[str, Any]]:
     return rows
 
 
+def _read_optional_json_object(path: Path) -> dict[str, Any] | None:
+    if not path.exists():
+        return None
+    return _read_json_object(path)
+
+
 def _read_optional_jsonl_objects(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
@@ -421,6 +427,52 @@ def _first_symbol(market: Mapping[str, Any]) -> str:
     return symbol
 
 
+def _reference_price_from_independent_source(snapshot: Mapping[str, Any] | None, symbol: str) -> float | None:
+    if not isinstance(snapshot, Mapping):
+        return None
+    if snapshot.get("schema_version") != "local_independent_source_snapshot.v1":
+        return None
+    observations = snapshot.get("observations")
+    if not isinstance(observations, list):
+        return None
+    for observation in observations:
+        if not isinstance(observation, Mapping) or observation.get("symbol") != symbol:
+            continue
+        mid_price = observation.get("mid_price")
+        if type(mid_price) in {int, float} and not isinstance(mid_price, bool) and float(mid_price) > 0:
+            return float(mid_price)
+        raise ValueError("local_independent_source_snapshot.json mid_price must be a positive number")
+    return None
+
+
+def _reference_price_from_market_context(market: Mapping[str, Any], symbol: str) -> float:
+    symbols = market.get("symbols")
+    if not isinstance(symbols, Mapping):
+        raise ValueError("market_context.json.symbols must be an object")
+    symbol_payload = symbols.get(symbol)
+    if not isinstance(symbol_payload, Mapping):
+        raise ValueError(f"market_context.json.symbols.{symbol} must be an object")
+    for field_path in (("1h", "close"), ("4h", "close"), ("daily", "close")):
+        node: Any = symbol_payload
+        for part in field_path:
+            node = node.get(part) if isinstance(node, Mapping) else None
+        if type(node) in {int, float} and not isinstance(node, bool) and float(node) > 0:
+            return float(node)
+    raise ValueError(f"market_context.json.symbols.{symbol} must include a positive close price")
+
+
+def _reference_price(
+    *,
+    market: Mapping[str, Any],
+    independent_source_snapshot: Mapping[str, Any] | None,
+    symbol: str,
+) -> tuple[float, str]:
+    independent_price = _reference_price_from_independent_source(independent_source_snapshot, symbol)
+    if independent_price is not None:
+        return independent_price, "local_independent_source_snapshot"
+    return _reference_price_from_market_context(market, symbol), "market_context_close"
+
+
 def _build_evidence_manifest(
     *,
     legacy_root: Path,
@@ -428,17 +480,24 @@ def _build_evidence_manifest(
     account: Mapping[str, Any],
     market: Mapping[str, Any],
     derivatives: Mapping[str, Any],
+    independent_source_snapshot: Mapping[str, Any] | None,
     generated_at: str,
     max_evidence_age_seconds: int,
 ) -> dict[str, Any]:
     symbol = _first_symbol(market)
+    reference_price, reference_price_source = _reference_price(
+        market=market,
+        independent_source_snapshot=independent_source_snapshot,
+        symbol=symbol,
+    )
+    quantity = 1.0
     stages = [
         ("signal", {"symbol": symbol, "score": 1.0}),
-        ("order_intent", {"symbol": symbol, "quantity": 1.0, "limit_price": 100.0}),
-        ("risk_check", {"passed": True, "notional": 100.0, "max_notional": 1000.0}),
+        ("order_intent", {"symbol": symbol, "quantity": quantity, "limit_price": reference_price}),
+        ("risk_check", {"passed": True, "notional": reference_price * quantity, "max_notional": reference_price * quantity * 10.0}),
         ("submit", {"client_order_id": "legacy-bootstrap-order-1", "simulator_order_id": "legacy-bootstrap-sim-1"}),
         ("ack", {"simulator_order_id": "legacy-bootstrap-sim-1", "acknowledged": True}),
-        ("fill", {"fill_id": "legacy-bootstrap-fill-1", "filled_quantity": 1.0, "fill_price": 100.0}),
+        ("fill", {"fill_id": "legacy-bootstrap-fill-1", "filled_quantity": quantity, "fill_price": reference_price}),
         (
             "position_reconcile",
             {"reconciled": True, "expected_position_qty": 1.0, "actual_position_qty": 1.0, "unreconciled_quantity": 0.0},
@@ -587,6 +646,7 @@ def bootstrap_live_sim_generation_inputs(
     account = _read_json_object(source_root / "account_snapshot.json")
     market = _read_json_object(source_root / "market_context.json")
     derivatives = _read_json_object(source_root / "derivatives_snapshot.json")
+    independent_source_snapshot = _read_optional_json_object(paths.optimization_dir / "local_independent_source_snapshot.json")
     execution_calibration_rows = _execution_calibration_rows(source_root)
     trades = _read_optional_jsonl_objects(source_root / "paper_trades.jsonl")
     if not execution_calibration_rows and not trades:
@@ -646,6 +706,12 @@ def bootstrap_live_sim_generation_inputs(
             shutil.copyfile(src, dst)
 
     source = _source(source_root, evaluated_at)
+    manifest_symbol = _first_symbol(market)
+    manifest_reference_price, manifest_reference_price_source = _reference_price(
+        market=market,
+        independent_source_snapshot=independent_source_snapshot,
+        symbol=manifest_symbol,
+    )
     calibration_metadata = (
         {
             "available": True,
@@ -670,6 +736,11 @@ def bootstrap_live_sim_generation_inputs(
         "evidence_source": source,
         "account_equity": account_equity_metadata,
         "calibration_records": calibration_metadata,
+        "reference_price": {
+            "source": manifest_reference_price_source,
+            "symbol": manifest_symbol,
+            "price": manifest_reference_price,
+        },
         "accepted_decimal_string_fields": accepted_decimal_string_fields,
         "source_timestamp_quality": source_timestamp_quality,
         "quality_reasons": [
@@ -688,6 +759,7 @@ def bootstrap_live_sim_generation_inputs(
             account=account,
             market=market,
             derivatives=derivatives,
+            independent_source_snapshot=independent_source_snapshot,
             generated_at=evaluated_at,
             max_evidence_age_seconds=max_evidence_age_seconds,
         ),
