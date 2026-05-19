@@ -15,6 +15,14 @@ def test_paper_evidence_sampler_runs_scout_cycle_and_refreshes_evidence(monkeypa
     calls: list[tuple[str, object]] = []
     runtime_root = tmp_path / "runtime"
 
+    paths = build_runtime_paths("paper", runtime_root=runtime_root, runtime_env="paper")
+    paths.optimization_dir.mkdir(parents=True, exist_ok=True)
+    independent_snapshot = paths.optimization_dir / "local_independent_source_snapshot.json"
+    independent_snapshot.write_text(
+        json.dumps({"schema_version": "local_independent_source_snapshot.v1", "source_id": "test", "observations": []}),
+        encoding="utf-8",
+    )
+
     def fake_run_cycle(mode, *, runtime_root=None, runtime_env=None):
         calls.append(("run_cycle", (mode, runtime_root, runtime_env, os.environ.get("TRADING_ENTRY_PROFILE"))))
         paths = build_runtime_paths(mode, runtime_root=runtime_root, runtime_env=runtime_env)
@@ -49,6 +57,7 @@ def test_paper_evidence_sampler_runs_scout_cycle_and_refreshes_evidence(monkeypa
     assert result["sample_count_after"] == 3
     assert calls[0] == ("run_cycle", ("paper", runtime_root, "paper", "scout"))
     assert [name for name, _ in calls[1:]] == ["calibration", "bootstrap", "scheduled", "cadence"]
+    assert calls[1][1]["independent_source_snapshot_file"] == independent_snapshot
     assert calls[2][1]["generated_at"] == "2026-05-19T02:00:05Z"
     assert calls[3][1]["generated_at"] == "2026-05-19T02:00:05Z"
     assert calls[4][1]["generated_at"] == "2026-05-19T02:00:05Z"
@@ -144,13 +153,22 @@ def test_paper_evidence_sampler_cancel_lifecycle_sample_is_idempotent(monkeypatc
     from trading_system.app.execution.calibration import load_calibration_records
 
     runtime_root = tmp_path / "runtime"
+    refresh_calls: list[str] = []
     monkeypatch.setattr(sampler.run_cycle_module, "run_cycle", lambda *args, **kwargs: pytest.fail("unexpected run_cycle"))
-    monkeypatch.setattr(sampler, "bootstrap_live_sim_generation_inputs", lambda **kwargs: {"status": "ok"})
-    monkeypatch.setattr(sampler.scheduled_live_sim_generation, "run_scheduled_generation", lambda **kwargs: {"status": "ok"})
+    monkeypatch.setattr(
+        sampler,
+        "bootstrap_live_sim_generation_inputs",
+        lambda **kwargs: refresh_calls.append("bootstrap") or {"status": "ok"},
+    )
+    monkeypatch.setattr(
+        sampler.scheduled_live_sim_generation,
+        "run_scheduled_generation",
+        lambda **kwargs: refresh_calls.append("scheduled") or {"status": "ok"},
+    )
     monkeypatch.setattr(
         sampler.cadence_runner,
         "run_simulated_live_cadence",
-        lambda **kwargs: {"status": "completed", "decision": "reject"},
+        lambda **kwargs: refresh_calls.append("cadence") or {"status": "completed", "decision": "reject"},
     )
 
     first = sampler.run_paper_evidence_sampler(
@@ -171,6 +189,8 @@ def test_paper_evidence_sampler_cancel_lifecycle_sample_is_idempotent(monkeypatc
     assert first["sample_action"] == "paper_cancel_lifecycle_sample_added"
     assert second["sample_action"] == "paper_cancel_lifecycle_sample_already_present"
     assert second["new_sample_count"] == 0
+    assert second["evidence_refresh_skipped_reason"] == "no_new_cancel_lifecycle_sample"
+    assert refresh_calls == ["bootstrap", "scheduled", "cadence"]
     assert len(records) == 1
 
 

@@ -178,11 +178,15 @@ def _refresh_evidence(
     min_tca_samples: int,
 ) -> tuple[str, dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any]]:
     refresh_generated_at = _refresh_generated_at(paths, generated_at)
+    independent_source_snapshot = paths.optimization_dir / "local_independent_source_snapshot.json"
     calibration_result = generate_execution_calibration_records(
         execution_log_file=paths.execution_log_file,
         paper_ledger_file=paths.paper_ledger_file,
         output_file=paths.optimization_dir / CALIBRATION_RECORDS_NAME,
         unavailable_marker_file=paths.optimization_dir / CALIBRATION_UNAVAILABLE_NAME,
+        independent_source_snapshot_file=(
+            independent_source_snapshot if independent_source_snapshot.exists() else None
+        ),
     )
     bootstrap_result = bootstrap_live_sim_generation_inputs(
         legacy_root=paths.bucket_dir,
@@ -224,8 +228,23 @@ def run_paper_evidence_sampler(
     if sample_cancel_lifecycle:
         sample_count_before = _sample_count(paths)
         sample_already_present = _execution_log_has_intent(paths.execution_log_file, CANCEL_LIFECYCLE_INTENT_ID)
-        if not sample_already_present:
-            _append_jsonl(paths.execution_log_file, _paper_cancel_lifecycle_rows(generated_at))
+        if sample_already_present:
+            result = {
+                "schema_version": "paper_evidence_sampler_result.v1",
+                "status": "completed",
+                "mode": mode,
+                "runtime_env": paths.runtime_env,
+                "entry_profile": SCOUT_PROFILE,
+                "sample_count_before": sample_count_before,
+                "sample_count_after": sample_count_before,
+                "new_sample_count": 0,
+                "sample_action": "paper_cancel_lifecycle_sample_already_present",
+                "cycle_status": None,
+                "evidence_refresh_skipped_reason": "no_new_cancel_lifecycle_sample",
+            }
+            _write_result(paths, result)
+            return result
+        _append_jsonl(paths.execution_log_file, _paper_cancel_lifecycle_rows(generated_at))
         (
             refresh_generated_at,
             calibration_result,
