@@ -6,7 +6,11 @@ from pathlib import Path
 import pytest
 
 from trading_system.app.runtime_paths import build_runtime_paths
-from trading_system.bootstrap_live_sim_generation_inputs import bootstrap_live_sim_generation_inputs, main
+from trading_system.bootstrap_live_sim_generation_inputs import (
+    _execution_calibration_rows,
+    bootstrap_live_sim_generation_inputs,
+    main,
+)
 from trading_system.scheduled_live_sim_generation import run_scheduled_generation
 
 
@@ -224,6 +228,22 @@ def _mixed_stale_and_fresh_execution_calibration_chain() -> list[dict[str, objec
     return [*stale, *fresh]
 
 
+def _four_execution_calibration_chains() -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    for index in range(4):
+        for row in _execution_calibration_chain():
+            row = dict(row)
+            row["intent_id"] = f"intent-{index + 1}"
+            row["order_id"] = f"order-{index + 1}"
+            row["trade_id"] = f"trade-{index + 1}"
+            row["position_id"] = f"pos-{index + 1}"
+            minute = 56 + index
+            second = int(str(row["occurred_at"])[17:19])
+            row["occurred_at"] = f"2026-05-16T09:{minute:02d}:{second:02d}Z"
+            rows.append(row)
+    return rows
+
+
 def _fresh_execution_ledger_events() -> list[dict[str, object]]:
     first = _execution_ledger_event()
     second = dict(first)
@@ -232,6 +252,27 @@ def _fresh_execution_ledger_events() -> list[dict[str, object]]:
     second["order"] = {"intent_id": "intent-2", "symbol": "BTCUSDT", "side": "LONG", "qty": 0.1, "entry_price": 100.0}
     second["result"] = {"order_id": "order-2", "trade_id": "trade-2", "status": "FILLED", "qty": 0.1, "price": 100.0}
     return [first, second]
+
+
+def _four_execution_ledger_events() -> list[dict[str, object]]:
+    events: list[dict[str, object]] = []
+    for index in range(4):
+        event = dict(_execution_ledger_event())
+        intent_id = f"intent-{index + 1}"
+        minute = 56 + index
+        event["intent_id"] = intent_id
+        event["recorded_at"] = f"2026-05-16T09:{minute:02d}:05Z"
+        event["order"] = {"intent_id": intent_id, "symbol": "BTCUSDT", "side": "LONG", "qty": 0.1, "entry_price": 100.0}
+        event["result"] = {
+            "order_id": f"order-{index + 1}",
+            "trade_id": f"trade-{index + 1}",
+            "status": "FILLED",
+            "qty": 0.1,
+            "price": 100.0,
+        }
+        event["position_update"] = {"symbol": "BTCUSDT", "side": "LONG", "qty": 0.1, "entry_price": 100.0}
+        events.append(event)
+    return events
 
 
 def _write_legacy_artifacts(root: Path) -> None:
@@ -370,6 +411,48 @@ def test_bootstrap_filters_stale_lifecycle_calibration_rows_when_fresh_rows_rema
         "dropped_stale_record_count": 1,
     }
     assert "stale_calibration_records_dropped" in metadata["quality_reasons"]
+
+
+def test_bootstrap_preserves_existing_full_bucket_native_calibration_file_when_fresh_filter_is_smaller(tmp_path: Path) -> None:
+    source_root = tmp_path / "bucket-source"
+    runtime_root = tmp_path / "runtime"
+    _write_json(source_root / "runtime_state.json", _legacy_state())
+    _write_json(source_root / "account_snapshot.json", {**_legacy_account(), "as_of": "2026-05-16T10:00:30Z"})
+    _write_json(source_root / "market_context.json", {**_legacy_market(), "as_of": "2026-05-16T10:00:30Z"})
+    _write_json(source_root / "derivatives_snapshot.json", {**_legacy_derivatives(), "as_of": "2026-05-16T10:00:30Z"})
+    _write_jsonl(source_root / "execution_log.jsonl", _four_execution_calibration_chains())
+    _write_jsonl(source_root / "paper_ledger.jsonl", _four_execution_ledger_events())
+
+    paths = build_runtime_paths("paper", runtime_root=runtime_root, runtime_env="paper")
+    existing_records = _execution_calibration_rows(source_root)
+    assert len(existing_records) == 4
+    _write_jsonl(paths.optimization_dir / "passive_order_calibration_records.jsonl", existing_records)
+
+    result = bootstrap_live_sim_generation_inputs(
+        legacy_root=source_root,
+        mode="paper",
+        runtime_root=runtime_root,
+        runtime_env="paper",
+        generated_at="2026-05-16T10:01:00Z",
+        max_evidence_age_seconds=120,
+    )
+
+    records = [json.loads(line) for line in (paths.optimization_dir / "passive_order_calibration_records.jsonl").read_text().splitlines()]
+    scheduled = run_scheduled_generation(
+        mode="paper",
+        runtime_root=runtime_root,
+        runtime_env="paper",
+        generated_at="2026-05-16T10:01:00Z",
+        max_evidence_age_seconds=600,
+        min_tca_samples=4,
+        max_p95_slippage_bps=5.0,
+    )
+    tca = json.loads((paths.optimization_dir / "tca_calibration_report.json").read_text())
+
+    assert result["status"] == "ok"
+    assert len(records) == 4
+    assert scheduled["status"] == "ok"
+    assert tca["sample_count"] == 4
 
 
 def test_bootstrap_accepts_bucket_native_runtime_boolean_health_fields(tmp_path: Path) -> None:

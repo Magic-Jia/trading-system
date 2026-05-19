@@ -393,6 +393,37 @@ def _write_jsonl(path: Path, rows: list[Mapping[str, Any]]) -> None:
     path.write_text("\n".join(json.dumps(dict(row), sort_keys=True) for row in rows) + "\n", encoding="utf-8")
 
 
+def _read_calibration_jsonl_or_array(path: Path) -> list[Mapping[str, Any]]:
+    text = path.read_text(encoding="utf-8").strip()
+    if not text:
+        return []
+    payload = json.loads(text) if text.startswith("[") else [json.loads(line) for line in text.splitlines() if line.strip()]
+    if not isinstance(payload, list):
+        raise ValueError("existing calibration records must be a JSON array or JSONL records")
+    rows: list[Mapping[str, Any]] = []
+    for row in payload:
+        if not isinstance(row, Mapping):
+            raise ValueError("existing calibration records must contain objects")
+        rows.append(row)
+    return rows
+
+
+def _validate_calibration_rows(path: Path, rows: list[Mapping[str, Any]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    validation_path = path.with_name(f".{path.name}.bootstrap_validation.tmp")
+    try:
+        _write_jsonl(validation_path, rows)
+        load_calibration_records(validation_path)
+    finally:
+        validation_path.unlink(missing_ok=True)
+
+
+def _existing_valid_calibration_rows(path: Path) -> list[Mapping[str, Any]]:
+    rows = _read_calibration_jsonl_or_array(path)
+    load_calibration_records(path)
+    return rows
+
+
 def _write_error(path: Path, exc: Exception) -> None:
     payload = {
         "schema_version": "bootstrap_live_sim_generation_inputs_error.v1",
@@ -675,17 +706,27 @@ def bootstrap_live_sim_generation_inputs(
     calibration_source_rows: list[Mapping[str, Any]] = execution_calibration_rows or trades
     calibration_available = bool(execution_calibration_rows) or _calibration_rows_available(trades)
     stale_calibration_record_count = 0
+    retained_existing_calibration_record_count = 0
+    fresh_source_calibration_record_count = 0
     if calibration_available:
         if execution_calibration_rows:
             generated_calibration_path = paths.optimization_dir / "passive_order_calibration_records.jsonl"
-            _write_jsonl(generated_calibration_path, execution_calibration_rows)
-            load_calibration_records(generated_calibration_path)
+            _validate_calibration_rows(generated_calibration_path, execution_calibration_rows)
             calibration_source_rows, stale_calibration_record_count = _fresh_calibration_rows(
                 execution_calibration_rows,
                 evaluated_at,
                 max_evidence_age_seconds,
                 source_name="execution_lifecycle",
             )
+            fresh_source_calibration_record_count = len(calibration_source_rows)
+            if generated_calibration_path.exists() and generated_calibration_path.stat().st_size > 0:
+                existing_calibration_rows = _existing_valid_calibration_rows(generated_calibration_path)
+                if len(existing_calibration_rows) > len(calibration_source_rows):
+                    # The paper sampler writes bucket-native lifecycle records to this file before
+                    # bootstrap refreshes ancillary live-sim inputs. Keep the fuller validated file
+                    # instead of replacing historical execution evidence with the fresh bootstrap slice.
+                    calibration_source_rows = existing_calibration_rows
+                    retained_existing_calibration_record_count = len(existing_calibration_rows)
         else:
             load_calibration_records(source_root / "paper_trades.jsonl")
             calibration_source_rows, stale_calibration_record_count = _fresh_calibration_rows(
@@ -720,6 +761,14 @@ def bootstrap_live_sim_generation_inputs(
             **(
                 {"dropped_stale_record_count": stale_calibration_record_count}
                 if stale_calibration_record_count
+                else {}
+            ),
+            **(
+                {
+                    "retained_existing_bucket_native_record_count": retained_existing_calibration_record_count,
+                    "fresh_bootstrap_record_count": fresh_source_calibration_record_count,
+                }
+                if retained_existing_calibration_record_count
                 else {}
             ),
         }
