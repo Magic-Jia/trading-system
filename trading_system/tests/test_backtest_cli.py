@@ -985,6 +985,65 @@ def test_run_professional_evidence_pipeline_writes_account_margin_policy_hold_ev
         assert field_status["fabricated"] is False
 
 
+def test_build_account_policy_archive_from_paper_snapshot_marks_replay_policy_unavailable(
+    tmp_path: Path,
+) -> None:
+    account_source = tmp_path / "account_snapshot.json"
+    account_source.write_text(
+        json.dumps(
+            {
+                "schema_version": "v2",
+                "as_of": GENERATED_AT,
+                "equity": 100000.0,
+                "available_balance": 99000.0,
+                "open_positions": [],
+                "meta": {"account_type": "paper", "source": "paper_snapshot_bootstrap"},
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    output_path = tmp_path / "account_policy_archive.json"
+
+    exit_code = cli.main(
+        [
+            "build-account-policy-archive",
+            "--account-snapshot-path",
+            str(account_source),
+            "--output-path",
+            str(output_path),
+            "--source-name",
+            "paper-runtime-bootstrap",
+            "--generated-at",
+            GENERATED_AT,
+        ]
+    )
+
+    assert exit_code == 0
+    archive = json.loads(output_path.read_text(encoding="utf-8"))
+    assert archive["schema_version"] == "account_policy_archive.v1"
+    assert archive["generated_at"] == GENERATED_AT
+    assert archive["source_name"] == "paper-runtime-bootstrap"
+    assert archive["decision"] == "hold"
+    assert archive["status"] == "policy_unavailable_for_historical_replay"
+    assert archive["source_snapshot"]["path"] == str(account_source)
+    assert archive["source_snapshot"]["schema_version"] == "v2"
+    assert archive["source_snapshot"]["account_type"] == "paper"
+    assert archive["source_snapshot"]["source"] == "paper_snapshot_bootstrap"
+    assert archive["observed_account_state"]["equity"] == 100000.0
+    assert archive["observed_account_state"]["available_balance"] == 99000.0
+    assert archive["policy_fields"]["margin_mode"]["status"] == "unavailable"
+    assert archive["missing_required_fields"] == sorted(FORBIDDEN_ACCOUNT_FIELDS)
+    assert archive["usable_for_historical_replay"] is False
+    assert archive["fabricated_fields"] == []
+    assert archive["reason_codes"] == [
+        "account_policy_archive_missing_required_fields",
+        "runtime_account_snapshot_not_historical_replay_policy",
+    ]
+
+
 def test_run_professional_evidence_pipeline_attaches_incomplete_account_policy_source_without_passing(
     tmp_path: Path,
 ) -> None:
@@ -1053,6 +1112,83 @@ def test_run_professional_evidence_pipeline_attaches_incomplete_account_policy_s
     ]
     assert policy["missing_required_fields"] == sorted(FORBIDDEN_ACCOUNT_FIELDS)
     assert policy["fabricated_fields"] == []
+
+
+def test_run_professional_evidence_pipeline_attaches_account_policy_archive_without_passing(
+    tmp_path: Path,
+) -> None:
+    dataset_root = _copy_schema_complete_metadata_dataset(tmp_path)
+    archive = tmp_path / "account_policy_archive.json"
+    archive.write_text(
+        json.dumps(
+            {
+                "schema_version": "account_policy_archive.v1",
+                "generated_at": GENERATED_AT,
+                "source_name": "paper-runtime-bootstrap",
+                "decision": "hold",
+                "status": "policy_unavailable_for_historical_replay",
+                "account_type": "paper",
+                "missing_required_fields": sorted(FORBIDDEN_ACCOUNT_FIELDS),
+                "usable_for_historical_replay": False,
+                "fabricated_fields": [],
+                "reason_codes": [
+                    "account_policy_archive_missing_required_fields",
+                    "runtime_account_snapshot_not_historical_replay_policy",
+                ],
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    configs_dir = tmp_path / "configs"
+    configs_dir.mkdir()
+    backtest_config = configs_dir / "backtest.json"
+    walk_forward_config = configs_dir / "walk_forward.json"
+    allocator_config = configs_dir / "allocator.json"
+    _write_professional_config(backtest_config, dataset_root=dataset_root, experiment_kind="full_market_baseline")
+    _write_professional_config(walk_forward_config, dataset_root=dataset_root, experiment_kind="walk_forward_validation")
+    _write_professional_config(allocator_config, dataset_root=dataset_root, experiment_kind="allocator_friction")
+    output_dir = tmp_path / "professional-pipeline"
+
+    exit_code = cli.main(
+        [
+            "run-professional-evidence-pipeline",
+            "--backtest-config",
+            str(backtest_config),
+            "--walk-forward-config",
+            str(walk_forward_config),
+            "--allocator-friction-config",
+            str(allocator_config),
+            "--output-dir",
+            str(output_dir),
+            "--account-margin-policy-source-path",
+            str(archive),
+            "--generated-at",
+            GENERATED_AT,
+        ]
+    )
+
+    assert exit_code == 0
+    evidence_chain = json.loads(
+        (output_dir / "professional_evidence" / "backtest_evidence_chain.json").read_text(encoding="utf-8")
+    )
+    assert evidence_chain["summary"]["decision"] == "hold"
+    candidate = evidence_chain["account_margin_policy_evidence"]["source_candidates"][0]
+    assert candidate["source"] == "account_policy_archive"
+    assert candidate["source_name"] == "paper-runtime-bootstrap"
+    assert candidate["archive_decision"] == "hold"
+    assert candidate["archive_status"] == "policy_unavailable_for_historical_replay"
+    assert candidate["usable_for_historical_replay"] is False
+    assert candidate["reason_codes"] == [
+        "account_policy_archive_attached",
+        "account_policy_archive_not_applicable_to_historical_replay",
+    ]
+    assert candidate["archive_reason_codes"] == [
+        "account_policy_archive_missing_required_fields",
+        "runtime_account_snapshot_not_historical_replay_policy",
+    ]
 
 
 def test_run_professional_evidence_pipeline_writes_hold_diagnostic_when_dataset_generation_fails(

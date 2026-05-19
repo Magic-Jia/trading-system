@@ -823,6 +823,25 @@ def _account_margin_policy_source_candidate(path: Path) -> dict[str, Any]:
     candidate["as_of"] = payload.get("as_of")
     candidate["source"] = meta.get("source") or meta.get("snapshot_source") or payload.get("source")
     candidate["account_type"] = meta.get("account_type") or payload.get("account_type")
+    if payload.get("schema_version") == "account_policy_archive.v1":
+        candidate["source_name"] = payload.get("source_name")
+        candidate["account_type"] = payload.get("account_type") or candidate.get("account_type")
+        candidate["source"] = "account_policy_archive"
+        candidate["archive_status"] = payload.get("status")
+        candidate["archive_decision"] = payload.get("decision")
+        candidate["present_required_fields"] = []
+        missing = payload.get("missing_required_fields")
+        candidate["missing_required_fields"] = list(missing) if isinstance(missing, list) else sorted(
+            _ACCOUNT_MARGIN_POLICY_REQUIRED_FIELDS
+        )
+        candidate["reason_codes"] = [
+            "account_policy_archive_attached",
+            "account_policy_archive_not_applicable_to_historical_replay",
+        ]
+        archive_reasons = payload.get("reason_codes")
+        if isinstance(archive_reasons, list):
+            candidate["archive_reason_codes"] = list(archive_reasons)
+        return candidate
     present_fields = sorted(field for field in _ACCOUNT_MARGIN_POLICY_REQUIRED_FIELDS if field in payload)
     candidate["present_required_fields"] = present_fields
     candidate["missing_required_fields"] = sorted(
@@ -976,6 +995,81 @@ def _run_backtest_config_to_bundle(config_path: Path, output_dir: Path, *, expec
     for filename, payload in artifacts.items():
         _write_artifact(bundle_dir / filename, payload)
     return bundle_dir
+
+
+def _account_policy_archive_payload(
+    *,
+    account_snapshot_path: Path,
+    source_name: str,
+    generated_at: str | None,
+) -> dict[str, Any]:
+    payload = json.loads(account_snapshot_path.read_text(encoding="utf-8"))
+    if not isinstance(payload, Mapping):
+        raise ValueError("account snapshot must be a JSON object")
+    raw_meta = payload.get("meta")
+    meta = raw_meta if isinstance(raw_meta, Mapping) else {}
+    account_type = meta.get("account_type") or payload.get("account_type")
+    source = meta.get("source") or meta.get("snapshot_source") or payload.get("source")
+    missing_required_fields = sorted(field for field in _ACCOUNT_MARGIN_POLICY_REQUIRED_FIELDS if field not in payload)
+    observed_account_state = {
+        field: payload[field]
+        for field in ("equity", "available_balance", "futures_wallet_balance")
+        if field in payload
+    }
+    policy_fields = {
+        field: {
+            "status": "unavailable" if field in missing_required_fields else "present_but_not_attached",
+            "provenance": "unavailable" if field in missing_required_fields else "account_snapshot",
+            "fabricated": False,
+        }
+        for field in _ACCOUNT_MARGIN_POLICY_REQUIRED_FIELDS
+    }
+    reason_codes = []
+    if missing_required_fields:
+        reason_codes.append("account_policy_archive_missing_required_fields")
+    if account_type == "paper" or source == "paper_snapshot_bootstrap":
+        reason_codes.append("runtime_account_snapshot_not_historical_replay_policy")
+    if not reason_codes:
+        reason_codes.append("account_policy_archive_not_attached_to_historical_replay")
+    return {
+        "schema_version": "account_policy_archive.v1",
+        "generated_at": _generated_at(generated_at),
+        "source_name": source_name,
+        "decision": "hold",
+        "status": "policy_unavailable_for_historical_replay",
+        "account_type": account_type,
+        "source_snapshot": {
+            "path": str(account_snapshot_path),
+            "schema_version": payload.get("schema_version"),
+            "as_of": payload.get("as_of"),
+            "source": source,
+            "account_type": account_type,
+        },
+        "observed_account_state": observed_account_state,
+        "policy_fields": policy_fields,
+        "missing_required_fields": missing_required_fields,
+        "usable_for_historical_replay": False,
+        "fabricated_fields": [],
+        "reason_codes": reason_codes,
+        "non_fabrication_policy": {
+            "account_fields_may_be_defaulted": False,
+            "market_data_may_imply_account_policy": False,
+            "archive_without_applicability_keeps_decision_hold": True,
+        },
+    }
+
+
+def _build_account_policy_archive_command(args: argparse.Namespace) -> int:
+    archive = _account_policy_archive_payload(
+        account_snapshot_path=Path(args.account_snapshot_path),
+        source_name=args.source_name,
+        generated_at=args.generated_at,
+    )
+    output_path = Path(args.output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    _write_json(output_path, archive)
+    print(output_path)
+    return 0
 
 
 def _run_professional_evidence_pipeline_command(args: argparse.Namespace) -> int:
@@ -1980,6 +2074,32 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional canonical UTC timestamp for deterministic generated_at fields.",
     )
     preflight_parser.set_defaults(handler=_preflight_historical_dataset_command)
+
+    account_policy_archive_parser = subparsers.add_parser(
+        "build-account-policy-archive",
+        help="Build a fail-closed account_policy_archive.v1 from a read-only account snapshot.",
+    )
+    account_policy_archive_parser.add_argument(
+        "--account-snapshot-path",
+        required=True,
+        help="Read-only account_snapshot.json source to archive as non-fabricated account policy provenance.",
+    )
+    account_policy_archive_parser.add_argument(
+        "--output-path",
+        required=True,
+        help="Path where account_policy_archive.v1 JSON should be written.",
+    )
+    account_policy_archive_parser.add_argument(
+        "--source-name",
+        required=True,
+        help="Human-readable label for the account policy/archive source.",
+    )
+    account_policy_archive_parser.add_argument(
+        "--generated-at",
+        default=None,
+        help="Optional canonical UTC timestamp for deterministic generated_at fields.",
+    )
+    account_policy_archive_parser.set_defaults(handler=_build_account_policy_archive_command)
 
     migration_plan_parser = subparsers.add_parser(
         "plan-historical-dataset-migration",
