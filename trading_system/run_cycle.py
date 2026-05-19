@@ -340,11 +340,15 @@ def _execution_sample_collection_health(paths: RuntimePaths, state_summary: Mapp
     matched_intent_ids = sorted(execution_intent_ids & ledger_intent_ids)
     sample_count = len(matched_intent_ids)
 
-    reason_codes: list[str] = []
+    latest_cycle_reason_codes: list[str] = []
     if candidate_count == 0:
-        reason_codes.append("no_candidates")
+        latest_cycle_reason_codes.append("no_candidates")
     if allocation_count == 0:
-        reason_codes.append("no_allocations")
+        latest_cycle_reason_codes.append("no_allocations")
+
+    reason_codes: list[str] = []
+    if sample_count == 0:
+        reason_codes.extend(latest_cycle_reason_codes)
     if not execution_log_file["exists"]:
         reason_codes.append("execution_log_missing")
     elif execution_log_count == 0:
@@ -369,6 +373,7 @@ def _execution_sample_collection_health(paths: RuntimePaths, state_summary: Mapp
         "execution_log_file": execution_log_file,
         "paper_ledger_file": paper_ledger_file,
         "reason_codes": reason_codes,
+        "latest_cycle_reason_codes": latest_cycle_reason_codes,
     }
 
 

@@ -9,6 +9,7 @@ import pytest
 from trading_system import paper_snapshots as paper_snapshots_module
 from trading_system import run_cycle as run_cycle_module
 from trading_system.app import main as main_module
+from trading_system.app.runtime_paths import build_runtime_paths
 from trading_system.app.risk.validator import ValidationResult
 from trading_system.app.types import AllocationDecision, TradeSignal
 
@@ -411,6 +412,26 @@ def test_run_cycle_execution_sample_health_passes_with_auditable_paper_execution
     assert health["execution_log_file"]["line_count"] == 1
     assert health["paper_ledger_file"]["line_count"] == 1
     assert health["reason_codes"] == []
+
+
+def test_execution_sample_health_keeps_matched_samples_available_across_empty_latest_cycle(tmp_path):
+    paths = build_runtime_paths("paper", runtime_root=tmp_path / "runtime", runtime_env="prod")
+    paths.bucket_dir.mkdir(parents=True)
+    execution_event = {"intent_id": "intent-btc-long", "symbol": "BTCUSDT", "stage": "fill"}
+    ledger_event = {"intent_id": "intent-btc-long", "symbol": "BTCUSDT", "event_type": "fill"}
+    paths.execution_log_file.write_text(json.dumps(execution_event) + "\n", encoding="utf-8")
+    paths.paper_ledger_file.write_text(json.dumps(ledger_event) + "\n", encoding="utf-8")
+
+    health = run_cycle_module._execution_sample_collection_health(
+        paths,
+        {"candidate_count": 0, "allocation_count": 0},
+    )
+
+    assert health["sample_count"] == 1
+    assert health["status"] == "available"
+    assert health["decision_policy"] == "pass"
+    assert health["reason_codes"] == []
+    assert health["latest_cycle_reason_codes"] == ["no_candidates", "no_allocations"]
 
 
 def test_run_cycle_writes_candidate_funnel_health_for_no_candidate_cycle(monkeypatch, tmp_path):
