@@ -175,7 +175,7 @@ def test_rolling_tca_bucket_dimension_values_are_allowed_as_strings() -> None:
     )
 
     assert bundle["decision"] == "review"
-    assert "insufficient_bucket_sample_size" in bundle["reason_codes"]
+    assert bundle["reason_codes"] == ["insufficient_bucket_samples"]
 
 
 def test_component_check_booleans_with_numeric_words_are_allowed() -> None:

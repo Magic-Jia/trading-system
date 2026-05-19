@@ -32,6 +32,9 @@ HOLD_DECISIONS = {"hold", "reject", "rejected", "reject_live_promotion", "failed
 _CANONICAL_UTC_TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z$")
 _SAFE_IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
 _REASON_CODE_RE = re.compile(r"^[a-z][a-z0-9_]{0,127}$")
+_REASON_CODE_NORMALIZATION = {
+    "insufficient_bucket_sample_size": "insufficient_bucket_samples",
+}
 _NUMERIC_FIELD_HINTS = (
     "age",
     "amount",
@@ -203,7 +206,7 @@ def _reason_codes(payload: Mapping[str, Any], component: str) -> list[str]:
             raise ValueError(f"{component}.reason_codes[{index}] must be a string")
         if raw_reason != raw_reason.strip() or _REASON_CODE_RE.fullmatch(raw_reason) is None:
             raise ValueError(f"{component}.reason_codes[{index}] must be canonical")
-        reasons.append(raw_reason)
+        reasons.append(_REASON_CODE_NORMALIZATION[raw_reason] if raw_reason in _REASON_CODE_NORMALIZATION else raw_reason)
     return reasons
 
 
