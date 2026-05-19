@@ -187,6 +187,15 @@ def test_run_professional_evidence_pipeline_preflights_multiple_legacy_dataset_g
     assert "dataset_missing_lifecycle_status" in evidence_chain["summary"]["reason_codes"]
     assert "dataset_missing_futures_context" in evidence_chain["summary"]["reason_codes"]
     assert "margin_liquidation_path_not_evaluable" in evidence_chain["summary"]["reason_codes"]
+    preflight = evidence_chain["generation_failure"]["preflight"]
+    assert preflight["dataset_root"] == str(dataset_root)
+    assert preflight["snapshot_count"] > 0
+    assert preflight["missing_lifecycle_status"]["row_count"] > 0
+    assert preflight["missing_lifecycle_status"]["snapshot_count"] > 0
+    assert preflight["missing_lifecycle_status"]["examples"][0]["path"].endswith("instrument_snapshot.json")
+    assert preflight["missing_futures_context"]["symbol_count"] > 0
+    assert preflight["missing_futures_context"]["snapshot_count"] > 0
+    assert preflight["missing_futures_context"]["examples"][0]["path"].endswith("market_context.json")
 
 
 def test_run_professional_evidence_pipeline_writes_bundles_reports_and_manifest(tmp_path: Path) -> None:
