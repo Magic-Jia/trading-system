@@ -155,6 +155,14 @@ IMPACT_RULES: tuple[tuple[str, list[str]], ...] = (
         ],
     ),
     (
+        "trading_system/paper_evidence_sampler.py",
+        ["trading_system/tests/test_paper_evidence_sampler.py"],
+    ),
+    (
+        "trading_system/tests/test_paper_evidence_sampler.py",
+        ["trading_system/tests/test_paper_evidence_sampler.py"],
+    ),
+    (
         "trading_system/scheduled_live_sim_generation.py",
         ["trading_system/tests/test_scheduled_live_sim_generation.py"],
     ),

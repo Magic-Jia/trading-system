@@ -217,6 +217,16 @@ def test_promotion_gate_decision_test_file_has_impact_mapping() -> None:
     assert "trading_system/tests/test_execution_calibration_evidence.py" in tests
 
 
+def test_paper_evidence_sampler_has_impact_mapping() -> None:
+    verify = load_verify_module()
+
+    implementation_tests = verify.tests_for_changed(["trading_system/paper_evidence_sampler.py"])
+    test_tests = verify.tests_for_changed(["trading_system/tests/test_paper_evidence_sampler.py"])
+
+    assert "trading_system/tests/test_paper_evidence_sampler.py" in implementation_tests
+    assert "trading_system/tests/test_paper_evidence_sampler.py" in test_tests
+
+
 def test_bootstrap_live_sim_generation_inputs_has_impact_mapping() -> None:
     verify = load_verify_module()
 
