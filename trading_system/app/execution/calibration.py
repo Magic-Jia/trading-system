@@ -1252,11 +1252,14 @@ def _tca_observed(records: tuple[PassiveOrderCalibrationRecord, ...]) -> dict[st
         for record in filled
         if record.first_fill_at is not None
     ]
-    cancel_latencies = [
-        (record.cancel_ack_at - record.submitted_at).total_seconds() * 1000.0
-        for record in records
-        if record.cancel_ack_at is not None
-    ]
+    cancel_latencies: list[float] = []
+    for record in records:
+        if record.cancel_ack_at is None:
+            continue
+        if record.cancel_latency_ms is not None:
+            cancel_latencies.append(record.cancel_latency_ms)
+        elif record.cancel_requested_at is not None:
+            cancel_latencies.append((record.cancel_ack_at - record.cancel_requested_at).total_seconds() * 1000.0)
     slippage = [value for record in filled if (value := _realized_bps(record)) is not None]
     adverse = [record.adverse_selection_bps for record in filled if record.adverse_selection_bps is not None]
     fee_funding = [

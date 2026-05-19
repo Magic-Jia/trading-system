@@ -164,7 +164,7 @@ def _assumptions() -> dict[str, object]:
         "expected_taker_rate": 0.25,
         "expected_ack_latency_ms": 1000.0,
         "expected_fill_latency_ms": 1000.0,
-        "expected_cancel_latency_ms": 3000.0,
+        "expected_cancel_latency_ms": 1000.0,
         "expected_partial_fill_rate": 0.25,
         "expected_adverse_selection_bps": 1.0,
         "expected_fee_funding_bps": 1.0,

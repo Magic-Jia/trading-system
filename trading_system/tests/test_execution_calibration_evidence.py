@@ -44,7 +44,7 @@ def _tca_assumptions(**overrides: object) -> dict[str, object]:
         "expected_taker_rate": 0.25,
         "expected_ack_latency_ms": 1000.0,
         "expected_fill_latency_ms": 1000.0,
-        "expected_cancel_latency_ms": 3000.0,
+        "expected_cancel_latency_ms": 1000.0,
         "expected_partial_fill_rate": 0.25,
         "expected_adverse_selection_bps": 3.0,
         "expected_fee_funding_bps": 2.0,
@@ -102,6 +102,7 @@ def _calibration_feedback_inputs() -> dict[str, object]:
             filled_notional=None,
             first_fill_at=None,
             last_fill_at=None,
+            cancel_requested_at="2026-01-01T00:00:04Z",
             cancel_ack_at="2026-01-01T00:00:05Z",
             cancel_reason="post_only_reject",
             slippage_bps=None,
@@ -267,6 +268,69 @@ def test_writes_passive_and_taker_calibration_summary_from_jsonl(tmp_path: Path)
     output = write_calibration_summary(source, tmp_path / "out", evidence_source={"type": "synthetic_fixture"})
     assert output == tmp_path / "out" / "passive_order_calibration_summary.json"
     assert json.loads(output.read_text()) == summary
+
+
+def test_tca_cancel_latency_uses_cancel_request_to_ack_latency_not_submit_to_ack() -> None:
+    report = build_tca_calibration_report(
+        [
+            _strict_record_payload(
+                first_fill_at=None,
+                last_fill_at=None,
+                submitted_at="2026-01-01T00:00:02Z",
+                exchange_ack_at="2026-01-01T00:00:03Z",
+                cancel_requested_at="2026-01-01T00:00:04Z",
+                cancel_ack_at="2026-01-01T00:00:07Z",
+                status="cancelled",
+                terminal_status="cancelled",
+                maker_taker="maker",
+                requested_qty=1.0,
+                filled_qty=0.0,
+                cancel_reason="user_cancel",
+                cancel_latency_ms=3000.0,
+                fees=0.0,
+                funding=0.0,
+            )
+        ],
+        assumptions=_tca_assumptions(expected_cancel_latency_ms=3000.0),
+        evidence_source={"type": "paper_live_sim", "run_id": "cancel-latency", "exported_at": "2026-01-01T00:05:00Z"},
+        evaluated_at="2026-01-01T00:05:10Z",
+        min_samples=1,
+        max_evidence_age_seconds=300,
+    )
+
+    assert report["observed"]["cancel_latency_ms"]["median"] == pytest.approx(3000.0)
+    assert report["comparisons"]["cancel_latency_ms"]["observed"] == pytest.approx(3000.0)
+
+
+def test_tca_cancel_latency_falls_back_to_cancel_request_to_ack_when_metric_missing() -> None:
+    report = build_tca_calibration_report(
+        [
+            _strict_record_payload(
+                first_fill_at=None,
+                last_fill_at=None,
+                submitted_at="2026-01-01T00:00:02Z",
+                exchange_ack_at="2026-01-01T00:00:03Z",
+                cancel_requested_at="2026-01-01T00:00:04Z",
+                cancel_ack_at="2026-01-01T00:00:07Z",
+                status="cancelled",
+                terminal_status="cancelled",
+                maker_taker="maker",
+                requested_qty=1.0,
+                filled_qty=0.0,
+                cancel_reason="user_cancel",
+                fees=0.0,
+                funding=0.0,
+            )
+        ],
+        assumptions=_tca_assumptions(expected_cancel_latency_ms=3000.0),
+        evidence_source={"type": "paper_live_sim", "run_id": "cancel-latency", "exported_at": "2026-01-01T00:05:00Z"},
+        evaluated_at="2026-01-01T00:05:10Z",
+        min_samples=1,
+        max_evidence_age_seconds=300,
+    )
+
+    assert report["observed"]["cancel_latency_ms"]["median"] == pytest.approx(3000.0)
+    assert report["comparisons"]["cancel_latency_ms"]["observed"] == pytest.approx(3000.0)
 
 
 def test_builds_calibration_feedback_artifact_from_simulated_live_evidence() -> None:
@@ -963,6 +1027,7 @@ def test_builds_tca_calibration_report_expected_vs_observed_and_checks() -> None
             requested_qty=1.0,
             filled_qty=0.0,
             status="rejected",
+            cancel_requested_at="2026-01-01T00:00:04Z",
             cancel_ack_at="2026-01-01T00:00:05Z",
             cancel_reason="post_only_reject",
         ),
@@ -999,7 +1064,7 @@ def test_builds_tca_calibration_report_expected_vs_observed_and_checks() -> None
     assert report["observed"]["partial_fill_rate"] == 0.25
     assert report["observed"]["ack_latency_ms"]["median"] == 1000.0
     assert report["observed"]["fill_latency_ms"]["median"] == 1000.0
-    assert report["observed"]["cancel_latency_ms"]["median"] == 3000.0
+    assert report["observed"]["cancel_latency_ms"]["median"] == 1000.0
     assert report["observed"]["terminal_status"] == {
         "filled": {"count": 2, "rate": 0.5},
         "partially_filled": {"count": 1, "rate": 0.25},
