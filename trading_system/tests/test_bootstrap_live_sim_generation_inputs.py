@@ -379,6 +379,52 @@ def test_bootstrap_accepts_same_bucket_as_source_and_destination(tmp_path: Path)
     assert (paths.optimization_dir / "paper_live_sim_evidence_manifest.json").exists()
 
 
+def test_bootstrap_attaches_independent_markout_to_lifecycle_calibration_rows(tmp_path: Path) -> None:
+    runtime_root = tmp_path / "runtime"
+    paths = build_runtime_paths("paper", runtime_root=runtime_root, runtime_env="paper")
+    paths.bucket_dir.mkdir(parents=True)
+    _write_json(paths.bucket_dir / "runtime_state.json", _legacy_state())
+    _write_json(paths.bucket_dir / "account_snapshot.json", _legacy_account())
+    _write_json(paths.bucket_dir / "market_context.json", _legacy_market())
+    _write_json(paths.bucket_dir / "derivatives_snapshot.json", _legacy_derivatives())
+    _write_jsonl(paths.bucket_dir / "execution_log.jsonl", _execution_calibration_chain())
+    _write_jsonl(paths.bucket_dir / "paper_ledger.jsonl", [_execution_ledger_event()])
+    _write_json(
+        paths.optimization_dir / "local_independent_source_snapshot.json",
+        {
+            "schema_version": "local_independent_source_snapshot.v1",
+            "source_id": "coinbase_exchange_public_ticker",
+            "generated_at": "2026-05-16T10:00:05.000000001Z",
+            "observations": [
+                {
+                    "symbol": "BTCUSDT",
+                    "source_symbol": "BTC-USDT",
+                    "mid_price": 99.0,
+                    "observed_at": "2026-05-16T10:00:05.000000001Z",
+                }
+            ],
+        },
+    )
+
+    result = bootstrap_live_sim_generation_inputs(
+        legacy_root=paths.bucket_dir,
+        mode="paper",
+        runtime_root=runtime_root,
+        runtime_env="paper",
+        generated_at="2026-05-16T10:01:00Z",
+        max_evidence_age_seconds=120,
+    )
+
+    records = [
+        json.loads(line)
+        for line in (paths.optimization_dir / "passive_order_calibration_records.jsonl").read_text().splitlines()
+    ]
+    assert result["status"] == "ok"
+    assert records[0]["adverse_selection_status"] == "available"
+    assert records[0]["adverse_selection_benchmark_at"] == "2026-05-16T10:00:05.000000001Z"
+    assert records[0]["adverse_selection_bps"] == pytest.approx(((100.0 - 99.0) / 99.0) * 10000.0)
+
+
 def test_bootstrap_filters_stale_lifecycle_calibration_rows_when_fresh_rows_remain(tmp_path: Path) -> None:
     source_root = tmp_path / "bucket-source"
     runtime_root = tmp_path / "runtime"

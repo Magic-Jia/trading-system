@@ -257,6 +257,43 @@ def test_generate_execution_calibration_records_writes_loader_compatible_jsonl(t
     assert record.slippage_bps == pytest.approx(50.2512562814)
 
 
+def test_generate_execution_calibration_records_accepts_coinbase_nanosecond_markout_timestamp(tmp_path: Path) -> None:
+    execution_log = tmp_path / "execution_log.jsonl"
+    snapshot = tmp_path / "local_independent_source_snapshot.json"
+    output = tmp_path / "passive_order_calibration_records.jsonl"
+    _write_jsonl(execution_log, _event_chain())
+    snapshot.write_text(
+        json.dumps(
+            {
+                "schema_version": "local_independent_source_snapshot.v1",
+                "source_id": "coinbase_exchange_public_ticker",
+                "observations": [
+                    {
+                        "symbol": "BTCUSDT",
+                        "source_symbol": "BTC-USDT",
+                        "mid_price": 99.0,
+                        "observed_at": "2026-05-16T10:00:05.000000001Z",
+                    }
+                ],
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    generate_execution_calibration_records(
+        execution_log_file=execution_log,
+        output_file=output,
+        independent_source_snapshot_file=snapshot,
+    )
+
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert payload["adverse_selection_status"] == "available"
+    assert payload["adverse_selection_benchmark_at"] == "2026-05-16T10:00:05.000000001Z"
+    assert payload["adverse_selection_bps"] == pytest.approx(((100.0 - 99.0) / 99.0) * 10000.0)
+
+
 def test_generate_execution_calibration_records_adds_post_fill_independent_markout(tmp_path: Path) -> None:
     execution_log = tmp_path / "execution_log.jsonl"
     snapshot = tmp_path / "local_independent_source_snapshot.json"

@@ -15,6 +15,9 @@ CALIBRATION_RECORDS_NAME = "passive_order_calibration_records.jsonl"
 CALIBRATION_UNAVAILABLE_NAME = "calibration_records_unavailable.json"
 
 _CANONICAL_UTC_TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z$")
+_UTC_TIMESTAMP_ORDER_RE = re.compile(
+    r"^(?P<seconds>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(?P<fraction>\d{1,9}))?Z$"
+)
 _SYMBOL_RE = re.compile(r"^[A-Z0-9]+$")
 _IDENTITY_FIELDS = ("intent_id", "order_id", "position_id", "symbol", "side")
 _REQUIRED_STAGES = ("signal", "order_intent", "risk_check", "submit", "exchange_ack", "position_reconcile")
@@ -104,6 +107,29 @@ def _parse_optional_timestamp_value(value: Any, field: str) -> datetime:
     if type(value) is not str or not _is_canonical_utc_timestamp(value):
         raise ValueError(f"{field} must be a canonical UTC timestamp")
     return datetime.fromisoformat(value[:-1] + "+00:00").astimezone(UTC)
+
+
+def _utc_timestamp_order_key(value: Any, field: str) -> int:
+    if type(value) is not str:
+        raise ValueError(f"{field} must be a canonical UTC timestamp")
+    match = _UTC_TIMESTAMP_ORDER_RE.fullmatch(value)
+    if match is None:
+        raise ValueError(f"{field} must be a canonical UTC timestamp")
+    try:
+        seconds = datetime.fromisoformat(match.group("seconds") + "+00:00").astimezone(UTC)
+    except ValueError as exc:
+        raise ValueError(f"{field} must be a canonical UTC timestamp") from exc
+    if seconds.isoformat().replace("+00:00", "Z") != match.group("seconds") + "Z":
+        raise ValueError(f"{field} must be a canonical UTC timestamp")
+    fraction = (match.group("fraction") or "").ljust(9, "0")
+    return int(seconds.timestamp()) * 1_000_000_000 + int(fraction)
+
+
+def _parse_independent_snapshot_timestamp(value: Any, field: str) -> tuple[datetime, int]:
+    order_key = _utc_timestamp_order_key(value, field)
+    assert isinstance(value, str)
+    microsecond_value = re.sub(r"\.(\d{6})\d+Z$", r".\1Z", value)
+    return datetime.fromisoformat(microsecond_value[:-1] + "+00:00").astimezone(UTC), order_key
 
 
 def _number(value: Any, field: str, *, positive: bool = False, non_negative: bool = False) -> float:
@@ -272,19 +298,20 @@ def _validated_independent_observations(snapshot: Mapping[str, Any]) -> dict[str
         benchmark_price = _optional_number(observation, "mid_price", positive=True)
         if benchmark_price is None:
             continue
-        observed_at = _parse_optional_timestamp_value(observation.get("observed_at"), "observed_at")
+        observed_at, observed_at_key = _parse_independent_snapshot_timestamp(observation.get("observed_at"), "observed_at")
         by_symbol.setdefault(symbol, []).append(
             {
                 "symbol": symbol,
                 "benchmark_price": benchmark_price,
                 "observed_at": observed_at,
+                "observed_at_key": observed_at_key,
                 "observed_at_text": observation["observed_at"],
                 "source_id": source_id,
                 "source_type": source_type,
             }
         )
     for rows in by_symbol.values():
-        rows.sort(key=lambda row: row["observed_at"])
+        rows.sort(key=lambda row: row["observed_at_key"])
     return by_symbol
 
 
@@ -318,13 +345,13 @@ def _annotate_adverse_selection(
             record["adverse_selection_status"] = "unavailable"
             record["adverse_selection_unavailable_reason"] = "missing_fill_inputs"
             continue
-        last_fill_at = _parse_optional_timestamp_value(last_fill_at_text, "last_fill_at")
+        last_fill_at_key = _utc_timestamp_order_key(last_fill_at_text, "last_fill_at")
         observations = independent_observations.get(symbol, [])
         if not observations:
             record["adverse_selection_status"] = "unavailable"
             record["adverse_selection_unavailable_reason"] = "benchmark_missing"
             continue
-        selected = next((observation for observation in observations if observation["observed_at"] > last_fill_at), None)
+        selected = next((observation for observation in observations if observation["observed_at_key"] > last_fill_at_key), None)
         if selected is None:
             latest = observations[-1]
             record["adverse_selection_status"] = "unavailable"

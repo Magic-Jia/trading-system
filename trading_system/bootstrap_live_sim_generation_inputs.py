@@ -353,12 +353,20 @@ def _calibration_rows_available(rows: list[Mapping[str, Any]]) -> bool:
     return True
 
 
-def _execution_calibration_rows(source_root: Path) -> list[dict[str, Any]]:
+def _execution_calibration_rows(
+    source_root: Path,
+    *,
+    independent_source_snapshot: Mapping[str, Any] | None = None,
+) -> list[dict[str, Any]]:
     execution_events = _read_optional_jsonl_objects(source_root / "execution_log.jsonl")
     if not execution_events:
         return []
     ledger_events = _read_optional_jsonl_objects(source_root / "paper_ledger.jsonl")
-    return build_passive_order_calibration_records(execution_events, ledger_events=ledger_events)
+    return build_passive_order_calibration_records(
+        execution_events,
+        ledger_events=ledger_events,
+        independent_source_snapshot=independent_source_snapshot,
+    )
 
 
 def _build_calibration_unavailable_marker(
@@ -678,7 +686,10 @@ def bootstrap_live_sim_generation_inputs(
     market = _read_json_object(source_root / "market_context.json")
     derivatives = _read_json_object(source_root / "derivatives_snapshot.json")
     independent_source_snapshot = _read_optional_json_object(paths.optimization_dir / "local_independent_source_snapshot.json")
-    execution_calibration_rows = _execution_calibration_rows(source_root)
+    execution_calibration_rows = _execution_calibration_rows(
+        source_root,
+        independent_source_snapshot=independent_source_snapshot,
+    )
     trades = _read_optional_jsonl_objects(source_root / "paper_trades.jsonl")
     if not execution_calibration_rows and not trades:
         _read_jsonl_objects(source_root / "paper_trades.jsonl")
