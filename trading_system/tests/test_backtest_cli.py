@@ -131,6 +131,64 @@ def test_run_professional_evidence_pipeline_writes_hold_diagnostic_when_dataset_
     assert manifest["professional_evidence"]["generation_failed"] is True
 
 
+def test_run_professional_evidence_pipeline_preflights_multiple_legacy_dataset_gaps(tmp_path: Path) -> None:
+    dataset_root = tmp_path / "legacy-dataset"
+    source_dataset = FIXTURES / "full_market_baseline_dataset"
+    for source_path in source_dataset.rglob("*"):
+        target_path = dataset_root / source_path.relative_to(source_dataset)
+        if source_path.is_dir():
+            target_path.mkdir(parents=True, exist_ok=True)
+            continue
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        if source_path.name == "instrument_snapshot.json":
+            payload = json.loads(source_path.read_text(encoding="utf-8"))
+            for row in payload["rows"]:
+                row.pop("lifecycle_status", None)
+            target_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        elif source_path.name == "market_context.json":
+            payload = json.loads(source_path.read_text(encoding="utf-8"))
+            for symbol_context in payload["symbols"].values():
+                symbol_context.pop("futures_context", None)
+            target_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        else:
+            target_path.write_text(source_path.read_text(encoding="utf-8"), encoding="utf-8")
+
+    configs_dir = tmp_path / "configs"
+    configs_dir.mkdir()
+    backtest_config = configs_dir / "backtest.json"
+    walk_forward_config = configs_dir / "walk_forward.json"
+    allocator_config = configs_dir / "allocator.json"
+    _write_professional_config(backtest_config, dataset_root=dataset_root, experiment_kind="full_market_baseline")
+    _write_professional_config(walk_forward_config, dataset_root=dataset_root, experiment_kind="walk_forward_validation")
+    _write_professional_config(allocator_config, dataset_root=dataset_root, experiment_kind="allocator_friction")
+    output_dir = tmp_path / "professional-pipeline"
+
+    exit_code = cli.main(
+        [
+            "run-professional-evidence-pipeline",
+            "--backtest-config",
+            str(backtest_config),
+            "--walk-forward-config",
+            str(walk_forward_config),
+            "--allocator-friction-config",
+            str(allocator_config),
+            "--output-dir",
+            str(output_dir),
+            "--generated-at",
+            GENERATED_AT,
+        ]
+    )
+
+    assert exit_code == 0
+    evidence_chain = json.loads(
+        (output_dir / "professional_evidence" / "backtest_evidence_chain.json").read_text(encoding="utf-8")
+    )
+    assert evidence_chain["summary"]["decision"] == "hold"
+    assert "dataset_missing_lifecycle_status" in evidence_chain["summary"]["reason_codes"]
+    assert "dataset_missing_futures_context" in evidence_chain["summary"]["reason_codes"]
+    assert "margin_liquidation_path_not_evaluable" in evidence_chain["summary"]["reason_codes"]
+
+
 def test_run_professional_evidence_pipeline_writes_bundles_reports_and_manifest(tmp_path: Path) -> None:
     output_dir = tmp_path / "professional-pipeline"
 

@@ -654,12 +654,78 @@ def _write_professional_evidence_command(args: argparse.Namespace) -> int:
     return 0
 
 
-def _diagnostic_reason_codes(message: str) -> list[str]:
+def _append_reason(reasons: list[str], reason: str) -> None:
+    if reason not in reasons:
+        reasons.append(reason)
+
+
+def _diagnostic_reason_codes(message: str, preflight_reasons: list[str] | None = None) -> list[str]:
     reasons = ["pipeline_generation_failed"]
     if "lifecycle_status must be present" in message:
-        reasons.append("dataset_missing_lifecycle_status")
+        _append_reason(reasons, "dataset_missing_lifecycle_status")
     if "margin_mode must be isolated or cross" in message:
-        reasons.extend(["dataset_missing_futures_context", "margin_liquidation_path_not_evaluable"])
+        _append_reason(reasons, "dataset_missing_futures_context")
+        _append_reason(reasons, "margin_liquidation_path_not_evaluable")
+    for reason in preflight_reasons or []:
+        _append_reason(reasons, reason)
+    return reasons
+
+
+def _dataset_root_from_config(config_path: Path) -> Path | None:
+    try:
+        payload = json.loads(config_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+        return None
+    dataset_root = payload.get("dataset_root") if isinstance(payload, Mapping) else None
+    return Path(dataset_root) if isinstance(dataset_root, str) else None
+
+
+def _preflight_legacy_dataset_reason_codes(dataset_root: Path | None) -> list[str]:
+    if dataset_root is None or not dataset_root.is_dir():
+        return []
+    reasons: list[str] = []
+    for snapshot_dir in sorted(path for path in dataset_root.iterdir() if path.is_dir()):
+        instrument_path = snapshot_dir / "instrument_snapshot.json"
+        market_context_path = snapshot_dir / "market_context.json"
+        if not instrument_path.is_file():
+            continue
+        try:
+            instrument_payload = json.loads(instrument_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+            continue
+        rows = instrument_payload.get("rows") if isinstance(instrument_payload, Mapping) else None
+        if not isinstance(rows, list):
+            continue
+        futures_symbols: set[str] = set()
+        for row in rows:
+            if not isinstance(row, Mapping):
+                continue
+            if "lifecycle_status" not in row:
+                _append_reason(reasons, "dataset_missing_lifecycle_status")
+            if row.get("market_type") == "futures" and isinstance(row.get("symbol"), str):
+                futures_symbols.add(str(row["symbol"]))
+        if not futures_symbols:
+            continue
+        try:
+            market_context_payload = json.loads(market_context_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+            _append_reason(reasons, "dataset_missing_futures_context")
+            _append_reason(reasons, "margin_liquidation_path_not_evaluable")
+            continue
+        symbols = market_context_payload.get("symbols") if isinstance(market_context_payload, Mapping) else None
+        if not isinstance(symbols, Mapping):
+            _append_reason(reasons, "dataset_missing_futures_context")
+            _append_reason(reasons, "margin_liquidation_path_not_evaluable")
+            continue
+        for symbol in futures_symbols:
+            symbol_context = symbols.get(symbol)
+            futures_context = symbol_context.get("futures_context") if isinstance(symbol_context, Mapping) else None
+            if not isinstance(futures_context, Mapping):
+                _append_reason(reasons, "dataset_missing_futures_context")
+                _append_reason(reasons, "margin_liquidation_path_not_evaluable")
+                break
+        if "dataset_missing_lifecycle_status" in reasons and "dataset_missing_futures_context" in reasons:
+            break
     return reasons
 
 
@@ -678,13 +744,14 @@ def _write_pipeline_generation_failure_diagnostic(
     output_dir: Path,
     error: Exception,
     generated_at: str | None,
+    preflight_reasons: list[str] | None = None,
 ) -> dict[str, Any]:
     evaluated_at = _generated_at(generated_at)
     evidence_dir = output_dir / "professional_evidence"
     evidence_dir.mkdir(parents=True, exist_ok=True)
     evidence_chain_path = evidence_dir / "backtest_evidence_chain.json"
     message = str(error)
-    reasons = _diagnostic_reason_codes(message)
+    reasons = _diagnostic_reason_codes(message, preflight_reasons=preflight_reasons)
     component_names = (
         "historical_backtest",
         "exit_path_replay",
@@ -785,6 +852,9 @@ def _run_professional_evidence_pipeline_command(args: argparse.Namespace) -> int
             output_dir=output_dir,
             error=exc,
             generated_at=args.generated_at,
+            preflight_reasons=_preflight_legacy_dataset_reason_codes(
+                _dataset_root_from_config(Path(args.backtest_config))
+            ),
         )
         return 0
     outputs = write_professional_backtest_evidence(
