@@ -985,6 +985,76 @@ def test_run_professional_evidence_pipeline_writes_account_margin_policy_hold_ev
         assert field_status["fabricated"] is False
 
 
+def test_run_professional_evidence_pipeline_attaches_incomplete_account_policy_source_without_passing(
+    tmp_path: Path,
+) -> None:
+    dataset_root = _copy_schema_complete_metadata_dataset(tmp_path)
+    account_source = tmp_path / "account_snapshot.json"
+    account_source.write_text(
+        json.dumps(
+            {
+                "schema_version": "v2",
+                "as_of": GENERATED_AT,
+                "equity": 100000.0,
+                "available_balance": 100000.0,
+                "open_positions": [],
+                "meta": {"account_type": "paper", "source": "paper_snapshot_bootstrap"},
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    configs_dir = tmp_path / "configs"
+    configs_dir.mkdir()
+    backtest_config = configs_dir / "backtest.json"
+    walk_forward_config = configs_dir / "walk_forward.json"
+    allocator_config = configs_dir / "allocator.json"
+    _write_professional_config(backtest_config, dataset_root=dataset_root, experiment_kind="full_market_baseline")
+    _write_professional_config(walk_forward_config, dataset_root=dataset_root, experiment_kind="walk_forward_validation")
+    _write_professional_config(allocator_config, dataset_root=dataset_root, experiment_kind="allocator_friction")
+    output_dir = tmp_path / "professional-pipeline"
+
+    exit_code = cli.main(
+        [
+            "run-professional-evidence-pipeline",
+            "--backtest-config",
+            str(backtest_config),
+            "--walk-forward-config",
+            str(walk_forward_config),
+            "--allocator-friction-config",
+            str(allocator_config),
+            "--output-dir",
+            str(output_dir),
+            "--account-margin-policy-source-path",
+            str(account_source),
+            "--generated-at",
+            GENERATED_AT,
+        ]
+    )
+
+    assert exit_code == 0
+    evidence_chain = json.loads(
+        (output_dir / "professional_evidence" / "backtest_evidence_chain.json").read_text(encoding="utf-8")
+    )
+    assert evidence_chain["summary"]["decision"] == "hold"
+    policy = evidence_chain["account_margin_policy_evidence"]
+    assert policy["decision"] == "hold"
+    assert policy["status"] == "unavailable"
+    assert policy["source_candidates"][0]["path"] == str(account_source)
+    assert policy["source_candidates"][0]["schema_version"] == "v2"
+    assert policy["source_candidates"][0]["source"] == "paper_snapshot_bootstrap"
+    assert policy["source_candidates"][0]["account_type"] == "paper"
+    assert policy["source_candidates"][0]["usable_for_historical_replay"] is False
+    assert policy["source_candidates"][0]["reason_codes"] == [
+        "account_policy_source_missing_required_fields",
+        "runtime_account_snapshot_not_historical_replay_policy",
+    ]
+    assert policy["missing_required_fields"] == sorted(FORBIDDEN_ACCOUNT_FIELDS)
+    assert policy["fabricated_fields"] == []
+
+
 def test_run_professional_evidence_pipeline_writes_hold_diagnostic_when_dataset_generation_fails(
     tmp_path: Path,
 ) -> None:

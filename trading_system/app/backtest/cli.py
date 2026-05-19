@@ -792,15 +792,59 @@ def _component_hold(generated_at: str, reasons: list[str]) -> dict[str, Any]:
     }
 
 
-def _account_margin_policy_hold_evidence(generated_at: str) -> dict[str, Any]:
-    required_field_names = (
-        "margin_mode",
-        "leverage",
-        "maintenance_tier",
-        "liquidation_price",
-        "notional",
-        "unrealized_pnl",
+_ACCOUNT_MARGIN_POLICY_REQUIRED_FIELDS = (
+    "margin_mode",
+    "leverage",
+    "maintenance_tier",
+    "liquidation_price",
+    "notional",
+    "unrealized_pnl",
+)
+
+
+def _account_margin_policy_source_candidate(path: Path) -> dict[str, Any]:
+    candidate: dict[str, Any] = {
+        "path": str(path),
+        "usable_for_historical_replay": False,
+        "reason_codes": [],
+    }
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError) as exc:
+        candidate["reason_codes"] = ["account_policy_source_unreadable"]
+        candidate["error"] = str(exc)
+        return candidate
+    if not isinstance(payload, Mapping):
+        candidate["reason_codes"] = ["account_policy_source_malformed"]
+        return candidate
+    raw_meta = payload.get("meta")
+    meta = raw_meta if isinstance(raw_meta, Mapping) else {}
+    candidate["schema_version"] = payload.get("schema_version")
+    candidate["as_of"] = payload.get("as_of")
+    candidate["source"] = meta.get("source") or meta.get("snapshot_source") or payload.get("source")
+    candidate["account_type"] = meta.get("account_type") or payload.get("account_type")
+    present_fields = sorted(field for field in _ACCOUNT_MARGIN_POLICY_REQUIRED_FIELDS if field in payload)
+    candidate["present_required_fields"] = present_fields
+    candidate["missing_required_fields"] = sorted(
+        field for field in _ACCOUNT_MARGIN_POLICY_REQUIRED_FIELDS if field not in payload
     )
+    reason_codes: list[str] = []
+    if candidate["missing_required_fields"]:
+        reason_codes.append("account_policy_source_missing_required_fields")
+    if candidate.get("account_type") == "paper" or candidate.get("source") == "paper_snapshot_bootstrap":
+        reason_codes.append("runtime_account_snapshot_not_historical_replay_policy")
+    if not reason_codes:
+        reason_codes.append("account_policy_source_not_attached_to_historical_replay")
+    candidate["reason_codes"] = reason_codes
+    return candidate
+
+
+def _account_margin_policy_hold_evidence(
+    generated_at: str,
+    *,
+    source_path: Path | None = None,
+) -> dict[str, Any]:
+    source_candidates = [_account_margin_policy_source_candidate(source_path)] if source_path is not None else []
     return {
         "schema_version": "account_margin_policy_evidence.v1",
         "generated_at": generated_at,
@@ -813,8 +857,10 @@ def _account_margin_policy_hold_evidence(generated_at: str) -> dict[str, Any]:
                 "provenance": "unavailable",
                 "fabricated": False,
             }
-            for field in required_field_names
+            for field in _ACCOUNT_MARGIN_POLICY_REQUIRED_FIELDS
         },
+        "missing_required_fields": sorted(_ACCOUNT_MARGIN_POLICY_REQUIRED_FIELDS),
+        "source_candidates": source_candidates,
         "fabricated_fields": [],
         "accepted_provenance_sources": [
             "account_policy_archive",
@@ -836,6 +882,7 @@ def _write_pipeline_generation_failure_diagnostic(
     error: Exception,
     generated_at: str | None,
     preflight_diagnostic: dict[str, Any] | None = None,
+    account_margin_policy_source_path: Path | None = None,
 ) -> dict[str, Any]:
     evaluated_at = _generated_at(generated_at)
     evidence_dir = output_dir / "professional_evidence"
@@ -884,7 +931,10 @@ def _write_pipeline_generation_failure_diagnostic(
     for name in component_names:
         evidence_chain[name] = _component_hold(evaluated_at, list(reasons))
     if "margin_liquidation_path_not_evaluable" in reasons:
-        evidence_chain["account_margin_policy_evidence"] = _account_margin_policy_hold_evidence(evaluated_at)
+        evidence_chain["account_margin_policy_evidence"] = _account_margin_policy_hold_evidence(
+            evaluated_at,
+            source_path=account_margin_policy_source_path,
+        )
     evidence_chain["summary"] = {
         "decision": "hold",
         "component_statuses": {name: "hold" for name in component_names},
@@ -952,6 +1002,11 @@ def _run_professional_evidence_pipeline_command(args: argparse.Namespace) -> int
             generated_at=args.generated_at,
             preflight_diagnostic=_preflight_legacy_dataset_diagnostic(
                 _dataset_root_from_config(Path(args.backtest_config))
+            ),
+            account_margin_policy_source_path=(
+                Path(args.account_margin_policy_source_path)
+                if args.account_margin_policy_source_path is not None
+                else None
             ),
         )
         return 0
@@ -1876,6 +1931,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--runtime-summary-path",
         default=None,
         help="Optional runtime latest.json whose execution_sample_collection_health_file should be consumed.",
+    )
+    professional_pipeline_parser.add_argument(
+        "--account-margin-policy-source-path",
+        default=None,
+        help="Optional read-only account/margin policy source snapshot to attach to fail-closed margin evidence diagnostics.",
     )
     professional_pipeline_parser.add_argument(
         "--simulated-live-evidence-window",
