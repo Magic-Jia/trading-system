@@ -79,6 +79,277 @@ def _write_professional_config(path: Path, *, dataset_root: Path, experiment_kin
     )
 
 
+FORBIDDEN_ACCOUNT_FIELDS = {
+    "margin_mode",
+    "leverage",
+    "maintenance_tier",
+    "liquidation_price",
+    "notional",
+    "unrealized_pnl",
+}
+
+
+def _json_payloads(root: Path) -> dict[Path, bytes]:
+    return {
+        path.relative_to(root): path.read_bytes()
+        for path in sorted(root.rglob("*.json"))
+    }
+
+
+def _copy_schema_complete_metadata_dataset(tmp_path: Path) -> Path:
+    source_dataset = FIXTURES / "full_market_baseline_dataset"
+    metadata_dataset = tmp_path / "schema-complete-metadata-dataset"
+    shutil.copytree(source_dataset, metadata_dataset)
+    for market_context_path in sorted(metadata_dataset.rglob("market_context.json")):
+        payload = json.loads(market_context_path.read_text(encoding="utf-8"))
+        symbols = payload["symbols"]
+        for symbol_context in symbols.values():
+            symbol_context["futures_context"] = {
+                "funding_status": "available",
+                "mark_price_status": "available",
+                "open_interest_status": "available",
+            }
+        snapshot_id = market_context_path.parent.name.split("__", maxsplit=1)[0]
+        snapshot_date, snapshot_time = snapshot_id.split("T", maxsplit=1)
+        payload["as_of"] = f"{snapshot_date}T{snapshot_time.replace('-', ':').removesuffix(':')}"
+        market_context_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return metadata_dataset
+
+
+def _remove_enrichment_fields(source_dataset: Path, legacy_dataset: Path) -> None:
+    shutil.copytree(source_dataset, legacy_dataset)
+    for instrument_path in sorted(legacy_dataset.rglob("instrument_snapshot.json")):
+        payload = json.loads(instrument_path.read_text(encoding="utf-8"))
+        for row in payload["rows"]:
+            row.pop("lifecycle_status", None)
+        instrument_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    for market_context_path in sorted(legacy_dataset.rglob("market_context.json")):
+        payload = json.loads(market_context_path.read_text(encoding="utf-8"))
+        for symbol_context in payload["symbols"].values():
+            symbol_context.pop("futures_context", None)
+        market_context_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def test_build_historical_dataset_enrichment_metadata_emits_complete_read_only_source(
+    tmp_path: Path,
+) -> None:
+    metadata_dataset = _copy_schema_complete_metadata_dataset(tmp_path)
+    before_payloads = _json_payloads(metadata_dataset)
+    output_path = tmp_path / "metadata.json"
+
+    exit_code = _run_cli(
+        [
+            "build-historical-dataset-enrichment-metadata",
+            "--metadata-dataset-root",
+            str(metadata_dataset),
+            "--output-path",
+            str(output_path),
+            "--source-name",
+            "fixture_public_read_only_metadata",
+            "--generated-at",
+            GENERATED_AT,
+        ]
+    )
+
+    assert exit_code == 0
+    assert _json_payloads(metadata_dataset) == before_payloads
+    metadata = json.loads(output_path.read_text(encoding="utf-8"))
+    assert metadata["schema_version"] == "historical_dataset_enrichment_metadata.v1"
+    assert metadata["generated_at"] == GENERATED_AT
+    assert metadata["source"] == "fixture_public_read_only_metadata"
+    assert metadata["provenance"]["metadata_dataset_root"] == str(metadata_dataset)
+    assert metadata["provenance"]["source_kind"] == "local_offline_public_read_only_metadata"
+    assert metadata["provenance"]["field_families_sourced"] == ["lifecycle_status", "futures_context"]
+    assert metadata["coverage"] == {
+        "symbol_count": 4,
+        "lifecycle_status_symbol_count": 4,
+        "futures_context_symbol_count": 4,
+        "missing_lifecycle_status_symbols": [],
+        "missing_futures_context_symbols": [],
+    }
+    assert metadata["side_effect_boundary"]["real_orders"] == "forbidden"
+    assert metadata["side_effect_boundary"]["testnet_orders"] == "forbidden"
+    assert metadata["side_effect_boundary"]["credential_use"] == "forbidden"
+    assert metadata["side_effect_boundary"]["source_root_mutation"] == "forbidden"
+    assert set(metadata["symbols"]) == {"BTCUSDT", "BTCUSDTPERP", "ETHUSDT", "SOLUSDTPERP"}
+
+    serialized = json.dumps(metadata, sort_keys=True)
+    for field in FORBIDDEN_ACCOUNT_FIELDS:
+        assert field not in serialized
+    for symbol_payload in metadata["symbols"].values():
+        assert symbol_payload["lifecycle_status"] == "listed"
+        assert set(symbol_payload["futures_context"]) == {
+            "funding_status",
+            "mark_price_status",
+            "open_interest_status",
+        }
+        assert symbol_payload["lifecycle_status_provenance"]["source"] == "instrument_snapshot"
+        assert symbol_payload["lifecycle_status_provenance"]["source_file"].endswith("instrument_snapshot.json")
+        assert symbol_payload["lifecycle_status_provenance"]["source_kind"] == "local_offline_public_read_only_metadata"
+        assert symbol_payload["futures_context_provenance"]["source"] == "market_context"
+        assert symbol_payload["futures_context_provenance"]["source_file"].endswith("market_context.json")
+        assert symbol_payload["futures_context_provenance"]["source_kind"] == "local_offline_public_read_only_metadata"
+
+
+def test_build_historical_dataset_enrichment_metadata_feeds_migration_sample(
+    tmp_path: Path,
+) -> None:
+    metadata_dataset = _copy_schema_complete_metadata_dataset(tmp_path)
+    legacy_dataset = tmp_path / "legacy-dataset"
+    _remove_enrichment_fields(metadata_dataset, legacy_dataset)
+    metadata_source = tmp_path / "metadata_source.json"
+
+    metadata_exit_code = _run_cli(
+        [
+            "build-historical-dataset-enrichment-metadata",
+            "--metadata-dataset-root",
+            str(metadata_dataset),
+            "--output-path",
+            str(metadata_source),
+            "--source-name",
+            "fixture_public_read_only_metadata",
+            "--generated-at",
+            "2026-05-19T00:00:00Z",
+        ]
+    )
+    target_dataset = tmp_path / "target-dataset"
+    sample_output_path = tmp_path / "migration_sample.json"
+    sample_exit_code = _run_cli(
+        [
+            "build-historical-dataset-migration-sample",
+            "--source-dataset-root",
+            str(legacy_dataset),
+            "--target-dataset-root",
+            str(target_dataset),
+            "--metadata-source",
+            str(metadata_source),
+            "--output-path",
+            str(sample_output_path),
+            "--generated-at",
+            GENERATED_AT,
+        ]
+    )
+
+    assert metadata_exit_code == 0
+    assert sample_exit_code == 0
+    report = json.loads(sample_output_path.read_text(encoding="utf-8"))
+    assert "dataset_missing_lifecycle_status" not in report["post_migration_preflight"]["reason_codes"]
+    assert "dataset_missing_futures_context" not in report["post_migration_preflight"]["reason_codes"]
+    assert "margin_liquidation_path_not_evaluable" in report["reason_codes"]
+
+
+def test_build_historical_dataset_enrichment_metadata_rejects_output_inside_source_root(
+    tmp_path: Path,
+) -> None:
+    metadata_dataset = _copy_schema_complete_metadata_dataset(tmp_path)
+    before_payloads = _json_payloads(metadata_dataset)
+    output_path = metadata_dataset / "metadata.json"
+
+    exit_code = _run_cli(
+        [
+            "build-historical-dataset-enrichment-metadata",
+            "--metadata-dataset-root",
+            str(metadata_dataset),
+            "--output-path",
+            str(output_path),
+            "--source-name",
+            "fixture_public_read_only_metadata",
+            "--generated-at",
+            GENERATED_AT,
+        ]
+    )
+
+    assert exit_code != 0
+    assert _json_payloads(metadata_dataset) == before_payloads
+    assert not output_path.exists()
+
+
+def test_build_historical_dataset_enrichment_metadata_fails_closed_on_partial_coverage(
+    tmp_path: Path,
+) -> None:
+    metadata_dataset = _copy_schema_complete_metadata_dataset(tmp_path)
+    instrument_path = next(iter(sorted(metadata_dataset.rglob("instrument_snapshot.json"))))
+    payload = json.loads(instrument_path.read_text(encoding="utf-8"))
+    payload["rows"][0].pop("lifecycle_status", None)
+    instrument_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    output_path = tmp_path / "metadata.json"
+
+    exit_code = _run_cli(
+        [
+            "build-historical-dataset-enrichment-metadata",
+            "--metadata-dataset-root",
+            str(metadata_dataset),
+            "--output-path",
+            str(output_path),
+            "--source-name",
+            "fixture_public_read_only_metadata",
+            "--generated-at",
+            GENERATED_AT,
+        ]
+    )
+
+    assert exit_code != 0
+    assert not output_path.exists()
+
+
+def test_build_historical_dataset_enrichment_metadata_rejects_forbidden_account_fields(
+    tmp_path: Path,
+) -> None:
+    metadata_dataset = _copy_schema_complete_metadata_dataset(tmp_path)
+    market_context_path = next(iter(sorted(metadata_dataset.rglob("market_context.json"))))
+    payload = json.loads(market_context_path.read_text(encoding="utf-8"))
+    first_symbol = next(iter(payload["symbols"]))
+    payload["symbols"][first_symbol]["futures_context"]["leverage"] = 10
+    market_context_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    output_path = tmp_path / "metadata.json"
+
+    exit_code = _run_cli(
+        [
+            "build-historical-dataset-enrichment-metadata",
+            "--metadata-dataset-root",
+            str(metadata_dataset),
+            "--output-path",
+            str(output_path),
+            "--source-name",
+            "fixture_public_read_only_metadata",
+            "--generated-at",
+            GENERATED_AT,
+        ]
+    )
+
+    assert exit_code != 0
+    assert not output_path.exists()
+
+
+def test_build_historical_dataset_enrichment_metadata_rejects_nested_forbidden_account_fields(
+    tmp_path: Path,
+) -> None:
+    metadata_dataset = _copy_schema_complete_metadata_dataset(tmp_path)
+    market_context_path = next(iter(sorted(metadata_dataset.rglob("market_context.json"))))
+    payload = json.loads(market_context_path.read_text(encoding="utf-8"))
+    first_symbol = next(iter(payload["symbols"]))
+    payload["symbols"][first_symbol]["futures_context"]["risk_tiers"] = [{"maintenance_tier": "tier-1"}]
+    market_context_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    output_path = tmp_path / "metadata.json"
+
+    exit_code = _run_cli(
+        [
+            "build-historical-dataset-enrichment-metadata",
+            "--metadata-dataset-root",
+            str(metadata_dataset),
+            "--output-path",
+            str(output_path),
+            "--source-name",
+            "fixture_public_read_only_metadata",
+            "--generated-at",
+            GENERATED_AT,
+        ]
+    )
+
+    assert exit_code != 0
+    assert not output_path.exists()
+
+
 def test_build_historical_dataset_migration_sample_copies_and_enriches_read_only_source(
     tmp_path: Path,
 ) -> None:
