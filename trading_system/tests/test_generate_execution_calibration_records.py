@@ -84,6 +84,33 @@ def _partial_cancel_event_chain(**overrides: object) -> list[dict[str, object]]:
     return rows
 
 
+def _cancel_no_fill_event_chain(**overrides: object) -> list[dict[str, object]]:
+    rows = _event_chain(**overrides)
+    rows.pop(5)
+    rows.insert(
+        5,
+        {
+            **rows[4],
+            "stage": "cancel_request",
+            "status": "requested",
+            "occurred_at": "2026-05-16T10:00:06Z",
+        },
+    )
+    rows.insert(
+        6,
+        {
+            **rows[4],
+            "stage": "cancel_ack",
+            "status": "cancelled",
+            "cancel_reason": "user_cancel",
+            "filled_qty": 0.0,
+            "occurred_at": "2026-05-16T10:00:08Z",
+        },
+    )
+    rows[-1] = {**rows[-1], "occurred_at": "2026-05-16T10:00:09Z"}
+    return rows
+
+
 def _replace_event_chain(**overrides: object) -> list[dict[str, object]]:
     rows = _event_chain(**overrides)
     rows.insert(
@@ -248,6 +275,60 @@ def test_generate_execution_calibration_records_captures_partial_fill_cancel_lif
     assert payload["partial_fill_before_cancel"] is True
     assert payload["filled_qty"] == pytest.approx(0.04)
     assert load_calibration_records(output)[0].terminal_status == "cancelled"
+
+
+def test_generate_execution_calibration_records_captures_no_fill_cancel_lifecycle(tmp_path: Path) -> None:
+    execution_log = tmp_path / "execution_log.jsonl"
+    output = tmp_path / "passive_order_calibration_records.jsonl"
+    _write_jsonl(execution_log, _cancel_no_fill_event_chain())
+
+    result = generate_execution_calibration_records(execution_log_file=execution_log, output_file=output)
+
+    assert result["record_count"] == 1
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert payload["status"] == "cancelled"
+    assert payload["terminal_status"] == "cancelled"
+    assert "first_fill_at" not in payload
+    assert "last_fill_at" not in payload
+    assert payload["filled_qty"] == pytest.approx(0.0)
+    assert "filled_notional" not in payload
+    assert payload["cancel_requested_at"] == "2026-05-16T10:00:06Z"
+    assert payload["cancel_ack_at"] == "2026-05-16T10:00:08Z"
+    assert payload["cancel_latency_ms"] == pytest.approx(2000.0)
+    record = load_calibration_records(output)[0]
+    assert record.filled_qty == pytest.approx(0.0)
+    assert record.filled_notional is None
+
+
+def test_generate_execution_calibration_records_allows_no_fill_cancel_without_fill_ledger_match(tmp_path: Path) -> None:
+    execution_log = tmp_path / "execution_log.jsonl"
+    ledger = tmp_path / "paper_ledger.jsonl"
+    output = tmp_path / "passive_order_calibration_records.jsonl"
+    _write_jsonl(
+        execution_log,
+        _event_chain()
+        + _cancel_no_fill_event_chain(
+            intent_id="intent-cancel-1",
+            order_id="order-cancel-1",
+            trade_id="trade-cancel-1",
+        ),
+    )
+    _write_jsonl(ledger, [_ledger_event()])
+
+    result = generate_execution_calibration_records(
+        execution_log_file=execution_log,
+        paper_ledger_file=ledger,
+        output_file=output,
+    )
+
+    payloads = [json.loads(line) for line in output.read_text(encoding="utf-8").splitlines() if line.strip()]
+    cancel_payload = next(payload for payload in payloads if payload["intent_id"] == "intent-cancel-1")
+    assert result["record_count"] == 2
+    assert cancel_payload["status"] == "cancelled"
+    assert cancel_payload["filled_qty"] == pytest.approx(0.0)
+    assert "trade_id" not in cancel_payload
+    assert cancel_payload["cancel_latency_ms"] == pytest.approx(2000.0)
+    assert len(load_calibration_records(output)) == 2
 
 
 def test_generate_execution_calibration_records_captures_replace_lifecycle(tmp_path: Path) -> None:

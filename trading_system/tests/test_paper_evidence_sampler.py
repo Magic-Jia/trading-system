@@ -83,6 +83,97 @@ def test_paper_evidence_sampler_skips_refresh_when_cooldown_adds_no_sample(monke
     assert calls == ["run_cycle"]
 
 
+def test_paper_evidence_sampler_can_append_paper_cancel_lifecycle_sample(monkeypatch, tmp_path):
+    from trading_system import paper_evidence_sampler as sampler
+    from trading_system.app.execution.calibration import load_calibration_records
+
+    calls: list[tuple[str, object]] = []
+    runtime_root = tmp_path / "runtime"
+
+    def forbid_run_cycle(*args, **kwargs):
+        raise AssertionError("cancel lifecycle sampling must not run a scout execution cycle")
+
+    monkeypatch.setattr(sampler.run_cycle_module, "run_cycle", forbid_run_cycle)
+    monkeypatch.setattr(
+        sampler,
+        "bootstrap_live_sim_generation_inputs",
+        lambda **kwargs: calls.append(("bootstrap", kwargs)) or {"status": "ok"},
+    )
+    monkeypatch.setattr(
+        sampler.scheduled_live_sim_generation,
+        "run_scheduled_generation",
+        lambda **kwargs: calls.append(("scheduled", kwargs)) or {"status": "ok"},
+    )
+    monkeypatch.setattr(
+        sampler.cadence_runner,
+        "run_simulated_live_cadence",
+        lambda **kwargs: calls.append(("cadence", kwargs)) or {"status": "completed", "decision": "reject"},
+    )
+
+    result = sampler.run_paper_evidence_sampler(
+        runtime_root=runtime_root,
+        runtime_env="paper",
+        generated_at="2026-05-19T02:00:00Z",
+        sample_cancel_lifecycle=True,
+    )
+
+    paths = build_runtime_paths("paper", runtime_root=runtime_root, runtime_env="paper")
+    records = load_calibration_records(paths.optimization_dir / "passive_order_calibration_records.jsonl")
+
+    assert result["status"] == "completed"
+    assert result["sample_action"] == "paper_cancel_lifecycle_sample_added"
+    assert result["new_sample_count"] == 1
+    assert result["calibration_status"] == "ok"
+    assert [name for name, _ in calls] == ["bootstrap", "scheduled", "cadence"]
+    assert len(records) == 1
+    record = records[0]
+    assert record.status == "cancelled"
+    assert record.terminal_status == "cancelled"
+    assert record.filled_qty == 0.0
+    assert record.filled_notional is None
+    assert record.first_fill_at is None
+    assert record.last_fill_at is None
+    assert record.cancel_requested_at.isoformat().replace("+00:00", "Z") == "2026-05-19T01:59:59.800000Z"
+    assert record.cancel_ack_at.isoformat().replace("+00:00", "Z") == "2026-05-19T01:59:59.950000Z"
+    assert record.cancel_latency_ms == pytest.approx(150.0)
+    assert record.latency_ms == pytest.approx(100.0)
+
+
+def test_paper_evidence_sampler_cancel_lifecycle_sample_is_idempotent(monkeypatch, tmp_path):
+    from trading_system import paper_evidence_sampler as sampler
+    from trading_system.app.execution.calibration import load_calibration_records
+
+    runtime_root = tmp_path / "runtime"
+    monkeypatch.setattr(sampler.run_cycle_module, "run_cycle", lambda *args, **kwargs: pytest.fail("unexpected run_cycle"))
+    monkeypatch.setattr(sampler, "bootstrap_live_sim_generation_inputs", lambda **kwargs: {"status": "ok"})
+    monkeypatch.setattr(sampler.scheduled_live_sim_generation, "run_scheduled_generation", lambda **kwargs: {"status": "ok"})
+    monkeypatch.setattr(
+        sampler.cadence_runner,
+        "run_simulated_live_cadence",
+        lambda **kwargs: {"status": "completed", "decision": "reject"},
+    )
+
+    first = sampler.run_paper_evidence_sampler(
+        runtime_root=runtime_root,
+        runtime_env="paper",
+        generated_at="2026-05-19T02:00:00Z",
+        sample_cancel_lifecycle=True,
+    )
+    second = sampler.run_paper_evidence_sampler(
+        runtime_root=runtime_root,
+        runtime_env="paper",
+        generated_at="2026-05-19T02:00:00Z",
+        sample_cancel_lifecycle=True,
+    )
+
+    paths = build_runtime_paths("paper", runtime_root=runtime_root, runtime_env="paper")
+    records = load_calibration_records(paths.optimization_dir / "passive_order_calibration_records.jsonl")
+    assert first["sample_action"] == "paper_cancel_lifecycle_sample_added"
+    assert second["sample_action"] == "paper_cancel_lifecycle_sample_already_present"
+    assert second["new_sample_count"] == 0
+    assert len(records) == 1
+
+
 def test_paper_evidence_sampler_rejects_non_paper_mode(tmp_path):
     from trading_system import paper_evidence_sampler as sampler
 

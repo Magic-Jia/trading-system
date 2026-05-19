@@ -255,7 +255,14 @@ def _ledger_index(rows: list[Mapping[str, Any]]) -> tuple[dict[str, Mapping[str,
     return by_order_id, by_trade_id
 
 
+def _record_has_fill(record: Mapping[str, Any]) -> bool:
+    filled_qty = record.get("filled_qty")
+    return isinstance(filled_qty, int | float) and not isinstance(filled_qty, bool) and filled_qty > 0.0
+
+
 def _validate_ledger_identity(record: Mapping[str, Any], ledger_by_order_id: Mapping[str, Mapping[str, Any]], ledger_by_trade_id: Mapping[str, Mapping[str, Any]]) -> None:
+    if not _record_has_fill(record):
+        return
     order_id = record.get("order_id")
     trade_id = record.get("trade_id")
     if isinstance(order_id, str) and ledger_by_order_id and order_id not in ledger_by_order_id:
@@ -302,7 +309,7 @@ def _record_from_chain(
     for stage in _REQUIRED_STAGES:
         if stage not in stages:
             raise ValueError(f"missing lifecycle stage {stage}")
-    if "fill" not in stages and "cancel" not in stages:
+    if "fill" not in stages and "cancel" not in stages and "cancel_ack" not in stages:
         raise ValueError("missing lifecycle stage fill")
     if "cancel_ack" in stages and "cancel_request" not in stages:
         raise ValueError("cancel_ack requires cancel_request")
