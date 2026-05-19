@@ -1001,6 +1001,34 @@ def _run_professional_evidence_pipeline_command(args: argparse.Namespace) -> int
     return 0
 
 
+def _historical_dataset_preflight_report(
+    dataset_root: Path, *, generated_at: str | None = None
+) -> dict[str, Any]:
+    diagnostic = _preflight_legacy_dataset_diagnostic(dataset_root)
+    if diagnostic is None:
+        raise FileNotFoundError(f"dataset root not found: {dataset_root}")
+    reason_codes = diagnostic.get("reason_codes")
+    reasons = list(reason_codes) if isinstance(reason_codes, list) else []
+    return {
+        "schema_version": "historical_dataset_preflight.v1",
+        "generated_at": _generated_at(generated_at),
+        "decision": "hold" if reasons else "pass",
+        **diagnostic,
+    }
+
+
+def _preflight_historical_dataset_command(args: argparse.Namespace) -> int:
+    report = _historical_dataset_preflight_report(Path(args.dataset_root), generated_at=args.generated_at)
+    output = json.dumps(report, indent=2, sort_keys=True) + "\n"
+    if args.output_path is not None:
+        Path(args.output_path).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.output_path).write_text(output, encoding="utf-8")
+        print(args.output_path)
+    else:
+        print(output, end="")
+    return 0
+
+
 def _materialize_evidence_windows_command(args: argparse.Namespace) -> int:
     symbols = tuple(str(value).strip().upper() for value in args.symbols.split(",") if str(value).strip()) if args.symbols else None
     windows_days = tuple(int(value.strip()) for value in args.windows_days.split(",") if value.strip())
@@ -1168,6 +1196,27 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional canonical UTC timestamp for deterministic generated_at fields.",
     )
     professional_pipeline_parser.set_defaults(handler=_run_professional_evidence_pipeline_command)
+
+    preflight_parser = subparsers.add_parser(
+        "preflight-historical-dataset",
+        help="Write a standalone fail-closed preflight report for an imported historical dataset root.",
+    )
+    preflight_parser.add_argument(
+        "--dataset-root",
+        required=True,
+        help="Imported historical dataset root containing per-snapshot instrument_snapshot.json and market_context.json files.",
+    )
+    preflight_parser.add_argument(
+        "--output-path",
+        default=None,
+        help="Optional path where historical_dataset_preflight.v1 JSON should be written. Prints JSON to stdout when omitted.",
+    )
+    preflight_parser.add_argument(
+        "--generated-at",
+        default=None,
+        help="Optional canonical UTC timestamp for deterministic generated_at fields.",
+    )
+    preflight_parser.set_defaults(handler=_preflight_historical_dataset_command)
 
     materialize_parser = subparsers.add_parser(
         "materialize-evidence-windows",

@@ -198,6 +198,53 @@ def test_run_professional_evidence_pipeline_preflights_multiple_legacy_dataset_g
     assert preflight["missing_futures_context"]["examples"][0]["path"].endswith("market_context.json")
 
 
+def test_preflight_historical_dataset_command_writes_migration_report(tmp_path: Path) -> None:
+    dataset_root = tmp_path / "legacy-dataset"
+    source_dataset = FIXTURES / "full_market_baseline_dataset"
+    for source_path in source_dataset.rglob("*"):
+        target_path = dataset_root / source_path.relative_to(source_dataset)
+        if source_path.is_dir():
+            target_path.mkdir(parents=True, exist_ok=True)
+            continue
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        if source_path.name == "instrument_snapshot.json":
+            payload = json.loads(source_path.read_text(encoding="utf-8"))
+            for row in payload["rows"]:
+                row.pop("lifecycle_status", None)
+            target_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        elif source_path.name == "market_context.json":
+            payload = json.loads(source_path.read_text(encoding="utf-8"))
+            for symbol_context in payload["symbols"].values():
+                symbol_context.pop("futures_context", None)
+            target_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        else:
+            target_path.write_text(source_path.read_text(encoding="utf-8"), encoding="utf-8")
+    output_path = tmp_path / "preflight.json"
+
+    exit_code = cli.main(
+        [
+            "preflight-historical-dataset",
+            "--dataset-root",
+            str(dataset_root),
+            "--output-path",
+            str(output_path),
+            "--generated-at",
+            GENERATED_AT,
+        ]
+    )
+
+    assert exit_code == 0
+    report = json.loads(output_path.read_text(encoding="utf-8"))
+    assert report["schema_version"] == "historical_dataset_preflight.v1"
+    assert report["generated_at"] == GENERATED_AT
+    assert report["decision"] == "hold"
+    assert report["dataset_root"] == str(dataset_root)
+    assert "dataset_missing_lifecycle_status" in report["reason_codes"]
+    assert "dataset_missing_futures_context" in report["reason_codes"]
+    assert report["missing_lifecycle_status"]["row_count"] > 0
+    assert report["missing_futures_context"]["symbol_count"] > 0
+
+
 def test_run_professional_evidence_pipeline_writes_bundles_reports_and_manifest(tmp_path: Path) -> None:
     output_dir = tmp_path / "professional-pipeline"
 
