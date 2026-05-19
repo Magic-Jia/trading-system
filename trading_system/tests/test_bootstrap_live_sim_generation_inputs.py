@@ -209,6 +209,31 @@ def _execution_ledger_event() -> dict[str, object]:
     }
 
 
+def _mixed_stale_and_fresh_execution_calibration_chain() -> list[dict[str, object]]:
+    stale = _execution_calibration_chain()
+    fresh = []
+    for row in _execution_calibration_chain():
+        row = dict(row)
+        row["intent_id"] = "intent-2"
+        row["order_id"] = "order-2"
+        row["trade_id"] = "trade-2"
+        row["position_id"] = "pos-2"
+        second = int(str(row["occurred_at"])[17:19])
+        row["occurred_at"] = f"2026-05-16T11:00:{second:02d}Z"
+        fresh.append(row)
+    return [*stale, *fresh]
+
+
+def _fresh_execution_ledger_events() -> list[dict[str, object]]:
+    first = _execution_ledger_event()
+    second = dict(first)
+    second["intent_id"] = "intent-2"
+    second["recorded_at"] = "2026-05-16T11:00:05Z"
+    second["order"] = {"intent_id": "intent-2", "symbol": "BTCUSDT", "side": "LONG", "qty": 0.1, "entry_price": 100.0}
+    second["result"] = {"order_id": "order-2", "trade_id": "trade-2", "status": "FILLED", "qty": 0.1, "price": 100.0}
+    return [first, second]
+
+
 def _write_legacy_artifacts(root: Path) -> None:
     _write_json(root / "runtime_state.json", _legacy_state())
     _write_json(root / "account_snapshot.json", _legacy_account())
@@ -270,6 +295,40 @@ def test_bootstrap_accepts_same_bucket_as_source_and_destination(tmp_path: Path)
 
     assert result["status"] == "ok"
     assert (paths.optimization_dir / "paper_live_sim_evidence_manifest.json").exists()
+
+
+def test_bootstrap_filters_stale_lifecycle_calibration_rows_when_fresh_rows_remain(tmp_path: Path) -> None:
+    source_root = tmp_path / "bucket-source"
+    runtime_root = tmp_path / "runtime"
+    _write_json(source_root / "runtime_state.json", _legacy_state())
+    _write_json(source_root / "account_snapshot.json", {**_legacy_account(), "as_of": "2026-05-16T11:00:00Z"})
+    _write_json(source_root / "market_context.json", {**_legacy_market(), "as_of": "2026-05-16T11:00:00Z"})
+    _write_json(source_root / "derivatives_snapshot.json", {**_legacy_derivatives(), "as_of": "2026-05-16T11:00:00Z"})
+    _write_jsonl(source_root / "execution_log.jsonl", _mixed_stale_and_fresh_execution_calibration_chain())
+    _write_jsonl(source_root / "paper_ledger.jsonl", _fresh_execution_ledger_events())
+
+    result = bootstrap_live_sim_generation_inputs(
+        legacy_root=source_root,
+        mode="paper",
+        runtime_root=runtime_root,
+        runtime_env="paper",
+        generated_at="2026-05-16T11:01:00Z",
+        max_evidence_age_seconds=120,
+    )
+
+    paths = build_runtime_paths("paper", runtime_root=runtime_root, runtime_env="paper")
+    records = [json.loads(line) for line in (paths.optimization_dir / "passive_order_calibration_records.jsonl").read_text().splitlines()]
+    metadata = json.loads((paths.optimization_dir / "bootstrap_input_metadata.json").read_text())
+    assert result["status"] == "ok"
+    assert len(records) == 1
+    assert records[0]["signal_at"] == "2026-05-16T11:00:00Z"
+    assert metadata["calibration_records"] == {
+        "available": True,
+        "record_count": 1,
+        "source": "execution_lifecycle",
+        "dropped_stale_record_count": 1,
+    }
+    assert "stale_calibration_records_dropped" in metadata["quality_reasons"]
 
 
 def test_bootstrap_accepts_bucket_native_runtime_boolean_health_fields(tmp_path: Path) -> None:

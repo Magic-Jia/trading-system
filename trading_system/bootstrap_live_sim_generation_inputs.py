@@ -9,7 +9,7 @@ import shutil
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 from trading_system.app.backtest.paper_live_shadow_drift import build_paper_live_shadow_drift_contract
 from trading_system.app.execution.calibration import load_calibration_records
@@ -275,30 +275,46 @@ def _validate_snapshot(
     return {"as_of": as_of_value, "as_of_present": True, "freshness_met": True}
 
 
-def _validate_calibration_rows_fresh(
-    rows: list[Mapping[str, Any]], generated_at: str, max_evidence_age_seconds: int
-) -> None:
+_CALIBRATION_TIMESTAMP_FIELDS = (
+    "signal_at",
+    "decision_at",
+    "submitted_at",
+    "exchange_ack_at",
+    "first_fill_at",
+    "last_fill_at",
+    "cancel_ack_at",
+)
+
+
+def _fresh_calibration_rows(
+    rows: Sequence[Mapping[str, Any]],
+    generated_at: str,
+    max_evidence_age_seconds: int,
+    *,
+    source_name: str,
+) -> tuple[list[Mapping[str, Any]], int]:
     generated = _parse_canonical_utc(generated_at, "generated_at")
-    timestamp_fields = (
-        "signal_at",
-        "decision_at",
-        "submitted_at",
-        "exchange_ack_at",
-        "first_fill_at",
-        "last_fill_at",
-        "cancel_ack_at",
-    )
+    fresh_rows: list[Mapping[str, Any]] = []
+    stale_count = 0
     for index, row in enumerate(rows):
-        for field in timestamp_fields:
+        row_stale = False
+        for field in _CALIBRATION_TIMESTAMP_FIELDS:
             value = row.get(field)
             if value is None or value == "":
                 continue
-            observed = _parse_canonical_utc(value, f"paper_trades.jsonl[{index}].{field}")
+            observed = _parse_canonical_utc(value, f"{source_name}[{index}].{field}")
             age = (generated - observed).total_seconds()
             if age < 0:
-                raise ValueError(f"paper_trades.jsonl[{index}].{field} must not be in the future")
+                raise ValueError(f"{source_name}[{index}].{field} must not be in the future")
             if age > max_evidence_age_seconds:
-                raise ValueError(f"paper_trades.jsonl[{index}].{field} is stale")
+                row_stale = True
+        if row_stale:
+            stale_count += 1
+        else:
+            fresh_rows.append(row)
+    if rows and not fresh_rows:
+        raise ValueError(f"{source_name} contains no fresh calibration rows")
+    return fresh_rows, stale_count
 
 
 def _row_has_calibration_shape(row: Mapping[str, Any]) -> bool:
@@ -598,15 +614,26 @@ def bootstrap_live_sim_generation_inputs(
     _validate_json_value(runtime_state, "runtime_state.json")
     calibration_source_rows: list[Mapping[str, Any]] = execution_calibration_rows or trades
     calibration_available = bool(execution_calibration_rows) or _calibration_rows_available(trades)
+    stale_calibration_record_count = 0
     if calibration_available:
         if execution_calibration_rows:
             generated_calibration_path = paths.optimization_dir / "passive_order_calibration_records.jsonl"
             _write_jsonl(generated_calibration_path, execution_calibration_rows)
             load_calibration_records(generated_calibration_path)
-            _validate_calibration_rows_fresh(execution_calibration_rows, evaluated_at, max_evidence_age_seconds)
+            calibration_source_rows, stale_calibration_record_count = _fresh_calibration_rows(
+                execution_calibration_rows,
+                evaluated_at,
+                max_evidence_age_seconds,
+                source_name="execution_lifecycle",
+            )
         else:
             load_calibration_records(source_root / "paper_trades.jsonl")
-            _validate_calibration_rows_fresh(trades, evaluated_at, max_evidence_age_seconds)
+            calibration_source_rows, stale_calibration_record_count = _fresh_calibration_rows(
+                trades,
+                evaluated_at,
+                max_evidence_age_seconds,
+                source_name="paper_trades.jsonl",
+            )
 
     paths.bucket_dir.mkdir(parents=True, exist_ok=True)
     _write_json(paths.account_snapshot_file, account)
@@ -624,6 +651,11 @@ def bootstrap_live_sim_generation_inputs(
             "available": True,
             "record_count": len(calibration_source_rows),
             "source": "execution_lifecycle" if execution_calibration_rows else "paper_trades",
+            **(
+                {"dropped_stale_record_count": stale_calibration_record_count}
+                if stale_calibration_record_count
+                else {}
+            ),
         }
         if calibration_available
         else {
@@ -645,7 +677,8 @@ def bootstrap_live_sim_generation_inputs(
             for quality in source_timestamp_quality.values()
             if isinstance(quality, Mapping) and isinstance(quality.get("reason"), str)
         ]
-        + ([] if calibration_available else ["calibration_records_unavailable"]),
+        + ([] if calibration_available else ["calibration_records_unavailable"])
+        + (["stale_calibration_records_dropped"] if stale_calibration_record_count else []),
     }
     generated_artifacts = {
         "bootstrap_input_metadata.json": input_metadata,
