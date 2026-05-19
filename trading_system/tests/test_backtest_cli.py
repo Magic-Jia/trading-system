@@ -30,6 +30,107 @@ def _sample_order() -> OrderIntent:
     )
 
 
+def _write_professional_config(path: Path, *, dataset_root: Path, experiment_kind: str) -> None:
+    path.write_text(
+        json.dumps(
+            {
+                "dataset_root": str(dataset_root),
+                "experiment_kind": experiment_kind,
+                "sample_windows": [
+                    {
+                        "name": "smoke_window",
+                        "start": "2026-03-10T00:00:00Z",
+                        "end": "2026-03-12T00:00:00Z",
+                    }
+                ],
+                "forward_return_windows": [],
+                "universe": {
+                    "listing_age_days": 30,
+                    "min_quote_volume_usdt_24h": {"spot": 1000000.0, "futures": 1000000.0},
+                    "require_complete_funding": True,
+                },
+                "capital": {
+                    "model": "shared_pool",
+                    "initial_equity": 100000.0,
+                    "risk_per_trade": 0.02,
+                    "max_open_risk": 0.03,
+                },
+                "costs": {
+                    "fee_bps": {"spot": 10.0, "futures": 5.0},
+                    "slippage_tiers": {"top": 2.0, "high": 8.0, "medium": 15.0, "low": 30.0},
+                    "funding_mode": "historical_series",
+                },
+                "baseline_name": "current_system",
+                "variant_name": f"diagnostic_{experiment_kind}",
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
+def test_run_professional_evidence_pipeline_writes_hold_diagnostic_when_dataset_generation_fails(
+    tmp_path: Path,
+) -> None:
+    dataset_root = tmp_path / "legacy-dataset"
+    source_dataset = FIXTURES / "full_market_baseline_dataset"
+    for source_path in source_dataset.rglob("*"):
+        target_path = dataset_root / source_path.relative_to(source_dataset)
+        if source_path.is_dir():
+            target_path.mkdir(parents=True, exist_ok=True)
+            continue
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        if source_path.name == "instrument_snapshot.json":
+            payload = json.loads(source_path.read_text(encoding="utf-8"))
+            for row in payload["rows"]:
+                row.pop("lifecycle_status", None)
+            target_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        else:
+            target_path.write_text(source_path.read_text(encoding="utf-8"), encoding="utf-8")
+
+    configs_dir = tmp_path / "configs"
+    configs_dir.mkdir()
+    backtest_config = configs_dir / "backtest.json"
+    walk_forward_config = configs_dir / "walk_forward.json"
+    allocator_config = configs_dir / "allocator.json"
+    _write_professional_config(backtest_config, dataset_root=dataset_root, experiment_kind="full_market_baseline")
+    _write_professional_config(walk_forward_config, dataset_root=dataset_root, experiment_kind="walk_forward_validation")
+    _write_professional_config(allocator_config, dataset_root=dataset_root, experiment_kind="allocator_friction")
+    output_dir = tmp_path / "professional-pipeline"
+
+    exit_code = cli.main(
+        [
+            "run-professional-evidence-pipeline",
+            "--backtest-config",
+            str(backtest_config),
+            "--walk-forward-config",
+            str(walk_forward_config),
+            "--allocator-friction-config",
+            str(allocator_config),
+            "--output-dir",
+            str(output_dir),
+            "--generated-at",
+            GENERATED_AT,
+        ]
+    )
+
+    assert exit_code == 0
+    evidence_chain_path = output_dir / "professional_evidence" / "backtest_evidence_chain.json"
+    assert evidence_chain_path.exists()
+    evidence_chain = json.loads(evidence_chain_path.read_text(encoding="utf-8"))
+    assert evidence_chain["schema_version"] == "backtest_evidence_chain.v1"
+    assert evidence_chain["summary"]["decision"] == "hold"
+    assert evidence_chain["historical_backtest"]["status"] == "hold"
+    assert "dataset_missing_lifecycle_status" in evidence_chain["historical_backtest"]["reason_codes"]
+    assert "pipeline_generation_failed" in evidence_chain["summary"]["reason_codes"]
+    manifest = json.loads((output_dir / "professional_evidence_pipeline_manifest.json").read_text(encoding="utf-8"))
+    assert manifest["decision"] == "hold"
+    assert manifest["professional_evidence"]["evidence_chain_path"] == str(evidence_chain_path)
+    assert manifest["professional_evidence"]["generation_failed"] is True
+
+
 def test_run_professional_evidence_pipeline_writes_bundles_reports_and_manifest(tmp_path: Path) -> None:
     output_dir = tmp_path / "professional-pipeline"
 

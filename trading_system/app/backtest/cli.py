@@ -25,6 +25,7 @@ from .experiments import (
     run_walk_forward_validation_experiment,
 )
 from .promotion import compare_backtest_bundles
+from .evidence_chain import OFFLINE_PROVENANCE, SCHEMA_VERSION, SOURCE_MODE, _generated_at
 from .professional_reports import write_professional_backtest_evidence
 from .llm_trend_breakout import run_llm_trend_breakout_experiment
 from .reporting import (
@@ -653,6 +654,94 @@ def _write_professional_evidence_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def _diagnostic_reason_codes(message: str) -> list[str]:
+    reasons = ["pipeline_generation_failed"]
+    if "lifecycle_status must be present" in message:
+        reasons.append("dataset_missing_lifecycle_status")
+    if "margin_mode must be isolated or cross" in message:
+        reasons.extend(["dataset_missing_futures_context", "margin_liquidation_path_not_evaluable"])
+    return reasons
+
+
+def _component_hold(generated_at: str, reasons: list[str]) -> dict[str, Any]:
+    return {
+        "as_of": generated_at,
+        "coverage_score": 0.0,
+        "sample_count": 0,
+        "status": "hold",
+        "reason_codes": reasons,
+    }
+
+
+def _write_pipeline_generation_failure_diagnostic(
+    *,
+    output_dir: Path,
+    error: Exception,
+    generated_at: str | None,
+) -> dict[str, Any]:
+    evaluated_at = _generated_at(generated_at)
+    evidence_dir = output_dir / "professional_evidence"
+    evidence_dir.mkdir(parents=True, exist_ok=True)
+    evidence_chain_path = evidence_dir / "backtest_evidence_chain.json"
+    message = str(error)
+    reasons = _diagnostic_reason_codes(message)
+    component_names = (
+        "historical_backtest",
+        "exit_path_replay",
+        "walk_forward_oos",
+        "cost_sensitivity",
+        "execution_realism",
+        "data_quality",
+    )
+    evidence_chain: dict[str, Any] = {
+        "schema_version": SCHEMA_VERSION,
+        "generated_at": evaluated_at,
+        "source_mode": SOURCE_MODE,
+        "backtest_bundle_dir": str(output_dir / "bundles"),
+        "generation_failure": {
+            "stage": "professional_evidence_pipeline_bundle_generation",
+            "message": message,
+            "reason_codes": reasons,
+        },
+        "sources": {},
+        "missing_sources": ["backtest_bundle"],
+        "malformed_sources": [],
+        "provenance": {
+            "source": OFFLINE_PROVENANCE,
+            "source_mode": SOURCE_MODE,
+            "side_effect_boundary": {
+                "real_orders": "forbidden",
+                "testnet_orders": "forbidden",
+                "exchange_api_calls": "forbidden",
+                "credential_use": "forbidden",
+                "reads": "backtest_configs_and_dataset_only",
+            },
+        },
+    }
+    for name in component_names:
+        evidence_chain[name] = _component_hold(evaluated_at, list(reasons))
+    evidence_chain["summary"] = {
+        "decision": "hold",
+        "component_statuses": {name: "hold" for name in component_names},
+        "reason_codes": reasons,
+    }
+    evidence_chain_path.write_text(json.dumps(evidence_chain, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    manifest = {
+        "schema_version": "professional_evidence_pipeline.v1",
+        "generated_at": evaluated_at,
+        "decision": "hold",
+        "bundles": {},
+        "professional_evidence": {
+            "evidence_chain_path": str(evidence_chain_path),
+            "generation_failed": True,
+            "generation_failure_reason_codes": reasons,
+        },
+    }
+    manifest_path = output_dir / "professional_evidence_pipeline_manifest.json"
+    manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return {"evidence_chain": evidence_chain, "evidence_chain_path": str(evidence_chain_path), "manifest": manifest}
+
+
 def _run_backtest_config_to_bundle(config_path: Path, output_dir: Path, *, expected_experiment_kind: str | None = None) -> Path:
     config = load_backtest_config(config_path)
     if expected_experiment_kind is not None and config.experiment_kind != expected_experiment_kind:
@@ -679,15 +768,25 @@ def _run_professional_evidence_pipeline_command(args: argparse.Namespace) -> int
     bundles_dir = output_dir / "bundles"
     evidence_dir = output_dir / "professional_evidence"
     bundles_dir.mkdir(parents=True, exist_ok=True)
-    backtest_bundle_dir = _run_backtest_config_to_bundle(
-        Path(args.backtest_config), bundles_dir, expected_experiment_kind="full_market_baseline"
-    )
-    walk_forward_bundle_dir = _run_backtest_config_to_bundle(
-        Path(args.walk_forward_config), bundles_dir, expected_experiment_kind="walk_forward_validation"
-    )
-    allocator_friction_bundle_dir = _run_backtest_config_to_bundle(
-        Path(args.allocator_friction_config), bundles_dir, expected_experiment_kind="allocator_friction"
-    )
+    try:
+        backtest_bundle_dir = _run_backtest_config_to_bundle(
+            Path(args.backtest_config), bundles_dir, expected_experiment_kind="full_market_baseline"
+        )
+        walk_forward_bundle_dir = _run_backtest_config_to_bundle(
+            Path(args.walk_forward_config), bundles_dir, expected_experiment_kind="walk_forward_validation"
+        )
+        allocator_friction_bundle_dir = _run_backtest_config_to_bundle(
+            Path(args.allocator_friction_config), bundles_dir, expected_experiment_kind="allocator_friction"
+        )
+    except ValueError as exc:
+        if "experiment_kind must be" in str(exc):
+            raise
+        _write_pipeline_generation_failure_diagnostic(
+            output_dir=output_dir,
+            error=exc,
+            generated_at=args.generated_at,
+        )
+        return 0
     outputs = write_professional_backtest_evidence(
         backtest_bundle_dir=backtest_bundle_dir,
         walk_forward_bundle_dir=walk_forward_bundle_dir,
