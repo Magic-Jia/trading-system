@@ -447,6 +447,7 @@ def _record_from_chain(
         "terminal_status": terminal_status,
         "partial_fill_before_cancel": bool(fill_rows and cancel_ack is not None),
         "setup_type": _setup_type(signal, intent, submit),
+        "intent_id": identity["intent_id"],
         "order_id": order_id,
         "trade_id": trade_id,
     }
@@ -464,7 +465,7 @@ def _record_from_chain(
             }
         )
     _validate_ledger_identity(record, ledger_by_order_id, ledger_by_trade_id)
-    return {key: value for key, value in record.items() if value is not None and key not in {"order_id", "trade_id"}}
+    return {key: value for key, value in record.items() if value is not None}
 
 
 def _timestamp_string(row: Mapping[str, Any] | None) -> str | None:

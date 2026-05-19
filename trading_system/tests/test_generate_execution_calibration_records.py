@@ -214,6 +214,10 @@ def test_generate_execution_calibration_records_writes_loader_compatible_jsonl(t
     assert result["status"] == "ok"
     assert result["record_count"] == 1
     assert len(records) == 1
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert payload["intent_id"] == "intent-1"
+    assert payload["order_id"] == "order-1"
+    assert payload["trade_id"] == "trade-1"
     record = records[0]
     assert record.symbol == "BTCUSDT"
     assert record.side == "buy"
