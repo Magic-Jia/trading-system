@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import sys
 from collections.abc import Mapping
 from pathlib import Path
@@ -1163,6 +1164,177 @@ def _plan_historical_dataset_migration_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def _file_count(root: Path) -> int:
+    return sum(1 for path in root.rglob("*") if path.is_file())
+
+
+def _metadata_symbols(payload: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
+    symbols = payload.get("symbols")
+    if not isinstance(symbols, Mapping):
+        raise ValueError("metadata source symbols must be an object")
+    normalized: dict[str, Mapping[str, Any]] = {}
+    for symbol, symbol_payload in symbols.items():
+        if not isinstance(symbol, str) or not symbol.strip():
+            raise ValueError("metadata source symbol keys must be non-empty strings")
+        if not isinstance(symbol_payload, Mapping):
+            raise ValueError(f"metadata source symbols.{symbol} must be an object")
+        normalized[symbol] = symbol_payload
+    return normalized
+
+
+def _reject_path_inside_source_root(*, source_dataset_root: Path, candidate_path: Path, field_name: str) -> None:
+    source_root = source_dataset_root.expanduser().resolve(strict=False)
+    candidate = candidate_path.expanduser().resolve(strict=False)
+    if candidate == source_root or source_root in candidate.parents:
+        raise ValueError(f"{field_name} must be outside source dataset root")
+
+
+def _build_historical_dataset_migration_sample_report(
+    *,
+    source_dataset_root: Path,
+    target_dataset_root: Path,
+    metadata_source: Path,
+    generated_at: str | None = None,
+) -> dict[str, Any]:
+    if not source_dataset_root.is_dir():
+        raise FileNotFoundError(f"source dataset root not found: {source_dataset_root}")
+    _reject_path_inside_source_root(
+        source_dataset_root=source_dataset_root,
+        candidate_path=target_dataset_root,
+        field_name="target dataset root",
+    )
+    if target_dataset_root.exists() and any(target_dataset_root.iterdir()):
+        raise ValueError(f"target dataset root already exists and is non-empty: {target_dataset_root}")
+    metadata_payload = json.loads(metadata_source.read_text(encoding="utf-8"))
+    if not isinstance(metadata_payload, Mapping):
+        raise ValueError("metadata source must be a JSON object")
+    symbols = _metadata_symbols(metadata_payload)
+
+    copied_files = _file_count(source_dataset_root)
+    shutil.copytree(source_dataset_root, target_dataset_root, dirs_exist_ok=True)
+
+    counts = {
+        "copied_files": copied_files,
+        "enriched_lifecycle_rows": 0,
+        "enriched_futures_contexts": 0,
+        "skipped_existing_lifecycle_rows": 0,
+        "skipped_existing_futures_contexts": 0,
+        "missing_lifecycle_metadata_rows": 0,
+        "missing_futures_context_metadata_symbols": 0,
+    }
+    missing_futures_keys: set[tuple[str, str]] = set()
+
+    for instrument_path in sorted(target_dataset_root.rglob("instrument_snapshot.json")):
+        payload = json.loads(instrument_path.read_text(encoding="utf-8"))
+        rows = payload.get("rows") if isinstance(payload, Mapping) else None
+        if not isinstance(rows, list):
+            continue
+        changed = False
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            symbol = row.get("symbol")
+            if not isinstance(symbol, str):
+                continue
+            if "lifecycle_status" in row:
+                counts["skipped_existing_lifecycle_rows"] += 1
+                continue
+            symbol_metadata = symbols.get(symbol)
+            if symbol_metadata is None or "lifecycle_status" not in symbol_metadata:
+                counts["missing_lifecycle_metadata_rows"] += 1
+                continue
+            if not isinstance(symbol_metadata.get("lifecycle_status_provenance"), Mapping):
+                counts["missing_lifecycle_metadata_rows"] += 1
+                continue
+            row["lifecycle_status"] = symbol_metadata["lifecycle_status"]
+            counts["enriched_lifecycle_rows"] += 1
+            changed = True
+        if changed:
+            _write_json(instrument_path, payload)
+
+    for market_context_path in sorted(target_dataset_root.rglob("market_context.json")):
+        payload = json.loads(market_context_path.read_text(encoding="utf-8"))
+        market_symbols = payload.get("symbols") if isinstance(payload, Mapping) else None
+        if not isinstance(market_symbols, Mapping):
+            continue
+        changed = False
+        for symbol, symbol_context in market_symbols.items():
+            if not isinstance(symbol, str) or not isinstance(symbol_context, dict):
+                continue
+            if "futures_context" in symbol_context and isinstance(symbol_context["futures_context"], Mapping):
+                counts["skipped_existing_futures_contexts"] += 1
+                continue
+            symbol_metadata = symbols.get(symbol)
+            futures_context = symbol_metadata.get("futures_context") if symbol_metadata is not None else None
+            if (
+                symbol_metadata is None
+                or not isinstance(futures_context, Mapping)
+                or not isinstance(symbol_metadata.get("futures_context_provenance"), Mapping)
+            ):
+                missing_futures_keys.add((str(market_context_path), symbol))
+                continue
+            symbol_context["futures_context"] = dict(futures_context)
+            counts["enriched_futures_contexts"] += 1
+            changed = True
+        if changed:
+            _write_json(market_context_path, payload)
+    counts["missing_futures_context_metadata_symbols"] = len(missing_futures_keys)
+
+    preflight = _historical_dataset_preflight_report(target_dataset_root, generated_at=generated_at)
+    reason_codes = list(preflight["reason_codes"]) if isinstance(preflight.get("reason_codes"), list) else []
+    _append_reason(reason_codes, "margin_liquidation_path_not_evaluable")
+    return {
+        "schema_version": "historical_dataset_migration_sample.v1",
+        "generated_at": _generated_at(generated_at),
+        "decision": "hold",
+        "source_dataset_root": str(source_dataset_root),
+        "target_dataset_root": str(target_dataset_root),
+        "metadata_source": str(metadata_source),
+        "reason_codes": reason_codes,
+        "counts": counts,
+        "provenance_summary": {
+            "schema_version": metadata_payload.get("schema_version"),
+            "generated_at": metadata_payload.get("generated_at"),
+            "source": metadata_payload.get("source"),
+            "provenance": metadata_payload.get("provenance"),
+            "symbol_count": len(symbols),
+        },
+        "side_effect_boundary": {
+            "source_dataset_mutation": "forbidden",
+            "target_dataset_mutation": "caller_specified_target_only",
+            "real_orders": "forbidden",
+            "testnet_orders": "forbidden",
+            "exchange_trading_endpoints": "forbidden",
+            "credential_use": "forbidden",
+            "metadata_reads": "local_files_only",
+            "account_policy_fields": "not_modified",
+        },
+        "safety_reasons": ["account_policy_fields_not_modified"],
+        "post_migration_preflight": preflight,
+    }
+
+
+def _build_historical_dataset_migration_sample_command(args: argparse.Namespace) -> int:
+    source_dataset_root = Path(args.source_dataset_root)
+    output_path = Path(args.output_path)
+    if source_dataset_root.is_dir():
+        _reject_path_inside_source_root(
+            source_dataset_root=source_dataset_root,
+            candidate_path=output_path,
+            field_name="output path",
+        )
+    report = _build_historical_dataset_migration_sample_report(
+        source_dataset_root=source_dataset_root,
+        target_dataset_root=Path(args.target_dataset_root),
+        metadata_source=Path(args.metadata_source),
+        generated_at=args.generated_at,
+    )
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    _write_json(output_path, report)
+    print(args.output_path)
+    return 0
+
+
 def _materialize_evidence_windows_command(args: argparse.Namespace) -> int:
     symbols = tuple(str(value).strip().upper() for value in args.symbols.split(",") if str(value).strip()) if args.symbols else None
     windows_days = tuple(int(value.strip()) for value in args.windows_days.split(",") if value.strip())
@@ -1372,6 +1544,37 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional canonical UTC timestamp for deterministic generated_at fields.",
     )
     migration_plan_parser.set_defaults(handler=_plan_historical_dataset_migration_command)
+
+    migration_sample_parser = subparsers.add_parser(
+        "build-historical-dataset-migration-sample",
+        help="Copy a legacy historical dataset and enrich read-only public metadata fields in a target root.",
+    )
+    migration_sample_parser.add_argument(
+        "--source-dataset-root",
+        required=True,
+        help="Legacy dataset root to copy without mutation.",
+    )
+    migration_sample_parser.add_argument(
+        "--target-dataset-root",
+        required=True,
+        help="Caller-specified output dataset root. Must not already be non-empty.",
+    )
+    migration_sample_parser.add_argument(
+        "--metadata-source",
+        required=True,
+        help="Local JSON metadata source with explicit lifecycle/futures provenance.",
+    )
+    migration_sample_parser.add_argument(
+        "--output-path",
+        required=True,
+        help="Path where historical_dataset_migration_sample.v1 JSON should be written.",
+    )
+    migration_sample_parser.add_argument(
+        "--generated-at",
+        default=None,
+        help="Optional canonical UTC timestamp for deterministic generated_at fields.",
+    )
+    migration_sample_parser.set_defaults(handler=_build_historical_dataset_migration_sample_command)
 
     materialize_parser = subparsers.add_parser(
         "materialize-evidence-windows",

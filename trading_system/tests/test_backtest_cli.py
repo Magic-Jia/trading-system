@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from dataclasses import replace
 from pathlib import Path
 
@@ -15,6 +16,13 @@ from trading_system.run_cycle import _execution_sample_collection_health
 
 FIXTURES = Path(__file__).parent / "fixtures" / "backtest"
 GENERATED_AT = "2026-05-18T05:00:00Z"
+
+
+def _run_cli(argv: list[str]) -> int:
+    try:
+        return cli.main(argv)
+    except SystemExit as exc:
+        return int(exc.code) if isinstance(exc.code, int) else 1
 
 
 def _sample_order() -> OrderIntent:
@@ -69,6 +77,268 @@ def _write_professional_config(path: Path, *, dataset_root: Path, experiment_kin
         + "\n",
         encoding="utf-8",
     )
+
+
+def test_build_historical_dataset_migration_sample_copies_and_enriches_read_only_source(
+    tmp_path: Path,
+) -> None:
+    source_dataset = FIXTURES / "full_market_baseline_dataset"
+    legacy_dataset = tmp_path / "legacy-dataset"
+    shutil.copytree(source_dataset, legacy_dataset)
+    original_source_payloads = {
+        path.relative_to(legacy_dataset): path.read_bytes()
+        for path in sorted(legacy_dataset.rglob("*.json"))
+    }
+    metadata_symbols: dict[str, dict[str, object]] = {}
+
+    for source_path in sorted(source_dataset.rglob("instrument_snapshot.json")):
+        target_path = legacy_dataset / source_path.relative_to(source_dataset)
+        original_payload = json.loads(source_path.read_text(encoding="utf-8"))
+        legacy_payload = json.loads(target_path.read_text(encoding="utf-8"))
+        for original_row, legacy_row in zip(original_payload["rows"], legacy_payload["rows"], strict=True):
+            symbol = original_row["symbol"]
+            metadata_symbols.setdefault(
+                symbol,
+                {
+                    "lifecycle_status": original_row["lifecycle_status"],
+                    "lifecycle_status_provenance": {
+                        "source": "exchange_info_status",
+                        "observed_at": original_payload["as_of"],
+                    },
+                    "futures_context": {
+                        "mark_price_status": "missing",
+                        "funding_status": "missing",
+                        "open_interest_status": "missing",
+                    },
+                    "futures_context_provenance": {
+                        "source": "futures_exchange_info",
+                        "observed_at": original_payload["as_of"],
+                    },
+                },
+            )
+            legacy_row.pop("lifecycle_status", None)
+        target_path.write_text(json.dumps(legacy_payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    for target_path in sorted(legacy_dataset.rglob("market_context.json")):
+        payload = json.loads(target_path.read_text(encoding="utf-8"))
+        for symbol_context in payload["symbols"].values():
+            symbol_context.pop("futures_context", None)
+        target_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    mutated_legacy_payloads = {
+        path.relative_to(legacy_dataset): path.read_bytes()
+        for path in sorted(legacy_dataset.rglob("*.json"))
+    }
+    assert mutated_legacy_payloads != original_source_payloads
+
+    metadata_source = tmp_path / "metadata_source.json"
+    metadata_source.write_text(
+        json.dumps(
+            {
+                "schema_version": "historical_dataset_enrichment_metadata.v1",
+                "generated_at": "2026-05-19T00:00:00Z",
+                "source": "fixture_public_read_only_metadata",
+                "provenance": {
+                    "capture_method": "fixture",
+                    "source_kind": "public_read_only_exchange_metadata",
+                },
+                "symbols": metadata_symbols,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    target_dataset = tmp_path / "target-dataset"
+    output_path = tmp_path / "migration_sample.json"
+
+    exit_code = _run_cli(
+        [
+            "build-historical-dataset-migration-sample",
+            "--source-dataset-root",
+            str(legacy_dataset),
+            "--target-dataset-root",
+            str(target_dataset),
+            "--metadata-source",
+            str(metadata_source),
+            "--output-path",
+            str(output_path),
+            "--generated-at",
+            GENERATED_AT,
+        ]
+    )
+
+    assert exit_code == 0
+    assert {
+        path.relative_to(legacy_dataset): path.read_bytes()
+        for path in sorted(legacy_dataset.rglob("*.json"))
+    } == mutated_legacy_payloads
+    assert target_dataset.exists()
+    assert target_dataset != legacy_dataset
+    assert output_path.exists()
+
+    for instrument_path in sorted(target_dataset.rglob("instrument_snapshot.json")):
+        payload = json.loads(instrument_path.read_text(encoding="utf-8"))
+        for row in payload["rows"]:
+            assert row["lifecycle_status"] == metadata_symbols[row["symbol"]]["lifecycle_status"]
+
+    forbidden_account_fields = {
+        "margin_mode",
+        "leverage",
+        "maintenance_tier",
+        "liquidation_price",
+        "notional",
+        "unrealized_pnl",
+    }
+    for market_context_path in sorted(target_dataset.rglob("market_context.json")):
+        payload = json.loads(market_context_path.read_text(encoding="utf-8"))
+        for symbol, symbol_context in payload["symbols"].items():
+            assert symbol_context["futures_context"] == metadata_symbols[symbol]["futures_context"]
+            assert forbidden_account_fields.isdisjoint(symbol_context["futures_context"])
+
+    report = json.loads(output_path.read_text(encoding="utf-8"))
+    assert report["schema_version"] == "historical_dataset_migration_sample.v1"
+    assert report["generated_at"] == GENERATED_AT
+    assert report["decision"] == "hold"
+    assert report["source_dataset_root"] == str(legacy_dataset)
+    assert report["target_dataset_root"] == str(target_dataset)
+    assert report["metadata_source"] == str(metadata_source)
+    assert report["counts"]["copied_files"] == len([path for path in source_dataset.rglob("*") if path.is_file()])
+    assert report["counts"]["enriched_lifecycle_rows"] == 5
+    assert report["counts"]["enriched_futures_contexts"] == 7
+    assert report["counts"]["skipped_existing_lifecycle_rows"] == 0
+    assert report["counts"]["skipped_existing_futures_contexts"] == 0
+    assert report["counts"]["missing_lifecycle_metadata_rows"] == 0
+    assert report["counts"]["missing_futures_context_metadata_symbols"] == 0
+    assert report["provenance_summary"] == {
+        "schema_version": "historical_dataset_enrichment_metadata.v1",
+        "generated_at": "2026-05-19T00:00:00Z",
+        "source": "fixture_public_read_only_metadata",
+        "provenance": {
+            "capture_method": "fixture",
+            "source_kind": "public_read_only_exchange_metadata",
+        },
+        "symbol_count": len(metadata_symbols),
+    }
+    assert report["side_effect_boundary"]["source_dataset_mutation"] == "forbidden"
+    assert report["side_effect_boundary"]["account_policy_fields"] == "not_modified"
+    assert report["safety_reasons"] == ["account_policy_fields_not_modified"]
+    assert "dataset_missing_lifecycle_status" not in report["post_migration_preflight"]["reason_codes"]
+    assert "dataset_missing_futures_context" not in report["post_migration_preflight"]["reason_codes"]
+    assert "margin_liquidation_path_not_evaluable" in report["reason_codes"]
+
+    serialized_target_market_context = json.dumps(
+        [
+            json.loads(path.read_text(encoding="utf-8"))
+            for path in sorted(target_dataset.rglob("market_context.json"))
+        ],
+        sort_keys=True,
+    )
+    serialized_report = json.dumps(report, sort_keys=True)
+    for field in forbidden_account_fields:
+        assert field not in serialized_target_market_context
+        assert field not in serialized_report
+
+    first_target_payloads = {
+        path.relative_to(target_dataset): path.read_bytes()
+        for path in sorted(target_dataset.rglob("*"))
+        if path.is_file()
+    }
+    second_output_path = tmp_path / "migration_sample_second.json"
+    rerun_exit_code = _run_cli(
+        [
+            "build-historical-dataset-migration-sample",
+            "--source-dataset-root",
+            str(legacy_dataset),
+            "--target-dataset-root",
+            str(target_dataset),
+            "--metadata-source",
+            str(metadata_source),
+            "--output-path",
+            str(second_output_path),
+            "--generated-at",
+            GENERATED_AT,
+        ]
+    )
+
+    assert rerun_exit_code != 0
+    assert {
+        path.relative_to(target_dataset): path.read_bytes()
+        for path in sorted(target_dataset.rglob("*"))
+        if path.is_file()
+    } == first_target_payloads
+    assert not second_output_path.exists()
+
+
+def test_build_historical_dataset_migration_sample_rejects_writes_inside_source_root(
+    tmp_path: Path,
+) -> None:
+    source_dataset = FIXTURES / "full_market_baseline_dataset"
+    legacy_dataset = tmp_path / "legacy-dataset"
+    shutil.copytree(source_dataset, legacy_dataset)
+    original_source_payloads = {
+        path.relative_to(legacy_dataset): path.read_bytes()
+        for path in sorted(legacy_dataset.rglob("*"))
+        if path.is_file()
+    }
+    metadata_source = tmp_path / "metadata_source.json"
+    metadata_source.write_text(
+        json.dumps(
+            {
+                "schema_version": "historical_dataset_enrichment_metadata.v1",
+                "generated_at": "2026-05-19T00:00:00Z",
+                "source": "fixture_public_read_only_metadata",
+                "provenance": {"source_kind": "public_read_only_exchange_metadata"},
+                "symbols": {},
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    target_inside_source_exit_code = _run_cli(
+        [
+            "build-historical-dataset-migration-sample",
+            "--source-dataset-root",
+            str(legacy_dataset),
+            "--target-dataset-root",
+            str(legacy_dataset / "migration-target"),
+            "--metadata-source",
+            str(metadata_source),
+            "--output-path",
+            str(tmp_path / "target_inside_source_report.json"),
+            "--generated-at",
+            GENERATED_AT,
+        ]
+    )
+    output_inside_source_exit_code = _run_cli(
+        [
+            "build-historical-dataset-migration-sample",
+            "--source-dataset-root",
+            str(legacy_dataset),
+            "--target-dataset-root",
+            str(tmp_path / "target-dataset"),
+            "--metadata-source",
+            str(metadata_source),
+            "--output-path",
+            str(legacy_dataset / "migration-report.json"),
+            "--generated-at",
+            GENERATED_AT,
+        ]
+    )
+
+    assert target_inside_source_exit_code != 0
+    assert output_inside_source_exit_code != 0
+    assert {
+        path.relative_to(legacy_dataset): path.read_bytes()
+        for path in sorted(legacy_dataset.rglob("*"))
+        if path.is_file()
+    } == original_source_payloads
+    assert not (legacy_dataset / "migration-target").exists()
+    assert not (legacy_dataset / "migration-report.json").exists()
 
 
 def test_run_professional_evidence_pipeline_writes_hold_diagnostic_when_dataset_generation_fails(
