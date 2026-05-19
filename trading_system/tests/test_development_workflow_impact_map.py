@@ -284,6 +284,19 @@ def test_promotion_readiness_scorecard_has_reporting_impact_mapping() -> None:
     assert "trading_system/tests/test_daily_quality_gate_report.py" in tests
 
 
+def test_daily_quality_gate_report_has_reporting_impact_mapping() -> None:
+    verify = load_verify_module()
+
+    implementation_tests = verify.tests_for_changed(["trading_system/app/reporting/daily_quality_gate_report.py"])
+    test_file_tests = verify.tests_for_changed(["trading_system/tests/test_daily_quality_gate_report.py"])
+
+    for tests in (implementation_tests, test_file_tests):
+        assert "trading_system/tests/test_daily_quality_gate_report.py" in tests
+        assert "trading_system/tests/test_scheduled_live_sim_generation.py" in tests
+        assert "trading_system/tests/test_simulated_live_cadence_runner.py" in tests
+        assert "trading_system/tests/test_rolling_tca_durability_report.py" in tests
+
+
 def test_promotion_readiness_scorecard_trend_has_reporting_impact_mapping() -> None:
     verify = load_verify_module()
 

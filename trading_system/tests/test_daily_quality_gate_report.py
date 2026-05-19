@@ -102,6 +102,33 @@ def test_daily_quality_gate_holds_when_rolling_tca_bucket_samples_are_insufficie
     assert report["checks"]["rolling_tca_bucket_samples_sufficient"] is False
 
 
+def test_daily_quality_gate_holds_for_producer_native_insufficient_rolling_tca_evidence() -> None:
+    inputs = _passing_inputs()
+    inputs["rolling_tca_durability"] = {
+        "schema_version": "rolling_tca_durability_report.v1",
+        "decision": "insufficient",
+        "reason_codes": ["stale_dates", "insufficient_bucket_samples"],
+        "checks": {
+            "all_bucket_fields_known": True,
+            "all_bucket_windows_sufficiently_sampled": False,
+            "all_expected_dates_present": True,
+            "all_records_well_formed": True,
+            "no_stale_dates": False,
+            "no_threshold_breaches": True,
+        },
+    }
+
+    report = build_daily_quality_gate_report(**inputs)
+
+    assert report["decision"] == "hold_for_review"
+    assert report["malformed_inputs"] == []
+    assert "malformed_evidence" not in report["reasons"]
+    assert "data_freshness_violation" in report["reasons"]
+    assert "insufficient_bucket_samples" in report["reasons"]
+    assert report["checks"]["rolling_tca_durability_passed"] is False
+    assert report["checks"]["rolling_tca_bucket_samples_sufficient"] is False
+
+
 def test_daily_quality_gate_fails_closed_for_malformed_rolling_tca_durability() -> None:
     inputs = _passing_inputs()
     inputs["rolling_tca_durability"] = {

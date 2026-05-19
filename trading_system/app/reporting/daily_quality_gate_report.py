@@ -524,24 +524,26 @@ def _rolling_tca_durability_checks(
     if decision is None:
         malformed.append("rolling_tca_durability.decision_invalid")
 
-    raw_reasons = payload.get("reasons")
+    raw_reason_field = "reason_codes" if "reason_codes" in payload else "reasons"
+    raw_reasons = payload.get(raw_reason_field)
     reasons: list[str] = []
     reason_map = {
         "rolling_tca_durability_failed": "rolling_tca_durability_failed",
         "bucket_regression": "bucket_regression",
         "insufficient_bucket_samples": "insufficient_bucket_samples",
         "insufficient_bucket_sample_size": "insufficient_bucket_samples",
+        "stale_dates": "data_freshness_violation",
         "rolling_slippage_exceeds_threshold": "rolling_tca_durability_failed",
         "bucket_latency_regression": "bucket_regression",
         "maker_taker_mix_shift": "bucket_regression",
     }
     if not isinstance(raw_reasons, list):
-        malformed.append("rolling_tca_durability.reasons_not_list")
+        malformed.append(f"rolling_tca_durability.{raw_reason_field}_not_list")
     else:
         for index, reason in enumerate(raw_reasons):
             mapped = reason_map.get(reason) if isinstance(reason, str) else None
             if mapped is None:
-                malformed.append(f"rolling_tca_durability.reasons[{index}]_invalid")
+                malformed.append(f"rolling_tca_durability.{raw_reason_field}[{index}]_invalid")
                 continue
             reasons.append(mapped)
 
@@ -564,6 +566,8 @@ def _rolling_tca_durability_checks(
         malformed.append("rolling_tca_durability.checks.rolling_tca_durable_not_bool")
 
     sufficient_buckets = checks.get("sufficient_bucket_samples")
+    if sufficient_buckets is None:
+        sufficient_buckets = checks.get("all_bucket_windows_sufficiently_sampled")
     if sufficient_buckets is None and raw_decision in {"durable", "insufficient", "rejected"}:
         sufficient_buckets = raw_decision != "insufficient"
     elif not isinstance(sufficient_buckets, bool):
