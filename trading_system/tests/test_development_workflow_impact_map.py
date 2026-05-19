@@ -217,6 +217,18 @@ def test_promotion_gate_decision_test_file_has_impact_mapping() -> None:
     assert "trading_system/tests/test_execution_calibration_evidence.py" in tests
 
 
+def test_bootstrap_live_sim_generation_inputs_has_impact_mapping() -> None:
+    verify = load_verify_module()
+
+    implementation_tests = verify.tests_for_changed(["trading_system/bootstrap_live_sim_generation_inputs.py"])
+    test_file_tests = verify.tests_for_changed(["trading_system/tests/test_bootstrap_live_sim_generation_inputs.py"])
+
+    for tests in (implementation_tests, test_file_tests):
+        assert "trading_system/tests/test_bootstrap_live_sim_generation_inputs.py" in tests
+        assert "trading_system/tests/test_scheduled_live_sim_generation.py" in tests
+        assert "trading_system/tests/test_simulated_live_cadence_runner.py" in tests
+
+
 def test_promotion_readiness_scorecard_has_reporting_impact_mapping() -> None:
     verify = load_verify_module()
 

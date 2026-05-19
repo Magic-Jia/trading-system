@@ -248,6 +248,89 @@ def test_bootstrap_writes_required_inputs_from_legacy_local_artifacts(tmp_path: 
     assert json.loads(paths.derivatives_snapshot_file.read_text()) == _legacy_derivatives()
 
 
+def test_bootstrap_accepts_same_bucket_as_source_and_destination(tmp_path: Path) -> None:
+    runtime_root = tmp_path / "runtime"
+    paths = build_runtime_paths("paper", runtime_root=runtime_root, runtime_env="paper")
+    paths.bucket_dir.mkdir(parents=True)
+    _write_json(paths.bucket_dir / "runtime_state.json", _legacy_state())
+    _write_json(paths.bucket_dir / "account_snapshot.json", _legacy_account())
+    _write_json(paths.bucket_dir / "market_context.json", _legacy_market())
+    _write_json(paths.bucket_dir / "derivatives_snapshot.json", _legacy_derivatives())
+    _write_jsonl(paths.bucket_dir / "execution_log.jsonl", _execution_calibration_chain())
+    _write_jsonl(paths.bucket_dir / "paper_ledger.jsonl", [_execution_ledger_event()])
+
+    result = bootstrap_live_sim_generation_inputs(
+        legacy_root=paths.bucket_dir,
+        mode="paper",
+        runtime_root=runtime_root,
+        runtime_env="paper",
+        generated_at="2026-05-16T10:01:00Z",
+        max_evidence_age_seconds=120,
+    )
+
+    assert result["status"] == "ok"
+    assert (paths.optimization_dir / "paper_live_sim_evidence_manifest.json").exists()
+
+
+def test_bootstrap_accepts_bucket_native_runtime_boolean_health_fields(tmp_path: Path) -> None:
+    source_root = tmp_path / "bucket-source"
+    runtime_root = tmp_path / "runtime"
+    state = _legacy_state()
+    state["latest_universes"] = {"major_universe": [{"symbol": "BTCUSDT", "listing_age_ok": True}]}
+    _write_json(source_root / "runtime_state.json", state)
+    _write_json(source_root / "account_snapshot.json", _legacy_account())
+    _write_json(source_root / "market_context.json", _legacy_market())
+    _write_json(source_root / "derivatives_snapshot.json", _legacy_derivatives())
+    _write_jsonl(source_root / "execution_log.jsonl", _execution_calibration_chain())
+    _write_jsonl(source_root / "paper_ledger.jsonl", [_execution_ledger_event()])
+
+    result = bootstrap_live_sim_generation_inputs(
+        legacy_root=source_root,
+        mode="paper",
+        runtime_root=runtime_root,
+        runtime_env="paper",
+        generated_at="2026-05-16T10:01:00Z",
+        max_evidence_age_seconds=120,
+    )
+
+    assert result["status"] == "ok"
+
+
+def test_bootstrap_accepts_bucket_native_execution_logs_without_paper_trades(tmp_path: Path) -> None:
+    source_root = tmp_path / "bucket-source"
+    runtime_root = tmp_path / "runtime"
+    _write_json(source_root / "runtime_state.json", _legacy_state())
+    _write_json(source_root / "account_snapshot.json", _legacy_account())
+    _write_json(source_root / "market_context.json", _legacy_market())
+    _write_json(source_root / "derivatives_snapshot.json", _legacy_derivatives())
+    _write_jsonl(source_root / "execution_log.jsonl", _execution_calibration_chain())
+    _write_jsonl(source_root / "paper_ledger.jsonl", [_execution_ledger_event()])
+
+    result = bootstrap_live_sim_generation_inputs(
+        legacy_root=source_root,
+        mode="paper",
+        runtime_root=runtime_root,
+        runtime_env="paper",
+        generated_at="2026-05-16T10:01:00Z",
+        max_evidence_age_seconds=120,
+    )
+
+    paths = build_runtime_paths("paper", runtime_root=runtime_root, runtime_env="paper")
+    records = [json.loads(line) for line in (paths.optimization_dir / "passive_order_calibration_records.jsonl").read_text().splitlines()]
+    metadata = json.loads((paths.optimization_dir / "bootstrap_input_metadata.json").read_text())
+    manifest = json.loads((paths.optimization_dir / "paper_live_sim_evidence_manifest.json").read_text())
+    assert result["status"] == "ok"
+    assert len(records) == 1
+    assert records[0]["symbol"] == "BTCUSDT"
+    assert records[0]["terminal_status"] == "filled"
+    assert metadata["calibration_records"] == {
+        "available": True,
+        "record_count": 1,
+        "source": "execution_lifecycle",
+    }
+    assert manifest["generated_at"] == "2026-05-16T10:01:00Z"
+
+
 def test_bootstrap_outputs_allow_scheduled_generation_to_run(tmp_path: Path) -> None:
     legacy_root = tmp_path / "legacy"
     runtime_root = tmp_path / "runtime"

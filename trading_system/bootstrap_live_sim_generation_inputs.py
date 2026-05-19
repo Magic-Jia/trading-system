@@ -220,9 +220,14 @@ def _validate_json_value(
 
 
 def _numeric_key_hint(key: str) -> bool:
-    if key in {"equity_provenance", "equity_source_field"}:
+    lowered = key.lower()
+    if lowered in {"equity_provenance", "equity_source_field"}:
         return False
-    tokens = [token for token in key.lower().replace("-", "_").split("_") if token]
+    if lowered.endswith(("_ok", "_enabled", "_present", "_valid", "_passed", "_met", "_available")):
+        return False
+    if lowered.startswith(("is_", "has_")):
+        return False
+    tokens = [token for token in lowered.replace("-", "_").split("_") if token]
     return any(token in _NUMERIC_FIELD_HINTS for token in tokens)
 
 
@@ -566,8 +571,10 @@ def bootstrap_live_sim_generation_inputs(
     account = _read_json_object(source_root / "account_snapshot.json")
     market = _read_json_object(source_root / "market_context.json")
     derivatives = _read_json_object(source_root / "derivatives_snapshot.json")
-    trades = _read_jsonl_objects(source_root / "paper_trades.jsonl")
     execution_calibration_rows = _execution_calibration_rows(source_root)
+    trades = _read_optional_jsonl_objects(source_root / "paper_trades.jsonl")
+    if not execution_calibration_rows and not trades:
+        _read_jsonl_objects(source_root / "paper_trades.jsonl")
     source_as_of_values = [
         value
         for value in (account.get("as_of"), market.get("as_of"), derivatives.get("as_of"))
@@ -606,7 +613,10 @@ def bootstrap_live_sim_generation_inputs(
     for name in _SNAPSHOT_NAMES:
         if name == "account_snapshot.json":
             continue
-        shutil.copyfile(source_root / name, paths.bucket_dir / name)
+        src = source_root / name
+        dst = paths.bucket_dir / name
+        if src.resolve() != dst.resolve():
+            shutil.copyfile(src, dst)
 
     source = _source(source_root, evaluated_at)
     calibration_metadata = (

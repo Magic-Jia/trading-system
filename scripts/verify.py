@@ -139,6 +139,22 @@ IMPACT_RULES: tuple[tuple[str, list[str]], ...] = (
     ("trading_system/app/backtest/archive/", SUITES["archive-data"]),
     ("trading_system/app/backtest/live_readiness.py", SUITES["evidence-chain"]),
     (
+        "trading_system/bootstrap_live_sim_generation_inputs.py",
+        [
+            "trading_system/tests/test_bootstrap_live_sim_generation_inputs.py",
+            "trading_system/tests/test_scheduled_live_sim_generation.py",
+            "trading_system/tests/test_simulated_live_cadence_runner.py",
+        ],
+    ),
+    (
+        "trading_system/tests/test_bootstrap_live_sim_generation_inputs.py",
+        [
+            "trading_system/tests/test_bootstrap_live_sim_generation_inputs.py",
+            "trading_system/tests/test_scheduled_live_sim_generation.py",
+            "trading_system/tests/test_simulated_live_cadence_runner.py",
+        ],
+    ),
+    (
         "trading_system/scheduled_live_sim_generation.py",
         ["trading_system/tests/test_scheduled_live_sim_generation.py"],
     ),
