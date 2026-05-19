@@ -257,6 +257,113 @@ def test_generate_execution_calibration_records_writes_loader_compatible_jsonl(t
     assert record.slippage_bps == pytest.approx(50.2512562814)
 
 
+def test_generate_execution_calibration_records_adds_post_fill_independent_markout(tmp_path: Path) -> None:
+    execution_log = tmp_path / "execution_log.jsonl"
+    snapshot = tmp_path / "local_independent_source_snapshot.json"
+    output = tmp_path / "passive_order_calibration_records.jsonl"
+    _write_jsonl(
+        execution_log,
+        _event_chain(intent_id="intent-buy", order_id="order-buy", trade_id="trade-buy")
+        + _event_chain(
+            intent_id="intent-sell",
+            order_id="order-sell",
+            trade_id="trade-sell",
+            symbol="ETHUSDT",
+            side="sell",
+            ref_price=100.5,
+        ),
+    )
+    snapshot.write_text(
+        json.dumps(
+            {
+                "schema_version": "local_independent_source_snapshot.v1",
+                "source_id": "coinbase_exchange_public_ticker",
+                "observations": [
+                    {
+                        "symbol": "BTCUSDT",
+                        "source_symbol": "BTC-USDT",
+                        "mid_price": 99.0,
+                        "observed_at": "2026-05-16T10:00:05.000001Z",
+                    },
+                    {
+                        "symbol": "ETHUSDT",
+                        "source_symbol": "ETH-USDT",
+                        "mid_price": 101.0,
+                        "observed_at": "2026-05-16T10:00:05.000002Z",
+                    },
+                ],
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = generate_execution_calibration_records(
+        execution_log_file=execution_log,
+        output_file=output,
+        independent_source_snapshot_file=snapshot,
+    )
+
+    payloads = [json.loads(line) for line in output.read_text(encoding="utf-8").splitlines() if line.strip()]
+    by_intent = {payload["intent_id"]: payload for payload in payloads}
+    buy_payload = by_intent["intent-buy"]
+    sell_payload = by_intent["intent-sell"]
+    assert result["record_count"] == 2
+    assert buy_payload["adverse_selection_bps"] == pytest.approx(((100.0 - 99.0) / 99.0) * 10000.0)
+    assert buy_payload["adverse_selection_benchmark_price"] == pytest.approx(99.0)
+    assert buy_payload["adverse_selection_benchmark_at"] == "2026-05-16T10:00:05.000001Z"
+    assert buy_payload["adverse_selection_source_id"] == "coinbase_exchange_public_ticker"
+    assert buy_payload["adverse_selection_source_type"] == "local_independent_source_snapshot"
+    assert sell_payload["adverse_selection_bps"] == pytest.approx(((101.0 - 100.0) / 101.0) * 10000.0)
+    assert sell_payload["adverse_selection_benchmark_price"] == pytest.approx(101.0)
+    assert sell_payload["adverse_selection_benchmark_at"] == "2026-05-16T10:00:05.000002Z"
+    assert load_calibration_records(output)[0].adverse_selection_bps is not None
+
+
+@pytest.mark.parametrize("observed_at", ["2026-05-16T10:00:04Z", "2026-05-16T10:00:05Z"])
+def test_generate_execution_calibration_records_fails_closed_for_non_post_fill_markout(
+    tmp_path: Path,
+    observed_at: str,
+) -> None:
+    execution_log = tmp_path / "execution_log.jsonl"
+    snapshot = tmp_path / "local_independent_source_snapshot.json"
+    output = tmp_path / "passive_order_calibration_records.jsonl"
+    _write_jsonl(execution_log, _event_chain())
+    snapshot.write_text(
+        json.dumps(
+            {
+                "schema_version": "local_independent_source_snapshot.v1",
+                "source_id": "coinbase_exchange_public_ticker",
+                "observations": [
+                    {
+                        "symbol": "BTCUSDT",
+                        "source_symbol": "BTC-USDT",
+                        "mid_price": 99.0,
+                        "observed_at": observed_at,
+                    }
+                ],
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = generate_execution_calibration_records(
+        execution_log_file=execution_log,
+        output_file=output,
+        independent_source_snapshot_file=snapshot,
+    )
+
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert result["record_count"] == 1
+    assert "adverse_selection_bps" not in payload
+    assert payload["adverse_selection_status"] == "unavailable"
+    assert payload["adverse_selection_unavailable_reason"] == "benchmark_not_post_fill"
+    assert payload["adverse_selection_source_id"] == "coinbase_exchange_public_ticker"
+
+
 def test_generate_execution_calibration_records_captures_partial_fill_cancel_lifecycle(tmp_path: Path) -> None:
     execution_log = tmp_path / "execution_log.jsonl"
     output = tmp_path / "passive_order_calibration_records.jsonl"

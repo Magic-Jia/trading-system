@@ -49,6 +49,8 @@ _NUMERIC_FIELDS = {
     "avgPrice",
 }
 
+_KNOWN_INDEPENDENT_SNAPSHOT_SCHEMAS = {"local_independent_source_snapshot.v1"}
+
 
 def _read_jsonl_objects(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
@@ -93,6 +95,12 @@ def _is_canonical_utc_timestamp(value: str) -> bool:
 
 def _parse_timestamp(row: Mapping[str, Any], field: str) -> datetime:
     value = row.get(field)
+    if type(value) is not str or not _is_canonical_utc_timestamp(value):
+        raise ValueError(f"{field} must be a canonical UTC timestamp")
+    return datetime.fromisoformat(value[:-1] + "+00:00").astimezone(UTC)
+
+
+def _parse_optional_timestamp_value(value: Any, field: str) -> datetime:
     if type(value) is not str or not _is_canonical_utc_timestamp(value):
         raise ValueError(f"{field} must be a canonical UTC timestamp")
     return datetime.fromisoformat(value[:-1] + "+00:00").astimezone(UTC)
@@ -229,6 +237,113 @@ def _slippage_bps(*, side: str, fill_price: float | None, ref_price: float | Non
     if side == "buy":
         return ((fill_price - ref_price) / ref_price) * 10000.0
     return ((ref_price - fill_price) / ref_price) * 10000.0
+
+
+def _read_json_object(path: Path) -> dict[str, Any]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, Mapping):
+        raise ValueError(f"{path.name} must contain a JSON object")
+    return dict(payload)
+
+
+def _independent_snapshot_source_type(snapshot: Mapping[str, Any]) -> str:
+    schema_version = snapshot.get("schema_version")
+    if schema_version == "local_independent_source_snapshot.v1":
+        return "local_independent_source_snapshot"
+    raise ValueError("independent source snapshot schema_version is invalid")
+
+
+def _validated_independent_observations(snapshot: Mapping[str, Any]) -> dict[str, list[dict[str, Any]]]:
+    schema_version = snapshot.get("schema_version")
+    if schema_version not in _KNOWN_INDEPENDENT_SNAPSHOT_SCHEMAS:
+        raise ValueError("independent source snapshot schema_version is invalid")
+    source_id = snapshot.get("source_id")
+    if type(source_id) is not str or not source_id or source_id != source_id.strip():
+        raise ValueError("independent source snapshot source_id must be canonical")
+    observations = snapshot.get("observations")
+    if not isinstance(observations, list):
+        raise ValueError("independent source snapshot observations must be a list")
+    by_symbol: dict[str, list[dict[str, Any]]] = {}
+    source_type = _independent_snapshot_source_type(snapshot)
+    for index, observation in enumerate(observations):
+        if not isinstance(observation, Mapping):
+            raise ValueError(f"independent source snapshot observations[{index}] must be an object")
+        symbol = _canonical_symbol(_require_string(observation, "symbol"))
+        benchmark_price = _optional_number(observation, "mid_price", positive=True)
+        if benchmark_price is None:
+            continue
+        observed_at = _parse_optional_timestamp_value(observation.get("observed_at"), "observed_at")
+        by_symbol.setdefault(symbol, []).append(
+            {
+                "symbol": symbol,
+                "benchmark_price": benchmark_price,
+                "observed_at": observed_at,
+                "observed_at_text": observation["observed_at"],
+                "source_id": source_id,
+                "source_type": source_type,
+            }
+        )
+    for rows in by_symbol.values():
+        rows.sort(key=lambda row: row["observed_at"])
+    return by_symbol
+
+
+def _fill_price_from_record(record: Mapping[str, Any]) -> float | None:
+    filled_qty = _optional_number(record, "filled_qty", positive=True)
+    filled_notional = _optional_number(record, "filled_notional", positive=True)
+    if filled_qty is not None and filled_notional is not None:
+        return filled_notional / filled_qty
+    return _optional_number(record, "ref_price", "intended_limit_price", positive=True)
+
+
+def _adverse_selection_bps(*, side: str, fill_price: float, benchmark_price: float) -> float:
+    if side == "buy":
+        return ((fill_price - benchmark_price) / benchmark_price) * 10000.0
+    return ((benchmark_price - fill_price) / benchmark_price) * 10000.0
+
+
+def _annotate_adverse_selection(
+    records: list[dict[str, Any]],
+    *,
+    independent_observations: Mapping[str, list[dict[str, Any]]],
+) -> None:
+    for record in records:
+        if not _record_has_fill(record):
+            continue
+        last_fill_at_text = record.get("last_fill_at")
+        fill_price = _fill_price_from_record(record)
+        side = record.get("side")
+        symbol = record.get("symbol")
+        if type(last_fill_at_text) is not str or fill_price is None or type(side) is not str or type(symbol) is not str:
+            record["adverse_selection_status"] = "unavailable"
+            record["adverse_selection_unavailable_reason"] = "missing_fill_inputs"
+            continue
+        last_fill_at = _parse_optional_timestamp_value(last_fill_at_text, "last_fill_at")
+        observations = independent_observations.get(symbol, [])
+        if not observations:
+            record["adverse_selection_status"] = "unavailable"
+            record["adverse_selection_unavailable_reason"] = "benchmark_missing"
+            continue
+        selected = next((observation for observation in observations if observation["observed_at"] > last_fill_at), None)
+        if selected is None:
+            latest = observations[-1]
+            record["adverse_selection_status"] = "unavailable"
+            record["adverse_selection_unavailable_reason"] = "benchmark_not_post_fill"
+            record["adverse_selection_benchmark_at"] = latest["observed_at_text"]
+            record["adverse_selection_benchmark_price"] = latest["benchmark_price"]
+            record["adverse_selection_source_id"] = latest["source_id"]
+            record["adverse_selection_source_type"] = latest["source_type"]
+            continue
+        record["adverse_selection_bps"] = _adverse_selection_bps(
+            side=side,
+            fill_price=fill_price,
+            benchmark_price=selected["benchmark_price"],
+        )
+        record["adverse_selection_benchmark_price"] = selected["benchmark_price"]
+        record["adverse_selection_benchmark_at"] = selected["observed_at_text"]
+        record["adverse_selection_source_id"] = selected["source_id"]
+        record["adverse_selection_source_type"] = selected["source_type"]
+        record["adverse_selection_status"] = "available"
 
 
 def _ledger_index(rows: list[Mapping[str, Any]]) -> tuple[dict[str, Mapping[str, Any]], dict[str, Mapping[str, Any]]]:
@@ -518,6 +633,7 @@ def build_passive_order_calibration_records(
     execution_events: list[dict[str, Any]],
     *,
     ledger_events: list[dict[str, Any]] | None = None,
+    independent_source_snapshot: Mapping[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     canonical_events = _canonical_event_rows(execution_events)
     if not canonical_events:
@@ -538,6 +654,11 @@ def build_passive_order_calibration_records(
         )
         for _, rows in sorted(grouped.items())
     ]
+    if independent_source_snapshot is not None:
+        _annotate_adverse_selection(
+            records,
+            independent_observations=_validated_independent_observations(independent_source_snapshot),
+        )
     return records
 
 
@@ -604,14 +725,21 @@ def generate_execution_calibration_records(
     output_file: str | Path,
     paper_ledger_file: str | Path | None = None,
     unavailable_marker_file: str | Path | None = None,
+    independent_source_snapshot_file: str | Path | None = None,
 ) -> dict[str, Any]:
     execution_path = Path(execution_log_file)
     output_path = Path(output_file)
     ledger_path = Path(paper_ledger_file) if paper_ledger_file is not None else None
+    independent_snapshot_path = Path(independent_source_snapshot_file) if independent_source_snapshot_file is not None else None
     execution_rows = _read_jsonl_objects(execution_path)
     canonical_event_count = len(_canonical_event_rows(execution_rows))
     ledger_rows = _read_jsonl_objects(ledger_path) if ledger_path is not None else []
-    records = build_passive_order_calibration_records(execution_rows, ledger_events=ledger_rows)
+    independent_snapshot = _read_json_object(independent_snapshot_path) if independent_snapshot_path is not None else None
+    records = build_passive_order_calibration_records(
+        execution_rows,
+        ledger_events=ledger_rows,
+        independent_source_snapshot=independent_snapshot,
+    )
     _write_jsonl_atomic(output_path, records)
     load_calibration_records(output_path)
     marker_path = Path(unavailable_marker_file) if unavailable_marker_file is not None else None
@@ -633,6 +761,9 @@ def generate_execution_calibration_records(
         "canonical_event_count": canonical_event_count,
         "execution_log_file": str(execution_path),
         "paper_ledger_file": str(paper_ledger_file) if paper_ledger_file is not None else None,
+        "independent_source_snapshot_file": (
+            str(independent_snapshot_path) if independent_snapshot_path is not None else None
+        ),
         "output_file": str(output_path),
     }
 
@@ -644,6 +775,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--execution-log-file")
     parser.add_argument("--paper-ledger-file")
     parser.add_argument("--output-file")
+    parser.add_argument("--independent-source-snapshot")
     parser.add_argument("--mode", default="paper")
     parser.add_argument("--runtime-root")
     parser.add_argument("--runtime-env")
@@ -658,12 +790,14 @@ def main(argv: list[str] | None = None) -> int:
         execution_log_file = Path(args.execution_log_file)
         paper_ledger_file = Path(args.paper_ledger_file) if args.paper_ledger_file else None
         output_file = Path(args.output_file)
+        independent_source_snapshot_file = Path(args.independent_source_snapshot) if args.independent_source_snapshot else None
         unavailable_marker_file = output_file.parent / CALIBRATION_UNAVAILABLE_NAME
     else:
         paths = build_runtime_paths(args.mode, runtime_root=args.runtime_root, runtime_env=args.runtime_env)
         execution_log_file = paths.execution_log_file
         paper_ledger_file = paths.paper_ledger_file
         output_file = paths.optimization_dir / CALIBRATION_RECORDS_NAME
+        independent_source_snapshot_file = Path(args.independent_source_snapshot) if args.independent_source_snapshot else None
         unavailable_marker_file = paths.optimization_dir / CALIBRATION_UNAVAILABLE_NAME
 
     result = generate_execution_calibration_records(
@@ -671,6 +805,7 @@ def main(argv: list[str] | None = None) -> int:
         paper_ledger_file=paper_ledger_file,
         output_file=output_file,
         unavailable_marker_file=unavailable_marker_file,
+        independent_source_snapshot_file=independent_source_snapshot_file,
     )
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0
