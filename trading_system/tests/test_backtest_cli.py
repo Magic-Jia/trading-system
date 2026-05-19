@@ -932,6 +932,59 @@ def test_diagnostic_reason_codes_keep_margin_policy_failure_separate_from_future
     assert "dataset_missing_futures_context" not in reasons
 
 
+def test_run_professional_evidence_pipeline_writes_account_margin_policy_hold_evidence(
+    tmp_path: Path,
+) -> None:
+    dataset_root = _copy_schema_complete_metadata_dataset(tmp_path)
+    configs_dir = tmp_path / "configs"
+    configs_dir.mkdir()
+    backtest_config = configs_dir / "backtest.json"
+    walk_forward_config = configs_dir / "walk_forward.json"
+    allocator_config = configs_dir / "allocator.json"
+    _write_professional_config(backtest_config, dataset_root=dataset_root, experiment_kind="full_market_baseline")
+    _write_professional_config(walk_forward_config, dataset_root=dataset_root, experiment_kind="walk_forward_validation")
+    _write_professional_config(allocator_config, dataset_root=dataset_root, experiment_kind="allocator_friction")
+    output_dir = tmp_path / "professional-pipeline"
+
+    exit_code = cli.main(
+        [
+            "run-professional-evidence-pipeline",
+            "--backtest-config",
+            str(backtest_config),
+            "--walk-forward-config",
+            str(walk_forward_config),
+            "--allocator-friction-config",
+            str(allocator_config),
+            "--output-dir",
+            str(output_dir),
+            "--generated-at",
+            GENERATED_AT,
+        ]
+    )
+
+    assert exit_code == 0
+    evidence_chain = json.loads(
+        (output_dir / "professional_evidence" / "backtest_evidence_chain.json").read_text(encoding="utf-8")
+    )
+    assert evidence_chain["summary"]["decision"] == "hold"
+    assert evidence_chain["summary"]["reason_codes"] == [
+        "pipeline_generation_failed",
+        "margin_liquidation_path_not_evaluable",
+    ]
+    policy = evidence_chain["account_margin_policy_evidence"]
+    assert policy["schema_version"] == "account_margin_policy_evidence.v1"
+    assert policy["decision"] == "hold"
+    assert policy["status"] == "unavailable"
+    assert policy["reason_codes"] == ["margin_liquidation_path_not_evaluable"]
+    assert policy["fabricated_fields"] == []
+    assert policy["non_fabrication_policy"]["account_fields_may_be_defaulted"] is False
+    assert set(policy["required_fields"]) == FORBIDDEN_ACCOUNT_FIELDS
+    for field, field_status in policy["required_fields"].items():
+        assert field_status["status"] == "unavailable"
+        assert field_status["provenance"] == "unavailable"
+        assert field_status["fabricated"] is False
+
+
 def test_run_professional_evidence_pipeline_writes_hold_diagnostic_when_dataset_generation_fails(
     tmp_path: Path,
 ) -> None:

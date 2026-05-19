@@ -792,6 +792,44 @@ def _component_hold(generated_at: str, reasons: list[str]) -> dict[str, Any]:
     }
 
 
+def _account_margin_policy_hold_evidence(generated_at: str) -> dict[str, Any]:
+    required_field_names = (
+        "margin_mode",
+        "leverage",
+        "maintenance_tier",
+        "liquidation_price",
+        "notional",
+        "unrealized_pnl",
+    )
+    return {
+        "schema_version": "account_margin_policy_evidence.v1",
+        "generated_at": generated_at,
+        "decision": "hold",
+        "status": "unavailable",
+        "reason_codes": ["margin_liquidation_path_not_evaluable"],
+        "required_fields": {
+            field: {
+                "status": "unavailable",
+                "provenance": "unavailable",
+                "fabricated": False,
+            }
+            for field in required_field_names
+        },
+        "fabricated_fields": [],
+        "accepted_provenance_sources": [
+            "account_policy_archive",
+            "execution_runtime_audit_log",
+            "broker_or_exchange_account_state_snapshot",
+            "margin_liquidation_path_evidence_bundle",
+        ],
+        "non_fabrication_policy": {
+            "account_fields_may_be_defaulted": False,
+            "market_data_may_imply_account_policy": False,
+            "unavailable_fields_keep_decision_hold": True,
+        },
+    }
+
+
 def _write_pipeline_generation_failure_diagnostic(
     *,
     output_dir: Path,
@@ -845,6 +883,8 @@ def _write_pipeline_generation_failure_diagnostic(
     }
     for name in component_names:
         evidence_chain[name] = _component_hold(evaluated_at, list(reasons))
+    if "margin_liquidation_path_not_evaluable" in reasons:
+        evidence_chain["account_margin_policy_evidence"] = _account_margin_policy_hold_evidence(evaluated_at)
     evidence_chain["summary"] = {
         "decision": "hold",
         "component_statuses": {name: "hold" for name in component_names},
