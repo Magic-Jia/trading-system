@@ -1029,6 +1029,140 @@ def _preflight_historical_dataset_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def _historical_dataset_migration_plan_report(
+    dataset_root: Path, *, generated_at: str | None = None
+) -> dict[str, Any]:
+    preflight = _historical_dataset_preflight_report(dataset_root, generated_at=generated_at)
+    reason_codes = list(preflight["reason_codes"]) if isinstance(preflight.get("reason_codes"), list) else []
+    missing_lifecycle = preflight["missing_lifecycle_status"]
+    missing_futures = preflight["missing_futures_context"]
+    return {
+        "schema_version": "historical_dataset_migration_plan.v1",
+        "generated_at": preflight["generated_at"],
+        "decision": "hold" if reason_codes else "pass",
+        "source_dataset_root": str(dataset_root),
+        "reason_codes": reason_codes,
+        "preflight_summary": {
+            "schema_version": preflight["schema_version"],
+            "decision": preflight["decision"],
+            "snapshot_count": preflight["snapshot_count"],
+            "missing_lifecycle_status": missing_lifecycle,
+            "missing_futures_context": missing_futures,
+        },
+        "target_required_fields": [
+            {
+                "field": "lifecycle_status",
+                "reason_code": "dataset_missing_lifecycle_status",
+                "preflight_counts": {
+                    "missing_row_count": missing_lifecycle["row_count"],
+                    "missing_snapshot_count": missing_lifecycle["snapshot_count"],
+                },
+                "candidate_sources": [
+                    "public_exchange_instrument_metadata",
+                    "historical_exchange_listing_status_archive",
+                    "importer_source_trace_with_timestamp",
+                ],
+                "requires_provenance": True,
+                "not_derivable_fields": [],
+                "non_fabrication_notes": [
+                    "Do not default missing lifecycle_status to listed.",
+                    "Backfill only from timestamped instrument metadata or reimport with source trace.",
+                ],
+                "recommended_action": "formal_reimport_or_provenance_backfill",
+            },
+            {
+                "field": "futures_context",
+                "reason_code": "dataset_missing_futures_context",
+                "preflight_counts": {
+                    "missing_symbol_count": missing_futures["symbol_count"],
+                    "missing_snapshot_count": missing_futures["snapshot_count"],
+                },
+                "candidate_sources": [
+                    "public_exchange_futures_market_metadata",
+                    "historical_mark_price_funding_open_interest_archive",
+                    "importer_source_trace_with_timestamp",
+                ],
+                "requires_provenance": True,
+                "not_derivable_fields": [],
+                "non_fabrication_notes": [
+                    "Do not infer mark, funding, or open-interest context from spot candles.",
+                    "Backfill only from public read-only futures metadata captured at the snapshot time.",
+                ],
+                "recommended_action": "fetch_public_exchange_metadata",
+            },
+            {
+                "field": "margin_liquidation_path",
+                "reason_code": "margin_liquidation_path_not_evaluable",
+                "preflight_counts": {
+                    "missing_futures_context_symbol_count": missing_futures["symbol_count"],
+                    "affected_snapshot_count": missing_futures["snapshot_count"],
+                },
+                "candidate_sources": [
+                    "account_policy_archive",
+                    "execution_runtime_audit_log",
+                    "broker_or_exchange_account_state_snapshot",
+                    "margin_liquidation_path_evidence_bundle",
+                ],
+                "requires_provenance": True,
+                "not_derivable_fields": [
+                    "margin_mode",
+                    "leverage",
+                    "maintenance_tier",
+                    "liquidation_price",
+                ],
+                "non_fabrication_notes": [
+                    "Account and execution policy fields are not safely derivable from public market data.",
+                    "Hold until legitimate account policy and liquidation-path evidence is attached.",
+                ],
+                "recommended_action": "attach_account_policy_or_hold",
+            },
+        ],
+        "account_execution_policy_classification": {
+            "public_market_data_derivable": False,
+            "fields": ["margin_mode", "leverage", "maintenance_tier", "liquidation_price"],
+            "notes": [
+                "margin_mode can be account, policy, or runtime specific.",
+                "leverage, maintenance tier, and liquidation context require source provenance.",
+            ],
+        },
+        "operations": {
+            "safe_next_steps": [
+                "Keep the source dataset immutable while planning migration.",
+                "Reimport or provenance-backfill lifecycle_status and futures_context from read-only historical sources.",
+                "Attach account policy and liquidation-path evidence before enabling professional backtest gates.",
+            ],
+            "validation_commands": [
+                "preflight-historical-dataset",
+                "run-professional-evidence-pipeline",
+            ],
+            "validation_command_examples": [
+                "preflight-historical-dataset --dataset-root <migrated_dataset_root> --output-path <preflight.json>",
+                "run-professional-evidence-pipeline --backtest-config <backtest.json> --walk-forward-config <walk_forward.json> --allocator-friction-config <allocator.json> --output-dir <evidence_output_dir>",
+            ],
+        },
+        "side_effect_boundary": {
+            "dataset_mutation": "forbidden",
+            "real_orders": "forbidden",
+            "testnet_orders": "forbidden",
+            "exchange_trading_endpoints": "forbidden",
+            "credential_use": "forbidden",
+            "allowed_reads": "local_dataset_files_only",
+        },
+    }
+
+
+def _plan_historical_dataset_migration_command(args: argparse.Namespace) -> int:
+    report = _historical_dataset_migration_plan_report(Path(args.dataset_root), generated_at=args.generated_at)
+    output = json.dumps(report, indent=2, sort_keys=True) + "\n"
+    if args.output_path is not None:
+        Path(args.output_path).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.output_path).write_text(output, encoding="utf-8")
+        print(args.output_path)
+    else:
+        print(output, end="")
+    return 0
+
+
 def _materialize_evidence_windows_command(args: argparse.Namespace) -> int:
     symbols = tuple(str(value).strip().upper() for value in args.symbols.split(",") if str(value).strip()) if args.symbols else None
     windows_days = tuple(int(value.strip()) for value in args.windows_days.split(",") if value.strip())
@@ -1217,6 +1351,27 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional canonical UTC timestamp for deterministic generated_at fields.",
     )
     preflight_parser.set_defaults(handler=_preflight_historical_dataset_command)
+
+    migration_plan_parser = subparsers.add_parser(
+        "plan-historical-dataset-migration",
+        help="Write a read-only migration/reimport planning report for a historical dataset root.",
+    )
+    migration_plan_parser.add_argument(
+        "--dataset-root",
+        required=True,
+        help="Imported historical dataset root to inspect without mutation.",
+    )
+    migration_plan_parser.add_argument(
+        "--output-path",
+        default=None,
+        help="Optional path where historical_dataset_migration_plan.v1 JSON should be written. Prints JSON to stdout when omitted.",
+    )
+    migration_plan_parser.add_argument(
+        "--generated-at",
+        default=None,
+        help="Optional canonical UTC timestamp for deterministic generated_at fields.",
+    )
+    migration_plan_parser.set_defaults(handler=_plan_historical_dataset_migration_command)
 
     materialize_parser = subparsers.add_parser(
         "materialize-evidence-windows",

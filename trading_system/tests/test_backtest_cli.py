@@ -245,6 +245,80 @@ def test_preflight_historical_dataset_command_writes_migration_report(tmp_path: 
     assert report["missing_futures_context"]["symbol_count"] > 0
 
 
+def test_plan_historical_dataset_migration_writes_read_only_hold_plan_for_legacy_gaps(tmp_path: Path) -> None:
+    dataset_root = tmp_path / "legacy-dataset"
+    source_dataset = FIXTURES / "full_market_baseline_dataset"
+    for source_path in source_dataset.rglob("*"):
+        target_path = dataset_root / source_path.relative_to(source_dataset)
+        if source_path.is_dir():
+            target_path.mkdir(parents=True, exist_ok=True)
+            continue
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        if source_path.name == "instrument_snapshot.json":
+            payload = json.loads(source_path.read_text(encoding="utf-8"))
+            for row in payload["rows"]:
+                row.pop("lifecycle_status", None)
+            target_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        elif source_path.name == "market_context.json":
+            payload = json.loads(source_path.read_text(encoding="utf-8"))
+            for symbol_context in payload["symbols"].values():
+                symbol_context.pop("futures_context", None)
+            target_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        else:
+            target_path.write_text(source_path.read_text(encoding="utf-8"), encoding="utf-8")
+    before_payloads = {path.relative_to(dataset_root): path.read_text(encoding="utf-8") for path in dataset_root.rglob("*.json")}
+    output_path = tmp_path / "migration_plan.json"
+
+    exit_code = cli.main(
+        [
+            "plan-historical-dataset-migration",
+            "--dataset-root",
+            str(dataset_root),
+            "--output-path",
+            str(output_path),
+            "--generated-at",
+            GENERATED_AT,
+        ]
+    )
+
+    assert exit_code == 0
+    after_payloads = {path.relative_to(dataset_root): path.read_text(encoding="utf-8") for path in dataset_root.rglob("*.json")}
+    assert after_payloads == before_payloads
+    report = json.loads(output_path.read_text(encoding="utf-8"))
+    assert report["schema_version"] == "historical_dataset_migration_plan.v1"
+    assert report["generated_at"] == GENERATED_AT
+    assert report["decision"] == "hold"
+    assert report["source_dataset_root"] == str(dataset_root)
+    assert "dataset_missing_lifecycle_status" in report["reason_codes"]
+    assert "dataset_missing_futures_context" in report["reason_codes"]
+    assert "margin_liquidation_path_not_evaluable" in report["reason_codes"]
+    assert report["preflight_summary"]["snapshot_count"] > 0
+    assert report["preflight_summary"]["missing_lifecycle_status"]["row_count"] > 0
+    assert report["preflight_summary"]["missing_futures_context"]["symbol_count"] > 0
+
+    required_fields = {entry["field"]: entry for entry in report["target_required_fields"]}
+    assert set(required_fields) >= {"lifecycle_status", "futures_context", "margin_liquidation_path"}
+    assert required_fields["lifecycle_status"]["requires_provenance"] is True
+    assert required_fields["lifecycle_status"]["preflight_counts"]["missing_row_count"] > 0
+    assert "public_exchange_instrument_metadata" in required_fields["lifecycle_status"]["candidate_sources"]
+    assert required_fields["futures_context"]["requires_provenance"] is True
+    assert required_fields["futures_context"]["preflight_counts"]["missing_symbol_count"] > 0
+    assert "public_exchange_futures_market_metadata" in required_fields["futures_context"]["candidate_sources"]
+    assert required_fields["margin_liquidation_path"]["requires_provenance"] is True
+    assert "margin_mode" in required_fields["margin_liquidation_path"]["not_derivable_fields"]
+    assert "leverage" in required_fields["margin_liquidation_path"]["not_derivable_fields"]
+    assert "maintenance_tier" in required_fields["margin_liquidation_path"]["not_derivable_fields"]
+    assert "liquidation_price" in required_fields["margin_liquidation_path"]["not_derivable_fields"]
+    assert required_fields["margin_liquidation_path"]["recommended_action"] == "attach_account_policy_or_hold"
+    assert report["account_execution_policy_classification"]["public_market_data_derivable"] is False
+    assert "preflight-historical-dataset" in report["operations"]["validation_commands"]
+    assert "run-professional-evidence-pipeline" in report["operations"]["validation_commands"]
+    serialized = json.dumps(report, sort_keys=True)
+    assert "default_to_listed" not in serialized
+    assert "fabricated" not in serialized
+    assert "placeholder_liquidation_price" not in serialized
+
+
 def test_run_professional_evidence_pipeline_writes_bundles_reports_and_manifest(tmp_path: Path) -> None:
     output_dir = tmp_path / "professional-pipeline"
 
