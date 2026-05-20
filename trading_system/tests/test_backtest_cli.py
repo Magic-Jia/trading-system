@@ -1044,6 +1044,104 @@ def test_build_account_policy_archive_from_paper_snapshot_marks_replay_policy_un
     ]
 
 
+def test_build_margin_liquidation_path_evidence_bundle_from_account_policy_archive_marks_required_proofs_missing(
+    tmp_path: Path,
+) -> None:
+    archive_path = tmp_path / "account_policy_archive.json"
+    archive_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "account_policy_archive.v1",
+                "generated_at": GENERATED_AT,
+                "source_name": "paper-runtime-bootstrap",
+                "decision": "hold",
+                "status": "policy_unavailable_for_historical_replay",
+                "account_type": "paper",
+                "missing_required_fields": sorted(FORBIDDEN_ACCOUNT_FIELDS),
+                "usable_for_historical_replay": False,
+                "fabricated_fields": [],
+                "reason_codes": [
+                    "account_policy_archive_missing_required_fields",
+                    "runtime_account_snapshot_not_historical_replay_policy",
+                ],
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    output_path = tmp_path / "margin_liquidation_path_evidence_bundle.json"
+
+    exit_code = cli.main(
+        [
+            "build-margin-liquidation-path-evidence-bundle",
+            "--account-policy-archive-path",
+            str(archive_path),
+            "--output-path",
+            str(output_path),
+            "--dataset-root",
+            str(tmp_path / "historical-dataset"),
+            "--instrument",
+            "BTCUSDTPERP",
+            "--effective-from",
+            "2026-03-10T00:00:00Z",
+            "--effective-to",
+            "2026-03-12T00:00:00Z",
+            "--generated-at",
+            GENERATED_AT,
+        ]
+    )
+
+    assert exit_code == 0
+    bundle = json.loads(output_path.read_text(encoding="utf-8"))
+    assert bundle["schema_version"] == "margin_liquidation_path_evidence_bundle.v1"
+    assert bundle["generated_at"] == GENERATED_AT
+    assert bundle["decision"] == "hold"
+    assert bundle["status"] == "path_not_evaluable"
+    assert bundle["usable_for_historical_replay"] is False
+    assert bundle["fabricated_fields"] == []
+    assert bundle["reason_codes"] == [
+        "margin_mode_provenance_missing",
+        "leverage_provenance_missing",
+        "maintenance_tier_provenance_missing",
+        "liquidation_price_formula_or_inputs_missing",
+        "notional_provenance_missing",
+        "unrealized_pnl_provenance_missing",
+    ]
+    assert set(bundle["required_proofs"]) == {
+        "margin_mode",
+        "leverage",
+        "maintenance_tier",
+        "liquidation_price_formula_or_inputs",
+        "notional",
+        "unrealized_pnl",
+    }
+    for proof in bundle["required_proofs"].values():
+        assert proof["status"] == "missing"
+        assert proof["fabricated"] is False
+        assert proof["provenance"] == "unavailable"
+    assert bundle["source_candidates"][0]["source"] == "account_policy_archive"
+    assert bundle["source_candidates"][0]["schema_version"] == "account_policy_archive.v1"
+    assert bundle["source_candidates"][0]["archive_decision"] == "hold"
+    assert bundle["source_candidates"][0]["archive_status"] == "policy_unavailable_for_historical_replay"
+    assert bundle["source_candidates"][0]["archive_reason_codes"] == [
+        "account_policy_archive_missing_required_fields",
+        "runtime_account_snapshot_not_historical_replay_policy",
+    ]
+    assert bundle["applicability"] == {
+        "venue": "binance",
+        "market_type": "futures",
+        "instruments": ["BTCUSDTPERP"],
+        "effective_from": "2026-03-10T00:00:00Z",
+        "effective_to": "2026-03-12T00:00:00Z",
+        "dataset_root": str(tmp_path / "historical-dataset"),
+        "missing_reason_codes": [],
+    }
+    assert bundle["non_fabrication_policy"]["account_fields_may_be_defaulted"] is False
+    assert bundle["non_fabrication_policy"]["unavailable_fields_keep_decision_hold"] is True
+
+
 def test_run_professional_evidence_pipeline_attaches_incomplete_account_policy_source_without_passing(
     tmp_path: Path,
 ) -> None:
@@ -1184,6 +1282,106 @@ def test_run_professional_evidence_pipeline_attaches_account_policy_archive_with
     assert candidate["reason_codes"] == [
         "account_policy_archive_attached",
         "account_policy_archive_not_applicable_to_historical_replay",
+    ]
+    assert candidate["archive_reason_codes"] == [
+        "account_policy_archive_missing_required_fields",
+        "runtime_account_snapshot_not_historical_replay_policy",
+    ]
+
+
+def test_run_professional_evidence_pipeline_attaches_margin_liquidation_path_bundle_without_passing(
+    tmp_path: Path,
+) -> None:
+    dataset_root = _copy_schema_complete_metadata_dataset(tmp_path)
+    bundle = tmp_path / "margin_liquidation_path_evidence_bundle.json"
+    bundle.write_text(
+        json.dumps(
+            {
+                "schema_version": "margin_liquidation_path_evidence_bundle.v1",
+                "generated_at": GENERATED_AT,
+                "decision": "hold",
+                "status": "path_not_evaluable",
+                "usable_for_historical_replay": False,
+                "fabricated_fields": [],
+                "reason_codes": [
+                    "margin_mode_provenance_missing",
+                    "leverage_provenance_missing",
+                    "maintenance_tier_provenance_missing",
+                    "liquidation_price_formula_or_inputs_missing",
+                    "notional_provenance_missing",
+                    "unrealized_pnl_provenance_missing",
+                    "historical_window_applicability_missing",
+                ],
+                "source_candidates": [
+                    {
+                        "source": "account_policy_archive",
+                        "schema_version": "account_policy_archive.v1",
+                        "archive_decision": "hold",
+                        "archive_status": "policy_unavailable_for_historical_replay",
+                        "archive_reason_codes": [
+                            "account_policy_archive_missing_required_fields",
+                            "runtime_account_snapshot_not_historical_replay_policy",
+                        ],
+                    }
+                ],
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    configs_dir = tmp_path / "configs"
+    configs_dir.mkdir()
+    backtest_config = configs_dir / "backtest.json"
+    walk_forward_config = configs_dir / "walk_forward.json"
+    allocator_config = configs_dir / "allocator.json"
+    _write_professional_config(backtest_config, dataset_root=dataset_root, experiment_kind="full_market_baseline")
+    _write_professional_config(walk_forward_config, dataset_root=dataset_root, experiment_kind="walk_forward_validation")
+    _write_professional_config(allocator_config, dataset_root=dataset_root, experiment_kind="allocator_friction")
+    output_dir = tmp_path / "professional-pipeline"
+
+    exit_code = cli.main(
+        [
+            "run-professional-evidence-pipeline",
+            "--backtest-config",
+            str(backtest_config),
+            "--walk-forward-config",
+            str(walk_forward_config),
+            "--allocator-friction-config",
+            str(allocator_config),
+            "--output-dir",
+            str(output_dir),
+            "--account-margin-policy-source-path",
+            str(bundle),
+            "--generated-at",
+            GENERATED_AT,
+        ]
+    )
+
+    assert exit_code == 0
+    evidence_chain = json.loads(
+        (output_dir / "professional_evidence" / "backtest_evidence_chain.json").read_text(encoding="utf-8")
+    )
+    assert evidence_chain["summary"]["decision"] == "hold"
+    candidate = evidence_chain["account_margin_policy_evidence"]["source_candidates"][0]
+    assert candidate["source"] == "margin_liquidation_path_evidence_bundle"
+    assert candidate["schema_version"] == "margin_liquidation_path_evidence_bundle.v1"
+    assert candidate["bundle_decision"] == "hold"
+    assert candidate["bundle_status"] == "path_not_evaluable"
+    assert candidate["usable_for_historical_replay"] is False
+    assert candidate["reason_codes"] == [
+        "margin_liquidation_path_evidence_bundle_attached",
+        "margin_liquidation_path_evidence_bundle_not_applicable_to_historical_replay",
+    ]
+    assert candidate["bundle_reason_codes"] == [
+        "margin_mode_provenance_missing",
+        "leverage_provenance_missing",
+        "maintenance_tier_provenance_missing",
+        "liquidation_price_formula_or_inputs_missing",
+        "notional_provenance_missing",
+        "unrealized_pnl_provenance_missing",
+        "historical_window_applicability_missing",
     ]
     assert candidate["archive_reason_codes"] == [
         "account_policy_archive_missing_required_fields",

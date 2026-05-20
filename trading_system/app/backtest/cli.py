@@ -802,6 +802,16 @@ _ACCOUNT_MARGIN_POLICY_REQUIRED_FIELDS = (
 )
 
 
+_MARGIN_LIQUIDATION_REQUIRED_PROOFS: dict[str, str] = {
+    "margin_mode": "margin_mode_provenance_missing",
+    "leverage": "leverage_provenance_missing",
+    "maintenance_tier": "maintenance_tier_provenance_missing",
+    "liquidation_price_formula_or_inputs": "liquidation_price_formula_or_inputs_missing",
+    "notional": "notional_provenance_missing",
+    "unrealized_pnl": "unrealized_pnl_provenance_missing",
+}
+
+
 def _account_margin_policy_source_candidate(path: Path) -> dict[str, Any]:
     candidate: dict[str, Any] = {
         "path": str(path),
@@ -841,6 +851,35 @@ def _account_margin_policy_source_candidate(path: Path) -> dict[str, Any]:
         archive_reasons = payload.get("reason_codes")
         if isinstance(archive_reasons, list):
             candidate["archive_reason_codes"] = list(archive_reasons)
+        return candidate
+    if payload.get("schema_version") == "margin_liquidation_path_evidence_bundle.v1":
+        candidate["source"] = "margin_liquidation_path_evidence_bundle"
+        candidate["bundle_status"] = payload.get("status")
+        candidate["bundle_decision"] = payload.get("decision")
+        candidate["usable_for_historical_replay"] = False
+        candidate["reason_codes"] = [
+            "margin_liquidation_path_evidence_bundle_attached",
+            "margin_liquidation_path_evidence_bundle_not_applicable_to_historical_replay",
+        ]
+        bundle_reasons = payload.get("reason_codes")
+        if isinstance(bundle_reasons, list):
+            candidate["bundle_reason_codes"] = list(bundle_reasons)
+        archive_reason_codes: list[Any] = []
+        source_candidates = payload.get("source_candidates")
+        if isinstance(source_candidates, list):
+            candidate["bundle_source_candidates"] = source_candidates
+            for source_candidate in source_candidates:
+                if not isinstance(source_candidate, Mapping):
+                    continue
+                raw_archive_reasons = source_candidate.get("archive_reason_codes")
+                if isinstance(raw_archive_reasons, list):
+                    archive_reason_codes.extend(raw_archive_reasons)
+                elif source_candidate.get("source") == "account_policy_archive":
+                    raw_reason_codes = source_candidate.get("reason_codes")
+                    if isinstance(raw_reason_codes, list):
+                        archive_reason_codes.extend(raw_reason_codes)
+        if archive_reason_codes:
+            candidate["archive_reason_codes"] = archive_reason_codes
         return candidate
     present_fields = sorted(field for field in _ACCOUNT_MARGIN_POLICY_REQUIRED_FIELDS if field in payload)
     candidate["present_required_fields"] = present_fields
@@ -1068,6 +1107,108 @@ def _build_account_policy_archive_command(args: argparse.Namespace) -> int:
     output_path = Path(args.output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     _write_json(output_path, archive)
+    print(output_path)
+    return 0
+
+
+def _account_policy_archive_source_candidate(path: Path, archive: Mapping[str, Any]) -> dict[str, Any]:
+    candidate: dict[str, Any] = {
+        "path": str(path),
+        "source": "account_policy_archive",
+        "schema_version": archive.get("schema_version"),
+        "source_name": archive.get("source_name"),
+        "account_type": archive.get("account_type"),
+        "archive_decision": archive.get("decision"),
+        "archive_status": archive.get("status"),
+        "usable_for_historical_replay": bool(archive.get("usable_for_historical_replay")) is True,
+        "fabricated_fields": list(archive.get("fabricated_fields"))
+        if isinstance(archive.get("fabricated_fields"), list)
+        else [],
+    }
+    missing = archive.get("missing_required_fields")
+    if isinstance(missing, list):
+        candidate["missing_required_fields"] = list(missing)
+    reasons = archive.get("reason_codes")
+    if isinstance(reasons, list):
+        candidate["archive_reason_codes"] = list(reasons)
+    return candidate
+
+
+def _margin_liquidation_path_evidence_bundle_payload(
+    *,
+    account_policy_archive_path: Path,
+    dataset_root: Path | None,
+    venue: str,
+    market_type: str,
+    instruments: list[str],
+    effective_from: str | None,
+    effective_to: str | None,
+    generated_at: str | None,
+) -> dict[str, Any]:
+    archive = json.loads(account_policy_archive_path.read_text(encoding="utf-8"))
+    if not isinstance(archive, Mapping):
+        raise ValueError("account policy archive must be a JSON object")
+    if archive.get("schema_version") != "account_policy_archive.v1":
+        raise ValueError("account policy archive must use schema_version account_policy_archive.v1")
+    applicability_missing_reasons: list[str] = []
+    if not instruments:
+        applicability_missing_reasons.append("instrument_applicability_missing")
+    if effective_from is None or effective_to is None:
+        applicability_missing_reasons.append("historical_window_applicability_missing")
+    reason_codes = list(_MARGIN_LIQUIDATION_REQUIRED_PROOFS.values())
+    if "historical_window_applicability_missing" in applicability_missing_reasons:
+        reason_codes.append("historical_window_applicability_missing")
+    return {
+        "schema_version": "margin_liquidation_path_evidence_bundle.v1",
+        "generated_at": _generated_at(generated_at),
+        "decision": "hold",
+        "status": "path_not_evaluable",
+        "usable_for_historical_replay": False,
+        "fabricated_fields": [],
+        "reason_codes": reason_codes,
+        "required_proofs": {
+            proof: {
+                "status": "missing",
+                "fabricated": False,
+                "provenance": "unavailable",
+            }
+            for proof in _MARGIN_LIQUIDATION_REQUIRED_PROOFS
+        },
+        "source_candidates": [
+            _account_policy_archive_source_candidate(account_policy_archive_path, archive),
+        ],
+        "applicability": {
+            "venue": venue,
+            "market_type": market_type,
+            "instruments": instruments,
+            "effective_from": effective_from,
+            "effective_to": effective_to,
+            "dataset_root": str(dataset_root) if dataset_root is not None else None,
+            "missing_reason_codes": applicability_missing_reasons,
+        },
+        "non_fabrication_policy": {
+            "account_fields_may_be_defaulted": False,
+            "market_data_may_imply_account_policy": False,
+            "liquidation_fields_may_be_fabricated": False,
+            "unavailable_fields_keep_decision_hold": True,
+        },
+    }
+
+
+def _build_margin_liquidation_path_evidence_bundle_command(args: argparse.Namespace) -> int:
+    bundle = _margin_liquidation_path_evidence_bundle_payload(
+        account_policy_archive_path=Path(args.account_policy_archive_path),
+        dataset_root=Path(args.dataset_root) if args.dataset_root is not None else None,
+        venue=args.venue,
+        market_type=args.market_type,
+        instruments=list(args.instrument or []),
+        effective_from=args.effective_from,
+        effective_to=args.effective_to,
+        generated_at=args.generated_at,
+    )
+    output_path = Path(args.output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    _write_json(output_path, bundle)
     print(output_path)
     return 0
 
@@ -2100,6 +2241,58 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional canonical UTC timestamp for deterministic generated_at fields.",
     )
     account_policy_archive_parser.set_defaults(handler=_build_account_policy_archive_command)
+
+    margin_liquidation_bundle_parser = subparsers.add_parser(
+        "build-margin-liquidation-path-evidence-bundle",
+        help="Build a fail-closed margin_liquidation_path_evidence_bundle.v1 from account policy archive provenance.",
+    )
+    margin_liquidation_bundle_parser.add_argument(
+        "--account-policy-archive-path",
+        required=True,
+        help="Read-only account_policy_archive.v1 JSON to attach as source candidate.",
+    )
+    margin_liquidation_bundle_parser.add_argument(
+        "--output-path",
+        required=True,
+        help="Path where margin_liquidation_path_evidence_bundle.v1 JSON should be written.",
+    )
+    margin_liquidation_bundle_parser.add_argument(
+        "--dataset-root",
+        default=None,
+        help="Optional historical dataset root to record for applicability diagnostics; never mutated.",
+    )
+    margin_liquidation_bundle_parser.add_argument(
+        "--venue",
+        default="binance",
+        help="Venue applicability label to record in the bundle.",
+    )
+    margin_liquidation_bundle_parser.add_argument(
+        "--market-type",
+        default="futures",
+        help="Market type applicability label to record in the bundle.",
+    )
+    margin_liquidation_bundle_parser.add_argument(
+        "--instrument",
+        action="append",
+        default=[],
+        help="Instrument applicability label to record in the bundle; may be repeated.",
+    )
+    margin_liquidation_bundle_parser.add_argument(
+        "--effective-from",
+        default=None,
+        help="Optional historical applicability window start timestamp.",
+    )
+    margin_liquidation_bundle_parser.add_argument(
+        "--effective-to",
+        default=None,
+        help="Optional historical applicability window end timestamp.",
+    )
+    margin_liquidation_bundle_parser.add_argument(
+        "--generated-at",
+        default=None,
+        help="Optional canonical UTC timestamp for deterministic generated_at fields.",
+    )
+    margin_liquidation_bundle_parser.set_defaults(handler=_build_margin_liquidation_path_evidence_bundle_command)
 
     migration_plan_parser = subparsers.add_parser(
         "plan-historical-dataset-migration",
